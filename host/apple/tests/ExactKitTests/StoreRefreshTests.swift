@@ -95,8 +95,9 @@ final class StoreRefreshTests: XCTestCase {
         let booted = ExactEnv.wall()
         // Due 10 s after its window booted, however long the process ran
         // before: a boot starts on the live clock, not at its zero. Read
-        // here, before the waits below, which under load can outlast it.
-        let due = try XCTUnwrap(readers[0].timerDue, "the short task's timer is armed")
+        // here, before the waits below, which under load can outlast it. A
+        // task's timer is Foundation's (#1144): its row's due time.
+        let due = try XCTUnwrap(readers[0].taskTimers.nextDue, "the short task's timer is armed")
         XCTAssertTrue((booting + 10000...booted + 10000).contains(due), "due \(due), booted between \(booting) and \(booted)")
         app.sharedStore.firstPixel()
         func text(_ session: ExactSession, _ value: String) -> Bool {
@@ -171,7 +172,7 @@ final class StoreRefreshTests: XCTestCase {
         // The long task's timer is armed by the refresh: 20 s after it, not the short one's.
         let rearmed = { (at: Double?) in at.map { $0 != due && $0 >= refreshing + 20000 } ?? false }
         readers[0].runtime.observeBatch = { _, batch in
-            if timerBatch == nil, rearmed(batch.timerDueMs) { timerBatch = batch }
+            if timerBatch == nil, rearmed(batch.nativeTimers?.map(\.due).min()) { timerBatch = batch }
         }
         defer { readers[0].runtime.observeBatch = nil }
         expected = expectation(description: "a timer-only store commit reaches apply")
@@ -181,9 +182,10 @@ final class StoreRefreshTests: XCTestCase {
         let refreshed = ExactEnv.wall()
         let landed = try XCTUnwrap(timerBatch)
         XCTAssertTrue(landed.ops.isEmpty, "this commit changes only the timer")
-        XCTAssertTrue((refreshing + 20000...refreshed + 20000).contains(try XCTUnwrap(landed.timerDueMs)))
-        XCTAssertEqual(readers[0].timerDue, landed.timerDueMs)
-        XCTAssertTrue(rearmed(readers[1].timerDue), "the sibling's long task is armed too")
+        let landedDue = try XCTUnwrap(landed.nativeTimers?.map(\.due).min())
+        XCTAssertTrue((refreshing + 20000...refreshed + 20000).contains(landedDue))
+        XCTAssertEqual(readers[0].taskTimers.nextDue, landedDue)
+        XCTAssertTrue(rearmed(readers[1].taskTimers.nextDue), "the sibling's long task is armed too")
 
     }
 

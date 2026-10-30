@@ -245,30 +245,37 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // highlight: a wash, or a plain button's fading face).
   const feedback = new WeakMap();
   // @ref LLP 1061 D7 — the author's pressed paint, shown by the same rule
-  // and on the same ease as the scale. The shell's important rules
-  // (index.html) paint it from the node's own properties, read live, `--exact-
-  // press-paint` of the way (which this piece eases) over the node's look
-  // beneath, which this piece reads again whenever the node's style or class
-  // changes, the scheme flips, or the press turns. Its `color` reaches the
-  // subtree as CSS's does.
+  // and on the same ease as the scale: an important rule of the node's own
+  // (`paintRule`) paints its pressed values `--exact-press-paint` of the way
+  // (which this piece eases) over its look beneath, read again whenever the
+  // node's style or class changes, the scheme flips, or the press turns. It
+  // paints on images (a background layer, a mask), which no transition
+  // animates, so the node's authored transitions run as authored, beneath
+  // the paint. (An earlier form wrote the paint into opacity, background-
+  // color and color through custom properties only its animation supplied,
+  // which the style a transition is computed from lacks: every press started
+  // the node's transitions toward the properties' initial values.) Its
+  // `color` reaches the subtree as CSS's does.
   // `:active`'s opacity is the press's absolute target (`--exact-press-opacity-to`,
   // LLP 1121 D8), eased from what shows at the press, a hover look's included.
   const PAINT = ["--exact-press-opacity", "--exact-press-opacity-to", "--exact-press-background-color", "--exact-press-color"];
   const paints = new Map();
   const EASE = { duration: 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both" };
   // Start the ease toward `state.to` from where it shows, over `duration`,
-  // on the node's look read now with the paint off: at the press, as it
+  // on the node's look beneath, read now (`paintRule`): at the press, as it
   // shows; later (the release, a change of the node's style or class, the
-  // scheme), a style change like any other, so a transition the node has on
-  // a painted property times the paint's move to a look that changed.
+  // scheme) with the paint on, its kept declarations in place.
   const paint = (el, state, duration) => {
     const from = Number(getComputedStyle(el).getPropertyValue("--exact-press-paint")) || 0;
-    el.removeAttribute("data-exact-painting");
-    const beneath = getComputedStyle(el);
-    const base = { "--exact-press-base-opacity": beneath.opacity, "--exact-press-base-background": beneath.backgroundColor, "--exact-press-base-color": beneath.color };
+    // The paint stays on while it is read again (`paintRule`): taking it off would itself be a style change.
+    const rule = paintRule(el, state);
     state.animation?.cancel();
-    const animation = state.animation = el.animate([{ ...base, "--exact-press-paint": from }, { ...base, "--exact-press-paint": state.to }], { ...EASE, duration: agentMode ? 0 : duration });
-    el.setAttribute("data-exact-painting", "");
+    const animation = state.animation = el.animate([{ "--exact-press-paint": from }, { "--exact-press-paint": state.to }], { ...EASE, duration: agentMode ? 0 : duration });
+    const written = new Set(el.getAnimations());
+    el.setAttribute("data-exact-painting", hold(el, state, rule));
+    // Writing a kept declaration back is the glue's own change, which Firefox (its transition styles see the
+    // animation) would time with the node's transition: one it starts is none of the node's.
+    if (Object.keys(state.kept ?? {}).length) { getComputedStyle(el).opacity; for (const a of el.getAnimations()) if (!written.has(a) && a.transitionProperty in state.kept) a.cancel(); }
     // A finish already queued when a re-press replaced the ease ends nothing.
     if (state.to === 0) animation.onfinish = () => { if (state.animation === animation) endPaint(el, state); };
     if (agentMode) animation.finish();
@@ -276,24 +283,183 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const endPaint = (el, state) => {
     if (paints.get(el) !== state) return;
     paints.delete(el);
-    if (!paints.size) sheets.disconnect();
+    if (!paints.size) { sheets.disconnect(); gone.disconnect(); }
     state.observer.disconnect();
     state.animation.cancel();
     el.removeAttribute("data-exact-painting");
+    drop(state);
+  };
+  // Whether the node declares a transition on `property` (by its name, `all`, or a shorthand holding it): the last
+  // entry naming it decides, by its combined duration (duration + delay, which may be negative) above 0.
+  const HOLDS = { "background-color": ["background"], "background-position": ["background"], "background-position-x": ["background", "background-position"], "background-position-y": ["background", "background-position"], "background-size": ["background"],
+    "mask-position": ["mask"], "mask-position-x": ["mask", "mask-position"], "mask-position-y": ["mask", "mask-position"], "mask-size": ["mask"], color: [], opacity: [] };
+  const transitioned = (cs, property) => {
+    const list = s => s.split(/\s*,\s*/), names = list(cs.transitionProperty), times = list(cs.transitionDuration), delays = list(cs.transitionDelay);
+    let on = false;
+    names.forEach((name, i) => { if (name === "all" || name === property || HOLDS[property]?.includes(name)) on = Math.max(0, parseFloat(times[i % times.length]) || 0) + (parseFloat(delays[i % delays.length]) || 0) > 0; });
+    return on;
+  };
+  // An authored transition running (or paused, as the agent's clock pauses it) on `property`.
+  const PAINTED_KEY = { opacity: "opacity", color: "color" };
+  const running = (el, property) => el.getAnimations().find(a => a.transitionProperty === property && (a.playState === "running" || a.playState === "paused"));
+  // A layered list (a background's, a mask's) with the paint's own layer first: each of the node's lists cycled out
+  // to its images' count, as CSS matches them, then `first` before it.
+  const items = said => { const out = []; let depth = 0, from = 0, quote = ""; for (let i = 0; i < said.length; i++) { const c = said[i]; if (quote) { if (c === "\\") i++; else if (c === quote) quote = ""; } else if (c === '"' || c === "'") quote = c; else if (c === "(") depth++; else if (c === ")") depth--; else if (c === "," && !depth) { out.push(said.slice(from, i).trim()); from = i + 1; } } out.push(said.slice(from).trim()); return out; };
+  const layered = (said, count, first) => { const list = items(said); return [first, ...Array.from({ length: count }, (_, i) => list[i % list.length])].join(", "); };
+  const LAYER = { background: { position: "0% 0%", size: "auto", repeat: "repeat", origin: "padding-box", clip: "border-box", attachment: "scroll" },
+    mask: { position: "0% 0%", size: "auto", repeat: "repeat", origin: "border-box", clip: "no-clip", composite: "intersect", mode: "alpha" } };
+  // The paint's layer over a node's own (`kind`: background or mask): its images, then every per-layer list shifted
+  // with them. Null where that would move the node's own layers under a transition (a position or size list
+  // changing length interpolates): that paint is left out.
+  const layer = (cs, kind, mine) => {
+    const read = name => cs.getPropertyValue(`${kind}-${name}`), images = read("image"), count = images === "none" ? 0 : items(images).length;
+    const out = [`${kind}-image: ${count ? `${mine}, ${images}` : mine} !important`];
+    for (const [name, value] of Object.entries(LAYER[kind])) {
+      const theirs = read(name);
+      // With no images of its own, a node's background clip and origin are its background colour's: the layer
+      // takes them (a mask's own no-clip still applies, so a shadow fades with the node).
+      if (!count && ((kind === "background" && (name === "clip" || name === "origin")) || items(theirs)[0] === value)) continue;
+      if ((name === "position" || name === "size") && [`${kind}-${name}`, ...(name === "position" ? [`${kind}-position-x`, `${kind}-position-y`] : [])].some(n => transitioned(cs, n))) return null;
+      out.push(`${kind}-${name}: ${count ? layered(theirs, count, value) : value} !important`);
+    }
+    return out.join("; ");
+  };
+  // The node's important paint (LLP 1061 D7), its own pressed values `--exact-press-paint` of the way over its look
+  // beneath: the pressed colour as a background-image layer over the node's own background-color (its own images
+  // beneath; a colour at alpha p over another, which is CSS's premultiplied mix for an opaque pressed colour),
+  // images changing discretely, so starting no transition; the pressed opacity as the property where the engine
+  // hands its own number (computedStyleMap; a float, exact) and elsewhere (Firefox) a uniform mask, which
+  // multiplies as opacity does (WebKit clips a mask to the border box, a shadow with it, so it takes the number);
+  // the pressed text colour as the property. Where the node declares a transition on a property the rule writes,
+  // the rule is exactly the look beneath at 0 (else a transition starts and, above every declaration, hides the
+  // paint), written only from a look whose numbers round-trip (an opaque rgb(), the engine's opacity), left out
+  // while a transition of the property runs (added when it ends), and, once written, kept as it is for the press:
+  // re-read with the paint on, so the paint's turn starts nothing (Firefox's transition styles see the animation).
+  const paintRule = (el, state) => {
+    if (!el.closest("#exact-root")) return "";
+    // What is kept holds only while the node's own inputs (its inline style: its opacity and colour, its pressed
+    // values; its class) are as they were when it was written, and no sheet, scheme or token changed: else the look
+    // beneath is read again (a base change, which the node's transition times, D8).
+    const inputs = `${el.getAttribute("style")}|${el.getAttribute("class")}`, was = state.kept ?? {}, before = new Set(el.getAnimations());
+    if (state.inputs !== inputs || state.stale) state.kept = {};
+    state.inputs = inputs; state.stale = false;
+    const kept = state.kept ?? {};
+    // Re-read with only the kept declarations on, under the same key: the look beneath of what isn't kept, and the
+    // node's own images and masks.
+    if (state.rule) hold(el, state, Object.values(kept).join("; "));
+    const cs = getComputedStyle(el), own = name => el.style.getPropertyValue(name) ? cs.getPropertyValue(name).trim() : "";
+    // A transition the read itself started (Firefox's transition styles see the animation, so taking a kept
+    // declaration off is a change there) toward the very look beneath the kept one was written from: none of the
+    // node's, cancelled at once. One toward another look is the base's own move, the node's to time (D8).
+    for (const a of el.getAnimations()) if (!before.has(a) && a.transitionProperty in was && String(a.effect.getKeyframes().at(-1)?.[PAINTED_KEY[a.transitionProperty]]) === state.keptBase?.[a.transitionProperty]) a.cancel();
+    const p = "var(--exact-press-paint)", out = [], next = {};
+    const number = (name, copy) => { if (!own(name)) return null; const v = parseFloat(cs.getPropertyValue(copy)); return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null; };
+    const settle = () => { if (paints.get(el) === state) repaint(el); };
+    const later = property => { const a = running(el, property); if (a && !state.waits?.has(a)) { (state.waits ??= new Set()).add(a); a.finished.then(settle, settle); } return !!a; };
+    if (own("--exact-press-background-color")) {
+      const bg = layer(cs, "background", `linear-gradient(color-mix(in srgb, var(--exact-press-background-color) calc(${p} * 100%), transparent) 0 0)`);
+      if (bg) out.push(bg);
+      state.background = !!bg;
+    }
+    const to = number("--exact-press-opacity-to", "--exact-press-opacity-to-number"), share = number("--exact-press-opacity", "--exact-press-opacity-number");
+    const held = el.computedStyleMap?.().get("opacity")?.value, base = Number.isFinite(held) ? held : Number(cs.opacity);
+    state.factor = null;
+    if (kept.opacity) next.opacity = kept.opacity;
+    else if ((to != null || share != null) && Number.isFinite(base) && !later("opacity")) {
+      if (Number.isFinite(held) || (to != null && to > base && !transitioned(cs, "opacity"))) {
+        const d = `opacity: ${to != null ? `calc(${held ?? base} + ${to - base} * ${p})` : `calc(${held ?? base} * (1 - ${p} * ${1 - share}))`} !important`;
+        if (transitioned(cs, "opacity")) next.opacity = d; else out.push(d);
+      } else if (to == null || (base > 0 && to <= base)) {
+        const factor = to != null ? `calc((${base} + ${to - base} * ${p}) / ${base})` : `calc(1 - ${p} * ${1 - share})`;
+        const mask = layer(cs, "mask", `linear-gradient(rgb(0 0 0 / ${factor}) 0 0)`);
+        if (mask) { out.push(mask); state.factor = paint => to != null ? (base + (to - base) * paint) / base : 1 - paint * (1 - share); }
+      }
+    }
+    if (kept.color) next.color = kept.color;
+    else if (own("--exact-press-color") && !later("color")) {
+      const m = /^rgba?\((\d+), (\d+), (\d+)\)$/.exec(cs.color), x = /^color\(srgb ([-\d.e]+) ([-\d.e]+) ([-\d.e]+)(?: \/ ([\d.]+))?\)$/.exec(cs.getPropertyValue("--exact-press-color-in-srgb").trim());
+      if (m && x) {
+        const b = m.slice(1, 4).map(Number), v = x.slice(1, 4).map(Number), a = x[4] == null ? 1 : Number(x[4]);
+        // Opaque beneath: premultiplied over it is (b + (v·a − b)·p) / (1 + (a − 1)·p), exactly b at 0 (a pressed
+        // colour fully transparent at 1: no colour to divide, held off 0).
+        const alpha = `max(1 + ${a - 1} * ${p}, 0.000001)`;
+        const c = b.map((bi, i) => a === 1 ? `calc(${bi} + ${v[i] * 255 - bi} * ${p})` : `calc((${bi} + ${v[i] * 255 * a - bi} * ${p}) / ${alpha})`);
+        const d = `color: rgb(${c.join(" ")}${a === 1 ? "" : ` / calc(1 + ${a - 1} * ${p})`}) !important`;
+        if (transitioned(cs, "color")) next.color = d; else out.push(d);
+      } else if (!transitioned(cs, "color")) out.push(`color: color-mix(in srgb, var(--exact-press-color) calc(${p} * 100%), ${cs.color}) !important`);
+    }
+    state.kept = next;
+    // The look each kept declaration was written from: carried with it while it is kept (a re-read with it on sees
+    // the painted look, not that one), read now only where it was written now.
+    state.keptBase = { opacity: next.opacity ? (kept.opacity ? state.keptBase?.opacity : String(held ?? base)) : undefined, color: next.color ? (kept.color ? state.keptBase?.color : cs.color) : undefined };
+    return [...out, ...Object.values(next)].join("; ");
+  };
+  // What a painting node shows, as the page can't read it from the node's computed style (the paint is on images):
+  // its opacity times the mask, its background-color with the pressed colour over it (as pixels, 8-bit; its own
+  // images and masks aren't in it), its colour. Without OffscreenCanvas, the background-color beneath.
+  // The agent's node detail reports it (scripts/agent-inspect.mjs), and the press tests read it.
+  (globalThis.exact ??= {}).pressShown = el => {
+    const state = paints.get(el);
+    if (!state) return null;
+    const cs = getComputedStyle(el), paint = Number(cs.getPropertyValue("--exact-press-paint")) || 0;
+    const shown = { paint, opacity: String(+(Number(cs.opacity) * (state.factor?.(paint) ?? 1)).toPrecision(6)), color: cs.color, backgroundColor: cs.backgroundColor };
+    if (state.background && typeof OffscreenCanvas === "function") {
+      const g = new OffscreenCanvas(1, 1).getContext("2d");
+      if (!g) return shown;
+      g.fillStyle = cs.backgroundColor; g.fillRect(0, 0, 1, 1);
+      g.globalAlpha = Math.min(1, Math.max(0, paint)); g.fillStyle = cs.getPropertyValue("--exact-press-background-in-srgb").trim(); g.fillRect(0, 0, 1, 1);
+      const [r, gr, b, a] = g.getImageData(0, 0, 1, 1).data;
+      shown.backgroundColor = a === 255 ? `rgb(${r}, ${gr}, ${b})` : `rgba(${r}, ${gr}, ${b}, ${Math.round(a / 255 * 1000) / 1000})`;
+    }
+    return shown;
+  };
+  // Each painting node's rule, in one sheet on its root (a document or a shadow root; a frame's own), keyed by
+  // the value of its data-exact-painting, an attribute the paint sets anyway, so no observer sees anything new.
+  const paintSheets = new WeakMap();
+  let paintKeys = 0;
+  const sheetOf = el => {
+    const root = el.getRootNode?.(), Sheet = (root?.ownerDocument ?? root)?.defaultView?.CSSStyleSheet;
+    if (!Sheet || !root || !("adoptedStyleSheets" in root)) return null;
+    let sheet = paintSheets.get(root);
+    try {
+      if (!sheet) paintSheets.set(root, sheet = new Sheet());
+      // Adopted again if the page replaced the list since.
+      if (!root.adoptedStyleSheets.includes(sheet)) root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+    } catch { return null; }
+    return sheet;
+  };
+  const hold = (el, state, declarations) => {
+    drop(state);
+    const sheet = declarations && sheetOf(el);
+    if (!sheet) return "";
+    state.key ??= String(++paintKeys);
+    const at = sheet.insertRule(`#exact-root [data-exact-painting="${state.key}"][data-exact-painting] { ${declarations} }`, sheet.cssRules.length);
+    state.rule = { sheet, rule: sheet.cssRules[at] };
+    return state.key;
+  };
+  const drop = state => {
+    if (!state.rule) return;
+    const { sheet, rule } = state.rule, at = [...sheet.cssRules].indexOf(rule);
+    state.rule = null;
+    if (at >= 0) sheet.deleteRule(at);
   };
   // The look beneath changed: the ease goes on from where it is, over the rest of its time.
-  const repaint = el => {
+  // `stale`: a sheet, the scheme or a token changed, which no attribute of the node's says.
+  const repaint = (el, stale = false) => {
     const state = paints.get(el);
     if (!state) return;
+    if (stale) state.stale = true;
     const t = state.animation.effect.getComputedTiming();
     paint(el, state, Math.max(0, (t.endTime ?? 0) - (t.localTime ?? 0)));
   };
-  globalThis.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => { for (const el of paints.keys()) repaint(el); });
+  globalThis.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => { for (const el of paints.keys()) repaint(el, true); });
   // So does a live edit that reaches it through a sheet (a state look's rule, the theme's) or the root's
   // modes and tokens (the JS target's), which change no style of the node's own (LLP 1121 D8).
-  const sheets = new MutationObserver(() => { for (const el of paints.keys()) repaint(el); });
+  const sheets = new MutationObserver(() => { for (const el of paints.keys()) repaint(el, true); });
+  // A painting node gone from the page (removed, re-rendered) ends its paint and lets go of its rule at once.
+  const gone = new MutationObserver(() => { for (const [el, state] of paints) if (!el.isConnected) endPaint(el, state); });
   // The JS target writes its tokens and tuples through the CSSOM, which no observer sees: it calls this (modes.js).
-  (globalThis.exact ??= {}).repaintPress = () => { for (const el of paints.keys()) repaint(el); };
+  (globalThis.exact ??= {}).repaintPress = () => { for (const el of paints.keys()) repaint(el, true); };
   // `now`: the press ends at once (the window or the page went), as it does
   // for a node no longer in the page.
   const showPaint = (el, down, now = false) => {
@@ -307,6 +473,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         sheets.observe(document.head, { childList: true, subtree: true, characterData: true });
         sheets.observe(document.documentElement, { attributes: true });
       }
+      gone.observe(el.ownerDocument, { childList: true, subtree: true }); // a frame's node, its own document
       paints.set(el, state);
     }
     state.to = down ? 1 : 0;

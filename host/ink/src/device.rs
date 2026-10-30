@@ -13,6 +13,18 @@ mod selected;
 pub mod wgpu;
 pub use selected::Selected;
 
+#[cfg(target_os = "macos")]
+pub mod apple;
+
+/// Windows' default and explicit direct-device choices; `Some(true)` forces WARP.
+pub fn direct_d3d11(value: Option<&str>) -> Option<bool> {
+    match value {
+        None | Some("d3d11") => Some(false),
+        Some("warp") => Some(true),
+        _ => None,
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Info {
     pub adapter: String,
@@ -23,7 +35,7 @@ pub struct Info {
     pub cached: bool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Error {
     NoAdapter(String),
     Device(String),
@@ -93,9 +105,9 @@ impl TextureDesc {
 pub struct Submission(pub u64);
 
 /// The headless operations used by S0. Buffer uploads and draws are ordered on
-/// one queue. Every mutation waits for the resource's last use or chooses fresh
-/// storage. Submissions include uploads; a larger completed value covers all
-/// earlier submissions. Retire keeps storage alive until its last use completes.
+/// one queue. Each device orders mutations after the resource's last use, waits,
+/// or chooses fresh storage. Submissions include uploads; a larger completed value
+/// covers all earlier submissions. Retire keeps storage alive until its last use completes.
 /// Readback is synchronous on native devices; browser callers must
 /// use the device's asynchronous readback instead of blocking its event loop.
 pub trait Device {
@@ -112,6 +124,8 @@ pub trait Device {
         data: &[u8],
     ) -> Result<Submission>;
     fn create_texture(&mut self, desc: TextureDesc) -> Result<TextureId>;
+    /// Snapshot `data` before returning and preserve submission order, including
+    /// consecutive uploads. A device that writes shared storage waits internally.
     fn upload_texture(
         &mut self,
         texture: TextureId,
@@ -208,16 +222,21 @@ impl From<windows::core::Error> for Error {
 /// A synchronization proxy, not a swap-chain frame timestamp.
 #[cfg(windows)]
 pub fn compositor_sync_process_ms() -> Result<f64> {
+    unsafe { windows::Win32::Graphics::Dwm::DwmFlush()? };
+    process_ms()
+}
+
+/// Process age without waiting for presentation, for startup phase measurements.
+#[cfg(windows)]
+pub fn process_ms() -> Result<f64> {
     use windows::Win32::{
         Foundation::FILETIME,
-        Graphics::Dwm::DwmFlush,
         System::{
             SystemInformation::GetSystemTimePreciseAsFileTime,
             Threading::{GetCurrentProcess, GetProcessTimes},
         },
     };
     unsafe {
-        DwmFlush()?;
         let now = GetSystemTimePreciseAsFileTime();
         let (mut created, mut exited, mut kernel, mut user) = (
             FILETIME::default(),

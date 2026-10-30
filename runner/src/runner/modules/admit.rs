@@ -747,7 +747,7 @@ impl<D: DataSource> Runner<D> {
 
     /// `row`'s substitute with the permission a call with `args` asks.
     pub(in crate::runner) fn substitute_for(&self, row: &ModulesRow, args: &Json) -> Json {
-        let mut sub = self.substitute(row);
+        let mut sub = (*self.substitute(row)).clone();
         if sub["permissionBy"].is_object()
             || sub["permissionAny"].is_array()
             || sub["permissionValue"].is_array()

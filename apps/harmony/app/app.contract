@@ -25,6 +25,9 @@ routes nav
 shape Discarded
   path: string
 
+shape TestCallBuild
+  available: bool
+
 shape Clock
   epochAtZero: number
   utcOffset: number
@@ -272,7 +275,9 @@ component Harmony
   // that an echo answers at once. With the call's audio up it records five
   // seconds of the microphone, plays them back, then the echo hangs up and
   // the take is deleted. It stays out of production builds until there is a
-  // call transport (the bake refuses `device.calls` there).
+  // call transport: its `device.calls` grant is a development build's only
+  // (app.ts), and the row shows only where the build holds it.
+  resource testCallBuild = testCallBuild() as shape TestCallBuild else empty()
   state callSeq = 0
   state callTrack = ""
   state callRecorder = ""
@@ -300,11 +305,13 @@ component Harmony
     after(1, testCallFailed)
   task testCallTake when callPhase == "recording" and not callHeld key=callRecorder
     after(5000, testCallStop)
+  // A build without the grant starts nothing, however the action is reached.
   action testCallStart
-    let next = callSeq + 1
-    callSeq = next
-    startCall(id=`test-call-${next}`, handle="test-call", displayName="Test Call")
-    reportCallState(id=`test-call-${next}`, state="connected")
+    if testCallBuild.available
+      let next = callSeq + 1
+      callSeq = next
+      startCall(id=`test-call-${next}`, handle="test-call", displayName="Test Call")
+      reportCallState(id=`test-call-${next}`, state="connected")
   action testCallOpen
     callPhase = "opening"
     send callOpened = getUserMedia(audio=true)
@@ -751,22 +758,23 @@ component Harmony
                             input type="checkbox" switch checked=notifying change=setMentions aria-label="Notify me of mentions" testId="notify-mentions"
                         footer
                           text (background.state == "denied" ? "Enable background activity in system settings to check for mentions while Harmony is closed." : "While Harmony is closed, it checks for mentions now and then, when the system allows.")
-                    section
-                      header
-                        text "Test Call"
-                      button press=testCallStart disabled=inTestCall testId="test-call"
-                        image "symbol:microphone"
-                        text "Make a Test Call"
-                      if inTestCall
-                        row
-                          text (callHeld ? "On Hold" : callPhase == "recording" ? "Say something" : callPhase == "playing" ? "Playing back" : "Calling…")
-                            testId="test-call-status" flex=1 min-width=0
-                          if callMuted
-                            text "Muted" color="-exact-secondary-label" testId="test-call-muted"
-                        if callTake != ""
-                          audio src=callTake autoplay=true ended=testCallPlayed testId="test-call-playback"
-                      footer
-                        text "A test call records a few seconds of your microphone and plays them back, so you can check how you sound."
+                    if testCallBuild.available
+                      section
+                        header
+                          text "Test Call"
+                        button press=testCallStart disabled=inTestCall testId="test-call"
+                          image "symbol:microphone"
+                          text "Make a Test Call"
+                        if inTestCall
+                          row
+                            text (callHeld ? "On Hold" : callPhase == "recording" ? "Say something" : callPhase == "playing" ? "Playing back" : "Calling…")
+                              testId="test-call-status" flex=1 min-width=0
+                            if callMuted
+                              text "Muted" color="-exact-secondary-label" testId="test-call-muted"
+                          if callTake != ""
+                            audio src=callTake autoplay=true ended=testCallPlayed testId="test-call-playback"
+                        footer
+                          text "A test call records a few seconds of your microphone and plays them back, so you can check how you sound."
                     section
                       header
                         text "Custom Emoji"

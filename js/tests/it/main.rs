@@ -1,6 +1,7 @@
 //! The executor's integration tests: one binary, so one link and one launch.
 //! `tests/fixtures/` stays put: build.rs compiles those to bytecode.
 
+mod abort;
 mod admission;
 mod background;
 mod body_from;
@@ -16,6 +17,7 @@ mod forget;
 mod heap;
 mod inputs;
 mod interrupt;
+mod kept_json;
 mod listen;
 mod native_later;
 mod no_store;
@@ -32,6 +34,7 @@ mod storage;
 mod superseded;
 mod timers;
 mod turn_budget;
+mod upload;
 mod walk;
 mod watch;
 mod windows_lean;

@@ -37,3 +37,41 @@ fn bake_validates_before_replacing_the_complete_asset() {
         assert_eq!(std::fs::read(&asset).unwrap(), good);
     }
 }
+
+#[derive(Default, Data)]
+struct Named {
+    name: String,
+}
+struct Ordered;
+impl Game for Ordered {
+    const ID: &'static str = "bake-tables-ordered";
+    // Declared out of byte order: the carrier is a map by name.
+    const TABLES: &'static [asset::Table] = &[
+        asset::Table::of::<Named>("weapons.json"),
+        asset::Table::of::<Named>("labels.json"),
+    ];
+    type Args = ();
+    fn setup(_: &mut World, _: &()) {}
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+/// The bytes the dev loop's table watcher writes too (game/app/tables.mjs `carrier`,
+/// host/web/tests/tables.test.mjs), so neither rewrites the other's unchanged carrier.
+const ORDERED_CARRIER: &str =
+    r#"{"labels.json":"{\t\"name\": \"a\\\"b\"}\n","weapons.json":"{\"name\":\"épée\"}\r\n"}"#;
+#[test]
+fn the_carrier_is_a_map_by_name_in_the_bytes_the_dev_loop_writes() {
+    let directory = std::env::temp_dir().join(format!("exact-tuning-order-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    struct Remove(std::path::PathBuf);
+    impl Drop for Remove {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _remove = Remove(directory.clone());
+    std::fs::write(directory.join("weapons.json"), "{\"name\":\"épée\"}\r\n").unwrap();
+    std::fs::write(directory.join("labels.json"), "{\t\"name\": \"a\\\"b\"}\n").unwrap();
+    exact_game_bake::bake_game_tables::<Ordered>(&directory).unwrap();
+    let asset = directory.join("assets").join(asset::TABLE_ASSET);
+    assert_eq!(std::fs::read_to_string(asset).unwrap(), ORDERED_CARRIER);
+}

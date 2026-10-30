@@ -455,3 +455,24 @@ fn a_commit_clears_noncontrol_focus_before_key_defaults() {
         "noncontrol focus changed key defaults: {failures:?}"
     );
 }
+
+#[test]
+fn timer_waits_use_terminal_turns_and_idle_without_display_demand() {
+    for kind in ["frame", "update", "scrollend", "idle"] {
+        let plan = contract::compile(&TICKER.replace(
+            "every(1000, tick)",
+            &format!("after(10, tick, wait={kind})"),
+        ))
+        .unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 80, 40).unwrap();
+        host.runner.hold_waits(exact_runner::WaitKinds::ALL);
+        host.runner.set_live_clock(Some(Box::new(|| 10.0)));
+        host.tick(10.0);
+        assert_eq!(
+            host.runner.slot("ticks"),
+            Some(&Value::Number(if kind == "idle" { 0.0 } else { 1.0 }))
+        );
+        host.idle_timer(10.0);
+        assert_eq!(host.runner.slot("ticks"), Some(&Value::Number(1.0)));
+    }
+}

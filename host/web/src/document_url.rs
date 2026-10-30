@@ -45,6 +45,36 @@ pub fn frame_navigable(src: &str, sandbox: Option<&str>) -> bool {
         || opaque && scheme_end(&url).is_some_and(|at| url[..at].eq_ignore_ascii_case("data"))
 }
 
+/// Whether an iframe's literal `src` is resolved by the page's glue before
+/// the browser sees it (`data-app-src`): the app's own file, or a URL with
+/// no scheme or authority, as the URL parser reads it, whose query has a
+/// value beginning `app:` (raw or percent-escaped), which a bundled page is
+/// given as an object URL (LLP 1020.001 D7). Every such source resolves to
+/// the page's own origin, so navigation.js `pageGivenFiles` admits it too;
+/// `picker-glue.js` then decides which pages are given which files, and
+/// writes any other source through the host's navigation policy.
+pub fn frame_app_source(src: &str) -> bool {
+    if src.starts_with("app:/") {
+        return true;
+    }
+    let url = parsed(src);
+    if scheme_end(&url).is_some()
+        || url.starts_with(['/', '\\']) && url[1..].starts_with(['/', '\\'])
+    {
+        return false;
+    }
+    let before_fragment = url.split('#').next().unwrap_or_default();
+    let Some((_, query)) = before_fragment.split_once('?') else {
+        return false;
+    };
+    query.split('&').any(|pair| {
+        pair.split_once('=').is_some_and(|(_, value)| {
+            let value = value.to_ascii_lowercase();
+            value.starts_with("app:") || value.starts_with("app%3a")
+        })
+    })
+}
+
 /// `href` as the URL parser reads it: surrounding C0 controls and spaces
 /// stripped, tabs and newlines removed anywhere.
 fn parsed(href: &str) -> std::borrow::Cow<'_, str> {

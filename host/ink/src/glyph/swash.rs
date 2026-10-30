@@ -116,6 +116,8 @@ impl Glyphs {
                 return Ok(Some(g));
             }
         }
+        #[cfg(target_os = "macos")]
+        let _trace = crate::device::apple::Trace::new(c"glyph raster");
         let Some(face) = swash::FontRef::from_index(font.data, font.index as usize) else {
             return Ok(None);
         };

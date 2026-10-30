@@ -153,6 +153,12 @@ macro_rules! configured {
             fn take_logs(&mut self) -> Vec<String> {
                 $crate::exact_runner::DataSource::take_logs(&mut self.0)
             }
+            fn take_aborted(&mut self) -> Vec<u64> {
+                $crate::exact_runner::DataSource::take_aborted(&mut self.0)
+            }
+            fn abort_wake(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+                $crate::exact_runner::DataSource::abort_wake(&mut self.0, wake)
+            }
             fn bind(&mut self, plan: &$crate::exact_plan::Plan) {
                 $crate::exact_runner::DataSource::bind(&mut self.0, plan)
             }

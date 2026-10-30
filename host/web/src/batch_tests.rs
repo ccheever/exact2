@@ -92,6 +92,7 @@ fn cases() -> Vec<(&'static str, String)> {
         ),
         ("collections", one(|b| b.collections("[{\"view\":1}]"))),
         ("refuse", one(|b| b.refuse(9, "no \"way\"\n"))),
+        ("abort", one(|b| b.abort(7))),
         (
             "grants",
             one(|b| {
@@ -317,6 +318,10 @@ const GOLDEN: &[(&str, &str)] = &[
         r#"{"ops":[{"op":"refuse","ticket":9,"message":"no \"way\"\n"}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
+        "abort",
+        r#"{"ops":[{"op":"abort","ticket":7}],"timers":false,"clock":0,"error":null}"#,
+    ),
+    (
         "grants",
         r##"{"ops":[{"op":"grants","lines":["net.fetch https://api.example","secret.keep app.token","surface.read \"sketch\""],"set":{"version":1,"entries":[[1,"# reach",null,null],[3,"net.fetch https://api.example",["fetch","https","api.example",443],null],[4,"secret.keep app.token",["secret-keep","app.token"],null],[5,"surface.read \"sketch\"",null,null]],"error":null,"seal":"3893be14039d3936"}}],"timers":false,"clock":0,"error":null}"##,
     ),
@@ -486,6 +491,59 @@ fn a_long_poll_on_other_work_is_refused_before_dispatch() {
         assert!(
             why.is_some_and(|w| w.starts_with("exactLongPoll")),
             "{why:?}"
+        );
+    }
+}
+
+/// LLP 1016.000 D10 on the web page: an upload's op says so (the page sends
+/// it with XMLHttpRequest, http-body.js `upload`), and the batch refuses, in
+/// the words of the native hosts, an upload they refuse.
+#[test]
+fn an_upload_is_marked_and_refused_where_the_native_hosts_refuse_it() {
+    let mut upload = Request::get("https://api.example/upload")
+        .independent_http(4096)
+        .upload_progress();
+    upload.method = "POST".into();
+    upload.body = vec![7; 3];
+    let exact_runner::Answer::Later(upload) = exact_runner::Answer::stream(upload) else {
+        unreachable!()
+    };
+    let text = one(|b| b.request(&request(1, upload.clone(), false)));
+    assert!(text.contains(r#","stream":true,"upload":true"#), "{text}");
+    let mut get = upload.clone();
+    get.method = "GET".into();
+    let mut manual = upload.clone();
+    manual.redirect = exact_runner::Redirect::Manual;
+    let mut socket = upload.clone();
+    socket.url = "wss://api.example/upload".into();
+    let mut native = upload.clone();
+    native.url = "exact-native:".into();
+    let mut plain = upload.clone();
+    plain.stream = false;
+    for (refused, why) in [
+        (
+            get,
+            "exactUploadProgress: a GET or HEAD request sends no body",
+        ),
+        (
+            manual,
+            "exactUploadProgress: an upload follows its redirects",
+        ),
+        (socket, "exactUploadProgress: a WebSocket sends no body"),
+        (
+            native,
+            "exactUploadProgress: an upload is an http: or https: request",
+        ),
+        (
+            plain,
+            "exactUploadProgress reports an upload's progress to its stream: give exactStream too",
+        ),
+    ] {
+        assert_eq!(crate::batch::request_refusal(&refused), Some(why));
+        let text = one(|b| b.request(&request(2, refused, false)));
+        assert!(
+            text.contains(r#""op":"refuse""#) && !text.contains("\"upload\""),
+            "{text}"
         );
     }
 }

@@ -299,7 +299,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         exactView.onStatusBarStyle = { [weak c] _ in c?.setNeedsStatusBarAppearanceUpdate() }
         #endif
         window = w
-        DevMenu.install(on: w, session: ExactIOS.session, controller: c, planPath: devPlanPath ?? environment["EXACT_PLAN"])
+        DevMenu.install(on: w, session: ExactIOS.session, controller: c, planPath: devPlanPath ?? environment["EXACT_PLAN"], frameHealthContainer: c.view)
         w.makeKeyAndVisible()
         // A cold development connection needs the mounted session and window.
         for url in incoming where ExactDevelopmentLink.claims(url) {

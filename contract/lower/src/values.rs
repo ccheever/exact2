@@ -3,7 +3,7 @@
 //! prop by type (LLP 1017 P1a).
 use crate::style_names::press_refusal;
 use crate::{edits, err, media, symbols, tags, vocab, FontUse, LowerError};
-use contract_syntax::{Attr, Expr, Span, UnOp};
+use contract_syntax::{Attr, Expr, Span, TemplatePart, UnOp};
 use contract_types::{Ref, Scope, Shapes, Ty};
 use exact_kernel::style::sides as box_sides;
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
@@ -15,6 +15,21 @@ fn literal_text(e: &Expr) -> String {
         Expr::Str(s, _) => format!("\"{s}\""),
         Expr::Bool(b, _) => format!("{b}"),
         _ => "…".into(),
+    }
+}
+/// A string literal's text, or a template's whose every part is literal, as
+/// a component's prop can leave one: what the attribute says, whatever the app does.
+fn constant_text(e: &Expr) -> Option<String> {
+    match e {
+        Expr::Str(s, _) => Some(s.clone()),
+        Expr::Template(parts, _) => parts
+            .iter()
+            .map(|part| match part {
+                TemplatePart::Text(t) | TemplatePart::Expr(Expr::Str(t, _)) => Some(t.as_str()),
+                TemplatePart::Expr(_) => None,
+            })
+            .collect(),
+        _ => None,
     }
 }
 /// `navigationSplit`'s column width written as a number: its text, as the
@@ -291,6 +306,25 @@ pub(crate) fn check_position_area(attrs: &[Attr]) -> Result<(), LowerError> {
         a.span,
     )
 }
+/// Refuse `paragraphDirs` except on a `textarea` with a literal
+/// `markup="markdown"`, whose editor draws each line of the source as a
+/// paragraph (LLP 1045 D11).
+pub(crate) fn check_paragraph_dirs(tag: &str, attrs: &[Attr]) -> Result<(), LowerError> {
+    let Some(a) = attrs.iter().find(|a| a.name == "paragraphDirs") else {
+        return Ok(());
+    };
+    let markdown = attrs.iter().any(|a| {
+        a.name == "markup" && matches!(&a.value, Expr::Str(word, _) if word == "markdown")
+    });
+    if tag == "textarea" && markdown {
+        return Ok(());
+    }
+    err(
+        "lower-paragraph-dirs-field",
+        "`paragraphDirs` belongs on a `textarea` with `markup=\"markdown\"`: its words are the base directions of the Markdown editor's lines (LLP 1045 D11). A whole text or field takes one with `direction`",
+        a.span,
+    )
+}
 impl crate::Lowerer<'_> {
     /// `check_style_value` with this lowering's shapes.
     pub(crate) fn check_style(
@@ -424,14 +458,6 @@ fn style_value(
                     format!("`--exact-*` names are the host's own; write the author's `-exact-` name: `{}=\"{v}\"`", a.name),
                     span,
                 );
-            }
-            if rows.contains(&StyleId::Resize)
-                && matches!(
-                    v.as_str(),
-                    "both" | "horizontal" | "vertical" | "block" | "inline"
-                )
-            {
-                return err("lower-css-resize", "CSS resize handles are not implemented by the native layout presenters; only `resize=\"none\"` is portable. Other values require user-controlled box geometry, not a different property name", span);
             }
             // @ref LLP 1115.000 D11.6 — `text` and `all` are honoured where a
             // host has text selection (the web, macOS, iOS); `contain` names
@@ -975,6 +1001,34 @@ pub(crate) fn check_prop_value(
                 return err(
                     "lower-attr-value",
                     format!("`navigationDetent`'s heights go from shortest to tallest on every screen, as UIKit takes them; a point height and a share of the screen (`medium`, half, or a percentage) cross on some screen, so use one kind, each taller than the one before, with `large` last; given \"{word}\" in \"{s}\""),
+                    span,
+                );
+            }
+        }
+    }
+    // @ref LLP 1045 D11 — HTML's `dir` words, one per source line; a literal,
+    // which never sends new words, says one for every line. The literal's
+    // place is the error's: through a component's prop, the caller's.
+    if prop == PropId::ParagraphDirs {
+        if let Some(s) = constant_text(value) {
+            let span = value.span();
+            if let Some(word) = s
+                .split_ascii_whitespace()
+                .find(|w| !matches!(*w, "ltr" | "rtl" | "auto"))
+            {
+                return err(
+                    "lower-attr-value",
+                    format!(
+                        "`paragraphDirs` accepts {}; given \"{word}\"",
+                        vocab::accepts(prop).unwrap()
+                    ),
+                    span,
+                );
+            }
+            if s.split_ascii_whitespace().nth(1).is_some() {
+                return err(
+                    "lower-paragraph-dirs-literal",
+                    format!("a literal `paragraphDirs` says one word, which every line takes: it never sends new words, so a list written here drifts from its lines with the first edit; bind a list the app derives from the value, `paragraphDirs=dirs`, one word per source line (LLP 1045 D11); given \"{s}\""),
                     span,
                 );
             }

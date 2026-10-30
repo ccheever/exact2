@@ -8,6 +8,12 @@
     "app"
   ],
   "properties": {
+    "frame_health": {
+      "type": "object",
+      "description": "Frame callback timing: core enables bounded counters on existing app clocks; production defaults to off. Presentation remains unobserved.",
+      "additionalProperties": false,
+      "properties": { "mode": { "enum": ["off", "core"] } }
+    },
     "modules": {
       "type": "array",
       "description": "The native-module roster (LLP 1024 D1): the custom-element tags the app's module artifact serves (modules/apple/*.swift beside libexact_modules.dylib on Apple, modules/web/index.js on the web). A hyphenated tag in the Contract that this list lacks is bake-unknown-module.",
@@ -700,12 +706,16 @@
               ]
             },
             "appTransportSecurity": {
-              "description": "App Transport Security keys the build writes into the iOS Info.plist's `NSAppTransportSecurity`. Absent: no key, and ATS refuses cleartext `http://` to a named host. `localNetworking` adds `NSAllowsLocalNetworking` beside these.",
+              "description": "App Transport Security keys the build writes into the iOS Info.plist's `NSAppTransportSecurity`, and into tvOS's, which has no WebKit and takes only `allowsArbitraryLoads`. Absent: no key, and ATS refuses cleartext `http://` to a named host. `localNetworking` adds `NSAllowsLocalNetworking` beside these, unless `allowsArbitraryLoads` is set.",
               "type": "object",
               "properties": {
                 "allowsArbitraryLoadsInWebContent": {
                   "type": "boolean",
-                  "description": "`NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from any host, as a browser does. Web views only; a module's `URLSession` stays under ATS. Every build carries it, store builds too, and App Review may ask why."
+                  "description": "`NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from any host, as a browser does. Web views only; a module's `URLSession` stays under ATS. Every build carries it, store builds too, and App Store review requires a justification."
+                },
+                "allowsArbitraryLoads": {
+                  "type": "boolean",
+                  "description": "`NSAllowsArbitraryLoads`: ATS is off for every connection the app makes. Its own `fetch` reaches `http://` at any host its grants admit (`net.fetch http:`, for a server the person names), and an `iframe` loads as with `allowsArbitraryLoadsInWebContent`. Written alone, since ATS ignores it beside `NSAllowsArbitraryLoadsInWebContent` or `NSAllowsLocalNetworking`, which it covers. Every build carries it, store builds too, and App Store review requires a justification."
                 }
               },
               "additionalProperties": false
@@ -784,6 +794,10 @@
           "description": "macOS: `minimumOS` (default 14.0), the first window's size, and the keys below.",
           "type": "object",
           "properties": {
+            "presenter": {
+              "enum": ["native", "painted"],
+              "description": "Absent: native. Painted builds the app’s <macos-crate>-painted binary as a benchmark carrier; distribution is refused until LLP 1149’s accessibility gate."
+            },
             "icon": {
               "type": "string",
               "minLength": 1,
@@ -831,7 +845,11 @@
               "properties": {
                 "allowsArbitraryLoadsInWebContent": {
                   "type": "boolean",
-                  "description": "`NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from any host, as a browser does. Web views only; a module's `URLSession` stays under ATS. Every build carries it, store builds too, and App Review may ask why."
+                  "description": "`NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from any host, as a browser does. Web views only; a module's `URLSession` stays under ATS. Every build carries it, store builds too, and App Store review requires a justification."
+                },
+                "allowsArbitraryLoads": {
+                  "type": "boolean",
+                  "description": "`NSAllowsArbitraryLoads`: ATS is off for every connection the app makes. Its own `fetch` reaches `http://` at any host its grants admit (`net.fetch http:`, for a server the person names), and an `iframe` loads as with `allowsArbitraryLoadsInWebContent`. Written alone, since ATS ignores it beside `NSAllowsArbitraryLoadsInWebContent` or the `NSAllowsLocalNetworking` a `local-network` grant derives, which it covers. Every build carries it, store builds too, and App Store review requires a justification."
                 }
               },
               "additionalProperties": false

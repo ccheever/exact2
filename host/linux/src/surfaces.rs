@@ -428,6 +428,8 @@ pub(crate) struct Surfaces {
     window_owner: Option<exact_ink::device::d3d11::Window>,
     #[cfg(windows)]
     pub(crate) direct_window: Option<window::DirectWindow>,
+    #[cfg(windows)]
+    pub(crate) startup_device: Option<window::Startup>,
     /// Each opened artifact by name, "" the primary; each is tried once.
     abis: BTreeMap<String, Abi>,
     attempted: BTreeSet<String>,

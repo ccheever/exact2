@@ -146,6 +146,8 @@ impl<D: DataSource> Runner<D> {
             return;
         }
         self.extensions.pictures.target = Some(target.to_owned());
+        // The substitutes read for the old target go (`Runner::substitute`).
+        self.extensions.substitutes.get_mut().clear();
         let keys: Vec<String> = (self.plan.modules.iter()).map(|m| self.key(m)).collect();
         for key in keys {
             self.announce(&key);

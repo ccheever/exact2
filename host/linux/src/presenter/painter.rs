@@ -32,7 +32,7 @@ pub fn set_custom_painter(name: &'static str, make: PainterFactory) {
 }
 impl PainterChoice {
     /// The baked `host.<platform>.painter`, or this host's existing default.
-    pub(crate) fn from_baked(compat: &str) -> Self {
+    pub fn from_baked(compat: &str) -> Self {
         #[derive(Default, serde::Deserialize)]
         struct Baked {
             painter: Option<String>,
@@ -77,6 +77,8 @@ pub struct PainterInfo {
     pub name: &'static str,
     /// The adapter and API, on the GPU.
     pub adapter: Option<String>,
+    /// The rendering API, when a device is installed.
+    pub api: Option<String>,
     /// Device creation, milliseconds, on the GPU.
     pub device_ms: f64,
     /// Shader compilation, milliseconds, on the GPU.
@@ -89,6 +91,7 @@ pub(super) fn cpu_info() -> PainterInfo {
     PainterInfo {
         name: "cpu",
         adapter: None,
+        api: None,
         device_ms: 0.0,
         shaders_ms: 0.0,
         cached: false,
@@ -98,7 +101,7 @@ pub(super) fn cpu_info() -> PainterInfo {
 type OpenedPainter = Result<(Box<dyn Backend>, PainterInfo), String>;
 
 /// A carrier chooses its constructor without retaining every native backend.
-/// The constructor still runs after plan and font validation, on the paint thread.
+/// The backend is installed after validation, on the paint thread.
 #[derive(Clone, Copy)]
 pub(crate) struct PainterBoot {
     pub(super) choice: PainterChoice,
@@ -106,7 +109,51 @@ pub(crate) struct PainterBoot {
 }
 
 impl PainterBoot {
-    pub(super) fn selected(choice: PainterChoice) -> Self {
+    #[cfg(windows)]
+    pub(super) fn prepare_direct(
+        self,
+    ) -> Option<Result<exact_ink::device::d3d11::Preparing, String>> {
+        if self.choice != PainterChoice::Ink
+            || !std::ptr::fn_addr_eq(
+                self.open,
+                open_backend as fn(PainterChoice) -> OpenedPainter,
+            )
+        {
+            return None;
+        }
+        let device = std::env::var("EXACT_INK_DEVICE").ok();
+        let force_warp = exact_ink::device::direct_d3d11(device.as_deref())?;
+        Some(exact_ink::device::d3d11::Preparing::start(force_warp).map_err(|e| e.to_string()))
+    }
+
+    #[cfg(windows)]
+    pub(super) fn finish_direct(preparing: exact_ink::device::d3d11::Preparing) -> OpenedPainter {
+        let start = std::time::Instant::now();
+        let warp = preparing.force_warp();
+        let device = preparing
+            .finish()
+            .or_else(|e| {
+                if warp {
+                    Err(e)
+                } else {
+                    exact_ink::device::d3d11::D3d11::open(true)
+                }
+            })
+            .map_err(|e| e.to_string())?;
+        let ink =
+            crate::ink::Ink::from_device(exact_ink::device::Selected::D3d11(Box::new(device)));
+        if std::env::var_os("EXACT_AGENT_WINDOW_FRAMES").is_some() {
+            eprintln!(
+                "exact-ink: startup device {:.3} ms, pipelines {:.3} ms, join {:.3} ms",
+                ink.info().device_ms,
+                ink.info().shaders_ms,
+                start.elapsed().as_secs_f64() * 1000.
+            );
+        }
+        Ok(ink_backend(ink))
+    }
+
+    pub(crate) fn selected(choice: PainterChoice) -> Self {
         Self {
             choice,
             open: open_backend,
@@ -160,15 +207,7 @@ pub(super) fn open_backend(
         #[cfg(not(target_os = "android"))]
         PainterChoice::Ink => {
             let ink = crate::ink::Ink::new()?;
-            let device = ink.info();
-            let info = PainterInfo {
-                name: "ink",
-                adapter: Some(format!("{} ({})", device.adapter, device.api)),
-                device_ms: device.device_ms,
-                shaders_ms: device.shaders_ms,
-                cached: device.cached,
-            };
-            Ok((Box::new(ink), info))
+            Ok(ink_backend(ink))
         }
         PainterChoice::Custom => {
             let (name, make) = CUSTOM
@@ -183,6 +222,7 @@ pub(super) fn open_backend(
                 let info = PainterInfo {
                     name: "gpu",
                     adapter: Some(format!("{} ({})", g.adapter, g.api)),
+                    api: Some(g.api.clone()),
                     device_ms: g.device_ms,
                     shaders_ms: g.shaders_ms,
                     cached: g.cached,
@@ -199,7 +239,135 @@ pub(super) fn open_backend(
     }
 }
 
+#[cfg(not(target_os = "android"))]
+fn ink_backend(ink: crate::ink::Ink) -> (Box<dyn Backend>, PainterInfo) {
+    let device = ink.info();
+    let info = PainterInfo {
+        name: "ink",
+        adapter: Some(format!("{} ({})", device.adapter, device.api)),
+        api: Some(device.api.clone()),
+        device_ms: device.device_ms,
+        shaders_ms: device.shaders_ms,
+        cached: device.cached,
+    };
+    (Box::new(ink), info)
+}
+
 impl<D: DataSource> Presenter<D> {
+    /// Attach S1's benchmark carrier. Shipping Apple apps still use native views.
+    #[cfg(target_os = "macos")]
+    pub fn attach_apple_layer(
+        &mut self,
+        layer: exact_ink::device::apple::Layer,
+    ) -> Result<(), String> {
+        let info = self.brush.attach_apple_layer(layer)?;
+        self.painter.adapter = Some(format!("{} ({})", info.adapter, info.api));
+        self.painter.api = Some(info.api);
+        self.painter.shaders_ms = info.shaders_ms;
+        self.painter.cached = info.cached;
+        Ok(())
+    }
+
+    /// Submit a Mac benchmark window frame without requesting CPU pixels.
+    #[cfg(target_os = "macos")]
+    pub fn apple_window_frame(&mut self) -> Result<(), String> {
+        if self.frame_for(crate::paint::FrameTarget::Window).is_some() {
+            return Err("the benchmark carrier requires a presenting ink device".into());
+        }
+        if !self.last_frame_succeeded() {
+            return Err("ink frame failed".into());
+        }
+        Ok(())
+    }
+    pub(crate) fn painter_state(&self) -> serde_json::Value {
+        #[cfg(windows)]
+        let recovery = self.surfaces.direct_window.as_ref();
+        #[cfg(windows)]
+        let (recovering, refusal) = (
+            recovery.is_some_and(|d| d.recovering),
+            recovery.and_then(|d| d.last_refusal.as_deref()),
+        );
+        #[cfg(not(windows))]
+        let (recovering, refusal) = (false, None::<&str>);
+        serde_json::json!({
+            "name": self.painter.name,
+            "device": self.painter.adapter,
+            "api": self.painter.api,
+            "deviceMs": self.painter.device_ms,
+            "shadersMs": self.painter.shaders_ms,
+            "cached": self.painter.cached,
+            "recovering": recovering,
+            "lastRefusal": refusal
+        })
+    }
+
+    /// Install the device prepared before app boot, before any frame is drawn.
+    /// @ref LLP 1149 S2.4.
+    #[cfg(windows)]
+    pub(crate) fn install_prepared_painter(
+        &mut self,
+        preparing: exact_ink::device::d3d11::Startup,
+    ) -> Result<(), String> {
+        let (startup, device) = crate::surfaces::window::Startup::wait(preparing)?;
+        if let Some(device) = device {
+            let ink =
+                crate::ink::Ink::from_device(exact_ink::device::Selected::D3d11(Box::new(device)));
+            let (backend, info) = ink_backend(ink);
+            self.brush.replace_backend(backend);
+            self.painter = info;
+        } else {
+            self.painter.adapter = Some("CPU startup; composition device pending".into());
+        }
+        self.surfaces.startup_device = Some(startup);
+        self.choice = PainterChoice::Ink;
+        self.repaint();
+        Ok(())
+    }
+
+    /// Boot the app under a viewport (points) at a device scale, with its
+    /// asset root. The boot error, if any, is reported beside the presenter
+    /// (the tree is what booted).
+    pub fn boot(
+        plan: &[u8],
+        data: D,
+        viewport: (f32, f32),
+        scale: f32,
+        assets: PathBuf,
+    ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        Presenter::boot_with(
+            plan,
+            data,
+            viewport,
+            scale,
+            assets,
+            PainterChoice::from_env(PainterChoice::Auto),
+        )
+    }
+
+    /// Boot with a chosen painter (`boot` reads `EXACT_PAINTER`).
+    pub fn boot_with(
+        plan: &[u8],
+        data: D,
+        viewport: (f32, f32),
+        scale: f32,
+        assets: PathBuf,
+        choice: PainterChoice,
+    ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        let (mut presenter, error) = Self::boot_with_assets(
+            PlanBytes::Copied(plan),
+            data,
+            viewport,
+            scale,
+            Assets::embedded(assets),
+            PainterBoot::selected(choice),
+            None,
+            "/",
+            None,
+        )?;
+        presenter.measure();
+        Ok((presenter, error))
+    }
+
     /// The carrier transfers a retained window to a directly presenting backend.
     #[cfg(windows)]
     pub fn attach_painter_window(
@@ -207,6 +375,12 @@ impl<D: DataSource> Presenter<D> {
         window: exact_ink::device::d3d11::Window,
         size: [u32; 2],
     ) -> Result<bool, String> {
+        if let Some(startup) = self.surfaces.startup_device.take() {
+            let direct =
+                crate::surfaces::window::DirectWindow::attach(self, window, size, startup)?;
+            self.surfaces.direct_window = Some(direct);
+            return Ok(true);
+        }
         let attached = self.brush.attach_window(window.clone(), size)?;
         if attached {
             self.surfaces.direct_window = Some(crate::surfaces::window::DirectWindow::new(window));
@@ -217,6 +391,17 @@ impl<D: DataSource> Presenter<D> {
     /// A bounded measurement may wait for the last frame's displayed timestamp.
     #[cfg(windows)]
     pub fn displayed_process_ms(&self) -> Result<Option<f64>, String> {
+        if let Some((device, _)) = self
+            .surfaces
+            .direct_window
+            .as_ref()
+            .and_then(|d| d.fallback.as_ref())
+        {
+            return device
+                .presented_process_ms()
+                .map(Some)
+                .map_err(|e| e.to_string());
+        }
         self.brush.displayed_process_ms()
     }
 

@@ -1401,6 +1401,25 @@ both are refused while an input method composes. On the web, where hidden
 syntax is not drawn, a caret put inside it is drawn at its visible edge and
 reads back there ([LLP 1045](../llp/1045-markdown-editor.rfc.md) D6).
 
+`paragraphDirs` gives the editor's lines their base direction: one word per
+source line, HTML's `dir` (`ltr`, `rtl` or `auto`), the first word the first
+line's. A line feed ends a line, so a Markdown paragraph broken over three
+source lines takes three words. A line past the last word takes the last, so
+`dirs = "ltr rtl"` draws the first line left to right and every line after it
+right to left. An editor where Arabic or Hebrew sits beside English binds the
+words to what it derives from its value (one per `value.split("\n")`), by
+whatever rule the app keeps, and so sends the next ones with each change. A
+literal says one word, which every line takes: it never changes, so the
+compiler refuses a list written there (`lower-paragraph-dirs-literal`). Until
+the app's next words, each word stays with its line through edits, undo and
+redo give back the words of the lines they restore, and a line an edit adds
+takes the word above it. A line without a word takes the field's `direction`;
+`auto` is the line's first strong letter outside its syntax and atoms. The
+web, macOS and iOS draw it, a right-to-left line's list marker and quote on
+its right (the web's quote bar; on Apple the quote's indent and its dimmed
+`>`); Linux, Windows and Android, which show the source, ignore it
+([LLP 1045](../llp/1045-markdown-editor.rfc.md) D11).
+
 ### Inline atoms: `atom`, `atoms`, `atomFaces`, `atompress`
 
 An atom is a span of a Markdown source that the editor and the reader show as
@@ -1419,7 +1438,7 @@ atom skill prefix="$" background-color="light-dark(#efe7ff, #2c2340)"
 
 component Composer
   state draft = ""
-  derive faces = [AtomFace(source="@src/main.rs", label="main.rs", icon="assets/file.svg", title="src/main.rs")]
+  derive faces = [AtomFace(source="@src/main.rs", label="main.rs", icon="assets/file.svg", title="src/main.rs", color="", backgroundColor="light-dark(#e3f0ff, #1d3045)", direction="")]
   action pressed(e: AtomEvent)
     open = e.source
   view
@@ -1440,10 +1459,31 @@ component Composer
   kinds it recognizes (`lower-atom-field`, `lower-atom-unknown`); two kinds with
   one scheme, a shared prefix character, or both relative are refused
   (`lower-atom-duplicate`).
-- `atomFaces` takes `AtomFace(source, label, icon, title)` records, keyed by an
-  atom's whole source: equal source is one atom, and new text is a new key. An
-  empty label is a link's text or a token without its prefix and quotes; the
-  icon is an image source (the web draws a URL or asset, not yet a `symbol:`).
+- `atomFaces` takes `AtomFace(source, label, icon, title, color,
+  backgroundColor, direction)` records, keyed by an atom's whole source: equal
+  source is one atom, and new text is a new key. An empty label is a link's text
+  or a token without its prefix and quotes; the icon is an image source (the web
+  draws a URL or asset, not yet a `symbol:`). `color` and `backgroundColor`
+  paint that atom over its kind's `color` and `background-color`, or are empty
+  for the kind's. Each is a colour as a bound `color` takes one: `light-dark()`,
+  a theme entry's name, a role, a `-exact-platform-color()` only as one of the
+  app's literals, or a colour in a wide space (`color(display-p3 …)`), which
+  every host with pills draws in that space. A colour in a standard space the
+  platforms ship (`color(--dci-p3 …)`) is drawn by Apple and refused on the web,
+  and one in a profile the app declares with `color-profile` is refused on every
+  host. One that names a token follows `setMode`, a pin and a token's new value;
+  when that value is no colour, faces the token painted stay as they were, where
+  a themed row would be unset, and the journal says so. A role's web form
+  (`var(--exact-separator, …)`) is that role, whatever its fallback holds but an
+  unadmitted `-exact-platform-color()`. Any other value that holds
+  `currentcolor`, `inherit` or another cascade keyword, or a substitution
+  function (`var()`, `env()`, `attr()`, `if()`, `inherit()`), is no colour on
+  every host. So is a colour the kernel does not read, on the native hosts and
+  the web's wasm target, and one the build's colour map or the browser refuses,
+  on the JS target. A colour that is none leaves the kind's paint, and the
+  journal says so. A pill lays out its icon and then its label in its line's
+  direction, so in a right-to-left line its icon is on the right; `direction`
+  (`ltr`, `rtl`) pins its own, and empty follows the line.
 - `atompress` hands its action an optional `AtomEvent`: `kind`, `source`,
   `href` (a link's destination as written), `start`, `end` (UTF-16) and the
   modifiers. It never navigates. In the reader an atom is a tab stop that
@@ -2586,18 +2626,27 @@ Syntax is only the first layer. In particular:
   `if`/`match` arms, and sequential `if`s testing one unchanged name against
   different literals, are separate paths (LLP 1088 D8). The walk reads the root's
   actions with every call expanded, where a caller and its callees are one commit.
-- Behind a call, a read of a state, mutation or router slot that another frame
-  (the action's own body, or another call) assigned earlier on the same path is
-  `analyze-call-stale-read` (LLP 1089 D3): the reader would see the starting
-  value, and neither body shows it. Pass the value as an argument, from a `let`
-  bound before the write for the old value or the assigned expression for the
-  new one. A derive, a resource and `pending(m)` read settled values and are not
-  refused; the same walk's exclusive paths are separate. The same read in the
-  frame that assigned the slot is the warning `analyze-read-after-assign`
-  (LLP 1116.003 D6), unless the paths that assigned it exclude the read or decide
-  the condition it is in (`if phase == 1` … `phase = 2`, then `if phase == 2`),
-  or a record copy left the field it reads unchanged (`s = S(s, f=…)`, then `s.g`).
-  `pending`/`failed` operate on declarations, not arbitrary values.
+- A read of a state or mutation slot that the action assigned earlier on the
+  same path sees the starting value, since writes land when the action ends: it
+  is the warning `analyze-read-after-assign` (LLP 1116.003 D6; LLP 1035.005.002
+  C2), in the action's own body or behind a call (the action's body, or another
+  call, assigned it; LLP 1089 D3), one rule at one severity. The message names
+  the repair: bind the value, `let next = …`, assign `next`, read or pass `next`;
+  a `let` bound before the write keeps the old value. Not named: a read on a
+  path exclusive with the assignment's, a condition the assignment's path
+  decides (`if phase == 1` … `phase = 2`, then `if phase == 2`), and a field a
+  record copy left unchanged (`s = S(s, f=…)`, then `s.g`). A derive, a resource
+  and `pending(m)` read settled values. In 1,029 bake-off builds the body's read
+  was met in 86 and the call's in 2, which is why the call's is no longer a
+  refusal. `pending`/`failed` operate on declarations, not arbitrary values.
+- An action that both sends a nonqueued mutation and assigns it on one path, in
+  either order and through calls, is warned of (`analyze-send-assigned`, LLP
+  1035.005.002 C1): a send is asked when the action runs; once the writes land,
+  a request still in flight for a mutation the action assigned is forgotten and
+  its reply dropped, and the slot keeps the assigned value (LLP 1016 D5). The
+  message names the three intents' spellings; a `queue` mutation's assignment
+  drops no queued work (LLP 1092 D4) and is not named. No bake-off build wrote
+  the combination; Weird Castle's logout means it.
 - View roots cannot be conditional/repeated regions. Tags, attributes, and
   children must fit their lowering rules. Class application is not a CSS cascade.
 - Scrollers need bounds; virtualized lists have specific axis, template, and

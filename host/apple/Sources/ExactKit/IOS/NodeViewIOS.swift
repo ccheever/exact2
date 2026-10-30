@@ -22,6 +22,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var boxDrawn = false
     var textRasterFailed = false
     var textLayoutValid = false
+    /// The last frame showed it: Core Animation committed it in a window, not hidden (`Presenter.unshown`).
+    var showed = false
     /// What the host's own writers hid (a covered route, a tab a native control
     /// stands in for, a placement); a `display: none` box is hidden besides, as
     /// CSS removes it with its subtree, or its texts paint at its 0×0 frame's
@@ -103,7 +105,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // UIKit's setter walks the subtree's backdrop masks and accessibility
             // even when the value stands (a list hiding its hidden sections every batch).
             guard super.isHidden != hidden else { return }
-            super.isHidden = hidden; if !hidden { materializeAppearingGlass() }
+            super.isHidden = hidden; if !hidden { presenter?.shownAgain(self); materializeAppearingGlass() }
             if scrollView != nil { presenter?.keyboardToolbars.backendChanged() }
         }
     }
@@ -689,7 +691,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
         if window == nil, pressContact?.routesBubbledPress == true { cancelPressContact() }
         presenter?.transformGeometry.changed()
-        presenter?.videoVisibility?.changed()
+        presenter?.videoVisibility?.changed(); presenter?.unshown(self)
         if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush(); materializeJoiningGlass() }
         if window == nil, textRaster != nil { DispatchQueue.main.async { [weak self] in self?.dropTextRasterOffWindow() } }
     }
@@ -732,11 +734,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The end the reader was following moved during their interaction:
     /// settle there when it ends, as a browser's scroll anchoring does.
     package func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { presenter?.session?.frameHealth.endScroll(scrollView) }
         guard scrollView === self.scrollView else { return }
         // A follow of the end that animates ends with its animation.
         if !decelerate, !followEndIfOwed() { endScroll() }
     }
-    package func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { if scrollView === self.scrollView, !followEndIfOwed() { scrollMayHaveEnded(scrollView) } }
+    package func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { presenter?.session?.frameHealth.endScroll(scrollView); if scrollView === self.scrollView, !followEndIfOwed() { scrollMayHaveEnded(scrollView) } }
     package func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         guard scrollView === self.scrollView, presenter?.elementScrolls.cutting !== scrollView else { return }
         followingEndAnimated = false
@@ -759,6 +762,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     package func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        if let session = presenter?.session { session.frameHealth.beginScroll(scrollView, session: session) }
         presenter?.elementScrolls.userScrolled(scrollView) // its own scroller, or a grouped list's collection
         guard scrollView === self.scrollView else { return }
         followingEndAnimated = false
@@ -788,6 +792,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.reaimFixedGradients()
         presenter?.scrollPump.scrolled(self)
         FrameSampler.scrolled(scrollView, in: presenter?.session, person: false)
+        presenter?.session?.frameHealth.trackScrolled(scrollView)
         repaintThrough()
         scrollEndMoved(scrollView)
         // User scrolling is already a coherent position. Deliver before the
@@ -1232,7 +1237,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// same authored parent, which is no reparenting.
     static var containerMoves = 0
     package override func didMoveToSuperview() {
-        if Self.containerMoves == 0 { pressEpoch &+= 1; cancelPressContact(reparenting: true) }
+        if Self.containerMoves == 0 { pressEpoch &+= 1; cancelPressContact(reparenting: true); presenter?.unshown(self) } // a new parent: shown elsewhere
         super.didMoveToSuperview()
         Self.textGeometry &+= 1
         paintOrderMoved(); repaintFacesWhileDimmed() // as a move into or out of a control changes its face (TintDimmingIOS.swift)
@@ -1378,7 +1383,11 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         sv.alwaysBounceVertical = sv.scrollsY && !nested && (handlers.contains("refresh") || !fits || !carousel)
     }
 
+    /// Its parts move with its frame: in an animation UIKit has open only if the last frame showed it (`Presenter.moveOrPlace`).
     package override func layoutSubviews() {
+        if let presenter { presenter.moveOrPlace(self, layOutParts) } else { layOutParts() }
+    }
+    private func layOutParts() {
         if focusRing != nil { showFocusRing(true) }
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layoutSubviews()

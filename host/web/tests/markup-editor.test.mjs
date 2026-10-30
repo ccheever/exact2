@@ -14,17 +14,20 @@ const missing = Object.fromEntries(await Promise.all(engines.map(async e => [e, 
 const engineTest = Object.fromEntries(engines.map(e => [e, need(e === 'chromium' ? 'chrome' : e, missing[e])]));
 const wasm = engines.some(e => !missing[e]) ? readFileSync(await buildEditor()) : null;
 
-async function editor(engine, source, drive, runtime = false) {
+/** `attrs`: the textarea's own attributes beside its markup, as a page writes them before the editor mounts. */
+async function editor(engine, source, drive, runtime = false, attrs = '') {
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
     const path = new URL(request.url).pathname;
     if (['/markup-editor.js', '/navigation.js', '/atoms.js', '/geometry-glue.js'].includes(path)) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/markup-editor.wasm') return new Response(wasm, { headers: { 'content-type': 'application/wasm' } });
     if (path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } }); // no data sources in this fixture
     if (runtime && path.endsWith('.js')) {
-      const js = resolve(WEB, '../web-js', path.slice(1));
+      // The JS target's modules over the host's glue; a module that
+      // re-exports the host's own reaches it through `../web/`.
+      const js = path.startsWith('/web/') ? resolve(WEB, path.slice(5)) : resolve(WEB, '../web-js', path.slice(1));
       return new Response(Bun.file(existsSync(js) ? js : resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     }
-    return new Response(`<!doctype html><meta charset="utf-8"><textarea id="editor" markup="markdown" style="width:500px;height:240px"></textarea><pre id="echo"></pre>
+    return new Response(`<!doctype html><meta charset="utf-8"><textarea id="editor" markup="markdown" ${attrs} style="width:500px;height:240px"></textarea><pre id="echo"></pre>
       <script type="module">
         globalThis.exact = {};
         let field = document.getElementById('editor');
@@ -52,6 +55,7 @@ async function editor(engine, source, drive, runtime = false) {
             if (key === 'x' || key.toLowerCase() === 'b') Hosts.preventDefault();
             if (key === 't') Hosts.stopPropagation();
           }, onKey);
+          window.original = field; // the runtime's element, whose attributes it forwards to the editor
           mde(field);
         } else {
           await import('./markup-editor.js');
@@ -259,6 +263,167 @@ const heard = page => page.evaluate(() => events.splice(0));
 const only = (list, type) => list.filter(e => e.type === type).map(({ value, start, end, direction, inputType, data, cancelable, composing }) => [value, start, end, direction, inputType, data, cancelable, composing]);
 
 for (const engine of engines) for (const runtime of [false, true]) {
+  // @ref LLP 1045 D11 — the app's base direction for each line, as HTML's `dir`.
+  engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: each line takes its paragraphDirs word, in place`, async () => {
+    await editor(engine, 'One\nاثنان ثلاثة\n- [ ] أربعة\n', async (page, field) => {
+      // The app's words: the runtime writes the textarea it replaced and forwards them; the glue syncs the editor.
+      const say = async words => {
+        await page.evaluate(([words, runtime]) => {
+          (runtime ? window.original : field()).setAttribute('data-paragraph-dirs', words);
+          if (!runtime) field().exactMarkup.sync();
+        }, [words, runtime]);
+        await settle(page);
+      };
+      const dirs = () => field.evaluate(el => [...el.children].map(line => line.getAttribute('dir')));
+      await say('ltr rtl');
+      // A line past the last word takes the last: the list item and the empty last line.
+      expect(await dirs()).toEqual(['ltr', 'rtl', 'rtl', 'rtl']);
+      // A right-to-left list item's marker and gutter are on its right, where a press toggles its box.
+      const gutter = await field.evaluate(el => {
+        const line = el.children[2], box = line.getBoundingClientRect(), css = getComputedStyle(line);
+        return { x: box.right - 10, y: box.top + box.height / 2, left: css.paddingLeft, right: css.paddingRight };
+      });
+      expect([gutter.left, gutter.right]).toEqual(['0px', '28px']);
+      await page.mouse.click(gutter.x, gutter.y); await settle(page);
+      expect(await field.evaluate(el => el.value)).toBe('One\nاثنان ثلاثة\n- [x] أربعة\n');
+      // The empty last line's caret is at its start, the right.
+      expect(await field.evaluate(el => {
+        const caret = el.exactMarkup.rangeFrame(el.value.length, el.value.length), box = el.getBoundingClientRect();
+        return caret.x > box.x + box.width / 2;
+      })).toBe(true);
+      // Typing keeps the line's node and its word: a direction never redraws a line.
+      await field.evaluate(el => { window.kept = el.children[1]; el.focus(); el.setSelectionRange(15, 15); });
+      await page.keyboard.type('y'); await settle(page);
+      expect(await field.evaluate(el => [el.value.split('\n')[1], el.children[1] === window.kept, window.kept.getAttribute('dir')])).toEqual(['اثنان ثلاثةy', true, 'rtl']);
+      // Another word leaves its line, and those past it, to the field.
+      await say('rtl sideways');
+      expect(await dirs()).toEqual(['rtl', null, null, null]);
+      await say('');
+      expect(await dirs()).toEqual([null, null, null, null]);
+    }, runtime);
+  }, 60000);
+
+  engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: a word stays with its line through an edit that adds or removes one`, async () => {
+    await editor(engine, 'A\nب\nC', async (page, field) => {
+      const dirs = () => field.evaluate(el => [...el.children].map(line => line.getAttribute('dir')));
+      // Words the page wrote before the editor mounted.
+      expect(await dirs()).toEqual(['ltr', 'rtl', 'ltr']);
+      // Return at the end of the first line: the new line takes the word above it, and ب keeps its own.
+      await field.evaluate(el => { el.focus(); el.setSelectionRange(1, 1); });
+      await page.keyboard.press('Enter'); await settle(page);
+      expect(await field.evaluate(el => el.value)).toBe('A\n\nب\nC');
+      expect(await dirs()).toEqual(['ltr', 'ltr', 'rtl', 'ltr']);
+      // Delete at the empty line takes it back out (forward: WebKit's Backspace navigates in the runtime harness).
+      await page.keyboard.press('Delete'); await settle(page);
+      expect(await field.evaluate(el => el.value)).toBe('A\nب\nC');
+      expect(await dirs()).toEqual(['ltr', 'rtl', 'ltr']);
+      // The app's next words go by line number again.
+      await page.evaluate(runtime => {
+        (runtime ? window.original : field()).setAttribute('data-paragraph-dirs', 'rtl');
+        if (!runtime) field().exactMarkup.sync();
+      }, runtime);
+      await settle(page);
+      expect(await dirs()).toEqual(['rtl', 'rtl', 'rtl']);
+    }, runtime, 'data-paragraph-dirs="ltr rtl ltr"');
+  }, 60000);
+
+  engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: undo and redo give back the words of the lines they restore`, async () => {
+    await editor(engine, 'A\nب\nC', async (page, field) => {
+      const dirs = () => field.evaluate(el => [...el.children].map(line => line.getAttribute('dir')));
+      await field.evaluate(el => { el.focus(); el.setSelectionRange(1, el.value.length); });
+      await page.keyboard.press('Delete'); await settle(page);
+      expect([await field.evaluate(el => el.value), await dirs()]).toEqual(['A', ['ltr']]);
+      await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
+      expect([await field.evaluate(el => el.value), await dirs()]).toEqual(['A\nب\nC', ['ltr', 'rtl', 'ltr']]);
+      await page.keyboard.press('ControlOrMeta+Shift+Z'); await settle(page);
+      expect([await field.evaluate(el => el.value), await dirs()]).toEqual(['A', ['ltr']]);
+      await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
+      expect(await dirs()).toEqual(['ltr', 'rtl', 'ltr']);
+    }, runtime, 'data-paragraph-dirs="ltr rtl ltr"');
+  }, 60000);
+
+  engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: undo steps keep their words, which typing and the app's next words do not bring back`, async () => {
+    const dirs = field => field.evaluate(el => [...el.children].map(line => line.getAttribute('dir')));
+    const value = field => field.evaluate(el => el.value);
+    // 64 typed characters are one undo step: the second undo still gives back the first words.
+    // (No x or b: the runtime harness's key handlers cancel them.)
+    await editor(engine, 'A\nب\nC', async (page, field) => {
+      await field.evaluate(el => { el.focus(); el.setSelectionRange(1, el.value.length); });
+      await page.keyboard.press('Delete'); await settle(page);
+      await page.keyboard.type('y'.repeat(64)); await settle(page);
+      expect(await value(field)).toBe(`A${'y'.repeat(64)}`);
+      await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
+      expect(await value(field)).toBe('A');
+      await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
+      expect([await value(field), await dirs(field)]).toEqual(['A\nب\nC', ['ltr', 'rtl', 'ltr']]);
+    }, runtime, 'data-paragraph-dirs="ltr rtl ltr"');
+    // A removed line typed back in takes the word above it, not the one it had.
+    await editor(engine, 'A\nQ', async (page, field) => {
+      await field.evaluate(el => { el.focus(); el.setSelectionRange(1, 3); });
+      await page.keyboard.press('Delete'); await page.keyboard.press('Enter'); await page.keyboard.type('Q'); await settle(page);
+      expect([await value(field), await dirs(field)]).toEqual(['A\nQ', ['ltr', 'ltr']]);
+    }, runtime, 'data-paragraph-dirs="ltr rtl"');
+    // The app's next words forget those undo would have given back, and the
+    // step undo returns to keeps the words drawn then, for the next undo.
+    await editor(engine, 'A\nB\nC', async (page, field) => {
+      await field.evaluate(el => { el.focus(); el.setSelectionRange(3, 3); });
+      await page.keyboard.type('y'); await settle(page);
+      await page.evaluate(runtime => {
+        (runtime ? window.original : field()).setAttribute('data-paragraph-dirs', 'ltr rtl rtl');
+        if (!runtime) field().exactMarkup.sync();
+      }, runtime);
+      await settle(page);
+      await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
+      expect([await value(field), await dirs(field)]).toEqual(['A\nB\nC', ['ltr', 'rtl', 'rtl']]);
+      await field.evaluate(el => el.setSelectionRange(2, 4));
+      await page.keyboard.press('Delete'); await settle(page);
+      expect(await value(field)).toBe('A\nC');
+      await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
+      expect([await value(field), await dirs(field)]).toEqual(['A\nB\nC', ['ltr', 'rtl', 'rtl']]);
+    }, runtime, 'data-paragraph-dirs="ltr rtl ltr"');
+    // The app's setRangeText is an undo step of its own, which keeps its words.
+    await editor(engine, 'A\nب\nC', async (page, field) => {
+      await field.evaluate(el => { el.focus(); el.setRangeText('', 1, 3); });
+      await settle(page);
+      expect([await value(field), await dirs(field)]).toEqual(['A\nC', ['ltr', 'ltr']]);
+      await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
+      expect([await value(field), await dirs(field)]).toEqual(['A\nب\nC', ['ltr', 'rtl', 'ltr']]);
+    }, runtime, 'data-paragraph-dirs="ltr rtl ltr"');
+  }, 60000);
+
+  engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: quote bars, list markers and the placeholder sit at each line's start`, async () => {
+    await editor(engine, '> اقتباس\n- عنصر', async (page, field) => {
+      // Each line's start border and padding, physical: [left border, right border, left padding, right padding].
+      const sides = () => field.evaluate(el => [...el.children].map(line => {
+        const css = getComputedStyle(line);
+        return [css.borderLeftWidth, css.borderRightWidth, css.paddingLeft, css.paddingRight];
+      }));
+      // The list marker's own box, its resolved left and right insets: at the start side, 0.
+      const marker = () => field.evaluate(el => { const css = getComputedStyle(el.children[1], '::before'); return [css.left === '0px', css.right === '0px']; });
+      expect(await sides()).toEqual([['18px', '0px', '0px', '0px'], ['0px', '0px', '28px', '0px']]);
+      expect(await marker()).toEqual([true, false]);
+      // A field whose own direction is right to left, with no words: CSS direction alone.
+      await field.evaluate(el => { el.style.direction = 'rtl'; });
+      expect(await sides()).toEqual([['0px', '18px', '0px', '0px'], ['0px', '0px', '0px', '28px']]);
+      expect(await marker()).toEqual([false, true]);
+      await field.evaluate(el => { el.style.direction = ''; });
+      await page.evaluate(runtime => {
+        (runtime ? window.original : field()).setAttribute('data-paragraph-dirs', 'rtl');
+        if (!runtime) field().exactMarkup.sync();
+      }, runtime);
+      await settle(page);
+      expect(await sides()).toEqual([['0px', '18px', '0px', '0px'], ['0px', '0px', '0px', '28px']]);
+      expect(await marker()).toEqual([false, true]);
+      // Emptied, the placeholder is drawn on the first line, in that line's direction.
+      await field.evaluate(el => { el.value = ''; });
+      await settle(page);
+      expect(await field.evaluate(el => {
+        const line = el.children[0];
+        return [el.value, line.getAttribute('dir'), getComputedStyle(line, '::before').content, getComputedStyle(line, '::before').direction];
+      })).toEqual(['', 'rtl', '"Ask"', 'rtl']);
+    }, runtime, 'placeholder="Ask"');
+  }, 60000);
+
   engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: source selection, range edits, their undo and the app's beforeinput`, async () => {
     await editor(engine, 'hello', async (page, field) => {
       const command = (name, ...args) => page.evaluate(([name, args]) => command(name, args), [name, args]);

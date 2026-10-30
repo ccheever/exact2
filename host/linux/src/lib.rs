@@ -97,9 +97,9 @@ pub mod vnc;
 mod wake;
 mod zone;
 
-/// Install the Windows event-loop wake for native work, images and text results.
+/// Install the window event-loop wake for native work, images and text results.
 /// Removing it at shutdown releases the event loop without stopping shared workers.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub fn set_event_waker(waker: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
     wake::install(waker);
 }
@@ -120,9 +120,11 @@ pub(crate) fn reader_driven() -> bool {
 /// Run `f` inside an atrace section on Android (Perfetto shows it on this
 /// thread); elsewhere just `f`.
 #[inline]
-pub(crate) fn traced<T>(_name: &core::ffi::CStr, f: impl FnOnce() -> T) -> T {
+pub(crate) fn traced<T>(_name: &'static core::ffi::CStr, f: impl FnOnce() -> T) -> T {
     #[cfg(target_os = "android")]
     return android::trace(_name, f);
+    #[cfg(target_os = "macos")]
+    let _trace = exact_ink::device::apple::Trace::new(_name);
     #[cfg(not(target_os = "android"))]
     f()
 }

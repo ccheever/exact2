@@ -19,6 +19,7 @@ pub(crate) unsafe extern "C" fn host_door(
     let a = CStr::from_ptr(a).to_string_lossy();
     let b = CStr::from_ptr(b).to_string_lossy();
     let reply: Result<Option<String>, String> = match op {
+        op if state.refused_ops.contains(&op) => Err(format!("__exact_host: no op {op}")),
         1 => match a.parse::<u64>() {
             Ok(ticket) => match wire::request_from_json(&b) {
                 Ok(request) => {
@@ -203,8 +204,8 @@ pub(crate) unsafe extern "C" fn host_door(
                 .map(|(_, op)| op.size() as u64);
             (start + handed.sum::<u64>()).to_string()
         })),
-        // A fetch the answer made and the module withdrew before it was
-        // handed out (D7: a mutation that also sent on a socket).
+        // A fetch the module withdrew before it was handed out (D7: a
+        // mutation that also sent on a socket; or one the app aborted).
         16 => {
             let ticket = a.parse::<u64>().ok();
             state.requests.retain(|(t, _)| Some(*t) != ticket);
@@ -240,6 +241,15 @@ pub(crate) unsafe extern "C" fn host_door(
                 Ok(None)
             }
             Err(e) => Err(format!("module work state: {e}")),
+        },
+        // A handed-out fetch the app aborted: the runner cancels its request
+        // and resumes the answer that awaits it (`Module::take_aborted`).
+        23 => match a.parse::<u64>() {
+            Ok(ticket) => {
+                state.aborted.push(ticket);
+                Ok(None)
+            }
+            Err(_) => Err("abort: a ticket that is not a number".into()),
         },
         other => Err(format!("__exact_host: no op {other}")),
     };

@@ -84,6 +84,7 @@ internal class Scrolling(private val view: ExactView) {
     var serial = 0
         private set
     private var mode = IDLE
+    val timerActive: Boolean get() = mode != IDLE
     /** What exact2 said is under the touch, once it has. */
     private var chain: List<Link> = emptyList()
     private var claims = 0
@@ -333,7 +334,7 @@ internal class Scrolling(private val view: ExactView) {
 
     private val flinger: Choreographer.FrameCallback = Choreographer.FrameCallback {
         if (mode != FLINGING) return@FrameCallback
-        if (!fling.computeScrollOffset()) { mode = IDLE; return@FrameCallback }
+        if (!fling.computeScrollOffset()) { mode = IDLE; view.timerReport(); return@FrameCallback }
         val at = if (sideways) fling.currX else fling.currY
         val d = (at - flingAt).toFloat()
         flingAt = at
@@ -348,6 +349,7 @@ internal class Scrolling(private val view: ExactView) {
             }
         }
         if (done) mode = IDLE else frames.postFrameCallback(flinger)
+        view.timerReport()
     }
 
     // The ends: the platform's stretch. Android 12's: before it a scroller's end does not move.

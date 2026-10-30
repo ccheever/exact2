@@ -438,6 +438,30 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join("\n")};
   }
+  // An upload's progress (LLP 1016.000 D10): each
+  // event as its mapper gets it, a `progress` of the bytes sent, then `load`.
+  // (`upload-patient`: a deadline past the portable transport's own 30 s)
+  if (op === "upload-progress" || op === "upload-patient") {
+    return fetch("https://example.test/upload", { method: "POST", exactBodyFrom: value, exactUploadProgress: true, exactTimeout: op === "upload-patient" ? 60000 : 30000,
+      exactStream: (e: any) => ({text: e.type === "progress" ? `progress ${e.loaded}/${e.total} ${e.lengthComputable}` : e.type === "load" ? `load ${e.status} ${e.data}` : `${e.type} ${e.kind} ${e.message}`}) } as any);
+  }
+  if (op === "upload-progress-refusals") {
+    const url = "https://example.test/upload", exactStream = () => ({text: ""}), out: string[] = [];
+    const inits: [string, any][] = [
+      [url, { method: "POST", exactStream, exactUploadProgress: "yes" }],
+      [url, { method: "POST", exactUploadProgress: true }],
+      [url, { exactStream, exactUploadProgress: true }],
+      ["wss://example.test/upload", { method: "POST", exactStream, exactUploadProgress: true }],
+      [url, { exactStream, exactUploadProgress: true, exactLongPoll: { cursor: "since", from: "seq" } }],
+      [url, { method: "POST", exactStream, exactUploadProgress: true, redirect: "manual" }],
+      [url, { method: "POST", exactStream, exactTimeout: 30000 }],
+      ["exact-native:", { method: "POST", exactStream, exactUploadProgress: true }],
+    ];
+    for (const [to, init] of inits) {
+      try { await fetch(to, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
   if (op === "write-slow") {
     await storage.fs.writeFile(storage.fs.directories.data + "/slow.jpg", bytes(value));
     return {text: "wrote " + value};

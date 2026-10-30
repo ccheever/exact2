@@ -606,7 +606,7 @@ What a port writes from habit, what the compiler says, and what to write (the eu
 | `` text `${n} cards` `` | `lower-count-plural` (warning) | `` `${n} ${n == 1 ? "card" : "cards"}` `` |
 | `0% rotate=-2deg` in `keyframes` | `syntax-unquoted-length` | `0% rotate="-2deg"`, each keyframe on one line |
 | `tags.find(t => …)` | `syntax-method-call` | `first(tags.filter(t => …))`; in each row of a list, `lower-row-lookup` (warning): join it in the data module |
-| a helper action reading state its caller just set | `analyze-call-stale-read` | `let next = …` in the caller, `n = next`, pass `next` |
+| a helper action reading state its caller just set | `analyze-read-after-assign` (warning) | `let next = …` in the caller, `n = next`, pass `next` |
 | `width=120` on a box of text | `lower-text-px-width` (warning) | `width="7.5rem"`, or let the content size it |
 | `numberOfLines`, `ellipsizeMode`, `resizeMode`, `textTransform`, `fontVariant` | `lower-unknown-attr` | `line-clamp`, `text-overflow`, `object-fit`, `text-transform`, `font-variant-numeric` |
 | `backgroundColor`, `flexDirection`, `onPress`, `activeOpacity` | `lower-unknown-attr` | `background-color`, `flex-direction`, `press`, `-exact-press-opacity` |
@@ -883,12 +883,13 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 - **A helper action does not see what its caller just assigned.** `sel = next`
   then `follow()`, with `follow` reading `sel`, would read the old `sel`: a call
   is its callee's statements in the caller's one commit, and every statement
-  reads the state the action started with (LLP 1089 D2). The compiler refuses the
-  read (`analyze-call-stale-read`), naming both lines. Fix: pass the value the
-  helper should see, `follow(next)`, or a `let` bound before the assignment for
-  the old one. (Spreadsheet F21 and Files F27 diaries, where a copied block was
-  the workaround.) In the action's own body the same read is a warning,
-  `analyze-read-after-assign`: `now = performanceNow()` then `if now >= endsAt`
+  reads the state the action started with (LLP 1089 D2). The compiler warns of
+  the read (`analyze-read-after-assign`, naming both lines; a warning since LLP
+  1035.005.002 C2, as the same read in the action's own body is). Fix: pass the
+  value the helper should see, `follow(next)`, or a `let` bound before the
+  assignment for the old one. (Spreadsheet F21 and Files F27 diaries, where a
+  copied block was the workaround.) In the action's own body the same read is
+  the same warning: `now = performanceNow()` then `if now >= endsAt`
   tests the last tick's time (focus-timer's phases changed 250 ms late in two
   bake-off rounds). Fix: `let stamp = performanceNow()`, `now = stamp`, and read
   `stamp`.
@@ -1380,6 +1381,19 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   own URL, or under a `sandbox` without `allow-same-origin`. (LLP 1020.001 D5;
   Exact Draw, 2026-10-15.)
 
+- **A bundled page cannot fetch an `app:/` path.** A page under `assets/` handed
+  `app:/tmp/a.pdf` in a message cannot load it: no browser fetches the `app:`
+  scheme, and `readFile`'s bytes posted to the page stop at 16 MiB. Fix: name the
+  file in the page's own `src`, encoded,
+  `` src=`assets/viewer/index.html?file=${encodeURIComponent(path)}` `` (unencoded,
+  `report #2.pdf` or `a&b.pdf` is cut short), and read
+  `new URLSearchParams(location.search).get('file')` as a URL: each `app:/cache` or
+  `app:/tmp` value there becomes one the page can fetch, until the frame's `src`
+  changes. `app:/data`, a link or a file that is not there is emptied, and the host
+  logs `… is not given (…)`: copy the file into `app:/cache` first. An HTML, SVG or
+  XML file comes as `application/octet-stream`: read its bytes to show it. Android
+  gives no files: its page sees the paths. (LLP 1020.001 D7, 2026-10-29.)
+
 - **A browser tab's title comes after its load.** On Apple a partitioned
   `iframe`'s `navigatesuccess` usually carries the old or an empty `title`: WebKit
   reports the new one a moment later, as its own `currententrychange`. Show the last
@@ -1753,6 +1767,12 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   older commit left there. Fix: name the apps and pass `--build` with a
   `--wasm-root` of your own (`conform.mjs <app> --build --strict --wasm-root
   /tmp/<yours>`). With no apps named, an empty root compares nothing and passes.
+- **Conformance stops at once with `ERR_OSSL_X509_PUBLIC_KEY_DECODE_ERROR`.** Cause:
+  `/usr/bin/openssl`, macOS's LibreSSL, comes first on `PATH`; it writes the run's EC
+  key with explicit curve parameters, which Bun cannot read back (`startNet` in
+  `host/web-js/conformance/net.mjs`), so every `conform.mjs` run fails, the async
+  lane's `conform`, `conform-firefox` and `conform-webkit` steps included. Fix: put
+  Homebrew's OpenSSL 3 first (`PATH=/opt/homebrew/bin:$PATH`). (#1148, 2026-10-30.)
 - **An `EXACT_WEB_DIST` build compiles, then fails renaming its stage.** The
   destination's parent directory does not exist. Create that parent before
   running `host/web/build.mjs --wasm` with an external dist path.

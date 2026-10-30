@@ -1427,6 +1427,17 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
 /// A grouped list's collection view, by type, for the agent's wheel.
 final class GroupedCollectionView: UICollectionView, GroupedScroller {
+    /// The offset, which UIKit itself also sets (keeping the list at its
+    /// start as a safe area reaches it and insets it): inside an animation
+    /// UIKit has open it moves only if the last frame showed the list's node,
+    /// as a `ScrollView`'s does (`Presenter.moveOrPlace`).
+    override var bounds: CGRect {
+        get { super.bounds }
+        set {
+            guard UIView.inheritedAnimationDuration > 0, let node = superview as? NodeView, let presenter = node.presenter else { return super.bounds = newValue }
+            presenter.moveOrPlace(node) { super.bounds = newValue }
+        }
+    }
     /// The safe area at the sides the collection reaches over (`sideReach`):
     /// the window's, which the host keeps from the views it lays out (LLP
     /// 1123), or a fold's half band. UIKit insets the cards from it, as in a

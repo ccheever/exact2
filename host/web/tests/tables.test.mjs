@@ -1,5 +1,5 @@
 import {test, expect} from 'bun:test';
-import {readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync} from 'node:fs';
+import {readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 import {spawn, spawnSync} from 'node:child_process';
@@ -68,6 +68,35 @@ test('primary declaration reload validates and publishes current files without a
   } finally {watcher?.close();rmSync(root,{recursive:true,force:true});}
 });
 
+test('a reload over unchanged tables leaves assets/ alone, so the app build script does not rerun; a changed table is written', async () => {
+  const root = mkdtempSync(resolve(import.meta.dir, '../../../target/table-unchanged-'));
+  let watcher;
+  try {
+    const app=resolve(root,'app'),dist=resolve(root,'dist');
+    for(const dir of [app,dist])mkdirSync(resolve(dir,'assets'),{recursive:true});
+    writeFileSync(resolve(dist,'gpu_bg.wasm'), new Uint8Array());
+    // Declared out of byte order, as game/bake/tests/tables.rs's game is.
+    writeFileSync(resolve(dist,'gpu.js'), `export function initSync(){};export function exact_game_tables(text){return text||'["weapons.json","labels.json"]';}`);
+    writeFileSync(resolve(app,'weapons.json'),'{"name":"épée"}\r\n');
+    writeFileSync(resolve(app,'labels.json'),'{\t"name": "a\\"b"}\n');
+    // The Rust baker's bytes for these tables (game/bake/tests/tables.rs ORDERED_CARRIER), there first, as after a bake.
+    const baked = "{\"labels.json\":\"{\\t\\\"name\\\": \\\"a\\\\\\\"b\\\"}\\n\",\"weapons.json\":\"{\\\"name\\\":\\\"épée\\\"}\\r\\n\"}";
+    for(const dir of [app,dist])writeFileSync(resolve(dir,'assets/exact-tables.json'),baked);
+    // Cargo's `rerun-if-changed` compares mtimes, of the directory and of the file: older ones show any write.
+    const past = new Date(Date.now() - 60_000);
+    const seen = () => [app,dist].flatMap(dir => [statSync(resolve(dir,'assets')).mtimeMs, statSync(resolve(dir,'assets/exact-tables.json')).mtimeMs, statSync(resolve(dir,'assets/exact-tables.json')).ino]);
+    for(const dir of [app,dist]){utimesSync(resolve(dir,'assets/exact-tables.json'),past,past);utimesSync(resolve(dir,'assets'),past,past);}
+    const before = seen(), published=[];
+    watcher=await watchTables({app,dist,publish:(name,bytes)=>published.push(String(bytes)),refused:e=>{throw new Error(e);}});
+    await watcher.reload(); watcher.flush();
+    expect(published).toEqual([baked,baked,baked]);
+    expect(seen()).toEqual(before);
+    writeFileSync(resolve(app,'weapons.json'),'{"name":"sabre"}'); watcher.flush();
+    expect(readFileSync(resolve(app,'assets/exact-tables.json'),'utf8')).toBe("{\"labels.json\":\"{\\t\\\"name\\\": \\\"a\\\\\\\"b\\\"}\\n\",\"weapons.json\":\"{\\\"name\\\":\\\"sabre\\\"}\"}");
+    expect(statSync(resolve(app,'assets')).mtimeMs).toBeGreaterThan(before[0]);
+  } finally {watcher?.close();rmSync(root,{recursive:true,force:true});}
+});
+
 test('unchanged JS and Rust modules allow live table delivery; changed modules require a generation', () => {
   const browser = readFileSync(new URL('../dev.js',import.meta.url),'utf8');
   const sameModule = new Function(browser.slice(browser.indexOf('function sameModule('),browser.indexOf('async function readBounded'))+'return sameModule;')();
@@ -96,9 +125,9 @@ test('real game dev journals rejected edits and reloads tables after a gpu-dev p
   const table=resolve(app,'movement.json'),rust=resolve(app,'logic/src/lib.rs');
   const originals=[table,rust].map(path=>({path,text:readFileSync(path,'utf8')}));
   const oldApp=process.env.EXACT_APP_DIR;
-  const env={...process.env,PATH:`${process.env.HOME}/.cargo/bin:${process.env.PATH}`,EXACT_APP_DIR:app};delete env.EXACT_GAME_PROOF_PROFILE;
+  const env={...process.env,PATH:`${process.env.HOME}/.cargo/bin:${process.env.PATH}`,EXACT_APP_DIR:app,CARGO_TERM_COLOR:'never',CARGO_TERM_QUIET:'false'};delete env.EXACT_GAME_PROOF_PROFILE;
   let child,drive,log='';
-  const until=async(read,ms=60000)=>{const end=Date.now()+ms;while(Date.now()<end){if(child?.exitCode!==null&&child?.exitCode!==undefined)throw Error('dev exited '+child.exitCode+':\n'+log);const value=await read();if(value)return value;await Bun.sleep(50);}throw Error('dev condition missing:\n'+log.slice(-4000));};
+  const until=async(read,ms=60000,step='dev condition')=>{const end=Date.now()+ms;while(Date.now()<end){if(child?.exitCode!==null&&child?.exitCode!==undefined)throw Error('dev exited '+child.exitCode+':\n'+log);const value=await read();if(value)return value;await Bun.sleep(50);}throw Error(step+' missing after '+ms/1000+' s:\n'+log.slice(-4000));};
   try {
     process.env.EXACT_APP_DIR=app;
     child=spawn(process.execPath,[resolve(import.meta.dir,'../../../game/dev.mjs'),'beacons'],{env,stdio:['ignore','pipe','pipe']});
@@ -147,8 +176,18 @@ test('real game dev journals rejected edits and reloads tables after a gpu-dev p
     await until(()=>log.slice(offset).includes('rust: rebuilt'),600000);
     const receipt=JSON.parse(readFileSync(resolve(app,'dist/bake.json'),'utf8'));
     expect(receipt.products.some(p=>p.path.endsWith('/gpu-dev/beacons_gpu.wasm'))).toBe(true);
-    // The rebuild restarts its resident producer; wait for its first generation.
-    await until(async()=>(await fetch(url+'/exact.json')).ok);
+    // The rebuild restarts its resident producer; wait for its first generation. A game with data of its own bakes
+    // through its web shell's dev bin: a hang guard sized for a loaded machine, not a deadline (theme2's 05:50 ruling).
+    await until(async()=>(await fetch(url+'/exact.json')).ok,300000,'the rebuilt producer\'s first generation (exact.json)');
+    // A second logic edit compiles nothing of the app wasm: the first rebuild's table reload left assets/ alone (an
+    // identical table isn't rewritten), so the web shell's build script, which watches assets/, doesn't rerun (Beacons:
+    // 34-58 s at `web`). Cargo's own lines, uncoloured (the env), show the wasm build ran and found nothing to do.
+    const second=log.length;
+    writeFileSync(rust,originals[1].text+'\n// Exercise the primary development rebuild again.\n');
+    await until(()=>log.slice(second).includes('rust: rebuilt'),600000);
+    expect(log.slice(second)).toContain('Finished `web` profile');
+    expect(log.slice(second)).not.toContain('Compiling beacons-web');
+    await until(async()=>(await fetch(url+'/exact.json')).ok,300000,'the second rebuild\'s first generation (exact.json)');
     await drive.close();
     drive=await open({host:'web',app:'beacons',url:url+'/',size:[1280,720]});
     await drive.tap('play');world=drive.world('world');

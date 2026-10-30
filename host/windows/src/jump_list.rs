@@ -35,6 +35,31 @@ use windows::Win32::UI::Shell::{
     ShellLink,
 };
 
+/// The Shell call owns no window and must not delay the first present or exit.
+#[cfg(windows)]
+pub(crate) fn start(compat: String) {
+    start_detached(move || {
+        super::window::boot_phase("jump-list-started");
+        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some()
+            && std::env::var("EXACT_AGENT_INK_FAULT").as_deref() == Ok("slow-jump-list")
+        {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+        }
+        set_from_compat(&compat);
+        super::window::boot_phase("jump-list-ready");
+    });
+}
+
+#[cfg(any(windows, test))]
+fn start_detached(work: impl FnOnce() + Send + 'static) {
+    if let Err(error) = std::thread::Builder::new()
+        .name("jump-list".into())
+        .spawn(work)
+    {
+        eprintln!("exact-windows: jump list worker: {error}");
+    }
+}
+
 /// A task: its title and the location it opens.
 #[derive(Debug, PartialEq)]
 pub(crate) struct Task {
@@ -97,8 +122,8 @@ pub(crate) fn argument(text: &str) -> String {
 
 #[cfg(windows)]
 /// Set the jump list's tasks to the manifest's items in `compat`; with none,
-/// the app's tasks are cleared. Called on the window's thread, before its
-/// loop runs. A failure is logged: the app runs without the list.
+/// the app's tasks are cleared. Runs on an owned worker after first pixel,
+/// with its own COM apartment. A failure is logged: the app runs without the list.
 pub(crate) fn set_from_compat(compat: &str) {
     if let Err(error) = set(&tasks(compat)) {
         eprintln!("exact-windows: the jump list's tasks: {error}");
@@ -174,6 +199,20 @@ fn title(text: &str) -> windows::core::Result<PROPVARIANT> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pending_shell_call_does_not_block_exit() {
+        let (entered, entry) = std::sync::mpsc::channel();
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        start_detached(move || {
+            entered.send(()).unwrap();
+            let _ = wait.recv_timeout(std::time::Duration::from_secs(2));
+        });
+        entry
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap();
+        drop(release);
+    }
 
     #[cfg(windows)]
     #[test]

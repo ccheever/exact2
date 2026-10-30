@@ -25,6 +25,7 @@ pub(super) struct Checkpoint {
     store_readers: Vec<bool>,
     watching: Vec<Vec<String>>,
     failed_args: Vec<Option<Vec<Value>>>,
+    uploads: super::uploads::Uploads,
     failed_why: Vec<Option<crate::failure::Failure>>,
     failed_mut: Vec<Option<crate::failure::Failure>>,
     refresh_next: Vec<usize>,
@@ -89,6 +90,7 @@ impl<D: DataSource> Runner<D> {
             store_readers: self.store_readers.clone(),
             watching: self.watching.clone(),
             failed_args: self.failed_args.clone(),
+            uploads: self.uploads.clone(),
             failed_why: self.failed_why.clone(),
             failed_mut: self.failed_mut.clone(),
             refresh_next: self.refresh_next.clone(),
@@ -169,6 +171,7 @@ impl<D: DataSource> Runner<D> {
                 }
                 self.watching = c.watching;
                 self.failed_args = c.failed_args;
+                self.uploads = c.uploads;
                 self.ids.work.resources = c.resource_inspection;
                 self.failed_why = c.failed_why;
                 self.failed_mut = c.failed_mut;
@@ -597,6 +600,7 @@ impl<D: DataSource> Runner<D> {
             if let Some(pos) = (self.pending.iter()).position(|p| p.target == Target::Mutation(m)) {
                 let p = self.pending.remove(pos);
                 let_go.push((p.ticket, m));
+                self.note_retired(&p);
                 self.let_go_request(p);
             }
         }
@@ -799,6 +803,7 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn forget_ticket(&mut self, target: Target) {
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let p = self.pending.remove(pos);
+            self.note_retired(&p);
             let t = p.ticket;
             self.note_let_go(t, target);
             self.let_go_request(p);
@@ -858,7 +863,12 @@ impl<D: DataSource> Runner<D> {
                     p.inspection_generation =
                         self.ids.work.resources.get(i).map_or(0, |w| w.request);
                 }
-                let ticket = p.ticket;
+                let (ticket, upload) = (p.ticket, p.upload);
+                // An upload kept for newer arguments is asked at them too (D10).
+                if upload {
+                    let args = p.args.clone();
+                    self.upload_sent(target, &args, ticket);
+                }
                 // The newer arguments' causes join the request's (LLP
                 // 1133.035 D16 item 6).
                 self.note_kept(target, ticket);
@@ -873,6 +883,7 @@ impl<D: DataSource> Runner<D> {
         let reasks = self.overrun_reasks(target, &args, forced);
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let p = self.pending.remove(pos);
+            self.note_retired(&p);
             let t = p.ticket;
             self.note_let_go(t, target);
             self.let_go_request(p);
@@ -902,8 +913,11 @@ impl<D: DataSource> Runner<D> {
             source,
             args,
             continuation: request.continuation,
+            fetch: request.fetch,
             keepable: keepable.then(|| request.clone()),
             stream: sockets::stream_count(&request),
+            upload: request.stream && request.upload_progress,
+            sent: false,
             grant: request
                 .stream
                 .then(|| {
@@ -929,12 +943,23 @@ impl<D: DataSource> Runner<D> {
             reask_at: None,
             reasks,
         });
+        if request.stream && request.upload_progress {
+            let args = self
+                .pending
+                .last()
+                .map(|p| p.args.clone())
+                .unwrap_or_default();
+            self.upload_sent(target, &args, ticket);
+        }
         self.requests.push(RequestOut {
             ticket,
             target: name,
             request,
             forced,
         });
+        // An abort heard before this request was enqueued (in the same
+        // commit, or a worker's turn that landed late) names it now.
+        self.match_aborts();
         self.sync_pending_flags();
     }
 
@@ -968,7 +993,10 @@ impl<D: DataSource> Runner<D> {
     pub fn take_requests(&mut self) -> Vec<RequestOut> {
         self.take_data_logs();
         self.arm_background();
-        let requests = std::mem::take(&mut self.requests);
+        let mut requests = std::mem::take(&mut self.requests);
+        // A request the app aborted before it was handed out is never sent:
+        // the next pump answers it aborted.
+        requests.retain(|r| !self.module_aborts.contains(&r.ticket));
         self.hold_data_timers(requests)
     }
 
@@ -1108,6 +1136,8 @@ impl<D: DataSource> Runner<D> {
         outcome: Outcome,
         elapsed_ms: Option<u64>,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
+        // A let-go request's reply: it has ended, and an abort names it no more.
+        self.retired_fetches.retain(|r| r.1 != ticket);
         let answering = std::mem::replace(&mut self.churn.answering, true);
         let out = self.arrived(|r| r.fulfill_now(ticket, outcome, elapsed_ms));
         self.churn.answering = answering;
@@ -1155,6 +1185,11 @@ impl<D: DataSource> Runner<D> {
             }
             // A listener's word on its address alone (LLP 1133.005 D2).
             if self.listen_event(pos, m) {
+                return Ok(None);
+            }
+            // An upload's start (LLP 1016.000 D10): noted; no mapper sees it.
+            if self.pending[pos].upload && m.upload_started() {
+                self.pending[pos].sent = true;
                 return Ok(None);
             }
             return self.message(pos, outcome, &summary);
@@ -1218,6 +1253,10 @@ impl<D: DataSource> Runner<D> {
         summary: &str,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         let was_poisoned = self.poisoned;
+        // An upload's bytes sent: it has reached the network (D10), which a
+        // refused commit of this message does not undo.
+        let upload = self.pending[pos].upload;
+        self.pending[pos].sent |= upload;
         let checkpoint = self.checkpoint(true);
         if self.pending[pos].long_poll {
             self.long_poll_replied(pos);
@@ -1234,7 +1273,13 @@ impl<D: DataSource> Runner<D> {
         let what = super::lines::fulfilling(ticket, &name, summary);
         let before = self.sockets.len();
         crate::stream_timing::entered(ticket);
-        let result = self.fulfill_inner(p, outcome);
+        // A frame lands as a commit of its stream's origin (LLP 1133.002
+        // D12), with every cause its request has (LLP 1133.035 D16 item 6),
+        // as a one-shot's reply does: a stream a tool asked answers as the
+        // tool's, frame after frame.
+        let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
+        let causes = self.ticket_causes(ticket);
+        let result = self.as_invocation_caused(origin, id, causes, |r| r.fulfill_inner(p, outcome));
         // What the mapper staged answering this frame (LLP 1016.000 D7):
         // addressed for the commit, or left staged by a frame that failed.
         // The commit's answers may have sent too (its amendment of
@@ -1244,7 +1289,7 @@ impl<D: DataSource> Runner<D> {
         let replied = left || self.sockets[before..].iter().any(mapper);
         self.conclude(checkpoint, &result, was_poisoned);
         crate::stream_timing::committed(result.is_ok());
-        self.arm_then(result.is_ok());
+        self.as_invocation_caused(origin, id, causes, |r| r.arm_then(result.is_ok()));
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         // Or by one whose answer reopened the stream, which sends none.
@@ -1271,6 +1316,7 @@ impl<D: DataSource> Runner<D> {
         }
         let name = self.target_name(p.target);
         let message = p.stream.is_some() && matches!(outcome, Outcome::Message(_));
+        let failed_end = matches!(outcome, Outcome::Failed { .. });
         let ty = match p.target {
             Target::Resource(i) => self.plan.resources[i].ty,
             Target::Mutation(m) => self.plan.mutations[m].ty,
@@ -1318,6 +1364,7 @@ impl<D: DataSource> Runner<D> {
             self.store.take_sockets();
         }
         self.stage_answer(p.target);
+        self.hear_aborted();
         for line in self.data.take_logs() {
             self.log(line);
         }
@@ -1396,6 +1443,12 @@ impl<D: DataSource> Runner<D> {
                 self.stale[i] = false;
                 self.failed_args[i] = None;
                 self.keep_answer(i, &p.args, &value);
+                // An upload's end is the answer it stands on at its arguments;
+                // one that never reached the network is an ordinary answer (D10).
+                if p.upload && !message {
+                    let end = super::UploadEnd::Answered(value.clone());
+                    self.upload_over(p.ticket, p.sent || !failed_end, end);
+                }
                 if p.ask_again {
                     self.log(super::lines::asked_again(p.ticket, &name));
                     self.force_refresh(i);

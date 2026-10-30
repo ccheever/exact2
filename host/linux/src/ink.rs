@@ -24,7 +24,7 @@ mod svg;
 mod tests;
 mod text;
 
-/// Headless instanced painter; its premultiplied pixels use the presenter's ordinary path.
+/// Instanced painter with window presentation and premultiplied pixel readback.
 pub struct Ink {
     device: Selected,
     encoder: Encoder,
@@ -44,6 +44,7 @@ pub struct Ink {
     page: [u8; 4],
     clear: [f64; 4],
     error: Option<String>,
+    device_lost: bool,
     layer_ms: f64,
     last_ms: (f64, f64),
     statistics: StatisticsReader,
@@ -86,6 +87,7 @@ impl Ink {
             page: [255; 4],
             clear: [1.; 4],
             error: None,
+            device_lost: false,
             layer_ms: 0.,
             last_ms: (0., 0.),
             statistics: StatisticsReader::default(),
@@ -102,6 +104,7 @@ impl Ink {
         match result {
             Ok(value) => Some(value),
             Err(e) => {
+                self.device_lost |= matches!(e, Error::DeviceLost(_));
                 self.error.get_or_insert_with(|| e.to_string());
                 None
             }
@@ -274,6 +277,14 @@ impl Ink {
 }
 
 impl Backend for Ink {
+    #[cfg(target_os = "macos")]
+    fn attach_apple_layer(
+        &mut self,
+        layer: exact_ink::device::apple::Layer,
+    ) -> std::result::Result<Info, String> {
+        self.device.attach_layer(layer).map_err(|e| e.to_string())?;
+        Ok(self.info().clone())
+    }
     #[cfg(windows)]
     fn displayed_process_ms(&self) -> std::result::Result<Option<f64>, String> {
         if let Selected::D3d11(device) = &self.device {
@@ -299,8 +310,29 @@ impl Backend for Ink {
         Ok(false)
     }
 
+    fn lost_device_needs_cpu(&self) -> bool {
+        self.device_lost && matches!(self.device, Selected::Wgpu(_))
+    }
     fn name(&self) -> &'static str {
         "ink"
+    }
+    #[cfg(windows)]
+    fn device_lost(&self) -> bool {
+        self.device_lost
+    }
+    #[cfg(windows)]
+    fn collect_retired_devices(&mut self) -> usize {
+        match &mut self.device {
+            Selected::D3d11(d) => d.collect_presented_devices(),
+            _ => 0,
+        }
+    }
+    #[cfg(windows)]
+    fn presentation_retry_delay(&self) -> Option<std::time::Duration> {
+        match &self.device {
+            Selected::D3d11(d) => d.presentation_retry_delay(),
+            _ => None,
+        }
     }
     fn needs_geometry_paint(&self) -> bool {
         true
@@ -611,13 +643,19 @@ impl Backend for Ink {
         if let Some(e) = &self.error {
             return Err(e.clone());
         }
-        while !self.groups.is_empty() {
-            self.close_group().map_err(|e| e.to_string())?;
-        }
-        let target = self.flush().map_err(|e| e.to_string())?;
+        let mut readback = Instant::now();
+        let result = (|| {
+            while !self.groups.is_empty() {
+                self.close_group()?;
+            }
+            let target = self.flush()?;
+            readback = Instant::now();
+            self.device.readback(target)
+        })();
+        let bytes = self
+            .accept(result)
+            .ok_or_else(|| self.error.clone().unwrap())?;
         let render_ms = self.layer_ms;
-        let readback = Instant::now();
-        let bytes = self.device.readback(target).map_err(|e| e.to_string())?;
         let pixels = Pixmap::from_vec(
             bytes,
             tiny_skia::IntSize::from_wh(self.size[0], self.size[1]).unwrap(),
@@ -628,9 +666,30 @@ impl Backend for Ink {
         Ok(pixels)
     }
     fn finish_for(&mut self, target: FrameTarget) -> std::result::Result<Option<Pixmap>, String> {
+        #[cfg(target_os = "macos")]
+        let _trace = exact_ink::device::apple::Trace::new(c"ink finish");
         if target == FrameTarget::Geometry {
             Ok(None)
         } else {
+            #[cfg(target_os = "macos")]
+            if target == FrameTarget::Window && self.device.has_layer() {
+                if let Some(e) = &self.error {
+                    return Err(e.clone());
+                }
+                let result = (|| {
+                    while !self.groups.is_empty() {
+                        self.close_group()?;
+                    }
+                    let texture = self.flush()?;
+                    self.last_ms = (self.layer_ms, self.device.present(texture)?);
+                    Ok(())
+                })();
+                if self.accept(result).is_none() {
+                    return Err(self.error.clone().unwrap());
+                }
+                self.update_statistics();
+                return Ok(None);
+            }
             #[cfg(windows)]
             if target == FrameTarget::Window
                 && matches!(&self.device, Selected::D3d11(d) if d.has_window())
@@ -638,13 +697,18 @@ impl Backend for Ink {
                 if let Some(e) = &self.error {
                     return Err(e.clone());
                 }
-                while !self.groups.is_empty() {
-                    self.close_group().map_err(|e| e.to_string())?;
-                }
-                let texture = self.flush().map_err(|e| e.to_string())?;
-                if let Selected::D3d11(device) = &mut self.device {
-                    let present_ms = device.present(texture).map_err(|e| e.to_string())?;
-                    self.last_ms = (self.layer_ms, present_ms);
+                let result = (|| {
+                    while !self.groups.is_empty() {
+                        self.close_group()?;
+                    }
+                    let texture = self.flush()?;
+                    if let Selected::D3d11(device) = &mut self.device {
+                        self.last_ms = (self.layer_ms, device.present(texture)?);
+                    }
+                    Ok(())
+                })();
+                if self.accept(result).is_none() {
+                    return Err(self.error.clone().unwrap());
                 }
                 self.update_statistics();
                 return Ok(None);
@@ -688,6 +752,8 @@ impl Backend for Ink {
         self.keep_slot();
     }
     fn slot_again(&mut self, row: u32, id: exact_kernel::ViewId) -> bool {
+        #[cfg(target_os = "macos")]
+        exact_ink::device::apple::trace_mark(c"image slot again", || id as f64);
         self.replace_slot(row, id)
     }
     fn layer_begin(&mut self, key: u64, ts: Transform, pivot: (f32, f32), base: [f32; 7]) -> bool {

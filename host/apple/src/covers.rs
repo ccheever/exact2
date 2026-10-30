@@ -6,11 +6,23 @@
 //! shows that subtree's root when it does not lift it to the top layer (a
 //! stack's route, LLP 1123 D2), which only the runner's geometry reads.
 //! And the margins UIKit's own list gives a grouped list's cards and cells,
-//! and which split placeholders a pane shows (LLP 1116.006 D2).
+//! and which split placeholders a pane shows (LLP 1116.006 D2). And the
+//! size a person dragged a box's `resize` grip to (`Runner::resize_box`).
 
 use super::Host;
 use exact_kernel::{BlockMeasure, GroupedMargins, HostBlock, HostCover, ViewId};
 use exact_runner::DataSource;
+
+/// A host's restyle of a box under the claims' layout.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Restyle {
+    /// Show (`true`) or hide a split's own placeholder
+    /// (`Runner::show_split_placeholder`).
+    Placeholder(bool),
+    /// The border box's width and height a person dragged its `resize`
+    /// grip to; `None` keeps an axis (`Runner::resize_box`).
+    Size([Option<f32>; 2]),
+}
 
 impl<D: DataSource> Host<D> {
     /// Several boxes' covers (`None` clears one) under one layout. A refusal
@@ -59,7 +71,7 @@ impl<D: DataSource> Host<D> {
         placements: &[(ViewId, Option<exact_runner::BlockPlacement>)],
         margins: &[(ViewId, Option<GroupedMargins>)],
         list_margins: &[(ViewId, Option<[f32; 2]>)],
-        shows: &[(ViewId, bool)],
+        restyles: &[(ViewId, Restyle)],
     ) -> String {
         let needs_layout = !(covers.is_empty()
             && blocks.is_empty()
@@ -70,17 +82,22 @@ impl<D: DataSource> Host<D> {
         }
         let mut batch = crate::batch::Batch::new();
         let mut error = None;
-        // A placeholder's style changes as a commit does, so the presenter
-        // hears its rows; it is laid out with the claims below, once.
+        // A placeholder's or a resized box's style changes as a commit does,
+        // so the presenter hears its rows; it is laid out with the claims
+        // below, once.
         let mut receipts = Vec::new();
-        for &(view, shown) in shows {
-            match self.runner.show_split_placeholder(view, shown) {
+        for &(view, restyle) in restyles {
+            let restyled = match restyle {
+                Restyle::Placeholder(shown) => self.runner.show_split_placeholder(view, shown),
+                Restyle::Size([width, height]) => self.runner.resize_box(view, width, height),
+            };
+            match restyled {
                 Ok(Some(receipt)) => receipts.push(exact_runner::Timed {
                     at_ms: self.now_ms,
                     receipt,
                 }),
                 Ok(None) => {}
-                Err(e) => drop(error.get_or_insert(format!("placeholder: {e:?}"))),
+                Err(e) => drop(error.get_or_insert(format!("restyle: {e:?}"))),
             }
         }
         for (view, cover) in self.top_layer_claims(covers) {

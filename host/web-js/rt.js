@@ -1,7 +1,7 @@
 import { resourceInspection } from "./resource-inspection.js";
 import { oneActivation, suppressedInvocation, releaseAsset as rel } from "./elements.js"; import { reloadOnGone } from "./generation-reload.js"; import { rt as Link } from "./rt-link.js";
 export { liveTime } from "./live-time.js";
-import { commitGuestOrigin, guestMessageAuthorized, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
+import { commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; import { conforms, eq, equal, failureCode, failureReason, loneSurrogate } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; import { counted, heldAsks, heldReplies, longPollReplied, longPollEnded } from "./held.js"; export { heldAsks, heldReplies }; // optimistic writes shown over answers (the runner's writes.rs)
@@ -291,15 +291,15 @@ const AGENT_ADMITTED = true;
 /** Whether the agent drives this page (or a render does): the clock is then the driver's. */ export const agentMode = () => !!globalThis.__exactRender || (AGENT_ADMITTED && new URLSearchParams(location.search).has("agent"));
 /** A timer: `every(ms, action, once)`, due from mount; `i` its plan order, which breaks ties (schedule.js inserts by it). */
 let Order = 0; export const order = () => Order++, Tasks = []; // every task, for the agent's `state.tasks`
-export function every(ms, action, once, name) {
-  clock.timers.push({ due: clock.now + ms, ms, action, once, name, i: Order++ }); Tasks.push(clock.timers.at(-1));
+export function every(ms, action, once, name, wait = 0, max = 0, tolerance = 0) {
+  clock.timers.push({ due: clock.now + ms, ms, action, once, name, wait, max, tolerance, i: Order++ }); Tasks.push(clock.timers.at(-1));
   if (!clock.agent) drive();
 }
 // A frame task (LLP 1073): once per presented frame, never caught up; on the
 // agent's seekable clock, a virtual frame every 1000/60 ms after it last fired.
 // The kth virtual frame after `base`, the product first, as the runner's
 // `virtual_frame`: sixty frames are exactly a second.
-const vf = (base, k) => base + k * 1000 / 60; Object.assign(Link, { clock, every, commit, journal }); // (for lazy chunks: rt-link.js)
+const vf = (base, k) => base + k * 1000 / 60; Object.assign(Link, { clock, every, commit, journal, advance, drive, wall: () => performance.now() - start, nextMutation: () => Mutations.reduce((due, m) => Math.min(due, m.due ?? Infinity, m.next ?? Infinity), Infinity), fireTimer: t => fire(t.action), busy: () => !!Writes, poisoned: () => Poisoned, pauseTimers: () => { clearTimeout(driving); globalThis.cancelAnimationFrame?.(painting); driving = painting = 0; } }); // (for lazy chunks: rt-link.js)
 /** `every(frame, action)`. */
 export function frames(action, name) {
   clock.timers.push({ due: vf(clock.now, 1), base: clock.now, k: 1, frame: true, action, name, i: Order++ }); Tasks.push(clock.timers.at(-1));
@@ -313,25 +313,25 @@ export function frames(action, name) {
  * alone, at `to` = now, as an agent's input ends (Runner::land_then; trivia F3). */
 export function advance(to, wall, stop, timers = true) {
   if (!Number.isFinite(to)) return say(`refused advance: NonFiniteClock (${to})`), journal.at(-1);
-  let fired = 0, stopped = false;
+  if (Poisoned) return say("refused advance: Poisoned"), journal.at(-1); to = Link.timerWait?.cutoff(to, wall) ?? to; let fired = 0, stopped = false;
   for (;;) {
-    let next = null, then = null, head = null;
-    // A hatch's instant (hatches.js, LLP 1075.003.000.001 §2.4) and an answer's timer (ts-fetch.js) come after the timers and frame tasks due at the same time.
-    if (timers && !clock.stopped) for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due || t.due === next.due && (next.hatch || next.data) && !t.hatch && !t.data)) next = t;
+    let next = null, then = null, head = null; const execution = t => Link.timerWait?.execution(t, wall) ?? t.due, priority = t => t.hatch || t.data ? 2 : t.wait === 4 ? 1 : 0;
+    // Run authored tasks before hatch and data callbacks due at the same time
+    if (timers && !clock.stopped) for (const t of clock.timers) if (execution(t) <= to && !(wall && t.frame) && (!next || execution(t) < execution(next) || execution(t) === execution(next) && (priority(t) < priority(next) || priority(t) === priority(next) && t.due < next.due))) next = t;
     // An answer's `then` goes before a timer due at the same time: the answer landed first; a queue's `next` between them (LLP 1092 D3).
-    for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= next.due)) then = m;
-    for (const m of Mutations) if (m.next <= to && (!head || m.next < head.next) && (!next || m.next <= next.due) && (!then || m.next < then.due)) head = m;
+    for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= execution(next))) then = m;
+    for (const m of Mutations) if (m.next <= to && (!head || m.next < head.next) && (!next || m.next <= execution(next)) && (!then || m.next < then.due)) head = m;
     if (head) then = null;
     if (!next && !then && !head) break;
     if (fired === 4096) return say("refused advance: 4096 commits in one advance (TIMER_FIRE_LIMIT)"), journal.at(-1);
     // On the wall clock (the timers RFC, D2, D3) a repeat that missed beats fires once, its firing consumed first; each callback observes the clock as it runs and as it ends, and what it arms takes its place; a repeat's next beat is the first of its phase after the end, unless its callback dropped it, or re-armed it (a gate's step) from there.
-    const at = head ? head.next : then ? then.due : next.due, repeat = wall && !head && !then && !next.once && !next.frame && !next.hatch, gen = next?.gen;
+    const at = head ? head.next : then ? then.due : next.due, repeat = (wall || next?.wait) && !head && !then && !next.once && !next.frame && !next.hatch, gen = next?.gen;
     if (head) clock.now = Math.max(clock.now, head.next);
     else if (then) { clock.now = Math.max(clock.now, then.due); then.due = Infinity; }
-    else { clock.now = wall ? Math.max(clock.now, next.due) : next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else if (!next.hatch) next.due = next.frame ? vf(next.base, ++next.k) : repeat ? beatAfter(at, next.ms, Math.max(clock.now, to)) : next.due + next.ms; }
-    const due = next?.due, sample = () => { if (wall) clock.now = Math.max(clock.now, performance.now() - start); }; sample(); Instant = wall ? at : null; const ok = fire(head ? () => Sched.next(head) : then ? () => commit(then.then, `${then.name} then`) : next.action); Instant = null; sample();
-    if (repeat && clock.timers.includes(next)) next.due = next.gen === gen && next.due === due ? beatAfter(at, next.ms, Math.max(clock.now, to)) : clock.now + next.ms; if (ok !== true) return journal.at(-1);
-    if (head || then || !next.hatch && !next.data) fired++; // a hatch's instant is no commit: it has its own caps; nor is an answer's timer (ts-fetch.js)
+    else { clock.now = wall ? Math.max(clock.now, execution(next)) : execution(next); if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else if (!next.hatch) next.due = next.frame ? vf(next.base, ++next.k) : repeat ? beatAfter(at, next.ms, Math.max(clock.now, wall ? to : clock.now)) : next.due + next.ms; }
+    if (!head && !then && !next.hatch && !next.data) { const counts = clock.timerFirings ??= Array(7).fill(0); counts[next.frame ? 6 : wall && next.wait ? 5 : next.wait ?? 0]++; } const due = next?.due, sample = () => { if (wall) clock.now = Math.max(clock.now, performance.now() - start); }; sample(); Instant = wall ? (next?.wait ? clock.now : at) : null; const ok = fire(head ? () => Sched.next(head) : then ? () => commit(then.then, `${then.name} then`) : next.action); Instant = null; sample();
+    if (repeat && clock.timers.includes(next)) next.due = next.gen === gen && next.due === due ? beatAfter(at, next.ms, Math.max(clock.now, wall ? to : clock.now)) : clock.now + next.ms; if (ok !== true) return journal.at(-1);
+    if (head || then || !next.hatch && !next.data) { fired++; } // Hatch and data callbacks have their own limits
     if (stop?.()) { stopped = true; break; }
   }
   if (!stopped) clock.now = Math.max(clock.now, to);
@@ -343,26 +343,26 @@ export function advance(to, wall, stop, timers = true) {
 function fire(f) { for (const c of Clocked) c(); Timing = true; try { return f(); } finally { Timing = false; } }
 let driving = 0, start = 0, painting = 0;
 export function drive() {
-  clearTimeout(driving);
+  clearTimeout(driving); if (clock.agent || Poisoned) return;
   let next = Infinity;
-  for (const t of [...(clock.stopped ? [] : clock.timers), ...Mutations]) if (!t.frame && t.due < next) next = t.due; // no timer while a wake runs unseen (wakes.js)
+  for (const t of [...(clock.stopped ? [] : clock.timers), ...Mutations]) if (!t.frame) next = Math.min(next, Link.timerWait?.wake(t) ?? t.due + (t.tolerance ?? 0)); // no timer while a wake runs unseen (wakes.js)
   for (const m of Mutations) if (m.next < next) next = m.next;
   if (!isFinite(next)) return;
-  driving = setTimeout(() => { advance(performance.now() - start, true); drive(); }, Math.max(0, next - (performance.now() - start)));
+  const token = Link.timerWait?.generation(); driving = setTimeout(() => { if (clock.agent || token !== Link.timerWait?.generation()) return; advance(performance.now() - start, true); Link.timerWait?.check(); drive(); }, Math.min(2147483647, Math.max(0, next - (performance.now() - start))));
 }
 // Presented frames: before each paint, timers due by the frame's time, then
 // every frame task once at it (Runner::frame).
 export function paint() {
   if (painting || typeof requestAnimationFrame !== "function") return;
-  painting = requestAnimationFrame(function frame(ts) {
-    painting = 0;
+  const token = Link.timerWait?.generation(); painting = requestAnimationFrame(function frame(ts) {
+    if (Poisoned || token !== Link.timerWait?.generation()) return; painting = 0;
     if (clock.agent || !clock.timers.some(t => t.frame)) return;
     painting = requestAnimationFrame(frame);
     advance(Math.max(clock.now, ts - start), true);
-    const at = clock.now, rev = Rev, ticket = Ticket;
+    Link.timerWait?.check(true); const at = clock.now, rev = Rev, ticket = Ticket;
     NowRead = false;
     // A frame task's commit may arm or drop one (a gate, LLP 1092 D10): each armed at the frame's start fires once.
-    for (const t of clock.timers.filter(t => t.frame).sort((a, b) => !!a.hatch - !!b.hatch)) if (clock.timers.includes(t)) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t.action); }
+    for (const t of clock.timers.filter(t => t.frame).sort((a, b) => !!a.hatch - !!b.hatch)) if (clock.timers.includes(t)) { t.base = at; t.k = 1; t.due = vf(at, 1); (clock.timerFirings ??= Array(7).fill(0))[6]++; fire(t.action); }
     // Frames whose tasks changed nothing and read no clock would change
     // nothing again until state does: the loop parks until a commit writes
     // (skipping a frame that would commit nothing is unobservable).
@@ -377,8 +377,8 @@ function unpark() { if (Parked >= 0 && Rev !== Parked) { Parked = -1; paint(); }
 /** The app's data sources (LLP 1016). `answer(source, args, store)` gives
  * `{v}` now, `{req}` (an HTTP request the host runs, then `parse`s),
  * a Promise (an executor-local continuation: TypeScript), or `null` while
- * the source is not ready; `ready(f)` calls `f` once it is. */
-export const data = { answer: () => null, parse: null, q: [], ready: f => data.q.push(f) };
+ * the source is not ready; `ready(f)` calls `f` once it is. `uploads`: the uploads asked, none until ts-data.js installs uploads.js's `ledger` (LLP 1016.000 D10). */
+export const data = { answer: () => null, parse: null, q: [], ready: f => data.q.push(f), uploads: { at() {}, ends: (r, t, ...c) => c, kept: r => r.value } };
 const DEVELOPMENT_STORE = null; // a development build's app directory, as storage-environment.js's (host/web-js/build.mjs writes both)
 /** The page's `localStorage` keys of a kind: "exact.<kind>.<name>", or in a development build "exact.<kind>.@<digest>/<name>", its app's own on the origin the dev server's apps share (LLP 1116.004 D8). Persisted state's kind is "state" (persist.js); the durable store's (LLP 1018, `Store`: name → text, kept after a commit stands) is "secret". */
 export const Kept = kind => `exact.${kind}.${DEVELOPMENT_STORE ? `@${DEVELOPMENT_STORE}/` : ''}`;
@@ -406,7 +406,7 @@ function send(t, land) {
     // A stream's message (`more`) keeps its ticket; anything else ends it.
     const done = (o, more) => {
       if (t.closed) return;
-      if (t.waiting) { t.waiting = false; counted(t, inflight); }
+      if (t.waiting && !(more && t.upload)) { t.waiting = false; counted(t, inflight); } // an upload is in flight until its reply
       t.elapsed = Math.max(0, Math.round(performance.now() - started));
       if (more) { t.messages++; t.coalesced += (o.streamed ?? o).coalesced ?? 0; o.more = true; } else { Open.delete(t); longPollEnded(t); }
       say(`${more ? "message" : "reply"} ${t.id}; wall ${t.elapsed} ms`); land(o);
@@ -461,7 +461,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   const ver = sig(0), pend = sig(false), fail = sig(null);
   const kept = checkpoint().kept?.get(name);
   if (kept) [initialArgs, initial] = kept;
-  const r = { name, source, type, value: initial, settled: initialArgs, baked: !kept && !carried && initialArgs !== undefined, ticket: null, forced: false, rev: false, store: false, origin: 0 };
+  const r = { name, source, type, value: initial, settled: initialArgs, baked: !kept && !carried && initialArgs !== undefined, ticket: null, forced: false, rev: false, store: false, origin: 0, marks: [], context: args.context ?? 0 }; // `marks`: the uploads it asked, `context`: how many of its last arguments are its `with` context (uploads.js)
   Inspections.track(r, !kept && !carried, () => pend.n.v);
   const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } }, release = () => { if (r.ticket) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; } flag(pend, false); }, fails = (args, error, code, reason) => { r.failed = args; r.error = error; r.code = code; r.reason = reason; flag(fail, failure()); release(); say(`resource ${name} failed: ${error}`); Inspections.fail(r); return r.value; }, failure = () => r.failed ? [r.failed, r.code ?? "error", r.error ?? "it failed", r.reason ?? ""] : null; // `fail` holds the message too: a `failure(x)` reader is asked again when only it changes
   const hold = () => {
@@ -475,20 +475,20 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     r.checked = v;
     r.value = v; r.settled = a; r.origin = origin; Inspections.take(r, generation);
   };
-  const land = t => reply(t, name, source, () => r.ticket === t, (p, o) => {
+  const land = t => reply(t, name, source, () => r.ticket === t, ...data.uploads.ends(r, t, (p, o) => { // an upload keeps how it ended (uploads.js)
     if (t.call?.seen?.read || p.store) r.store = t.read = true; if (p.req) { if (o.more) { const n = { id: ++Ticket, name, owner: r, args: t.args, req: p.req, r, origin: t.origin, generation: t.generation }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
     if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args, t.origin, t.generation); r.failed = null; r.error = r.code = r.reason = undefined; if (!o.more) r.ticket = null; again(t);
-    W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
-  }, "it keeps its last value", (error, code, reason) => { if (t.call?.seen?.read || t.read || data.threwRead?.()) r.store = true; r.ticket = null; r.failed = t.args; r.error = error; r.code = code; r.reason = reason; write(pend.n, false); write(fail.n, failure()); Inspections.fail(r); });
+    W(pend, !!(o.more && t.upload)); W(fail, null); W(ver, ver.n.v + 1); // an upload is pending until its reply
+  }, "it keeps its last value", (error, code, reason) => { if (t.call?.seen?.read || t.read || data.threwRead?.()) r.store = true; r.ticket = null; r.failed = t.args; r.error = error; r.code = code; r.reason = reason; write(pend.n, false); write(fail.n, failure()); Inspections.fail(r); }));
   const m = memo(() => Ov.shown(r, (() => {
     ver();
     const a = r.asked = args(); if (Restoring) return flag(fail, failure()), r.value; // `asked`: the overlay's arguments while a placeholder stands; a refused commit put `failed` back, and `fail` follows it there too
-    const forced = r.forced, rev = r.rev, reconciling = r.reconciling; // `reconciling`: asked after a write ended, a refusal fails it (overlay.js)
+    const forced = r.forced, rev = r.rev, reconciling = r.reconciling, mk = data.uploads.at(r, a); // `reconciling`: asked after a write ended, a refusal fails it (overlay.js); `mk`: an upload asked at these arguments, not asked again (LLP 1016.000 D10)
     r.forced = r.rev = r.reconciling = false;
-    // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.
-    if (r.failed && (forced || !equal(a, r.failed))) { r.failed = null; r.error = r.code = r.reason = undefined; }
+    // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs), but not an upload's. `fail` follows.
+    if (r.failed && (forced && !mk?.failed || !equal(a, r.failed))) { r.failed = null; r.error = r.code = r.reason = undefined; }
     flag(fail, failure());
-    if (r.failed) return r.value;
+    if (r.failed || mk) return r.failed ? r.value : data.uploads.answer(r, mk, a, { take, fails, release }); // an upload answers as it ended, or goes on
     const baked = r.baked; r.baked = false;
     if (!forced && !rev) {
       // Arguments compare as the runner's do (`equal`: `-0` is `0`, NaN asks again); a bake is asked once anyway (LLP 1048.003 D6).
@@ -512,14 +512,14 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
       if (!r.ticket) flag(pend, false);
       return r.value;
     }
-    if (ans && ans.req && !forced && !rev && r.ticket?.req && !equal(a, r.ticket.args) && sameReq(ans.req, r.ticket.req)) {
+    if (ans && !forced && !rev && r.ticket && !equal(a, r.ticket.args) && (ans.req && r.ticket.req && sameReq(ans.req, r.ticket.req) || ans.upload && ans.upload === r.ticket.upload)) { // a Rust request, or an upload (LLP 1016.000 D10)
       say(`keep request ${r.ticket.id} (${name}): the same request for newer arguments`);
       r.ticket.args = a; r.ticket.generation = r.inspection?.request;
-      return r.value;
+      return data.uploads.kept(r, a); // what it shows meanwhile; an upload's mark covers these arguments too
     }
     if (ans && (ans.req || ans.promise || ans.stream)) {
       hold();
-      const t = { id: ++Ticket, name, owner: r, args: a, req: ans.req, promise: ans.promise, call: ans.call, stream: ans.stream, baked, r, origin: Ov.tick(), generation: r.inspection?.request }; if (baked) say(`${name} shows its build-time answer until its source answers`);
+      const t = { id: ++Ticket, name, owner: r, args: a, req: ans.req, promise: ans.promise, call: ans.call, stream: ans.stream, upload: ans.upload, baked, r, origin: Ov.tick(), generation: r.inspection?.request }; if (baked) say(`${name} shows its build-time answer until its source answers`);
       if (r.ticket) say(`forget ticket ${r.ticket.id} (${name})`);
       r.ticket = t; flag(pend, true); send(t, land(t));
       return r.value;
@@ -532,8 +532,8 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     return r.value;
   })(), r.settled ?? r.asked, r.origin), type);
   Object.assign(r, {
-    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again, r.code, r.origin, r.forced, r.reconciling, r.rev, r.reason, r.inspection && { ...r.inspection }, r.ticket?.generation],
-    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; r.ticket.generation = x[16]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; r.code = x[9]; r.origin = x[10]; r.forced = x[11]; r.reconciling = x[12]; r.rev = x[13]; r.reason = x[14]; r.inspection = x[15]; write(ver.n, ver.n.v + 1); }, // and what it shows is read again, from what was put back
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again, r.code, r.origin, r.forced, r.reconciling, r.rev, r.reason, r.inspection && { ...r.inspection }, r.ticket?.generation, r.marks],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; r.ticket.generation = x[16]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; r.code = x[9]; r.origin = x[10]; r.forced = x[11]; r.reconciling = x[12]; r.rev = x[13]; r.reason = x[14]; r.inspection = x[15]; r.marks = x[17]; write(ver.n, ver.n.v + 1); }, // and what it shows is read again, from what was put back
     force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
     touch: undo => flag(ver, ver.n.v + 1, undo), // its writes changed: what it shows is laid over again
     reconcile: undo => { r.forced = r.reconciling = true; flag(ver, ver.n.v + 1, undo); },
@@ -679,11 +679,11 @@ if (typeof addEventListener === "function") for (const [type, on] of [["composit
 const navigable = (v, e) => { try { const p = new URL(v, document.baseURI).protocol; return ["http:", "https:", "mailto:", "tel:"].includes(p) || p === "data:" && e?.localName === "iframe" && opaque(e); } catch { return false; } }, opaque = e => e.hasAttribute("sandbox") && !e.getAttribute("sandbox").toLowerCase().split(/[\t\n\f\r ]+/).includes("allow-same-origin"); // a frame also shows a `data:` document in an opaque sandbox (navigation.js `frameURL`)
 function frame(e, v) {
   commitGuestOrigin(e);
-  if (v?.startsWith("app:/")) e.setAttribute("data-app-src", v); else e.removeAttribute("data-app-src"); if (globalThis.__exactRender) return !!v?.startsWith("app:/");
+  const app = !!v?.startsWith("app:/") || pageGivenFiles(v ?? ""); /* an app file, or a page of the app's origin whose query may name one (LLP 1020.001 D7; picker-glue.js decides) */ if (app) e.setAttribute("data-app-src", v); else e.removeAttribute("data-app-src"); if (globalThis.__exactRender) return app;
   if (!e.$frame) { e.$frame = true; e.addEventListener("load", ev => { if (e.exactAppFrame && !e.exactAppFrame.url) ev.stopImmediatePropagation(); else e.exactLoaded = e.getAttribute("src"); /* the src that loaded, for the agent's tree, which loads after boot and cannot read another origin's readiness */ }, true); onEnd(() => e.exactAppFrame?.dispose()); }
-  if (e.exactAppFrame?.path === v) return true; e.exactAppFrame?.dispose(); e.exactAppFrame = null; if (!v?.startsWith("app:/")) return false;
+  if (e.exactAppFrame?.path === v) return true; e.exactAppFrame?.dispose(); e.exactAppFrame = null; if (!app) return false;
   const s = e.exactAppFrame = { path: v, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; e.removeAttribute("src"); inflight.n++;
-  globalThis.exact ??= {}; import(new URL("./picker-glue.js", import.meta.url).href).then(m => m.appFrame(e, s, data.appId, () => commitGuestOrigin(e))).finally(() => inflight.n--); return true;
+  globalThis.exact ??= {}; import(new URL("./picker-glue.js", import.meta.url).href).then(m => m.appFrame(e, s, data.appId, () => commitGuestOrigin(e), u => e.setAttribute("src", navigable(u, e) ? u : "about:blank"))).finally(() => inflight.n--); return true;
 }
 export function P(e, name, f) {
   if (name === "aria-keyshortcuts") input();
@@ -1489,11 +1489,11 @@ let LocaleSlot = null;
 export const resolvedLocale = () => LocaleSlot ? (table(LocaleSlot()) ?? Texts[0])[0] : "";
 export function language(slot) {
   LocaleSlot = slot;
-  // As the host's first `set_place`: the table the viewer's locale reads,
-  // written to the slot, and `exactTime` answered again, in one commit.
+  // Set the locale slot and refresh exactTime in one commit, as the host's first set_place does
   commit(() => { W(slot, locale()); for (const r of Resources) if (r.source === "exactTime") R(r); }, "place");
   if (typeof document !== "object" || !document.documentElement) return;
   effect(() => { const t = table(slot()) ?? Texts[0]; document.documentElement.lang = t[0]; document.documentElement.dir = t[1] ? "rtl" : "ltr"; });
 }
 export * from "./router.js"; import { routerValid } from "./router.js"; // the router (LLP 1038), its own file
 export { queues, gated } from "./schedule.js"; // queued sends and gated tasks (LLP 1092), their own file
+export { timerWaits } from "./timer-waits.js";

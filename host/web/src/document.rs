@@ -32,7 +32,7 @@ use super::{layers, Host};
 
 #[path = "document_url.rs"]
 mod document_url;
-pub use document_url::{frame_navigable, navigable};
+pub use document_url::{frame_app_source, frame_navigable, navigable};
 
 #[path = "document_bars.rs"]
 mod bars;
@@ -775,7 +775,7 @@ impl<S: Source> Walk<'_, '_, S> {
                 // `navigates` + `navigableURL`, `frameURL`: a refused link
                 // loses its href; a refused frame shows about:blank.
                 "href" if !navigable(value) => {}
-                "src" if element == "iframe" && value.starts_with("app:/") => {
+                "src" if element == "iframe" && frame_app_source(value) => {
                     attrs.push(("data-app-src".into(), Some(value.clone())));
                 }
                 "src"
@@ -1196,17 +1196,20 @@ fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
             "0".to_owned()
         };
         // An inline atom's detail (LLP 1045.000 D6): its kind and source,
-        // marked so the page draws its pill when it adopts this one.
+        // marked so the page draws its pill when it adopts this one. Its
+        // range is the two numbers after six strings; its paint and its
+        // direction, three more.
         let mut atom = None;
         if p.peek() == Some(b',') {
             p.next();
             p.expect(b'[')?;
             let mut fields = Vec::new();
-            for n in 0..8 {
+            for n in 0..11 {
                 if n > 0 {
                     p.expect(b',')?;
                 }
-                fields.push(if n < 6 { p.string()? } else { p.number()? });
+                let range = matches!(n, 6 | 7);
+                fields.push(if range { p.number()? } else { p.string()? });
             }
             p.expect(b']')?;
             atom = Some(fields[0].clone());
@@ -1344,7 +1347,35 @@ impl<'a> Json<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{escape, markup_pieces, navigable};
+    use super::{escape, frame_app_source, markup_pieces, navigable};
+
+    #[test]
+    fn a_frame_source_is_the_glues_when_it_is_an_app_file_or_a_page_naming_one() {
+        for glue in [
+            "app:/data/doc.pdf",
+            "assets/viewer.html?file=app:/cache/a.pdf",
+            "./deck/index.html?n=1&file=app%3A%2Ftmp%2Fa.png#top",
+            "/assets/viewer.html?file=APP:/tmp/a",
+            "other/page.html?file=app:/cache/a",
+        ] {
+            assert!(frame_app_source(glue), "{glue:?}");
+        }
+        for browser in [
+            "assets/viewer.html",
+            "assets/viewer.html?file=https://e.dev/a.pdf",
+            "assets/viewer.html#file=app:/cache/a",
+            "assets/viewer.html?q=x#?file=app:/cache/a",
+            "https://e.dev/viewer.html?file=app:/cache/a",
+            "//e.dev/viewer.html?file=app:/cache/a",
+            "data:text/html,?file=app:/cache/a",
+            // A scheme the URL parser finds after its cleanup.
+            " javascript:alert(1)//?x=app:",
+            "java\tscript:alert(1)//?x=app:",
+            "\u{1}javascript:alert(1)//?x=app:",
+        ] {
+            assert!(!frame_app_source(browser), "{browser:?}");
+        }
+    }
 
     #[test]
     fn schemes_are_read_as_the_url_parser_reads_them() {
@@ -1435,6 +1466,12 @@ mod tests {
         assert_eq!(
             markup_pieces(r#"[["a\\b\tc\u0001",1,0,0,""]]"#).unwrap()[0].text,
             "a\\b\tc\u{1}"
+        );
+        // An atom's piece, as that test pins it, its face's paint and direction last.
+        let atom = r##"[["Quote",1,0,72,"",0,["citation","button","i.svg","T","t3-citation:1","[q](t3-citation:1)",2,20,"light-dark(#d52c36, #ff6762)","","ltr"]]]"##;
+        assert_eq!(
+            markup_pieces(atom).unwrap()[0].atom.as_deref(),
+            Some("citation")
         );
     }
 }

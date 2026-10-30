@@ -22,8 +22,9 @@ exact-textflow = { path = "../../textflow" }
 exact-color = { path = "../../color" }
 exact-kernel = { path = "../../kernel" }
 exact-markdown = { path = "../../markdown" }
-# Which link destinations the Markdown editor hides (LLP 1045 D5): the web
-# editor's rules, called only from `markup_exports!`.
+# Which link destinations the Markdown editor hides (LLP 1045 D5) and each
+# line's `auto` direction (D11): the web editor's rules, called only from
+# `markup_exports!`.
 exact-markdown-editor = { path = "../../markdown/editor" }
 exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }

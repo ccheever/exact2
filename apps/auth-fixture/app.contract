@@ -50,7 +50,11 @@ component AuthFixture
   state identityOffer = true
   mutation checked as shape Result
   state username = ""
+  // A second loopback sign-in, waiting beside the first on its own port.
+  mutation preparedSecond as shape Result
+  mutation signedSecond as shape Result refreshes session
   derive busy = pending(prepared) or pending(signed)
+  derive busySecond = pending(preparedSecond) or pending(signedSecond)
   derive conditional = match caps.conditionalGet { case some(c) => c, case none => false }
   // A conditional request while the sign-in screen shows and no sheet is up;
   // the gate's turning true again after one ends starts the next, until the
@@ -80,6 +84,10 @@ component AuthFixture
     send prepared = prepareLoopbackSignIn(time.epochAtZero + performanceNow())
   action signIn
     send signed = signIn(time.epochAtZero + performanceNow())
+  action prepareSecond
+    send preparedSecond = prepareSecondSignIn(time.epochAtZero + performanceNow())
+  action signInSecond
+    send signedSecond = signInSecond(time.epochAtZero + performanceNow())
   action signOut
     send left = signOut()
     identityOffer = true
@@ -114,6 +122,10 @@ component AuthFixture
         text "Prepare loopback sign-in"
       button press=signIn disabled=busy testId="sign-in" padding=12 border-radius=8 background-color="#2f6fd6"
         text "Sign in" color="#ffffff" font-weight=600
+      button press=prepareSecond disabled=busySecond testId="prepare-second" padding=12 border-radius=8 background-color="#dfe5ee"
+        text "Prepare a second loopback sign-in"
+      button press=signInSecond disabled=busySecond testId="sign-in-second" padding=12 border-radius=8 background-color="#dfe5ee"
+        text "Sign in on the second port"
       button press=signOut testId="sign-out" padding=12 border-radius=8 background-color="#dfe5ee"
         text "Sign out"
       if not session.signedIn
@@ -168,5 +180,15 @@ component AuthFixture
       match signed
         case some(s)
           text s.message testId="signed" font-size=14 color=(s.ok ? "#1a7f37" : "#b42318")
+        case none
+          text "" font-size=14
+      match preparedSecond
+        case some(p)
+          text p.message testId="prepared-second" font-size=14
+        case none
+          text "" font-size=14
+      match signedSecond
+        case some(s)
+          text s.message testId="signed-second" font-size=14 color=(s.ok ? "#1a7f37" : "#b42318")
         case none
           text "" font-size=14

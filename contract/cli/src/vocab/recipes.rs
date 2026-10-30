@@ -95,6 +95,9 @@ pub const PATTERNS: &[(&str, &str)] = &[
 /// Grammar words a recipe is the answer to, which builders looked up by the
 /// word (`sequence` for the sequencer, `keyframes` for motion; euxy port 19).
 const ALIASES: &[(&str, &str)] = &[
+    ("every", "timers"),
+    ("after", "timers"),
+    ("tolerance", "timers"),
     ("sequence", "sequencer"),
     ("keyframes", "motion"),
     ("@keyframes", "motion"),

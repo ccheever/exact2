@@ -174,6 +174,11 @@ fn main() {
         "spin",
         "shared-load",
         "overlay",
+        "overlay-none",
+        "overlay-some",
+        "overlay-odd",
+        "overlay-throws",
+        "overlay-getter",
         "socket",
         "listen",
         "heap",
@@ -183,6 +188,7 @@ fn main() {
         "presence",
         "timers",
         "outlive",
+        "kept-json",
     ] {
         let source = manifest.join(format!("tests/fixtures/{name}.ts"));
         println!("cargo:rerun-if-changed={}", source.display());

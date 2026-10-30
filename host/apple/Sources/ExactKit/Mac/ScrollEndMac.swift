@@ -29,7 +29,7 @@ extension NodeView {
         NotificationCenter.default.addObserver(self, selector: #selector(liveScrollEnded(_:)), name: NSScrollView.didEndLiveScrollNotification, object: sv)
     }
     @objc func liveScrollStarted(_ note: Notification) {
-        guard handlers.contains("scrollend"), note.object as AnyObject? === scroll else { return }
+        guard (handlers.contains("scrollend") || presenter?.session?.timerAdmissions.enabled == true), note.object as AnyObject? === scroll else { return }
         let end = scrollEnd ?? ScrollEnd()
         scrollEnd = end
         end.live = true
@@ -47,7 +47,7 @@ extension NodeView {
     /// owes an end; a resize does not.
     func scrollEndMoved() {
         // A collapse (`display: none`) clamps the origin and sends no `scroll`.
-        guard handlers.contains("scrollend"), hasScrollLayoutBox, let o = scroll?.contentView.bounds.origin else { return }
+        guard (handlers.contains("scrollend") || presenter?.session?.timerAdmissions.enabled == true), hasScrollLayoutBox, let o = scroll?.contentView.bounds.origin else { return }
         let end = scrollEnd ?? ScrollEnd()
         scrollEnd = end
         guard end.moved(to: [o.x, o.y, 0]) else { return }
@@ -56,11 +56,12 @@ extension NodeView {
 
     /// The scroll is over: its last `scroll` first, then `scrollend`, once.
     func endScroll() {
-        guard handlers.contains("scrollend"), presenter?.views[id] === self, let end = scrollEnd, end.elementAnimation == nil, end.take(), hasScrollLayoutBox else { return }
+        guard (handlers.contains("scrollend") || presenter?.session?.timerAdmissions.enabled == true), presenter?.views[id] === self, let end = scrollEnd, end.elementAnimation == nil, end.take(), hasScrollLayoutBox else { return }
         // The last `scroll` may run its handler at once; this view may be gone after.
         sendScrollEvent()
         guard presenter?.views[id] === self else { return }
-        presenter?.scrollend(id)
+        if handlers.contains("scrollend") { presenter?.scrollend(id) }
+        presenter?.session?.timerAdmissions.check()
     }
 }
 #endif

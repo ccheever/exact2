@@ -135,12 +135,12 @@ describe('a chip\'s face is its pill', () => {
   const face = (patch: Env) => ({kind: 'mention', label: 'README.md', suffix: '', icon: 'at-sign', fileToken: '', imageId: '', available: true,
     interactive: true, comment: false, tip: 'README.md', glyph: {kind: ''}, ...patch});
   test('label and suffix, the kind\'s SF Symbol, and the tooltip', () => {
-    expect(fns.composerAtomFace({source: '@README.md', face: face({})})).toEqual({source: '@README.md', label: 'README.md', icon: 'symbol:sf/doc', title: 'README.md'});
+    expect(fns.composerAtomFace({source: '@README.md', face: face({})})).toEqual({source: '@README.md', label: 'README.md', icon: 'symbol:sf/doc', title: 'README.md', color: '', backgroundColor: '', direction: ''});
     expect(fns.composerAtomFace({source: '[x](t3-context://v1/terminal/a)', face: face({kind: 'terminal', label: 'Terminal', suffix: 'lines 1-4', icon: 'square-terminal', tip: ''})}))
-      .toMatchObject({label: 'Terminal lines 1-4', icon: 'symbol:sf/apple.terminal', title: ''});
+      .toMatchObject({label: 'Terminal lines 1-4', icon: 'symbol:sf/apple.terminal', title: '', color: '', backgroundColor: '', direction: ''});
     // A citation's tooltip says how its comment opens; the preview's citation has no comment.
     expect(fns.composerAtomFace({source: '[q](t3-citation://v1/e/t/m)', face: face({kind: 'citation', label: 'the quote', icon: 'quote', tip: 'the quote', comment: true})}))
-      .toMatchObject({icon: 'symbol:sf/quote.opening', title: 'the quote\n⌥-click to comment'});
+      .toMatchObject({icon: 'symbol:sf/quote.opening', title: 'the quote\n⌥-click to comment', color: '', backgroundColor: '', direction: ''});
   });
   test('each glyph the faces use has an SF Symbol, and an unknown one the dashed circle', () => {
     const symbols = Object.fromEntries(['at-sign', 'file', 'folder', 'sparkles', 'film', 'quote', 'image', 'messages-square', 'square-terminal',

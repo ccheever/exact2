@@ -116,49 +116,7 @@ pub fn serve<D: DataSource + Default>(
     0
 }
 
-/// Answer one request.
-pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> String {
-    p.agent = true;
-    p.poll_images();
-    // A reply whose wake the loop has not yet taken commits before this
-    // operation (the loop applies the others as they land, [`stdio`]) — a
-    // finished update check likewise, and the commands the last
-    // operation's commits asked for run before this one is answered.
-    if let Some(e) = p.pump(p.host().now()) {
-        eprintln!("exact: {e}");
-    }
-    p.poll_update();
-    p.poll_development(D::default);
-    p.run_commands(D::default);
-    p.sync_surfaces();
-    // A command is a turn of the loop for the hatches (LLP 1075.003.000.001
-    // §2.5): what they asked of elements during the last one runs before
-    // this one, a snapshot of it, and its caps start at nothing.
-    p.hatch_command();
-    p.hatch_turn();
-    let reply = answer(p, line);
-    p.sync_surfaces();
-    let reply = p.merge_surfaces(line, reply);
-    p.sync_surfaces();
-    let reply = p
-        .surfaces
-        .error
-        .take()
-        .map_or(reply, |e| refusal("gpu", &e).to_string());
-    p.run_commands(D::default);
-    let reply = p.settle_scroll_commands(line, reply);
-    // The moments this command's commits caused, after them and before its picture.
-    p.hatch_moments();
-    // In the headless carrier a completed paint is presentation. A command
-    // may activate a generation after the initial boot's frame was counted.
-    if p.dirty() {
-        let _ = p.frame();
-        // What that frame moved under the resting pointer is hovered (#139).
-        p.follow_pointer();
-    }
-    p.first_pixel();
-    tagged(p, line, reply)
-}
+pub use stdio::{handle, handle_for_window};
 
 /// Every reply carries the runner's `epoch`, `incarnation` and `clock`
 /// (LLP 1035.002 D3), read after the operation; a reply that already has a
@@ -248,12 +206,12 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         Some("perf") => p.hatch_sites(p.host().agent(line)),
         Some("state") => {
             p.boxes();
-            // The runner's state, then the sections a painter cannot observe
-            // (LLP 1035.002 D2): present as `unavailable`, never absent, so a
-            // reader can tell "no keyboard" from "no report".
+            // Host-only sections report `unavailable` instead of disappearing
+            // (LLP 1035.002 D2), distinguishing no keyboard from no report.
             let mut s = p.host().agent(line);
             if s.ends_with('}') && !s.starts_with("{\"error\"") {
                 s.pop();
+                s.push_str(&format!(",\"painter\":{}", p.painter_state()));
                 let mut decorations: Vec<_> = p
                     .brush
                     .field_text

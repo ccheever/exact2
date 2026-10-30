@@ -24,12 +24,12 @@ import AppKit
 /// wrong under ProMotion), at the callback an interval starts from;
 /// `missed = round(interval / period) − 1`.
 final class FrameSampler: NSObject {
-    /// Whether this binary measures on its own: not a production bake, which
-    /// measures only while an app records.
-    static let measured = !ExactEnv.productionBake
+    /// Keep automatic sampling off for production bakes and power profiling
+    /// (`EXACT_SAMPLE_FRAMES=0`); explicit recordings still work.
+    static let measured = !ExactEnv.productionBake && ExactEnv.environment["EXACT_SAMPLE_FRAMES"] != "0"
     /// Whether it measures from boot: a development build, or one the agent
     /// launched. A release build starts at the first ask (`measurePerf`).
-    static let atBoot = !ExactEnv.releaseBuild || ExactEnv.agentMode
+    static let atBoot = !ExactEnv.releaseBuild || ExactEnv.agentFreezes
 
     /// A new session's sampler, where it samples from boot. Where it starts
     /// at the first ask instead, so does the count of its runner's plan
@@ -120,6 +120,7 @@ final class FrameSampler: NSObject {
     /// `stopTrace_EXPERIMENTAL`, and the scroller a person moved last, read where each
     /// turn ends, apart from what a held fling reads (`tracked`).
     final class Recording {
+        var work: [String: Any] = [:]
         var records: [Record] = []
         var dropped = 0
         /// The scrollers the recording followed, in the order it took them:
@@ -526,10 +527,10 @@ extension ExactSession {
     /// yet (a release build, LLP 1079): the presented frames, the hatch
     /// calls' timing and the plan sites' work. The agent's requests, and
     /// Save Trace, ask.
-    func measurePerf() {
+    func measurePerf(frameSampler: Bool = true) {
         guard FrameSampler.measured else { return }
         HatchDiagnostics.measuring = true
-        if sampler == nil { sampler = FrameSampler(session: self) }
+        if frameSampler, sampler == nil { sampler = FrameSampler(session: self) }
         runtime.measureWork()
     }
     /// The last saved trace, beside the stamped one (`agent.mjs` reads the name).

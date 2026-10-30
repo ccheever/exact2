@@ -1731,7 +1731,7 @@
       "name": "atomFaces",
       "kind": "str",
       "measure": true,
-      "_comment": "@ref LLP 1045.000 D2: the app's `AtomFace` records as named JSON `[{source, label, icon, title}]`, keyed by each atom's whole source text. Measured: a label changes a pill's width."
+      "_comment": "@ref LLP 1045.000 D2: the app's `AtomFace` records as named JSON `[{source, label, icon, title, color, backgroundColor, direction}]`, keyed by each atom's whole source text, each colour the runner's wire text (`bridge::atom_face_paint`; on the JS target, what `atomFacesRecord` takes), empty where the kind's paint stands. Measured: a label changes a pill's width."
     },
     {
       "id": 289,
@@ -1756,6 +1756,12 @@
       "name": "menuKeys",
       "kind": "str",
       "_comment": "@ref LLP 1021 §5.3.3: root -exact-menu-keys, a literal whitespace-separated list of id=chord, where id is close-window (File ▸ Close Window) and chord is one aria-keyshortcuts chord with Meta that is not a standard one, or none. AppKit gives that item the chord, or no chord. Other hosts ignore this presentation hint."
+    },
+    {
+      "id": 293,
+      "name": "paragraphDirs",
+      "kind": "str",
+      "_comment": "@ref LLP 1045 D11: a Markdown editor's base direction, one word per source line: HTML's `dir` words (`ltr`, `rtl`, `auto`) separated by white space, the first word the first line's; a line past the last word takes the last. Read where the editor draws its lines (markup-editor.js, Apple's MarkupDirections). Not measured: a base direction changes no line's length."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -5885,7 +5891,7 @@
       "secondary-background",
       "-apple-system-secondary-background",
       "secondarySystemBackgroundColor",
-      "controlBackgroundColor",
+      "underPageBackgroundColor",
       "#f2f2f7",
       "#1c1c1e",
       "#f5f5f5",
@@ -5915,7 +5921,7 @@
       "secondary-grouped-background",
       "-apple-system-secondary-grouped-background",
       "secondarySystemGroupedBackgroundColor",
-      "controlBackgroundColor",
+      "underPageBackgroundColor",
       "#ffffff",
       "#1c1c1e",
       "#ffffff",

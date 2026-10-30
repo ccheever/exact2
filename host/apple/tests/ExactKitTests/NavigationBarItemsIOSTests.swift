@@ -32,7 +32,11 @@ extension NavigationBarIOSTests {
         trailingSets = []
         let items = { nav.topViewController?.navigationItem.rightBarButtonItems ?? [] }
         let more = try XCTUnwrap(items().first { $0.accessibilityIdentifier == "more-home" })
-        UIApplication.shared.sendAction(try XCTUnwrap(more.action), to: more.target, from: more, for: nil)
+        // UIKit's send; a test process with no connected scene (a parallel worker's bare xctest) refuses it (false), so
+        // there the item's own target and action, which UIKit's send calls
+        if !UIApplication.shared.sendAction(try XCTUnwrap(more.action), to: more.target, from: more, for: nil) {
+            _ = (more.target as AnyObject?)?.perform(more.action)
+        }
         until("the press adds its control") { items().contains { $0.accessibilityIdentifier == "star-home" } }
         XCTAssertEqual(trailingSets, [true], "the items are set once, animated")
         // A bar left only a readout, then given its controls back: each change animates

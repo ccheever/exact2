@@ -4,8 +4,72 @@
 //! after a 401) while the driver talks to a server, and the clock still
 //! moves only by `clock`.
 
+use super::{answer, refusal, tagged};
 use crate::presenter::Presenter;
 use exact_runner::DataSource;
+
+/// Answer one request.
+pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> String {
+    handle_request(p, line, true)
+}
+
+/// Answer without consuming the window's next frame. A capture that consumed
+/// existing damage leaves that same damage for the carrier to present.
+pub fn handle_for_window<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> String {
+    let dirty = p.dirty();
+    let answer = handle_request(p, line, false);
+    if dirty && !p.dirty() {
+        p.repaint();
+    }
+    answer
+}
+
+fn handle_request<D: DataSource + Default>(
+    p: &mut Presenter<D>,
+    line: &str,
+    headless: bool,
+) -> String {
+    p.agent = true;
+    p.poll_images();
+    // A reply whose wake the loop has not yet taken commits before this
+    // operation (the loop applies the others as they land) — a
+    // finished update check likewise, and the commands the last
+    // operation's commits asked for run before this one is answered.
+    if let Some(e) = p.pump(p.host().now()) {
+        eprintln!("exact: {e}");
+    }
+    p.poll_update();
+    p.poll_development(D::default);
+    p.run_commands(D::default);
+    p.sync_surfaces();
+    // A command is a turn of the loop for the hatches (LLP 1075.003.000.001
+    // §2.5): what they asked of elements during the last one runs before
+    // this one, a snapshot of it, and its caps start at nothing.
+    p.hatch_command();
+    p.hatch_turn();
+    let reply = answer(p, line);
+    p.sync_surfaces();
+    let reply = p.merge_surfaces(line, reply);
+    p.sync_surfaces();
+    let reply = p
+        .surfaces
+        .error
+        .take()
+        .map_or(reply, |e| refusal("gpu", &e).to_string());
+    p.run_commands(D::default);
+    let reply = p.settle_scroll_commands(line, reply);
+    // The moments this command's commits caused, after them and before its picture.
+    p.hatch_moments();
+    // In the headless carrier a completed paint is presentation. A command
+    // may activate a generation after the initial boot's frame was counted.
+    if headless && p.dirty() {
+        let _ = p.frame();
+        // What that frame moved under the resting pointer is hovered (#139).
+        p.follow_pointer();
+    }
+    p.first_pixel();
+    tagged(p, line, reply)
+}
 
 /// Hand each request line to `serve` until stdin closes or `serve` says to
 /// stop, committing replies and pictures that land in between.

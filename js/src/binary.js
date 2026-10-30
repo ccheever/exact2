@@ -1,7 +1,8 @@
 // The data seam's bytes, and the store's presence calls (below), for
 // prelude.js: base64 for what crosses the seam
 // as JSON, a string's UTF-8 length, a stream message's data, a long
-// poll's terms as the seam carries them (LLP 1016.000 D8), a fetch's file
+// poll's terms as the seam carries them (LLP 1016.000 D8), an upload's
+// option and events, a fetch's file
 // options, an image call's options and an answer's timers (here, beside the
 // prelude, under its line cap). Natively a
 // binary message (a byte stream's bytes, a socket's frame; LLP 1016.000)
@@ -72,6 +73,26 @@
     if (!parts.length || parts.length > 2 || parts.some(function (p) { return !p; })) return "exactLongPoll.from is the reply's field the cursor comes from, a name, or two joined by one `.`";
     if (poll.sameCursor !== undefined && poll.sameCursor !== "heartbeat" && poll.sameCursor !== "event") return "exactLongPoll.sameCursor is \"heartbeat\" (the default) or \"event\"";
     return { cursor: poll.cursor, from: poll.from, same_cursor_event: poll.sameCursor === "event" ? true : undefined };
+  }
+  // `exactUploadProgress` (LLP 1016.000 D10), checked as the runner and the web's
+  // ts-stream.js check it: true for an upload whose stream reports its progress, nothing, or why it is refused.
+  function uploadOf(init, stream, method, url) {
+    var upload = init ? init.exactUploadProgress : undefined;
+    if (upload === undefined || upload === false) return undefined;
+    if (upload !== true) return "exactUploadProgress is true or false";
+    if (!stream) return "exactUploadProgress reports an upload's progress to its stream: give exactStream too";
+    if (/^wss?:/i.test(String(url))) return "exactUploadProgress: a WebSocket sends no body";
+    if (/^[a-z][a-z0-9+.-]*:/i.test(String(url)) && !/^https?:/i.test(String(url))) return "exactUploadProgress: an upload is an http: or https: request";
+    if (init.exactLongPoll !== undefined) return "exactUploadProgress: a long poll sends no body";
+    if (method === "GET" || method === "HEAD") return "exactUploadProgress: a GET or HEAD request sends no body";
+    return true;
+  }
+  // An upload's event for its mapper, as XMLHttpRequest names them: `progress` for the host's count of the body's
+  // bytes sent, and `load` for the reply, whatever its status, which ends the stream.
+  function uploadEvent(o) {
+    if (o.response) return { type: "load", status: o.response.status, data: o.response.body, lastEventId: "", coalesced: 0 };
+    var sent = JSON.parse(o.message.data);
+    return { type: "progress", loaded: sent.loaded, total: sent.total, lengthComputable: true, data: "", lastEventId: "", coalesced: o.message.coalesced };
   }
   // The store's presence calls (LLP 1133.010 D5), for prelude.js's `store`,
   // over its host door: a name's occupancy (op 18 kept, 19 locked or
@@ -412,7 +433,87 @@
       },
     };
   }
+  // An answer's reply as JSON (prelude.js `ok`), where a list element that is plain data frozen to its leaves
+  // keeps its JSON by identity and is spliced back, never walked again: a transcript's window holds its last
+  // page's rows (rt1's crossing plan). Frozen plain data, no Proxy in it, can't change once its prototypes
+  // are frozen, which hardening does natively; only the native runtime (its byte door) keeps anything, since
+  // the web's module realm is unhardened.
+  // `step(holder, key, item)` is the prelude's own replacer (its large-string capture), run as JSON would.
+  var isFrozen = Object.isFrozen, protoOf = Object.getPrototypeOf, names = Object.getOwnPropertyNames;
+  var symbols = Object.getOwnPropertySymbols, describe = Object.getOwnPropertyDescriptor;
+  var unbox = Function.prototype.call.bind(String.prototype.valueOf);
+  var PLAIN = [Object.prototype, Array.prototype, null], keptJson = new WeakMap();
+  // Every Proxy made from here on, natively (the prelude's, then the app's): a trap can answer a later read
+  // differently from what the keep check saw, and no JS check tells a Proxy apart, so these are never kept.
+  var proxies = new WeakSet();
+  if (door && typeof global.Proxy === "function") (function (Native) {
+    // Proxies over the engine's own, so construction, calls and properties are the engine's (a Proxy with
+    // no `new` throws; revocable can't be constructed), each result recorded. One difference no JS wrapper
+    // avoids: Hermes reads `prototype` from an explicit new target (`Reflect.construct(Proxy, args, C)`, a
+    // bound Proxy) before the trap runs, where the engine's Proxy reads nothing; a data property runs no code.
+    var construct = Reflect.construct, apply = Reflect.apply, revocable = Native.revocable;
+    var made = function (proxy) { proxies.add(proxy); return proxy; };
+    var described = Object.getOwnPropertyDescriptor(Native, "revocable");
+    described.value = new Native(revocable, { apply: function (fn, self, args) { var r = apply(fn, self, args); made(r.proxy); return r; } });
+    Object.defineProperty(Native, "revocable", described);
+    var tracked = new Native(Native, { construct: function (fn, args, target) { return made(construct(fn, args, target === tracked ? fn : target)); } });
+    Object.defineProperty(global, "Proxy", { value: tracked, writable: true, configurable: true });
+  })(global.Proxy);
+  // A token's JSON where a string begins (after a run of backslashes of even length: a quote inside a string
+  // is escaped by an odd one), and a string or key that would read as one: U+0000 and digits, nothing else.
+  var TOKEN = /((?:^|[^\\])(?:\\\\)*)"\\u0000\d+"/g, SPELLED = /^\u0000\d+$/;
+  function frozenData(v, depth) {
+    if (v === null) return true;
+    if (typeof v === "string") return v.length < 65536; // a large string is captured
+    if (typeof v !== "object") return typeof v !== "function"; // a function's own toJSON would be read
+    // Own symbols: a wrapper's own Symbol.toPrimitive would be read (its prototype's are hardened intrinsics).
+    // JSON reads an object's own names and its `toJSON`: an own one is a function (refused below), and its
+    // prototypes, hardened intrinsics, have none; only a Proxy could answer differently later.
+    if (depth > 64 || proxies.has(v) || !isFrozen(v) || PLAIN.indexOf(protoOf(v)) < 0 || symbols(v).length) return false;
+    var own = names(v);
+    for (var i = 0; i < own.length; i++) {
+      var d = describe(v, own[i]);
+      if (!("value" in d) || !frozenData(d.value, depth + 1)) return false; // a getter can vary (and a toJSON is a function)
+    }
+    return true;
+  }
+  function keptReply(reply, step) {
+    var keeps = !!door && isFrozen(Object.prototype) && isFrozen(Array.prototype);
+    // Every token in the text, and every string or key spelled like one, in the order JSON writes them: a
+    // kept text, or null where the text stays as written.
+    var texts = [], places = [];
+    var text = JSON.stringify(reply, function (key, item) {
+      var out = item, kept;
+      if (keeps && item !== null && typeof item === "object" && Array.isArray(this)) {
+        kept = keptJson.get(item);
+        if (kept === undefined && frozenData(item, 0)) keptJson.set(item, kept = JSON.stringify(item));
+      }
+      if (kept !== undefined) out = "\u0000" + texts.push(kept);
+      else if (step) out = step.call(this, key, item);
+      if (!keeps) return out;
+      if (out !== null && typeof out === "object") {
+        // A boxed string: converted here, once, as JSON would (its own toString honored), so its text is known.
+        var boxed = false;
+        try { unbox(out); boxed = true; } catch (e) { /* not a String */ }
+        if (boxed) out = String(out);
+      }
+      var type = typeof out;
+      if (out !== undefined && type !== "function" && type !== "symbol" && key !== "" && !Array.isArray(this) && SPELLED.test(key)) places.push(null);
+      if (kept !== undefined) places.push(kept);
+      else if (type === "string" && SPELLED.test(out)) places.push(null);
+      return out;
+    });
+    if (!texts.length) return text;
+    var at = 0;
+    text = text.replace(TOKEN, function (match, before) {
+      var place = places[at++];
+      return place === null ? match : before + place;
+    });
+    if (at !== places.length) throw new Error("exact: a reply's kept rows lost their places");
+    return text;
+  }
   global.__exact_binary = Object.freeze({
+    keptReply: keptReply,
     timers: timers,
     fileRefusal: fileRefusal,
     bodyWritten: bodyWritten,
@@ -423,6 +524,8 @@
     messageData: messageData,
     gateDecode: door ? gateDecode : undefined,
     longPollOf: longPollOf,
+    uploadOf: uploadOf,
+    uploadEvent: uploadEvent,
     presence: presence,
     sockets: sockets,
   });

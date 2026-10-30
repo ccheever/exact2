@@ -270,12 +270,18 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         presenter.videoVisibility?.changed()
         presenter.scrollPump.scrolled(nil)
         FrameSampler.scrolled(scrollView, in: presenter.session, person: false)
+        presenter.session?.frameHealth.trackScrolled(scrollView)
         node.repaintThrough()
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         host?.presenter.elementScrolls.userScrolled(scrollView)
+        if let session = host?.presenter.session { session.frameHealth.beginScroll(scrollView, session: session) }
     }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { host?.presenter.session?.frameHealth.endScroll(scrollView) }
+    }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { host?.presenter.session?.frameHealth.endScroll(scrollView) }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         host?.presenter.elementScrolls.revealEnded(scrollView)

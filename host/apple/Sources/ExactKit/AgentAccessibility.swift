@@ -131,7 +131,8 @@ extension Presenter {
     /// The elements under `roots`, the platform's facts each (D2, D7);
     /// `foreign` names another session's surface, where the walk stops;
     /// `modalRoot` is a presentation the platform makes modal (an AppKit sheet);
-    /// `scope` keeps the elements joined to those ids, with the chain above.
+    /// `scope` keeps the elements joined to those ids and the ones no node
+    /// owns below them, with the chain above.
     func axElements(roots: [AnyObject], limit: Int = 500, excluded: Bool = false, scope: Set<UInt32>? = nil, modalRoot: AnyObject? = nil,
                     limits: [[String: Any]] = [], foreign: @escaping (AnyObject) -> Bool = { _ in false }) -> [String: Any] {
         // A scroll view's indicators and other unexposed views cost visits too.
@@ -190,7 +191,14 @@ extension Presenter {
         if !parts.isEmpty { coverage["parts"] = parts }
         var ancestors: [[String: Any]] = []
         if let scope {
-            let kept = w.elements.indices.filter { k in (w.elements[k]["id"] as? UInt32).map(scope.contains) ?? false }
+            // An element no node owns goes with the element it is under.
+            var inScope = Set<Int>()
+            let kept = w.elements.indices.filter { k in
+                let joined = (w.elements[k]["id"] as? UInt32).map(scope.contains)
+                    ?? (w.elements[k]["parent"] as? Int).map(inScope.contains) ?? false
+                if joined { inScope.insert(k) }
+                return joined
+            }
             if let first = kept.first {
                 var p = w.elements[first]["parent"] as? Int
                 while let k = p { ancestors.insert(["i": k, "id": w.elements[k]["id"] ?? NSNull(), "role": w.elements[k]["role"] ?? "", "name": w.elements[k]["name"] ?? ""], at: 0); p = w.elements[k]["parent"] as? Int }

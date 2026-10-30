@@ -30,7 +30,7 @@ import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { compilerWarnings, webInputDigests } from '../../scripts/agent-launch.mjs';
 import { authClientMetadata, checkModuleRoster, gpuModules, markWorlds, rustPolicy, webGpuArtifacts, webHostFiles, worldSurfaces } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
-import { webAppManifest, webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { webAppManifest, webDist, copyShaders, bakeOutput, bakeWatchEnv, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { buildEditor, buildFlow } from '../web-js/module.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
@@ -243,6 +243,11 @@ planBytes = Buffer.from(new Uint8Array(exports.memory.buffer, planPtr, planLen))
 }
 if (planBytes.length < 36 || planBytes.subarray(0, 4).toString() !== 'EXPL') throw new Error('the web wasm returned an invalid baked plan');
 writeFileSync(planOut, planBytes);
+// A development build's source map for that plan, for the agent driver only
+// (LLP 1012.001.000 D6), as the JS target writes it: the bake's, and only
+// when it maps these bytes; never in a production build, never a stale one.
+const planMap = resolve(buildEnv.EXACT_BAKE_OUTPUT, 'web-wasm32-unknown-unknown.plan.map.json');
+if (!production && existsSync(planMap) && JSON.parse(readFileSync(planMap, 'utf8')).digest === createHash('sha256').update(planBytes).digest('hex')) copyFileSync(planMap, resolve(stage, 'app.plan.map.json'));
 let pairedModule = null;
 // A module client's build script emits paired artifacts beside its receipt.
 // Extract the exact embedded receipt/JS rather than rebaking moving sources.
@@ -399,7 +404,9 @@ if (buildLocations.length && renderAt) {
   // A build-time tool, never shipped: it renders the plan it is handed, so
   // its own Linux bake takes development trust (a production bake would
   // demand a publisher receipt for an updater nothing publishes).
-  const renderEnv = { ...buildEnv, CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'development' };
+  // With what its bake watches named (`bakeWatchEnv`), as every baking build: unset, the dev loop's every rebuild
+  // reran its build script and relinked it.
+  const renderEnv = { ...buildEnv, ...bakeWatchEnv(app), CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'development' };
   delete renderEnv.EXACT_BAKE_OUTPUT;
   const rendered = spawnSync('cargo', ['run', '-q', '-p', renderCrate, '--bin', renderBin, '--', '--plan', planOut,
     '--name', webManifest.name, ...(app.origin ? ['--origin', app.origin] : []), '--shell', resolve(stage, 'index.html'), '--build'],

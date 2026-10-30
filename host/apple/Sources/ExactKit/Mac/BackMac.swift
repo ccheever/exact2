@@ -30,7 +30,24 @@ extension NavigationHost {
     /// `id` is the root's `navigationBack`.
     private func backControls(in route: NodeView, of root: NodeView) -> [NodeView] {
         guard let name = root.props["navigationBack"] else { return [] }
-        return presenter.carrying("id").filter { $0.props["id"] == name && presenter.menus.contains(route, $0) }
+        // The views of that name alone (`ChromeIndex.named`), in id order as `carrying` gives them:
+        // asked by every batch's check of the window's bar, not a sort of every named view.
+        return (presenter.chrome.named[name] ?? []).sorted().compactMap { presenter.views[$0] }.filter { presenter.menus.contains(route, $0) }
+    }
+
+    /// What `canGoBack` decides from, without the runner: the pushed route,
+    /// its Back controls and theirs states, whether the root hears
+    /// `navigate`, and what is modal. Where none of these moved, only the
+    /// router's place beneath can, and a router op says so (the window's
+    /// bar presents for it); `locationBeneath` is a call to the owner.
+    var backFacts: [UInt32] {
+        guard let (root, route) = pushedRoute else { return [] }
+        let controls: [UInt32] = backControls(in: route, of: root).flatMap { control -> [UInt32] in
+            [control.id, (control.disabled ? 1 : 0) | (control.handlers.contains("press") ? 2 : 0)]
+        }
+        let facts: [UInt32] = [route.id, root.handlers.contains("navigate") ? 1 : 0, presenter.alerts.modal == nil ? 0 : 1,
+                               presenter.dialogs.routeActive ? 1 : 0]
+        return facts + controls
     }
 
     /// Whether the platform's Back is offered (the toolbar's chevron shows):

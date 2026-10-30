@@ -646,7 +646,7 @@ theorem advance_go_sound {p : Program} (hp : WellTyped p) {o due pick finish}
     have hset : TimersOK p (c.timers.set i tm.fired) := fun y hy => by
       rcases List.mem_or_eq_of_mem_set hy with hy | rfl
       · exact hc.timers y hy
-      · unfold Timer.fired; split <;> (try split) <;> exact ⟨⟨a, ha, hpa⟩, hgk⟩
+      · unfold Timer.fired; split <;> (try split) <;> (try split) <;> exact ⟨⟨a, ha, hpa⟩, hgk⟩
     dsimp only
     generalize hr : runAction p o { c with timers := c.timers.set i tm.fired, now := tm.next }
       tm.action [] [] = r

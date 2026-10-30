@@ -7,6 +7,7 @@ import { rolldown } from 'rolldown';
 import { chromium as playwright } from 'playwright-core';
 import { chromium } from '../../../../scripts/agent-launch.mjs';
 import { renderer } from '../../../web-js/render.mjs';
+import { stageHostGlue } from '../../../web-js/glue.mjs';
 
 const work = process.argv[2], root = resolve(import.meta.dir, '../../../..');
 const { executable, unavailable } = chromium();
@@ -31,6 +32,7 @@ try {
       // The same runtime files the app build copies, with JS target modules
       // taking precedence over the host's glue.
       for (const folder of ['host/web', 'host/web-js']) for (const file of readdirSync(resolve(root, folder)).filter(f => f.endsWith('.js'))) copyFileSync(resolve(root, folder, file), resolve(gen, file));
+      stageHostGlue(root, gen);
       for (const f of ['app.js', 'names.js', 'paint.js']) copyFileSync(resolve(dir, f), resolve(gen, f));
       writeFileSync(resolve(gen, 'entry.js'), `import app from './app.js'; import { journal } from './rt.js'; app(); globalThis.journal=journal; globalThis.ready=true;`);
       writeFileSync(resolve(gen, 'server-entry.js'), `import app from './app.js'; globalThis.__start=async()=>{app();return {activate:'eager',policy:'build'}};globalThis.__render=async()=>({root:document.rootHTML(),time:0,answers:'[]',pending:[]});`);

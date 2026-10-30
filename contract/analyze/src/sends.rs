@@ -316,3 +316,180 @@ pub(super) fn check(c: &Component) -> Vec<AnalyzeError> {
     }
     errors
 }
+
+/// A send or an assignment of a mutation on some path: where, the guard it
+/// was made under, and the call it is made in.
+type Made<'a> = BTreeMap<&'a str, Vec<(Span, Guard, Frame<'a>)>>;
+
+struct Both<'a> {
+    c: &'a Component,
+    action: &'a str,
+    frame: Frame<'a>,
+    /// One warning per mutation an action.
+    said: BTreeSet<&'a str>,
+    out: Vec<AnalyzeError>,
+}
+
+impl<'a> Both<'a> {
+    fn block(
+        &mut self,
+        stmts: &'a [Stmt],
+        guard: &mut Guard,
+        sent: &mut Made<'a>,
+        assigned: &mut Made<'a>,
+    ) {
+        for stmt in stmts {
+            match stmt {
+                Stmt::Send { target, span, .. } => {
+                    if self.nonqueued(target) {
+                        self.meet(target, *span, guard, assigned, "sends", "assigns");
+                        sent.entry(target)
+                            .or_default()
+                            .push((*span, guard.clone(), self.frame));
+                    }
+                    moved(target, guard, sent);
+                    moved(target, guard, assigned);
+                }
+                Stmt::Assign { target, span, .. } => {
+                    if self.nonqueued(target) {
+                        self.meet(target, *span, guard, sent, "assigns", "sends");
+                        assigned.entry(target).or_default().push((
+                            *span,
+                            guard.clone(),
+                            self.frame,
+                        ));
+                    }
+                    moved(target, guard, sent);
+                    moved(target, guard, assigned);
+                }
+                Stmt::Call {
+                    action, body, span, ..
+                } => {
+                    let outer = self.frame.replace((action, *span));
+                    self.block(body, guard, sent, assigned);
+                    self.frame = outer;
+                }
+                Stmt::If {
+                    cond,
+                    then,
+                    otherwise,
+                    ..
+                } => {
+                    let mut inner = guard.clone();
+                    inner.extend(facts(cond));
+                    let (mut other_sent, mut other_assigned) = (sent.clone(), assigned.clone());
+                    let mut outer = guard.clone();
+                    self.block(then, &mut inner, sent, assigned);
+                    self.block(otherwise, &mut outer, &mut other_sent, &mut other_assigned);
+                    union(sent, other_sent);
+                    union(assigned, other_assigned);
+                    guard.retain(|f| inner.contains(f) && outer.contains(f));
+                }
+                Stmt::Match { some, none, .. } => {
+                    let (mut other_sent, mut other_assigned) = (sent.clone(), assigned.clone());
+                    let (mut a, mut b) = (guard.clone(), guard.clone());
+                    self.block(&some.1, &mut a, sent, assigned);
+                    self.block(none, &mut b, &mut other_sent, &mut other_assigned);
+                    union(sent, other_sent);
+                    union(assigned, other_assigned);
+                    guard.retain(|f| a.contains(f) && b.contains(f));
+                }
+                Stmt::Let { .. } | Stmt::Command { .. } | Stmt::Refresh { .. } => {}
+            }
+        }
+    }
+
+    fn nonqueued(&self, name: &str) -> bool {
+        self.c.mutations.iter().any(|m| m.name == name && !m.queue)
+    }
+
+    /// `target` is sent (or assigned) here, after being assigned (or sent)
+    /// on a path here: say what the runner does with both, once an action.
+    fn meet(
+        &mut self,
+        target: &'a str,
+        at: Span,
+        guard: &Guard,
+        earlier: &Made<'a>,
+        this: &str,
+        that: &str,
+    ) {
+        let Some((first, _, frame)) = earlier
+            .get(target)
+            .and_then(|v| v.iter().find(|(_, g, _)| !exclusive(g, guard)))
+        else {
+            return;
+        };
+        if !self.said.insert(target) {
+            return;
+        }
+        let action = contract_syntax::inline::calls::shown(self.action);
+        let (first_where, this_where) = (
+            made_in(action, *frame, *first),
+            made_in(action, self.frame, at),
+        );
+        self.out.push(AnalyzeError {
+            id: "analyze-send-assigned",
+            message: format!(
+                "`{action}` both sends `{target}` and assigns it on one path: it {that} {first_where} and {this} {this_where}. A send is asked when the action runs; once the writes land, a request still in flight for a mutation the action assigned is forgotten and its reply dropped, and `{target}` keeps the assigned value (LLP 1016 D5), whichever line comes first. To clear an old result before a retry, keep the send and hide the result while `pending({target})`; to sign out, forget the sign-in mutation here and send the logout through a mutation of its own; to dismiss an answer, assign alone"
+            ),
+            span: at,
+            related: vec![Related {
+                span: *first,
+                note: format!("`{target}` is {} here", if that == "sends" { "sent" } else { "assigned" }),
+            }],
+        });
+    }
+}
+
+/// Forget what conditions said of `name`, now that it changed.
+fn moved(name: &str, guard: &mut Guard, made: &mut Made<'_>) {
+    guard.retain(|f| !about(name)(f));
+    for v in made.values_mut() {
+        for (_, g, _) in v.iter_mut() {
+            g.retain(|f| !about(name)(f));
+        }
+    }
+}
+
+/// The union of two arms' sends or assignments.
+fn union<'a>(into: &mut Made<'a>, from: Made<'a>) {
+    for (target, made) in from {
+        let have = into.entry(target).or_default();
+        for (span, guard, frame) in made {
+            match have.iter_mut().find(|(s, _, f)| *s == span && *f == frame) {
+                Some((_, kept, _)) => kept.retain(|f| guard.contains(f)),
+                None => have.push((span, guard, frame)),
+            }
+        }
+    }
+}
+
+/// @ref LLP 1035.005.002 C1 — every action that both sends a nonqueued
+/// mutation and assigns it on one path, through calls too, in either order:
+/// a warning, once a mutation an action. In 1,029 bake-off builds no action
+/// did; the one in the apps is Weird Castle's logout, which means it.
+pub(super) fn send_assigned(c: &Component) -> Vec<AnalyzeError> {
+    let mut out: Vec<AnalyzeError> = Vec::new();
+    for a in &c.actions {
+        let mut walk = Both {
+            c,
+            action: &a.name,
+            frame: None,
+            said: BTreeSet::new(),
+            out: Vec::new(),
+        };
+        walk.block(
+            &a.body,
+            &mut Guard::new(),
+            &mut BTreeMap::new(),
+            &mut BTreeMap::new(),
+        );
+        for e in walk.out {
+            if !out.iter().any(|x| x.span == e.span) {
+                out.push(e);
+            }
+        }
+    }
+    out
+}

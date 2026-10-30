@@ -61,6 +61,33 @@ impl WindowLayer {
 /// What draws the walk's output. Coordinates are viewport points with a
 /// transform (points → points); a backend applies the device scale itself.
 pub trait Backend {
+    /// Attach the benchmark carrier's retained AppKit layer.
+    #[cfg(target_os = "macos")]
+    fn attach_apple_layer(
+        &mut self,
+        _layer: exact_ink::device::apple::Layer,
+    ) -> Result<exact_ink::device::Info, String> {
+        Err("this painter cannot present to a CAMetalLayer".into())
+    }
+    /// A lost device whose carrier can present CPU pixels without that device.
+    fn lost_device_needs_cpu(&self) -> bool {
+        false
+    }
+    /// Collect completed devices without repainting; return those still retiring.
+    #[cfg(windows)]
+    fn collect_retired_devices(&mut self) -> usize {
+        0
+    }
+    /// The display's interval, with backoff while occluded.
+    #[cfg(windows)]
+    fn presentation_retry_delay(&self) -> Option<std::time::Duration> {
+        None
+    }
+    /// Only device removal invalidates a directly presenting device's resources.
+    #[cfg(windows)]
+    fn device_lost(&self) -> bool {
+        false
+    }
     /// Displayed-frame time since process creation, when the device exposes it.
     /// Explicit measurement only: this may wait for the compositor.
     #[cfg(windows)]
@@ -315,6 +342,28 @@ pub trait Backend {
 }
 
 impl super::Painter {
+    #[cfg(target_os = "macos")]
+    pub(crate) fn attach_apple_layer(
+        &mut self,
+        layer: exact_ink::device::apple::Layer,
+    ) -> Result<exact_ink::device::Info, String> {
+        self.backend.attach_apple_layer(layer)
+    }
+    pub(crate) fn lost_device_needs_cpu(&self) -> bool {
+        self.backend.lost_device_needs_cpu()
+    }
+    #[cfg(windows)]
+    pub(crate) fn collect_retired_devices(&mut self) -> usize {
+        self.backend.collect_retired_devices()
+    }
+    #[cfg(windows)]
+    pub(crate) fn presentation_retry_delay(&self) -> Option<std::time::Duration> {
+        self.backend.presentation_retry_delay()
+    }
+    #[cfg(windows)]
+    pub(crate) fn device_lost(&self) -> bool {
+        self.backend.device_lost()
+    }
     #[cfg(windows)]
     pub(crate) fn displayed_process_ms(&self) -> Result<Option<f64>, String> {
         self.backend.displayed_process_ms()

@@ -16,3 +16,6 @@ test "pause and finish a note"
   clock data
   clock +100
   tap "toggle"
+
+after "edit" "edit writes only note"
+  only writes note

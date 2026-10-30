@@ -78,6 +78,7 @@ mod tamber;
 #[cfg(test)]
 #[path = "transform_drag_tests.rs"]
 mod transform_drag_tests;
+pub use covers::Restyle;
 use exact_plan::EventKind;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
@@ -165,6 +166,7 @@ pub(crate) struct Mirror {
 /// One runner, one presenter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
+    admitting_frame: bool,
     font_hook: Option<(crate::measure::FontsFn, *mut std::ffi::c_void, usize)>,
     /// Whether the plan declares a `head`, and the title the presenter was
     /// last told (LLP 1048.003 D1): the window or scene title.
@@ -508,6 +510,7 @@ impl<D: DataSource> Host<D> {
             language: None,
             hatches: paragraph::HatchWords::of(runner.plan()),
             runner,
+            admitting_frame: false,
             font_hook,
             mirror: IdMap::default(),
             style_texts: paragraph::StyleTexts::default(),
@@ -643,8 +646,7 @@ impl<D: DataSource> Host<D> {
         host.emit_transform_drags(&mut batch);
         host.present(&mut batch, true);
         let (mut batch, _) = host.resize_rounds(batch, None);
-        batch.spatial = host.engine.spatial();
-        batch.frames = host.runner.wants_frames();
+        host.state_onto(&mut batch);
         let batch = host.write(batch, None);
         Ok((host, batch))
     }
@@ -999,17 +1001,9 @@ impl<D: DataSource> Host<D> {
 
     /// Whether this host's display drives frame tasks (LLP 1073 D4): off when
     /// the agent's clock takes over, so its advances fire virtual frames.
+    /// Set whether the display drives frame tasks.
     pub fn present_frames(&mut self, on: bool) {
         self.runner.present_frames(on);
-    }
-
-    /// A presented frame (LLP 1073 D2): the timers due by `now_ms`, then
-    /// every frame task once at it, in one batch as [`Host::advance`]'s.
-    pub fn frame(&mut self, now_ms: f64) -> String {
-        // The frame source started: frame tasks are its, not the timers' (LLP 1073 D4).
-        self.runner.present_frames(true);
-        let a = self.runner.frame(now_ms);
-        self.advanced(a)
     }
 
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {

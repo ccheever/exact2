@@ -14,6 +14,13 @@ crate-type = ["staticlib", "rlib"]
 [dependencies]
 exact-heavylist-data = { path = "../data" }
 exact-apple = { path = "../../../../host/apple" }
+exact-apple-painted = { path = "../../../../host/apple-painted" }
+
+[[bin]]
+name = "exact-heavylist-apple-painted"
+path = "src/painted.rs"
+test = false
+bench = false
 
 [build-dependencies]
 exact-heavylist-data = { path = "../data" }

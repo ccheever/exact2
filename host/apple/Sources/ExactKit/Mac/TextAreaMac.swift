@@ -323,10 +323,21 @@ package final class TextArea: NSTextView {
         if string.isEmpty, !placeholder.isEmpty {
             let origin = textContainerOrigin
             let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
-            (placeholder as NSString).draw(in: rect, withAttributes: [
+            var attributes: [NSAttributedString.Key: Any] = [
                 .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
                 .foregroundColor: placeholderColor ?? (owner?.isNativeTextControl == true ? ThemeRoles.color("placeholder", in: self, or: NSColor.placeholderTextColor) : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3)),
-            ])
+            ]
+            // A Markdown editor's placeholder sits at its first line's start
+            // (LLP 1045 D11), as UIKit's and the web's do: string drawing aligns
+            // natural text by the app's layout direction, not the paragraph's,
+            // so the side is said.
+            if let markup {
+                let style = NSMutableParagraphStyle(), direction = markup.direction(at: 0)
+                style.baseWritingDirection = direction
+                style.alignment = direction == .rightToLeft ? .right : .left
+                attributes[.paragraphStyle] = style
+            }
+            (placeholder as NSString).draw(in: rect, withAttributes: attributes)
         }
     }
 }
@@ -434,6 +445,7 @@ extension NodeView {
         guard let f = textArea else { return }
         configureMarkup()
         writeValue(props["value"] ?? "", into: f)
+        restyleMarkupProps()
         restyleDecorations()
         f.isEditable = !disabled && props["editable"] != "false"
         f.isSelectable = !disabled
@@ -493,6 +505,7 @@ extension NodeView {
         f.minSize = NSSize(width: 0, height: scroller.contentSize.height)
         f.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         f.setFrameSize(NSSize(width: scroller.contentSize.width, height: max(f.frame.height, scroller.contentSize.height)))
+        layoutResizeGrip()
     }
     package func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
         TextInputLimit.allows(textView.string, range: affectedCharRange, replacement: replacementString ?? "", props: props)

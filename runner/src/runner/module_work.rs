@@ -19,6 +19,9 @@ pub(super) const NAME: &str = "module work";
 pub(super) struct ModuleWork {
     /// Kept requests in flight: the runner's ticket, the source's token.
     tickets: BTreeMap<u64, u64>,
+    /// Their module fetch tickets, so the app's abort still names one
+    /// (`Runner::match_aborts`) for as long as it runs, with no cap.
+    pub(super) fetches: BTreeMap<u64, u64>,
     /// Requests with effects the commit being made let go, offered to the
     /// source when it ends.
     letting: Vec<PendingReq>,
@@ -79,6 +82,17 @@ impl<D: DataSource> Runner<D> {
     /// Request `p` is let go by the commit being made: one with effects is
     /// offered to its source when the commit ends.
     pub(super) fn let_go_request(&mut self, p: PendingReq) {
+        // An upload let go before its reply is cut off; one the host refused
+        // never reached the network and is not marked as asked; of any other
+        // the host says after the commit whether it had started (LLP 1016.000 D10).
+        if p.upload && p.sent {
+            let end = super::UploadEnd::Failed(super::uploads::interrupted());
+            self.upload_over(p.ticket, true, end);
+        } else if p.upload && (p.refusal.is_some() || p.refused) {
+            self.uploads.unmark(p.ticket);
+        } else if p.upload {
+            self.upload_let_go(p.ticket);
+        }
         // One the host refused never ran: nothing of it is lost.
         if p.effects && p.refusal.is_none() && !p.refused && !self.poisoned {
             self.module_work.letting.push(p);
@@ -122,7 +136,9 @@ impl<D: DataSource> Runner<D> {
     /// leaves a failure standing until its arguments change or `refresh`.
     pub(super) fn ask_failed_readers(&mut self, except: Option<Target>) {
         for i in 0..self.failed_args.len() {
-            let failed = self.store_readers[i] && self.failed_args[i].is_some();
+            // (an upload's failure is never asked again at its arguments: D10)
+            let failed =
+                self.store_readers[i] && self.failed_args[i].is_some() && !self.upload_failed(i);
             if failed && except != Some(Target::Resource(i)) {
                 self.force_refresh(i);
             }
@@ -150,6 +166,9 @@ impl<D: DataSource> Runner<D> {
         for (p, token) in letting.iter().zip(kept) {
             if let Some(token) = token {
                 self.module_work.tickets.insert(p.ticket, token);
+                if let Some(fetch) = p.fetch {
+                    self.module_work.fetches.insert(fetch, p.ticket);
+                }
                 let name = self.target_name(p.target);
                 self.log(format!(
                     "keep request {} ({name}): it may have changed its server, so it runs to its end",
@@ -169,6 +188,7 @@ impl<D: DataSource> Runner<D> {
         let Some(token) = self.module_work.tickets.remove(&ticket) else {
             return Ok(None);
         };
+        self.module_work.fetches.retain(|_, t| *t != ticket);
         let (revision, writes) = (self.store.revision(), self.store.writes().len());
         self.log(format!("{NAME} {ticket}: {}", outcome.summary()));
         if let Err(e) = self.data.module_landed(&mut self.store, token, outcome) {
@@ -204,7 +224,11 @@ impl<D: DataSource> Runner<D> {
         let mut now = Vec::new();
         if wrote {
             let revision = self.store.revision();
-            for i in self.store_readers() {
+            // An upload is asked once for its arguments (LLP 1016.000 D10).
+            let readers: Vec<usize> = (self.store_readers().into_iter())
+                .filter(|i| !self.upload_stands(*i))
+                .collect();
+            for i in readers {
                 let mut in_flight = false;
                 for p in self.pending.iter_mut() {
                     if p.target == Target::Resource(i)

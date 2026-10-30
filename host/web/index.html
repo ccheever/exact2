@@ -356,15 +356,19 @@
      during a CSS transition. Keep it local to the node, as `scale` is. */
   @property --exact-press-factor { syntax: "<number>"; inherits: false; initial-value: 1; }
   @property --exact-scale { syntax: "<number>"; inherits: false; initial-value: 1; }
-  /* LLP 1061 D7: the pressed paint, while the input glue paints a press (`data-exact-painting`): the node's own pressed
-     properties, read live, `--exact-press-paint` of the way (0 to 1, which the glue eases) over its look beneath, which
-     the glue reads with the paint off. Important, so the page's own declarations do not hide it. */
+  /* LLP 1061 D7: the pressed paint. The input glue writes each painting node an important rule of its own (a
+     background layer, a mask; the text colour) and eases its progress, `--exact-press-paint`, 0 to 1. It reads the
+     node's pressed opacities here as numbers and its pressed colours in sRGB (a token or light-dark resolved,
+     as these registered copies compute them; a scheme flip mid-press repaints from them). */
   @property --exact-press-paint { syntax: "<number>"; inherits: false; initial-value: 0; }
-  #exact-root [data-exact-painting][style*="--exact-press-opacity:"] { opacity: calc(var(--exact-press-base-opacity) * (1 - var(--exact-press-paint) * (1 - clamp(0, var(--exact-press-opacity), 1)))) !important; }
-  /* LLP 1121 D8: `:active`'s opacity, an absolute target the press eases to from the opacity beneath. */
-  #exact-root [data-exact-painting][style*="--exact-press-opacity-to:"] { opacity: calc(var(--exact-press-base-opacity) + (clamp(0, var(--exact-press-opacity-to), 1) - var(--exact-press-base-opacity)) * var(--exact-press-paint)) !important; }
-  #exact-root [data-exact-painting][style*="--exact-press-background-color:"] { background-color: color-mix(in srgb, var(--exact-press-background-color) calc(var(--exact-press-paint) * 100%), var(--exact-press-base-background)) !important; }
-  #exact-root [data-exact-painting][style*="--exact-press-color:"] { color: color-mix(in srgb, var(--exact-press-color) calc(var(--exact-press-paint) * 100%), var(--exact-press-base-color)) !important; }
+  @property --exact-press-opacity-number { syntax: "<number>"; inherits: false; initial-value: 1; }
+  @property --exact-press-opacity-to-number { syntax: "<number>"; inherits: false; initial-value: 1; }
+  @property --exact-press-color-in-srgb { syntax: "<color>"; inherits: false; initial-value: transparent; }
+  @property --exact-press-background-in-srgb { syntax: "<color>"; inherits: false; initial-value: transparent; }
+  #exact-root [style*="--exact-press-background-color:"] { --exact-press-background-in-srgb: color-mix(in srgb, var(--exact-press-background-color) 100%, transparent); }
+  #exact-root [style*="--exact-press-opacity:"] { --exact-press-opacity-number: var(--exact-press-opacity); }
+  #exact-root [style*="--exact-press-opacity-to:"] { --exact-press-opacity-to-number: var(--exact-press-opacity-to); }
+  #exact-root [style*="--exact-press-color:"] { --exact-press-color-in-srgb: color-mix(in srgb, var(--exact-press-color) 100%, transparent); }
   [data-scroll="true"] { overflow: auto; }
   /* LLP 1048.003 D4: `scroll document` — the page scrolls, not an inner
      scroller. Body and root grow with the content and the marked scroller is

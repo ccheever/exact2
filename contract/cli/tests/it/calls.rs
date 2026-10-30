@@ -869,33 +869,82 @@ fn says(src: &str, id: &str, message: &str) {
 
 const BUTTON: &str = "  view\n    button press=go testId=\"go\"\n      text \"go\"\n";
 
+/// The one warning `src` earns, by id and whole message; it compiles.
+fn warns(src: &str, id: &str, message: &str) {
+    let (result, warnings) = contract::compile_warned(src);
+    result.unwrap_or_else(|e| panic!("a warning never fails a build: {e}"));
+    let got: Vec<(&str, &str)> = warnings
+        .iter()
+        .map(|w| (w.id.as_str(), w.message.as_str()))
+        .collect();
+    assert_eq!(got, [(id, message)], "{src}");
+}
+
 #[test]
-fn a_read_another_frame_made_stale_is_refused_in_each_of_d3s_cases() {
+fn a_read_another_frame_made_stale_is_warned_of_in_each_of_d3s_cases() {
+    // One rule with the body's read (LLP 1035.005.002 C2): the same id, a
+    // warning, naming both frames.
+    const STALE: &str = "analyze-read-after-assign";
     let follow = "component App\n  state sel = 0\n  state seen = 0\n  action follow\n    seen = sel\n  action go\n    sel = 3\n    follow()\n";
-    says(
+    warns(
         &format!("{follow}{BUTTON}"),
-        "analyze-call-stale-read",
-        "`follow` (called at line 8) reads `sel`, which `go` assigns at line 7; `follow` sees the value `sel` had when the action started. Pass the value it should see: a `let` bound before line 7 keeps the starting value, and the value assigned at line 7 gives the new one",
+        STALE,
+        "`follow` (called at line 8) reads `sel`, which `go` assigns at line 7; `follow` sees the value `sel` had when the action started: writes land when the action ends. Pass the value it should see: a `let` bound before line 7 keeps the starting value, and the value assigned at line 7 gives the new one",
     );
     // The argument is read in the callee's frame, and named as the argument.
     let argument = "component App\n  state sel = 0\n  state seen = 0\n  action follow(v: number)\n    seen = v\n  action go\n    sel = 3\n    follow(sel)\n";
-    says(
+    warns(
         &format!("{argument}{BUTTON}"),
-        "analyze-call-stale-read",
-        "an argument of `follow(…)` at line 8 reads `sel`, which `go` assigns at line 7; the argument of `follow` sees the value `sel` had when the action started. Pass the value it should see: a `let` bound before line 7 keeps the starting value, and the value assigned at line 7 gives the new one",
+        STALE,
+        "an argument of `follow(…)` at line 8 reads `sel`, which `go` assigns at line 7; the argument of `follow` sees the value `sel` had when the action started: writes land when the action ends. Pass the value it should see: a `let` bound before line 7 keeps the starting value, and the value assigned at line 7 gives the new one",
     );
     let reset = "component App\n  state count = 0\n  action reset\n    count = 0\n  action go\n    reset()\n    count = count + 1\n";
-    says(
+    warns(
         &format!("{reset}{BUTTON}"),
-        "analyze-call-stale-read",
-        "`go` reads `count` at line 7, which `reset` (called at line 6) assigns at line 4; `go` sees the value `count` had when the action started. Pass the value it should see: a `let` bound before line 6 keeps the starting value, and the value assigned at line 4 gives the new one",
+        STALE,
+        "`go` reads `count` at line 7, which `reset` (called at line 6) assigns at line 4; `go` sees the value `count` had when the action started: writes land when the action ends. Pass the value it should see: a `let` bound before line 6 keeps the starting value, and the value assigned at line 4 gives the new one",
     );
     // Both read the starting cell and the later write wins: not a diagonal.
+    // A warning names every such read, where the refusal stopped at one.
     let diagonal = "component App\n  state r = 0\n  state c = 0\n  action move(dr: number, dc: number)\n    r = r + dr\n    c = c + dc\n  action go\n    move(1, 0)\n    move(0, 1)\n";
-    says(
-        &format!("{diagonal}{BUTTON}"),
-        "analyze-call-stale-read",
-        "`move` (called at line 9) reads `r`, which `move` (called at line 8) assigns at line 5; `move` sees the value `r` had when the action started. Pass the value it should see: a `let` bound before line 8 keeps the starting value, and the value assigned at line 5 gives the new one",
+    let (result, warnings) = contract::compile_warned(&format!("{diagonal}{BUTTON}"));
+    result.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        warnings.iter().map(|w| w.message.as_str()).collect::<Vec<_>>(),
+        [
+            "`move` (called at line 9) reads `r`, which `move` (called at line 8) assigns at line 5; `move` sees the value `r` had when the action started: writes land when the action ends. Pass the value it should see: a `let` bound before line 8 keeps the starting value, and the value assigned at line 5 gives the new one",
+            "`move` (called at line 9) reads `c`, which `move` (called at line 8) assigns at line 6; `move` sees the value `c` had when the action started: writes land when the action ends. Pass the value it should see: a `let` bound before line 8 keeps the starting value, and the value assigned at line 6 gives the new one",
+        ]
+    );
+}
+
+#[test]
+fn the_bodys_exemptions_hold_behind_a_call_too() {
+    // A field the copy left alone is the same value either way (`rereads.rs`);
+    // a condition the assignment's path decides steps once an action.
+    for (case, src) in [
+        (
+            "a copied record's unchanged field",
+            "shape Item\n  id: string\n  n: number\ncomponent App\n  state item = Item(id=\"x\", n=0)\n  state shown = \"\"\n  action show\n    shown = item.id\n  action go\n    item = Item(item, n=item.n + 1)\n    show()\n",
+        ),
+        (
+            "a phase chain through a call",
+            "component App\n  state phase = 1\n  state shown = \"\"\n  action step\n    if phase == 2\n      shown = \"two\"\n  action go\n    if phase == 1\n      phase = 2\n    step()\n",
+        ),
+    ] {
+        let (result, warnings) = contract::compile_warned(&format!("{src}{BUTTON}"));
+        result.unwrap_or_else(|e| panic!("{case}: {e}"));
+        assert!(warnings.is_empty(), "{case}: {warnings:?}");
+    }
+    // The replaced field is the stale read.
+    let replaced = "shape Item\n  id: string\n  n: number\ncomponent App\n  state item = Item(id=\"x\", n=0)\n  state shown = \"\"\n  action show\n    shown = `${item.n}`\n  action go\n    item = Item(item, n=item.n + 1)\n    show()\n";
+    let (_, warnings) = contract::compile_warned(&format!("{replaced}{BUTTON}"));
+    assert_eq!(
+        warnings
+            .iter()
+            .map(|w| (w.id.as_str(), w.span.line))
+            .collect::<Vec<_>>(),
+        [("analyze-read-after-assign", 8)]
     );
 }
 

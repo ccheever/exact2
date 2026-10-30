@@ -255,23 +255,24 @@ fn build_dxbc(out: &Path, entries: &[String]) {
     let mut fxc = None;
     if windows {
         for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
-            // Installation into an existing PATH directory must invalidate the stub.
-            if dir.is_dir() {
-                println!("cargo:rerun-if-changed={}", dir.display());
-            }
             for name in ["fxc.exe", "fxc"] {
                 let candidate = dir.join(name);
-                if candidate.is_file() {
-                    println!("cargo:rerun-if-changed={}", candidate.display());
-                    if fxc.is_none() {
-                        fxc = Some(candidate);
-                    }
+                if candidate.is_file() && fxc.is_none() {
+                    fxc = Some(candidate);
                 }
             }
             if fxc.is_some() {
                 break;
             }
         }
+    }
+    if windows && fxc.is_none() {
+        // A missing generated input retries SDK discovery on every build until
+        // fxc appears. PATH directories are not source inputs of an app bake.
+        println!(
+            "cargo:rerun-if-changed={}",
+            out.join("awaiting-fxc").display()
+        );
     }
     let available = fxc.is_some();
     for (entry, profile, file) in [(0, "vs_5_0", "ink.vs.dxbc"), (1, "ps_5_0", "ink.ps.dxbc")] {

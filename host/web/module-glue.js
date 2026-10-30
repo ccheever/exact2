@@ -116,6 +116,11 @@ export async function prepare(payload, admitted, id = nextId++) {
   // storage operation, an unhandled rejection) and its `console`, which the
   // runner writes to `logs` as it does on every host.
   const journal = [];
+  // Fetches the app aborted (the prelude's door 23), kept until the runner asks (the realm's `aborted`), and each
+  // request's owning call's map, so a withdrawal (16) reaches it from any turn.
+  const aborted = [], requestMaps = new Map();
+  // A call that retires (answered, or let go) takes its unsent requests out of the index.
+  const unindex = requests => { for (const t of requests?.keys() ?? []) requestMaps.delete(t); };
   win.addEventListener('error', event => { initializationError = event.message; event.preventDefault(); });
   win.addEventListener('unhandledrejection', event => {
     const reason = event.reason;
@@ -127,6 +132,8 @@ export async function prepare(payload, admitted, id = nextId++) {
   }
   win.__exact_host = (op, name, value) => {
     if (op === 13) { journal.push(String(name)); return '1'; }
+    if (op === 23) { aborted.push(Number(name)); globalThis.exact?.abortWake?.(); return; } // wake the host: a let-go's turn (its storage delivery included) has no batch to follow
+    if (op === 16) { const t = Number(name), m = requestMaps.get(t); requestMaps.delete(t); m?.delete(t); return; }
     // The runner's clock as the turn was dispatched: when a timer armed now is due; none outside a turn.
     if (op === 21) return context?.clock === undefined ? undefined : String(context.clock);
     // The prelude asks at load whether this host has a local listener (LLP 1133.005): a page never does.
@@ -143,7 +150,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     if (op === 1) {
       // A stream is the page's to open (LLP 1016.000), never fetched early.
       const request = JSON.parse(value), drop = request.stream ? null : fetchEarly(request, admitted.grantSet);
-      context.requests.set(Number(name), request); if (drop) context.early.set(Number(name), drop); return;
+      context.requests.set(Number(name), request); requestMaps.set(Number(name), context.requests); if (drop) context.early.set(Number(name), drop); return;
     }
     if (op === 2) { context.reads.push(name); return context.store.get(name); }
     if (op === 5) { context.externalRead = true; return; }
@@ -188,6 +195,8 @@ export async function prepare(payload, admitted, id = nextId++) {
       }
     }
     if ((win.exact?.abi !== 1 && win.exact?.abi !== 2) || win.exact.appId !== admitted.appId || !sameGrantDeclaration(childGrantSet, win.exact.grants) || typeof win.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
+    // Whether it has an overlay, decided now that it has loaded (prelude.js `__exact_has_overlay`).
+    const overlayAtLoad = win.__exact_has_overlay() === '1';
     const pending = new Map(), streams = new Map();
     // The runner's target first: two targets asking one source with equal
     // arguments are two calls (LLP 1027 D1a).
@@ -220,6 +229,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     let parked = [], deliveries = 0; // `deliveries`: storage completions delivered to answers, for `resettle`
     const finish = (answer, request) => {
       const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead,entropy:context.entropy,topics:context.topics};
+      if (answer.tag === 1) requestMaps.delete(answer.ticket);
       const reported = answer.tag === 1 ? context.early.get(answer.ticket) : null;
       for (const drop of context.early.values()) if (drop !== reported) drop();
       if (reported) setTimeout(reported, 0);
@@ -232,7 +242,7 @@ export async function prepare(payload, admitted, id = nextId++) {
         if (result.request.stream) streams.set(key(request), {call:answer.call,owner:context.owner});
         else pending.set(key(request), {call:answer.call,ticket:answer.ticket,requests:context.requests,owner:context.owner});
       }
-      if (answer.tag !== 1) { storage.rehome(context.owner, backgroundOwner); storage.retire(context.owner); }
+      if (answer.tag !== 1) { unindex(context.requests); storage.rehome(context.owner, backgroundOwner); storage.retire(context.owner); }
       context = null;
       return result;
     };
@@ -369,11 +379,16 @@ export async function prepare(payload, admitted, id = nextId++) {
         return {token};
       },
       journal: () => journal.splice(0),
+      // The fetches the app aborted (door 23), in any turn, a background round's or a mapper's included: the
+      // runner asks after each of its turns, so none rides a result it may discard.
+      aborted: () => aborted.splice(0),
       // Canvas 2D (LLP 1056 D1): a draw awaits nothing, so it runs now.
       // Text is measured and images answered on the page (LLP 1056 D8, D9).
       draw: request => { const h = globalThis.exact?.canvas2dHost; return JSON.parse(win.__exact_draw(request, h?.measure, h?.image)); },
       // An overlay shows writes over an answer; it awaits nothing, so it runs in this turn.
       overlay: request => JSON.parse(win.__exact_overlay(request.source, JSON.stringify(request.args), JSON.stringify({ answer: request.answer, writes: request.writes }))),
+      // Whether the module had an overlay when it loaded, asked before an answer is encoded for one.
+      hasOverlay: () => overlayAtLoad,
       retire: retired => win.__exact_retire(retired),
       invoke(request) {
         // A context is installed only inside the queue that will finish it.
@@ -399,7 +414,7 @@ export async function prepare(payload, admitted, id = nextId++) {
         const keep = new Set(inFlight.map(key));
         for (const [parkedKey, parked] of pending) {
           if (JSON.parse(parkedKey)[0] === null || keep.has(parkedKey)) continue;
-          pending.delete(parkedKey); release(parked.owner, parked.call);
+          pending.delete(parkedKey); unindex(parked.requests); release(parked.owner, parked.call);
         }
         for (const [streamKey, open] of streams) {
           if (JSON.parse(streamKey)[0] === null || keep.has(streamKey)) continue;
@@ -407,7 +422,7 @@ export async function prepare(payload, admitted, id = nextId++) {
         }
         parked = parked.filter(p => {
           if ((p.request.target ?? null) === null || keep.has(key(p.request))) return true;
-          release(p.context.owner, p.answer.call);
+          unindex(p.context.requests); release(p.context.owner, p.answer.call);
           p.done.reject(new Error('the runner let this answer go'));
           return false;
         });
@@ -429,10 +444,11 @@ export async function prepare(payload, admitted, id = nextId++) {
 // page's main thread (module-worker.js). Same interface as the iframe realm.
 async function prepareWorker(payload, admitted, id, before, meta, helpers) {
   const worker = new Worker(new URL('./module-worker.js', import.meta.url), { type: 'module' });
-  const waiting = new Map();
+  const waiting = new Map(), aborted = []; // `aborted`: the worker's door-23 tickets, as it posts them
   let disposed = false;
   const fail = message => { for (const w of waiting.values()) w.reject(new Error(message)); waiting.clear(); };
   worker.onmessage = ({ data }) => {
+    if (data.op === 'aborted') { aborted.push(data.ticket); globalThis.exact?.abortWake?.(); return; }
     // The worker's SHA-256 on a LAN dev page, which has no `crypto.subtle`
     // (LLP 1069.005 D1): the dev protocol's, here on the page.
     if (data.op === 'digest') {
@@ -451,6 +467,7 @@ async function prepareWorker(payload, admitted, id, before, meta, helpers) {
     storage: storageKey(admitted.appId), pageDigest: !!globalThis.exact.moduleDigest, seed: agentSeed() });
   try { await ready; } catch (error) { worker.terminate(); throw error; }
   const realm = { frame: null, meta, grantSet: admitted.grantSet, id, placement: 'worker',
+    aborted: () => aborted.splice(0),
     forget(inFlight) {
       forgetTurns(id, new Set(inFlight.map(workerKey)), workerKey);
       worker.postMessage({ op: 'forget', inFlight });
@@ -503,7 +520,10 @@ export function call(request) {
   if (request.op === 'background') return realm.background ? realm.background() : { head: false };
   if (request.op === 'background-round') return realm.backgroundRound ? realm.backgroundRound() : { error: 'no background work in a worker-placed module' };
   if (request.op === 'journal') return { lines: realm.journal ? realm.journal() : [] };
+  if (request.op === 'aborted') return { tickets: realm.aborted ? realm.aborted() : [] };
   if (request.op === 'draw') return realm.draw ? realm.draw(request.request) : { error: 'a worker-placed module does not draw Canvas 2D yet' };
+  // A worker realm can't say synchronously: it answers yes, and its overlay's `{tag:4, worker}` tells why the writes wait.
+  if (request.op === 'has-overlay') return { has: realm.hasOverlay ? realm.hasOverlay() : true };
   if (request.op === 'overlay') return realm.overlay ? realm.overlay(request) : { tag: 4, worker: true };
   if (request.op === 'retire') { realm.retire?.(request.retired); return { ok: true }; }
   if (request.op === 'answer' || request.op === 'resume') return realm.invoke(request);

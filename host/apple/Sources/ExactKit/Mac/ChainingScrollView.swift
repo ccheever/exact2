@@ -72,7 +72,7 @@ package final class ChainingScrollView: NSScrollView {
     private func followScrollerStyle() {
         // Region surfaces own their layout separately; this claim is for
         // ordinary overflow boxes, whose children the kernel lays out.
-        scrollerStyle = ExactEnv.agentMode || pointerOwner == nil ? .overlay : NSScroller.preferredScrollerStyle
+        scrollerStyle = ExactEnv.agentFreezes || pointerOwner == nil ? .overlay : NSScroller.preferredScrollerStyle
         tile()
         pointerOwner?.fitScroll()
     }
@@ -108,7 +108,7 @@ package final class ChainingScrollView: NSScrollView {
     /// is while a drive holds the frames for a person's own flings (`perf
     /// frames hold` under platform timing, LLP 1144 D1): momentum and rubber
     /// band included.
-    static var appliesAtOnce = ExactEnv.agentMode
+    static var appliesAtOnce = ExactEnv.agentFreezes
     /// The driver's trackpad gesture (`tap … wheel … fling|hold|release`,
     /// LLP 1142 D3) comes through the window server, whose gesture AppKit
     /// tracks as a person's, marked with this in `kCGEventSourceUserData`.
@@ -276,7 +276,15 @@ package final class ChainingScrollView: NSScrollView {
         return routing
     }
 
+    /// The phase a scroll track records for a move this scroller's wheel handler makes (`FrameHealth.trackScrolled`):
+    /// `d` momentum, `t` a finger's phased scroll, `-` a plain wheel or a phase's end. The clip's bounds change is
+    /// posted inside the handler, so it is set for that move alone and is `-` for any other (a layout's).
+    var trackPhase: Character = "-"
+
     package override func scrollWheel(with event: NSEvent) {
+        let moving: NSEvent.Phase = [.began, .changed]
+        trackPhase = !event.momentumPhase.intersection(moving).isEmpty ? "d" : !event.phase.intersection(moving).isEmpty ? "t" : "-"
+        defer { trackPhase = "-" }
         (superview as? NodeView)?.cancelElementScroll()
         // Precise deltas (a trackpad) are in points; a wheel's are in lines,
         // of the height AppKit scrolls a line by (10 points unless set; it

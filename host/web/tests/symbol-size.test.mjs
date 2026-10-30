@@ -67,7 +67,7 @@ const content = `<div style="font-size:17px;display:flex;flex-direction:column;a
 // Each runtime's painter, its module's other parts stood in for.
 const RUNTIMES = {
   'host/web/glue.js': ['const views = new Map([...document.querySelectorAll("#exact-root img")].entries()), log = () => {};', ['tintFit', 'refreshSymbols'], 'refreshSymbols();'],
-  'host/web-js/symbols.js': ['const All = true, journal = [], clock = { now: 0 }, appSource = () => {};', ['inked', 'refresh'], 'refresh();'],
+  'host/web-js/symbols.js': ['const All = true, journal = [], clock = { now: 0 }, appSource = () => {}, Images = new Set(document.querySelectorAll("#exact-root img")), image = e => Images.add(e);', ['inked', 'refresh'], 'refresh();'],
 };
 
 for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand, names, run]] of Object.entries(RUNTIMES)) test(`${engine}: a symbol for an SF Symbol is SF's size, UIKit's image padding from its title (${file})`, async () => {
@@ -334,7 +334,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
     const path = new URL(request.url).pathname;
     if (path === '/') return new Response(html, { headers: { 'content-type': 'text/html' } });
     if (path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
-    for (const dir of ['host/web-js', 'host/web']) {
+    for (const dir of ['host/web-js', 'host/web', 'host']) {
       const module = Bun.file(resolve(ROOT, dir, path.slice(1)));
       if (await module.exists()) return new Response(module);
     }

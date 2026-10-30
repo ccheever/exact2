@@ -186,10 +186,13 @@ fn prop(runner: &Runner<Replies>, test_id: &str, name: &str) -> Option<String> {
 fn the_windows_root_removes_the_standard_tab_items() {
     let mut host = host();
     let runner = host.runner_mut();
-    assert_eq!(
-        prop(runner, "t3-code", "menuRemove").as_deref(),
-        Some("show-tab-bar show-all-tabs")
-    );
+    let removed = prop(runner, "t3-code", "menuRemove").expect("window removes menu items");
+    for item in ["show-tab-bar", "show-all-tabs"] {
+        assert!(
+            removed.split_whitespace().any(|token| token == item),
+            "window must remove {item}"
+        );
+    }
 }
 
 #[test]

@@ -76,7 +76,7 @@ export function ownWithout(init, skip) {
 // `read`: how the body is taken before the fetch answers, within the deadline (`exactBodyTo`'s writes it to a file).
 // `origin`: who asked it (LLP 1133.036 D6); a tool's, a wake's or the device's reach to a less public space is checked.
 export async function fetchWith(set, input, init = {}, expires = null, redirect = redirectOf(input, init), read = within, origin = 'app') {
-  let value, asset, deadline, signal;
+  let value, asset, deadline, signal, own;
   init ??= {};
   deadline = deadlineOf(init);
   const until = expires ?? (deadline ? { at: performance.now() + deadline.ms, ms: deadline.ms } : null);
@@ -99,7 +99,7 @@ export async function fetchWith(set, input, init = {}, expires = null, redirect 
     const rest = ownWithout(init, ['exactTimeout', 'exactIndependentHttp', 'redirect']);
     // The caller's signal, from `init` or the input `Request` (`null`
     // clears the Request's, `undefined` keeps it, as `fetch` has them).
-    const own = rest.signal !== undefined ? rest.signal : typeof Request === 'function' && input instanceof Request ? input.signal : undefined;
+    own = rest.signal !== undefined ? rest.signal : typeof Request === 'function' && input instanceof Request ? input.signal : undefined;
     // The deadline reaches the request only until its body is read: a
     // response that arrived in time stays readable after the deadline.
     let relay;
@@ -131,7 +131,9 @@ export async function fetchWith(set, input, init = {}, expires = null, redirect 
   catch (error) {
     if (error instanceof FetchError) throw error;
     if (deadline && signal?.aborted && signal.reason === deadline.signal.reason) throw new FetchError('Timeout', `the request timed out after ${deadline.ms} ms`);
-    // The caller's own abort is the native executor's `Aborted`, not a lost connection.
+    // The caller's own abort rejects with its signal's reason, as Fetch and the native prelude do: an
+    // `AbortError` for a bare `abort()`, or the very value the app gave it.
+    if (own?.aborted) throw own.reason;
     if (error?.name === 'AbortError') throw new FetchError('Aborted', error?.message ?? error);
     throw new FetchError('Network', error?.message ?? error);
   }

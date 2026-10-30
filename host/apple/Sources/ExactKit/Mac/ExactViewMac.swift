@@ -296,6 +296,7 @@ public final class ExactView: NSView {
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow !== window { session.natives.windowLeaving(window); rootEdits.leave(window) }   // its window hatch ends while the window is there
+        if newWindow !== window { session.presenter.releaseEarlyPress(nil) } // its monitor goes, which would release it (LLP 1005)
         super.viewWillMove(toWindow: newWindow)
     }
 
@@ -328,8 +329,12 @@ public final class ExactView: NSView {
                 // Inspect mode's monitor has every event (InspectMac.swift): none is the app's.
                 if Inspect.on || InspectHost.draining { return event }
                 #endif
-                // AppKit can route an up to no view after the pressed subtree leaves its window.
-                if [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type),
+                // An early press in an editor no tracking took is released at its up, wherever it goes;
+                // its up while its down still bubbles waits for the down (LLP 1005).
+                if event.type == .leftMouseUp, self.session.presenter.releaseEarlyPress(event) { return nil }
+                // AppKit can route an up to no view after the pressed subtree leaves its window
+                // (an early press still bubbling is released when it has bubbled).
+                if [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type), self.session.presenter.mouseChain.early == nil,
                    let source = self.session.presenter.pointerSource, source.window == nil {
                     source.pointerReleased(event)
                 }
@@ -353,7 +358,10 @@ public final class ExactView: NSView {
                     self.session.presenter.tables.pointer(event)
                     self.session.presenter.menus.pointer(event)
                     // A click on the window behind a `closedby="any"` sheet is the sheet's.
-                    return self.session.presenter.dialogs.pointer(event) ? nil : event
+                    if self.session.presenter.dialogs.pointer(event) { return nil }
+                    // A press in an editor: its `pointerdown` before NSWindow focuses it (LLP 1005).
+                    self.session.presenter.pressEditorFirst(event)
+                    return event
                 }
                 if event.type == .keyDown { self.session.presenter.flushKeyViewLoop() }
                 let focused = self.ownsShortcutFocus(in: event.window)
@@ -367,7 +375,7 @@ public final class ExactView: NSView {
         }
         // Mounted and visible participate in frame demand (D3): an unmounted
         // view wants no frames; a mounted one asks again.
-        session.frames.run(window != nil && (session.frames.motion || session.canvases.wantsFrames))
+        session.frames.run(window != nil && session.frames.hasWork)
         if window != nil { fit(); session.presenter.syncAccessibility() }
         // In a window's sidebar pane, or out of it: the sidebar stands for
         // the tablist only while it is in a window (SidebarMac.swift).
@@ -422,6 +430,9 @@ public final class ExactView: NSView {
         super.viewDidChangeEffectiveAppearance()
         session.controlTextChanged()
         session.scheme(dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+        // The window's bar resolved its inks, tints and painted faces by the old appearance, and a
+        // `light-dark()` pair puts no op on the wire when the scheme turns.
+        session.presenter.toolbar.sync()
         // The app's `setScheme` arrives here, as the system's does; iOS's, through `tellPreferences` (LLP 1122 D4).
         session.app.scheduleStatus()
     }
@@ -431,6 +442,7 @@ extension ExactView: NSMenuItemValidation {
     /// Start Speaking with text selected, Stop Speaking while it speaks.
     public func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(toggleFrameHealth(_:)): validateFrameHealthItem(item)
         case #selector(startSpeaking(_:)): !session.presenter.selection.selectedText().isEmpty
         case #selector(stopSpeaking(_:)): Self.speech.isSpeaking
         default: true

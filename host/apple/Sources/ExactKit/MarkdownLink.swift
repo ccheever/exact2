@@ -49,6 +49,14 @@ package protocol MarkdownEditing: AnyObject {
     var bookmark: NSRange? { get set }
     /// The attributes plain typing takes.
     var plainAttributes: [NSAttributedString.Key: Any] { get }
+    /// The `paragraphDirs` its last restyle drew (LLP 1045 D11).
+    var paragraphDirs: String { get }
+    /// The node's `atoms`, `atomFaces` and `atomStyles` as its last restyle
+    /// drew them (LLP 1045.000 D2).
+    var atoms: MarkdownAtoms { get }
+    /// The base direction of the line holding `location`, as drawn: an empty
+    /// editor's placeholder takes its first line's (LLP 1045 D11).
+    func direction(at location: Int) -> NSWritingDirection
     /// Remove every Markdown attribute.
     func detach(_ storage: NSTextStorage)
     /// Where a person's selection change from `old` to `new` lands beside a
@@ -90,8 +98,11 @@ package struct MarkdownAtoms: Hashable {
     package var dark = false
     package var contrast = false
     package var emphasized = true
-    package init(kinds: String = "", faces: String = "", styles: String = "", dark: Bool = false, contrast: Bool = false) {
-        (self.kinds, self.faces, self.styles, self.dark, self.contrast) = (kinds, faces, styles, dark, contrast)
+    /// A reader's lines run right to left, its node's `direction`: a pill
+    /// whose face pins none is isolated in it (LLP 1045.000 D4).
+    package var rtl = false
+    package init(kinds: String = "", faces: String = "", styles: String = "", dark: Bool = false, contrast: Bool = false, rtl: Bool = false) {
+        (self.kinds, self.faces, self.styles, self.dark, self.contrast, self.rtl) = (kinds, faces, styles, dark, contrast, rtl)
     }
     package var isEmpty: Bool { kinds.isEmpty || kinds == "[]" }
 }
@@ -101,16 +112,23 @@ package struct MarkdownAtoms: Hashable {
 /// it reports. A new object each restyle, so equal neighbours stay two runs.
 package final class MarkupAtom: NSObject {
     package let kind: String, label: String, icon: String, title: String, role: String, href: String
-    /// Its paint: the kind's `color` and `background-color`, as RGBA, if declared.
+    /// Its paint, as `TextEngine.color` reads it (RGBA, and a face's colour
+    /// in its own space after them): its face's `color` and
+    /// `backgroundColor`, else its kind's `color` and `background-color`;
+    /// nil where neither says.
     package let ink: [Double]?, background: [Double]?
     /// The selection covers it: drawn in the selection's colour (D4),
     /// emphasized or not.
     package let selected: Bool, emphasized: Bool
     package let dark: Bool, contrast: Bool
+    /// Its face's direction, `ltr` or `rtl`, which lays out its icon and
+    /// label (D4); empty to follow its line's.
+    package let direction: String
     package init(kind: String, label: String, icon: String, title: String, role: String, href: String, ink: [Double]?, background: [Double]?,
-                 selected: Bool, emphasized: Bool = true, dark: Bool, contrast: Bool) {
+                 selected: Bool, emphasized: Bool = true, dark: Bool, contrast: Bool, direction: String = "") {
         (self.kind, self.label, self.icon, self.title, self.role, self.href) = (kind, label, icon, title, role, href)
         (self.ink, self.background, self.selected, self.emphasized, self.dark, self.contrast) = (ink, background, selected, emphasized, dark, contrast)
+        self.direction = direction
     }
 }
 
@@ -188,6 +206,22 @@ extension NodeView {
     func restyleMarkup() {
         MarkdownLink.installed?.restyle(self)
         restyleDecorations()
+    }
+    /// The field's own direction is right to left: its `direction`, else the
+    /// document's. A Markdown editor's line without a word takes it (LLP 1045 D11).
+    package var markdownRTL: Bool { (style["direction"]?.string ?? presenter?.documentDirection ?? "ltr") == "rtl" }
+    /// Restyle the editor when its props change what it draws but not its
+    /// text, changes that come with no edit and so with no edit's restyle:
+    /// new `paragraphDirs` (LLP 1045 D11), or new `atoms`, `atomFaces` or
+    /// `atomStyles`, such as a face that follows an upload while its source
+    /// stays (LLP 1045.000 D2). An unchanged prop is the very string the last
+    /// restyle kept, so comparing it returns at once.
+    func restyleMarkupProps() {
+        guard let editor = (textArea as? TextArea)?.markup else { return }
+        let drawn = editor.atoms
+        guard editor.paragraphDirs != props["paragraphDirs"] ?? "" || drawn.kinds != props["atoms"] ?? ""
+            || drawn.faces != props["atomFaces"] ?? "" || drawn.styles != props["atomStyles"] ?? "" else { return }
+        restyleMarkup()
     }
 }
 

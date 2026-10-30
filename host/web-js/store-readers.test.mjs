@@ -98,6 +98,30 @@ test("a held store reader is asked again at once", async () => {
 `)).toBe(2);
 }, 180_000);
 
+// LLP 1146 D2's aborted write, on the JS target: the browser owns the fetch, so an aborted write rejects at once, and
+// its catch runs after the aborting answer's commit, outside it (rt.js `set`: a write outside a commit is kept), so
+// the refusal of that commit undoes nothing it writes. Natively such a write, kept as module work, rejects in a module
+// turn for the same end (js/tests/it/outlive.rs). Round 0 starts the write, which the server holds; round 1 lets it
+// go, aborts it and is refused, so the round stays 0 and `seen` keeps round 0's answer, which the catch gave; round 1
+// asked again reads what the catch wrote: the abort, by its reason, not some other failure.
+test("an aborted write's catch keeps its store write when the aborting commit is refused", async () => {
+  await drive(`if (_args[0] === 0) {
+      cancelling = new AbortController();
+      return fetch(${'`'}\${origin}/slow${'`'}, { method: 'POST', signal: cancelling.signal })
+        .then(() => 'landed', e => { store.set('readers.value', e?.kind === 'Aborted' || e?.name === 'AbortError' ? 'aborted' : 'failed ' + e?.name); return 'caught'; });
+    }
+    if (!refusedOnce) { refusedOnce = true; cancelling?.abort(); throw Object.assign(new Error('refused'), { refuse: true }); }
+    return store.get('readers.value') ?? 'none';`, `test "the aborted write's catch kept its store write"
+  before data
+  tap "next"
+  clock data
+  expect text "seen" == "caught"
+  tap "next"
+  clock data
+  expect text "seen" == "aborted"
+`);
+}, 180_000);
+
 // A `seen` body that reads the store, asks `/slow` with `options`, and says whether an earlier ask was still out.
 function slowReader(options) {
   return `store.get('readers.value');
@@ -153,7 +177,7 @@ component Readers
 export const grants = ${JSON.stringify(`net.fetch ${server.url.origin}\nsecret.keep readers.value`)};
 type Store = { get(name: string): string | null; set(name: string, value: string): void };
 const origin = ${JSON.stringify(server.url.origin)};
-let out = 0, overlapped = false;
+let out = 0, overlapped = false, cancelling: AbortController | null = null, refusedOnce = false;
 export function answer(name: string, _args: unknown[], store: Store): any {
   if (name === 'seen') {
     ${seen}

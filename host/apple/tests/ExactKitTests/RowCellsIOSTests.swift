@@ -237,6 +237,32 @@ final class RowCellsIOSTests: XCTestCase {
 
     /// A screen a push covers is out of the window; a batch then keeps its
     /// rows' lines, which come back with it, and its selected row.
+    /// The selected row's ground follows the row by the record of what
+    /// showed (`Presenter.moveOrPlace`): it moves with a row that showed, and
+    /// takes its place at once with a row shown again since the last frame.
+    func testASelectedRowsGroundMovesOnlyWithARowThatShowed() throws {
+        // In a scene's window, where what a frame showed is read (`Presenter.committed`)
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = try fixture()
+        let shown = UIWindow(windowScene: scene)
+        shown.frame = window.frame
+        p.viewport.removeFromSuperview(); shown.addSubview(p.viewport); shown.makeKeyAndVisible()
+        window.isHidden = true; window = shown
+        let row = try XCTUnwrap(p.views[11])
+        XCTAssertNotNil(p.rowCells.select(row))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05)) // a frame shows it
+        let held = try XCTUnwrap(ground(p), "the selected row's ground")
+        UIView.animate(withDuration: 0.5) { p.apply(wireBatch([["op": "frame", "id": 11, "x": 0.0, "y": 50.0, "w": 400.0, "h": 44.0]])) }
+        XCTAssertNotNil(held.layer.animation(forKey: "position"), "with a row that showed, it moves")
+        held.layer.removeAllAnimations()
+        row.isHidden = true
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05)) // a frame shows the row hidden
+        row.isHidden = false
+        UIView.animate(withDuration: 0.5) { p.apply(wireBatch([["op": "frame", "id": 11, "x": 0.0, "y": 44.0, "w": 400.0, "h": 44.0]])) }
+        XCTAssertEqual(held.frame.minY, 44, "where the row is")
+        XCTAssertEqual(held.layer.animationKeys() ?? [], [], "with a row shown again, at once")
+    }
+
     func testACoveredScreenKeepsItsLinesAndItsSelectedRowThroughABatch() throws {
         let p = try fixture()
         let row = try XCTUnwrap(p.views[11])

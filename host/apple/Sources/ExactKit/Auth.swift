@@ -1,6 +1,6 @@
 // `openAuthSession` (LLP 1069.006 D3): one sign-in sheet per `exact-auth:`
 // request, in ExactKit so an embedder (LLP 1031) gets it with the session.
-// The runner rules first (grants, the one-session rule, supersession); this
+// The runner rules first (grants, the one-sheet rule, supersession); this
 // keeps each request's ticket until its sheet's completion runs, and reports
 // what came back. The sheet itself, `ASWebAuthenticationSession`, is the
 // `ExactAuthSession` module's (LLP 1047.001.000 E): AuthenticationServices

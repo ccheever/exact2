@@ -60,7 +60,7 @@ final class TintDimmingIOSTests: XCTestCase {
         assertChannels(try shadow(button), uikitGrey(green), "the button's shadow")
         assertChannels(try runChannels(label), uikitGrey(red), "the button's red label")
         let dimmedWide = try runChannels(wide)
-        assertChannels(try components(TextEngine.color(dimmedWide).cgColor), uikitGrey([255, 0, 0, 255]), "a label in display-p3, drawn from its sRGB channels: \(dimmedWide)")
+        assertChannels(try components(TextEngine.color(dimmedWide).cgColor), uikitGrey(UIColor(displayP3Red: 1, green: 0, blue: 0, alpha: 1), alpha: 255), "a label in display-p3, greyed from its own space as UIKit greys it: \(dimmedWide)")
         dim(p, false)
         assertChannels(try fill(button), blue, "the fill once the dimming ends")
         assertChannels(try shadow(button), green, "the shadow once the dimming ends")
@@ -885,6 +885,16 @@ final class TintDimmingIOSTests: XCTestCase {
     private func dim(_ p: Presenter, _ on: Bool) {
         p.viewport.tintAdjustmentMode = on ? .dimmed : .automatic
         window.layoutIfNeeded()
+    }
+
+    /// UIKit's grey for a colour in any space, at `alpha` (0...255)
+    private func uikitGrey(_ colour: UIColor, alpha: Int) -> [Int] {
+        let probe = UIView()
+        probe.tintColor = colour
+        probe.tintAdjustmentMode = .dimmed
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        probe.tintColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return [r, g, b].map { Int(($0 * 255).rounded()) } + [alpha]
     }
 
     /// The grey UIKit gives a tint of `c` while it dims tints, at `c`'s own alpha or at UIKit's

@@ -997,7 +997,45 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
 #[test]
 fn the_format_digest_is_pinned() {
     assert_eq!(
-        FORMAT_DIGEST, 0xdc51_2832_8190_a82b,
+        FORMAT_DIGEST, 0x5fb9a01e27993a7f,
         "the plan format digest moved: if intended, name the break and the hosts that move"
     );
+}
+
+#[test]
+fn invalid_timer_wait_rows_are_refused_by_the_decoder() {
+    for (wait, maximum, frame, tolerance) in [
+        (5, 0, false, 0),
+        (255, 0, false, 0),
+        (0, 1, false, 0),
+        (1, 1, false, 0),
+        (2, 1, false, 0),
+        (1, 0, true, 0),
+        (2, 0, true, 0),
+        (3, 0, true, 0),
+        (4, 0, true, 0),
+        (0, 0, true, 1),
+        (1, 0, false, 1),
+        (2, 0, false, 1),
+        (3, 0, false, 1),
+        (4, 0, false, 1),
+    ] {
+        let mut plan = sample();
+        let row = &mut plan.timers[0];
+        row.wait = wait;
+        row.max_ms = maximum;
+        row.frame = frame;
+        row.tolerance_ms = tolerance;
+        if frame {
+            row.interval_ms = 0;
+            row.once = false;
+        }
+        assert!(
+            matches!(
+                Plan::decode(&plan.encode()),
+                Err(PlanError::TimerWait { timer: 0 })
+            ),
+            "wait={wait} max={maximum} frame={frame} tolerance={tolerance}"
+        );
+    }
 }

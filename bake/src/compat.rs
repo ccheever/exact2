@@ -44,8 +44,42 @@ pub(crate) const RUST_ABI: u32 = 4;
 /// `exactLongPoll` (LLP 1016.000 D8), which an older prelude would ignore and
 /// open as an event stream. 4: `fetch`'s `exactBodyTo` (LLP 1108 D6 R2),
 /// which an older prelude would ignore, reading the body into memory and
-/// writing no file.
-pub(crate) const TYPESCRIPT_RUNTIME: u32 = 4;
+/// writing no file. 5: an aborted `fetch`'s request cancelled on the wire and
+/// its answer resumed at the abort (docs/reference.md), which an older
+/// prelude would leave running, its reply (a 429 included) dropped; and,
+/// sharing it (no binary had shipped 5), an aborted kept write's rejection in
+/// a module turn (LLP 1146 D2), which an older prelude would run in the
+/// aborting turn, where a refused commit drops its continuation's writes; and,
+/// sharing it as well, `fetch`'s `exactUploadProgress` (LLP 1016.000 D10),
+/// which an older prelude would ignore, giving the mapper no progress and the
+/// reply as a byte stream's messages.
+pub(crate) const TYPESCRIPT_RUNTIME: u32 = 5;
+
+/// What each runtime past the first added that a bundle names to use (see
+/// [`TYPESCRIPT_RUNTIME`]): a `fetch` option an older prelude would ignore,
+/// or, for 5's abort changes, what makes an abort signal.
+const RUNTIME_OPTIONS: [(u32, &str); 7] = [
+    (5, "exactUploadProgress"),
+    (5, "AbortController"),
+    (5, "AbortSignal"),
+    (4, "exactBodyTo"),
+    (3, "exactLongPoll"),
+    (2, "redirect"),
+    (1, "exactBodyFrom"),
+];
+
+/// The lowest runtime a TypeScript `bundle` needs: the newest whose option
+/// it names anywhere (a property name survives bundling), else none. A push
+/// records it, so a module that uses nothing newer still goes to a binary
+/// whose prelude is older (LLP 1016.000 D10). A name in a string or a
+/// comment counts too: such a module asks for more than it needs, never less.
+pub fn typescript_runtime_of(bundle: &[u8]) -> u32 {
+    let text = String::from_utf8_lossy(bundle);
+    RUNTIME_OPTIONS
+        .iter()
+        .find(|(_, option)| text.contains(option))
+        .map_or(0, |(runtime, _)| *runtime)
+}
 /// The domain separator over the canonical inputs.
 const DOMAIN: &str = "exact2 compatibility id v1\n";
 
@@ -197,11 +231,17 @@ pub fn compatibility_id_sources_with_entries(
         source_scopes(&mut compat, grants.unwrap_or(""), rust);
     }
     crate::reach::derive(app_dir, platform, plan.as_ref(), &mut compat)?;
-    // The entry plans, resolved once (the receipt writes them); an even-odd
-    // icon in any plan that ships moves the id (stage 14 C2, icon_rules.rs).
+    // The plans that ship, each resolved once (the receipt writes the entry
+    // plans): an even-odd icon in any moves the id (stage 14 C2,
+    // icon_rules.rs), and one that binds `atomFaces` names its record's
+    // fields (atom_faces.rs).
     let mut owned = None;
     let entries = crate::icon_rules::entries(app_dir, entries, &mut owned)?;
-    crate::icon_rules::apply(&mut compat, app_dir, plan.as_ref(), entries)?;
+    let out = std::env::var_os("OUT_DIR").map(std::path::PathBuf::from);
+    let other = crate::icon_rules::shipped(app_dir, plan.as_ref(), out.as_deref())?;
+    let ships = other.as_ref().or(plan.as_ref());
+    crate::icon_rules::apply(&mut compat, ships, entries)?;
+    crate::atom_faces::apply(&mut compat, ships, entries);
     if let Some(plan) = &plan {
         faces(&mut compat, plan, platform, target);
     }

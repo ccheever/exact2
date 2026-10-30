@@ -1,10 +1,85 @@
 // `state <name>` (agent-inspect.mjs `stateOp`, LLP 1116.007 D3.9): a state, derive or resource (or a field of the record)
 // reads by name, down a dotted path, as `expect state` does, even where a view carries the name; a plain view's is the record.
 import { test, expect } from 'bun:test';
-import { render, renderTrace, stateOp, tapRefusal, nextCommitTasks, settleBound, planLocators, perfDelta } from './agent-inspect.mjs';
+import { render, renderTrace, renderFrameHealthReport, renderFrameHealthMetrics, perfOp, readTrack, renderPerf, stateOp, tapRefusal, nextCommitTasks, settleBound, planLocators, perfDelta } from './agent-inspect.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+test('bounded frame report and capture controls bypass legacy perf collection', async () => {
+  const asked = [];
+  const s = { op: async request => { asked.push(request); return { capture: true }; }, perf: () => { throw new Error('legacy sampler must stay off'); } };
+  await perfOp(s, ['frames', 'report']);
+  await perfOp(s, ['frames', 'capture', 'start', '120000']);
+  await perfOp(s, ['frames', 'capture', 'stop']);
+  expect(asked).toEqual([{ op: 'perf', frames: true, report: true }, { op: 'perf', frames: true, capture: 'start', durationMs: 120000 }, { op: 'perf', frames: true, capture: 'stop' }]);
+  for (const args of [['frames', 'report', 'all'], ['frames', 'capture', 'start', '120001'], ['frames', 'capture', 'stop', '5'], ['frames', 'capture', 'start', 'NaN']]) {
+    await expect(perfOp(s, args)).rejects.toThrow();
+  }
+});
+
+test('health windows use finalized cursors and preserve the source without starting legacy collection', async () => {
+  const requests = [], operations = [], cursor = { version: 1 };
+  const s = { op: async request => { requests.push(request); return { cursor }; }, perf: () => { throw new Error('legacy sampler'); } };
+  await perfOp(s, ['frames', 'health', 'scroll', 'during', 'tap list'], 'perf frames health scroll during "tap list"', async op => { operations.push(op); });
+  expect(operations).toEqual(['tap list']);
+  expect(requests).toEqual([{ op: 'perf', frames: true, health: true, source: 'scroll' }, { op: 'perf', frames: true, health: true, source: 'scroll', cursor }]);
+  const text = renderFrameHealthMetrics({ source: 'app', status: 'observing', callbacks: { count: '2', comparableIntervals: '1', perSecond: 120, p99BoundsNs: [8000000, 8500000] }, apply: { count: '1', targetOverruns: '0' } });
+  expect(text).toContain('120.00 callbacks/s');
+  expect(text).toContain('p99 8.00–8.50 ms');
+  expect(text).toContain('Presentation, input latency and GPU execution remain unmeasured');
+  requests.length = 0;
+  const unobserved = { op: async request => {
+    requests.push(request);
+    if (requests.length === 1) { throw Object.assign(new Error('unobserved'), { reply: { error: 'native-scroll-unobserved' } }); }
+    return { cursor };
+  } };
+  await perfOp(unobserved, ['frames', 'health', 'scroll', 'during'], 'perf frames health scroll during "tap list"', async () => {});
+  expect(requests).toEqual(Array(2).fill({ op: 'perf', frames: true, health: true, source: 'scroll' }));
+  requests.length = 0;
+  await expect(perfOp(unobserved, ['frames', 'health', 'scroll'])).rejects.toThrow('unobserved');
+});
+
+test('Apple live windows use a host-side wait and release their lease on errors', async () => {
+  const requests = [], cursor = { version: 1 };
+  const s = { host: 'ios', op: async request => {
+    requests.push(request);
+    if (request.capture) return { capture: request.capture === 'start' };
+    if (request.cursor) throw new Error('disconnected');
+    return { available: true, cursor };
+  }, perf: () => { throw new Error('legacy sampler'); } };
+  await expect(perfOp(s, ['frames', 'live', '1'])).rejects.toThrow('disconnected');
+  expect(requests.map(request => request.capture ?? 'health')).toEqual(['health', 'start', 'health', 'stop']);
+  expect(requests.some(request => request.op === 'clock')).toBe(false);
+  await expect(perfOp(s, ['frames', 'live', '30001'])).rejects.toThrow();
+});
+
+test('compact reports expose measured stages and preserve unknown evidence', () => {
+  const report = { format: 'exact.frame-health/1', available: true, qualification: 'unqualified', scope: { armed: true },
+    retention: { overwrittenSinceClear: '7', expiredAtRead: 2 },
+    columns: ['sequence', 'capture', 'generation', 'age_ns', 'flags', 'target_offset_ns', 'period_ns', 'requested_period_ns', 'gap_ns', 'callback_ns',
+      'before_gap_ns', 'before_callback_ns', 'after_offset_ns', 'after_gap_ns', 'after_callback_ns',
+      'owner_queued_offset_ns', 'owner_began_offset_ns', 'owner_finished_offset_ns', 'main_landed_offset_ns',
+      'apply_began_offset_ns', 'apply_finished_offset_ns', 'work_target_offset_ns', 'operations'],
+    hitches: [['12', '1', '0', 1000000, 17, 8000000, 8000000, 8000000, 24000000, 1000000, 8000000, 500000, null, null, null,
+      -10000000, -9000000, -5000000, -3000000, -3000000, -1000000, 0, 40]] };
+  const text = renderFrameHealthReport(report);
+  expect(text).toContain('overwritten 7');
+  expect(text).toContain('last observed apply ended 1.000 ms before event');
+  expect(() => renderFrameHealthReport({ ...report, padding: 'x'.repeat(4000) })).toThrow();
+  expect(text).toContain('gap 24.000 ms / scheduled 8.000 ms');
+  expect(text).toContain('owner queue 1.000 ms · owner wall 4.000 ms · main wait 2.000 ms · apply 2.000 ms');
+  expect(text).toContain('following gap/work unknown / unknown');
+  expect(text).toContain('not causal attribution');
+  const powered = structuredClone(report);
+  powered.hitches[0][4] += 2 ** 23 + 2 ** 16 + 2 ** 33 + 2 ** 34 + 2 ** 36;
+  expect(renderFrameHealthReport(powered)).toContain('workload motion · thermal serious · low power true');
+  expect(renderFrameHealthReport({ ...report, time: { clamped: true } })).toContain('Timing values were clamped');
+  expect(renderTrace(report)).toBe(text);
+  expect(render('perf', report)).toBe(text);
+  expect(() => renderFrameHealthReport({ ...report, hitches: Array(17).fill(report.hitches[0]) })).toThrow();
+  expect(() => renderFrameHealthReport({ ...report, hitches: [['bad']] })).toThrow();
+});
 
 test('log rendering skips canvas error rows and preserves journal order', () => {
   const error = { canvas: 7, error: 'journal unavailable' };
@@ -83,6 +158,16 @@ test('a late frame names its phases, and a trace no map fits names the host buil
   expect(text).toContain('of its 16.67 ms: rows 9.4 (3) · text 4.1 (12) · unattributed 3.17');
   expect(text).toContain('host built from abcdef123456 (dirty) on M5');
   expect(text).toContain('no map here fits plan abababababab: pass --plan');
+});
+
+test('ink traces retain phase and coverage information without inventing frame joins', () => {
+  const text = renderTrace({ identity: { host: 'apple-painted' }, presented: [1, 2], dropped: 3,
+    traceEvents: [{ cat: 'ink', name: 'paint walk', dur: 1000 }, { cat: 'ink', name: 'paint walk', dur: 2000 },
+      { cat: 'ink', name: 'presented', dur: 0 }] });
+  expect(text).toContain('2 presented timestamps, 3 intervals/marks, 3 dropped');
+  expect(text).toContain('inclusive phases, not additive; idle gaps are not classified as late');
+  expect(text).toContain('paint walk: 2 spans · total 3.000 ms · p99 2.000 ms');
+  expect(text).not.toContain('world trace');
 });
 
 test('--plan finds plans with a map beside them in a directory, and refuses one with none', () => {
@@ -178,4 +263,115 @@ test('perf … during subtracts each resource\'s asks', () => {
   expect(perfDelta(read(2), read(8)).resources).toEqual([{ name: 'channels', asked: 6 }]);
   const bare = { plan: 'p', incarnation: 1, seq: 1, clock: 0, sites: [] };
   expect(perfDelta(bare, bare).resources).toBeUndefined();
+});
+
+test('layout shows what a pressed paint shows, beside the computed base', () => {
+  const lines = render('layout', { viewport: { w: 400, h: 300 }, clock: 0, nodes: [], node: { id: 3, type: 'View', style: {}, press_shown: { paint: 1, opacity: '0.4', backgroundColor: 'rgb(0, 0, 255)', color: 'rgb(255, 0, 0)' } } });
+  expect(lines).toContain('press shows opacity=0.4 background="rgb(0, 0, 255)" color="rgb(255, 0, 0)" (paint 1)');
+});
+
+test('a scroll track starts on a node, keeps its cursor, and its stop joins the last page', async () => {
+  const requests = [];
+  const fmt = 'exact.frame-health.track/1', columns = ['t_us', 'interval_us', 'missed', 'offset_cpt', 'phase'];
+  let written = 2, stopped = false;
+  const rowAt = i => [i * 8333, i ? 8333 : 0, 0, (i + 1) * 100, 'd'];
+  const s = { host: 'ios', target: async name => ({ id: name === 'list' ? 7 : 0 }), op: async request => {
+    requests.push(request);
+    if (request.track === 'start') { written = 2; stopped = false; return { format: fmt, track: true, node: 7, leaseMs: request.durationMs, capacity: 4096, replaced: false }; }
+    if (stopped) return { format: fmt, track: false, reason: 'no-track' };
+    const from = Number(request.cursor ?? 0), to = Math.min(written, from + 1);
+    if (request.track === 'stop') { stopped = true; return { format: fmt, columns, node: 7, rows: [...Array(written - from).keys()].map(k => rowAt(from + k)), cursor: String(written), more: false, dropped: 0, period_us: 16667, stopped: true }; }
+    return { format: fmt, columns, node: 7, rows: from < to ? [rowAt(from)] : [], cursor: String(to), more: to < written, dropped: request.cursor === undefined ? 3 : 0, period_us: 16667 };
+  } };
+  await perfOp(s, ['frames', 'track', 'start', 'list', '5000']);
+  expect(requests[0]).toEqual({ op: 'perf', frames: true, track: 'start', node: 7, durationMs: 5000 });
+  requests.length = 0;
+  const first = await perfOp(s, ['frames', 'track', 'read']);
+  expect(first.rows.map(row => row[3])).toEqual([100, 200]);
+  expect(first.dropped).toBe(3);
+  written = 3;
+  const second = await perfOp(s, ['frames', 'track', 'read']);
+  expect(second.rows.map(row => row[3])).toEqual([300]);
+  expect(requests.map(request => request.cursor)).toEqual([undefined, '1', '2']);
+  written = 5; // two rows land; the read takes one more page, then rows arrive before the stop
+  requests.length = 0;
+  const origOp = s.op;
+  s.op = async request => { const reply = await origOp(request); if (request.track === 'read' && !reply.more) written = 6; return reply; };
+  const last = await perfOp(s, ['frames', 'track', 'stop']);
+  expect(last.rows.map(row => row[3])).toEqual([400, 500, 600]);
+  expect(last.stopped).toBe(true);
+  expect(last.more).toBe(false);
+  expect(requests.at(-1)).toMatchObject({ track: 'stop' });
+  expect(renderPerf(last)).toContain('3 rows');
+  // After the stop, no track: a read surfaces it, rendered.
+  const none = await perfOp(s, ['frames', 'track', 'read']);
+  expect(none).toMatchObject({ track: false, reason: 'no-track' });
+  expect(renderPerf(none)).toContain('no track is leased');
+  expect(renderPerf({ format: fmt, track: true, node: 7, leaseMs: 5000, capacity: 4096, replaced: true })).toContain('replaced');
+  expect(renderPerf({ format: fmt, available: false, track: false, reason: 'virtual-clock' })).toContain('unavailable: virtual-clock');
+  await expect(perfOp(s, ['frames', 'track', 'start', 'list', '120001'])).rejects.toThrow();
+  await expect(perfOp(s, ['frames', 'track', 'start'])).rejects.toThrow();
+  await expect(perfOp(s, ['frames', 'track', 'read', 'more'])).rejects.toThrow();
+});
+
+test('a scroll track that ends between pages surfaces no-track, not a partial page saying more', async () => {
+  const fmt = 'exact.frame-health.track/1', columns = ['t_us', 'interval_us', 'missed', 'offset_cpt', 'phase'];
+  const s = { host: 'ios', op: async request => request.cursor === undefined
+    ? { format: fmt, columns, node: 7, rows: [[0, 0, 0, 100, 'd']], cursor: '1', more: true, dropped: 0, period_us: 16667 }
+    : { format: fmt, track: false, reason: 'no-track' } };
+  const read = await readTrack(s);
+  expect(read).toMatchObject({ track: false, reason: 'no-track' });
+  expect(read.rowsBeforeEnd).toHaveLength(1);
+  expect(read.more).toBeUndefined();
+});
+
+test('a scroll track start by view id sends no tree, and cursors are kept per app session', async () => {
+  const fmt = 'exact.frame-health.track/1', columns = ['t_us', 'interval_us', 'missed', 'offset_cpt', 'phase'];
+  const requests = [], written = { A: 5, B: 2 };
+  const s = { host: 'macos', session: 'A', target: async () => { throw new Error('a view id needs no tree'); }, op: async request => {
+    requests.push({ ...request, session: s.session });
+    if (request.op !== 'perf') throw new Error(`unexpected ${request.op}`);
+    if (request.track === 'start') return { format: fmt, track: true, node: request.node, leaseMs: 30000, capacity: 4096, replaced: false };
+    const from = Number(request.cursor ?? 0), n = written[s.session];
+    return { format: fmt, columns, node: 7, rows: [...Array(Math.max(0, n - from)).keys()].map(k => [k, 0, 0, (from + k) * 100, 'd']), cursor: String(n), more: false, dropped: 0, period_us: 8333 };
+  } };
+  await perfOp(s, ['frames', 'track', 'start', '42']);
+  expect(requests).toEqual([{ op: 'perf', frames: true, track: 'start', node: 42, durationMs: 30000, session: 'A' }]);
+  s.session = 'B';
+  await perfOp(s, ['frames', 'track', 'start', '43']);
+  s.session = 'A';
+  expect((await perfOp(s, ['frames', 'track', 'read'])).rows).toHaveLength(5);
+  s.session = 'B';
+  const b = await perfOp(s, ['frames', 'track', 'read']);
+  expect(b.rows).toHaveLength(2);
+  expect(requests.filter(r => r.track === 'read').map(r => [r.session, r.cursor])).toEqual([['A', undefined], ['B', undefined]]);
+  s.session = 'A'; written.A = 6;
+  expect((await perfOp(s, ['frames', 'track', 'read'])).rows.map(row => row[3])).toEqual([500]);
+  expect(requests.at(-1)).toMatchObject({ session: 'A', cursor: '5' });
+});
+
+test('a stop freezes the track and the driver reads a multi-page tail to the end, dropped exact', async () => {
+  const fmt = 'exact.frame-health.track/1', columns = ['t_us', 'interval_us', 'missed', 'offset_cpt', 'phase'];
+  const requests = [];
+  let frozen = false, released = false;
+  let written = 7; const page = 2, oldest = 1; // one row overwritten before any read
+  const s = { host: 'ios', session: null, op: async request => {
+    requests.push(request);
+    if (released) return { format: fmt, track: false, reason: 'no-track' };
+    if (request.track === 'stop') { written = 13; frozen = true; } // six rows land between the last read and the stop
+    const asked = Number(request.cursor ?? 0), from = Math.max(asked, oldest), to = Math.min(written, from + page);
+    const more = to < written;
+    if (frozen && !more) released = true;
+    return { format: fmt, columns, node: 7, rows: [...Array(to - from).keys()].map(k => [from + k, 0, 0, (from + k) * 100, 'd']),
+      cursor: String(to), more, dropped: from - Math.min(asked, from), period_us: 16667, ...(frozen ? { stopped: true } : {}) };
+  } };
+  // The stop's own tail is three pages: its first in the stop's reply, the rest read to the end.
+  const out = await perfOp(s, ['frames', 'track', 'stop']);
+  expect(out.rows.map(row => row[0])).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  expect(out.dropped).toBe(1);
+  expect(out.more).toBe(false);
+  expect(out.stopped).toBe(true);
+  expect(released).toBe(true);
+  expect(requests.map(r => [r.track, r.cursor])).toEqual([['read', undefined], ['read', '3'], ['read', '5'], ['stop', '7'], ['read', '9'], ['read', '11']]);
+  expect(renderPerf(out)).toContain('12 rows');
 });

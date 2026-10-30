@@ -75,6 +75,18 @@ the store.
   the request carries, as it is or through `AbortSignal.any`, still aborts at
   the deadline the host holds the request to, and a later answer's request
   carrying the same signal has that deadline too.
+- **The app's own abort** of a kept request (its `signal`) cancels it on the
+  host (door 23) but does not reject it at once, as a browser's fetch would:
+  the runner answers its ticket aborted, and the rejection reaches the let-go
+  answer's continuation in a module turn (§2.2), so what that continuation
+  writes stands even when the commit of the turn that aborted it is refused.
+  An answer that aborts it and then awaits it resumes in a later turn. Only a
+  kept request differs from the browser; any other aborted fetch rejects at
+  once. The wasm target's module realms and a worker-placed source keep
+  nothing, and on the JS target the fetch is the browser's: its rejection's
+  continuation runs after the aborting turn's commit, outside it, where a
+  store write stands whatever that commit does (`host/web-js/rt.js` `set`),
+  so neither needs it.
 
 ### 2.2 Module turns
 
@@ -138,6 +150,12 @@ the store.
   store reader again, a failed one included: one in flight once its reply
   lands, marked before that commit so its refusal keeps the mark, and one
   whose request may never land now.
+- An upload is the exception to each of these (LLP 1016.000 D10): it is asked
+  once for its arguments, so neither the re-ask after a module turn's write
+  nor that of a failed reader after a reply's turn sends it again
+  (`module_work.rs` `module_commit` and `ask_failed_readers` pass over a
+  resource whose arguments an upload was asked at), and on the web JS target
+  the late write's commit answers it as its upload ended (`uploads.js`).
 
 ### 2.4 Scope and limits
 

@@ -307,12 +307,12 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   kept), no credential storage, and no `Referer`; its `User-Agent` is
   CFNetwork's default (`ExactMac (unknown version) CFNetwork/… Darwin/…` from
   a development build). Redirects are followed as `URLSession` follows them,
-  to any host, within App Transport Security: the build declares no ATS
-  exception but iOS's `localNetworking` (`NSAllowsLocalNetworking`), so a
-  cleartext `http:` source or redirect to a non-local host is ATS's to
-  refuse, and that refusal is the `error` (not driven here; the repro used
-  `127.0.0.1`). Any 2xx response is taken
-  whatever its `Content-Type` (ImageIO reads the bytes); any other status is
+  to any host, within App Transport Security: unless the manifest's
+  `appTransportSecurity` sets `allowsArbitraryLoads` (LLP 1030), which turns
+  ATS off, a cleartext `http:` source or redirect to a non-local host is
+  ATS's to refuse, and that refusal is the `error` (neither driven here; the
+  repro used `127.0.0.1`). Any 2xx response
+  is taken whatever its `Content-Type` (ImageIO reads the bytes); any other status is
   the `error` `HTTP <status>`. The body is capped at
   `RasterMetadata.encodedLimit` (64 MiB) from `Content-Length` and again as
   it streams; the request times out at 15 s and the whole load at 30 s. The

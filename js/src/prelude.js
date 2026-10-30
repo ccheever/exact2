@@ -12,13 +12,14 @@
   "use strict";
   // (op, a, b) -> string | undefined, js/src/door.rs's ops: 1 a request, 2-4 and 18-20 the store, 5 storage,
   // 6 native, 7 pure, 8 secure randomness drawn, 9/10 canvas, 11 the agent's random bytes, 12 auth, 13 a journal line,
-  // 21 the runner's clock as the call began.
+  // 16 a request withdrawn unsent, 21 the runner's clock as the call began, 22 module work's state (binary.js), 23 a handed-out
+  // request the app aborted.
   var host = global.__exact_host;
   delete global.__exact_host;
   // The seam's bytes (binary.js): base64, UTF-8 lengths, a stream message's data.
   var binary = global.__exact_binary;
   delete global.__exact_binary;
-  var fromBase64 = binary.fromBase64, toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf, fileRefusal = binary.fileRefusal, bodyWritten = binary.bodyWritten;
+  var fromBase64 = binary.fromBase64, toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf, fileRefusal = binary.fileRefusal, bodyWritten = binary.bodyWritten, uploadOf = binary.uploadOf;
   // LLP 1027.000: time and seeds are source arguments, so bake and cache
   // see them. This VM belongs to one module; no page/guest globals change.
   // Install before the app can capture an alias, including Date's prototype
@@ -556,6 +557,27 @@
   // A resource's two-way socket (LLP 1016.000 D7) and a listener's connections (LLP 1133.005 D6): their handles (binary.js `sockets`).
   var sockets = binary.sockets({ host: host, copyBytes: copyBytes, current: function () { return currentCall; }, mapping: function () { return mapping; }, inMapper: function () { return inMapper; }, conflict: SOCKET_AND_FETCH });
   var socketOwner = sockets.socketOwner, listenOwner = sockets.listenOwner, handSocketOps = sockets.hand;
+  // An aborted fetch's request, as a browser cancels one: a request its answer
+  // awaits (handed out, `claimed`) is cancelled by the host, which resumes the
+  // answer at once (door 23); one not yet handed out is withdrawn unsent (16).
+  // A stream runs until the runner lets its ticket go, as before. A host that
+  // knows neither door leaves the request running, the old behaviour.
+  function abortRequest(ticket, p) {
+    if (p.stream) return;
+    try {
+      if (p.claimed) host(23, String(ticket), "");
+      else {
+        var at = p.call.tickets.indexOf(ticket);
+        if (at >= 0) p.call.tickets.splice(at, 1);
+        host(16, String(ticket), "");
+      }
+    } catch (e) { /* an older host's door: the request runs, its reply dropped */ }
+  }
+  // An adopted fetch's request, cancelled by the host (door 23), which then
+  // answers it aborted in a module turn: whether the host took it.
+  function cancelAdopted(ticket) {
+    try { host(23, String(ticket), ""); return true; } catch (e) { return false; }
+  }
   // A refused mutation's fetches, withdrawn before any was handed out.
   function withdrawFetches(call) {
     for (var i = 0; i < call.tickets.length; i++) { settled(call.tickets[i]); host(16, String(call.tickets[i]), ""); }
@@ -632,13 +654,16 @@
       return Promise.reject(new TypeError("exactStream maps each event to the answer: (event) => value"));
     if (stream && call.stream) return Promise.reject(new Error("an answer streams one request"));
     if (stream && ceiling === undefined) ceiling = 1048576;
+    // An upload whose stream gets its progress, then its reply (`exactUploadProgress`, LLP 1016.000 D10).
+    var upload = uploadOf(init, stream, method, url);
+    if (typeof upload === "string") return Promise.reject(new TypeError(upload));
     // A deadline for the whole exchange (headers and body), in milliseconds: the host cancels the request
-    // when it passes and the fetch rejects with a FetchError of kind "Timeout". A stream has none.
+    // when it passes and the fetch rejects with a FetchError of kind "Timeout". A stream has none; an upload may.
     var timeout = init ? init.exactTimeout : undefined, held = init ? init.exactHeld : undefined;
     if (timeout !== undefined) {
       if (!Number.isInteger(timeout) || timeout < 1 || timeout > 3600000)
         return Promise.reject(new TypeError("exactTimeout must be an integer number of milliseconds from 1 to 3600000"));
-      if (stream) return Promise.reject(new TypeError("exactTimeout: a stream has no timeout"));
+      if (stream && !upload) return Promise.reject(new TypeError("exactTimeout: a stream has no timeout"));
     }
     if ((held !== undefined && held !== true && held !== false) || (held && stream)) return Promise.reject(new TypeError(held === true ? "exactHeld: a stream is never held; it stops counting at its first message" : "exactHeld is true or false")); var poll = longPollOf(init, stream, method, url); if (typeof poll === "string") return Promise.reject(new TypeError(poll)); // `exactHeld`: the server may hold the reply, and no clock waits on it (LLP 1016.000 D9); `exactLongPoll` (D8): the host asks again with each reply's cursor (binary.js `longPollOf`)
     // `redirect` (Fetch §5.4, the Request constructor): read and checked once,
@@ -649,8 +674,9 @@
     catch (e) { return Promise.reject(e); }
     if (redirect !== undefined && redirect !== "follow" && redirect !== "manual" && redirect !== "error")
       return Promise.reject(new TypeError("redirect must be follow, manual or error"));
-    // The web's `signal`: an aborted fetch rejects with its reason at once.
-    // The host's request still runs; its reply is dropped (`__exact_fulfill`).
+    if (upload && redirect !== undefined && redirect !== "follow") return Promise.reject(new TypeError("exactUploadProgress: an upload follows its redirects"));
+    // The web's `signal`: an aborted fetch rejects with its reason at once,
+    // and the host cancels its request (`abortRequest`).
     var signal = init ? init.signal : undefined;
     if (signal != null && abortHooks) {
       try { abortHooks.subscribe(signal, function () {})(); }
@@ -664,10 +690,10 @@
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
     var socket = stream && (!!listen || /^wss?:/i.test(String(url)));
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, body_to: bodyTo, redirect: redirect, held: held ? true : undefined, listen: listen }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll && !upload ? true : undefined, upload_progress: upload ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, body_to: bodyTo, redirect: redirect, held: held ? true : undefined, listen: listen }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
-    if (stream) call.stream = stream;
+    if (stream) { call.stream = stream; call.upload = !!upload; }
     var owner = socket ? (call.socket = listen ? listenOwner(ticket) : socketOwner(ticket, call.mutation)) : null;
     return new Promise(function (resolve, reject) {
       // `early`: made while its answer was still in flight (its body, or its
@@ -676,7 +702,12 @@
       pending.set(ticket, p);
       // The caller's abort also makes its socket handle stale (D7); the
       // stream itself runs until the runner lets its ticket go.
-      if (signal) p.release = watchAbort(signal, function () { if (owner) owner.state = 3; if (settled(ticket)) { if (p.module) work.landed(); reject(signal.reason); } }); // an adopted fetch aborted is retired here; its reply finds nothing
+      // An adopted fetch (LLP 1146 D2) stays pending: the host cancels it and
+      // answers its kept ticket aborted, and `__exact_fulfill` rejects it in a
+      // module turn, not in the turn that aborted it, so what its let-go
+      // call's continuation writes stands when that turn's commit is refused.
+      // A host without door 23 leaves it to settle here, as before.
+      if (signal) p.release = watchAbort(signal, function () { if (owner) owner.state = 3; if (p.module && pending.get(ticket) === p && cancelAdopted(ticket)) return; var was = settled(ticket); if (was) { if (p.module) work.landed(); reject(signal.reason); abortRequest(ticket, was); } });
     });
   }
   // A local listener (LLP 1133.005 D1): a resource's answer, as `fetch(url, {exactStream})` is, whose events
@@ -975,9 +1006,9 @@
   function cleanUp() { var waiting = false; calls.forEach(function (c) { if (!c.stream && !c.letGo) waiting = true; }); if (gcOwed && !waiting) { gcOwed = false; gcEpoch(true); } }
   function ok(value, held) {
     var reply = { tag: 0, value: value === undefined ? null : value };
-    if (typeof captureString !== "function") return JSON.stringify(reply);
+    if (typeof captureString !== "function") return binary.keptReply(reply, null);
     var head = null, root = true;
-    return JSON.stringify(reply, function (key, item) {
+    return binary.keptReply(reply, function (key, item) {
       var first = root;
       root = false;
       var large = typeof item === "string" && item.length >= 65536;
@@ -1315,12 +1346,13 @@
   // One message of the stream answer `id` began, or its end: the mapper's
   // value, now — a stream's answer never awaits (LLP 1016.000 D1). The end
   // is `{ type: "error" }` with the failure's kind and message, or the
-  // status and body of a reply that was not 2xx.
+  // status and body of a reply that was not 2xx; an upload's reply is `load`.
   global.__exact_message = function (id, outcomeJson) {
     var call = calls.get(Number(id));
     if (!call || !call.stream) return fail(new Error("no stream answer " + id));
     var o = JSON.parse(outcomeJson), event, socket = call.socket, listened = socket && socket.listen && o.message ? sockets.listenEvent(socket, o.message) : null;
     if (listened) event = listened.event;
+    else if (call.upload && (o.response || o.message && o.message.event === "exact:progress")) event = binary.uploadEvent(o);
     else if (o.message) event = { type: o.message.event || "message", data: binary.messageData(o.message), lastEventId: o.message.id, coalesced: o.message.coalesced };
     else if (o.closed) event = { type: "close", data: "", lastEventId: "", coalesced: 0, code: o.closed.code, reason: o.closed.reason, wasClean: o.closed.wasClean };
     else if (o.failed) event = { type: "error", data: "", lastEventId: "", coalesced: 0, kind: o.failed.kind, message: o.failed.message, status: 0 };
@@ -1361,16 +1393,22 @@
     journal("overlay refused: " + e.message);
     return e;
   }
+  // Whether the module has an overlay, read once when it has loaded (the host keeps the answer for the instance,
+  // as the JS target decides at install): anything but `undefined`, or a read that throws, counts as one, so the
+  // overlay is then asked each time as before. A getter or a proxy's trap runs here as initialization code.
+  global.__exact_has_overlay = function () {
+    try { return global.exact.overlay === undefined ? "" : "1"; } catch (e) { return "1"; }
+  };
   global.__exact_overlay = function (source, argsJson, payloadJson) {
     initializing = false;
-    if (typeof global.exact.overlay !== "function") return JSON.stringify({ tag: 4 });
-    var payload = JSON.parse(payloadJson);
-    // A realm whose answer spans tasks (the web's) has one current between
-    // them: put it back after.
+    // A realm whose answer spans tasks (the web's) has one current between them: put it back after. Both reads of
+    // `exact.overlay` run guarded, so a getter's store call is refused as the overlay's is.
     var saved = currentCall;
     currentCall = null;
     overlaying = true;
     try {
+      if (typeof global.exact.overlay !== "function") return JSON.stringify({ tag: 4 });
+      var payload = JSON.parse(payloadJson);
       // An answered write the answer does not include yet goes on showing
       // when the overlay calls its `keep()`.
       var keep = [];
@@ -1430,7 +1468,7 @@
   // A yielded answer's new turn: its yields resolve in the drain that follows.
   global.__exact_yielded = function (id) { var call = calls.get(Number(id)); if (call) { currentCall = call; endYields(call); } };
   global.__exact_turn = function (id) { var t = id === "module" ? work.MODULE : id ? calls.get(Number(id)) || null : null; currentCall = t === work.MODULE ? null : t; work.setTurn(t); }; global.__exact_module_discarded = function () { work.runDiscarded(); }; // the executor's turns (js/src/module_work.rs): the turn's call is current, so a plain `.then` reaction runs as it (LLP 1146 D2)
-  global.__exact_adopt = function (id, ticket) { var p = pending.get(Number(ticket)); if (!p || p.stream || p.module || p.call !== calls.get(Number(id))) return ""; p.module = true; work.adopted(); return "adopted"; }; // a let-go call's fetch with effects the runner keeps (LLP 1146 D2): forgetting the call leaves it in flight, unclaimed and outstanding, until its reply reaches the call's continuation in a module turn
+  global.__exact_adopt = function (id, ticket) { var p = pending.get(Number(ticket)); if (!p || !p.claimed || p.stream || p.module || p.call !== calls.get(Number(id))) return ""; p.module = true; work.adopted(); return "adopted"; }; // a let-go call's fetch with effects the runner keeps (LLP 1146 D2): only one handed out (`claimed`, the one the call parked on, so its abort is a cancel, door 23); forgetting the call leaves it in flight and outstanding until its reply reaches the call's continuation in a module turn
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = settled(Number(ticket));
     if (!p) return;

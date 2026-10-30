@@ -32,6 +32,18 @@ package class ScrollView: UIScrollView {
         super.layoutSubviews()
         keepPlatformViewsOver()
     }
+    /// The offset of a node's scroller or a route's viewport, which UIKit
+    /// itself also sets (keeping it at the start as a safe area reaches the
+    /// scroller and insets it): inside an animation UIKit has open it moves
+    /// only if the last frame showed the node (`Presenter.moveOrPlace`). The
+    /// session's viewport has no node and moves as UIKit sets it.
+    package override var bounds: CGRect {
+        get { super.bounds }
+        set {
+            guard UIView.inheritedAnimationDuration > 0, let node = scrollingNode, let presenter = node.presenter else { return super.bounds = newValue }
+            presenter.moveOrPlace(node) { super.bounds = newValue }
+        }
+    }
     /// The insets the offset was last kept under (`adjustedContentInsetDidChange`).
     private var keptInset = UIEdgeInsets.zero
     /// A list that opens at its end (`scroll-start: end`) or follows it, at

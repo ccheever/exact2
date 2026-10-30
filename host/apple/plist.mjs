@@ -1,8 +1,21 @@
 // Info.plist rows that `build.mjs`'s `infoPlist` and `macInfoPlist` write from the manifest and the grants.
 
-/** `NSAppTransportSecurity` from `host.<platform>.appTransportSecurity` and the build's own `keys`; none of either, no key. `allowsArbitraryLoadsInWebContent` relaxes ATS for web views only (an `iframe` loads `http://` from a named host, as a browser does); a module's `URLSession` stays under ATS. */
-export const transportSecurity = (section, keys = {}) => {
-  const ats = { ...(section?.appTransportSecurity?.allowsArbitraryLoadsInWebContent ? { NSAllowsArbitraryLoadsInWebContent: true } : {}), ...keys };
+// The global exceptions narrower than `NSAllowsArbitraryLoads`: ATS ignores that key when any of them is present
+// (Apple, "NSAllowsArbitraryLoads"), and it already allows what each of them would.
+const NARROWER = ['NSAllowsArbitraryLoadsForMedia', 'NSAllowsArbitraryLoadsInWebContent', 'NSAllowsLocalNetworking'];
+
+/** `NSAppTransportSecurity` from `host.<platform>.appTransportSecurity` and the build's own `keys`; none of either, no
+ * key. `allowsArbitraryLoadsInWebContent` relaxes ATS for web views only (an `iframe` loads `http://` from a named
+ * host, as a browser does); a module's `URLSession` stays under ATS. `allowsArbitraryLoads` turns ATS off for every
+ * connection the app makes, web views included, and is written without the narrower keys. `web: false` (tvOS, which
+ * has no WebKit) leaves out the web-content key. */
+export const transportSecurity = (section, keys = {}, { web = true } = {}) => {
+  const typed = section?.appTransportSecurity ?? {};
+  const ats = { ...(web && typed.allowsArbitraryLoadsInWebContent ? { NSAllowsArbitraryLoadsInWebContent: true } : {}), ...keys };
+  if (typed.allowsArbitraryLoads) {
+    for (const key of NARROWER) delete ats[key];
+    ats.NSAllowsArbitraryLoads = true;
+  }
   return Object.keys(ats).length ? { NSAppTransportSecurity: ats } : {};
 };
 

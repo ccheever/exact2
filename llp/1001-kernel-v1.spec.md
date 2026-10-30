@@ -876,11 +876,22 @@ needs a field's width sets it
 `start` and `end` resolve against the paragraph's `direction` in
 `Paragraph::from_style`, so hosts see only left, center, right or justify; LLP
 1053). CSS `direction` orders flex rows and places blocks in the kernel, and
-`direction: rtl` is a paragraph's base direction on every host. Declared: under
-the initial `ltr`, the Apple and Linux engines still take a paragraph's base
-direction from its first strong character (as `unicode-bidi: plaintext`), so
-an `ltr` paragraph that opens with Hebrew or Arabic orders mixed text as an
-`rtl` one would. Its alignment is still `start` = left, and the web uses CSS.
+`direction: rtl` is a paragraph's base direction on every host but in Apple's
+plain text fields. Declared: under the initial `ltr`, Linux's engine still
+takes a paragraph's base direction from its first strong character (as
+`unicode-bidi: plaintext`), so an `ltr` paragraph there that opens with
+Hebrew or Arabic orders mixed text as an `rtl` one would; its alignment is
+still `start` = left, and the web uses CSS. Apple's plain text fields (an
+`input`, a `textarea` without `markup="markdown"`, and a Markdown editor's
+text once its `markup` goes) take each paragraph's base direction from its
+first strong character under either value; `direction: rtl` aligns their
+text to the right on iOS and changes nothing of it on macOS, where an
+`input`, and a `textarea` of native appearance, align it to the left, and a
+`textarea` with `appearance: none` aligns each paragraph to its own start.
+Apple text and the Markdown editor (LLP 1045 D11) take either value as
+written, so on macOS `مرحبا Hello` in an `ltr` Markdown editor draws left to
+right while the same field with `markup="none"` draws right to left
+(`QUEUE.md`).
 The Linux text-flow walker cannot yet break an RTL run inside an LTR
 paragraph. Font matching stops at the nearest
 real declared face and never synthesizes weight or style, rather than CSS's initial
@@ -1584,9 +1595,17 @@ authored per-glyph cascade needs a shaping API beyond cosmic-text's one
 
 CSS form and text vocabulary (app diaries kanban F11, ledger F1/F4,
 minesweeper F4, pomodoro F2): `rows` is HTML intrinsic line count and maxlength
-limits user UTF-16 edits, leaving authored values intact. Native interactive
-CSS resize handles are not implemented; Contract admits none and diagnoses
-other CSS values. user-select admits auto, none, text (2026-10-12, LLP
+limits user UTF-16 edits, leaving authored values intact. `resize`
+(2026-10-30) admits every CSS keyword. The browser draws its grip; the Mac
+and iOS draw Chrome's two strokes in a textarea's bottom end corner, and a
+drag hands the runner the border box the pointer reached
+(`Runner::resize_box`), which writes `width` and `height` in the box's
+`box-sizing`, as Chrome's inline style does: they replace an authored or
+`field-sizing: content` size until the plan rewrites the row, `min-*` and
+`max-*` still bound them, and nothing else does. `block` and `inline` are
+`vertical` and `horizontal`. Declared deviation: only a textarea has a grip
+on a native host, and tvOS (a read-only textarea), Linux, Windows, Android
+and the terminal draw none. user-select admits auto, none, text (2026-10-12, LLP
 1115.000 D11.6) and all (2026-10-20): the nearest authored value decides, and a control's label is
 not selectable unless text is said on it or inside the control. What is left
 is auto with nothing above it, the platform's: macOS resolves it as AppKit

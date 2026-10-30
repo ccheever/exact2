@@ -418,6 +418,14 @@ impl<D: DataSource> DataSource for Storage<D> {
         lines
     }
 
+    fn take_aborted(&mut self) -> Vec<u64> {
+        self.source.take_aborted()
+    }
+
+    fn abort_wake(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        self.source.abort_wake(wake);
+    }
+
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
         if token == exact_runner::BACKGROUND {
             return self.source.continuation(token);
