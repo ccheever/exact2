@@ -832,6 +832,11 @@ mod tests {
             device.retire_after_present(previous);
         }
         device.composition = composition;
+        // Hold the display condition independently of how quickly WARP finishes.
+        // Missing statistics otherwise release a device after three checks.
+        for (_, retirement) in &mut device.retiring_devices {
+            retirement.present = Some(u32::MAX);
+        }
         assert_eq!(device.retiring_devices.len(), 2);
         device.trim().unwrap();
         assert_eq!(device.retiring_devices.len(), 2);
