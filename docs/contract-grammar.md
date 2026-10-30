@@ -596,7 +596,7 @@ have the same precedence. From weakest to strongest:
 | Level | Operators | Associativity |
 | --- | --- | --- |
 | Conditional | `? :` | Nested arms parse as expressions |
-| Or | `||` | Left |
+| Or | `\|\|` | Left |
 | And | `&&` | Left |
 | Equality | `==`, `!=` | Left |
 | Comparison | `<`, `<=`, `>`, `>=` | Left |

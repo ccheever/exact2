@@ -103,7 +103,7 @@ fn a_paste_is_ctrl_v_and_a_prevented_chord_skips_the_clipboard() {
     };
     for prevent in [false, true] {
         let guard = if prevent {
-            "    if k == \"v\" and e.ctrlKey\n      preventDefault()\n"
+            "    if k == \"v\" && e.ctrlKey\n      preventDefault()\n"
         } else {
             ""
         };

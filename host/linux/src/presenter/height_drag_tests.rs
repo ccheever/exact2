@@ -323,7 +323,7 @@ fn agent_aborted_move_reports_last_delivered_step_not_requested_endpoint() {
 #[test]
 fn agent_late_up_and_cancel_after_accepted_action_retirement_allow_new_down() {
     for phase in ["up", "cancel"] {
-        let source = APP.replace("disabled = true", "disabled = not disabled");
+        let source = APP.replace("disabled = true", "disabled = !disabled");
         let mut p = boot(&source);
         let down = format!(r#"{{"op":"tap","phase":"down","id":{}}}"#, id(&p, "handle"));
         let reply = crate::agent::handle(&mut p, &down);

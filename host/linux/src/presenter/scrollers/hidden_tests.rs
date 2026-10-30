@@ -431,7 +431,7 @@ ROWS
 /// 100 keyed rows of 20 px in a 300 px port under the picture route, any of them removable while hidden.
 fn kept_source() -> String {
     let rows: String = (0..100)
-        .map(|r| format!("              if lo <= {r} and {r} < hi\n                box testId=\"row{r}\" width=400 height=20\n"))
+        .map(|r| format!("              if lo <= {r} && {r} < hi\n                box testId=\"row{r}\" width=400 height=20\n"))
         .collect();
     r#"routes nav
   home "/"
