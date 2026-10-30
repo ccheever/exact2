@@ -4428,3 +4428,19 @@ python3 target/g4q/audit-boot.py boot-retained-1
 
 Repeat for the other retained attempt and both miss attempts. `--boot --table`
 prints each summary; `--boot` prints the trace-derived values and all samples.
+## Stage 1w — Windows text and the startup tail (2026-10-30)
+
+Work starts from `5fa5fcc2f3` on `lane/1149-001-s1w`. Predictions below precede
+implementation and measurement. The NucBox retains each attempt under
+`target/stage-1w/`; local verification uses this worktree's `target/`.
+
+| Prediction | Instrument and acceptance | Result |
+| --- | --- | --- |
+| A runner-to-layout stall over 50 ms produces one all-thread stack capture, with the application's PDB resolved when present. An ordinary launch produces none. | Inject one 200 ms hold between the existing boot phase marks; retain the capture and phase log. | Pending |
+| Moving device preparation after layout reduces runner-to-layout stalls over 50 ms from roughly 10/100 to at most 2/100. | 100 fresh Shelf processes per arm, alternating order, the S2 startup driver's phase logs; retain every attempt and report the full interval distributions. This tests the loader-lock hypothesis and predicts no first-screen improvement. | Pending |
+| DirectWrite natural advances agree with the shaper within 0.02 device pixels per glyph on the audited static outline faces at 100%, 125% and 150%. | Same font bytes, glyphs, sizes and variation coordinates; DirectWrite GetGlyphPlacements beside the shaper, retained per-glyph output. | Pending |
+| RichEdit keeps the Contract value and UTF-16 selection through type, select, cut, paste and undo, with no duplicate insertion. | Shelf search and Excord's fixture composer on the NucBox; native input and runner state after each operation. | Pending |
+
+D3.3's colour, synthesis, variation, gamma and motion cases are audited separately;
+no unmeasured case is admitted to the default rasterizer. D7's field remains a
+candidate until its native-input and accessibility conditions have evidence.
