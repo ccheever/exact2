@@ -1667,7 +1667,8 @@ group whose leader is still running; with the leader gone it ends the group
 only when the app led its own session, so a Mac app launched from the Finder
 (session 1) or from a terminal leaves that group's survivors running. `storage.fs`
 reads and writes `home:/…` (the user's home, under a grant narrower than
-`home:/`) and reads `bundle:/…` (the app bundle, read-only), and gains
+`home:/`) and reads `bundle:/…` (the app bundle, read-only), following no
+link below either root (one is refused, as under `app:/`), and gains
 `lstat`, `readlink`, `access`, `chmod`, `symlink`, `digest(path, "SHA-256")`
 and `flock(path, {timeout})`, whose lock is held until the lock's `unlock()`,
 else until the answer that took it ends (a TypeScript source's only, for

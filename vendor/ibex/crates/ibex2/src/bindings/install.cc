@@ -1997,7 +1997,7 @@ static jsi::Value filesystem_promise(jsi::Runtime& r, jsi::Value value, uint32_t
         result.setProperty(r, "isFile", fields[1] == "1");
         result.setProperty(r, "isDirectory", fields[2] == "1");
         result.setProperty(r, "modifiedMs", std::stod(fields[3]));
-        // Exact patch 22: the permission bits, and whether an lstat met a link.
+        // Exact patch 24: the permission bits, and whether an lstat met a link.
         if (fields.size() == 6) {
           result.setProperty(r, "mode", std::stod(fields[4]));
           result.setProperty(r, "isSymbolicLink", fields[5] == "1");
@@ -2131,7 +2131,7 @@ jsi::Object Adapter::storage(const void* grants, const jsi::Function& factory) {
       {"mkdir",114}, {"rm",115}, {"stat",116}, {"rename",117}, {"copyFile",118},
       {"realpath",119}, {"atomicWriteFile",120}, {"compressImage",121},
       {"transformImage",121},
-      // Exact patch 22 (exact2 LLP 1133.007 D6a).
+      // Exact patch 24 (exact2 LLP 1133.007 D6a).
       {"lstat",122}, {"readlink",123}, {"access",124}, {"chmod",125},
       {"symlink",126}, {"digest",127}, {"flock",128}, {"unlock",129}};
   jsi::Object fs(rt);

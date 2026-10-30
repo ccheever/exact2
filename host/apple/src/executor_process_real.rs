@@ -282,13 +282,16 @@ pub(super) fn spawn(
         .ok_or_else(|| failed(FailureKind::Refused, "spawn: no program"))?;
     let env = environment(spec);
     let cwd = cwd(shared, spec)?;
-    let stdin = match (&spec.stdin_from, spec.pipes[0]) {
-        (Some(path), _) => {
-            let path = native(shared, path).map_err(|why| failed(FailureKind::Refused, why))?;
-            os::Stdio::File(
-                std::fs::File::open(&path)
-                    .map_err(|e| failed(FailureKind::NotFound, format!("exactStdinFrom: {e}")))?,
-            )
+    let stdin = match (&spec.stdin_file, spec.pipes[0]) {
+        // Admitted and opened with the call; each incarnation reads it from its start.
+        (Some(file), _) => {
+            use std::io::Seek;
+            let mut file = file
+                .try_clone()
+                .map_err(|e| failed(FailureKind::Refused, format!("exactStdinFrom: {e}")))?;
+            file.rewind()
+                .map_err(|e| failed(FailureKind::Refused, format!("exactStdinFrom: {e}")))?;
+            os::Stdio::File(file)
         }
         (None, true) => os::Stdio::Pipe,
         (None, false) => os::Stdio::Null,

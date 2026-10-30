@@ -463,105 +463,158 @@ impl AppDirectories {
         } else if write {
             check(true, path)?;
         }
-        let data = data.unwrap_or(&[]);
-        match op {
-            FsOp::ReadFile => {
-                let file = self.open(path)?;
-                if !file.metadata().map_err(error)?.is_file() {
-                    return Err(error("read needs a regular file"));
-                }
-                Ok(FsResult::Bytes(
-                    crate::stdlib::fs::read_result(file).map_err(error)?,
-                ))
+        if op == FsOp::Realpath {
+            self.open(path)?;
+            let (i, parts) = self.parse(path)?;
+            let root = ["data", "cache", "tmp"][i];
+            return Ok(FsResult::Text(if parts.is_empty() {
+                format!("app:/{root}")
+            } else {
+                format!("app:/{root}/{}", parts.join("/"))
+            }));
+        }
+        let below = |p: &str| -> Result<Below, HostError> {
+            let (index, parts) = self.parse(p)?;
+            Ok(Below {
+                root: self.root(index)?,
+                parts: parts.into_iter().map(str::to_owned).collect(),
+                name: "app",
+            })
+        };
+        let destination = match destination {
+            Some(to) => Some(below(to)?),
+            None => None,
+        };
+        run_below(op, below(path)?, destination, data.unwrap_or(&[]))
+    }
+}
+
+/// A path below a retained directory: an `app:/` path's root, or a `home:`
+/// or `bundle:` one's (exact2 LLP 1133.007 D6, Exact patch 24). Each
+/// component is opened `O_NOFOLLOW` from the root, so a link anywhere below
+/// it, planted or not, is refused rather than followed.
+pub(crate) struct Below {
+    pub(crate) root: File,
+    pub(crate) parts: Vec<String>,
+    /// The root's name in errors: `app`, `home` or `bundle`.
+    pub(crate) name: &'static str,
+}
+
+impl Below {
+    /// Its parent directory, open, and its last component.
+    fn parent(&self) -> Result<(File, String), HostError> {
+        let (leaf, parents) = self.parts.split_last().ok_or_else(|| {
+            error(format!(
+                "operation needs a path below the {} root",
+                self.name
+            ))
+        })?;
+        let mut dir = self.root.try_clone().map_err(error)?;
+        for part in parents {
+            dir = directory(&dir, part).map_err(error)?;
+        }
+        Ok((dir, leaf.clone()))
+    }
+    /// It, open for reading: the root itself when it names no component.
+    pub(crate) fn open(&self) -> Result<File, HostError> {
+        if self.parts.is_empty() {
+            return self.root.try_clone().map_err(error);
+        }
+        let (parent, leaf) = self.parent()?;
+        open_at(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK).map_err(error)
+    }
+}
+
+/// Run `op`, admitted above, on `path` (and `destination`) below their roots.
+pub(crate) fn run_below(
+    op: FsOp,
+    path: Below,
+    destination: Option<Below>,
+    data: &[u8],
+) -> Result<FsResult, HostError> {
+    match op {
+        FsOp::ReadFile => {
+            let file = path.open()?;
+            if !file.metadata().map_err(error)?.is_file() {
+                return Err(error("read needs a regular file"));
             }
-            FsOp::ReadDir => Ok(FsResult::Names(names(&self.open(path)?).map_err(error)?)),
-            FsOp::Stat => {
-                let m = self.open(path)?.metadata().map_err(error)?;
-                Ok(FsResult::Stat(Stat {
-                    mode: std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o7777,
-                    is_symlink: false,
-                    size: m.len(),
-                    is_file: m.is_file(),
-                    is_directory: m.is_dir(),
-                    modified_ms: m
-                        .modified()
-                        .ok()
-                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|d| d.as_millis() as u64)
-                        .unwrap_or(0),
-                }))
+            Ok(FsResult::Bytes(
+                crate::stdlib::fs::read_result(file).map_err(error)?,
+            ))
+        }
+        FsOp::ReadDir => Ok(FsResult::Names(names(&path.open()?).map_err(error)?)),
+        FsOp::Stat => {
+            let m = path.open()?.metadata().map_err(error)?;
+            Ok(FsResult::Stat(Stat {
+                mode: std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o7777,
+                is_symlink: false,
+                size: m.len(),
+                is_file: m.is_file(),
+                is_directory: m.is_dir(),
+                modified_ms: m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0),
+            }))
+        }
+        FsOp::Mkdir => {
+            let mut dir = path.root.try_clone().map_err(error)?;
+            for part in &path.parts {
+                mkdir(&dir, part).map_err(error)?;
+                dir = directory(&dir, part).map_err(error)?;
             }
-            FsOp::Realpath => {
-                self.open(path)?;
-                let (i, parts) = self.parse(path)?;
-                let root = ["data", "cache", "tmp"][i];
-                Ok(FsResult::Text(if parts.is_empty() {
-                    format!("app:/{root}")
-                } else {
-                    format!("app:/{root}/{}", parts.join("/"))
-                }))
-            }
-            FsOp::Mkdir => {
-                let (i, parts) = self.parse(path)?;
-                let mut dir = self.root(i)?;
-                for part in parts {
-                    mkdir(&dir, part).map_err(error)?;
-                    dir = directory(&dir, part).map_err(error)?;
-                }
-                Ok(FsResult::Done)
-            }
-            FsOp::Digest => {
-                let file = self.open(path)?;
-                let algorithm = String::from_utf8_lossy(data).trim().to_string();
-                crate::stdlib::fs_more::digest(file, &algorithm)
-                    .map(FsResult::Text)
-                    .map_err(error)
-            }
-            FsOp::Lstat
-            | FsOp::Readlink
-            | FsOp::Access
-            | FsOp::Chmod
-            | FsOp::Symlink
-            | FsOp::Flock => {
-                let (parent, leaf) = self.open_parent(path)?;
-                at_parent(op, &parent, &leaf, data)
-            }
-            FsOp::CopyFile => {
-                let source = self.open(path)?;
-                let (parent, leaf) = self.open_parent(destination.unwrap())?;
-                copy(source, &parent, &leaf)
-            }
-            _ => {
-                let (parent, leaf) = self.open_parent(path)?;
-                match op {
-                    FsOp::WriteFile | FsOp::AppendFile => {
-                        let flags = libc::O_WRONLY
-                            | libc::O_CREAT
-                            | libc::O_NONBLOCK
-                            | if op == FsOp::AppendFile {
-                                libc::O_APPEND
-                            } else {
-                                0
-                            };
-                        let mut file = open_at(&parent, &leaf, flags).map_err(error)?;
-                        if !file.metadata().map_err(error)?.is_file() {
-                            return Err(error("write needs a regular file"));
-                        }
-                        if op == FsOp::WriteFile {
-                            file.set_len(0).map_err(error)?;
-                        }
-                        file.write_all(data).map_err(error)?;
+            Ok(FsResult::Done)
+        }
+        FsOp::Digest => {
+            let file = path.open()?;
+            let algorithm = String::from_utf8_lossy(data).trim().to_string();
+            crate::stdlib::fs_more::digest(file, &algorithm)
+                .map(FsResult::Text)
+                .map_err(error)
+        }
+        FsOp::Lstat | FsOp::Readlink | FsOp::Access | FsOp::Chmod | FsOp::Symlink | FsOp::Flock => {
+            let (parent, leaf) = path.parent()?;
+            at_parent(op, &parent, &leaf, data)
+        }
+        FsOp::CopyFile => {
+            let to = destination.ok_or_else(|| error("operation needs destination"))?;
+            let (parent, leaf) = to.parent()?;
+            copy(path.open()?, &parent, &leaf)
+        }
+        FsOp::Realpath | FsOp::Unlock => Err(error("not an operation on a path below a root")),
+        _ => {
+            let (parent, leaf) = path.parent()?;
+            match op {
+                FsOp::WriteFile | FsOp::AppendFile => {
+                    let flags = libc::O_WRONLY
+                        | libc::O_CREAT
+                        | libc::O_NONBLOCK
+                        | if op == FsOp::AppendFile {
+                            libc::O_APPEND
+                        } else {
+                            0
+                        };
+                    let mut file = open_at(&parent, &leaf, flags).map_err(error)?;
+                    if !file.metadata().map_err(error)?.is_file() {
+                        return Err(error("write needs a regular file"));
                     }
-                    FsOp::AtomicWriteFile => atomic(&parent, &leaf, data).map_err(error)?,
-                    FsOp::Remove => remove(&parent, &leaf).map_err(error)?,
-                    FsOp::Rename => {
-                        let (to, target) = self.open_parent(destination.unwrap())?;
-                        rename(&parent, &leaf, &to, &target).map_err(error)?;
+                    if op == FsOp::WriteFile {
+                        file.set_len(0).map_err(error)?;
                     }
-                    _ => unreachable!(),
+                    file.write_all(data).map_err(error)?;
                 }
-                Ok(FsResult::Done)
+                FsOp::AtomicWriteFile => atomic(&parent, &leaf, data).map_err(error)?,
+                FsOp::Remove => remove(&parent, &leaf).map_err(error)?,
+                FsOp::Rename => {
+                    let to = destination.ok_or_else(|| error("operation needs destination"))?;
+                    let (to, target) = to.parent()?;
+                    rename(&parent, &leaf, &to, &target).map_err(error)?;
+                }
+                _ => unreachable!(),
             }
+            Ok(FsResult::Done)
         }
     }
 }
@@ -613,6 +666,17 @@ fn at_parent(op: FsOp, parent: &File, leaf: &str, data: &[u8]) -> Result<FsResul
                 let mode = argument()
                     .parse::<i32>()
                     .map_err(|_| error("access needs a mode"))?;
+                // A link's target is not this path's to answer for.
+                let mut st: libc::stat = std::mem::zeroed();
+                last(libc::fstatat(
+                    fd,
+                    c.as_ptr(),
+                    &mut st,
+                    libc::AT_SYMLINK_NOFOLLOW,
+                ))?;
+                if st.st_mode & libc::S_IFMT == libc::S_IFLNK {
+                    return Err(error(io::Error::from_raw_os_error(libc::ELOOP)));
+                }
                 last(libc::faccessat(fd, c.as_ptr(), mode, libc::AT_EACCESS))
                     .map(|()| FsResult::Done)
             }
@@ -620,11 +684,12 @@ fn at_parent(op: FsOp, parent: &File, leaf: &str, data: &[u8]) -> Result<FsResul
                 let mode = argument()
                     .parse::<u32>()
                     .map_err(|_| error("chmod needs a mode"))?;
-                last(libc::fchmodat(
-                    fd,
-                    c.as_ptr(),
+                // The leaf, opened `O_NOFOLLOW`, never what a link names.
+                let file =
+                    open_at(parent, leaf, libc::O_RDONLY | libc::O_NONBLOCK).map_err(error)?;
+                last(libc::fchmod(
+                    file.as_raw_fd(),
                     (mode & 0o7777) as libc::mode_t,
-                    0,
                 ))
                 .map(|()| FsResult::Done)
             }

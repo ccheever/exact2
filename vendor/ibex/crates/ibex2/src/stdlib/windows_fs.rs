@@ -211,7 +211,7 @@ pub(super) fn perform(
             }
         }
         FsOp::Mkdir => unreachable!("mkdir admission walks only authorized missing components"),
-        // Exact patch 22's operations wait for Windows (exact2 LLP 1133.007 stage 3).
+        // Exact patch 24's operations wait for Windows (exact2 LLP 1133.007 stage 3).
         FsOp::Lstat
         | FsOp::Readlink
         | FsOp::Access

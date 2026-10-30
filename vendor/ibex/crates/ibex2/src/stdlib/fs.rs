@@ -153,7 +153,7 @@ pub enum FsOp {
     Rename,
     CopyFile,
     Realpath,
-    /// Exact patch 22 (exact2 LLP 1133.007 D6a): `stat` without following a
+    /// Exact patch 24 (exact2 LLP 1133.007 D6a): `stat` without following a
     /// link, a link's target, whether this user may read, write or execute a
     /// path, its permission bits, a symbolic link, a file's digest, and an
     /// advisory lock and its release.
@@ -490,7 +490,7 @@ pub enum FsResult {
     Stat(Stat),
 }
 
-/// The host's directories behind `home:/` and `bundle:/` (Exact patch 22:
+/// The host's directories behind `home:/` and `bundle:/` (Exact patch 24:
 /// exact2 LLP 1133.007 D6): the person's home directory and the app's
 /// installed bundle, read only. A host that has neither leaves them unset,
 /// and those paths refuse as unsupported.
@@ -510,9 +510,15 @@ pub fn set_roots(roots: Roots) {
     *ROOTS.write().unwrap_or_else(|e| e.into_inner()) = roots;
 }
 
-/// A `home:` or `bundle:` path's native path, lexically normalized and kept
-/// under its root; `None` for any other path.
-fn namespaced(path: &str) -> Option<Result<PathBuf, HostError>> {
+/// A namespace's name, its root as the host named it, and a path's
+/// components below that root.
+#[cfg(unix)]
+type Namespaced = (&'static str, PathBuf, Vec<String>);
+
+/// A `home:` or `bundle:` path's root and its components below it; `None`
+/// for any other path. A `.` or `..` component is refused.
+#[cfg(unix)]
+fn namespaced(path: &str) -> Option<Result<Namespaced, HostError>> {
     let (namespace, rest) = match path.strip_prefix("home:/") {
         Some(rest) => ("home", rest),
         None => ("bundle", path.strip_prefix("bundle:/")?),
@@ -526,47 +532,57 @@ fn namespaced(path: &str) -> Option<Result<PathBuf, HostError>> {
         let root = root.ok_or_else(|| {
             HostError::Failed(format!("unsupported: no {namespace}: directory here"))
         })?;
-        if rest.split('/').any(|part| part == ".." || part == ".") {
+        let parts: Vec<String> = (rest.split('/').filter(|part| !part.is_empty()))
+            .map(str::to_owned)
+            .collect();
+        if parts
+            .iter()
+            .any(|part| part == ".." || part == "." || part.contains('\0'))
+        {
             return Err(HostError::Failed(format!(
                 "TypeError: path has a . or .. part: {path}"
             )));
         }
-        Ok(root.join(rest.trim_start_matches('/')))
+        Ok((namespace, root, parts))
     })())
 }
 
-/// The grant prefixes in `namespace` (`home:` or `bundle:`) that cover
-/// `spelled`, as native paths realized: a path is admitted only if its own
-/// realized path stays under one of them, as `admit` does for native paths.
-fn realized_within(
-    grants: &GrantSet,
-    write: bool,
-    spelled: &str,
-    native: &Path,
-    leaf: bool,
-) -> bool {
-    use crate::grant::Grant;
-    // An operation on a link itself (`lstat`, `readlink`, `symlink`'s new
-    // link) follows its parent's links, not its own.
-    let real = match (leaf, native.parent(), native.file_name()) {
-        (true, Some(parent), Some(name)) => realize(parent).join(name),
-        _ => realize(native),
-    };
-    grants.iter().any(|grant| {
-        let prefix = match (grant, write) {
-            (Grant::FsRead(prefix), false) | (Grant::FsWrite(prefix), true) => prefix,
-            _ => return false,
-        };
-        let spelt = prefix.to_string();
-        prefix.covers(spelled)
-            && namespaced(&spelt)
-                .and_then(Result::ok)
-                .is_some_and(|granted| real.starts_with(realize(&granted)))
-    })
+/// `path` below its root's retained descriptor, each component to be opened
+/// `O_NOFOLLOW` (`app_fs::run_below`).
+#[cfg(unix)]
+fn below(path: &str) -> Result<(super::app_fs::Below, PathBuf), HostError> {
+    let (name, root, parts) = namespaced(path).ok_or_else(|| {
+        HostError::Failed(format!("unsupported: not a home: or bundle: path: {path}"))
+    })??;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC);
+    }
+    let failed = |e: std::io::Error| HostError::Failed(format!("{path}: {e}"));
+    // The root is the host's (the account's home, the app's bundle), opened
+    // as named; nothing below it is followed.
+    let opened = options.open(&root).map_err(failed)?;
+    let native = std::fs::canonicalize(&root)
+        .map_err(failed)?
+        .join(parts.join("/"));
+    Ok((
+        super::app_fs::Below {
+            root: opened,
+            parts,
+            name,
+        },
+        native,
+    ))
 }
 
-/// A `home:` or `bundle:` operation: admitted as spelt and as realized, a
-/// `bundle:` path read only, then run on the native paths.
+/// A `home:` or `bundle:` operation (exact2 LLP 1133.007 D6, Exact patch 24):
+/// admitted as spelt, a `bundle:` path read only, then run below its root's
+/// retained descriptor with every component opened `O_NOFOLLOW`, as an
+/// `app:/` path is. A link anywhere below the root, one a grant's holder
+/// planted included, is refused rather than followed, so the spelt path is
+/// the one the operation reaches and admission needs no realized pass.
 fn run_namespaced(
     grants: &GrantSet,
     op: FsOp,
@@ -574,56 +590,84 @@ fn run_namespaced(
     destination: Option<&str>,
     data: Option<&[u8]>,
 ) -> Result<FsResult, HostError> {
-    let native = |p: &str| -> Result<PathBuf, HostError> {
-        match namespaced(p) {
-            Some(result) => result,
-            None => normalize(p),
-        }
-    };
-    let (source, target) = (native(path)?, destination.map(native).transpose()?);
-    let (needs_read, needs_write) = op.required();
-    // What each path needs: a two-path operation reads its source (and, a
-    // rename, removes it) and writes its destination; one path, either.
-    let mut needs: Vec<(&str, &Path, bool)> = Vec::new();
-    match (destination, target.as_deref()) {
-        (Some(spelled), Some(native)) => {
-            needs.push((path, &source, false));
-            if op == FsOp::Rename {
-                needs.push((path, &source, true));
-            }
-            needs.push((spelled, native, true));
-        }
-        _ => needs.push((path, &source, needs_write && !needs_read)),
+    let namespace = |p: &str| p.starts_with("home:") || p.starts_with("bundle:");
+    if !namespace(path) || destination.is_some_and(|d| !namespace(d)) {
+        return Err(HostError::Failed(
+            "unsupported: a home: or bundle: path pairs only with another".into(),
+        ));
     }
-    if let Some((spelled, ..)) = needs
-        .iter()
-        .find(|(spelled, _, write)| *write && spelled.starts_with("bundle:"))
+    // A `.` or `..` part is refused before any grant is read.
+    #[cfg(unix)]
+    for p in [Some(path), destination].into_iter().flatten() {
+        if let Some(Err(e)) = namespaced(p) {
+            return Err(e);
+        }
+    }
+    let (needs_read, needs_write) = op.required();
+    // What is written: a one-path operation's path, a two-path one's
+    // destination, and a rename's source, which it removes.
+    let written = match destination {
+        Some(to) => [Some(to), (op == FsOp::Rename).then_some(path)],
+        None => [(needs_write && !needs_read).then_some(path), None],
+    };
+    if let Some(spelled) = written
+        .into_iter()
+        .flatten()
+        .find(|p| p.starts_with("bundle:"))
     {
         return Err(HostError::Failed(format!(
             "denied: bundle: is read only: {spelled}"
         )));
     }
     admit_as(grants, op, Path::new(path), destination.map(Path::new))?;
-    let realized = grants.realized_fs();
-    let leaf = matches!(op, FsOp::Lstat | FsOp::Readlink | FsOp::Symlink);
-    for (spelled, native, write) in needs {
-        let ok = if spelled.starts_with("home:") || spelled.starts_with("bundle:") {
-            realized_within(grants, write, spelled, native, leaf)
-        } else {
-            let as_op = if write {
-                FsOp::WriteFile
-            } else {
-                FsOp::ReadFile
-            };
-            admit_as(&realized, as_op, &realize(native), None).is_ok()
-        };
-        if !ok {
-            return Err(HostError::Failed(format!(
-                "denied: {spelled} is outside its grant once its links are followed"
-            )));
+    #[cfg(unix)]
+    {
+        let (source, native) = below(path)?;
+        if op == FsOp::Realpath {
+            source.open()?;
+            return Ok(FsResult::Text(native.display().to_string()));
         }
+        let target = destination.map(below).transpose()?.map(|(b, _)| b);
+        super::app_fs::run_below(op, source, target, data.unwrap_or(&[]))
     }
-    perform(op, &source, target.as_deref(), data)
+    #[cfg(not(unix))]
+    {
+        let _ = data;
+        Err(HostError::Failed(format!("unsupported: no {path} here")))
+    }
+}
+
+/// Open `path` to read it, admitted under `fs.read` as `storage.fs` admits
+/// it: an `app:/` path through the app's directories, a `home:` or `bundle:`
+/// one below its root, `O_NOFOLLOW` all the way, a native one as spelt and
+/// as realized with its last component `O_NOFOLLOW`. What a child's stdin
+/// reads from (exact2 LLP 1133.007 D2's `exactStdinFrom`).
+pub fn open_read(
+    grants: &GrantSet,
+    directories: Option<&super::app_fs::AppDirectories>,
+    path: &str,
+) -> Result<std::fs::File, HostError> {
+    let regular = |file: std::fs::File| -> Result<std::fs::File, HostError> {
+        match file.metadata() {
+            Ok(m) if m.is_file() => Ok(file),
+            _ => Err(HostError::Failed(format!("{path}: not a regular file"))),
+        }
+    };
+    if path.starts_with("app:") {
+        let directories = directories
+            .ok_or_else(|| HostError::Failed("app directories are not configured".into()))?;
+        return directories.open_file(grants, path);
+    }
+    if path.starts_with("home:") || path.starts_with("bundle:") {
+        admit_as(grants, FsOp::ReadFile, Path::new(path), None)?;
+        #[cfg(unix)]
+        return regular(below(path)?.0.open()?);
+        #[cfg(not(unix))]
+        return Err(HostError::Failed(format!("unsupported: no {path} here")));
+    }
+    let native = normalize(path)?;
+    admit(grants, FsOp::ReadFile, &native, None)?;
+    regular(open_native(&native).map_err(|e| HostError::Failed(format!("{path}: {e}")))?)
 }
 
 /// Execute a filesystem operation with authority checked in its original namespace.

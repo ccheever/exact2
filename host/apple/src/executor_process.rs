@@ -207,6 +207,8 @@ pub(crate) struct Spec {
     /// Each of stdin, stdout and stderr: a pipe, or ignored.
     pub(crate) pipes: [bool; 3],
     pub(crate) stdin_from: Option<String>,
+    /// `stdin_from`, opened once it is admitted.
+    pub(crate) stdin_file: Option<Arc<std::fs::File>>,
     pub(crate) input: Option<Vec<u8>>,
     pub(crate) utf8: bool,
     pub(crate) kill_signal: String,
@@ -454,6 +456,7 @@ impl Spec {
             cwd: string("cwd")?,
             pipes,
             stdin_from: string("stdinFrom")?,
+            stdin_file: None,
             input,
             utf8: encoding.as_deref() == Some("utf8"),
             kill_signal,
@@ -669,12 +672,16 @@ fn answer(
     if login_path && origin == CallOrigin::App {
         (shared.processes.login_captured.lock().unwrap()).extend(path);
     }
+    // `exactStdinFrom` is opened as `storage.fs` opens a path to read it:
+    // admitted under `fs.read`, and below its root with nothing followed
+    // (ibex2's `open_read`). Each incarnation reads it from its start.
     if let Some(path) = &spec.stdin_from {
-        if !set.permits(&ibex2::grant::Operation::FsRead { path: path.clone() }) {
-            return failed(
-                FailureKind::Refused,
-                format!("outside the app's grants (fs.read {path})"),
-            );
+        let roots =
+            (shared.root_paths.get()).map(|p| shared.roots.get_or_init(|| super::body::open(p)));
+        let directories = roots.and_then(|d| d.as_ref().ok());
+        match ibex2::stdlib::fs::open_read(&set, directories, path) {
+            Ok(file) => spec.stdin_file = Some(Arc::new(file)),
+            Err(e) => return failed(FailureKind::Refused, format!("exactStdinFrom {path}: {e}")),
         }
     }
     if let Some(ready) = &spec.ready {

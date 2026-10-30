@@ -185,13 +185,28 @@ unsafe fn fail(fd: libc::c_int) -> ! {
     libc::_exit(127)
 }
 
-#[cfg(target_os = "linux")]
+// `errno`'s address, by each libc's name for it: this file builds for every
+// unix but Apple's.
+#[cfg(any(
+    target_os = "linux",
+    target_os = "emscripten",
+    target_os = "redox",
+    target_os = "hurd"
+))]
 unsafe fn errno_location() -> *mut libc::c_int {
     libc::__errno_location()
 }
-#[cfg(not(target_os = "linux"))]
+#[cfg(any(target_os = "android", target_os = "netbsd", target_os = "openbsd"))]
+unsafe fn errno_location() -> *mut libc::c_int {
+    libc::__errno()
+}
+#[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
 unsafe fn errno_location() -> *mut libc::c_int {
     libc::__error()
+}
+#[cfg(any(target_os = "solaris", target_os = "illumos"))]
+unsafe fn errno_location() -> *mut libc::c_int {
+    libc::___errno()
 }
 
 /// `/proc/<pid>/stat`'s fields after the command's closing parenthesis.

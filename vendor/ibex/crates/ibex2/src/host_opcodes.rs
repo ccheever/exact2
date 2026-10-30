@@ -155,7 +155,7 @@ pub(crate) mod async_ops {
     pub(crate) const FS_REALPATH: u32 = 119;
     pub(crate) const FS_ATOMIC_WRITE_FILE: u32 = 120;
     pub(crate) const FS_COMPRESS_IMAGE: u32 = 121;
-    // Exact patch 22 (exact2 LLP 1133.007 D6a).
+    // Exact patch 24 (exact2 LLP 1133.007 D6a).
     pub(crate) const FS_LSTAT: u32 = 122;
     pub(crate) const FS_READLINK: u32 = 123;
     pub(crate) const FS_ACCESS: u32 = 124;

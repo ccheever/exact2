@@ -23,7 +23,7 @@ export interface FileSystem {
   rename(from: string, to: string): Promise<void>;
   copyFile(from: string, to: string): Promise<void>;
   realpath(path: string): Promise<string>;
-  /** Exact patch 22 (exact2 LLP 1133.007 D6a): `stat` of a link itself. */
+  /** Exact patch 24 (exact2 LLP 1133.007 D6a): `stat` of a link itself. */
   lstat(path: string): Promise<FileStat>;
   /** A symbolic link's target. Needs `fs.read`. */
   readlink(path: string): Promise<string>;
@@ -183,9 +183,9 @@ export interface FileStat {
   readonly isFile: boolean;
   readonly isDirectory: boolean;
   readonly modifiedMs: number;
-  /** Exact patch 22: its permission bits, natively (the web's records have none). */
+  /** Exact patch 24: its permission bits, natively (the web's records have none). */
   readonly mode?: number;
-  /** Exact patch 22: an `lstat` that met a symbolic link. */
+  /** Exact patch 24: an `lstat` that met a symbolic link. */
   readonly isSymbolicLink?: boolean;
 }
 

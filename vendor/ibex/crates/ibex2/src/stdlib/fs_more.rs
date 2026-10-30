@@ -1,5 +1,5 @@
 //! The file operations exact2 LLP 1133.007 D6a adds, by Node's names where
-//! Node has them (Exact patch 22): `access`, `chmod`, `symlink`, a file's
+//! Node has them (Exact patch 24): `access`, `chmod`, `symlink`, a file's
 //! `digest` read in bounded memory, and `flock`, an exclusive advisory lock
 //! (POSIX `flock(2)`, a declared deviation: Node has none). A lock taken here
 //! waits in [`LOCKS`] until the runtime that asked takes it
