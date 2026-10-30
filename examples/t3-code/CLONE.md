@@ -45,6 +45,11 @@ source is preserved; this refresh does not repeat connected acceptance. The
 delivered TestFlight build is unchanged, and this integration reaches no new
 release checkpoint.
 
+Startup-crash parity remains open as GAP 004. The pinned reference reads fatal
+startup records from expo-updates; Exact exposes no equivalent record producer.
+The unavailable state remains truthful. Source findings and the required capture
+boundary are in `target/t3-poc-evidence/phone-startup-diagnostics-grounding/how.md`.
+
 The native integration passes emoji editing, Photos import and cancel, inline
 preview and Back with unflushed text preserved, explicit image removal, native
 text Undo and Redo, model and branch round trips, plain-text paste, Unsent
