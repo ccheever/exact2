@@ -507,7 +507,7 @@ final class TextPaintTests: XCTestCase {
         let shadowed = try raster(black, shadow: [12, 0, 0] + bright)
         let cast = try XCTUnwrap(shadowed.cast, "the token alone casts this HDR shadow")
         XCTAssertEqual(shadowed.castHeadroom, 4, accuracy: 0.01)
-        let castImage = TextRasterImage(cast, frame: shadowed.frame, covered: shadowed.covered, headroom: shadowed.castHeadroom)
+        let castImage = TextRasterImage(cast, frame: shadowed.frame, coverage: TextRasterCoverage(support: shadowed.frame, answered: shadowed.covered, ink: shadowed.frame, shadows: .null), headroom: shadowed.castHeadroom)
         XCTAssertGreaterThan(rasterPixels(castImage).map(\.x).max() ?? 0, 1, "the shadow has HDR pixels")
     }
 
@@ -553,10 +553,52 @@ final class TextPaintTests: XCTestCase {
             XCTAssertGreaterThan(port.minX, box.maxX)
             let job = TextRasterJob(source: engine.attributed(spec), ranges: paragraph.lines.map(CTLineGetStringRange),
                                     baselines: paragraph.baselines, flush: 0, box: box, size: box.size, scale: scale,
-                                    room: box, crop: true, antialiased: true)
+                                    room: box, retention: .viewport(required: port, preferred: port, maximumBytes: TextRasterJob.maximumBytes),
+                                    crop: true, antialiased: true)
             let raster = try XCTUnwrap(job.render())
             try assertNativeWindow(raster, paragraph: paragraph, port: port, scale: scale)
+            XCTAssertTrue(raster.coverage.whole)
+            var roomJob = job
+            roomJob.retention = .room
+            let room = try XCTUnwrap(roomJob.render())
+            XCTAssertEqual(room.frame.maxX, 592, "the default AppKit room policy is unchanged")
+            XCTAssertFalse(room.coverage.whole)
+            XCTAssertFalse(room.coverage.covers(port))
         }
+    }
+
+    func testHugeCodeRetainsFiniteWindowsAtNativeOffsets() throws {
+        for rows in [1, 240] {
+            let source = String(repeating: String(repeating: "wide code ", count: 240) + "end\n", count: rows)
+            var spec = Spec(runs: [Run(text: source, size: 16, weight: 400, family: 6, italic: false,
+                                       lineHeight: 22, letterSpacing: 0)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+            spec.whiteSpace = 4
+            let paragraph = engine.paragraph(spec, width: 336)
+            let box = CGRect(x: 0, y: 0, width: 336, height: paragraph.height)
+            let advance = paragraph.lines.map { CTLineGetTypographicBounds($0, nil, nil, nil) }.max()!
+            let scale: CGFloat = 3
+            let port = CGRect(x: floor((advance - 364) * scale) / scale,
+                              y: max(0, box.height - 220), width: 364, height: min(220, box.height))
+            let preferred = port.insetBy(dx: -port.width / 2, dy: -port.height / 2)
+            var job = TextRasterJob(source: engine.attributed(spec), ranges: paragraph.lines.map(CTLineGetStringRange),
+                                    baselines: paragraph.baselines, flush: 0, box: box, size: box.size, scale: scale,
+                                    room: box, retention: .viewport(required: port, preferred: preferred, maximumBytes: 1_048_576),
+                                    crop: true, antialiased: true)
+            for measured in [false, true] {
+                if measured {
+                    job.measuredGlyphs = engine.measuredGlyphs(spec, width: box.width)
+                    job.measuredColor = TextEngine.color(spec.color).cgColor
+                }
+                let raster = try XCTUnwrap(job.render())
+                XCTAssertFalse(raster.coverage.whole)
+                XCTAssertTrue(raster.coverage.covers(port))
+                XCTAssertFalse(raster.coverage.covers(CGRect(x: 0, y: port.minY, width: 300, height: port.height)))
+                XCTAssertLessThanOrEqual(raster.frame.width, preferred.width + 1 / scale)
+                XCTAssertLessThanOrEqual(raster.frame.height, preferred.height + 1 / scale)
+                try assertNativeWindow(raster, paragraph: paragraph, port: port, scale: scale)
+            }
+        }
+        XCTAssertNil(TextRasterJob.byteCount(width: Int.max, height: 3, pixelBytes: 8, cast: true))
     }
 
     private func assertNativeWindow(_ raster: TextRasterImage, paragraph: Paragraph, port: CGRect, scale: CGFloat,

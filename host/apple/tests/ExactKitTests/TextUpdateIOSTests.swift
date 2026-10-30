@@ -16,7 +16,7 @@ final class TextUpdateIOSTests: XCTestCase {
         context.fill(CGRect(x: 5, y: 5, width: 10, height: 10))
         let image = try XCTUnwrap(context.makeImage())
         let key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size, box: node.paragraphBox(), scale: 1)
-        var result = TextRasterImage(image, frame: node.bounds, covered: node.bounds, headroom: 0)
+        var result = TextRasterImage(image, frame: node.bounds, coverage: TextRasterCoverage(support: node.bounds, answered: node.bounds, ink: node.bounds, shadows: .null), headroom: 0)
         result.tint = UIColor.red.cgColor
         let start = CACurrentMediaTime()
         for _ in 0..<1600 {
@@ -36,7 +36,7 @@ final class TextUpdateIOSTests: XCTestCase {
         XCTAssertEqual(Array(UnsafeBufferPointer(start: bytes + center, count: 4)), [255, 0, 0, 255])
         context.clear(node.bounds)
         context.fill(node.bounds)
-        var replacement = TextRasterImage(try XCTUnwrap(context.makeImage()), frame: node.bounds, covered: node.bounds, headroom: 0)
+        var replacement = TextRasterImage(try XCTUnwrap(context.makeImage()), frame: node.bounds, coverage: TextRasterCoverage(support: node.bounds, answered: node.bounds, ink: node.bounds, shadows: .null), headroom: 0)
         replacement.tint = UIColor.blue.cgColor
         CATransaction.begin(); CATransaction.setAnimationDuration(1)
         node.textRasterReady = false
