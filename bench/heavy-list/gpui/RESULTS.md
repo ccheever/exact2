@@ -5155,3 +5155,31 @@ remain in `target/g4m-hook-review/checks/`. The final source is not qualified
 by a passing quiet test run. The quiet silver CPU baseline, power-off static
 GPU series and interleaved two-Mac comparison also remain unrun, as required
 by this chunk's one-sample limit.
+## G5m, after M2b
+
+### Attribution and prediction, before the change
+
+The headless heavy-list caret drive on `5fa5fcc2f3` painted all eight sampled
+periods from 250 through 308.333 ms; opacity stayed at 1 throughout. The
+presenter wanted another display frame after each paint. This is presenter
+scheduling, not a different animation value: `Engine::advance_animations`
+marks every sampled property of a live animation dirty, `Host::present`
+accepts a repeated value once the node has presentation state, and
+`Presenter::tick` marks the frame dirty while `Host::motion()` is true.
+`needs_animation_frame` uses that same lifetime test. The carrier consequently
+walks and encodes another frame on every display callback.
+
+The baseline headless run uses direct Metal and a readback target: it does
+not acquire or present a window drawable. G5m's retained window probe above
+supplies the drawable evidence (119.74 presents/s). The lane's starting main
+commit has no `EXACT_INK_COUNTERS` implementation; setting it supplies no
+counter evidence. The initial trace and its reduced rows are retained in
+`target/m2b/before-periods.jsonl` and `before-periods-summary.json`; its scratch
+entry and build commands are under `target/m2b/trace/` and `trace-build*.log`.
+
+Prediction: on the same three-round G5m driver and probe, Ink caret falls to
+2 presents/s and below 5 process CPU ms/s. Near-zero GPU means at most 5 GPU
+ms/s in the probe and 0.03 W median whole-machine GPU power in powermetrics.
+Ink bar and the native arm remain within G5m's three-round CPU and frame-rate
+ranges. The headless 120-period trace should paint only at the two half-second
+steps. Each prediction is judged on its named instrument, including misses.
