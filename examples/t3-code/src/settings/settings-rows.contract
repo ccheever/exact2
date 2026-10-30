@@ -10,6 +10,7 @@ use CoreOption from "./settings-core-shared.contract"
 use ScopeChoice from "./settings-core.contract"
 use CorePalette from "./settings-core-shared.contract"
 use SettingsGhost from "./settings-core-shared.contract"
+use SnoozeEditor from "./settings-snooze.contract"
 use SettingsPickerFace from "./settings-picker.contract"
 use ComposerInstanceMark from "../composer/instance-mark.contract"
 use CcIcon from "../composer/composer-controls.contract"
@@ -354,7 +355,7 @@ component CoreRowView
         if row.kind == "version"
           row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end"
             AboutUpdateButton(row=row, pal=pal, busy=busy, change=change)
-        if row.kind != "version" and row.kind != "none" and row.kind != "textarea"
+        if row.kind != "version" and row.kind != "none" and row.kind != "textarea" and row.kind != "snooze"
           row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem" opacity=(row.inert ? 0.5 : 1) position="relative"
             if row.kind == "switch"
               // D15: a mixed switch turns the setting on for every selected target.
@@ -366,10 +367,10 @@ component CoreRowView
                   CorePaintIcon(ownId=`paint-icon-CoreRowView-6-${row.id}`, paint="text", name="settings", size=16, color=pal.text)
             if row.kind == "model"
               // ProviderModelPicker: the composer's picker (model-picker.contract) opens under this trigger;
-              // a Mixed value shows its neutral label without a provider mark.
+              // a Mixed value, and the Fallback model's "None" (no driver), show their neutral label without a provider mark.
               box position="relative"
-                button press=change(row.id, "picker", "") class=SettingsPickerFace border-color=pal.input background-color=pal.field disabled=(busy or row.inert) aria-label=row.label aria-haspopup="dialog" id=`setting-${row.id}` testId=`setting-${row.id}-model` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
-                  if not row.mixed
+                button press=change(row.id, "picker", "") class=SettingsPickerFace border-color=pal.input background-color=pal.field disabled=(busy or row.inert) aria-label=(row.id == "fallback-model" ? row.title : row.label) aria-haspopup="dialog" id=`setting-${row.id}` testId=`setting-${row.id}-model` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
+                  if not row.mixed and row.driver != ""
                     ComposerInstanceMark(driver=row.driver, icon=row.markIcon, size=16, color=pal.muted, badge=row.badge, accent=row.badgeColor)
                   text row.label font-size="0.875rem" line-height="1.25rem" color=pal.text line-clamp=1 id=`paint-CoreRowView-13-${row.id}` data-paint="text" data-pick="text"
                   box opacity=0.7 flex-shrink=0
@@ -406,12 +407,62 @@ component CoreRowView
       if row.kind == "textarea"
         for key in [`${row.mixed}:${row.value}`] key=key
           CoreTextArea(rowId=row.id, value=row.value, mixed=row.mixed, placeholder=row.placeholder, label=row.title, pal=pal, disabled=(busy or row.inert), commit=change(row.id, row.target))
+      if row.kind == "snooze"
+        for editor in row.snooze key=row.id
+          SnoozePresetsEditor(editor=editor, rowId=row.id, section=section, pal=pal, busy=busy, inert=row.inert, menu=menu, openMenu=openMenu, change=change)
       if row.info == "preview-prompt"
         PromptFontPreview(family=row.driver, size=row.previewSize, pal=pal)
       if row.info == "preview-code" or row.info == "preview-code-terminal"
         FontCodePreview(preview=codePreview, family=row.driver, size=row.amount, pal=pal)
       if row.info == "preview-code-terminal" or row.info == "preview-terminal"
         FontTerminalPreview(family=row.driver, size=row.amount, pal=pal)
+
+// SnoozePresetList under its row: per option, When (In or a day), then the duration's amount and unit or "at" and the
+// time, with what the menu shows for it (or why it shows nothing) and Remove at the end; then the menu as it reads now
+// and Add option, up to eight. Each control writes the whole list (settings-snooze.ts snoozePresetsEdit), keyed by the
+// option's place in the saved list, and the rows follow the menu's order.
+component SnoozePresetsEditor
+  props
+    editor: SnoozeEditor
+    rowId: string
+    section: string
+    pal: CorePalette
+    busy: bool
+    inert: bool
+    menu: string
+    openMenu: action
+    change: action
+  view
+    column width="100%" gap="0.375rem" padding-bottom="0.5rem" opacity=(inert ? 0.5 : 1) testId="snooze-options-list"
+      for item in editor.rows key=item.key
+        row width="100%" flex-wrap="wrap" align-items="center" gap="0.5rem" role="group" aria-label=`Snooze option ${item.position}` testId=`snooze-option-${item.position}`
+          row align-items="center" gap="0.5rem"
+            CoreSelect(stop="enabled page", rowId=`snooze-when-${item.key}`, section=section, value=item.whenLabel, icon="", width=128, menuWidth=0, options=item.whens, pal=pal, disabled=(busy or inert), dim=inert, menu=menu, openMenu=openMenu, choose=change(rowId, `when:${item.index}`))
+            if item.after
+              // The field keeps what was typed until the saved amount changes (NumberField commits on Enter or blur).
+              for amountKey in [`${item.key}:${item.amount}:${item.unit}`] key=amountKey
+                CoreField(value=item.amount, rowId=`snooze-amount-${item.key}`, width=128, placeholder="", numeric=true, label="Amount", pal=pal, disabled=(busy or inert), commit=change(rowId, `amount:${item.index}`))
+              CoreSelect(stop="enabled page", rowId=`snooze-unit-${item.key}`, section=section, value=item.unitLabel, icon="", width=112, menuWidth=0, options=item.units, pal=pal, disabled=(busy or inert), dim=inert, menu=menu, openMenu=openMenu, choose=change(rowId, `unit:${item.index}`))
+            else
+              text "at" font-size="0.75rem" line-height="1rem" color=pal.muted
+              for timeKey in [`${item.key}:${item.time}`] key=timeKey
+                CoreField(value=item.time, rowId=`snooze-time-${item.key}`, width=128, placeholder="09:00", numeric=false, label="Time", pal=pal, disabled=(busy or inert), commit=change(rowId, `time:${item.index}`))
+          row margin-left="auto" min-width=0 align-items="center" gap="0.5rem"
+            if item.previewMenu
+              row min-width=0 gap="0.5rem" align-items="baseline"
+                text item.previewLabel font-size="0.75rem" line-height="1rem" color=pal.text line-clamp=1
+                text item.previewWhen font-size="0.75rem" line-height="1rem" color=pal.muted font-variant-numeric="tabular-nums" white-space="nowrap"
+            else
+              text item.previewText font-size="0.75rem" line-height="1rem" color=pal.muted line-clamp=1
+            button press=change(rowId, `remove:${item.index}`, "") class=SettingsGhost width="1.75rem" height="1.75rem" border-radius="0.5rem" disabled=(busy or inert) aria-label=`Remove snooze option ${item.position}` title="" id=`snooze-remove-${item.key}` testId=`snooze-remove-${item.position}` data-focus-stop=(busy or inert ? "" : "enabled page")
+              CorePaintIcon(ownId=`paint-icon-snooze-remove-${item.key}`, paint="mutedForeground", name="x", size=16, color=pal.muted)
+      text editor.menuLine font-size="0.75rem" line-height="1rem" color=pal.muted testId="snooze-options-menu"
+      row align-items="center"
+        button press=change(rowId, "add", "") class=SettingsGhost height="1.75rem" gap="0.25rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.375rem" disabled=(busy or inert or editor.full) opacity=(editor.full ? 0.64 : 1) id="snooze-add-option" testId="snooze-add-option" data-focus-stop=(busy or inert or editor.full ? "" : "enabled page")
+          CorePaintIcon(ownId="paint-icon-snooze-add-option", paint="mutedForeground", name="plus", size=14, color=pal.muted)
+          text "Add option" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.muted
+        if editor.full
+          text editor.fullNote padding-left="0.5rem" font-size="0.75rem" line-height="1rem" color=pal.muted
 
 // SelectTrigger size sm + SelectPopup align end (alignItemWithTrigger=false).
 // The select's widths are px at the root size 16 and lay out in rem (w-36, min-w-40), as the reference's.

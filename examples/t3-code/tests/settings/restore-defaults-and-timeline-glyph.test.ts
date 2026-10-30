@@ -35,9 +35,9 @@ const restore = (client: Fake) => applyCoreSetting(as(client), native, 'restore-
 /** The reference's restoreDefaults patch (SettingsPanels.tsx), its client-side keys in its order; the environment keys
  *  (autoResumeLimitedThreads, …, enableAgentBrowserAccess) are settings-core's RESTORED_SERVER_KEYS. */
 const REFERENCE_PATCH_CLIENT_KEYS = [
-  'appearanceContrast', 'diffColorScheme', 'chatWidth', 'timestampFormat', 'notificationMode', 'inAppNotificationsEnabled', 'wordWrap',
+  'appearanceContrast', 'diffColorScheme', 'chatWidth', 'effortDisplay', 'timestampFormat', 'notificationMode', 'inAppNotificationsEnabled', 'wordWrap',
   'persistComposerContextStrip', 'diffFilesCollapsed', 'diffIgnoreWhitespace', 'diffLayout', 'proactivePanelsEnabled', 'showSkillsInSlashMenu',
-  'composerCollapseOnScroll', 'composerRichTextEnabled', 'sendShortcut', 'followUpBehavior', 'contextWindowMeterEnabled', 'environmentIdentificationMode',
+  'composerRichTextEnabled', 'sendShortcut', 'followUpBehavior', 'contextWindowMeterEnabled', 'environmentIdentificationMode',
   'glassOpacity', 'panelAnimationDurationMs', 'sidebarThreadPreviewCount', 'sidebarProjectGroupingMode', 'sidebarProjectSortOrder', 'sidebarWorkingShelfEnabled',
   'confirmThreadArchive', 'confirmThreadDelete', 'confirmThreadUnpin', 'confirmQuit', 'fontFamilySans', 'fontFamilyComposer', 'fontFamilyCode', 'fontFamilyTerminal',
   'fontSizeInterface', 'fontSizePrompt', 'fontSizeCode', 'fontSizeTerminal', 'browserDefaultViewport', 'browserDefaultZoomFactor', 'browserDefaultAppearance',
@@ -51,7 +51,7 @@ const ELSEWHERE: Record<string, string> = { sidebarProjectGroupingMode: 'groupin
 
 /** One valid value apart from the default for every key this app keeps in clientSettings. */
 const CHANGED: Record<keyof typeof CLIENT_DEFAULTS, string | number | boolean> = {
-  notificationMode: 'sound', inAppNotificationsEnabled: true, diffColorScheme: 'blue-orange', chatWidth: 'wide', appearanceContrast: 150, panelAnimationDurationMs: 200,
+  notificationMode: 'sound', inAppNotificationsEnabled: true, diffColorScheme: 'blue-orange', chatWidth: 'wide', effortDisplay: 'bars', appearanceContrast: 150, panelAnimationDurationMs: 200,
   confirmThreadArchive: true, confirmThreadDelete: false, confirmThreadUnpin: true, diffFilesCollapsed: false, diffIgnoreWhitespace: false, diffLayout: 'split',
   environmentIdentificationMode: 'pill', glassOpacity: 60, fontSizeInterface: 14, fontSizePrompt: 16, fontSizeCode: 14, fontSizeTerminal: 14, fontFamilyCode: 'Menlo',
   fontFamilyComposer: 'Menlo', fontFamilySans: 'Avenir', fontFamilyTerminal: 'Menlo', fontSmoothing: false, persistComposerContextStrip: true, contextWindowMeterEnabled: true,
@@ -68,7 +68,8 @@ describe('Restore defaults resets what the reference resets', () => {
     const reset = new Set([...REFERENCE_PATCH_CLIENT_KEYS, ...REFERENCE_THEME_KEYS]);
     const own = [...Object.keys(CLIENT_DEFAULTS), ...Object.keys(DEVICE_DEFAULTS)];
     // Every key this app keeps is classified: reset by the reference, or kept by it; never both.
-    for (const key of own) expect([key, reset.has(key) !== kept.has(key)]).toEqual([key, true]);
+    // composerCollapseOnScroll is a setting v0.1.5 removed (the composer no longer folds); a restore still resets it.
+    for (const key of own.filter(name => name !== 'composerCollapseOnScroll')) expect([key, reset.has(key) !== kept.has(key)]).toEqual([key, true]);
     // Every client-side key of the reference's patch is one this app keeps (or keeps elsewhere).
     for (const key of REFERENCE_PATCH_CLIENT_KEYS) expect([key, own.includes(key) || key in ELSEWHERE]).toEqual([key, true]);
     expect([...kept].sort()).toEqual(['fontSmoothing', 'legacySidebarEnabled', 'planModeEnabled', 'sidebarThreadSortOrder', 'typographyAdvanced']);

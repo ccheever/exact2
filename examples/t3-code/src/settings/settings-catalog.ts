@@ -1,4 +1,4 @@
-// Reference settingsSearch.ts SETTINGS_SEARCH_ITEMS (7c3b3b3605ef), one row per item:
+// Reference settingsSearch.ts SETTINGS_SEARCH_ITEMS (6d450a4284), one row per item:
 // [id, title, route, targetId, searchTerms, scope, availability flags]. Keybinding command items are
 // derived from the connected server's keybindings at search time (settings-search.ts). The host
 // rows are sourceControlHostSearchItems expanded: GitHub, GitCafe, then Bitbucket, the hosts with a
@@ -21,6 +21,7 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["setting-glass-opacity", "Glass opacity", "appearance", "", "transparent transparency solid menus dialogs composer", "", ""],
   ["diff-color-scheme", "Diff colors", "diffs", "", "red green blue orange additions deletions changes counts palette colorblind", "", ""],
   ["chat-width", "Chat width", "appearance", "", "wide full width column layout messages composer monitor", "", ""],
+  ["effort-display", "Effort display", "appearance", "", "reasoning effort thinking bars graph word label level composer", "", ""],
   ["math-rendering", "Render math", "appearance", "", "latex tex katex equations formulas markdown", "", ""],
   ["panel-animations", "Panel animations", "appearance", "", "", "", ""],
   ["environment-identification", "Environment identification", "appearance", "appearance-interface", "dev nightly artwork pill label hide none", "", ""],
@@ -30,10 +31,11 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["terminal-font", "Terminal font", "appearance", "", "typography family size monospace output", "", ""],
   ["separate-fonts", "Separate fonts", "appearance", "", "typography advanced prompt code terminal font family size individually", "", ""],
   ["font-smoothing", "Font smoothing", "appearance", "", "typography text grayscale anti aliasing macos thin", "", "mac"],
-  ["word-wrap", "Word wrap", "appearance", "", "long lines code blocks tables diffs file previews", "", ""],
+  ["word-wrap", "Word wrap", "appearance", "", "long lines code blocks diffs file previews", "", ""],
   ["composer-context", "Composer context", "appearance", "", "", "", ""],
   ["project-grouping", "Project grouping", "general", "", "combine matching repositories environments sidebar", "", ""],
   ["project-order", "Project order", "general", "", "sort projects sidebar manual created recent", "", ""],
+  ["snooze-options", "Snooze options", "threads", "", "snooze presets times later tonight tomorrow next week remind", "environment-defaults", "environment"],
   ["snooze-limited-threads", "Snooze until limits reset", "threads", "", "usage quota rate limit reset wake recover continue", "", ""],
   ["auto-resume-limited-threads", "Resume after usage limits", "threads", "", "usage quota rate limit reset recover continue", "", ""],
   ["working-shelf", "Working section", "general", "", "hide fold running monitoring threads inbox sidebar shelf", "", ""],
@@ -52,7 +54,6 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["proactive-panels", "Proactive panels", "diffs", "", "automatically open diff pull request pr right panel agent completion", "", ""],
   ["skills-in-slash-menu", "Show skills in slash menu", "chat", "", "command menu dollar $ slash /", "", ""],
   ["composer-rich-text", "Rich text composer", "chat", "", "composer rich text tiptap bold italic markdown styled wysiwyg", "", ""],
-  ["composer-collapse", "Collapse composer on scroll", "chat", "", "composer rest resting scroll wheel conversation timeline shrink minimize", "", ""],
   ["send-shortcut", "Send shortcut", "chat", "", "enter return command ctrl multiline prompt new line composer", "", ""],
   ["follow-up-behavior", "Follow-up behavior", "chat", "", "queue steer running turn send default behavior composer", "", ""],
   ["provider-update-checks", "Provider update checks", "maintenance", "", "installed cli versions newer available codex claude cursor grok fx opencode", "environment-defaults", ""],

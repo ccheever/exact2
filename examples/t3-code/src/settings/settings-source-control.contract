@@ -1,4 +1,4 @@
-// Adapted from T3 Code 7c3b3b3605ef (MIT); see LICENSE-T3.
+// Adapted from T3 Code 6d450a4284 (MIT); see LICENSE-T3.
 use HostCredentials from "./source-control-credentials.contract"
 use HostCredentialsForm from "./source-control-credentials.contract"
 // Settings → Source control, Browser and Devices (reference SourceControlSettings.tsx,
@@ -373,8 +373,9 @@ component DiscoveryItem
               text item.version font-family="monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
             if item.comingSoon
               text "Coming Soon" font-size="0.625rem" font-weight=500 line-height="0.875rem" padding-left="0.1875rem" padding-right="0.1875rem" border-radius="0.25rem" background-color="light-dark(#ff990014, #ff9b0029)" color="light-dark(#bb4d00, #ffb900)"
+            // Badge variant="secondary": a provider not signed in is neutral, not a warning.
             if item.badge != ""
-              text item.badge font-size="0.625rem" font-weight=500 line-height="0.875rem" padding-left="0.1875rem" padding-right="0.1875rem" border-radius="0.25rem" background-color="light-dark(#ff990014, #ff9b0029)" color="light-dark(#bb4d00, #ffb900)"
+              text item.badge font-size="0.625rem" font-weight=500 line-height="0.875rem" padding-left="0.1875rem" padding-right="0.1875rem" border-radius="0.25rem" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#18181b, #f5f5f5)"
           row gap="0.25rem" align-items="center" flex-wrap="wrap"
             text item.summary font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
             if item.account

@@ -1,0 +1,27 @@
+// Threads › Snooze options (settings-snooze.ts builds these; settings-rows.contract SnoozePresetsEditor draws them).
+use CoreOption from "./settings-core-shared.contract"
+
+// One option, in the menu's order. `index` is its place in the saved list, which every control writes by.
+shape SnoozeEditorRow
+  key: string
+  index: number
+  position: number
+  when: string
+  whenLabel: string
+  after: bool
+  amount: string
+  unit: string
+  unitLabel: string
+  time: string
+  // What the menu shows for it (previewLabel and previewWhen), or why it shows nothing (previewText).
+  previewMenu: bool
+  previewLabel: string
+  previewWhen: string
+  previewText: string
+  whens: CoreOption[]
+  units: CoreOption[]
+shape SnoozeEditor
+  rows: SnoozeEditorRow[]
+  menuLine: string
+  full: bool
+  fullNote: string

@@ -145,15 +145,16 @@ describe('what a 0.1.5 server adds', () => {
     expect(prefs.chatWidth).toBe('wide');
   });
 
-  // BackgroundActivityOverrides has no idleClientTtl at 6d450a4284, so the server drops the key an Advanced write
-  // still carries. No control sets it, so it only ever holds the preset's value, which the read falls back to.
-  test('an Advanced write reads back the same once the server drops its idleClientTtl', () => {
+  // BackgroundActivityOverrides has no idleClientTtl at 6d450a4284: the presets and an Advanced write carry none, and a
+  // stored override an older build wrote is ignored.
+  test('the background presets and an Advanced write carry no idleClientTtl', () => {
     const settings: Obj = { backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} } };
     const written = obj(advancedBackgroundValue(settings, 'git', '60'));
-    const { idleClientTtl, ...kept } = obj(written.overrides);
-    expect(idleClientTtl).toBe(45_000);
-    const stored = { backgroundActivity: { ...written, overrides: kept } };
-    expect(resolveBackground(stored)).toEqual(resolveBackground({ backgroundActivity: written }));
+    expect(Object.keys(obj(written.overrides))).not.toContain('idleClientTtl');
+    expect(Object.keys(resolveBackground(settings))).not.toContain('idleClientTtl');
+    const older = { backgroundActivity: { ...written, overrides: { ...obj(written.overrides), idleClientTtl: 45_000 } } };
+    expect(resolveBackground(older)).toEqual(resolveBackground({ backgroundActivity: written }));
+    const stored = { backgroundActivity: written };
     expect([resolveBackground(stored).automaticGitFetchInterval, profileOption(stored)]).toEqual([60, 'advanced']);
   });
 });

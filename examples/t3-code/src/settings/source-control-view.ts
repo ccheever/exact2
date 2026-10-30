@@ -1,4 +1,4 @@
-// Adapted from T3 Code 7c3b3b3605ef (MIT); see LICENSE-T3.
+// Adapted from T3 Code 6d450a4284 (MIT); see LICENSE-T3.
 import { hostCredentials, type HostCredentials } from './source-control-credentials';
 import { can } from '../connections/command-permissions';
 // Settings → Source control and Integrations view models (reference
@@ -253,7 +253,7 @@ export function discoveryRows(result: Obj) {
       : status === 'unauthenticated' ? `${str(item.label)} is not authenticated on this server. Sign in or configure credentials using the ${str(item.executable)} tool on the server host to enable change request features.`
       : `Could not verify ${str(item.label)}. ${option(auth.detail) || str(item.installHint)}`;
     return { kind: str(item.kind), label: str(item.label), version: option(item.version), comingSoon: false, badge: status === 'unauthenticated' && available ? 'Not authenticated' : '',
-      dot: !available || status !== 'authenticated' ? 'warning' : 'success', summary, account: available && status === 'authenticated' && option(auth.account) !== '', enabled: available && status === 'authenticated', details: ['github', 'gitcafe', 'bitbucket'].includes(str(item.kind)),
+      dot: available && status === 'authenticated' ? 'success' : 'muted', summary, account: available && status === 'authenticated' && option(auth.account) !== '', enabled: available && status === 'authenticated', details: ['github', 'gitcafe', 'bitbucket'].includes(str(item.kind)),
       // RedactedAccount (SourceControlSettings.tsx:160-168): each item reveals its own account.
       ...(({ value, placeholder }) => ({ accountValue: value, accountPlaceholder: placeholder }))(redactedValue(available && status === 'authenticated' ? option(auth.account) : '')) };
   });

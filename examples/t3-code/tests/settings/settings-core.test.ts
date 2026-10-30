@@ -10,6 +10,7 @@ import { toasts } from '../../src/shell/toast';
 import { fleet } from '../../src/connections/settings-b-fleet';
 import { applyBrowserDefault, browserDefaultsView } from '../../src/browser/browser-defaults';
 import { integrationRows } from '../../src/settings/source-control-view';
+import { DEFAULT_SNOOZE_PRESETS } from '../../src/settings/settings-snooze';
 
 // The app's one fleet is shared across test files; these cases are single-environment unless they add entries.
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
@@ -123,14 +124,14 @@ describe('general rows', () => {
   test('every reference row in order, with live values and inheritance', () => {
     const client = as(fake({ snoozeLimitedThreads: true }));
     const sections = generalSections(client, serverContext(client, resolveScope(client, '', '', ''), new Map()));
-    // Every page's sections in nav order (SettingsPanels.tsx and WorktreesSettings.tsx at 7c3b3b3605ef); Maintenance's
+    // Every page's sections in nav order (SettingsPanels.tsx and WorktreesSettings.tsx at 6d450a4284); Maintenance's
     // Diagnostics is the storage panel's, after its own sections (settings-data.ts).
     expect(sections.map(section => section.title)).toEqual(['Notifications', 'Sidebar', 'Confirmations', 'Display', 'Composer', 'Follow-ups', 'Diffs', 'Pull requests', 'New projects', 'New threads',
-      'Usage limits', 'Auto-settle', 'Text generation', 'Creation', 'Updates', 'Background activity', 'App', 'Legal', 'Legacy']);
+      'Snooze', 'Usage limits', 'Auto-settle', 'Text generation', 'Creation', 'Updates', 'Background activity', 'App', 'Legal', 'Legacy']);
     expect(sections.flatMap(section => section.rows.map(row => row.title))).toEqual(['Thread notifications', 'In-app notifications', 'Project grouping', 'Project order', 'Working section',
-      'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Time format', 'Rich text composer', 'Send shortcut', 'Collapse composer on scroll',
-      'Follow-up behavior', 'Diff layout', 'Hide whitespace changes', 'Default diff file state', 'Diff colors', 'Proactive panels', 'Open pull requests in T3 Code', 'Add project starts in', 'Model', 'Permissions', 'Workspace',
-      'Resume after usage limits', 'Snooze until limits reset', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle',
+      'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Time format', 'Rich text composer', 'Send shortcut',
+      'Follow-up behavior', 'Diff layout', 'Hide whitespace changes', 'Default diff file state', 'Diff colors', 'Proactive panels', 'Open pull requests in T3 Code', 'Add project starts in', 'Model', 'Fallback model', 'Permissions', 'Workspace',
+      'Snooze options', 'Resume after usage limits', 'Snooze until limits reset', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle',
       'Text generation model', 'Start from remote', 'Provider update checks', 'Continue threads after restarts', 'Background activity',
       'Version', 'Update track', 'Mobile app', 'Open source licenses', 'Plan mode (legacy)', 'Context window indicator (legacy)', 'Sidebar (legacy)']);
     // AdvancedSettings: Chat's Show skills, Threads' Response streaming and Worktrees' Submodules fold at their section's end.
@@ -144,6 +145,32 @@ describe('general rows', () => {
     expect([row('snooze-limited-threads').checked, row('snooze-limited-threads').inheritance, row('snooze-limited-threads').resettable]).toEqual([true, 'environment', false]);
     expect([row('new-threads').label, row('worktree-submodules').label, row('days-before-auto-settle').value]).toEqual(['Current checkout', 'Recursive', '3']);
     expect(row('version').value).toBe('0.1.5'); // this app's own release, not the server's
+  });
+  test('Fallback model: None until set, the picked model once saved, no traits, and absent in a project scope', async () => {
+    const client = fake();
+    const rowOf = (scope = resolveScope(as(client), '', '', '')) => generalSections(as(client), serverContext(as(client), scope, new Map())).flatMap(section => section.rows).find(entry => entry.id === 'fallback-model');
+    expect(rowOf()).toMatchObject({ kind: 'model', label: 'None', driver: '', label2: '', value: 'fixture|luna', resettable: false,
+      description: "Used for new threads when the default model's provider is out of usage." });
+    await applyCoreSetting(as(client), native, 'fallback-model:|||', 'fixture|astra');
+    expect(client.writes.at(-1)).toEqual({ patch: { fallbackModelSelection: { instanceId: 'fixture', model: 'astra' } } });
+    expect(rowOf()).toMatchObject({ label: 'GPT-6-Astra', driver: 'codex', label2: '', options2: [], resettable: true });
+    await expect(applyCoreSetting(as(client), native, 'fallback-model:|||', 'gone|x')).rejects.toThrow('unavailable');
+    await applyCoreSetting(as(client), native, 'fallback-model:reset|||', '');
+    expect(client.writes.at(-1)).toEqual({ patch: { fallbackModelSelection: null } });
+    expect(rowOf(resolveScope(as(client), '', 'repo', ''))).toBeUndefined();
+  });
+  test('Snooze options: the environment\'s list, its edits and reset, and no row in a project scope', async () => {
+    const client = fake();
+    const rowOf = (scope = resolveScope(as(client), '', '', '')) => generalSections(as(client), serverContext(as(client), scope, new Map())).flatMap(section => section.rows).find(entry => entry.id === 'snooze-options');
+    expect(rowOf()).toMatchObject({ kind: 'snooze', title: 'Snooze options', resettable: false, description: 'Choices in every snooze menu, listed soonest first. Weekdays mean the next one after today.' });
+    expect(rowOf()!.snooze[0]!.rows).toHaveLength(5);
+    await applyCoreSetting(as(client), native, 'snooze-options:when:4|||', 'friday');
+    expect(client.writes.at(-1)).toEqual({ patch: { snoozePresets: [{ kind: 'after', minutes: 60 }, { kind: 'after', minutes: 180 }, { kind: 'at', day: 'today', time: '18:00' },
+      { kind: 'at', day: 'tomorrow', time: '09:00' }, { kind: 'at', day: 'friday', time: '09:00' }] } });
+    expect(rowOf()).toMatchObject({ resettable: true, inheritance: 'environment' });
+    await applyCoreSetting(as(client), native, 'snooze-options:reset|||', '');
+    expect(client.writes.at(-1)).toEqual({ patch: { snoozePresets: DEFAULT_SNOOZE_PRESETS } });
+    expect(rowOf(resolveScope(as(client), '', 'repo', ''))).toBeUndefined();
   });
   test('project scope: overrides, t3.json and environment-wide rows', () => {
     const client = as(fake({ projectSettingsOverrides: { p1: { defaultRuntimeMode: 'approval-required' }, p2: { defaultRuntimeMode: 'approval-required' } } }));
@@ -536,9 +563,9 @@ describe('appearance', () => {
     expect(cards.map(card => card.label)).toEqual(['T3 Code', 'T3 Chat', 'Grove', 'Ocean', 'Ember', 'Iris']);
     expect(cards.find(card => card.id === 'iris')!.orbs.every(orb => orb.picked)).toBe(true);
     const sections = appearanceSections(decodeClientPrefs({ glassOpacity: 60 }), true), rows = sections.flatMap(section => section.rows);
-    // AppearanceSettingsPanel at 7c3b3b3605ef: Interface, then Typography, each ending with its Advanced fold.
+    // AppearanceSettingsPanel at 6d450a4284: Interface, then Typography, each ending with its Advanced fold.
     expect(sections.map(section => [section.id, section.rows.map(row => row.title), (section.advanced ?? []).map(row => row.title)])).toEqual([
-      ['appearance-interface', ['Contrast', 'Glass opacity', 'Chat width', 'Render math'], ['Panel animations', 'Environment identification', 'Composer context']],
+      ['appearance-interface', ['Contrast', 'Glass opacity', 'Chat width', 'Effort display', 'Render math'], ['Panel animations', 'Environment identification', 'Composer context']],
       ['typography', ['Interface font', 'Monospace font', 'Word wrap'], ['Separate fonts', 'Font smoothing']]]);
     expect(appearanceSections(decodeClientPrefs({}), false)[0]!.advanced!.map(row => row.id)).toEqual(['panel-animations', 'composer-context']);
     // Separate fonts is a switch on typographyAdvanced with no reset, as SeparateFontsRow.

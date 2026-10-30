@@ -211,6 +211,8 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, 
     row('glassOpacity', 'setting-glass-opacity', 'Glass opacity', 'Higher values make menus, dialogs, and the composer more solid.', 'slider', slider('glassOpacity', 40, 100, 5, '%')),
     row('chatWidth', 'chat-width', 'Chat width', 'Set how wide messages and the composer can grow on large screens.', 'select',
       select('chatWidth', [['comfortable', 'Comfortable (default)'], ['wide', 'Wide'], ['full', 'Full']], { comfortable: 'Comfortable', wide: 'Wide', full: 'Full' }[prefs.chatWidth])),
+    row('effortDisplay', 'effort-display', 'Effort display', 'Show reasoning effort in the composer as its name, such as High, or as bars.', 'select',
+      select('effortDisplay', [['label', 'Word (default)'], ['bars', 'Bars']], prefs.effortDisplay === 'bars' ? 'Bars' : 'Word')),
     row('mathRenderingEnabled', 'math-rendering', 'Render math', 'Typeset LaTeX math, such as $x^2$ or \\[x^2\\], in messages and Markdown previews. The composer keeps TeX source editable.', 'switch',
       { resetLabel: 'math rendering' }),
   ];
@@ -237,7 +239,7 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, 
     separate ? font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Code font', 'Code blocks, diffs, and file previews.', defaultCodeFamily(installed), 10, 18)
       : font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Monospace font', 'Code blocks, diffs, file previews, and the terminal.', defaultCodeFamily(installed), 10, 18),
     ...(separate ? [font('fontFamilyTerminal', 'fontSizeTerminal', 'terminal-font', 'Terminal font', 'Terminal output, independent from code blocks and diffs.', defaultCodeFamily(installed), 8, 20)] : []),
-    row('wordWrap', 'word-wrap', 'Word wrap', 'Wrap long lines in code blocks, tables, diffs, and file previews by default.', 'switch', { resetLabel: 'word wrapping' }),
+    row('wordWrap', 'word-wrap', 'Word wrap', 'Wrap long lines in code blocks, diffs, and file previews by default.', 'switch', { resetLabel: 'word wrapping' }),
   ];
   const typographyAdvanced: CoreRow[] = [
     row('typographyAdvanced', 'separate-fonts', 'Separate fonts', 'Set the prompt, code, and terminal fonts separately instead of one monospace font.', 'switch',

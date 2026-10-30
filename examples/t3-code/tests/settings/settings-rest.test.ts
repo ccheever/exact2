@@ -238,7 +238,12 @@ describe('source control and integrations (scoped rows)', () => {
     expect(found.vcs[0]).toMatchObject({ comingSoon: true, summary: 'Support for Jujutsu is coming soon.', dot: 'muted' });
     // Git has no fetch interval of its own (it is Background activity's), so no details toggle.
     expect(discoveryRows({ versionControlSystems: [{ kind: 'git', label: 'Git', implemented: true, status: 'available', version: 'git 2' }] }).vcs[0]).toMatchObject({ details: false, enabled: true });
-    expect(found.providers[0]).toMatchObject({ version: 'gh 2', summary: 'Authenticated', account: true, enabled: true });
+    expect(found.providers[0]).toMatchObject({ version: 'gh 2', summary: 'Authenticated', account: true, enabled: true, dot: 'success', badge: '' });
+    // A provider that is not signed in, or not available, is neutral: a muted dot, and a secondary badge when signed out.
+    const inactive = discoveryRows({ sourceControlProviders: [
+      { kind: 'gitlab', label: 'GitLab', status: 'available', installHint: 'x', executable: 'glab', auth: { status: 'unauthenticated' } },
+      { kind: 'bitbucket', label: 'Bitbucket', status: 'missing', installHint: 'x', executable: 'bb', auth: { status: 'unknown' } }] }).providers;
+    expect(inactive.map(item => [item.dot, item.badge])).toEqual([['muted', 'Not authenticated'], ['muted', '']]);
     // RedactedText draws the same-shape placeholder until this item's own reveal.
     expect(found.providers[0]).toMatchObject({ accountValue: 'secret-account', accountPlaceholder: redactedPlaceholder('secret-account') });
     expect(found.vcs[0]).toMatchObject({ accountValue: '', accountPlaceholder: '' });
