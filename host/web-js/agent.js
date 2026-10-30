@@ -60,7 +60,8 @@ function streamTiming(start) {
 import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
 import { inertAncestor, displayMode, environment, navigation, unselected, foldEnv, preferFold, typedControl, settleValue, animationClocks, pageReporter } from './navigation.js';
-import { guestOutline, guestTap, guestType, backButton, viewBox, reveal, selectAll, scrollRange, typeControl, watchGlides, glidesSettled, scrollsSeen } from './input-glue.js';
+import { backButton } from './input-glue.js';
+import { guestOutline, guestTap, guestType, viewBox, reveal, selectAll, scrollRange, typeControl, watchGlides, glidesSettled, scrollsSeen } from './agent-input.js';
 watchGlides();
 // How long `clock settle` waits for a scroller gliding on its own, as a native host waits (agent.mjs reason `scroll`).
 const GLIDE_BOUND_MS = 4000;
@@ -466,7 +467,7 @@ export function install(exact) {
           const glide = { ms: GLIDE_BOUND_MS };
           let moved = false;
           for (let round = 0; round < 16; round++) {
-            // A scroller still gliding from the last input moves on its own: it ends first (input-glue.js).
+            // A scroller still gliding from the last input moves on its own: it ends first (agent-input.js).
             if (!(await glidesSettled(glide))) return { clock: exact.clock.now, settled: false, reason: 'scroll' };
             const scrolled = scrollsSeen();
             lastRound = exact.lists?.scrollsFired?.() ?? 0;

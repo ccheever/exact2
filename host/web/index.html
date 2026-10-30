@@ -263,7 +263,7 @@
   :where(#exact-root [navigationkey] > header) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; }
   /* LLP 1116.000 D4: the Back control a pushed route's header holds is pressed through the Back its bar draws
      (navigation.js), which stands for it, so it is not shown. A tap the agent aims at it lands on that Back
-     (input-glue.js `viewBox`), where the hit is the header holding it: the driver's check that no ancestor takes the
+     (agent-input.js `viewBox`), where the hit is the header holding it: the driver's check that no ancestor takes the
      press (scripts/agent.mjs, the tap's `why`) passes such a hit only for a target with `pointer-events: none`. */
   #exact-root [data-exact-bar-back] { display: none !important; pointer-events: none; }
   /* The Back a route's bar draws (navigation.js), chevron and words, is its navigation root's accent. UIKit tints its

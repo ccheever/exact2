@@ -98,7 +98,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
 async function serve() {
   const server = createServer((req, res) => {
     if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
-    const file = ['navigation.js', 'input-glue.js', 'prompt-glue.js', 'alert-message.js'].find(name => req.url === '/' + name);
+    const file = ['navigation.js', 'input-glue.js', 'agent-input.js', 'prompt-glue.js', 'alert-message.js'].find(name => req.url === '/' + name);
     if (!file) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, file)));
   });
@@ -338,10 +338,10 @@ check('in a wide window\'s split the focus follows the detail and comes back to 
 }, 1200), 60000);
 
 check('the agent\'s reveal leaves what a tap refuses where it is', () => inChrome(async (evaluate, press) => {
-  // Before a tap the driver scrolls its target into view (input-glue.js `reveal`), as a person would. Under a sheet the
+  // Before a tap the driver scrolls its target into view (agent-input.js `reveal`), as a person would. Under a sheet the
   // list is inert: nobody can scroll or press it, the tap is refused, and a refusal leaves the page as it was. (Shelf in
   // conformance: a refused tap on a covered row's swipe action left the row scrolled to it, on the page that was asked.)
-  const reveal = `import('./input-glue.js').then(m => [m.reveal(document.getElementById('row-far'), 1).scrolled, document.getElementById('scroller').scrollTop > 0])`;
+  const reveal = `import('./agent-input.js').then(m => [m.reveal(document.getElementById('row-far'), 1).scrolled, document.getElementById('scroller').scrollTop > 0])`;
   await press('add');
   expect(await evaluate(`document.getElementById('list').inert`)).toBe(true);
   expect(await evaluate(reveal)).toEqual([false, false]);

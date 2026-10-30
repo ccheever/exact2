@@ -395,7 +395,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         }
         if (kind === 'key' && (opts.phase != null || await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) || globalThis.exact.views.get(id)?.matches('button, a[href], [role="button"], [role="link"]') || false, id))) return browserKey(id, opts, true);
         if (id != null && ['press', 'contextmenu', 'dblclick'].includes(kind)) {
-          const why = await page.evaluate(({ id, x, y }) => { const view = globalThis.exact.views.get(id), el = globalThis.exact.agentInput?.backButton(view) ?? view, hit = (el?.getRootNode() ?? document).elementFromPoint(x, y); return !el ? null : !hit ? 'its middle is outside the viewport; scroll it into view first' : el === hit || el.contains(hit) || hit.contains(el) ? null : `${hit.dataset?.view ? `node #${hit.dataset.view}` : hit.tagName.toLowerCase()} covers its middle`; }, { id, x, y });
+          const why = await page.evaluate(({ id, x, y }) => { const view = globalThis.exact.views.get(id), el = globalThis.exact.backButton?.(view) ?? view, hit = (el?.getRootNode() ?? document).elementFromPoint(x, y); return !el ? null : !hit ? 'its middle is outside the viewport; scroll it into view first' : el === hit || el.contains(hit) || hit.contains(el) ? null : `${hit.dataset?.view ? `node #${hit.dataset.view}` : hit.tagName.toLowerCase()} covers its middle`; }, { id, x, y });
           if (why) throw new Error(`tap #${id} at (${x}, ${y}): ${why}`);
         }
         // A plain press presses what it names (LLP 1012 §1): beside a control its middle holds, or refused (agent-aim.mjs).

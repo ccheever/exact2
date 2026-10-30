@@ -1086,8 +1086,8 @@ async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; return await g
 function gpuPendingReply(request, pending) { const names = pending.map(item => item.name ?? "GPU work"); return request.op === "clock" ? heldNamed({clock:agentClock, settled:false, reason:"gpu", pending:names}) : {error:`GPU is not settled: ${names.join(", ")}`, pending:names}; }
 function agentInputReady() {
   if (viewBox) return Promise.resolve();
-  return agentInputLoading ??= loadAfterPaint('./input-glue.js', 'agentInput').then(helpers => {
-    ({ guestOutline, guestTap, guestType, reveal, backButton, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, glidesSettled, scrollsSeen } = helpers); helpers.watchGlides?.(); // a scroller gliding on its own holds `clock settle` (input-glue.js)
+  return agentInputLoading ??= loadAfterPaint('./agent-input.js', 'agentInput').then(helpers => {
+    ({ guestOutline, guestTap, guestType, reveal, backButton, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, glidesSettled, scrollsSeen } = helpers); helpers.watchGlides?.(); // a scroller gliding on its own holds `clock settle` (agent-input.js)
   });
 }
 // Synchronous once inspection and the agent's input helpers are ready (LLP 1043.000 D7/D8).
@@ -1177,7 +1177,7 @@ function agentReply(request) {
         return clock(request).then((r) => { if (!r.error) followOffset(agentClock); return tagged(heldNamed(r)); }); // naming what the server holds (LLP 1016.000 D9)
       case "tree": return tree(request);
       case "tags": return ask(request);
-      case "reveal": return tagged(reveal(views.get(request.id), request.id, inertAncestor)); // before a tap or a type (input-glue.js)
+      case "reveal": return tagged(reveal(views.get(request.id), request.id, inertAncestor)); // before a tap or a type (agent-input.js)
       case "axStamp": // @ref LLP 1080.002 D4 — each live view's id where CDP's DOM snapshot reads it, and the document's nonce
         for (const [id, el] of views) if (el.isConnected && el.getAttribute("data-agent-view") !== String(id)) el.setAttribute("data-agent-view", id);
         return tagged({ nonce: performance.timeOrigin });
@@ -1229,7 +1229,7 @@ async function clock(request) {
   let world = {};
   const reply = (settled, requests) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : settled === false && requests ? { reason: "requests" } : {}) });
   for (let rounds = 0; ; rounds++) {
-    if (settle && glidesSettled && !(await glidesSettled(glide))) return { ...reply(false), reason: "scroll" }; const scrolled = scrollsSeen?.(); /* a scroller still gliding ends first; one this round's work moves, the next round (input-glue.js) */ if (settle && !(await waitForInflight(deadline, true) && await mediaAttached(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (presence.pending() && !(await presence.landed(Math.max(0, deadline - performance.now())))) return reply(false, true); if (settle) collections.settle(); // rows a list shows are built at this clock, before it moves (as the JS agent does): their animations start here
+    if (settle && glidesSettled && !(await glidesSettled(glide))) return { ...reply(false), reason: "scroll" }; const scrolled = scrollsSeen?.(); /* a scroller still gliding ends first; one this round's work moves, the next round (agent-input.js) */ if (settle && !(await waitForInflight(deadline, true) && await mediaAttached(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (presence.pending() && !(await presence.landed(Math.max(0, deadline - performance.now())))) return reply(false, true); if (settle) collections.settle(); // rows a list shows are built at this clock, before it moves (as the JS agent does): their animations start here
     if (gpuInPlay()) { const pending = await settleGpu(); if (pending.length) return gpuPendingReply(request, pending); }
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
