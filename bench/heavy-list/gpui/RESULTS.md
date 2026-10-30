@@ -4135,10 +4135,12 @@ ms/s remains a loaded diagnostic, not M2 qualification.
 
 **M1 — service budget.** The published control has 3,579 passes in exactly
 ten seconds, costing 12.717 **elapsed** ms/s; it has no cause tags. In the
-corrected agent trace (`review-fixes/dispatch/`), **1,184 dispatch-only
-passes over 10.058512 seconds cost 5.048 exclusive elapsed ms/s**. Its
-4,452 total passes include 1,089 draw-owned passes and 1,089 trailing
-carrier passes tagged `DRAW`, including combined causes. The old 2,902
+latest corrected agent trace (`review-fixes/dispatch-rebased/`), **1,838
+dispatch-only passes over 10.056452 seconds cost 6.328 exclusive elapsed
+ms/s**. Its 5,193 total passes include 1,016 draw-owned passes and 1,016
+trailing carrier passes tagged `DRAW`, including combined causes. The
+pre-rebase diagnostic has 1,184 dispatch-only passes; the integrated run
+misses the predicted upper bound of 1,388. The old 2,902
 count included redraw turns and is superseded. These are not the old
 2,250 passes and not a CPU saving. The probe itself creates
 turns; timer maintenance creates a second turn after due work; worker and
@@ -4365,7 +4367,7 @@ boundary. `evidence.sha256`, `final-source-sha256.json` and
 | At least one fractional refusal; at least 50% A2-eligible | Mac 13781 / 97.63%; Windows 1832 / 98.03%: met |
 | Mac pool retains ≥16 targets | High water 12: miss |
 | ≥100 MiB idle at the pool's byte high water | Largest coincident sample 75 MiB; separate idle high water 103.125 MiB: unresolved, not a measured coincidence |
-| Dispatcher-only passes remain nonzero | Corrected full-probe run: 1184 in `review-fixes/dispatch/`: met; earlier 1388/808 counts included redraw turns |
+| Dispatcher-only passes remain nonzero | Corrected integrated full-probe run: 1838 in `review-fixes/dispatch-rebased/`: nonzero prediction met; the review continuation's separate <1388 bound misses |
 | Enabled increment <1 µs | 1.265 ns per iteration in the retained optimized increment test: met for that instrument |
 | Full observer adds <5% CPU | Earlier Windows medians +10.76%: miss; final-schema pair +1.75%: met for one pair; Mac pair invalid; bound not established |
 | Windows pool <1201 targets and fractional refusals >0 | 80 targets and 1832 refusals: met |
@@ -4486,15 +4488,16 @@ Evidence goes in `target/s0/review-fixes/`; earlier raw files stay intact.
 - The six checks, Ink, Linux, carrier and pinned Metal suites will exit
   zero with `RUST_TEST_THREADS=2`.
 
-The corrected Mac trace has zero dropped events and all 1,200 wheel
-requests. The count prediction is met: **1,184**, between zero and 1,388.
+The pre-rebase corrected Mac trace has zero dropped events and all 1,200
+wheel requests. Its count prediction is met: **1,184**, between zero and 1,388.
 The full by-cause table is `review-fixes/dispatch/exclusive.{md,json}`;
 `cause-check.json` independently counts 1,089 draw-owned passes and 1,089
 trailing passes with `DRAW`. The probe window is 10.058512 seconds, the
 request window 9.992964 seconds. The maximum one-minute load is 45.85,
 with compilers present. This is attribution evidence, not a performance
-comparison with the earlier loaded run. M1's verdict above uses this
-corrected count; its quiet posted-input CPU prediction remains unqualified.
+comparison with the earlier loaded run. The integrated rerun below replaces
+this count in M1's verdict; its quiet posted-input CPU prediction remains
+unqualified.
 
 The probe's offscreen check saves one `first-save` event, then one
 `second-save` event in a separate file; neither save repeats the preceding
@@ -4560,3 +4563,37 @@ selects a new retained cache directory so this run also exercises Stage 0b's
 archive miss. The probe should record a CPU submission followed by ink, and
 frame counter state should remain available. The six checks and affected
 Mac host/pixel suites are predicted to exit zero after this rebase.
+
+The integrated trace completes all 1,200 requests in 9.996654 seconds;
+its probe window is 10.056452 seconds with zero dropped events. It counts
+**1,838 dispatch-only passes**, so the repeated **<1,388 prediction misses**.
+There are 1,016 draw-owned passes and 1,016 trailing carrier passes with
+`DRAW`. `review-fixes/dispatch-rebased/exclusive.{md,json}` retains the
+complete by-cause table; `cause-check.json` independently derives these
+counts. M1 above uses this result. Maximum one-minute load is 56.45 with
+compilers present, so neither the changed dispatch count nor its
+6.328 exclusive elapsed ms/s establishes a CPU improvement or regression.
+
+The cache-miss trace records four CPU present spans before the fling,
+followed by direct Metal. At the start snapshot, one ink paint attempt
+and those four CPU submissions account for all five submitted frames;
+submitted and displayed state remain available at boot, start and end.
+`startup-check.json` retains the assertions. The dedicated cache directory,
+`ObservedRebased.app`, trace and source provenance remain under
+`review-fixes/`. The strict offscreen probe and reducer verification also
+pass after the rebase.
+
+Before the rebase, all 18 Mac commands pass, including the six checks,
+Ink, Linux lib/tests, the carrier, the seven pinned Metal groups and image
+tests. The NucBox passes all 41 desktop groups: D3D11 and wgpu host/pixel
+suites, device-loss/DPI/resize/minimize/caret/sleep journeys, shared-window
+and composition groups, ten startup/fallback cases and three explicit
+counter assertions. Native Ink passes 48 tests on each backend, with no
+`E_ACCESSDENIED` launch. `windows/native/results.json` and `windows/dpi/`
+retain results and captures. The Windows renderer source is unchanged by
+this rebase (`windows-rebase-source.diff`); the native binaries and source
+hash remain those in `windows/provenance.json`.
+
+The unchanged output is retained in `review-fixes/checks/TEST-OUTPUT.txt`
+and `review-fixes/WINDOWS-TEST-OUTPUT.txt`; their `RESULTS.txt` and
+`WINDOWS-RESULTS.txt` companions retain each suite's exact result lines.
