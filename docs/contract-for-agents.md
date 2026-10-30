@@ -1176,9 +1176,14 @@ each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https:/
 whole scheme, `net.fetch https:` (any host and port, for a server the person names
 at run time; `net.websocket` takes `wss:` or `ws:` the same way); on iOS
 cleartext `http` reaches only a local host, and only with `app.json`'s
-`host.ios.localNetworking` set; a device on the local network the person names or
-the app finds is `net.fetch local-network` with `device.local-network purpose.<key>`,
-whose text is the platform's prompt on macOS and iOS ([recipe](recipes/local-network.md));
+`host.ios.localNetworking` set, unless ATS is off (below); a device on the local
+network the person names or the app finds is `net.fetch local-network` with
+`device.local-network purpose.<key>`, whose text is the platform's prompt on macOS
+and iOS ([recipe](recipes/local-network.md)); the app's own `http` to any other
+host, such as a server the person types in, needs each Apple platform's
+`appTransportSecurity` (`host.macos`, `host.ios`) set to
+`{ "allowsArbitraryLoads": true }`, which turns ATS off for every connection the
+app makes, frames included, and which App Store review asks the app to justify;
 an `iframe` of `http://` from a named host, or such a sub-resource of the app's
 own `assets/` page, needs `host.macos.appTransportSecurity` or
 `host.ios.appTransportSecurity` set to `{ "allowsArbitraryLoadsInWebContent": true }`,
