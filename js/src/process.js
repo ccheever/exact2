@@ -74,8 +74,10 @@
             if (typeof data === "string") bytes = new TextEncoder().encode(data);
             else if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) bytes = new Uint8Array(seam.copyBytes(data, "child.write"));
             else throw new TypeError("child.write expects a string, ArrayBuffer or ArrayBufferView");
-            owner.stage({ op: "write", size: bytes.length, wire: { op: "write", data: seam.toBase64(bytes), incarnation: n } });
-            return owner.amount() <= HIGH_WATER;
+            // Past the mark, the host says `drain` once stdin's queue is empty (D2, as Node's Writable).
+            var ok = owner.amount() + bytes.length <= HIGH_WATER;
+            owner.stage({ op: "write", size: bytes.length, wire: { op: "write", data: seam.toBase64(bytes), incarnation: n, drain: ok ? undefined : true } });
+            return ok;
           },
           end: function () {
             live("end");
@@ -215,7 +217,9 @@
   // A fact (§6): granted where a program may start and a `process.spawn` line names one; never `prompt`.
   function processStatus() {
     var grants = String(global.exact && global.exact.grants || "").split("\n").some(function (line) { return /^\s*process\.spawn\s/.test(line); });
-    return { available: available, state: !available ? "unknown" : grants ? "granted" : "denied" };
+    // Stage 0 runs only the agent's substitutes (§7): outside the agent nothing starts yet.
+    var starts = available && seam.agent();
+    return { available: starts, state: !starts ? "unknown" : grants ? "granted" : "denied" };
   }
   global.__exact_child_process = Object.freeze({
     spawn: spawn, execFile: execFile, execPath: execPath, processStatus: processStatus,

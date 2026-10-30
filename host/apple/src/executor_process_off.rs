@@ -49,6 +49,17 @@ pub(crate) fn queued(_shared: &Shared, _ticket: u64) -> Option<u64> {
 
 pub(crate) fn quit(_shared: &Shared) {}
 
+/// A one-shot answers at once here, so it needs no room.
+pub(crate) fn admit_one_shot(
+    _shared: &Shared,
+    _ticket: u64,
+    _ceiling: usize,
+) -> Result<(), &'static str> {
+    Ok(())
+}
+
+pub(crate) fn release_one_shot(_shared: &Shared, _ticket: u64) {}
+
 impl Core {
     pub(crate) fn allow_processes(&self) {}
 

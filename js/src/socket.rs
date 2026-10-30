@@ -13,7 +13,7 @@ use serde_json::Value as Json;
 /// One operation as the prelude records it: `{"op":"text","data":…}`,
 /// `{"op":"binary","data":base64}` or `{"op":"close","code":…,"reason":…}`;
 /// a listener's `{"op":"line","connection":…,"data":…}` or
-/// `{"op":"end","connection":…}`; a child's `{"op":"write","data":base64,"incarnation":n}`, `end` or
+/// `{"op":"end","connection":…}`; a child's `{"op":"write","data":base64,"incarnation":n,"drain":true}`, `end` or
 /// `{"op":"kill","signal":…}`.
 pub(crate) fn op_from_json(text: &str) -> Result<SocketOp, String> {
     let j: Json = serde_json::from_str(text).map_err(|e| e.to_string())?;
@@ -41,10 +41,11 @@ pub(crate) fn op_from_json(text: &str) -> Result<SocketOp, String> {
                 .and_then(|n| u32::try_from(n).ok())
                 .ok_or("child: an operation with no incarnation")?;
             let op = match op {
-                "write" => exact_runner::ProcessOp::Write(
-                    exact_runner::agent::unbase64(data())
+                "write" => exact_runner::ProcessOp::Write {
+                    data: exact_runner::agent::unbase64(data())
                         .ok_or("child: bytes that are not base64")?,
-                ),
+                    drain: j.get("drain").and_then(Json::as_bool).unwrap_or(false),
+                },
                 "end" => exact_runner::ProcessOp::End,
                 _ => exact_runner::ProcessOp::Kill(
                     j.get("signal")

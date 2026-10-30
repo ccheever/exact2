@@ -19,8 +19,15 @@ pub const PROCESS_URL: &str = "exact-process:";
 /// it and sent only if that commit stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProcessOp {
-    /// Bytes for its stdin.
-    Write(Vec<u8>),
+    /// Bytes for its stdin. `drain`: the handle's `write` answered `false`,
+    /// so the host says `drain` once stdin's queue is empty (D2, as Node's
+    /// `Writable` does).
+    Write {
+        /// The bytes.
+        data: Vec<u8>,
+        /// Whether a `drain` is owed.
+        drain: bool,
+    },
     /// Close its stdin.
     End,
     /// One signal to its process group, by name (`SIGTERM`).
@@ -31,7 +38,7 @@ impl ProcessOp {
     /// The bytes it writes.
     pub fn size(&self) -> usize {
         match self {
-            ProcessOp::Write(bytes) => bytes.len(),
+            ProcessOp::Write { data, .. } => data.len(),
             ProcessOp::End | ProcessOp::Kill(_) => 0,
         }
     }
@@ -39,7 +46,7 @@ impl ProcessOp {
     /// Its name in the journal.
     pub fn name(&self) -> &'static str {
         match self {
-            ProcessOp::Write(_) => "write",
+            ProcessOp::Write { .. } => "write",
             ProcessOp::End => "end",
             ProcessOp::Kill(_) => "kill",
         }
@@ -48,7 +55,7 @@ impl ProcessOp {
     /// Its name in `@exact/child-process`'s declaration.
     pub fn declared(&self) -> &'static str {
         match self {
-            ProcessOp::Write(_) => "child.write",
+            ProcessOp::Write { .. } => "child.write",
             ProcessOp::End => "child.end",
             ProcessOp::Kill(_) => "child.kill",
         }

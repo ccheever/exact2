@@ -83,6 +83,7 @@ function answer(source: string, args: unknown[]): unknown {
     case "held": return held();
     case "halt": if (stopping) stopping.abort(); return "halted";
     case "status": return JSON.stringify(cp.processStatus());
+    case "raw": return fetch("exact-process:", { method: "POST", body: '{"kind":"spawn","program":"path:t3","shell":true}' }).then(() => "sent", (x: Error) => x.message);
     case "refused": return cp.spawn("path:t3", [], { shell: true, exactStream() { return ""; } }).catch((x: Error) => x.message);
     default: throw new Error("unknown source " + source);
   }

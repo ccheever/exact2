@@ -1643,12 +1643,21 @@ Each program is named by a grant line: `process.spawn path:ssh`,
 (`spawn("path:ssh", …)`). The mapper receives `spawn`, `stdout` and `stderr`
 chunks, `exit`, `close`, `drain`, `ready` and `ready-timeout` in order, with
 that incarnation's handle (`write`, `end`, `kill`); a mutation writes through
-a kept handle, staged with its commit. `exactRestart` and `exactReady` keep a
-service alive and say when it serves. Only a person's turn starts, writes to,
-ends or signals a child: a tool, wake or headless one fails
-`person-required`. macOS and Linux implement it; iOS, tvOS, Android, Windows
-and the web reject every name with `NotSupportedError`, and
-`processStatus()` says which (`{available, state}`).
+a kept handle, staged with its commit. A `write` that answers `false` hears
+`drain` once the child's stdin queue is empty, as Node's does. `exactRestart`
+and `exactReady` keep a service alive and say when it serves. Only a person's
+input or the app's own code starts, writes to, ends or signals a child (the
+package declares those names `"origin": "app"`, as a module declares its
+names). From a tool's call, a wake or the device's event, a start fails
+`person-required`; a re-ask of a child's resource keeps the child, and the
+arguments asked stay refused until they change; a handle's `write`, `end` or
+`kill` answers as usual, and the operation is dropped from its batch and
+journalled, the rest of the batch going. A tool's call ends `person-required`
+at each of these. There is no headless origin (LLP 1133.002 D12): a call in a
+session no one sees is a tool's or a wake's, and the rest of its code is the
+app's. A plain `fetch` to `exact-process:` is refused. macOS and Linux
+implement it; iOS, tvOS, Android, Windows and the web reject every name with
+`NotSupportedError`, and `processStatus()` says which (`{available, state}`).
 
 Under the agent nothing runs unless the drive names it: `--process
 <target>=script:<file.json>` answers from a script with no process (the
@@ -1657,7 +1666,9 @@ restart delays and readiness move with `clock`. A tool's call (`call <tool>
 <json>`) runs as a tool's commit, to see the refusal. `packages/child-process/test/`
 holds a fixture app and its script. Real programs (`--process
 <target>=real`, or a substitute executable) need the process transport,
-LLP 1133.007's stage 1.
+LLP 1133.007's stage 1; until then nothing starts outside the agent, and
+`processStatus().available` is false there. `--home <dir>` is read and
+changes nothing until stage 1's `home:` paths.
 
 ### Apple Health
 

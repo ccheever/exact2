@@ -5,6 +5,7 @@
 mod active_route;
 mod app_module;
 mod canvas2d;
+mod children;
 mod failed_readers;
 mod flow_agent;
 mod font_axes;

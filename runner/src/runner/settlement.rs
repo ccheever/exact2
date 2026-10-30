@@ -430,6 +430,7 @@ impl<D: DataSource> Runner<D> {
                     self.store_readers[i] |= store_dependent;
                     let forced = force.contains(&i);
                     let refreshed = forced || refreshing.contains(&i);
+                    self.forget_refused(i, &args);
                     // A stand-in a refused activation failed holds for a kept
                     // seed's identifying arguments, whatever its context
                     let identity = &args[..row.args.len as usize - usize::from(row.context)];
@@ -530,6 +531,17 @@ impl<D: DataSource> Runner<D> {
                             !(s.value.is_compiled() && self.secrets_unseen(i, &row, &resources))
                         })
                         .map(|s| s.value.clone());
+                    // A child its ask would let go, or arguments refused for
+                    // one, keeps what shows, and a refresh is spent (LLP
+                    // 1133.007 D13).
+                    let reuse = match reuse {
+                        Some(v) => Some(v),
+                        None => (states[i].as_ref())
+                            .filter(|_| self.data.ready())
+                            .map(|state| state.value.clone())
+                            .filter(|_| self.keeps_resource(i, &args, forced))
+                            .inspect(|_| force.retain(|f| *f != i)),
+                    };
                     // A refresh an upload stood through is spent, not carried.
                     if reuse.is_some() && forced && upload {
                         force.retain(|f| *f != i);
