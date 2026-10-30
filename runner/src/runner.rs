@@ -32,6 +32,7 @@ mod reorder_codec;
 mod reorder_group;
 pub use intersect::Intersection;
 pub use shown::BlockPlacement;
+mod box_resize;
 mod resize;
 pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
 mod held;

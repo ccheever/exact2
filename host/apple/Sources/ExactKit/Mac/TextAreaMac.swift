@@ -505,6 +505,7 @@ extension NodeView {
         f.minSize = NSSize(width: 0, height: scroller.contentSize.height)
         f.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         f.setFrameSize(NSSize(width: scroller.contentSize.width, height: max(f.frame.height, scroller.contentSize.height)))
+        layoutResizeGrip()
     }
     package func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
         TextInputLimit.allows(textView.string, range: affectedCharRange, replacement: replacementString ?? "", props: props)

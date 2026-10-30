@@ -132,6 +132,8 @@ package final class Presenter {
     lazy var covers = HostCovers(self)
     lazy var statusItems = StatusItemHost(self)
     var onCovers: (([(UInt32, HostCover?)]) -> Void)?
+    /// The border box a person dragged a box's `resize` grip to; nil keeps an axis (ResizeGrip.swift).
+    var onResizeBox: ((UInt32, CGFloat?, CGFloat?) -> Void)?
     /// The root tab bar as the window's sidebar (LLP 1115.002 D3), and the kernel's rule for a root's tabs.
     lazy var sidebar = SidebarHost(self)
     var rootTabs: ((UInt32) -> RootTabs?)?
