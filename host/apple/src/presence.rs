@@ -427,7 +427,8 @@ impl<D: DataSource> Host<D> {
 
     /// One presented value of a box as a `present` op, unless it is the
     /// property's identity and the presenter starts the view there (at
-    /// boot, or in the batch that creates it).
+    /// boot, or in the batch that creates it, before that batch presents it
+    /// elsewhere: [`Batch::at_identity`]).
     pub(super) fn present_value(
         &mut self,
         view: ViewId,
@@ -449,7 +450,7 @@ impl<D: DataSource> Host<D> {
             Some(identity) => identity == value,
             None => values == [0.0; 4],
         };
-        if (boot && identity) || (identity && batch.creates(view)) {
+        if identity && (boot || batch.at_identity(view, property.name())) {
             return;
         }
         if self.inline_runs.contains_key(&view) || self.svg.presented(view) {

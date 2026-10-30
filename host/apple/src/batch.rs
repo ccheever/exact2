@@ -27,6 +27,9 @@ pub struct Batch {
     /// The views this batch creates: each starts at its presentation's
     /// identity (`Host::present`).
     created: std::collections::HashSet<u32>,
+    /// The properties this batch presents of a view it creates: one
+    /// presented away from identity is no longer at it.
+    presented_new: std::collections::HashMap<u32, Vec<String>>,
     /// What moves changes place or size (`Engine::spatial`): the display
     /// link asks for the panel's full rate (LLP 1061 D4).
     pub spatial: bool,
@@ -357,6 +360,28 @@ impl Batch {
     /// Whether this batch creates `id`.
     pub fn creates(&self, id: u32) -> bool {
         self.created.contains(&id)
+    }
+
+    /// Whether the presenter shows `id`'s `property` at its identity
+    /// unless this batch presents it: the batch creates the view and has
+    /// presented none of that property yet. A batch can present twice (a
+    /// commit, then a `resize` round's), and a view the first presented
+    /// away from identity stays there until a `present` says otherwise.
+    pub fn at_identity(&self, id: u32, property: &str) -> bool {
+        self.created.contains(&id)
+            && !self
+                .presented_new
+                .get(&id)
+                .is_some_and(|p| p.iter().any(|p| p == property))
+    }
+
+    fn note_present(&mut self, id: u32, property: &str) {
+        if self.created.contains(&id) {
+            let p = self.presented_new.entry(id).or_default();
+            if !p.iter().any(|p| p == property) {
+                p.push(property.to_owned());
+            }
+        }
     }
 
     /// `{"op":"props","id":…,"set":{…},"clear":[…]}`.
@@ -809,6 +834,7 @@ impl Batch {
     /// `{"op":"present","id":…,"property":…,"x":…,"y":…}` — a motion
     /// property's presentation value this frame (`y` only for `translate`).
     pub fn present(&mut self, id: u32, property: &str, x: f64, y: f64) {
+        self.note_present(id, property);
         self.ops.push(format!(
             "{{\"op\":\"present\",\"id\":{id},\"property\":\"{property}\",\"x\":{x},\"y\":{y}}}"
         ));
@@ -818,6 +844,7 @@ impl Batch {
     /// — a layout transition's offset from the laid-out box and its size's
     /// difference from it (LLP 1063).
     pub fn present4(&mut self, id: u32, property: &str, [x, y, w, h]: [f64; 4]) {
+        self.note_present(id, property);
         self.ops.push(format!(
             "{{\"op\":\"present\",\"id\":{id},\"property\":\"{property}\",\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}"
         ));
