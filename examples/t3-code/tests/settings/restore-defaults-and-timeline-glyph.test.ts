@@ -20,7 +20,8 @@ function fake(): Fake {
     config: { environment: { environmentId: 'env1', label: 'Studio', serverVersion: '0.0.46', capabilities: { projectSettingsOverrides: true } }, providers: [], settings: { projectSettingsOverrides: {} } },
     projectGroups: () => [],
     async settingsCoreRequest(_native, method, payload) {
-      if (method !== 'server.getSettings') client.writes.push(payload);
+      if (method === 'server.getConfig') return client.config as Obj;
+      client.writes.push(payload);
       return client.config.settings as Obj;
     },
   };

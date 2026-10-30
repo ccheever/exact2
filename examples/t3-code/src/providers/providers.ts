@@ -400,7 +400,7 @@ export async function acpRegistry(host: ProviderHost, native: Native | null | un
   }
 }
 
-async function freshSettings(host: ProviderHost, native: Native) { return host.rpc(native, 'server.getSettings', {}); }
+async function freshSettings(host: ProviderHost, native: Native) { return obj((await host.rpc(native, 'server.getConfig', {})).settings); }
 async function refreshConfig(host: ProviderHost, native: Native) { host.config = await host.rpc(native, 'server.getConfig', {}); }
 async function upsert(host: ProviderHost, native: Native, row: Row, next: Obj, settings: Obj, extra: Obj = {}) {
   const legacy = legacyProviders(settings), legacyDefault = row.isDefault && legacy ? driverMeta(row.driver)?.legacyDefault : undefined;

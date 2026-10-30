@@ -15,7 +15,7 @@ private final class LocalServer: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         let body: [String: Any] = request.url!.path == "/oauth/token"
             ? ["access_token": "local-bearer", "token_type": "Bearer"]
-            : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.1.4-nightly.20261027.3770"]
+            : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.1.5"]
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["content-type": "application/json"])!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: body))
         client?.urlProtocolDidFinishLoading(self)
@@ -35,7 +35,7 @@ final class LocalSwitchTests: XCTestCase {
     /// A runtime folder whose `t3` runs `body` after `--version`.
     private func runtime(_ body: String) -> URL {
         let directory = scratch("runtime"), script = directory.appendingPathComponent("t3")
-        try! "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v0.1.4-nightly.20261027.3770'; exit 0; fi\n\(body)\n".write(to: script, atomically: true, encoding: .utf8)
+        try! "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v0.1.5'; exit 0; fi\n\(body)\n".write(to: script, atomically: true, encoding: .utf8)
         try! FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         return directory
     }

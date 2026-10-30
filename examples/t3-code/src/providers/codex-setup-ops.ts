@@ -166,7 +166,7 @@ async function transferProfile(context: CodexContext, profile: Obj): Promise<voi
 
 /** OnboardingCodexSetup.changeMode / the editor's onModeChange: one atomic upsert of the instance. */
 async function changeMode(context: CodexContext, mode: 'managed' | 'existing'): Promise<void> {
-  const settings = await context.host.rpc(context.native, 'server.getSettings', {});
+  const settings = obj((await context.host.rpc(context.native, 'server.getConfig', {})).settings);
   const instance = codexInstance(settings, context.instanceId);
   const config = obj(instance.config);
   const next = { ...instance, driver: 'codex', enabled: true, config: { ...config, enabled: true, setupMode: mode } };

@@ -13,7 +13,7 @@ import { scopeMachine, singleEnvironmentRoute } from '../providers/settings-b-sc
 import { backgroundDialog } from './settings-a-background';
 import { archiveConfirmation } from './settings-a-archive';
 import { editorView, syncDraft } from '../appearance/settings-appearance-editor';
-import { paintOf } from '../appearance/settings-appearance-look';
+import { appStageLabel, paintOf, stageBackdropVariant } from '../appearance/settings-appearance-look';
 import { letGo } from '../client/let-go';
 import { importView, resetImport } from '../appearance/settings-appearance-import';
 import { rememberDelivery, updateConfirmation } from './settings-a-about';
@@ -90,7 +90,7 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   const deviceOnly = DEVICE_ONLY.has(route);
   // Worktrees' rows are the storage panel's to draw, between its own (settings-data.ts worktreeRows).
   if (active && CORE_ROUTES.has(route) && route !== 'appearance' && route !== 'worktrees' && (scope.kind !== 'unavailable' || deviceOnly)) sections = generalSections(client, context, route);
-  if (active && route === 'appearance') sections = appearanceSections(prefs, true, await installedFonts(client, native), target);
+  if (active && route === 'appearance') sections = appearanceSections(prefs, stageBackdropVariant(appStageLabel()) !== null, await installedFonts(client, native), target);
   const cli = active && route === 'about' ? await readCliCommand(client, native) : null;
   if (cli) sections = sections.length ? sections.map(section => section.id === 'about' ? { ...section, rows: [...section.rows, cli] } : section)
     : [{ id: 'about', title: 'About', collapsible: false, toggle: false, rows: [cli] }];

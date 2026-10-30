@@ -27,7 +27,7 @@ function setup(scopes = ['orchestration:read', 'settings:write']) {
     let value: Obj;
     if (request.method === 'server.discoverSourceControl') value = { versionControlSystems: [], sourceControlProviders: [{ kind: 'github', label: 'GitHub', status: 'available', version: 'gh remote',
       auth: { status: 'authenticated', account: 'remote-bob', accounts: [{ host: 'github.com', account: 'remote-bob', authenticated: true }, { host: 'github.com', account: 'remote-alice', authenticated: true }] } }] };
-    else if (request.method === 'server.getSettings') value = obj(entry.config.settings);
+    else if (request.method === 'server.getConfig') value = entry.config;
     else if (request.method === 'server.updateSettings') value = { ...obj(entry.config.settings), ...obj(obj(request.payload).patch) };
     else throw new Error(`Unexpected request ${request.method}`);
     return { ok: true, generation: entry.generation, value };
@@ -52,7 +52,7 @@ describe('source control discovery and credentials belong to the scoped environm
     expect(view.hostCredentials.find(form => form.kind === 'github')).toMatchObject({ environmentId: 'remote-env', disabled: false, groups: [{ selected: 'remote-bob' }] });
     await write();
     expect(calls.map(call => [call.fleet, call.method])).toEqual([
-      ['remote', 'server.discoverSourceControl'], ['remote', 'server.getSettings'], ['remote', 'server.updateSettings']]);
+      ['remote', 'server.discoverSourceControl'], ['remote', 'server.getConfig'], ['remote', 'server.updateSettings']]);
     expect(obj(obj(obj(entry.config.settings).sourceControlHosts).github).hosts).toEqual({ 'github.com': { enabled: true, account: 'remote-alice' } });
     expect(client.config.settings).toEqual({});
     expect(client.environmentId).toBe('local');

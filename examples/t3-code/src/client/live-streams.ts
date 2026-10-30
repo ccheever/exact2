@@ -166,12 +166,12 @@ export function liveEnvironment(client: T3Client, native: Native | null | undefi
 }
 
 /**
- * The tasks a write checks against: the live list, else (before the stream's first value
- * reached this client) one `scheduledTasks.list`, so a write never acts on a guess.
+ * The tasks a write checks against: the live list, which `scheduledTasks.subscribe` sends first on
+ * subscribe (servers from 0.1.5 have no `scheduledTasks.list`). Before that first list there is no
+ * task to act on, as the page shows none.
  */
-export async function currentTasks(environment: LiveEnvironment): Promise<Obj[]> {
-  if (environment.tasks.value) return environment.tasks.value;
-  return arr((await environment.request('scheduledTasks.list', {})).tasks);
+export function currentTasks(environment: LiveEnvironment): Obj[] {
+  return environment.tasks.value ?? [];
 }
 
 /** Storage's last-run report is watched only once that page selects a supported environment. */

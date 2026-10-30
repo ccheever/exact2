@@ -184,6 +184,14 @@ const SECRET_REQUEST_FAILURE_MESSAGES: Record<string, string> = {
     'The user did not save this secret for shell use. Ask again with request_secret and delivery: "file".',
 };
 
+// PreviewStopLocalServerError's message, a getter by reason (contracts preview.ts at 6d450a4284).
+const STOP_LOCAL_SERVER_FAILURE_MESSAGES: Record<string, string> = {
+  'not-found': "This server is no longer running.",
+  'shared-group': "This server shares a process group with T3 Code, an agent, or a terminal shell, so it can't be stopped on its own.",
+  unsupported: "Stopping servers is not supported on this environment's platform.",
+  'signal-failed': "The server's processes could not be signaled.",
+};
+
 /** GitCommandFailureReason (contracts git.ts): a reason this build does not know decodes as absent. */
 const GIT_FAILURE_REASONS = ['authentication_failed', 'branch_already_exists', 'branch_checked_out_in_worktree', 'host_key_unverified', 'not_a_repository',
   'path_already_exists', 'push_rejected_by_remote', 'push_rejected_non_fast_forward', 'ref_not_found', 'remote_unreachable', 'tag_would_be_clobbered'];
@@ -218,6 +226,9 @@ function typed(value: unknown): TransportFailure {
   if (!message && tag === 'AssetGitHubMediaUrlValidationError') message = 'Only media a source control host keeps behind a credential can be fetched with one.';
   // DeviceEasAccountError's message is its reason, through a getter (contracts device.ts).
   if (!message && tag === 'DeviceEasAccountError') message = field('reason');
+  // PreviewStopLocalServerError's and ServerPrepareTriageError's messages are getters (contracts preview.ts, server.ts).
+  if (!message && tag === 'PreviewStopLocalServerError') message = STOP_LOCAL_SERVER_FAILURE_MESSAGES[field('reason')] ?? '';
+  if (!message && tag === 'ServerPrepareTriageError') message = 'Could not write the triage session files.';
   if (!message && field('detail')) message = field('detail');
   if (!message && 'cause' in value) message = failure(value.cause).message;
   if (!message || message === 'The server request failed.') message = `The server refused the request (${tag}).`;

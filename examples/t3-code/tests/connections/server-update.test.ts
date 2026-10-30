@@ -11,7 +11,7 @@ import { toasts } from '../../src/shell/toast';
 import { setJobs, type OutdatedJob } from '../../src/connections/settings-b-outdated';
 import {
   announceServerUpdates, isLegacyUpdateHandoffLoss, matchesServerUpdateReadyEvent, matchesServerUpdateResumeEvent, nudgesReconnectDuringUpdateRestart,
-  serverUpdateStageLabel, serverUpdateStateFor, serverUpdateStateForProgressEvent, serverUpdateStateForServerVersion, updateEnvironment,
+  serverUpdateStageLabel, serverUpdateStateFor, serverUpdateStateForProgressEvent, serverUpdateStateForServerVersion, updateEnvironment, updateTargetFromConfig,
   validateServerUpdateReadyEvent, type ServerLifecycleReadyEvent, type ServerUpdateTarget, type UpdateDeps,
 } from '../../src/connections/server-update';
 
@@ -162,16 +162,11 @@ describe('ServerUpdateAction', () => {
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Test server updated', description: 'Desktop app relaunched on 0.0.34.' });
   });
 
-  it('leaves thread continuation off by default', async () => {
+  it('asks for the target version alone, whatever the saved thread continuation (ServerUpdateAction at 6d450a4284)', async () => {
     const state = harness();
-    await updateEnvironment(target({ threadContinuation: true }), state.deps);
+    await updateEnvironment(updateTargetFromConfig({ environment: { serverVersion: '0.1.4', capabilities: { serverSelfUpdate: 'respawn', serverUpdateThreadContinuation: true } },
+      settings: { continueThreadsAfterServerUpdate: true } }, key, 'env', 'Test server'), state.deps);
     expect(state.started[0]!.extras).toEqual({});
-  });
-
-  it('applies the saved thread continuation preference automatically', async () => {
-    const state = harness();
-    await updateEnvironment(target({ threadContinuation: true, continueThreadsAfterServerUpdate: true }), state.deps);
-    expect(state.started[0]!.extras).toEqual({ continueRunningThreads: true });
   });
 
   it('toasts a failed attempt once and keeps it as the failed state', async () => {

@@ -3,6 +3,7 @@ import { scheduledSettings, taskDraft, taskFromArguments, validateTaskInput } fr
 import { scopedSettingPatch, scopedControls, scopedSearchControls } from '../../src/settings/scoped-settings';
 import { beforeAll, describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
+import { liveEvent, SCHEDULED_TASKS_KEY } from '../../src/client/live-streams';
 import { snapshot } from '../../src/client/presentation';
 import { obj, arr, str, type Obj } from '../../src/client/domain';
 import { archivedSettings, decodeNotices, licenseSettings, storageSettings } from '../../src/settings/settings-data';
@@ -325,27 +326,28 @@ test('scheduled defaults and edit conversion match reference daily and origin se
 
 test('scheduled edit rechecks membership, forces requireExisting and preserves provider options', async () => {
   const { client, native } = await connected();
-  let entries: Obj[] = [{ id: 's1', projectId: 'p1', modelSelection: { instanceId: 'codex-personal', model: 'model-a', options: [{ id: 'effort', value: 'high' }] } }];
+  // The live list (scheduledTasks.subscribe's snapshots): a 0.1.5 server has no scheduledTasks.list.
+  let serial = 0;
+  const tasks = (entries: Obj[]) => liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: `s-${++serial}`, value: { tasks: entries } });
+  tasks([{ id: 's1', projectId: 'p1', modelSelection: { instanceId: 'codex-personal', model: 'model-a', options: [{ id: 'effort', value: 'high' }] } }]);
   const writes: Obj[] = [], later = native.later.bind(native);
   native.later = async request => {
     const call = obj(request);
-    if (call.method === 'scheduledTasks.list') return native.good({ tasks: entries });
     if (call.method === 'scheduledTasks.upsert') { writes.push(obj(call.payload)); return native.good({ task: obj(call.payload) }); }
     return later(request);
   };
   const input = { id: 's1', title: 'Fixture', prompt: 'Safe disabled fixture', enabled: false, schedule: { type: 'interval', everyMs: 60000 }, projectId: 'p1', threadId: null, workspaceStrategy: { type: 'root' }, modelSelection: { instanceId: 'codex-personal', model: 'model-a' }, runtimeMode: 'approval-required', interactionMode: 'default' };
   expect((await client.command('task-save', 'env1:p1', JSON.stringify(input), 0, native, storage().files)).message).toBe('');
   expect(writes[0].requireExisting).toBe(true); expect(obj(writes[0].modelSelection).options).toEqual([{ id: 'effort', value: 'high' }]); expect(writes[0].enabled).toBe(false);
-  entries = [];
+  tasks([]);
   expect((await client.command('task-save', 'env1:p1', JSON.stringify(input), 0, native, storage().files)).message).toContain('no longer exists');
   expect(writes.length).toBe(1);
   expect((await client.command('task-delete', 'env1:deleted-project', JSON.stringify({ id: 's1' }), 0, native, storage().files)).message).toContain('no longer available');
 });
 
-test('scheduled list query reaches the allowlisted backend and preserves readonly/offline scope state', async () => {
+test('the scheduled list reads the live list and preserves readonly/offline scope state', async () => {
   const { client, native } = await connected();
-  const later = native.later.bind(native);
-  native.later = async request => obj(request).method === 'scheduledTasks.list' ? native.good({ tasks: [] }) : later(request);
+  liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: 's-1', value: { tasks: [] } });
   expect((await scheduledSettings(client, native, 'env1', '', '', true)).available).toBe(true);
   expect((await scheduledSettings(client, native, 'env1', '', 'missing-task', true)).error).toContain('no longer exists');
   expect((await scheduledSettings(client, native, 'env1', 'deleted-project', '', true)).available).toBe(false);

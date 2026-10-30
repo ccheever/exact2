@@ -59,7 +59,7 @@ export async function scopedControls(client: T3Client, native: Native | null | u
     const config = await client.readSettings(native, 'server.getConfig');
     const capabilities = obj(obj(config.environment).capabilities);
     if (projectId && capabilities.projectSettingsOverrides !== true) throw new Error('Update the selected environment to configure project overrides.');
-    const settings = await client.readSettings(native, 'server.getSettings');
+    const settings = obj(config.settings);
     const override = obj(obj(settings.projectSettingsOverrides)[projectId]);
     const effective: Obj = { ...settings, ...override, sourceControlWritingStyle: { ...writingStyleOf(settings.sourceControlWritingStyle), ...writingStyleOf(override.sourceControlWritingStyle) } };
     const rows = definitions.filter(item => item.route === route && (!item.when || item.when === (item.key.startsWith('sourceControl') ? `writing-${obj(effective.sourceControlWritingStyle).mode}` : effective.branchNamingMode))).map(item => {

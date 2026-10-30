@@ -1,14 +1,14 @@
 {
-  "comment": "The embedded T3 server: the official T3 Code CLI release archive (Node single executable), the release cut at the reference pin 7c3b3b3605ef itself, whose version is CLIENT_VERSION (version-skew.ts). stage-runtime.mjs downloads it, checks it against SHA256SUMS and this hash, and puts it beside this file; the app unpacks it into <T3 home>/runtime/versions/<version> at first launch. T3 Code is MIT (LICENSE-T3).",
-  "version": "0.1.4-nightly.20261027.3770",
-  "tag": "v0.1.4-nightly.20261027.3770",
-  "commit": "7c3b3b3605efa695e9948051b569937fc1482c0f",
-  "referencePin": "7c3b3b3605ef",
+  "comment": "The embedded T3 server: the official T3 Code CLI release archive (Node single executable) of the stable release v0.1.5, cut at the reference pin 6d450a4284 itself, whose version is CLIENT_VERSION (version-skew.ts). stage-runtime.mjs downloads it, checks it against SHA256SUMS and this hash, and puts it beside this file; the app unpacks it into <T3 home>/runtime/versions/<version> at first launch. T3 Code is MIT (LICENSE-T3).",
+  "version": "0.1.5",
+  "tag": "v0.1.5",
+  "commit": "6d450a4284852af137b2f3407fddd89eb76e7644",
+  "referencePin": "6d450a4284",
   "commitsBeforeReferencePin": 0,
   "repository": "pingdotgg/t3code",
-  "asset": "t3-0.1.4-nightly.20261027.3770-darwin-arm64.tar.gz",
-  "size": 109687033,
-  "sha256": "b9ace74353d53d4e7878b6912e00e782d75d6473937fe77c4e3b6c71ab0a796b",
-  "url": "https://github.com/pingdotgg/t3code/releases/download/v0.1.4-nightly.20261027.3770/t3-0.1.4-nightly.20261027.3770-darwin-arm64.tar.gz",
-  "checksumsUrl": "https://github.com/pingdotgg/t3code/releases/download/v0.1.4-nightly.20261027.3770/SHA256SUMS"
+  "asset": "t3-0.1.5-darwin-arm64.tar.gz",
+  "size": 109704126,
+  "sha256": "68dc9d73930c62665810cd4fa66f6b0a23f896c8a9a4e693a3794fa090d546aa",
+  "url": "https://github.com/pingdotgg/t3code/releases/download/v0.1.5/t3-0.1.5-darwin-arm64.tar.gz",
+  "checksumsUrl": "https://github.com/pingdotgg/t3code/releases/download/v0.1.5/SHA256SUMS"
 }

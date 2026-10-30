@@ -48,7 +48,7 @@ export async function hostCredentialsCommand(client: T3Client, native: Native, i
   if (input.environment && input.environment !== client.environmentId) throw new ClientError('That environment is no longer selected.');
   if (!client.ready) throw new ClientError('Reconnect before changing source control host settings.');
   requirePermission(client.scopes, 'settings:write');
-  const access = client.restAccess(native), settings = await access.request('server.getSettings');
+  const access = client.restAccess(native), settings = obj((await access.request('server.getConfig')).settings);
   const hosts = obj(settings.sourceControlHosts), kind = input.kind;
   if (!['github', 'gitcafe', 'bitbucket'].includes(kind)) throw new ClientError('Unsupported source control host.');
   const saved = obj(hosts[kind]);

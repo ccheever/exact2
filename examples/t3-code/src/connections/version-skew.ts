@@ -1,6 +1,6 @@
 // Version skew between this client and a connected server (T3 Code MIT, see LICENSE-T3;
-// reference 7c3b3b3605ef: apps/web/src/versionSkew.ts, packages/shared/src/semver.ts).
-// Port changes: APP_VERSION is CLIENT_VERSION (the Nightly this client mirrors) and
+// reference 6d450a4284: apps/web/src/versionSkew.ts, packages/shared/src/semver.ts).
+// Port changes: APP_VERSION is CLIENT_VERSION (the release this client mirrors) and
 // every resolver takes the client version as an optional argument; the dismissal
 // document lives in the client's preference file (shell-prefs.ts
 // `versionMismatchDismissals`) instead of localStorage, so a store is passed in
@@ -9,8 +9,8 @@
 import { obj, str } from '../client/domain';
 import { manualServerUpdateCommand, type ServerInstallation } from './server-installation';
 
-/** This client's T3 Code release: the Nightly it mirrors (7c3b3b3605ef, 0.1.4-nightly.20261027.3770). */
-export const CLIENT_VERSION = '0.1.4-nightly.20261027.3770';
+/** This client's T3 Code release: the stable release it mirrors (v0.1.5, 6d450a4284). */
+export const CLIENT_VERSION = '0.1.5';
 
 export { manualServerUpdateCommand };
 export type { ServerInstallation };
@@ -79,7 +79,6 @@ export function resolveServerSelfUpdateCapability(config: unknown): string | nul
 /** The desktop app supervising this server can be told to update itself over RPC. */
 export function supportsDesktopAppUpdate(config: unknown): boolean { return capabilitiesOf(config).desktopAppUpdate === true; }
 /** The server can recover opted-in running turns after its self-update restart. */
-export function supportsServerUpdateThreadContinuation(config: unknown): boolean { return capabilitiesOf(config).serverUpdateThreadContinuation === true; }
 
 export function buildVersionMismatchDismissalKey(environmentId: string, mismatch: Pick<VersionMismatch, 'clientVersion' | 'serverVersion'>): string {
   return `${environmentId}:${mismatch.clientVersion}:${mismatch.serverVersion}`;

@@ -864,7 +864,7 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
   const scope = resolveScope(client, target.machine, target.projectKey, target.checkout);
   const project = scope.kind === 'project' || scope.kind === 'checkout';
   const focusedSelected = client.ready && scope.selected.some(environment => environment.environmentId === client.environmentId && !environment.fleetKey);
-  const settings = focusedSelected ? await bridge(client).settingsCoreRequest(native, 'server.getSettings', {}) : undefined;
+  const settings = focusedSelected ? obj((await bridge(client).settingsCoreRequest(native, 'server.getConfig', {})).settings) : undefined;
   const restore = target.row === 'restore-device-defaults';
   let plan: ScopedSettingsPlan;
   if (restore) {

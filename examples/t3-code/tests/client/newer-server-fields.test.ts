@@ -1,5 +1,5 @@
-// What 0.1.2-nightly.20261021.3457 and 0.1.4-nightly.20261027.3770 servers add (T3 Code 74541bab17 and 7c3b3b3605ef,
-// MIT, see LICENSE-T3: packages/contracts): optional fields decode without failing, forward-compatible arrays and
+// What 0.1.2-nightly.20261021.3457, 0.1.4-nightly.20261027.3770 and 0.1.5 servers add (T3 Code 74541bab17, 7c3b3b3605ef
+// and 6d450a4284, MIT, see LICENSE-T3: packages/contracts): optional fields decode without failing, forward-compatible arrays and
 // reasons drop what this build does not know, a legacy writing-style string reads as the struct, and EAS hosts join
 // the device state's hosts.
 import { describe, expect, test } from 'bun:test';
@@ -11,6 +11,11 @@ import { rpcPermissions } from '../../src/connections/command-permissions';
 import { scopedSettingPatch, writingStyleOf } from '../../src/settings/scoped-settings';
 import { canSnooze, pendingInput, raisedHand, sidebarStatus } from '../../src/sidebar/sidebar-model';
 import { mergeUsage, providersWithUsage } from '../../src/usage/pages-usage';
+import { readDiscoveredServers } from '../../src/browser/browser-targets';
+import { readPreviewEvent } from '../../src/browser/browser-automation';
+import { applyTerminalAttachStreamEvent, EMPTY_TERMINAL_BUFFER_STATE, type TerminalAttachStreamEvent } from '../../src/terminal/terminal-session';
+import { resolveServerConfigVersionMismatch } from '../../src/connections/version-skew';
+import { decodeClientPrefs } from '../../src/settings/settings-core';
 
 const at = '2026-10-21T00:00:00.000Z';
 const usage = { usedTokens: 10, updatedAt: at, autoCompactThreshold: 200_000, promptCacheExpiresAt: at };
@@ -97,6 +102,48 @@ describe('what a 0.1.4 server adds', () => {
   });
 });
 
+describe('what a 0.1.5 server adds', () => {
+  test('a discovered server an agent started reads as before', () => {
+    const { servers } = readDiscoveredServers({ servers: [{ host: '127.0.0.1', port: 5173, url: 'http://127.0.0.1:5173', processName: 'vite', pid: 42, terminal: null, agent: { threadId: 't' } }], configuredUrlProbing: false });
+    expect(servers).toEqual([{ host: '127.0.0.1', port: 5173, url: 'http://127.0.0.1:5173', processName: 'vite', pid: 42, terminal: null }]);
+  });
+
+  test('the new environment capabilities leave a matching server current', () => {
+    const capabilities = { localServerStop: true, triage: true, threadProjectFromScratch: true, desktopAppChannelSwitch: true, databaseMigration: 72 };
+    expect(resolveServerConfigVersionMismatch({ environment: { serverVersion: '0.1.5', capabilities } })).toBeNull();
+  });
+
+  test('a headless preview tab opens', () => {
+    const snapshot = { threadId: 't', tabId: 'tab', navStatus: { _tag: 'Success', url: 'https://example.com', title: 'Example' }, canGoBack: false, canGoForward: false, updatedAt: at, runtime: 'server', headless: true };
+    expect(readPreviewEvent({ type: 'opened', threadId: 't', tabId: 'tab', createdAt: at, serverEpoch: 'e', revision: 1, snapshot })).toMatchObject({ type: 'opened', snapshot: { tabId: 'tab', runtime: 'server' } });
+  });
+
+  test('a terminal snapshot and its activity carry the shared grid', () => {
+    const snapshot = { threadId: 't', terminalId: 'term', cwd: '/repo', worktreePath: null, status: 'running', pid: 7, history: 'ready\n', exitCode: null, exitSignal: null, updatedAt: at, cols: 120, rows: 30 };
+    const opened = applyTerminalAttachStreamEvent(EMPTY_TERMINAL_BUFFER_STATE, { type: 'snapshot', snapshot } as unknown as TerminalAttachStreamEvent);
+    expect(opened.status).toBe('running');
+    const activity = { type: 'activity', threadId: 't', terminalId: 'term', createdAt: at, hasRunningSubprocess: false, cols: 100, rows: 40 } as unknown as TerminalAttachStreamEvent;
+    expect(applyTerminalAttachStreamEvent(opened, activity)).toBe(opened);
+  });
+
+  test('a pull request with maintainer edits reads as before', () => {
+    const detail: Obj = { state: 'open', maintainerCanModify: true, mergeCapabilities: { merge: true }, capabilities: { mergeMethods: ['merge'], edit: { maintainerEdits: true } },
+      viewerPermissions: { maintainerEdits: true } };
+    expect(allowedMergeMethods(detail)).toEqual(['merge']);
+  });
+
+  test('a write still works beside the new server settings', () => {
+    const settings = { snoozePresets: [{ kind: 'after', minutes: 60 }, { kind: 'at', day: 'monday', time: '09:00' }], fallbackModelSelection: { instanceId: 'codex', model: 'gpt-6' },
+      backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, projectSettingsOverrides: {} };
+    expect(scopedSettingPatch(settings, 'p', 'defaultAutoPull', true, false)).toEqual({ projectSettingsOverrides: { p: { defaultAutoPull: true } } });
+  });
+
+  test('the new client settings, and the removed ones a saved file may hold, decode', () => {
+    const prefs = decodeClientPrefs({ effortDisplay: 'bars', threadDetailsItems: { usage: true }, composerCollapseOnScroll: false, sidebarThreadPreviewCount: 9, chatWidth: 'wide' });
+    expect(prefs.chatWidth).toBe('wide');
+  });
+});
+
 describe('forward compatibility', () => {
   test('pull request capability arrays drop methods this build does not know', () => {
     const detail: Obj = { state: 'open', baseComparison: 'behind', mergeability: 'mergeable', behindBy: 2, mergeCapabilities: { merge: true, squash: true, 'fast-forward': true },
@@ -148,5 +195,12 @@ describe('client behaviour', () => {
     expect(rpcPermissions('git.runStackedAction', { action: 'commit', threadId: 't' })).toEqual(['source-control:write']);
     expect(['preview.close', 'projects.listIgnoredFiles', 'pullRequests.changeBreakdown', 'device.easAccount', 'pullRequests.filterOptions'].map(method => rpcPermissions(method, {})))
       .toEqual([['preview:operate'], ['filesystem:read'], ['orchestration:read'], ['settings:write'], ['orchestration:read']]);
+  });
+
+  test('the operations a 0.1.5 server adds need the reference scopes; the methods it removed are gone', () => {
+    expect(['preview.stopLocalServer', 'server.prepareTriage', 'projects.createFromThread', 'pullRequests.update'].map(method => rpcPermissions(method, {})))
+      .toEqual([['terminal:operate'], ['orchestration:operate'], ['orchestration:operate'], ['source-control:write']]);
+    for (const method of ['server.getSettings', 'scheduledTasks.list', 'terminal.restart', 'preview.navigate', 'preview.refresh', 'server.reportHostPowerState', 'server.getBackgroundPolicy',
+      'subscribeBackgroundPolicy', 'subscribeTerminalEvents', 'orchestration.subscribeArchivedShell', 'provider.codex.auth-callback.subscribe']) expect(rpcPermissions(method, {})).toEqual([]);
   });
 });

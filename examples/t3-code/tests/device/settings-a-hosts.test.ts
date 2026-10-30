@@ -32,7 +32,7 @@ describe('device hosts', () => {
     const client = { ready: true, environmentId: 'env1', config: { environment: { label: 'Studio' } },
       restAccess: () => ({ request: async (method: string, payload: Obj) => {
         requests.push([method, payload]);
-        if (method === 'server.getSettings') return settings;
+        if (method === 'server.getConfig') return { settings };
         if (method === 'server.updateSettings') { Object.assign(settings, payload.patch as Obj); return settings; }
         const reply = replies[method]; if (reply instanceof Error) throw reply; return reply ?? {};
       } }) } as unknown as T3Client;

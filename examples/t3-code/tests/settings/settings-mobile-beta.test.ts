@@ -41,7 +41,7 @@ describe('Mobile app row', () => {
       rememberDelivery(client, stream, false);
       const rows = aboutRows(client, '0.0.45');
       expect(rows.map(row => row.title)).toEqual(['Version', 'Update track', 'Mobile app']);
-      expect(aboutRows(client, CLIENT_VERSION)[0]!.value).toBe('0.1.4-nightly.20261027.3770');
+      expect(aboutRows(client, CLIENT_VERSION)[0]!.value).toBe('0.1.5');
       expect(rows.at(-1)).toMatchObject({ id: 'mobile-app', kind: 'mobile-app', description: 'Connect to your server from your phone or tablet.' });
     }
   });

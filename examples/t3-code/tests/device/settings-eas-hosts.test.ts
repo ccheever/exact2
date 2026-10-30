@@ -62,7 +62,7 @@ describe('the EAS hosts row and editor', () => {
       restAccess: () => ({ request: async (method: string, payload: Obj) => {
         requests.push([method, payload]);
         if (replies[method]) return replies[method]!(payload);
-        if (method === 'server.getSettings') return settings;
+        if (method === 'server.getConfig') return { settings };
         if (method === 'server.updateSettings') return { ...settings, ...(payload.patch as Obj) };
         return {};
       } }) } as unknown as T3Client;

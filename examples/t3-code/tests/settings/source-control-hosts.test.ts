@@ -32,7 +32,7 @@ describe('source control host settings', () => {
     let rescans = 0;
     native.later = async input => {
       const request = obj(input);
-      if (request.method === 'server.getSettings') return native.good(settings);
+      if (request.method === 'server.getConfig') return native.good({ ...client.config, settings });
       if (request.method === 'server.updateSettings') { patches.push(obj(obj(request.payload).patch)); return native.good(settings); }
       return later(input);
     };

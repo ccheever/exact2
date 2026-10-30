@@ -153,7 +153,7 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
     const config = await access.request('server.getConfig');
     const capabilities = obj(obj(config.environment).capabilities);
     if (str(input.key) === 'worktreesDirectory' ? capabilities.worktreesDirectory !== true : capabilities.storageCleanup !== true || (projectId && capabilities.projectWorktreeCleanup !== true)) throw new ClientError('Update the selected environment to configure storage cleanup.');
-    const settings = await access.request('server.getSettings');
+    const settings = obj(config.settings);
     const updated = await access.request('server.updateSettings', { patch: storagePatch(settings, projectId, str(input.key), str(input.value)) }, true);
     client.config = { ...client.config, settings: updated };
     return '';
@@ -174,7 +174,7 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
     const { projectId } = await currentScope(client, access, scope);
     const config = await access.request('server.getConfig');
     if (projectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) throw new ClientError('Connect the selected checkouts, or update their environments, to save a project override.');
-    const settings = await access.request('server.getSettings');
+    const settings = obj(config.settings);
     if (op === 'device') {
       if (projectId && input.key === 'enableAgentDeviceAccess') {
         const updated = await access.request('server.updateSettings', { patch: scopedPatch(settings, projectId, 'enableAgentDeviceAccess', input.value) }, true);
@@ -185,7 +185,7 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
       const payload = input.key === 'enableDeviceSupport' ? { enabled, ...(enabled ? { onboardingCompleted: true } : { agentAccessEnabled: false }) } : { agentAccessEnabled: enabled };
       if (input.key === 'enableAgentDeviceAccess' && settings.enableDeviceSupport !== true) throw new ClientError('Enable the device hub before changing agent device access.');
       await access.request('device.configure', payload, true);
-      client.config = { ...client.config, settings: await access.request('server.getSettings') };
+      client.config = { ...client.config, settings: obj((await access.request('server.getConfig')).settings) };
       return '';
     }
     let patch: Obj;

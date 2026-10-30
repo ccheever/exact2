@@ -35,7 +35,7 @@ function fake(settings: Obj = {}, ready = true): Fake {
     projectGroups: () => [{ key: 'repo', name: 'Parity fixture', members: [{ id: 'p1', title: 'Parity fixture', workspaceRoot: '/a' }, { id: 'p2', title: 'Parity fixture', workspaceRoot: '/b' }] },
       { key: 'env1:/c', name: 'Single checkout two', members: [{ id: 'p3', title: 'Single checkout two', workspaceRoot: '/c' }] }],
     async settingsCoreRequest(_native, method, payload) {
-      if (method === 'server.getSettings') return client.config.settings as Obj;
+      if (method === 'server.getConfig') return client.config as Obj;
       if (method === 'projects.readFile') { const file = client.files[String(payload.cwd)]; if (file === undefined) throw new Error('missing'); return { contents: file, truncated: false }; }
       client.writes.push(payload);
       const patch = payload.patch as Obj, current = client.config.settings as Obj;
@@ -143,7 +143,7 @@ describe('general rows', () => {
     expect([row('default-permissions').label, row('default-permissions').icon, row('default-permissions').inheritance]).toEqual(['Full access', 'lock-open', 'default']);
     expect([row('snooze-limited-threads').checked, row('snooze-limited-threads').inheritance, row('snooze-limited-threads').resettable]).toEqual([true, 'environment', false]);
     expect([row('new-threads').label, row('worktree-submodules').label, row('days-before-auto-settle').value]).toEqual(['Current checkout', 'Recursive', '3']);
-    expect(row('version').value).toBe('0.1.4-nightly.20261027.3770'); // this app's own release, not the server's
+    expect(row('version').value).toBe('0.1.5'); // this app's own release, not the server's
   });
   test('project scope: overrides, t3.json and environment-wide rows', () => {
     const client = as(fake({ projectSettingsOverrides: { p1: { defaultRuntimeMode: 'approval-required' }, p2: { defaultRuntimeMode: 'approval-required' } } }));

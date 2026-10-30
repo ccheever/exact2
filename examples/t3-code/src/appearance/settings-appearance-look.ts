@@ -7,6 +7,7 @@
 // so surfaces keep their measured stock colours; otherwise they take the
 // palette's light-dark() tokens.
 import type { T3Client } from '../client/client';
+import { CLIENT_VERSION } from '../connections/version-skew';
 import { CLIENT_DEFAULTS, decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { alpha, effectiveMode, fontStack, palette, themeRoles } from './settings-appearance';
 import type { CustomTheme } from './settings-themes';
@@ -86,20 +87,38 @@ export function look(client: T3Client): Look {
   };
 }
 
+/**
+ * The app's stage label (DesktopEnvironment.ts resolveDesktopAppStageLabel at 6d450a4284): Nightly for a nightly or
+ * preview version, else Beta. This app has no Dev build, and its stage follows CLIENT_VERSION alone: the reference's
+ * useEnvironmentStageLabel also reads Nightly from a nightly primary server, and This machine runs this app's release.
+ */
+export const appStageLabel = (version: string = CLIENT_VERSION) => /^[^-+]+-(?:nightly|preview)\.\d{8}\.\d+$/.test(version) ? 'Nightly' : 'Beta';
+/** resolveSidebarStageBackdropVariant (SidebarStageBackdrop.tsx) in the "artwork" mode: the stage's art, none on a stable app. */
+export function stageBackdropVariant(stageLabel: string): 'nightly' | 'dev' | null {
+  const normalized = stageLabel.trim().toLowerCase();
+  return normalized === 'nightly' ? 'nightly' : normalized === 'dev' ? 'dev' : null;
+}
+/** resolveEnvironmentIdentificationPillLabel (SidebarStageBackdrop.tsx). */
+export function identificationPillLabel(stageLabel: string): string {
+  const normalized = stageLabel.trim().toLowerCase();
+  return normalized === 'dev' ? 'Dev' : normalized === 'nightly' ? 'Nightly' : '';
+}
+
 /** The built-in palettes that keep the sidebar's artwork (themePalettes.ts `sidebarArtwork: true`). */
 const ARTWORK_THEMES = new Set(['t3-chat', 'grove', 'ocean', 'ember', 'iris']);
 /**
- * resolveEnvironmentIdentificationMode (hooks/useSettings.ts at 7c3b3b3605ef): nothing until the preferences load; the
+ * resolveEnvironmentIdentificationMode (hooks/useSettings.ts at 6d450a4284): nothing until the preferences load; the
  * pill, not the artwork, while a palette without artwork is the active half (a custom or an environment's theme, or the
  * theme editor's draft, which paintOf puts on its half). The stock theme has no palette of its own and keeps the mode.
  * Under System the half is the window's, which this module cannot read: either half that has no artwork shows the pill.
+ * The art and the pill are the stage's (SidebarChromeHeader): a stable app shows neither. Only the Nightly art is drawn.
  */
-export function environmentIdentification(loaded: boolean, prefs: ClientPrefs, mode: string): { artwork: boolean; pill: string } {
+export function environmentIdentification(loaded: boolean, prefs: ClientPrefs, mode: string, stageLabel = appStageLabel()): { artwork: boolean; pill: string } {
   if (!loaded) return { artwork: false, pill: '' };
   const withoutArtwork = (id: string) => id !== 't3-code' && !ARTWORK_THEMES.has(id);
   const halves = mode === 'light' ? [prefs.themeLight] : mode === 'dark' ? [prefs.themeDark] : [prefs.themeLight, prefs.themeDark];
   const chosen = prefs.environmentIdentificationMode, shown = chosen === 'artwork' && halves.some(withoutArtwork) ? 'pill' : chosen;
-  return { artwork: shown === 'artwork', pill: shown === 'pill' ? 'Nightly' : '' };
+  return { artwork: shown === 'artwork' && stageBackdropVariant(stageLabel) === 'nightly', pill: shown === 'pill' ? identificationPillLabel(stageLabel) : '' };
 }
 
 /** devicePresentation's appearance mode: the window draws in the mode `look` resolves (T3WindowChrome.setAppearance), the theme editor's draft's included. */

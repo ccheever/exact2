@@ -28,7 +28,7 @@ function focused(settings: Obj = {}) {
     config: { environment: { environmentId: 'env-a', label: 'Studio', capabilities, platform: { machine: 'laptop' } }, providers: [], settings: { projectSettingsOverrides: {}, ...settings } } as Obj,
     projectGroups: () => [{ key: 'github.com/acme/app', name: 'App', members: [{ id: 'pa', title: 'App', workspaceRoot: '/a/app' }] }],
     async settingsCoreRequest(_native: Native, method: string, payload: Obj) {
-      if (method === 'server.getSettings') return client.config.settings as Obj;
+      if (method === 'server.getConfig') return client.config as Obj;
       if (method === 'projects.readFile') throw new Error('missing');
       client.writes.push(payload);
       client.config.settings = { ...(client.config.settings as Obj), ...(payload.patch as Obj) };
@@ -300,14 +300,14 @@ describe('eight-machine settings', () => {
   test('host identity conflicts keep lists separate; checks address every selected transport', async () => {
     const host = { id: 'h-a', label: 'Build host', target: 'builder' };
     const client = focused({ deviceHosts: [host] });
-    Object.assign(client, { shell: initialShell(), restAccess: () => ({ request: async (method: string) => method === 'device.testHost' ? { kind: 'local' } : client.config.settings }) });
+    Object.assign(client, { shell: initialShell(), restAccess: () => ({ request: async (method: string) => method === 'device.testHost' ? { kind: 'local' } : method === 'server.getConfig' ? client.config : client.config.settings }) });
     for (let index = 1; index < 8; index++) {
       const id = `env-${index}`, key = `http://127.0.0.1:${16500 + index}\n${id}`;
       fleet.entries.set(key, entry(key, id, 'Studio', { deviceHosts: [{ ...host, id: `host-${index}` }] }));
     }
     const native: Native = { available: true, watch() {}, async later(request) {
       const call = request as Obj, environment = fleet.entries.get(String(call.fleet))!;
-      const value = call.method === 'device.testHost' ? { kind: 'local' } : environment.config.settings;
+      const value = call.method === 'device.testHost' ? { kind: 'local' } : call.method === 'server.getConfig' ? environment.config : environment.config.settings;
       return { ok: true, generation: environment.generation, value };
     } };
     const scope = resolveScope(as(client), '', '', '');

@@ -3,7 +3,7 @@
 // ScheduledTaskEditorDialog submit, components/chat/ThreadAutomationsPanel.tsx toggleEnabled
 // and runNow). Each write is addressed to the task's own environment (the focused transport
 // or its fleet transport, live-streams.ts) and checks the task against that environment's
-// live list, never a fresh `scheduledTasks.list` once the stream has delivered.
+// live list (the newest `scheduledTasks.subscribe` snapshot).
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { bridgeReply, ClientError, providerAvailable, type Native } from '../client/protocol';

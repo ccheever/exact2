@@ -15,7 +15,7 @@ export function fakeClient(settings: Obj = {}, ready = true): Fake {
     config: { environment: { environmentId: 'env1', label: 'Studio', serverVersion: '0.0.46', capabilities: { projectSettingsOverrides: true } }, providers: [], settings: { projectSettingsOverrides: {}, ...settings } },
     projectGroups: () => [{ key: 'repo', name: 'Parity fixture', members: [{ id: 'p1', title: 'Parity fixture', workspaceRoot: '/a' }] }],
     async settingsCoreRequest(_native, method, payload) {
-      if (method === 'server.getSettings') return client.config.settings as Obj;
+      if (method === 'server.getConfig') return client.config as Obj;
       if (method === 'projects.readFile') throw new Error('missing');
       client.writes.push(payload);
       client.config.settings = { ...(client.config.settings as Obj), ...(payload.patch as Obj) };
@@ -199,7 +199,8 @@ describe('device tools, refs, archive menu, look', () => {
     const client = Object.assign(fakeClient(), { preferencesLoaded: true });
     Object.assign(client.local.clientSettings as Obj, { chatWidth: 'wide', diffColorScheme: 'blue-orange', environmentIdentificationMode: 'pill', themeLight: 'grove', themeDark: 'grove' });
     const value = look(as(client));
-    expect([value.chatMax, value.diff, value.artwork, value.pill, value.themed]).toEqual([1152, 'blue-orange', false, 'Nightly', true]);
+    // The pill names the stage; this stable client has none (environment-identification.test.ts).
+    expect([value.chatMax, value.diff, value.artwork, value.pill, value.themed]).toEqual([1152, 'blue-orange', false, '', true]);
     expect(value.sidebar).toContain('light-dark(');
     expect(look(as(fakeClient())).themed).toBe(false);
   });

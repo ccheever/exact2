@@ -22,6 +22,7 @@ import { adoptSidebarPrefs } from '../sidebar/sidebar-state';
 import { PROVIDER_OPS } from '../providers/providers';
 import { CONNECTION_OPS } from '../connections/connections';
 import { READ_OPS, WRITE_OPS, runOps, type OpOut, type ProvidersRoute } from './client-ops';
+import { createProjectFromThread, prepareTriage, setMaintainerEdits, stopLocalServer } from './server-operations';
 import { groupingModes, message, projectPath } from './client-shared';
 import { letGo } from './let-go';
 import { fleet } from '../connections/settings-b-fleet';
@@ -872,6 +873,11 @@ export class T3Client {
     // A pull request request reads or writes through the server the reader shares GitHub with (pages-pr-environments.ts).
     return method.startsWith('pullRequests.') ? routedPullRequestRequest(this, native, method, payload, write) : this.request(native, method, payload, this.generation, write);
   }
+  // The operations a 0.1.5 server adds (server-operations.ts).
+  stopLocalServer(native: Native, input: { pid: number; port: number }): Promise<void> { return stopLocalServer(this, native, input); }
+  prepareTriage(native: Native): Promise<string> { return prepareTriage(this, native); }
+  createProjectFromThread(native: Native, threadId: string): Promise<string> { return createProjectFromThread(this, native, threadId); }
+  setMaintainerEdits(native: Native, reference: Obj, allowed: boolean): Promise<void> { return setMaintainerEdits(this, native, reference, allowed); }
   projectGroups() {
     const byKey = new Map<string, Obj[]>();
     for (const project of this.shell.projects) {
@@ -889,12 +895,12 @@ export class T3Client {
   }
   /** Lane settings-core: settings reads/writes and the scope's t3.json, never other methods. */
   async settingsCoreRequest(native: Native, method: string, payload: Obj, write = false): Promise<Obj> {
-    if (!['server.getSettings', 'server.updateSettings', 'projects.readFile'].includes(method)) throw new ClientError('Unsupported settings request.');
+    if (!['server.getConfig', 'server.updateSettings', 'projects.readFile'].includes(method)) throw new ClientError('Unsupported settings request.');
     return this.request(native, method, payload, this.generation, write);
   }
   async readSettings(native: Native, method: string, payload: Obj = {}): Promise<Obj> {
     if (!this.ready) throw new ClientError('Connect and synchronize before loading this section.');
-    const allowed = ['orchestration.getArchivedShellSnapshot', 'server.getProcessDiagnostics', 'server.getProcessResourceHistory', 'server.getTraceDiagnostics', 'scheduledTasks.list', 'server.getConfig', 'server.getSettings'];
+    const allowed = ['orchestration.getArchivedShellSnapshot', 'server.getProcessDiagnostics', 'server.getProcessResourceHistory', 'server.getTraceDiagnostics', 'server.getConfig'];
     if (!allowed.includes(method)) throw new ClientError('Unsupported settings query.');
     return this.request(native, method, payload);
   }

@@ -170,7 +170,7 @@ export async function accessFleetPass(call: (request: Obj) => Promise<Obj>, entr
 }
 
 // ── HTTP (environmentHttp.ts EnvironmentAuthHttpApi, through the embedded server's bearer) ──
-export type AccessOperation = 'create-pairing-credential' | 'list-pairing-links' | 'revoke-pairing-link' | 'list-client-sessions' | 'revoke-client-session' | 'revoke-other-client-sessions';
+export type AccessOperation = 'create-pairing-credential' | 'revoke-pairing-link' | 'revoke-client-session' | 'revoke-other-client-sessions';
 /** PrimaryEnvironmentRequestError: the operation and the HTTP status, never the server's text. */
 export class PrimaryEnvironmentRequestError extends Error {
   constructor(readonly operation: AccessOperation, readonly status: number) { super(`Primary environment request failed during ${operation} (HTTP ${status}).`); }
@@ -192,8 +192,6 @@ export async function createPairingCredential(native: Native, input: { label?: s
 export async function revokePairingLink(native: Native, id: string): Promise<void> { await accessCall(native, 'revoke-pairing-link', 'POST', '/api/auth/pairing-links/revoke', { id }); }
 export async function revokeClientSession(native: Native, sessionId: string): Promise<void> { await accessCall(native, 'revoke-client-session', 'POST', '/api/auth/clients/revoke', { sessionId }); }
 export async function revokeOtherClientSessions(native: Native): Promise<number> { return num(obj(await accessCall(native, 'revoke-other-client-sessions', 'POST', '/api/auth/clients/revoke-others')).revokedCount); }
-export async function listPairingLinks(native: Native): Promise<AuthPairingLink[]> { return arr(await accessCall(native, 'list-pairing-links', 'GET', '/api/auth/pairing-links')).map(decodePairingLink).filter(present); }
-export async function listClientSessions(native: Native): Promise<AuthClientSession[]> { return arr(await accessCall(native, 'list-client-sessions', 'GET', '/api/auth/clients')).map(decodeClientSession).filter(present); }
 
 /** Credentials this client created, by link id (only its own creation response carries one). Memory only. */
 export const createdCredentials = new Map<string, string>();

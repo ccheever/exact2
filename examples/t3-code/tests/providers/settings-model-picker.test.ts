@@ -46,7 +46,7 @@ class Fake implements Native {
     const target = request.fleet ? fleet.entries.get(str(request.fleet)) : undefined;
     const config = target ? target.config : this.c.config;
     if (request.method === 'server.updateSettings') return { ok: true, generation: target?.generation ?? 1, value: { ...obj(config.settings), ...obj(obj(request.payload).patch) } };
-    if (request.method === 'server.getSettings') return { ok: true, generation: 1, value: obj(config.settings) };
+    if (request.method === 'server.getConfig') return { ok: true, generation: 1, value: config };
     return { ok: false, generation: target?.generation ?? 1, error: { kind: 'x', message: 'missing', uncertain: false } };
   }
 }
