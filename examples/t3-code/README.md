@@ -1099,8 +1099,8 @@ caption panel):
 
 **Checked with real input and VoiceOver (2026-10-31)** (a lane copy on its own home, `second` seeded with
 `--turns --pull-request`, pointer and keys through `orca computer`, VoiceOver read from its caption panel;
-first the bundle of `1caaa582f5`, then this branch with exact2 #1180, the macOS host change that lets
-VoiceOver reach the chips, on a local branch):
+first the bundle of `1caaa582f5`, then that branch with exact2 #1180, the macOS host change that lets
+VoiceOver reach the chips, which the clone now has from main):
 
 - A chip's details popover takes the focus as it opens, as the reference's PopoverPopup does
   (`initialFocus`). Before, the focus stayed on the prompt: the shared field's press makes the prompt
@@ -1112,12 +1112,11 @@ VoiceOver reach the chips, on a local branch):
   instructions, button" after a pointer press on a composer skill chip, 2 of 2). The terminal output
   target is not checked with real input: the fixture has no terminal excerpt. The app tests cover all
   three targets.
-- These two rows need exact2 #1180, which this branch does not hold until main merges in. VO-Right
-  from Message reads each chip in text order and then 'Default, collapsed, button' (6 of 6: two review
-  comments and an image chip, or a review comment and two skill chips), and VO-Left goes back the same
-  way (2 of 2). On the Settings sample it reads the skill chip, both file chips and then the Monospace
-  font heading (2 of 2). Before #1180, VO-Right went from Message straight to 'Default' and skipped
-  every chip.
+- VO-Right from Message reads each chip in text order and then 'Default, collapsed, button' (6 of 6:
+  two review comments and an image chip, or a review comment and two skill chips), and VO-Left goes
+  back the same way (2 of 2). On the Settings sample it reads the skill chip, both file chips and then
+  the Monospace font heading (2 of 2). Before #1180, VO-Right went from Message straight to 'Default'
+  and skipped every chip.
 - VO-Space on a chip opens it with the focus inside: a review comment reads "Review comment, outline.ts
   L7, dialog" (5 of 5), the Settings sample's skill chip "Skill Frontend Design, dialog" (5 of 5), a
   composer skill chip "View instructions, button" (1 of 1), and an image chip opens "Expanded image
