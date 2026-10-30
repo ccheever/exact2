@@ -5,6 +5,7 @@ import type { Message, Obj } from '../../src/client/domain';
 import { transcriptRows } from '../../src/timeline/timeline-presentation';
 import { noteComposerTyping } from '../../src/composer/composer-typing-guard';
 import { composerRequests } from '../../src/composer/requests';
+import { appPath } from '../support/app-files';
 
 const base = Date.parse('2026-10-28T00:00:00.000Z');
 const at = (seconds: number) => new Date(base + seconds * 1000).toISOString();
@@ -93,5 +94,31 @@ describe('a pending approval on its timeline row', () => {
     (value.local as unknown as { pending: Record<string, Obj> }).pending.env = { payload: { requestId: 'rq' } };
     Object.defineProperty(value, 'pending', { get: () => (value.local as unknown as { pending: Record<string, Obj> }).pending.env });
     expect(approvals(transcriptRows(value))).toMatchObject([{ responding: true }]);
+  });
+});
+
+// A snapshot field outside its shape refuses the whole snapshot, so an open approval would leave its thread unopened.
+describe('the approval views stay within their shapes', () => {
+  const fields = async (file: string, shape: string) => {
+    const text = await Bun.file(appPath(file)).text();
+    const body = text.slice(text.indexOf(`shape ${shape}\n`) + `shape ${shape}\n`.length).split('\n');
+    return body.slice(0, body.findIndex(line => !line.startsWith('  '))).filter(line => !line.trim().startsWith('//')).map(line => line.trim().split(':')[0]!);
+  };
+  const value = () => {
+    const rows = transcriptRows(client([user('u', 0), approvalItem('a', 1, 'rq', { options: [{ decision: 'accept', label: 'Approve' }] })], [request('rq', 'command')]));
+    return approvals(rows)[0]!;
+  };
+  test('the timeline row\'s approval, and its choices', async () => {
+    expect(Object.keys(value()).sort()).toEqual((await fields('timeline-approval.contract', 'TimelineApproval')).sort());
+    expect(Object.keys(value().options[0]!).sort()).toEqual((await fields('timeline-approval.contract', 'ApprovalChoice')).sort());
+  });
+  test('the composer\'s approval', async () => {
+    const { requestPresentation } = await import('../../src/composer/requests');
+    const { T3Client } = await import('../../src/client/client');
+    const fixture = client([user('u', 0), approvalItem('a', 1, 'rq', { fullAccessOverride: 'ask_rule' })], [request('rq', 'command')]);
+    const real = Object.assign(new T3Client(), { environmentId: 'env', threadId: 't1', projectId: 'p1', scopes: ['orchestration:operate'], thread: fixture.thread });
+    const shown = requestPresentation(real).approvals[0]!;
+    const allowed = await fields('shapes.contract', 'Approval');
+    expect(Object.keys(shown).filter(key => !allowed.includes(key))).toEqual([]);
   });
 });

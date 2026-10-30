@@ -215,6 +215,10 @@ shape Approval
   count: string
   mono: bool
   detail: string
+  // The composer's presentation (requests.ts) carries these too; a snapshot field outside its shape refuses it whole.
+  reason: string
+  whyAsked: string
+  feedback: bool
   canRespond: bool
   operable: bool
   live: bool
