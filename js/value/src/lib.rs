@@ -10,7 +10,9 @@ use std::rc::Rc;
 mod decode;
 pub mod json;
 mod parse;
-pub use decode::{from_json_text, reply_from_json_slice, reply_from_json_text, Reply};
+pub use decode::{
+    from_json_text, reply_from_json_slice, reply_from_json_text, reply_reusing, Reply, Rows,
+};
 
 /// A declared shape, owned: what one `TypesId` in a plan denotes.
 #[derive(Debug, Clone, PartialEq)]

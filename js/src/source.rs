@@ -339,8 +339,14 @@ impl DataSource for Module {
                 .unwrap_or_else(|| Err("a source's parameters run past the table".into()));
             let result = Shape::from_plan(plan, row.ty);
             if let (Ok(params), Ok(result)) = (params, result) {
-                self.sigs
-                    .insert(plan.str(row.name).to_string(), Sig { params, result });
+                self.sigs.insert(
+                    plan.str(row.name).to_string(),
+                    Sig {
+                        params,
+                        result,
+                        rows: Default::default(),
+                    },
+                );
             }
         }
     }
@@ -389,8 +395,14 @@ impl DataSource for Module {
         // its arguments and its value JSON text (the prelude's `tool`).
         if source.starts_with(TOOL) && !self.sigs.contains_key(source) {
             let (params, result) = (vec![Shape::String], Shape::String);
-            self.sigs
-                .insert(source.to_owned(), super::Sig { params, result });
+            self.sigs.insert(
+                source.to_owned(),
+                super::Sig {
+                    params,
+                    result,
+                    rows: Default::default(),
+                },
+            );
         }
         let answer = self.begin(Some(store), None, source, args);
         self.refresh_background();
