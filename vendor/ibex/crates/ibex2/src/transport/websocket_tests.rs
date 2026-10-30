@@ -42,10 +42,20 @@ fn frame(fin: bool, opcode: u8, payload: &[u8]) -> Vec<u8> {
     out
 }
 
-/// One client frame, unmasked: (fin, opcode, payload), or `None` at the end.
-fn client_frame(s: &mut impl Read) -> Option<(bool, u8, Vec<u8>)> {
+/// One client frame, unmasked: (fin, opcode, payload), or `None` at a clean
+/// end of stream. Read failures remain errors so the peer can report whether a
+/// missing frame was an EOF, reset, or timeout.
+fn read_client_frame(s: &mut impl Read) -> std::io::Result<Option<(bool, u8, Vec<u8>)>> {
     let mut head = [0u8; 2];
-    s.read_exact(&mut head).ok()?;
+    loop {
+        match s.read(&mut head[..1]) {
+            Ok(0) => return Ok(None),
+            Ok(_) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    s.read_exact(&mut head[1..])?;
     assert_eq!(head[0] & 0x70, 0, "client frames do not set RSV bits");
     assert!(head[1] & 0x80 != 0, "a client frame is masked");
     let fin = head[0] & 0x80 != 0;
@@ -58,21 +68,26 @@ fn client_frame(s: &mut impl Read) -> Option<(bool, u8, Vec<u8>)> {
     let len = match encoded_len {
         126 => {
             let mut bytes = [0u8; 2];
-            s.read_exact(&mut bytes).ok()?;
+            s.read_exact(&mut bytes)?;
             let len = u16::from_be_bytes(bytes) as usize;
             assert!(len >= 126, "client frame length is not minimally encoded");
             len
         }
         127 => {
             let mut bytes = [0u8; 8];
-            s.read_exact(&mut bytes).ok()?;
+            s.read_exact(&mut bytes)?;
             let len = u64::from_be_bytes(bytes);
             assert!(
                 len >= 65_536,
                 "client frame length is not minimally encoded"
             );
             assert_eq!(len >> 63, 0, "client frame length sets the reserved bit");
-            usize::try_from(len).ok()?
+            usize::try_from(len).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "client frame length exceeds usize",
+                )
+            })?
         }
         len => len as usize,
     };
@@ -85,13 +100,17 @@ fn client_frame(s: &mut impl Read) -> Option<(bool, u8, Vec<u8>)> {
         );
     }
     let mut mask = [0u8; 4];
-    s.read_exact(&mut mask).ok()?;
+    s.read_exact(&mut mask)?;
     let mut payload = vec![0u8; len];
-    s.read_exact(&mut payload).ok()?;
+    s.read_exact(&mut payload)?;
     for (i, b) in payload.iter_mut().enumerate() {
         *b ^= mask[i % 4];
     }
-    Some((fin, opcode, payload))
+    Ok(Some((fin, opcode, payload)))
+}
+
+fn client_frame(s: &mut impl Read) -> Option<(bool, u8, Vec<u8>)> {
+    read_client_frame(s).ok().flatten()
 }
 
 #[derive(Default)]
@@ -235,7 +254,16 @@ fn serve(mut s: TcpStream, saw: Sender<String>) {
         std::thread::sleep(Duration::from_millis(100));
     }
     let mut message: Option<(u8, Vec<u8>)> = None;
-    while let Some((fin, opcode, payload)) = client_frame(&mut s) {
+    let mut read_error = None;
+    loop {
+        let (fin, opcode, payload) = match read_client_frame(&mut s) {
+            Ok(Some(frame)) => frame,
+            Ok(None) => break,
+            Err(error) => {
+                read_error = Some(error);
+                break;
+            }
+        };
         if matches!(opcode, 1 | 2) {
             message = Some((opcode, Vec::new()));
         }
@@ -280,6 +308,9 @@ fn serve(mut s: TcpStream, saw: Sender<String>) {
             }
             break;
         }
+    }
+    if let Some(error) = read_error {
+        let _ = saw.send(format!("{path} read-error {:?}: {error}", error.kind()));
     }
     let _ = saw.send(format!("{path} gone"));
 }
@@ -513,10 +544,11 @@ pub(crate) fn conversation(transport: &dyn SocketTransport) {
             reason
         } if reason.is_empty()
     ));
-    assert!(matches!(
-        wait(&seen).as_str(),
-        "/echo opcode 8" | "/echo close 1000 "
-    ));
+    let report = wait(&seen);
+    assert!(
+        matches!(report.as_str(), "/echo opcode 8" | "/echo close 1000 "),
+        "the peer observed {report:?} instead of the client's Close frame"
+    );
     assert_eq!(wait(&seen), "/echo gone");
 
     // Race sends with a peer-initiated close. Frames accepted before the peer

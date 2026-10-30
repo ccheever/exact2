@@ -62,6 +62,36 @@
     }
   }
 
+  // @ref LLP 0068#opt-in-headers-hooks-protocol — a Headers object's guard reaches only trusted bootstrap
+  // A Headers object's guard (Fetch, "Headers class"): "immutable" refuses
+  // every change, and "response" ignores a change to a forbidden
+  // response-header name. fetch.js gives its responses' headers "immutable";
+  // an embedder that asks for these hooks may guard the ones it makes. fetch.js
+  // or installation removes this global before any module runs.
+  var guards = new WeakMapCtor();
+  var toLowerCase = uncurry(String.prototype.toLowerCase);
+  global.__ibex2_headers_hooks = {
+    guard: function (headers, guard) {
+      requireHandle(headers);
+      if (guard !== "immutable" && guard !== "response") {
+        throw new TypeError("a Headers guard is \"immutable\" or \"response\"");
+      }
+      weakMapSet(guards, headers, guard);
+      return headers;
+    }
+  };
+  // Whether a change to `name` is ignored, after throwing if none is allowed
+  function guarded(headers, name) {
+    var guard = weakMapGet(guards, headers);
+    if (guard === "immutable") {
+      throw new TypeError("Headers are immutable");
+    }
+    if (guard !== "response") return false;
+    // Set-Cookie and Set-Cookie2 (Fetch, "forbidden response-header name")
+    var lower = toLowerCase(name);
+    return lower === "set-cookie" || lower === "set-cookie2";
+  }
+
   function fill(headers, init) {
     if (init === undefined || init === null) {
       return;
@@ -129,6 +159,7 @@
     value = String(value);
     requireValidName(name);
     requireValidValue(value);
+    if (guarded(this, name)) return;
     h.append(handle, name, value);
   };
 
@@ -138,6 +169,7 @@
     value = String(value);
     requireValidName(name);
     requireValidValue(value);
+    if (guarded(this, name)) return;
     h.set(handle, name, value);
   };
 
@@ -159,6 +191,7 @@
     var handle = requireHandle(this);
     name = String(name);
     requireValidName(name);
+    if (guarded(this, name)) return;
     h.remove(handle, name);
   };
 

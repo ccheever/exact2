@@ -35,7 +35,7 @@
     objectDefineProperties(view, {
       aborted: { get: function () { return state.aborted; }, enumerable: true },
       reason: { get: function () { return state.reason; }, enumerable: true },
-      // Exact patch 22: the signals `AbortSignal.any` composed this one of, or null.
+      // The signals `AbortSignal.any` composed this one of, flattened (a copy), or null for one it did not compose
       sources: { get: function () { return state.sources ? state.sources.slice() : null; }, enumerable: true }
     });
     objectFreeze(view);
@@ -171,10 +171,9 @@
     timerSet(function () { abort(signal, new DOMException("The operation timed out", "TimeoutError")); }, Math.floor(delay));
     return signal;
   };
-  // Exact patch 25: `values` is converted as Web IDL converts a
-  // `sequence<AbortSignal>`: the iterator method, `next` and each `value` read
-  // once, each value converted as it is yielded
-  // (https://webidl.spec.whatwg.org/#create-sequence-from-iterable).
+  // `values` is converted as Web IDL converts a `sequence<AbortSignal>`: the
+  // iterator method, `next` and each `value` read once, each value converted as
+  // it is yielded (https://webidl.spec.whatwg.org/#create-sequence-from-iterable).
   AbortSignal.any = function (values) {
     if (!isObject(values)) throw new TypeError("signals must be an iterable");
     var method = values[Symbol.iterator];

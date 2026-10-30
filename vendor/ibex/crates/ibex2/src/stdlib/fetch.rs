@@ -262,7 +262,8 @@ pub struct Request {
 /// sent so far and its length, `(loaded, total)`. A transport calls it on
 /// the thread that opened the request, as the platform reports bytes
 /// written, and with `(total, total)` by the time the response's headers
-/// have arrived. A redirect that sends the body again counts from zero.
+/// have arrived. A redirect, or a resend on a new connection, that sends the
+/// body again counts from zero.
 /// The second hook, if any, is the upload's start: told once, by the hop
 /// loop, when the first hop's grant and gate have admitted it and its
 /// transport is about to open, so a request they refuse never started. It

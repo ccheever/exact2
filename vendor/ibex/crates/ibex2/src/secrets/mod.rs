@@ -623,8 +623,19 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn assert_non_regular_secret_is_refused(store: &FileStore, name: &str) {
+        for result in [
+            store.get(name).map(|_| ()),
+            store.set(name, "replacement"),
+            store.forget(name),
+        ] {
+            assert!(matches!(result, Err(HostError::Failed(_))));
+        }
+    }
+
+    #[cfg(unix)]
     #[test]
-    fn a_symlink_or_non_file_is_never_read_replaced_or_removed_as_a_secret() {
+    fn a_symlink_is_never_read_replaced_or_removed_as_a_secret() {
         let dir = temp_dir();
         let store = FileStore::new(&dir);
         store.set("anchor", "value").unwrap();
@@ -632,40 +643,59 @@ mod tests {
         let outside = dir.with_extension("outside");
         std::fs::write(&outside, b"outside").unwrap();
         std::os::unix::fs::symlink(&outside, dir.join("linked")).unwrap();
-        for result in [
-            store.get("linked").map(|_| ()),
-            store.set("linked", "replacement"),
-            store.forget("linked"),
-        ] {
-            assert!(matches!(result, Err(HostError::Failed(_))));
-        }
+        assert_non_regular_secret_is_refused(&store, "linked");
         assert_eq!(std::fs::read(&outside).unwrap(), b"outside");
 
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&outside);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_is_never_read_replaced_or_removed_as_a_secret() {
+        let dir = temp_dir();
+        let store = FileStore::new(&dir);
+        store.set("anchor", "value").unwrap();
+
         std::fs::create_dir(dir.join("directory")).unwrap();
-        assert!(matches!(store.get("directory"), Err(HostError::Failed(_))));
-        assert!(matches!(
-            store.set("directory", "replacement"),
-            Err(HostError::Failed(_))
-        ));
-        assert!(matches!(
-            store.forget("directory"),
-            Err(HostError::Failed(_))
-        ));
+        assert_non_regular_secret_is_refused(&store, "directory");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[cfg_attr(
+        target_os = "android",
+        ignore = "Android adb shell may deny FIFO fixture creation"
+    )]
+    #[test]
+    fn a_fifo_is_never_read_replaced_or_removed_as_a_secret() {
+        let dir = temp_dir();
+        let store = FileStore::new(&dir);
+        store.set("anchor", "value").unwrap();
 
         use std::os::unix::ffi::OsStrExt as _;
         let fifo = dir.join("fifo");
         let fifo_path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
         // SAFETY: `fifo_path` is a live, NUL-terminated path for this call.
-        assert_eq!(unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) }, 0);
-        assert!(matches!(store.get("fifo"), Err(HostError::Failed(_))));
-        assert!(matches!(
-            store.set("fifo", "replacement"),
-            Err(HostError::Failed(_))
-        ));
-        assert!(matches!(store.forget("fifo"), Err(HostError::Failed(_))));
+        let result = unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) };
+        assert_eq!(
+            result,
+            0,
+            "FIFO fixture creation failed: {}",
+            std::io::Error::last_os_error()
+        );
+        assert_non_regular_secret_is_refused(&store, "fifo");
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_store_root_is_never_used() {
         let real_root = temp_dir();
         std::fs::create_dir_all(&real_root).unwrap();
+
         let linked_root = temp_dir();
         std::os::unix::fs::symlink(&real_root, &linked_root).unwrap();
         let linked_store = FileStore::new(&linked_root);
@@ -682,8 +712,6 @@ mod tests {
             Err(HostError::Failed(_))
         ));
 
-        let _ = std::fs::remove_dir_all(&dir);
-        let _ = std::fs::remove_file(&outside);
         let _ = std::fs::remove_file(&linked_root);
         let _ = std::fs::remove_dir_all(&real_root);
     }

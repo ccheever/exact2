@@ -417,6 +417,11 @@ mod tests {
         send.join().unwrap().unwrap();
         close.join().unwrap().unwrap();
         assert_eq!(
+            unsafe { super::ibex2_darwin_ws_test_wait_close_submitted(handle, 0.0) },
+            1,
+            "the admitted close never reached NSURLSession"
+        );
+        assert_eq!(
             unsafe { super::ibex2_darwin_ws_test_send_submitted_after_close(handle) },
             0,
             "an admitted send was submitted to NSURLSession after close"
