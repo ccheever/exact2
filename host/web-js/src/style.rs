@@ -426,16 +426,24 @@ pub fn project(
                 .is_some_and(|p| p.props.contains_key("data-exact-progress"))
         })
         .collect();
+    // A canvas keeps its width as a progress does, but in any parent (`sized_css.rs`).
+    let canvas: Vec<_> = out
+        .iter()
+        .map(|p| p.as_ref().is_some_and(|p| p.tag == "canvas"))
+        .collect();
     // Arms and each copies share templates. Only candidacy is static;
     // paint.js decides isolation from the actual instance's descendants.
     for (i, parts) in out.iter_mut().enumerate() {
         let Some(parts) = parts else { continue };
         let node = kernel.node(view(i)).expect("template node");
         crate::paint::attributes(&node.facts(), &mut parts.props);
-        // The immediate parent's live display supplies the block-flow exemption.
-        // A bound display writes the same property through `style_row`; regions
+        // The immediate parent's live display supplies the block-flow exemption
+        // (a progress's; a canvas reads only the alignment). A bound display writes the same property through `style_row`; regions
         // inherit it from their actual element parent without a DOM scan.
-        if tree[i].iter().any(|c| progress[*c as usize]) {
+        if tree[i]
+            .iter()
+            .any(|c| progress[*c as usize] || canvas[*c as usize])
+        {
             let justify = if node.style.display == exact_kernel::Display::Block {
                 "start"
             } else {
@@ -467,6 +475,12 @@ pub fn project(
             };
             parts.css.push_str(&format!("justify-self:{justify};"));
         }
+        if canvas[i] && node.style.position_type != exact_kernel::PositionType::Absolute {
+            parts.css = parts.css.replace("justify-self:start;", "");
+            parts
+                .css
+                .push_str(&format!("justify-self:{CANVAS_JUSTIFY};"));
+        }
     }
     symbol_marks(plan, &kernel, &parents, &mut out);
     Ok(out)
@@ -474,6 +488,8 @@ pub fn project(
 
 pub const PROGRESS_JUSTIFY: &str =
     "var(--exact-progress-aligned,var(--exact-progress-justify,start))";
+/// A canvas's: `start` unless an aligning parent's `justify-items` applies, in any display.
+pub const CANVAS_JUSTIFY: &str = "var(--exact-progress-aligned,start)";
 
 /// Whether image `i` draws a symbol in its author's `color` (LLP 1121 stage
 /// 9 B; `NodeRef::symbol_color_said`), as far as the static tree says:

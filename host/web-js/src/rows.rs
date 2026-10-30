@@ -536,19 +536,22 @@ impl Em<'_> {
             let normal = self.uses.rt("normal");
             writes.push(("--exact-progress-aligned".into(), String::new(), Some(format!(
                 "v=>{{const s={normal}(\"justify-items\",String(v??\"\")).toLowerCase().replace(/\\/\\*[\\s\\S]*?\\*\\//g,\" \").replace(/\\s+/g,\" \").trim();return /^(?:(?:safe|unsafe) )?(?:start|end|center|self-start|self-end|flex-start|flex-end|left|right)$|^(?:first )?baseline$/.test(s)?\"auto\":\"initial\"}}"
-
             ))));
         }
-        if id == StyleId::PositionType && parts.props.contains_key("data-exact-progress") {
+        // A canvas out of flow keeps `start`; a progress stretches between absolute insets.
+        let canvas = parts.tag == "canvas";
+        if id == StyleId::PositionType
+            && (canvas || parts.props.contains_key("data-exact-progress"))
+        {
+            let (out, justify) = match canvas {
+                true => ("start", style::CANVAS_JUSTIFY),
+                false => ("auto", style::PROGRESS_JUSTIFY),
+            };
             let normal = self.uses.rt("normal");
-            writes.push((
-                "justify-self".into(),
-                String::new(),
-                Some(format!(
-                    "v=>{normal}(\"position\",String(v??\"\"))===\"absolute\"?\"auto\":{:?}",
-                    style::PROGRESS_JUSTIFY
-                )),
-            ));
+            let map = format!(
+                "v=>{normal}(\"position\",String(v??\"\"))===\"absolute\"?{out:?}:{justify:?}"
+            );
+            writes.push(("justify-self".into(), String::new(), Some(map)));
         }
         if matches!(id, StyleId::FontWeight | StyleId::LineHeight) {
             let normal = self.uses.rt("normal");
