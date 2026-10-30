@@ -3165,8 +3165,9 @@ non-comparables remain.
 ## G5: the static screen and the GPU
 
 @ref LLP 1149 §4.1; preparation on 2026-10-29, `lane/g5-static`, based on
-`48653eb5cb` (includes G4 at `be5413a907`). Three interleaved rounds each of
-fling, `bar` and `caret` use G4's four arms, screen, data and quiet rule.
+`48653eb5cb` (includes G4 at `be5413a907`). The prepared series has three
+interleaved rounds each of fling, `bar` and `caret`, using G4's four arms,
+screen, data and quiet rule.
 There are no cold-only launches or cold-start comparisons. Each measured
 phase begins after the complete-scene readiness handshake.
 
@@ -3216,6 +3217,67 @@ All four signed bundle copies have probe SHA-256
 the declared hashes and their copies. The plan and run script are
 `target/g5/plan.txt` and `run-series.py`. A startup readiness failure, as well
 as a focus loss, retains its attempt and permits one retry for that slot;
-a second failure skips the slot. No benchmark window was opened during
-preparation. Measurement awaits a `GO` newer than the lane's start at
-21:59:50 PDT, even if it predates preparation.
+a second failure skips the slot.
+
+**Run status: no samples.** `target/g5/GO` did not appear during the
+three-hour wait, from 2026-10-29 22:30:13 to 2026-10-30 01:30:13 PDT.
+Polling accepted any file newer than the lane's start at 21:59:50 PDT,
+including one written before preparation finished. The final poll recorded
+`TIMEOUT`, 10,800 seconds waited and no GO mtime in `target/g5/wait-state.json`.
+No benchmark window was opened and no input was posted. The prepared
+bundles, plan and run script remain in `target/g5/`.
+
+The tables below record the missing measurements explicitly. A dash means
+unmeasured; no medians or ranges can be computed. The offscreen probe check
+and synthetic aggregation fixture are validation, not workload samples.
+
+**Bar, 10 seconds, row zero, no input**
+
+| Metric | Native Apple | GPUI | Ink, direct Metal | egui |
+| --- | ---: | ---: | ---: | ---: |
+| Quiet samples | 0 | 0 | 0 | 0 |
+| Process CPU, ms/s | — | — | — | — |
+| Main-thread CPU, ms/s | — | — | — | — |
+| Frames/s (native: display-link cadence) | — | — | — | — |
+| Peak footprint, MiB | — | — | — | — |
+| End footprint, MiB | — | — | — | — |
+
+**Caret, 10 seconds, row zero, no input**
+
+| Metric | Native Apple | GPUI | Ink, direct Metal | egui |
+| --- | ---: | ---: | ---: | ---: |
+| Quiet samples | 0 | 0 | 0 | 0 |
+| Process CPU, ms/s | — | — | — | — |
+| Main-thread CPU, ms/s | — | — | — | — |
+| Frames/s (native: display-link cadence) | — | — | — | — |
+| Peak footprint, MiB | — | — | — | — |
+| End footprint, MiB | — | — | — | — |
+
+**GPU time**
+
+| Metric | Native Apple | GPUI | Ink, direct Metal | egui |
+| --- | ---: | ---: | ---: | ---: |
+| Fling quiet samples | 0 | 0 | 0 | 0 |
+| Fling GPU, ms/s | — | — | — | — |
+| Fling GPU, ms/presented frame | — | — | — | — |
+| Bar GPU, ms/s | — | — | — | — |
+| Bar GPU, ms/presented frame | — | — | — | — |
+| Caret GPU, ms/s | — | — | — | — |
+| Caret GPU, ms/presented frame | — | — | — | — |
+
+**Expectation check**
+
+| Expectation stated before measurement | Result |
+| --- | --- |
+| Bar: native main-thread CPU below 10 ms/s through Core Animation | Untested; no native sample |
+| Bar: ink pays the frame's bookkeeping | Untested; no ink sample |
+| Bar: GPUI pays the frame's bookkeeping | Untested; no GPUI sample |
+| Bar: egui rebuilds the visible rows each frame | Untested in a running app; no egui sample |
+| Caret: every arm idles between the 500 ms changes | Untested in all four arms; no samples |
+
+The four builds, command-buffer accounting and aggregation checks passed.
+The missing display run leaves CPU, frame cadence, footprint and GPU cost
+unmeasured for every arm and workload; it also leaves the two animations'
+appearance unverified. This preparation provides no evidence for accepting
+or rejecting the workload expectations. Power is unavailable for the
+separate permission reason recorded above.

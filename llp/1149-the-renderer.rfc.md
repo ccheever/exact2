@@ -1092,6 +1092,16 @@ and disclose their freshly copied images; desktop captures use input attachment
 or UI Automation focus without a client click. See [G6d’s before/after tables
 and retained trials](../bench/heavy-list/gpui/RESULTS.md#g6d-the-windows-reviews-lifecycle-fixes).
 
+**G5, 2026-10-29**: all four arms have the bar and caret workloads, and the
+shared probe records Metal command-buffer GPU spans by phase. The builds,
+offscreen GPU accounting check, aggregation fixture and required checks
+passed. The display's `GO` file did not arrive during the three-hour wait
+ending 2026-10-30 01:30:13 PDT: **zero samples**, so CPU, frame cadence,
+footprint and GPU cost remain **unmeasured** for fling, bar and caret.
+Every workload expectation remains untested; no benchmark window was opened.
+Power was skipped because passwordless `powermetrics` was unavailable
+(`bench/heavy-list/gpui/RESULTS.md`, “G5”).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms
