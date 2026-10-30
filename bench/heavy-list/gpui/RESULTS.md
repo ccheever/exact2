@@ -4742,3 +4742,16 @@ No prior raw evidence was deleted. No benchmark series was rerun in this
 mechanical landing pass, and Stage 0's outstanding qualification is unchanged.
 
 Third rebase onto `43e0d93b85`: the `probe.m` and `window.rs` conflicts retain Stage 0's cause attribution and traces alongside Stage 0b's retries until a frame displays; all six checks pass, including Clippy and fmt (`target/s0/landing3/`).
+
+## G4m, the instrument's share
+
+**Predictions before measurement, 2026-10-30.** Five rounds per configuration,
+interleaved by round on the silver Mac: (a) command-buffer hook off, power
+sampling off; (b) hook on, power off; (c) hook on, power on as G4m. The
+unchanged posted fling and probe CPU endpoints measure paired differences.
+Predicted process CPU added by the hook, in ms/s: native −5 to +5, GPUI
++1 to +10, Ink +1 to +10, egui +5 to +20. Predicted power-sampler cost:
+0 to +5 ms/s per arm. Presented frames/s should change by at most 5% for
+each painted arm, and median peak footprint by at most 10% for every arm,
+in (b) versus (a) and (c) versus (b). These are hypotheses, not gates.
+`target/g4m-hook/plan.txt` retains the protocol and denominators.

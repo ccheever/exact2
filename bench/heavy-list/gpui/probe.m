@@ -43,6 +43,7 @@ static NSString *workload;
 static pthread_mutex_t gpuLock = PTHREAD_MUTEX_INITIALIZER;
 static struct { double seconds; uint64_t committed, completed, invalid; } gpu[3];
 static int gpuPhase;
+static BOOL gpuHookEnabled;
 static NSString *queueClass, *bufferClass;
 static IMP originalCommit, originalBuffer, originalUnretainedBuffer, originalDescriptorBuffer;
 
@@ -107,6 +108,15 @@ static void watchCommandQueues(void) {
         *originals[i] = method_getImplementation(method);
         class_replaceMethod(concrete, selectors[i], replacements[i], method_getTypeEncoding(method));
     }
+}
+
+static void configureGPUHook(void) {
+    const char *setting = getenv("G1_GPU_HOOK");
+    if (setting && strcmp(setting, "0") && strcmp(setting, "1")) {
+        fprintf(stderr, "probe: G1_GPU_HOOK must be 0 or 1\n"); exit(2);
+    }
+    gpuHookEnabled = !setting || strcmp(setting, "0");
+    if (gpuHookEnabled) watchCommandQueues();
 }
 
 static void setGPUPhase(int phase) {
@@ -583,6 +593,7 @@ static NSData *signature(NSView *view) {
     if (firstDrawable) self.result[@"firstDrawableMs"] = @((firstDrawable - processStart) * 1000);
     self.result[@"arm"] = arm;
     self.result[@"workload"] = workload;
+    self.result[@"gpuHookEnabled"] = @(gpuHookEnabled);
     self.result[@"imageRefusalsAllowed"] = @(getenv("G1_ALLOW_IMAGE_REFUSALS") != NULL);
     if (painted) {
         self.result[@"drawableCalls"] = @(atomic_load(&drawableCalls));
@@ -743,7 +754,7 @@ __attribute__((constructor)) static void initialize(void) {
         if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&initial) || !initial.ri_proc_start_abstime) abort();
         processStart = initial.ri_proc_start_abstime * tickSeconds;
         presented = [NSMutableArray array];
-        watchCommandQueues();
+        configureGPUHook();
         {
             Method method = class_getInstanceMethod(CAMetalLayer.class, @selector(nextDrawable));
             class_addMethod(CAMetalLayer.class, @selector(g1_originalDrawable), method_getImplementation(method), method_getTypeEncoding(method));
@@ -774,6 +785,34 @@ int main(void) {
         firstBootTick();
         assert(wakes == 1);
         puts("probe: painter-specific completeness and one boot-expose wake passed");
+        configureGPUHook();
+        id<MTLCommandQueue> queue = [MTLCreateSystemDefaultDevice() newCommandQueue];
+        assert(queue);
+        NSArray<id<MTLCommandBuffer>> *buffers = @[[queue commandBuffer],
+            [queue commandBufferWithUnretainedReferences],
+            [queue commandBufferWithDescriptor:[MTLCommandBufferDescriptor new]]];
+        setGPUPhase(1);
+        for (id<MTLCommandBuffer> buffer in buffers) {
+            id<MTLBlitCommandEncoder> encoder = [buffer blitCommandEncoder];
+            [encoder endEncoding];
+            [buffer commit];
+        }
+        setGPUPhase(2);
+        double seconds = 0;
+        for (id<MTLCommandBuffer> buffer in buffers) {
+            [buffer waitUntilCompleted];
+            assert(buffer.status == MTLCommandBufferStatusCompleted);
+            seconds += buffer.GPUEndTime - buffer.GPUStartTime;
+        }
+        NSDictionary *usage = gpuUsage(1);
+        assert([usage[@"committed"] intValue] == (gpuHookEnabled ? 3 : 0));
+        assert([usage[@"completed"] intValue] == (gpuHookEnabled ? 3 : 0));
+        assert([usage[@"invalid"] intValue] == 0);
+        assert(fabs([usage[@"seconds"] doubleValue] - (gpuHookEnabled ? seconds : 0)) < 1e-9);
+        assert([gpuUsage(2)[@"committed"] intValue] == 0);
+        if (!gpuHookEnabled) assert(!queueClass && !bufferClass && !originalCommit);
+        printf("probe: GPU hook %s; three buffers completed, commit-phase accounting passed\n",
+            gpuHookEnabled ? "on" : "off");
     }
     return 0;
 }
