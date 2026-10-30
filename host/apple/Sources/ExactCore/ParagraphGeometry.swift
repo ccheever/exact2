@@ -75,9 +75,9 @@ extension TextEngine {
     /// Where a line starts in a box `room` wide, flush `flush` (0 left, 0.5
     /// centre, 1 right). The line aligns as its ink and the trailing spaces
     /// its width counts (`countedTrailingWidth`, from `whiteSpace` and the
-    /// line's `source`): they do not hang, so CSS Text 3 §4.1.2 aligns them
-    /// with the rest of the line. CoreText's pen offset leaves every trailing
-    /// space out. A right-aligned `pre-wrap` "Say " ends its space,
+    /// line's `source`): they do not hang, and only a hanging glyph is left
+    /// out of alignment (CSS Text 3 §8.2). CoreText's pen offset leaves every
+    /// trailing space out. A right-aligned `pre-wrap` "Say " ends its space,
     /// not its "y", at the right edge, as in Chrome. CoreText draws a
     /// right-to-left line's trailing spaces left of its pen, so there the
     /// pen moves right by them. A line wider than its box is start-aligned
@@ -87,6 +87,8 @@ extension TextEngine {
     /// text size spilled left over its neighbour (round 13's weather: the
     /// "High" header ran into "Low") where the web spills right.
     package static func penOffset(_ line: CTLine, flush: CGFloat, room: Double, rtl: Bool, whiteSpace: Int = 0, source: NSAttributedString? = nil) -> CGFloat {
+        // A left-aligned left-to-right line starts at its box's start edge
+        if flush == 0 && !rtl { return 0 }
         let counted = source.map { countedTrailingWidth(line, whiteSpace: whiteSpace, source: $0, room: CGFloat(room)) } ?? 0
         // The room beside the line's ink (CoreText's offset for a right flush)
         let slack = CGFloat(CTLineGetPenOffsetForFlush(line, 1, room))
