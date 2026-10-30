@@ -271,13 +271,16 @@ final class SplitMacTests: XCTestCase {
         route.container.addSubview(card)
         card.frame = NSRect(x: 16, y: 16, width: 200, height: 80)
         card.applyStyle(["background_color": .object(["sys": .string("underPageBackgroundColor"), "c": .array([.array([242, 242, 247, 255]), .array([28, 28, 30, 255])])])])
+        route.display(); card.display()
         XCTAssertTrue(route.standsOnSplitGround, "the ground still shows the split's surface")
+        XCTAssertNil(route.layer?.backgroundColor, "and paints none of its own")
         XCTAssertFalse(card.standsOnSplitGround)
-        let drawn = try XCTUnwrap(card.cgColor("background_color"))
+        // The card's layer paints AppKit's under-page grey, as resolved where it stands
+        let srgb = { (c: CGColor) in c.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components?.map { ($0 * 255).rounded() } }
+        let painted = try XCTUnwrap(card.layer?.backgroundColor.flatMap(srgb), "the card's layer has a fill")
         var want = NSColor.underPageBackgroundColor.cgColor
         card.effectiveAppearance.performAsCurrentDrawingAppearance { want = NSColor.underPageBackgroundColor.cgColor }
-        XCTAssertEqual(drawn.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components?.map { ($0 * 255).rounded() },
-                       want.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components?.map { ($0 * 255).rounded() })
+        XCTAssertEqual(painted, try XCTUnwrap(srgb(want)))
     }
 
     func testPublicLayoutSamplesAndScreenshotClicksShareThePageOrigin() throws {

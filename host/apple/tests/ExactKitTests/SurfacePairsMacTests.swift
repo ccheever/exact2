@@ -4,9 +4,11 @@ import XCTest
 @testable import ExactKit
 
 /// The Mac's surface pairs (LLP 1095 D2's roles; theme2's Mac surface-roles ruling): a card on a plain page and a card
-/// on a grouped page each draw apart from their page, in light, dark and both increased-contrast appearances, in
-/// AppKit's own colours (on current macOS the window's and a control's backgrounds are one colour, so a card names the
-/// under-page grey).
+/// on a grouped page each draw apart from their page, in light and dark, in AppKit's own colours (on current macOS the
+/// window's and a control's backgrounds are one colour, so a card names the under-page grey). The increased-contrast
+/// legs prove the `contrast: true` lookup agrees with AppKit's named high-contrast appearances; on the Mac those
+/// resolve as plain Aqua (SystemColor.swift `drawsHighContrast`), and these three colours don't move under the system's
+/// Increased Contrast either, so they prove no contrast change.
 final class SurfacePairsMacTests: XCTestCase {
     /// AppKit's colour, resolved in `appearance`, as 0...255 sRGB channels
     private func appKit(_ color: NSColor, _ appearance: NSAppearance.Name) -> [Double] {
