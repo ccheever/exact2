@@ -73,6 +73,19 @@ cleanup evidence are under
 `target/t3-poc-evidence/desktop-native-browser-acceptance/`. The primary-launcher
 runtime difference remains source-inferred. No release checkpoint is reached.
 
+The header-input probe narrows the missing press to native handling between
+`NSApp.sendEvent` and runner dispatch. For one live toggle at `[1253,26]`, both
+content and frame hit tests return child node 57; `pressReach` resolves button 56.
+The complete journal interval is empty, with unchanged epoch and panel state.
+No chrome interceptor is captured. A correctly encoded `Alt+Meta+B` control
+records held modifiers and the shortcut press, then opens the chooser through
+Root. Files and Browser navigation remain untested. The instrumented source is
+restored byte for byte. A clean standard rebuild starts and opens the palette
+without the receipt. Both owned launches quit normally; the original listener
+and window defaults remain unchanged. Evidence and the unresolved native boundary
+are under `target/t3-poc-evidence/desktop-panel-input-forensics/`. No ordinary-app
+defect or full parity is established.
+
 The earlier standard desktop bundle from clean source `667c11267d` uses C ABI 18,
 runtime 5 and Apple native ABI 3. Its executable SHA-256 starts
 `ace5a0a9533f05a3`; its module starts `1dda02be376510c2`. The official pinned
