@@ -59,30 +59,29 @@ impl<D: DataSource> Presenter<D> {
     /// ([`crate::text::cache::deferring_eviction`]): a paint that misses walks
     /// the cache once, not once per paragraph.
     pub fn frame(&mut self) -> Arc<Pixmap> {
-        #[cfg(windows)]
-        let window_damage = self.surfaces.direct_window.is_some() && self.dirty();
-        let frame = self
-            .frame_for(FrameTarget::Pixels)
-            .expect("capture has pixels or a CPU fallback");
-        // A geometry/accessibility snapshot has not submitted the window's new picture.
-        #[cfg(windows)]
-        if window_damage {
-            self.repaint();
-        }
-        frame
+        self.frame_for(FrameTarget::Pixels)
+            .expect("capture has pixels or a CPU fallback")
     }
 
     pub(crate) fn frame_for(&mut self, target: FrameTarget) -> Option<Arc<Pixmap>> {
+        #[cfg(windows)]
+        let window_damage = self.surfaces.direct_window.is_some() && self.dirty();
         // Its session's roles, whatever else lives on the thread (LLP 1121 stage 5).
         let _roles = self.host.runner().bind_roles();
-        crate::text::cache::deferring_eviction(|| {
+        let frame = crate::text::cache::deferring_eviction(|| {
             let frame = self.paint_frame(target);
             if self.last_frame_succeeded && self.reveal_field_cursor() {
                 self.paint_frame(target)
             } else {
                 frame
             }
-        })
+        });
+        // A geometry/accessibility snapshot has not submitted the window's new picture.
+        #[cfg(windows)]
+        if window_damage {
+            self.repaint();
+        }
+        frame
     }
     /// Whether the last paint produced a current picture rather than a fallback.
     pub fn last_frame_succeeded(&self) -> bool {
