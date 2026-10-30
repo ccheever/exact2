@@ -3204,3 +3204,18 @@ pixels. G4's whole-app and visual non-comparables still apply.
 
 Power was skipped: `sudo -n /usr/bin/powermetrics --samplers cpu_power,gpu_power -i 1000 -n 1`
 returned “sudo: a password is required”.
+
+Preparation passed all six repository checks, including clippy and fmt, and
+both GPUI's and egui's clippy (`-D warnings`) and fmt. Cargo used this
+worktree's `target/`; tests used `RUST_TEST_THREADS=2`. Commands, exits and
+logs are in `target/g5/checks/`. The probe's offscreen check and controlled
+aggregation fixture passed; G4's two published tables still reproduce exactly.
+All four signed bundle copies have probe SHA-256
+`9006af6aa4f59aeac785531ee8978e38b3569ce9538700e59b4fa8a650a8208f`;
+`target/g5/provenance.json` records the other hashes. All 105 data assets match
+the declared hashes and their copies. The plan and run script are
+`target/g5/plan.txt` and `run-series.py`. A startup readiness failure, as well
+as a focus loss, retains its attempt and permits one retry for that slot;
+a second failure skips the slot. No benchmark window was opened during
+preparation. Measurement awaits a `GO` newer than the lane's start at
+21:59:50 PDT, even if it predates preparation.
