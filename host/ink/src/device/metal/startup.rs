@@ -77,6 +77,7 @@ impl Startup {
         wake: Arc<dyn Fn() + Send + Sync>,
         gate: Option<mpsc::Receiver<()>>,
     ) -> Result<Self> {
+        crate::counters::initialize();
         let _trace = Trace::new(c"boot Metal constructor");
         let started = Instant::now();
         let device = {
@@ -146,6 +147,7 @@ impl Startup {
 
     pub fn attach(&mut self, layer: Layer) {
         let _trace = Trace::new(c"boot CPU attach layer");
+        crate::counters::presentation_support(true, true);
         let raw = layer.render_layer();
         raw.raw.setDevice(Some(&self.context.device));
         // A fallback uses a blit, which framebuffer-only drawables forbid.
@@ -395,6 +397,9 @@ impl CpuFrame {
                 self.command
                     .presentDrawable(ProtocolObject::from_ref(&*drawable.0));
             }
+        }
+        if matches!(&result, Ok(Some(_))) {
+            crate::counters::submitted();
         }
         self.command.commit();
         if self.transaction {

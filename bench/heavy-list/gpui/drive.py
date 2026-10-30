@@ -2,13 +2,14 @@
 import argparse, hashlib, json, os, pathlib, signal, socket, subprocess, time
 ROOT=pathlib.Path(__file__).resolve().parents[3]
 P=ROOT/'target/s0'
-ap=argparse.ArgumentParser();ap.add_argument('name');ap.add_argument('--binary',required=True);ap.add_argument('--counters',action='store_true');ap.add_argument('--profile',action='store_true');ap.add_argument('--vmmap',action='store_true');ap.add_argument('--cpu-only',action='store_true');ap.add_argument('--dispatch',action='store_true');ap.add_argument('--clear',action='store_true');ap.add_argument('--busy',action='store_true');ap.add_argument('--delta',type=float,default=11.3);ap.add_argument('--vmmap-at',type=float,default=.2);ap.add_argument('--no-probe-display',action='store_true');ap.add_argument('--no-probe-timer',action='store_true');ap.add_argument('--wake-trace',action='store_true');ap.add_argument('--time-profiler',action='store_true');ap.add_argument('--hz',type=int,default=120);ap.add_argument('--busy-binary',default='metal-busy');ap.add_argument('--out-root',default=str(P));ap.add_argument('--device',default='metal',choices=['metal','wgpu']);a=ap.parse_args()
+ap=argparse.ArgumentParser();ap.add_argument('name');ap.add_argument('--binary',required=True);ap.add_argument('--counters',action='store_true');ap.add_argument('--profile',action='store_true');ap.add_argument('--vmmap',action='store_true');ap.add_argument('--cpu-only',action='store_true');ap.add_argument('--dispatch',action='store_true');ap.add_argument('--clear',action='store_true');ap.add_argument('--busy',action='store_true');ap.add_argument('--delta',type=float,default=11.3);ap.add_argument('--vmmap-at',type=float,default=.2);ap.add_argument('--no-probe-display',action='store_true');ap.add_argument('--no-probe-timer',action='store_true');ap.add_argument('--wake-trace',action='store_true');ap.add_argument('--time-profiler',action='store_true');ap.add_argument('--hz',type=int,default=120);ap.add_argument('--busy-binary',default='metal-busy');ap.add_argument('--out-root',default=str(P));ap.add_argument('--device',default='metal',choices=['metal','wgpu']);ap.add_argument('--cache-dir');a=ap.parse_args()
 out=pathlib.Path(a.out_root).resolve()/a.name;out.mkdir(exist_ok=False)
 base=out/'ink.json';sockpath=f'/tmp/exact-s0-{os.getpid()}.sock'
 env=os.environ.copy()
 for k in list(env):
  if k.startswith(('EXACT_','G1_','BENCH_')):env.pop(k)
 env.update(EXACT_AGENT='1',EXACT_AGENT_LIVE='1',EXACT_AGENT_SOCKET=sockpath,EXACT_INK_DEVICE=a.device,EXACT_PAINTER='ink',EXACT_WINDOW_WIDTH='800',EXACT_WINDOW_HEIGHT='768',EXACT_ASSETS=str(ROOT/'bench/heavy-list/exact-heavylist'),BENCH_LIVE='0',G1_TRACE='1',G1_ARM='ink',G1_OUTPUT=str(base),EXACT_AGENT_STORAGE='s0-'+a.name,EXACT_AGENT_STORAGE_FRESH='1')
+if a.cache_dir:env['EXACT_CACHE']=str(pathlib.Path(a.cache_dir).resolve())
 if a.counters:env['EXACT_INK_COUNTERS']='1'
 if a.cpu_only:env['G1_AGENT_CPU_ONLY']='1'
 env['G1_REST_TRACE']='1'

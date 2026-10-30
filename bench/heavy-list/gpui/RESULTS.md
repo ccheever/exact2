@@ -4545,3 +4545,18 @@ minimize/restore, caret and sleep/wake also pass. No GO file is required on
 this dedicated machine. There is no new lane failure to bisect; this pass
 does not explain the earlier intermittent compositor failures or establish
 that counters caused them. Recovery policy is unchanged.
+
+The rebase onto `03822d449a` preserves Stage 0b's asynchronous startup and
+its probe readiness criteria. Its CPU startup path uses the same Metal
+layer and displayed callback, so Stage 0 now counts an accepted CPU present
+at command submission too; unavailable drawables remain excluded. Counter
+initialization occurs when startup opens, and attachment declares both
+observations supported. This adds observations only.
+
+Before the integrated rerun: the same full-probe 1,200-request Mac drive
+is again predicted to retain more than zero and fewer than 1,388 dispatch-only
+passes, with all redraw trailing passes carrying `DRAW`. `drive.py --cache-dir`
+selects a new retained cache directory so this run also exercises Stage 0b's
+archive miss. The probe should record a CPU submission followed by ink, and
+frame counter state should remain available. The six checks and affected
+Mac host/pixel suites are predicted to exit zero after this rebase.
