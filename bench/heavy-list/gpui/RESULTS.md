@@ -4665,3 +4665,78 @@ sequence. `MAC-TEST-OUTPUT.txt` now collects all unchanged Mac output,
 including both failures and the third run; `MAC-RESULTS.txt` and
 `TEST-RESULTS.txt` include their exact result lines. The final gate cannot
 be certified within the required three-round limit.
+
+### Stage 0 landing 2: rebase and quiet-machine checks
+
+Rebased thirteen lane commits, previously ending at `df4b1f29e2`, onto
+`origin/main` `5fa5fcc2f3` (27 upstream commits). The RESULTS conflict keeps
+main's Stage 0b, G4m and G5m records, then the lane's Stage 0 sections,
+unchanged. The QUEUE conflict keeps both sides' follow-ups. The RFC merges
+automatically: Stage 0's attribution stays in §2 and main's measurement
+lines in §3 stay intact. No rendering or deadline changes are made here.
+
+**Prediction before the checks:** all six checks exit zero, with both
+Clippy and fmt included in lint. Commands run serially, with the pinned
+Bun 1.4.2, `RUST_TEST_THREADS=2` and this worktree's own `target/`.
+The quiet gate requires one-minute load below 30 and no other worktree's
+Rust, Swift or Clang compiler. Polling is once a minute in batches of at
+most ten minutes, up to ninety minutes. The wait, commands, exit codes
+and unchanged output are retained under `target/s0/landing2/`.
+
+The first gate passed at **15:50:19 PDT**, after **3 min 1 s**: load
+20.70, with no compilers. Compilation resumed before caps; that first caps
+passed, and build started at load 25.17 with no compilers and passed.
+The first root-test attempt then started at load 76.36. It was interrupted
+without a completed verdict, with no failures reported before interruption.
+Its unchanged output and recorded process IDs remain in `test.log`,
+`interrupted-test.json` and `stopped-processes.json`.
+
+The remaining commands each waited for their own quiet observation. Caps
+resumed at **16:24:21 PDT** after another **27 min 57 s**, at load 29.04
+with no compilers, and passed. Tests waited another minute; Clippy two
+minutes; fmt one minute. Total gate waiting was **34 min 59 s**. The
+ninety-minute limit did not expire. Test/Clippy/fmt/boot/workspace started
+at loads **19.79/26.17/21.96/19.96/19.96**, each with no compilers.
+Every completed command had a quiet start; observations record later
+compiler activity during some checks. `quiet.jsonl`, `checks-machine.jsonl`
+and `qualified/machine.jsonl` retain the observations, including the
+loaded interruption and the resumed wait. Early per-process inspection
+stretched one ten-minute polling batch to 10 min 15 s; the resumed controller
+then used one batched process query to keep the minute cadence.
+
+**Prediction met: all six completed checks exit zero.** Lint includes both
+Clippy and fmt. The root command emits 113 passing result summaries:
+7,384 passes, zero failures and 83 ignored, including nested child reruns.
+Both known timing cases pass, so no isolated binary rerun is needed.
+Their deadlines are unchanged. The existing queued timing investigations remain;
+this passing run does not explain the earlier failures.
+
+| Check | Command | Exit | Verbatim completion output |
+| --- | --- | ---: | --- |
+| build | `cargo build --all-targets --keep-going` | 0 | ``    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 32s`` |
+| test | `cargo test --tests --no-fail-fast` | 0 | All 113 result lines in `FINAL-RESULTS.txt` |
+| lint | `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | ``    Finished `dev` profile [unoptimized + debuginfo] target(s) in 55.54s`` |
+| lint | `cargo fmt --all -- --check` | 0 | No output |
+| caps | `bun scripts/caps.mjs` | 0 | `All budgets within cap. 10 categories inspected.` |
+| boot | `bun scripts/boot.mjs` | 0 | Full output in `FINAL-RESULTS.txt` |
+| workspace | `cargo check --workspace --all-targets --keep-going` | 0 | ``    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6m 27s`` |
+
+The two previously failing binaries' final result lines, verbatim:
+
+```text
+exact-apple --lib:
+test result: ok. 564 passed; 0 failed; 18 ignored; 0 measured; 0 filtered out; finished in 15.60s
+exact-svg-file --lib:
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.03s
+```
+
+`FINAL-RESULTS.txt` retains every check's completion lines;
+`FINAL-OUTPUT.txt` retains their complete output, including warnings.
+`final.json` records commands, environment, exits, durations and log hashes.
+All paths in this subsection are under `target/s0/landing2/`; the completed
+root tests, lint, repeated caps, boot and workspace logs are in `qualified/`.
+The initial completed build remains `build.log`. `range-diff.txt` and
+`merge-audit.txt` retain the rebase comparison: executable patches are
+unchanged, and the RESULTS sections and RFC measurement lines are preserved.
+No prior raw evidence was deleted. No benchmark series was rerun in this
+mechanical landing pass, and Stage 0's outstanding qualification is unchanged.
