@@ -115,8 +115,10 @@ mobile tests, 253 focused tests including desktop minimap, strict TypeScript,
 generator verification and the six repository checks pass. Both actual preview
 components pass baseline/current EAS controls at 16-point light and 20-point dark.
 Heading/table controls, natural wrapping and single code pans remain usable.
-Repeated long-code pans reach blank space in both baseline and current; right-edge
-clamping remains unqualified. The restored normal app passes Home, Settings,
+Repeated long-code pans expose blank ink after stability in both versions. The
+cutoff matches the native raster's 256-point overflow limit. Later pans chain into
+the fixture root. Native scroll extent and glyph metrics are still needed to
+separate painting from geometry; no correction is accepted yet. The normal app passes Home, Settings,
 Search, New task, Back and relaunch. Entries and normal declarations are restored;
 the cloud device is shut down. Evidence is under
 `target/t3-poc-evidence/phone-formatted-prose-implementation/`. Supplied-data
