@@ -47,6 +47,10 @@ final class IframeCaptureSessionTests: XCTestCase {
         session.natives.hatchesConnected = true
         session.presenter.press(try XCTUnwrap(node("show")).id)
         let mounted = try XCTUnwrap(node("doc"))
+        // A missing local PDF starts on the PDF's view, as named (its read fails later).
+        XCTAssertTrue(try XCTUnwrap(node("gone")).web is PDFView, "\(String(describing: node("gone")?.web))")
+        // A sandboxed local PDF stays WebKit's: a web view from its mount, never a PDF's view first (D10).
+        XCTAssertTrue(try XCTUnwrap(node("boxed")).web is WKWebView, "\(String(describing: node("boxed")?.web))")
         mounted.props["hatch"] = "frame"
         session.presenter.elements.created(mounted)
         let calls = { () -> [String: Int] in
@@ -54,12 +58,18 @@ final class IframeCaptureSessionTests: XCTestCase {
             return (words?["frame"] as? [String: Any])?["calls"] as? [String: Int] ?? [:]
         }
         XCTAssertEqual(calls()["built"], 1, "\(calls())")
-        wait(15) { node("doc")?.web is PDFView }
+        // The PDF's view from the mount (no web view first), its pages once the file came.
+        wait(15) { (node("doc")?.web as? PDFView)?.document?.pageCount == 3 }
         let frame = try XCTUnwrap(node("doc"))
         let pdf = try XCTUnwrap(frame.web as? PDFView, "the node shows a PDF view: \(String(describing: frame.web))")
         XCTAssertEqual(pdf.document?.pageCount, 3)
         XCTAssertTrue(ElementHatches.platform(of: frame, session.presenter) === pdf, "the hatch's platform object is the PDF view")
-        XCTAssertEqual(calls()["changed"], 1, "the hatch hears `changed` with the PDF view: \(calls())")
+        XCTAssertNil(calls()["changed"], "the hatch was built with the PDF view, which no other replaced: \(calls())")
+
+        // A frame whose PDF is not there starts on the PDF's view, as named, and gets a web
+        // view in its place when the read fails: that one is shown, in the window.
+        wait(15) { (node("gone")?.web as? WKWebView)?.window != nil }
+        XCTAssertNotNil((try XCTUnwrap(node("gone")).web as? WKWebView)?.window, "the failed PDF's web view, shown: \(String(describing: node("gone")?.web))")
 
         let tree = session.webviews.tree()
         let shown = (tree["nodes"] as? [[String: Any]])?.first { ($0["id"] as? NSNumber)?.uint32Value == frame.id }
@@ -83,7 +93,7 @@ final class IframeCaptureSessionTests: XCTestCase {
         wait(15) { frame.web is WKWebView }
         let web = try XCTUnwrap(frame.web as? WKWebView, "\(String(describing: frame.web))")
         XCTAssertTrue(ElementHatches.platform(of: frame, session.presenter) === web, "the hatch's platform object is the web view")
-        XCTAssertEqual(calls()["changed"], 2, "\(calls())")
+        XCTAssertEqual(calls()["changed"], 1, "the one replacement, PDF to HTML: \(calls())")
     }
 }
 #endif
