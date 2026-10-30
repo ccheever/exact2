@@ -35,6 +35,8 @@ mod shaping;
 pub(crate) mod transfer;
 #[cfg(test)]
 mod transfer_tests;
+#[cfg(all(test, windows))]
+mod windows_audit;
 use shaping::ShapedSource;
 mod ink;
 mod inline;

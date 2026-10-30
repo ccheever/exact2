@@ -4436,11 +4436,108 @@ implementation and measurement. The NucBox retains each attempt under
 
 | Prediction | Instrument and acceptance | Result |
 | --- | --- | --- |
-| A runner-to-layout stall over 50 ms produces one all-thread stack capture, with the application's PDB resolved when present. An ordinary launch produces none. | Inject one 200 ms hold between the existing boot phase marks; retain the capture and phase log. | Pending |
-| Moving device preparation after layout reduces runner-to-layout stalls over 50 ms from roughly 10/100 to at most 2/100. | 100 fresh Shelf processes per arm, alternating order, the S2 startup driver's phase logs; retain every attempt and report the full interval distributions. This tests the loader-lock hypothesis and predicts no first-screen improvement. | Pending |
-| DirectWrite natural advances agree with the shaper within 0.02 device pixels per glyph on the audited static outline faces at 100%, 125% and 150%. | Same font bytes, glyphs, sizes and variation coordinates; DirectWrite GetGlyphPlacements beside the shaper, retained per-glyph output. | Pending |
+| A runner-to-layout stall over 50 ms produces one all-thread stack capture, with the application's PDB resolved when present. An ordinary launch produces none. | Inject one 200 ms hold between the existing boot phase marks; retain the capture and phase log. | Injected hold captured after two failed attempts; ordinary-series prediction missed: two logged stalls have no capture and one short interval produced a late capture. |
+| Moving device preparation after layout reduces runner-to-layout stalls over 50 ms from roughly 10/100 to at most 2/100. | 100 fresh Shelf processes per arm, alternating order, the S2 startup driver's phase logs; retain every attempt and report the full interval distributions. This tests the loader-lock hypothesis and predicts no first-screen improvement. | Entry 2/100, layout 0/100. The predicted baseline incidence missed; the post-layout bound held. Cause unestablished. |
+| DirectWrite natural advances agree with the shaper within 0.02 device pixels per glyph on the audited static outline faces at 100%, 125% and 150%. | Same font bytes, glyphs, sizes and variation coordinates; DirectWrite GetGlyphPlacements beside the shaper, retained per-glyph output. | Met for Inter and Segoe UI: maximum 0.0000019074 device pixels. Variable faces are refused. |
 | RichEdit keeps the Contract value and UTF-16 selection through type, select, cut, paste and undo, with no duplicate insertion. | Shelf search and Excord's fixture composer on the NucBox; native input and runner state after each operation. | Pending |
 
 D3.3's colour, synthesis, variation, gamma and motion cases are audited separately;
 no unmeasured case is admitted to the default rasterizer. D7's field remains a
 candidate until its native-input and accessibility conditions have evidence.
+
+Before the candidate parity run: the existing `pinned paint` band is
+mean <5/255 and <6% of pixels beyond 32. With
+`EXACT_INK_RASTERIZER=directwrite-audit`, static outline faces use raw
+DirectWrite grayscale coverage, while variable, colour and synthetic
+oblique faces stay on swash. Predict that the whole-app band holds and
+that the named geometry filters remain green. This does not predict
+acceptance of the rasterizer: the system smoothing settings, colour,
+synthesis and motion qualifications in D3.3 still decide admission.
+
+
+### Startup A/B and the instrument's limit
+
+The same Shelf executable (`9d2481fae1`, `gpu-dev` with PDB output enabled)
+runs 100 launches per arm, interleaved, reversing the starting arm each
+round. Each has a fresh isolated application store, a 1024×720 client and
+120 frames. Driver and OS caches remain warm. No build or other GPU test
+runs beside the series. `series-exe-hash.txt` identifies the executable.
+
+| Device preparation starts | n | Runner-ready to layout-ready, median [min–max] ms | Over 50 ms |
+| --- | --- | --- | --- |
+| At process entry | 100 | 3.826 [2.318–138.547] | 2 |
+| After layout-ready | 100 | 2.5525 [2.285–3.709] | 0 |
+
+The entry tails are `tail-081-entry.log` (81.570 → 220.117 ms, a
+138.547 ms interval) and `tail-097-entry.log` (75.950 → 153.668 ms,
+77.718 ms). Neither has a stack capture. The one ordinary capture,
+`tail-080-entry.stacks.txt`, triggered at 131.663 ms although that log's
+runner/layout marks are 69.045/71.691 ms. Its main-thread stack starts in
+`NtGdiDdDDICreateAllocation`. It is a late capture, not the blocking stack
+of either tail. The channel observer and the printed phase marks do not
+reliably delimit the same interval; a queued completion can also beat a
+zero-duration timeout after the observer is delayed. This instrument is
+**not qualified for attributing an ordinary startup tail**.
+
+The injected 200 ms hold is captured with application symbols in attempt
+3; the process snapshot takes 6.026 ms and includes `startup_watchdog::phase`
+on the main thread. Attempt 1 could not read the misaligned Windows
+CONTEXT; attempt 2 loaded symbols too late. Attempt 3 snapshots contexts
+and copy-on-write stack memory before loading the PDB. All attempts remain.
+The three-round stop rule leaves the ordinary-series miss open. The A/B
+shows fewer logged tails after layout, but with only two events and no
+causal stack it does not identify the loader lock or earn a startup fix.
+No device-start policy change is enabled by default.
+
+Raw records: NucBox `target/stage-1w/series/` (200 logs and the capture),
+`series.log`, `series.exit`, `series-exe-hash.txt`, `watchdog-1.log` through
+`watchdog-3.log`, and their capture directories. Local copies are retained
+under `target/stage-1w-nucbox/`; the derived 200-row summary is
+`target/stage-1w/startup-summary.json`. Reproduce with the native
+`exact-ink --lib` test executable and `INK_SHELF` naming the symbolized
+Shelf, `INK_DESKTOP_OUT` a new directory, then
+`shelf_startup_tail_series --ignored --nocapture --test-threads=1`.
+`EXACT_STARTUP_STACKS` names one launch's capture; the existing S2 and Python
+Windows drivers now set it beside their logs. The helper's executable is
+the same Shelf and its PDB is beside it; no symbol server is contacted.
+
+### M9: first paired observations
+
+The presenter's own shaper and DirectWrite open the same retained font
+bytes. Five sizes (12, 14, 16, 20, 24), requested weights 400/600/700,
+scales 100/125/150% and four quarter-pixel phases produce 9,540 rows.
+Static-file weight requests do not supply a separate bold face; they do
+not qualify synthetic bold. The Latin string separates characters to
+avoid kerning and ligatures; every advance comparison first checks glyph
+IDs. The colour sample is one emoji. Raw coverage uses
+`IDWriteFactory2::CreateGlyphRunAnalysis`, natural measuring, no grid fit,
+and grayscale. No ClearType output enters the composition texture.
+
+| Face | Maximum advance difference, device px | Mean raw coverage difference /255 | Median swash / DirectWrite raster, µs | Default admission |
+| --- | ---: | ---: | ---: | --- |
+| Inter Regular | 0.0000019074 | 4.589 | 1.00 / 0.90 | Refused pending complete appearance/motion audit |
+| Segoe UI | 0 | 12.335 | 1.90 / 0.80 | Refused pending smoothing and native-reference audit |
+| Segoe UI Variable | 1.951172 | 38.706 | 3.40 / 0.80 | Refused: axes not mapped |
+| Roboto Flex | 1.265625 | 37.858 | 0.30 / 0.40 | Refused: axes not mapped |
+| Noto Color Emoji (CBDT) | 0 | Not comparable: colour versus mask | 176.15 / 0.40 | Refused: mask drops colour |
+
+Coverage means weight all pixels in the union of the paired glyph bounds;
+they are not whole-screen scores. Timing is one call per row, including
+space glyphs and each face's first cached-face creation; it is a diagnostic
+cost distribution, not a frame-time saving. The faster empty monochrome
+emoji is not a replacement for the colour raster. System rendering
+parameters are gamma 1.8, enhanced contrast 0.5, ClearType level 1.0; the
+candidate records them but has not applied their grayscale correction.
+COLR, sbix, synthetic bold/oblique, smoothing changes and a real monitor
+transition remain unqualified. Four subpixel phases and three scales do
+not alone qualify scrolling or a monitor change. No face is admitted to
+the default: swash remains the platform renderer.
+
+`EXACT_INK_RASTERIZER=directwrite-audit` exercises the static-outline
+candidate only. The refusal predicate keeps variable, colour and oblique
+faces on swash. Retained `target/stage-1w/audit-1/` on the NucBox (also
+copied locally under `target/stage-1w-nucbox/`) contains `glyphs.csv`, font
+bytes and paired 16 px, 400-weight, phase-zero masks with their placements.
+`audit-1.log` records the rendering parameters. Reproduce with the native
+`exact-linux --lib` test executable, `INK_TEXT_AUDIT` naming a new directory,
+`directwrite_audit --ignored --nocapture --test-threads=1`.

@@ -164,6 +164,21 @@ unsafe extern "system" fn composition_proc(
         if message == WM_NCDESTROY {
             RemoveWindowSubclass(window, Some(composition_proc), subclass);
         }
+        if (windows_sys::Win32::UI::WindowsAndMessaging::WM_IME_STARTCOMPOSITION
+            ..=windows_sys::Win32::UI::WindowsAndMessaging::WM_IME_COMPOSITION)
+            .contains(&message)
+        {
+            let event = windows_sys::Win32::UI::WindowsAndMessaging::MSG {
+                hwnd: window,
+                message,
+                wParam: wparam,
+                lParam: lparam,
+                ..Default::default()
+            };
+            if exact_ink::device::d3d11::fields::message_hook()(std::ptr::from_ref(&event).cast()) {
+                return 0;
+            }
+        }
         let flags = if message == WM_IME_COMPOSITION {
             composition_flags(lparam)
         } else {

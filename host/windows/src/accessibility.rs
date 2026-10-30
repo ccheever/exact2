@@ -38,6 +38,7 @@ pub(super) struct Access {
     nodes: BTreeMap<NodeId, Node>,
     runs: BTreeMap<NodeId, (i32, Vec<u32>)>,
     focus: NodeId,
+    embedded: BTreeMap<u32, (NodeId, u32)>,
 }
 
 impl Access {
@@ -48,6 +49,7 @@ impl Access {
             nodes: BTreeMap::new(),
             runs: BTreeMap::new(),
             focus: ROOT,
+            embedded: BTreeMap::new(),
         }
     }
 
@@ -186,8 +188,18 @@ impl Access {
                 props.is_some_and(|props| props.str(PropId::SemanticTag) == Some("textarea"));
             let readonly = props.is_some_and(|props| props.bool(PropId::Editable) == Some(false));
             let mut node = map_node(&source, origin, password, multiline, readonly);
+            let native = self
+                .embedded
+                .get(&source.view)
+                .is_some_and(|(_, generation)| {
+                    exact_ink::device::d3d11::fields::identity(source.view) == Some(*generation)
+                });
+            if native {
+                node.set_role(Role::Group);
+                node.clear_value();
+            }
             node.set_children(children_by_parent.remove(&source.id).unwrap_or_default());
-            if matches!(source.role, role::EDIT | role::FIELD) && !password {
+            if matches!(source.role, role::EDIT | role::FIELD) && !password && !native {
                 let mut offset = 0;
                 let mut lines: Vec<_> = source.value.split_inclusive('\n').collect();
                 if source.value.is_empty() || source.value.ends_with('\n') {
@@ -250,6 +262,56 @@ impl Access {
         self.nodes = next;
         self.runs = runs;
         self.focus = focus;
+        self.embed_fields(p, window);
+    }
+    fn embed_fields<D: DataSource>(&mut self, p: &Presenter<D>, window: &Window) {
+        use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let Ok(handle) = window.window_handle() else {
+            return;
+        };
+        let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+            return;
+        };
+        let hwnd = accesskit_windows::HWND(handle.hwnd.get() as *mut _);
+        let candidates: BTreeMap<_, _> = p
+            .access_told()
+            .iter()
+            .filter_map(|node| {
+                exact_ink::device::d3d11::fields::identity(node.view)
+                    .map(|generation| (node.view, (NodeId(node.id as u64), generation)))
+            })
+            .collect();
+        let old = std::mem::take(&mut self.embedded);
+        for (view, identity) in old {
+            if candidates.get(&view) == Some(&identity) {
+                self.embedded.insert(view, identity);
+            } else {
+                let _ = accesskit_windows::embed_windowless(hwnd, identity.0, None);
+            }
+        }
+        for (view, (id, generation)) in candidates {
+            if self.embedded.contains_key(&view) {
+                continue;
+            }
+            let result = (|| -> Result<(), String> {
+                let site =
+                    accesskit_windows::windowless_site(hwnd, id).map_err(|e| e.to_string())?;
+                let provider = exact_ink::device::d3d11::fields::provider(view, &site)
+                    .map_err(|e| e.to_string())?;
+                accesskit_windows::embed_windowless(hwnd, id, Some(&provider))
+                    .map_err(|e| e.to_string())
+            })();
+            match result {
+                Ok(()) => {
+                    self.embedded.insert(view, (id, generation));
+                    if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+                        eprintln!("exact-windows: RichEdit UIA view {view} under {}", id.0);
+                    }
+                    window.request_redraw();
+                }
+                Err(error) => eprintln!("exact-windows: RichEdit UIA: {error}"),
+            }
+        }
     }
 }
 

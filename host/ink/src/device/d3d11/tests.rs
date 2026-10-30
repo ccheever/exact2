@@ -288,3 +288,59 @@ fn boot_worker() {
     println!("INK_C6_BOOT {{\"arm\":\"{arm}\",\"device_ms\":{},\"shaders_ms\":{},\"cached\":{},\"api\":\"{}\",\"adapter\":\"{}\"}}",
         info.device_ms, info.shaders_ms, info.cached, info.api, info.adapter);
 }
+
+#[test]
+#[ignore = "Stage 1w native RichEdit editing and DPI; signed-in Windows desktop"]
+fn windowless_field_edit_and_scale() {
+    use windows::Win32::UI::WindowsAndMessaging::*;
+    let window = Window::fixture([600, 180]).unwrap();
+    let mut device = D3d11::new().unwrap();
+    let mut editor = rich_edit::RichEdit::new(&mut device, window, [320, 48]).unwrap();
+    editor
+        .configure([30, 40], 16., [32, 32, 32, 255], false, false)
+        .unwrap();
+    editor.set_text("A😀日本語").unwrap();
+    editor.select([1, 3]).unwrap();
+    assert_eq!(editor.selection().unwrap(), [1, 3]);
+    editor.type_text("B").unwrap();
+    assert_eq!(editor.text().unwrap(), "AB日本語");
+    assert_eq!(editor.selection().unwrap(), [2, 2]);
+    editor.message(WM_UNDO, 0, 0).unwrap();
+    assert_eq!(editor.text().unwrap(), "A😀日本語");
+    editor.select([1, 3]).unwrap();
+    editor.message(WM_CUT, 0, 0).unwrap();
+    assert_eq!(editor.text().unwrap(), "A日本語");
+    editor.message(WM_PASTE, 0, 0).unwrap();
+    assert_eq!(editor.text().unwrap(), "A😀日本語");
+    for scale in [1., 1.25, 1.5, 1.] {
+        let before = (editor.text().unwrap(), editor.selection().unwrap());
+        editor
+            .resize(&mut device, [(320. * scale) as u32, (48. * scale) as u32])
+            .unwrap();
+        editor
+            .configure(
+                [(30. * scale) as i32, (40. * scale) as i32],
+                16. * scale,
+                [32, 32, 32, 255],
+                false,
+                false,
+            )
+            .unwrap();
+        assert_eq!(
+            (editor.text().unwrap(), editor.selection().unwrap()),
+            before
+        );
+        let texture = editor.draw(&mut device).unwrap();
+        assert!(device
+            .readback(texture)
+            .unwrap()
+            .chunks_exact(4)
+            .any(|p| p[3] > 128));
+        println!(
+            "S1W_FIELD scale={scale} text={:?} selection={:?} caret={:?}",
+            before.0,
+            before.1,
+            editor.caret()
+        );
+    }
+}

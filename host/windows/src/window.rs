@@ -278,8 +278,12 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     let desktop = crate::desktop::Desktop::install(name);
     let ime_message = ime.message_hook();
     let desktop_message = desktop.clone();
+    let field_message = exact_ink::device::d3d11::fields::message_hook();
     // Winit keeps one hook; replacing it would lose composition completion on clicks.
     builder.with_msg_hook(move |message| {
+        if field_message(message) {
+            return true;
+        }
         ime_message(message);
         desktop_message.message(message);
         false
@@ -1300,7 +1304,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             }
             WindowEvent::Ime(event) => {
                 self.caret.activity(Instant::now());
-                self.ime.event(p, event);
+                if !exact_ink::device::d3d11::fields::focused() {
+                    self.ime.event(p, event);
+                }
             }
             _ => return,
         }
@@ -1351,6 +1357,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             self.deliver_timer(fired, now);
         }
         if let Some(p) = self.presenter.as_mut() {
+            p.windows_field_edits(self.started.elapsed().as_secs_f64() * 1000.);
             p.timer_visibility(self.minimized || self.occluded);
             let now = self.started.elapsed().as_secs_f64() * 1000.0;
             if p.wake_due_ms().is_some_and(|due| due <= now) {

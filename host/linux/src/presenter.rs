@@ -75,6 +75,8 @@ mod range_frame;
 #[cfg(test)]
 mod save_tests;
 mod svg_hit;
+#[cfg(windows)]
+mod windows_field;
 #[cfg(target_os = "linux")]
 pub(crate) use display_frame::SubmittedFrame;
 #[path = "content_region/presenter.rs"]

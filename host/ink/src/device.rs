@@ -6,6 +6,8 @@ use std::fmt;
 
 #[cfg(windows)]
 pub mod d3d11;
+#[cfg(windows)]
+pub mod directwrite;
 
 #[cfg(exact_ink_metal)]
 pub mod metal;

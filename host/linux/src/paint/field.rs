@@ -418,6 +418,78 @@ impl Painter {
         oy -= field.scroll.1;
         self.backend.push_clip(outer, ts);
         let selection = walk.scene.selection.filter(|_| focused);
+
+        #[cfg(windows)]
+        if node.props.str(PropId::Markup) != Some("markdown")
+            && matches!(
+                node.props.str(PropId::Type),
+                None | Some("text" | "search" | "email" | "url" | "tel")
+            )
+            && computed.font_family == 0
+            && computed.font_weight == 400
+            && computed.font_style == exact_kernel::FontStyle::Normal
+            && value_ink[3] == 255
+            && !disabled
+            && ts.is_identity()
+        {
+            let selection =
+                selection.unwrap_or_else(|| exact_runner::FieldSelection::at_end(value));
+            let native_field = exact_ink::device::d3d11::fields::Field {
+                id: node.id,
+                generation: node.key.generation,
+                rect: [
+                    content.0 * self.scale,
+                    content.1 * self.scale,
+                    content.2 * self.scale,
+                    content.3 * self.scale,
+                ],
+                size: computed.font_size * self.scale,
+                color: value_ink,
+                value,
+                placeholder: node.props.str(PropId::Placeholder).unwrap_or(""),
+                selection: [selection.start, selection.end],
+                focused,
+                multiline,
+                readonly: node.props.bool(PropId::Editable) == Some(false),
+            };
+            self.backend.push_clip(&Shape::rect(content), ts);
+            let drawn = self.backend.windows_field(&native_field, self.scale);
+            if drawn {
+                if placeholder {
+                    self.backend.text(
+                        &mut self.text.borrow_mut(),
+                        &paragraph,
+                        &palette,
+                        (ox, oy),
+                        ts,
+                    );
+                }
+                if focused && !self.caret_hidden {
+                    if let Some([x, y, w, h]) = exact_ink::device::d3d11::fields::caret(node.id) {
+                        self.backend.fill(
+                            &Shape::rect((
+                                x / self.scale,
+                                y / self.scale,
+                                w / self.scale,
+                                h / self.scale,
+                            )),
+                            value_ink,
+                            ts,
+                        );
+                    }
+                }
+            }
+            self.backend.pop_clip();
+            if drawn {
+                self.backend.pop_clip();
+                if ringed {
+                    let accent = control::ring(node, self.dark);
+                    self.field_ring(field_shape.as_ref().unwrap_or(outer), accent, ts);
+                }
+                walk.fields.insert(node.id, Rc::new(field));
+                return;
+            }
+        }
         if let Some(backgrounds) = backgrounds {
             let backgrounds: Vec<_> = backgrounds
                 .iter()

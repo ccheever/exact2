@@ -24,15 +24,14 @@ use windows::{
 mod composition;
 #[cfg(test)]
 mod desktop_tests;
-#[cfg(test)]
-mod rich_edit;
+pub mod fields;
+pub mod rich_edit;
 mod setup;
 mod startup;
 pub use startup::Startup;
 pub mod startup_watchdog;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
 mod text_host;
 pub use composition::Window;
 

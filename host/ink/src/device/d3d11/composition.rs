@@ -471,6 +471,10 @@ impl D3d11 {
     pub fn has_window(&self) -> bool {
         self.composition.is_some()
     }
+
+    pub fn window(&self) -> Option<Window> {
+        self.composition.as_ref().map(|c| c._window.clone())
+    }
     /// Detect removal on a redraw that needs no paint or capacity reservation.
     pub fn device_lost(&self) -> bool {
         unsafe { self.device.GetDeviceRemovedReason().is_err() }

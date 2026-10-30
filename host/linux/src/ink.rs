@@ -280,6 +280,37 @@ impl Ink {
 }
 
 impl Backend for Ink {
+    #[cfg(windows)]
+    fn windows_field(
+        &mut self,
+        field: &exact_ink::device::d3d11::fields::Field<'_>,
+        scale: f32,
+    ) -> bool {
+        let Selected::D3d11(device) = &mut self.device else {
+            return false;
+        };
+        let Some(window) = device.window() else {
+            return false;
+        };
+        let texture = match exact_ink::device::d3d11::fields::paint(device, window, field) {
+            Ok(Some(texture)) => texture,
+            Ok(None) => return false,
+            Err(error) => {
+                eprintln!("exact-windows: RichEdit unavailable: {error}");
+                return false;
+            }
+        };
+        let [x, y, w, h] = field.rect;
+        self.picture(
+            texture,
+            (x / scale, y / scale, w / scale, h / scale),
+            &[],
+            Transform::identity(),
+            None,
+        );
+        true
+    }
+
     #[cfg(target_os = "macos")]
     fn attach_apple_layer(
         &mut self,
@@ -368,6 +399,8 @@ impl Backend for Ink {
     }
 
     fn begin(&mut self, width: f32, height: f32, scale: f32) {
+        #[cfg(windows)]
+        exact_ink::device::d3d11::fields::begin();
         self.layer_ms = 0.;
         self.text_sigma = 0.;
         self.error = None;
@@ -696,6 +729,10 @@ impl Backend for Ink {
         Ok(pixels)
     }
     fn finish_for(&mut self, target: FrameTarget) -> std::result::Result<Option<Pixmap>, String> {
+        #[cfg(windows)]
+        if let Selected::D3d11(device) = &mut self.device {
+            exact_ink::device::d3d11::fields::end(device).map_err(|e| e.to_string())?;
+        }
         #[cfg(target_os = "macos")]
         let _trace = exact_ink::device::apple::Trace::new(c"ink finish");
         if target == FrameTarget::Geometry {

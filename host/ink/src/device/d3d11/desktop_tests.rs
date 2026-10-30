@@ -95,7 +95,7 @@ impl Shelf {
             )
             .env(
                 "EXACT_PAINTER",
-                if matches!(painter, "wgpu" | "warp") {
+                if matches!(painter, "wgpu" | "warp" | "richedit") {
                     "ink"
                 } else {
                     painter
@@ -120,6 +120,9 @@ impl Shelf {
             .env_remove("EXACT_AGENT_WINDOW_FRAMES")
             .stdout(Stdio::from(file.try_clone().unwrap()))
             .stderr(Stdio::from(file));
+        if painter == "richedit" {
+            command.env("EXACT_INK_RICHEDIT", "1");
+        }
         if let Some(fault) = fault {
             command.env("EXACT_AGENT_INK_FAULT", fault);
         }
@@ -476,6 +479,9 @@ impl Shelf {
         log
     }
 }
+
+#[path = "desktop_field.rs"]
+mod field;
 
 impl Drop for Shelf {
     fn drop(&mut self) {

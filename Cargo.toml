@@ -40,6 +40,8 @@ license = "MIT"
 # Taffy 0.14.0 plus Exact patches. The inventory and update checklist live
 # in vendor/taffy/EXACT-PATCHES.md.
 [patch.crates-io]
+# A windowless native field remains one fragment in the page's UIA tree.
+accesskit_windows = { path = "vendor/accesskit-windows" }
 taffy = { path = "vendor/taffy" }
 # Parley and fontique 0.11.1 plus Exact patches (base direction, font admission,
 # line breaking, soft hyphens, faces described ahead of time); see
