@@ -1008,6 +1008,8 @@ component T3Code
   action editorOp(op: string, id: string, value: string) // composer-editor.ts: menu picks, the stash
     if op == "chip-act" and chip.act == "citation"
       send citationShown = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow()) // a chip's View source
+    else if op.startsWith("chip-")
+      send chipChanged = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow())
     else
       send localChanged = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow())
   action openModels

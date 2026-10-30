@@ -30,8 +30,13 @@ describe('the flows that wait on their own timers have sends of their own', () =
   test('View source goes on citationShown from a transcript chip and from the composer; the composer\'s other chip acts do not', () => {
     expect(sends('chatLocal', [['chip-citation', 't2', 'b1']])).toEqual(['citationShown chatlocal:chip-citation']);
     expect(sends('editorOp', [['chip-act', '7', '']], { chip: { act: 'citation' } })).toEqual(['citationShown editorlocal:chip-act']);
-    expect(sends('editorOp', [['chip-act', '8', '']], { chip: { act: 'mention' } })).toEqual(['localChanged editorlocal:chip-act']);
+    expect(sends('editorOp', [['chip-act', '8', '']], { chip: { act: 'mention' } })).toEqual(['chipChanged editorlocal:chip-act']);
     expect(sends('editorOp', [['stash', '', '']], { chip: { act: 'citation' } })).toEqual(['localChanged editorlocal:stash']);
+  });
+
+  test("a chip's close and actions queue on chipChanged, so a press's other local op in the same turn lets none go", () => {
+    expect(sends('editorOp', [['chip-close', '9', '']], { chip: { act: '' } })).toEqual(['chipChanged editorlocal:chip-close']);
+    expect(queued('chipChanged')).toBe(true);
   });
 
   test('the prompt links queue beside a fragment link\'s press, so neither lets a switch to another machine\'s Scratch project go', () => {

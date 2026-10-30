@@ -3,6 +3,7 @@ use PickerTarget, PickerCatalog, ComposerBranches from "./composer-shapes.contra
 use ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldAcknowledgement, ComposerFieldCommand, ComposerIntentReply, ComposerFieldResult, composerSurrounds from "./composer-rich.contract"
 use ComposerEditorView from "./composer-editor.contract"
 use ChipPopover, ComposerChipFinish, ComposerChipRequest, chipPopoverFocus from "./composer-chip-popover.contract"
+use Change from "../shared/shapes.contract"
 use composerChord, composerChordIn from "./composer-keys.contract"
 use heldModifiers from "../shared/press-modifiers.contract"
 members T3Code
@@ -15,6 +16,9 @@ members T3Code
   resource chip = composerChip(data.revision) as shape ChipPopover // a skill chip's details popover (composer-chip-popover.ts)
   mutation chipObserved as shape ChipPopover queue refreshes chip
   mutation chipPressed as shape ChipPopover queue refreshes chip
+  // A chip's close and actions queue on their own send: on `localChanged` a press's other local op in the same
+  // turn (the timeline's pointerdown) replaced the close before it ran, and the details' finish never came.
+  mutation chipChanged as shape Change queue refreshes data
   state chipFocusedId = ""
   state chipFinished = 0
   action chipFocusChanged(target: string)
