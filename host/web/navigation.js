@@ -46,26 +46,26 @@ function listRows(list) {
   };
   walk(list); return rows;
 }
-function pushingList(route) {
-  const retained = splitLists.get(route), stack = [...route.children].reverse();
-  let empty = null;
-  while (stack.length) {
-    const el = stack.pop();
-    if (el.hasAttribute("navigationKey") || excluded(el)) continue;
-    const style = getComputedStyle(el), sideways = /flex/.test(style.display) && style.flexDirection.startsWith("row")
-      || Number(el.getAttribute("data-exact-estimated-item-width")) > 0;
-    if (el.hasAttribute("data-exact-list") && !sideways) {
-      const rows = listRows(el), found = { list: el, rows };
-      if (rows.some(r => r.press === "true" || r.press === null && linked(r.href))) return found;
-      if (el === retained && !rows.length) empty = found;
-      continue; // An admitted list owns its row scan, including nested lists.
-    }
-    stack.push(...[...el.children].reverse());
+/** The root route's pushing list: the first `data-exact-list` in document order reachable from the route (no `navigationKey`,
+ * popover, leaving or undisplayed element on the way, itself included), not in a list taken (a sideways list is none) nor sideways,
+ * whose rows push; else `retained` with no rows. From the lists (`querySelectorAll`, the light DOM `children` walked), each predicate read
+ * once an element a search: the walk's answer for a DOM the search leaves alone (`listRows`, `linked` don't change it); one taken out meanwhile is skipped. (Exported for its test.) */
+export function pushingList(route, retained = splitLists.get(route)) {
+  const open = new Map(), across = new Map(), memo = (m, el, f) => { let v = m.get(el); if (v === undefined) m.set(el, v = f(el)); return v; }; // this search's reads only
+  const passable = el => memo(open, el, e => !e.hasAttribute("navigationKey") && !excluded(e));
+  const sideways = el => memo(across, el, e => { const s = getComputedStyle(e); return /flex/.test(s.display) && s.flexDirection.startsWith("row") || Number(e.getAttribute("data-exact-estimated-item-width")) > 0; });
+  let empty = null; candidates: for (const el of route.querySelectorAll("[data-exact-list]")) {
+    if (!passable(el)) continue;
+    for (let up = el.parentElement; up !== route; up = up.parentElement) if (!up || !passable(up) || up.hasAttribute("data-exact-list") && !sideways(up)) continue candidates; // (!up: taken out; an admitted list owns its row scan, nested lists included)
+    if (sideways(el)) continue;
+    const rows = listRows(el), found = { list: el, rows };
+    if (rows.some(r => r.press === "true" || r.press === null && linked(r.href))) return found;
+    if (el === retained && !rows.length) empty = found;
   }
   return empty;
 }
 /** Recheck authored admission even while narrow. Projection's visibility/inert never opt a list out. */
-function splitOf([route]) {
+export function splitOf([route]) {
   // A rendered document has route and handler facts but no browser layout.
   if (typeof globalThis.getComputedStyle !== "function" || typeof globalThis.matchMedia !== "function") {
     if (route) splitLists.delete(route);
