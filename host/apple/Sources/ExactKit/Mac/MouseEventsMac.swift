@@ -203,6 +203,11 @@ extension Presenter {
 }
 
 extension NodeView {
+    package override var mouseDownCanMoveWindow: Bool {
+        if isButton || takesPress || hasPressableAncestor(crossingPresentations: false) { return false }
+        return super.mouseDownCanMoveWindow
+    }
+
     package override func mouseDown(with event: NSEvent) {
         HeldState.input(at: self) // a press on a held node lets its hold go (HeldState.swift; the window's monitor, ExactViewMac)
         let chain = holdPresenter?.mouseChain
