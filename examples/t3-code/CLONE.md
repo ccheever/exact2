@@ -108,6 +108,23 @@ and verifies artifact and restoration hashes. The input-only assertion and two
 redundant comments identified by review are removed. Source and Copy checks
 continue to assert returned production values.
 
+Formatted file paragraphs now join parser-certified soft breaks while hard breaks,
+paragraph gaps, Source/copy bytes and complete code objects remain exact. The
+adapter migration first matches all 2,196 captured production results. All 4,153
+mobile tests, 253 focused tests including desktop minimap, strict TypeScript,
+generator verification and the six repository checks pass. Both actual preview
+components pass baseline/current EAS controls at 16-point light and 20-point dark.
+Heading/table controls, natural wrapping and single code pans remain usable.
+Repeated long-code pans reach blank space in both baseline and current; right-edge
+clamping remains unqualified. The restored normal app passes Home, Settings,
+Search, New task, Back and relaunch. Entries and normal declarations are restored;
+the cloud device is shut down. Evidence is under
+`target/t3-poc-evidence/phone-formatted-prose-implementation/`. Supplied-data
+rendering does not qualify connected reads, auth, cache, persistence, quantitative
+font parity or full selection parity. Parent independent review and normal push
+remain pending. This slice reaches no release checkpoint and is outside the
+POC TestFlight build.
+
 These earlier implementation checkpoints are available on GitHub:
 
 | Work | Commit | Branch |
