@@ -124,7 +124,7 @@ struct Visual {
     target: IDCompositionTarget,
     visual: IDCompositionVisual,
     content: std::cell::Cell<usize>,
-    backdrop: bool,
+    backdrop: Cell<bool>,
 }
 impl Drop for Visual {
     fn drop(&mut self) {
@@ -187,7 +187,12 @@ impl Composition {
             let visual_started = Instant::now();
             let existing = window.visual.borrow().upgrade();
             let scene = match existing {
-                Some(scene) => scene,
+                Some(scene) => {
+                    // A device reset can clear the HWND's material while the
+                    // composition visual survives the device handoff.
+                    scene.backdrop.set(set_backdrop(window.hwnd));
+                    scene
+                }
                 None => {
                     // No rendering device: the visual must not retain WARP after
                     // its swap chain retires. DCompositionCreateDevice2 permits
@@ -202,7 +207,7 @@ impl Composition {
                         target,
                         visual,
                         content: Default::default(),
-                        backdrop: set_backdrop(window.hwnd),
+                        backdrop: Cell::new(set_backdrop(window.hwnd)),
                     });
                     *window.visual.borrow_mut() = Rc::downgrade(&scene);
                     scene
@@ -439,7 +444,7 @@ impl D3d11 {
         let activating = !composition.active
             || composition.scene.content.get() != composition.swap.as_raw() as usize;
         let swap = composition.swap.clone();
-        let opaque = !composition.scene.backdrop;
+        let opaque = !composition.scene.backdrop.get();
         let background = composition
             ._window
             .background
