@@ -194,14 +194,16 @@ final class NativeTaskTimersTests: XCTestCase {
         let a = row()
         timers.update([a], epoch: 1, enabled: true)
         let timer = try XCTUnwrap(timers.timerForTests(0))
-        func turns(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
         timer.fire()
-        turns(0.01)
-        XCTAssertEqual(asked, 1, "the firing asks for delivery")
+        // Waited for, not timed: a loaded machine turns the run loop late (a full suite once saw 1 ask after 0.1 s).
+        spin(until: { asked >= 1 }, "the firing asks for delivery")
+        XCTAssertEqual(asked, 1, "the firing asks for delivery, once")
         timers.complete(try XCTUnwrap(timers.take()), retry: true)
         timer.fire(); timer.fire() // Foundation firings while the retry is pending
         XCTAssertEqual(asked, 1, "not at once")
-        turns(0.1)
+        spin(until: { asked >= 2 }, "the retry asks for itself")
+        // A quiet half second, turned in slices: a second ask, a frame later however late the loop, fails below.
+        spin(until: { asked > 2 }, for: 0.5)
         XCTAssertEqual(asked, 2, "the retry asks for itself, once")
         XCTAssertEqual(timers.take()?.row, a, "the retried firing, at the front")
         XCTAssertNil(timers.take(), "the firings meanwhile queued none beside it")
