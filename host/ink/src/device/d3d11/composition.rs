@@ -124,7 +124,40 @@ struct Visual {
     target: IDCompositionTarget,
     visual: IDCompositionVisual,
     content: std::cell::Cell<usize>,
-    backdrop: Cell<bool>,
+    backdrop: Cell<Backdrop>,
+}
+
+#[derive(Clone, Copy)]
+struct Backdrop {
+    available: bool,
+    retries: u8,
+}
+impl Backdrop {
+    fn new(available: bool) -> Self {
+        Self {
+            available,
+            retries: 0,
+        }
+    }
+
+    fn after_present(&mut self, set: impl FnOnce() -> bool) -> bool {
+        if self.available || self.retries == 3 {
+            return false;
+        }
+        self.retries += 1;
+        self.available = set();
+        eprintln!(
+            "exact-ink: Mica retry {}/3 after present: {}",
+            self.retries,
+            if self.available {
+                "restored"
+            } else {
+                "refused"
+            }
+        );
+        // Restoring Mica needs one transparent frame to replace the opaque fallback.
+        self.available || self.retries < 3
+    }
 }
 impl Drop for Visual {
     fn drop(&mut self) {
@@ -191,7 +224,13 @@ impl Composition {
                 Some(scene) => {
                     // A device reset can clear the HWND's material while the
                     // composition visual survives the device handoff.
-                    scene.backdrop.set(set_backdrop(window.hwnd));
+                    let available = if fault("mica-recovery") {
+                        eprintln!("exact-ink: injected Mica refusal during device recovery");
+                        false
+                    } else {
+                        set_backdrop(window.hwnd)
+                    };
+                    scene.backdrop.set(Backdrop::new(available));
                     scene
                 }
                 None => {
@@ -208,7 +247,7 @@ impl Composition {
                         target,
                         visual,
                         content: Default::default(),
-                        backdrop: Cell::new(set_backdrop(window.hwnd)),
+                        backdrop: Cell::new(Backdrop::new(set_backdrop(window.hwnd))),
                     });
                     *window.visual.borrow_mut() = Rc::downgrade(&scene);
                     scene
@@ -485,6 +524,14 @@ impl D3d11 {
             let _ = PRESENTED.compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed);
         }
         self.presentation_pending = matches!(result, Ok(ms) if ms == 0.);
+        if matches!(result, Ok(ms) if ms > 0.) {
+            if let Some(c) = &self.composition {
+                let mut backdrop = c.scene.backdrop.get();
+                self.presentation_pending |=
+                    backdrop.after_present(|| set_backdrop(c._window.hwnd));
+                c.scene.backdrop.set(backdrop);
+            }
+        }
         result
     }
     fn present_frame(&mut self, id: TextureId) -> Result<f64> {
@@ -500,7 +547,7 @@ impl D3d11 {
         let activating = !composition.active
             || composition.scene.content.get() != composition.swap.as_raw() as usize;
         let swap = composition.swap.clone();
-        let opaque = !composition.scene.backdrop.get();
+        let opaque = !composition.scene.backdrop.get().available;
         let background = composition
             ._window
             .background
@@ -719,6 +766,21 @@ fn optional_backdrop(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn material_recovery_retries_after_present_without_replacing_the_device() {
+        let mut backdrop = Backdrop::new(false);
+        assert!(backdrop.after_present(|| false));
+        assert!(!backdrop.available);
+        assert!(backdrop.after_present(|| true));
+        assert!(backdrop.available);
+        assert!(!backdrop.after_present(|| panic!("restored material must stop retrying")));
+        let mut refused = Backdrop::new(false);
+        for retry in 1..=3 {
+            assert_eq!(refused.after_present(|| false), retry < 3);
+        }
+        assert!(!refused.after_present(|| panic!("permanent refusal must stop retrying")));
+    }
 
     #[test]
     fn failed_statistics_release_after_three_completed_checks() {

@@ -952,7 +952,16 @@ fn shelf_dpi_roundtrip() {
 #[test]
 #[ignore = "NucBox desktop; forces a real GPU TDR with dxcap -forcetdr"]
 fn shelf_device_loss() {
-    let mut app = Shelf::open("device-loss", false);
+    let wgpu = std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("wgpu");
+    let mut app = Shelf::launch_fault(
+        "device-loss",
+        &std::env::var("INK_SHELF").unwrap(),
+        if wgpu { "wgpu" } else { "ink" },
+        "1024x720",
+        None,
+        false,
+        (!wgpu).then_some("mica-recovery"),
+    );
     app.capture("device-loss-before");
     let mut reset = Command::new("dxcap.exe").arg("-forcetdr").spawn().unwrap();
     println!("S2_PROCESS dxcap pid={}", reset.id());
@@ -996,6 +1005,14 @@ fn shelf_device_loss() {
         loss.is_some_and(|offset| text[offset..].contains("painter ink"))
     });
     let recovered = app.text();
+    assert!(
+        recovered.contains("injected Mica refusal during device recovery"),
+        "{recovered}"
+    );
+    assert!(
+        recovered.contains("Mica retry 1/3 after present: restored"),
+        "{recovered}"
+    );
     assert!(recovered.contains("WARP composition"));
     let presented = recovered
         .find("CPU recovery frame presented through composition")
