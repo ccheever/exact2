@@ -45,6 +45,41 @@ fn type_text(text: &str) {
 }
 
 #[test]
+#[ignore = "Stage 1w visual record; DPI operator and INK_SHELF required"]
+fn shelf_native_field_visual() {
+    let exe = std::env::var("INK_SHELF").unwrap();
+    let mut app = Shelf::launch("field-visual", &exe, "richedit", "1024x720", None, true);
+    app.place(1024, 720);
+    app.capture("field-empty-100");
+    type_text("Piranesi");
+    app.capture("field-type-100");
+    chord(VK_A);
+    app.capture("field-select-100");
+    chord(VK_X);
+    app.capture("field-cut-100");
+    chord(VK_V);
+    app.capture("field-paste-100");
+    chord(VK_Z);
+    app.capture("field-undo-100");
+    fs::write(out().join("dpi-waiting"), app.child.id().to_string()).unwrap();
+    for pass in ["150", "roundtrip-150"] {
+        until("field scale 150%", || unsafe {
+            GetDpiForWindow(app.hwnd) == 144
+        });
+        app.place(1024, 720);
+        app.capture(&format!("field-{pass}"));
+        fs::write(out().join(format!("dpi-at-{pass}")), "return to 100%").unwrap();
+        until("field scale 100%", || unsafe {
+            GetDpiForWindow(app.hwnd) == 96
+        });
+        app.place(1024, 720);
+        app.capture(&format!("field-after-{pass}-100"));
+        fs::write(out().join(format!("dpi-after-{pass}")), "100%").unwrap();
+    }
+    app.close();
+}
+
+#[test]
 #[ignore = "Stage 1w Shelf keyboard/UIA journey; INK_SHELF and INK_DESKTOP_OUT"]
 fn shelf_native_field() {
     unsafe {

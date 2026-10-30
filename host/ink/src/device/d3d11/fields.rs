@@ -49,7 +49,8 @@ struct Fields {
 thread_local! { static FIELDS: RefCell<Fields> = RefCell::new(Fields::default()); }
 
 pub fn enabled() -> bool {
-    std::env::var("EXACT_INK_RICHEDIT").as_deref() == Ok("1")
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("EXACT_INK_RICHEDIT").as_deref() == Ok("1"))
 }
 
 pub fn clear() {
