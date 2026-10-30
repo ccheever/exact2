@@ -729,3 +729,15 @@ test.each(['success', 'error', 'new-generation'] as const)('overlapping same-vis
   expect(await pending).toMatchObject({ kind: 'superseded' });
   expect(f.snapshot()).toMatchObject({ svgSource: source, loading: false, error: '', svgFailure: '' });
 });
+
+
+test('workspace formatted preview folds soft breaks while returned Source and copy data stay exact', () => {
+  const contents = 'Before **ready**\r\nafter `code`\r\n\r\n```txt\r\nSENTINEL\r\nkeep newline\r\n\r\n```\r\n';
+  const view = mobileFilePresentation({ owner: 'file', revision: 1, projectName: 'Project', loading: false, error: '',
+    read: { contents, error: '' } }, 'notes.md', false);
+  expect(view.previewBlocks[0]?.text).toBe('Before **ready** after `code`\n\n');
+  expect(view.previewBlocks[1]).toMatchObject({ id: '1', kind: 'code', text: 'SENTINEL\nkeep newline\n', language: 'txt' });
+  expect(view.copyContents).toBe(contents);
+  expect(view.contents).toBe(contents.replaceAll('\r\n', '\n'));
+  expect(view.rows.map(row => row.text)).toEqual(['Before **ready**', 'after `code`', '', '```txt', 'SENTINEL', 'keep newline', '', '```', '']);
+});

@@ -78,7 +78,7 @@ test.each([
   'Text\n- item', 'Text\n> quote', 'Text\n    indented', 'Text\n# Adjacent heading',
   '[link][target]\n\n[target]: https://example.test',
   '[^note]: first\nsecond', 'An <em>HTML</em>\nparagraph', '<!--\nPlain\nwrapped\n-->',
-  'A **bold**\nparagraph', 'A ~~strike~~\nparagraph', 'A [link](https://example.test)\nparagraph',
+  'A ~~strike~~\nparagraph', 'A [link](https://example.test)\nparagraph',
   'A &amp; entity\nparagraph', 'Visit https://example.test\ntoday', 'Math $x$\ncontinues',
   'One\u2028line\ncontinues', '```ts\nPlain\nwrapped', '~~~\nPlain\nwrapped',
 ])('unsupported prose keeps the existing complete Markdown input: %s', body => {
@@ -143,4 +143,15 @@ test('strong table projection keeps CRLF input, fence records and partition fall
       .toEqual(mobileMarkdownBlocks(input, false).map(block => ({ ...block, level: 0, columns: 0, rows: [] })));
     else expect(mobileFileMarkdownBlocks(input, false)[0]?.text).toBe(source);
   }
+});
+
+
+test.each([
+  ['Before **ready**\nafter text', 'Before **ready** after text'],
+  ['Before *ready* and `code`\nafter text', 'Before *ready* and `code` after text'],
+  ['A **bold**\nparagraph', 'A **bold** paragraph'],
+])('formatted preview paragraphs join certified soft breaks: %s', (source, text) => {
+  expect(mobileFileMarkdownBlocks(source, false)).toEqual([
+    { id: '0', kind: 'markdown', text, language: '', tokens: [], level: 0, columns: 0, rows: [] },
+  ]);
 });

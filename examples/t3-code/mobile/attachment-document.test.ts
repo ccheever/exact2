@@ -117,3 +117,15 @@ describe('attachment document reads', () => {
     expect(rows.rows[0]?.length).toBe(30); expect(rows.rows[0]?.[0]?.length).toBe(2000);
   });
 });
+
+
+test('attachment formatted preview folds soft breaks while returned Source stays exact', async () => {
+  const content = 'Before *ready* and `code`\r\nafter text\r\n\r\n```txt\r\nSENTINEL\r\nkeep newline\r\n\r\n```\r\n';
+  const f = fixture('notes.md', 'text/markdown', content), preview = await read(f);
+  expect(preview.previewBlocks[0]?.text).toBe('Before *ready* and `code` after text\n\n');
+  expect(preview.previewBlocks[1]).toMatchObject({ id: '1', kind: 'code', text: 'SENTINEL\nkeep newline\n', language: 'txt' });
+  expect(preview.text).toBe(content);
+  const source = await read(f, false);
+  expect(source.text).toBe(content);
+  expect(source.rows.map(row => row.text)).toEqual(['Before *ready* and `code`', 'after text', '', '```txt', 'SENTINEL', 'keep newline', '', '```', '']);
+});
