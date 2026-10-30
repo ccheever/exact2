@@ -526,6 +526,13 @@ impl<D: DataSource> Presenter<D> {
     ) -> Option<String> {
         let mut order: Vec<(i64, usize, ViewId)> = Vec::new();
         for (at, id) in self.host.preorder().into_iter().enumerate() {
+            // A focused node inside an open popover that is no stop goes on
+            // from its place in tree order, within the popover's scope
+            // (HTML's sequential navigation starting point).
+            if Some(id) == self.focus && !self.tabbable(id, boxed) && self.in_popover(id) {
+                order.push((i64::MAX, at, id));
+                continue;
+            }
             if self.tabbable(id, boxed) {
                 let index = self
                     .host
@@ -540,8 +547,11 @@ impl<D: DataSource> Presenter<D> {
         order.sort_unstable();
         let order = self.alert_tab_order(order);
         let n = order.len();
+        let placed = self
+            .focus
+            .filter(|f| !self.tabbable(*f, boxed) && self.in_popover(*f));
         let next = match self.focus.and_then(|f| order.iter().position(|o| o.2 == f)) {
-            _ if n == 0 => return None,
+            _ if n == 0 || n == 1 && placed.is_some() => return None,
             Some(i) if backward => (i + n - 1) % n,
             Some(i) => (i + 1) % n,
             None if backward => n - 1,

@@ -30,8 +30,9 @@ pub(super) struct Open {
     serial: u32,
     key: NodeKey,
     pub(super) restore: Option<NodeKey>,
-    /// A manual popover: no light dismiss, no close request, no focus back.
-    manual: bool,
+    /// Whether the invoker is a programmatic `source` (it invokes nothing
+    /// that targets this box), which stays exempt from light dismiss.
+    by_source: bool,
     /// A popover's untransformed placement in viewport points, as the
     /// runner's top layer reads it ([`Presenter::alert_popover_frame`]).
     placed: Option<[f64; 4]>,
@@ -201,7 +202,11 @@ impl<D: DataSource> Presenter<D> {
         }
         let serial = self.next_surface_serial();
         let node = self.host.kernel().node(id);
-        let manual = !modal && node.is_some_and(|n| n.props.str(PropId::Popover) == Some("manual"));
+        let by_source = invoker
+            .and_then(|i| self.host.kernel().node(i))
+            .is_some_and(|n| {
+                exact_kernel::Invocation::of(self.host.kernel(), &n).is_none_or(|i| i.target != key)
+            });
         // HTML runs the dialog focusing steps for a `dialog`, modal or a popover.
         let dialog =
             modal || node.is_some_and(|n| n.props.str(PropId::SemanticTag) == Some("dialog"));
@@ -215,7 +220,7 @@ impl<D: DataSource> Presenter<D> {
             serial,
             key,
             restore,
-            manual,
+            by_source,
             placed: None,
             title: None,
             measured: None,
@@ -335,7 +340,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = self.set_focus(None, now) {
             self.host.log(e);
         }
-        if open.manual {
+        if self.manual_popover(&open) {
             self.dirty = true;
             self.back_changed();
             return;
@@ -357,7 +362,7 @@ impl<D: DataSource> Presenter<D> {
         };
         let open = self.alert.as_ref().unwrap();
         // A manual popover hears no close request: Back and Escape are the page's.
-        if open.manual {
+        if self.manual_popover(open) {
             return false;
         }
         let (serial, modal) = (open.serial, open.modal);
@@ -756,15 +761,26 @@ impl<D: DataSource> Presenter<D> {
         let id = self.alert_root().filter(|_| !self.alert_inert())?;
         Some((id, self.alert.as_ref()?.placed?, None))
     }
+    /// Whether `id` is inside an open popover (a non-modal box).
+    pub(super) fn in_popover(&self, id: ViewId) -> bool {
+        self.alert.is_some() && !self.alert_inert() && self.alert_holds(id)
+    }
     /// Whether Back would close the open box: not a manual popover's.
     pub(crate) fn alert_takes_back(&self) -> bool {
-        self.alert.as_ref().is_some_and(|a| !a.manual)
+        self.alert.as_ref().is_some_and(|a| !self.manual_popover(a))
+    }
+    /// Whether `open` is a manual popover: no light dismiss, no close
+    /// request, no focus back. Read as its node is now.
+    fn manual_popover(&self, open: &Open) -> bool {
+        !open.modal
+            && (self.host.kernel().node_by_key(open.key))
+                .is_some_and(|n| n.props.str(PropId::Popover) == Some("manual"))
     }
     /// The sequential focus order, `(tabindex rank, tree position, view)`
     /// entries already sorted, with an open popover's stops, in their own
-    /// order, right after its invoker's (HTML's popover focus scope).
-    /// Unchanged with no popover, no invoker, an invoker inside the popover
-    /// (Chromium's rule) or one that is no stop.
+    /// order, right after where its invoker sorts, a stop or not (HTML's
+    /// popover focus scope). Unchanged with no popover, no invoker, or an
+    /// invoker inside the popover (Chromium's rule).
     pub(super) fn alert_tab_order(
         &self,
         mut order: Vec<(i64, usize, ViewId)>,
@@ -774,21 +790,25 @@ impl<D: DataSource> Presenter<D> {
             .as_ref()
             .filter(|a| !a.modal)
             .and_then(|a| a.invoker)
-            .filter(|i| !self.alert_holds(*i) && order.iter().any(|o| o.2 == *i))
+            .filter(|i| !self.alert_holds(*i))
         else {
             return order;
         };
+        let Some(at) = self.host.preorder().iter().position(|id| *id == invoker) else {
+            return order;
+        };
+        let rank = (self.host.kernel().node(invoker))
+            .and_then(|n| n.props.get(PropId::TabIndex).and_then(|v| v.as_int()))
+            .filter(|&i| i > 0)
+            .unwrap_or(i64::MAX);
         let inside: Vec<_> = order
             .iter()
             .copied()
             .filter(|o| self.alert_holds(o.2))
             .collect();
         order.retain(|o| !self.alert_holds(o.2));
-        let at = order
-            .iter()
-            .position(|o| o.2 == invoker)
-            .map_or(order.len(), |i| i + 1);
-        order.splice(at..at, inside);
+        let after = order.partition_point(|o| (o.0, o.1) <= (rank, at));
+        order.splice(after..after, inside);
         order
     }
     /// Whether `id` is inside the open popover's invoker or any button that
@@ -799,8 +819,10 @@ impl<D: DataSource> Presenter<D> {
         };
         let k = self.host.kernel();
         use exact_kernel::invocation::Action;
+        // The button's current target, not what opened it; a programmatic
+        // `source` stays its invoker.
         std::iter::successors(k.node(id), |n| n.parent.and_then(|p| k.node(p))).any(|n| {
-            Some(n.id) == open.invoker
+            open.by_source && Some(n.id) == open.invoker
                 || exact_kernel::Invocation::of(k, &n).is_some_and(|i| {
                     i.target == open.key
                         && matches!(i.action, Action::Show | Action::Hide | Action::Toggle)

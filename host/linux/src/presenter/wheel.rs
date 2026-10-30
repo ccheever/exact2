@@ -94,7 +94,7 @@ impl<D: DataSource> Presenter<D> {
                     return true;
                 }
             }
-            if id == PAGE || self.alert_root() == Some(id) {
+            if id == PAGE || self.alert_inert() && self.alert_root() == Some(id) {
                 return false;
             }
             at = self.scroll_parent(id);

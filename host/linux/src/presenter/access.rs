@@ -1141,6 +1141,7 @@ impl<D: DataSource> Presenter<D> {
             self.access_walk(&mut b, root, scope);
         }
         if let Some(top) = b.top.take() {
+            scope.parent = 0;
             scope.shift = (0., 0.);
             scope.clip = (0., 0., self.viewport.0, self.viewport.1);
             self.access_walk(&mut b, top, scope);
