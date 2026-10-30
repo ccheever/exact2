@@ -398,7 +398,7 @@ impl CpuFrame {
                     .presentDrawable(ProtocolObject::from_ref(&*drawable.0));
             }
         }
-        if matches!(&result, Ok(Some(_))) {
+        if crate::counters::enabled() && matches!(&result, Ok(Some(_))) {
             crate::counters::submitted();
         }
         self.command.commit();

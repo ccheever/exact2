@@ -3556,6 +3556,13 @@ This stage changes instrumentation only. Retained evidence is under `target/s0/`
 S1.4's original files stay in place. Agent-driven runs require no focus. A posted
 Mac fling waits for `target/s0/GO` newer than 2026-10-30T15:10:26Z.
 
+Historical tables before the review-fix continuation retain their original
+schema: zero-cause service turns could include a redraw's trailing pass,
+and ownership gauges described the last target take. Those dispatch labels
+are superseded by the corrected traces below; M1 uses the integrated rerun.
+Current ownership gauges refresh at every pool mutation, while completion
+partitions explicitly name their last observation's timestamp and serial.
+
 ### Predictions recorded before measurement
 
 1. `exclusive.mjs`, on S1.4's image-disabled control and its full fling
@@ -4213,6 +4220,9 @@ python3 bench/heavy-list/gpui/wake-summary.py
 ```
 
 `--json` retains all reducer fields; `--rest` selects the rest endpoints.
+The published socket driver sets `G1_REST_TRACE=1` and exports once, after
+rest. Without it, the first save is `.trace.json` and the next is
+`.trace-2.json`, with separate interval buffers.
 The reducer rejects dropped events and keeps GPU command/present spans
 out of CPU-thread nesting. Service-cause elapsed rows use the same
 innermost-span accounting as the main table, not inclusive service time.
@@ -4371,7 +4381,7 @@ boundary. `evidence.sha256`, `final-source-sha256.json` and
 | Enabled increment <1 µs | 1.265 ns per iteration in the retained optimized increment test: met for that instrument |
 | Full observer adds <5% CPU | Earlier Windows medians +10.76%: miss; final-schema pair +1.75%: met for one pair; Mac pair invalid; bound not established |
 | Windows pool <1201 targets and fractional refusals >0 | 80 targets and 1832 refusals: met |
-| Disabling probe display callbacks removes ≥50% of dispatcher-only passes | 41.79%: miss |
+| Disabling probe display callbacks removes ≥50% of dispatcher-only passes | 41.79% in the pre-fix cause category: miss; not the corrected dispatch definition |
 | Disabling probe memory timer removes ten rest marks | Ten → zero: met |
 | Clear present mean <0.35 ms | 0.030 ms at 120 Hz; 0.058 at 30 Hz: met |
 | Busy-queue sampled present mean <0.5 ms if clock state is the sole cause | 0.874 ms with the short queue: miss; 0.459 with longer commands at 120 Hz: met; 0.654 at 30 Hz: miss |
@@ -4570,7 +4580,9 @@ its probe window is 10.056452 seconds with zero dropped events. It counts
 There are 1,016 draw-owned passes and 1,016 trailing carrier passes with
 `DRAW`. `review-fixes/dispatch-rebased/exclusive.{md,json}` retains the
 complete by-cause table; `cause-check.json` independently derives these
-counts. M1 above uses this result. Maximum one-minute load is 56.45 with
+counts. `redraw-followup-check.json` also checks that each of the 1,016
+draw services is followed by a carrier service carrying `DRAW`. M1 above
+uses this result. Maximum one-minute load is 56.45 with
 compilers present, so neither the changed dispatch count nor its
 6.328 exclusive elapsed ms/s establishes a CPU improvement or regression.
 
@@ -4590,10 +4602,66 @@ suites, device-loss/DPI/resize/minimize/caret/sleep journeys, shared-window
 and composition groups, ten startup/fallback cases and three explicit
 counter assertions. Native Ink passes 48 tests on each backend, with no
 `E_ACCESSDENIED` launch. `windows/native/results.json` and `windows/dpi/`
-retain results and captures. The Windows renderer source is unchanged by
-this rebase (`windows-rebase-source.diff`); the native binaries and source
-hash remain those in `windows/provenance.json`.
+retain results and captures. The Windows carrier, D3D11 backend, counters, pool and row-observation
+files are unchanged by this rebase (`windows-rebase-source.diff`). The
+native suites qualify `cdd6da8030`; their binaries and source hash remain
+those in `windows/provenance.json`. The required post-rebase six checks
+run locally against the integrated source.
 
 The unchanged output is retained in `review-fixes/checks/TEST-OUTPUT.txt`
 and `review-fixes/WINDOWS-TEST-OUTPUT.txt`; their `RESULTS.txt` and
 `WINDOWS-RESULTS.txt` companions retain each suite's exact result lines.
+
+After rebasing onto `03822d449a`, all 18 Mac commands pass again with
+`RUST_TEST_THREADS=2`: the six checks (including clippy and fmt), Ink,
+Linux lib/tests, carrier, seven pinned Metal groups and image tests.
+Commands, environment, exits and exact result lines are in
+`review-fixes/checks-rebased/results.json`; complete unchanged output is
+`checks-rebased/TEST-OUTPUT.txt`. The Linux library reports 1,637 passed,
+zero failed and 22 ignored; Ink reports 46 passed, zero failed and one
+ignored; the carrier reports four passed and zero failed. The NucBox's
+41 passing groups remain the pre-rebase native qualification described
+above. `review-fixes/TEST-RESULTS.txt` collects all named suite result lines.
+
+| Continuation prediction | Result on its stated instrument |
+|---|---|
+| Pre-rebase full-probe socket drive: 0 < dispatch-only passes < 1,388 | 1,184: met |
+| Integrated full-probe socket drive: the same bound | 1,838: miss; all 1,016 redraw trailing passes carry `DRAW` |
+| Optimized disabled increment <5 ns | 0.435 ns per iteration: met |
+| Optimized enabled increment <1 µs | 1.117 ns per iteration: met |
+| Archive miss submits CPU then ink and keeps frame observations available | Four CPU submissions, then ink; five total before fling, with available state: met |
+| NucBox Mica recovery and remaining desktop groups exit zero | All 41 pass; recovered/fresh Mica band mean 0, over32 0: met |
+| Six checks and Mac host/pixel suites exit zero | Both 18-command runs pass; the final guard follow-up has timing failures below: overall prediction misses |
+
+M1's **44 → ~33 main-thread CPU ms/s** remains a conditional Stage 1
+prediction. It requires the quiet posted-input instrument; these loaded
+socket traces establish attribution. The full-observer CPU bound also
+remains unestablished. Earlier intermittent Mica failures remain retained;
+this passing journey supplies no failing case to bisect and changes no
+recovery policy.
+
+The rebase comparison, source bundle and SHA-256 manifest are retained as
+`review-fixes/rebase-range-diff.txt`, `verified-source.bundle` and
+`verified-source-sha256.json`. All previously cited raw files remain intact.
+
+Final review moves the CPU startup observation's result check behind its
+enable load. The final source again passes build, clippy, fmt, caps, boot,
+workspace and Ink, with two test threads. **The final root test check is
+not green.** Its first follow-up fails
+`exact-svg-file::tests::a_file_that_expands_past_a_limit_draws_nothing_and_names_it`
+at 8.218781 seconds against its five-second limit. The isolated second
+round reproduces it at 8.294572 seconds. The third full root round passes
+SVG but fails the already-recorded Apple upload-stream test inside
+`the_suite_passes_on_the_asynchronous_core`: `an outcome within five
+seconds: Timeout`. That full command exits 101. Retries stop after three
+rounds; no assertion, deadline, SVG implementation or executor policy
+changes. `QUEUE.md` records both unresolved timing failures.
+
+The two completed 18-command runs and the NucBox results above remain
+valid for their named sources; they do not turn the final root check green.
+`review-fixes/checks-final/results.json`, `svg-limit-isolated.log` and
+`root-final-round3/{result.json,test.log}` retain the final checks and retry
+sequence. `MAC-TEST-OUTPUT.txt` now collects all unchanged Mac output,
+including both failures and the third run; `MAC-RESULTS.txt` and
+`TEST-RESULTS.txt` include their exact result lines. The final gate cannot
+be certified within the required three-round limit.
