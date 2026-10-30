@@ -134,7 +134,7 @@ describe('a chip\'s face is its pill', () => {
   };
   const atomFace = (chip: Env, upload = '') => fns.composerAtomFace(chip, upload);
   const face = (patch: Env) => ({kind: 'mention', label: 'README.md', suffix: '', icon: 'at-sign', fileToken: '', imageId: '', available: true,
-    interactive: true, comment: false, tip: 'README.md', glyph: {kind: ''}, ariaLabel: 'Preview README.md', ...patch});
+    interactive: true, comment: false, tip: 'README.md', glyph: {kind: ''}, ariaLabel: 'Preview README.md', ink: '', ...patch});
   test('label and suffix, the kind\'s SF Symbol, and the tooltip', () => {
     expect(atomFace({kind: 'mention', source: '@README.md', path: 'README.md', face: face({})})).toEqual({source: '@README.md', label: 'README.md', icon: 'symbol:sf/doc',
       title: 'README.md', color: '', backgroundColor: '', direction: 'ltr', ariaLabel: 'Preview README.md'});
@@ -157,26 +157,12 @@ describe('a chip\'s face is its pill', () => {
     expect(atomFace({kind: 'mention', source: '[plan.md](docs/plan.md)', path: 'docs/plan.md', face: face({label: 'plan.md'})}).direction).toBe('ltr');
     for (const kind of ['skill', 'context', 'citation']) expect(atomFace({kind, source: 'x', face: face({kind})}).direction).toBe('');
   });
-  test('a document chip takes its type\'s accent over its kind\'s paint (documentIconColorForFileName)', () => {
+  test('a chip has no pill: its face paints its ink and no fill (ContextChip at v0.1.5)', () => {
     const paint = (chip: Env) => { const {color, backgroundColor} = atomFace(chip); return [color, backgroundColor]; };
-    // A workspace mention by its path, in either spelling of the source.
-    expect(paint({kind: 'mention', source: '@docs/Report.PDF', path: 'docs/Report.PDF', face: face({label: 'Report.PDF'})}))
-      .toEqual(['light-dark(#4c2e2f, #fcd8d4)', 'light-dark(#d52c361c, #ff67621c)']);
-    expect(paint({kind: 'mention', source: '[plan.xlsx](plan.xlsx)', path: 'plan.xlsx', face: face({label: 'plan.xlsx'})}))
-      .toEqual(['light-dark(#2d4032, #d7edd8)', 'light-dark(#199f431c, #5ecc711c)']);
-    // An attached file by its name. One whose bytes were lost has no record (fileChipContexts), so its face is
-    // unavailable: it draws unresolved, keeping its accent's fill with the field's text (ContextChip's `unresolved`).
-    const attached = (patch: Env) => ({kind: 'context', source: '[brief.docx](t3-context://v1/file/f1)', label: 'brief.docx', contextKind: 'file',
-      face: face({kind: 'file', label: 'brief.docx', icon: 'file', ...patch})});
-    expect(paint(attached({}))).toEqual(['light-dark(#2b3b4c, #d7e7f9)', 'light-dark(#1a85d41c, #69b1ff1c)']);
-    expect(paint(attached({kind: 'neutral', available: false, icon: 'circle-dashed'}))).toEqual(['', 'light-dark(#1a85d41c, #69b1ff1c)']);
-    // Another context reference by a document's name is not a file: a thread titled so keeps its kind's paint.
-    expect(paint({...attached({kind: 'thread', icon: 'messages-square'}), contextKind: 'thread'})).toEqual(['', '']);
-    // Anything else keeps its kind's paint: a source file, a folder, a video, a skill.
-    expect(paint({kind: 'mention', source: '@src/app.ts', path: 'src/app.ts', face: face({})})).toEqual(['', '']);
-    expect(paint({kind: 'mention', source: '@docs', path: 'docs', face: face({icon: 'folder'})})).toEqual(['', '']);
-    expect(paint({...attached({kind: 'video', icon: 'film'}), label: 'clip.pdf'})).toEqual(['', '']);
-    expect(paint({kind: 'skill', source: '$deck.pptx', name: 'deck.pptx', face: face({kind: 'skill'})})).toEqual(['', '']);
+    expect(paint({kind: 'mention', source: '@docs/Report.PDF', path: 'docs/Report.PDF', face: face({label: 'Report.PDF', ink: 'light-dark(#b0223a, #ff8f86)'})}))
+      .toEqual(['light-dark(#b0223a, #ff8f86)', '']);
+    // An unresolved chip has no ink: it takes the field's text.
+    expect(paint({kind: 'context', source: '[a](t3-context://v1/file/f1)', face: face({kind: 'neutral', available: false})})).toEqual(['', '']);
   });
   test('each glyph the faces use has an SF Symbol, and an unknown one the dashed circle', () => {
     const symbols = Object.fromEntries(['at-sign', 'file', 'folder', 'sparkles', 'film', 'quote', 'image', 'messages-square', 'square-terminal',

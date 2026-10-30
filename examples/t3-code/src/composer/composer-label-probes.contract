@@ -2,7 +2,7 @@
 // from laid-out text instead of estimated (T3 Code, MIT; see LICENSE-T3:
 // chat/restingComposerControlsMeasurement.ts reads each label's scrollWidth from
 // labels that stay mounted while icons replace them). Each label is drawn once
-// per size (the "sm" toolbar: 14pt; the resting "xs" row: 12pt; both regular),
+// at the toolbar's size (14pt regular),
 // invisible and out of flow, and reports its width through the app module's
 // t3-anchor hook (T3Composer.swift); composer-measure.ts reads the widths.
 
@@ -24,13 +24,9 @@ component ComposerLabelProbes
   view
     column position="absolute" left=0 top=0 opacity=0 pointer-events="none" aria-hidden=true align-items="flex-start" testId="composer-label-probes"
       LabelProbe(name="m-model-sm", label=model, xs=false)
-      LabelProbe(name="m-model-xs", label=model, xs=true)
       LabelProbe(name="m-traits-sm", label=traits, xs=false)
-      LabelProbe(name="m-traits-xs", label=traits, xs=true)
       LabelProbe(name="m-runtime-sm", label=runtime, xs=false)
-      LabelProbe(name="m-runtime-xs", label=runtime, xs=true)
       LabelProbe(name="m-plan-sm", label=plan, xs=false)
-      LabelProbe(name="m-plan-xs", label=plan, xs=true)
 
 // Menu texts the app sizes its menus by (composer-menus.ts): each text at its
 // own size and weight, one probe each, keyed by the anchor name it reports under.

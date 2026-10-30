@@ -155,7 +155,7 @@ component ModelPicker
   derive listHeight = (count > 0 ? count * 34 + twoLines * 16 + 18 : (setupCount > 0 ? 0 : 36)) + footer
   derive restListHeight = (restRows > 0 ? restRows * 34 + restTwoLines * 16 + 18 : 36)
   derive natural = max(floor, catalog.searching ? max(rails > 0 ? 49 + 40 * rails : 0, 43 + restListHeight) : max(sidebar ? 49 + 40 * rails : 0, 43 + listHeight)) + sharing + updateHeight
-  // The trigger's window-space edges: its top sits 4pt under the given bottom edge; resting triggers are 24pt.
+  // The trigger's window-space edges: its top sits 4pt under the given bottom edge.
   // A Settings row's picker opens under its trigger, start-aligned (PopoverPopup align start), flipped above when it does not fit.
   derive anchored = anchor.bottom > 0
   derive triggerTop = (anchored ? anchor.top : viewport.height - bottom + 4)

@@ -518,7 +518,7 @@ component TimelineContent
                             if message.kind == "status"
                               ThreadStatusLine(message=message, command=command)
                             else if message.kind == "thread-now"
-                              ThreadNowLine(message=message, busy=busy, command=command)
+                              ThreadNowLine(message=message, busy=busy, now=now, command=command)
                             else if message.kind == "queued"
                               QueuedTurn(message=message, busy=busy, command=command, urls=attachments)
                             else if message.kind == "queued-more"

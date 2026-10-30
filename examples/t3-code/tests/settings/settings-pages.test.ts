@@ -251,7 +251,7 @@ describe('every result lands on an element its own page draws, in that page stat
   // (CoreSections, CoreRowView), scoped rows' targets (ScopedSettingRow) and keybinding rows' anchors.
   // One connected server that settles threads and continues them after restarts, as the catalog's results assume.
   const client = {
-    local: { deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' },
+    local: { deviceSettings: { planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' },
       clientSettings: decodeClientPrefs({}), groupingMode: 'repository' },
     scopes: AUTH_STANDARD_CLIENT_SCOPES, ready: true, environmentId: 'env1', projectGroups: () => [],
     config: { environment: { environmentId: 'env1', label: 'Studio', serverVersion: '0.0.46',

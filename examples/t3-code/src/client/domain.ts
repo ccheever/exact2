@@ -30,6 +30,8 @@ export interface Message { secret?: ReturnType<typeof import('../timeline/secret
   summary?: string;
   /** An answer's text as the provider wrote it, before its thread links take their titles: the minimap's preview. */
   rawText?: string;
+  /** A queued automation or agent message's fold heading: "Automation", or the sending thread's title. */
+  sender?: string;
   findLines?: { id: string; parts: { id: string; text: string; find: number }[] }[];
   meta?: boolean; streaming?: boolean; actionsId?: string; collapsible?: boolean;
   /** An answer the reference offers Fork from this response on. */

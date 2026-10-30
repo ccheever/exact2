@@ -173,7 +173,6 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? `${triggerModelName({ ...currentModel, shortName: '' })}${currentModel.isUnavailable === true ? ' (Unavailable)' : ''}` : selectedModel || 'Choose model',
     modelShortLabel: currentModel ? triggerModelName({ ...currentModel, shortName: resolveModelShortName(currentModel, str(selectedProvider?.driver)) ?? '' }) : selectedModel || 'Choose model',
     modelUnavailable: currentModel?.isUnavailable === true,
-    composerCollapseOnScroll: client.local.deviceSettings.composerCollapseOnScroll,
     planModeEnabled: client.local.deviceSettings.planModeEnabled,
     composerResting: transcriptFacts(client).owner === `${client.origin}:${client.projectId}:${client.threadId}` && transcriptFacts(client).resting,
     transcriptAway: transcriptFacts(client).owner === `${client.origin}:${client.projectId}:${client.threadId}` && !transcriptFacts(client).atEnd,

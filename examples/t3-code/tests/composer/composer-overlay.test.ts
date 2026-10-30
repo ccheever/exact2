@@ -34,12 +34,10 @@ describe('composer overlay reservation (resolveComposerTimelineInset, TimelineLi
     composerOverlay(hold, input({ frames: frames(290, 238) }));
     expect(composerOverlay(hold, input({ frames: frames(290, 238), pulls: 1 })).transcriptTail).toBe(302);
   });
-  test('the reserved composer height follows the overlay and holds while the card rests', () => {
+  test('the reserved composer height follows the overlay', () => {
     const hold = newOverlayHold();
     expect(composerOverlay(hold, input({ frames: {} })).composerReserved).toBe(UNMEASURED_INSET);
     expect(composerOverlay(hold, input({ frames: frames(290, 238), atEnd: false })).composerReserved).toBe(290);
-    // A resting card (48pt row) keeps the expanded height, so the terminal drawer's cap does not move.
-    expect(composerOverlay(hold, input({ frames: frames(96, 48) })).composerReserved).toBe(290);
     expect(composerOverlay(hold, input({ frames: frames(170) })).composerReserved).toBe(170);
   });
   test('a shorter composer releases the reservation at once', () => {
@@ -47,20 +45,14 @@ describe('composer overlay reservation (resolveComposerTimelineInset, TimelineLi
     composerOverlay(hold, input({ frames: frames(290, 238) }));
     expect(composerOverlay(hold, input({ frames: frames(170) })).transcriptTail).toBe(182);
   });
-  test('a resting card keeps the expanded reservation; expanding again moves nothing', () => {
-    const hold = newOverlayHold();
-    composerOverlay(hold, input({ atEnd: false }));
-    expect(composerOverlay(hold, input({ frames: frames(100, 48), atEnd: false })).transcriptTail).toBe(182);
-    expect(composerOverlay(hold, input({ frames: frames(170), atEnd: false })).transcriptTail).toBe(182);
-  });
-  // resolveComposerTimelineInset (T3 Code 7c3b3b3605ef): the notices above the composer are all attached cards, so
-  // the reservation takes them in; a resting card still keeps the height it had expanded.
-  test('notices above the composer grow the reservation; a resting card keeps it', () => {
+  // The notices above the composer are all attached cards, so the reservation takes them in. The composer no longer
+  // rests (T3 Code v0.1.5 #25869): a short card is reserved as it is.
+  test('notices above the composer grow the reservation; a short card shrinks it', () => {
     const hold = newOverlayHold();
     // A working thread: every snapshot has new content, so a growth applies at once.
     expect(composerOverlay(hold, input({ frames: frames(172), content: '1' })).transcriptTail).toBe(172 + 12);
     expect(composerOverlay(hold, input({ frames: frames(244), content: '2' })).transcriptTail).toBe(244 + 12);
-    expect(composerOverlay(hold, input({ frames: frames(174, 48), content: '3' })).transcriptTail).toBe(244 + 12);
+    expect(composerOverlay(hold, input({ frames: frames(174, 48), content: '3' })).transcriptTail).toBe(174 + 12);
   });
   test('another thread rebuilds the reservation from its own composer', () => {
     const hold = newOverlayHold();

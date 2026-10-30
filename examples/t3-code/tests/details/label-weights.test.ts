@@ -1,6 +1,5 @@
 // The thread details card's rows are ThreadDetailsControl's `text-[13px] font-medium text-foreground/80`
-// (threadDetailsPanelStyles.ts), and the composer's controls ComposerControl's: size "sm" `font-medium`, the resting
-// "xs" `font-normal`. The window draws them antialiased under Font smoothing (app-window.contract), as the reference's
+// (threadDetailsPanelStyles.ts), and the composer's controls ComposerControl's: size "sm" `font-medium`. The window draws them antialiased under Font smoothing (app-window.contract), as the reference's
 // root does, so the weights are the reference's own.
 import { describe, expect, test } from 'bun:test';
 import { appText } from '../support/app-files';
@@ -26,10 +25,10 @@ describe('the labels the reference draws font-medium', () => {
     expect(lines('src/details/project-scripts.contract', 'text "Actions" ')[0]).toContain('color="light-dark(#18181bcc, #f5f5f5cc)"');
   });
 
-  test('the composer\'s model, traits, runtime and Plan/Build labels are 500 at size sm and 400 resting', () => {
+  test('the composer\'s model, effort, Permissions and Plan/Build labels are 500 (size sm; the resting row is gone since v0.1.5)', () => {
     const file = 'src/composer/composer-controls.contract';
-    const found = ['text (data.composer.fanout ', 'text label font-size=(xs ', 'text (active ? "Plan" : "Build") '].flatMap(start => lines(file, start));
-    expect(found).toHaveLength(5);
-    for (const line of found) expect(line).toContain(' font-weight=(xs ? 400 : 500) ');
+    const found = ['text (data.composer.fanout ', 'text label font-size="0.875rem" ', 'text (active ? "Plan" : "Build") ', 'text data.composer.effortWord '].flatMap(start => lines(file, start));
+    expect(found).toHaveLength(6); // the model, Provider unavailable, Permissions, Plan/Build and the effort word
+    for (const line of found) expect(line).toContain(' font-weight=500 ');
   });
 });

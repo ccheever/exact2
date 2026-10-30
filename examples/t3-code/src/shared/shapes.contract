@@ -162,6 +162,8 @@ shape Message
   attribution: string
   // A folded automation or agent message's one line (its task title or first line).
   summary: string
+  // A queued automation or agent message's fold heading ("Automation", or the sending thread's title).
+  sender: string
   targetId: string
   actionLabel: string
   copied: number
@@ -488,7 +490,6 @@ shape Snapshot
   modelLabel: string
   modelShortLabel: string
   modelUnavailable: bool
-  composerCollapseOnScroll: bool
   planModeEnabled: bool
   composerResting: bool
   transcriptAway: bool
@@ -666,7 +667,6 @@ shape Settings
   defaultModel: string
   defaultModelExplicit: bool
   modelOverridden: bool
-  composerCollapseOnScroll: bool
   planModeEnabled: bool
   timestampFormat: string
   appearanceMode: string
