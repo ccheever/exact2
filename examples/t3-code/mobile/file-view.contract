@@ -203,7 +203,7 @@ component MobileFileMarkdown
               row min-height=42 align-items="center" justify-content="space-between" padding-left=14 padding-right=6 border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.markdownBorder
                 text (block.language == "" ? "CODE" : block.language) flex=1 min-width=0 font-family="monospace" font-size=max(10, round(bodySize * 0.8)) text-transform="uppercase" color=colors.markdownBody user-select="text"
                 t3-file-code-copy route-key=routeId copy-owner=owner copy-path=path copy-block=block.id copy-text=block.text copy-language=block.language copy-active=active copy-tint=colors.markdownBody copy-success-tint=colors.markdownLink copy-background=colors.codeBackground copy-border=colors.markdownBorder width=34 height=34
-              view overflow-x="auto" overflow-y="hidden" scrollbar-width="none" max-width="100%" padding-left=14 padding-right=14 padding-top=12 padding-bottom=12
+              view display="flex" overflow-x="auto" overflow-y="hidden" scrollbar-width="none" max-width="100%" padding-left=14 padding-right=14 padding-top=12 padding-bottom=12
                 text font-family="monospace" font-size=max(10, round(bodySize * 0.8)) line-height=`${max(10, round(bodySize * 0.8)) + 6}px` white-space="pre" user-select="text" color=colors.codeForeground
                   for token in block.tokens key=token.id
                     text token.text color=token.color font-weight=token.weight font-style=token.slant
