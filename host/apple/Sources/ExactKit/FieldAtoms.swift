@@ -61,16 +61,24 @@ extension TextArea {
         owner.pressAtom(kind: atom.kind, source: source, href: atom.href, range: range, held: held)
     }
 
-    /// The atoms changed (a restyle, a new width, markup turned off): what
-    /// is read and pointed at follows. An element whose atom keeps its
-    /// range, label and role is kept, so VoiceOver's focus on it stays.
+    /// The atoms changed (a restyle, a new width, a new face, markup turned
+    /// off): what is read and pointed at follows. An element whose atom
+    /// keeps its range and role is kept, so VoiceOver's focus on it stays
+    /// while its face's label or title changes, as an upload's percentage
+    /// does; it is read anew, and on macOS a title change is posted for it.
     package func atomsChanged() {
         let frames = atomFrames()
         let old = atomElements
+        #if os(macOS)
+        var renamed: [AtomElement] = []
+        #endif
         atomElements = frames.map { range, atom, _ in
-            guard let kept = old.first(where: { $0.range == range && $0.atom.label == atom.label && $0.atom.role == atom.role }) else {
+            guard let kept = old.first(where: { $0.range == range && $0.atom.role == atom.role }) else {
                 return AtomElement(field: self, range: range, atom: atom)
             }
+            #if os(macOS)
+            if kept.atom.label != atom.label || kept.atom.title != atom.title { renamed.append(kept) }
+            #endif
             kept.atom = atom
             return kept
         }
@@ -82,6 +90,7 @@ extension TextArea {
         window?.invalidateCursorRects(for: self)
         observeAtomLook(!frames.isEmpty)
         if changed { NSAccessibility.post(element: self, notification: .layoutChanged) }
+        for element in renamed { NSAccessibility.post(element: element, notification: .titleChanged) }
         #else
         installAtomTap(!frames.isEmpty)
         watchAtomLook(!frames.isEmpty)
@@ -156,10 +165,12 @@ final class AtomCatcher: NSView {
 
 /// An atom as assistive technology sees it: a button (or link, as
 /// declared) named by its label, described by its title, at its pill.
-package final class AtomElement: NSAccessibilityElement {
+/// The agent joins it to the field's node, as iOS's container does.
+package final class AtomElement: NSAccessibilityElement, AgentOwned {
     weak var field: TextArea?
     let range: NSRange
     var atom: MarkupAtom
+    var agentViewId: UInt32? { field?.owner?.id }
     init(field: TextArea, range: NSRange, atom: MarkupAtom) {
         (self.field, self.range, self.atom) = (field, range, atom)
         super.init()
@@ -227,7 +238,7 @@ extension TextArea {
 package final class AtomElement: UIAccessibilityElement {
     weak var field: TextArea?
     let range: NSRange
-    var atom: MarkupAtom { didSet { accessibilityHint = atom.title.isEmpty ? nil : atom.title } }
+    var atom: MarkupAtom { didSet { accessibilityLabel = atom.label; accessibilityHint = atom.title.isEmpty ? nil : atom.title } }
     init(field: TextArea, range: NSRange, atom: MarkupAtom) {
         (self.field, self.range, self.atom) = (field, range, atom)
         super.init(accessibilityContainer: field.owner ?? field)
