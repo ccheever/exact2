@@ -142,6 +142,18 @@ extension Runtime {
             return read(exact_host_covers(rt, write(bytes)))
         }
     }
+    /// The border box a person dragged `view`'s `resize` grip to, under one
+    /// layout (`Runner::resize_box`); nil keeps an axis.
+    func resizeBox(_ view: UInt32, width: CGFloat?, height: CGFloat?) -> Batch {
+        return on {
+            var bytes = Data(capacity: 24)
+            let lengths = [width, height, 0, 0].map { Float($0 ?? .nan).bitPattern }
+            for word in [view, 16] + lengths {
+                withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
+            }
+            return read(exact_host_covers(rt, write(bytes)))
+        }
+    }
     /// The margins UIKit's own list gives each grouped list's cards and
     /// cells, under one layout: the card's left and right insets, then the
     /// cell's left and right margins; nil clears them.

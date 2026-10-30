@@ -570,6 +570,7 @@ extension NodeView {
                                                        right: max(0, layoutBounds.width - r.maxX) + bounds.width - layoutBounds.width)
             }
         } else { area.frame = contentBox() }
+        layoutResizeGrip()
         #endif
     }
     /// The app's value into the editor: the changed middle only, with the

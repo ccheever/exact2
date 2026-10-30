@@ -1595,9 +1595,17 @@ authored per-glyph cascade needs a shaping API beyond cosmic-text's one
 
 CSS form and text vocabulary (app diaries kanban F11, ledger F1/F4,
 minesweeper F4, pomodoro F2): `rows` is HTML intrinsic line count and maxlength
-limits user UTF-16 edits, leaving authored values intact. Native interactive
-CSS resize handles are not implemented; Contract admits none and diagnoses
-other CSS values. user-select admits auto, none, text (2026-10-12, LLP
+limits user UTF-16 edits, leaving authored values intact. `resize`
+(2026-10-30) admits every CSS keyword. The browser draws its grip; the Mac
+and iOS draw Chrome's two strokes in a textarea's bottom end corner, and a
+drag hands the runner the border box the pointer reached
+(`Runner::resize_box`), which writes `width` and `height` in the box's
+`box-sizing`, as Chrome's inline style does: they replace an authored or
+`field-sizing: content` size until the plan rewrites the row, `min-*` and
+`max-*` still bound them, and nothing else does. `block` and `inline` are
+`vertical` and `horizontal`. Declared deviation: only a textarea has a grip
+on a native host, and tvOS (a read-only textarea), Linux, Windows, Android
+and the terminal draw none. user-select admits auto, none, text (2026-10-12, LLP
 1115.000 D11.6) and all (2026-10-20): the nearest authored value decides, and a control's label is
 not selectable unless text is said on it or inside the control. What is left
 is auto with nothing above it, the platform's: macOS resolves it as AppKit

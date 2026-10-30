@@ -1397,7 +1397,6 @@ component App
 #[test]
 fn css_native_interaction_gaps_are_named_precisely() {
     for (name, value, reason) in [
-        ("resize", "vertical", "user-controlled box geometry"),
         ("user-select", "contain", "selection ownership"),
         ("border", "1px double red", "native painters"),
         ("text-decoration", "underline wavy", "native text painters"),

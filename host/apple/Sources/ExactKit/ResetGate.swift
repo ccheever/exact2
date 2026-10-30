@@ -132,6 +132,7 @@ enum ResetGate {
         "segments(_:)": "the posture and viewport segments: the view's `rebooted` tells them again",
         "listMargins(_:)": "UIKit's cell margins: the presenter's reset clears what was told (`RowCells.reset`), and the new rows report their own",
         "groupedMargins(_:)": "UIKit's grouped-card margins: the new tree's grouped lists measure and report their own",
+        "resizeBox(_:width:height:)": "a resize grip's drag on the old tree: a restart takes the size back to the plan's, as a reload does the browser's",
         // Never reached while held: their entry points wait for the replay first.
         "dataReady()": "never held: `activateData` holds first and is replayed (.activation), which asks it",
         "landShare()": "never held: a cold share lands from `activateData`, which holds first and is replayed",

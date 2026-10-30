@@ -314,6 +314,20 @@ fn user_select_is_written_for_webkit_too() {
     }
 }
 
+/// CSS `resize` reaches the textarea as written, literal and bound: the
+/// browser draws the grip and writes the dragged size inline itself.
+#[test]
+fn resize_is_written_as_css() {
+    let plan = contract::compile(
+        "component App\n  state wide = false\n  view\n    column\n      textarea resize=\"vertical\"\n      textarea resize=(wide ? \"both\" : \"block\")\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let all = format!("{}{}", out.js, out.css);
+    assert!(all.contains("resize:vertical"), "{all}");
+    assert!(out.js.contains("\"resize\""), "{}", out.js);
+}
+
 /// LLP 1116 D8: a literal `value` on a `progress` is its `<progress>`'s
 /// attribute, as a bound one is its property; without it the browser draws
 /// an indeterminate bar.
