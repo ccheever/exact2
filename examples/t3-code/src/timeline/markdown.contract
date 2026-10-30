@@ -647,10 +647,11 @@ component FlowRuns
     else
       linkOpen("link", href, e)
   // ChatMarkdown's selectInlineCode: word selection stops at hyphens and dots, so a double-click takes the whole code
-  // span. The double-click is the span's alone, so in an answer it also starts Cite's wait, as AnswerMarkdown's would.
+  // span. The double-click is the span's alone, so it also starts Cite's wait, as AnswerMarkdown's would. Only an
+  // answer's spans have ids of their own (`source`); elsewhere the word selection stays.
   action selectCode(id: string, length: number)
-    setSelectionRange(id, 0, length)
     if source != ""
+      setSelectionRange(id, 0, length)
       citeHold()
   view
     row flex-grow=(fit ? 0 : 1) min-width=0 width=(fit ? "auto" : "100%") max-width="100%" flex-wrap="wrap" align-items="flex-start"
