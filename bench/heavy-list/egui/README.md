@@ -1,7 +1,8 @@
 # Heavy list: egui on the Mac
 
-@ref LLP 1149 §4.1; G4a. This is benchmark apparatus, a separate Cargo workspace.
-G4b uses the shared driver and probe; results belong in `../gpui/RESULTS.md`.
+@ref LLP 1149 §4.1; G4. This is benchmark apparatus, a separate Cargo workspace.
+The shared driver and probe measured all four arms; see
+[G4 results](../gpui/RESULTS.md#g4-four-arms-egui-beside-gpui-ink-and-the-native-host).
 
 ## Implementation
 
@@ -50,8 +51,8 @@ The live label is static and `BENCH_LIVE=1` is refused.
   fallback faces. A missing primary file is logged and leaves egui's bundled
   Ubuntu Light/Hack defaults. Font bytes are not bundled. Egui's HarfRust
   shaping and glyph rasterization differ from Core Text; metrics, fallback,
-  emoji and script rendering need visual qualification in G4b. The top capture
-  has different line breaks and smaller emoji than the retained GPUI capture.
+  emoji and script rendering differ. G4's top capture has different line
+  breaks and smaller emoji than GPUI; it does not qualify every script.
 - Inline code is SF Mono at SPEC's 15 points, rather than GPUI's Menlo at 16.
   Paragraphs remain one wrapping rich-text flow. Reaction digits use equal
   width cells in the same semibold font, since this text API exposes no
@@ -63,7 +64,8 @@ The live label is static and `BENCH_LIVE=1` is refused.
   lifetime. No native row accessibility labels are exposed by this painter.
 - The top capture's photos appear more saturated than the retained GPUI
   capture despite using the same ImageIO decoder and data. Color presentation
-  is not qualified as equivalent; G4b must inspect this alongside text parity.
+  is not qualified as equivalent; G4's four-arm inspection confirms the visible
+  saturation difference.
 - JSON parsing, font loading, workers and caches count toward the app. Native
   Exact's first rows are baked into its plan. The painted arms' drawable
   milestone differs from the native probe's settled layer-snapshot milestone.
@@ -151,10 +153,12 @@ All six repository checks passed, including clippy and fmt, as did the egui
 workspace's clippy (`-D warnings`) and fmt. No check needed a retry. The root
 build/test/check commands used this worktree's `target/`; tests used
 `RUST_TEST_THREADS=2`. Exact commands, exit codes and logs are retained in
-`target/g4b/checks/`. Timed samples remain pending the display window.
+`target/g4b/checks/`. These checks preceded the timed series.
 
-The G4b timed series was not collected. The original GO arrived during the
-rebuilds, leaving too little of its display window for the full series. The
-bounded wait for a renewed window ended without a fresh GO. No wheel events
-were posted, and no four-arm timing tables or new native/GPUI/Ink parity
-captures are claimed. The prepared series can be resumed from `target/g4b/plan.txt`.
+The orchestrator subsequently ran the prepared series on 2026-10-29.
+[G4](../gpui/RESULTS.md#g4-four-arms-egui-beside-gpui-ink-and-the-native-host)
+records five quiet fling/rest rounds and ten selected successful cold launches
+per arm, including the resumed cold phase's unmonitored samples. Egui timed
+out before its first complete scene in one of thirteen timed attempts;
+`QUEUE.md` tracks that unexplained intermittent failure. The four new row-zero
+captures supersede G4a's egui capture.

@@ -1015,6 +1015,31 @@ improved vello or the wgpu Ink arm, G3c cannot decide D15's C-over-B or D-over-C
 comparisons or qualify D12's carrier. S1.4's roughly 340 MiB graphics transient
 remains open (`bench/heavy-list/gpui/RESULTS.md`, “G3c”).
 
+**G4, egui, 2026-10-29**: Charlie asked for egui beside GPUI. The arm is
+published egui/eframe **0.37.0**, eframe's wgpu **30.0.1** backend over Metal,
+with the same screen, data, probe and complete-scene ready signal, and SF
+loaded from the system. Five quiet interleaved fling/rest rounds put
+native/GPUI/Ink/egui process CPU at **131.91/84.92/86.41/66.84 ms/s**;
+CPU per presented frame is **unmeasured/0.961/2.615/1.642 ms** (GPUI counts
+unchanged re-presentations), rest CPU **1.288/5.631/1.469/0.359 ms/s**,
+peak footprint **228.39/406.42/591.56/507.81 MiB**, and end-of-rest footprint
+**215.85/208.55/238.64/178.28 MiB**. All have **8.33 ms p95**; painted-arm
+late intervals are **1.248/0.749/0.738 per gesture second** for GPUI/Ink/egui,
+with posting gaps and receive deficits. Egui presents **101.02 frames/s**
+inside gesture windows but **40.90** across the full fling phase, without
+GPUI's sustained re-presentation between gestures. Ten successful cold
+launches per arm give **354.14/313.13/352.13/337.45 ms**; seven per arm were
+monitored quiet and three unmonitored, with caches retained. Egui also failed
+to reach a complete scene within 30 seconds in **one of thirteen attempts**,
+unexplained and intermittent after G4a's 14.7-second functional launch and
+G4b's successful readiness probes; `QUEUE.md` tracks the benchmark's hang.
+The non-comparables are whole-app layout, virtualization, caches and startup
+paths, native's snapshot/display-link instruments, GPUI's re-presentations,
+Ink's unqualified carrier and text, egui's text metrics, emoji, code face,
+color and accessibility gaps, and unequal scroll work; the run cannot rank
+renderers or decide D15's unmeasured arms (`bench/heavy-list/gpui/RESULTS.md`,
+“G4”).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms

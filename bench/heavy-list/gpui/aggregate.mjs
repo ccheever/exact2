@@ -1,6 +1,6 @@
 // Retained three- or four-arm process samples. @ref LLP 1149 §4.1.
 // bun bench/heavy-list/gpui/aggregate.mjs target/g3c [--verify | --json]
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 
@@ -11,6 +11,8 @@ const arms = ['native', 'gpui', 'ink', ...(fourArms ? ['egui'] : [])];
 const report = fourArms ? 'G4' : 'G3c';
 const samples = Object.fromEntries(arms.map(arm => [arm, []]));
 const rejected = [];
+const unused = [];
+const round = path => Number(path.match(/-(\d+)(?:-retry)?\.json$/)[1]);
 const sum = values => values.reduce((a, b) => a + b, 0);
 const inside = (value, [start, end]) => start <= value && value <= end;
 const gaps = times => times.slice(1).map((time, i) => (time - times[i]) * 1000);
@@ -30,14 +32,30 @@ function distribution(values) {
   };
 }
 
-for (const phase of ['cold', 'fling']) {
+const phases = ['cold', 'fling'];
+if (existsSync(join(directory, 'series', 'cold2'))) phases.push('cold2');
+for (const phase of phases) {
   const folder = join(directory, 'series', phase);
   for (const file of readdirSync(folder).sort()) {
+    // A readiness timeout exits before the probe can write its result JSON.
+    if (/^(native|gpui|ink|egui)-\d+(-retry)?\.log$/.test(file)
+        && !existsSync(join(folder, file.replace(/\.log$/, '.json')))) {
+      const path = join(folder, file);
+      assert(readFileSync(path, 'utf8').includes('probe: first complete frame timed out'),
+        `${path}: unclassified launch without result JSON`);
+      rejected.push(path);
+    }
     if (!/^(native|gpui|ink|egui)-\d+(-retry)?\.json$/.test(file)) continue;
     const path = join(folder, file);
     const raw = JSON.parse(readFileSync(path, 'utf8'));
     if (!raw.accepted) {
       rejected.push(path);
+      continue;
+    }
+    // G4's resumed cold series retained rounds 11–12 beyond the ten-launch column.
+    if (fourArms && round(path) > 10) {
+      assert.notEqual(phase, 'fling', `${path}: extra fling round`);
+      unused.push(path);
       continue;
     }
     const arm = file.split('-')[0];
@@ -91,6 +109,7 @@ for (const phase of ['cold', 'fling']) {
 
 const metrics = {};
 for (const arm of arms) {
+  if (fourArms) samples[arm].sort((a, b) => round(a.path) - round(b.path));
   const flings = samples[arm].filter(sample => sample.fling_seconds).length;
   assert(samples[arm].length > 0 && samples[arm].length <= 10, `${arm}: one to ten accepted launches`);
   assert(flings > 0 && flings <= 5, `${arm}: one to five fling/rest samples`);
@@ -146,7 +165,7 @@ if (mode === '--verify') {
   const retained = Object.values(samples).flat();
   console.log(`${report} reproduced exactly: two tables, ${retained.length} retained launches, ${retained.filter(sample => sample.fling_seconds).length} fling/rest samples; ${rejected.length} rejected attempts.`);
 } else if (mode === '--json') {
-  console.log(JSON.stringify({ samples, metrics, rejected }, null, 2));
+  console.log(JSON.stringify({ samples, metrics, rejected, ...(fourArms ? { unused } : {}) }, null, 2));
 } else {
   console.log(`${resources}\n\n${cadence}`);
 }
