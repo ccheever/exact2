@@ -2,19 +2,22 @@
 //! names an authorization URL, the callback it returns to and the `state` it
 //! carries. Every host's arm asks this module first, so one rule checks the
 //! grants, holds the request for the agent, accepts a callback, and keeps the
-//! one-session rule; the host only opens the platform's surface (an
-//! `ASWebAuthenticationSession`, a popup) and reports what came back.
+//! one-sheet rule; the host only opens the platform's surface (an
+//! `ASWebAuthenticationSession`, a popup, a loopback receiver) and reports
+//! what came back.
 //!
 //! @ref LLP 1069.006 D1 (the request and its statuses) / D2 (`auth.session`
 //! and `auth.callback`) / D3 (the host's own scheme, host and path match;
-//! one session per window; supersession) / D7 (the substitute: a hold the
+//! one sheet per window; supersession) / D7 (the substitute: a hold the
 //! agent answers with a callback URL, checked the same way)
+//! @ref LLP 1133.005 D9 (a loopback callback: several at once, one per
+//! port; exactly one `code` or `error`)
 //!
 //! The reply is HTTP-shaped: 200 carries the callback URL (delivery, not a
 //! sign-in), 499 `cancelled`, 403 the grant, 409 `already open`, 428 `popup
-//! blocked` (web), 501 no system browser, 502 anything else. A callback URL
-//! carries a code, so no journal line, hold summary or refusal here ever
-//! includes one.
+//! blocked` (web), 501 no system browser, 502 anything else (`port in use`
+//! included). A callback URL carries a code, so no journal line, hold
+//! summary or refusal here ever includes one.
 
 use crate::agent::{field_bool, field_str, quote};
 use crate::{DataSource, Outcome, RequestOut, Response, Runner};
@@ -524,10 +527,58 @@ pub fn accept(session: &Session, got: &str) -> Result<(), String> {
     }
 }
 
+/// A loopback callback's further check (LLP 1133.005 D9): it is an
+/// authorization response, so its query carries exactly one non-empty
+/// `code` and no `error`, or the reverse (RFC 6749 §4.1.2, §4.1.2.1). The
+/// receiver answers anything else 400 and keeps listening, so a stray
+/// request with the right `state` does not end the sign-in.
+pub fn one_code_or_error(got: &str) -> Result<(), String> {
+    let query = Url::parse(got).and_then(|u| u.query).unwrap_or("");
+    let (mut codes, mut errors) = (Vec::new(), Vec::new());
+    for (name, value) in query_pairs(query) {
+        match name.as_str() {
+            "code" => codes.push(value),
+            "error" => errors.push(value),
+            _ => {}
+        }
+    }
+    match (codes.as_slice(), errors.as_slice()) {
+        ([one], []) | ([], [one]) if !one.is_empty() => Ok(()),
+        _ => Err("the callback does not carry exactly one code or error".into()),
+    }
+}
+
+/// A live session: its ticket, target and request, and whether a loopback
+/// receiver waits for it instead of a sheet or popup.
+#[derive(Clone, Debug)]
+struct Live {
+    ticket: u64,
+    target: String,
+    session: Session,
+    listened: bool,
+}
+
+impl Live {
+    /// D3's match, and for a loopback receiver its further check.
+    fn accept(&self, got: &str) -> Result<(), String> {
+        accept(&self.session, got)?;
+        if self.listened {
+            one_code_or_error(got)?;
+        }
+        Ok(())
+    }
+
+    /// The port a loopback receiver binds for it.
+    fn port(&self) -> Option<u16> {
+        let port = loopback_callback(&self.session.callback).map(|(_, port, _)| port);
+        port.filter(|_| self.listened)
+    }
+}
+
 /// The live sessions and the answers settled for them, kept by the runner.
 #[derive(Debug, Default)]
 pub struct Sessions {
-    live: Vec<(u64, String, Session)>,
+    live: Vec<Live>,
     settled: Vec<(u64, Outcome)>,
     /// Tickets whose session a host opened and must cancel once forgotten.
     opened: Vec<u64>,
@@ -567,7 +618,7 @@ fn response(status: u16, body: &str) -> Outcome {
 /// the agent's answer), for the host's next delivery. The live session ends.
 pub fn settle<D: DataSource>(runner: &mut Runner<D>, ticket: u64, status: u16, body: &str) {
     let auth = runner.auth_mut();
-    auth.live.retain(|(t, _, _)| *t != ticket);
+    auth.live.retain(|l| l.ticket != ticket);
     auth.opened.retain(|t| *t != ticket);
     auth.settled.push((ticket, response(status, body)));
     let line = match status {
@@ -589,12 +640,12 @@ pub fn complete<D: DataSource>(
     ticket: u64,
     result: Result<&str, (u16, &str)>,
 ) {
-    let Some(session) = runner.auth_mut().session(ticket).cloned() else {
+    let Some(live) = runner.auth_mut().find(ticket).cloned() else {
         runner.log(format!("auth {ticket}: a late completion, dropped"));
         return;
     };
     match result {
-        Ok(url) => match accept(&session, url) {
+        Ok(url) => match live.accept(url) {
             Ok(()) => settle(runner, ticket, 200, url),
             Err(why) => settle(runner, ticket, 502, &why),
         },
@@ -603,11 +654,8 @@ pub fn complete<D: DataSource>(
 }
 
 impl Sessions {
-    fn session(&self, ticket: u64) -> Option<&Session> {
-        self.live
-            .iter()
-            .find(|(t, _, _)| *t == ticket)
-            .map(|(_, _, s)| s)
+    fn find(&self, ticket: u64) -> Option<&Live> {
+        self.live.iter().find(|l| l.ticket == ticket)
     }
 
     /// Whether an outcome waits for delivery on a ticket still `held`.
@@ -617,7 +665,7 @@ impl Sessions {
 
     /// The live session for `ticket`, as the agent's answer is checked.
     pub fn live(&self, ticket: u64) -> Option<&Session> {
-        self.session(ticket)
+        self.find(ticket).map(|l| &l.session)
     }
 }
 
@@ -650,39 +698,49 @@ pub fn arm<D: DataSource>(
         settle(runner, ticket, 403, &why);
         return Arm::Settled;
     }
-    // A loopback callback (LLP 1133.005 D9) other than the page's own.
+    // A loopback callback (LLP 1133.005 D9) other than the page's own: a
+    // receiver listens for it, which a page cannot.
     let page = web_origin.map(|o| format!("{}{WEB_CALLBACK_PATH}", o.trim_end_matches('/')));
-    if browser == Browser::Web
-        && loopback_callback(&session.callback).is_some()
-        && page.as_deref() != Some(session.callback.as_str())
-    {
+    let listened = loopback_callback(&session.callback).is_some()
+        && page.as_deref() != Some(session.callback.as_str());
+    if browser == Browser::Web && listened {
         settle(runner, ticket, 501, "a page cannot listen");
         return Arm::Settled;
     }
-    // One session per window: a request for the same target superseded its
-    // predecessor (the runner forgot that ticket); another target's live
-    // session refuses this one.
-    let still: Vec<u64> = runner.auth_mut().live.iter().map(|(t, _, _)| *t).collect();
+    // A request for the same target superseded its predecessor (the runner
+    // forgot that ticket).
+    let still: Vec<u64> = runner.auth_mut().live.iter().map(|l| l.ticket).collect();
     for t in still {
         if !runner.holds(t) {
             let auth = runner.auth_mut();
-            auth.live.retain(|(x, _, _)| *x != t);
+            auth.live.retain(|l| l.ticket != t);
             auth.opened.retain(|x| *x != t);
         }
     }
-    if runner
-        .auth_mut()
-        .live
-        .iter()
-        .any(|(_, target, _)| *target != out.target)
+    let live = Live {
+        ticket,
+        target: out.target.clone(),
+        session: session.clone(),
+        listened,
+    };
+    // One sheet per window: another target's sheet or popup refuses this
+    // one (D3). A loopback sign-in shows none, so several wait at once, each
+    // on its own port; a second on one port fails as its bind would.
+    let auth = runner.auth_mut();
+    if live.port().is_some() && auth.live.iter().any(|l| l.port() == live.port()) {
+        settle(runner, ticket, 502, "port in use");
+        return Arm::Settled;
+    }
+    if !listened
+        && auth
+            .live
+            .iter()
+            .any(|l| !l.listened && l.target != out.target)
     {
         settle(runner, ticket, 409, "already open");
         return Arm::Settled;
     }
-    runner
-        .auth_mut()
-        .live
-        .push((ticket, out.target.clone(), session.clone()));
+    runner.auth_mut().live.push(live);
     // Under the agent the hold comes first, on every host: a fixture sign-in
     // needs no browser, so a headless Linux drive can complete one (LLP 1146 D4).
     if agent {
@@ -690,7 +748,7 @@ pub fn arm<D: DataSource>(
         return Arm::Held;
     }
     if browser == Browser::None {
-        runner.auth_mut().live.retain(|(t, _, _)| *t != ticket);
+        runner.auth_mut().live.retain(|l| l.ticket != ticket);
         settle(runner, ticket, 501, "no system browser on this host");
         return Arm::Settled;
     }
@@ -707,11 +765,10 @@ pub fn hold_opened<D: DataSource>(runner: &mut Runner<D>, ticket: u64) {
         return;
     };
     auth.opened.remove(at);
-    let Some((_, target, session)) = auth.live.iter().find(|(t, _, _)| *t == ticket).cloned()
-    else {
+    let Some(live) = auth.find(ticket).cloned() else {
         return;
     };
-    runner.hold_request(ticket, "auth", &target, &session.summary());
+    runner.hold_request(ticket, "auth", &live.target, &live.session.summary());
 }
 
 /// The outcome settled for `ticket`, taken for delivery (the web's path).
@@ -740,7 +797,7 @@ pub fn forgotten<D: DataSource>(runner: &mut Runner<D>) -> Vec<u64> {
     let (keep, gone): (Vec<u64>, Vec<u64>) = opened.into_iter().partition(|t| runner.holds(*t));
     let auth = runner.auth_mut();
     auth.opened = keep;
-    auth.live.retain(|(t, _, _)| !gone.contains(t));
+    auth.live.retain(|l| !gone.contains(&l.ticket));
     for t in &gone {
         runner.log(format!("auth {t}: cancelled by supersession"));
     }
@@ -755,12 +812,12 @@ pub(crate) fn check_answer<D: DataSource>(
     ticket: u64,
     url: &str,
 ) -> Result<(), String> {
-    let session = runner
+    let live = runner
         .auth_mut()
-        .live(ticket)
+        .find(ticket)
         .cloned()
         .ok_or_else(|| format!("not pending: @{ticket}"))?;
-    accept(&session, url)
+    live.accept(url)
 }
 
 #[cfg(test)]
@@ -883,6 +940,26 @@ mod tests {
         .is_err());
         assert!(accept(&https, "http://app.example/.exact/auth/callback?state=s1").is_err());
         assert!(accept(&https, "https://app.example/.exact/auth/callback/?state=s1").is_err());
+    }
+
+    /// A loopback receiver's callback is an authorization response: one
+    /// non-empty `code` or one non-empty `error`, never both.
+    #[test]
+    fn a_loopback_callback_carries_exactly_one_code_or_error() {
+        let cb = "http://127.0.0.1:4332/cb";
+        for good in ["?code=c&state=s1", "?state=s1&error=access_denied&iss=x"] {
+            assert!(one_code_or_error(&format!("{cb}{good}")).is_ok(), "{good}");
+        }
+        for bad in [
+            "?state=s1",
+            "?code=&state=s1",
+            "?code=a&code=b&state=s1",
+            "?code=c&error=e&state=s1",
+            "?error=&state=s1",
+        ] {
+            let e = one_code_or_error(&format!("{cb}{bad}")).unwrap_err();
+            assert!(e.contains("exactly one code or error"), "{bad}: {e}");
+        }
     }
 
     #[test]

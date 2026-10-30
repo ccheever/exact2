@@ -1,15 +1,18 @@
 //! `openAuthSession` (LLP 1069.006) through the runner, as every host's arm
 //! asks it: the grants refuse (403), Linux has no browser (501), the agent
 //! holds the request by its own ticket and answers it with a checked
-//! callback URL or `cancel`, a second target's session is 409, and a
-//! superseded session is forgotten for the host to cancel.
+//! callback URL or `cancel`, a second target's sheet is 409, and a
+//! superseded session is forgotten for the host to cancel. Loopback
+//! sessions (LLP 1133.005 D9) wait side by side, one per port, and take
+//! only a callback with exactly one `code` or `error`.
 
 use exact_kernel::Kernel;
 use exact_plan::Value;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::{agent, Answer, DataError, DataSource, Event, Outcome, Runner, Store};
 
-const GRANTS: &str = "auth.session https://as.test\nauth.callback app.test:/cb";
+const GRANTS: &str =
+    "auth.session https://as.test\nauth.callback app.test:/cb\nauth.callback http://127.0.0.1/cb";
 
 struct Signer;
 
@@ -49,7 +52,7 @@ impl DataSource for Signer {
     }
 }
 
-const APP: &str = "shape R\n  text: string\ncomponent App\n  state cb = \"app.test:/cb\"\n  mutation signed as shape R\n  mutation other as shape R\n  action go\n    send signed = signIn(cb)\n  action bad\n    send signed = signIn(\"app.test:/elsewhere\")\n  action two\n    send other = other(cb)\n  view\n    column\n      button press=go testId=\"go\"\n        text \"go\"\n      button press=bad testId=\"bad\"\n        text \"bad\"\n      button press=two testId=\"two\"\n        text \"two\"\n      match signed\n        case some(s)\n          text s.text testId=\"out\"\n        case none\n          text \"\" testId=\"out\"\n";
+const APP: &str = "shape R\n  text: string\ncomponent App\n  state cb = \"app.test:/cb\"\n  mutation signed as shape R\n  mutation other as shape R\n  action go\n    send signed = signIn(cb)\n  action bad\n    send signed = signIn(\"app.test:/elsewhere\")\n  action two\n    send other = other(cb)\n  action loopA\n    send signed = signIn(\"http://127.0.0.1:4401/cb\")\n  action loopB\n    send other = other(\"http://127.0.0.1:4402/cb\")\n  action loopSame\n    send other = other(\"http://127.0.0.1:4401/cb\")\n  view\n    column\n      button press=go testId=\"go\"\n        text \"go\"\n      button press=bad testId=\"bad\"\n        text \"bad\"\n      button press=two testId=\"two\"\n        text \"two\"\n      button press=loopA testId=\"loop-a\"\n        text \"loop a\"\n      button press=loopB testId=\"loop-b\"\n        text \"loop b\"\n      button press=loopSame testId=\"loop-same\"\n        text \"loop same\"\n      match signed\n        case some(s)\n          text s.text testId=\"out\"\n        case none\n          text \"\" testId=\"out\"\n";
 
 fn boot() -> Runner<Signer> {
     Runner::boot(
@@ -156,14 +159,14 @@ fn the_agent_answers_a_hold_by_its_ticket_checked_as_a_host_checks() {
 }
 
 #[test]
-fn one_session_per_window_and_supersession_forgets_the_old_one() {
+fn one_sheet_per_window_and_supersession_forgets_the_old_one() {
     let mut r = boot();
     let first = press(&mut r, "go");
     assert!(matches!(
         auth::arm(&mut r, &first, false, Browser::Native, None),
         Arm::Present(_)
     ));
-    // Another target's session while this one is open: 409.
+    // Another target's sheet while this one is open: 409.
     let other = press(&mut r, "two");
     assert_eq!(
         auth::arm(&mut r, &other, false, Browser::Native, None),
@@ -185,6 +188,80 @@ fn one_session_per_window_and_supersession_forgets_the_old_one() {
     auth::complete(&mut r, first.ticket, Ok("app.test:/cb?state=s1"));
     auth::complete(&mut r, second.ticket, Ok("app.test:/cb?code=c&state=s1"));
     assert_eq!(deliver(&mut r), "200 28");
+}
+
+/// The settled answer's ticket and status, taken without the view.
+fn settled(r: &mut Runner<Signer>) -> (u64, u16) {
+    let (ticket, outcome) = r.take_request_refusal(true).expect("a settled answer");
+    let status = exact_data::auth::reply(&outcome).map_or_else(|(s, _)| s, |_| 200);
+    r.fulfill(ticket, outcome).unwrap();
+    (ticket, status)
+}
+
+/// Two loopback sign-ins wait at once, each on its own port, and complete
+/// independently; a callback with the right `state` and no `code` or
+/// `error` is refused and the hold stays; a third on a port in use is 502;
+/// a sheet beside a loopback sign-in opens (LLP 1133.005 D9).
+#[test]
+fn loopback_sessions_wait_side_by_side_and_take_only_a_code_or_an_error() {
+    let mut r = boot();
+    let a = press(&mut r, "loop-a");
+    assert_eq!(
+        auth::arm(&mut r, &a, true, Browser::Native, None),
+        Arm::Held
+    );
+    let b = press(&mut r, "loop-b");
+    assert_eq!(
+        auth::arm(&mut r, &b, true, Browser::Native, None),
+        Arm::Held
+    );
+    let typed = |r: &mut Runner<Signer>, t: u64, url: &str| {
+        let json = format!(r#"{{"op":"type","ticket":{t},"text":"{url}"}}"#);
+        agent::answer(r, &json).unwrap().0
+    };
+    let stray = typed(&mut r, a.ticket, "http://127.0.0.1:4401/cb?state=s1");
+    assert!(stray.contains("exactly one code or error"), "{stray}");
+    let both = typed(
+        &mut r,
+        a.ticket,
+        "http://127.0.0.1:4401/cb?code=c&error=e&state=s1",
+    );
+    assert!(both.contains("exactly one code or error"), "{both}");
+    assert!(r.take_request_refusal(true).is_none(), "the hold stays");
+    let reply = typed(&mut r, b.ticket, "http://127.0.0.1:4402/cb?code=c&state=s1");
+    assert!(reply.contains("substituted"), "{reply}");
+    assert_eq!(settled(&mut r), (b.ticket, 200));
+    let denied = "http://127.0.0.1:4401/cb?error=access_denied&state=s1";
+    assert!(typed(&mut r, a.ticket, denied).contains("substituted"));
+    assert_eq!(settled(&mut r), (a.ticket, 200));
+
+    // A host's receiver checks the same: its completion without a code is 502.
+    let a = press(&mut r, "loop-a");
+    assert!(matches!(
+        auth::arm(&mut r, &a, false, Browser::Native, None),
+        Arm::Present(_)
+    ));
+    let same = press(&mut r, "loop-same");
+    assert_eq!(
+        auth::arm(&mut r, &same, false, Browser::Native, None),
+        Arm::Settled
+    );
+    assert_eq!(settled(&mut r), (same.ticket, 502));
+    let sheet = press(&mut r, "two");
+    assert!(matches!(
+        auth::arm(&mut r, &sheet, false, Browser::Native, None),
+        Arm::Present(_)
+    ));
+    auth::complete(&mut r, a.ticket, Ok("http://127.0.0.1:4401/cb?state=s1"));
+    assert_eq!(settled(&mut r), (a.ticket, 502));
+    // The web listens to nothing: a loopback callback other than the page's is 501.
+    let a = press(&mut r, "loop-a");
+    let page = Some("http://127.0.0.1:8080");
+    assert_eq!(
+        auth::arm(&mut r, &a, false, Browser::Web, page),
+        Arm::Settled
+    );
+    assert_eq!(settled(&mut r), (a.ticket, 501));
 }
 
 /// `authorize` and `authorize cancel` parse as test steps and reach the driver

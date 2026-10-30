@@ -41,6 +41,7 @@ export const grants = {
     // The desktop's loopback callback, at any port (LLP 1133.005 D9).
     'auth.callback http://127.0.0.1/oauth/loopback',
     'secret.keep fixture.session', 'secret.keep fixture.pending', 'secret.keep fixture.dpop', 'secret.keep fixture.passkeys',
+    'secret.keep fixture.pending-second', 'secret.keep fixture.dpop-second',
     // The fixture's relying party, and the web drive's (the page is a loopback one).
     'auth.passkey auth-fixture.exact.test', 'auth.passkey localhost', 'device.attestation',
     // The fixture's sign-in clients (LLP 1133.014 §13 question 6 names the real ones).
@@ -51,6 +52,7 @@ export const grants = {
     // The desktop's loopback callback, at any port (LLP 1133.005 D9).
     'auth.callback http://127.0.0.1/oauth/loopback',
     'secret.keep fixture.session', 'secret.keep fixture.pending', 'secret.keep fixture.dpop', 'secret.keep fixture.passkeys',
+    'secret.keep fixture.pending-second', 'secret.keep fixture.dpop-second',
     'auth.passkey exact-auth-fixture.expo.app', 'auth.passkey localhost', 'device.attestation',
     'auth.apple com.exact.authfixture.web', 'auth.google fixture-web.apps.googleusercontent.com', 'auth.google fixture-ios.apps.googleusercontent.com'],
 };
@@ -127,17 +129,22 @@ const session = (store: Store) => {
 };
 
 // A desktop's loopback callback on a port the client chose, as Codex's
-// ChatGPT sign-in uses 1455 (LLP 1133.005 D9).
+// ChatGPT sign-in uses 1455 (LLP 1133.005 D9). A second sign-in waits beside
+// the first on its own port, with its own transaction and key.
 const LOOPBACK_CALLBACK = 'http://127.0.0.1:4332/oauth/loopback';
+const SECOND_CALLBACK = 'http://127.0.0.1:4333/oauth/loopback';
+const keys = (second: boolean) => second
+  ? { pending: 'fixture.pending-second', dpop: 'fixture.dpop-second' }
+  : { pending: 'fixture.pending', dpop: 'fixture.dpop' };
 
-async function prepareSignIn(store: Store, nowMs: number, loopback = false) {
+async function prepareSignIn(store: Store, nowMs: number, loopback = false, second = false) {
   if (store.get('fixture.session')) return { ok: false, message: 'Already signed in' };
   const meta = await (await fetch(`${ISSUER}/.well-known/oauth-authorization-server`)).json();
   if (meta.issuer !== ISSUER) return { ok: false, message: 'The server names another issuer' };
   const pair = await crypto.subtle.generateKey(P256, false, ['sign', 'verify']) as CryptoKeyPair;
-  await store.keepKey('fixture.dpop', pair);
+  await store.keepKey(keys(second).dpop, pair);
   const state = random64(32), verifier = random64(32);
-  const callback = loopback ? LOOPBACK_CALLBACK : authCallback();
+  const callback = second ? SECOND_CALLBACK : loopback ? LOOPBACK_CALLBACK : authCallback();
   const clientId = callback.endsWith('/.exact/auth/callback') && /^https?:\/\//.test(callback) ? CLIENT.web : CLIENT.native;
   const par = await dpopFetch(pair, meta.pushed_authorization_request_endpoint, {
     method: 'POST',
@@ -153,15 +160,16 @@ async function prepareSignIn(store: Store, nowMs: number, loopback = false) {
     state, verifier, issuer: meta.issuer, clientId, callback, tokenEndpoint: meta.token_endpoint,
     authorize: meta.authorization_endpoint, requestUri, expectedDid: EXPECTED_DID, expires: nowMs + 5 * 60_000,
   };
-  store.set('fixture.pending', JSON.stringify(pending));
+  store.set(keys(second).pending, JSON.stringify(pending));
   return { ok: true, message: 'Ready to sign in' };
 }
 
-async function signIn(store: Store, nowMs: number) {
-  const kept = store.get('fixture.pending');
+async function signIn(store: Store, nowMs: number, second = false) {
+  const key = keys(second);
+  const kept = store.get(key.pending);
   if (!kept) return { ok: false, message: 'Prepare first' };
   const pending = JSON.parse(kept) as Pending;
-  if (nowMs > pending.expires) { store.forget('fixture.pending'); return { ok: false, message: 'Expired: prepare again' }; }
+  if (nowMs > pending.expires) { store.forget(key.pending); return { ok: false, message: 'Expired: prepare again' }; }
   const url = `${pending.authorize}?${form({ client_id: pending.clientId, request_uri: pending.requestUri })}`;
   let back: string;
   try {
@@ -170,7 +178,7 @@ async function signIn(store: Store, nowMs: number) {
     return { ok: false, message: e.status === 499 ? 'Sign-in cancelled' : `Sign-in failed (${e.status ?? 'error'})` };
   }
   // Single use: the transaction is spent whatever the callback says.
-  store.forget('fixture.pending');
+  store.forget(key.pending);
   const query = back.slice(back.indexOf('?') + 1).split('#')[0].split('&').map(p => p.split('=').map(decodeURIComponent));
   const one = (name: string) => { const all = query.filter(([k]) => k === name); return all.length === 1 ? all[0][1] : null; };
   if (one('error')) return { ok: false, message: `The server refused: ${one('error')}` };
@@ -178,7 +186,7 @@ async function signIn(store: Store, nowMs: number) {
   if (one('iss') !== pending.issuer) return { ok: false, message: 'The callback names another issuer' };
   const code = one('code');
   if (!code) return { ok: false, message: 'The callback has no code' };
-  const pair = await store.key('fixture.dpop');
+  const pair = await store.key(key.dpop);
   if (!pair) return { ok: false, message: 'The DPoP key is gone: prepare again' };
   const token = await dpopFetch(pair, pending.tokenEndpoint, {
     method: 'POST',
@@ -388,6 +396,8 @@ export const answer: Answer = (source, args, store) => {
     case 'prepareSignIn': return prepareSignIn(store, args[0] as number) as never;
     case 'prepareLoopbackSignIn': return prepareSignIn(store, args[0] as number, true) as never;
     case 'signIn': return signIn(store, args[0] as number) as never;
+    case 'prepareSecondSignIn': return prepareSignIn(store, args[0] as number, true, true) as never;
+    case 'signInSecond': return signIn(store, args[0] as number, true) as never;
     case 'createPasskey': return createPasskey(store, args[0] as string) as never;
     case 'signInWithPasskey': return passkeySignIn(store) as never;
     case 'suggestPasskey': return passkeySignIn(store, 'conditional') as never;
@@ -400,7 +410,7 @@ export const answer: Answer = (source, args, store) => {
     case 'signOut': return (async () => {
       // The next sign-in may not happen without UI (LLP 1133.014 D1).
       await preventSilentAccess();
-      store.forget('fixture.session'); store.forget('fixture.pending'); store.forget('fixture.dpop');
+      for (const key of ['fixture.session', 'fixture.pending', 'fixture.dpop', 'fixture.pending-second', 'fixture.dpop-second']) store.forget(key);
       return { ok: true, message: 'Signed out' };
     })() as never;
     default: throw new Error(`unknown source ${source}`);
