@@ -4126,9 +4126,12 @@ ms/s remains a loaded diagnostic, not M2 qualification.
 
 **M1 — service budget.** The published control has 3,579 passes in exactly
 ten seconds, costing 12.717 **elapsed** ms/s; it has no cause tags. In the
-current agent trace, 2,902 dispatch-only passes cost 4.841 exclusive elapsed
-ms/s, while the other causes and draw passes remain separate. Those are
-not the old 2,250 passes and not a CPU saving. The probe itself creates
+corrected agent trace (`review-fixes/dispatch/`), **1,184 dispatch-only
+passes over 10.058512 seconds cost 5.048 exclusive elapsed ms/s**. Its
+4,452 total passes include 1,089 draw-owned passes and 1,089 trailing
+carrier passes tagged `DRAW`, including combined causes. The old 2,902
+count included redraw turns and is superseded. These are not the old
+2,250 passes and not a CPU saving. The probe itself creates
 turns; timer maintenance creates a second turn after due work; worker and
 agent deliveries carry useful work. M1's **44 → ~33 main-thread CPU ms/s**
 remains a conditional prediction for the quiet posted instrument. Stage 0
@@ -4353,7 +4356,7 @@ boundary. `evidence.sha256`, `final-source-sha256.json` and
 | At least one fractional refusal; at least 50% A2-eligible | Mac 13781 / 97.63%; Windows 1832 / 98.03%: met |
 | Mac pool retains ≥16 targets | High water 12: miss |
 | ≥100 MiB idle at the pool's byte high water | Largest coincident sample 75 MiB; separate idle high water 103.125 MiB: unresolved, not a measured coincidence |
-| Dispatcher-only passes remain nonzero | 1388 in `final-control/`, 808 without probe display callbacks: met |
+| Dispatcher-only passes remain nonzero | Corrected full-probe run: 1184 in `review-fixes/dispatch/`: met; earlier 1388/808 counts included redraw turns |
 | Enabled increment <1 µs | 1.265 ns per iteration in the retained optimized increment test: met for that instrument |
 | Full observer adds <5% CPU | Earlier Windows medians +10.76%: miss; final-schema pair +1.75%: met for one pair; Mac pair invalid; bound not established |
 | Windows pool <1201 targets and fractional refusals >0 | 80 targets and 1832 refusals: met |
@@ -4473,3 +4476,31 @@ Evidence goes in `target/s0/review-fixes/`; earlier raw files stay intact.
   file. Lock/unlock remains outside the existing journeys.
 - The six checks, Ink, Linux, carrier and pinned Metal suites will exit
   zero with `RUST_TEST_THREADS=2`.
+
+The corrected Mac trace has zero dropped events and all 1,200 wheel
+requests. The count prediction is met: **1,184**, between zero and 1,388.
+The full by-cause table is `review-fixes/dispatch/exclusive.{md,json}`;
+`cause-check.json` independently counts 1,089 draw-owned passes and 1,089
+trailing passes with `DRAW`. The probe window is 10.058512 seconds, the
+request window 9.992964 seconds. The maximum one-minute load is 45.85,
+with compilers present. This is attribution evidence, not a performance
+comparison with the earlier loaded run. M1's verdict above uses this
+corrected count; its quiet posted-input CPU prediction remains unqualified.
+
+The probe's offscreen check saves one `first-save` event, then one
+`second-save` event in a separate file; neither save repeats the preceding
+buffer, and each resets the dropped count. It retains G5's three GPU
+completions and workload endpoints. Its source, strict compiler output and
+raw JSON are `review-fixes/probe-check*`.
+
+The wgpu Mac carrier completes another 1,200-request drive and reports
+`submitted_frames`, `displayed_frames` and `displayedFrames` as null at
+boot, fling start and fling end (`review-fixes/wgpu-state/`). Its backend
+has neither observation hook; the probe's independent drawable observation
+does not make these state fields supported. Direct Metal exports displayed
+frames by name to both state and the probe.
+
+The published Python reducers run successfully on the retained inputs:
+Windows normalization, Time Profiler, main-thread attribution and wake
+summary. Their stdout/stderr is in `review-fixes/*profile.log`,
+`main-attribution.log`, `normalize-windows.log` and `wake-summary.log`.
