@@ -772,6 +772,10 @@ fn family_enforcement(line: &str) -> &'static str {
         "payment.apple-pay" | "payment.google-pay" => {
             "the runner's admission (the merchant ID); the wallet's own merchant check (Apple, Google)"
         }
+        // LLP 1133.007 D7: the program, not what it is told; a shell, an
+        // interpreter or `ssh` named here runs any program it is given.
+        "process.spawn" => "the executor starts it (macOS, Linux); its arguments are free, and a shell, interpreter or ssh runs any program",
+        "secret.hold" => "the runner's volatile store: in no event, state or snapshot (LLP 1133.007 D8)",
         _ => "runtime",
     }
 }

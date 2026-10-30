@@ -56,6 +56,7 @@ mod permits;
 mod pictures;
 mod poll;
 mod presence;
+mod processes;
 mod samples;
 mod services;
 mod sheet;
@@ -75,6 +76,7 @@ pub(super) use declared::CHOSEN;
 pub(super) use disclosed::STATED;
 pub(super) use events::EMITTED;
 pub use presence::{PresenceAnswer, PresenceAsk};
+pub(super) use processes::Refused;
 pub(super) use services::CLAIMED;
 use std::sync::{Arc, Mutex};
 use values::{absent_is_none, fill, set_path};
@@ -100,6 +102,8 @@ thread_local! {
 /// or the session ends).
 #[derive(Default)]
 pub(super) struct Extensions {
+    /// `@exact/child-process`'s children and clock (LLP 1133.007).
+    processes: processes::Processes,
     /// Each module's substitute as it reads on the host target, by the plan's
     /// string: parsed once, since the plan's strings never change under a
     /// runner (a new plan is a new runner); cleared when the target changes,

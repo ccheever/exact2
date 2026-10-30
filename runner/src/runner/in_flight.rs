@@ -33,6 +33,8 @@ impl<D: DataSource> Runner<D> {
         self.background_ticket().is_some()
             || (self.tool_tickets().iter()).any(|(_, t)| !self.data_timer_held(*t))
             || !self.module_work_tickets().is_empty()
+            // A child's outcomes its work owes on the agent's clock (LLP 1133.007 §7).
+            || self.work_owed()
             || self
                 .pending
                 .iter()
@@ -74,6 +76,11 @@ impl<D: DataSource> Runner<D> {
             .filter(|p| p.waited() && !self.held_for_agent(p) && !self.data_timer_held(p.ticket))
             .map(|p| (self.target_name(p.target), p.ticket))
             .collect();
+        // Child processes' outcomes their work owes on the agent's clock
+        // (LLP 1133.007 §7), listed as `processes`.
+        if self.work_owed() {
+            out.push(("processes".into(), 0));
+        }
         out.extend(
             self.background_ticket()
                 .map(|t| (super::background::NAME.to_string(), t)),

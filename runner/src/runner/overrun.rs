@@ -91,7 +91,9 @@ impl<D: DataSource> Runner<D> {
         }
         let after = REASK_MS[reasks];
         let at = self.refused_at() + after;
-        self.forget_ticket(target);
+        if !self.forget_ticket(target) {
+            return;
+        }
         let ticket = self.next_ticket;
         self.next_ticket += 1;
         self.note_asked(target, ticket);

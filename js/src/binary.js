@@ -273,16 +273,21 @@
       if (op.ends) sent.closed.push(target);
       host(17, String(owner.ticket), wire(op));
     }
-    function wire(op) { return JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason, connection: op.connection }); }
+    // `op.wire`: a child's operation as js/src/process.js spells it.
+    function wire(op) { return JSON.stringify(op.wire || { op: op.op, data: op.data, code: op.code, reason: op.reason, connection: op.connection }); }
     function socketOwner(ticket, byMutation) {
       var owner = { ticket: ticket, state: 0 };
+      function amount() {
+        var n = buffered(owner), call = turn(owner), ops = call && call.socketOps;
+        for (var i = 0; ops && i < ops.length; i++) if (ops[i].owner === owner) n += ops[i].size;
+        return n;
+      }
+      // A child's handle stages through them (js/src/process.js).
+      owner.stage = function (op) { return stage(owner, owner, op, byMutation); };
+      owner.amount = amount;
       owner.handle = Object.freeze({
         get readyState() { return owner.state; },
-        get bufferedAmount() {
-          var n = buffered(owner), call = turn(owner), ops = call && call.socketOps;
-          for (var i = 0; ops && i < ops.length; i++) if (ops[i].owner === owner) n += ops[i].size;
-          return n;
-        },
+        get bufferedAmount() { return amount(); },
         send: function (data) {
           if (typeof data === "string") return stage(owner, owner, { op: "text", data: data, size: utf8Length(data) }, byMutation);
           if (!(data instanceof ArrayBuffer) && !ArrayBuffer.isView(data)) throw new TypeError("socket.send expects a string, ArrayBuffer or ArrayBufferView");

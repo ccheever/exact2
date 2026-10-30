@@ -124,6 +124,22 @@ pub fn admitting<'a>(spec: &'a str, scope: Option<&'a str>, url: &str) -> Option
     })
 }
 
+/// The line that admits a stream `request` under its scope, as
+/// [`admitting`] for a URL; for a child process, the first `process.spawn`
+/// line that names its program (LLP 1133.007 D2's `state.streams`).
+pub fn admitting_request<'a>(spec: &'a str, request: &'a crate::Request) -> Option<&'a str> {
+    let scope = request.grants.as_deref();
+    if !request.is_process() {
+        return admitting(spec, scope, &request.url);
+    }
+    let program = crate::process::summary(&request.body).1?;
+    let lines = |text: &'a str| text.lines().map(str::trim).filter(|l| !l.is_empty());
+    if scope.is_some_and(|scope| lines(scope).any(|l| !lines(spec).any(|a| a == l))) {
+        return None;
+    }
+    exact_grants::process::admitting(scope.unwrap_or(spec), &program)
+}
+
 /// What a reader says of a set that did not parse, as the native executor
 /// says it: the set grants nothing, and every refusal carries this.
 pub fn refusal(errors: &[String]) -> String {

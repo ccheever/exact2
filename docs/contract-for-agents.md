@@ -1293,6 +1293,24 @@ test "signs in, shows the person, and is still signed in after a relaunch"
   expect text "status" == "Signed in"
 ```
 
+### Child processes (`@exact/child-process`)
+
+A desktop app's data code starts a program with Node's names (LLP 1133.007).
+A resource answers `spawn(program, args, {exactStream})`: the child lives
+while the resource holds it, and its mapper hears `spawn`, `stdout`,
+`stderr`, `exit`, `close`, `drain`, `ready` and `ready-timeout`, with the
+incarnation's handle (`write`, `end`, `kill`). An answer awaits `execFile`
+for a one-shot run. Each program needs a grant line naming it
+(`process.spawn path:ssh`, `process.spawn /usr/bin/tar`); a call with none is
+`grant-missing`. Only a person's input or the app's own code starts or
+drives a child: a tool's call, a wake or a device event is refused
+`person-required`, and its commit lets no child go. Under the agent nothing
+runs unless the drive names it: `--process <program>=script:<file.json>`
+answers from a script on the agent's clock. macOS and Linux run it; every
+other target answers `NotSupportedError`, which `processStatus()` says
+ahead. The options, events and limits are `docs/reference.md`'s "Child
+processes".
+
 ## Views, layout, and interaction
 
 For an attachment of any type, use `input type="file"` with no `accept` (or

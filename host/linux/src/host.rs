@@ -764,8 +764,7 @@ impl<D: DataSource> Host<D> {
         self.runner.has_announced()
     }
 
-    /// An executor for the app's grants, which the source's announced topics
-    /// also wake (LLP 1016.002).
+    /// An executor for the app's grants, which the source's announced topics also wake (LLP 1016.002).
     pub fn executor(&mut self) -> crate::executor::Executor {
         let executor = crate::executor::Executor::start(&self.grants());
         if let Some(roots) = self.app_roots() {
@@ -776,6 +775,7 @@ impl<D: DataSource> Host<D> {
         self.runner.set_socket_reader(executor.socket_reader());
         self.runner.set_retry_reader(executor.retry_reader());
         self.runner.set_listen_reader(executor.listen_reader());
+        self.runner.set_work_clock(executor.work_clock());
         self.doc_watch = Some(crate::doc_watch::DocWatch::new(0, &mut self.runner)); // one session (LLP 1069.010 slice 3)
         executor
     }

@@ -1,0 +1,20 @@
+{
+  "kind": "interface",
+  "name": "@exact/child-process",
+  "version": "1.0.0",
+  "executor": ["macos", "linux"],
+  "binding": "binding.ts",
+  "grants": [],
+  "data": [
+    { "data": "spawn", "origin": "app" },
+    { "data": "execFile", "origin": "app" },
+    { "data": "execPath" },
+    { "data": "loginShellEnvironment" },
+    { "data": "appEnvironment" },
+    { "data": "processStatus" },
+    { "data": "child.write", "origin": "app" },
+    { "data": "child.end", "origin": "app" },
+    { "data": "child.kill", "origin": "app" }
+  ],
+  "names": []
+}

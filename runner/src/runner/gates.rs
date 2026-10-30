@@ -180,6 +180,10 @@ impl<D: DataSource> Runner<D> {
                     .then(|| self.poll_due_ms())
                     .flatten(),
             )
+            // The host's process work on the agent's clock (LLP 1133.007 §7),
+            // and what it owes, due now so a jump waits for it to land.
+            .chain(self.work_due())
+            .chain(self.work_owed().then_some(self.now_ms))
             // A sequence's fill, count-in's end, end and answer (LLP 1125 D3).
             .chain([
                 self.transport.wake_due(),

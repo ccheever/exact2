@@ -1,0 +1,15 @@
+{
+  "incarnations": [
+    { "pid": 4101, "steps": [
+      { "at": 0, "stdout": "listening\n" },
+      { "at": 100, "read": 100000 },
+      { "readUntil": 100012 },
+      { "at": 300, "stdout": "bye\n" },
+      { "at": 300, "exit": 0 }
+    ] },
+    { "pid": 4102, "steps": [
+      { "at": 0, "stdout": "again\n" },
+      { "at": 100, "exit": 78 }
+    ] }
+  ]
+}

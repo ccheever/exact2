@@ -88,7 +88,9 @@ impl FailureCode {
             FailureKind::Network => FailureCode::Offline,
             FailureKind::Timeout => FailureCode::Timeout,
             FailureKind::Refused => FailureCode::Refused,
-            FailureKind::Unsupported | FailureKind::Aborted => FailureCode::Error,
+            FailureKind::Unsupported | FailureKind::Aborted | FailureKind::NotFound => {
+                FailureCode::Error
+            }
         }
     }
 }

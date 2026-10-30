@@ -778,6 +778,7 @@ impl<D: DataSource> Host<D> {
         self.runner.set_socket_reader(io.socket_reader());
         self.runner.set_retry_reader(io.retry_reader());
         self.runner.set_listen_reader(io.listen_reader());
+        self.runner.set_work_clock(io.work_clock());
     }
     /// The source's native slot, where the host installs the app module.
     pub fn native_slot(&self) -> exact_runner::Native {

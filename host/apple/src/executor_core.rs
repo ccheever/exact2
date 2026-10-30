@@ -67,8 +67,9 @@ struct Running {
     exchange: Option<AbortController>,
     forgotten: bool,
     stream: bool,
-    /// An upload waiting for its start (`stream::Uploads`): it holds no
-    /// count or bytes of its lane until then.
+    /// An upload waiting for its start (`stream::Uploads`), or a process
+    /// one-shot, which has room of its own (`process::admit_one_shot`):
+    /// it holds no count or bytes of its lane until then, or at all.
     waiting: bool,
     /// An ordered safe read: once complete it holds no effect slot.
     read: bool,
@@ -194,6 +195,8 @@ struct Shared {
     /// This, for a path that frees room uploads wait for holding only a
     /// reference (`complete`): it starts them (`stream::start_uploads`).
     me: std::sync::Weak<Shared>,
+    /// Child processes (LLP 1133.007; `process.rs`).
+    processes: process::Processes,
 }
 
 impl Shared {
@@ -313,6 +316,7 @@ impl Core {
             retrying: Mutex::default(),
             uploads: stream::Uploads::default(),
             me: me.clone(),
+            processes: process::Processes::new(),
         });
         let count = if lanes.is_some() {
             asynch::THREADS
@@ -520,6 +524,9 @@ impl Core {
         // its lane, so a queue of them refuses no other request; it takes
         // them as it starts (`stream::start`).
         let waits = r.request.stream && r.request.upload_progress;
+        // A process one-shot runs on a thread of its own with room of its
+        // own, so a slow one leaves the lane's requests theirs (LLP 1133.007 D3).
+        let one_shot = r.request.is_process() && !r.request.stream;
         let admitted = (|| {
             let (lane, charge, limit) = checked?;
             // A stream starts at once, so it is charged its ceiling now.
@@ -540,7 +547,7 @@ impl Core {
                     state.counts[0] - state.light >= COUNTS[0]
                         || state.counts[0] - state.agains >= ORDERED_READS
                 };
-                (full, charge)
+                (full && !one_shot, if one_shot { 0 } else { charge })
             };
             // A parked upload's outstanding charge counts as taken, so a
             // later request can't crowd it out (LLP 1120 §6 question 8).
@@ -560,6 +567,9 @@ impl Core {
                     return Err("native ordered queue byte limit reached");
                 }
             }
+            if one_shot {
+                process::admit_one_shot(&self.shared, r.ticket, limit)?;
+            }
             Ok((lane, charge, limit))
         })();
         let (lane, charge, limit) = match admitted {
@@ -577,28 +587,32 @@ impl Core {
         if ordered {
             state.ordered.push_back(r.ticket);
         }
-        if !waits {
+        if !waits && !one_shot {
             state.counts[lane] += 1;
             state.bytes[lane] += charge;
         }
-        if r.request.stream {
+        if r.request.stream || r.request.is_process() {
             // Never queued behind held replies: a stream opens on its own
             // thread with its own transport, and reads there (LLP 1067 D3).
             // An upload takes its place and thread once its budget has room.
+            // A process request runs on a thread of its own, and only a
+            // child's stream takes a stream's place (LLP 1133.007).
             let upload = r.request.upload_progress;
-            state.streams += usize::from(!upload);
+            let stream = r.request.stream && !upload;
+            state.streams += usize::from(stream);
             let abort = AbortController::new();
             state.running.push(Running {
                 started: std::time::Instant::now(),
                 ticket: r.ticket,
                 lane,
-                charge: if waits { 0 } else { charge },
+                charge: if waits || one_shot { 0 } else { charge },
                 limit,
                 abort: Some(abort.clone()),
-                exchange: None,
+                // An app's abort ends a one-shot's child, as a forget does (LLP 1133.007 D3).
+                exchange: (r.request.is_process() && !r.request.stream).then(|| abort.clone()),
                 forgotten: false,
-                stream: !upload,
-                waiting: waits,
+                stream,
+                waiting: waits || one_shot,
                 read: false,
                 terminal: false,
                 live: 0,
@@ -619,9 +633,15 @@ impl Core {
                 .name(format!("exact-stream-{ticket}"))
                 .spawn({
                     let shared = shared.clone();
-                    move || stream::run(&shared, ticket, request, forced, &grants, &*host, abort)
+                    move || match request.is_process() {
+                        true => process::run(&shared, ticket, request, &grants, &*host, abort),
+                        false => {
+                            stream::run(&shared, ticket, request, forced, &grants, &*host, abort)
+                        }
+                    }
                 });
             if let Err(e) = spawned {
+                process::release_one_shot(&shared, ticket);
                 complete(&shared, ticket, failed(FailureKind::Network, e.to_string()));
             }
             return Ok(());
@@ -681,9 +701,10 @@ impl Core {
             state.streams -= usize::from(done.stream);
             state.bytes[lane] -= done.bytes;
         }
-        // An ordered job may be waiting for these bytes, and a re-ask for
-        // this room in the window.
+        // An ordered job may be waiting for these bytes, a re-ask for this
+        // room in the window, and a child's output for room in its queue.
         rouse(&self.shared, &state);
+        self.shared.processes.drained.notify_all();
         place_waiting(&mut state);
         if has_ready(&state) {
             wake(&mut state);
@@ -816,6 +837,7 @@ impl Core {
             machine.retire();
         }
         let _ = stream::close_sockets(&self.shared, None);
+        process::quit(&self.shared);
         self.shared.abort.abort();
         // Never join arbitrary native work on the UI thread. Its WorkerSlot
         // remains charged until return, including across repeated replacement.
@@ -1355,44 +1377,17 @@ fn execute(
     }
 }
 
-/// A request's deadline: a thread that aborts the request when it passes,
-/// and ends at once when the request finishes first (the sender drops).
-struct Deadline {
-    passed: Arc<std::sync::atomic::AtomicBool>,
-    _done: std::sync::mpsc::Sender<()>,
-}
-
-impl Deadline {
-    fn arm(ms: u32, abort: &AbortController) -> Result<Deadline, String> {
-        let (done, wait) = std::sync::mpsc::channel::<()>();
-        let passed = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let (flag, abort) = (passed.clone(), abort.clone());
-        std::thread::Builder::new()
-            .name("exact-fetch-deadline".into())
-            .spawn(move || {
-                // A request the caller already aborted (a newer answer, an
-                // unload) stays Aborted: the deadline did not end it.
-                if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
-                    wait.recv_timeout(std::time::Duration::from_millis(ms.into()))
-                {
-                    if !abort.signal().aborted() {
-                        flag.store(true, Ordering::Release);
-                        abort.abort();
-                    }
-                }
-            })
-            .map_err(|e| format!("the request's deadline could not be armed: {e}"))?;
-        Ok(Deadline {
-            passed,
-            _done: done,
-        })
-    }
-
-    fn passed(&self) -> bool {
-        self.passed.load(Ordering::Acquire)
-    }
-}
-
+// The process transport exists where a host starts programs (LLP 1133.007
+// §8); elsewhere every request answers `Unsupported` and none of it links.
+#[cfg_attr(
+    any(target_os = "macos", target_os = "linux"),
+    path = "executor_process.rs"
+)]
+#[cfg_attr(
+    not(any(target_os = "macos", target_os = "linux")),
+    path = "executor_process_off.rs"
+)]
+mod process;
 #[path = "executor_stream.rs"]
 pub(crate) mod stream;
 
@@ -1405,7 +1400,7 @@ mod asynch;
 mod outcome;
 use asynch::{asynch_lanes, asynchronous, drained};
 use outcome::{
-    bounded_outcome, build_number, check_headers, fetch_failure, fetch_request, retained,
+    bounded_outcome, build_number, check_headers, fetch_failure, fetch_request, retained, Deadline,
 };
 
 #[path = "executor_forget.rs"]

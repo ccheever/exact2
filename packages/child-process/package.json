@@ -1,0 +1,9 @@
+{
+  "name": "@exact/child-process",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Programs a desktop app's data code starts, with Node's names (LLP 1133.007).",
+  "exports": {
+    ".": "./exact.json"
+  }
+}
