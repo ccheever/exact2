@@ -136,8 +136,8 @@ mod tests {
         let mut module = Module::new(&REGISTRY);
         let first = module.create_headless("available").unwrap();
         let second = module.create_headless("available").unwrap();
-        assert!(module.bind(first, &[]));
-        assert!(module.bind(second, &[]));
+        assert!(module.bind(first, &[], None));
+        assert!(module.bind(second, &[], None));
         assert_eq!(
             module.take_published(first).as_deref(),
             Some(r#"{"frame_ready":true}"#)
