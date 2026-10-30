@@ -69,6 +69,8 @@ struct RowHeight {
 /// A short-lived anchor around a mutation, sharing an immutable order snapshot.
 /// A deleted key uses its next surviving old neighbor, then its previous neighbor,
 /// at the same within-row offset. If no old key survives, restore to the start.
+/// The JS target ports this anchor (`host/web-js/list.js` `SizeIndex`
+/// `anchor`, `anchorAt`, `restoreAnchor`): a change here is made there too.
 #[derive(Debug, Clone)]
 pub(crate) struct Anchor {
     order: Rc<[Rc<str>]>,
@@ -719,6 +721,7 @@ impl SizeIndex {
             .map(|i| self.tree.prefix(i) + anchor.within)
     }
 
+    /// Ported to the JS target as `host/web-js/list.js` `restoreAnchor`.
     pub(crate) fn restore_anchor(&self, anchor: &Anchor, viewport: f64) -> Result<f64, IndexError> {
         valid_geometry(viewport)?;
         let max = self.max_offset(viewport);
