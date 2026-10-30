@@ -126,6 +126,7 @@ impl Host {
     /// Endow a consumer with `grants`: the bindings a module receives as
     /// parameters, each carrying this grant set for its whole life.
     pub fn endow(&self, grants: GrantSet) -> Bindings {
+        crate::stdlib::fs::pin(&grants);
         let grants = Arc::new(grants);
         let image_work = crate::stdlib::fs_image::ImageWork::new(
             self.image_service

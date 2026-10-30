@@ -111,22 +111,7 @@ pub(crate) fn program(
         let path = super::login_variables(shared, &["PATH"])
             .remove("PATH")
             .unwrap_or_default();
-        let found = os::find_on_path(name, &path).ok_or_else(|| {
-            failed(
-                FailureKind::NotFound,
-                format!("spawn {}: no executable `{name}` on the PATH", spec.program),
-            )
-        })?;
-        // Where the app may write, it may be a file the app wrote: that runs
-        // only by a line that names its path (§9).
-        return match writable(shared, app, &found) {
-            Some(line) => Err(refused(format!(
-                "spawn {}: {} is where the app may write (`{line}`): a program there runs only by a `process.spawn` line that names its path (LLP 1133.007 §9)",
-                spec.program,
-                found.display()
-            ))),
-            None => Ok(found),
-        };
+        return on_path(shared, app, name, &path);
     }
     let path = native(shared, &spec.program).map_err(refused)?;
     let real = std::fs::canonicalize(&path).map_err(|e| {
@@ -157,6 +142,32 @@ pub(crate) fn program(
         )));
     }
     Ok(real)
+}
+
+/// A `path:` name's program on `path`, as realized, refused where one of
+/// the app's `fs.write` lines (`app`) lets it write (§9). What runs is the
+/// file checked, as realized: a link on the way to it that the app could
+/// replace later (a `PATH` entry through a directory it writes) is not read
+/// again, at this start or a keep-alive restart.
+fn on_path(shared: &Shared, app: &str, name: &str, path: &str) -> Result<PathBuf, Outcome> {
+    let found = os::find_on_path(name, path).ok_or_else(|| {
+        failed(
+            FailureKind::NotFound,
+            format!("spawn path:{name}: no executable `{name}` on the PATH"),
+        )
+    })?;
+    let real = std::fs::canonicalize(&found)
+        .map_err(|e| failed(FailureKind::NotFound, format!("spawn path:{name}: {e}")))?;
+    match writable(shared, app, &found, &real) {
+        Some(line) => Err(failed(
+            FailureKind::Refused,
+            format!(
+                "spawn path:{name}: {} is where the app may write (`{line}`): a program there runs only by a `process.spawn` line that names its path (LLP 1133.007 §9)",
+                found.display()
+            ),
+        )),
+        None => Ok(real),
+    }
 }
 
 /// Lets a reader run `AHEAD` chunks ahead of their delivery.
@@ -559,16 +570,17 @@ pub(super) fn exec(
 }
 
 /// The `fs.write` line of the app's grants `app` under which it may write
-/// `path`, its directory entry or what it names, compared by realized whole
-/// names: a native line, or a `home:` or `app:` one. Grants that do not
-/// parse answer as if one did.
-fn writable(shared: &Shared, app: &str, path: &Path) -> Option<String> {
+/// `path`'s directory entry or `real`, what it names, compared by realized
+/// whole names: a native line, or a `home:` or `app:` one. Where the grants
+/// do not parse, or a line names no directory here, the answer is the parse
+/// error or that line, and `path` is refused as if a line covered it.
+fn writable(shared: &Shared, app: &str, path: &Path, real: &Path) -> Option<String> {
     let realize = ibex2::stdlib::fs::realize;
     let entry = match (path.parent(), path.file_name()) {
         (Some(parent), Some(leaf)) => realize(parent).join(leaf),
         _ => path.to_path_buf(),
     };
-    let reached = [entry, realize(path)];
+    let reached = [entry, real.to_path_buf()];
     let set = match ibex2::grant::GrantSet::parse(&exact_runner::io_grants(app)) {
         Ok(set) => set,
         Err(e) => return Some(format!("the app's grants did not parse: {e}")),
@@ -580,8 +592,13 @@ fn writable(shared: &Shared, app: &str, path: &Path) -> Option<String> {
         // Parsed, so a quoted path with spaces is one path.
         let (namespace, parts) = prefix.components().split_first()?;
         let spelt = format!("{namespace}/{}", parts.join("/"));
-        let dir = realize(&native(shared, &spelt).ok()?);
-        (reached.iter().any(|p| p.starts_with(&dir))).then(|| format!("fs.write {prefix}"))
+        match native(shared, &spelt) {
+            Ok(dir) => (reached.iter().any(|p| p.starts_with(realize(&dir))))
+                .then(|| format!("fs.write {prefix}")),
+            Err(e) => Some(format!(
+                "fs.write {prefix}, which names no directory here: {e}"
+            )),
+        }
     });
     line
 }

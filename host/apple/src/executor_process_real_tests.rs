@@ -448,6 +448,38 @@ fn a_path_name_found_where_the_app_may_write_does_not_run() {
 }
 
 #[test]
+fn a_path_name_runs_the_file_it_checked_not_a_link_the_app_may_replace() {
+    // A `PATH` entry through a link in a directory the app writes: the link
+    // leads out of it now, but the app may point it at its own file later.
+    let base = std::env::temp_dir().join(format!("exact-real-on-path-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let (writes, person) = (base.join("writes"), base.join("person/bin"));
+    std::fs::create_dir_all(&writes).unwrap();
+    std::fs::create_dir_all(&person).unwrap();
+    let prog = person.join("prog");
+    std::fs::write(&prog, "#!/bin/sh\nexit 0\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&prog, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::os::unix::fs::symlink(base.join("person"), writes.join("link")).unwrap();
+    let (core, _, _) = core("");
+    let app = format!("fs.write {}", writes.display());
+    let path = writes.join("link/bin").display().to_string();
+    let ran = super::on_path(&core.shared, &app, "prog", &path).unwrap();
+    assert_eq!(ran, std::fs::canonicalize(&prog).unwrap());
+    std::fs::remove_dir_all(&base).unwrap();
+}
+
+#[test]
+fn an_fs_write_line_that_names_no_directory_here_refuses_a_path_name() {
+    let (core, _, _) = core("");
+    let out = super::on_path(&core.shared, "fs.write doc:/notes", "sh", "/bin");
+    assert!(
+        matches!(&out, Err(Outcome::Failed { message, .. }) if message.contains("names no directory here")),
+        "{out:?}"
+    );
+}
+
+#[test]
 fn a_link_out_of_a_granted_directory_is_outside_its_grant() {
     let dir = std::env::temp_dir().join(format!("exact-real-link-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

@@ -653,6 +653,7 @@ pub fn open_read(
             _ => Err(HostError::Failed(format!("{path}: not a regular file"))),
         }
     };
+    pin(grants);
     if path.starts_with("app:") {
         let directories = directories
             .ok_or_else(|| HostError::Failed("app directories are not configured".into()))?;
@@ -679,13 +680,13 @@ pub fn open_read(
 }
 
 /// A native operation (exact2 LLP 1133.007 D6a, Exact patch 24), admitted as
-/// spelt: run below the realized directory of the grant line a walk to each
-/// path starts from (`GrantSet::fs_root`), every component below it opened
-/// `O_NOFOLLOW`
-/// (`app_fs::run_below`), as a `home:` path is. A link below a granted
-/// directory, one the app's own code made included, is refused rather than
-/// followed, so the operation reaches the file it was admitted for, never
-/// makes a dangling link's target, and needs no check of a realized path.
+/// spelt: run below the pinned directory of the grant line a walk to each
+/// path starts from (`GrantSet::fs_root`, `pin`), every component below it
+/// opened `O_NOFOLLOW` (`app_fs::run_below`), as a `home:` path is. A link
+/// below a granted directory, one the app's own code made included, is
+/// refused rather than followed, so the operation reaches the file it was
+/// admitted for, never makes a dangling link's target, and needs no check
+/// of a realized path.
 #[cfg(unix)]
 fn run_native(
     grants: &GrantSet,
@@ -710,10 +711,10 @@ fn run_native(
     super::app_fs::run_below(op, source, target, data.unwrap_or(&[]))
 }
 
-/// `path` below the realized directory a walk to it starts from
-/// (`GrantSet::fs_root`), and its native path. That directory is the
-/// person's, which the app cannot replace, opened as realized; nothing below
-/// it is followed.
+/// `path` below the directory a walk to it starts from (`GrantSet::fs_root`),
+/// and its native path. That directory is pinned (`pin`) and opened as
+/// pinned; nothing below it is followed, and nothing is realized now, when
+/// a link the app made would redirect it.
 #[cfg(unix)]
 fn native_below(
     grants: &GrantSet,
@@ -721,31 +722,18 @@ fn native_below(
     write: bool,
 ) -> Result<(super::app_fs::Below, PathBuf), HostError> {
     let capability = if write { "fs.write" } else { "fs.read" };
-    // The host's home as named and as realized: a `home:` line above a
-    // native one is matched in either spelling.
-    let home = ROOTS.read().unwrap_or_else(|e| e.into_inner()).home.clone();
-    let homes: Vec<PathBuf> = (home.into_iter())
-        .flat_map(|home| [std::fs::canonicalize(&home).ok(), Some(home)])
-        .flatten()
-        .collect();
-    let root = (grants.fs_root(&path.to_string_lossy(), write, &homes))
+    let line = |line: &crate::grant::PathPrefix| line_native(line).map(|native| pinned(&native));
+    let (root, parts) = (grants.fs_root(&path.to_string_lossy(), write, line))
         .ok_or(HostError::Denied { capability })?;
-    let parts: Vec<String> = (path
-        .strip_prefix(&root)
-        .map_err(|_| HostError::Denied { capability })?)
-    .iter()
-    .map(|part| part.to_string_lossy().into_owned())
-    .collect();
     let failed = |e: std::io::Error| HostError::Failed(format!("{}: {e}", path.display()));
-    let real = std::fs::canonicalize(&root).map_err(failed)?;
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC);
     }
-    let opened = options.open(&real).map_err(failed)?;
-    let native = parts.iter().fold(real, |at, part| at.join(part));
+    let opened = options.open(&root).map_err(failed)?;
+    let native = parts.iter().fold(root, |at, part| at.join(part));
     Ok((
         super::app_fs::Below {
             root: opened,
@@ -754,6 +742,53 @@ fn native_below(
         },
         native,
     ))
+}
+
+/// A grant line's directory as a native path: a native line as spelt, a
+/// `home:` one below the host's home as named; `None` for any other.
+#[cfg(unix)]
+fn line_native(line: &crate::grant::PathPrefix) -> Option<PathBuf> {
+    let (namespace, parts) = line.components().split_first()?;
+    let root = match namespace.as_str() {
+        "" => PathBuf::from("/"),
+        "home:" => (ROOTS.read().unwrap_or_else(|e| e.into_inner()).home.clone())?,
+        _ => return None,
+    };
+    Some(parts.iter().fold(root, |at, part| at.join(part)))
+}
+
+/// Each native directory's realization, taken the first time a grant names
+/// it (`pin`) and kept for the process (Exact patch 24: exact2 LLP 1133.007
+/// D6a), so a link the app later puts in place of a granted directory moves
+/// no walk. A directory a person relinks reads at its old place until the
+/// app restarts.
+#[cfg(unix)]
+static PINNED: std::sync::Mutex<std::collections::BTreeMap<PathBuf, PathBuf>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+#[cfg(unix)]
+fn pinned(native: &Path) -> PathBuf {
+    let mut pins = PINNED.lock().unwrap_or_else(|e| e.into_inner());
+    (pins.entry(native.to_path_buf()))
+        .or_insert_with(|| realize(native))
+        .clone()
+}
+
+/// Pin the realized directory of each native and `home:` `fs.read` and
+/// `fs.write` line of `grants` that is not yet pinned: when the grants load
+/// (`Host::endow`) and before every filesystem operation runs, so before
+/// the app can change any of them.
+pub fn pin(grants: &GrantSet) {
+    #[cfg(unix)]
+    for grant in grants.iter() {
+        if let crate::grant::Grant::FsRead(line) | crate::grant::Grant::FsWrite(line) = grant {
+            if let Some(native) = line_native(line) {
+                pinned(&native);
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = grants;
 }
 
 /// Execute a filesystem operation with authority checked in its original namespace.
@@ -765,6 +800,7 @@ pub fn run(
     destination: Option<&str>,
     data: Option<&[u8]>,
 ) -> Result<FsResult, HostError> {
+    pin(grants);
     if path.starts_with("app:") || destination.is_some_and(|p| p.starts_with("app:")) {
         let directories = directories
             .ok_or_else(|| HostError::Failed("app directories are not configured".into()))?;

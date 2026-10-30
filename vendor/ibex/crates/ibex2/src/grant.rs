@@ -310,55 +310,45 @@ impl GrantSet {
         }
     }
 
-    /// Where a walk below the grant to native `path`, as written, starts
-    /// (Exact patch 24: exact2 LLP 1133.007 D6a): the deepest native
-    /// `fs.write` (`write`) or `fs.read` directory that covers it; or, where
-    /// an `fs.write` line covers that directory from above, the shallowest
-    /// such line, since the app may replace any directory below it with a
-    /// link. `homes` spells the host's `home:/` as native paths, so a `home:`
-    /// line counts where it covers a native one.
+    /// Where a walk to native `path`, as spelt, starts, and the names below
+    /// that directory it goes through (Exact patch 24: exact2 LLP 1133.007
+    /// D6a). `pinned` gives a line's directory as realized before the app
+    /// could change it (`stdlib::fs::pin`), or `None` for a line with no
+    /// native directory. The walk reaches the deepest native `fs.write`
+    /// (`write`) or `fs.read` line that admits `path` through that line's
+    /// pinned directory, and starts at the shallowest pinned `fs.write`
+    /// directory above it, since the app may replace any directory below
+    /// one with a link. Lines are compared as pinned, not as spelt: one line
+    /// spelt through a link (`/tmp`, `/private/tmp`) still covers another.
     pub fn fs_root(
         &self,
         path: &str,
         write: bool,
-        homes: &[std::path::PathBuf],
-    ) -> Option<std::path::PathBuf> {
-        let native = |prefix: &PathPrefix| -> Vec<Vec<String>> {
-            let below = prefix.0[1..].iter().cloned();
-            match prefix.0.first().map(String::as_str) {
-                Some("") => vec![below.collect()],
-                Some("home:") => (homes.iter())
-                    .map(|home| {
-                        let home = home.iter().filter_map(|part| match part.to_str() {
-                            Some("/") | None => None,
-                            Some(part) => Some(part.to_string()),
-                        });
-                        home.chain(below.clone()).collect()
-                    })
-                    .collect(),
-                _ => Vec::new(),
-            }
-        };
+        pinned: impl Fn(&PathPrefix) -> Option<std::path::PathBuf>,
+    ) -> Option<(std::path::PathBuf, Vec<String>)> {
         let target = PathPrefix::new(path).filter(|p| p.0.first().is_some_and(String::is_empty))?;
-        let deepest = (self.grants.iter())
+        let line = (self.grants.iter())
             .filter_map(|grant| match (grant, write) {
                 (Grant::FsWrite(prefix), true) | (Grant::FsRead(prefix), false) => Some(prefix),
                 _ => None,
             })
             .filter(|prefix| prefix.0.first().is_some_and(String::is_empty))
-            .map(|prefix| prefix.0[1..].to_vec())
-            .filter(|root| target.0[1..].starts_with(root))
-            .max_by_key(Vec::len)?;
+            .filter(|prefix| target.0.starts_with(&prefix.0))
+            .max_by_key(|prefix| prefix.0.len())?;
+        let reached = pinned(line)?;
         let root = (self.grants.iter())
             .filter_map(|grant| match grant {
-                Grant::FsWrite(prefix) => Some(native(prefix)),
+                Grant::FsWrite(prefix) => pinned(prefix),
                 _ => None,
             })
-            .flatten()
-            .filter(|above| deepest.starts_with(above))
-            .min_by_key(Vec::len)
-            .unwrap_or(deepest);
-        Some(std::path::PathBuf::from(format!("/{}", root.join("/"))))
+            .filter(|above| reached.starts_with(above))
+            .min_by_key(|above| above.components().count())
+            .unwrap_or_else(|| reached.clone());
+        let through = reached.strip_prefix(&root).ok()?.iter();
+        let below = (through.map(|part| part.to_string_lossy().into_owned()))
+            .chain(target.0[line.0.len()..].iter().cloned())
+            .collect();
+        Some((root, below))
     }
 
     /// The kv scopes this set may use, in a stable order (LLP 0070 §1).

@@ -1,5 +1,5 @@
 //! A native absolute path (Exact patch 24: exact2 LLP 1133.007 D6a): admitted
-//! as spelt, then run below the realized directory of the grant line a walk
+//! as spelt, then run below the pinned directory of the grant line a walk
 //! to it starts from (`GrantSet::fs_root`), every component opened `O_NOFOLLOW`,
 //! so a link below a granted directory, one the grant's holder made
 //! included, is refused rather than followed.
@@ -269,4 +269,76 @@ fn a_native_grant_below_a_home_line_the_app_replaced_is_not_followed() {
         call(&grants, FsOp::ReadDir, &inner, None),
         Ok(FsResult::Names(_))
     ));
+}
+
+/// The read line spelt one way and the write line above it another (macOS's
+/// temporary directory is below `/var`, a link to `/private/var`): the lines
+/// are compared as pinned, so the outer line's walk still starts above the
+/// inner directory the app replaced.
+#[test]
+fn an_outer_write_line_spelt_through_a_link_still_covers_the_inner_line() {
+    for (name, realized_outer) in [("spelt-inner", true), ("spelt-outer", false)] {
+        let (inside, outside, _) = granted(name);
+        let inner = inside.join("inner");
+        std::fs::create_dir_all(&inner).unwrap();
+        let real_inside = std::fs::canonicalize(&inside).unwrap();
+        // Where the temporary directory is not below a link, a link of the
+        // test's own spells the lines two ways.
+        let (outer, deeper) = if real_inside != inside {
+            (inside.clone(), real_inside.join("inner"))
+        } else {
+            let spelt = inside.parent().unwrap().join("spelt");
+            std::os::unix::fs::symlink(&inside, &spelt).unwrap();
+            (spelt, inner.clone())
+        };
+        let (outer, deeper) = match realized_outer {
+            true => (outer, deeper),
+            false => (deeper.parent().unwrap().to_path_buf(), outer.join("inner")),
+        };
+        let grants = GrantSet::parse(&format!(
+            "fs.write {0}\nfs.read {0}\nfs.read {1}",
+            outer.display(),
+            deeper.display()
+        ))
+        .unwrap();
+        call2(
+            &grants,
+            FsOp::Rename,
+            &outer.join("inner"),
+            &outer.join("moved"),
+        )
+        .unwrap();
+        let target = outside.display().to_string();
+        let link = outer.join("inner");
+        call(&grants, FsOp::Symlink, &link, Some(target.as_bytes())).unwrap();
+        let got = call(&grants, FsOp::ReadFile, &deeper.join("secret"), None);
+        assert!(
+            got.is_err(),
+            "{name}: read outside through the link: {got:?}"
+        );
+        let listed = call(&grants, FsOp::ReadDir, &deeper, None);
+        assert!(listed.is_err(), "{name}: listed outside: {listed:?}");
+    }
+}
+
+/// A directory is pinned when its grants first load, so one the app replaced
+/// before its first native operation is not followed either.
+#[test]
+fn a_granted_directory_is_pinned_before_the_apps_first_operation() {
+    let (inside, outside, _) = granted("pinned");
+    let inner = inside.join("inner");
+    std::fs::create_dir_all(&inner).unwrap();
+    let real_inner = std::fs::canonicalize(&inner).unwrap();
+    let at = inside.display();
+    let grants = GrantSet::parse(&format!(
+        "fs.write {at}\nfs.read {at}\nfs.read {}",
+        real_inner.display()
+    ))
+    .unwrap();
+    let _bindings = crate::host::Host::new().endow(grants.clone());
+    // Changed by hand, as through another grant's holder, before any call.
+    std::fs::rename(&inner, inside.join("moved")).unwrap();
+    std::os::unix::fs::symlink(&outside, &inner).unwrap();
+    let got = call(&grants, FsOp::ReadFile, &real_inner.join("secret"), None);
+    assert!(got.is_err(), "read outside through the link: {got:?}");
 }
