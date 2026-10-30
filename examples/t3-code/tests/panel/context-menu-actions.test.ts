@@ -296,7 +296,7 @@ describe('draft workspace files in Browser', () => {
       });
       expect(id).not.toBe('');
       expect(fileBrowserRequests(native).map(call => call.method)).toEqual(['assets.createUrl', 'preview.list', 'preview.open']);
-      expect(fileBrowserRequests(native).filter(call => call.method.startsWith('preview.')).map(call => obj(call.payload).threadId)).toEqual([id, id]);
+      expect(fileBrowserRequests(native).filter(call => str(call.method).startsWith('preview.')).map(call => obj(call.payload).threadId)).toEqual([id, id]);
       expect(panelState(client).active).toStartWith('browser:');
       expect(frames(client).entries.size).toBe(1);
       await entry.open(client, native);

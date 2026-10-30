@@ -24,6 +24,7 @@ import { type PreviewSessionSnapshot, type PreviewViewportSetting } from './brow
 import { resolveBrowserOpenDefaults } from './browser-defaults';
 import { BrowserSettingsReadError, DEFAULT_BROWSER_PROFILE_ID } from './browser-profiles';
 import { mediaFileReference } from '../media/media-reference';
+import { htmlResource } from '../panel/files-rendered-html';
 import { assetUrl } from '../settings/settings-b-icons';
 import { openHome } from '../pages/home-landing';
 import { openExternal } from '../client/external-open';
@@ -108,12 +109,20 @@ export async function openFrameWindow(client: T3Client, native: Native, frameId:
   catch (error) { if (letGo(error)) throw error; }
 }
 
-/** openFileInPreview: a browser document (a page or a PDF) in a new Browser tab beside the thread. Inside the workspace
- *  the page may load its siblings (`workspace-file`); a file outside it is served on its own (`media-file`). */
-export async function openFileInPreview(client: T3Client, native: Native, ref: ScopedThreadRef, filePath: string, workspaceRoot: string): Promise<void> {
+type PreviewFile = {
+  readonly path: string;
+  readonly workspace: { readonly threadId: string; readonly cwd: string } | null;
+};
+
+/** A file's captured persisted thread ID, empty for a draft, is independent of its Browser session owner.
+ *  Absolute draft paths and standalone files are served on their own. */
+export async function openFileInPreview(client: T3Client, native: Native, ref: ScopedThreadRef, file: PreviewFile): Promise<void> {
   if (!native.available) throw new ClientError('The integrated browser is unavailable in this runtime.');
-  const inside = mediaFileReference(filePath, workspaceRoot).relativePath !== undefined;
-  const asset = obj(await client.rpc(native, 'assets.createUrl', { resource: { _tag: inside ? 'workspace-file' : 'media-file', threadId: ref.threadId, path: filePath } }));
+  const { workspace, path } = file;
+  const resource = workspace && (!workspace.threadId || mediaFileReference(path, workspace.cwd).relativePath !== undefined)
+    ? htmlResource(workspace.threadId, workspace.cwd, path)
+    : { _tag: 'media-file', threadId: ref.threadId, path };
+  const asset = obj(await client.rpc(native, 'assets.createUrl', { resource }));
   const url = assetUrl(client.origin, str(asset.relativeUrl));
   if (!url) throw new ClientError('The environment returned an invalid asset URL.');
   await openUrlInPreview(client, native, ref, url);

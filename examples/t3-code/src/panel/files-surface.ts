@@ -407,11 +407,12 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
  */
 export async function markdownFilePick(client: T3Client, native: Native, target: string, picked: string, context: FileLinkMenuContext & { lookup?: string } = {}): Promise<void> {
   if (!target) return;
-  const environment = client.environmentId;
+  const { environmentId: environment, threadId, draftKey } = client;
+  const cwd = context.cwd ?? workspaceOf(client).cwd;
+  const file = { path: splitPosition(target).path, workspace: { threadId, cwd } };
   await loadSshAliases(native);
   if (!markdownFileMenuRows(client, target, context).some(row => row.id === picked)) return;
   const editor = preferredEditor(availableEditorIds(client.config), lastEditor(client)) || null;
-  const cwd = context.cwd ?? workspaceOf(client).cwd;
   // openMarkdownMedia: the expanded media dialog with the link's media (timeline-attachments.ts).
   if (picked === 'preview-media') {
     try { await openMarkdownMediaPreview(client, native, target, cwd); }
@@ -422,10 +423,9 @@ export async function markdownFilePick(client: T3Client, native: Native, target:
   // openMarkdownFileInPreview: the file in a new Browser tab beside the thread (a draft gets its thread id first).
   if (picked === 'open-in-browser') {
     try {
-      if (!client.threadId && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native);
-      const ref = activeRef(client);
-      if (!ref) throw new Error('Environment is not connected.');
-      await openFileInPreview(client, native, ref, splitPosition(target).path, cwd);
+      if (!environment) throw new Error('Environment is not connected.');
+      const browserId = threadId || await ensureDraftThreadId(client, native, draftKey);
+      await openFileInPreview(client, native, { environmentId: environment, threadId: browserId }, file);
     } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Unable to open file in browser', description: error instanceof Error && error.message ? error.message : 'An error occurred.', stacked: true }); }
     return;
   }
@@ -579,15 +579,13 @@ export function codeLines(path: string, contents: string): CodeLine[] {
 
 /** FilePreviewPanel handleOpenInBrowser: the file in a new Browser tab; a failure is a stacked toast. */
 async function openInPreviewBrowser(client: T3Client, native: Native, path: string): Promise<void> {
+  const { environmentId, threadId, draftKey } = client;
   const { cwd } = workspaceOf(client);
-  if (!path || !cwd) return;
-  const absolute = isHost(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`;
+  if (!path || !cwd || !environmentId) return;
+  const file = { path: isHost(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`, workspace: { threadId, cwd } };
   try {
-    // The reference's draft has its thread id from the start; here it is allocated now (as the Browser surface does).
-    if (!client.threadId && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native);
-    const ref = activeRef(client);
-    if (!ref) return;
-    await openFileInPreview(client, native, ref, absolute, cwd);
+    const browserId = threadId || await ensureDraftThreadId(client, native, draftKey);
+    await openFileInPreview(client, native, { environmentId, threadId: browserId }, file);
   } catch (error) {
     if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Unable to open file in browser', description: error instanceof Error && error.message ? error.message : 'An error occurred.', stacked: true });
