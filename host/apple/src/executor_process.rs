@@ -749,7 +749,8 @@ fn answer(
             if abort.signal().aborted() {
                 ctl.send(Input::Release);
             }
-            let probe_host = host();
+            // Only readiness probes use a network host.
+            let probe_host = spec.ready.is_some().then(host);
             shared.processes.streams.lock().unwrap().insert(ticket);
             let (outcome, place) =
                 supervise::Supervisor::new(shared, ticket, spec, ran, ctl, rx, probe_host, &set)
