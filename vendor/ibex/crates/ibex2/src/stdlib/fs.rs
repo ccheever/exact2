@@ -23,6 +23,8 @@ use std::path::Component;
 use std::path::{Path, PathBuf};
 
 use crate::boundary::HostError;
+#[cfg(unix)]
+use crate::grant::{Grant, PathPrefix};
 use crate::grant::{GrantSet, Operation};
 
 // @ref LLP 0068.001#4-bounded-access-and-image-work — the storage envelope is capped at 16 MiB. A readFile
@@ -653,7 +655,6 @@ pub fn open_read(
             _ => Err(HostError::Failed(format!("{path}: not a regular file"))),
         }
     };
-    pin(grants);
     if path.starts_with("app:") {
         let directories = directories
             .ok_or_else(|| HostError::Failed("app directories are not configured".into()))?;
@@ -670,7 +671,11 @@ pub fn open_read(
     #[cfg(unix)]
     {
         admit_as(grants, FsOp::ReadFile, &native, None)?;
-        regular(native_below(grants, &native, false)?.0.open()?)
+        regular(
+            native_below(grants, directories, &native, false)?
+                .0
+                .open()?,
+        )
     }
     #[cfg(not(unix))]
     {
@@ -680,16 +685,16 @@ pub fn open_read(
 }
 
 /// A native operation (exact2 LLP 1133.007 D6a, Exact patch 24), admitted as
-/// spelt: run below the pinned directory of the grant line a walk to each
-/// path starts from (`GrantSet::fs_root`, `pin`), every component below it
-/// opened `O_NOFOLLOW` (`app_fs::run_below`), as a `home:` path is. A link
-/// below a granted directory, one the app's own code made included, is
-/// refused rather than followed, so the operation reaches the file it was
-/// admitted for, never makes a dangling link's target, and needs no check
-/// of a realized path.
+/// spelt, then run below the directory a walk to each path starts from
+/// (`native_below`), every component below it opened `O_NOFOLLOW`
+/// (`app_fs::run_below`), as a `home:` path is. A link below a directory the
+/// app may write, one its own code made included, is refused rather than
+/// followed, so the operation reaches the file it was admitted for, never
+/// makes a dangling link's target, and needs no check of a realized path.
 #[cfg(unix)]
 fn run_native(
     grants: &GrantSet,
+    directories: Option<&super::app_fs::AppDirectories>,
     op: FsOp,
     path: &Path,
     destination: Option<&Path>,
@@ -699,44 +704,54 @@ fn run_native(
     // A path is walked from the line its use needs: what is written from an
     // `fs.write` line, a rename's source too, which it removes.
     let written = needs_write && (destination.is_none() || op == FsOp::Rename);
-    let (source, native) = native_below(grants, path, written || !needs_read)?;
+    let (source, native) = native_below(grants, directories, path, written || !needs_read)?;
     if op == FsOp::Realpath {
         source.open()?;
         return Ok(FsResult::Text(native.display().to_string()));
     }
     let target = destination
-        .map(|to| native_below(grants, to, true))
+        .map(|to| native_below(grants, directories, to, true))
         .transpose()?
         .map(|(below, _)| below);
     super::app_fs::run_below(op, source, target, data.unwrap_or(&[]))
 }
 
-/// `path` below the directory a walk to it starts from (`GrantSet::fs_root`),
-/// and its native path. That directory is pinned (`pin`) and opened as
-/// pinned; nothing below it is followed, and nothing is realized now, when
-/// a link the app made would redirect it.
+/// `path` below the directory a walk to it starts from, and its native path.
+/// The deepest native `fs.write` (`write`) or `fs.read` line that admits
+/// `path` as spelt is reached (`reach`) without following a link below a
+/// directory the app may write; the walk starts where that stopped, and
+/// goes through the rest of the line's names and then `path`'s.
 #[cfg(unix)]
 fn native_below(
     grants: &GrantSet,
+    directories: Option<&super::app_fs::AppDirectories>,
     path: &Path,
     write: bool,
 ) -> Result<(super::app_fs::Below, PathBuf), HostError> {
     let capability = if write { "fs.write" } else { "fs.read" };
-    let line = |line: &crate::grant::PathPrefix| line_native(line).map(|native| pinned(&native));
-    let (root, parts) = (grants.fs_root(&path.to_string_lossy(), write, line))
-        .ok_or(HostError::Denied { capability })?;
+    let denied = HostError::Denied { capability };
+    let target = PathPrefix::new(&path.to_string_lossy()).ok_or(denied.clone())?;
+    let line = (grants.iter())
+        .filter_map(|grant| match (grant, write) {
+            (Grant::FsWrite(line), true) | (Grant::FsRead(line), false) => Some(line),
+            _ => None,
+        })
+        .filter(|line| line.components().first().is_some_and(String::is_empty))
+        .filter(|line| target.components().starts_with(line.components()))
+        .max_by_key(|line| line.components().len())
+        .ok_or(denied.clone())?;
     let failed = |e: std::io::Error| HostError::Failed(format!("{}: {e}", path.display()));
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC);
-    }
-    let opened = options.open(&root).map_err(failed)?;
-    let native = parts.iter().fold(root, |at, part| at.join(part));
+    let line_path = line_native(line).ok_or(denied)?;
+    let (root, at, mut parts) = reach(&line_path, &written(grants, directories)).map_err(failed)?;
+    parts.extend(
+        target.components()[line.components().len()..]
+            .iter()
+            .cloned(),
+    );
+    let native = parts.iter().fold(at, |at, part| at.join(part));
     Ok((
         super::app_fs::Below {
-            root: opened,
+            root,
             parts,
             name: "granted",
         },
@@ -747,7 +762,7 @@ fn native_below(
 /// A grant line's directory as a native path: a native line as spelt, a
 /// `home:` one below the host's home as named; `None` for any other.
 #[cfg(unix)]
-fn line_native(line: &crate::grant::PathPrefix) -> Option<PathBuf> {
+fn line_native(line: &PathPrefix) -> Option<PathBuf> {
     let (namespace, parts) = line.components().split_first()?;
     let root = match namespace.as_str() {
         "" => PathBuf::from("/"),
@@ -757,38 +772,95 @@ fn line_native(line: &crate::grant::PathPrefix) -> Option<PathBuf> {
     Some(parts.iter().fold(root, |at, part| at.join(part)))
 }
 
-/// Each native directory's realization, taken the first time a grant names
-/// it (`pin`) and kept for the process (Exact patch 24: exact2 LLP 1133.007
-/// D6a), so a link the app later puts in place of a granted directory moves
-/// no walk. A directory a person relinks reads at its old place until the
-/// app restarts.
+/// The directories the app may write natively, by identity (device and
+/// inode): each native and `home:` `fs.write` line's, as named now, and the
+/// app's own directories. A line below another that the app replaced with a
+/// link adds the link's target, which only stops more walks.
 #[cfg(unix)]
-static PINNED: std::sync::Mutex<std::collections::BTreeMap<PathBuf, PathBuf>> =
-    std::sync::Mutex::new(std::collections::BTreeMap::new());
-
-#[cfg(unix)]
-fn pinned(native: &Path) -> PathBuf {
-    let mut pins = PINNED.lock().unwrap_or_else(|e| e.into_inner());
-    (pins.entry(native.to_path_buf()))
-        .or_insert_with(|| realize(native))
-        .clone()
+fn written(
+    grants: &GrantSet,
+    directories: Option<&super::app_fs::AppDirectories>,
+) -> Vec<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let lines = grants.iter().filter_map(|grant| match grant {
+        Grant::FsWrite(line) => line_native(line),
+        _ => None,
+    });
+    (lines.filter_map(|dir| std::fs::metadata(dir).ok()))
+        .map(|meta| (meta.dev(), meta.ino()))
+        .chain(directories.map(|d| d.identities()).unwrap_or_default())
+        .collect()
 }
 
-/// Pin the realized directory of each native and `home:` `fs.read` and
-/// `fs.write` line of `grants` that is not yet pinned: when the grants load
-/// (`Host::endow`) and before every filesystem operation runs, so before
-/// the app can change any of them.
-pub fn pin(grants: &GrantSet) {
-    #[cfg(unix)]
-    for grant in grants.iter() {
-        if let crate::grant::Grant::FsRead(line) | crate::grant::Grant::FsWrite(line) = grant {
-            if let Some(native) = line_native(line) {
-                pinned(&native);
+/// Open the directory `line` names from `/`, following its links only until
+/// one of `stops` is reached, compared by identity, so a spelling that
+/// differs (a link, case, Unicode normalization) still stops there. Returns
+/// that directory, its path, and the names below it to walk `O_NOFOLLOW`
+/// (none when no stop is on the way). Each link followed is in a directory
+/// below no stop, so not one the app can have made, whenever it ran.
+#[cfg(unix)]
+fn reach(
+    line: &Path,
+    stops: &[(u64, u64)],
+) -> std::io::Result<(std::fs::File, PathBuf, Vec<String>)> {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
+    let named = |path: &Path| -> std::collections::VecDeque<std::ffi::OsString> {
+        (path.components())
+            .filter_map(|part| match part {
+                Component::Normal(name) => Some(name.to_os_string()),
+                Component::ParentDir => Some("..".into()),
+                _ => None,
+            })
+            .collect()
+    };
+    let root = || super::app_fs::open_directory(Path::new("/"));
+    let (mut dir, mut at, mut todo, mut links) = (root()?, PathBuf::from("/"), named(line), 0);
+    loop {
+        let meta = dir.metadata()?;
+        if stops.contains(&(meta.dev(), meta.ino())) {
+            let mut below: Vec<String> = Vec::new();
+            for part in todo {
+                let part = part.into_string().map_err(|_| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "not UTF-8")
+                })?;
+                if part != ".." {
+                    below.push(part);
+                } else if below.pop().is_none() {
+                    // A link's `..` above the stop: what it names is not below it.
+                    return Err(std::io::Error::from_raw_os_error(libc::ELOOP));
+                }
             }
+            return Ok((dir, at, below));
+        }
+        let Some(part) = todo.pop_front() else {
+            return Ok((dir, at, Vec::new()));
+        };
+        if part == ".." {
+            dir = super::app_fs::directory_at(&dir, &part)?;
+            at.pop();
+            continue;
+        }
+        let error = match super::app_fs::directory_at(&dir, &part) {
+            Ok(next) => {
+                (dir, at) = (next, at.join(&part));
+                continue;
+            }
+            Err(error) => error,
+        };
+        // A link: go on from where it points, as the kernel would.
+        let target = super::app_fs::link_at(&dir, &part).map_err(|_| error)?;
+        links += 1;
+        if links > 40 {
+            return Err(std::io::Error::from_raw_os_error(libc::ELOOP));
+        }
+        if target.as_bytes().first() == Some(&b'/') {
+            (dir, at) = (root()?, PathBuf::from("/"));
+        }
+        for part in named(Path::new(&target)).into_iter().rev() {
+            todo.push_front(part);
         }
     }
-    #[cfg(not(unix))]
-    let _ = grants;
 }
 
 /// Execute a filesystem operation with authority checked in its original namespace.
@@ -800,7 +872,6 @@ pub fn run(
     destination: Option<&str>,
     data: Option<&[u8]>,
 ) -> Result<FsResult, HostError> {
-    pin(grants);
     if path.starts_with("app:") || destination.is_some_and(|p| p.starts_with("app:")) {
         let directories = directories
             .ok_or_else(|| HostError::Failed("app directories are not configured".into()))?;
@@ -829,7 +900,7 @@ pub fn run(
         #[cfg(unix)]
         {
             admit_as(grants, op, &path, destination.as_deref())?;
-            run_native(grants, op, &path, destination.as_deref(), data)
+            run_native(grants, directories, op, &path, destination.as_deref(), data)
         }
         #[cfg(not(unix))]
         {

@@ -424,11 +424,11 @@ reads) against roots the host sets (`set_roots`), the bundle read only,
 each path admitted as spelt and run from its root's retained descriptor
 with every component opened `O_NOFOLLOW` (`app_fs_unix.rs` `run_below`,
 which `app:/` paths share), so no link below a root is followed; a native
-absolute path is run the same way, admitted as spelt, through the
-directory of the deepest grant line that admits it, from the shallowest
-`fs.write` line, native or `home:`, above that one (`GrantSet::fs_root`),
-each line's directory realized once, when grants naming it first load
-(`pin`), and compared as realized; `access` checks its leaf with `AT_SYMLINK_NOFOLLOW`;
+absolute path is run the same way, admitted as spelt by the deepest grant
+line that admits it, that line reached from `/` at each operation, its
+links followed only until a directory an `fs.write` line (native or
+`home:`) or an app directory names, compared by device and inode
+(`reach`), and every name below that opened `O_NOFOLLOW`; `access` checks its leaf with `AT_SYMLINK_NOFOLLOW`;
 `open_read` opens a path to read it the same way, for a child's stdin; and `stat`
 reads `mode` and `isSymbolicLink`; `fs_more.rs` adds `lstat`, `readlink`,
 `access`, `chmod`, `symlink`, `digest` and `flock`/`unlock`, host opcodes

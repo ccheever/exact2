@@ -310,47 +310,6 @@ impl GrantSet {
         }
     }
 
-    /// Where a walk to native `path`, as spelt, starts, and the names below
-    /// that directory it goes through (Exact patch 24: exact2 LLP 1133.007
-    /// D6a). `pinned` gives a line's directory as realized before the app
-    /// could change it (`stdlib::fs::pin`), or `None` for a line with no
-    /// native directory. The walk reaches the deepest native `fs.write`
-    /// (`write`) or `fs.read` line that admits `path` through that line's
-    /// pinned directory, and starts at the shallowest pinned `fs.write`
-    /// directory above it, since the app may replace any directory below
-    /// one with a link. Lines are compared as pinned, not as spelt: one line
-    /// spelt through a link (`/tmp`, `/private/tmp`) still covers another.
-    pub fn fs_root(
-        &self,
-        path: &str,
-        write: bool,
-        pinned: impl Fn(&PathPrefix) -> Option<std::path::PathBuf>,
-    ) -> Option<(std::path::PathBuf, Vec<String>)> {
-        let target = PathPrefix::new(path).filter(|p| p.0.first().is_some_and(String::is_empty))?;
-        let line = (self.grants.iter())
-            .filter_map(|grant| match (grant, write) {
-                (Grant::FsWrite(prefix), true) | (Grant::FsRead(prefix), false) => Some(prefix),
-                _ => None,
-            })
-            .filter(|prefix| prefix.0.first().is_some_and(String::is_empty))
-            .filter(|prefix| target.0.starts_with(&prefix.0))
-            .max_by_key(|prefix| prefix.0.len())?;
-        let reached = pinned(line)?;
-        let root = (self.grants.iter())
-            .filter_map(|grant| match grant {
-                Grant::FsWrite(prefix) => pinned(prefix),
-                _ => None,
-            })
-            .filter(|above| reached.starts_with(above))
-            .min_by_key(|above| above.components().count())
-            .unwrap_or_else(|| reached.clone());
-        let through = reached.strip_prefix(&root).ok()?.iter();
-        let below = (through.map(|part| part.to_string_lossy().into_owned()))
-            .chain(target.0[line.0.len()..].iter().cloned())
-            .collect();
-        Some((root, below))
-    }
-
     /// The kv scopes this set may use, in a stable order (LLP 0070 §1).
     pub fn kv_scopes(&self) -> Vec<&str> {
         self.grants

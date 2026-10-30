@@ -53,6 +53,42 @@ fn open_at_raw(dir: &File, path: &CStr, flags: i32, mode: u32) -> io::Result<Fil
 fn directory(dir: &File, path: &str) -> io::Result<File> {
     open_at(dir, path, libc::O_RDONLY | libc::O_DIRECTORY)
 }
+/// The directory `path` names, its links followed.
+pub(crate) fn open_directory(path: &Path) -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    (std::fs::OpenOptions::new().read(true))
+        .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
+        .open(path)
+}
+/// The directory `name` in `dir`, refusing a link.
+pub(crate) fn directory_at(dir: &File, name: &std::ffi::OsStr) -> io::Result<File> {
+    use std::os::unix::ffi::OsStrExt;
+    let name = CString::new(name.as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in path"))?;
+    directory_raw(dir, &name)
+}
+/// What the link `name` in `dir` points to.
+pub(crate) fn link_at(dir: &File, name: &std::ffi::OsStr) -> io::Result<std::ffi::OsString> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let name = CString::new(name.as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in path"))?;
+    let mut buf = vec![0u8; libc::PATH_MAX as usize + 1];
+    // SAFETY: the descriptor, the terminated name and the buffer are live
+    // throughout readlinkat, which writes at most `buf.len()` bytes.
+    let n = unsafe {
+        libc::readlinkat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+        )
+    };
+    if n < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    buf.truncate(n as usize);
+    Ok(std::ffi::OsString::from_vec(buf))
+}
 fn directory_raw(dir: &File, path: &CStr) -> io::Result<File> {
     open_at_raw(dir, path, libc::O_RDONLY | libc::O_DIRECTORY, 0o600)
 }
@@ -299,6 +335,14 @@ impl AppDirectories {
             roots: Arc::new(roots),
             paths: Arc::new(physical),
         })
+    }
+    /// Each of its directories' device and inode.
+    pub(crate) fn identities(&self) -> Vec<(u64, u64)> {
+        use std::os::unix::fs::MetadataExt;
+        (self.roots.iter().flatten())
+            .filter_map(|root| root.metadata().ok())
+            .map(|meta| (meta.dev(), meta.ino()))
+            .collect()
     }
     fn root(&self, index: usize) -> Result<File, HostError> {
         self.roots[index]
