@@ -3548,3 +3548,80 @@ Both G4m tables and all three G5m tables reproduce exactly from their raw files;
 G5's committed `--verify` passes with zero exclusions. Both boot summaries also
 reproduce exactly. Power rows reproduce from the retained plists and clock join.
 No renderer, workload, committed probe or driver source changes in this lane.
+
+## Stage 0: the numbers first
+
+@ref LLP 1149.001 §2–4; `lane/1149-001-s0`, based on `b059d3d8a8`.
+This stage changes instrumentation only. Retained evidence is under `target/s0/`;
+S1.4's original files stay in place. Agent-driven runs require no focus. A posted
+Mac fling waits for `target/s0/GO` newer than 2026-10-30T15:10:26Z.
+
+### Predictions recorded before measurement
+
+1. `exclusive.mjs`, on S1.4's image-disabled control and its full fling
+   window: 3,579 service passes, 358 walks and 348 draws; exclusive elapsed
+   rates round to 12.6, 5.7, 5.9 (draw plus encode), 1.2 (glyph), 1.0
+   (refinement), 0.4 (layout) and 1.3 ms/s (wheel), as RFC §2 states.
+   The script separates draw from encode and reports CPU from the probe's
+   endpoints, without treating elapsed spans as CPU samples. Historical
+   service causes are expected to be unavailable, not inferred from proximity.
+2. On the same traces, display callbacks fall about 5 ms after the presented
+   refresh grid; `exclusive.mjs` reports the distribution modulo the refresh
+   period. GPU command and present intervals remain separate from CPU spans.
+3. A fresh release carrier, traced through the phased live-agent wheel, is
+   expected to retain fractional-shift refusals. No CPU or cadence equality
+   with posted input is predicted: socket requests add service work and do
+   not traverse AppKit's wheel delivery. The first run establishes its baseline.
+
+### Retained S1.4 attribution
+
+The exact ten-second control window reproduces every published count. The
+probe's complete fling window is 10.003495 seconds and includes two additional
+service, refinement and layout spans. `--seconds=10` makes the hand table's
+denominator explicit. All rates below are exclusive **elapsed** ms/s; counts
+are over ten seconds. GPU timestamps are excluded from CPU-thread nesting,
+even when their completion was observed on that thread.
+
+| Phase | RFC hand rate | Script rate | Count |
+|---|---:|---:|---:|
+| carrier service | 12.6 | 12.717 | 3579 |
+| paint walk | 5.7 | 5.598 | 358 |
+| carrier draw | 5.9 together | 3.005 | 348 |
+| scene encode | — | 2.925 | 348 |
+| glyph raster | 1.2 | 1.300 | 481 |
+| exact refine collections | 1.0 | 1.041 | 4775 |
+| exact layout | 0.4 | 0.511 | 3362 |
+| wheel input | 1.3 | 1.339 | 422 |
+
+The draw/encode sum is 5.931 ms/s. The service, walk, glyph and layout rates
+do not round to the hand table; those predictions miss. The script's precise
+boundary and innermost-span rule replace the unpublished derivation. The
+full-window control measures **85.573 process / 51.540 main CPU ms/s**; its
+marked main-thread elapsed total is **29.034 ms/s**, leaving a cross-instrument
+difference of **22.506**, not the RFC's ~15. The latter subtracted a G4 CPU
+median from S1.4 elapsed spans. Neither difference identifies a CPU owner.
+
+Normal images, over 10.002654 seconds: **96.753 process / 49.454 main CPU
+ms/s**. Main-thread elapsed: service 13.339 (3,618), walk 5.467 (391),
+draw 3.092 (356), finish 3.038 (384). This older trace has no scene-encode
+or wheel-input marker, so its finish row cannot be split after the fact.
+Its two decode threads total **14.258 elapsed ms/s**. Worker completion
+waits are **45.112 / 59.781 elapsed ms/s** (control / normal), not CPU.
+
+The present GPU interval averages **1.011 / 1.461 ms**. The generic GPU-command
+stream also contains uploads and offscreen passes; its **0.536 / 0.742 ms**
+mean is not a scene-only mean. The phase prediction is met: callback positions
+have medians **5.072 / 5.098 ms** into the 8.333 ms presented-time grid.
+All **3,579 / 3,618** service causes are unmarked in the old traces. None is
+assigned a cause from the nearest event.
+
+Both runs remain focus-rejected diagnostics; neither is a qualified cadence
+series. Trace hashes match S1.5. Full per-thread tables, GPU distributions,
+CPU endpoints and hashes are retained in `target/s0/{control,before}.{md,json}`;
+the exact ten-second control is `control-ten.{md,json}`. Reproduce with:
+
+```sh
+bun bench/heavy-list/gpui/exclusive.mjs --verify
+bun bench/heavy-list/gpui/exclusive.mjs target/s1-4/g3-control/ink-1.json.trace.json --seconds=10
+bun bench/heavy-list/gpui/exclusive.mjs target/s1-4/g3-before/ink-1.json.trace.json
+```
