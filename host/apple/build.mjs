@@ -447,7 +447,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
   // alone, is what WidgetContainer.configure reads); the activity keys are ActivityKit's (LLP 1126.001 §1).
   if (!tv && id === app.id && hasEntries(app)) Object.assign(dict, { ExactAppGroup: widgetGroup(app), ExactAppIdentifier: app.id, ExactWidgetKinds: platformWidgetEntries(app).map(e => e.kind),
     ...(activityEntries(app).length ? { NSSupportsLiveActivities: true, ...(activityEntries(app).some(e => e.frequent === true) ? { NSSupportsLiveActivitiesFrequentUpdates: true } : {}) } : {}) });
-  Object.assign(dict, transportSecurity(tv ? {} : ios, localNetworking(ios, reach)));
+  Object.assign(dict, transportSecurity(ios, localNetworking(ios, reach), { web: !tv }));
   if (ios.localNetworking) dict.NSLocalNetworkUsageDescription = typeof ios.localNetworking === 'string' ? ios.localNetworking : 'Connects to your dev server on the local network.';
   Object.assign(dict, backgroundKeys(ios, reach, id, tv || clip), nfcKeys(ios, tv), startLocation(app));
   // The schemes `canOpenURL` may ask about; iOS answers false for any other (`UIApplication.canOpenURL(_:)`)

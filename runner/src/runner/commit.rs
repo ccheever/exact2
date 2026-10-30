@@ -1289,7 +1289,13 @@ impl<D: DataSource> Runner<D> {
         let what = super::lines::fulfilling(ticket, &name, summary);
         let before = self.sockets.len();
         crate::stream_timing::entered(ticket);
-        let result = self.fulfill_inner(p, outcome);
+        // A frame lands as a commit of its stream's origin (LLP 1133.002
+        // D12), with every cause its request has (LLP 1133.035 D16 item 6),
+        // as a one-shot's reply does: a stream a tool asked answers as the
+        // tool's, frame after frame.
+        let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
+        let causes = self.ticket_causes(ticket);
+        let result = self.as_invocation_caused(origin, id, causes, |r| r.fulfill_inner(p, outcome));
         // What the mapper staged answering this frame (LLP 1016.000 D7):
         // addressed for the commit, or left staged by a frame that failed.
         // The commit's answers may have sent too (its amendment of
@@ -1299,7 +1305,7 @@ impl<D: DataSource> Runner<D> {
         let replied = left || self.sockets[before..].iter().any(mapper);
         self.conclude(checkpoint, &result, was_poisoned);
         crate::stream_timing::committed(result.is_ok());
-        self.arm_then(result.is_ok());
+        self.as_invocation_caused(origin, id, causes, |r| r.arm_then(result.is_ok()));
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         // Or by one whose answer reopened the stream, which sends none.
