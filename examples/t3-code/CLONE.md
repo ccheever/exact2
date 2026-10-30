@@ -78,6 +78,20 @@ No comment cleanup is required. Connected cloud routes and complete phone,
 iPad and desktop parity remain open. TestFlight is unchanged; this slice reaches
 no release checkpoint.
 
+Selected-text Copy acceptance remains open. A fresh EAS baseline reuses the clean
+`da653334f7` normal artifact after a complete source and bundle hash comparison.
+Home, Settings, Appearance and Back work. The private observer records an actual
+`bold` selection at UTF-16 range `[21, 4]`, but no native Copy tap completes.
+Its timer remains armed after that aborted case and attempts to read the next
+known sentinel, opening iOS's paste-permission dialog. The driver times out and its one alert
+recovery fails. Device work stops and the scoped EAS session shuts down.
+All temporary production sources restore exactly. The corrected private observer
+compiles but has no device qualification. Post-fixture normal smoke, selected-copy
+bytes for both owners and guarded Copy execution remain unqualified. No production
+Copy defect is established. Evidence is in
+`target/t3-poc-evidence/phone-selected-copy-acceptance/receipt.md`.
+Production behavior and TestFlight are unchanged.
+
 Startup-crash parity remains open as GAP 004. The pinned reference reads fatal
 startup records from expo-updates; Exact exposes no equivalent record producer.
 The unavailable state remains truthful. Source findings and the required capture
