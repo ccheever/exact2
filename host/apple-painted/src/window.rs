@@ -173,6 +173,14 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
 }
 
 impl<D: DataSource + Default + 'static> App<D> {
+    fn awaiting_first_present(&self) -> bool {
+        self.frames > 0
+            && self
+                .layer
+                .as_ref()
+                .is_some_and(|layer| layer.presented_painter().is_none())
+    }
+
     fn fail(&mut self, events: &ActiveEventLoop, error: impl std::fmt::Display) {
         eprintln!("exact-apple-painted: {error}");
         self.failed = true;
@@ -356,12 +364,17 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             Event::Tick => {
                 trace_mark(c"display wake", || 0.);
                 self.tick_pending.store(false, Ordering::Release);
+                let unshown = self.awaiting_first_present();
                 let dirty = self
                     .presenter
                     .as_ref()
-                    .is_some_and(|p| p.dirty() || self.live && p.needs_animation_frame());
+                    .is_some_and(|p| display_needed(p, self.live, self.hidden, unshown));
                 self.scrolling.tick(dirty);
                 if dirty {
+                    if unshown {
+                        // GPU completion does not prove the compositor showed a frame.
+                        self.presenter.as_mut().unwrap().repaint();
+                    }
                     if let Some(window) = &self.window {
                         trace_mark(c"display requests redraw", || 0.);
                         window.request_redraw();
@@ -583,6 +596,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         }
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
+        let unshown = self.awaiting_first_present();
         let Some(p) = &mut self.presenter else {
             return;
         };
@@ -615,9 +629,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         if self.live {
             p.admit_idle_timer(now);
         }
-        let active = !self.hidden
-            && p.apple_painter_can_draw()
-            && (p.dirty() || self.live && p.needs_animation_frame());
+        let active = display_needed(p, self.live, self.hidden, unshown);
         let running = !self.hidden && (active || self.scrolling.active);
         self.display_active.store(running, Ordering::Release);
         if let Some(display) = &mut self.display {
@@ -635,6 +647,17 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
         );
     }
+}
+
+fn display_needed<D: DataSource>(
+    p: &Presenter<D>,
+    live: bool,
+    hidden: bool,
+    unshown: bool,
+) -> bool {
+    !hidden
+        && p.apple_painter_can_draw()
+        && (unshown || p.dirty() || live && p.needs_animation_frame())
 }
 
 #[derive(Default)]
@@ -697,6 +720,39 @@ fn service<D: DataSource>(p: &mut Presenter<D>, now: f64, live: bool, data: impl
 mod tests {
     use super::*;
     use exact_linux::presenter::PainterChoice;
+
+    #[test]
+    fn an_unshown_boot_keeps_display_demand_after_two_completed_drawables() {
+        let plan = contract::compile("component App\n  view\n    text \"Still\"\n")
+            .unwrap()
+            .encode();
+        let (mut p, warning) =
+            Presenter::boot_with(&plan, (), (80., 80.), 1., ".".into(), PainterChoice::Cpu)
+                .unwrap();
+        assert!(warning.is_none(), "{warning:?}");
+        // Neither of the first two completed frames was selected for display.
+        for _ in 0..2 {
+            p.repaint();
+            p.frame();
+        }
+        assert!(!p.dirty());
+        for period in 2..8 {
+            assert!(
+                display_needed(&p, true, false, true),
+                "stopped at period {period}"
+            );
+            assert!(
+                !display_needed(&p, true, true, true),
+                "hidden windows must sleep"
+            );
+            p.repaint();
+            p.frame();
+        }
+        // A positive presented timestamp ends retries; the clean scene stays idle.
+        assert!(!display_needed(&p, true, false, false));
+        p.repaint();
+        assert!(display_needed(&p, true, false, false));
+    }
 
     #[test]
     fn agent_reads_leave_an_idle_window_clean_and_input_leaves_damage() {

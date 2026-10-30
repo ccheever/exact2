@@ -3808,3 +3808,20 @@ including callback arrival, retry decisions, first transaction completion,
 framebuffer-only state and display-link start/stop marks. The transaction mark
 is its completion block, not a compositor acknowledgement. The run retains
 all ten attempts and reads the displayed painter through the agent's `state`.
+
+
+Before the corrected cohort, prediction R2 is **30/30 displayed complete Ink
+screens**: ten retained Metal, ten wgpu controls and ten Metal archive misses,
+with no input. The carrier will keep its display link running after a submission
+while the layer reports no displayed painter, repainting only on its ticks and
+suspending while hidden. It will stop that demand after a positive timestamp.
+The headless scheduling test must keep demand through two completed, unshown
+frames and further display periods, then sleep when hidden or shown.
+
+P1 and P3 are unchanged: warm device/layer phase at most **8 ms**, no more than
+**5 ms** above wgpu; the retained phase within **2 ms** of P1's original
+**6.581 ms**, starting on Ink. P2 keeps zero boot-thread compilation, first CPU
+pixel at most **300 ms** and complete Ink at most **450 ms** p50. Prediction
+R3 is a summed complete-screen p50 on Metal no more than **5 ms** above wgpu.
+The instrument remains the same carrier, boot-only probe and trace, with all
+attempts retained. No 100 ms application-budget pass is predicted.
