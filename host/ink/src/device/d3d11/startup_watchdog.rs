@@ -216,11 +216,16 @@ unsafe fn thread(
             return Err(windows::core::Error::from_thread().into());
         }
         let held = Suspended(thread.0);
-        let mut context = CONTEXT {
+        // Windows requires 16-byte alignment; win32metadata's CONTEXT is
+        // repr(C) with only 8-byte alignment on x64.
+        #[repr(C, align(16))]
+        struct Aligned(CONTEXT);
+        let mut aligned = Aligned(CONTEXT {
             ContextFlags: CONTEXT_FULL_AMD64,
             ..Default::default()
-        };
-        GetThreadContext(thread.0, &mut context)?;
+        });
+        let context = &mut aligned.0;
+        GetThreadContext(thread.0, context)?;
         let mut frame = STACKFRAME64::default();
         frame.AddrPC.Offset = context.Rip;
         frame.AddrStack.Offset = context.Rsp;
@@ -238,7 +243,7 @@ unsafe fn thread(
                 process,
                 thread.0,
                 &mut frame,
-                (&mut context as *mut CONTEXT).cast(),
+                (context as *mut CONTEXT).cast(),
                 None,
                 Some(functions),
                 Some(module),
