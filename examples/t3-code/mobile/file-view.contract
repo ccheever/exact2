@@ -219,7 +219,10 @@ component MobileFileMarkdown
                       column width=160 flex-shrink=0 box-sizing="border-box" padding-left=10 padding-right=10 padding-top=8 padding-bottom=8 border-left-width=(index == 0 ? 0 : 1) border-left-style="solid" border-left-color=colors.markdownBorder
                         text user-select="text" overflow-wrap="break-word" font-family="DM Sans" font-size=bodySize line-height=`${bodyLine}px` font-weight=(item.header ? 700 : 400) font-variant-numeric=(cell.numeric ? "tabular-nums" : "normal") color=(item.header ? colors.markdownStrong : colors.markdownBody)
                           for run in cell.runs key=run.id
-                            text run.text font-family=(run.kind == "code" ? "monospace" : "DM Sans") font-size=(run.kind == "code" ? max(12, bodySize - 2) : bodySize) color=(run.kind == "code" ? colors.codeForeground : item.header ? colors.markdownStrong : colors.markdownBody)
+                            if run.kind == "strong"
+                              text run.text font-family="DM Sans" font-size=bodySize font-weight=700 color=colors.markdownStrong
+                            else
+                              text run.text font-family=(run.kind == "code" ? "monospace" : "DM Sans") font-size=(run.kind == "code" ? max(12, bodySize - 2) : bodySize) color=(run.kind == "code" ? colors.codeForeground : item.header ? colors.markdownStrong : colors.markdownBody)
           else
             text block.text markup="markdown" font-size=bodySize line-height=`${bodyLine}px` color=colors.markdownBody user-select="text"
 

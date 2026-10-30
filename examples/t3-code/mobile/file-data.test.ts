@@ -249,7 +249,7 @@ test('Markdown file actions keep source default and omit wrapping only for the s
 });
 
 test('file previews preserve prose and independently copyable fenced code under the existing read cache', () => {
-  const read = { contents: '# File\r\n\r\nFirst line\r\ncontinues with `code`.\r\n\r\n```ts\r\nconst first = 1;\r\n```\r\nBetween\r\n\r\n| Name | Value |\r\n| --- | --- |\r\n| `item` | 42 |\r\n\r\n```\r\nsecond\r\n```\r\n', error: '' };
+  const read = { contents: '# File\r\n\r\nFirst line\r\ncontinues with `code`.\r\n\r\n```ts\r\nconst first = 1;\r\n```\r\nBetween\r\n\r\n| **Name** | Value |\r\n| --- | --- |\r\n| `item` **ready** | **42** |\r\n\r\n```\r\nsecond\r\n```\r\n', error: '' };
   const present = (path = 'README.md', dark = false) => mobileFilePresentation({ owner: 'owner', revision: 1,
     projectName: 'Project', loading: false, error: '', read }, path, dark);
   const light = present(), codes = light.previewBlocks.filter(block => block.kind === 'code');
@@ -259,6 +259,10 @@ test('file previews preserve prose and independently copyable fenced code under 
     .toEqual(['First line continues with `code`.', 'Between']);
   for (const block of codes) expect(block.tokens.map(token => token.text).join('')).toBe(block.text);
   expect(light.previewBlocks.find(block => block.kind === 'table')).toMatchObject({ columns: 2, rows: [{ header: true }, { header: false }] });
+  expect(light.previewBlocks.find(block => block.kind === 'table')?.rows[1]?.cells[0]?.runs).toEqual([
+    { id: '1:0:0', kind: 'code', text: 'item' }, { id: '1:0:1', kind: 'text', text: ' ' },
+    { id: '1:0:2', kind: 'strong', text: 'ready' },
+  ]);
   expect(light.copyContents).toBe(read.contents);
   expect(present().previewBlocks).toBe(light.previewBlocks);
   expect(present('README.md', true).previewBlocks.find(block => block.kind === 'code')?.tokens.map(token => token.color))

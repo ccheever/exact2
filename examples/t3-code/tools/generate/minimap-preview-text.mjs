@@ -59,8 +59,21 @@ function fileTableSlice(node, start, end) {
       let runEnd = cellRange.start;
       for (const [runIndex, run] of cell.children.entries()) {
         const runRange = fileNodeRange(run, runEnd, cellRange.end);
-        if (!runRange || (run.type !== 'text' && run.type !== 'inlineCode')) return null;
-        runs.push({ id: `${id}:${runIndex}`, kind: run.type === 'inlineCode' ? 'code' : 'text', text: run.value });
+        if (!runRange) return null;
+        if (run.type === 'strong') {
+          if (!run.children.length) return null;
+          let childEnd = runRange.start, text = '';
+          for (const child of run.children) {
+            const childRange = fileNodeRange(child, childEnd, runRange.end);
+            if (child.type !== 'text' || !childRange || !child.value) return null;
+            text += child.value;
+            childEnd = childRange.end;
+          }
+          runs.push({ id: `${id}:${runIndex}`, kind: 'strong', text });
+        } else {
+          if (run.type !== 'text' && run.type !== 'inlineCode') return null;
+          runs.push({ id: `${id}:${runIndex}`, kind: run.type === 'inlineCode' ? 'code' : 'text', text: run.value });
+        }
         runEnd = runRange.end;
       }
       const text = runs.map(run => run.text).join('').trim();

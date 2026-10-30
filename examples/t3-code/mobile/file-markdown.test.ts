@@ -119,9 +119,29 @@ test('source interval binding handles repeated text and preserves previews when 
 });
 
 test('an unsupported table chunk keeps its existing heading projection while other chunks gain tables', () => {
-  const unsupported = '# Later\n\n| A |\n| - |\n| **bold** |';
+  const unsupported = '# Later\n\n| A |\n| - |\n| **bold *nested*** |';
   const blocks = mobileFileMarkdownBlocks('| Good |\n| - |\n| value |\n\n```sh\npwd\n```\n\n' + unsupported, false);
   expect(blocks.filter(block => block.kind === 'table')).toHaveLength(1);
   expect(blocks.find(block => block.kind === 'heading')).toMatchObject({ level: 1, text: 'Later' });
-  expect(blocks.at(-1)).toMatchObject({ kind: 'markdown', text: '\n| A |\n| - |\n| **bold** |' });
+  expect(blocks.at(-1)).toMatchObject({ kind: 'markdown', text: '\n| A |\n| - |\n| **bold *nested*** |' });
+});
+
+test('strong table projection keeps CRLF input, fence records and partition fallback exact', () => {
+  const raw = '😀 Intro\r\n\r\n| **Header** |\r\n| --- |\r\n| before **ready** `code` |\r\n\r\n```sh\r\npwd\r\n\r\n```\r\n';
+  const blocks = mobileFileMarkdownBlocks(raw, false);
+  expect(blocks.find(block => block.kind === 'table')).toMatchObject({ id: '0:table:10',
+    rows: [{ header: true, cells: [{ runs: [{ kind: 'strong', text: 'Header' }] }] },
+      { header: false, cells: [{ runs: [{ kind: 'text', text: 'before ' }, { kind: 'strong', text: 'ready' },
+        { kind: 'text', text: ' ' }, { kind: 'code', text: 'code' }] }] }] });
+  expect(blocks.find(block => block.kind === 'code')).toEqual({
+    ...mobileMarkdownBlocks(raw, false).find(block => block.kind === 'code'), level: 0, columns: 0, rows: [],
+  });
+  expect(blocks.find(block => block.kind === 'code')).toMatchObject({ id: '1', text: 'pwd\n', language: 'sh' });
+  for (const source of ['    indented\n\n', 'Hard\\\nbreak\n\n']) {
+    const input = source + '| A |\n| --- |\n| **ready** |';
+    if (source.startsWith('    ')) expect(mobileFileMarkdownBlocks(input, false))
+      .toEqual(mobileMarkdownBlocks(input, false).map(block => ({ ...block, level: 0, columns: 0, rows: [] })));
+    else expect(mobileFileMarkdownBlocks(input, false)[0]?.text).toBe(source);
+  }
+  expect(raw).toContain('\r\n');
 });

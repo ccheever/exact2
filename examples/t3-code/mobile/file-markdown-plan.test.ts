@@ -128,7 +128,7 @@ test('repeated tables and prose retain distinct positions and stable ordinal key
 });
 
 test.each([
-  '**bold**', '_emphasis_', '~~struck~~', '[link](/docs)', '![alt](/image)', '<em>html</em>',
+  '**bold *nested***', '_emphasis_', '~~struck~~', '[link](/docs)', '![alt](/image)', '<em>html</em>',
   'https://example.test', '<https://example.test>',
 ])('an unsupported table inline preserves every table in its original prose segment: %s', cell => {
   const unsupported = `| A | B |\n| --- | --- |\n| ${cell} | plain |`, original = `# Heading\n\n${table}\n\n${unsupported}`;
@@ -137,6 +137,74 @@ test.each([
   const plan = planFor(source);
   expect(plan[0]).toEqual({ kind: 'prose', start: 0, end: original.length + 2, tables: [] });
   expect(tablesFor(source).map(item => [item.start, item.end])).toEqual([[original.length + separator.length, source.length]]);
+});
+
+test.each(['**', '__'])('text-only strong uses decoded header/body runs with %s delimiters', delimiter => {
+  const source = `😀 Intro\n\n| ${delimiter}Header${delimiter} | Value |\n| --- | --- |\n| ${delimiter}ready${delimiter} | ${delimiter}&#49;&#50;${delimiter} ms |`;
+  const [parsed] = tablesFor(source);
+  expect(parsed?.start).toBe('😀 Intro\n\n'.length);
+  expect(parsed?.end).toBe(source.length);
+  expect(parsed?.rows[0]?.cells[0]?.runs).toEqual([{ id: '0:0:0', kind: 'strong', text: 'Header' }]);
+  expect(parsed?.rows[1]?.cells[0]?.runs).toEqual([{ id: '1:0:0', kind: 'strong', text: 'ready' }]);
+  expect(parsed?.rows[1]?.cells[1]).toEqual({ id: '1:1', numeric: true, runs: [
+    { id: '1:1:0', kind: 'strong', text: '12' }, { id: '1:1:1', kind: 'text', text: ' ms' },
+  ] });
+});
+
+test('mixed and adjacent strong preserve outer-child IDs and plain/code objects', () => {
+  const [parsed] = tablesFor('| A |\n| --- |\n| pre **one**__two__ `code` post |');
+  expect(parsed?.rows[1]?.cells[0]?.runs).toEqual([
+    { id: '1:0:0', kind: 'text', text: 'pre ' },
+    { id: '1:0:1', kind: 'strong', text: 'one' },
+    { id: '1:0:2', kind: 'strong', text: 'two' },
+    { id: '1:0:3', kind: 'text', text: ' ' },
+    { id: '1:0:4', kind: 'code', text: 'code' },
+    { id: '1:0:5', kind: 'text', text: ' post' },
+  ]);
+  expect(tablesFor('| A |\n| --- |\n| pre `code` post |')[0]?.rows[1]?.cells[0]?.runs).toEqual([
+    { id: '1:0:0', kind: 'text', text: 'pre ' }, { id: '1:0:1', kind: 'code', text: 'code' },
+    { id: '1:0:2', kind: 'text', text: ' post' },
+  ]);
+});
+
+test.each([
+  ['**a \\* b &amp; 😀 \\| c**', 'strong', 'a * b & 😀 | c'],
+  ['__世界 &#x1F44B;__', 'strong', '世界 👋'],
+  ['\\*\\*ready\\*\\*', 'text', '**ready**'], ['**ready', 'text', '**ready'],
+  ['** ready **', 'text', '** ready **'],
+])('strong admission follows actual decoded parser text: %s', (cell, kind, text) => {
+  expect(tablesFor(`| A |\n| --- |\n| ${cell} |`)[0]?.rows[1]?.cells[0]?.runs)
+    .toEqual([{ id: '1:0:0', kind, text }]);
+});
+
+test.each([
+  '**a __nested__ b**', '**a *nested* b**', '**a `code` b**', '**[link](/x)**',
+  '**<b>html</b>**', '**<br>**', '**~~deleted~~**', '**![image](/x)**',
+  '***ready***', '___ready___', '**ready** *later*', '**ready** ~~later~~',
+])('unsupported strong content refuses all tables in its prose segment: %s', cell => {
+  const supported = '| **Header** |\n| --- |\n| **ready** |';
+  const segment = supported + `\n\n| A |\n| --- |\n| ${cell} |`;
+  expect(fileMarkdownPlan(segment)).toBeNull();
+  const barrier = '\n\n```sh\npwd\n```\n\n';
+  const plan = planFor(segment + barrier + supported);
+  expect(plan[0]).toEqual({ kind: 'prose', start: 0, end: segment.length + 2, tables: [] });
+  expect(tablesFor(segment + barrier + supported).map(values)).toEqual([[['Header'], ['ready']]]);
+});
+
+test('all excess cells are validated before header-width truncation', () => {
+  const [parsed] = tablesFor('| A |\n| --- |\n| **kept** | __valid extra__ |');
+  if (!parsed) throw new Error('Expected one table');
+  expect(values(parsed)).toEqual([['A'], ['kept']]);
+  expect(fileMarkdownPlan('| A |\n| --- |\n| **kept** | **a `refused`** |')).toBeNull();
+});
+
+test.each([
+  '[ref]: /docs', '[link][ref]', '![alt][ref]', 'Footnote[^note].', '> [nested]: /docs',
+])('strong tables retain global definition/reference/footnote refusal: %s', context => {
+  const strong = '| **Header** |\n| --- |\n| **ready** |';
+  const barrier = '\n\n~~~\nbarrier\n~~~\n\n';
+  const source = `${context}\n\n${strong}${barrier}[ref]: /docs\n\n[^note]: Note.\n\n${strong}${barrier}${strong}`;
+  expect(planFor(source).filter(segment => segment.kind === 'prose').map(segment => segment.tables.length)).toEqual([0, 0, 1]);
 });
 
 test.each([
