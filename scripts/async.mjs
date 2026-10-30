@@ -261,7 +261,7 @@ export function semanticsChecks(base = process.env) {
 /** What the semantics checks read at the worktree's checkout, read once for all four. */
 const semanticsInputs = () => new Inputs(WT, semanticsEnv(process.env));
 
-export function retainSkippedFailures(previous, result, conditionalNames = ['lane', 'ios', 'ios-touch', 'tvos', 'watchos']) {
+export function retainSkippedFailures(previous, result, conditionalNames = TIER === 1 ? ['lane', 'ios', 'ios-touch', 'tvos', 'watchos'] : []) {
   const conditional = new Set(conditionalNames);
   result.failures.push(...previous.filter(f => {
     const name = f.split(': ', 1)[0];

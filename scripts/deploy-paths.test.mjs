@@ -97,6 +97,19 @@ test('async compiles watchOS per commit with no simulator, and tier 2 does not a
   expect(skipped.failures).toEqual(["watchos: ExactCore/HostPhases.swift: 'CACurrentMediaTime()' is unavailable in watchOS"]);
 });
 
+test('tier 2 drops failures for the watchOS check moved to the first lane', () => {
+  const script = `
+    process.argv.push('--tier', '2');
+    const lane = await import('./async.mjs');
+    const result = {checks: Object.fromEntries(lane.checks('new', 'old').map(([name]) => [name, {status: 0}])), failures: []};
+    lane.retainSkippedFailures(['watchos: previous compile failed'], result);
+    console.log(JSON.stringify(result.failures));
+  `;
+  const ran = spawnSync(process.execPath, ['--eval', script], {cwd: import.meta.dir, encoding: 'utf8'});
+  expect(ran.status).toBe(0);
+  expect(JSON.parse(ran.stdout)).toEqual([]);
+});
+
 test('tier 2 checks platform host and app crates for their actual target', () => {
   const checks = asyncLane.tierTwoChecks();
   for (const name of ['linux', 'windows', 'windows-arm64']) expect(checks.find(([step]) => step === name)?.[2]).toContain('CRATE_CC_NO_DEFAULTS=1');
