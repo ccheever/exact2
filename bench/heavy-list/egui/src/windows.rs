@@ -4,7 +4,7 @@ use windows::{
     Win32::{
         Foundation::{FILETIME, GENERIC_READ},
         Graphics::{Dwm::DwmFlush, Imaging::*},
-        System::{Com::*, SystemInformation::GetSystemTimeAsFileTime, Threading::*},
+        System::{Com::*, SystemInformation::GetSystemTimePreciseAsFileTime, Threading::*},
     },
     core::{Interface, PCWSTR, Result},
 };
@@ -131,7 +131,7 @@ pub fn after_frame() {
         )
         .expect("process creation time");
         let ticks = |t: FILETIME| ((t.dwHighDateTime as u64) << 32) | t.dwLowDateTime as u64;
-        let age = (ticks(GetSystemTimeAsFileTime()) - ticks(created)) as f64 / 10_000.;
+        let age = (ticks(GetSystemTimePreciseAsFileTime()) - ticks(created)) as f64 / 10_000.;
         eprintln!("egui: process to first-screen compositor sync {age:.3} ms (DWM proxy)");
         eprintln!("egui: DXGI display timestamp unavailable: eframe owns the swap chain");
     }
