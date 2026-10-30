@@ -1008,3 +1008,22 @@ fn a_bound_side_stays_its_authors_right_to_left_and_the_sheets_mirror() {
         "{all}"
     );
 }
+
+/// A progress in block flow keeps its width with `justify-self: start` only where its parent's
+/// `justify-items` doesn't align it: a parent's own `start`, `center` or `end`, written or bound,
+/// aligns the progress, as the kernel's block layout does.
+#[test]
+fn a_progress_follows_its_block_parents_justify_items() {
+    let program = |items: &str| {
+        let source = format!("component App\n  state alignment = \"center\"\n  view\n    box justify-items={items} width=240 height=40\n      progress testId=\"live\"\n");
+        let out = crate::emit::emit(&contract::compile(&source).unwrap(), false, false).unwrap();
+        format!("{}\n{}", out.css, out.js)
+    };
+    let written = program("\"center\"");
+    assert!(written.contains("--exact-progress-aligned:auto"), "{written}");
+    assert!(written.contains("var(--exact-progress-aligned,var(--exact-progress-justify,start))"), "{written}");
+    let normal = program("\"normal\"");
+    assert!(!normal.contains("--exact-progress-aligned:auto"), "{normal}");
+    let bound = program("alignment");
+    assert!(bound.contains("--exact-progress-aligned"), "a bound justify-items writes the property: {bound}");
+}
