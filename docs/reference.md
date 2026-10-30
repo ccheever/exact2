@@ -1681,7 +1681,8 @@ reads and writes `home:/…` (the user's home, under a grant narrower than
 link below either root, nor below a native `fs.read` or `fs.write`
 directory (one is refused, as under `app:/`); a native line is reached
 through a system link such as macOS's `/var` but not through one the user
-owns or could replace (`~/Dropbox`): such a line names the link's target instead; and it gains
+owns or could replace (`~/Dropbox`): such a line must name the link's target, and a native
+line names a directory, not a file; and it gains
 `lstat`, `readlink`, `access`, `chmod`, `symlink`, `digest(path, "SHA-256")`
 and `flock(path, {timeout})`, whose lock is held until the lock's `unlock()`,
 else until the answer that took it ends (a TypeScript source's only, for
