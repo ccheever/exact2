@@ -3299,8 +3299,35 @@ and ten quiet successful fresh-process launches per arm, with every failed
 attempt retained. Caches stay retained. Power is a first observation, with
 no previous power row or predicted saving.
 
-**Status:** no GUI run yet. Passwordless `powermetrics` returned `sudo: a
-password is required`; `launchctl asuser $(id -u) /usr/bin/true` returned
-`Could not switch to audit session … Operation not permitted`. These steps
-await the silver Mac's setup. Accessibility and Screen Recording have not
-been tested. No G4m baseline or prediction result is claimed yet.
+All four release arms, the driver, wheel helper and probe build. The data's
+105 SHA-256 checks pass. `Native.app`, `GPUI.app`, `Ink.app` and `Egui.app`
+pass `codesign --verify --deep --strict`; their linked probes share SHA-256
+`23abd140ac6dd6168dbcef3f1365e801ed135aa5147c93245717f4b6e4022a9c`.
+`provenance.json` records the executable, instrument and lockfile hashes.
+The Ink bundle runs `--help` without opening a window; that checks loading,
+not rendering or presentation. Metal Toolchain 27.2 was installed before
+the final builds; the earlier build without it explicitly lacked direct
+Metal and is not a measurement arm. Native uses supported ad-hoc signing
+(`EXACT_IDENTITY=-`); no renderer source changed.
+
+The Aqua-session preflight, through privileged `launchctl asuser` followed
+by `sudo -u ccheever`, returns UID 501 and passes Accessibility, event-posting
+and Screen Recording checks. Passwordless `powermetrics` produces a plist
+sample with the requested CPU, GPU and task samplers. That setup sample is
+not benchmark power evidence. Its process-path and underflow warnings are
+retained in `power-preflight-granted.log` beside the raw plist.
+
+All six checks pass in the development worktree: build, tests, Clippy plus
+fmt, caps, boot and the workspace all-target check. The first build failed
+because workspace packages had not been installed; after `bun install
+--frozen-lockfile`, the same command passes. Both logs remain under
+`target/g0/checks/`, with commands, exits and verbatim test-result lines.
+The remote build and preparation logs are retained in
+`~/projects/exact2-measure/target/g0/` and copied to the development worktree's
+`target/g0/silver/`. The prepared launch commands are in the benchmark
+[README](../README.md#the-measurement-mac).
+
+**Status:** waiting for GO at `~/projects/exact2-measure/GO`. No benchmark
+window has opened and no gesture has been posted. The cold-only window
+qualification, four-arm series, power rows and all prediction results remain
+unmeasured. G4m does not yet replace G4 as §4's baseline.

@@ -143,35 +143,54 @@ SSH's non-interactive PATH needs the Rust shims as well as Bun and Homebrew:
 export PATH="$HOME/.bun/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/opt/homebrew/opt/rustup/bin:$PATH"
 ```
 
-The G4 driver and its four bundles are prepared under `target/g0/`.
-`build.sh` and the build logs retain the commands; the data must pass
+The G4 driver and its four signed bundles are prepared under `target/g0/`.
+`build.sh`, `bundle.py` and the build logs retain the commands; the data must pass
 `data.sha256` before any run. Keep all raw attempts, quiet observations,
 power samples and provenance in that directory. Use a fresh series directory
 for each later run; never replace evidence cited by `gpui/RESULTS.md`.
+The native benchmark build uses `EXACT_IDENTITY=-` for ad-hoc signing over
+SSH. Xcode's optional Metal Toolchain is required (`xcodebuild
+-downloadComponent MetalToolchain`); without it, Ink can build with direct
+Metal unavailable. It was installed and both Exact arms rebuilt on 2026-10-30.
 
-GUI runs must join the signed-in user's Aqua session. The requested form,
-started over SSH from the development Mac, is:
+GUI runs must join the signed-in user's Aqua session. `launchctl asuser`
+needs privilege over SSH; it changes the bootstrap session, not the Unix
+user. Enter that session with sudo, then drop back to `ccheever` before
+running the driver. Start the one-arm qualification from the development Mac:
 
 ```sh
 ssh ccheever@100.76.94.78 '
   export PATH="$HOME/.bun/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/opt/homebrew/opt/rustup/bin:$PATH"
   cd ~/projects/exact2-measure
-  launchctl asuser $(id -u) caffeinate -d -i <driver-and-arguments>
+  sudo -n /bin/launchctl asuser $(id -u) /usr/bin/sudo -u ccheever \
+    /usr/bin/env PATH="$PATH" /usr/bin/caffeinate -d -i \
+    python3 target/g0/run-series.py qualify target/g0/qualification
 '
 ```
 
+This opens Ink with `G1_COLD_ONLY=1`, checks the probe's ready and focus
+reports, captures its window with `screencapture -l`, then exits without
+gestures. Inspect `target/g0/qualification/ink.png`. In the same command,
+replace `qualify target/g0/qualification` with `series target/g0/g4m` to run
+five rotating fling/rest rounds and five further cold-only rounds, with
+five-second quiet observations and one-second power samples. The wrapper
+requires a successful qualification first. Its full GUI paths remain
+unqualified until the first run succeeds.
+
 Before using it, confirm the session is unlocked, display sleep and automatic
 locking are off, and Charlie has released the display with a GO file newer
-than the lane's start. Accessibility and Screen Recording must be granted
+than the lane's start. The prepared wrapper watches `~/projects/exact2-measure/GO`
+against the timestamp in `target/g0/lane-start.txt`; a new lane records its own
+start before asking for GO. Accessibility and Screen Recording must be granted
 to `/usr/libexec/sshd-keygen-wrapper`, the responsible process for SSH-launched
 programs. Power collection needs passwordless sudo for `/usr/bin/powermetrics`:
 `--samplers cpu_power,gpu_power,tasks --show-process-energy --show-process-gpu
 -i 1000`. Do not work around a missing TCC grant.
 
-Setup is not yet qualified: on 2026-10-30, `launchctl asuser $(id -u)
-/usr/bin/true` failed with `Operation not permitted`, and the power preflight
-failed with `sudo: a password is required`. The first GUI launch and window
-capture remain pending those setup steps and GO. See
+On 2026-10-30, the Aqua-session preflight returned UID 501 and all three
+permission checks passed: Accessibility, event posting and Screen Recording.
+Passwordless `powermetrics` produced a sample. The first GUI launch and window
+capture remain pending GO. See
 [G4m](gpui/RESULTS.md#g4m-the-four-arms-on-the-measurement-mac) for status.
 
 ## Last standings
