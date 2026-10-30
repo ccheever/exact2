@@ -3767,6 +3767,15 @@ endpoint. With this boundary, the marked counter run measures **3.499 ms/s
 process CPU** at rest, versus 84.609 ms/s in the earlier export-containing
 window. These are different observations, not a renderer optimization.
 
+Enabled observation retains glyph metadata on each kept row (two `f32`
+coordinates, eight bytes per glyph, plus vector capacity). Windows allocates
+one JSON event per recorded span and JSON counter samples, growing bounded
+vectors until export, even when no output path is set. These allocations,
+pool scans, clock reads and eligibility classification contribute to the
+observed CPU and footprint. The increment microbenchmark measures none of
+that work. Monitor queries now occur at attachment, movement and scale
+changes, rather than on every wake.
+
 ### Observer-wakeup and GPU experiments: predictions
 
 Before the next runs, removing only the probe's display callbacks is
@@ -4504,3 +4513,35 @@ The published Python reducers run successfully on the retained inputs:
 Windows normalization, Time Profiler, main-thread attribution and wake
 summary. Their stdout/stderr is in `review-fixes/*profile.log`,
 `main-attribution.log`, `normalize-windows.log` and `wake-summary.log`.
+
+The review fixes have these dispositions:
+
+| Finding | Change and verification |
+|---|---|
+| Sol 1 / Claude 3: disabled cost | `counters.rs` initializes the flag at carrier/device startup and guards each compound observation once. `ink/rows.rs`, `paint/rows.rs` and `layer.rs` keep diagnostic work behind that guard; Windows cause writes are guarded. The disabled closure test and optimized increment runs pass. |
+| Claude 1 / 5: service causes | Both carriers mark redraw turns `DRAW`; Mac consumes the mask with `mem::take`; Windows clears the modal draw's `TIMER`. The service classification test passes and the fresh Mac trace distinguishes both draw passes from dispatch. |
+| Sol 2 / Claude 6: pool gauges | `begin()` and `trim()` refresh ownership gauges even after a partial mutation returns an error. Completion partitions retain their existing sample, with its serial and monotonic-derived timestamp named in the schema. The enabled pool retirement/resize/trim assertions pass. |
+| Sol 3: unsupported observations | Presentation capabilities determine nullable submitted/displayed state. The Mac wgpu drive verifies nulls; direct Metal and D3D11 retain their supported observations. |
+| Sol 4: accepted presents | D3D11 counts each accepted real present before fallible submission/activation bookkeeping, including the activation retry. Test-only and refused presents remain excluded. The native enabled-counter assertion checks both accepted paths and refusals. |
+| Sol 5: trace clock | Windows span starts and sample timestamps derive from one wall/monotonic anchor. A timestamp-delta test checks elapsed monotonic time. |
+| Claude 2: monitor queries | Windows queries at `resumed`, `Moved` and `ScaleFactorChanged`. The desktop DPI journey exercises the transition. |
+| Claude 4: reproduction scripts | The ten Python drivers/reducers are published under `bench/heavy-list/gpui/`; retained helper dependencies are named in Reproduction. Four historical reductions run successfully. |
+| Claude 7: enabled allocations | Observer cost above now names glyph vectors, JSON events and samples, including their retained memory. No full-observer bound is claimed. |
+| Claude 8: classification precedence | The existing suspect-membership precedence remains: `rows_suspect_invalid` means an invalid row was also marked suspect; it does not establish that suspicion alone caused invalidity. No gate or classification policy changes. |
+| Claude 9 / 10: probe exports | Each save clears interval/drop counts and retains a distinct sidecar; the offscreen two-save test passes. Displayed frames are exported by name. |
+| Claude 11: failed-paint assertion | The earlier assertion is identified as an enabled-counter hand run; this continuation also runs that assertion explicitly on the NucBox. |
+
+The new optimized million-increment runs retain 434,542 ns disabled and
+1,116,875 ns enabled: **0.435 ns / 1.117 ns per iteration**. Both predictions
+are met (<5 ns disabled, <1 µs enabled). Raw output is
+`review-fixes/counter-{off,on}.log`. These results do not establish the cost
+of service classification, glyph capture, pool observation or tracing.
+
+The NucBox's interactive desktop passes forced device loss with
+`S2_BAND device-loss mean=0 over32=0`: recovered and fresh Mica pixels match
+in the existing band. The recorded CPU-to-ink recovery is 2804.306 ms;
+this is a correctness journey, not a timing target. DPI, resize,
+minimize/restore, caret and sleep/wake also pass. No GO file is required on
+this dedicated machine. There is no new lane failure to bisect; this pass
+does not explain the earlier intermittent compositor failures or establish
+that counters caused them. Recovery policy is unchanged.
