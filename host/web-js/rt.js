@@ -626,9 +626,9 @@ export function h(p, tag, cls, attrs, text, ns) {
 }
 /** An SVG element (the compiler knows the node's type; element.rs's tag). */
 export const hs = (p, tag, cls, attrs, text) => h(p, tag, cls, attrs, text, SVG);
-/** A canvas: the host's surface element under its children (`glue.js`). */
+/** A canvas: the host's surface element under its children (`glue.js`). Adopted, its inline alignment goes, as a spinner's: its class follows the live parent. */
 export function cv(e) {
-  if (Adopt) { const s = at(e); if (s?.dataset?.surface !== undefined) { e.$n = s.nextSibling; return; } }
+  if (Adopt) { e.style.removeProperty("justify-self"); const s = at(e); if (s?.dataset?.surface !== undefined) { e.$n = s.nextSibling; return; } }
   const s = document.createElement("canvas");
   s.dataset.surface = "";
   s.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;z-index:-1";
