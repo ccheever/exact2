@@ -71,6 +71,9 @@ hardware keyboard input and full phone parity remain unqualified. This fix is
 outside the delivered TestFlight build.
 Independent review finds no introduced P1 or P2 issue and repeats all 83 focused
 tests. Its five stale comment lines are removed; both decision references remain.
+The rebuilt normal app preserves Dark appearance across a process restart.
+Restoring System appearance persists across a second restart. Both restarted
+processes retain the native Home controls on EAS.
 
 Text-only bold table cells still take the literal Markdown fallback. The private
 preview compiles, but its EAS process exits before its first screen. Native table
