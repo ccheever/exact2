@@ -139,6 +139,7 @@ pub(super) struct Composition {
     swap: IDXGISwapChain2,
     scene: Rc<Visual>,
     latency: HANDLE,
+    acquired: bool,
     size: [u32; 2],
     _window: Window,
     pub creation_ms: f64,
@@ -228,6 +229,7 @@ impl Composition {
                 swap,
                 scene,
                 latency,
+                acquired: false,
                 size,
                 _window: window,
                 creation_ms: start.elapsed().as_secs_f64() * 1000.,
@@ -246,6 +248,30 @@ impl Composition {
             .map(|s| s.currentCompositionRate);
         rate.and_then(|r| refresh_period(r.Numerator, r.Denominator))
             .unwrap_or(Duration::from_secs_f64(1. / 60.))
+    }
+
+    fn acquire(&mut self, timeout_ms: u32) -> Result<bool> {
+        unsafe {
+            if !window_drawable(self._window.hwnd) {
+                self.acquired = false;
+                self.occluded_checks = self.occluded_checks.saturating_add(1);
+                return Ok(false);
+            }
+            // A visual without its first picture can TEST as occluded. The
+            // window's visibility still guards its first wait and present.
+            let activating =
+                !self.active || self.scene.content.get() != self.swap.as_raw() as usize;
+            if !activating && !presented(self.swap.Present(0, DXGI_PRESENT_TEST))? {
+                self.acquired = false;
+                self.occluded_checks = self.occluded_checks.saturating_add(1);
+                return Ok(false);
+            }
+            self.occluded_checks = 0;
+            if !self.acquired {
+                self.acquired = latency_ready(WaitForSingleObject(self.latency, timeout_ms))?;
+            }
+        }
+        Ok(self.acquired)
     }
 
     fn activate(&mut self) -> Result<()> {
@@ -274,6 +300,7 @@ impl Composition {
         if self.size == size {
             return Ok(());
         }
+        self.acquired = false;
         unsafe {
             self.swap.ResizeBuffers(
                 2,
@@ -410,6 +437,21 @@ impl D3d11 {
         Some(retry_delay(c.refresh_period(), c.occluded_checks))
     }
 
+    /// Reserve capacity before painting, waiting at most one display period.
+    /// `present` consumes this reservation without polling the handle again.
+    pub fn prepare_present(&mut self, size: [u32; 2]) -> Result<bool> {
+        self.collect_presented_devices();
+        let c = self
+            .composition
+            .as_mut()
+            .ok_or(Error::Unsupported("no composition window"))?;
+        c.resize(size)?;
+        let timeout = c.refresh_period().as_nanos().div_ceil(1_000_000).min(100) as u32;
+        let ready = c.acquire(timeout)?;
+        self.presentation_pending = !ready;
+        Ok(ready)
+    }
+
     pub fn present(&mut self, id: TextureId) -> Result<f64> {
         use std::sync::atomic::{AtomicU32, Ordering};
         static PRESENTED: AtomicU32 = AtomicU32::new(0);
@@ -441,8 +483,6 @@ impl D3d11 {
             .as_mut()
             .ok_or(Error::Unsupported("no composition window"))?;
         composition.resize(size)?;
-        let activating = !composition.active
-            || composition.scene.content.get() != composition.swap.as_raw() as usize;
         let swap = composition.swap.clone();
         let opaque = !composition.scene.backdrop.get();
         let background = composition
@@ -452,22 +492,10 @@ impl D3d11 {
             .map(|v| f64::from(v) / 255.);
         let mut did_present;
         unsafe {
-            // An unattached visual can TEST as occluded even in a visible window.
-            // Window visibility guards both paths before either waits or presents.
-            if !window_drawable(composition._window.hwnd) {
-                composition.occluded_checks = composition.occluded_checks.saturating_add(1);
+            if !composition.acquire(0)? {
                 return Ok(0.);
             }
-            // Before Commit, DXGI can consider the unattached visual occluded.
-            // A TEST present would prevent drawing its first image.
-            if !activating && !presented(swap.Present(0, DXGI_PRESENT_TEST))? {
-                composition.occluded_checks = composition.occluded_checks.saturating_add(1);
-                return Ok(0.);
-            }
-            composition.occluded_checks = 0;
-            if !latency_ready(WaitForSingleObject(composition.latency, 0))? {
-                return Ok(0.);
-            }
+            composition.acquired = false;
             let back: ID3D11Texture2D = swap.GetBuffer(0)?;
             let mut view = None;
             self.device
@@ -778,6 +806,7 @@ mod tests {
         let original =
             std::mem::replace(&mut device.composition.as_mut().unwrap().latency, blocked);
         let start = Instant::now();
+        assert!(!device.prepare_present([80, 60]).unwrap());
         let result = device.present(target);
         device.composition.as_mut().unwrap().latency = original;
         unsafe { CloseHandle(blocked).unwrap() };
@@ -785,7 +814,17 @@ mod tests {
         assert!(start.elapsed() < Duration::from_millis(100));
         assert!(device.presentation_pending());
         assert!(!device.composition.as_ref().unwrap().active);
-        assert!(device.present(target).unwrap() > 0.);
+        assert!(device.prepare_present([80, 60]).unwrap());
+        // A successful wait owns the next present even if another zero-timeout
+        // poll would refuse. Replace the handle to make a second poll observable.
+        let blocked = unsafe { CreateEventW(None, true, false, None).unwrap() };
+        let original =
+            std::mem::replace(&mut device.composition.as_mut().unwrap().latency, blocked);
+        let result = device.present(target);
+        device.composition.as_mut().unwrap().latency = original;
+        unsafe { CloseHandle(blocked).unwrap() };
+        assert!(result.unwrap() > 0.);
+        assert!(!device.composition.as_ref().unwrap().acquired);
         assert!(!device.presentation_pending());
     }
 

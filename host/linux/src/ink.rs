@@ -334,6 +334,15 @@ impl Backend for Ink {
             _ => None,
         }
     }
+    #[cfg(windows)]
+    fn prepare_window_frame(&mut self, size: [u32; 2]) -> std::result::Result<bool, String> {
+        let result = match &mut self.device {
+            Selected::D3d11(d) => d.prepare_present(size),
+            _ => Ok(true),
+        };
+        self.accept(result)
+            .ok_or_else(|| self.error.clone().unwrap())
+    }
     fn needs_geometry_paint(&self) -> bool {
         true
     }

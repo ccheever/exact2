@@ -2606,11 +2606,9 @@ Mac build, tests, clippy, formatting, staged caps, boot and full-workspace
 check pass. Temporary clip/target logging and the flush trial are removed.
 The accepted product change restores recovery material; the accepted journey
 change prevents accidental maximization. No D3D11 fling fix is claimed.
-Honoring the existing retry deadline requires a Windows carrier change,
-outside the brief's named `host/ink` performance scope. That scope question
-is pending. The five current-build flings above retain the original pacing;
-there is no measured carrier fix.
-The carrier work and required remeasurement remain in `QUEUE.md`.
+The five current-build flings above retain the original pacing. G6b left
+the carrier change outside its named `host/ink` scope. Charlie subsequently
+authorized it; G6c below records the fix and remeasurement.
 
 ### G6c: one paint per refresh
 
@@ -2624,6 +2622,23 @@ successful frames. The ten-launch startup series should remain within G6's
 retained-driver distribution. These predictions are checked against the five
 quiet fling/rest samples and ten fresh-process launches below.
 
+The carrier retains early redraw requests and honors a refused present's
+retry deadline in both `WaitUntil` scheduling and admission to `draw`.
+Before allocating paint targets, DirectX 11 waits up to one refresh period
+(rounded to whole milliseconds) for its latency handle. A successful wait
+reserves that frame's present, which consumes the reservation without another
+poll. Resize discards the old reservation with its handle. This follows
+[DXGI's wait-before-render contract](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_3/nf-dxgi1_3-idxgiswapchain2-getframelatencywaitableobject).
+Continuous animation keeps the carrier's cadence; ordinary direct redraws
+use the waitable without a second timer delay. Readiness/recovery polling
+and device retirement keep their own deadlines. Recovery backoff does not
+delay changed content on the CPU fallback.
+
+The exit counters count completed painter snapshots and successful carrier
+frames over the whole process, including startup. They write once, after the
+CPU endpoints. G6b's diagnostic counted the same snapshots with per-paint
+logging; its **6,337/145** is diagnostic evidence, not an unprofiled sample.
+
 The first carrier revision (`a13a063ba1`) had one successful diagnostic:
 **79.44/60.75 ms/s** process/main CPU, **58.28 displays/s**, **16.75 ms** p95
 and **246 snapshots / 246 successful frames**. Its first quiet launch then
@@ -2633,3 +2648,16 @@ had not yet marked the picture dirty. The carrier now retains an early redraw
 request through the deadline, independently of the dirty flag. A windowless
 scheduling test covers that wake. Both attempts remain under `target/g6c/round1/`;
 neither enters the final series.
+
+The second revision (`5f0fce2d00`) meets all six fling predictions with
+**85.66/63.86 ms/s** process/main CPU, **58.28 displays/s**, **16.77 ms** p95,
+and **1,240/1,235** snapshots/frames over five quiet processes. Its additional
+timer pacing moves startup: a separate quiet, alternating comparison of
+G6b's preserved `636f1fe2ae` executable and this revision gives DWM
+**177.64 [173.65–195.50]** versus **187.01 [170.20–222.40] ms**. The median
+paired increase is **9.168 ms**. All 25 observations pass, at most 6.6% CPU.
+That result motivates the pre-paint waitable reservation in the final
+revision. The timer trial remains under `target/g6c/round2/`; the paired
+control is under `target/g6c/paired-startup/`. A prior timer-trial startup
+series had an 11.4% CPU observation and is retained separately as
+`round2/startup-loaded/`; none of its launches is selected for a final table.

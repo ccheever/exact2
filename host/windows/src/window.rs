@@ -456,15 +456,15 @@ impl<D: DataSource + Default + 'static> App<D> {
         let unpaced =
             self.frame_limit.is_some() && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some();
         let schedule = FrameSchedule {
-            cadence: ((continuous || self.direct) && !unpaced).then_some(self.next_frame),
+            cadence: (continuous && !unpaced).then_some(self.next_frame),
             retry: None,
             present: self
                 .presenter
                 .as_ref()
                 .and_then(|p| p.painter_present_deadline()),
         };
-        // Input may change the picture while DXGI is full. Coalesce those changes
-        // into the next display period before rebuilding the painter's targets.
+        // A refused present defers the next paint. Ordinary D3D11 redraws acquire
+        // the latency waitable before painting; they need no second timer delay.
         if schedule.defer(frame_started, &mut self.redraw_pending) {
             return Ok(());
         }
@@ -1320,7 +1320,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         let unpaced =
             self.frame_limit.is_some() && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some();
         let schedule = FrameSchedule {
-            cadence: ((continuous || self.direct) && !unpaced).then_some(self.next_frame),
+            cadence: (continuous && !unpaced).then_some(self.next_frame),
             retry: p.painter_retry_deadline(),
             present: p.painter_present_deadline(),
         };

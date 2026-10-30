@@ -481,7 +481,17 @@ impl DirectWindow {
             }
         }
         if !self.recovering {
-            let frame = p.frame_for(FrameTarget::Window);
+            let ready = match p.brush.prepare_window_frame(size) {
+                Ok(ready) => ready,
+                Err(_) if p.brush.device_lost() => false,
+                Err(error) => return Err(error),
+            };
+            let frame = if ready {
+                p.frame_for(FrameTarget::Window)
+            } else {
+                p.last_frame_succeeded = false;
+                None
+            };
             self.present_due = p
                 .brush
                 .presentation_retry_delay()
