@@ -86,6 +86,20 @@ and window defaults remain unchanged. Evidence and the unresolved native boundar
 are under `target/t3-poc-evidence/desktop-panel-input-forensics/`. No ordinary-app
 defect or full parity is established.
 
+The normal restored bundle now reaches Files through the existing `Alt+Meta+B`
+shortcut. The live chooser, journaled shortcut press and released modifiers agree.
+The actual palette creates an isolated project, and its real HTML tree row opens.
+The existing preview-browser control records a press, then shows
+"Unable to open file in browser" and "Failed to load orchestration projection
+for thread …". No Browser tab, frame or iframe appears. Navigation, history,
+reload, memo input and tab retention remain unrun. This does not resolve the
+header mouse-input defect or establish a runtime-selection cause. Evidence is in
+`target/t3-poc-evidence/desktop-native-browser-shortcut-acceptance/`.
+All 156 bundle files and 3,513 actual inputs match the clean `cb2730639b` build.
+Owned processes exit, and the original listener and window defaults stay exact.
+Normal-app storage, physical input, primary-launcher parity and full desktop
+parity remain unqualified. No product source or test changes.
+
 The earlier standard desktop bundle from clean source `667c11267d` uses C ABI 18,
 runtime 5 and Apple native ABI 3. Its executable SHA-256 starts
 `ace5a0a9533f05a3`; its module starts `1dda02be376510c2`. The official pinned
