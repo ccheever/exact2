@@ -379,14 +379,29 @@ fn exec_file_keeps_its_limits() {
     .unwrap();
     let r = body(&collect(&core, &woke, |o| !o.is_empty())[0]);
     assert_eq!(r["overflow"].as_str(), Some("stdout"));
-    // A `path:` name is looked up on the call's own `env.PATH` when it gives one.
-    let path = serde_json::json!({ "kind": "execFile", "program": "path:sh", "args": ["-c", "exit 7"],
-        "env": [["PATH", "/nonexistent:/bin"]] });
-    core.run(request(4, path, false), None).unwrap();
-    assert_eq!(
-        body(&collect(&core, &woke, |o| !o.is_empty())[0])["code"],
-        7
-    );
+}
+
+#[test]
+fn a_program_the_app_wrote_does_not_run_by_its_name() {
+    let (core, woke, dir) = core("process.spawn path:sh");
+    // The app writes its own `sh` under `app:/data/bin` and puts that
+    // directory first on its child's `PATH`: `path:sh` is still the login
+    // shell's `PATH`'s (D7), so `exit 7` runs, not the app's `exit 42`.
+    let bin = dir.join("data/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("sh"), "#!/bin/sh\nexit 42\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(bin.join("sh"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    let call = serde_json::json!({ "kind": "execFile", "program": "path:sh", "args": ["-c", "exit 7"],
+        "env": [["PATH", path]] });
+    core.run(request(1, call, false), None).unwrap();
+    let out = collect(&core, &woke, |o| !o.is_empty());
+    let Outcome::Response(r) = &out[0] else {
+        panic!("{out:?}")
+    };
+    let reply: serde_json::Value = serde_json::from_slice(&r.body).unwrap();
+    assert_eq!(reply["code"], 7, "{reply}");
 }
 
 #[test]

@@ -89,7 +89,7 @@ pub(super) fn bundle() -> Result<PathBuf, String> {
 }
 
 /// The program a spawn names, as a native path: a `path:` name looked up on
-/// the child's `PATH` (its `env`'s, else the login shell's), a namespace
+/// the login shell's `PATH`, never on one the call writes (D7), a namespace
 /// path resolved; then checked again against the line that admitted it, by
 /// whole names after realization, so a symlink under a granted directory
 /// that leads outside it is outside it (D6, D7).
@@ -104,16 +104,11 @@ pub(crate) fn program(
         return Ok(PathBuf::from(file));
     }
     if let Some(name) = spec.program.strip_prefix("path:") {
-        let path = match spec
-            .env
-            .as_deref()
-            .and_then(|env| env.iter().find(|(k, _)| k == "PATH"))
-        {
-            Some((_, path)) => path.clone(),
-            None => super::login_variables(shared, &["PATH"])
-                .remove("PATH")
-                .unwrap_or_default(),
-        };
+        // A `PATH` data code writes could name a program the app itself
+        // wrote under `app:/`; the login shell's is the person's.
+        let path = super::login_variables(shared, &["PATH"])
+            .remove("PATH")
+            .unwrap_or_default();
         return os::find_on_path(name, &path).ok_or_else(|| {
             failed(
                 FailureKind::NotFound,
