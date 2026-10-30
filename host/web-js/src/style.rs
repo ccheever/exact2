@@ -426,70 +426,33 @@ pub fn project(
                 .is_some_and(|p| p.props.contains_key("data-exact-progress"))
         })
         .collect();
-    // A canvas keeps its width as a progress does, but in any parent (`sized_css.rs`).
+    // A canvas keeps its width as a progress does, but in any parent (`sized.rs`).
     let canvas: Vec<_> = out
         .iter()
         .map(|p| p.as_ref().is_some_and(|p| p.tag == "canvas"))
         .collect();
+    let sized: Vec<_> = (0..out.len()).map(|i| progress[i] || canvas[i]).collect();
+    let alt = crate::sized::alternates(&sized, &parents);
     // Arms and each copies share templates. Only candidacy is static;
     // paint.js decides isolation from the actual instance's descendants.
     for (i, parts) in out.iter_mut().enumerate() {
         let Some(parts) = parts else { continue };
         let node = kernel.node(view(i)).expect("template node");
         crate::paint::attributes(&node.facts(), &mut parts.props);
-        // The immediate parent's live display supplies the block-flow exemption
-        // (a progress's; a canvas reads only the alignment). A bound display writes the same property through `style_row`; regions
-        // inherit it from their actual element parent without a DOM scan.
-        if tree[i]
-            .iter()
-            .any(|c| progress[*c as usize] || canvas[*c as usize])
-        {
-            let justify = if node.style.display == exact_kernel::Display::Block {
-                "start"
-            } else {
-                "auto"
-            };
-            parts
-                .css
-                .push_str(&format!("--exact-progress-justify:{justify};"));
-            // A block parent's own `justify-items` that aligns (`start`, `center`, …) aligns the
-            // progress, as the kernel's block layout does: its `start` is not written over it.
-            // `initial` (guaranteed-invalid) otherwise, so an aligning ancestor's value is not
-            // inherited. A bound `justify-items` writes the same property through `style_row`.
-            let aligned = !matches!(
-                node.style.justify_items,
-                exact_kernel::JustifyItems::Normal | exact_kernel::JustifyItems::Stretch
-            );
-            parts.css.push_str(if aligned {
-                "--exact-progress-aligned:auto;"
-            } else {
-                "--exact-progress-aligned:initial;"
-            });
+        // The immediate parent's live display and alignment; bound ones write the same properties
+        // through `style_row`. Regions inherit them from their actual element parent without a
+        // DOM scan.
+        if tree[i].iter().any(|c| sized[*c as usize]) {
+            crate::sized::parent_css(&node, alt[i], &mut parts.css);
         }
-        if progress[i] {
-            parts.css = parts.css.replace("justify-self:start;", "");
-            let justify = if node.style.position_type == exact_kernel::PositionType::Absolute {
-                "auto"
-            } else {
-                PROGRESS_JUSTIFY
-            };
-            parts.css.push_str(&format!("justify-self:{justify};"));
-        }
-        if canvas[i] && node.style.position_type != exact_kernel::PositionType::Absolute {
-            parts.css = parts.css.replace("justify-self:start;", "");
-            parts
-                .css
-                .push_str(&format!("justify-self:{CANVAS_JUSTIFY};"));
+        if sized[i] {
+            let reads_alt = parents[i].is_some_and(|p| alt[p]);
+            crate::sized::own_css(&node, canvas[i], reads_alt, &mut parts.css);
         }
     }
     symbol_marks(plan, &kernel, &parents, &mut out);
     Ok(out)
 }
-
-pub const PROGRESS_JUSTIFY: &str =
-    "var(--exact-progress-aligned,var(--exact-progress-justify,start))";
-/// A canvas's: `start` unless an aligning parent's `justify-items` applies, in any display.
-pub const CANVAS_JUSTIFY: &str = "var(--exact-progress-aligned,start)";
 
 /// Whether image `i` draws a symbol in its author's `color` (LLP 1121 stage
 /// 9 B; `NodeRef::symbol_color_said`), as far as the static tree says:

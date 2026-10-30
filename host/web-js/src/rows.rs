@@ -520,39 +520,12 @@ impl Em<'_> {
                 })
                 .collect(),
         };
-        if id == StyleId::Display && parts.css.contains("--exact-progress-justify:") {
-            let normal = self.uses.rt("normal");
-            writes.push(("--exact-progress-justify".into(), String::new(), Some(format!(
-                "v=>[\"flex\",\"grid\",\"none\"].includes({normal}(\"display\",String(v??\"\")))?\"auto\":\"start\""
-            ))));
+        // A progress's or canvas's alignment, and its parent's (sized.rs).
+        let sized = crate::sized::writes(id, parts);
+        if !sized.is_empty() {
+            self.uses.rt("normal");
         }
-        if id == StyleId::JustifyItems && parts.css.contains("--exact-progress-justify:") {
-            // Aligning only for a value that aligns a block child (`start`, `center`, … with its
-            // `safe`/`unsafe` forms, `baseline`): anything else is `normal`, `stretch`, a value
-            // the justify-items writer refuses (grid.js `gridValue`: a CSS-wide keyword, a legacy
-            // form, `last baseline`, a function) or one the browser rejects, all of which align
-            // nothing. Comments dropped and spaces collapsed first, as a server render's DOM keeps
-            // the string unparsed (dom.js).
-            let normal = self.uses.rt("normal");
-            writes.push(("--exact-progress-aligned".into(), String::new(), Some(format!(
-                "v=>{{const s={normal}(\"justify-items\",String(v??\"\")).toLowerCase().replace(/\\/\\*[\\s\\S]*?\\*\\//g,\" \").replace(/\\s+/g,\" \").trim();return /^(?:(?:safe|unsafe) )?(?:start|end|center|self-start|self-end|flex-start|flex-end|left|right)$|^(?:first )?baseline$/.test(s)?\"auto\":\"initial\"}}"
-            ))));
-        }
-        // A canvas out of flow keeps `start`; a progress stretches between absolute insets.
-        let canvas = parts.tag == "canvas";
-        if id == StyleId::PositionType
-            && (canvas || parts.props.contains_key("data-exact-progress"))
-        {
-            let (out, justify) = match canvas {
-                true => ("start", style::CANVAS_JUSTIFY),
-                false => ("auto", style::PROGRESS_JUSTIFY),
-            };
-            let normal = self.uses.rt("normal");
-            let map = format!(
-                "v=>{normal}(\"position\",String(v??\"\"))===\"absolute\"?{out:?}:{justify:?}"
-            );
-            writes.push(("justify-self".into(), String::new(), Some(map)));
-        }
+        writes.extend(sized);
         if matches!(id, StyleId::FontWeight | StyleId::LineHeight) {
             let normal = self.uses.rt("normal");
             // The marker depends on both rows: either can expose an inherited value.

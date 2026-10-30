@@ -39,6 +39,7 @@ mod paint;
 #[cfg(test)]
 mod paint_tests;
 mod reads;
+mod sized;
 mod style;
 mod symbols;
 
