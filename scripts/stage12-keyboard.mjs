@@ -4,7 +4,7 @@
 /** The screens whose shot needs iOS's software keyboard up. It comes up on the platform's clock and its service drops
  * under load, so a drive with it down (or failed) is driven again, twice at most, and a kept drive with it down fails.
  * A fixture refusal is never driven again. */
-export const KEYBOARD_UP = ['composer'];
+export const KEYBOARD_UP = ['composer', 'new-chat'];
 
 /** The software keyboard's height in a drive's output, from the reply naming testId `target`; null with no reply. */
 export function keyboardInset(target, out) {
