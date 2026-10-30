@@ -320,13 +320,10 @@ fn windowless_app(events: &EventLoop<crate::accessibility::Event>, plan: &[u8]) 
     }
 }
 
-#[test]
 #[allow(deprecated)]
-fn about_to_wait_honors_retry_pending_redraw_and_earlier_timer() {
-    let events = EventLoop::<crate::accessibility::Event>::with_user_event()
-        .with_any_thread(true)
-        .build()
-        .unwrap();
+pub(crate) fn about_to_wait_honors_retry_pending_redraw_and_earlier_timer(
+    events: EventLoop<crate::accessibility::Event>,
+) {
     let plan = contract::compile("component App\n  view\n    text \"idle\"\n")
         .unwrap()
         .encode();

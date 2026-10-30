@@ -1405,4 +1405,4 @@ impl<D: DataSource + Default + 'static> App<D> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

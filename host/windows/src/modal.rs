@@ -174,7 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn native_modal_timers_cancel_rearm_and_release_the_window_reference() {
+    fn native_modal_and_carrier_deadlines_cancel_rearm_and_release() {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
             CreateWindowExW, DestroyWindow, SendMessageW, HWND_MESSAGE,
         };
@@ -233,5 +233,9 @@ mod tests {
             assert!(state.window.get().is_null());
             assert_eq!(Rc::strong_count(state), 1);
         }
+        // Winit permits one event loop per process; both deadline paths use this one.
+        crate::window::tests::about_to_wait_honors_retry_pending_redraw_and_earlier_timer(
+            event_loop,
+        );
     }
 }
