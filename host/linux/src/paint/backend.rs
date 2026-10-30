@@ -83,6 +83,7 @@ pub trait Backend {
     fn presentation_retry_delay(&self) -> Option<std::time::Duration> {
         None
     }
+    /// Clear capacity backoff after a window becomes drawable or changes extent.
     #[cfg(windows)]
     fn reset_present_deadline(&mut self) {}
     /// Reserve a directly presented frame before allocating its paint targets.

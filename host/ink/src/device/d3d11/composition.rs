@@ -466,6 +466,7 @@ impl D3d11 {
     pub fn presentation_pending(&self) -> bool {
         self.presentation_pending
     }
+    /// Forget capacity refusals, preserving any acquired reservation.
     pub fn reset_present_deadline(&mut self) {
         self.presentation_pending = false;
         if let Some(c) = &mut self.composition {
