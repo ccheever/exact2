@@ -13,8 +13,8 @@ The only required reading; the rest is lookup.
    <exact2>/scripts/no-tells.mjs .` lists literals). Leave the accent unsaid: it is the
    platform's blue, and a filled button keeps its white label (a pale accent under
    it is warned, `tamber-contrast`). A brand is an `app.tamber`; a colour names a role or
-   one of its tokens (`recipes/tamber.md`). A card is `-exact-secondary-background`
-   (`-exact-secondary-grouped-background` on a grouped page).
+   one of its tokens, `color="ink"` or `color="var(--ink)"` (`recipes/tamber.md`). A card
+   is `-exact-secondary-background` (`-exact-secondary-grouped-background` on a grouped page).
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
    rows, an empty state with its next step in the list's place. A labelled entry or settings
    form is a grouped list (`grouped-form`), not cards of fields; a focal result (a timer, a

@@ -956,6 +956,7 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
         "glass",
         "haptics",
         "toast",
+        "var",
     ] {
         let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", name]))).unwrap();
         let blocks = one["concept"]["contract"].as_array().unwrap();

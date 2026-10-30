@@ -56,8 +56,8 @@ What to know:
 - **One colour on purpose** (white ink on the brand fill): `ink.on-brand =
   #ffffff  scheme=fixed`; an unmarked one-colour token is warned once, at its
   line here.
-- **One way to write a colour:** a role if the platform has one, a token if it
-  is the brand.
+- **`var(--ink)` is the token `ink`**; a name the design lacks is refused, fallback or
+  not. `tamber import css <file>` writes a stylesheet's tokens here.
 - **The brand's states** (the focus ring, selection, a filled button's hover,
   a sheet's corners, a row's `:hover`): `contract-for-agents.md`, Tamber.
 - **Edit it while it runs** (development only): the dev loop serves

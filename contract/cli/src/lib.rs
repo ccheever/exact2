@@ -282,6 +282,18 @@ pub(crate) fn params(file: &mut contract_syntax::File) -> Result<(), CompileErro
         None => Ok(()),
     }
 }
+/// A source text's `var()`s as its tokens (LLP 1153 D6), as the loader
+/// writes them for a file, from the one design a text has, its inline
+/// `theme`: the first row refused, or the warning for a fallback dropped.
+fn vars(file: &mut contract_syntax::File) -> Result<Vec<CompileError>, CompileError> {
+    let tokens = contract_lower::var_tokens::Tokens::of(None, &[], file.theme.as_ref());
+    let found = contract_lower::var_tokens::rewrite(file, &tokens);
+    if let Some(e) = found.refused.into_iter().next() {
+        return Err(e.into());
+    }
+    let warning = contract_lower::var_tokens::fallback_warning(&found.fallbacks);
+    Ok(warning.map(CompileError::warning).into_iter().collect())
+}
 /// Compile one source text to a validated plan. A text has no path, so a
 /// `use … from "./file.contract"` in it cannot be resolved: compile a file
 /// that uses others with [`compile_path`].
@@ -289,6 +301,7 @@ pub fn compile(src: &str) -> Result<Plan, CompileError> {
     let mut file = contract_syntax::parse(src)?;
     contract_syntax::resolve_clock_timelines(&mut file)?;
     params(&mut file)?;
+    vars(&mut file)?;
     if let Some(u) = file.uses.first() {
         return Err(CompileError {
             pass: "use",
@@ -314,6 +327,7 @@ pub fn compile_warned(src: &str) -> (Result<Plan, CompileError>, Vec<CompileErro
         .and_then(|mut file| {
             contract_syntax::resolve_clock_timelines(&mut file)?;
             params(&mut file)?;
+            warned.extend(vars(&mut file)?);
             picker::check(&file, None)
                 .and(orientationlock::check(&file, None))
                 .map_err(first)?;
@@ -337,6 +351,7 @@ pub fn compile_terminal(src: &str) -> Result<Plan, CompileError> {
     let mut file = contract_syntax::parse(src)?;
     contract_syntax::resolve_clock_timelines(&mut file)?;
     params(&mut file)?;
+    vars(&mut file)?;
     terminal::check(&file).map_err(first)?;
     picker::check(&file, None)
         .and(orientationlock::check(&file, None))
@@ -946,6 +961,8 @@ fn compile_loaded(
     };
     if warned.is_some() {
         own.extend(shortcut_warnings(&file, &app_root));
+        let fallbacks = contract_lower::var_tokens::fallback_warning(&sources.var_fallbacks);
+        own.extend(fallbacks.map(CompileError::warning));
     }
     let compiled = compile_file_warned(
         &file,

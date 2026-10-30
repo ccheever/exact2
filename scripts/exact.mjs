@@ -765,6 +765,8 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact tamber op <url> <request JSON>|subscribe  its scripted client
   exact tamber pair <url> --scope read|propose|write [--name <n>]  a pairing code for a remote client
   exact tamber tool [<app>] [--via <dev url>]  the design tool, at http://127.0.0.1:7740/__tamber/tool/
+  exact tamber import css <stylesheet> [--app <app>]  its custom properties into app.tamber, between
+                               markers a later import of the same file rewrites
   exact tamber import shadcn|tailwind|dtcg|pen|astryx <source> <url> --app <app>  a theme as held proposals
                                (astryx: bun scripts/astryx-tokens.mjs resolves its pinned package first)
   exact tamber export dtcg <app> [-o <file>]  the design as DTCG 2025.10; its baseline in .exact/
@@ -1272,6 +1274,8 @@ async function main(argv) {
   if (verb === 'tamber' && (argv.includes('--help') || argv.includes('-h'))) return console.log(helpText('tamber'));
   // The design server's wire and its scripted client (LLP 1121 D13): development only.
   if (verb === 'tamber' && name === 'serve') return import('./tamber-server.mjs').then(m => m.serveAlone(rest)).then(code => process.exit(code));
+  // A stylesheet's custom properties written into app.tamber (LLP 1153 D6): the compiler's, with no server.
+  if (verb === 'tamber' && name === 'import' && rest[0] === 'css') return process.exit(contract(['tamber', ...argv.slice(1)]));
   if (verb === 'tamber' && name === 'import') return import('./tamber-server.mjs').then(m => m.importTheme(rest)).then(code => process.exit(code));
   if (verb === 'tamber' && name === 'op') return import('./tamber-server.mjs').then(m => m.op(rest)).then(code => process.exit(code));
   if (verb === 'tamber' && name === 'pair') return import('./tamber-pairing.mjs').then(m => m.pairCode(rest)).then(code => process.exit(code));

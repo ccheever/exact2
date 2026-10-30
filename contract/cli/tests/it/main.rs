@@ -240,6 +240,7 @@ mod tamber_serve_slots;
 mod tamber_set_param;
 mod tamber_shadows;
 mod tamber_type;
+mod tamber_var;
 mod tamber_walk_cache;
 mod tests_decl;
 mod text_item;

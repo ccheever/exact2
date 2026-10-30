@@ -651,7 +651,7 @@ component App
 - A component's view root is an element: wrap an `if` in a `column`.
 
 ## let: a name inside an action
-names: local, const, var, variable
+names: local, const, variable
 
 An action reads the state it started with, and its writes commit together, so `doubled = count * 2`
 after `count = count + 1` uses the old `count`. `let next = count + 1` binds a local, read after
@@ -1313,3 +1313,34 @@ the browser's. `env(-exact-layout-margins-inset-left)` is UIKit's layout margin.
   from the original's gap rather than adding `env(safe-area-inset-bottom)`.
 
 More: docs/agent-pitfalls.md ("Native presentation and navigation (iOS)"), docs/contract-grammar.md (length strings)
+
+## var: a design token by CSS's `var(--name)`, and a stylesheet's custom properties
+names: var(), custom-property, custom-properties, tokens.css
+
+`var(--name)` in a style row is the token `name` of the app's design (`app.tamber`, or a root
+`theme`), and compiles exactly as writing `name` does: folded, or on the web `var(--x-name)`
+where the token varies by an app mode. It is the build's reference, not the browser's: no
+stylesheet redefines it, and every host draws it. A name the design lacks is refused, naming
+the tokens the row could take, whether or not a fallback is written, so a misspelt name never
+ships the fallback; a declared name's fallback is ignored and warned (`tamber-var-fallback`).
+
+```contract
+theme
+  ink = "light-dark(#1d1d1f, #f5f5f7)"
+  card = "light-dark(#f2f2f7, #1c1c1e)"
+
+component App
+  view
+    column background-color="var(--card)" padding=16 gap=8
+      text "Tonight" color="var(--ink)"
+      text "3 patterns" color="ink"
+```
+
+- `bun exact.mjs tamber import css tokens.css` writes a stylesheet's `:root` custom properties
+  into `app.tamber`, a `prefers-color-scheme: dark` redeclaration as `light-dark()`, between
+  `// tamber:import tokens.css` and `// tamber:end`; after an edit, import again. A `.dark` or
+  `[data-theme]` scope, or a value built around a `var()`, is refused by name.
+- A token of another kind (`color="var(--space)"` for a length) is refused as its name is.
+- JavaScript's `var`, a name inside an action, is `let` (`contract vocab let`).
+
+More: docs/recipes/tamber.md, docs/recipes/theme.md
