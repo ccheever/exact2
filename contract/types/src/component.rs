@@ -32,8 +32,7 @@ fn action_checks_reuse_declarations_and_observe_prior_writes() {
     let ct = check_component(c, &Types::default(), None, &mut sink);
     assert!(sink.errors.is_empty(), "{:?}", sink.errors);
     assert_eq!(ct.slots, vec![Ty::Option(Box::new(Ty::Number)); 2]);
-    // Call-parameter refinement still has one scope per action; body checks
-    // and slot probes must not rebuild all declarations for each action too.
+    // Body checks and slot probes must reuse declarations across actions.
     let builds = SCOPE_BUILDS.with(|count| count.get());
     assert!(
         builds < c.actions.len() * 2,
@@ -65,6 +64,44 @@ fn expression_let_protects_calls_from_a_prop_named_like_an_app_fn() {
         crate::check(&file, |_| false).err().unwrap().id,
         "type-prop-hides-fn"
     );
+}
+
+#[test]
+fn call_refinement_reuses_unchanged_declarations() {
+    for (spelling, ty) in [
+        ("number", Ty::Number),
+        (
+            "enum<\"left\", \"right\">",
+            Ty::Enum(vec!["left".into(), "right".into()]),
+        ),
+    ] {
+        let mut source =
+            format!("component App\n  action helper(n: {spelling})\n    let value = n\n");
+        for i in 0..32 {
+            source.push_str(&format!(
+                "  action caller{i}(n: {spelling})\n    helper(n)\n"
+            ));
+        }
+        source.push_str("  view\n    text \"ok\"\n");
+        let parsed = contract_syntax::parse(&source).unwrap();
+        let (file, errors) = contract_syntax::inline::calls::expand_file(&parsed);
+        assert!(errors.is_empty(), "{errors:?}");
+        let c = &file.components[0];
+        let mut ct = ComponentTypes {
+            name: c.name.clone(),
+            actions: vec![vec![ty]; c.actions.len()],
+            ..ComponentTypes::default()
+        };
+        let before = ct.actions.clone();
+        SCOPE_BUILDS.with(|count| count.set(0));
+        crate::calls::refine(c, &mut ct, &Types::default());
+        assert_eq!(ct.actions, before);
+        let builds = SCOPE_BUILDS.with(|count| count.get());
+        assert!(
+            builds <= 1,
+            "{builds} declaration scopes for 32 callers with unchanged {spelling} types"
+        );
+    }
 }
 
 /// Check one component, recording each refusal in `sink` and carrying on

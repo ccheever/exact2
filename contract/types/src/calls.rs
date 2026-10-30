@@ -314,11 +314,14 @@ fn each_call<'b>(
 /// later does not flow back (LLP 1088 §9.2).
 pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
     let shapes = &types.shapes;
+    let mut declarations: Option<Scope> = None;
     for ai in 0..c.actions.len() {
         if !has_call(&c.actions[ai].body) {
             continue;
         }
-        let mut scope = types.component_scope(c, ct);
+        let mut scope = declarations
+            .get_or_insert_with(|| types.component_scope(c, ct))
+            .clone();
         scope.push(
             c.actions[ai]
                 .params
@@ -375,7 +378,12 @@ pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
                         continue;
                     }
                     if let Some(u) = ct.actions[ci][at].unify(&t) {
-                        ct.actions[ci][at] = u;
+                        if ct.actions[ci][at] != u {
+                            ct.actions[ci][at] = u;
+                            // The next caller sees newly learned types; this
+                            // caller keeps the scopes it started with.
+                            declarations = None;
+                        }
                     }
                 }
             }
@@ -536,4 +544,85 @@ fn similar_function<'a>(name: &str, scope: &'a Scope, shapes: &'a Shapes) -> Opt
         }
     }
     Some(candidate)
+}
+
+#[test]
+fn call_refinement_preserves_declaration_order() {
+    for (actions, expected) in [
+        (
+            "  action seed\n    relay(7)\n    relay(9)\n  action relay(n)\n    helper(n)\n",
+            Ty::Number,
+        ),
+        (
+            "  action relay(n)\n    helper(n)\n  action seed\n    relay(7)\n",
+            Ty::Unknown,
+        ),
+    ] {
+        let source = format!(
+            "component App\n{actions}  action helper(n)\n    let value = n\n  view\n    text \"ok\"\n"
+        );
+        let parsed = contract_syntax::parse(&source).unwrap();
+        let (file, errors) = contract_syntax::inline::calls::expand_file(&parsed);
+        assert!(errors.is_empty(), "{errors:?}");
+        let c = &file.components[0];
+        let mut ct = ComponentTypes {
+            name: c.name.clone(),
+            actions: c
+                .actions
+                .iter()
+                .map(|a| vec![Ty::Unknown; a.params.len()])
+                .collect(),
+            ..ComponentTypes::default()
+        };
+        crate::calls::refine(c, &mut ct, &Types::default());
+        let parameter = |name: &str| {
+            let ai = c.actions.iter().position(|a| a.name == name).unwrap();
+            ct.actions[ai][0].clone()
+        };
+        assert_eq!(parameter("relay"), Ty::Number, "{source}");
+        assert_eq!(parameter("helper"), expected, "{source}");
+    }
+}
+
+#[test]
+fn call_refinement_keeps_each_callers_original_scope() {
+    // Action arguments are refused later. Their inferred types still keep
+    // the current caller's snapshot and observe earlier callers' learning.
+    let source = r#"component App
+  action seed
+    relay(7)
+    retain(relay)
+  action later
+    retainLater(relay)
+  action relay(n)
+    let value = n
+  action retain(value)
+    let result = value
+  action retainLater(value)
+    let result = value
+  view
+    text "ok"
+"#;
+    let parsed = contract_syntax::parse(source).unwrap();
+    let (file, errors) = contract_syntax::inline::calls::expand_file(&parsed);
+    assert!(errors.is_empty(), "{errors:?}");
+    let c = &file.components[0];
+    let mut ct = ComponentTypes {
+        name: c.name.clone(),
+        actions: c
+            .actions
+            .iter()
+            .map(|a| vec![Ty::Unknown; a.params.len()])
+            .collect(),
+        ..ComponentTypes::default()
+    };
+    crate::calls::refine(c, &mut ct, &Types::default());
+    assert_eq!(ct.actions[2], vec![Ty::Number]);
+    assert_eq!(ct.actions[3], vec![Ty::Action(vec![Ty::Unknown])]);
+    assert_eq!(ct.actions[4], vec![Ty::Action(vec![Ty::Number])]);
+    assert!(crate::check(&parsed, |_| false)
+        .err()
+        .expect("action arguments must be refused")
+        .message
+        .contains("a call passes values"));
 }
