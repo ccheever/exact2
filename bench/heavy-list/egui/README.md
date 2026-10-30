@@ -1,4 +1,4 @@
-# Heavy list: egui on the Mac
+# Heavy list: egui on macOS and Windows
 
 @ref LLP 1149 §4.1; G4. This is benchmark apparatus, a separate Cargo workspace.
 The shared driver and probe measured all four arms; see
@@ -162,3 +162,66 @@ per arm, including the resumed cold phase's unmonitored samples. Egui timed
 out before its first complete scene in one of thirteen timed attempts;
 `QUEUE.md` tracks that unexplained intermittent failure. The four new row-zero
 captures supersede G4a's egui capture.
+
+## G6: Windows
+
+The Windows arm uses the same published eframe/egui 0.37.0 and wgpu 30.0.1.
+Its target dependency enables only DirectX 12, and the instance explicitly
+requests DX12 so the control matches Ink's wgpu device. Startup logs the
+selected adapter and asserts that backend. No patched eframe is linked.
+
+Windows loads Segoe UI regular, semibold and italic from the Windows Fonts
+directory, with Consolas for SPEC's 15-point inline code. Text sizes are the
+same as the Mac arm. Four workers use WIC's JPEG source transform to decode
+at its nearest supported reduced size, then scale and center-crop to the
+requested texture size. This replaces macOS's ImageIO path; color handling,
+text shaping and virtualization remain non-comparables.
+
+After a UI pass requests only loaded images, one requested repaint enters
+`App::logic` after eframe has painted and presented the preceding frame.
+It calls `DwmFlush` and logs process age from `GetProcessTimes`. This is S2's
+DWM synchronization proxy plus the next event dispatch, not a scanout timestamp.
+It runs once. Eframe's public render state exposes the adapter, instance,
+device, queue and renderer, but no surface or DXGI swap chain; this arm cannot
+read DXGI frame statistics. PresentMon observes displayed frames separately.
+
+Build in the NucBox mirror, with the SDK's `fxc` on PATH and the prepared
+`../data`, `../exact-heavylist/data/messages.json` and app assets present:
+
+```powershell
+$env:CARGO_TARGET_DIR=(Resolve-Path target).Path
+cargo metadata --manifest-path bench/heavy-list/exact-heavylist/Cargo.toml --format-version 1
+$env:EXACT_APP_DIR=(Resolve-Path bench/heavy-list/exact-heavylist).Path
+bun host/windows/build.mjs --release
+Remove-Item Env:EXACT_APP_DIR
+cargo build --release --locked --manifest-path bench/heavy-list/egui/Cargo.toml --target-dir target
+```
+
+The driver requires Python, Pillow, psutil and the standalone
+[PresentMon console executable](https://github.com/GameTechDev/PresentMon/releases/tag/v2.6.0)
+at `target/g6/PresentMon.exe`. Run it through an interactive scheduled task
+in the signed-in desktop, with the account's existing elevated privileges.
+No service or overlay is installed. Build and test before measurement.
+
+```powershell
+python bench/heavy-list/egui/windows-measure.py --out target/g6/warm
+python bench/heavy-list/egui/windows-measure.py --cold --out target/g6/cold
+python bench/heavy-list/egui/windows-summary.py target/g6 > target/g6/summary.json
+```
+
+`--diagnostic --arm d3d11|wgpu|egui` runs a separate fling/rest and saves top
+and end captures. Each process opens an 800×800 outer window at 100% scale
+(784×761 client). The four decaying wheel sequences start at 0, 2.5, 5 and
+7.5 seconds, followed by ten seconds of rest. `DwmFlush` supplies the driver's
+display clock; it posts one `WM_MOUSEWHEEL` per return, never a catch-up batch.
+Each sequence totals 1,500 wheel units: 600 pixels with Windows' three-line,
+16-pixel mapping. Egui's own wheel smoothing and distance conversion remain
+its own. The raw input QPC timestamps retain delivery-clock gaps.
+
+Windows has no Unix load averages. The quiet condition here is no compiler
+process and less than 10% total CPU over a five-second observation, recorded
+before collection and every five seconds through it. A violation remains in
+the record. Driver-cache-cold launches each follow a separate confirmed AMD
+Software reset; application and OS caches remain. `windows-reset-cache.ps1`
+requires AMD Software open at Gaming > Graphics and minimizes it after the
+confirmation closes. It changes no graphics setting.

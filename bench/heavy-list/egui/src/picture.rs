@@ -73,7 +73,7 @@ impl Pictures {
                             std::ffi::CString::new(directory.join(&key.file).to_str().unwrap())
                                 .unwrap();
                         let (mut width, mut height) = (0, 0);
-                        let image = unsafe {
+                        unsafe {
                             let pointer = g1_thumbnail(
                                 path.as_ptr(),
                                 key.width,
@@ -99,8 +99,7 @@ impl Pictures {
                                     &rgba,
                                 ))
                             }
-                        };
-                        image
+                        }
                     };
                     diagnostic(format_args!(
                         "complete {} {}x{}",
