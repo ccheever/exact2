@@ -172,23 +172,22 @@ five-second quiet observations and one-second power samples. The wrapper
 requires a successful qualification first. Its full GUI paths remain
 unqualified until the first run succeeds.
 
-Before using it, confirm the session is unlocked, display sleep and automatic
-locking are off, and Charlie has released the display with a GO file newer
-than the lane's start. The prepared wrapper watches `~/projects/exact2-measure/GO`
-against the timestamp in `target/g0/lane-start.txt`; a new lane records its own
-start before asking for GO. Accessibility and Screen Recording must be granted
+On this dedicated measurement Mac there is **no GO file** (Charlie,
+2026-10-30): nothing else runs there, and its session stays unlocked and awake.
+The development Mac's display-ownership rule does not apply here. The refreshed
+wrapper in `target/g0/refresh-ae835f960c/run-series.py` removes the old GO wait;
+its `qualify`, `series` and `static` modes use the refreshed signed arms beside
+it. Keep `launchctl asuser`, the user switch and `caffeinate -d -i` above.
+Accessibility and Screen Recording must be granted
 to `/usr/libexec/sshd-keygen-wrapper`, the responsible process for SSH-launched
 programs. Power collection needs passwordless sudo for `/usr/bin/powermetrics`:
 `--samplers cpu_power,gpu_power,tasks --show-process-energy --show-process-gpu
 -i 1000`. Do not work around a missing TCC grant.
 
-On 2026-10-30, the Aqua-session preflight returned UID 501; Accessibility,
-event posting and Screen Recording checks passed. Passwordless `powermetrics`
-sampled and stopped cleanly. The three-hour GO wait expired without a file,
-so window qualification and the series remain unrun. AC display sleep is
-still ten minutes; automatic locking is unverified. Charlie must finish those
-settings, unlock the session and create a fresh GO before the GUI run. See
-[G4m](gpui/RESULTS.md#g4m-the-four-arms-on-the-measurement-mac) for status.
+The Aqua-session preflight returned UID 501; Accessibility, event posting and
+Screen Recording checks passed. Passwordless `powermetrics` sampled and stopped
+cleanly. See [G4m](gpui/RESULTS.md#g4m-the-four-arms-on-the-measurement-mac) for
+the measured source, qualification and retained evidence.
 
 ## Last standings
 
