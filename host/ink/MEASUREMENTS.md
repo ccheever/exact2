@@ -3260,6 +3260,23 @@ but excluded from qualification.
 
 ### Predictions beside results
 
+**Measurement-Mac quiet qualification, 2026-10-30: not run.** The carrier and
+boot-only probe were rebuilt from `origin/main` `ae835f960c`. The prepared
+cohorts are ten retained Metal launches interleaved with ten wgpu controls,
+then ten Metal launches with only the archive named by `cache_path` removed.
+The carrier logs `/Users/ccheever/.cache/exact/pipelines-ink-metal-v2-4294969116-a1314db7919a63d7.bin`
+on this Mac; its actual default is `~/.cache/exact`, not `~/Library/Caches`.
+No archive was removed for a cohort. After waking the display, the session
+remains locked and `loginwindow` is frontmost. No boot cohort was launched.
+P1–P5 remain the predictions below, with no new quiet result: P3's loaded miss
+still stands, and the retained complete-screen distributions and summed
+Metal/wgpu first-screen comparison remain missing. Preparation and the two
+failed window qualifications are retained under
+`target/g0/refresh-ae835f960c/` on the silver Mac and `target/g0/silver-current/`
+in the measurement lane's development worktree; G4m in the benchmark report
+records the session evidence. No number from those failed attempts enters
+the loaded or quiet startup distributions.
+
 | Prediction, recorded above before its run | Result | Assessment |
 | --- | --- | --- |
 | P1: warm phase 8 ms, within wgpu +5 ms | Metal 6.581 ms; wgpu 6.699 ms; ten phase samples each | Faster than predicted; original phase gate met |

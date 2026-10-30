@@ -1118,8 +1118,12 @@ PDT, was spoiled: only 44 of 91 monitor observations were quiet, load reached
 sidecar, and only 14 power samples were collected in eight minutes. Raw files
 remain under `target/g5/series` on that Mac; no row is taken from the run.
 G5 stays **prepared**, with its workload expectations untested by a qualified
-run. Measurement moves to **G5m** on the dedicated silver M5 Max once it is
-set up. All four arms launched in both modes after the rebase; egui's
+run. Measurement moves to **G5m** on the dedicated silver M5 Max. Its four arms,
+probe and driver were rebuilt from `ae835f960c` on 2026-10-30, but window
+qualification is blocked: after waking the display, IORegistry reports a
+locked session and the probe sees `loginwindow` as frontmost. No G5m workload,
+GPU or power row is measured; M8 remains unqualified. All four arms launched
+in both modes in the earlier development-Mac qualification; egui's
 blinking remains unverified after three inactive or focus-lost observations
 (`bench/heavy-list/gpui/RESULTS.md`, “G5”).
 

@@ -158,21 +158,24 @@ ssh ccheever@100.76.94.78 '
   export PATH="$HOME/.bun/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/opt/homebrew/opt/rustup/bin:$PATH"
   cd ~/projects/exact2-measure
   sudo -n /bin/launchctl asuser $(id -u) /usr/bin/sudo -u ccheever \
-    /usr/bin/env PATH="$PATH" /usr/bin/caffeinate -d -i \
-    python3 target/g0/refresh-ae835f960c/run-series.py qualify target/g0/refresh-ae835f960c/qualification
+    /usr/bin/env PATH="$PATH" /usr/bin/caffeinate -u -d -i \
+    python3 target/g0/refresh-ae835f960c/run-series.py qualify target/g0/refresh-ae835f960c/qualification-3
 '
 ```
 
 This opens Ink with `G1_COLD_ONLY=1`, checks the probe's ready and focus
 reports, captures its window with `screencapture -l`, then exits without
-gestures. Inspect `target/g0/refresh-ae835f960c/qualification/ink.png`.
+gestures. Inspect `target/g0/refresh-ae835f960c/qualification-3/ink.png`.
 For another series, use a fresh result directory. In the same command,
-replace `qualify target/g0/refresh-ae835f960c/qualification` with
+replace `qualify target/g0/refresh-ae835f960c/qualification-3` with
 `series target/g0/refresh-ae835f960c/g4m` to run
 five rotating fling/rest rounds and five further cold-only rounds, with
 five-second quiet observations and one-second power samples. The wrapper
-requires a successful qualification first. Its full GUI paths remain
-unqualified until the first run succeeds.
+requires a successful qualification first. Use `static` instead of `series`
+with a fresh `g5m` directory for the three-round fling/bar/caret series.
+For Stage 0b, the same launch chain runs `run-boot.py retained <fresh-directory>`
+and then `run-boot.py miss <fresh-directory>`, from the refreshed directory.
+Its GUI paths remain unqualified until the first run succeeds.
 
 On this dedicated measurement Mac there is **no GO file** (Charlie,
 2026-10-30): nothing else runs there, and its session stays unlocked and awake.

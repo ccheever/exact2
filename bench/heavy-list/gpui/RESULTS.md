@@ -3319,7 +3319,7 @@ remain the predictions. `plan.txt` records them before measurement.
 
 **Window qualification is blocked by the locked session.** Accessibility,
 event posting and Screen Recording preflights pass. The first Ink attempt
-exits before opening its window with `CVDisplayLinkCreate: -6661`; macOS
+exits before the probe reports a window with `CVDisplayLinkCreate: -6661`; macOS
 reports the display asleep. After `caffeinate -u` wakes it, the second attempt
 submits a frame but cannot become active or key. Its focus checks report
 `loginwindow` (PID 450) as frontmost. A fresh IORegistry read confirms
@@ -3332,3 +3332,41 @@ reads and provenance remain under `target/g0/refresh-ae835f960c/` on the silver
 Mac and `target/g0/silver-current/` in this worktree. G4m and G5m have no
 qualified samples yet; G4 remains the baseline. Stage 0b's quiet qualification
 and summed first-screen comparison remain open.
+
+All six repository checks pass in the development worktree on the measured
+source base `ae835f960c`: all-target build, tests, Clippy plus fmt, staged
+caps, boot and the workspace all-target check. The tests report **7,379 passed,
+zero failed, 83 ignored** across 113 result summaries with
+`RUST_TEST_THREADS=2`. The brief's Ibex workspace failure does not reproduce
+on this newer main; no fix was attempted here. Commands, exits and complete
+logs are in `target/g0/checks-current/`, with the exact suite headings and
+result lines in `test-results-verbatim.txt`. The initial data-check command
+used the parent of `data/`; rerunning in `data/` passes all 105 hashes.
+The reporting branch is rebased onto fetched `origin/main` `1536a62594`;
+caps, boot and the full workspace compile pass again after that rebase
+(`target/g0/checks-rebased-current/`). The complete six-check run above is
+on `ae835f960c`; the measured arms are unchanged. The final session read still
+reports locked. Both benchmark processes have exited, and the lane's temporary
+awake assertion is stopped.
+
+## G5m: static workloads on the measurement Mac
+
+The four arms and shared GPU probe are rebuilt from `ae835f960c`, as G4m
+records. The prepared series has three interleaved rounds of fling, bar and
+caret, first-round static captures, the quiet monitor and simultaneous power
+sampling. No series has run: the silver Mac's locked session prevents the
+required activation and key-window qualification. The two failed qualification
+attempts are retained with G4m. Egui's caret blink remains unverified.
+
+| G5 expectation, unchanged before measurement | G5m result |
+| --- | --- |
+| Native bar main-thread CPU below 10 ms/s | Unmeasured |
+| Ink and GPUI pay the frame's bookkeeping | Untested; no qualified CPU or GPU samples |
+| Egui rebuilds visible rows each bar frame | Untested; CPU totals alone cannot establish the stacks |
+| Every caret arm stays near idle between two visibility changes/s | Untested; no held-focus cadence or blink captures |
+| Continuous caret submissions would falsify the idle expectation | Untested |
+
+**M8 remains unqualified.** No G5m GPU row exists, and Q3 requires the GPU
+share after M3. This preparation provides no evidence for adding the plain
+pipeline. Power, both static resource tables and the fling control remain
+unmeasured; no row from the spoiled development-Mac run is substituted.
