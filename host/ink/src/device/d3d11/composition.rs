@@ -427,6 +427,12 @@ impl D3d11 {
     pub fn presentation_pending(&self) -> bool {
         self.presentation_pending
     }
+    pub fn reset_present_deadline(&mut self) {
+        self.presentation_pending = false;
+        if let Some(c) = &mut self.composition {
+            c.occluded_checks = 0;
+        }
+    }
     pub fn presentation_retry_delay(&self) -> Option<Duration> {
         if !self.presentation_pending {
             return None;

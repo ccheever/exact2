@@ -343,6 +343,12 @@ impl Backend for Ink {
         self.accept(result)
             .ok_or_else(|| self.error.clone().unwrap())
     }
+    #[cfg(windows)]
+    fn reset_present_deadline(&mut self) {
+        if let Selected::D3d11(d) = &mut self.device {
+            d.reset_present_deadline();
+        }
+    }
     fn needs_geometry_paint(&self) -> bool {
         true
     }

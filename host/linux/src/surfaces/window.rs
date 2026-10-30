@@ -595,6 +595,18 @@ impl<D: DataSource> Presenter<D> {
         direct.retire_due
     }
 
+    /// A newly drawable window gets a fresh capacity check, keeping device recovery's backoff.
+    pub fn reset_painter_present_deadline(&mut self) {
+        if let Some(direct) = &mut self.surfaces.direct_window {
+            direct.present_due = None;
+            if let Some((device, _)) = &mut direct.fallback {
+                device.reset_present_deadline();
+            }
+        }
+        self.brush.reset_present_deadline();
+        self.repaint();
+    }
+
     /// Earliest paint after a refused present, measured from the refusal.
     /// Recovery backoff is separate: it must not delay input on the CPU fallback.
     pub fn painter_present_deadline(&self) -> Option<std::time::Instant> {
@@ -833,23 +845,53 @@ mod tests {
     }
 
     #[test]
-    fn reservation_errors_refuse_without_painting_or_replacing_the_device() {
-        let mut p = cpu_presenter();
-        let mut reported = false;
-        for lost in [false, true] {
-            p.brush.replace_backend(Box::new(Lost(lost)));
-            reported = false;
-            for _ in 0..2 {
-                assert!(!reserve_frame(&mut p, [80, 60], &mut reported));
-                assert_eq!(reported, !lost);
-                assert_eq!(p.brush.device_lost(), lost);
-                assert_eq!(p.brush.backend(), "ink");
-                assert!(p.dirty());
+    #[allow(unsafe_code)]
+    fn reservation_refusal_retries_and_lifecycle_clears_its_deadline() {
+        struct UnusedWindow;
+        impl raw_window_handle::HasWindowHandle for UnusedWindow {
+            fn window_handle(
+                &self,
+            ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError>
+            {
+                let raw = raw_window_handle::Win32WindowHandle::new(
+                    std::num::NonZeroIsize::new(1).unwrap(),
+                );
+                // The stub backend never passes this handle to a native API.
+                Ok(unsafe { raw_window_handle::WindowHandle::borrow_raw(raw.into()) })
             }
         }
+        let window =
+            exact_ink::device::d3d11::Window::from_owner(std::rc::Rc::new(UnusedWindow)).unwrap();
+        let mut p = cpu_presenter();
+        p.brush.replace_backend(Box::new(Lost(false)));
+        let mut direct = DirectWindow::new(window);
+        for _ in 0..2 {
+            assert!(direct.frame(&mut p).unwrap().is_none());
+            assert!(!direct.recovering);
+            assert!(direct.reservation_error_reported);
+            assert!(direct.present_due.unwrap() > std::time::Instant::now());
+            assert!(!p.last_frame_succeeded());
+            assert_eq!(p.brush.backend(), "ink");
+            assert!(p.dirty());
+        }
+        direct.retry.failed(std::time::Instant::now());
+        let recovery = direct.retry.deadline();
+        p.surfaces.direct_window = Some(direct);
+        p.reset_painter_present_deadline();
+        assert_eq!(p.painter_present_deadline(), None);
+        assert_eq!(
+            p.surfaces.direct_window.as_ref().unwrap().retry.deadline(),
+            recovery
+        );
+        assert!(p.dirty());
+        let mut reported = true;
         p.brush
             .replace_backend(Box::new(crate::raster::Raster::new()));
         assert!(reserve_frame(&mut p, [80, 60], &mut reported));
+        assert!(!reported);
+        p.brush.replace_backend(Box::new(Lost(true)));
+        assert!(!reserve_frame(&mut p, [80, 60], &mut reported));
+        assert!(p.brush.device_lost());
         assert!(!reported);
     }
 

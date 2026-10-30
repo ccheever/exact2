@@ -132,6 +132,16 @@ struct FrameSchedule {
     present: Option<Instant>,
 }
 
+fn presentation_resumes(event: &WindowEvent) -> bool {
+    matches!(
+        event,
+        WindowEvent::Occluded(false)
+            | WindowEvent::Focused(true)
+            | WindowEvent::Resized(_)
+            | WindowEvent::ScaleFactorChanged { .. }
+    )
+}
+
 impl FrameSchedule {
     fn admit(&self, now: Instant) -> Instant {
         self.cadence
@@ -1037,6 +1047,11 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         if let (Some(access), Some(window)) = (&mut self.accessibility, &self.window) {
             access.process_event(window, &event);
         }
+        if presentation_resumes(&event) {
+            if let Some(p) = &mut self.presenter {
+                p.reset_painter_present_deadline();
+            }
+        }
         if matches!(event, WindowEvent::CloseRequested) {
             // The window is going: its hatch, then the app's, ends.
             if let Some(p) = &mut self.presenter {
@@ -1244,6 +1259,18 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
+        self.wait(events, |p| {
+            (p.painter_retry_deadline(), p.painter_present_deadline())
+        });
+    }
+}
+
+impl<D: DataSource + Default + 'static> App<D> {
+    fn wait(
+        &mut self,
+        events: &ActiveEventLoop,
+        deadlines: impl FnOnce(&Presenter<D>) -> (Option<Instant>, Option<Instant>),
+    ) {
         let now = self.now();
         for fired in self.timers.take_due(now) {
             self.deliver_timer(fired, now);
@@ -1319,10 +1346,11 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             self.frame_limit.is_some() || p.wants_display_frames() || p.host().motion();
         let unpaced =
             self.frame_limit.is_some() && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some();
+        let (retry, present) = deadlines(p);
         let schedule = FrameSchedule {
             cadence: (continuous && !unpaced).then_some(self.next_frame),
-            retry: p.painter_retry_deadline(),
-            present: p.painter_present_deadline(),
+            retry,
+            present,
         };
         let now = Instant::now();
         let redraw = (!self.minimized && !self.occluded)
