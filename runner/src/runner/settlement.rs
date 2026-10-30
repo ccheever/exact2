@@ -598,6 +598,7 @@ impl<D: DataSource> Runner<D> {
                                 && (forced || self.store_readers[i] || !self.is_placeholder_row(i))
                             {
                                 self.stale[i] = true;
+                                self.note_deferred(i, &args);
                             }
                             adopted[i] = true;
                             origin = 0;
@@ -628,6 +629,7 @@ impl<D: DataSource> Runner<D> {
                             && self.placeholder(i, &row, &resources).is_some() =>
                         {
                             self.stale[i] = true;
+                            self.note_deferred(i, &args);
                             pending_res[i] = true;
                             awaiting[i] = true;
                             placeholder = true;
@@ -758,6 +760,7 @@ impl<D: DataSource> Runner<D> {
                                         return Err(self.unanswerable(i));
                                     };
                                     self.stale[i] = true;
+                                    self.note_deferred(i, &args);
                                     pending_res[i] = true;
                                     awaiting[i] = true;
                                     placeholder = true;
@@ -855,6 +858,7 @@ impl<D: DataSource> Runner<D> {
                                     }
                                     self.revalidated(i, states[i].as_ref(), &v);
                                     self.stale[i] = false;
+                                    self.note_answered(i);
                                     self.keep_answer(i, &args, &v);
                                     origin = self.writes.tick();
                                     Held::new(v)

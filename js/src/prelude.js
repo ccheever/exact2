@@ -584,7 +584,8 @@
   // call)`: a child's stream owner and `child`: the call is js/src/process.js's, the one path to `exact-process:`.
   function request(url, init, listen, own, child) {
     if (overlaying || mapping) return Promise.reject(overlaying ? inOverlay("fetch()") : new Error("fetch() is unavailable in a socket's mapper: it answers each frame now"));
-    if (!child && /^exact-process:/i.test(String(url))) return Promise.reject(new TypeError("fetch: exact-process: is @exact/child-process's: import spawn or execFile from it (LLP 1133.007 D12)"));
+    url = String(url); // read once: the URL checked here and below is the one the host is sent
+    if (!child && /^exact-process:/i.test(url)) return Promise.reject(new TypeError("fetch: exact-process: is @exact/child-process's: import spawn or execFile from it (LLP 1133.007 D12)"));
     var call = currentCall;
     // Refused with no answer running, and below in a let-go answer's continuation, as no answer waits for the reply
     // (where the web lets it run; a request with effects already sent runs to its end, LLP 1146 D2, §2.4).

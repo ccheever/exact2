@@ -1,15 +1,19 @@
 //! A child a person's input or the app's own code started, against a tool's
 //! commit (LLP 1133.007 D13): whatever the tool's commit asks of its
 //! resource, the child keeps running under its ticket; the arguments the
-//! tool asked stay refused after the child ends, until the person's own
-//! commit changes them; and a tool's write to the child is dropped alone,
-//! its call ending `person-required` (LLP 1111 D4a).
+//! tool asked stay refused after the child ends, or when no child ran, until
+//! the person's own commit changes them, and a refused commit puts them
+//! back; a tool's write to the child is dropped alone, its call ending
+//! `person-required` (LLP 1111 D4a); and what a wake's commit leaves for
+//! `data_ready` keeps the wake's origin (LLP 1133.002 D12).
 use exact_kernel::Kernel;
 use exact_plan::Value;
 use exact_runner::{
     Answer, CallOrigin, DataError, DataSource, Message, Outcome, ProcessOp, Request, Runner,
     SocketOp, Store, Target,
 };
+use std::cell::Cell;
+use std::rc::Rc;
 
 const SRC: &str = r#"
 component App
@@ -17,27 +21,40 @@ component App
   state then = "spawn"
   resource server = server(id, then) as shape string
   resource feed = feed() as shape string
+  resource bad = bad(id) as shape string
   mutation poked as shape string
+  mutation ran as shape string
   tool pokeChild writes additive closed "Write to the child and the feed." = poke
   action switch
     id = "b"
   action back
     id = "c"
+  action broke
+    id = "x"
   action next(what: string)
     then = what
+  action reload
+    refresh server
   action poke
     send poked = poke()
+  action runIt
+    send ran = run()
   view
     column
       text server testId="server"
       text feed testId="feed"
+      text bad testId="bad"
 "#;
 
-/// `server(id, then)` spawns `path:t3 <id>` when `then` is `spawn`, and
-/// otherwise answers with what `then` names: `now` at once, or an
-/// `execFile`, a fetch or a storage read. `feed()` opens a WebSocket.
-/// `poke()` writes to the child and sends a frame on the feed.
-struct Src;
+/// `server(id, then)` reads the store, then spawns `path:t3 <id>` when
+/// `then` is `spawn`, and otherwise answers with what `then` names: `now`
+/// at once, or an `execFile`, a fetch or a storage read. `feed()` opens a
+/// WebSocket, whose `write` frame writes the store. `bad(id)` answers what
+/// its shape refuses for `x`. `poke()` writes to the child and sends a
+/// frame on the feed; `run()` runs a program once.
+struct Src {
+    ready: Rc<Cell<bool>>,
+}
 
 fn spawn(arg: &str) -> Answer {
     let body = serde_json::json!({ "kind": "spawn", "program": "path:t3", "args": [arg] });
@@ -54,7 +71,11 @@ impl DataSource for Src {
     }
 
     fn grants(&self) -> &str {
-        "process.spawn path:t3\nnet.fetch https://x.test\nnet.websocket wss://x.test"
+        "process.spawn path:t3\nnet.fetch https://x.test\nnet.websocket wss://x.test\nsecret.keep token"
+    }
+
+    fn ready(&self) -> bool {
+        self.ready.get()
     }
 
     fn answer_for(
@@ -70,6 +91,10 @@ impl DataSource for Src {
                 .unwrap_or("")
                 .to_string()
         };
+        // `server` reads the store: a write asks it again when it failed.
+        if source == "server" {
+            let _ = store.get("token");
+        }
         Ok(match source {
             "server" => match a(1).as_str() {
                 "spawn" => spawn(&a(0)),
@@ -85,6 +110,12 @@ impl DataSource for Src {
                 socket: true,
                 ..Request::get("wss://x.test/feed")
             }),
+            "bad" if a(0) == "x" => Answer::Now(Value::Number(1.0)),
+            "bad" => Answer::Now(Value::str("ok")),
+            "run" => {
+                let body = br#"{"kind":"execFile","program":"path:t3","args":["run"]}"#;
+                Answer::Later(Request::process(body.to_vec(), false, 4096))
+            }
             "poke" => {
                 assert!(matches!(target, Target::Mutation(_)));
                 let write = ProcessOp::Write {
@@ -107,11 +138,14 @@ impl DataSource for Src {
 
     fn parse(
         &mut self,
-        _: &mut Store,
+        store: &mut Store,
         _: &str,
         _: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
+        if matches!(&outcome, Outcome::Message(m) if m.event == "write") {
+            store.set("token", "t2").unwrap();
+        }
         let text = match outcome {
             Outcome::Message(m) => m.event,
             Outcome::Closed { .. } => "closed".into(),
@@ -122,8 +156,18 @@ impl DataSource for Src {
 }
 
 fn boot() -> Runner<Src> {
+    boot_ready(true).0
+}
+
+/// A runner whose source answers once `ready` is set, and `data_ready`.
+fn boot_ready(ready: bool) -> (Runner<Src>, Rc<Cell<bool>>) {
     let plan = contract::compile(SRC).expect("the fixture compiles");
-    Runner::boot(plan, Src, Kernel::with_monospace(), Default::default(), "/").unwrap()
+    let flag = Rc::new(Cell::new(ready));
+    let src = Src {
+        ready: flag.clone(),
+    };
+    let r = Runner::boot(plan, src, Kernel::with_monospace(), Default::default(), "/").unwrap();
+    (r, flag)
 }
 
 /// What goes to the host now: each process request's first argument and
@@ -258,4 +302,87 @@ fn a_tools_write_is_dropped_alone_and_its_call_ends_person_required() {
         .expect("the call")
         .unwrap();
     assert!(answer.contains("person-required"), "{answer}");
+}
+
+/// What went to the host, as first argument and origin.
+fn started(r: &mut Runner<Src>) -> Vec<(String, CallOrigin)> {
+    (spawns(r).into_iter()).map(|(_, a, o)| (a, o)).collect()
+}
+
+/// A refusal the runner made is handed back as a host's answer would be.
+fn settle_refusals(r: &mut Runner<Src>) {
+    while let Some((ticket, outcome)) = r.take_request_refusal(true) {
+        let _ = r.fulfill(ticket, outcome);
+    }
+}
+
+#[test]
+fn a_refused_start_stays_refused_with_no_child_running() {
+    let mut r = boot();
+    r.act("next", vec![Value::str("now")]).unwrap();
+    r.take_requests();
+    // No child runs. A tool asks for one: refused before the host.
+    r.act_from(CallOrigin::Tool, "next", vec![Value::str("spawn")])
+        .unwrap();
+    assert!(spawns(&mut r).is_empty(), "{}", journal(&r));
+    settle_refusals(&mut r);
+    // A person's refresh asks the tool's arguments again: still refused.
+    r.act("reload", vec![]).unwrap();
+    assert!(spawns(&mut r).is_empty(), "{}", journal(&r));
+    // The person's own commit that changes them starts theirs.
+    r.act("back", vec![]).unwrap();
+    let theirs = [("c".to_string(), CallOrigin::App)];
+    assert_eq!(started(&mut r), theirs, "{}", journal(&r));
+}
+
+#[test]
+fn a_store_write_asks_no_refused_start_again() {
+    let mut r = boot();
+    let out = r.take_requests();
+    let feed = out.iter().find(|o| o.target == "feed").unwrap().ticket;
+    opened(&mut r, feed, "open");
+    r.act("next", vec![Value::str("now")]).unwrap();
+    r.take_requests();
+    r.act_from(CallOrigin::Tool, "next", vec![Value::str("spawn")])
+        .unwrap();
+    settle_refusals(&mut r);
+    assert!(spawns(&mut r).is_empty(), "{}", journal(&r));
+    // The person's own feed writes the store: the failed reader is asked
+    // again, at the refused arguments, with no input from the person.
+    opened(&mut r, feed, "write");
+    assert!(spawns(&mut r).is_empty(), "{}", journal(&r));
+}
+
+#[test]
+fn a_refused_persons_commit_puts_the_refused_arguments_back() {
+    let (mut r, ticket) = running();
+    r.act_from(CallOrigin::Tool, "switch", vec![]).unwrap();
+    assert!(r.holds(ticket));
+    // The person's commit to `x` changes the arguments and is refused
+    // (`bad`'s shape): the tool's `b` stays refused.
+    assert!(r.act("broke", vec![]).is_err());
+    // The child's next frame lands as the app's: the child stays, and the
+    // tool's arguments start nothing.
+    opened(&mut r, ticket, "stdout");
+    assert!(spawns(&mut r).is_empty(), "{}", journal(&r));
+    assert!(r.holds(ticket), "{}", journal(&r));
+}
+
+#[test]
+fn a_wakes_commit_before_data_ready_starts_nothing_there() {
+    let (mut r, ready) = boot_ready(false);
+    assert!(spawns(&mut r).is_empty());
+    // Before the source can answer, a wake's commit gives the child's
+    // resource new arguments and makes a send that would run a program.
+    r.act_from(CallOrigin::Wake, "switch", vec![]).unwrap();
+    r.act_from(CallOrigin::Wake, "runIt", vec![]).unwrap();
+    assert!(spawns(&mut r).is_empty());
+    ready.set(true);
+    r.data_ready().unwrap();
+    // Each is asked under the wake's origin there, and refused.
+    assert!(spawns(&mut r).is_empty(), "{}", journal(&r));
+    for kind in ["spawn", "execFile"] {
+        let line = format!("process refused, person-required (wake origin): {kind}");
+        assert!(journal(&r).contains(&line), "{line}: {}", journal(&r));
+    }
 }

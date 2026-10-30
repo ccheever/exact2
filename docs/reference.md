@@ -1656,7 +1656,9 @@ input or the app's own code starts, writes to, ends or signals a child (the
 package declares those names `"origin": "app"`, as a module declares its
 names). From a tool's call, a wake or the device's event, a start fails
 `person-required`; a re-ask of a child's resource keeps the child, and the
-arguments asked stay refused until they change; a handle's `write`, `end` or
+arguments asked stay refused, by any origin, until they change (a refused
+start's too); what such a commit leaves for `data_ready` keeps its origin
+there; a handle's `write`, `end` or
 `kill` answers as usual, and the operation is dropped from its batch and
 journalled, the rest of the batch going. A tool's call ends `person-required`
 at each of these. There is no headless origin (LLP 1133.002 D12): a call in a
