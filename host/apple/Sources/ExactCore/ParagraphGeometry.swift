@@ -20,15 +20,20 @@ extension TextEngine {
     /// What a line's trailing white space adds to its width that CSS does
     /// not count (CSS Text 3 §4.1.3): collapsible spaces at a line's end are
     /// removed; under `pre-wrap` (`whiteSpace` 1) preserved ones hang, wholly
-    /// at a soft wrap or the paragraph's end and, before a forced break, as
-    /// far as they would not fit in `room`; under `pre` (4) they count.
+    /// at a soft wrap and, before a forced break or at the paragraph's end, as
+    /// far as they would not fit in `room`; under `pre` (4) they count. At the
+    /// paragraph's end CSS Text 3 hangs them wholly, but Chrome counts them in
+    /// a max-content width: a `pre-wrap` "Say " in a flex row is as wide as
+    /// "Say" and its space. The spaces hang only past the box's room.
     package static func uncountedTrailingWidth(_ line: CTLine, whiteSpace: Int, source: NSAttributedString, room: CGFloat) -> CGFloat {
         if whiteSpace == 4 { return 0 }
         let trailing = CGFloat(CTLineGetTrailingWhitespaceWidth(line))
         guard whiteSpace == 1 else { return trailing }
         let range = CTLineGetStringRange(line), end = range.location + range.length, text = source.string as NSString
-        guard end > 0, end <= text.length, let last = Unicode.Scalar(text.character(at: end - 1)),
-              CharacterSet.newlines.contains(last) else { return trailing }
+        guard end > 0, end <= text.length else { return trailing }
+        if end < text.length {
+            guard let last = Unicode.Scalar(text.character(at: end - 1)), CharacterSet.newlines.contains(last) else { return trailing }
+        }
         return min(trailing, max(0, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - room))
     }
 

@@ -105,8 +105,9 @@ final class TextCSSTests: XCTestCase {
 
     /// CSS Text 3 §4.1.3 removes collapsible spaces at a soft line break and
     /// hangs `pre-wrap`'s there; Core Text keeps their advance in the line's
-    /// typographic width. Before a forced break `pre-wrap`'s spaces hang only
-    /// as far as they would not fit, and `pre`'s count.
+    /// typographic width. Before a forced break and at the paragraph's end
+    /// (as Chrome measures it) `pre-wrap`'s spaces hang only as far as they
+    /// would not fit, and `pre`'s count.
     func testAWrappedLinesTrailingSpaceTakesNoWidth() {
         let first = width("word word", numeric: 0)
         // Room for "word word" and less than the space after it
@@ -124,6 +125,13 @@ final class TextCSSTests: XCTestCase {
                        "pre-wrap without: the spaces past the room hang")
         XCTAssertEqual(engine.paragraph(spec([run("word   \nx")], whiteSpace: 4), width: word + 1).width, spaced, accuracy: 1.0 / 64,
                        "pre: they count")
+        // Chrome: a pre-wrap "Say " is 28.02 px wide at max-content, "Say" 24.13 (14px Helvetica, Chrome 156)
+        XCTAssertEqual(engine.paragraph(spec([run("word   ")], whiteSpace: 1), width: .infinity).width, spaced, accuracy: 1.0 / 64,
+                       "pre-wrap at the paragraph's end, max-content: the spaces count")
+        XCTAssertEqual(engine.paragraph(spec([run("word   ")], whiteSpace: 1), width: spaced).width, spaced, accuracy: 1.0 / 64,
+                       "pre-wrap at the paragraph's end, laid out in its max-content width: the spaces count")
+        XCTAssertEqual(engine.paragraph(spec([run("word   ")], whiteSpace: 1), width: word + 1).width, word + 1, accuracy: 1.0 / 64,
+                       "pre-wrap at the paragraph's end without room: the spaces past it hang")
         // The room is the line's, after its indent
         let indented = Spec(runs: [run("word   \nx")], align: 0, lineClamp: 0, color: [0, 0, 0, 255], whiteSpace: 1, textIndent: 20)
         XCTAssertEqual(engine.paragraph(indented, width: word + 21).width, word + 21, accuracy: 1.0 / 64,
