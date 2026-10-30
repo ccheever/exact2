@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CompositionTracker, eventKeyNames, fromApp, keepConversionContext, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
+import { applySmoothing, CompositionTracker, eventKeyNames, fromApp, keepConversionContext, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
   terminalInputShortcutData, terminalKeyShortcutData, themeFrom } from "./entry";
 
 const key = (init: Partial<KeyboardEvent> & { key: string; code: string }) => ({
@@ -44,6 +44,17 @@ describe("the chords the page leaves to the app", () => {
     ]);
     expect(matchesChord(key({ key: "+", code: "Equal", metaKey: true }), parseChords(["Meta++"]))).toBe(true);
     expect(matchesChord(key({ key: " ", code: "Space" }), parseChords(["Space"]))).toBe(true);
+  });
+});
+
+describe("Font smoothing", () => {
+  test("the root draws antialiased text unless the config's font turns smoothing off", () => {
+    const root = { dataset: {} as DOMStringMap };
+    const seen = [{ family: "Menlo", size: 12, smoothing: false }, { size: 12, smoothing: true }, { size: 13 }, null].map((font) => {
+      applySmoothing(root, font);
+      return root.dataset.smoothing;
+    });
+    expect(seen).toEqual(["off", "on", "on", "on"]);
   });
 });
 

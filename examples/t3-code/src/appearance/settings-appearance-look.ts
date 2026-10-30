@@ -73,7 +73,7 @@ export function look(client: T3Client): Look {
     terminalLight: terminalTheme(prefs.themeLight, 'light', custom), terminalDark: terminalTheme(prefs.themeDark, 'dark', custom),
     terminalFont: prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode,
     terminalSize: prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode,
-    terminalFace: terminalFace(prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode, prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode),
+    terminalFace: terminalFace(prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode, prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode, prefs.fontSmoothing),
     canvas: pal.canvas, sidebar: pal.sidebar, sidebarBorder: pal.sidebarBorder, sidebarText: pal.sidebarText, sidebarMuted: pal.sidebarMuted, rowActive: pal.rowActive,
     message: messageSurface(prefs, custom, mode), wizardSteps: half(background, '#ffffff0a'), wizardPanel: half(alpha(background, 0.8), '#ffffff05'), surface: pal.surface, popover: pal.popover, border: pal.border, input: pal.input, text: pal.text, muted: pal.muted, accent: pal.accent, accentText: pal.accentText,
     diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: chatMaxWidth(prefs.chatWidth, rootFontSize), ...environmentIdentification(client.preferencesLoaded, prefs, mode),
@@ -149,9 +149,12 @@ const TERMINAL_PALETTES: Record<string, readonly [string, string]> = {
   iris: ['#f8f7f9 #241523 #7253b9 #e0d9ee', '#1d1929 #fffaff #9d7df2 #4a3c70'],
 };
 /** JSON for the native terminal bridge; custom/editor roles override the standard palette. */
-/** The terminal page's font (terminal-frame.contract `font`): the family and size as JSON, an empty family the page's default. */
-export function terminalFace(family: string, size: number): string {
-  return JSON.stringify({ ...(family.trim() ? { family } : {}), ...(Number.isFinite(size) ? { size } : {}) });
+/**
+ * The terminal page's font (terminal-frame.contract `font`) as JSON: the family, an empty one the page's default, the
+ * size, and Font smoothing, which the page's root follows as the reference's root does (`-webkit-font-smoothing`).
+ */
+export function terminalFace(family: string, size: number, smoothing: boolean): string {
+  return JSON.stringify({ ...(family.trim() ? { family } : {}), ...(Number.isFinite(size) ? { size } : {}), smoothing });
 }
 
 export function terminalTheme(id: string, mode: 'light' | 'dark', custom: CustomTheme[]): string {

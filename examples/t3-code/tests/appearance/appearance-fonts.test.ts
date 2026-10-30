@@ -51,7 +51,7 @@ describe("root font size in the JS layout", () => {
 // The native catalog is the source for every picker; monospace restrictions apply on commit.
 import { installedFonts } from '../../src/appearance/appearance-fonts';
 import { fontFamilies, fontStack } from '../../src/appearance/settings-appearance';
-import { applyCoreSetting } from '../../src/settings/settings-core';
+import { applyCoreSetting, applyDeviceSetting } from '../../src/settings/settings-core';
 import { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { toasts } from '../../src/shell/toast';
@@ -105,6 +105,12 @@ describe('installed font selection', () => {
     await applyCoreSetting(client, native, 'separate-fonts:typographyAdvanced|||', 'true'); // Typography's Separate fonts row
     expect(look(client).promptFont).toBe('\"Avenir Next\", system-ui');
     expect(look(client).terminalFont).toBe('');
+  });
+  it('the terminal page\'s face carries Font smoothing, which the page\'s root follows (terminal-host applySmoothing)', () => {
+    const client = new T3Client();
+    expect(JSON.parse(look(client).terminalFace)).toMatchObject({ smoothing: true });
+    applyDeviceSetting(client.local as never, 'fontSmoothing', 'false');
+    expect(JSON.parse(look(client).terminalFace)).toMatchObject({ smoothing: false });
   });
   it('rejects a malformed native catalog without caching it', async () => {
     const client = new T3Client(), malformed: Native = { available: true, watch() {}, later: async () => ({ ok: true, generation: 0, value: { fonts: [{ family: 42 }] } }) };

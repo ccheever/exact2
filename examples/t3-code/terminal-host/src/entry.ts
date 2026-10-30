@@ -237,6 +237,13 @@ function fontFrom(value: unknown): GhosttyTerminalFont {
   };
 }
 
+/** Settings › Appearance › Font smoothing, from the config's font: the root draws antialiased text while it is on, as the
+ * reference's root does (the setting's default, also a font that names none). */
+export function applySmoothing(root: { dataset: DOMStringMap }, font: unknown): void {
+  const smoothing = typeof font === "object" && font !== null ? (font as Record<string, unknown>).smoothing : undefined;
+  root.dataset.smoothing = smoothing === false ? "off" : "on";
+}
+
 export function parseChords(list: unknown): Chord[] {
   if (!Array.isArray(list)) return [];
   return list.flatMap((entry) => {
@@ -278,7 +285,8 @@ export function matchesChord(
 }
 
 const STYLE = `
-:root { --app-scrollbar-width: 6px; --app-scrollbar-thumb: rgb(217 217 217); --app-scrollbar-thumb-hover: rgb(191 191 191); }
+:root { --app-scrollbar-width: 6px; --app-scrollbar-thumb: rgb(217 217 217); --app-scrollbar-thumb-hover: rgb(191 191 191); -webkit-font-smoothing: antialiased; }
+:root[data-smoothing="off"] { -webkit-font-smoothing: auto; }
 :root.dark { --app-scrollbar-thumb: rgb(255 255 255 / 8%); --app-scrollbar-thumb-hover: rgb(255 255 255 / 12%); }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
 #terminal { position: relative; width: 100%; height: 100%; overflow: hidden; }
@@ -407,8 +415,9 @@ class TerminalPage {
     const session = sessionFrom(message.session);
     this.readOnly = session.readOnly;
     if (this.surface) this.surface.input.readOnly = this.readOnly;
-    const theme = JSON.stringify(message.theme ?? null), font = JSON.stringify(message.font ?? null);
+    const theme = JSON.stringify(message.theme ?? null), font = JSON.stringify(fontFrom(message.font));
     const visible = message.visible !== false;
+    applySmoothing(document.documentElement, message.font);
     if (!this.session) {
       this.session = session;
       this.theme = theme; this.font = font; this.visible = visible;

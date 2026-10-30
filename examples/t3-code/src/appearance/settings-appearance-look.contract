@@ -35,7 +35,7 @@ shape Look
   terminalDark: string
   terminalFont: string
   terminalSize: number
-  terminalFace: string // {family, size} JSON for the terminal page
+  terminalFace: string // {family, size, smoothing} JSON for the terminal page
   fontSans: string
   fontSize: number
   // The Prompt font size in px (--font-size-prompt): the composer's text does not follow the root size.

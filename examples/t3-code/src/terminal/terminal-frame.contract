@@ -31,7 +31,7 @@ component TerminalFrame
   props
     frame: TerminalFrameView
     theme: string // terminalTheme JSON (settings-appearance-look.ts)
-    font: string // {family, size} JSON
+    font: string // {family, size, smoothing} JSON (terminalFace)
     visible: bool
     keybindings: string // JSON winning chord/command pairs for terminalFocus
     closePending: bool
