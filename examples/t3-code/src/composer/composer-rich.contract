@@ -58,11 +58,12 @@ atom file link="relative" color="light-dark(#2c3e45, #cbe0e6)" background-color=
 atom mention prefix="@" color="light-dark(#2c3e45, #cbe0e6)" background-color="#0096af1c"
 atom skill prefix="$¢£¤¥֏؋߾߿৲৳৻૱௹฿៛₠₡₢₣₤₥₦₧₨₩₪₫€₭₮₯₰₱₲₳₴₵₶₷₸₹₺₻₼₽₾₿⃀⃁꠸﷼﹩＄￠￡￥￦𑿝𑿞𑿟𑿠𞋿𞲰" color="light-dark(#433448, #e7d5ea)" background-color="#b261be1c"
 
-// A chip's pill: its label, its kind's glyph as the nearest SF Symbol (the Apple host draws only `symbol:sf/` icons),
-// its tooltip, which names how a citation's comment opens (the reference's chip has a pencil for it), and a document's
+// A chip's pill: its label, its suffix and an image's upload state (`upload`, composer-editor.contract
+// uploadChipStatus), its kind's glyph as the nearest SF Symbol (the Apple host draws only `symbol:sf/` icons), its
+// tooltip, which names how a citation's comment opens (the reference's chip has a pencil for it), and a document's
 // paint over its kind's: empty colours leave the kind's paint above. A file mention keeps its icon before its path in a
 // right-to-left line (ComposerMentionNodeView's dir="ltr"); the other chips follow their line, as the reference's do.
-fn composerAtomFace(c: ComposerSourceChip): AtomFace = AtomFace(source=c.source, label=(c.face.suffix == "" ? c.face.label : `${c.face.label} ${c.face.suffix}`), icon=`symbol:sf/${composerAtomSymbol(c.face.icon)}`, title=(c.face.comment ? `${c.face.tip}\n⌥-click to comment` : c.face.tip), color=(c.face.available ? composerChipDocInk(composerChipDocument(c)) : ""), backgroundColor=composerChipDocFill(composerChipDocument(c)), direction=(c.kind == "mention" ? "ltr" : ""))
+fn composerAtomFace(c: ComposerSourceChip, upload: string): AtomFace = AtomFace(source=c.source, label=[c.face.label, c.face.suffix, upload].filter((part) => part != "").join(" "), icon=`symbol:sf/${composerAtomSymbol(c.face.icon)}`, title=(c.face.comment ? `${c.face.tip}\n⌥-click to comment` : c.face.tip), color=(c.face.available ? composerChipDocInk(composerChipDocument(c)) : ""), backgroundColor=composerChipDocFill(composerChipDocument(c)), direction=(c.kind == "mention" ? "ltr" : ""))
 // documentIconColorForFileName as `--context-chip-accent`: a workspace mention by its path (ComposerMentionNodeView) and
 // an attached file by its name (FileChip, not a video) take a PDF's, Word file's, sheet's, slides' or EPUB's accent; ""
 // for any other. An attached file whose bytes were lost draws unresolved: its fill stays and its text is the field's

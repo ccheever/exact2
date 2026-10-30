@@ -23,7 +23,7 @@ component PromptFontPreview
     family: string
     size: number
     pal: CorePalette
-  derive faces = richPromptPreview.chips.map((c) => composerAtomFace(c))
+  derive faces = richPromptPreview.chips.map((c) => composerAtomFace(c, ""))
   action write(value: string, e: InputEvent)
     promptPreviewWrite(value, e)
   action pressed(e: AtomEvent)

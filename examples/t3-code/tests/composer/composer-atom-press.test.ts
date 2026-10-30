@@ -130,25 +130,32 @@ describe('ordinary code-language control retains the current source owner', () =
 
 describe('a chip\'s face is its pill', () => {
   const fns = contractFns('src/composer/composer-rich.contract', {AtomFace: (face: Env) => face, ...contractFns('src/timeline/markdown-chip-inks.contract')}) as {
-    composerAtomFace: (chip: Env) => Env; composerAtomSymbol: (icon: string) => string;
+    composerAtomFace: (chip: Env, upload: string) => Env; composerAtomSymbol: (icon: string) => string;
   };
+  const atomFace = (chip: Env, upload = '') => fns.composerAtomFace(chip, upload);
   const face = (patch: Env) => ({kind: 'mention', label: 'README.md', suffix: '', icon: 'at-sign', fileToken: '', imageId: '', available: true,
     interactive: true, comment: false, tip: 'README.md', glyph: {kind: ''}, ...patch});
   test('label and suffix, the kind\'s SF Symbol, and the tooltip', () => {
-    expect(fns.composerAtomFace({kind: 'mention', source: '@README.md', path: 'README.md', face: face({})})).toEqual({source: '@README.md', label: 'README.md', icon: 'symbol:sf/doc',
+    expect(atomFace({kind: 'mention', source: '@README.md', path: 'README.md', face: face({})})).toEqual({source: '@README.md', label: 'README.md', icon: 'symbol:sf/doc',
       title: 'README.md', color: '', backgroundColor: '', direction: 'ltr'});
-    expect(fns.composerAtomFace({source: '[x](t3-context://v1/terminal/a)', face: face({kind: 'terminal', label: 'Terminal', suffix: 'lines 1-4', icon: 'square-terminal', tip: ''})}))
+    expect(atomFace({source: '[x](t3-context://v1/terminal/a)', face: face({kind: 'terminal', label: 'Terminal', suffix: 'lines 1-4', icon: 'square-terminal', tip: ''})}))
       .toMatchObject({label: 'Terminal lines 1-4', icon: 'symbol:sf/apple.terminal', title: ''});
     // A citation's tooltip says how its comment opens; the preview's citation has no comment.
-    expect(fns.composerAtomFace({source: '[q](t3-citation://v1/e/t/m)', face: face({kind: 'citation', label: 'the quote', icon: 'quote', tip: 'the quote', comment: true})}))
+    expect(atomFace({source: '[q](t3-citation://v1/e/t/m)', face: face({kind: 'citation', label: 'the quote', icon: 'quote', tip: 'the quote', comment: true})}))
       .toMatchObject({icon: 'symbol:sf/quote.opening', title: 'the quote\n⌥-click to comment'});
   });
+  test('an image\'s chip follows its size with its upload\'s state (ImageContextChip)', () => {
+    const image = {kind: 'context', contextKind: 'image', source: '[sunset.png](t3-context://v1/image/i1)', label: 'sunset.png',
+      face: face({kind: 'image', label: 'sunset.png', suffix: '8.0 MB', icon: 'image', imageId: 'img-0', tip: ''})};
+    expect([atomFace(image).label, atomFace(image, '25%').label, atomFace(image, 'upload failed').label])
+      .toEqual(['sunset.png 8.0 MB', 'sunset.png 8.0 MB 25%', 'sunset.png 8.0 MB upload failed']);
+  });
   test('a file mention keeps its icon before its path in a right-to-left line; the other chips follow their line', () => {
-    expect(fns.composerAtomFace({kind: 'mention', source: '[plan.md](docs/plan.md)', path: 'docs/plan.md', face: face({label: 'plan.md'})}).direction).toBe('ltr');
-    for (const kind of ['skill', 'context', 'citation']) expect(fns.composerAtomFace({kind, source: 'x', face: face({kind})}).direction).toBe('');
+    expect(atomFace({kind: 'mention', source: '[plan.md](docs/plan.md)', path: 'docs/plan.md', face: face({label: 'plan.md'})}).direction).toBe('ltr');
+    for (const kind of ['skill', 'context', 'citation']) expect(atomFace({kind, source: 'x', face: face({kind})}).direction).toBe('');
   });
   test('a document chip takes its type\'s accent over its kind\'s paint (documentIconColorForFileName)', () => {
-    const paint = (chip: Env) => { const {color, backgroundColor} = fns.composerAtomFace(chip); return [color, backgroundColor]; };
+    const paint = (chip: Env) => { const {color, backgroundColor} = atomFace(chip); return [color, backgroundColor]; };
     // A workspace mention by its path, in either spelling of the source.
     expect(paint({kind: 'mention', source: '@docs/Report.PDF', path: 'docs/Report.PDF', face: face({label: 'Report.PDF'})}))
       .toEqual(['light-dark(#4c2e2f, #fcd8d4)', 'light-dark(#d52c361c, #ff67621c)']);

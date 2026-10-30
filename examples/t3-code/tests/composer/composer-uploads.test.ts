@@ -396,6 +396,27 @@ describe('the tile draws its upload, and the root pumps the uploads', () => {
     expect(fns.uploadShows!([], [])).toBe('');
   });
 
+  test('an image\'s chip in the prompt reads its tile\'s upload at each report, and "upload failed" once it failed (uploadStatusSuffix)', () => {
+    const status = (patch: Obj, answers: unknown[], id = 'img-0') => fns.uploadChipStatus!(id, [image(patch)], answers);
+    expect(status({ status: 'queued', attachmentId: '' }, [])).toBe('0%');
+    const reports = [0.01, 0.24, 0.36, 0.5, 0.99, 1];
+    expect(reports.map(progress => status({}, [live({ progress })]))).toEqual(['1%', '24%', '36%', '50%', '99%', '100%']);
+    expect(reports.map(progress => status({}, [live({ progress })]))).toEqual(reports.map(progress => fns.uploadLabel!(image({}), [live({ progress })])));
+    expect(status({}, [live({ status: 'ready', progress: 1 })])).toBe('');
+    expect(status({}, [live({ status: 'failed', reason: 'Upload timed out' })])).toBe('upload failed');
+    expect(status({ status: 'failed', attachmentId: '', reason: 'Upload rejected (500)' }, [])).toBe('upload failed');
+    // A chip of another kind (no image id) or of another image shows none.
+    expect([status({}, [live({ progress: 0.5 })], ''), status({}, [live({ progress: 0.5 })], 'img-1')]).toEqual(['', '']);
+  });
+
+  test('the prompt\'s chips take their images\' upload states from the draft\'s uploads and the resources\' answers', () => {
+    const card = contractComponent('composer.contract', 'ComposerCard');
+    const data = { canSend: true, snapshotDrafts: [], composer: { uploadBlock: '', compactTokens: '', canResume: false, queueEditing: '', uploads: { images: [image({})] } } };
+    const scope = { data, text: '', richComposer: { chips: [{ face: { imageId: 'img-0' } }, { face: { imageId: '' } }] }, composerUploads: [live({ progress: 0.6 })],
+      composerAtomFace: (chip: Obj, upload: string) => [obj(chip.face).imageId, upload], uploadChipStatus: fns.uploadChipStatus };
+    expect(card.derives({}, scope).faces).toEqual([['img-0', '60%'], ['', '']]);
+  });
+
   test('Retry acts only where the connection may operate the thread', () => {
     const meter = contractComponent('composer-editor.contract', 'UploadMeter');
     const scope = (operate: boolean) => ({ upload: image({ status: 'failed', attachmentId: '', reason: 'Upload failed' }), live: [], name: 'shot.png', command: () => ({}), operate, ...fns });

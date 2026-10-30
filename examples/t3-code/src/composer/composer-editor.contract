@@ -389,6 +389,12 @@ fn uploadLabel(upload: ComposerUploadImage, live: ComposerUpload[]): string = up
 fn uploadFailure(upload: ComposerUploadImage, live: ComposerUpload[]): string = upload.status == "failed" ? upload.reason : uploadLive(upload, live).filter((each) => each.status == "failed").map((each) => each.reason).join("")
 // Whether a tile's upload line or Retry shows, for the SnapShot details above them.
 fn uploadShows(uploads: ComposerUploadImage[], live: ComposerUpload[]): string = uploads.map((upload) => uploadFailure(upload, live) != "" ? "failed" : uploadLabel(upload, live) != "" ? "uploading" : "").join("")
+// The upload state an image's chip in the prompt follows its size with (uploadStatusSuffix), as its tile reads it:
+// "upload failed" once it failed, else the percentage of each report while it uploads. A pill whose label changes is
+// a new element for assistive technology (FieldAtoms.swift atomsChanged); on the Mac a pill is a child of the text
+// but no stop in VoiceOver's navigation (TextAreaMac.swift accessibilityChildren), so no cursor rests on one to lose.
+// "" for another chip (no image id).
+fn uploadChipStatus(id: string, uploads: ComposerUploadImage[], live: ComposerUpload[]): string = uploads.filter((upload) => id != "" and upload.id == id).map((upload) => uploadFailure(upload, live) != "" ? "upload failed" : uploadLabel(upload, live)).join("")
 
 component UploadMeter
   props

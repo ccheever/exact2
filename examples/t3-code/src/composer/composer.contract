@@ -7,6 +7,7 @@ use SnapshotDrafts from "../snapshot/snapshot.contract"
 use ComposerFooter from "./composer-controls.contract"
 use ComposerEditorView from "./composer-editor.contract"
 use PromptLengthValidation from "./composer-editor.contract"
+use uploadChipStatus from "./composer-editor.contract"
 use AttachmentUrl from "../timeline/timeline-attachments.contract"
 use ComposerRichView, citation, context, file, mention, skill, composerAtomFace from "./composer-rich.contract"
 use ComposerCodeHeaders from "./composer-code-headers.contract"
@@ -117,7 +118,8 @@ component ComposerCard
     contextOver: bool
     // Signed URLs for the queued edit's kept images.
     urls: AttachmentUrl[]
-  derive faces = richComposer.chips.map((c) => composerAtomFace(c))
+  // An image's chip follows its size with its upload's state, as its tile reads it (ImageContextChip).
+  derive faces = richComposer.chips.map((c) => composerAtomFace(c, uploadChipStatus(c.face.imageId, data.composer.uploads.images, composerUploads)))
   derive sendable = data.canSend and data.composer.uploadBlock == "" and (text != "" or data.snapshotDrafts.length > 0)
   derive restingChip = data.composer.compactTokens != "" and not (data.composer.canResume and not sendable) and data.composer.queueEditing == ""
   // The field's value and selection as its events last reported them, where a held paste goes. Focused but not yet
