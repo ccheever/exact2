@@ -115,10 +115,13 @@ mobile tests, 253 focused tests including desktop minimap, strict TypeScript,
 generator verification and the six repository checks pass. Both actual preview
 components pass baseline/current EAS controls at 16-point light and 20-point dark.
 Heading/table controls, natural wrapping and single code pans remain usable.
-Repeated long-code pans expose blank ink after stability in both versions. The
-cutoff matches the native raster's 256-point overflow limit. Later pans chain into
-the fixture root. Native scroll extent and glyph metrics are still needed to
-separate painting from geometry; no correction is accepted yet. The normal app passes Home, Settings,
+Idle native measurements now prove the long-code blanking mechanism. The raster
+is marked whole and settled at 592 points despite uncut paint widths of 787.54
+and 969.28 points. Legal inner scrolling exposes those missing pixels. Later
+outward pans chain into the fixture root. The separate end-padding discrepancy
+remains unqualified. Source and the temporary observer are restored exactly;
+evidence is under `target/t3-poc-evidence/phone-code-native-metrics/`.
+The painting correction remains pending. The normal app passes Home, Settings,
 Search, New task, Back and relaunch. Entries and normal declarations are restored;
 the cloud device is shut down. Evidence is under
 `target/t3-poc-evidence/phone-formatted-prose-implementation/`. Supplied-data
