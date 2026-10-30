@@ -29,7 +29,8 @@ members T3Code
   action chipComplete(item: ComposerChipFinish, focused: string)
     let preview = item.surface == "preview"
     let target = preview ? "prompt-font-preview" : "composer"
-    let covered = preview ? connecting or projectsOpen or paletteOpen or providerDialog != "" or restEditor != "" or welcome.show or querySelectorAll("[data-dialog-focus~=\"open\"]").length > 0 : modal
+    // Settings is itself a route dialog (AppRouteModal, `settings-dialog`); a dialog over it covers the sample.
+    let covered = preview ? connecting or projectsOpen or paletteOpen or providerDialog != "" or restEditor != "" or welcome.show or querySelectorAll("[data-dialog-focus~=\"open\"]").filter((id) => id != "settings-dialog").length > 0 : modal
     if not covered and item.seq == chip.finish.seq and item.generation == (preview ? richPromptPreview.generation : richComposer.generation) and item.snapshotOwner == data.snapshotOwner and (preview ? promptPreviewVisible and item.owner == promptPreviewOwner and item.value == promptPreviewText and item.inputSerial == promptPreviewSerial and not promptPreviewComposing : composerFieldLive and item.owner == richComposerOwner and item.value == composerText and item.inputSerial == composerFieldInputSerial and not composerComposing) and frame(target).width > 0
       if item.focus == "after" or item.focus == "select" or (item.focus == "outside" and (focused == "" or focused.startsWith("chip-popover") or focused == "citation-comment-text"))
         focus(target)
