@@ -10,7 +10,7 @@ use CoreOption from "./settings-core-shared.contract"
 use ScopeChoice from "./settings-core.contract"
 use CorePalette from "./settings-core-shared.contract"
 use SettingsGhost from "./settings-core-shared.contract"
-use SnoozeEditor from "./settings-snooze.contract"
+use SnoozeEditor, SnoozeEditorRow from "./settings-snooze.contract"
 use SettingsPickerFace from "./settings-picker.contract"
 use ComposerInstanceMark from "../composer/instance-mark.contract"
 use CcIcon from "../composer/composer-controls.contract"
@@ -441,7 +441,7 @@ component SnoozePresetsEditor
             if item.after
               // The field keeps what was typed until the saved amount changes (NumberField commits on Enter or blur).
               for amountKey in [`${item.key}:${item.amount}:${item.unit}`] key=amountKey
-                CoreField(value=item.amount, rowId=`snooze-amount-${item.key}`, width=128, placeholder="", numeric=true, label="Amount", pal=pal, disabled=(busy or inert), commit=change(rowId, `amount:${item.index}`))
+                SnoozeAmount(item=item, pal=pal, disabled=(busy or inert), commit=change(rowId, `amount:${item.index}`))
               CoreSelect(stop="enabled page", rowId=`snooze-unit-${item.key}`, section=section, value=item.unitLabel, icon="", width=112, menuWidth=0, options=item.units, pal=pal, disabled=(busy or inert), dim=inert, menu=menu, openMenu=openMenu, choose=change(rowId, `unit:${item.index}`))
             else
               text "at" font-size="0.75rem" line-height="1rem" color=pal.muted
@@ -463,6 +463,24 @@ component SnoozePresetsEditor
           text "Add option" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.muted
         if editor.full
           text editor.fullNote padding-left="0.5rem" font-size="0.75rem" line-height="1rem" color=pal.muted
+
+// NumberField size sm, w-32: Decrease, the amount and Increase in one field; typing commits on Enter or blur.
+component SnoozeAmount
+  props
+    item: SnoozeEditorRow
+    pal: CorePalette
+    disabled: bool
+    commit: action
+  state draft = item.amount
+  action edit(next: string)
+    draft = next
+  view
+    row width="8rem" height="1.75rem" box-sizing="border-box" align-items="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" overflow="hidden"
+      button press=commit(item.amountDown) disabled=(disabled or item.amountDown == "") class=SettingsGhost width="1.75rem" height="100%" opacity=(item.amountDown == "" ? 0.64 : 1) aria-label="Decrease" title="" id=`snooze-decrease-${item.key}` testId=`snooze-decrease-${item.position}`
+        CorePaintIcon(ownId=`paint-icon-snooze-decrease-${item.key}`, paint="text", name="minus", size=14, color=pal.text)
+      input value=draft input=edit change=commit aria-label="Amount" disabled=disabled inputmode="numeric" spellcheck="false" flex=1 min-width=0 height="100%" padding=0 border-width=0 background-color="#00000000" text-align="center" font-size="0.875rem" color=pal.text font-variant-numeric="tabular-nums" id=`setting-snooze-amount-${item.key}` testId=`snooze-amount-${item.position}` autocorrect="off" data-editable="yes" data-focus-stop=(disabled ? "" : "enabled page")
+      button press=commit(item.amountUp) disabled=(disabled or item.amountUp == "") class=SettingsGhost width="1.75rem" height="100%" opacity=(item.amountUp == "" ? 0.64 : 1) aria-label="Increase" title="" id=`snooze-increase-${item.key}` testId=`snooze-increase-${item.position}`
+        CorePaintIcon(ownId=`paint-icon-snooze-increase-${item.key}`, paint="text", name="plus", size=14, color=pal.text)
 
 // SelectTrigger size sm + SelectPopup align end (alignItemWithTrigger=false).
 // The select's widths are px at the root size 16 and lay out in rem (w-36, min-w-40), as the reference's.

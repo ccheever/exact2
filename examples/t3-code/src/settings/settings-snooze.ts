@@ -183,7 +183,7 @@ export function snoozePresetsEdit(current: readonly SnoozePresetSetting[], part:
 }
 
 export type SnoozeEditorRow = {
-  key: string; index: number; position: number; when: string; whenLabel: string; after: boolean; amount: string; unit: string; unitLabel: string;
+  key: string; index: number; position: number; when: string; whenLabel: string; after: boolean; amount: string; amountDown: string; amountUp: string; unit: string; unitLabel: string;
   time: string; previewMenu: boolean; previewLabel: string; previewWhen: string; previewText: string;
   whens: { id: string; value: string; label: string; detail: string; icon: string; selected: boolean; disabled: boolean }[];
   units: { id: string; value: string; label: string; detail: string; icon: string; selected: boolean; disabled: boolean }[];
@@ -209,7 +209,10 @@ export function snoozeEditor(presets: readonly SnoozePresetSetting[], now: Date,
     const when = preset.kind === 'after' ? 'after' : preset.day;
     const split = preset.kind === 'after' ? splitMinutes(preset.minutes) : { amount: 0, unit: 'minutes' as Unit };
     const labels = split.amount === 1 ? SINGULAR : { minutes: 'minutes', hours: 'hours', days: 'days' };
-    return { key: String(index), index, position: position + 1, when, whenLabel: WHEN_LABELS[when], after: preset.kind === 'after', amount: String(split.amount), unit: split.unit,
+    // NumberField's steppers: the amount one down and one up within 1 … the unit's maximum ('' where a stepper is disabled).
+    const max = Math.floor(MAX_SNOOZE_PRESET_MINUTES / UNIT_MINUTES[split.unit]);
+    return { key: String(index), index, position: position + 1, when, whenLabel: WHEN_LABELS[when], after: preset.kind === 'after', amount: String(split.amount),
+      amountDown: split.amount > 1 ? String(split.amount - 1) : '', amountUp: split.amount < max ? String(split.amount + 1) : '', unit: split.unit,
       unitLabel: labels[split.unit], time: preset.kind === 'at' ? preset.time : '', ...preview,
       whens: (['after', ...SNOOZE_DAYS] as const).map(value => choice(value, WHEN_LABELS[value], value === when)),
       units: UNITS.map(unit => choice(unit, labels[unit], unit === split.unit)) };

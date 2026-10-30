@@ -10,6 +10,9 @@ shape SnoozeEditorRow
   whenLabel: string
   after: bool
   amount: string
+  // The steppers' amounts, '' where one is disabled.
+  amountDown: string
+  amountUp: string
   unit: string
   unitLabel: string
   time: string

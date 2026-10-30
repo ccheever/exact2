@@ -69,6 +69,9 @@ describe('snooze presets', () => {
       .toEqual([['In', '1 hour', 'In 1 hour'], ['In', '1 hour', 'Duplicate of an option above'], ['Today', '18:00', 'This evening'], ['In', '3 hours', 'In 3 hours'],
         ['Tomorrow', '09:00', 'Tomorrow'], ['Friday', '09:00', 'Same time as an option above'], ['Monday', '09:00', 'Next week'], ['Today', '09:00', 'Passed for today']]);
     expect(editor.rows.map(row => row.index)).toEqual([0, 7, 2, 1, 3, 5, 4, 6]);
+    // The amount's steppers stop at 1 and at 30 days in the row's unit.
+    expect([editor.rows[0]!.amountDown, editor.rows[0]!.amountUp]).toEqual(['', '2']);
+    expect(snoozeEditor([{ kind: 'after', minutes: 30 * 24 * 60 }], now, '24-hour').rows[0]).toMatchObject({ amount: '30', unitLabel: 'days', amountDown: '29', amountUp: '' });
     expect(editor.menuLine).toBe('Menu now: In 1 hour · This evening · In 3 hours · Tomorrow · Next week');
     expect([editor.full, editor.fullNote]).toEqual([true, 'Up to 8 options']);
     expect(snoozeEditor([], now, '24-hour').menuLine).toBe('Menus offer only Custom…');
