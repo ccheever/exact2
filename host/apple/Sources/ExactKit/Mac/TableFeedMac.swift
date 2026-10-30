@@ -263,6 +263,14 @@ final class RunnerTableView: NSTableView {
         defer { handing = false }
         under.scrollWheel(with: event)
     }
+    /// A swipe event over a row goes the same way, so a node in the row
+    /// whose swipe names its direction takes it (LLP 1057.001 §8.2).
+    override func swipe(with event: NSEvent) {
+        guard !handing, let under = feed?.under(event), under !== self else { return super.swipe(with: event) }
+        handing = true
+        defer { handing = false }
+        under.swipe(with: event)
+    }
     /// Home and End are the list's: the table's own ends are estimates.
     override func scrollToBeginningOfDocument(_ sender: Any?) { feed?.scroll(toEnd: false) }
     override func scrollToEndOfDocument(_ sender: Any?) { feed?.scroll(toEnd: true) }

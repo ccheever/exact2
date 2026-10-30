@@ -375,9 +375,10 @@ final class BackSwipe {
         return sequence(first: hit, next: \.superview).contains { ($0 as? ChainingScrollView).map { $0.containX && $0.scrollsX } ?? false }
     }
 
-    /// The three-finger swipe (`NSResponder.swipe(with:)`): `deltaX` is
-    /// positive toward the page before, as AppKit reports it for the
-    /// person's scroll direction.
+    /// A swipe event (`NSResponder.swipe(with:)`) that no node took:
+    /// `deltaX` 1, a swipe left (`NSEvent.h`), steps Back and -1 Forward, as
+    /// WebKit's web view does (`WebViewImpl::swipeWithEvent`), so a mouse
+    /// driver's Back button that sends this event steps Back.
     func swiped(deltaX: CGFloat) -> Bool {
         deltaX > 0 ? presenter.navigation.goBack() : deltaX < 0 && presenter.navigation.goForward()
     }

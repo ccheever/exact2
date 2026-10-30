@@ -489,9 +489,14 @@ names: delete, swipe-actions, swipeActions, swipe-to-delete, swipeleft, swipeCon
 
 Three things are called a swipe. `swipe=action` with `swipe-direction` (and `touch-count`) is
 a discrete swipe: the platform's own recognizer says a flick went one of the named ways and
-the action runs once, nothing following the finger. UIKit recognizes it on iOS; tvOS, macOS,
-Android, the web, Linux and Windows make none. Give its action a button too: a swipe is a path
-gesture (WCAG 2.2, 2.5.1).
+the action runs once, nothing following the finger. UIKit recognizes it on iOS, and AppKit on
+the Mac as its swipe event, the way the fingers went and before history's Back and Forward: a
+trackpad's three-finger swipe where "Swipe between pages" uses three fingers, or a mouse
+driver's side button. A two-finger swipe goes back and forward through pages, as in any Mac
+app, and a swipe up or down reaches the app only where Mission Control and App Exposé leave
+three fingers moving vertically to apps. AppKit reports no finger count, so on the Mac a swipe
+with a `touch-count` never runs. tvOS, Android, the web, Linux and Windows make none. Give its
+action a button too: a swipe is a path gesture (WCAG 2.2, 2.5.1).
 `swiperight=action` is a drag: the node follows the finger to the right and releases past a
 knee (a swipe to reply). A list row's swipe actions are below.
 

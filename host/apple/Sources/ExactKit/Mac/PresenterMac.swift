@@ -962,6 +962,7 @@ package final class Presenter {
     func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
     func pointer(_ id: UInt32, _ kind: PointerKind, _ sample: PointerSample) { send(id) { [self] in onPointer?(id, kind, sample) } }
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }
+    func swipe(_ id: UInt32, _ direction: String) { send(id) { [self] in onSwipe?(id, direction) } }
     func pan(_ id: UInt32, _ dx: Double, _ dy: Double) { send(id) { [self] in onPan?(id, dx, dy) } }
     /// Once per pan that began, after its last delta; only to a node that hears it.
     func panRelease(_ id: UInt32, _ vx: Double, _ vy: Double) {
