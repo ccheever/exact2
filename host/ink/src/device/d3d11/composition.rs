@@ -181,6 +181,7 @@ pub(super) struct Composition {
     active: bool,
     reported_display: bool,
     refused_checks: u32,
+    capacity_wait: Option<Duration>,
 }
 impl Drop for Composition {
     fn drop(&mut self) {
@@ -277,6 +278,7 @@ impl Composition {
                 active: false,
                 reported_display: false,
                 refused_checks: 0,
+                capacity_wait: None,
             })
         }
     }
@@ -290,6 +292,7 @@ impl Composition {
     }
 
     fn acquire(&mut self, timeout_ms: u32) -> Result<bool> {
+        self.capacity_wait = None;
         unsafe {
             if !window_drawable(self._window.hwnd) {
                 self.refused_checks = self.refused_checks.saturating_add(1);
@@ -304,7 +307,11 @@ impl Composition {
                 return Ok(false);
             }
             if !self.acquired {
+                let started = Instant::now();
                 self.acquired = latency_ready(WaitForSingleObject(self.latency, timeout_ms))?;
+                if !self.acquired {
+                    self.capacity_wait = Some(started.elapsed());
+                }
             }
             record_capacity(&mut self.refused_checks, self.acquired);
         }
@@ -475,6 +482,7 @@ impl D3d11 {
         self.presentation_pending = false;
         if let Some(c) = &mut self.composition {
             c.refused_checks = 0;
+            c.capacity_wait = None;
         }
     }
     pub fn presentation_retry_delay(&self) -> Option<Duration> {
@@ -482,7 +490,11 @@ impl D3d11 {
             return None;
         }
         let c = self.composition.as_ref()?;
-        Some(retry_delay(c.refresh_period(), c.refused_checks))
+        let period = c.refresh_period();
+        Some(c.capacity_wait.map_or_else(
+            || retry_delay(period, c.refused_checks),
+            |waited| capacity_retry_delay(period, c.refused_checks, waited),
+        ))
     }
 
     /// Reserve capacity before painting, waiting at most half a display period.
@@ -494,6 +506,7 @@ impl D3d11 {
             .composition
             .as_mut()
             .ok_or(Error::Unsupported("no composition window"))?;
+        c.capacity_wait = None;
         if let Err(error) = c.resize(size) {
             c.refused_checks = 0;
             return Err(error);
@@ -702,6 +715,11 @@ fn retry_delay(period: Duration, refused_checks: u32) -> Duration {
         .min(Duration::from_secs(1))
 }
 
+fn capacity_retry_delay(period: Duration, refused_checks: u32, waited: Duration) -> Duration {
+    // The first timeout finishes this period; repeated timeouts add idle backoff.
+    retry_delay(period, refused_checks.saturating_sub(1)).saturating_sub(waited)
+}
+
 fn presented(status: windows::core::HRESULT) -> Result<bool> {
     if status == DXGI_STATUS_OCCLUDED {
         return Ok(false);
@@ -832,12 +850,15 @@ mod tests {
     fn timeouts_back_off_without_a_full_period_ui_wait() {
         for hz in [60, 120, 144] {
             let period = refresh_period(hz, 1).unwrap();
-            assert!(Duration::from_millis(reservation_wait_ms(period) as u64) <= period / 2);
+            let waited = Duration::from_millis(reservation_wait_ms(period) as u64);
+            assert!(waited <= period / 2);
+            assert_eq!(waited + capacity_retry_delay(period, 1, waited), period);
+            assert_eq!(capacity_retry_delay(period, 1, period * 2), Duration::ZERO);
             let mut refused = 0;
             let mut previous = Duration::ZERO;
             for _ in 0..12 {
                 record_capacity(&mut refused, false);
-                let delay = retry_delay(period, refused);
+                let delay = waited + capacity_retry_delay(period, refused, waited);
                 assert!(delay >= previous && delay <= Duration::from_secs(1));
                 previous = delay;
             }
