@@ -2412,3 +2412,76 @@ but lost Shelf's tinted background: comparison mean **8.8669/255**, with
 repeated once. Both remain in `QUEUE.md`; no rendering fix or full native
 qualification is claimed by this benchmark. Desktop scaling was restored
 to 100% and every measured launch independently checked 96 DPI.
+
+
+### G6b: the D3D11 fling, traced
+
+The G6 wheel trajectory, window, desktop and device selections are unchanged.
+The source is `636f1fe2ae`. The release profile keeps its optimization and adds
+PDB line tables (`CARGO_PROFILE_RELEASE_DEBUG=1`,
+`CARGO_PROFILE_RELEASE_STRIP=none`). A WPR `GeneralProfile` capture located
+resource creation and driver work; the attribution below uses a second,
+lighter ETW capture restricted to the fling: `xperf -on
+PROC_THREAD+LOADER+PROFILE -stackwalk Profile -buffersize 1024 -minbuffers 128
+-maxbuffers 256`. `xperf -d` stops it after the CPU endpoint. The rest interval
+of this diagnostic is excluded because trace merging delays that endpoint.
+Microsoft's symbol server and the executable's matching PDB resolve system
+and application stacks; AMD's private driver functions remain unnamed.
+
+One sampled fling per arm gives **532.56/365.94 ms/s** process/main CPU on
+D3D11 and **129.08/115.08 ms/s** on wgpu. Sample counts are apportioned to
+these independently measured thread CPU totals; they are estimates of CPU,
+not elapsed GPU time. The five unprofiled G6 medians remain the before series.
+
+| CPU attribution, ms/s | Ink D3D11 | Ink wgpu/DX12 |
+| --- | ---: | ---: |
+| Main: clipping, including mask targets and device calls | 173.71 | 28.44 |
+| Main: remaining paint-frame work | 135.53 | 61.73 |
+| Main: outside paint-frame work | 56.69 | 24.92 |
+| Other threads, total | 166.62 | 14.00 |
+
+The D3D11 worker stacks include about **146 ms/s** beneath AMD's driver
+thread entry; image decode accounts for about **8 ms/s**, versus about
+**11 ms/s** on wgpu. The driver stacks include condition-variable and
+critical-section work. Private symbols are unavailable, so these samples
+cannot establish which internal queue, spin policy or allocation routine
+owns each driver cycle.
+
+Within the main-thread totals (overlapping inclusive stacks), D3D11 texture
+creation is about **58 ms/s**, completion polling **18**, rendering device
+calls **78**, texture uploads **3**, and DXGI `Present` **3**. Wgpu texture
+creation is about **1 ms/s** and synchronous readback **13**. The D3D11
+instance/constant-buffer `UpdateSubresource` path is about **3 ms/s**;
+texture uploads pass a bounded region and its row pitch. There is no ordinary
+D3D11 frame readback in the stacks. The DXGI display probe reads statistics,
+not pixels; its DWM synchronization runs at readiness. The latency handle is
+polled with zero timeout. Composition commits occur at content attachment,
+not every frame. Neither `Present`, readback nor a DWM wait explains the loss.
+
+The Windows host has no exporter for S1.4's Apple phase marks. Its agent
+`perf` runs the shared headless presenter, so it does not time this desktop
+window. Four supported 600-pixel wheel operations give identical plan work
+on both devices: 231 walked sites, nine constructed and four retired rows,
+zero rebound rows (collection site 4, `app.contract:92`). This checks shared
+plan work, not desktop pacing. The AppKit `fling`/phased-wheel forms are not
+supported by this Windows agent.
+
+A separate counter diagnostic found the D3D11 viewport-target pool retaining
+**1,201 targets / 2,866,181,696 bytes**, versus **16 / 38,183,936 bytes** on
+wgpu, with at most 16 targets used in one paint. These are logical texture
+bytes in an instrumented run, not the process working set from G6. The
+counter logging is excluded from the performance series.
+
+**Prediction before the change.** Submit the completion query after `Present`
+with an asynchronous D3D11 `Flush`. If a query left in the runtime's command
+buffer prevents reuse, the target pool should stay bounded near the wgpu
+arm, process CPU should fall below **250 ms/s**, and gesture cadence should
+rise above **45 displays/s**. This changes neither resource retirement nor
+completion requirements. It adds no completion wait. The result below must
+confirm or reject that hypothesis.
+
+Artifacts are in `target/g6b/` on the NucBox mirror: `profile/` (WPR),
+`sampled/{d3d11,wgpu}/` (fling-only ETLs, xperf exports and CPU endpoints),
+`release-symbols/`, `perf-plain/`, and `instrument/`. They are local artifacts,
+not checked-in results. The mirror remains the S2.8b mirror; no other
+checkout is used.
