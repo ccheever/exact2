@@ -6,6 +6,8 @@ use std::{cell::Cell, rc::Rc};
 /// Retained atlas storage and work performed in the last completed frame.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Statistics {
+    /// Completed painter snapshots, including frames whose present was refused.
+    pub snapshots: u64,
     /// Grayscale coverage, one byte per atlas pixel.
     pub glyphs: Stats,
     /// Premultiplied colour glyphs, four bytes per atlas pixel.
@@ -42,6 +44,7 @@ impl Ink {
     pub(super) fn update_statistics(&self) {
         let (glyphs, color_glyphs) = self.glyphs.stats();
         self.statistics.0.set(Statistics {
+            snapshots: self.statistics.read().snapshots + 1,
             glyphs,
             color_glyphs,
             paths: self.paths.stats(),
@@ -50,5 +53,16 @@ impl Ink {
             layer_targets: self.pool.retained(),
             layer_bytes: self.pool.bytes(),
         });
+    }
+}
+
+impl Drop for Ink {
+    fn drop(&mut self) {
+        if std::env::var("EXACT_AGENT_WINDOW_PROBE").as_deref() == Ok("on") {
+            eprintln!(
+                "exact-ink: painter snapshots {}",
+                self.statistics.read().snapshots
+            );
+        }
     }
 }

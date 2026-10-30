@@ -1,5 +1,56 @@
 use super::*;
 use winit::platform::windows::WindowAttributesExtWindows;
+
+#[test]
+fn dirty_redraws_respect_the_present_retry_and_one_paint_per_refresh() {
+    let start = Instant::now();
+    for hz in [60, 120, 144] {
+        let period = Duration::from_secs_f64(1. / hz as f64);
+        let next = start + period;
+        let mut schedule = FrameSchedule {
+            cadence: Some(next),
+            retry: None,
+            present: None,
+        };
+        for step in 0..100 {
+            let now = start + period * step / 100;
+            assert_eq!(schedule.redraw(now, true), Some(next));
+            assert_eq!(schedule.admit(now), next);
+        }
+        // Refusal can arrive after the cadence tick. New dirty events cannot
+        // shorten its deadline, and a clean picture must still retry there.
+        let refused_until = next + period / 2;
+        schedule.present = Some(refused_until);
+        schedule.retry = Some(refused_until);
+        for dirty in [false, true] {
+            assert_eq!(schedule.redraw(next, dirty), Some(refused_until));
+            assert_eq!(schedule.redraw(refused_until, dirty), Some(refused_until));
+        }
+        assert_eq!(schedule.admit(next), refused_until);
+        assert_eq!(schedule.admit(refused_until), refused_until);
+        schedule.present = None;
+        schedule.retry = None;
+        assert_eq!(schedule.redraw(refused_until, false), None);
+    }
+}
+
+#[test]
+fn recovery_backoff_keeps_idle_wakes_without_stalling_changed_content() {
+    let now = Instant::now();
+    let recovery = now + Duration::from_secs(1);
+    let mut schedule = FrameSchedule {
+        cadence: None,
+        retry: Some(recovery),
+        present: None,
+    };
+    assert_eq!(schedule.redraw(now, false), Some(recovery));
+    assert_eq!(schedule.redraw(now, true), Some(now));
+    assert_eq!(schedule.admit(now), now);
+    let tick = now + Duration::from_millis(16);
+    schedule.cadence = Some(tick);
+    assert_eq!(schedule.redraw(now, true), Some(tick));
+    assert_eq!(schedule.redraw(now, false), Some(recovery));
+}
 #[test]
 fn only_direct_ink_devices_prepare_asynchronously() {
     use exact_linux::presenter::PainterChoice::*;

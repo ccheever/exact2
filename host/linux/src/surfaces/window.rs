@@ -482,7 +482,10 @@ impl DirectWindow {
         }
         if !self.recovering {
             let frame = p.frame_for(FrameTarget::Window);
-            self.present_due = p.brush.presentation_retry_delay().map(|delay| now + delay);
+            self.present_due = p
+                .brush
+                .presentation_retry_delay()
+                .map(|delay| std::time::Instant::now() + delay);
             if self.present_due.is_some() {
                 p.repaint();
                 p.last_frame_succeeded = false;
@@ -533,7 +536,9 @@ impl DirectWindow {
                     self.fallback = None;
                 }
                 Ok(ms) => {
-                    self.present_due = device.presentation_retry_delay().map(|delay| now + delay);
+                    self.present_due = device
+                        .presentation_retry_delay()
+                        .map(|delay| std::time::Instant::now() + delay);
                     p.last_frame_succeeded = ms > 0.;
                     self.ever_presented |= ms > 0.;
                     if ms > 0. && std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
@@ -563,7 +568,17 @@ impl<D: DataSource> Presenter<D> {
         direct.retire_due
     }
 
-    /// Next readiness or recovery attempt for a directly presenting painter.
+    /// Earliest paint after a refused present, measured from the refusal.
+    /// Recovery backoff is separate: it must not delay input on the CPU fallback.
+    pub fn painter_present_deadline(&self) -> Option<std::time::Instant> {
+        self.surfaces
+            .direct_window
+            .as_ref()
+            .and_then(|d| d.present_due)
+    }
+
+    /// Next readiness, recovery or presentation attempt; asks for a redraw even
+    /// without new damage. Only `painter_present_deadline` forbids earlier paint.
     pub fn painter_retry_deadline(&self) -> Option<std::time::Instant> {
         self.surfaces.direct_window.as_ref().and_then(|d| {
             if d.startup.pending() {

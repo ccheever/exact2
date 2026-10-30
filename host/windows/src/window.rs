@@ -68,6 +68,9 @@ struct App<D: DataSource> {
 
 impl<D: DataSource> Drop for App<D> {
     fn drop(&mut self) {
+        if std::env::var("EXACT_AGENT_WINDOW_PROBE").as_deref() == Ok("on") {
+            eprintln!("exact-windows: successful frames {}", self.frames);
+        }
         self.timers.clear();
         self.accessibility.take();
         // The module's GPU swapchain must release its HWND before the window.
@@ -119,6 +122,26 @@ fn next_frame_deadline(deadline: Instant, started: Instant, period: Duration) ->
     } else {
         // After a stall or suspension, resume without a burst of catch-up frames.
         started + period
+    }
+}
+
+struct FrameSchedule {
+    cadence: Option<Instant>,
+    retry: Option<Instant>,
+    present: Option<Instant>,
+}
+
+impl FrameSchedule {
+    fn admit(&self, now: Instant) -> Instant {
+        self.cadence
+            .into_iter()
+            .chain(self.present)
+            .fold(now, Instant::max)
+    }
+
+    fn redraw(&self, now: Instant, dirty: bool) -> Option<Instant> {
+        let requested = if dirty { Some(now) } else { self.retry }?;
+        Some(requested.max(self.admit(now)))
     }
 }
 
@@ -425,7 +448,17 @@ impl<D: DataSource + Default + 'static> App<D> {
                 .is_some_and(|p| p.wants_display_frames() || p.host().motion());
         let unpaced =
             self.frame_limit.is_some() && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some();
-        if continuous && !unpaced && frame_started < self.next_frame {
+        let schedule = FrameSchedule {
+            cadence: ((continuous || self.direct) && !unpaced).then_some(self.next_frame),
+            retry: None,
+            present: self
+                .presenter
+                .as_ref()
+                .and_then(|p| p.painter_present_deadline()),
+        };
+        // Input may change the picture while DXGI is full. Coalesce those changes
+        // into the next display period before rebuilding the painter's targets.
+        if schedule.admit(frame_started) > frame_started {
             return Ok(());
         }
         let now = self.now();
@@ -721,7 +754,6 @@ impl<D: DataSource + Default + 'static> App<D> {
         }
         if repaint_owed || p.dirty() {
             p.repaint();
-            window.request_redraw();
         }
         if self.frame_limit.is_some_and(|limit| self.frames >= limit) {
             // Bounded measurements write their per-frame log after the timed run.
@@ -1245,11 +1277,6 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
         let Some(p) = &mut self.presenter else { return };
         let retirement = p.collect_painter_retirement(Instant::now());
-        if p.dirty() && !self.minimized && !self.occluded {
-            if let Some(window) = &self.window {
-                window.request_redraw();
-            }
-        }
         let pads_active = self.focused && !self.minimized && p.has_gamepad_input();
         if self.pads_active != pads_active {
             self.pads_active = pads_active;
@@ -1275,24 +1302,27 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             self.fail(events, e);
             return;
         }
-        if !self.minimized
-            && (self.frame_limit.is_some()
-                || (!self.occluded && (p.wants_display_frames() || p.host().motion())))
-        {
-            if Instant::now() >= self.next_frame {
-                if let Some(window) = &self.window {
-                    window.request_redraw();
-                }
-            }
-            events.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
-        } else if let Some(due) = p.wake_due_ms() {
+        if let Some(due) = p.wake_due_ms() {
             let deadline = self.started + Duration::from_secs_f64((due / 1000.).max(0.));
             events.set_control_flow(ControlFlow::WaitUntil(deadline));
         } else {
             events.set_control_flow(ControlFlow::Wait);
         }
-        if let Some(due) = p.painter_retry_deadline() {
-            if Instant::now() >= due {
+        let continuous =
+            self.frame_limit.is_some() || p.wants_display_frames() || p.host().motion();
+        let unpaced =
+            self.frame_limit.is_some() && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some();
+        let schedule = FrameSchedule {
+            cadence: ((continuous || self.direct) && !unpaced).then_some(self.next_frame),
+            retry: p.painter_retry_deadline(),
+            present: p.painter_present_deadline(),
+        };
+        let now = Instant::now();
+        let redraw = (!self.minimized && !self.occluded)
+            .then(|| schedule.redraw(now, p.dirty() || continuous))
+            .flatten();
+        if let Some(due) = redraw {
+            if now >= due {
                 if let Some(window) = &self.window {
                     window.request_redraw();
                 }

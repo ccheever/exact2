@@ -233,6 +233,11 @@ def run(arm, number, out, full, presentmon, capture=False):
                 except subprocess.TimeoutExpired:
                     child.terminate(); child.wait()
             samples['exit']=child.returncode
+            text=log_path.read_text(errors='replace')
+            paints=re.findall(r'exact-ink: painter snapshots (\d+)',text)
+            frames=re.findall(r'exact-windows: successful frames (\d+)',text)
+            if paints: samples['painterSnapshots']=sum(map(int,paints))
+            if frames: samples['successfulFrames']=int(frames[-1])
             samples['endWallUnix']=time.time()
             if pm:
                 try: pm.wait(timeout=8)

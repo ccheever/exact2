@@ -2611,3 +2611,15 @@ outside the brief's named `host/ink` performance scope. That scope question
 is pending. The five current-build flings above retain the original pacing;
 there is no measured carrier fix.
 The carrier work and required remeasurement remain in `QUEUE.md`.
+
+### G6c: one paint per refresh
+
+**Prediction, recorded before measuring (2026-10-30).** Honoring the direct
+presenter's retry deadline and coalescing dirty redraws at the monitor rate
+should bring D3D11 fling process CPU below **150 ms/s**, main-thread CPU below
+**100 ms/s**, cadence above **55 displays per gesture second** on this 60 Hz
+desktop, display-interval p95 below **20 ms**, and late intervals below **1 per
+gesture second**. Completed painter snapshots should approximately equal
+successful frames. The ten-launch startup series should remain within G6's
+retained-driver distribution. These predictions are checked against the five
+quiet fling/rest samples and ten fresh-process launches below.
