@@ -115,7 +115,11 @@ impl Layer {
     }
 
     pub fn retry_requested(&self) -> bool {
-        self.0.retry.requested.swap(false, Ordering::AcqRel)
+        let requested = self.0.retry.requested.swap(false, Ordering::AcqRel);
+        if requested {
+            trace_mark(c"presentation retry consumed", || 1.);
+        }
+        requested
     }
 
     /// An input or surface transition permits another recovery attempt.
@@ -181,6 +185,9 @@ impl RenderLayer {
         drawable: &objc2::runtime::ProtocolObject<dyn objc2_metal::MTLDrawable>,
         ink: bool,
     ) {
+        trace_mark(c"drawable framebuffer only", || {
+            f64::from(self.raw.framebufferOnly())
+        });
         let retry = self.retry.clone();
         let wake = self.wake.clone();
         let presentation = self.presentation.clone();
@@ -193,6 +200,7 @@ impl RenderLayer {
                 // including while the window's first layer transaction is pending.
                 // https://developer.apple.com/documentation/metal/mtldrawable/presentedtime
                 let time = unsafe { shown.as_ref().presentedTime() };
+                trace_mark(c"presented handler", || time);
                 trace_interval(c"presented", || (time, time, 0.));
                 if !presentation.record(generation, time, ink) {
                     return;
@@ -256,6 +264,7 @@ struct Retry {
 }
 impl Retry {
     fn exposed(&self) {
+        trace_mark(c"presentation exposed", || 0.);
         self.failures.store(0, Ordering::Release);
         self.requested.store(true, Ordering::Release);
     }
@@ -266,6 +275,7 @@ impl Retry {
                 Some(n.saturating_add(1).min(2))
             })
             .unwrap();
+        trace_mark(c"presentation retry failures", || f64::from(previous) + 1.);
         if previous == 0 {
             self.requested.store(true, Ordering::Release);
             true
@@ -455,6 +465,7 @@ impl DisplayLink {
             return Err(Error::Device(format!("CVDisplayLink start/stop: {status}")));
         }
         self.running = running;
+        trace_mark(c"display running", || f64::from(running));
         Ok(())
     }
 }

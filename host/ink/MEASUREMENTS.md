@@ -3794,3 +3794,17 @@ No window series, live-resize interaction or reboot was performed. Miss and
 retained startup distributions, passive displayed timestamps and complete
 scenes per painter remain for the silver M5 Max after landing. These checks
 add no startup timing claim and do not change M10's unmet 100 ms obligation.
+
+
+### Chunk 4 — retained launches with no displayed frame
+
+Before reproduction, the hypothesis is that the layer exhausts its one retry
+before its first transaction completes. The probe's first tick grants one more
+attempt, but is not a continuing source of presentation demand. Prediction R1:
+at least one of ten retained Metal boot-only launches will have no positive
+presented timestamp within 30 seconds, with the display link stopped after the
+retry allowance is exhausted. Instrument: `G1_TRACE=1` on the silver Mac,
+including callback arrival, retry decisions, first transaction completion,
+framebuffer-only state and display-link start/stop marks. The transaction mark
+is its completion block, not a compositor acknowledgement. The run retains
+all ten attempts and reads the displayed painter through the agent's `state`.

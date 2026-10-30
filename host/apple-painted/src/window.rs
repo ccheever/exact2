@@ -363,6 +363,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 self.scrolling.tick(dirty);
                 if dirty {
                     if let Some(window) = &self.window {
+                        trace_mark(c"display requests redraw", || 0.);
                         window.request_redraw();
                     }
                 }
@@ -571,6 +572,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 }
             }
             WindowEvent::Occluded(hidden) => {
+                trace_mark(c"window hidden", || f64::from(hidden));
                 self.hidden = hidden;
                 p.surface_lifecycle(hidden, false);
                 if !hidden {

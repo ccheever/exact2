@@ -14,7 +14,7 @@ static double processStart, loaded, firstDrawable, firstComplete;
 static double firstCpu, firstInk;
 static double firstCpuComplete, firstInkComplete;
 static void (^bootExpose)(void);
-void g1_boot_expose(void (^callback)(void)) { bootExpose = [callback copy]; }
+void g1_boot_expose(void (^callback)(void));
 static void firstBootTick(void) {
     if (bootExpose) {
         void (^callback)(void) = bootExpose;
@@ -136,6 +136,16 @@ void g1_interval(const char *name, double start, double end, double value) {
         intervals[intervalCount++] = (typeof(intervals[0])){name, start, end, value, pthread_mach_thread_np(pthread_self())};
     } else intervalDropped++;
     pthread_mutex_unlock(&traceLock);
+}
+
+void g1_boot_expose(void (^callback)(void)) {
+    bootExpose = [callback copy];
+    if (tracing && !CATransaction.completionBlock) {
+        [CATransaction setCompletionBlock:^{
+            double now = CACurrentMediaTime();
+            g1_interval("layer first transaction completed", now, now, 0);
+        }];
+    }
 }
 
 void g1_ready(int complete, size_t item, float offset) {
