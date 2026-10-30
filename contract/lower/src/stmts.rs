@@ -17,12 +17,13 @@ use std::collections::BTreeSet;
 impl Lowerer<'_> {
     /// The slot a state's or a mutation's name writes.
     pub(crate) fn slot_named(&self, name: &str) -> exact_plan::SlotsId {
-        match self.root.states.iter().position(|s| s.name == name) {
-            Some(si) => self.slots[si],
-            None => {
-                let mi = self.root.mutations.iter().position(|m| m.name == name);
-                self.mutation_slots[mi.expect("the type pass resolved it")]
-            }
+        match self
+            .slot_names
+            .get(name)
+            .expect("the type pass resolved it")
+        {
+            Ok(si) => self.slots[*si],
+            Err(mi) => self.mutation_slots[*mi],
         }
     }
 
@@ -92,11 +93,7 @@ impl Lowerer<'_> {
                     let descriptor = self.b.str(&types.join(","));
                     asm.str(descriptor);
                 }
-                let m = self.mutations[root
-                    .mutations
-                    .iter()
-                    .position(|m| &m.name == target)
-                    .unwrap()];
+                let m = self.mutations[self.mutation_names[target.as_str()]];
                 let source = self.b.str(source);
                 asm.send(m, source, args.len() as u16 + u16::from(activity));
             }
