@@ -239,9 +239,9 @@ describe('what the thread is doing (ThreadNow)', () => {
     Object.assign(client.shell.threads[0]!, { pendingBackgroundTasks: [{ taskId: 'a', kind: 'command', description: 'npm run dev' }] });
     const line = threadNowRows(client)[0]!;
     expect(line.collapsible).toBe(false);
-    client.presentation.anchors = { [`tn:${line.id}`]: [0, 60], 't:12:400:Running: npm run dev': [0, 110] };
+    client.presentation.anchors = { [`tn:${line.id}`]: [0, 60], 't:12:400:Running npm run dev': [0, 110] };
     expect(threadNowRows(client)[0]!.collapsible).toBe(true);
-    client.presentation.anchors = { [`tn:${line.id}`]: [0, 140], 't:12:400:Running: npm run dev': [0, 110] };
+    client.presentation.anchors = { [`tn:${line.id}`]: [0, 140], 't:12:400:Running npm run dev': [0, 110] };
     expect(threadNowRows(client)[0]!.collapsible).toBe(false);
   });
 });

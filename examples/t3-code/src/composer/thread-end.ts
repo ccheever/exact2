@@ -1,5 +1,5 @@
 // What the thread is doing now and the turns queued behind it, as rows at the end of the timeline,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 7c3b3b3605ef: chat/ThreadNow.tsx,
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 7c3b3b3605ef, and at v0.1.5 chat/ThreadNow.tsx and
 // chat/ThreadActivityBanners.tsx (childInputNowItem, backgroundWorkNowItem, goalNowItem),
 // chat/QueuedRunsControl.tsx, threadSync.ts and ChatView.tsx (timelineFooter, scrollToEndSummary).
 // threadEndRows is the timeline's footer and thread-end.contract draws its rows; the rows are
@@ -25,7 +25,11 @@ import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
  * its id, `tone` "muted" or "", `ok` false while disabled). `status` "alert" announces the line and "status" is the sync
  * line; `collapsible` says the text is cut, so the line offers its details.
  */
-type Line = { id: string; icon: string; tone?: string; status?: string; title: string; detail?: string; segments?: Activity[]; actions: Activity[] };
+type Line = { id: string; icon: string; tone?: string; status?: string; title: string; detail?: string; segments?: Activity[]; actions: Activity[];
+  /** A name after the title ("Running" then "npm run dev"), in the code font when `mono`, which sets the detail in it too. */
+  label?: string; mono?: boolean;
+  /** When the one background task started (epoch ms): the line ticks its elapsed time before the actions. */
+  startedMs?: number };
 
 const blank = { icon: '', output: '', result: '', failed: false, timestamp: '' };
 const segment = (id: string, label: string, targetId = '', body = ''): Activity => ({ ...blank, id, label, body, status: targetId ? 'link' : 'text', targetId, tone: 'muted' });
@@ -42,18 +46,38 @@ function childInput(client: T3Client): Line | null {
     actions: [action('open', first.approval ? 'Open approval' : 'Open question', 'select-thread', first.id)] };
 }
 
-/** backgroundWorkNowItem: background commands and subagents once the turn is done; only work that wakes the agent is dark. */
+const epoch = (value: unknown) => { const ms = typeof value === 'string' ? Date.parse(value) : NaN; return Number.isFinite(ms) ? ms : null; };
+const oneLine = (value: unknown) => str(value).replace(/\s+/gu, ' ').trim();
+/**
+ * backgroundWorkNowItem: background commands and subagents once the turn is done. One task reads "Running <name>" (a
+ * command's name in the code font), its subagent's newest progress after it, then its elapsed time and Open; several
+ * read their count and the newest progress of any subagent, else their names. A terminal glyph when all are commands.
+ */
 function backgroundWork(client: T3Client): Line | null {
   if (activeRun(client.projection)) return null;
   const shell = client.shell.threads.find(thread => thread.id === client.threadId);
   const presented = presentBackgroundWork(arr(shell?.pendingBackgroundTasks));
   if (!presented) return null;
+  const turnItems = arr(client.projection.turnItems);
+  const rows = presented.items.map(task => {
+    // The key derivePendingBackgroundWork gives turn-item tasks; subagent items carry progress.
+    const item = [...turnItems].reverse().find(candidate => (str(obj(candidate.nativeItemRef).nativeId) || str(candidate.id)) === task.taskId);
+    const subagent = item?.type === 'subagent' ? item : undefined;
+    return { task, activity: oneLine(subagent?.progress), startedMs: epoch(item?.startedAt), updatedMs: subagent ? epoch(subagent.updatedAt) ?? 0 : 0,
+      childThreadId: task.childThreadId || str(subagent?.childThreadId) };
+  });
+  const only = rows.length === 1 ? rows[0] : undefined;
+  const newest = rows.filter(row => row.activity).sort((left, right) => right.updatedMs - left.updatedMs)[0];
+  const commands = rows.every(row => row.task.kind !== 'subagent');
   const stopping = client.busy && client.pending?.description === 'Stop background work';
   const canOperate = client.connection === 'connected' && client.scopes.includes('orchestration:operate');
-  return { id: `background-work:${client.threadId}`, icon: presented.waiting ? 'dot' : 'dot-muted', title: presented.title,
-    detail: presented.segments.length ? '' : presented.description,
-    segments: presented.segments.map(entry => segment(entry.key, entry.label, entry.threadId, entry.threadId ? entry.aria : '')),
-    actions: [action('stop', stopping ? 'Stopping...' : 'Stop', 'cc:stop-background', '', '', canOperate && !stopping)] };
+  const names = rows.map(row => row.task.label).join(', ');
+  return { id: `background-work:${client.threadId}`, icon: commands ? 'terminal' : 'circle-dashed',
+    ...(only ? { title: presented.waiting ? 'Waiting on' : 'Running', label: only.task.label, mono: only.task.kind !== 'subagent', detail: only.activity }
+      : { title: presented.title, detail: newest ? `${newest.task.label}: ${newest.activity}` : names, mono: !newest && commands }),
+    ...(only?.startedMs != null ? { startedMs: only.startedMs } : {}),
+    actions: [...(only?.childThreadId ? [action('open', 'Open', 'select-thread', only.childThreadId, 'muted')] : []),
+      action('stop', stopping ? 'Stopping...' : 'Stop', 'cc:stop-background', '', '', canOperate && !stopping)] };
 }
 
 /** goalNowItem: the thread's goal. Clear stops goal work; Resume would stop unrelated work, so it waits. */
@@ -90,7 +114,7 @@ function threadNowLines(client: T3Client, sync: string): Line[] {
 /** The texts a line lays out before its actions, each at its weight: links are medium, everything else regular. */
 function lineTexts(line: Line): Array<[string, number]> {
   const described = !!line.detail || !!line.segments?.length;
-  const parts: Array<[string, number]> = [[line.title, 400], ...(described ? [[' · ', 400] as [string, number]] : [])];
+  const parts: Array<[string, number]> = [[line.label ? `${line.title} ${line.label}` : line.title, 400], ...(described ? [[' ', 400] as [string, number]] : [])];
   if (line.detail) parts.push([line.detail, 400]);
   line.segments?.forEach((entry, index) => { parts.push([entry.label, entry.status === 'link' ? 500 : 400]); if (index < line.segments!.length - 1) parts.push([', ', 400]); });
   return parts;
@@ -117,8 +141,8 @@ export function threadNowRows(client: T3Client): Message[] {
   const rows = threadNowLines(client, syncStatus(client)).map((line): Message => {
     const details = cut(client, line, rootFontSize);
     if (details) shown.add(line.id);
-    return { id: line.id, kind: 'thread-now', title: line.title, body: '', icon: line.icon, tone: line.tone ?? '', status: line.status ?? '',
-      detail: line.detail ?? '', activities: [...line.segments ?? [], ...line.actions], collapsible: details };
+    return { id: line.id, kind: 'thread-now', title: line.title, body: line.label ?? '', meta: line.mono === true, startedMs: line.startedMs ?? 0, icon: line.icon,
+      tone: line.tone ?? '', status: line.status ?? '', detail: line.detail ?? '', activities: [...line.segments ?? [], ...line.actions], collapsible: details };
   });
   detailsShown.set(client, shown);
   return rows;

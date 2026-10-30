@@ -187,14 +187,16 @@ const joinWithAnd = (parts: string[]) => parts.length <= 1 ? parts.join('') : `$
  * dev server or its watchdog as a wait.
  */
 export type NoticeSegment = { key: string; label: string; threadId: string; aria: string; last: boolean };
-export function presentBackgroundWork(tasks: Obj[]): { title: string; description: string; waiting: boolean; segments: NoticeSegment[] } | null {
+export type BackgroundWorkItem = { taskId: string; kind: string; label: string; childThreadId: string };
+export function presentBackgroundWork(tasks: Obj[]): { title: string; description: string; waiting: boolean; segments: NoticeSegment[]; items: BackgroundWorkItem[] } | null {
   if (!tasks.length) return null;
   const waiting = tasks.some(task => task.awaited === true || (task.kind !== 'command' && task.kind !== 'monitor'));
   const kind = (task: Obj) => BACKGROUND_KINDS[str(task.kind)] ?? BACKGROUND_KINDS.background_task!;
   const items = tasks.map(task => {
     const description = str(task.description).trim(), label = task.kind === 'subagent' ? subagentTitle(description).trim() : description;
-    return { kind: str(task.kind), meta: kind(task), label: label || kind(task).singular, child: task.kind === 'subagent' ? str(task.childThreadId) : '' };
+    return { kind: str(task.kind), meta: kind(task), label: label || kind(task).singular, child: task.kind === 'subagent' ? str(task.childThreadId) : '', taskId: str(task.taskId) };
   }).sort((a, b) => a.meta.order - b.meta.order);
+  const presented = items.map(item => ({ taskId: item.taskId, kind: item.kind, label: item.label, childThreadId: item.child }));
   // The description lists every item; a subagent with its own thread is an inline "Open subagent …" link.
   const segments = (list: typeof items) => list.map((item, index) => ({ key: `${index}:${item.label}`, label: item.label, threadId: item.child,
     aria: `Open subagent ${item.label}`, last: index === list.length - 1 }));
@@ -202,13 +204,13 @@ export function presentBackgroundWork(tasks: Obj[]): { title: string; descriptio
     const only = items[0]!, noun = only.meta.singular, named = only.label !== noun;
     const title = waiting ? (named ? `${only.kind === 'monitor' ? '' : `Waiting on ${noun} `}${only.label}` : `Waiting on a ${noun}`) : named ? `Running: ${only.label}` : `Running a ${noun}`;
     // A single named item is already in the title, so a lone subagent's link reads "Show".
-    return { title, description: only.child ? 'Show' : '', waiting,
+    return { title, description: only.child ? 'Show' : '', waiting, items: presented,
       segments: only.child ? [{ key: `0:${only.label}`, label: 'Show', threadId: only.child, aria: `Show subagent ${only.label}`, last: true }] : [] };
   }
   const counts = new Map<string, number>();
   for (const item of items) counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
   const groups = [...counts].map(([key, count]) => { const meta = BACKGROUND_KINDS[key] ?? BACKGROUND_KINDS.background_task!; return `${count} ${count === 1 ? meta.singular : meta.plural}`; });
-  return { title: `${waiting ? 'Waiting on' : 'Running'} ${joinWithAnd(groups)}`, description: items.map(item => item.label).join(', '), waiting,
+  return { title: `${waiting ? 'Waiting on' : 'Running'} ${joinWithAnd(groups)}`, description: items.map(item => item.label).join(', '), waiting, items: presented,
     segments: items.some(item => item.child) ? segments(items) : [] };
 }
 
