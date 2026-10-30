@@ -91,13 +91,20 @@ final class SheetFixture {
 
     """
 
-    /// `page`: another page for the same fixture (`RouteSheetMacTests`).
-    init(page: String = SheetFixture.page, size: CGSize = CGSize(width: 900, height: 640), settleOnMount: Bool = true) throws {
+    /// `page`: another page for the same fixture (`RouteSheetMacTests`);
+    /// `data`: the `data-*` words it uses, which a manifest beside it declares
+    /// under the linked app's id (the runner boots no other app's plan).
+    init(page: String = SheetFixture.page, size: CGSize = CGSize(width: 900, height: 640), settleOnMount: Bool = true, data: [String] = []) throws {
         _ = NSApplication.shared
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         try page.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
+        if !data.isEmpty {
+            let id = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_TEST_APP_ID"])
+            let manifest: [String: Any] = ["app": ["id": id, "name": "Sheet fixture"], "data": data]
+            try JSONSerialization.data(withJSONObject: manifest).write(to: dir.appendingPathComponent("app.json"))
+        }
         let compiler = Process()
         compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
         compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path]
