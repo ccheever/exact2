@@ -83,6 +83,7 @@ pub(crate) struct Receipt<'a> {
     pub js: &'a str,
     pub runner_seconds: f64,
     pub candidates: usize,
+    pub precision: &'a crate::suggest::Precision,
 }
 impl Receipt<'_> {
     pub fn print(&self) {
@@ -184,6 +185,7 @@ impl Receipt<'_> {
             }
         }
         println!("  properties: {held} held, {false_} false, {counted} counted only, {idle} not exercised{}", if details.is_empty() { String::new() } else { format!(" ({})", details.join("; ")) });
+        self.precision.print();
         let count = |class| c.classes.get(class).copied().unwrap_or(0);
         println!("  refusals: {} of the app's own (above); {} of class T; {} of the world's; {} limit; {} poisoned; {} cycle; {} value; {} unclassified", count("app"), count("type"), count("world"), count("limit"), count("poisoned"), count("cycle"), count("value"), count("unclassified"));
         println!("  world: seeded oracle answering at once and never failing; tap, type, land and clock events only; no reload, no late answer, no host input; {}", crate::settle::HOST_WORLD);

@@ -813,6 +813,10 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   `length`). Fix: another
   word (`count`, `steps`, `empty`). (euxy port, 2026-10-15.)
 
+- **An action call also names a host command.** `setMode(value)` is ambiguous
+  when an action is also named `setMode` (`syntax-call-ambiguous`). Rename the
+  action and its bindings, for example to `chooseMode`.
+
 - **`nav` read after it is assigned in the same action is the old value.** State
   writes land when the action ends (`analyze-read-after-assign`), so `nav = push(nav,
   "/d")` then `top(nav)` still sees the route before it. Fix: `let next = push(nav,

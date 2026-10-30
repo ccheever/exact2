@@ -45,12 +45,12 @@ confirms, alongside delivered tests, explore and shrunk findings. Without `lake`
 or with `--runner-only`, the runner still searches. `--js` also runs the scripts
 on the web JS target and checks `always` there.
 
-The receipt gives the command, app/test/embedding digests, scripts
-delivered or stopped, steps, stores, action coverage, property results, refusals,
-timings and which evaluators ran. A property can be held, false, counted only or
-not exercised. Suggestions describe observations, not proofs; they do not edit tests.
-Keep the receipt unchanged in your diary;
-its digests tell a reader when the sources have moved.
+The receipt gives the command, source digests, delivery, steps, stores, action
+coverage, property results, refusals, timings and evaluators. Properties may hold,
+be false, be counted only or remain unexercised. Suggestions are observed and
+code-consistent, not proved: the static walk widens frames, drops unsupported claims
+and counts both in the receipt. Suggestions never edit tests. Keep the receipt
+unchanged in your diary; its digests identify the sources.
 
 “In the semantics' world” means seeded source answers arrive synchronously and
 never fail. The events are taps, typing, landing continuations and advancing the
@@ -59,8 +59,7 @@ about a mutation result is therefore about the seeded answer, and a successful
 search establishes only what those scripts observed.
 
 `bun exact.mjs test web` (or `test ios`) checks `always` at boot, after inputs and
-reloads, and after every clock step,
-including automatic test-clock advances.
+reloads, and after every clock step.
 `bun exact.mjs verify` runs the device checks and then `contract verify`, and either
 failure fails the command. Device and headless JS runs report how many `after`,
 frame, command and `never refuses` lines they leave unchecked: neither exposes

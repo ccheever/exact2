@@ -372,6 +372,22 @@ Frames require at least two eligible input/landing pairs or clock advances and i
 changed queue slots. Sets, whole numbers, options and stays use the same cone as
 authored properties. Existing predicates are compared by scope and line, ignoring names.
 
+Before printing, `contract/analyze` walks the expanded program's writes and callers.
+A frame includes every branch, called action and send continuation; the clock includes
+every task, sequence end, continuation and queued send. A larger finite write set
+widens the frame; a call or send cycle suppresses it. A set must contain the
+initializer and every possible written value, including arguments supplied by every
+caller. Literal choices and literal-list controls are understood. Unbounded values
+from inputs, module-event arguments, host answers or unsupported expressions suppress
+the set. A latch is suppressed if any assignment can
+reset it. Whole-number suggestions require whole initializers and writes: literals,
+increments or decrements by one, lengths, rounding of finite numbers, or callers
+that preserve whole values. A raw clock reading does not qualify. The walk follows
+pure functions and derives, but does not use branch guards to establish invariants,
+so it can lose true suggestions. The receipt counts drops by rule, names their reasons, counts frames
+widened by the code and times the pass. A suggestion is observed and code-consistent,
+not proved; persisted-store and oracle limits still apply.
+
 The receipt records SHA-256 of the entry source, test files concatenated in filename
 order, and `contract::lean::lean_path(file, "app")`, plus the exact2 commit. It ends with
 the world and semantics boundaries. `never reached` names rendered test targets' actions

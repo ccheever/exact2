@@ -853,6 +853,19 @@ is one a reader cannot settle from the code (a joint or conditional invariant, o
 arithmetic over `old`), which this corpus does not yet hold. The precision pass
 above and the coverage the §5 census names (`request`, `clock until`) come first.
 
+**The precision pass, measured** (lane E, 2026-10-30). Before a frame, a set, a
+`stays` or a `whole` is printed, `contract/analyze` walks the expanded program for
+what the code can do to the slot: an action's frame through its branches, the
+actions it calls, the sends it issues and their continuations (a cycle means no
+frame); a set from the initializer and every write, callers' arguments included; a
+latch refused when any write resets it; a whole number only from whole writes. Over
+the thirteen apps the search's candidates fell from 394 printed to 186, with 75
+frames widened to the set the code writes and the rest dropped by rule; all thirteen
+blocks the Fable judge found false are now widened or dropped, and all 21 kept blocks
+are still suggested. The pass costs about 10 ms on Type Tour and 300 ms on Excord. A
+suggestion is now observed and code-consistent, not proved; the walk reads no
+branch guard, so it can still drop a true property, which the receipt counts.
+
 ## Open questions
 
 1. **Steps with more than one commit.** D2 counts them per `after` line. The trigger,

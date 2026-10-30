@@ -420,7 +420,7 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         crate::observe::OMITTED_KINDS.join(", ")
     );
     println!("world: {}", crate::settle::HOST_WORLD);
-    suggestions.print(&properties);
+    let precision = suggestions.print(&properties, &file)?;
     let never = rendered
         .difference(&walk_census.attempted)
         .cloned()
@@ -441,6 +441,7 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         js: &js,
         runner_seconds,
         candidates,
+        precision: &precision,
     }
     .print();
     Ok(ok)

@@ -17,6 +17,8 @@ mod calls;
 mod gates;
 mod properties;
 pub use properties::check_properties;
+mod suggestions;
+pub use suggestions::{check_suggestions, SuggestionCheck};
 mod rereads;
 mod sends;
 mod shortcuts;

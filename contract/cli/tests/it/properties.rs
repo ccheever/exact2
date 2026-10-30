@@ -209,3 +209,117 @@ fn device_json_accepts_a_relative_test_path_whose_app_uses_a_sibling() {
     assert!(json.contains("\"whole\""), "{json}");
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn suggestion_walk_follows_calls_tasks_queues_and_all_value_writers() {
+    let source = r#"shape Reply
+  ok: bool
+fn rounded(n: number): number = round(n)
+component App
+  state mode = "one"
+  state count = 0
+  state ready = false
+  state text = ""
+  state length = 0
+  state sequenceEnded = false
+  mutation first as shape Reply then answered
+  mutation queued as shape Reply queue then finish
+  action choose(v: string)
+    mode = v
+  action delegate(v: string)
+    let choice = v
+    choose(choice)
+  action step
+    count = min(10, count + 1)
+    ready = true
+  action roundedStep(v: number)
+    count = rounded(v)
+  action record(v: string)
+    text = v
+    length = v.length
+  action ask
+    send first = request()
+  action answered
+    if ready
+      send queued = request()
+  action finish
+    mode = "two"
+  action sequenceDone
+    sequenceEnded = true
+  task later mount
+    after(1, ask)
+  sequence melody when ready
+    play([], ended=sequenceDone)
+  view
+    column
+      for choice in ["one", "two"] key=choice
+        button press=delegate(choice)
+      input input=record
+      button press=step
+      button press=roundedStep(3.5)
+"#;
+    let file = contract_syntax::parse(source).unwrap();
+    let expanded = contract_syntax::expand(&file).unwrap();
+    let candidates = contract::properties(
+        r#"always "set"
+  expect state mode in "one" "two"
+always "whole"
+  expect state count whole
+always "length"
+  expect state length whole
+always "latch"
+  expect state ready stays true
+after "ask" "pair"
+  only writes first
+after clock "due"
+  writes none
+"#,
+    )
+    .unwrap();
+    let checked = contract_analyze::check_suggestions(&expanded, &file, &candidates);
+    assert!(
+        checked[..4]
+            .iter()
+            .all(|c| *c == contract::SuggestionCheck::Keep),
+        "{checked:?}"
+    );
+    assert_eq!(
+        checked[4],
+        contract::SuggestionCheck::Widen(vec!["first".into(), "mode".into(), "queued".into()])
+    );
+    assert_eq!(
+        checked[5],
+        contract::SuggestionCheck::Widen(vec![
+            "first".into(),
+            "mode".into(),
+            "queued".into(),
+            "sequenceEnded".into()
+        ])
+    );
+
+    let mut cycle = expanded.clone();
+    cycle.root.mutations[1].then = Some(("ask".into(), cycle.root.span));
+    let checked = contract_analyze::check_suggestions(&cycle, &file, &candidates[4..]);
+    assert!(checked.iter().all(|c| matches!(c, contract::SuggestionCheck::Drop { rule: "frame", reason } if reason.contains("cycle"))), "{checked:?}");
+}
+
+#[test]
+fn suggestion_values_refuse_host_parameters_resets_and_fractional_or_shadowed_builtins() {
+    for (source, property, rule) in [
+        ("component App\n  state n = 0\n  action a(v: number)\n    n = v\n  tool a writes \"Set\" = a\n", "expect state n whole", "whole"),
+        ("fn floor(n: number): number = n / 2\ncomponent App\n  state n = 0\n  action a\n    n = floor(3)\n", "expect state n whole", "whole"),
+        ("shape Data\n  length: number\ncomponent App\n  state n = 0\n  resource data = read() as shape Data\n  action a\n    n = data.length\n", "expect state n whole", "whole"),
+        ("component App\n  state n = 0\n  action a\n    n = performanceNow()\n", "expect state n whole", "whole"),
+        ("component App\n  state n = 0\n  action a\n    n = floor(1 / 0)\n", "expect state n whole", "whole"),
+        ("component App\n  state n = 0\n  action a\n    n = round(0 / 0)\n", "expect state n whole", "whole"),
+        ("component App\n  state n = 0\n  action a(v: number)\n    n = v\n  view\n    input timeupdate=a\n", "expect state n in 0 1", "set"),
+        ("component App\n  state ready = false\n  action a\n    ready = true\n  action b\n    ready = false\n", "expect state ready stays true", "stays"),
+        ("component App\n  state n = -0\n", "expect state n in 0", "set"),
+    ] {
+        let file = contract_syntax::parse(source).unwrap();
+        let expanded = contract_syntax::expand(&file).unwrap();
+        let p = contract::properties(&format!("always \"p\"\n  {property}\n")).unwrap();
+        let result = contract_analyze::check_suggestions(&expanded, &file, &p);
+        assert!(matches!(&result[0], contract::SuggestionCheck::Drop { rule: r, .. } if *r == rule), "{source}: {result:?}");
+    }
+}
