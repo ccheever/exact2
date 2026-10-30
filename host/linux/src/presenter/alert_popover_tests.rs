@@ -182,3 +182,15 @@ fn each_kind_keeps_its_own_focus_and_inertness() {
         assert_eq!(count(&p, "probes"), Some(Value::Number(pressed)), "{kind}");
     }
 }
+
+/// The page under a popover stays in the accessibility tree, with the
+/// popover's own nodes; under a modal dialog the box is the whole tree.
+#[test]
+fn the_accessibility_tree_keeps_the_page_under_a_popover() {
+    let mut p = boot(APP);
+    tap(&mut p, "open");
+    let views: Vec<ViewId> = p.access_tree().0.iter().map(|n| n.view).collect();
+    for name in ["probe", "open", "save"] {
+        assert!(views.contains(&id(&p, name)), "{name} in {views:?}");
+    }
+}
