@@ -38,9 +38,12 @@ the final normal build is clean and the EAS session is shut down.
 Evidence and limits are in
 `target/t3-poc-evidence/main-refresh-20261030/integration/receipt.md`.
 Connected cloud routes, hardware input and full phone, iPad and desktop parity
-remain unqualified. Independent integration review is pending. The authorized
-real-provider POC is preserved, the delivered TestFlight build is unchanged, and
-this integration reaches no new release checkpoint.
+remain unqualified. Independent integration review finds no introduced P1 or P2
+issue. Its 25 focused tests, source and artifact comparisons, and raw device
+checks pass. No comment cleanup is required. The historical real-provider POC
+source is preserved; this refresh does not repeat connected acceptance. The
+delivered TestFlight build is unchanged, and this integration reaches no new
+release checkpoint.
 
 The native integration passes emoji editing, Photos import and cancel, inline
 preview and Back with unflushed text preserved, explicit image removal, native
