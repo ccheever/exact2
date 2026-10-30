@@ -1112,22 +1112,29 @@ VoiceOver reach the chips, on a local branch):
   instructions, button" after a pointer press on a composer skill chip, 2 of 2). The terminal output
   target is not checked with real input: the fixture has no terminal excerpt. The app tests cover all
   three targets.
-- VO-Right from Message reads each chip in text order and then 'Default, collapsed, button' (two
-  review comments and an image chip, 5 of 5), and VO-Left goes back the same way (1 of 1). On the
-  Settings sample it reads the skill chip, both file chips and then the Monospace font heading (2 of
-  2). Before #1180, VO-Right went from Message straight to 'Default' and skipped every chip.
+- These two rows need exact2 #1180, which this branch does not hold until main merges in. VO-Right
+  from Message reads each chip in text order and then 'Default, collapsed, button' (6 of 6: two review
+  comments and an image chip, or a review comment and two skill chips), and VO-Left goes back the same
+  way (2 of 2). On the Settings sample it reads the skill chip, both file chips and then the Monospace
+  font heading (2 of 2). Before #1180, VO-Right went from Message straight to 'Default' and skipped
+  every chip.
 - VO-Space on a chip opens it with the focus inside: a review comment reads "Review comment, outline.ts
-  L7, dialog" (5 of 5), the Settings sample's skill chip "Skill Frontend Design, dialog" (5 of 5), and an
-  image chip opens "Expanded image preview, dialog" with Close image preview focused, as the reference's
-  ExpandedImageDialog does (5 of 5). Before #1180 VO-Space on a chip opened nothing.
+  L7, dialog" (5 of 5), the Settings sample's skill chip "Skill Frontend Design, dialog" (5 of 5), a
+  composer skill chip "View instructions, button" (1 of 1), and an image chip opens "Expanded image
+  preview, dialog" with Close image preview focused, as the reference's ExpandedImageDialog does (5 of
+  5). Before #1180 VO-Space on a chip opened nothing.
 - Escape gives the prompt the focus back with the chip selected: "Message …, edit text …, is selected
-  Review comment, outline.ts L3. Show details", after every popup and image preview above. On the
-  Settings sample the chip finish had never given the sample its focus back: it counted Settings
-  itself, a route dialog, as a dialog over the sample.
-- A press outside the open details leaves the focus where the press put it, never on the prompt, as
-  the reference's FloatingFocusManager returns the focus on an outside press only to a tabbable
-  trigger: on Search settings (1 of 1), on the Typography heading (2 of 2), and on empty ground in
-  Settings, where the Settings dialog keeps it (2 of 2).
+  Review comment, outline.ts L3. Show details" (27 of 27, after every popup and image preview above).
+  On the Settings sample the chip's finish had never given the sample its focus back: it counted
+  Settings itself, a route dialog, as a dialog over the sample.
+- An outside press gives the prompt the focus back with the chip selected unless the press focused
+  another element, as the reference's PopoverPopup does (`finalFocus`, true by default, which
+  FloatingFocusManager applies when the press left the focus on the body or in the closed popup). A
+  press on empty timeline ground returns it (3 of 3); the press focused the window's root, which counts
+  as the body. A press on Search settings (2 of 2) or on the Typography heading (2 of 2) leaves the
+  focus there, and on empty ground in Settings the Settings dialog keeps it (2 of 2). Before, the
+  timeline's own pointerdown op replaced the details' close on their shared send, and the focus went
+  nowhere; chip ops now have a send of their own (`chipChanged`).
 
 **Fixed, not checked with real input or VoiceOver:**
 
