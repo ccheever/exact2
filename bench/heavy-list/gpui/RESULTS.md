@@ -4352,3 +4352,71 @@ boundary. `evidence.sha256`, `final-source-sha256.json` and
 | Forty timer rearms each precede a second rest dispatch | Forty winit arms and forty following turns in both request traces: met |
 | A failed paint increases attempts exactly once and preserves its error | Enabled-counter `allocation refused` test passes its +1 assertion; error unchanged |
 | Stage 1 M1: 44 → ~33 main CPU ms/s; M2: ≤0.4 rest process CPU ms/s | Future conditional targets, not achieved or certified by these Stage 0 diagnostics |
+
+### Landing recheck after rebasing onto `fc321f962e`
+
+The rebase preserves main's G5 section before Stage 0 and its RFC r9
+amendments. `RESULTS.md` and `probe.m` conflicted; `QUEUE.md` and the RFC
+merged cleanly. The probe keeps G5's workload and GPU-phase accounting
+with Stage 0's thread CPU endpoints, peak sample and optional timers.
+Its trace sidecar now names the selected workload, and timer cancellation
+permits the memory timer to be disabled. An offscreen Metal test builds
+with `-Wall -Wextra -Werror` and retains three GPU completions, the `bar`
+endpoints and thread CPU with both probe timers disabled. Its source,
+build log, output and JSON are `target/s0/landing/probe-check*`.
+
+The six checks pass with `RUST_TEST_THREADS=2`, including both clippy and
+fmt. The complete root run passes
+`a_burst_of_photo_uploads_goes_three_at_a_time_and_leaves_other_streams_their_places`
+and `the_suite_passes_on_the_asynchronous_core`. The earlier upload
+timeout remains a recorded flake in `QUEUE.md`; no assertion, timeout or
+executor policy changed. Commands, environment, exits and unchanged
+result lines are in `target/s0/landing/checks/results.json`; the original
+stdout/stderr is in that directory's named logs.
+
+Ink, the full Linux lib-and-tests run, the Apple carrier, all seven pinned
+Metal groups and image tests also pass. Metal uses
+`EXACT_INK_DEVICE=metal EXACT_REQUIRED=1` and two test threads. Every Mac
+command exits zero. `target/s0/landing/MAC-TEST-OUTPUT.txt` retains the
+complete stdout/stderr; `MAC-RESULTS.txt` retains the unchanged result
+lines beside each command and environment.
+
+On the NucBox, the Shelf build and test executables build from the rebased
+sources. Both D3D11 and wgpu pass the seven pinned groups and image tests,
+and each Windows library run passes 39 tests. The first Ink library runs
+from SSH fail `a_device_less_compositor_cannot_create_a_cpu_surface`:
+`DCompositionCreateDevice2(None)` returns `E_ACCESSDENIED` without an
+interactive desktop. The same executables run through the existing
+interactive scheduled-task driver and each pass 44 tests. Those runs
+create no window or focus request. Both enabled-counter refused-paint
+checks pass. The failed SSH logs remain alongside the passing runs under
+`target/s0/landing/windows/{headless,desktop-ink}/`; `native/build.json`
+and `provenance.json` identify the executables and source hashes.
+
+The Windows carrier and D3D11 source files are unchanged between
+`e4ead5ae81` and the rebased tip: G6d's bounded Mica retry was already in
+the earlier failing build. A passing rerun therefore cannot establish
+that this rebase added its recovery fix. The source comparison is retained
+in `target/s0/landing/windows-rebase-source.json`.
+
+The exclusive reducer's verification passes. An additional historical
+G3c aggregation fails because its older driver records lack
+`emptyCallbacks`; main's unchanged reducer fails on the same inputs.
+`QUEUE.md` records the missing-data handling problem. The diagnostic and
+main-control logs are `target/s0/landing/aggregate-{diagnostic,origin-main}.log`.
+No reducer policy changes in this recheck.
+
+These are correctness checks, not new performance measurements. The
+earlier Stage 0 measurement limits still apply. All raw evidence remains
+retained; only this worktree's disposable incremental compilation caches
+were removed as the shared disk filled. The paths are recorded in
+`target/s0/landing/disposable-cache-removal.json`.
+
+Predictions were written in `target/s0/landing/plan.json` before this
+recheck. No new performance target was predicted or measured.
+
+| Prediction | Result on the named instrument |
+|---|---|
+| Six checks with `RUST_TEST_THREADS=2`: every command exits 0; the upload timeout does not recur | Met: all seven invocations exit 0, including clippy and fmt; the full root run passes the upload and asynchronous-core tests |
+| NucBox `shelf_device_loss`: exit 0 and recovered Mica pixels within the existing band, with no recovery policy change | Pending the fresh `target/s0/GO` required for this display journey |
+| Metal pinned/image, Ink, Linux and native Windows suites: every command exits 0 | Miss on the initial Windows Ink launches under SSH (`E_ACCESSDENIED`); both pass in the interactive desktop session. All 18 Mac commands and 22 completed Windows groups pass; display journeys remain pending |
