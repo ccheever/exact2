@@ -481,6 +481,8 @@ impl D3d11 {
             .as_mut()
             .ok_or(Error::Unsupported("no composition window"))?;
         composition.resize(size)?;
+        let activating = !composition.active
+            || composition.scene.content.get() != composition.swap.as_raw() as usize;
         let swap = composition.swap.clone();
         let opaque = !composition.scene.backdrop.get();
         let background = composition
