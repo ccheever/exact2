@@ -4,7 +4,6 @@
 //! after `dark`. Each case's box is compared within the border parity's band.
 
 use crate::borders::{boot, held_to_chrome, view};
-use exact_linux::presenter::PainterChoice;
 
 const CASES: [&str; 18] = [
     "linear",
@@ -29,16 +28,14 @@ const CASES: [&str; 18] = [
 
 #[test]
 fn every_gradient_case_matches_chrome_light_then_dark() {
-    let mut choices = vec![PainterChoice::Cpu];
-    if exact_linux::gpu::Gpu::new().is_ok() {
-        choices.push(PainterChoice::Gpu);
-    }
+    let choices = crate::paint::painters();
     let mut failures = Vec::new();
     for choice in choices {
         let name = format!("{choice:?}");
+        let cases = CASES;
         let mut p = boot(choice, "gradients.contract");
         let _ = p.resize(390.0, 650.0);
-        failures.extend(held_to_chrome(&mut p, "gradients.web.png", &name, &CASES));
+        failures.extend(held_to_chrome(&mut p, "gradients.web.png", &name, &cases));
         // `light-dark()` stops follow the scheme, and so does the page
         // under the transparent ones.
         let id = view(&p, "dark");
@@ -48,7 +45,7 @@ fn every_gradient_case_matches_chrome_light_then_dark() {
             &mut p,
             "gradients.web-dark.png",
             &name,
-            &CASES,
+            &cases,
         ));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));

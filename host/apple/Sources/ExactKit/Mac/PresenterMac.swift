@@ -1053,13 +1053,14 @@ package final class Presenter {
 
     func apply(_ batch: Batch) {
         session?.fieldChrome.presented(batch.layoutProvisional)
-        defer { applyLanguage(batch); applyWakeLock(batch); applyOrientationLock(batch) }
+        defer { applyLanguage(batch); toolbar.languageApplied(batch); applyWakeLock(batch); applyOrientationLock(batch) }
         PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops"), phase = HostPhases.shared.begin(.apply)
         defer { Self.signposts.endInterval("apply", post); HostPhases.shared.end(phase) }
         viewport.invalidateDocumentFit()
         collections.beginBatch(batch)
-        // The window's bar is read again only by a batch that can change it (`WindowToolbarHost.concerns`).
+        // The window's bar is read again only by a batch that touches what it read (`WindowToolbarHost.concerns`),
+        // or one whose navigation pass moved what it reads (`inputsChanged`, below).
         let bar = toolbar.concerns(batch)
         if bar { toolbar.prepare() }
         anchorChanges.reset()
@@ -1303,7 +1304,13 @@ package final class Presenter {
         menus.sync()
         glassGroups.reconcile()
         positionContexts()
-        if bar { toolbar.sync() }
+        if bar || toolbar.inputsChanged() {
+            toolbar.sync()
+        } else {
+            #if DEBUG
+            toolbar.shadowCheck()
+            #endif
+        }
         shortcuts.sync()
         statusItems.sync()
         if structureChanged { selection.structureChanged() }

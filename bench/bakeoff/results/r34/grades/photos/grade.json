@@ -1,0 +1,107 @@
+{
+  "A": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "4-across square centre-cropped grid with ~2pt gaps, oldest at top, opens scrolled to the newest at the bottom, day headings per day, '1,500 Photos' footer like Photos."
+      },
+      {
+        "n": 2,
+        "status": "partial",
+        "note": "Opens full screen at the photo's own aspect ratio; swipe left goes to the next photo and swipe down closes. A rightward swipe at normal speed (800\u20131200 pt/s) closes the viewer instead of going to the previous photo; only a fast flick (\u22652000 pt/s) pages back."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "The heart toolbar button toggles (Favorite/Unfavorite) and a white heart badge appears on the thumbnail in the grid."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Albums tab with large title lists all 8 albums in a 2-column grid with rounded covers, names and counts (summing to 1,500); tapping one pushes a grid with back button, Select and a count footer."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Select \u2192 tap to check (blue checkmark), Select All/Cancel, nav title 'N Photos Selected'; Favorite applies to all; Delete shows a system confirmation popover 'Delete 2 Photos' and removes them, with counts updated."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "After relaunch the favorites and deletions were kept (1,498 Photos, hearts still shown, album counts updated)."
+      }
+    ],
+    "bugs": [
+      "Full-screen viewer: a normal-speed swipe right dismisses the viewer back to the grid instead of showing the previous photo; going backwards needs a fast flick."
+    ],
+    "tells": [
+      "In select mode at the largest text size, the '1,498 Photos' footer draws underneath and between the heart and trash toolbar buttons and collides with them.",
+      "At the largest text size the select-mode title is truncated to '1 Photo Sel\u2026' between the Select All and Cancel buttons.",
+      "Entering select mode shifts the grid content down about 49pt as the tab bar hides, so the photo under your finger moves.",
+      "Day headings sit 8pt from the edge, tighter than the system's 16\u201320pt layout margin."
+    ],
+    "scroll": "Native-feeling collection view: slow drags and hard flings are smooth with no blank or popping tiles, status-bar tap scrolls to the top, rubber-band past the top works, and scroll position is kept across tab switches and viewer round-trips.",
+    "scores": {
+      "features": 7,
+      "platform": 8,
+      "polish": 7,
+      "overall": 7
+    }
+  },
+  "B": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "4-across square centre-cropped grid with thin gaps, oldest at the top, opens at the newest at the bottom; 48pt day headings; large 'Library' title with a '1,500 Photos' subtitle."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Opens on black at the photo's aspect ratio, with the date, 'N of 1,500' and the album name; swiping left and right (even slowly) pages in both directions; swipe down and Close both dismiss."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "The heart in the viewer toggles favorite and the grid thumbnail shows a heart badge."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Albums tab ('My Albums' section) lists all 8 albums with covers and counts, plus an extra 'Utilities > Favorites' album; tapping one pushes its grid."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Select shows empty selection circles, a 'N Photos Selected' title and a bottom bar with heart and trash; favoriting applies to all and exits select mode; Delete shows a centred alert 'Delete 2 photos?' and removes them. There is no Select All."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "After relaunch the favorites and deletions were kept (1,498 Photos, hearts kept, album counts updated)."
+      }
+    ],
+    "bugs": [
+      "At the largest text size the expanded large title 'Library' overlaps the status bar clock.",
+      "At the largest text size the collapsed nav bar shows a small 'Library' with a huge '1,498 Photos' subtitle spilling over the content."
+    ],
+    "tells": [
+      "The select-mode bottom bar is a hand-drawn opaque grey strip (not a system toolbar or Liquid Glass) and repeats the 'N Photos Selected' title.",
+      "Viewer chrome (close, heart and trash circles) and the select-bar icons scale with Dynamic Type into giant glyphs, unlike system bar buttons.",
+      "Album tiles are exposed to accessibility as 'Link' elements, which is web-like; the viewer's favorite is a Switch wrapped in generic containers.",
+      "Batch delete uses a centred alert rather than an action sheet or popover anchored to the trash button, as Photos does.",
+      "The extra Favorites album uses a huge full-width cover that breaks the 2-column rhythm.",
+      "Select mode has no Select All."
+    ],
+    "scroll": "Smooth through slow drags and hard flings with no blank tiles or pop-in; status-bar tap scrolls to the top, the large title collapses correctly, and position is kept across tab switches.",
+    "scores": {
+      "features": 9,
+      "platform": 6,
+      "polish": 6,
+      "overall": 8
+    }
+  },
+  "better": "B",
+  "why": "Both apps meet nearly every requirement and both lists scroll equally well. A is the more convincing iOS app (system toolbars, an anchored delete popover, Select All), but its viewer breaks a core gesture: a normal swipe right closes the photo instead of going to the previous one. B's flaws are mostly cosmetic and mostly appear at the largest text size (a hand-drawn select bar, giant chrome, the title colliding with the status bar), so it is the app I would rather use and ship."
+}

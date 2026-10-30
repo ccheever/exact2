@@ -84,6 +84,8 @@ leaves!(
     UnOp,
     TaskKind,
     TapForm,
+    PropertyKind,
+    PropertyForm,
     ParamValue,
     ModuleKind,
     Consequence,
@@ -103,7 +105,7 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, atoms, atom_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, launch, components, members, deferred }
+    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, atoms, atom_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, properties, launch, components, members, deferred }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
@@ -116,6 +118,8 @@ structs! {
     SoundDecl { source, span }
     FontFaceDecl { weight, italic, source, span }
     TestDecl { name, hosts, steps, span }
+    PropertyDecl { span, kind, name, lines }
+    PropertyLine { span, form }
     FnDecl { name, params, ret, body, span }
     ModuleDecl { name, declared, package, extension, kind, options, words, answers, args, raised, hold, budget, handler, live, request, sync, data_only, substitute, span }
     PlatformWords { platform, package, words }
@@ -146,7 +150,7 @@ structs! {
     MutationDecl { name, shape, queue, refreshes, then, span }
     Param { name, ty, span }
     Action { name, params, body, span }
-    Task { name, kind, gate, key, timer, span }
+    Task { name, kind, gate, key, timer, options, span }
     Attr { name, value, span, written }
 }
 
@@ -166,7 +170,7 @@ record_variants! {
         Tap { target, form, modifiers, span }, Drag { target, dx, dy, to, from, mouse, press, over, hold, during, span },
         Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
         Locale { tag, span }, Prefer { name, value, span }, Seed { seed, span }, Fresh { seed, span }, BeforeData { span }, FailFetch { prefix, times, span }, PassFetch { prefix, span }, Request { method, path, body, persona, status, span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
-        Pick { target, paths, span }, Clipboard { target, edit, text, span },
+        Pick { target, paths, span }, Authorize { cancel, span }, Clipboard { target, edit, text, span },
         Clock { arg, span }, Reload { span }, Close { span }, Back { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectRefusal { target, span }, ExpectTree { target, present, span }, ExpectDisabled { target, disabled, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
         ExpectSound { src, present, at, gain, ends, playback_rate, pan, by, span },
@@ -303,6 +307,7 @@ impl Step {
             | Step::Type { span, .. }
             | Step::Key { span, .. }
             | Step::Pick { span, .. }
+            | Step::Authorize { span, .. }
             | Step::Clipboard { span, .. }
             | Step::Clock { span, .. }
             | Step::Reload { span, .. }

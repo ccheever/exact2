@@ -921,7 +921,11 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
       const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, ...args], { cwd: dir, encoding: 'utf8', timeout: 180_000 });
       return { ...r, lines: r.stdout.trim().split('\n') };
     };
-    const verify = (...args) => exact('verify', ...args);
+    // `contract verify`'s report follows verify's own, which ends at its verdict (LLP 1151 D8).
+    const verify = (...args) => {
+      const r = exact('verify', ...args), end = r.lines.findLastIndex((l) => l.startsWith('verify: ')) + 1;
+      return end && !args.includes('--json') ? { ...r, lines: r.lines.slice(0, end), semantics: r.lines.slice(end).join('\n') } : r;
+    };
     const warned = (text) => text.split('\n').filter((l) => / warning \[/.test(l));
     // The build `test web` runs first says its count, and here names nothing; its drive's stdout is the tests'.
     const quiet = exact('test', 'web');
@@ -939,6 +943,7 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.match(clean.stdout, /^relaunch on "the header's button likes it"'s store \(\d+\.\d s of real time\): the first screen is a fresh launch's; that test wrote no storage$/m);
     assert.match(clean.lines.at(-1), /^verify: clean in \d+\.\d s$/);
     assert.equal(clean.lines.at(-2), 'open it: bun exact.mjs web (serves what verify checked)'); // how a person opens it, with no dev server of the builder's own
+    assert.match(clean.semantics, /^verify receipt — reproduce: contract verify .*app\.contract /m, clean.stdout);
     for (const [w, h] of SIZES) for (const scheme of ['light', 'dark']) assert.ok(existsSync(resolve(dir, `.exact/verify/web-${w}x${h}-${scheme}.png`)), `${w}x${h} ${scheme}`);
     for (const f of ['web-t1-the-greeting-loads.png', 'web-t2-the-header-s-button-likes-it.png', 'web-relaunch.png']) assert.ok(existsSync(resolve(dir, '.exact/verify', f)), f);
     // `--shots out/shots` made the directory and copied every one, under the names verify keeps (LLP 1116.008 D2).

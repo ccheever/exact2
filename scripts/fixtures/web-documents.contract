@@ -1,11 +1,14 @@
-// An iframe of an app file, its load and error actions (WebDocumentsTests).
-// Compiled by build.mjs --test.
+// An iframe of an app file, its load and error actions (WebDocumentsTests),
+// and what its page posts (IframeGivenFilesTests). Compiled by build.mjs --test.
 component App
   state loaded = 0
   state failed = ""
+  state said = ""
   action didLoad
     loaded = loaded + 1
   action didFail(message: string)
     failed = message
+  action didSay(text: string)
+    said = text
   view
-    iframe src="app:/data/doc.pdf" width=300 height=200 load=didLoad error=didFail testId="pdf"
+    iframe src="app:/data/doc.pdf" width=300 height=200 load=didLoad error=didFail message=didSay testId="pdf"

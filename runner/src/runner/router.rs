@@ -683,7 +683,7 @@ impl<D: DataSource> Runner<D> {
             None => self.eval(row.init, &[], &[])?,
         };
         if !v.conforms(&self.plan, row.ty) {
-            return Err(RunnerError::SlotType { slot: name.into() });
+            return Err(RunnerError::slot_type(&self.plan, &v, row.ty, name));
         }
         // A persisted slot takes the store's value over its initializer's
         // (LLP 1116 D5); a carried value is this session's and wins.

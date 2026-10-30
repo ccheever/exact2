@@ -1,0 +1,12 @@
+component App
+  state count = 0
+  state enabled = true
+  action tick
+    count = count + 1
+    enabled = false
+  task first when enabled
+    every(100, tick, wait=update)
+  task second when enabled
+    every(100, tick, wait=update)
+  view
+    text `${count}`

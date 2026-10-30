@@ -520,14 +520,14 @@ fn a_development_build_makes_every_type_token_properties() {
 
 /// Review round 1 (Astra, Grok): a node's own row over the token's stands;
 /// names that write one property are made unique; a varying token named on
-/// a node with children stands.
+/// a node with children stands, while the same row on a text reads it.
 #[test]
 fn a_type_tokens_properties_hold_their_edges() {
     let design = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  type.a-b = 600 18px/1.4 Georgia, serif\n  type.a.b = 600 20px/1.4 Georgia, serif\n  family.vary: family = ui-monospace\n    when density=compact: Georgia, serif\n";
     let p = plan(
         "type-edges",
         design,
-        "component App\n  state chosen = \"family.vary\"\n  view\n    column\n      text \"own\" font=\"type.a-b\" font-weight=400\n      text \"other\" font=\"type.a.b\"\n      text \"quoted\" font-family=\"family.vary\" font-size=12\n      column font-family=chosen\n        text \"inside\"\n",
+        "component App\n  state chosen = \"family.vary\"\n  view\n    column\n      text \"own\" font=\"type.a-b\" font-weight=400\n      text \"other\" font=\"type.a.b\"\n      text \"quoted\" font-family=\"family.vary\" font-size=12\n      text \"leaf\" font-family=chosen\n      column font-family=chosen\n        text \"inside\"\n",
     );
     let dev = crate::emit::emit(&p, false, true).unwrap_or_else(|e| panic!("{e}"));
     let css = &dev.css;
@@ -561,6 +561,19 @@ fn a_type_tokens_properties_hold_their_edges() {
     assert!(
         container.contains("\"family.vary\":\"unset\""),
         "the row is cleared: {container}"
+    );
+    // The text's, the same row with no children: its own map, the property.
+    let leaf = dev
+        .js
+        .split("const $tly67=")
+        .nth(1)
+        .unwrap_or_else(|| panic!("{}", dev.js))
+        .split(";")
+        .next()
+        .unwrap();
+    assert!(
+        leaf.contains("\"family.vary\":\"var(--x-family-vary)\""),
+        "the text reads the property: {leaf}"
     );
 }
 

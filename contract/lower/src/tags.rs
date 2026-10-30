@@ -436,6 +436,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // lowerer's `bind_atoms` and `bind_atom_faces` read them first).
         "atoms" => AttrTarget::Prop(PropId::Atoms),
         "atomFaces" => AttrTarget::Prop(PropId::AtomFaces),
+        // LLP 1045 D11: a Markdown editor's base direction per line.
+        "paragraphDirs" => AttrTarget::Prop(PropId::ParagraphDirs),
         "alertPart" => AttrTarget::Prop(PropId::AlertPart),
         "defaultSurface" => AttrTarget::Prop(PropId::DefaultSurface),
         "seekbackward" => AttrTarget::Handler("seekbackward"),
@@ -628,6 +630,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-label" => AttrTarget::Prop(p("accessibilityLabel")),
         "-exact-menu" => AttrTarget::Prop(p("menuPlacement")),
         "-exact-menu-remove" => AttrTarget::Prop(p("menuRemove")),
+        "-exact-menu-keys" => AttrTarget::Prop(p("menuKeys")),
         "aria-keyshortcuts" => AttrTarget::Prop(p("accessibilityKeyShortcuts")),
         "aria-description" => AttrTarget::Prop(p("accessibilityHint")),
         "aria-level" => AttrTarget::Prop(p("accessibilityHeadingLevel")),

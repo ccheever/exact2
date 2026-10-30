@@ -194,7 +194,31 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     fn background_state(&self) -> Option<exact_runner::BackgroundState> {
         self.inner.background_state()
     }
+    fn keep_sent(
+        &mut self,
+        store: &Store,
+        let_go: &[exact_runner::InFlight<'_>],
+        refused: bool,
+    ) -> Vec<Option<u64>> {
+        self.inner.keep_sent(store, let_go, refused)
+    }
+    fn module_landed(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<(), DataError> {
+        self.inner.module_landed(store, token, outcome)
+    }
     fn take_logs(&mut self) -> Vec<String> {
         self.inner.take_logs()
+    }
+
+    fn take_aborted(&mut self) -> Vec<u64> {
+        self.inner.take_aborted()
+    }
+
+    fn abort_wake(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        self.inner.abort_wake(wake);
     }
 }

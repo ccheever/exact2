@@ -27,6 +27,10 @@
 //! ([`Presenter::pointer_cancel`]): no press fires for it.
 use super::contact::Candidate;
 use super::*;
+use std::collections::BTreeSet;
+
+#[cfg(test)]
+mod hidden_tests;
 
 /// The page itself, scrolled where the document is larger than the viewport
 /// and no scroller holds it: no node has this id.
@@ -79,9 +83,13 @@ pub(super) struct Reader {
 impl Reader {
     /// A scroller corrected its own offset from `was` to `now`: its content
     /// stays where it shows, so the reader's moves still stand.
+    /// A reader that stood where it was stands where it is now, exactly: in
+    /// f32, `at + now - was` can miss `now` by an ulp, which the revision's
+    /// exact compare would take for an app scroll.
     pub(super) fn rebased(&mut self, id: ViewId, was: (f32, f32), now: (f32, f32)) {
         if let Some((_, at)) = self.tracked.get_mut(&id) {
-            *at = (at.0 + now.0 - was.0, at.1 + now.1 - was.1);
+            let axis = |at: f32, was: f32, now: f32| if at == was { now } else { at + now - was };
+            *at = (axis(at.0, was.0, now.0), axis(at.1, was.1, now.1));
         }
     }
 }
@@ -283,6 +291,10 @@ impl<D: DataSource> Presenter<D> {
                 *accepted = next;
             }
         }
+        // A reader's move carries the list's own pending position across it (`ack.rs`).
+        if completion == Completion::Reader {
+            self.keep_own_position(id);
+        }
         if id == PAGE {
             self.page = next;
         } else {
@@ -346,6 +358,50 @@ impl<D: DataSource> Presenter<D> {
     /// `scroll`): the reader is told nothing more of it.
     pub fn reader_forgets(&mut self, id: ViewId) {
         self.reader.tracked.remove(&id);
+    }
+
+    /// The scrollers the clamp leaves alone: each a list kept while its route is hidden (a
+    /// full-screen route over it), or shown again but not yet painted where it shows. The
+    /// picture holds no travel for such a list, so the clamp would put it at its top and it
+    /// would show its first rows when its route came back (Excord's picture dismiss). Shown
+    /// again, its first frame is bounded by its layout's travel, staged as its own clamp
+    /// (`stage_shown`) with its input offset kept until that frame is acknowledged, any rows put
+    /// above it while hidden kept by its anchor; painted, it is clamped as before. Only the node
+    /// whose offset it is keeps it: the one a shown clamp saw, or the one the acknowledged
+    /// picture painted at its id, however its offset was written (`shown_keys`). A hidden
+    /// tree built again is fresh ids, clamped afresh: no stale offset.
+    pub(super) fn hidden_scrollers(&mut self) -> BTreeSet<ViewId> {
+        let mut held = BTreeSet::new();
+        let limits = self.collection_scroll_limits();
+        for id in self.scroll.keys().copied().collect::<Vec<_>>() {
+            let Some(key) = self.host.kernel().node(id).map(|n| n.key) else {
+                self.collection.shown_keys.remove(&id);
+                continue;
+            };
+            let hidden = self.host.route_visibility(id).0;
+            if self.display.painted_key(id) == Some(key)
+                || (!hidden && self.display.witnessed(self.host.kernel(), id))
+            {
+                self.collection.shown_keys.insert(id, key);
+            }
+            if !hidden && self.display.witnessed(self.host.kernel(), id) {
+                continue;
+            }
+            if self.collection.shown_keys.get(&id) != Some(&key) {
+                continue;
+            }
+            if !hidden {
+                let kernel = self.host.kernel();
+                let node = kernel.node(id).unwrap();
+                let region = self.host.content_region();
+                let bounds =
+                    self.brush
+                        .scroll_bounds(kernel, region, &node, limits.get(&id).copied());
+                self.stage_shown(id, key, bounds);
+            }
+            held.insert(id);
+        }
+        held
     }
 
     /// The reader's revision of scroller `id`, moved on when the offset is

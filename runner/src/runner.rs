@@ -6,15 +6,22 @@
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
 mod admission;
 mod advance;
+mod native_timers;
+pub use native_timers::NativeTimer;
+use native_timers::Timer;
 mod background;
 mod commit;
 mod control;
 mod errors;
+pub use errors::RunnerError;
 mod event;
 pub mod faults;
 mod field;
 mod fonts;
 pub mod foresee;
+mod in_flight;
+mod module_work;
+mod trace;
 pub use field::{FieldSelection, InputDetails, SelectionDirection};
 mod host_kinds;
 mod pointer;
@@ -74,6 +81,10 @@ pub use picker::{Picked, PickerRequest, PICKED};
 mod dated;
 mod fragments;
 mod gates;
+mod waits;
+pub use waits::{
+    frame_at_or_after, virtual_frame, Admitted, IdleObservation, TaskTiming, Wait, WaitKinds, Waits,
+};
 mod into_view;
 pub(crate) mod kept;
 #[cfg(test)]
@@ -101,6 +112,8 @@ mod live_time;
 pub mod midi;
 mod modules;
 pub use modules::{AppState, CallHow, CallOrigin, PresenceAnswer, PresenceAsk, WakeHow};
+#[cfg(test)]
+mod abort_tests;
 mod split;
 mod surface_record;
 mod text_axes;
@@ -108,19 +121,21 @@ mod time;
 mod transport;
 #[cfg(test)]
 mod transport_tests;
+mod uploads;
 mod viewport;
 mod writes;
 pub use carry::Carried;
 pub use checkpoint::Checkpoint;
 pub use router::{routing, RouterChange, Routing};
 pub use split::{press_writes_router, StackSplit};
+pub use uploads::{UploadEnd, UploadMark};
 
 use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Dispatch, Outcome, Request, RequestOut};
 use crate::store::{Store, StoreWrite};
-use crate::vm::{self, Env, Frame, RowSlots, Trap};
-use exact_kernel::{CommitReceipt, Kernel, KernelError, ViewId};
-use exact_plan::{ActionsId, Code, EventKind, MutationsId, NodesId, Plan, PlanError, Value};
+use crate::vm::{self, Env, Frame, RowSlots};
+use exact_kernel::{CommitReceipt, Kernel, ViewId};
+use exact_plan::{ActionsId, Code, EventKind, MutationsId, NodesId, Plan, Value};
 
 /// A host-facing effect an action asked for; executed after commit, in order.
 #[derive(Debug, Clone, PartialEq)]
@@ -159,105 +174,6 @@ pub struct Advanced {
     /// request, short of its cutoff or at it: the host lands the reply
     /// before it advances again.
     pub stopped_on_request: bool,
-}
-
-/// Why the runner refused. The kernel is unchanged.
-#[allow(missing_docs)]
-#[derive(Debug)]
-pub enum RunnerError {
-    KernelSchemaMismatch {
-        plan: u64,
-        kernel: u64,
-    },
-    /// The plan belongs to another app (LLP 1023 D5): its header names one identity, this binary's data crate another.
-    AppMismatch {
-        plan: String,
-        host: String,
-    },
-    Plan(PlanError),
-    NotOneRoot(usize),
-    Trap(Trap),
-    Instance(InstanceError),
-    Kernel(KernelError),
-    Data {
-        resource: String,
-        error: DataError,
-    },
-    Shape {
-        resource: String,
-        /// Where the answer first differs from the declared shape.
-        why: String,
-    },
-    UnknownView(ViewId),
-    /// A typed host event carries invalid numeric values. No action ran.
-    InvalidEvent {
-        event: &'static str,
-    },
-    /// A control's `input` or `change` carries a value it could never report (LLP 1069.001 D4): a select's value no enabled option has.
-    InvalidValue {
-        event: &'static str,
-        reason: String,
-    },
-    NoHandler {
-        view: ViewId,
-        event: &'static str,
-    },
-    Arity {
-        action: String,
-        expected: usize,
-        actual: usize,
-    },
-    /// Derives and resources depend on each other in a cycle; nothing settles.
-    Cycle,
-    /// An earlier update failed after the instance tree had begun to change; the runner no longer matches its kernel and must be restarted (D5).
-    Poisoned,
-    /// `advance` was given a non-finite time.
-    NonFiniteClock,
-    /// A viewport dimension is non-finite or non-positive.
-    InvalidViewport,
-    /// A date fact is non-finite, negative, or its offset past ±18 hours.
-    InvalidTime,
-    /// A locale or time zone is empty, over-long, or not in its form.
-    InvalidPlace,
-    /// The declared router shapes, table, launch fallback or value is invalid.
-    Router(String),
-    /// A clock value exceeds the exact integer-millisecond domain.
-    ClockOutOfRange,
-    /// Adding a timer interval did not advance its next due time.
-    ClockDidNotAdvance {
-        timer: usize,
-    },
-    /// One seek reached the bounded number of timer commits it may perform.
-    TimerFireLimit {
-        limit: usize,
-    },
-    /// A send would be the 65th waiting for a `queue` mutation (LLP 1092 D4).
-    QueueFull {
-        mutation: String,
-    },
-    /// A gated task's `key=` is no key (a non-finite number; LLP 1092 D8).
-    TaskKey {
-        task: String,
-    },
-    /// A region sits at the plan root; v1 requires one root node.
-    RootRegion,
-    /// A slot initializer or write does not conform to the slot's declared type.
-    SlotType {
-        slot: String,
-    },
-    /// A derive's value does not conform to its declared type.
-    DeriveType {
-        derive: String,
-    },
-    /// An action argument does not conform to the parameter's declared type.
-    ArgumentType {
-        action: String,
-        param: String,
-    },
-    /// An action argument or a slot write is a string longer than [`crate::vm::MAX_STRING`] bytes.
-    StringTooLong {
-        name: String,
-    },
 }
 
 #[derive(Clone)]
@@ -319,16 +235,29 @@ struct PendingReq {
     args: Vec<Value>,
     /// The source's continuation token, when the request is one.
     continuation: Option<u64>,
+    /// The module's own ticket for the fetch this request is
+    /// ([`crate::Request::fetch`]): what an app's abort names it by.
+    fetch: Option<u64>,
     /// The request itself when a re-ask may keep it: a resource's plain
     /// HTTP request (LLP 1054.000.000 D3).
     keepable: Option<Request>,
     /// An answer that keeps coming (LLP 1016.000): what it has delivered.
     stream: Option<StreamCount>,
+    /// An upload's stream ([`Request::upload_progress`]): in flight until its reply.
+    upload: bool,
+    /// The upload has begun to go out (`UPLOAD_SENDING`, or its first bytes
+    /// sent): a failure before that never reached the network (D10).
+    sent: bool,
     /// A stream's: the grant line that admits it (`state.streams`).
     grant: Option<String>,
     /// A topic its resource watches changed while it was in flight: its
     /// reply lands, then the resource is asked again (LLP 1016.002 D4).
     ask_again: bool,
+    /// Module work wrote the store while it was in flight, leaving this store
+    /// revision: until another write, its answer stands (LLP 1146 §2.3).
+    module_again: Option<u64>,
+    /// May change its server ([`crate::Request::has_effects`]): kept when let go (LLP 1146 D2).
+    effects: bool,
     /// The sequence when its answer was first asked; its later rounds keep
     /// it. Only an answer asked after a write landed retires that write.
     origin: u64,
@@ -359,10 +288,10 @@ pub struct StreamCount {
 }
 
 impl PendingReq {
-    /// In flight: every request, and a stream until its first message.
-    /// What `pending(…)` reads, held requests included.
+    /// In flight: every request, a stream until its first message, and an
+    /// upload until its reply. What `pending(…)` reads, held requests included.
     fn in_flight(&self) -> bool {
-        self.stream.is_none_or(|s| s.messages == 0)
+        self.upload || self.stream.is_none_or(|s| s.messages == 0)
     }
 
     /// Waited on by a clock (a jump, `clock settle`, `clock data`): in flight, not held (D8, D9),
@@ -370,22 +299,6 @@ impl PendingReq {
     fn waited(&self) -> bool {
         self.in_flight() && !self.quiet() && !self.replied && self.reask_at.is_none()
     }
-}
-
-#[derive(Clone)]
-struct Timer {
-    /// The next due time; infinite once a one-shot timer has fired, and
-    /// while a gated task is idle (LLP 1092 D8); a frame task's next
-    /// virtual frame (LLP 1073 D3), `virtual_frame(base, k)`.
-    next_ms: f64,
-    /// Whether the task's gate holds (always, for `mount`).
-    armed: bool,
-    /// The key it was armed with (`key=`), as `for` compares keys.
-    key: Option<String>,
-    /// A frame task's last presented frame (or mount) …
-    base: f64,
-    /// … and which virtual frame after it is next.
-    k: u32,
 }
 
 type FocusPath = Vec<(ViewId, NodesId, Vec<Frame>)>;
@@ -455,8 +368,29 @@ pub struct Runner<D: DataSource> {
     pending: Vec<PendingReq>,
     /// This commit let a request go: `conclude` tells the source what is still in flight.
     forgot: bool,
+    /// The fetches the app aborted ([`DataSource::take_aborted`]) that name no
+    /// request in flight yet (one a commit is still to hand out, a worker's
+    /// turn still to land), by the module's ticket, with how many
+    /// collections they have waited: matched as their request is enqueued.
+    heard_aborts: Vec<(u64, u32)>,
+    /// The requests whose fetch the app aborted, by ticket, until the host's
+    /// next pump answers them aborted (`take_request_refusal`). Both lists are
+    /// kept outside any commit's rollback: the module has already rejected
+    /// an ordinary fetch, and an adopted one (LLP 1146 D2) waits, pending,
+    /// for this answer to reject it in a module turn, so a refused aborting
+    /// commit still delivers it on the next pump.
+    module_aborts: Vec<u64>,
+    /// The tickets answered aborted, until the host cancels their requests
+    /// whatever their method ([`Runner::take_explicit_aborts`]).
+    explicit_aborts: Vec<u64>,
+    /// Requests let go while still running, by module fetch ticket and
+    /// runner ticket, until their reply ([`Runner::note_retired`]).
+    retired_fetches: Vec<(u64, u64)>,
     /// Failed arguments suppress another ask until they change or refresh.
     failed_args: Vec<Option<Vec<Value>>>,
+    /// The uploads asked and how each stands (LLP 1016.000 D10): none is
+    /// asked again at its arguments.
+    uploads: uploads::Uploads,
     /// Why each resource last failed, shown in `state.failed` while
     /// `failed_args` holds (app farm round 1: a refusal only in the journal).
     failed_why: Vec<Option<crate::failure::Failure>>,
@@ -478,6 +412,8 @@ pub struct Runner<D: DataSource> {
     next_ticket: u64,
     /// The module's background work's round, when one is out (LLP 1097 D5).
     background: background::Background,
+    /// Module work's requests in flight (LLP 1146 D2).
+    module_work: module_work::ModuleWork,
     /// Files picked this run, for `app:/tmp/picked/` names (LLP 1069.002 D3).
     picked_count: u64,
     /// Second edges waiting for the first action's async targets to settle,
@@ -622,12 +558,6 @@ pub const TIMER_FIRE_LIMIT: usize = 4096;
 /// frame task last fired (LLP 1073 D3).
 pub const VIRTUAL_FRAME_MS: f64 = 1000.0 / 60.0;
 
-/// A frame task's `k`th virtual frame after `base`: `base + k·1000/60`, the
-/// product first, so sixty frames are exactly a second on every host.
-pub fn virtual_frame(base: f64, k: u32) -> f64 {
-    base + f64::from(k) * 1000.0 / 60.0
-}
-
 impl<D: DataSource> Runner<D> {
     /// This runner, linking every device capability: the plain boots'.
     pub(crate) fn linking_every_device(mut self) -> Self {
@@ -685,64 +615,6 @@ impl<D: DataSource> Runner<D> {
             launch,
         )
         .map(Runner::linking_every_device)
-    }
-
-    /// Everything a reload keeps.
-    pub fn carry(&self) -> Carried {
-        Carried {
-            router: self.carry_router(),
-            data_revision: self.data.revision().map(str::to_owned),
-            keeps_answers: self.keeping.on,
-            slots: self
-                .plan
-                .slots
-                .iter()
-                .zip(&self.slots)
-                .filter(|(s, _)| s.owner.is_none())
-                .map(|(s, v)| (self.plan.str(s.name).to_string(), v.clone()))
-                .collect(),
-            panels: self.carry_panels(),
-            resources: self
-                .plan
-                .resources
-                .iter()
-                .zip(&self.resources)
-                .enumerate()
-                // A request in flight or a placeholder shown until the
-                // source is ready is not an answer to carry, nor one a
-                // write affects: the replacement runner asks it.
-                .filter(|(i, _)| !self.pending_res[*i] && !self.stale[*i] && !self.written(*i))
-                .filter(|(_, (_, s))| s.as_ref().is_none_or(|s| !s.placeholder))
-                .filter_map(|(_, (r, s))| {
-                    s.as_ref().map(|s| {
-                        (
-                            self.plan.str(r.name).to_string(),
-                            self.plan.str(r.source).to_string(),
-                            s.args.clone(),
-                            s.value.get(&self.plan).clone(),
-                        )
-                    })
-                })
-                .collect(),
-            store_readers: self
-                .plan
-                .resources
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| self.store_readers[*i])
-                .map(|(_, resource)| {
-                    (
-                        self.plan.str(resource.name).to_string(),
-                        self.plan.str(resource.source).to_string(),
-                    )
-                })
-                .collect(),
-            now_ms: self.now_ms,
-            store: self.store.snapshot(),
-            forgot_waiting: self.queued(),
-            faults: (!self.faults.is_empty()).then(|| self.faults.spec()),
-            modes: self.modes(),
-        }
     }
 
     #[allow(clippy::too_many_arguments)] // the host boot facts
@@ -940,9 +812,15 @@ impl<D: DataSource> Runner<D> {
             queues: Default::default(),
             next_ticket: 1,
             background: Default::default(),
+            module_work: Default::default(),
             picked_count: 0,
             forgot: false,
+            heard_aborts: Vec::new(),
+            module_aborts: Vec::new(),
+            explicit_aborts: Vec::new(),
+            retired_fetches: Vec::new(),
             failed_args: Vec::new(),
+            uploads: Default::default(),
             failed_why: Vec::new(),
             overrun: Default::default(),
             deferred_edges: Vec::new(),
@@ -1027,6 +905,9 @@ impl<D: DataSource> Runner<D> {
                     })
             })
             .collect();
+        // @ref LLP 1016.000 D10 — the uploads asked, carried by resource,
+        // source and arguments whatever the data module; a launch starts with none.
+        runner.carry_uploads_in(carried.map_or(&[][..], |c| &c.uploads));
         // @ref LLP 1048.000 D6 — a document's answers seed their resources.
         // The device's own store is an input its render never had.
         let (seeded, note) = match seed {
@@ -1034,12 +915,11 @@ impl<D: DataSource> Runner<D> {
             _ => (vec![false; runner.plan.resources.len()], String::new()),
         };
         let device_state = matches!(seed, Seed::Checkpoint(_)) && runner.has_app_store();
-        // Store-reading resources when the data source is not ready (a
-        // TypeScript module before its host loads it, LLP 1027 D4): the
-        // answer kept from the last launch seeds the first frame if its
-        // identifying arguments still match and its value still fits; the compiled
-        // empty-store placeholder is the fallback (settlement); either way
-        // the resource is asked again at `data_ready`.
+        // Store-reading resources when the data source is not ready (a TypeScript module before
+        // its host loads it, LLP 1027 D4): the answer kept from the last launch seeds the first
+        // frame if its identifying arguments still match and its value still fits; the compiled
+        // empty-store placeholder is the fallback (settlement); either way the resource is asked
+        // again at `data_ready`.
         let ready = runner.data.ready();
         runner.keeping.on = !private && (!ready || carried.is_some_and(|c| c.keeps_answers));
         runner.stale = vec![false; runner.plan.resources.len()];
@@ -1083,12 +963,16 @@ impl<D: DataSource> Runner<D> {
                     now + t.interval_ms as f64
                 },
                 armed: !(t.gated || t.keyed),
+                generation: 0,
                 key: None,
                 base: now,
                 k: 1,
             })
             .collect();
         runner.gate_step()?;
+        // No commit's end follows the boot's settlement: what it did here.
+        runner.hear_forgotten();
+        runner.keep_sent(false);
         runner.transport_stood();
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);

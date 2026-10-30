@@ -7,6 +7,9 @@ fn timer_deadline_tracks_ordered_catch_up_and_absence() {
     let (mut plan, _) = now_screen();
     let action = plan.timers[0].action;
     plan.timers.push(exact_plan::TimersRow {
+        wait: 0,
+        max_ms: 0,
+        tolerance_ms: 0,
         interval_ms: 16,
         action,
         once: false,
@@ -66,6 +69,9 @@ fn a_one_shot_timer_fires_once_then_owes_no_deadline() {
     let (mut plan, _) = now_screen();
     let action = plan.timers[0].action;
     plan.timers[0] = exact_plan::TimersRow {
+        wait: 0,
+        max_ms: 0,
+        tolerance_ms: 0,
         interval_ms: 60,
         action,
         once: true,
@@ -94,6 +100,9 @@ fn a_one_shot_timer_fires_once_then_owes_no_deadline() {
     // deadline is reported, and a long seek fires it alone.
     let (mut plan, _) = now_screen();
     plan.timers.push(exact_plan::TimersRow {
+        wait: 0,
+        max_ms: 0,
+        tolerance_ms: 0,
         interval_ms: 60,
         action,
         once: true,
@@ -133,6 +142,9 @@ fn a_frame_task_fires_once_per_presented_frame_and_each_virtual_frame_on_a_seek(
     let action = plan.timers[0].action;
     let interval = f64::from(plan.timers[0].interval_ms);
     plan.timers.push(exact_plan::TimersRow {
+        wait: 0,
+        max_ms: 0,
+        tolerance_ms: 0,
         interval_ms: 0,
         action,
         once: false,

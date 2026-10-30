@@ -331,18 +331,24 @@ fn a_played_springs_spec_is_made_once() {
 /// a transition reaches Core Animation in the frame's own batch.
 #[test]
 fn a_display_frame_starts_what_waits_in_its_own_batch() {
-    let mut host = boot();
-    host.svg.play_transitions = true;
-    let (go, fade) = (id(&host, "go"), id(&host, "fade"));
-    host.dispatch_at(go, Event::Press, 100.0);
-    let framed = host.frame_at(133.0, 120.0);
-    assert_eq!(spec(&framed, fade)["s"], 0.133, "{framed}");
-    assert!(!motion(&framed), "no tick is owed: {framed}");
-    assert_eq!(
-        host.engine.now(),
-        0.120,
-        "the input clock stays at the wall"
-    );
+    for admitted in [false, true] {
+        let mut host = boot();
+        host.svg.play_transitions = true;
+        let (go, fade) = (id(&host, "go"), id(&host, "fade"));
+        host.dispatch_at(go, Event::Press, 100.0);
+        let framed = if admitted {
+            host.admitted_frame(133.0, 120.0)
+        } else {
+            host.frame_at(133.0, 120.0)
+        };
+        assert_eq!(spec(&framed, fade)["s"], 0.133, "{framed}");
+        assert!(!motion(&framed), "no tick is owed: {framed}");
+        assert_eq!(
+            host.engine.now(),
+            0.120,
+            "the input clock stays at the wall"
+        );
+    }
 }
 
 #[test]
@@ -990,4 +996,85 @@ fn sticky_translation_transitions_stay_sampled_for_host_placement() {
         motion(&batch),
         "the host needs a sample while placement can change"
     );
+}
+
+#[test]
+fn canvas_only_live_ticks_keep_drawing_without_firing_timers() {
+    use exact_runner::exact_canvas::{Context2d, DrawError, Frame};
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
+
+    struct Tile(Rc<RefCell<Vec<f64>>>);
+    impl DataSource for Tile {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+            vec![("tile".into(), 0)]
+        }
+        fn draw_2d(
+            &mut self,
+            _: &str,
+            _: &[Value],
+            ctx: &Context2d,
+            frame: &Frame,
+        ) -> Result<bool, DrawError> {
+            self.0.borrow_mut().push(frame.time);
+            ctx.clear_rect(0., 0., frame.width, frame.height);
+            ctx.fill_rect(frame.time % 100., 0., 4., 4.);
+            Ok(true)
+        }
+    }
+
+    let plan = contract::compile(
+        r#"component App
+  state ticks = 0
+  task timer mount
+    every(1000, beat)
+  action beat
+    ticks = ticks + 1
+  view
+    canvas surface=tile() width=100 height=48
+"#,
+    )
+    .unwrap()
+    .encode();
+    for deferred in [false, true] {
+        let times = Rc::new(RefCell::new(Vec::new()));
+        let (mut host, _) = Host::boot(
+            &plan,
+            Tile(times.clone()),
+            Box::new(MonospaceMeasurer::default()),
+            390.,
+            844.,
+        )
+        .unwrap();
+        host.set_canvas_deferred(deferred);
+        let wall = Rc::new(Cell::new(0.));
+        let clock = wall.clone();
+        host.runner
+            .set_live_clock(Some(Box::new(move || clock.get())));
+        times.borrow_mut().clear();
+        for at in [100., 116., 132., 2100.] {
+            wall.set(at);
+            let batch = host.tick_at(at, at + 8.);
+            let batch: serde_json::Value = serde_json::from_str(&batch).unwrap();
+            assert!(
+                batch["ops"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|op| op["op"] == "canvas2d"),
+                "{batch}"
+            );
+        }
+        assert_eq!(*times.borrow(), [100., 116., 132., 2100.]);
+        assert_eq!(host.runner.slot("ticks"), Some(&Value::Number(0.)));
+        host.tick_at(2100., 2108.);
+        assert_eq!(
+            times.borrow().len(),
+            4,
+            "duplicate clock values do not draw again"
+        );
+    }
 }

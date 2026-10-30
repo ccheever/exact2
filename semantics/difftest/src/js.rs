@@ -9,7 +9,7 @@
 //! target makes that the runner did not is a divergence. A program
 //! `exact-web-js` refuses is outside the JS target, not a failure.
 
-use crate::oracle::{self, Oracle};
+use crate::oracle::Oracle;
 use crate::script::{Case, Event};
 use crate::{compile, observe};
 use exact_plan::Value;
@@ -21,7 +21,10 @@ use std::process::Command;
 #[derive(Debug, Clone)]
 pub enum JsVerdict {
     /// The JS target printed the runner's observation.
-    Agree,
+    Agree {
+        /// The JS observation, retained for property checks.
+        js: Vec<String>,
+    },
     /// The compiler refused the program (the runner never ran it).
     Refused(String),
     /// `exact-web-js` refused it: outside the JS target.
@@ -119,7 +122,8 @@ fn event(e: &Event) -> String {
     match e {
         Event::Tap(t) => format!("{{\"tap\":{}}}", string(t)),
         Event::Type(t, s) => format!("{{\"type\":[{},{}]}}", string(t), string(s)),
-        Event::Clock(ms) => format!("{{\"clock\":{}}}", number(*ms)),
+        Event::Clock(ms) | Event::TestClock(ms) => format!("{{\"clock\":{}}}", number(*ms)),
+        Event::Land | Event::InputLand => "{\"land\":true}".into(),
     }
 }
 
@@ -202,8 +206,10 @@ fn prepare(case: &Case, dir: &Path, index: usize) -> Result<Ready, JsVerdict> {
         .filter(|s| s.persist)
         .map(|s| string(plan.str(s.name)))
         .collect();
+    let hosts: Vec<String> = data.host_sources().into_iter().map(string).collect();
     let json = format!(
-        "{{\"file\":{},\"events\":[{}],\"answers\":[{}],\"facts\":{{{}}},\"stored\":{{{}}},\"persisted\":[{}]}}",
+        "{{\"hostSources\":[{}],\"file\":{},\"events\":[{}],\"answers\":[{}],\"facts\":{{{}}},\"stored\":{{{}}},\"persisted\":[{}]}}",
+        hosts.join(","),
         string(&file.display().to_string()),
         events.join(","),
         answers.join(","),
@@ -220,13 +226,11 @@ fn prepare(case: &Case, dir: &Path, index: usize) -> Result<Ready, JsVerdict> {
 
 /// One driver process over `ready`; each case's result line.
 fn drive(compiler: &Path, dir: &Path, ready: &[&Ready]) -> Result<Vec<String>, String> {
-    let hosts: Vec<String> = oracle::HOST_SOURCES.iter().map(|s| string(s)).collect();
     let cases: Vec<String> = ready.iter().map(|r| r.line()).collect();
     let batch = format!(
-        "{{\"compiler\":{},\"work\":{},\"hostSources\":[{}],\"cases\":[{}]}}",
+        "{{\"compiler\":{},\"work\":{},\"cases\":[{}]}}",
         string(&compiler.display().to_string()),
         string(&dir.join("runtime").display().to_string()),
-        hosts.join(","),
         cases.join(",\n")
     );
     let file = dir.join("batch.json");
@@ -269,6 +273,12 @@ fn field(line: &serde_json::Value, name: &str) -> Option<Vec<String>> {
 }
 
 fn verdict(rust: Vec<String>, text: &str) -> JsVerdict {
+    // The JS module exposes no commit trace. Compare configurations and
+    // outcomes, omitting `ran` lines on both sides (LLP 1148 D3).
+    let rust: Vec<String> = rust
+        .into_iter()
+        .filter(|l| !l.starts_with("ran "))
+        .collect();
     let line: serde_json::Value = match serde_json::from_str(text) {
         Ok(l) => l,
         Err(e) => return JsVerdict::Error(format!("{e}: {text}")),
@@ -282,6 +292,7 @@ fn verdict(rust: Vec<String>, text: &str) -> JsVerdict {
             field(line, "error").map_or_else(|| text.to_string(), |e| e.concat()),
         );
     };
+    let js: Vec<String> = js.into_iter().filter(|l| !l.starts_with("ran ")).collect();
     let keep = |v: &[String]| -> Vec<String> {
         v.iter().filter(|l| !l.starts_with('#')).cloned().collect()
     };
@@ -291,7 +302,7 @@ fn verdict(rust: Vec<String>, text: &str) -> JsVerdict {
     // what each evaluates before refusing is not observable).
     let at = r.iter().zip(&j).position(|(a, b)| a != b);
     match at {
-        None if r.len() == j.len() => JsVerdict::Agree,
+        None if r.len() == j.len() => JsVerdict::Agree { js },
         None => JsVerdict::Diverge {
             at: r.len().min(j.len()),
             rust,
@@ -473,7 +484,7 @@ pub fn report(
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     for (i, (case, v)) in cases.iter().zip(verdicts).enumerate() {
         match v {
-            JsVerdict::Agree => agree += 1,
+            JsVerdict::Agree { .. } => agree += 1,
             JsVerdict::Refused(_) => refused += 1,
             JsVerdict::Outside(why) => {
                 outside += 1;
@@ -551,6 +562,29 @@ pub fn report(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agreeing_js_observations_are_retained_for_always_checks() {
+        let lines = vec![
+            "== boot".into(),
+            "outcome ok".into(),
+            "slot ready true".into(),
+            "== tap \"go\"".into(),
+            "ran handler go ok".into(),
+            "outcome ok".into(),
+            "slot ready false".into(),
+        ];
+        let json = serde_json::json!({ "lines": lines.iter().filter(|l: &&String| !l.starts_with("ran ")).collect::<Vec<_>>() });
+        let JsVerdict::Agree { js } = verdict(lines, &json.to_string()) else {
+            panic!("configurations agree")
+        };
+        let properties =
+            contract::properties("always \"ready stays\"\n  expect state ready stays true\n")
+                .unwrap();
+        let report = crate::property::evaluate(&properties, &js);
+        assert_eq!(report.failures.len(), 1);
+        assert_eq!(report.failures[0].step, 1);
+    }
 
     /// The driver's key for `sin(4)` answers the runner's bits, which
     /// JavaScriptCore's `Math.sin` misses by one unit in the last place.

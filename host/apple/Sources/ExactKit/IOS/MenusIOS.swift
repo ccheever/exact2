@@ -20,7 +20,7 @@ final class MenuHost {
     private var menuShapes: [UInt32: String] = [:]
     #if os(iOS)
     /// Native buttons that are pull-downs (`nativeMenu`), by node.
-    private var nativeMenus: [UInt32: NativeButtonIOS] = [:]
+    var nativeMenus: [UInt32: NativeButtonIOS] = [:]
     #endif
     private var confirmation: Confirmation?
     /// A press another invoker activates (`activating`): it invokes nothing.
@@ -39,6 +39,7 @@ final class MenuHost {
         }
     }
     private var pendingConfirmation: PendingConfirmation?
+    private var waitingShows = 0 // `showModal`'s retries behind a leaving menu or sheet: in flight for `clock settle`
     /// Under the agent, the popovers open in their painted presentation
     /// (LLP 1021 D4), by `id`: each in the top layer while open, as macOS's
     /// and the web's are, out of its parent and back at its index after.
@@ -836,9 +837,9 @@ final class MenuHost {
         }
     }
 
-    /// Dismiss before resolving the tap; its accepted press owns invocation.
+    /// Dismiss before resolving the tap, unless it is on the open alert; its accepted press owns invocation.
     func agentTap(_ node: NodeView, landing: UIView? = nil) {
-        guard ExactEnv.agentPaints else { return }
+        guard ExactEnv.agentPaints, confirmation?.popover.map({ node.isDescendant(of: $0) }) != true else { return }
         lightDismiss(landing ?? node)
         #if os(tvOS)
         // tvOS retains its existing agent presentation; Select is unchanged.
@@ -980,7 +981,7 @@ final class MenuHost {
     }
     func unmounted() { focus.reset(); resetConfirmation(); sheets.reset() }
     var inTransition: Bool {
-        if sheets.inTransition || pendingConfirmation != nil { return true }
+        if sheets.inTransition || pendingConfirmation != nil || waitingShows > 0 { return true }
         guard let owner = confirmation else { return false }
         return owner.finishing || owner.alert.isBeingPresented || owner.alert.isBeingDismissed
     }
@@ -1064,7 +1065,8 @@ final class MenuHost {
         }
         if openModally(pop) != nil || sheets.owns(pop) { presenter?.session?.log("showModal \(name) ignored: dialog is already open"); return }
         if confirmation == nil, showable(pop), let controller = controller(for: pop), busy(controller), attempt < 20 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.showModal(name, attempt: attempt + 1) }
+            waitingShows += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.waitingShows -= 1; self?.showModal(name, attempt: attempt + 1) }
             return
         }
         if !openConfirmation(from: nil, popover: pop, modal: true), openModally(pop) == nil, !sheets.owns(pop) {

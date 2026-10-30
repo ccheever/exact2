@@ -411,13 +411,22 @@ impl TcpSocketTransport {
             Some(proxy) => (proxy.host(), proxy.port()),
             None => (host, port),
         };
-        let addrs: Vec<_> = (
-            dial_host.trim_start_matches('[').trim_end_matches(']'),
-            dial_port,
-        )
-            .to_socket_addrs()
-            .map_err(failed)?
-            .collect();
+        // The system lookup on a bounded helper, so an abort returns at once
+        // even while the resolver hangs (`lookup`).
+        let name = dial_host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .to_string();
+        let found = super::lookup::off_thread(signal, None, move || {
+            (name.as_str(), dial_port)
+                .to_socket_addrs()
+                .map(|addrs| addrs.collect::<Vec<_>>())
+        });
+        let addrs: Vec<_> = match found {
+            Ok(addrs) => addrs.map_err(failed)?,
+            Err(super::lookup::Unanswered::Failed(why)) => return Err(failed(why)),
+            Err(_) => return Err(signal.check().err().unwrap_or_else(|| failed("aborted"))),
+        };
         signal.check()?;
         // Establish both readiness resources before a server can observe a TCP
         // connection or successful WebSocket upgrade. The Waker is mio's

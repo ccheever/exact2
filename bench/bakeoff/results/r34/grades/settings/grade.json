@@ -1,0 +1,45 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are present in an inset grouped list with a large title. Account has an avatar header, editable Name and Email, and Sign Out with a confirmation popover. Reading, Appearance and Library are complete. The notifications master toggle reveals a compact time picker and three toggles, and asks for system notification permission. Storage shows the cache size and Clear Cache confirms, then disables itself. About has Version, pushed Privacy and Terms screens, and Rate the App, which opens the system App Store review prompt. Storage shows only the cache figure, with no total used space."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort By push native checkmark lists and return automatically on selection. The reminder time uses the native compact DatePicker popover."},
+      {"n": 3, "status": "pass", "note": "The preview paragraph updates live with the slider, font and spacing. Font names in the picker and the Font row are drawn in their own typeface."},
+      {"n": 4, "status": "pass", "note": "After relaunch, these were all kept: font size, font, spacing, theme, sort, toggles, notification sub-toggles, reminder time, cleared cache and signed-out state."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings confirms in a popover and restores every default (tested in both light and dark). The account is untouched, as the footer says."}
+    ],
+    "bugs": [
+      "After Sign Out, the Sign In button does nothing, so there is no way back to a signed-in state.",
+      "Choosing a theme (e.g. Sepia) or running Reset All Settings throws the list back to the top, losing the scroll position."
+    ],
+    "tells": [
+      "The Theme row shows a small half-filled square icon next to the value, with an odd gap at large text sizes.",
+      "The segmented control labels do not scale with Dynamic Type while everything around them does (system behaviour, but it looks unbalanced at the largest size).",
+      "Cache reads 'Zero KB' after clearing (ByteCountFormatter wording; fine but slightly odd)."
+    ],
+    "scroll": "Smooth native collection-view scrolling. Flings decelerate and bounce normally, the large title collapses into the blurred bar, and there are no blank or popping rows. Scroll position is lost only when the theme changes or after a reset.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are present in an inset grouped list with a large title. Name and Email are inline text fields. Sign Out shows a confirmation alert, and Sign In afterwards restores the account. The notifications master toggle reveals a time picker and three toggles, with a footer that tracks the chosen time. Storage shows Used, Downloaded Books and Cache, and Clear Cache confirms with an alert and updates Used. About has Version, Privacy and Terms screens, and Rate the App."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort Order push native checkmark lists with explanatory footers; selecting a choice stays on the list until Back. The reminder time uses the native compact DatePicker."},
+      {"n": 3, "status": "pass", "note": "The preview updates live with size, font and spacing. Sepia tints the preview card only."},
+      {"n": 4, "status": "pass", "note": "After relaunch, these were all kept: name edit, font size, font, spacing, theme, sort, toggles, sub-toggles, reminder time and cleared cache."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings confirms with an alert (Cancel/Reset) and restores the defaults, keeping account and downloads as the footer states."}
+    ],
+    "bugs": [
+      "The segmented control reports the previously selected segment as selected to accessibility after a change (it said 'Normal' while 'Compact' was shown), so VoiceOver state goes stale.",
+      "Turning notifications on never asks for system notification permission."
+    ],
+    "tells": [
+      "Rate the App is a hand-made alert with '5 Stars'…'1 Star' buttons instead of the system review prompt.",
+      "The Rate the App row is plain black text with no tint or accessory, so it does not read as tappable.",
+      "At the largest text size, the Name and Email values truncate ('Jane Applese…', 'jane@exampl…') instead of wrapping.",
+      "The Sepia theme only tints the preview card; the rest of the screen is unchanged."
+    ],
+    "scroll": "Smooth native list scrolling. Flings and overscroll bounce behave normally, the large title collapses properly, and there are no blank or popping rows. Scroll position is kept when returning from pushed pickers and after a theme change.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "A",
+  "why": "Both are very close native inset-grouped SwiftUI settings screens that meet every requirement and persist everything. A uses more real system behaviour (the StoreKit review prompt, the notification permission request, a font picker that shows each typeface, a full-app sepia theme). B has a hand-made star-rating alert, an untinted Rate row and truncation at large text. B's richer storage breakdown and working Sign In do not quite outweigh A's more native feel."
+}

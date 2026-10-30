@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped main screen: Today (25) and All (135) with SF Symbol icons, then My Lists with open counts and chevrons. Counts update after adds and deletes."},
+      {"n": 2, "status": "pass", "note": "Open tasks first, then a 'Completed (7)' header that collapses and expands with a +/− glyph. The checkbox completes a task, which moves to Completed and the count updates; reopening puts it back in its original place."},
+      {"n": 3, "status": "pass", "note": "+ opens a native form sheet: title (Add stays disabled until there is one), Due Date switch with a compact date picker, a None/Low/Medium/High segmented control, notes, and Cancel that discards. Tapping a row opens the same sheet as Details, with Delete Task. Edits saved."},
+      {"n": 4, "status": "pass", "note": "Overdue tasks show a red ! icon and 'Overdue · date' in red; high priority shows a red !!! before the title and low a grey !."},
+      {"n": 5, "status": "pass", "note": "A always-visible grip on each row reorders by drag, and the order survives relaunch. Swiping left shows a red Delete pill; tapping it deletes the task."},
+      {"n": 6, "status": "pass", "note": "+ on the main screen opens a New List sheet. Touch and hold opens a context menu with Rename and Delete. Swiping a list deletes it after an alert ('This deletes the list and all of its tasks')."},
+      {"n": 7, "status": "pass", "note": "After a terminate and relaunch, edits, the new task, the new order, deletions and completions were all kept."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The task list screen is a full-width plain list with inset separators, while the main screen, Today and All use inset-grouped cards; the styles are inconsistent across the app.",
+      "Reorder grips are drawn on every row all the time instead of appearing only in an Edit mode.",
+      "Open-task checkboxes are grey circles with a faint checkmark already inside, which does not look like the empty circle of Reminders or a typical iOS to-do app.",
+      "Every list on the main screen has the same orange 'hamburger' glyph as its icon. It reads like a drag handle, not a list icon, and lists have no colours.",
+      "A footer hint ('Swipe a list to delete it; touch and hold to rename it.') explains the gestures instead of offering an Edit button.",
+      "A completed high-priority task keeps its bright red !!!, while its title is greyed out."
+    ],
+    "scroll": "Scrolling through 180 tasks in All and the long list screens was smooth: no blank rows or jumps, the large title collapses into an inline title, and scroll position was kept after opening and cancelling a task.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped main screen: Today (blue) and All (grey) with circle icons, then My Lists, each with its own coloured list icon and open count. Lists are sorted alphabetically; a new list is added at the end."},
+      {"n": 2, "status": "pass", "note": "Open tasks in an inset card, then a 'Completed (7) ⌄' section header that collapses (and stays collapsed). Completed tasks have filled checkmarks in the list's colour. The checkbox completes and reopens tasks."},
+      {"n": 3, "status": "pass", "note": "A floating 'New Task' toolbar button opens a sheet: title and notes in one card, a List picker, a Due Date switch that expands an inline calendar and shows the chosen date (marked Overdue when it is in the past), and a None/Low/High segmented control. Tapping a row opens Edit Task with Delete Task. Edits saved."},
+      {"n": 4, "status": "pass", "note": "Overdue tasks show a red ! icon with 'date · Overdue' in bold red; high priority shows an orange !!! and low a grey !, as in Reminders."},
+      {"n": 5, "status": "pass", "note": "The ••• menu has Edit Tasks, which turns on standard table edit mode with red minus buttons and reorder handles. Dragging reordered rows and the order survived relaunch. Swiping left shows a trash Delete action that deletes the task."},
+      {"n": 6, "status": "pass", "note": "New List opens an alert with a text field (Create stays disabled until there is a name). Swiping a list shows Rename and Delete; Rename opens an alert, and Delete asks for confirmation in an action sheet. The ••• menu in a list also has Rename List and Delete List."},
+      {"n": 7, "status": "pass", "note": "After a terminate and relaunch, the edited title, priority and date, the new task, the new order, deletions and the collapsed Completed section were all kept."}
+    ],
+    "bugs": [],
+    "tells": [
+      "In the inline calendar the selected day is a solid black circle, while today is tinted blue; the tint is inconsistent.",
+      "The floating 'New List' / 'New Task' glass buttons grow very large at the largest text size and sit over the bottom rows (the content scrolls under them).",
+      "The tint changes from screen to screen: the 'New Task' label is orange in Garden, the List value in the editor is blue or orange, and the main screen is black and blue.",
+      "There is no Medium priority, only None/Low/High; this is minor."
+    ],
+    "scroll": "Scrolling was smooth everywhere, with the native table feel: the large title collapses, there are no blank or popping rows, and scroll position was kept after opening and dismissing the editor. The All list is grouped by list with section headers.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and persist correctly, with no functional bugs found. B looks more like a hand-built iOS app: it is consistently inset-grouped, has per-list colours and Reminders-style checkboxes and priority marks, uses standard table edit mode for reordering, and has Rename/Delete swipe actions on lists. A's plain task list, always-visible grips, pre-ticked-looking checkboxes, identical hamburger list icons and gesture-hint footer make it look less native."
+}

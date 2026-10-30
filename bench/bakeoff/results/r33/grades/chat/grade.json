@@ -1,0 +1,114 @@
+{
+  "A": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Blue right / gray left bubbles, oldest first, centered day headings ('Wed, Sep 23', 'Today'); opens on the newest message. Same-sender bubbles sit closer together."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Send button sends and clears the composer; thread scrolls to the new message even when you were scrolled far up. Blank or whitespace-only text leaves Send disabled; surrounding whitespace and newlines are trimmed."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Composer rides on top of the keyboard and the newest messages stay visible above it."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Animated three-dot bubble with a 'Sam is typing…' caption, then a canned reply (😂, Totally, Haha, yes, Love that) about 2 s later."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Long-press opens the system context menu (lifted preview, Copy, red Delete). Copy put the text on the pasteboard (pasted fine); Delete removes the message and it stays deleted after relaunch."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "Flings reach the first message (Jul 1) with no blank rows; a round ↓ 'Jump to newest message' button appears when far up and scrolls back to the bottom."
+      },
+      {
+        "n": 7,
+        "status": "pass",
+        "note": "Sent messages and Sam's replies survive relaunch."
+      }
+    ],
+    "bugs": [
+      "The keyboard's return key is drawn as a blue 'send' arrow but it adds a newline to the single-line field instead of sending."
+    ],
+    "tells": [
+      "Single emoji messages like 👍 sit inside a regular bubble instead of showing as large emoji with no bubble, as Messages does.",
+      "The composer bar is an opaque gray strip with a separate gray circle Send button, not the glass, inset composer that iOS 27 Messages uses.",
+      "The jump-to-newest button is a plain white circle with a thin outline, not a glass button.",
+      "At the largest text size the bubble corner radius stays fixed, so big multi-line bubbles look like rounded rectangles rather than pills."
+    ],
+    "scroll": "Slow drags and hard flings feel like a native list: no blank rows, no pop-in, no stutter, and it reaches the first message cleanly. The scroll indicator and the bounce at the top look normal.",
+    "scores": {
+      "features": 9,
+      "platform": 8,
+      "polish": 8,
+      "overall": 8
+    }
+  },
+  "B": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Bubbles on the correct sides, oldest first, opens at the newest message. Day headings show the first message's full date and time ('Oct 18, 2026 at 3:16 AM', 'Today at 10:17 AM')."
+      },
+      {
+        "n": 2,
+        "status": "partial",
+        "note": "From the bottom, sending works: the composer clears and the new message shows. Whitespace-only text leaves Send disabled. But sending while scrolled up leaves the thread where it was, so the sent message is out of sight, and the jump button disappears even though you are still far up."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Composer stays above the keyboard and the newest messages stay visible."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "A gray 'Sam is typing…' text bubble, then 👍 or a canned reply ('Nice!') about 2 s later."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "System context menu with Copy and Delete. Copy pastes correctly; Delete removes the message and it stays deleted after relaunch."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "Flings reach the first message (Jul 1) without blank rows; a glass ↓ button jumps back to the newest message."
+      },
+      {
+        "n": 7,
+        "status": "pass",
+        "note": "Sent messages and replies survive relaunch."
+      }
+    ],
+    "bugs": [
+      "Sending while scrolled up through history does not scroll to the sent message, and the jump-to-newest button disappears, leaving no quick way back down."
+    ],
+    "tells": [
+      "Day headings always include the year and the first message's time ('Oct 25, 2026 at 12:14 AM') rather than Messages-style 'Sat, Oct 24' or 'Wed 1:15 AM'.",
+      "The typing indicator is a text bubble saying 'Sam is typing…', not the animated three-dot bubble.",
+      "The navigation bar shows only the plain title 'Sam', with no avatar or contact header.",
+      "At the largest text size the arrow in the jump button stays tiny, and the bubble corner radius stays fixed."
+    ],
+    "scroll": "Drags and flings are smooth with no blank rows or pop-in, and it reaches the first message. Scroll position is not respected when you send from up in the history.",
+    "scores": {
+      "features": 8,
+      "platform": 8,
+      "polish": 7,
+      "overall": 7
+    }
+  },
+  "better": "A",
+  "why": "Both apps meet nearly every requirement with native context menus, smooth scrolling, persistence and good dark-mode and large-text support. A handles sending from anywhere in the history correctly and has the nicer animated typing indicator and day headings. B has a more modern iOS 27 composer and big-emoji rendering, but it loses the user when they send while scrolled up."
+}

@@ -580,9 +580,12 @@ fn lower_body(
     // A used module's other names are there too, unread: its substitute reads
     // them (its status, the source a send answers from).
     let mut sources = root_types.sources.clone();
-    // An event the root hears uses its module too (LLP 1133.004 D6).
+    // An event the root hears uses its module too (LLP 1133.004 D6), and so
+    // does a name data code alone calls (LLP 1133.011 D12), which Contract
+    // never reads: a package of such names alone (`@exact/clipboard`, LLP
+    // 1133.006) is used once a `use` reads its declaration.
     let used: Vec<&str> = (file.modules.iter())
-        .filter(|m| sources.contains_key(&m.name) || m.handler.is_some())
+        .filter(|m| sources.contains_key(&m.name) || m.handler.is_some() || m.data_only)
         .map(|m| m.extension.as_str())
         .collect();
     // An `img` scheme is one package's (LLP 1133.019 D11 item 1).

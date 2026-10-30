@@ -122,3 +122,10 @@ test "search finds a word across rooms and opens the room"
   clock settle
   clock data
   expect text "room-title" == "#general"
+
+test "a development build offers the test call under You"
+  clock data
+  tap "tab-you"
+  clock data
+  expect state testCallBuild.available == true
+  expect tree has "test-call"

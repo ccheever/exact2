@@ -23,3 +23,15 @@ test "changing the station goes through the stations screen"
 test "the clock is the driver's"
   clock +60000
   expect state screen == "home"
+
+after "chooseScheme" "chooseScheme writes only none"
+  writes none
+
+after clock "the clock writes only nowMs"
+  only writes nowMs
+
+always "material is one of 3 values"
+  expect state material in "crt" "glass" "ink"
+
+always "screen is one of 3 values"
+  expect state screen in "home" "stations" "web-deck"

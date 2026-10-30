@@ -126,6 +126,8 @@ final class NativeButtonIOS: UIButton {
     var menuShape: String?
     private(set) var isMenuOpen = false
     private var menuConfiguration: UIContextMenuConfiguration?
+    /// No menu shows from it, nor is one still leaving.
+    var menuAtRest: Bool { !isMenuOpen && menuConfiguration == nil }
     func dismissMenu() {
         guard isMenuOpen else { return }
         isMenuOpen = false
@@ -359,6 +361,17 @@ extension MenuHost {
         guard button.menu == nil || shape != button.menuShape else { return }
         button.menuShape = shape
         button.menu = pullDown(of: v, titled: heading)
+    }
+    /// `id`'s button parks with its row, its menu kept: the next sync is not
+    /// to end it as no longer `id`'s.
+    func parkNativeMenu(_ id: UInt32) { nativeMenus[id] = nil }
+    /// A parked button with a menu is `id`'s now. Its menu answers only the
+    /// row it was built for (`rows(of:)` checks the incarnation), so the
+    /// sync builds `id`'s, or ends it if `id` opens no menu.
+    func adoptNativeMenu(_ button: NativeButtonIOS, of id: UInt32) {
+        guard button.menu != nil else { return }
+        button.menuShape = nil
+        nativeMenus[id] = button
     }
     /// The native button no longer opens a menu: its primary action is its activation again.
     static func endNativeMenu(_ button: NativeButtonIOS) {

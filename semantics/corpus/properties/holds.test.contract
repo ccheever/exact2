@@ -1,0 +1,12 @@
+always "the state derive is even here"
+  expect state twice whole
+  expect state twice >= 2
+after "add" "add advances"
+  expect state n == old + 1
+after "edit" "typing reaches the input handler"
+  expect state note == "hello"
+test "add twice"
+  tap "add"
+  tap "add"
+  type "note" "hello"
+  expect state note == "hello"

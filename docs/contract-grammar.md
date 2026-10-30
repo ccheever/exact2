@@ -657,6 +657,7 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "fail" "fetch" STRING [ "times" NUMBER ] NL ; (* armed before the first data load *)
 step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
                   | "pinch" NUMBER [ "at" NUMBER NUMBER ]
+                  | "wheel" [ "-" ] NUMBER [ "-" ] NUMBER
                   | "into" STRING
                   | "modifiers" STRING | "mediasession" STRING [ NUMBER ] ] NL
               | "tap" STRING "drag" ( "to" STRING [ "at" NUMBER NUMBER ]
@@ -668,6 +669,7 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
                   | "key" STRING [ "down" | "up" | "for" NUMBER ]
                   | "copy" | "cut" | "paste" STRING ) NL
               | "pick" STRING ( STRING { STRING } | "cancel" ) NL
+              | "authorize" [ "cancel" ] NL           (* the held sign-in, against the app's server (oauth recipe) *)
               | "clock" ( "settle" | "data" | [ "+" ] NUMBER [ "real" ] ) NL
               | "clock" "until" "state" IDENT { "." ( IDENT | NUMBER ) } "==" scalar "within" NUMBER NL
                                                      (* real time, the clock frozen, until it holds *)
@@ -720,6 +722,84 @@ shows the same counts while a test is being written.
 resource was refused while no `fail fetch` fired, a send failed that no `expect refusal` names,
 or the runner said a resource was asked again and again (LLP 1146 D4). Without it, a test
 still prints those as `unarranged:` notes, and verify counts them as findings.
+
+Properties live beside the scripts in a test file; a file declaring a component
+cannot declare a property. They compile to nothing an app runs. `contract verify`
+checks them against each script's observations on the runner and Lean.
+
+```
+always "the phone is on one of its five screens"
+  expect state screen in "lock" "home" "settings" "display" "messages"
+
+always "the counter is a whole number of at least one"
+  expect state counter whole
+  expect state counter >= 1
+
+always "a probe's result is absent or an answer"
+  expect state tsResult in none some
+
+always "once the photo has loaded it stays loaded"
+  expect state ready stays true
+
+after "increment" "increment adds one"
+  expect state counter == old + 1
+
+after "reset" "reset puts the turns back and counts itself"
+  expect state turns == 0
+  expect state resets == old + 1
+
+after "rotate" "rotating touches nothing but the turns"
+  only writes turns
+
+after "done" "done writes nothing and focuses the button"
+  writes none
+  command focus "done"
+
+after clock "the probe never touches what the user set"
+  only writes tsResult rustResult rustExecutorResult
+
+never refuses "reset"
+```
+
+```ebnf
+property      = "always" STRING block( { hold } )
+              | "after" ( STRING | "clock" ) STRING block( { hold | frame } )
+              | "never" "refuses" STRING NL ;
+hold          = "expect" "state" IDENT ( "==" ( test-value | "old" [ ( "+" | "-" ) NUMBER ] | "not" "old" )
+                                      | "in" { test-value | "none" | "some" }
+                                      | ( ">=" | "<=" ) [ "-" ] NUMBER
+                                      | "whole"
+                                      | "stays" test-value ) NL ;
+frame         = "only" "writes" { IDENT } NL          (* no other root slot changes *)
+              | "writes" "none" NL
+              | "command" IDENT { test-value } NL ;    (* the commit issued this host command *)
+```
+
+`old` is admitted only in `after`, `stays` only in `always`, and frame lines only in
+`after`. The braces in the EBNF mean repetition, not written braces. A read names a
+whole root state or derive by its bare identifier; fields and indices are stage 2.
+Before any script runs, verify rejects a derive whose body, dependencies or called
+functions reach a resource, mutation status, clock or geometry read. A mutation's
+result slot is a state and may be named.
+
+`always` checks every printed configuration, including boot. `stays v` means that a
+previous observation equal to `v` must remain `v`. `after "action"` reads the value
+before an input and after its following `land`; the input must have only that
+successful handler commit, and its landing only `then` and `queue` commits. Other
+commits, including a commit omitted from the trace, make the pair counted only.
+`after clock` checks clock advances and landings not paired with inputs, over all
+their commits. `only writes` compares every root slot, including queue results.
+`never refuses` reads the action on each commit line; an action never run is
+reported as not exercised. Poisoned configurations are counted, not checked.
+Numbers use binary64 arithmetic and IEEE comparisons; other values compare by
+their whole printed text. These checks cover observed steps, not every commit
+inside a step, and are not proofs.
+
+`contract test <file>` emits an object with `tests` and `properties` arrays. Each
+property carries `kind`, `name`, its declaration `line` and parsed `lines`; each
+line has its source `line` and an `op` (`expect-state`, `only-writes`, `command`).
+Values carry a `kind` and, for numbers, strings and bools, a `value`. The device
+runner currently reads the scripts; property checking on a device is a later lane.
 
 `expect refusal "saved"` names a mutation slot, after `clock data` or `clock settle`
 lands its send. It asserts one observed refusal since the previous such assertion for
@@ -800,6 +880,11 @@ virtual clock by those milliseconds (a game's ticks), except under
 `--timing platform`, where the platform's own clock owns the gesture.
 `tap "id" pinch <scale> [at x y]` is the driver's pinch: `scale` greater than 0,
 about the node's middle or about `at` in its box.
+`tap "id" wheel <dx> <dy>` is the driver's wheel (the agent's `tap <t> wheel
+dx dy`) at the node's middle, in points (CSS pixels on the web): a positive `dy`
+scrolls on toward the content's end, so its offset grows, and a negative one back
+toward its start; a positive `dx` scrolls right. It lands at once, with no
+momentum, so a Mac's scroll can be tested where a drag selects text instead.
 `tap "id" dblclick` and `contextmenu` are the driver's forms of the same names
 (no Linux carrier double-clicks). `tap "list" into "key"` brings a virtualized
 list's row into view by its key, so a row outside the rendered window can be
@@ -1316,6 +1401,25 @@ both are refused while an input method composes. On the web, where hidden
 syntax is not drawn, a caret put inside it is drawn at its visible edge and
 reads back there ([LLP 1045](../llp/1045-markdown-editor.rfc.md) D6).
 
+`paragraphDirs` gives the editor's lines their base direction: one word per
+source line, HTML's `dir` (`ltr`, `rtl` or `auto`), the first word the first
+line's. A line feed ends a line, so a Markdown paragraph broken over three
+source lines takes three words. A line past the last word takes the last, so
+`dirs = "ltr rtl"` draws the first line left to right and every line after it
+right to left. An editor where Arabic or Hebrew sits beside English binds the
+words to what it derives from its value (one per `value.split("\n")`), by
+whatever rule the app keeps, and so sends the next ones with each change. A
+literal says one word, which every line takes: it never changes, so the
+compiler refuses a list written there (`lower-paragraph-dirs-literal`). Until
+the app's next words, each word stays with its line through edits, undo and
+redo give back the words of the lines they restore, and a line an edit adds
+takes the word above it. A line without a word takes the field's `direction`;
+`auto` is the line's first strong letter outside its syntax and atoms. The
+web, macOS and iOS draw it, a right-to-left line's list marker and quote on
+its right (the web's quote bar; on Apple the quote's indent and its dimmed
+`>`); Linux, Windows and Android, which show the source, ignore it
+([LLP 1045](../llp/1045-markdown-editor.rfc.md) D11).
+
 ### Inline atoms: `atom`, `atoms`, `atomFaces`, `atompress`
 
 An atom is a span of a Markdown source that the editor and the reader show as
@@ -1334,7 +1438,7 @@ atom skill prefix="$" background-color="light-dark(#efe7ff, #2c2340)"
 
 component Composer
   state draft = ""
-  derive faces = [AtomFace(source="@src/main.rs", label="main.rs", icon="assets/file.svg", title="src/main.rs")]
+  derive faces = [AtomFace(source="@src/main.rs", label="main.rs", icon="assets/file.svg", title="src/main.rs", color="", backgroundColor="light-dark(#e3f0ff, #1d3045)", direction="")]
   action pressed(e: AtomEvent)
     open = e.source
   view
@@ -1355,10 +1459,31 @@ component Composer
   kinds it recognizes (`lower-atom-field`, `lower-atom-unknown`); two kinds with
   one scheme, a shared prefix character, or both relative are refused
   (`lower-atom-duplicate`).
-- `atomFaces` takes `AtomFace(source, label, icon, title)` records, keyed by an
-  atom's whole source: equal source is one atom, and new text is a new key. An
-  empty label is a link's text or a token without its prefix and quotes; the
-  icon is an image source (the web draws a URL or asset, not yet a `symbol:`).
+- `atomFaces` takes `AtomFace(source, label, icon, title, color,
+  backgroundColor, direction)` records, keyed by an atom's whole source: equal
+  source is one atom, and new text is a new key. An empty label is a link's text
+  or a token without its prefix and quotes; the icon is an image source (the web
+  draws a URL or asset, not yet a `symbol:`). `color` and `backgroundColor`
+  paint that atom over its kind's `color` and `background-color`, or are empty
+  for the kind's. Each is a colour as a bound `color` takes one: `light-dark()`,
+  a theme entry's name, a role, a `-exact-platform-color()` only as one of the
+  app's literals, or a colour in a wide space (`color(display-p3 …)`), which
+  every host with pills draws in that space. A colour in a standard space the
+  platforms ship (`color(--dci-p3 …)`) is drawn by Apple and refused on the web,
+  and one in a profile the app declares with `color-profile` is refused on every
+  host. One that names a token follows `setMode`, a pin and a token's new value;
+  when that value is no colour, faces the token painted stay as they were, where
+  a themed row would be unset, and the journal says so. A role's web form
+  (`var(--exact-separator, …)`) is that role, whatever its fallback holds but an
+  unadmitted `-exact-platform-color()`. Any other value that holds
+  `currentcolor`, `inherit` or another cascade keyword, or a substitution
+  function (`var()`, `env()`, `attr()`, `if()`, `inherit()`), is no colour on
+  every host. So is a colour the kernel does not read, on the native hosts and
+  the web's wasm target, and one the build's colour map or the browser refuses,
+  on the JS target. A colour that is none leaves the kind's paint, and the
+  journal says so. A pill lays out its icon and then its label in its line's
+  direction, so in a right-to-left line its icon is on the right; `direction`
+  (`ltr`, `rtl`) pins its own, and empty follows the line.
 - `atompress` hands its action an optional `AtomEvent`: `kind`, `source`,
   `href` (a link's destination as written), `start`, `end` (UTF-16) and the
   modifiers. It never navigates. In the reader an atom is a tab stop that
@@ -1692,7 +1817,15 @@ focused node's centre, after `key` handlers run, with `buttons=0` and
 is sufficient. A text field keeps its editing menu. Drive it with
 `type "row" key "ContextMenu"` or `type "row" key "Shift+F10"`. UIKit presents
 keyboard-invoked actions through its native menu without the long-press preview.
-Disabled controls and inert nodes do not open menus.
+Disabled controls and inert nodes do not open menus. On macOS a request that
+no node answers, from the key or from VoiceOver's show menu, gets the menu a
+right-click at that point would show, as Chrome shows its own menu then: the
+menu of the view drawn there or above it (selected text's), else whatever
+answers past the session's view (an embedder's or an app's responder). No
+`pointerdown` or `contextmenu` fires, and selected text keeps its selection.
+With nothing focused and text selected, the key opens at the selection's first
+line, as Chrome's does. The web shows the browser's own menu; the other hosts
+have no page menu to show.
 
 `wheel` is DOM's: a wheel's turn or a trackpad's scroll over the node, heard by
 every node from it up that declares it, innermost first. Its `WheelEvent` is
@@ -1812,6 +1945,18 @@ action pasteAt(cell: string, e: ClipboardEvent)
   send pasted = pasteCells(cell, e.text)
 column key=move paste=pasteAt(selected) copy=copyCells cut=cutCells
 ```
+
+To write an image, data code imports `@exact/clipboard` (LLP 1133.006): the
+Clipboard API's `write([new ClipboardItem({"image/png": path, "text/plain":
+text})])`, with an `app:/` path to a PNG (or at most 2 MiB of PNG bytes)
+and `writeText(text)`. The host writes a new PNG of the image's pixels, frame
+0 of an animation; convert another format first with
+`storage.fs.compressImage(…, {type: "image/png"})`. Web, macOS and iOS. The
+app's Contract names the package with a `use` (`use ClipboardItem from
+"@exact/clipboard"`), which links it. Under the agent neither this nor
+`copyText` touches the person's clipboard: the write lands on the session's
+own pasteboard (in memory on the web), and `state.extensions.clipboard.implementation`
+shows the last one (`EXACT_DEVICE=real` writes the real one on Apple).
 
 ### Text selection
 
@@ -2269,6 +2414,19 @@ the virtual clock).
   menu off the bar and leaves its chords (Save Trace's ⌥⌘T among them);
   other hosts ignore it ([LLP 1021 §5.3](../llp/1021-menus.rfc.md#53-contract-extensions-to-the-mac-menu-bar-2026-10-12)).
 
+  On a top-level root, `-exact-menu-keys="close-window=none"` keeps File ▸
+  Close Window (built with ⌘W) in its place with no chord, so ⌘W reaches the
+  page, and `close-window=Meta+Shift+W` gives it ⇧⌘W. `close-window` is the
+  one id; the chord is one `aria-keyshortcuts` chord with `Meta` that is not
+  one of the host's or the system's own (⌘Q, ⌘W, ⌘H, ⌘M, ⌘-comma and the like).
+  Another id, an id named twice, a chord without `Meta`, a standard chord,
+  expressions and non-root use fail with `lower-menu-keys`. With nothing
+  holding ⌘W, AppKit's Close All ⌥⌘W shows as a row of its own: an app that
+  removes ⌘W declares `-exact-menu-remove="close-all"` too. An app command
+  with the same chord still takes it from the item; removing the declaration
+  gives it ⌘W back. Other hosts ignore it
+  ([LLP 1021 §5.3.3](../llp/1021-menus.rfc.md#533-close-windows-chord-2026-10-28)).
+
   The Dock menu and the status item ([LLP 1133.025](../llp/1133.025-desktop.rfc.md)
   D4, D5): `dock` beside one menu id, or alone, files the button in the Dock
   menu too, above AppKit's own items, in declaration order, from the key
@@ -2468,18 +2626,27 @@ Syntax is only the first layer. In particular:
   `if`/`match` arms, and sequential `if`s testing one unchanged name against
   different literals, are separate paths (LLP 1088 D8). The walk reads the root's
   actions with every call expanded, where a caller and its callees are one commit.
-- Behind a call, a read of a state, mutation or router slot that another frame
-  (the action's own body, or another call) assigned earlier on the same path is
-  `analyze-call-stale-read` (LLP 1089 D3): the reader would see the starting
-  value, and neither body shows it. Pass the value as an argument, from a `let`
-  bound before the write for the old value or the assigned expression for the
-  new one. A derive, a resource and `pending(m)` read settled values and are not
-  refused; the same walk's exclusive paths are separate. The same read in the
-  frame that assigned the slot is the warning `analyze-read-after-assign`
-  (LLP 1116.003 D6), unless the paths that assigned it exclude the read or decide
-  the condition it is in (`if phase == 1` … `phase = 2`, then `if phase == 2`),
-  or a record copy left the field it reads unchanged (`s = S(s, f=…)`, then `s.g`).
-  `pending`/`failed` operate on declarations, not arbitrary values.
+- A read of a state or mutation slot that the action assigned earlier on the
+  same path sees the starting value, since writes land when the action ends: it
+  is the warning `analyze-read-after-assign` (LLP 1116.003 D6; LLP 1035.005.002
+  C2), in the action's own body or behind a call (the action's body, or another
+  call, assigned it; LLP 1089 D3), one rule at one severity. The message names
+  the repair: bind the value, `let next = …`, assign `next`, read or pass `next`;
+  a `let` bound before the write keeps the old value. Not named: a read on a
+  path exclusive with the assignment's, a condition the assignment's path
+  decides (`if phase == 1` … `phase = 2`, then `if phase == 2`), and a field a
+  record copy left unchanged (`s = S(s, f=…)`, then `s.g`). A derive, a resource
+  and `pending(m)` read settled values. In 1,029 bake-off builds the body's read
+  was met in 86 and the call's in 2, which is why the call's is no longer a
+  refusal. `pending`/`failed` operate on declarations, not arbitrary values.
+- An action that both sends a nonqueued mutation and assigns it on one path, in
+  either order and through calls, is warned of (`analyze-send-assigned`, LLP
+  1035.005.002 C1): a send is asked when the action runs; once the writes land,
+  a request still in flight for a mutation the action assigned is forgotten and
+  its reply dropped, and the slot keeps the assigned value (LLP 1016 D5). The
+  message names the three intents' spellings; a `queue` mutation's assignment
+  drops no queued work (LLP 1092 D4) and is not named. No bake-off build wrote
+  the combination; Weird Castle's logout means it.
 - View roots cannot be conditional/repeated regions. Tags, attributes, and
   children must fit their lowering rules. Class application is not a CSS cascade.
 - Scrollers need bounds; virtualized lists have specific axis, template, and

@@ -591,7 +591,14 @@ export async function call(live: Live, request: rest.RestRequest): Promise<any> 
     rest.onResponse(limiter, request, 0, () => null, null, clock.now);
     throw error;
   }
-  const text = await response.text();
+  // The body can fail after the headers (a dropped connection): the route's slot is given back, with what the
+  // headers said of its limits.
+  let text: string;
+  try { text = await response.text(); }
+  catch (error) {
+    rest.onResponse(limiter, request, response.status, name => response.headers.get(name), null, clock.now);
+    throw error;
+  }
   let body: any = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = null; }
   rest.onResponse(limiter, request, response.status, name => response.headers.get(name), body, clock.now);

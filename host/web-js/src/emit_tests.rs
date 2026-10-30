@@ -46,6 +46,20 @@ fn keep_mounted_is_a_list_option_read_again() {
 }
 
 #[test]
+fn a_page_given_app_files_is_no_source_until_the_glue_gives_them() {
+    let plan = contract::compile(
+        "component App\n  view\n    iframe src=\"assets/viewer.html?file=app:/cache/a.pdf\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(
+        js.contains("\"data-app-src\":\"assets/viewer.html?file=app:/cache/a.pdf\""),
+        "{js}"
+    );
+    assert!(!js.contains("\"src\":\"assets/viewer.html"), "{js}");
+}
+
+#[test]
 fn an_app_file_iframe_keeps_its_source_for_the_file_loader() {
     let plan = contract::compile(
         "component App\n  view\n    iframe src=\"app:/data/doc.pdf\" sandbox=\"allow-scripts\"\n",
@@ -377,6 +391,27 @@ fn aria_disabled_is_an_attribute_for_static_and_bound_values() {
     assert!(
         js.matches("\"aria-disabled\"").count() >= 2,
         "the bound value uses the same DOM attribute: {js}"
+    );
+}
+
+/// LLP 1045 D11: a literal `paragraphDirs` is the element's attribute from
+/// its creation, before the Markdown editor mounts and reads it; a bound one
+/// writes the same attribute.
+#[test]
+fn paragraph_dirs_is_written_before_the_editor_mounts() {
+    let plan = contract::compile(
+        "component App\n  state dirs = \"ltr rtl\"\n  view\n    column\n      textarea value=\"\" markup=\"markdown\" paragraphDirs=\"rtl\"\n      textarea value=\"\" markup=\"markdown\" paragraphDirs=dirs\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let literal = js
+        .find("\"data-paragraph-dirs\":\"rtl\"")
+        .unwrap_or_else(|| panic!("{js}"));
+    let mount = js.find("mde(").unwrap_or_else(|| panic!("{js}"));
+    assert!(literal < mount, "the attribute precedes the mount: {js}");
+    assert!(
+        js.matches("\"data-paragraph-dirs\"").count() >= 2,
+        "the bound value uses the same attribute: {js}"
     );
 }
 

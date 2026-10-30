@@ -3,8 +3,9 @@
 // on the web, macOS and iOS under the agent. Nothing opens: the request is
 // held; the smoke asks the fixture's authorize endpoint for the callback URL
 // a person's approval would produce and answers the hold with it (`type
-// @t`). A cancel, a callback for another sign-in, and the pending entry's
-// disclosure rules are checked too. `smoke.mjs` runs this for `--app
+// @t`). A cancel, a callback for another sign-in, the pending entry's
+// disclosure rules and a loopback callback (LLP 1133.005 D9) are checked
+// too. `smoke.mjs` runs this for `--app
 // auth-fixture`; it starts the fixture server when none answers.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -85,6 +86,26 @@ export async function authSmoke({ host, open, check: record }) {
       && !lines.some((l) => l.includes('code-') || l.includes('at-')), 'the journal records the hold and the answer, never a code or token');
     st = await s.state();
     check(!JSON.stringify(st).includes('code-') && !JSON.stringify(st).includes('"at-'), 'state holds no code or token');
+
+    // A loopback callback (LLP 1133.005 D9): held on macOS as any other, its
+    // port shown; the web answers 501 before anything opens. (iOS is
+    // `later`, §8.)
+    if (host === 'macos' || host === 'web') {
+      await s.tap('sign-out'); await s.clock('settle');
+      await s.tap('prepare-loopback'); await s.clock('settle');
+      await s.tap('sign-in'); await s.clock('settle');
+      hold = held(await s.state());
+      if (host === 'macos') {
+        const l = hold?.device?.args ?? {};
+        check(l.callback === 'http://127.0.0.1:4332/oauth/loopback', `the loopback callback is held with its port: ${JSON.stringify(l)}`);
+        const back = await fetch(`${ISSUER}/oauth/authorize?client_id=${encodeURIComponent(l.client_id)}&request_uri=${encodeURIComponent(l.request_uri)}`,
+          { headers: { accept: 'application/json' } }).then((r) => r.json());
+        await s.type(`@${hold?.ticket}`, back.location); await s.clock('settle');
+        check((await text(s, 'signed')) === 'Signed in as fixture.test', `signed in through the loopback callback: ${await text(s, 'signed')}`);
+      } else {
+        check(!hold && (await text(s, 'signed')) === 'Sign-in failed (501)', `a page cannot listen: ${await text(s, 'signed')}`);
+      }
+    }
   } finally {
     await s.close?.();
     server?.kill();

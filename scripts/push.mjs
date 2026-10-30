@@ -109,10 +109,14 @@ function bakeTypescript(tool, app, env) {
 
 /** The module pair as an update carries it (`typescript/`): the plan no
  * longer needs the cohort's source shapes, since the module answers them;
- * the pair needs the cohort's TypeScript runtime and exactly its grants (the
- * host's data source refuses any other, `Paired::decode`). */
+ * the pair needs the prelude runtime the bake found it uses (its receipt's
+ * `typescriptRuntime`, `bake/src/compat.rs` `typescript_runtime_of`), which
+ * the classifier compares with the cohort's binary, so a module that uses
+ * nothing newer still goes to an older binary (LLP 1016.000 D10); and it
+ * needs exactly the cohort's grants (the host's data source refuses any
+ * other, `Paired::decode`). */
 function typescriptBundle(bundle, build, baked, cohort) {
-  const meta = JSON.parse(baked.receipt);
+  const meta = JSON.parse(baked.receipt), runtime = meta.typescriptRuntime;
   const inputs = cohort.compat.inputs;
   if (meta.appId !== inputs.app) refuse(`the module names app ${meta.appId}, not ${inputs.app}`);
   if ((meta.grants ?? '').trim() !== (inputs.grantCeiling ?? '').trim()) refuse('the TypeScript module declares different grants than the installed binary; that needs a new binary');
@@ -120,7 +124,7 @@ function typescriptBundle(bundle, build, baked, cohort) {
     { name: 'typescript/app.module.json', bytes: baked.receipt },
     { name: 'typescript/app.hbc', bytes: baked.bytecode },
   ].map((a) => ({ ...a, sha256: sha256(a.bytes) }));
-  const requires = { grantCeiling: inputs.grantCeiling, ...(inputs.typescriptRuntime !== undefined ? { typescriptRuntime: inputs.typescriptRuntime } : {}) };
+  const requires = { grantCeiling: inputs.grantCeiling, ...(runtime !== undefined ? { typescriptRuntime: runtime } : {}) };
   const artifacts = build.graph.artifacts.map((a) => {
     if (a.name !== 'app.plan') return a;
     const { sources, ...rest } = a.requires;

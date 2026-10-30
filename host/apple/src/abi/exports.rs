@@ -50,6 +50,7 @@ macro_rules! host {
         /// the linker sees nothing else (LLP 1047.001 D3).
         const EXACT_LINKS: $crate::link::Links<$data> = $crate::link::Links::of($linked);
         $crate::pan_velocity_exports!();
+        $crate::frame_health_exports!();
 
         /// Create a runtime; returns its handle (never 0). Its callbacks are
         /// set with `exact_set_measure`, `exact_set_wake`, and
@@ -661,12 +662,35 @@ macro_rules! host {
         /// the agent's jump, 2 an input's `then`s, 3 those `then`s only when
         /// one is the earliest work due). Returns the batch's length.
         #[no_mangle]
+        pub extern "C" fn exact_timer_waits(rt: u32, kinds: u32, cutoff: f64, mode: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.timer_waits(kinds as u8, cutoff, mode), |n| n)
+        }
+
+        /// Delegate ordinary live timers to independent native callbacks.
+        #[no_mangle]
+        pub extern "C" fn exact_native_timers(rt: u32, enabled: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.native_timers(enabled != 0); 0 }, |n| n)
+        }
+
+        /// Deliver one native timer instance without draining other native timers.
+        #[no_mangle]
+        pub extern "C" fn exact_fire_native_timer(rt: u32, index: u32, generation: u64, now: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.fire_native_timer(index, generation, now), |n| n)
+        }
+
+        /// Move the clock through ordinary deadlines.
+        #[no_mangle]
         pub extern "C" fn exact_advance(rt: u32, now_ms: f64, mode: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.advance(now_ms, mode), |n| n)
         }
 
-        /// A presented display frame at `now_ms` (LLP 1073 D5): timers due
-        /// by then, then every frame task once. Returns the batch's length.
+        /// Frame tasks after timer admission, with the display target and wall clock.
+        #[no_mangle]
+        pub extern "C" fn exact_admitted_frame(rt: u32, target_ms: f64, wall_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.admitted_frame(target_ms, wall_ms), |n| n)
+        }
+
+        /// A presented display frame, including ordinary timer work.
         #[no_mangle]
         pub extern "C" fn exact_frame(rt: u32, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.frame(now_ms), |n| n)

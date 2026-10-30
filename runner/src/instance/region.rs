@@ -308,8 +308,9 @@ impl RegionInst {
         body: &Reads,
     ) -> Result<bool, InstanceError> {
         // Items may distinguish signed zero even though keys do not. A moved
-        // row also reads a new position (LLP 1062 D8), which dirties all fields.
-        let dirty = if r.frame.index != frame.index {
+        // row whose body reads its position (LLP 1062 D8) has all fields
+        // dirty; one that reads none only its item's changed fields.
+        let dirty = if r.frame.index != frame.index && body.reads_position() {
             !0
         } else {
             crate::compare::changed_fields(&r.frame.item, &frame.item)
@@ -433,9 +434,7 @@ pub(super) fn init_owned(
         if s.owner == Some(arm) {
             let v = u.eval(s.init, frames)?;
             if !v.conforms(plan, s.ty) {
-                return Err(InstanceError::SlotType {
-                    slot: plan.str(s.name).to_string(),
-                });
+                return Err(InstanceError::slot_type(plan, &v, s.ty, plan.str(s.name)));
             }
             slots.borrow_mut().insert(i as u32, v);
         }

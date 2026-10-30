@@ -54,7 +54,8 @@ fn streams() -> MutexGuard<'static, VecDeque<Vec<u32>>> {
     STREAMS.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn driven() -> bool {
+/// Whether a driver drives the reader (its first request has come).
+pub(crate) fn driven() -> bool {
     DRIVEN.load(Ordering::Relaxed)
 }
 

@@ -6,8 +6,9 @@
 // the client must retry with, `jkt` bound at PAR and checked at the token
 // and resource servers, `ath` on the resource), `iss` in the callback. Two
 // registered clients, one per application type (after review, item 3): the
-// native one's redirect is the client id's hostname reversed, the web one's
-// the app's `/.exact/auth/callback` (any loopback port in development).
+// native one's redirect is the client id's hostname reversed, or a desktop's
+// loopback `/oauth/loopback` (LLP 1133.005 D9), the web one's the app's
+// `/.exact/auth/callback` (any loopback port in development).
 //
 //   bun apps/auth-fixture/fixture.mjs [--port 4331]
 //   GET /oauth/authorize?…&auto=1   the browser's page approves and redirects;
@@ -36,7 +37,8 @@ const port = Number(args[args.indexOf('--port') + 1] || 4331) || 4331;
 export const ISSUER = `http://127.0.0.1:${port}`;
 const ORIGIN = 'https://auth-fixture.exact.test';
 const CLIENTS = {
-  [`${ORIGIN}/.exact/auth/client-metadata.native.json`]: uri => uri === 'test.exact.auth-fixture:/oauth',
+  [`${ORIGIN}/.exact/auth/client-metadata.native.json`]: uri => uri === 'test.exact.auth-fixture:/oauth'
+    || /^http:\/\/127\.0\.0\.1:\d+\/oauth\/loopback$/.test(uri),
   [`${ORIGIN}/.exact/auth/client-metadata.web.json`]: uri => uri === `${ORIGIN}/.exact/auth/callback`
     || /^http:\/\/(127\.0\.0\.1|localhost):\d+\/\.exact\/auth\/callback$/.test(uri),
 };

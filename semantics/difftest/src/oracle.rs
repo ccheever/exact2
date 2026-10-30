@@ -42,16 +42,9 @@ pub struct Oracle {
     ///
     /// [`Case::prerendered`]: crate::script::Case::prerendered
     pub prerendered: bool,
+    /// The fixed date and zone supplied before boot.
+    pub launch: exact_runner::time::Launch,
 }
-
-/// The sources the runner answers itself, from the host's facts.
-pub const HOST_SOURCES: &[&str] = &[
-    exact_runner::delivery::SOURCE,
-    exact_runner::page::SOURCE,
-    exact_runner::time::SOURCE,
-    exact_runner::surface_record::SOURCE,
-    exact_runner::viewport::SOURCE,
-];
 
 impl Oracle {
     /// A source for `plan`'s signatures, answering from `seed`.
@@ -75,14 +68,19 @@ impl Oracle {
             facts: Rc::default(),
             stored: Rc::default(),
             prerendered: false,
+            launch: Default::default(),
         }
     }
 
     /// The source a case runs against: the empty store an authored test
     /// starts from, or the device store [`Oracle::with_store`] fills.
     pub fn for_case(plan: &Plan, case: &crate::script::Case) -> Self {
-        let mut oracle = Oracle::new(plan, crate::seed_of(&case.name));
+        let mut oracle = Oracle::new(
+            plan,
+            case.seed.unwrap_or_else(|| crate::seed_of(&case.name)),
+        );
         oracle.prerendered = case.prerendered;
+        oracle.launch = case.launch.clone();
         if case.stored {
             oracle.with_store()
         } else {
@@ -135,7 +133,23 @@ impl Oracle {
             facts: self.facts.clone(),
             stored: self.stored.clone(),
             prerendered: self.prerendered,
+            launch: self.launch.clone(),
         }
+    }
+
+    /// Sources whose boot answers bypassed the oracle and became host facts.
+    pub fn host_sources(&self) -> Vec<&str> {
+        let facts = self.facts.borrow();
+        self.plan
+            .resources
+            .iter()
+            .filter(|r| {
+                facts
+                    .iter()
+                    .any(|(name, _, _)| name == self.plan.str(r.name))
+            })
+            .map(|r| self.plan.str(r.source))
+            .collect()
     }
 
     /// The transcript in `Contract.OracleText`'s format.
@@ -239,6 +253,14 @@ fn generate(plan: &Plan, ty: TypesId, rng: &mut Rng, depth: u32) -> Value {
             }
         }
         TypeKind::Bool => Value::Bool(rng.chance(1, 2)),
+        TypeKind::String if !row.fields.is_empty() => {
+            let members: Vec<_> = row
+                .fields
+                .iter()
+                .map(|f| plan.str(plan.field(f).name))
+                .collect();
+            Value::str(rng.pick(&members))
+        }
         TypeKind::String => Value::str(rng.pick(STRINGS)),
         TypeKind::Unit => Value::Unit,
         TypeKind::Option => match row.elem {
@@ -323,5 +345,23 @@ pub fn text_value(plan: &Plan, ty: TypesId, v: &Value) -> String {
             )
         }
         _ => "u".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_strings_respect_enum_members_in_resource_records() {
+        let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+        let member = b.string_enum(&["photo".into(), "video".into()]);
+        let list = b.list(member);
+        let record = b.record("Assets", &[("assets", list)]);
+        let plan = b.plan();
+        for seed in 0..64 {
+            let v = generate(plan, record, &mut Rng::new(seed), 0);
+            assert!(v.conforms(plan, record), "{v:?}");
+        }
     }
 }

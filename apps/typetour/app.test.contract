@@ -1,0 +1,10 @@
+always "screen_always"
+  expect state screen in "lock" "home" "settings" "display" "messages"
+
+test "the phone visits its screens"
+  tap "lock-unlock"
+  tap "dock-settings"
+  tap "row-display"
+  tap "home-bar"
+  tap "dock-messages"
+  clock data

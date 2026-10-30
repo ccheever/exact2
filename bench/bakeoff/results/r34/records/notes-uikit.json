@@ -1,0 +1,26 @@
+{
+  "spec": "notes",
+  "arm": "uikit",
+  "model": "claude",
+  "appId": "dev.bakeoff.notes.be2eadb",
+  "assignedId": "dev.bakeoff.notes.be2eadb",
+  "appName": "Notes",
+  "sim": "C2188CC6-FBE9-409A-92A8-ABD89AC2C432",
+  "pin": "f2cbe5de1c",
+  "minutes": 5.18,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 1098638,
+    "fresh": 63119,
+    "input": 1071560,
+    "cached": 1008441,
+    "output": 27078,
+    "cost": 1.2479922,
+    "calls": 43,
+    "toolCalls": 24
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r34/built/notes-uikit.app",
+  "notes": true,
+  "finished": "2026-10-28T18:24:53.178Z"
+}

@@ -228,6 +228,8 @@ impl<D: DataSource> Presenter<D> {
         } else {
             off.1
         };
+        // A wheel is a new input: the list's own pending position is retired now (`ack.rs`).
+        self.retire_for_wheel(id);
         let moved = self.anchor_input(id, off, if take_y { dy } else { 0. }, (nx, ny));
         self.scroll.insert(id, (nx, ny));
         if (nx, ny) != off || moved.is_some_and(|dy| dy != 0.) {

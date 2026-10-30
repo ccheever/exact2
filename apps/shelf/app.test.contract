@@ -173,3 +173,15 @@ test "Scan Barcode opens the scan screen inside the add sheet, and Cancel goes b
 test "the web reads no text from a photo, so a book offers no Add Quote from Photo"
   tap "book-seed-2"
   expect tree missing "add-quote"
+
+after "askRemoveAimed" "askRemoveAimed writes only none"
+  writes none
+
+always "draftStatus is one of 3 values"
+  expect state draftStatus in "done" "reading" "want"
+
+always "filter is one of 4 values"
+  expect state filter in "all" "done" "reading" "want"
+
+always "subject is one of 3 values"
+  expect state subject in "fantasy" "mystery_and_detective_stories" "science_fiction"

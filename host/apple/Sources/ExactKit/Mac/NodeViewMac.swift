@@ -668,6 +668,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // A collection's knob keeps the offset the reader saw (CollectionMac.swift).
         if let sv = scroll, let drag = KnobDrag.of(sv), !drag.admits(sv.contentView, correcting: presenter?.collections.correcting == true) { return }
         if let o = scroll?.contentView.bounds.origin { presenter?.onScrolled?(id, Double(o.x), Double(o.y)) }
+        if let sv = scroll { presenter?.session?.frameHealth.trackScrolled(sv) }
         presenter?.stickies.scrolled(id)
         presenter?.collectionScrolled(id)
         presenter?.transformGeometry.changed()

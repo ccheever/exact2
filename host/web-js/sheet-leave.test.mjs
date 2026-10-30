@@ -69,7 +69,9 @@ async function served(source, run) {
       if (!path) return new Response(`<style>${style}</style><link rel="stylesheet" href="/app.css">
         <div id="exact-root"></div><script type="module">import app from '/app.js';app();</script>`,
       { headers: { 'content-type': 'text/html' } });
-      const file = [dir, import.meta.dir, resolve(root, 'host/web')].map(base => resolve(base, path)).find(existsSync);
+      // A module that re-exports the host's own reaches it through `../web/`.
+      const bases = path.startsWith('web/') ? [resolve(root, 'host')] : [dir, import.meta.dir, resolve(root, 'host/web')];
+      const file = bases.map(base => resolve(base, path)).find(existsSync);
       return file ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
     } });
     browser = await suiteBrowser();

@@ -3,21 +3,16 @@
 //! @ref LLP 1015 §2; LLP 1014 D4 (a host that paints has the exact
 //! invalidation answer because it *is* the display list)
 //!
-//! One walk of the live tree in preorder emits every node to a [`Backend`]:
-//! background (the border box, per-corner radii), borders, an image by
-//! `object-fit`, a text node's paragraph (the one the kernel measured,
-//! [`crate::text`]), an input's value or placeholder and caret, then the
-//! children — clipped when the node's effective overflow is not `visible`,
-//! offset by its scroll position. Motion presentation values become a
-//! transform about its `transform-origin` (CSS `translate` · `rotate` · `scale`)
-//! and a group opacity (a layer, only when it is not 1). The walk also
-//! records every node's painted box — the transformed bounding box in
-//! viewport points and the clip it was painted under — which is what the
-//! agent's `layout` reports and what hit-testing reads: no second geometry.
+//! One preorder walk emits each node to a [`Backend`]: its background and
+//! per-corner radii, borders, image by `object-fit`, paragraph as measured
+//! by [`crate::text`], input value or placeholder and caret, then children.
+//! Children inherit overflow clips and scroll offsets. Motion supplies a
+//! transform about `transform-origin` and group opacity (a layer when not 1).
+//! The walk records transformed bounding boxes in viewport points with
+//! their clips; the agent's `layout` and hit-testing share this geometry.
 //!
-//! Two backends draw what the walk emits: [`crate::gpu`] (vello over wgpu,
-//! the main one) and [`crate::raster`] (tiny-skia on the CPU — the fallback
-//! where there is no adapter, and the deterministic oracle for pixels).
+//! Backends: [`crate::gpu`] (vello), [`crate::ink`] (instanced geometry),
+//! and [`crate::raster`] (the CPU fallback and pixel oracle).
 
 use crate::image::Bitmap;
 use crate::text::{Paragraph, Run, RunPaint, Shared, Spec, TextEngine};
@@ -848,6 +843,8 @@ impl Painter {
         replay: Option<&region::Replay<'_>>,
         target: FrameTarget,
     ) -> Result<Frame<Option<Arc<Pixmap>>>, String> {
+        #[cfg(target_os = "macos")]
+        let _trace = exact_ink::device::apple::Trace::new(c"paint walk");
         let started = std::time::Instant::now();
         self.viewport = viewport;
         self.backend.page(page_color(self.dark));
@@ -908,6 +905,8 @@ impl Painter {
             self.backend.pointer(px, py);
         }
         self.boxes_hint = walk.boxes.len();
+        #[cfg(target_os = "macos")]
+        drop(_trace);
         let finished = self.backend.finish_for(target).and_then(|pixels| {
             if target == FrameTarget::Pixels && pixels.is_none() {
                 Err("paint backend returned no pixels for capture".into())
@@ -927,6 +926,7 @@ impl Painter {
             self.field_text = walk.fields;
             self.inline_text = walk.inline;
         } else {
+            self.discard_rows();
             drop(walk.text);
         }
         // Pending measurements end with every paint attempt, including failure.

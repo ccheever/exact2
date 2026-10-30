@@ -43,6 +43,7 @@ public final class ExactView: UIView {
     /// What this view adds beside the viewport, for `layout agree` (LLP 1080.001 D3).
     var inspectionOwned: [UIView] { keyboardProbe.map { [$0] } ?? [] }
     private var editingObservers: [NSObjectProtocol] = []
+    private var sceneObserver: NSObjectProtocol?
     /// The adapter's hook for the first root's `viewport-fit` and its
     /// canvas colour (the window's background under the safe areas is the
     /// window's business).
@@ -95,6 +96,17 @@ public final class ExactView: UIView {
             }
         }
         #endif
+        // While the scene is in the background UIKit can size the primary
+        // container for the other display (the iPhone Duo's inner one while
+        // its cover shows), and nothing lays it out again on return:
+        // `fitOwner` puts it back. An activation alone already does
+        // (`PageFacts`).
+        sceneObserver = NotificationCenter.default.addObserver(forName: UIScene.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, let scene = note.object as? UIScene, scene === self.window?.windowScene else { return }
+                self.session.presenter.navigation.fitOwner()
+            }
+        }
         session.presenter.observeKeyboard()
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.session.controlTextChanged() }
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self, UITraitAccessibilityContrast.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
@@ -128,7 +140,7 @@ public final class ExactView: UIView {
 
     required init?(coder: NSCoder) { nil }
     deinit {
-        editingObservers.forEach(NotificationCenter.default.removeObserver)
+        (editingObservers + [sceneObserver].compactMap { $0 }).forEach(NotificationCenter.default.removeObserver)
     }
 
     /// A zero-size dependent makes UIKit lay this view out as its keyboard
@@ -245,7 +257,7 @@ public final class ExactView: UIView {
         }
         // Mounted and visible participate in frame demand (D3): an unmounted
         // view wants no frames; a mounted one asks again.
-        session.frames.run(window != nil && (session.frames.motion || session.canvases.wantsFrames))
+        session.frames.run(window != nil && session.frames.hasWork)
     }
 
     /// The viewport's bands past the page's area (LLP 1130 D1); the document

@@ -123,10 +123,13 @@ fn the_gallery_places_each_cell_refuses_one_the_compiler_wont_take_and_leaves_th
     assert!(why.contains("injects `theme`"), "{why}");
     let text = std::fs::read_to_string(&g.source).unwrap();
     assert!(text.contains(&format!("can't place: {why}")), "{text}");
-    // A placeholder of each kind, an inert action, the variant values as written, the slot's box.
+    // A placeholder of each kind, an inert action, the variant values as written, the slot's
+    // sample: a tinted block saying "slot", not an invisible box (stage 15 D4 batch 3 #1).
     assert!(text.contains(r#"Card(tone="quiet", compact=false, label="label", count=0, maybe=none, items=[], press=noop, info=Info(title="title", n=0))"#), "{text}");
     assert!(
-        text.contains("  action noop\n") && text.contains(r#"box testId="gallery-Card-2-slot""#),
+        text.contains("  action noop\n")
+            && text.contains(r#"column testId="gallery-Card-2-slot" min-width=24 min-height=24 background-color="-exact-fill""#)
+            && text.contains(r#"text "slot" font="-exact-caption2""#),
         "{text}"
     );
     // The gallery's design is the app's own; the app's plan and describe's files are as they were.
@@ -967,6 +970,42 @@ component Glow
   view
     text "g" text-shadow=glow
 
+component Pair
+  props
+    ink: string
+    mark: string
+  view
+    column background-color=ink
+      if ink == "-exact-system-blue"
+        text "b"
+      text "m" color=mark
+
+component Tinted
+  props
+    ink: enum<"-exact-system-blue", "-exact-system-red">
+    mark: string
+  view
+    column background-color=ink
+      text "m" color=mark
+
+component Lined
+  props
+    ink: enum<"\n-exact-label", "-exact-system-red">
+    mark: string
+  view
+    column background-color=ink
+      text "m" color=mark
+
+component Spelled
+  props
+    ink: string
+    mark: string
+  view
+    column background-color=ink
+      if ink == "-EXACT-LABEL"
+        text "s"
+      text "m" color=mark
+
 component Inks
   props
     caret: string
@@ -979,7 +1018,7 @@ component Inks
       input value="" aria-label="field" caret-color=caret accent-color=accent
 "#;
 
-const STYLED_APP: &str = r#"use Dot, Ring, Glow, Inks from "@acme/lib"
+const STYLED_APP: &str = r#"use Dot, Ring, Glow, Pair, Tinted, Lined, Spelled, Inks from "@acme/lib"
 
 component App
   action go
@@ -988,6 +1027,10 @@ component App
       Dot(size="4px", ink="red", label="a")
       Ring(edge="4px", tint="red")
       Glow(glow="glow")
+      Pair(ink="red", mark="blue")
+      Tinted(ink="-exact-system-blue", mark="blue")
+      Lined(ink="-exact-system-red", mark="blue")
+      Spelled(ink="red", mark="blue")
       Inks(caret="red", accent="red", pressed="red", pressInk="red", go=go)
 "#;
 
@@ -1040,12 +1083,41 @@ fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
         .lines()
         .find(|l| l.contains("Inks("))
         .expect("an Inks cell");
-    for prop in ["caret", "accent", "pressed", "pressInk"] {
-        assert!(
-            inks.contains(&format!(r#"{prop}="-exact-label""#)),
-            "{inks}"
-        );
+    // Each colour prop its own role, in declared order (D4 batch 2 #5: one
+    // drawn over another, as VerifiedBadge's check over its disc, shows).
+    for (prop, role) in [
+        ("caret", "-exact-label"),
+        ("accent", "-exact-system-blue"),
+        ("pressed", "-exact-system-red"),
+        ("pressInk", "-exact-secondary-label"),
+    ] {
+        assert!(inks.contains(&format!(r#"{prop}="{role}""#)), "{inks}");
     }
+    // A cell whose variant value is one of the roles: the other colour prop
+    // takes another, so the two never match (round 1, Astra).
+    let blue = text
+        .lines()
+        .find(|l| l.contains(r#"Pair(ink="-exact-system-blue""#))
+        .expect("Pair's -exact-system-blue cell");
+    assert!(!blue.contains(r#"mark="-exact-system-blue""#), "{blue}");
+    assert!(blue.contains(r#"mark="-exact-label""#), "{blue}");
+    // An enum colour prop's placeholder (its first literal) is taken too, and
+    // a role however it is spelled (round 2, Astra).
+    let tinted = (text.lines())
+        .find(|l| l.contains("Tinted("))
+        .expect("a Tinted cell");
+    assert!(tinted.contains(r#"ink="-exact-system-blue""#), "{tinted}");
+    assert!(tinted.contains(r#"mark="-exact-label""#), "{tinted}");
+    // An enum colour placed by its placeholder (its first literal), read as
+    // written, not as its escaped source (re-check 2, Astra).
+    let lined = (text.lines())
+        .find(|l| l.contains("Lined("))
+        .expect("a Lined cell");
+    assert!(lined.contains(r#"mark="-exact-system-blue""#), "{lined}");
+    let spelled = (text.lines())
+        .find(|l| l.contains(r#"Spelled(ink="-EXACT-LABEL""#))
+        .expect("Spelled's -EXACT-LABEL cell");
+    assert!(!spelled.contains(r#"mark="-exact-label""#), "{spelled}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

@@ -91,7 +91,7 @@ final class NavigationHost {
         var touched = Set<UInt32>()
         var subtrees = reparented
         // Whether a header can have changed: what the window's bar reads again for.
-        let concerned = concerned ?? presenter.toolbar.concerns(batch)
+        let concerned = concerned ?? presenter.toolbar.mayChangeAHeader(batch)
         if concerned { sheetsRead = true }
         var sheeted: [(base: NodeView, route: NodeView, header: SheetHeader?)] = []
         for op in batch.ops {

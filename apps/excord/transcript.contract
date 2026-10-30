@@ -359,7 +359,7 @@ component MediaView
         button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-system-gray" aria-label="Reveal spoiler image" testId=`reveal-media-${mkey}-${i.id}`
           text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background" margin="auto"
       else
-        button appearance="none" press=show(`${mkey}-${i.id}`, i.full, i.alt, i.width, i.height) width="100%" height=(sized ? "100%" : "auto") aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
+        button appearance="none" press=show(`${mkey}-${i.id}`, i.full, i.src, i.alt, i.width, i.height) width="100%" height=(sized ? "100%" : "auto") aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
           image i.src id=`photo-${mkey}-${i.id}` width="100%" height=(sized ? "100%" : "auto") aspect-ratio=(sized ? "auto" : "auto 16 / 9") object-fit="cover" aria-label=i.alt testId=`media-image-${mkey}-${i.id}`
 
 // A cropped picture in a multi-image message.
@@ -378,7 +378,7 @@ component TileView
         button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-secondary-label" aria-label="Reveal spoiler image" testId=`reveal-media-${mkey}-${i.id}`
           text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background" margin="auto"
       else
-        button appearance="none" press=show(`${mkey}-${i.id}`, i.full, i.alt, i.width, i.height) position="absolute" inset=0 aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
+        button appearance="none" press=show(`${mkey}-${i.id}`, i.full, i.src, i.alt, i.width, i.height) position="absolute" inset=0 aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
           image i.src id=`photo-${mkey}-${i.id}` width="100%" height="100%" object-fit="cover"
 
 component EmbedView

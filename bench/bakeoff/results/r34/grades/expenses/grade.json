@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list, newest first, one section per day headed 'Oct 25, 2026 · $222.02'. Uses the absolute date even for today ('Oct 28, 2026'), never 'Today'/weekday."},
+      {"n": 2, "status": "pass", "note": "'This Month' card at the top of the list shows $5,269.70 · October 2026 · 86 expenses and updates on add/edit/delete."},
+      {"n": 3, "status": "pass", "note": "Sheet with amount (decimal pad), merchant, 7-category pop-up menu, date picker defaulting to today, optional note. Save stays disabled for empty/-5 with the inline hint 'Enter an amount of at least $0.01.'; merchant is required too."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens an Edit Expense sheet prefilled; changes save and totals update. System trailing swipe → Delete removes the row and updates the day/month totals."},
+      {"n": 5, "status": "pass", "note": "Categories tab lists this month's categories largest first with amount, count, whole-number % and a progress bar; tapping one pushes a day-grouped list of that category's transactions."},
+      {"n": 6, "status": "pass", "note": "Amounts are formatted as $1,544.59 throughout. An add, an edit and a delete of a seed row all survived relaunch."}
+    ],
+    "bugs": [
+      "The 'This Month' summary card (and the Categories / category-detail header card) puts its text flush against the card's left edge with no inset, so the first letters ('T' of This Month, 'O' of October, 'S' of Spending) are clipped by the rounded corner.",
+      "The History list's scroll position is lost after switching to Categories and back: it jumps back to near the top.",
+      "While a row is swiped open, its subtitle/note text disappears and the row turns into a grey block showing only part of the merchant name."
+    ],
+    "tells": [
+      "The summary cards are list cells with no inner padding, so the text clips at the corner. A hand-built header would inset it.",
+      "Plain system look with no category icons or colour. The category rows have no disclosure chevron even though they push.",
+      "Row layout at the largest text size is inconsistent: some rows keep the amount beside a wrapped merchant ('Persist / A', 'Den-tist') while others stack.",
+      "Cancelling a filled-in Add sheet discards it silently, with no confirmation and no interactive-dismiss guard.",
+      "The Amount field is not focused when the sheet opens, so the keyboard does not come up straight away."
+    ],
+    "scroll": "Native collection-view scrolling: slow drags, flings, rubber-banding and the large-title collapse all feel right, with no blank rows or pop-in. The list loses its position after a tab switch.",
+    "scores": {"features": 8, "platform": 7, "polish": 5, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day with headers like 'Sunday, Oct 25' and the day total right-aligned. Shows 'Today' for the current day."},
+      {"n": 2, "status": "pass", "note": "Purple 'This month' card shows $5,269.70, 86 expenses and a sparkline. Tapping it opens Categories. Updates live."},
+      {"n": 3, "status": "pass", "note": "Sheet with a large $ amount field (decimal pad), merchant, category picker pushed as a list with icons and a checkmark, date defaulting to today, and a note. Empty or -5 amounts get an alert ('Enter an amount from $0.01 to $999,999,999.99…'). Cancel with changes asks 'Discard changes?'."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens the Edit expense sheet; edits save. A system trailing swipe → Delete removes the row and updates the totals."},
+      {"n": 5, "status": "pass", "note": "Categories shows the month total with a stacked colour bar, then categories largest first with an icon, amount, count, % to one decimal, a coloured bar and a chevron. Tapping pushes a detail screen with a This month / All time segmented control and a day-grouped list."},
+      {"n": 6, "status": "pass", "note": "US currency throughout. An add and a delete survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Custom warm off-white background and a branded purple accent/hero card rather than system grouped colours. It looks designed, but less like stock iOS.",
+      "The accessibility tree exposes hundreds of off-screen row labels stacked at one point, so VoiceOver would likely find phantom elements. Not visible on screen.",
+      "At the largest text size the section label 'Amount · USD' breaks before '· USD', and the row icon floats vertically centred beside stacked text. Acceptable, but slightly awkward.",
+      "The Amount field is not auto-focused when the add sheet opens.",
+      "Validation is by alert after tapping Save rather than a disabled Save button."
+    ],
+    "scroll": "Smooth native table scrolling, with no jumps, blank rows or pop-in through flings and back to the top. Rubber-banding and the large-title collapse are correct, and the scroll position is kept across tab switches.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and both persist correctly. B is more complete and more carefully finished: category icons and colours, 'Today'/weekday headers, a discard confirmation, an All-time toggle in category detail, and it keeps its scroll position. A has visible flaws: header-card text clipped at the left edge, scroll position lost on tab switches and a glitchy swiped row. B's custom branding makes it slightly less stock, but it is the app I would rather ship."
+}

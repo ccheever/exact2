@@ -504,6 +504,47 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [22], "the new row's id")
     }
 
+    /// A row whose native button pulls down a `role="menu"` popover holding
+    /// another native button (an episode's "more"): the pull-down parks with
+    /// its menu, the popover's button, which has no `UIButton` while the
+    /// popover is closed, parks bare, and the next row takes them both. Its
+    /// menu is the new row's.
+    func testARowWithAPullDownAndItsClosedMenuParksAndIsTaken() throws {
+        func row(_ base: Int, y: Double) -> [[String: Any]] {
+            [
+                ["op": "create", "id": base, "kind": "view", "props": ["testId": "row-\(base)"]],
+                ["op": "create", "id": base + 1, "kind": "control", "handlers": ["press"],
+                 "props": ["type": "button", "accessibilityLabel": "Actions for \(base)", "popovertarget": "menu-\(base)"],
+                 "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
+                ["op": "create", "id": base + 2, "kind": "view",
+                 "props": ["popover": "auto", "id": "menu-\(base)", "accessibilityRole": "menu"]],
+                ["op": "create", "id": base + 3, "kind": "control", "handlers": ["press"],
+                 "props": ["type": "button", "popovertarget": "menu-\(base)", "popovertargetaction": "hide"],
+                 "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
+                ["op": "children", "id": base, "ids": [base + 1, base + 2]],
+                ["op": "children", "id": base + 2, "ids": [base + 3]],
+                ["op": "frame", "id": base, "x": 0.0, "y": y, "w": 300.0, "h": 60.0],
+                ["op": "frame", "id": base + 1, "x": 240.0, "y": 10.0, "w": 44.0, "h": 44.0],
+                ["op": "frame", "id": base + 3, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ]
+        }
+        let p = listFixture(row(10, y: 0), root: 10)
+        p.buttonFace = { _ in var f = ButtonFace(); f.title = "More"; return f }
+        p.apply(wireBatch([]))
+        let opener = try XCTUnwrap(p.controls.controls[11] as? NativeButtonIOS)
+        XCTAssertNotNil(opener.menu)
+        XCTAssertNil(p.controls.controls[13], "a closed popover's button has no control yet")
+        let item = try XCTUnwrap(p.views[13])
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12, 13]) + row(20, y: 0)
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        XCTAssertEqual(p.pool.takes, 1, "the parked row is taken")
+        XCTAssertTrue(p.controls.controls[21] === opener, "the same UIButton, in its node")
+        XCTAssertTrue(p.views[23] === item)
+        XCTAssertTrue(opener.showsMenuAsPrimaryAction)
+        XCTAssertEqual(opener.menuShape, "menu-20|", "its menu is built for the new row")
+        XCTAssertTrue(opener.popover === p.views[22])
+    }
+
     /// A 2D canvas row (LLP 1056 D10, LLP 1068 §4.0): the canvas is a new
     /// view with no bitmap of the old row's, a late list for the old canvas
     /// lands nowhere, and the new canvas draws its own lifetime's lists.

@@ -36,8 +36,9 @@ use inputs::{column_row, field_beside_label, field_kind, hidden, switch, text_fi
 use native::native_row;
 pub(crate) use native::{margins_said, native_rows};
 
-use crate::{err, swipe_rows, LowerError};
+use crate::{err, swipe_rows, tags, LowerError};
 use contract_syntax::{Attr, Expr, Node, Span, TemplatePart};
+use exact_kernel::StyleId;
 
 /// `listStyle`'s names (D2), UIKit's three list appearances.
 pub(crate) const STYLES: &[&str] = &["inset-grouped", "grouped", "plain"];
@@ -265,10 +266,19 @@ pub(crate) fn list_rows(style: &'static str, span: Span) -> Vec<Attr> {
     .0
 }
 
+/// Finds the rows a node's `class` gives it (`Lowerer::class_rows`).
+pub(crate) type ClassRows<'a> =
+    &'a dyn Fn(&[Attr]) -> Result<Option<(String, Vec<Attr>)>, LowerError>;
+
 /// The list's children with the sheet written into them: each `section`'s
 /// header, footer and rows, its rows wrapped in one `column` (the rounded
-/// group the web draws; UIKit's section).
-pub(crate) fn sections(style: &'static str, children: &[Node]) -> Result<Vec<Node>, LowerError> {
+/// group the web draws; UIKit's section). `class` finds the rows a section's
+/// `class` gives it.
+pub(crate) fn sections(
+    style: &'static str,
+    children: &[Node],
+    class: ClassRows<'_>,
+) -> Result<Vec<Node>, LowerError> {
     children
         .iter()
         .enumerate()
@@ -276,7 +286,7 @@ pub(crate) fn sections(style: &'static str, children: &[Node]) -> Result<Vec<Nod
             // Only a section written first: one under control flow may
             // share its body with others, or come after nothing.
             let first = i == 0 && matches!(child, Node::Element { .. });
-            over(child, &mut |node| section(style, node, first))
+            over(child, &mut |node| section(style, node, first, class))
         })
         .collect()
 }
@@ -346,6 +356,18 @@ fn is(node: &Node, name: &str) -> bool {
     matches!(node, Node::Element { tag, .. } if tag == name)
 }
 
+/// Whether a section's `display` only shows or hides it: `"block"` or
+/// `"none"`, written or chosen between, or unset (the side of a class choice
+/// that sets none).
+fn shown_or_hidden(value: &Expr) -> bool {
+    match value {
+        Expr::Str(v, _) => v == "block" || v == "none",
+        Expr::None(_) => true,
+        Expr::Ternary(_, yes, no, _) => shown_or_hidden(yes) && shown_or_hidden(no),
+        _ => false,
+    }
+}
+
 /// A `header` or `footer` where a row would be: in the rows, or below control
 /// flow (`if`, `for`, `match`, whichever it is).
 struct Stray {
@@ -379,7 +401,12 @@ fn stray_label(node: &Node) -> Option<Stray> {
     }
 }
 
-fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerError> {
+fn section(
+    style: &'static str,
+    node: &Node,
+    first: bool,
+    class: ClassRows<'_>,
+) -> Result<Node, LowerError> {
     let Node::Element {
         tag,
         positional,
@@ -508,6 +535,31 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
                 c.span,
             );
         }
+    }
+    // The platform lays a section out: UIKit's list draws its rows one
+    // under another across the card, whatever the kernel would make of a
+    // section laid out otherwise. What it draws of the section's own layout
+    // is the space above and below it and whether it shows; its text styles
+    // reach the rows as they do in any box.
+    let classed = class(attrs)?.map(|(_, rows)| rows).unwrap_or_default();
+    let drawn = |a: &Attr, row: &StyleId| match row {
+        StyleId::MarginTop | StyleId::MarginBottom => true,
+        StyleId::Display => shown_or_hidden(&a.value),
+        _ => !row.affects_layout() || row.affects_text() || row.inherited(),
+    };
+    if let Some(a) = attrs
+        .iter()
+        .chain(&classed)
+        .find(|a| !tags::rows(a).iter().all(|row| drawn(a, row)))
+    {
+        return err(
+            "lower-grouped-list",
+            format!(
+                "a grouped list's section is laid out by the platform, its rows one under another across the card, so its `{}` would place the rows where the native list cannot draw them; a section takes only `margin-top`, `margin-bottom` and `display=\"none\"` of its own layout: leave the rest to the list, or lay the rows out in a `column` of your own",
+                a.name
+            ),
+            a.span,
+        );
     }
     sheet.extend(
         attrs

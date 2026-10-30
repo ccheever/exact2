@@ -9,6 +9,23 @@ import org.json.JSONObject
  */
 class Tracks internal constructor() {
     private val entries = HashMap<String, TrackEntry>()
+    private class Hold(val kind: String)
+    private val holds = HashSet<Hold>()
+
+    /**
+     * An exclusive hold on the [kind] device, for a recognizer that opens it itself (LLP 1133.012 D8, D12 item 4):
+     * granted only while no track of [kind] has a running capture ([TrackOwner.leased]), and while it lasts an owner
+     * opens no capture of that kind ([held]). The returned function releases it; a running capture throws
+     * `NotReadableError`.
+     */
+    fun hold(kind: String): () -> Unit {
+        if (entries.values.any { it.kind == kind && it.owner?.leased(it.id) == true }) throw TrackError("NotReadableError")
+        val h = Hold(kind)
+        holds += h
+        return { holds -= h }
+    }
+    fun held(kind: String): Boolean = holds.any { it.kind == kind }
+
     fun add(entry: TrackEntry) { entries[entry.id] = entry }
     fun lookup(id: String): TrackEntry? = entries[id]
     fun remove(id: String) { entries.remove(id) }
@@ -36,6 +53,8 @@ class TrackError(val code: String) : Exception(code)
 interface TrackOwner {
     /** [start] is an explicit start, which reopens an idle track; [origin] is `app`, `tool` or `wake`. */
     fun subscribe(id: String, consumer: TrackConsumer, start: Boolean, origin: String): () -> Unit
+    /** Whether track [id]'s capture runs: [Tracks.hold] is refused while one does. */
+    fun leased(id: String): Boolean = false
 }
 
 /** A consumer of a track: a recorder, a level, a viewfinder. Main thread. */

@@ -76,6 +76,8 @@ impl Processes {
 
     pub(crate) fn new() -> Processes {
         let agent = AgentFacts::from_env();
+        #[cfg(test)]
+        let agent = UNDER_AGENT.take().or(agent);
         let clock = if agent.is_some() {
             Clock::agent()
         } else {
@@ -810,27 +812,29 @@ pub(crate) fn launched(shared: &Arc<Shared>) {
 }
 
 #[cfg(test)]
+thread_local! {
+    /// Tests: the facts the next core this thread starts supervises under
+    /// ([`Core::under_agent`]). `Shared` refers to itself, so a test cannot
+    /// replace its processes once it is made.
+    static UNDER_AGENT: std::cell::Cell<Option<AgentFacts>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
 impl Core {
-    /// Supervise under the agent, with the drive's `--process` lines.
-    fn under_agent(mut self, processes: &[(&str, &str)]) -> Self {
-        let shared = Arc::get_mut(&mut self.shared).expect("no worker has started");
-        shared.processes = Processes {
-            children: Mutex::default(),
-            streams: Mutex::default(),
-            groups: Mutex::default(),
-            drained: Condvar::new(),
-            clock: Arc::new(Clock::agent()),
-            agent: Some(AgentFacts {
-                processes: (processes.iter())
-                    .map(|(t, s)| (t.to_string(), s.to_string()))
-                    .collect(),
-                login_env: vec![("PATH".into(), "/drive/bin".into())],
-                home: None,
-            }),
-            enabled: AtomicBool::new(true),
-            login_captured: Mutex::default(),
-        };
-        self
+    /// The core `start` makes, supervising under the agent with the
+    /// drive's `--process` lines.
+    fn under_agent(processes: &[(&str, &str)], start: impl FnOnce() -> Core) -> Core {
+        UNDER_AGENT.set(Some(AgentFacts {
+            processes: (processes.iter())
+                .map(|(t, s)| (t.to_string(), s.to_string()))
+                .collect(),
+            login_env: vec![("PATH".into(), "/drive/bin".into())],
+            home: None,
+        }));
+        let core = start();
+        UNDER_AGENT.take();
+        core.shared.processes.enabled.store(true, Ordering::Release);
+        core
     }
 }
 

@@ -650,3 +650,54 @@ fn a_foreground_service_claim_is_listed_while_held() {
     ));
     assert!(claims(&r).is_null());
 }
+
+#[test]
+fn waiting_timers_stay_stopped_during_a_hidden_wake() {
+    use exact_runner::WaitKinds;
+    for (kind, mask) in [
+        ("frame", WaitKinds::FRAME),
+        ("update", WaitKinds::UPDATE),
+        ("scrollend", WaitKinds::SCROLLEND),
+        ("idle", WaitKinds::IDLE),
+    ] {
+        let app = App::new("held-wake");
+        let source = std::fs::read_to_string(app.0.join("app.contract")).unwrap();
+        app.write(
+            "app.contract",
+            &source.replace(
+                "every(1000, tick)",
+                &format!("every(1000, tick, wait={kind})"),
+            ),
+        );
+        let mut r = boot(&app);
+        r.act("periodic", Vec::new()).unwrap();
+        let reference = entry(&r, "every")["ref"].as_u64().unwrap();
+        by(&mut r, 60_000.0);
+        tap(&mut r, reference).unwrap();
+        by(&mut r, 0.0);
+        assert!(r.page().hidden);
+        let before = slot(&r, "ticks");
+        r.hold_waits(WaitKinds::ALL);
+        r.set_live_clock(Some(Box::new(|| 63_000.0)));
+        assert!(r.release_waits(mask, 63_000.0).advanced.error.is_none());
+        assert_eq!(
+            slot(&r, "ticks"),
+            before,
+            "{kind}: an unseen wake owns the session"
+        );
+        assert_eq!(
+            r.waits(),
+            Default::default(),
+            "{kind}: no admission demand while stopped"
+        );
+        answer_pull(&mut r);
+        by(&mut r, 0.0);
+        assert!(!r.page().hidden);
+        assert!(r.release_waits(mask, 63_000.0).advanced.error.is_none());
+        assert_ne!(
+            slot(&r, "ticks"),
+            before,
+            "{kind}: timers resume after the wake"
+        );
+    }
+}

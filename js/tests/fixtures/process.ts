@@ -63,12 +63,25 @@ async function twice(): Promise<string> {
   return `${a.stdout.trim()} ${b.stdout.trim()}`;
 }
 
+// A one-shot its `signal` aborts (D3): another answer's turn aborts it, and
+// the answer that awaited it resumes with the rejection.
+let stopping: AbortController | null = null;
+async function held(): Promise<string> {
+  stopping = new AbortController();
+  try {
+    const r = await cp.execFile("path:t3", ["--wait"], { encoding: "utf8", signal: stopping.signal });
+    return `${r.code}`;
+  } catch (x) { return (x as Error).name; }
+}
+
 function answer(source: string, args: unknown[]): unknown {
   switch (source) {
     case "server": return server(String(args[0]));
     case "poke": return poke(String(args[0]));
     case "version": return version();
     case "twice": return twice();
+    case "held": return held();
+    case "halt": if (stopping) stopping.abort(); return "halted";
     case "status": return JSON.stringify(cp.processStatus());
     case "refused": return cp.spawn("path:t3", [], { shell: true, exactStream() { return ""; } }).catch((x: Error) => x.message);
     default: throw new Error("unknown source " + source);

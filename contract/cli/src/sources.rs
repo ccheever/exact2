@@ -1214,6 +1214,7 @@ impl Loader<'_> {
             names,
             routes: files[0].routes.take(),
             tests: std::mem::take(&mut files[0].tests),
+            properties: std::mem::take(&mut files[0].properties),
             launch: std::mem::take(&mut files[0].launch),
             uses: Vec::new(),
             fonts,

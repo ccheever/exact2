@@ -11,7 +11,7 @@ fn sample() -> [Duration; 6] {
     // The module's ordinary host doors stay alive until after the runtime.
     let mut module = Module::new(Vec::new(), "phase-cost", "");
     let started = Instant::now();
-    let session = storage::Session::open("", storage::WAIT, 0).expect("storage context");
+    let session = storage::Session::open("", storage::WAIT, 0, None).expect("storage context");
     let context_ready = Instant::now();
     let mut engine = Engine::new(
         module.max_heap,

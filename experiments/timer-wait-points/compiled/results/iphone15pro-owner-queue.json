@@ -1,0 +1,833 @@
+{
+  "date": "2026-10-28",
+  "device": {
+    "builtAt": "2026-10-29T01:12:38.909Z",
+    "bundle": "dev.exact.timerqualification",
+    "device": "iPhone16,1",
+    "exactCommit": "21800b64a6c8f07a257144a274ab2dab8772c174",
+    "lowPowerMode": false,
+    "os": "Version 27.0.1 (Build 24A446)",
+    "production": false,
+    "session": "main",
+    "version": "0.1.0 (1)",
+    "window": {
+      "height": 852,
+      "maximumFramesPerSecond": 120,
+      "scale": 3,
+      "width": 393
+    }
+  },
+  "source_fixture_sha256": "5bae6442c60150bcc9c2c889f1f37f4309079720b3d726d563cda30fd2ab5c3a",
+  "baseline": "iphone15pro-flings.json",
+  "change": "Admit native UI waits on the runtime owner after the UI turn; retain synchronous ordering for Exact frame work. Skip ineligible held-firing owner calls.",
+  "method": "Same physical XCTest and six-pass policy order as the baseline. Each pass has three fast down/up pairs. Explicit recordings include before/after perf counters and journal firing timestamps.",
+  "timing_fields": {
+    "nominal_ms": "Authored firing deadline in runner clock milliseconds.",
+    "cutoff_ms": "Host admission cutoff for this turn, sampled at the observed opportunity.",
+    "commit_ms": "Runner clock after the action returns; this is the last commit clock, not wall-clock completion time."
+  },
+  "runs": [
+    {
+      "order": 0,
+      "policy": "precise",
+      "trace_sha256": "980975310bde327244d616bca7a09d6ef8193b01b4835fa437314cc5cac21bca",
+      "recording": {
+        "droppedFrames": 0,
+        "frames": 2098,
+        "hitchMs": 1098.41,
+        "hitchMsPerS": 59.03,
+        "lateFrames": 178,
+        "maxMainMs": 50.43,
+        "meanMainMs": 1.45,
+        "missed": 133,
+        "ms": 18606.66,
+        "worstIntervalMs": 58.35
+      },
+      "by_phase": {
+        "drag": {
+          "frames": 91,
+          "hitchMs": 9.07,
+          "hitchMsPerS": 11.83,
+          "lateFrames": 4,
+          "maxMainMs": 13.33,
+          "meanMainMs": 1.03,
+          "missed": 1,
+          "ms": 766.99,
+          "worstIntervalMs": 17.4
+        },
+        "glide": {
+          "frames": 1637,
+          "hitchMs": 608.29,
+          "hitchMsPerS": 42.67,
+          "lateFrames": 125,
+          "maxMainMs": 16.2,
+          "meanMainMs": 1.31,
+          "missed": 73,
+          "ms": 14255.34,
+          "worstIntervalMs": 25
+        },
+        "moving": {
+          "frames": 2,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 0,
+          "maxMainMs": 0.93,
+          "meanMainMs": 0.92,
+          "missed": 0,
+          "ms": 16.67,
+          "worstIntervalMs": 8.34
+        },
+        "rest": {
+          "frames": 368,
+          "hitchMs": 481.05,
+          "hitchMsPerS": 134.84,
+          "lateFrames": 49,
+          "maxMainMs": 50.43,
+          "meanMainMs": 2.17,
+          "missed": 59,
+          "ms": 3567.66,
+          "worstIntervalMs": 58.35
+        }
+      },
+      "drag_segments": 6,
+      "glide_segments": 6,
+      "timer_firings": 148,
+      "firing_kinds": {
+        "0": 148
+      },
+      "admission_lag_ms": {
+        "min": 0.121,
+        "median": 1.045,
+        "mean": 1.265,
+        "p99": 9.623,
+        "max": 22.066
+      },
+      "commit_clock_lag_ms": {
+        "min": 0.179,
+        "median": 1.254,
+        "mean": 12.364,
+        "p99": 31.88,
+        "max": 51.369
+      },
+      "journal_samples": [
+        "row=2 kind=0 nominal_ms=12640.089 cutoff_ms=12640.945 commit_ms=12642.104",
+        "row=3 kind=0 nominal_ms=12665.827 cutoff_ms=12666.557 commit_ms=12717.926"
+      ],
+      "work_delta": {
+        "kernelLayouts": 149,
+        "timersPrecise": 150
+      },
+      "site_work_delta": [
+        {
+          "site": 15,
+          "created": 0,
+          "evaluated": 149,
+          "unchanged": 0,
+          "authored": 149,
+          "inherited": 0,
+          "moved": 3,
+          "rowConstructed": 0,
+          "rowRebound": 0,
+          "rowRetired": 0
+        },
+        {
+          "site": 17,
+          "created": 0,
+          "evaluated": 44700,
+          "unchanged": 0,
+          "authored": 44700,
+          "inherited": 0,
+          "moved": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0,
+          "rowRetired": 0
+        }
+      ],
+      "retained_late_phase_ms": {
+        "runtime": 14.37,
+        "apply": 1162.98,
+        "text": 101.94,
+        "scroll": 0.14
+      },
+      "late_frames_retained": 178
+    },
+    {
+      "order": 1,
+      "policy": "scrollend",
+      "trace_sha256": "f58e2d0c0ce139672255763148a8b9679b777ec1e1bddbab647076b8a1cd8459",
+      "recording": {
+        "droppedFrames": 0,
+        "frames": 2150,
+        "hitchMs": 686.97,
+        "hitchMsPerS": 36.88,
+        "lateFrames": 61,
+        "maxMainMs": 62.74,
+        "meanMainMs": 1.39,
+        "missed": 85,
+        "ms": 18626.28,
+        "worstIntervalMs": 49.65
+      },
+      "by_phase": {
+        "drag": {
+          "frames": 93,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 6,
+          "maxMainMs": 2.62,
+          "meanMainMs": 0.93,
+          "missed": 0,
+          "ms": 775.04,
+          "worstIntervalMs": 8.34
+        },
+        "glide": {
+          "frames": 1710,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 0,
+          "maxMainMs": 4.32,
+          "meanMainMs": 1.1,
+          "missed": 0,
+          "ms": 14250.83,
+          "worstIntervalMs": 8.37
+        },
+        "moving": {
+          "frames": 5,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 0,
+          "maxMainMs": 4.14,
+          "meanMainMs": 2.72,
+          "missed": 0,
+          "ms": 41.68,
+          "worstIntervalMs": 8.34
+        },
+        "rest": {
+          "frames": 342,
+          "hitchMs": 686.97,
+          "hitchMsPerS": 193.04,
+          "lateFrames": 55,
+          "maxMainMs": 62.74,
+          "meanMainMs": 2.94,
+          "missed": 85,
+          "ms": 3558.73,
+          "worstIntervalMs": 49.65
+        }
+      },
+      "drag_segments": 6,
+      "glide_segments": 6,
+      "timer_firings": 35,
+      "firing_kinds": {
+        "3": 35
+      },
+      "admission_lag_ms": {
+        "min": 0.029,
+        "median": 27.607,
+        "mean": 843.096,
+        "p99": 2537.928,
+        "max": 2537.928
+      },
+      "commit_clock_lag_ms": {
+        "min": 0.189,
+        "median": 0.538,
+        "mean": 13.377,
+        "p99": 83.702,
+        "max": 83.702
+      },
+      "journal_samples": [
+        "row=6 kind=3 nominal_ms=31250.405 cutoff_ms=31250.434 commit_ms=31251.401",
+        "row=7 kind=3 nominal_ms=31276.520 cutoff_ms=31329.817 commit_ms=31330.062"
+      ],
+      "work_delta": {
+        "kernelLayouts": 36,
+        "timersPrecise": 2,
+        "timersScrollend": 35
+      },
+      "site_work_delta": [
+        {
+          "site": 15,
+          "created": 0,
+          "evaluated": 36,
+          "unchanged": 0,
+          "authored": 36,
+          "inherited": 0,
+          "moved": 2,
+          "rowConstructed": 0,
+          "rowRebound": 0,
+          "rowRetired": 0
+        },
+        {
+          "site": 17,
+          "created": 0,
+          "evaluated": 10800,
+          "unchanged": 0,
+          "authored": 10800,
+          "inherited": 0,
+          "moved": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0,
+          "rowRetired": 0
+        }
+      ],
+      "retained_late_phase_ms": {
+        "runtime": 160.84,
+        "apply": 280.98,
+        "text": 29.4,
+        "scroll": 0.32
+      },
+      "late_frames_retained": 61
+    },
+    {
+      "order": 2,
+      "policy": "update",
+      "trace_sha256": "916b2fed2878fc4cbfdf9b3e6c0d29a59c8ba346f3f66365183a09b924fa8782",
+      "recording": {
+        "droppedFrames": 0,
+        "frames": 2078,
+        "hitchMs": 1303.09,
+        "hitchMsPerS": 69.93,
+        "lateFrames": 178,
+        "maxMainMs": 102.52,
+        "meanMainMs": 1.51,
+        "missed": 158,
+        "ms": 18634.86,
+        "worstIntervalMs": 106.46
+      },
+      "by_phase": {
+        "drag": {
+          "frames": 89,
+          "hitchMs": 10.25,
+          "hitchMsPerS": 13.67,
+          "lateFrames": 3,
+          "maxMainMs": 13.69,
+          "meanMainMs": 0.82,
+          "missed": 1,
+          "ms": 750.04,
+          "worstIntervalMs": 18.58
+        },
+        "glide": {
+          "frames": 1626,
+          "hitchMs": 725.78,
+          "hitchMsPerS": 50.84,
+          "lateFrames": 127,
+          "maxMainMs": 16.68,
+          "meanMainMs": 1.34,
+          "missed": 87,
+          "ms": 14276.1,
+          "worstIntervalMs": 25.01
+        },
+        "moving": {
+          "frames": 2,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 0,
+          "maxMainMs": 0.85,
+          "meanMainMs": 0.83,
+          "missed": 0,
+          "ms": 16.66,
+          "worstIntervalMs": 8.33
+        },
+        "rest": {
+          "frames": 361,
+          "hitchMs": 567.06,
+          "hitchMsPerS": 157.86,
+          "lateFrames": 48,
+          "maxMainMs": 102.52,
+          "meanMainMs": 2.48,
+          "missed": 70,
+          "ms": 3592.06,
+          "worstIntervalMs": 106.46
+        }
+      },
+      "drag_segments": 6,
+      "glide_segments": 6,
+      "timer_firings": 148,
+      "firing_kinds": {
+        "2": 148
+      },
+      "admission_lag_ms": {
+        "min": 0.061,
+        "median": 9.424,
+        "mean": 20.084,
+        "p99": 58.577,
+        "max": 80.29
+      },
+      "commit_clock_lag_ms": {
+        "min": 0.188,
+        "median": 0.692,
+        "mean": 1.002,
+        "p99": 2.792,
+        "max": 24.649
+      },
+      "journal_samples": [
+        "row=8 kind=2 nominal_ms=49876.656 cutoff_ms=49890.876 commit_ms=49891.971",
+        "row=9 kind=2 nominal_ms=49902.246 cutoff_ms=49982.536 commit_ms=49983.029"
+      ],
+      "work_delta": {
+        "kernelLayouts": 149,
+        "timersPrecise": 2,
+        "timersScrollend": 0,
+        "timersUpdate": 148
+      },
+      "site_work_delta": [
+        {
+          "site": 15,
+          "created": 0,
+          "evaluated": 149,
+          "unchanged": 0,
+          "authored": 149,
+          "inherited": 0,
+          "moved": 3,
+          "rowConstructed": 0,
+          "rowRebound": 0,
+          "rowRetired": 0
+        },
+        {
+          "site": 17,
+          "created": 0,
+          "evaluated": 44700,
+          "unchanged": 0,
+          "authored": 44700,
+          "inherited": 0,
+          "moved": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0,
+          "rowRetired": 0
+        }
+      ],
+      "retained_late_phase_ms": {
+        "runtime": 72.67,
+        "apply": 1258.66,
+        "text": 103.48,
+        "scroll": 0.24
+      },
+      "late_frames_retained": 178
+    },
+    {
+      "order": 3,
+      "policy": "update",
+      "trace_sha256": "9999a78028f59b7facf1bb2edeff24339a91919d050570a6aa718b62e7b42e34",
+      "recording": {
+        "droppedFrames": 0,
+        "frames": 2066,
+        "hitchMs": 1349.61,
+        "hitchMsPerS": 72.65,
+        "lateFrames": 182,
+        "maxMainMs": 101.63,
+        "meanMainMs": 1.54,
+        "missed": 163,
+        "ms": 18576.44,
+        "worstIntervalMs": 106.63
+      },
+      "by_phase": {
+        "drag": {
+          "frames": 92,
+          "hitchMs": 16.1,
+          "hitchMsPerS": 20.55,
+          "lateFrames": 5,
+          "maxMainMs": 13.28,
+          "meanMainMs": 1.07,
+          "missed": 2,
+          "ms": 783.37,
+          "worstIntervalMs": 16.67
+        },
+        "glide": {
+          "frames": 1629,
+          "hitchMs": 683.71,
+          "hitchMsPerS": 47.98,
+          "lateFrames": 126,
+          "maxMainMs": 15.9,
+          "meanMainMs": 1.34,
+          "missed": 81,
+          "ms": 14251.03,
+          "worstIntervalMs": 20.75
+        },
+        "moving": {
+          "frames": 3,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 0,
+          "maxMainMs": 1.81,
+          "meanMainMs": 1.41,
+          "missed": 0,
+          "ms": 25,
+          "worstIntervalMs": 8.34
+        },
+        "rest": {
+          "frames": 342,
+          "hitchMs": 649.8,
+          "hitchMsPerS": 184.76,
+          "lateFrames": 51,
+          "maxMainMs": 101.63,
+          "meanMainMs": 2.67,
+          "missed": 80,
+          "ms": 3517.04,
+          "worstIntervalMs": 106.63
+        }
+      },
+      "drag_segments": 6,
+      "glide_segments": 6,
+      "timer_firings": 148,
+      "firing_kinds": {
+        "2": 148
+      },
+      "admission_lag_ms": {
+        "min": 0.037,
+        "median": 11.502,
+        "mean": 19.97,
+        "p99": 62.466,
+        "max": 63.374
+      },
+      "commit_clock_lag_ms": {
+        "min": 0.209,
+        "median": 0.691,
+        "mean": 1.215,
+        "p99": 22.311,
+        "max": 24.24
+      },
+      "journal_samples": [
+        "row=8 kind=2 nominal_ms=68516.833 cutoff_ms=68528.033 commit_ms=68529.001",
+        "row=9 kind=2 nominal_ms=68542.729 cutoff_ms=68606.103 commit_ms=68606.404"
+      ],
+      "work_delta": {
+        "kernelLayouts": 149,
+        "timersPrecise": 2,
+        "timersScrollend": 0,
+        "timersUpdate": 148
+      },
+      "site_work_delta": [
+        {
+          "site": 15,
+          "created": 0,
+          "evaluated": 149,
+          "unchanged": 0,
+          "authored": 149,
+          "inherited": 0,
+          "moved": 3,
+          "rowConstructed": 0,
+          "rowRebound": 0,
+          "rowRetired": 0
+        },
+        {
+          "site": 17,
+          "created": 0,
+          "evaluated": 44700,
+          "unchanged": 0,
+          "authored": 44700,
+          "inherited": 0,
+          "moved": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0,
+          "rowRetired": 0
+        }
+      ],
+      "retained_late_phase_ms": {
+        "runtime": 93.43,
+        "apply": 1271.09,
+        "text": 112.01,
+        "scroll": 0.27
+      },
+      "late_frames_retained": 182
+    },
+    {
+      "order": 4,
+      "policy": "scrollend",
+      "trace_sha256": "9d9efa394c48c6ff03f03dedc4fb9cb0ed57cdd9389ae2799bf8c9b162b7a096",
+      "recording": {
+        "droppedFrames": 0,
+        "frames": 2159,
+        "hitchMs": 663.79,
+        "hitchMsPerS": 35.56,
+        "lateFrames": 62,
+        "maxMainMs": 60.85,
+        "meanMainMs": 1.38,
+        "missed": 81,
+        "ms": 18667.98,
+        "worstIntervalMs": 52.71
+      },
+      "by_phase": {
+        "drag": {
+          "frames": 94,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 3,
+          "maxMainMs": 2.41,
+          "meanMainMs": 0.82,
+          "missed": 0,
+          "ms": 783.38,
+          "worstIntervalMs": 8.34
+        },
+        "glide": {
+          "frames": 1710,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 2,
+          "maxMainMs": 3.78,
+          "meanMainMs": 1.09,
+          "missed": 0,
+          "ms": 14250.9,
+          "worstIntervalMs": 8.37
+        },
+        "moving": {
+          "frames": 3,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 0,
+          "maxMainMs": 3.26,
+          "meanMainMs": 2.42,
+          "missed": 0,
+          "ms": 24.99,
+          "worstIntervalMs": 8.33
+        },
+        "rest": {
+          "frames": 352,
+          "hitchMs": 663.79,
+          "hitchMsPerS": 183.94,
+          "lateFrames": 57,
+          "maxMainMs": 60.85,
+          "meanMainMs": 2.95,
+          "missed": 81,
+          "ms": 3608.71,
+          "worstIntervalMs": 52.71
+        }
+      },
+      "drag_segments": 6,
+      "glide_segments": 6,
+      "timer_firings": 37,
+      "firing_kinds": {
+        "3": 37
+      },
+      "admission_lag_ms": {
+        "min": 0.038,
+        "median": 3.839,
+        "mean": 778.703,
+        "p99": 2534.598,
+        "max": 2534.598
+      },
+      "commit_clock_lag_ms": {
+        "min": 0.178,
+        "median": 0.35,
+        "mean": 11.689,
+        "p99": 81.518,
+        "max": 81.518
+      },
+      "journal_samples": [
+        "row=6 kind=3 nominal_ms=87100.799 cutoff_ms=87101.460 commit_ms=87102.585",
+        "row=7 kind=3 nominal_ms=87126.626 cutoff_ms=87181.862 commit_ms=87182.107"
+      ],
+      "work_delta": {
+        "kernelLayouts": 38,
+        "timersPrecise": 2,
+        "timersScrollend": 37,
+        "timersUpdate": 0
+      },
+      "site_work_delta": [
+        {
+          "site": 15,
+          "created": 0,
+          "evaluated": 38,
+          "unchanged": 0,
+          "authored": 38,
+          "inherited": 0,
+          "moved": 2,
+          "rowConstructed": 0,
+          "rowRebound": 0,
+          "rowRetired": 0
+        },
+        {
+          "site": 17,
+          "created": 0,
+          "evaluated": 11400,
+          "unchanged": 0,
+          "authored": 11400,
+          "inherited": 0,
+          "moved": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0,
+          "rowRetired": 0
+        }
+      ],
+      "retained_late_phase_ms": {
+        "runtime": 162.05,
+        "apply": 290.79,
+        "text": 29.03,
+        "scroll": 0.17
+      },
+      "late_frames_retained": 62
+    },
+    {
+      "order": 5,
+      "policy": "precise",
+      "trace_sha256": "e17d3733690ce66db82b460cdc394648621658ae7805ef3da949cb108d05c39c",
+      "recording": {
+        "droppedFrames": 0,
+        "frames": 1941,
+        "hitchMs": 1044.85,
+        "hitchMsPerS": 60.57,
+        "lateFrames": 168,
+        "maxMainMs": 43.7,
+        "meanMainMs": 1.47,
+        "missed": 129,
+        "ms": 17251.68,
+        "worstIntervalMs": 47.94
+      },
+      "by_phase": {
+        "drag": {
+          "frames": 92,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 3,
+          "maxMainMs": 12.62,
+          "meanMainMs": 0.85,
+          "missed": 0,
+          "ms": 766.7,
+          "worstIntervalMs": 8.34
+        },
+        "glide": {
+          "frames": 1631,
+          "hitchMs": 637.2,
+          "hitchMsPerS": 44.74,
+          "lateFrames": 125,
+          "maxMainMs": 16.41,
+          "meanMainMs": 1.32,
+          "missed": 78,
+          "ms": 14242.98,
+          "worstIntervalMs": 25.01
+        },
+        "moving": {
+          "frames": 3,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 0,
+          "maxMainMs": 1.42,
+          "meanMainMs": 1.18,
+          "missed": 0,
+          "ms": 25,
+          "worstIntervalMs": 8.34
+        },
+        "rest": {
+          "frames": 215,
+          "hitchMs": 407.65,
+          "hitchMsPerS": 183.87,
+          "lateFrames": 40,
+          "maxMainMs": 43.7,
+          "meanMainMs": 2.87,
+          "missed": 51,
+          "ms": 2217,
+          "worstIntervalMs": 47.94
+        }
+      },
+      "drag_segments": 6,
+      "glide_segments": 6,
+      "timer_firings": 136,
+      "firing_kinds": {
+        "0": 136
+      },
+      "admission_lag_ms": {
+        "min": 0.145,
+        "median": 1.045,
+        "mean": 1.067,
+        "p99": 1.949,
+        "max": 17.987
+      },
+      "commit_clock_lag_ms": {
+        "min": 0.2,
+        "median": 1.274,
+        "mean": 12.148,
+        "p99": 28.666,
+        "max": 57.281
+      },
+      "journal_samples": [
+        "row=2 kind=0 nominal_ms=105768.083 cutoff_ms=105768.778 commit_ms=105769.541",
+        "row=3 kind=0 nominal_ms=105794.378 cutoff_ms=105794.584 commit_ms=105851.865"
+      ],
+      "work_delta": {
+        "kernelLayouts": 137,
+        "timersPrecise": 138,
+        "timersScrollend": 0,
+        "timersUpdate": 0
+      },
+      "site_work_delta": [
+        {
+          "site": 15,
+          "created": 0,
+          "evaluated": 136,
+          "unchanged": 0,
+          "authored": 136,
+          "inherited": 0,
+          "moved": 2,
+          "rowConstructed": 0,
+          "rowRebound": 0,
+          "rowRetired": 0
+        },
+        {
+          "site": 17,
+          "created": 0,
+          "evaluated": 40800,
+          "unchanged": 0,
+          "authored": 40800,
+          "inherited": 0,
+          "moved": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0,
+          "rowRetired": 0
+        }
+      ],
+      "retained_late_phase_ms": {
+        "runtime": 16.4,
+        "apply": 1129.6,
+        "text": 99.39,
+        "scroll": 0.12
+      },
+      "late_frames_retained": 168
+    }
+  ],
+  "combined_glide_hitch_ms_per_s": {
+    "precise": 43.70397974336733,
+    "scrollend": 0.0,
+    "update": 49.408755805438545
+  },
+  "limits": [
+    "Short repeated passes on one USB-connected iPhone; no population or energy claim.",
+    "Compare glide phases separately from rest and policy changes.",
+    "Site counters cover the before/after observation interval, including policy changes; they are not per-frame costs.",
+    "Hitch estimates omit render-server-only hitches.",
+    "Native UI admission posts work after the current main-thread turn; an admitted action can still finish after a frame deadline.",
+    "The second instrumented guard-only control pass overlapped a notification; the original baseline and both final passes are reported separately.",
+    "The measured build predates the subsequent cancellation and admission-order review fixes. Those boundaries are covered by deterministic regression tests; these measurements describe the recorded build."
+  ],
+  "production_patch_sha256": "c6cb533d8c7cab94d8ef62508221427fd5fae96ca79f3f08dda57885b9f7506d",
+  "instrumented_guard_only_control": [
+    {
+      "order": 2,
+      "policy": "update",
+      "trace_sha256": "2161c564546e1fc01761ede79eacdb9375899a2d1aa18c97de2d0078018a25e9",
+      "glide": {
+        "frames": 1240,
+        "hitchMs": 4047.95,
+        "hitchMsPerS": 280.72,
+        "lateFrames": 160,
+        "maxMainMs": 82.67,
+        "meanMainMs": 4.13,
+        "missed": 490,
+        "ms": 14419.89,
+        "worstIntervalMs": 83.35
+      }
+    },
+    {
+      "order": 3,
+      "policy": "update",
+      "trace_sha256": "965177dbac970f092e7df64e20a66aad97218d2abe2b747cb806933b6f02d0a6",
+      "glide": {
+        "frames": 1269,
+        "hitchMs": 4005.33,
+        "hitchMsPerS": 273.66,
+        "lateFrames": 147,
+        "maxMainMs": 93.76,
+        "meanMainMs": 4.07,
+        "missed": 485,
+        "ms": 14636.32,
+        "worstIntervalMs": 92.24
+      }
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+// # expect property false "bad"
+shape Ack
+  ok: bool
+component App
+  state n = 0
+  state d = 1
+  mutation ack as shape Ack then bad
+  action poke
+    send ack = ping(n)
+  action bad
+    n = n / (d - 1)
+  view
+    button "Poke" testId="poke" press=poke

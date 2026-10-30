@@ -19,17 +19,9 @@ fn said(name: &str) -> String {
     format!("--exact-said-{name}")
 }
 
-pub(super) fn style_map(plan: &Plan, map: &str) -> String {
-    let every = crate::modes::every_token();
-    let mut styles = crate::measures::size_styles(plan, every);
-    for (name, id, prop) in crate::measures::type_properties(plan, every) {
-        if id != StyleId::FontSize {
-            continue;
-        }
-        if let Some((_, style)) = styles.iter().find(|(v, _)| *v == format!("var({prop})")) {
-            styles.push((name, style.clone()));
-        }
-    }
+/// `map`, reading a value that names a type token or its size property (a
+/// key of `styles`) as that token's text style.
+pub(super) fn style_map(styles: &[(String, String)], map: &str) -> String {
     if styles.is_empty() {
         return map.to_string();
     }
@@ -53,6 +45,7 @@ pub(super) fn font_size(
     plan: &Plan,
     row: &NodesRow,
     parts: &Parts,
+    styles: &[(String, String)],
     share: &mut impl FnMut(String) -> String,
 ) -> Writes {
     let shorthand = parts.props.contains_key("data-fontshorthand");
@@ -75,7 +68,7 @@ pub(super) fn font_size(
         {
             continue;
         }
-        let map = share(style_map(plan, map));
+        let map = share(style_map(styles, map));
         let shell_leading = id == StyleId::LineHeight
             && (parts.tag == "select" && !parts.props.get("multiple").is_some_and(|v| v == "true")
                 || parts.props.contains_key("data-exact-field"));

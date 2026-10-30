@@ -18,3 +18,5 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 libc = "0.2"
+# The receiver's socket: SO_NOSIGPIPE on Apple and an atomic CLOEXEC.
+socket2 = "0.6"

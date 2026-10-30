@@ -4,7 +4,8 @@
 //! query carries `state` exactly once with a short page, and hands back the
 //! full callback URL; anything else gets a 400 and the receiver stays open.
 //! Each connection has 5 s to send its head, of at most 32 KiB; at most 8
-//! are open at once; a reply that cannot be written within 5 s is abandoned.
+//! are open at once, and while they are, new ones wait in the backlog; a
+//! reply that cannot be written within 5 s is abandoned.
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,7 +63,7 @@ pub fn open(callback: Callback, done: Box<dyn FnOnce(String) + Send>) -> Result<
     } else {
         Ipv4Addr::LOCALHOST.into()
     };
-    let listener = TcpListener::bind(SocketAddr::new(ip, callback.port)).map_err(|e| {
+    let listener = bind(SocketAddr::new(ip, callback.port)).map_err(|e| {
         if e.kind() == io::ErrorKind::AddrInUse {
             Failed::PortInUse
         } else {
@@ -82,6 +83,34 @@ pub fn open(callback: Callback, done: Box<dyn FnOnce(String) + Send>) -> Result<
     })
 }
 
+/// Bind `address`, refusing a port another process listens on through
+/// the wildcard address. `SO_REUSEADDR` stays, so a port the last receiver
+/// left in TIME_WAIT (it closes first) binds again at once; with it alone,
+/// macOS would also bind `127.0.0.1:P` beside a listener on `0.0.0.0:P` or
+/// `[::]:P`, so a probe binds the wildcard first, without listening: it
+/// fails for such a holder, with or without its `SO_REUSEADDR`, and not for
+/// TIME_WAIT. `socket2` sets `SO_NOSIGPIPE` on Apple, which accepted
+/// sockets inherit: this runs inside an app that does not ignore SIGPIPE.
+fn bind(address: SocketAddr) -> io::Result<TcpListener> {
+    use socket2::{Domain, Socket, Type};
+    let wildcard: SocketAddr = match address {
+        SocketAddr::V4(a) => (Ipv4Addr::UNSPECIFIED, a.port()).into(),
+        SocketAddr::V6(a) => (Ipv6Addr::UNSPECIFIED, a.port()).into(),
+    };
+    let probe = Socket::new(Domain::for_address(wildcard), Type::STREAM, None)?;
+    probe.set_reuse_address(true)?;
+    if wildcard.is_ipv6() {
+        probe.set_only_v6(false)?;
+    }
+    probe.bind(&wildcard.into())?;
+    drop(probe);
+    let socket = Socket::new(Domain::for_address(address), Type::STREAM, None)?;
+    socket.set_reuse_address(true)?;
+    socket.bind(&address.into())?;
+    socket.listen(128)?; // std's backlog
+    Ok(socket.into())
+}
+
 /// One connection, reading its head.
 struct Pending {
     stream: TcpStream,
@@ -97,21 +126,29 @@ fn serve(
 ) {
     let mut open: Vec<Pending> = Vec::new();
     let mut done = Some(done);
+    // After a failed `accept` (out of descriptors), when to try again.
+    let mut paused: Option<Instant> = None;
     while !stop.load(Ordering::SeqCst) {
-        loop {
+        paused = paused.filter(|until| *until > Instant::now());
+        // While every place is taken nothing is accepted, so a new
+        // connection waits in the backlog: idle ones cannot shut the
+        // browser's callback out, only delay it until their 5 s pass.
+        while open.len() < OPEN_AT_ONCE && paused.is_none() {
             match listener.accept() {
-                Ok((stream, _))
-                    if open.len() < OPEN_AT_ONCE && stream.set_nonblocking(true).is_ok() =>
-                {
-                    open.push(Pending {
-                        stream,
-                        head: Vec::new(),
-                        since: Instant::now(),
-                    })
-                }
-                // Past the bound: closed on accept.
+                Ok((stream, _)) if stream.set_nonblocking(true).is_ok() => open.push(Pending {
+                    stream,
+                    head: Vec::new(),
+                    since: Instant::now(),
+                }),
                 Ok(_) => {}
-                Err(_) => break,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                // A peer that left before it was taken: the next one.
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::Interrupted | io::ErrorKind::ConnectionAborted
+                    ) => {}
+                Err(_) => paused = Some(Instant::now() + Duration::from_millis(100)),
             }
         }
         let mut i = 0;
@@ -195,39 +232,46 @@ fn check<'a>(head: &'a str, callback: &Callback) -> Result<&'a str, &'static str
     if path != callback.path {
         return Err("This address answers only the sign-in's return.");
     }
-    let states: Vec<String> = (query.split('&'))
-        .filter_map(|pair| pair.split_once('=').or(Some((pair, ""))))
-        .filter(|(name, _)| *name == "state")
+    // The runner's rule (`exact_runner::auth::accept`): nonempty
+    // `&`-separated pairs, name and value percent-decoded.
+    let states: Vec<String> = (query.split('&').filter(|p| !p.is_empty()))
+        .map(|pair| pair.split_once('=').unwrap_or((pair, "")))
+        .filter(|(name, _)| decode(name) == "state")
         .map(|(_, value)| decode(value))
         .collect();
-    if states.len() != 1 || states[0] != callback.state {
+    if states.len() != 1 || !same(&states[0], &callback.state) {
         return Err("This is not the sign-in this app is waiting for.");
     }
     Ok(target)
 }
 
+/// `exact_runner::auth`'s decoding: `%` and two hex digits as a byte, `+`
+/// a space, anything else as written.
 fn decode(text: &str) -> String {
     let bytes = text.as_bytes();
+    let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        match bytes[i] {
-            b'+' => out.push(b' '),
-            b'%' => match text
-                .get(i + 1..i + 3)
-                .and_then(|h| u8::from_str_radix(h, 16).ok())
-            {
-                Some(b) => {
-                    out.push(b);
-                    i += 2;
-                }
-                None => out.push(b'%'),
-            },
-            b => out.push(b),
+        let escaped = (bytes[i] == b'%')
+            .then(|| Some(hex(*bytes.get(i + 1)?)? << 4 | hex(*bytes.get(i + 2)?)?))
+            .flatten();
+        match (bytes[i], escaped) {
+            (_, Some(b)) => {
+                out.push(b);
+                i += 2;
+            }
+            (b'+', _) => out.push(b' '),
+            (b, _) => out.push(b),
         }
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Whether `a` and `b` are equal, in time that depends on their lengths only.
+fn same(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
 }
 
 fn escape(text: &str) -> String {
@@ -333,5 +377,155 @@ mod tests {
             TcpListener::bind(("127.0.0.1", port)).is_ok(),
             "the port is freed"
         );
+    }
+
+    fn callback(port: u16) -> Callback {
+        Callback {
+            host: "127.0.0.1".into(),
+            port,
+            path: "/cb".into(),
+            state: "s A".into(),
+            app: "App".into(),
+        }
+    }
+
+    #[test]
+    #[ignore = "async lane: binds a real loopback port"]
+    fn a_port_held_on_the_wildcard_address_is_in_use() {
+        for wildcard in ["0.0.0.0:0", "[::]:0"] {
+            // With `SO_REUSEADDR` (std's) and without.
+            for reuse in [true, false] {
+                let address: SocketAddr = wildcard.parse().unwrap();
+                let held = socket2::Socket::new(
+                    socket2::Domain::for_address(address),
+                    socket2::Type::STREAM,
+                    None,
+                )
+                .unwrap();
+                held.set_reuse_address(reuse).unwrap();
+                held.bind(&address.into()).unwrap();
+                held.listen(4).unwrap();
+                let port = held.local_addr().unwrap().as_socket().unwrap().port();
+                assert!(
+                    matches!(
+                        open(callback(port), Box::new(|_| {})),
+                        Err(Failed::PortInUse)
+                    ),
+                    "{wildcard} reuse={reuse}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "async lane: binds a real loopback port"]
+    fn a_receiver_opens_again_on_its_port_right_after_answering() {
+        let free = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = free.local_addr().unwrap().port();
+        drop(free);
+        for round in 0..2 {
+            let (tx, rx) = mpsc::channel();
+            let receiver = open(callback(port), Box::new(move |url| tx.send(url).unwrap()))
+                .unwrap_or_else(|e| panic!("round {round}: {e:?}"));
+            // The receiver answers and closes first, leaving TIME_WAIT behind.
+            let answer = ask(
+                port,
+                &format!("GET /cb?state=s+A HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
+            );
+            assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+            assert!(rx.recv_timeout(Duration::from_secs(5)).is_ok());
+            drop(receiver);
+        }
+    }
+
+    /// The receiver runs inside an app that does not ignore SIGPIPE, so a
+    /// write to a connection its peer reset must fail, not signal: the
+    /// listener, and each connection accepted from it, carry `SO_NOSIGPIPE`.
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    #[ignore = "async lane: binds a real loopback port"]
+    fn the_listener_and_what_it_accepts_never_raise_sigpipe() {
+        use std::os::fd::AsRawFd;
+        let nosigpipe = |fd: i32| {
+            let (mut on, mut len) = (0i32, std::mem::size_of::<i32>() as libc::socklen_t);
+            // SAFETY: `fd` is open; `on` and `len` are this frame's.
+            let r = unsafe {
+                libc::getsockopt(
+                    fd,
+                    libc::SOL_SOCKET,
+                    libc::SO_NOSIGPIPE,
+                    (&mut on as *mut i32).cast(),
+                    &mut len,
+                )
+            };
+            assert_eq!(r, 0);
+            on != 0
+        };
+        let listener = bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        assert!(nosigpipe(listener.as_raw_fd()), "the listener");
+        let _peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (accepted, _) = listener.accept().unwrap();
+        assert!(nosigpipe(accepted.as_raw_fd()), "an accepted connection");
+    }
+
+    #[test]
+    #[ignore = "async lane: binds a real loopback port"]
+    fn a_peer_that_resets_mid_reply_does_not_kill_the_process() {
+        // The app the receiver runs in does not ignore SIGPIPE; the test
+        // harness does, so it is restored here.
+        // SAFETY: setting a signal's disposition to its default.
+        unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
+        let free = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = free.local_addr().unwrap().port();
+        drop(free);
+        let (tx, rx) = mpsc::channel();
+        let _receiver = open(callback(port), Box::new(move |url| tx.send(url).unwrap())).unwrap();
+        let head = format!("GET /cb?state=wrong HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n");
+        for _ in 0..50 {
+            let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            s.write_all(head.as_bytes()).unwrap();
+            socket2::SockRef::from(&s)
+                .set_linger(Some(Duration::ZERO))
+                .unwrap();
+            drop(s);
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        let answer = ask(
+            port,
+            &format!("GET /cb?state=s+A HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
+        );
+        assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+        assert!(rx.recv_timeout(Duration::from_secs(5)).is_ok());
+    }
+
+    #[test]
+    #[ignore = "async lane: binds a real loopback port"]
+    fn idle_connections_in_every_place_delay_the_callback_but_do_not_shut_it_out() {
+        let free = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = free.local_addr().unwrap().port();
+        drop(free);
+        let (tx, rx) = mpsc::channel();
+        let _receiver = open(callback(port), Box::new(move |url| tx.send(url).unwrap())).unwrap();
+        let idle: Vec<TcpStream> = (0..OPEN_AT_ONCE)
+            .map(|_| TcpStream::connect(("127.0.0.1", port)).unwrap())
+            .collect();
+        std::thread::sleep(Duration::from_millis(100));
+        // The runner's state rule: a name is decoded too, a trailing escape
+        // decodes.
+        let answer = ask(
+            port,
+            &format!("GET /cb?st%61te=s+%41 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
+        );
+        assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+        assert!(rx.recv_timeout(Duration::from_secs(5)).is_ok());
+        drop(idle);
+    }
+
+    #[test]
+    fn the_state_rule_is_the_runner_s() {
+        assert_eq!(decode("a%41"), "aA");
+        assert_eq!(decode("%+4"), "% 4");
+        assert_eq!(decode("%4"), "%4");
+        assert!(same("s A", "s A") && !same("s A", "s B") && !same("s", "s A"));
     }
 }

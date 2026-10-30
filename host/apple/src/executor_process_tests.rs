@@ -29,14 +29,15 @@ fn fnv(text: &str) -> u64 {
 
 fn setup(processes: &[(&str, &str)]) -> (Core, Receiver<()>) {
     let (wake, woke) = channel();
-    let core = Core::start(
-        None,
-        GRANTS,
-        Box::new(move || {
-            let _ = wake.send(());
-        }),
-    )
-    .under_agent(processes);
+    let core = Core::under_agent(processes, || {
+        Core::start(
+            None,
+            GRANTS,
+            Box::new(move || {
+                let _ = wake.send(());
+            }),
+        )
+    });
     (core, woke)
 }
 
@@ -414,6 +415,17 @@ fn a_child_let_go_before_its_first_event_is_released() {
         std::thread::sleep(Duration::from_millis(2));
     }
     clock.advance(2000.0);
+    ended(&core);
+}
+
+#[test]
+fn an_apps_abort_ends_a_one_shots_child() {
+    let file = script(r#"{"execFile":{"stdout":"","stderr":"","code":0,"after":5000}}"#);
+    let (core, _woke) = setup(&[("path:t3", &format!("script:{file}"))]);
+    let body = r#"{"kind":"execFile","program":"path:t3"}"#;
+    core.run(request(1, body, false), None).unwrap();
+    // Its `signal` (`Core::cancel`), with the agent's clock still at 0.
+    core.cancel(&[1]);
     ended(&core);
 }
 

@@ -909,7 +909,7 @@ on the web and these on Hermes (macOS, iOS, Linux):
 
 | Available on every executor | Notes on Hermes |
 | --- | --- |
-| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts. A `body` is a string or an `ArrayBuffer` or view, sent as its bytes (an upload of `storage.fs.readFile`'s bytes); as Fetch does, a body on a GET or HEAD, or a view on a `SharedArrayBuffer` or resizable buffer, rejects, and a detached buffer sends no bytes. `exactBodyFrom: "app:/tmp/…"` sends an app file instead: the host reads it when it sends the request, under `fs.read` as `readFile` is, at most 64 MiB, and the bytes never enter JavaScript, so a 2 MB upload costs the answer's step nothing; with `body`, or on a GET or HEAD, it is a `TypeError`, and a missing file, a denied path or one over 64 MiB rejects the fetch (`FetchError`, kind `Refused`, naming why) before anything is sent, as does a host with no app files (a drive with no scratch store) or none built yet (Windows), with kind `Unsupported`; no Content-Type is added (LLP 1108 D6 R2). An older binary's prelude would send it as an empty body, so a native app with a TypeScript data module carries `typescriptRuntime` in its compatibility id: the first build after this change gives every such app a new id, and each needs a new binary once. `exactBodyTo: "app:/cache/…"` is the reverse, for a download: the host writes a 2xx reply's body into that app file as it arrives, under `fs.write` as `writeFile` is, and the bytes never enter JavaScript, so a large file costs neither the answer's step nor the engine's 64 MiB heap. The body goes to a staging file beside the target, which replaces the target only once the body is complete; a failure, an abort, the deadline or a body over the bound leaves the target as it was. The bound is `exactIndependentHttp.maxResponseBytes`, which may then be up to 1 GiB, or 1 GiB when none is given. The `Response` resolves once the file is in place, with `status`, `ok` and `headers` as received, an empty body, and `exactBodyTo: {path, bytes}`, the bytes written (absent or `null` on any other response). A reply that is not 2xx is not written: the file is untouched and its body is read as usual, at most 1 MiB, so the server's error is readable. A path that is not a plain `app:/` one, a HEAD, or `exactStream` beside it is a `TypeError`; a denied path or a missing folder rejects the fetch (`FetchError`, kind `Refused`) before anything is sent, and a host with no app files does so with kind `Unsupported`. It may come with a `body` or `exactBodyFrom`. On the web the body becomes a Blob the browser holds, stored in the page's store in one transaction (LLP 1108 D6 R2, 2026-10-26). An older prelude would ignore it and read the body into memory, so it moves `typescriptRuntime` to 4. `redirect` is Fetch's: `follow` (the default), `error` (a redirect rejects the fetch), or `manual`, which answers with the 3xx itself; natively its `Location` header is readable (an OAuth step whose redirect names an app scheme), while a browser gives its opaque redirect (status 0, no headers); any other word is a `TypeError`. An older prelude would ignore it and follow, so it moves `typescriptRuntime` to 2: such an app needs a new binary once more, and a cohort on an older binary gets no bundle that relies on it. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
+| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts, and the host cancels the request (below). A `body` is a string or an `ArrayBuffer` or view, sent as its bytes (an upload of `storage.fs.readFile`'s bytes); as Fetch does, a body on a GET or HEAD, or a view on a `SharedArrayBuffer` or resizable buffer, rejects, and a detached buffer sends no bytes. `exactBodyFrom: "app:/tmp/…"` sends an app file instead: the host reads it when it sends the request, under `fs.read` as `readFile` is, at most 64 MiB, and the bytes never enter JavaScript, so a 2 MB upload costs the answer's step nothing; with `body`, or on a GET or HEAD, it is a `TypeError`, and a missing file, a denied path or one over 64 MiB rejects the fetch (`FetchError`, kind `Refused`, naming why) before anything is sent, as does a host with no app files (a drive with no scratch store) or none built yet (Windows), with kind `Unsupported`; no Content-Type is added (LLP 1108 D6 R2). An older binary's prelude would send it as an empty body, so a native app with a TypeScript data module carries `typescriptRuntime` in its compatibility id: the first build after this change gives every such app a new id, and each needs a new binary once. `exactBodyTo: "app:/cache/…"` is the reverse, for a download: the host writes a 2xx reply's body into that app file as it arrives, under `fs.write` as `writeFile` is, and the bytes never enter JavaScript, so a large file costs neither the answer's step nor the engine's 64 MiB heap. The body goes to a staging file beside the target, which replaces the target only once the body is complete; a failure, an abort, the deadline or a body over the bound leaves the target as it was. The bound is `exactIndependentHttp.maxResponseBytes`, which may then be up to 1 GiB, or 1 GiB when none is given. The `Response` resolves once the file is in place, with `status`, `ok` and `headers` as received, an empty body, and `exactBodyTo: {path, bytes}`, the bytes written (absent or `null` on any other response). A reply that is not 2xx is not written: the file is untouched and its body is read as usual, at most 1 MiB, so the server's error is readable. A path that is not a plain `app:/` one, a HEAD, or `exactStream` beside it is a `TypeError`; a denied path or a missing folder rejects the fetch (`FetchError`, kind `Refused`) before anything is sent, and a host with no app files does so with kind `Unsupported`. It may come with a `body` or `exactBodyFrom`. On the web the body becomes a Blob the browser holds, stored in the page's store in one transaction (LLP 1108 D6 R2, 2026-10-26). An older prelude would ignore it and read the body into memory, so it moves `typescriptRuntime` to 4. `redirect` is Fetch's: `follow` (the default), `error` (a redirect rejects the fetch), or `manual`, which answers with the 3xx itself; natively its `Location` header is readable (an OAuth step whose redirect names an app scheme), while a browser gives its opaque redirect (status 0, no headers); any other word is a `TypeError`. An older prelude would ignore it and follow, so it moves `typescriptRuntime` to 2: such an app needs a new binary once more, and a cohort on an older binary gets no bundle that relies on it. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
 | `structuredClone` | No transfer list |
 | `TextEncoder`, `TextDecoder` | `TextEncoder` emits UTF-8. Hermes 0.4's built-in WHATWG decoder keeps the browser-style encoding labels, including UTF-8 and UTF-16LE/BE, plus `fatal`, streaming and `ignoreBOM` behavior |
 | `URL`, `URLSearchParams`, `atob`, `btoa` | |
@@ -1024,6 +1024,38 @@ another answer's work (a shared fetch) and for a timer of its own is woken by
 whichever comes first on native hosts, for a source on the main thread, and on
 the web JS target; in the wasm target and in a worker-placed source it wakes
 only when its timer is due.
+
+An aborted fetch rejects at once with the signal's reason, and the host
+cancels its request, as a browser does, on every target and whatever its
+method: one already sent has its connection closed, one not yet sent is
+withdrawn, and its reply, if one comes, is never read. The answer that awaited
+it goes on with the rejection then, natively too, without waiting for the
+reply. The one exception is native: a write that runs to its end after its
+answer was let go (module work, LLP 1146 D2) rejects in the module turn that
+follows its cancel, not in the turn that called `abort()`, so what its
+continuation writes to the store stands even when that turn's commit is
+refused, and an answer that aborts it and then awaits it resumes in a later
+turn. On the JS target the fetch is the browser's and rejects at once, and
+its continuation runs after the aborting turn's commit, outside it, where a
+store write is kept whatever that commit does, so the end is the same. So an app's own rule of one request in flight may count an aborted
+request done when its fetch rejects: the request is closing and its reply will
+never be read. The one caveat is the cancel's own latency: the host's own
+capacity (its connections, per-origin places and buffers, and on some hosts
+the ordered lane) comes back when the transport has actually ended, a moment
+later, so the next request may wait briefly behind the closing one. On a
+worker-placed source, whose answers run one at a time behind an ordered fetch,
+another answer can abort it only once its turn comes: give a fetch another
+answer may abort `exactIndependentHttp`. A request already sent may still have
+reached the server and counted against its rate limits, and a reply it never
+reads can't say so (a 429 included): treat an aborted request as an unknown
+outcome. A stream (`exactStream`) runs until the runner lets its ticket go, as
+before. Natively and on the wasm target, a fetch made by a module callback
+that answers no resource or mutation (a payment sheet's or a tool's handler) is
+not cancelled yet: it rejects at once, and its request runs to its end.
+This is the TypeScript runtime 5: an older prelude would leave an aborted request
+running, and would reject an aborted kept write in the turn that aborted it, so
+it moves `typescriptRuntime` to 5, and a native app whose TypeScript data module
+makes an abort signal needs a new binary once more.
 
 A poll loop (`for (;;) { await sleep(5000); … }`) belongs in a Contract
 `task`, not in an answer: an answer that always has a timer armed never
@@ -1186,7 +1218,7 @@ exchange, headers and body: `fetch(url, { exactTimeout: 10000 })`. When it
 passes the request is cancelled and the fetch rejects with a `FetchError`
 whose `kind` is `Timeout` (`the request timed out after 10000 ms`). The same
 holds on Apple, Linux, the web's wasm host and the web build; a stream
-(`exactStream`) takes none.
+(`exactStream`) takes none, except an upload (below).
 
 A long poll, a request the server holds until something changes, says so with
 `exactHeld: true`: `fetch(url + '?wait=25', { exactHeld: true })` (LLP
@@ -1248,6 +1280,82 @@ open, with `grant`, the grant line that admitted it. The same holds on Hermes, t
 target), with one difference: on the web build the stream's `fetch` must be
 made while the answer is asked, before its first `await` (a later one is
 refused, saying so); on Hermes it may follow an `await`.
+
+An **upload** that tells its progress (LLP 1016.000 D10) is a stream with
+`exactUploadProgress: true` beside its body, for a percentage the view draws
+while the person goes on working. Make it a resource's answer, keyed by what
+it uploads:
+
+```ts
+if (source === "upload") return fetch(uploadUrl, {
+  method: "POST", headers: { "content-type": "image/png" }, exactBodyFrom: path,
+  exactUploadProgress: true, exactTimeout: 300000,
+  exactStream: (e) => e.type === "progress" ? { status: "uploading", progress: e.loaded / e.total }
+    : e.type === "load" && e.status < 300 ? { status: "ready", progress: 1 }
+    : { status: "failed", progress: 0 },
+});
+```
+
+As the body (`body` or `exactBodyFrom`) goes out, the mapper gets
+XMLHttpRequest's upload progress, `{type: 'progress', loaded, total,
+lengthComputable: true}`: `loaded` is the bytes the platform has written
+(URLSession's `didSendBodyData` on Apple, the portable transport's writes on
+Linux, Windows and Android, `xhr.upload` on the web), `total` the body's
+length, and the last has `loaded === total`. They coalesce to the newest, as a
+stream's messages do. The reply is read whole within the ceiling
+(`exactIndependentHttp.maxResponseBytes`, 1 MiB unless given) and ends the
+stream as `{type: 'load', status, data}`, whatever its status, as
+XMLHttpRequest's `load`. A failure ends it as any stream's `error` does, of kind
+`Timeout` once its `exactTimeout` passes (an upload may take one; a reply that
+lands as it passes stands). The platform's own limits follow that deadline a
+second later; without one they are the upload's, as they are a fetch's
+(URLSession's 60 s without data; the portable transport's 30 s for the whole
+exchange, 15 s for the reply's head and 15 s for its body), so give a
+deadline to an upload that may take longer. An empty body tells no progress.
+No `Accept: text/event-stream` is added. It is in flight until that reply:
+`pending(…)` reads true, `state.pending` lists it, and every clock waits for
+it, as for a fetch, while each progress event commits as it comes. No answer
+awaits it, so it holds nothing else back: uploads run beside a source's other
+work, and natively one waiting for room in the memory its bodies may take
+holds none of the 16 places a native app's streams have.
+
+An upload is **asked once for its arguments** while the app runs: nothing
+asks it again at them, in flight, finished or failed (not a store write it
+read, a topic it watches, nor `refresh`), and arguments that come back after
+others answer as their upload ended, without asking the source. Its `with`
+context is not among them: a change there sends nothing. Of a resource's
+uploads the newest 32 that ended keep their answers; an older one's
+arguments, asked again, fail with `failure(x).reason` `already-sent` and send
+nothing. A plan reload and an update of the data module keep this, but for
+the web JS target's development reload, a new page, which asks again an
+upload the page still shows. An upload one of them, or new arguments, cut
+off after it began to go out comes back failed, its `failure(x).reason`
+`interrupted`, and is not sent again; one that had not begun is asked
+again. A launch starts
+afresh, so a relaunched app that still shows the resource at those arguments
+sends the upload again: record what it answered in the store (the server's
+id for an attachment, as upstream T3 Code keeps its attachment ids) and stop
+showing the resource once you have it. New arguments that make the same
+request keep the upload already running (LLP 1054.000.000 D3), so a retry
+changes the request itself as well as the arguments: put an attempt number
+in the URL's query or a header. An upload the host refused before it went
+out (a limit, the grants, the local network's rule) was never sent, and
+`refresh` asks it again.
+
+It must be an `http:` or `https:` request other than GET or HEAD, without
+`exactLongPoll`, and with `redirect` left to follow (XMLHttpRequest can only
+follow), or it is a `TypeError`. On the web a cross-origin upload asks a CORS
+preflight, as any XMLHttpRequest with an upload listener does. An older
+prelude would ignore the option and read the reply as a byte stream, so a
+module that uses it needs `typescriptRuntime` 5, which it shares with the
+abort changes above (no binary had shipped 5): the bake records each
+module's lowest runtime, and `push` refuses such a module to a cohort whose
+binary is older (it needs a new binary) while a module that uses nothing
+newer still pushes. A Rust source's stream takes `Request::upload_progress()`
+and reads each message with `Message::sent()`; the Rust module seam refuses
+it. An upload that must finish after the person leaves the app is a
+background transfer instead ([recipe](recipes/background-transfers.md), LLP
+1133.017), whose progress a live source reports at most once a second.
 
 A **long poll** (LLP 1016.000 D8) is a stream with `exactLongPoll: {cursor,
 from}` beside `exactStream`, for an endpoint that holds each request until it
@@ -2765,6 +2873,47 @@ the shared native sampler after resize settlement and presented scrolling.
 Native inline runs, moving presentation geometry, rotated roots and SVG clip references remain unqualified;
 percentage margins follow Chrome (LLP 1001). See LLP 1005's intersection
 visibility deviation; other native hosts remain unqualified.
+
+## Timer options
+
+### A timer that can wait
+
+Timers have precise deadlines by default. Choose an admission condition for work that can wait:
+
+```
+task refresh mount
+  every(5000, tick, wait=scrollend, max=1000)
+task autosave when dirty
+  after(800, save, wait=idle, max=5000)
+```
+
+| Option | Live behavior |
+| --- | --- |
+| `wait=frame` | Run at the next frame callback at or after the deadline; request a frame if necessary. |
+| `wait=update` | Join existing frame demand; run immediately when the host observes none. |
+| `wait=scrollend` | Wait for the session's observed scroll activity to end. |
+| `wait=idle` | Wait for no observed scrolling, frame demand, unapplied batches, or conflicting timer work; keep a 60 Hz frame period clear before the next known deadline. |
+
+`frame` and `update` have a 100 ms waiting bound. `scrollend` is unbounded unless `max=` names a bound. `idle` defaults to the larger of its interval and 1,000 ms. Bounds start at the nominal deadline; reaching one makes the firing ordinary due work. They limit intentional waiting, not OS scheduling latency. A hidden session admits frame and scroll waits without waiting for display callbacks. Observations can arrive late; a web scroll that ends without an event uses a quiet-period fallback.
+
+Use `wait=scrollend` for list refreshes and `wait=idle` for saves or housekeeping. For a clock display, prefer live `time` rather than an action that copies the clock into state. A waiting repeat keeps its original phase and merges missed beats. A false gate or changed key cancels its held firing.
+
+The agent's clock is deterministic: `frame` runs at the next virtual 60 Hz frame; `update`, `scrollend` and `idle` run at their nominal deadlines, with idle tasks last at the same time. `state.taskTiming` reports each task's nominal deadline, requested wait kind, held state, active cap and wake tolerance. `perf` counts firings by admission kind, including caps.
+
+### A wake the OS can coalesce
+
+```
+task housekeeping mount
+  every(5000, clean, tolerance=500)
+```
+
+`tolerance=` allows a wake to be delayed by up to that many milliseconds. It accepts a literal whole number from 0 through 4,294,967,295; zero requests no intentional delay.
+
+Apple gives each ordinary millisecond task its own native timer with the full requested `Timer.tolerance`; the OS chooses coalescing and may limit tolerance. Windows uses an independent thread-pool timer with its full requested tolerance and native repeat period. Each native callback runs only its own task; live order follows OS delivery. These ordinary timers do not request display-link callbacks.
+
+Hosts without a native tolerance backend schedule a shared wake at the latest permitted time, bounded by every known timer and internal deadline; another wake may run a tolerant action once it is due. Actions never run early. Suspension and executor load can still make them late.
+
+Positive tolerance and `wait=` are alternatives. Frame tasks cannot wait or have positive tolerance. Tolerance affects host wakes only: seeks retain nominal times, and a repeating timer retains its phase. It permits wake coalescing; it makes no claim about measured battery savings.
 
 ## Live time and progress
 

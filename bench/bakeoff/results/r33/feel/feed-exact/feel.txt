@@ -1,0 +1,30 @@
+dev.bakeoff.feed.bfa6f63: ExactKit.ScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 16.53 s of motion
+  ok    hitch ratio (ms/s)                     0
+  ok    longest frame (ms)                     16.7
+  ok    main thread p95 (ms/frame)             3.53
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       504
+  ok    momentum hand-off (content/asked)      1.06
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.72
+  n/a   rubber band (overscroll/finger)        –
+  ok    rubber band settle (s)                 0.57
+  ok    status-bar scroll to top (s)           0.96
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  ok    scrub: hitch ratio (ms/s)              0
+  ok    scrub: longest frame (ms)              16.7
+  n/a   scrub: blank samples (share)           –
+  ok    scrub: blanks while held (share)       0
+  ok    carousel: hitch ratio (ms/s)           0
+  ok    carousel: longest frame (ms)           16.7
+  ok    carousel: tracking ratio               1
+  ok    carousel: deceleration τ (ms; .normal 500) 508
+  ok    carousel: momentum hand-off (content/asked) 0.98
+  ok    carousel: edge bounce settle (s)       0.65
+  ok    carousel: a mostly-horizontal drag (carousel/finger, list pt) 0.95, 0
+  ok    carousel: a mostly-vertical drag (list/finger, carousel pt) 0.95, 0
+  26 ok, 0 tell, 0 bad

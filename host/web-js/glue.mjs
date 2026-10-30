@@ -9,13 +9,13 @@ import { resolve } from 'node:path';
 
 export const HOST_WEB_GLUE = [
   // Loaded after first paint: motion.js, a pan, `select`, text flow, rt.js `pr`, native.js, rt.js `geo`, media.js, sounds.js; wakelock.js imports wakelock-glue.js, orientationlock.js orientationlock-glue.js.
-  'frames.js', 'motion-glue.js', 'group-glue.js', 'input-glue.js', 'markup-editor.js', 'atoms.js', 'decorations.js', 'textflow-glue.js', 'timer-glue.js',
+  'frames.js', 'motion-glue.js', 'group-glue.js', 'input-glue.js', 'markup-editor.js', 'atoms.js', 'decorations.js', 'textflow-glue.js', 'timer-glue.js', 'timer-waits-glue.js', 'timer-observations.js',
   'presence-glue.js', 'native-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'media-glue.js',
   'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'alert-message.js', 'wakelock-glue.js', 'orientationlock-glue.js', 'menu-rows.js',
   // Virtualized lists' browser half; animated images on the agent's clock (agent.js only); Canvas 2D's replayer.
   'collection-glue.js', 'image-glue.js', 'canvas2d-glue.js',
   // An iframe's navigation records and commands (commands.js, rt.js `onFrameNavigation`; LLP 1020.002).
-  'frame-navigation.js',
+  'frame-navigation.js', 'frame-messages.js',
   // Sign-in, storage, request bodies, injected faults and the local network's spaces (ts-data.js, auth.js, admission.js, agent.js, modules.js).
   'auth-glue.js', 'storage-environment.js', 'http-body.js', 'faults.js', 'address-space.js',
 ];
@@ -33,7 +33,7 @@ export function stageHostGlue(root, dir) {
  */
 export function driverRuntime(root) {
   const own = readdirSync(resolve(root, 'host/web-js')).filter(f => f.endsWith('.js')).sort().map(f => `host/web-js/${f}`);
-  return [...own, ...[...HOST_WEB_GLUE, 'navigation.js', 'grant-admission.js'].map(f => `host/web/${f}`)];
+  return [...own, ...[...HOST_WEB_GLUE, 'navigation.js', 'grant-admission.js', 'frame-messages.js'].map(f => `host/web/${f}`)];
 }
 
 /** A runtime module's `../web/…` imports, pointed at the copies beside it. */

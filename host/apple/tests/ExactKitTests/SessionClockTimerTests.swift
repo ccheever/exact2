@@ -190,45 +190,32 @@ final class SessionClockTimerTests: XCTestCase {
         XCTAssertFalse(timer.isValid)
     }
 
-    func testDeadlineSelectsFramesOnlyForNearTimers() {
-        XCTAssertEqual(SessionClockTimer.wake(due: 116, now: 100), .frame)
-        XCTAssertEqual(SessionClockTimer.wake(due: 0, now: 100), .frame, "a hitch catches up next frame")
+    func testEveryOrdinaryDeadlineUsesANativeWake() {
+        XCTAssertEqual(SessionClockTimer.wake(due: 116, now: 100), .timeout(16))
+        XCTAssertEqual(SessionClockTimer.wake(due: 0, now: 100), .timeout(0))
         XCTAssertEqual(SessionClockTimer.wake(due: 1100, now: 100), .timeout(1000))
         XCTAssertEqual(SessionClockTimer.wake(due: nil, now: 100), .none)
         XCTAssertEqual(SessionClockTimer.wake(due: 116, now: 100, agent: true), .none)
-        XCTAssertEqual(SessionClockTimer.wake(due: 116, now: 100, quiet: true), .timeout(16))
-        XCTAssertEqual(SessionClockTimer.wake(due: 1100, now: 100, quiet: true), .timeout(1000))
-        XCTAssertEqual(SessionClockTimer.wake(due: 116, now: 100, hidden: true, quiet: true), .timeout(16))
     }
 
-    /// Two timer advances that show nothing (a `sent` reader off screen,
-    /// LLP 1125 D6) leave the display link off until the next deadline,
-    /// which a one-shot timer waits for (`FrameAdvanceMacTests` fires it).
-    /// A batch that applies puts near deadlines back on the link.
-    func testAQuietTimerWaitsForItsDeadlineOnATimer() throws {
+    func testNearTimersNeverAddDisplayLinkDemandAndKeepAnUnchangedWake() throws {
         let session = ExactApp.shared.makeSession()
         defer { session.destroy() }
         session.clock = nil
-        let empty = { batchFixture(ops: [], timers: true, motion: false, clock: nil, error: nil, timerDueMs: $0) }
-        session.applyUnlessEmpty(empty(session.now() + 40), timer: true)
-        XCTAssertFalse(session.timersQuiet, "one shows nothing")
-        XCTAssertTrue(session.frames.timerSoon, "its next deadline is still the link's")
-        session.applyUnlessEmpty(empty(session.now() + 40), timer: true)
-        XCTAssertTrue(session.timersQuiet, "a second shows nothing too")
-        let due = try XCTUnwrap(session.timerDue)
+        let due = session.now() + 40
+        let empty = batchFixture(ops: [], timers: true, motion: false, clock: nil, error: nil, timerDueMs: due)
+        session.applyUnlessEmpty(empty)
         XCTAssertFalse(session.frames.timerSoon)
-        XCTAssertNil(session.frames.link, "no frames before the deadline")
+        XCTAssertNil(session.frames.link)
         let timer = try XCTUnwrap(session.clockTimer)
-        XCTAssertEqual(session.clockDue, due)
-        session.scheduleClock(due: due)
-        XCTAssertTrue(session.clockTimer === timer, "the same deadline keeps the armed timer")
-        // Any batch that reaches `apply` (here another event's empty one).
-        session.apply(batchFixture(ops: [], timers: true, motion: false, clock: nil, error: nil, timerDueMs: session.now() + 40))
-        XCTAssertFalse(session.timersQuiet, "a batch that applies may show what the next timer changes")
-        XCTAssertTrue(session.frames.timerSoon)
-        XCTAssertNotNil(session.frames.link)
-        XCTAssertNil(session.clockTimer)
-        XCTAssertFalse(timer.isValid)
+        for _ in 0..<3 {
+            session.applyUnlessEmpty(empty)
+            XCTAssertTrue(session.clockTimer === timer)
+            XCTAssertFalse(session.frames.timerSoon)
+        }
+        session.apply(empty)
+        XCTAssertTrue(session.clockTimer === timer)
+        XCTAssertNil(session.frames.link)
     }
 
     func testNestedTransformBatchPreservesTimerDeadline() throws {
@@ -242,13 +229,9 @@ final class SessionClockTimerTests: XCTestCase {
             let reply = try XCTUnwrap(TransformDragReply(data))
             XCTAssertEqual(reply.batch.timerDueMs, due)
             session.apply(reply.batch)
-            if delta == 16 {
-                XCTAssertTrue(session.frames.timerSoon)
-                XCTAssertNotNil(session.frames.link)
-            } else {
-                XCTAssertFalse(session.frames.timerSoon)
-                XCTAssertNotNil(session.clockTimer)
-            }
+            XCTAssertFalse(session.frames.timerSoon)
+            XCTAssertNil(session.frames.link)
+            XCTAssertNotNil(session.clockTimer)
         }
     }
 
@@ -257,8 +240,9 @@ final class SessionClockTimerTests: XCTestCase {
         defer { session.destroy() }
         session.clock = nil
         session.scheduleClock(due: session.now() + 16)
-        XCTAssertTrue(session.frames.timerSoon)
-        XCTAssertNotNil(session.frames.link)
+        XCTAssertFalse(session.frames.timerSoon)
+        XCTAssertNil(session.frames.link)
+        XCTAssertNotNil(session.clockTimer)
         session.scheduleClock(due: session.now() + 1000)
         XCTAssertFalse(session.frames.timerSoon)
         XCTAssertNil(session.frames.link)
@@ -287,5 +271,84 @@ final class SessionClockTimerTests: XCTestCase {
         run(mode, seconds: 0.1)
         XCTAssertFalse(timer.isValid)
         XCTAssertEqual(ticks.count, stopped)
+    }
+}
+
+
+extension SessionClockTimerTests {
+    func testTimerAdmissionObservationsResampleDemandAndEveryIdleTerm() {
+        var observation = TimerAdmissions.Observation(now: 100, waits: [-1, -1, -1, -2])
+        XCTAssertTrue(observation.idle)
+        XCTAssertEqual(observation.kinds, 4 | 8)
+        observation.frame = true
+        XCTAssertEqual(observation.kinds, 2 | 4 | 8)
+        observation.frame = false
+        for term in 0..<5 {
+            var blocked = observation
+            switch term {
+            case 0: blocked.scrolling = true
+            case 1: blocked.motion = true
+            case 2: blocked.applying = true
+            case 3: blocked.waits[1] = -2
+            default: blocked.next = blocked.now + 1000 / 60
+            }
+            XCTAssertFalse(blocked.idle, "Idle term \(term) blocks admission")
+        }
+        observation.next = (observation.now + 1000 / 60).nextUp
+        XCTAssertTrue(observation.idle)
+        observation.scrolling = true
+        XCTAssertEqual(observation.kinds, 0)
+        observation.hidden = true
+        XCTAssertTrue(observation.idle)
+        XCTAssertEqual(observation.kinds, 2 | 4 | 8)
+        observation.hidden = false; observation.scrolling = false
+        observation.tasks = true
+        XCTAssertFalse(observation.idle)
+        XCTAssertEqual(observation.kinds, 8)
+        observation.tasks = false; observation.next = nil; observation.lastUpdate = observation.now
+        XCTAssertFalse(observation.idle)
+        observation.update = true
+        XCTAssertEqual(observation.kinds, 4 | 8)
+        observation.update = false
+        observation.now += 1000 / 60
+        XCTAssertFalse(observation.idle)
+        observation.now = observation.now.nextUp; observation.next = nil
+        XCTAssertTrue(observation.idle)
+        XCTAssertEqual(observation.kinds, 4 | 8)
+    }
+
+    func testHeldFiringsWaitForEligibleObservationsWithoutRequestingOwnerWork() {
+        for index in 0..<4 {
+            var observation = TimerAdmissions.Observation(now: 100, lastUpdate: 100, scrolling: true,
+                                                        waits: Array(repeating: -1, count: 4))
+            observation.waits[index] = -2
+            XCTAssertFalse(observation.eligible, "An ineligible held firing needs no owner turn")
+            observation.frame = true
+            XCTAssertEqual(observation.eligible, index == 0)
+            observation.frame = false; observation.update = true
+            XCTAssertEqual(observation.eligible, index == 1)
+            observation.update = false; observation.scrolling = false
+            XCTAssertEqual(observation.eligible, index == 2)
+            observation.waits[index] = 101
+            XCTAssertFalse(observation.eligible)
+            observation.waits[index] = 100
+            XCTAssertTrue(observation.eligible, "A nominal deadline still needs its first holding check")
+        }
+    }
+
+    func testTolerantWakesUseNativeTimerTolerance() {
+        XCTAssertEqual(SessionClockTimer.wake(due: 100, now: 0), .timeout(100))
+        XCTAssertEqual(SessionClockTimer.wake(due: 100, now: 0), .timeout(100))
+        let timer = SessionClockTimer.schedule(after: 100, tolerance: 0.05) { _ in XCTFail("The test invalidates its timer before it is due") }
+        XCTAssertEqual(timer.tolerance, 0.05)
+        timer.invalidate()
+    }
+
+    func testTimerAdmissionMetadataUsesTheProductionBatchDecoder() throws {
+        let batch = try JSONDecoder().decode(Batch.self, from: Data("{\"ops\":[],\"timers\":true,\"motion\":false,\"waits\":[-2,50,-1,100],\"waitContinue\":true,\"nativeTimers\":[{\"index\":0,\"generation\":\"18446744073709551615\",\"due\":100,\"interval\":100,\"tolerance\":25,\"once\":true}]}".utf8))
+        XCTAssertEqual(batch.timerWaits, [-2, 50, -1, 100])
+        XCTAssertTrue(batch.waitContinue)
+        XCTAssertEqual(batch.nativeTimers?.first?.tolerance, 25)
+        XCTAssertEqual(batch.nativeTimers?.first?.generation, UInt64.max)
     }
 }

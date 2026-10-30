@@ -77,7 +77,7 @@ impl<D: DataSource> Runner<D> {
             let sub = self.substitute(&m);
             let wants = sub["answer"].as_object()?;
             (wants.iter().all(|(k, v)| answer.get(k) == Some(v)))
-                .then(|| (self.plan.str(m.extension).to_owned(), sub))
+                .then(|| (self.plan.str(m.extension).to_owned(), (*sub).clone()))
         })
     }
 

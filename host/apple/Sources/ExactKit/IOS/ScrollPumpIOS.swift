@@ -178,6 +178,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         inScroll = true
         defer { inScroll = false }
         lastScroll = CACurrentMediaTime()
+        // The frame sampler measures a scroll's frames, UIKit's deceleration's included
+        p.session?.sampler?.activity()
         armRest(after: Self.restDelay)
         // A correction's move is not the reader's travel (LLP 1070.000 §2.5).
         // Nor is a smooth correction's frame (`OffsetDriver`).
@@ -196,6 +198,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         presenter?.onScrolled?(nil, Double(scrollView.contentOffset.x), Double(scrollView.contentOffset.y))
         FrameSampler.scrolled(scrollView, in: presenter?.session, person: false)
+        presenter?.session?.frameHealth.trackScrolled(scrollView)
         if let p = presenter, p.documentFixed {
             // Only a script scrolls a fixed document: its mount takes the
             // offset, and the native container keeps its place on screen.
@@ -206,7 +209,12 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         presenter?.stickies.scrolled(nil); scrolled(nil)
     }
     // The page's element reveals (`IntoView.swift`).
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { presenter?.elementScrolls.userScrolled(scrollView) }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        presenter?.elementScrolls.userScrolled(scrollView)
+        if let session = presenter?.session { session.frameHealth.beginScroll(scrollView, session: session) }
+    }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { presenter?.session?.frameHealth.endScroll(scrollView) } }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { presenter?.session?.frameHealth.endScroll(scrollView) }
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { presenter?.elementScrolls.revealEnded(scrollView) }
 
     func batchApplied() {

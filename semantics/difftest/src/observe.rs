@@ -109,17 +109,23 @@ fn find(r: &Runner<Oracle>, test_id: &str) -> Option<ViewId> {
 
 /// Boot `plan` against `oracle`, on the device store the oracle holds,
 /// building every tab panel then when the host would (a prerendered page).
-fn boot(plan: Plan, oracle: Oracle) -> Result<Runner<Oracle>, exact_runner::RunnerError> {
+pub(crate) fn boot(
+    plan: Plan,
+    oracle: Oracle,
+) -> Result<Runner<Oracle>, exact_runner::RunnerError> {
     let snapshot = oracle.snapshot();
     let every = oracle.prerendered;
-    let mut r = Runner::boot_stored(
-        plan,
-        oracle,
-        Kernel::with_monospace(),
-        snapshot,
-        Default::default(),
-        "/",
-    )?;
+    let launch = oracle.launch.clone();
+    let mut r = exact_runner::time::launching_with(launch, || {
+        Runner::boot_stored(
+            plan,
+            oracle,
+            Kernel::with_monospace(),
+            snapshot,
+            Default::default(),
+            "/",
+        )
+    })?;
     if every {
         r.build_every_tab()?;
     }
@@ -188,76 +194,179 @@ fn state(r: &mut Runner<Oracle>, plan: &Plan, out: &mut Vec<String>) {
 /// (`Runner::dispatch_at`): the work already due fires first, then the
 /// event, which runs even when that work refused (`Contract.Observe.dispatchAt`).
 pub fn run(plan: Plan, oracle: Oracle, events: &[Event]) -> (Vec<String>, Option<Oracle>) {
-    let mut out = vec!["== boot".to_string()];
-    let kept = oracle.handle();
-    let mut r = match boot(plan.clone(), oracle) {
-        Ok(r) => r,
-        Err(e) => {
-            out.push("outcome refused".into());
-            out.push(format!("# {e:?}"));
-            return (out, Some(kept));
-        }
-    };
-    if r.is_poisoned() {
-        out.push("outcome poisoned".into());
-        return (out, Some(kept));
+    let (mut driver, mut out) = Driver::new(plan, oracle);
+    for event in events {
+        out.extend(driver.step(event));
     }
-    out.push("outcome ok".into());
-    // The host's facts, as the runner answered them at boot.
-    for res in &plan.resources {
-        let source = plan.str(res.source);
-        if crate::oracle::HOST_SOURCES.contains(&source) {
-            let name = plan.str(res.name);
-            if let Some(v) = r.resource(name).cloned() {
-                r.data()
-                    .facts
-                    .borrow_mut()
-                    .push((name.to_string(), res.ty, v));
+    (out, Some(driver.oracle))
+}
+
+/// A booted runner. Each delivery returns exactly one block of [`run`]'s observation.
+pub struct Driver {
+    plan: Plan,
+    runner: Option<Runner<Oracle>>,
+    oracle: Oracle,
+}
+
+/// A rendered test target and the actions its input handlers name.
+#[derive(Clone, Debug)]
+pub struct Control {
+    pub id: String,
+    pub press: Option<String>,
+    pub input: Option<String>,
+}
+
+impl Driver {
+    /// Boot once, retaining the oracle even when boot refuses.
+    pub fn new(plan: Plan, oracle: Oracle) -> (Self, Vec<String>) {
+        let kept = oracle.handle();
+        let mut out = vec!["== boot".into()];
+        let runner = match boot(plan.clone(), oracle) {
+            Err(e) => {
+                out.extend(["outcome refused".into(), format!("# {e:?}")]);
+                None
             }
-        }
-    }
-    state(&mut r, &plan, &mut out);
-    for e in events {
-        out.push(format!("== {}", e.label()));
-        let was = r.is_poisoned();
-        let result = match e {
-            Event::Tap(t) => match find(&r, t) {
-                Some(view) => deliver(&mut r, view, HostEvent::Press),
-                None => Err(exact_runner::RunnerError::UnknownView(0)),
-            },
-            Event::Type(t, s) => match find(&r, t) {
-                Some(view) => deliver(
-                    &mut r,
-                    view,
-                    HostEvent::Change(ControlValue::Text(s.clone())),
-                ),
-                None => Err(exact_runner::RunnerError::UnknownView(0)),
-            },
-            Event::Clock(ms) => {
-                let to = r.now_ms() + ms;
-                r.advance(to).map(drop)
+            Ok(r) if r.is_poisoned() => {
+                out.push("outcome poisoned".into());
+                None
+            }
+            Ok(mut r) => {
+                out.push("outcome ok".into());
+                for res in &plan.resources {
+                    let source = plan.str(res.source);
+                    if !matches!(source, "exactTransport" | "exactMIDI")
+                        && !r
+                            .data()
+                            .transcript
+                            .borrow()
+                            .iter()
+                            .any(|c| c.source == source)
+                    {
+                        let name = plan.str(res.name);
+                        if let Some(v) = r.resource(name).cloned() {
+                            r.data()
+                                .facts
+                                .borrow_mut()
+                                .push((name.to_string(), res.ty, v));
+                        }
+                    }
+                }
+                state(&mut r, &plan, &mut out);
+                Some(r)
             }
         };
-        if r.is_poisoned() && !was {
-            out.push("outcome poisoned".into());
-            if let Err(e) = &result {
-                out.push(format!("# {e:?}"));
-            }
-            break;
-        }
-        match &result {
-            Ok(()) => out.push("outcome ok".into()),
-            Err(e) => {
-                out.push("outcome refused".into());
-                out.push(format!("# {e:?}"));
-            }
-        }
-        if r.is_poisoned() {
-            break;
-        }
-        state(&mut r, &plan, &mut out);
+        (
+            Self {
+                plan,
+                runner,
+                oracle: kept,
+            },
+            out,
+        )
     }
-    (out, Some(kept))
+
+    /// Whether another event can be delivered.
+    pub fn live(&self) -> bool {
+        self.runner.as_ref().is_some_and(|r| !r.is_poisoned())
+    }
+
+    /// Deliver one event; a refused boot or poisoned runner returns no further blocks.
+    pub fn step(&mut self, event: &Event) -> Vec<String> {
+        if !self.live() {
+            return Vec::new();
+        }
+        let r = self.runner.as_mut().expect("live runner");
+        let mut before = Vec::new();
+        state(r, &self.plan, &mut before);
+        let mut out = vec![format!("== {}", event.label())];
+        let ((result, receipts), ran) = r.trace_commits(|r| apply(r, event));
+        let traced = ran
+            .iter()
+            .filter(|l| l.starts_with("ran ") && l.ends_with(" ok"))
+            .count();
+        if r.is_poisoned() {
+            out.push("outcome poisoned".into());
+        } else {
+            out.push(
+                if result.is_ok() {
+                    "outcome ok"
+                } else {
+                    "outcome refused"
+                }
+                .into(),
+            );
+        }
+        if let Err(e) = result {
+            out.push(format!("# {e:?}"));
+        }
+        out.extend(ran);
+        let mut after = Vec::new();
+        if !r.is_poisoned() {
+            state(r, &self.plan, &mut after);
+        }
+        let moved_without_trace = traced == 0 && !r.is_poisoned() && before != after;
+        if (receipts > traced || moved_without_trace) && !out.iter().any(|l| l == OMITTED_COMMIT) {
+            out.push(OMITTED_COMMIT.into());
+        }
+        if moved_without_trace && !out.iter().any(|l| l == "untraced configuration moved") {
+            out.push("untraced configuration moved".into());
+        }
+        out.extend(after);
+        out
+    }
+
+    pub(crate) fn mutation_requests(&self) -> u64 {
+        self.runner.as_ref().map_or(0, Runner::mutation_requests)
+    }
+
+    pub(crate) fn soon(&self) -> Option<f64> {
+        let r = self.runner.as_ref().filter(|_| self.live())?;
+        let now = r.now_ms();
+        r.tasks()
+            .into_iter()
+            .filter_map(|(_, at)| at)
+            .filter(|at| at.is_finite() && now < *at && *at <= now + 1.0)
+            .reduce(f64::max)
+            .map(|at| at - now)
+    }
+
+    /// Controls among the same live elements whose `view` lines the observation prints.
+    pub fn controls(&self) -> Vec<Control> {
+        let Some(r) = self.runner.as_ref().filter(|_| self.live()) else {
+            return Vec::new();
+        };
+        let mut seen = std::collections::BTreeSet::new();
+        observed(r)
+            .into_iter()
+            .filter_map(|view| {
+                let id = r
+                    .kernel()
+                    .node(view)?
+                    .props
+                    .str(PropId::TestId)?
+                    .to_string();
+                if !seen.insert(id.clone()) {
+                    return None;
+                }
+                let (node, _) = r.site_of(view)?;
+                let action = |kind| {
+                    self.plan
+                        .node(node)
+                        .handlers
+                        .iter()
+                        .map(|h| self.plan.handler(h))
+                        .find(|h| h.event == kind)
+                        .map(|h| self.plan.str(self.plan.action(h.action).name).to_string())
+                };
+                Some(Control {
+                    id,
+                    press: action(exact_plan::EventKind::Press),
+                    input: action(exact_plan::EventKind::Input)
+                        .or_else(|| action(exact_plan::EventKind::Change)),
+                })
+            })
+            .collect()
+    }
 }
 
 /// The plan node of the first element with `test_id` after `events`, by
@@ -266,15 +375,7 @@ pub fn run(plan: Plan, oracle: Oracle, events: &[Event]) -> (Vec<String>, Option
 pub fn site(plan: Plan, oracle: Oracle, events: &[Event], test_id: &str) -> Option<usize> {
     let mut r = boot(plan, oracle).ok()?;
     for e in events {
-        let _ = match e {
-            Event::Tap(t) => find(&r, t).map(|v| deliver(&mut r, v, HostEvent::Press)),
-            Event::Type(t, s) => find(&r, t)
-                .map(|v| deliver(&mut r, v, HostEvent::Change(ControlValue::Text(s.clone())))),
-            Event::Clock(ms) => {
-                let to = r.now_ms() + ms;
-                Some(r.advance(to).map(drop))
-            }
-        };
+        let _ = apply(&mut r, e);
         if r.is_poisoned() {
             return None;
         }
@@ -293,18 +394,68 @@ fn deliver(
     r: &mut Runner<Oracle>,
     view: ViewId,
     event: HostEvent,
-) -> Result<(), exact_runner::RunnerError> {
+) -> (Result<(), exact_runner::RunnerError>, usize) {
     let kind = match &event {
         HostEvent::Press => Some(exact_plan::EventKind::Press),
         HostEvent::Change(_) => Some(exact_plan::EventKind::Change),
+        HostEvent::Input(_) => Some(exact_plan::EventKind::Input),
         _ => None,
     };
     if !kind.is_some_and(|k| r.handlers_of(view).contains(&k)) {
-        return r.dispatch(view, event).map(drop);
+        let result = r.dispatch(view, event);
+        let receipts = usize::from(result.is_ok());
+        return (result.map(drop), receipts);
     }
     let now = r.now_ms();
-    match r.dispatch_at(view, event, now).error {
-        Some(e) => Err(e),
-        None => Ok(()),
+    let advanced = r.dispatch_at(view, event, now);
+    (advanced.error.map_or(Ok(()), Err), advanced.receipts.len())
+}
+
+/// Commit kinds for which the semantics has no branch (LLP 1151 D3).
+pub const OMITTED_KINDS: &[&str] = &[
+    "a transport's or MIDI port's answer",
+    "a re-ask",
+    "a wake's delivery and expiry",
+    "a drop deadline",
+    "a transport-end action",
+    "the advance tail's presence",
+    "polls",
+    "live times",
+    "text-axis frames",
+];
+
+/// A receipt with no modeled commit. Property checks must exclude this step from `after`.
+pub const OMITTED_COMMIT: &str = "# a commit the semantics has no branch for";
+
+/// Deliver a primitive event, retaining successful receipts even when a later commit refuses.
+pub(crate) fn apply(
+    r: &mut Runner<Oracle>,
+    e: &Event,
+) -> (Result<(), exact_runner::RunnerError>, usize) {
+    match e {
+        Event::Tap(t) | Event::Type(t, _) => match find(r, t) {
+            Some(view) => deliver(
+                r,
+                view,
+                match e {
+                    Event::Type(_, s)
+                        if r.handlers_of(view).contains(&exact_plan::EventKind::Input) =>
+                    {
+                        HostEvent::Input(ControlValue::Text(s.clone()))
+                    }
+                    Event::Type(_, s) => HostEvent::Change(ControlValue::Text(s.clone())),
+                    _ => HostEvent::Press,
+                },
+            ),
+            None => (Err(exact_runner::RunnerError::UnknownView(0)), 0),
+        },
+        Event::Clock(ms) | Event::TestClock(ms) => {
+            let a = r.advance_timed(r.now_ms() + ms);
+            (a.error.map_or(Ok(()), Err), a.receipts.len())
+        }
+        Event::Land | Event::InputLand => {
+            let a = r.land_then();
+            (a.error.map_or(Ok(()), Err), a.receipts.len())
+        }
     }
 }

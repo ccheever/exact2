@@ -88,6 +88,7 @@ impl Request {
             stream,
             socket: stream,
             bytes: false,
+            upload_progress: false,
             long_poll: None,
             timeout_ms: None,
             body_from: None,
@@ -98,6 +99,7 @@ impl Request {
             reach: Default::default(),
             due_ms: None,
             wake_ms: None,
+            fetch: None,
         }
     }
 

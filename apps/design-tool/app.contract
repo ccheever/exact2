@@ -748,10 +748,24 @@ component DesignTool
         scrubTick = scrubTick + 1
         scrubWant = false
         send written = cancelScrub(scrubAsk)
-      editKind = "add-token"
-      editTarget = newName.trim()
+      // A package's or the base's name (its own row, or the app's override of it, `of`): the app's line over theirs is
+      // set-token, which the server writes as one, Set for this app's draft with its value changed included; add-token
+      // of their name is refused. Decided by the rows as they are now, not the name last set.
+      let n = newName.trim()
+      // (Only in the app's design, opened as "" or by its path, where set-token of their name is the app's line; another
+      // open file shows their rows beside its own but holds none of them, so a name added there is add-token, round 2.)
+      let theirs = design.appDesign and design.tokenGroups.filter(g => g.tokens.filter(t => t.name == n and (t.of == "base" or t.of == "package")).length > 0).length > 0
+      editKind = theirs ? "set-token" : "add-token"
+      // (Their read-only cell, if open, is no guard on the form's edit, as setForApp closes it, round 2.)
+      if theirs
+        selToken = ""
+      editTarget = n
       editWhen = ""
       editValue = newValue.trim()
+      // (A form's edit: no branch draft, as setForApp starts one.)
+      draftFor = ""
+      rawFor = ""
+      partFor = ""
   // Stage 11: a base or package value set for this app (its override line: set-token, theme2's 17:09Z
   // ruling, one op for both), or the app's line over one of theirs taken away (remove-token), each
   // reviewed and applied as any edit.
@@ -1068,7 +1082,7 @@ component DesignTool
               if hello.local and canvasCheck.refused != ""
                 text canvasCheck.refused color="-exact-system-orange" font="-exact-footnote" testId="canvas-refused"
               if galleryOn and hello.local and hello.page != "" and canvasView != "states"
-                text "The variant gallery: each library component the app uses, once per variant value, on the app's design. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame." color="-exact-secondary-label" font="-exact-footnote" testId="gallery-note"
+                text "The variant gallery: each library component the app uses, once per variant value, on the app's design. Each cell is a column's width, as a caller's column shows it. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame." color="-exact-secondary-label" font="-exact-footnote" testId="gallery-note"
               if not hello.local
                 // (A grant spent, or an entry slower than its 30 s: a new one.)
                 if canvasAt.frame != ""

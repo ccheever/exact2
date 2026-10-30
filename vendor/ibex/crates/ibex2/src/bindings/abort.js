@@ -32,7 +32,9 @@
     view = objectCreate(null);
     objectDefineProperties(view, {
       aborted: { get: function () { return state.aborted; }, enumerable: true },
-      reason: { get: function () { return state.reason; }, enumerable: true }
+      reason: { get: function () { return state.reason; }, enumerable: true },
+      // Exact patch 22: the signals `AbortSignal.any` composed this one of, or null.
+      sources: { get: function () { return state.sources ? state.sources.slice() : null; }, enumerable: true }
     });
     objectFreeze(view);
     views.set(signal, view);

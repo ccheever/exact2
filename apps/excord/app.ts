@@ -132,7 +132,7 @@ function roleColors(roles: Record<string, any>[]): Map<string, { position: numbe
   return found;
 }
 const render = createRenderer(dirs);
-const LIMIT = 200, HALF = 100;
+const LIMIT = S.WINDOW_CAP, HALF = 100;
 
 // What is unread after `since`: counted in the cached run that holds it, a lower bound (`more`) when
 // that run does not reach the newest message or `since` is not cached; its time is then the read
@@ -270,12 +270,15 @@ const readable = (guild: string) => S.guildChannelList(store, guild).filter(c =>
 const emptyWindow = (channel: string, anchor: string): Window => ({ channel, anchor, rows: [], hasBefore: false,
   hasAfter: false, firstId: '', lastId: '', pin: '', unread: 0, unreadMore: false, unreadAt: 0, need: '', cursor: '' });
 
-// The window: one run of at most 200 cached messages, the live tail or around an anchor, of the rows
-// a page has confirmed since the last fresh READY (the rest are left out until a page confirms them).
-// It names the one page it lacks (`need`, `cursor`), which the view asks for: the newest 50 for a
-// tail with none, 50 around an anchor not held, and 50 beyond an anchor within EDGE rows of the
-// window's edge, since the view moves its anchor there only as the reader nears that edge (§2: one
-// page on opening a channel, the next as the reader moves toward the edge).
+// The window: one run of at most 300 cached messages (S.WINDOW_CAP), the live tail or around an anchor,
+// of the rows a page has confirmed since the last fresh READY (the rest are left out until a page
+// confirms them). It names the one page it lacks (`need`, `cursor`), which the view asks for: the
+// newest 50 for a tail with none, 50 around an anchor not held, and 50 beyond an anchor within EDGE
+// rows of the window's edge, since the view moves its anchor there only as the reader nears that edge
+// (§2: one page on opening a channel, the next as the reader moves toward the edge). Toward the top
+// the view keeps a lead: while fewer than 100 rows stand above the reader it moves the anchor to the
+// window's first row again each time a page lands, so the pages are asked one after another until the
+// lead stands (x2-perf4's fling plan, F1; still 50 a page and one page in flight per channel).
 const EDGE = 15;
 export function loadWindow(channel: string, asked: string, since: string): Window {
   if (!channel) return emptyWindow(channel, asked);

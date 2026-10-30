@@ -175,7 +175,7 @@ test('collection normal fast path retains noise, revives zeros and discards old-
     expect([c.index.leading, c.index.trailing]).toEqual([30, 70]);
   }
 });
-const REAL = ['rt.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'modules.js', 'samples.js', 'spans.js', 'update.js', 'arrival.js', 'devices.js', 'wakes.js', 'reach.js', 'members.js'];
+const REAL = ['rt.js', 'uploads.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'modules.js', 'samples.js', 'spans.js', 'update.js', 'arrival.js', 'devices.js', 'wakes.js', 'reach.js', 'members.js', 'resource-inspection.js', 'sheets.js'];
 for (const f of REAL) copyFileSync(webJs(f), resolve(dir, f));
 for (const [file, source] of standIns(REAL)) writeFileSync(resolve(dir, file), source);
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
@@ -186,7 +186,7 @@ writeFileSync(resolve(dir, 'presence-glue.js'), 'globalThis.exact.presence = () 
 const stub = (file, text) => writeFileSync(resolve(dir, file), text);
 stub('admission.js', 'export const createSecretFacade = () => ({ read: false }); export const hasGrant = () => true; export const appGrantSet = () => null; export const coversPath = () => true; export const setAppGrantSet = g => g; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);');
 stub('admission-data.js', 'export const tsGrantSet = {};');
-stub('ts-fetch.js', "export const answering = { call: null }; export const files = { appId: null }; export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fetch';");
+stub('ts-fetch.js', "export const answering = { call: null, untraced: new Set() }; export const files = { appId: null }; export const dropTimers = () => {}; export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fetch';");
 stub('names.js', 'export const sourceTypes = {};');
 stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentReads = []; export const emptyRead = () => [];");
 // A write lands a task later; a read answers at once: unqueued, it would overtake.
@@ -226,8 +226,17 @@ stub('app.mjs', `export const appId = 'test';
     for (let i = 0; i < 258; i++) codes.push(storage.fs.writeFile('app:/data/flood', String(i)).then(() => 'ok', e => e.code));
     return codes[257];
   }`);
+// The overlay test's two modules: `late.mjs` has none at install and sets, then deletes, one after; `topped.mjs`
+// has one from its top level. Each gets its own ts-data.js copy.
+stub('late.mjs', `export const appId = 'test'; export const answer = () => 'x';
+  export let overlay;
+  export function setOverlay(on) { overlay = on ? (source, args, answer) => answer.concat(['overlaid']) : undefined; }`);
+stub('topped.mjs', `export const appId = 'test'; export const answer = () => 'x';
+  export let overlay = (source, args, answer) => answer.concat(['overlaid']);
+  export function setOverlay(on) { overlay = on ? (source, args, answer) => answer.concat(['overlaid']) : undefined; }`);
 const tsData = readFileSync(webJs('ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(resolve(dir, 'app.mjs'))).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '');
 writeFileSync(resolve(dir, 'ts-data.js'), tsData);
+for (const name of ['late', 'topped']) writeFileSync(resolve(dir, `ts-data-${name}.js`), tsData.replace(JSON.stringify(resolve(dir, 'app.mjs')), JSON.stringify(resolve(dir, `${name}.mjs`))));
 
 test('a baked answer shows until the source is ready, then is asked; a settled one is not', async () => {
   // A page with no checkpoint: another file's stand-in `document` (run in this process) may lack querySelector.
@@ -1098,6 +1107,29 @@ test('an emitted event\'s requests make data code the device\'s until they land;
 // store would answer the read first; at most 256 wait behind the one in
 // flight, the next refused `full` and journaled; each counts in flight until
 // it lands, and a failure is journaled. ts-data.js over a scripted store.
+// Whether a module has an overlay is decided at install (ts-data.js `data.overlay`), as the native and wasm
+// executors decide it at load (js/tests/it/overlay.rs): a top-level overlay overlays, and one set or deleted after
+// install is not followed until the module is installed again (LLP 1054).
+test('an overlay is decided at install: a top-level one overlays, one set or deleted after is not followed', async () => {
+  const { data } = await import(resolve(dir, 'rt.js'));
+  const { sourceTypes } = await import(resolve(dir, 'names.js'));
+  const saved = data.overlay;
+  sourceTypes.items = [[], ['[', 's']];
+  try {
+    const late = await import(resolve(dir, 'late.mjs'));
+    (await import(resolve(dir, 'ts-data-late.js'))).install(data);
+    expect(data.overlay).toBeUndefined();
+    late.setOverlay(true);
+    expect(data.overlay).toBeUndefined(); // set after install: not followed
+    const topped = await import(resolve(dir, 'topped.mjs'));
+    (await import(resolve(dir, 'ts-data-topped.js'))).install(data);
+    expect(data.overlay('items', [], ['a'], [])?.value).toEqual(['a', 'overlaid']);
+    topped.setOverlay(false);
+    // Deleted after install: still asked, so the call fails (TypeError) rather than the answer passing unoverlaid.
+    expect(() => data.overlay('items', [], ['a'], [])).toThrow();
+  } finally { data.overlay = saved; delete sourceTypes.items; }
+});
+
 // A storage call in an overlay is refused by its method's name, as the prelude names it (js/tests/it/overlay.rs).
 test('storage in an overlay is refused by name', async () => {
   const { data } = await import(resolve(dir, 'rt.js'));

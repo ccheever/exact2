@@ -38,6 +38,32 @@ final class AgentCheckIOSTests: XCTestCase {
         return Agent(session: session)
     }
 
+    func testFrameHealthControlsAreExcludedFromAppOcclusionFindings() throws {
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "button", "props": ["testId": "under-hud"], "handlers": ["press"]],
+            ["op": "frame", "id": 1, "x": 20.0, "y": 20.0, "w": 100.0, "h": 44.0],
+            ["op": "roots", "ids": [1]]])
+        let session = try XCTUnwrap(session), window = try XCTUnwrap(window)
+        let overlay = FrameHealthOverlay(health: session.frameHealth)
+        overlay.frame = window.bounds
+        window.rootViewController?.view.addSubview(overlay)
+        overlay.setVisible(true)
+        overlay.layoutIfNeeded()
+        // The button under the card's drag handle, wherever the window's safe area puts the card (below the
+        // status bar on a phone, so no fixed point lies on it)
+        let at = overlay.handle.convert(CGPoint(x: overlay.handle.bounds.midX, y: overlay.handle.bounds.midY), to: window)
+        session.presenter.apply(wireBatch([["op": "frame", "id": 1, "x": Double(at.x) - 50, "y": Double(at.y) - 22, "w": 100.0, "h": 44.0]]))
+        session.presenter.viewport.layoutIfNeeded()
+        XCTAssertTrue(window.hitTest(at, with: nil)?.isDescendant(of: overlay) == true)
+        func observed() throws -> [String: Any] {
+            let items = try XCTUnwrap(agent.check([:])["items"] as? [[String: Any]])
+            return try XCTUnwrap(items.first { $0["id"] as? Int == 1 })
+        }
+        XCTAssertNil(try observed()["cover"], "host apparatus does not become an app defect")
+        overlay.accessibilityIdentifier = "test.ordinary-overlay"
+        XCTAssertNotNil(try observed()["cover"], "an ordinary covering control remains a finding")
+    }
+
     /// A native button's title is the button's label (judged at 3:1 on its own fill, D3's ink rule) in a
     /// grouped list's cell as anywhere: the cell's part is reported for every view inside it, so it must not
     /// claim the title first (countdowns' indigo prominent button in dark read 3.5:1 against 4.5:1).

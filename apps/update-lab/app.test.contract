@@ -1,0 +1,33 @@
+always "counter_always"
+  expect state counter whole
+  expect state counter >= 1
+  expect state counter <= 9007199254740992
+
+always "counter_pos"
+  expect state counter >= 1
+
+always "results_shape"
+  expect state tsResult in none some
+  expect state rustResult in none some
+  expect state rustExecutorResult in none some
+
+after "increment" "increment_adds_one"
+  expect state counter == old + 1
+
+after clock "advance_keeps_user_state"
+  only writes tsResult rustResult rustExecutorResult
+
+test "increments and probes preserve the user's state"
+  tap "increment"
+  type "note" "A note for the probe"
+  expect state note == "A note for the probe"
+  clock +250
+  clock data
+  tap "reset"
+  tap "increment"
+
+after "runRust" "runRust writes only rustExecutorResult rustResult"
+  only writes rustExecutorResult rustResult
+
+after "runTypescript" "runTypescript writes only tsResult"
+  only writes tsResult

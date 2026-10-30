@@ -1,7 +1,8 @@
 // The data seam's bytes, and the store's presence calls (below), for
 // prelude.js: base64 for what crosses the seam
 // as JSON, a string's UTF-8 length, a stream message's data, a long
-// poll's terms as the seam carries them (LLP 1016.000 D8), a fetch's file
+// poll's terms as the seam carries them (LLP 1016.000 D8), an upload's
+// option and events, a fetch's file
 // options, an image call's options and an answer's timers (here, beside the
 // prelude, under its line cap). Natively a
 // binary message (a byte stream's bytes, a socket's frame; LLP 1016.000)
@@ -73,6 +74,26 @@
     if (poll.sameCursor !== undefined && poll.sameCursor !== "heartbeat" && poll.sameCursor !== "event") return "exactLongPoll.sameCursor is \"heartbeat\" (the default) or \"event\"";
     return { cursor: poll.cursor, from: poll.from, same_cursor_event: poll.sameCursor === "event" ? true : undefined };
   }
+  // `exactUploadProgress` (LLP 1016.000 D10), checked as the runner and the web's
+  // ts-stream.js check it: true for an upload whose stream reports its progress, nothing, or why it is refused.
+  function uploadOf(init, stream, method, url) {
+    var upload = init ? init.exactUploadProgress : undefined;
+    if (upload === undefined || upload === false) return undefined;
+    if (upload !== true) return "exactUploadProgress is true or false";
+    if (!stream) return "exactUploadProgress reports an upload's progress to its stream: give exactStream too";
+    if (/^wss?:/i.test(String(url))) return "exactUploadProgress: a WebSocket sends no body";
+    if (/^[a-z][a-z0-9+.-]*:/i.test(String(url)) && !/^https?:/i.test(String(url))) return "exactUploadProgress: an upload is an http: or https: request";
+    if (init.exactLongPoll !== undefined) return "exactUploadProgress: a long poll sends no body";
+    if (method === "GET" || method === "HEAD") return "exactUploadProgress: a GET or HEAD request sends no body";
+    return true;
+  }
+  // An upload's event for its mapper, as XMLHttpRequest names them: `progress` for the host's count of the body's
+  // bytes sent, and `load` for the reply, whatever its status, which ends the stream.
+  function uploadEvent(o) {
+    if (o.response) return { type: "load", status: o.response.status, data: o.response.body, lastEventId: "", coalesced: 0 };
+    var sent = JSON.parse(o.message.data);
+    return { type: "progress", loaded: sent.loaded, total: sent.total, lengthComputable: true, data: "", lastEventId: "", coalesced: o.message.coalesced };
+  }
   // The store's presence calls (LLP 1133.010 D5), for prelude.js's `store`,
   // over its host door: a name's occupancy (op 18 kept, 19 locked or
   // pending, 20 this device keeps locked secrets now), and a call that waits
@@ -99,7 +120,11 @@
         if (op === "unlock" && !locked) return Promise.resolve(get(name));
         if (op === "unprotect" && !locked || op === "protect" && locked) return Promise.resolve();
         if (op === "protect" && host(20, "", "") !== "1") throw new Error("NotSupportedError: " + name + " cannot be locked: this device keeps no locked secret now");
-      } catch (e) { return Promise.reject(named(e)); }
+      } catch (e) {
+        // The lock is read first: a refusal for want of a store names the operation called
+        if (e && /^store\.locked: no store here/.test(e.message)) e.message = e.message.replace("store.locked", "store." + op);
+        return Promise.reject(named(e));
+      }
       var body = JSON.stringify({ presence: op, name: name, reason: options && options.reason != null ? String(options.reason) : "" });
       return global.fetch("exact-native:", { method: "POST", body: body, exactIndependentHttp: { maxResponseBytes: 1048576 } })
         .then(function (r) {
@@ -334,7 +359,7 @@
   // tracker schedules its report with `setTimeout` too: that one runs alone,
   // at the prelude's next `checkpoint`, which is when a browser fires
   // `unhandledrejection`.
-  function timers(owner, clock, journal, report) {
+  function timers(owner, clock, journal, report, sources) {
     var armed = new Map(), reports = [], signals = new WeakMap(), next = 1, now = 0;
     function fixed(name, value) { Object.defineProperty(global, name, { value: value, writable: false, configurable: false }); }
     // The runner's clock as the call began; where none is (at bake), the last time a timer ran at. Not kept
@@ -362,9 +387,18 @@
       var n = Number(ms);
       if (!(n >= 0 && n <= 9007199254740991)) throw new TypeError("AbortSignal.timeout(): the delay is a number of milliseconds from 0");
       var controller = new global.AbortController();
-      signals.set(controller.signal, arm("AbortSignal.timeout()", function () { controller.abort(new global.DOMException("signal timed out", "TimeoutError")); }, Math.floor(n), []));
+      var abort = function () { controller.abort(new global.DOMException("signal timed out", "TimeoutError")); };
+      var id = arm("AbortSignal.timeout()", abort, Math.floor(n), []);
+      // Its deadline outlives the timer, which its answer's end drops: a request carrying it still has it.
+      signals.set(controller.signal, { id: id, due: armed.get(id).due, abort: abort });
       return controller.signal;
     };
+    // A timeout signal's deadline, or the earliest among the signals one was composed of (`sources`).
+    function deadline(signal) {
+      var s = signal && signals.get(signal), composed = !s && signal && sources(signal);
+      if (composed) composed.forEach(function (input) { var t = signals.get(input); if (t && (!s || t.due < s.due)) s = t; });
+      return s;
+    }
     function first(call, by) {
       var found;
       armed.forEach(function (t, id) { if (t.call === call && t.due <= by && (!found || t.due < found[1].due)) found = [id, t]; });
@@ -389,10 +423,13 @@
         catch (e) { journal("data: a timer's callback threw: " + (e && e.message !== undefined ? e.message : String(e))); }
       },
       drop: function (call) { armed.forEach(function (t, id) { if (t.call === call) armed.delete(id); }); },
-      // An `AbortSignal.timeout` still to fire: the ms left, the deadline a
-      // fetch carrying it gives the host; `expire` aborts it when that passes.
-      left: function (signal) { var t = signal && armed.get(signals.get(signal)); return t ? Math.max(1, t.due - time()) : undefined; },
-      expire: function (signal) { var id = signal && signals.get(signal), t = armed.get(id); if (t) { armed.delete(id); t.run(); } },
+      // An `AbortSignal.timeout` still to fire, or one composed of it: the ms
+      // left, the deadline a fetch carrying it gives the host; `expire` aborts
+      // it when that passes, its timer dropped or not, as a browser's fires:
+      // a fetch its answer let go runs to its end (LLP 1146 D2), and another
+      // answer may carry the same signal.
+      left: function (signal) { var s = deadline(signal); return s && !signal.aborted ? Math.max(1, s.due - time()) : undefined; },
+      expire: function (signal) { var s = deadline(signal); if (s && !signal.aborted) { armed.delete(s.id); s.abort(); } },
       checkpoint: function () {
         while (reports.length) {
           var report = reports.shift();
@@ -412,7 +449,78 @@
     messageData: messageData,
     gateDecode: door ? gateDecode : undefined,
     longPollOf: longPollOf,
+    uploadOf: uploadOf,
+    uploadEvent: uploadEvent,
     presence: presence,
     sockets: sockets,
   });
+})(globalThis);
+
+// Work that outlives its answer (LLP 1146 D2): a fetch with effects whose
+// answer was let go is adopted, not rejected (`__exact_adopt`), and its reply
+// reaches the let-go answer's continuation in a module turn, which the
+// executor runs outside every answer and commit (js/src/module_work.rs), so
+// what that continuation writes to the store stands on its own. A live
+// answer's step that such a turn settles runs in that answer's own turn, so
+// its reads, writes and fetches are its own. prelude.js takes
+// `__exact_module_work` and deletes it; it is here, in binary.js, so that
+// every realm that evaluates the prelude has it.
+(function (global) {
+  "use strict";
+  // The prelude's hooks: `host` (the door) and `live(call)` (a call still answering).
+  global.__exact_module_work = function (hooks) {
+    var host = hooks.host;
+    // The turn running now, by its call's id: an answer's, MODULE's, or null
+    // (a let-go chain, a background delivery, module evaluation). An id, so
+    // that no ended call's value is kept alive by it.
+    var MODULE = Object.freeze({ id: -1 });
+    var turn = null;
+    var ready = new Map();           // live answer's call -> [steps for its own turn]
+    var discarded = [];              // steps of answers let go before their turn, run with no store
+    var adopted = 0;                 // adopted fetches in flight
+    function waiting() { var n = 0; ready.forEach(function (steps) { n += steps.length; }); return n; }
+    // What may still settle an answer waiting on module work, for the executor.
+    function note() { host(22, "state", JSON.stringify({ outstanding: adopted + waiting() })); }
+    return Object.freeze({
+      MODULE: MODULE,
+      // The turn now (the executor's `__exact_turn`): an answer's call, MODULE or null.
+      setTurn: function (t) {
+        turn = t ? t.id : null;
+        var steps = t && t !== MODULE ? ready.get(t) : null;
+        if (steps) { ready.delete(t); steps.forEach(function (s) { s(); }); note(); }
+      },
+      // The async helper asks before each step whether it runs here. In a
+      // module turn a live answer's step waits for that answer's own turn;
+      // anything else runs where it is, the let-go answer's continuation
+      // included. `step(key, arg)` is the helper's next step, bound only when
+      // deferred: this runs before every step of every async function.
+      route: function (at, step, key, arg) {
+        if (!at || turn !== MODULE.id || !hooks.live(at)) return false;
+        if (!ready.has(at)) ready.set(at, []);
+        ready.get(at).push(function () { step(key, arg); });
+        note();
+        return true;
+      },
+      // After a module turn, with no store: what let-go answers had waiting.
+      runDiscarded: function () {
+        turn = null;
+        for (var n = 0; discarded.length && n < 1024; n++) discarded.shift()();
+      },
+      // An answer let go: its steps waiting for its turn move to the steps
+      // the let-go chain runs with no store, and stop counting as
+      // outstanding. How many moved.
+      forgot: function (call) {
+        var steps = ready.get(call);
+        if (!steps) return 0;
+        ready.delete(call);
+        steps.forEach(function (s) { discarded.push(s); });
+        note();
+        return steps.length;
+      },
+      inModuleTurn: function () { return turn === MODULE.id; },
+      adopted: function () { adopted++; note(); },
+      landed: function () { adopted--; note(); },
+      outstanding: function () { return adopted + waiting() > 0; },
+    });
+  };
 })(globalThis);

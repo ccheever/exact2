@@ -138,7 +138,18 @@ extension NodeView {
         // actually on screen. @ref LLP 1034 D2
         let night = drawsDark, contrast = drawsHighContrast, elevated = drawsElevated
         // The view's own tint, read once, where anything here names it (LLP 1095 D8).
-        let tint = style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) ? viewTint : nil
+        let namesTint = style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint)
+        #if os(iOS) || os(tvOS)
+        // Resolve the tint as it rests on a dimmed face Exact draws, so `dimmedRuns` greys the colour at its own alpha
+        let tint = namesTint ? (dimsItsPaint ? restingTint : viewTint) : nil
+        // A link's run resolves it as UIKit dims it, outside a control (`linkTint`)
+        let linked = linkTint(tint)
+        #else
+        let tint = namesTint ? viewTint : nil
+        let linked: PlatformColor? = nil
+        #endif
+        /// The tint `run` resolves `@tint` by: a link's, or the paragraph's
+        func runTint(_ run: InlineText) -> PlatformColor? { linked != nil && activationTarget(from: run) != nil ? linked : tint }
         let ink = textChannels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
         if props["markup"] == "markdown", let source = props["text"] {
             // Markdown source: the archive expands it into runs, the same
@@ -146,19 +157,28 @@ extension NodeView {
             // Every piece is in the node's ink, or a share of it: one kind.
             var base = textRun("")
             base.fixedInk = style["text_color"]?.fixesInk == true
-            let atoms = MarkdownAtoms(kinds: props["atoms"] ?? "", faces: props["atomFaces"] ?? "", styles: props["atomStyles"] ?? "", dark: night, contrast: contrast == true)
-            runs = MarkdownLink.installed?.expand(source, base: base, color: textChannels("text_color", dark: night),
+            let atoms = MarkdownAtoms(kinds: props["atoms"] ?? "", faces: props["atomFaces"] ?? "", styles: props["atomStyles"] ?? "", dark: night, contrast: contrast == true,
+                                      rtl: style["direction"]?.string == "rtl")
+            // Resolve a link piece's ink by the link's tint (`linked`) where the ink names the tint, and
+            // an atom's too where the node handles its press (`atompress`)
+            let row = style["text_color"], atomsAct = handlers.contains("atompress")
+            let linkInk = linked.flatMap { t in row?.namesTint == true ? row?.textChannels(dark: night, contrast: contrast, elevated: elevated, tint: t) : nil }
+            runs = MarkdownLink.installed?.expand(source, base: base, color: textChannels("text_color", dark: night), linkColor: linkInk, atomColor: atomsAct ? linkInk : nil,
                                                   boldText: text?.boldTextSteps(base.family) == true, atoms: atoms) ?? [textRun(source)]
             if style["visibility"]?.string == "hidden" { for i in runs.indices { runs[i].hidden = true } }
             // `currentcolor` in a shadow or stroke is each piece's own colour.
             let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
-            for i in runs.indices { (runs[i].shadow, runs[i].stroke) = rows.resolve(dark: night, contrast: contrast, elevated: elevated, tint: tint, color: runs[i].color ?? own) }
+            for i in runs.indices {
+                let acts = !runs[i].href.isEmpty && (atomsAct || !runs[i].href.hasPrefix(Self.readerAtomScheme))
+                (runs[i].shadow, runs[i].stroke) = rows.resolve(dark: night, contrast: contrast, elevated: elevated, tint: acts ? linked ?? tint : tint, color: runs[i].color ?? own)
+            }
         } else if let value = props["text"] {
-            runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night, contrast: contrast, elevated: elevated, tint: tint))
+            let href = props["href"] ?? ""
+            runs.append(InlineText.run(value, style: style, href: href, dark: night, contrast: contrast, elevated: elevated, tint: href.isEmpty ? tint : linked ?? tint))
         } else {
-            runs = inlineText.filter(\.paints).map { $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint) }
+            runs = inlineText.filter(\.paints).map { $0.run(dark: night, contrast: contrast, elevated: elevated, tint: runTint($0)) }
             let decorates = inlineText.contains(where: { !$0.paints && !$0.lightRun.decoration.isEmpty })
-            let backs = inlineText.contains(where: { !$0.paints && $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint).background != nil })
+            let backs = inlineText.contains(where: { !$0.paints && $0.run(dark: night, contrast: contrast, elevated: elevated, tint: runTint($0)).background != nil })
             let byId = decorates || backs ? Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) : [:]
             // An inline container's lines reach its descendants' text, as the
             // paragraph's own do below, whatever the box's own visibility:
@@ -169,7 +189,7 @@ extension NodeView {
                     while let run = up {
                         up = byId[run.parent]
                         guard !run.lightRun.decoration.isEmpty else { continue }
-                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint)
+                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: runTint(run))
                         runs[i].propagate(paint.decoration, color: paint.color ?? ink)
                     }
                 }
@@ -187,7 +207,7 @@ extension NodeView {
                     var up = byId[leaf.parent]
                     while let run = up {
                         up = byId[run.parent]
-                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint)
+                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: runTint(run))
                         guard !paint.hidden, paint.background != nil else { continue }
                         if runs[i].background == nil {
                             runs[i].background = paint.background
@@ -217,6 +237,9 @@ extension NodeView {
             for i in runs.indices { runs[i].propagate(lines, color: color ?? ink) }
             strut.propagate(lines, color: color ?? ink)
         }
+        #if os(iOS) || os(tvOS)
+        dimmedRuns(&runs, strut: &strut)
+        #endif
         var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: strut,
                                   color: ink,
                                   language: presenter?.documentLanguage ?? "", flow: !flowShapes.isEmpty)

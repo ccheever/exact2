@@ -963,9 +963,12 @@ export function channelVersion(s: Store, channelId: string): number { return s.v
 /** Read the version used by guild, channel, DM and unread sidebar resources. */
 export function sidebarVersion(s: Store): number { return s.sidebarRevision; }
 
+/** A window's most rows: 200, raised by two pages for a fling's lead (F1), so a page that lands while the reader
+ * is within the lead's 100 rows of the top is never shed from the window it lands in. */
+export const WINDOW_CAP = 300;
 function windowLimit(limit: number): number {
   if (!Number.isFinite(limit) || limit < 1) throw new RangeError('Window limit must be positive');
-  return Math.min(200, Math.floor(limit));
+  return Math.min(WINDOW_CAP, Math.floor(limit));
 }
 
 function sliceWindow(run: Run | undefined, start: number, end: number): MessageWindow {
@@ -998,7 +1001,7 @@ function locate(s: Store, channelId: string, id: string): { run: Run; index: num
   return null;
 }
 
-/** Return up to 200 rows at the live tail; an unloaded tail stays empty and fetchable. */
+/** Return up to WINDOW_CAP rows at the live tail; an unloaded tail stays empty and fetchable. */
 export function latestWindow(s: Store, channelId: string, limit = 50): MessageWindow {
   const count = windowLimit(limit);
   const run = s.histories.get(channelId)?.live;

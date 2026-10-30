@@ -267,6 +267,20 @@ final class FlatLeaves {
         }
         resolve(ids)
     }
+    /// Repaints the boxes drawn in `parent`, and those under them, when its tint is dimmed or comes
+    /// back, greyed or not as it is now (TintDimmingIOS.swift); a run of them is drawn again
+    func tintChanged(_ parent: UInt32) {
+        guard let ids = order[parent] else { return }
+        repaint(ids)
+        if !dirty.isEmpty { presenter.afterBatch { [weak self] in self?.flush() } }
+    }
+    private func repaint(_ ids: [UInt32]) {
+        for id in ids {
+            guard let leaf = leaves[id] else { continue }
+            paint(leaf)
+            if let kids = order[id] { repaint(kids) }
+        }
+    }
     /// The appearance `id` paints in, when it is a leaf under a view.
     func appearance(of id: UInt32) -> Bool? { host(of: id)?.drawsDark }
     private func mountPromoted() {
@@ -387,7 +401,9 @@ final class FlatLeaves {
     private func paint(_ leaf: FlatLeaf) {
         let s = leaf.paint
         let bounds = CGRect(origin: .zero, size: leaf.frame.size)
-        let fill = s.fill(dark: leaf.dark)
+        // Grey its colours on a dimmed control's face, as its host view greys its own (TintDimmingIOS.swift)
+        let host = host(of: leaf.id)
+        let fill = s.fill(dark: leaf.dark).map { f in host?.dimmedWithTint(f, key: "background_color") ?? f }
         let r = s.radii
         let sums = [r[0] + r[1], r[3] + r[2], r[0] + r[3], r[1] + r[2]]
         let edges = [bounds.width, bounds.width, bounds.height, bounds.height]
@@ -413,7 +429,8 @@ final class FlatLeaves {
         if l.cornerCurve != .circular { l.cornerCurve = .circular }
         let hidden = s.hidden
         if l.isHidden != hidden { l.isHidden = hidden }
-        let shadows = bounds.width > 0 && bounds.height > 0 ? BoxShadowSpec.list(s.shadow, dark: leaf.dark) : []
+        var shadows = bounds.width > 0 && bounds.height > 0 ? BoxShadowSpec.list(s.shadow, dark: leaf.dark) : []
+        if let host { for i in shadows.indices { shadows[i].color = host.dimmedWithTint(shadows[i].color, key: "box_shadow") } }
         if shadows.isEmpty {
             leaf.shadow?.removeFromSuperlayer(); leaf.shadow = nil
         } else {
@@ -445,7 +462,12 @@ final class FlatLeaves {
             return []
         }
         order[parent.id] = ids
+        // Repaint the boxes whose new host dims its paint where their old one did not, or the other
+        // way (TintDimmingIOS.swift); a new box painted with no host
+        let dims = parent.dimsItsPaint
+        let moved = flat.filter { leaves[$0]?.parent != parent.id && (host(of: $0)?.dimsItsPaint ?? false) != dims }
         for id in flat { leaves[id]?.parent = parent.id }
+        if !moved.isEmpty { repaint(moved) }
         regrid(parent: parent)
         guard Self.parents.contains(parent.kind), parent.scroll == nil, parent.overlay == nil,
               parent.canvasAbove == nil, parent.surface == nil else { return flat }
@@ -462,9 +484,12 @@ final class FlatLeaves {
             if let gone = leaves[old], gone.parent == id { gone.layer.removeFromSuperlayer() }
         }
         order[id] = ids.isEmpty ? nil : ids
+        let dims = host(of: id)?.dimsItsPaint ?? false
         for kid in ids.compactMap({ leaves[$0] }) {
+            let repaints = kid.parent != id && (host(of: kid.id)?.dimsItsPaint ?? false) != dims
             kid.parent = id
-            reposition(kid)
+            reposition(kid) // which paints it
+            if repaints, leaves[kid.id] != nil, let nested = order[kid.id] { repaint(nested) }
         }
         dirty.insert(id)
         touch(leaf)
@@ -592,10 +617,13 @@ final class FlatLeaves {
         view.applyStyle(style ?? leaf.style)
         view.applyProps(set: leaf.faceBoxSize.map { ["faceBoxSize": $0] } ?? [:], clear: [])
         let placed = place(leaf)
-        view.frame = placed.drawn
-        view.grid = placed
-        if let content = leaf.content { view.applyKernelContentBox(content.box, padding: content.padding) }
-        view.alpha = CGFloat(leaf.opacity)
+        // A new view, so it takes its place at once inside an animation UIKit has open (`Presenter.moveOrPlace`)
+        presenter.moveOrPlace(view) {
+            view.frame = placed.drawn
+            view.grid = placed
+            if let content = leaf.content { view.applyKernelContentBox(content.box, padding: content.padding) }
+            view.alpha = CGFloat(leaf.opacity)
+        }
         presenter.views[id] = view
         if leaf.rank != 0 { view.setRank(leaf.rank) }
         if let parentID = leaf.parent { remount.insert(parentID) }

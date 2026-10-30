@@ -103,8 +103,8 @@ function step(g, on, kt) {
   if (!clock.agent) g.frame ? paint() : drive();
 }
 /** `task name when gate key=key` (LLP 1092 D7): idle until its gate holds over the state at mount or at a commit. */
-export function gated(ms, action, once, frame, gate, key, name) {
-  const g = { ms, action, once: !!once, frame: !!frame, gate, key: key || null, name, i: order(), armed: false, kt: undefined, due: Infinity };
+export function gated(ms, action, once, frame, gate, key, name, wait = 0, max = 0, tolerance = 0) {
+  const g = { ms, action, wait, max, tolerance, once: !!once, frame: !!frame, gate, key: key || null, name, i: order(), armed: false, kt: undefined, due: Infinity };
   Gates.push(g); Tasks.push(g);
   useSchedule(Q);
   const on = untracked(() => gate() === true), kt = on && g.key ? keyText(untracked(g.key)) : undefined;

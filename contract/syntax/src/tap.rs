@@ -22,6 +22,17 @@ pub enum TapForm {
         /// Where the pinch is centred, in the node's box; its middle when `None`.
         at: Option<(f64, f64)>,
     },
+    /// `wheel <dx> <dy>`: the agent's wheel at the node's middle, in points,
+    /// as `tap <t> wheel dx dy`: a positive `dy` scrolls on toward the
+    /// content's end (the offset grows), a negative one back toward its start.
+    /// Applied at once, with no momentum (a macOS scroll, where a drag
+    /// selects text instead).
+    Wheel {
+        /// Across, positive toward the content's right.
+        dx: f64,
+        /// Down, positive toward the content's end.
+        dy: f64,
+    },
     /// `mediasession "action" [seconds]`: the media element's session
     /// action, as the platform's handler would call it (LLP 1098 D10);
     /// never a press.

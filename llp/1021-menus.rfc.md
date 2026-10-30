@@ -5,7 +5,7 @@
 **Systems:** Kernel (a top layer; the popover's box anchored to its invoker), Contract (HTML popover and dialog declarations), Web host (the Popover API by identity), Apple host (menu-shaped popovers presented as UIMenu/NSMenu), Linux host (a kernel-painted top layer), Agent API (no ninth operation), Weird Castle (the account switcher, first consumer)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
-**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`. §5.3.1, 2026-10-22 (Claude, Opus 5.5): the menu bar's own items — app-wide enablement, `about` and `none`, eleven more removal ids, View's zoom — for the T3 Code clone's app-owned menu code. §5.3.2, 2026-10-23 (Claude, Opus 5.5): the declared menu bar on Windows, a painted Fluent row (Charlie's admission of Windows). D2, 2026-10-28 (Claude, Opus 5.5): a popover at its authored `left`/`top`, and the press's `clientX`/`clientY`, for the T3 Code clone's menus that open at the click ("At the press point", below).
+**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`. §5.3.1, 2026-10-22 (Claude, Opus 5.5): the menu bar's own items — app-wide enablement, `about` and `none`, eleven more removal ids, View's zoom — for the T3 Code clone's app-owned menu code. §5.3.2, 2026-10-23 (Claude, Opus 5.5): the declared menu bar on Windows, a painted Fluent row (Charlie's admission of Windows). D2, 2026-10-28 (Claude, Opus 5.5): a popover at its authored `left`/`top`, and the press's `clientX`/`clientY`, for the T3 Code clone's menus that open at the click ("At the press point", below). §5.3.3, 2026-10-28 (Claude, Opus 5.5): File ▸ Close Window's chord, `-exact-menu-keys`. §5.1, 2026-10-28 (Claude, Opus 5.5): a keyboard or VoiceOver menu request no node answers gets the menu a right-click there would show, on macOS.
 **Related:** LLP 1017 §8.1 (literal HTML/CSS names, no aliases — the rule that names every row here), LLP 1001 (where a deviation from the bare element is declared), LLP 1008 (host state that never enters the plan — scroll offset — and the native text field, the one native control so far), LLP 1012 (the eight operations; `tap` is a journal entry into the runner, never OS input), LLP 1014 (the canvas capture the top layer sits outside of), LLP 1018 (the `EXACT_AGENT` presentation-swap precedent: `MemoryStore` for the keychain), weird-castle e644c82 (the hand-rolled switcher overlay this replaces). Platform record: the HTML Popover API and invoker attributes; the WAI-ARIA menu pattern; Apple HIG "Menus" and "Pull-down buttons"; `UIMenu`/`UIButton.menu`/`showsMenuAsPrimaryAction` (iOS 14+), `NSMenu` (macOS).
 
 ## 1. Summary
@@ -1080,8 +1080,21 @@ on a preview as the commit, as QUEUE's reaction-picker note found, so
 the Signal message menu's reaction bar is not a preview, and stays
 authored (a reaction bar beside the menu is its own work). A preview for a node that does not name a
 popover. macOS's preview (none exists). Linux's popover presentation. The
-keyboard route to a context menu (Shift+F10, the context-menu key; QUEUE's
-"Keyboard access to a message's context menu"). Compile-time checks: a
+keyboard route to a context menu outside Apple hosts (Shift+F10, the
+context-menu key; QUEUE's "Keyboard access to a message's context menu").
+On macOS the key and VoiceOver's show menu take the authored path (#314,
+#486). Since 2026-10-28 (Claude, Opus 5.5) a request no node answers gets the
+menu a right-click at the same point would show, as Chrome's own menu follows
+a `contextmenu` nothing prevented: the menu of the view drawn there or of the
+first view above it with one (selected text's, which keeps its selection),
+else the session's view and the responders past it, which hear a secondary
+click's press and release. With nothing focused and text selected, the key
+opens at the left edge of the selection's first line, halfway down it, as
+Blink's `ShowNonLocatedContextMenu` places it. Show menu is offered where an
+authored node answers or a view there holds selected text or a menu; a node
+only a responder past the session's view answers is not offered, and AppKit's
+accessibility server performs show menu there all the same when another
+process asks (measured on macOS 27.2). Compile-time checks: a
 literal `contextPopover` naming no popover, or two `contextPreview` rows,
 is not refused by the compiler. iOS logs both at the press, macOS logs a
 missing popover, and the web logs neither.
@@ -1406,3 +1419,40 @@ the chords that work on Windows: an item's declared `Control` chord, never a
 `Meta` one, which on Windows is the Windows key (LLP 1115.004 D9.6). §5.3.1's
 app-wide items hold, except under a modal dialog, which disables the row as a
 Windows owner window's modality does.
+
+### 5.3.3 Close Window's chord (2026-10-28)
+
+Implementer: Claude (Opus 5.5), 2026-10-28. Consumer: the T3 Code clone. Its
+original's File ▸ Close Window (Electron's `close` role) has no accelerator on
+macOS, so ⌘W reaches the page, which closes a sidebar tab or does nothing
+(`apps/desktop/src/window/DesktopApplicationMenu.ts`, T3 Code `a86c05f977`).
+
+On a top-level root, `-exact-menu-keys` takes a whitespace-separated literal
+list of `id=chord` pairs. Its one id is `close-window`, File ▸ Close Window,
+built with ⌘W: `close-window=none` keeps the item in its place with no chord,
+and `close-window=Meta+Shift+W` gives it ⇧⌘W, as Safari and Chrome give it
+beside their ⌘W Close Tab. The chord is one `aria-keyshortcuts` chord. It
+must hold `Meta`: that is a choice, not AppKit's rule (AppKit accepts a key
+equivalent without ⌘), made because every chord in the host's bar holds ⌘ and a chord without ⌘
+would reach the menu before a field's typing. It may not be one of the host's
+own or the system's standard chords (⌘Q, ⌘W, ⌘H, ⌘M, ⌘-comma, Edit's, View's,
+Develop's, ⌘Tab, ⌘Space and the like), nor the same keystroke spelled with
+Shift (`Meta+Shift+;` is ⌘:), which would take that chord from its item or
+never reach the app. Function keys are spelled `F1` to
+`F35`, as the host's shortcuts parse them (`ShortcutsMac.swift`, `Shortcut`).
+Another id, an id named twice, a chord without `Meta`, a standard chord,
+expressions and non-root use fail with `lower-menu-keys`.
+
+An app command that declares the same chord still takes it from the item
+(§5.3), and the item gets the declared chord back once no command claims it;
+a command's ⌘W takes nothing from a Close Window declared `none`. Removing
+the declaration gives the item ⌘W again.
+
+With nothing holding ⌘W, AppKit's File ▸ Close All (⌥⌘W), which it adds
+itself as Close Window's alternate, no longer pairs with an item and shows as
+a row of its own. The original's File menu has no Close All, so an app that
+removes ⌘W should also declare `-exact-menu-remove="close-all"`, as the clone
+does; the host does not remove it on its own.
+
+Other hosts ignore the hint: the web has no menu bar, and Windows' row
+(§5.3.2) builds no Close Window.

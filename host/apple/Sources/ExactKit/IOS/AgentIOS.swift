@@ -491,14 +491,15 @@ extension Agent {
 
     /// `tap {back:true}` (LLP 1116.006 D4): the platform's Back as a person
     /// takes it — a real share sheet's close (`--touch platform`, Share.swift),
-    /// an open confirmation's cancel (a keyboard's Escape, a tap
-    /// outside), else a pushed route's Back button, else the top sheet's
-    /// swipe down. The system's button is no node, so no tap reaches it.
+    /// an open confirmation's or dialog sheet's cancel (a keyboard's Escape,
+    /// a tap outside), else a pushed route's Back button, else the top
+    /// sheet's swipe down. The system's button is no node, so no tap reaches it.
     func back() -> [String: Any] {
         #if os(iOS)
         if ShareSheet.agentBack(in: session) || session.picker.agentBackDocument() { return backReply(("sheet", "")) }
         #endif
         if let cancelled = presenter.menus.agentCancel() { return backReply(("dialog", cancelled ? "" : "the alert is still moving: `clock settle` first")) }
+        if let refused = presenter.menus.sheets.agentCancel() { return backReply(("dialog", refused)) }
         if let refused = presenter.navigation.agentBack() { return backReply(("route", refused)) }
         return backReply(presenter.modals.agentDismiss().map { ("sheet", $0) })
     }

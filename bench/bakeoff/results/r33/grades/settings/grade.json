@@ -1,0 +1,45 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are present in an inset-grouped list with a large title. Account has name and email text fields and a red Sign Out with a native confirmation anchored to the button; confirming wasn't tried. Reading has a slider with small/large A glyphs, a Font row that pushes a list of five fonts, a 3-segment spacing control and a live preview. Appearance offers System/Light/Dark/Sepia with swatches and a checkmark. Library has Sort By (5 options) and two switches. Notifications: turning the master switch on reveals a Daily Reminder time picker and three switches, and asks iOS for notification permission. Storage shows a Books/Cache usage bar and sizes; Clear Cache confirms, then shows None and disables itself. About shows the version, Privacy and Terms push readable text screens, and Rate the App shows the system review prompt."},
+      {"n": 2, "status": "pass", "note": "Font and Sort By push checkmark lists the way iOS Settings does. The reminder time uses the native compact time picker with a wheel popover."},
+      {"n": 3, "status": "pass", "note": "The preview updates at once for font (Palatino), size (27 pt) and spacing (Relaxed). The Font row's value is drawn in the chosen font."},
+      {"n": 4, "status": "pass", "note": "After relaunch the name edit, size, font, spacing, Sepia theme, sort order, notifications on, 10:00 PM reminder, Recommendations on and cleared cache were all kept."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings at the bottom confirms first, then restores reading, appearance, library and notification defaults and keeps the account; the reset also held after relaunch. The footer says when everything is already at its defaults."}
+    ],
+    "bugs": [
+      "With the Sepia theme, the pushed Font and Sort By screens stay plain light grey/white while the main list is tinted sepia, so the theme is applied unevenly."
+    ],
+    "tells": [
+      "The Daily Reminder row is 66 pt tall while the switch rows beside it are 52 pt.",
+      "Selected rows and the slider use a brown accent under Sepia but blue otherwise. This is defensible, but the accent changes between screens.",
+      "At the largest text size the Name and Email fields truncate (\"Jane XApple…\") instead of wrapping. Line breaks are hyphenated and excused."
+    ],
+    "scroll": "This is a native collection view: slow drags track the finger, flings decelerate and rubber-band, tapping the status bar scrolls to the top, and the nav bar collapses into a blurred inline title. I saw no blank rows, pop-in or stutter.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are present in an inset-grouped list with a large title and helpful section footers. Sign Out confirms with a native alert; confirming swaps the section to 'Not signed in' with a Sign In row, which restores the account. Reading has a slider, a separate Font Size value row, a Font row pushing five fonts, a 3-segment spacing control and a preview card with a summary caption. Appearance offers System/Light/Dark/Sepia as checkmark rows. Library has Sort By (4 options) and two switches. Notifications: the master switch shows and hides a time picker and three switches. Storage lists Used, Downloaded and Cache; Clear Cache uses an alert and the cache then reads 'Zero KB' with the button disabled. About has the version, Privacy and Terms text screens and Rate the App."},
+      {"n": 2, "status": "pass", "note": "Font and Sort By push checkmark lists with a footer, like iOS Settings. The reminder uses the native compact time picker."},
+      {"n": 3, "status": "pass", "note": "The preview updates live for font, size (28 pt) and spacing. Under Sepia the preview card turns warm paper with brown text."},
+      {"n": 4, "status": "pass", "note": "After relaunch the name, size, font, spacing, Dark theme, sort order, notification toggles, 10:00 PM reminder and cleared cache were all kept."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings confirms with an alert (Cancel/Reset), restores every default and keeps the account; the reset held after relaunch."}
+    ],
+    "bugs": [
+      "Rate the App leaves the app and opens Safari, which says \"address is invalid\", instead of showing an in-app review prompt. This may only happen in the simulator.",
+      "Turning Allow Notifications on never asks iOS for notification permission.",
+      "The Privacy Policy and Terms rows carry hidden stale text that VoiceOver would read (\"Georgia\" and \"18 pt\", copied from the font rows)."
+    ],
+    "tells": [
+      "The Font Size slider sits in its own row above a separate 'Font Size 18 pt' row, so the slider has no label beside it. This is a slightly unusual layout.",
+      "Sepia only tints the preview card; the rest of the app stays light. A footer says so, but a Sepia theme that doesn't theme the app feels thin.",
+      "An empty cache reads 'Zero KB', which is raw formatter output.",
+      "At the largest text size the Email field truncates (\"jordan.lee@e…\"). Line breaks are hyphenated and excused."
+    ],
+    "scroll": "This is a native collection view with the same feel: smooth tracking, proper deceleration and rubber-banding, a collapsing large title, and no blank or popping rows.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 8}
+  },
+  "better": "A",
+  "why": "Both are convincing native inset-grouped settings screens that pass every requirement, persist everything and reset correctly. A goes further in ways a user feels: it asks for real notification permission, shows the system rating prompt instead of a broken Safari hand-off, has a storage usage bar, and lets Sepia actually tint the app. B is slightly better on sign-out handling and theme consistency on pushed screens, but has more small rough edges."
+}

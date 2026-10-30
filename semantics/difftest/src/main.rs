@@ -38,7 +38,7 @@ use std::process::ExitCode;
 const USAGE: &str = "usage:
   difftest corpus [<dir|file>…] [--js|--js-only]
   difftest explore <dir|file>… [--js|--js-only]
-  difftest verify <file.contract> [--types] [--prove <Module>]
+  difftest verify <file.contract> [--runner-only] [--js] [--walks N] [--steps M] [--walk-seed N] [--confirm N] [--types] [--prove <Module>]
   difftest quick [--base <rev>]
   difftest random [--seed <u64>] [--count <n>] [--batch <n>] [--js|--js-only]
   difftest numbers [--seed <u64>] [--count <n>]
@@ -224,6 +224,32 @@ fn run_verify(args: &[String]) -> Result<bool, String> {
     while let Some(a) = it.next() {
         match a.as_str() {
             "--types" => options.types = true,
+            "--runner-only" => options.runner_only = true,
+            "--js" => options.js = true,
+            "--walks" | "--steps" | "--confirm" | "--walk-seed" => {
+                let value = it.next().ok_or_else(|| format!("{a} needs a number"))?;
+                let value = if let Some(hex) = value.strip_prefix("0x") {
+                    u64::from_str_radix(hex, 16)
+                } else {
+                    value.parse::<u64>()
+                }
+                .map_err(|_| format!("{a} needs an unsigned integer"))?;
+                match a.as_str() {
+                    "--walk-seed" => options.walk_seed = Some(value),
+                    "--walks" => {
+                        options.walks =
+                            usize::try_from(value).map_err(|_| "--walks is too large")?
+                    }
+                    "--steps" => {
+                        options.steps =
+                            usize::try_from(value).map_err(|_| "--steps is too large")?
+                    }
+                    _ => {
+                        options.confirm =
+                            usize::try_from(value).map_err(|_| "--confirm is too large")?
+                    }
+                }
+            }
             "--prove" => {
                 options.prove = Some(it.next().ok_or("--prove needs a module name")?.clone())
             }
@@ -552,6 +578,12 @@ fn report(outcomes: &[Outcome], strict_refusals: bool, shrinking: bool) -> Resul
                         .iter()
                         .find(|l| l.starts_with('#'))
                         .map_or(String::new(), |w| format!("\n  rust {w}"));
+                let why = why
+                    + if contract_difftest::omitted_at(rust, *at) {
+                        "\n  a commit the semantics has no branch for"
+                    } else {
+                        ""
+                    };
                 println!(
                     "DIVERGE {} at line {at}:\n  rust: {}\n  lean: {}{why}\n  kept: {}.{{contract,events,rust.txt,lean.txt}}",
                     o.case.name,

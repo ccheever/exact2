@@ -365,7 +365,7 @@ extension ExactExtensions {
         let module = m.context, tracks = tables[ObjectIdentifier(m)] as? ExactTracks ?? ExactTracks()
         tables[ObjectIdentifier(m)] = tracks
         return ExactPackageContext(
-            agent: module.agent && !real.contains(name), session: session,
+            agent: module.agent && !real.contains(name), session: session, hostSession: module.poster["owner"] ?? "",
             changed: { [weak module] topic in module?.changed(topic) },
             log: { [weak module] line in module?.diagnostics.log(line) },
             now: { [weak module] in module?.now() ?? 0 },

@@ -20,6 +20,7 @@ game/.shells/
 apps/*/app.contract.d.ts
 # The design server's lock and journal (contract tamber serve, LLP 1121 D13).
 apps/*/.exact/
+scripts/fixtures/*/.exact/
 # The Windows package host/windows/build.mjs writes (game/ ignores its own).
 apps/*/dist-windows/
 

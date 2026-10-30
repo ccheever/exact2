@@ -1,0 +1,11 @@
+{
+  "spec": "workout-log",
+  "key": {
+    "A": "swiftui",
+    "B": "exact"
+  },
+  "exit": 0,
+  "minutes": 11.34,
+  "shots": 74,
+  "graded": true
+}

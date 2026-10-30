@@ -148,7 +148,7 @@ a confirmation: What can't be undone (Delete) asks first. `aria-label` is the qu
       text "Delete"
     button commandfor="remove" command="close"
       text "Cancel"
-a timer: `every(ms, action)` repeats, `after(ms, action)` fires once, `when cond` arms the task. An action writes `performanceNow()` to state; a `derive` never rereads it.
+a timer: `every(ms, action)` repeats; `after(ms, action)` runs once. Options: `wait=frame|update|scrollend|idle`, `max=ms`, `tolerance=ms`. See `contract vocab timers`.
   state now = 0
   task tick mount
     every(1000, step)
@@ -179,7 +179,7 @@ a dated record: The write reads the clock, not a ticked `now`, and stores `at`; 
   action log
     let at = time.epochAtZero + performanceNow()
     days = days.concat([formatDate(at, time.utcOffset, "iso")])
-a test, and verify: By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert, `clock held` for an `exactHeld` reply; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs them, checks each one's last screen and relaunches once; `verify ios` last; `--shots <dir>` keeps screenshots.
+a test, and verify: Each test starts with empty storage; target by `testId` or text. `clock data` lands replies, `clock settle` settles presentation, `clock held` lands held replies; `reload` keeps storage. `bun exact.mjs verify` tests, checks end screens and relaunches; `verify ios` last; `--shots <dir>` keeps screenshots. It runs `contract verify app.contract` too; keep its receipt.
   test "a pick survives a relaunch"
     tap "pick"
     clock data

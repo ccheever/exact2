@@ -10,6 +10,10 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { builtinModules, createRequire } from 'node:module';
 import { resolve, relative, dirname, basename, join, sep, isAbsolute, toNamespacedPath } from 'node:path';
+// The bake writes the binding's generator beside this file in its stage (js/bake/src/resident.rs `BINDING`).
+import { moduleBinding } from './__exact_binding.mjs';
+
+export { moduleBinding };
 
 function httpOrigin(value, label) {
   let url; try { url=new URL(value); } catch { throw new Error(`${label}: expected an http(s) origin`); }
@@ -153,10 +157,11 @@ function sameServer(key, origin) {
 function movedLines(lines, from, to) {
   const move=(target, a, b)=>target===a || target.startsWith(a+'/') ? b+target.slice(a.length) : target;
   return lines.split('\n').map(line=>{
-    const m=line.match(/^(net\.fetch|net\.websocket) (\S+)(.*)$/);
+    // A development build's only line (`developmentGrants`) moves too.
+    const m=line.match(/^((?:[ \t]*development[ \t]+)?)(net\.fetch|net\.websocket) (\S+)(.*)$/);
     if (!m) return line;
-    const [a,b]=m[1]==='net.fetch' ? [from,to] : [socketOrigin(from),socketOrigin(to)];
-    return `${m[1]} ${move(m[2],a,b)}${m[3]}`;
+    const [a,b]=m[2]==='net.fetch' ? [from,to] : [socketOrigin(from),socketOrigin(to)];
+    return `${m[1]}${m[2]} ${move(m[3],a,b)}${m[4]}`;
   }).join('\n');
 }
 
@@ -189,8 +194,10 @@ export function injectBackendOrigin(code, origin, parse, env=process.env) {
     for (const d of keyed) edits.push([d.init.start,d.init.end,JSON.stringify(keyedGrants(bare(d.init),origin ?? literal,at,developmentTrust(env)))]);
   }
   const previous=literal.replace(/\/+$/,'');
-  const replace=value=>value.split('\n').map(line=>line===`net.fetch ${previous}` || line===`net.fetch ${previous}/` ? `net.fetch ${origin}`
-    : line===`net.websocket ${socketOrigin(previous)}` || line===`net.websocket ${socketOrigin(previous)}/` ? `net.websocket ${socketOrigin(origin)}` : line).join('\n');
+  // A development build's only line (`developmentGrants`) keeps its marker and moves too.
+  const moved=line=>line===`net.fetch ${previous}` || line===`net.fetch ${previous}/` ? `net.fetch ${origin}`
+    : line===`net.websocket ${socketOrigin(previous)}` || line===`net.websocket ${socketOrigin(previous)}/` ? `net.websocket ${socketOrigin(origin)}` : line;
+  const replace=value=>value.split('\n').map(line=>{ const [,mark,rest]=line.match(/^([ \t]*development[ \t]+|)(.*)$/s); return mark+moved(rest); }).join('\n');
   const walk=node=>{
     if (!node || typeof node!=='object') return;
     if (node.type==='Literal' && typeof node.value==='string') { const next=replace(node.value); if(next!==node.value) edits.push([node.start,node.end,JSON.stringify(next)]); return; }
@@ -201,6 +208,33 @@ export function injectBackendOrigin(code, origin, parse, env=process.env) {
   if (origin!==null) grants.filter(d=>!keyed.includes(d)).forEach(d=>walk(d.init));
   for(const [start,end,value] of edits.sort((a,b)=>b[0]-a[0])) code=code.slice(0,start)+value+code.slice(end);
   return code;
+}
+
+/** A grant line that begins with the word `development` is a development
+ * build's only: a production bake leaves it out, any other build keeps it
+ * without the word (Harmony's test call, `development device.calls
+ * purpose.calls`, LLP 1133.033 §13 question 4). No grant family is a bare
+ * word, so the marker is never a grant's own; the bake's trailing
+ * `local-network development` is another thing. Only the captured copy is
+ * rewritten, so the app's own `grants` is the build's at run time too. Run
+ * after `injectBackendOrigin`, which has moved a marked line with the
+ * backend's origin and made keyed grants the selected entry's string. */
+export function developmentGrants(code, parse, env=process.env) {
+  const parsed=parse('app.ts',code);
+  if (parsed.errors.length) return code;
+  const marker=/^([ \t]*)development[ \t]+(?=\S)/;
+  const grants=staticFacts(code,parse).grants;
+  if (grants===undefined || !grants.split('\n').some(line=>marker.test(line))) return code;
+  // The binding exported as `grants`, as `staticFacts` reads it.
+  const body=parsed.program.body;
+  const local=body.flatMap(s=>s.type==='ExportNamedDeclaration' && !s.source ? (s.specifiers ?? []) : [])
+    .find(x=>(x.exported.name ?? x.exported.value)==='grants')?.local;
+  const name=local ? local.name ?? local.value : 'grants';
+  const declaration=body.map(s=>s.type==='ExportNamedDeclaration' ? s.declaration : s)
+    .flatMap(s=>s?.type==='VariableDeclaration' ? s.declarations : []).find(d=>d.id.type==='Identifier' && d.id.name===name);
+  const development=developmentTrust(env);
+  const lines=grants.split('\n').flatMap(line=>!marker.test(line) ? [line] : development ? [line.replace(marker,'$1')] : []);
+  return code.slice(0,declaration.init.start)+JSON.stringify(lines.join('\n'))+code.slice(declaration.init.end);
 }
 
 // Rolldown IDs are file paths, not URL or slash-normalized strings. Both
@@ -424,14 +458,14 @@ export const lowered={target:'es2016'};
 const ASYNC_HELPER=/@oxc-project\+runtime@[^/]*\/helpers\/esm\/asyncToGenerator\.js$/;
 export const asyncContextHelper=`export default function _asyncToGenerator(fn) {
   return function () {
-    var self = this, args = arguments, context = globalThis.__exact_async_context;
-    var at = context ? context.current() : undefined;
+    var self = this, args = arguments, context = globalThis.__exact_async_context, at = context ? context.current() : undefined;
     return new Promise(function (resolve, reject) {
       var gen = fn.apply(self, args);
       function step(key, arg) {
+        // A live answer's step that a module turn settled runs in that answer's own turn (LLP 1146 D2)
+        if (context && context.route && context.route(at, step, key, arg)) return;
         var before = context ? context.swap(at) : undefined, info;
-        try { info = gen[key](arg); }
-        catch (error) { if (context) context.swap(before); reject(error); return; }
+        try { info = gen[key](arg); } catch (error) { if (context) context.swap(before); reject(error); return; }
         if (context) context.swap(before);
         if (info.done) resolve(info.value);
         else Promise.resolve(info.value).then(function (v) { step("next", v); }, function (e) { step("throw", e); });
@@ -947,7 +981,7 @@ export function configure(stage, incremental=false, parse) {
     const authored=existsSync(original) ? JSON.parse(readFileSync(original,'utf8')) : before;
     const selection=backendOriginSelection(app), warning=backendOriginWarning(authored,selection,parse);
     writeFileSync(resolve(stage,'__exact_backend_warning.json'), JSON.stringify(warning));
-    const after=injectBackendOrigin(authored,selection?.origin ?? null,parse);
+    const after=developmentGrants(injectBackendOrigin(authored,selection?.origin ?? null,parse),parse);
     if (before!==after) writeFileSync(modulePath,after);
     // Every producer refuses alike what the web build cannot read without running it.
     if (parse) staticFacts(after,parse);
@@ -1035,11 +1069,15 @@ export function configure(stage, incremental=false, parse) {
 // Members other interfaces declare on `name`'s names, by name, with their interface's shapes (LLP 1133.014 D10 item 1).
 const membersOf=(name, interfaces)=>interfaces.flatMap(i=>Object.entries(i.declaration.members ?? {}).filter(([o])=>o.split('#')[0]===name).flatMap(([o,m])=>Object.entries(m ?? {}).map(([option,spec])=>[o.split('#')[1],{ option, type: spec.type, answers: spec.answers, shapes: i.declaration.shapes ?? {} }]))).reduce((out,[fn,m])=>((out[fn] ??= []).push(m), out),{});
 function moduleBindings(stage, app) {
-  const out=new Map();
+  // The target the build compiles, as an implementation's `targets` names it, or none (a loop serving several).
+  const mapping=resolve(stage,'__exact_paths.json'), named=existsSync(mapping) ? JSON.parse(readFileSync(mapping,'utf8')).target : null;
+  const target=['web','ios','macos','tvos','android','windows','linux'].includes(named) ? named : null, out=new Map();
   const interfaces=moduleInterfaces(app); for (const {name,root,declaration,implementations} of interfaces) {
     const file='__exact_modules/'+name.replace(/^@/,'').replace(/\//g,'__')+'.ts';
     mkdirSync(resolve(stage,'__exact_modules'),{recursive:true});
-    const text=(Array.isArray(declaration.executor) && typeof declaration.binding==='string' ? readFileSync(resolve(root,declaration.binding),'utf8') : null) ?? moduleBinding(name,declaration,implementations.map(i=>i.json),names=>domDeclarations(app,names),membersOf(name,interfaces)), at=resolve(stage,file); // an interface the executor implements carries its own binding (LLP 1133.007 D12)
+    // An interface the executor implements carries its own binding (LLP 1133.007 D12).
+    const own=Array.isArray(declaration.executor) && typeof declaration.binding==='string' ? readFileSync(resolve(root,declaration.binding),'utf8') : null;
+    const text=own ?? moduleBinding(name,declaration,implementations.map(i=>i.json),names=>domDeclarations(app,names),membersOf(name,interfaces),target), at=resolve(stage,file);
     if (!existsSync(at) || readFileSync(at,'utf8')!==text) writeFileSync(at,text);
     out.set(name,'./'+file);
   }
@@ -1274,151 +1312,6 @@ function domDeclarations(app, names) {
     if (decl) for (const [ref] of decl.slice(decl.indexOf(n)+n.length).matchAll(/\b[A-Z][A-Za-z0-9]*\b/g)) if (!found.has(ref) && declared(ref)) queue.push(ref);
   }
   return [...found.values()];
-}
-
-/** A declaration's type (`option<number>`, `enum<a|b>`, `T[]`) as TypeScript's. */
-function moduleType(t, inList=false) {
-  // A path option (LLP 1133.009 D10 item 4) is a string; a handle (item 10) is its id.
-  if (t && typeof t==='object' && t.type==='path') t=t.optional ? 'option<string>' : 'string';
-  // An option with bounds or a default (`{"type", "min", "max", "default"}`, LLP 1133.013 D12 item 2) is its `type`.
-  else if (t && typeof t==='object' && typeof t.type==='string') t=t.type;
-  t=String(t).trim();
-  if (/^handle<[^>]*>$/.test(t)) return 'string';
-  // A WebAuthn dictionary passed whole (LLP 1133.011 D10) is the DOM's own type.
-  const json=/^json<([A-Za-z0-9_]+)>$/.exec(t);
-  if (json) return json[1];
-  if (t==='unit') return 'void';
-  // Bytes are data code's (LLP 1133.006 D8 item 1); an option that may be either takes both (LLP 1133.035 D2).
-  if (t==='string|bytes') return inList ? '(string | Uint8Array)' : 'string | Uint8Array';
-  if (t.endsWith('[]')) return moduleType(t.slice(0,-2),true)+'[]';
-  let m, union;
-  if ((m=/^option<(.*)>$/.exec(t))) union=moduleType(m[1])+' | null';
-  else if ((m=/^enum<(.*)>$/.exec(t))) union=m[1].split('|').map(s=>JSON.stringify(s.trim())).join(' | ');
-  // A `surface` is a canvas's surface name (LLP 1133.013 D12 item 3).
-  // A `shape-name` is a JSON Schema object in data code (LLP 1133.016 D8).
-  else return {number:'number',string:'string',bool:'boolean','strings-key':'string',surface:'string','shape-name':'Record<string, unknown>',bytes:'Uint8Array'}[t] ?? t;
-  return inList ? '('+union+')' : union;
-}
-
-/** The binding of one interface: its shapes, each name's options (a
- * platform's words under its key), and each name as a function. */
-export function moduleBinding(name, declaration, implementations, dom=()=>[], members={}) {
-  const extension=name.split('/').at(-1), lines=[`// Generated by the bake from ${name}'s exact.json (LLP 1133.002 D13). Never edited.`];
-  const shapes={...declaration.shapes};
-  for (const i of implementations) Object.assign(shapes,i.shapes ?? {});
-  const written=new Set(); /* a member's types: its interface's shapes, which data code writes (LLP 1133.014 D10 item 1) */ for (const m of Object.values(members).flat()) for (const [shape,fields] of Object.entries(m.shapes)) if (!shapes[shape]) { shapes[shape]=fields; written.add(shape); }
-  for (const [shape,fields] of Object.entries(shapes)) {
-    lines.push(`export interface ${shape} {`, ...Object.entries(fields).map(([f,t])=>`  ${f}${written.has(shape) && /^option<.*>$/.test(String(t).trim()) ? '?' : ''}: ${moduleType(t)};`), '}');
-  }
-  // The DOM dictionaries the names pass whole (`json<T>`).
-  const dictionaries=new Set((declaration.names ?? []).flatMap(e=>[e.answers,...Object.values(e.options ?? {})])
-    .flatMap(t=>[...String(typeof t==='string' ? t : '').matchAll(/json<([A-Za-z0-9_]+)>/g)].map(m=>m[1])));
-  if (dictionaries.size) lines.push(...dom([...dictionaries]));
-  // A path option is a string; a bounded one (`{"type", "min", …}`) is its `type`.
-  const pathless=(t)=>t && typeof t==='object' ? (t.type==='path' ? (t.optional ? 'option<string>' : 'string') : t.type) : t;
-  const optional=(t)=>{ t=pathless(t); const m=/^option<(.*)>$/.exec(String(t).trim()); return m ? ['?',moduleType(m[1])] : ['',moduleType(t)]; };
-  // Bytes cross the seam as `{"base64": …}` (LLP 1133.035 D2): a binding whose names carry any encodes its
-  // arguments' bytes, and decodes the answers of the names whose answers carry them.
-  const unwrapped=(t)=>String(pathless(t) ?? '').trim().replace(/^option<(.*)>$/,'$1').replace(/\[\]$/,'').replace(/^option<(.*)>$/,'$1');
-  const carries=(t,either,seen=new Set())=>{ const n=unwrapped(t); if (n==='bytes' || (either && n==='string|bytes')) return true;
-    const fields=shapes[n]; if (!fields || seen.has(n)) return false; seen.add(n); return Object.values(fields).some(f=>carries(f,either,seen)); };
-  const answersOf=(e)=>e.answers && typeof e.answers==='object' ? e.answers.else : e.answers;
-  const wired=(declaration.names ?? []).some(e=>!e.event && [answersOf(e),...Object.values(e.options ?? {})].some(t=>carries(t,true)));
-  for (const entry of declaration.names ?? []) {
-    // An event is the root's to hear, never data code's (LLP 1133.004 §11).
-    if (entry.event) continue;
-    const fn=entry.source ?? entry.send, type=fn[0].toUpperCase()+fn.slice(1)+'Options';
-    // A name with members takes any one of its options, as Credential Management's dictionary does (LLP 1133.014 D1).
-    const extended=(members[fn] ?? []).length>0, fields=[...Object.entries(entry.options ?? {}).map(([f,t])=>{ const [q,ts]=optional(t); return `  ${f}${extended ? '?' : q}: ${ts};`; }), ...(members[fn] ?? []).map(m=>`  ${m.option}?: ${m.type};`)];
-    for (const i of implementations) {
-      const words=i.options?.[fn];
-      if (words && Object.keys(words).length) fields.push(`  ${i.platform}?: { ${Object.entries(words).map(([w,t])=>`${w}?: ${moduleType(t)}`).join('; ')} };`);
-    }
-    lines.push(`export interface ${type} {`, ...fields, '}');
-    // An answer typed by an argument (LLP 1133.016 D15 item 4) is `else` in data code, whose constraint is a schema.
-    const answers=entry.answers && typeof entry.answers==='object' ? entry.answers.else : entry.answers;
-    const required=!extended && Object.values(entry.options ?? {}).some(t=>!/^option</.test(String(pathless(t)).trim()));
-    const verb=entry.source ? 'source' : 'send';
-    // A send that answers nothing resolves `undefined` (LLP 1133.004 D5).
-    const promised=entry.answers===null ? 'void' : [moduleType(answers),...(members[fn] ?? []).map(m=>m.answers)].join(' | ');
-    const decoded=wired && carries(answers,false) ? ', true' : '';
-    lines.push(`export function ${fn}(options: ${type}${required ? '' : ' = {}'}): Promise<${promised}> {`,
-      `  return call({ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: options }${decoded})${entry.answers===null ? '.then(() => undefined)' : ''};`, '}');
-    // The synchronous form (LLP 1133.002 D14): inside an answer, where the host has a synchronous path to the module.
-    if (entry.sync?.name) lines.push(`export function ${entry.sync.name}(options: ${type}${required ? '' : ' = {}'}): ${moduleType(answers)} {`,
-      `  return callNow({ extension: ${JSON.stringify(extension)}, sync: ${JSON.stringify(entry.sync.name)}, args: options });`, '}');
-  }
-  if (wired) lines.push(
-    'const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";',
-    'function toWire(v: any): any {',
-    '  if (v instanceof ArrayBuffer) v = new Uint8Array(v);',
-    '  else if (ArrayBuffer.isView(v) && !(v instanceof Uint8Array)) v = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);',
-    '  if (v instanceof Uint8Array) {',
-    '    let s = "";',
-    '    for (let i = 0; i < v.length; i += 3) {',
-    '      const n = (v[i] << 16) | ((v[i + 1] ?? 0) << 8) | (v[i + 2] ?? 0);',
-    '      s += B64[n >> 18 & 63] + B64[n >> 12 & 63] + (i + 1 < v.length ? B64[n >> 6 & 63] : "=") + (i + 2 < v.length ? B64[n & 63] : "=");',
-    '    }',
-    '    return { base64: s };',
-    '  }',
-    '  if (Array.isArray(v)) return v.map(toWire);',
-    '  if (v && typeof v === "object") { const o: any = {}; for (const k of Object.keys(v)) o[k] = toWire(v[k]); return o; }',
-    '  return v;',
-    '}',
-    'function fromWire(v: any): any {',
-    '  if (Array.isArray(v)) return v.map(fromWire);',
-    '  if (!v || typeof v !== "object") return v;',
-    '  const keys = Object.keys(v);',
-    '  if (keys.length === 1 && typeof v.base64 === "string") {',
-    '    const s = v.base64.replace(/=+$/, ""), out = new Uint8Array(Math.floor(s.length * 3 / 4));',
-    '    let bits = 0, n = 0, at = 0;',
-    '    for (const c of s) { n = (n << 6) | B64.indexOf(c); bits += 6; if (bits >= 8) { bits -= 8; out[at++] = (n >> bits) & 255; } }',
-    '    return out;',
-    '  }',
-    '  const o: any = {}; for (const k of keys) o[k] = fromWire(v[k]); return o;',
-    '}');
-  lines.push(
-    `function call(body: { extension: string; source?: string; send?: string; args: unknown }${wired ? ', bytes = false' : ''}): Promise<any> {`,
-    ...(wired ? ['  body = { ...body, args: toWire(body.args) };'] : []),
-    '  const via = (globalThis as any).__exact_module;',
-    '  const answer: Promise<any> = via ? via(body) : fetch("exact-native:", { method: "POST", body: JSON.stringify(body), exactIndependentHttp: { maxResponseBytes: 1048576 } } as any)',
-    '    .then((r: any) => r.text().then((t: string) => { if (r.status === 200) return JSON.parse(t); throw failed(t || "the module did not answer", "UnknownError"); }));',
-    wired ? '  return answer.then((v: any) => { const a = answered(v, `${body.extension}.${body.source ?? body.send}`); return bytes ? fromWire(a) : a; });'
-      : '  return answer.then((v: any) => answered(v, `${body.extension}.${body.source ?? body.send}`));',
-    '}',
-    'function callNow(body: { extension: string; sync: string; args: unknown }): any {',
-    '  const now = (globalThis as any).__exact_module_sync;',
-    '  let v: any;',
-    '  try { v = now ? now(body) : { error: "NotSupportedError" }; }',
-    '  catch (e: any) { throw failed(`${body.extension}.${body.sync}: ${e?.message ?? e}`, "NotSupportedError"); }',
-    '  return answered(v, `${body.extension}.${body.sync}`);',
-    '}',
-    // A module's error (LLP 1133.006 D8 item 2): a `DOMException` of its name where the runtime has one, else an
-    // `Error` of that name, with the code as `code` and each platform's own detail (LLP 1133.011 D1).
-    'function answered(v: any, name: string): any {',
-    '  const keys = v && typeof v === "object" && !Array.isArray(v) ? Object.keys(v) : [];',
-    '  if (typeof v?.error === "string" && keys.every(k => ["error", "message", "apple", "android"].includes(k))) {',
-    '    const message = v.message ? `${name}: ${v.error}: ${v.message}` : `${name}: ${v.error}`;',
-    '    const e: any = typeof DOMException === "function" ? new DOMException(message, v.error) : Object.assign(new Error(message), { name: v.error });',
-    '    Object.defineProperty(e, "code", { value: v.error, enumerable: true });',
-    '    if (v.apple) e.apple = v.apple;',
-    '    if (v.android) e.android = v.android;',
-    '    throw e;',
-    '  }',
-    '  return v;',
-    '}',
-    'function failed(message: string, name: string): Error {',
-    '  const D = (globalThis as any).DOMException;',
-    '  return D ? new D(message, name) : Object.assign(new Error(message), { name });',
-    '}', '');
-  // The web's objects (LLP 1133.011 D10 item 3): each group's members, a declared name or a source's field.
-  for (const [group,members] of Object.entries(declaration.groups ?? {})) {
-    const entries=Array.isArray(members) ? members.map(m=>[m,m]) : Object.entries(members);
-    const body=entries.map(([member,of])=>typeof of==='string' ? `  ${member}: ${of},`
-      : `  ${member}: (): Promise<boolean> => ${of.over}().then(v => (v as any)?.${of.field} === true),`);
-    lines.push(`export const ${group} = {`, ...body, '};');
-  }
-  return lines.join('\n');
 }
 
 /** A name that is not a source (`Result<'posted'>`, a mutation's slot) fails

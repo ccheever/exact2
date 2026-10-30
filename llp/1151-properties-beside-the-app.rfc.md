@@ -1,7 +1,7 @@
 # LLP 1151: Properties beside the app, and what checking one means
 
 **Type:** RFC
-**Status:** Draft r4, 2026-10-28. Charlie asked for this document and its first stage on 2026-10-27 ("Write an RFC for making Contract more verifiable based on the ideas in this Gist and any other good ideas … go ahead and implement it"). It builds on James Ide's assessment "A verifiable Contract" (2026-10-27), whose gaps G0–G7 and proposals D0–D9 are cited here by those names. r1 was reviewed blind by GPT-6 Astra (max), Grok 4.7 (xhigh), Muse Wonder 1.0 (xhigh) and Claude Fable 5.1, all NOT READY on the same points (`llp/reviews/rfc-2026-10-27-1151-r1.{astra,grok,muse,fable}.md`); the same four seats brainstormed separately (`…-r1-brainstorm.*.md`). r2 was reviewed by the same four, each given its own r1 review only: Fable READY with four fixes, Astra, Grok and Muse NOT READY (`…-r2.*.md`), converging on one delivery error and four scope errors. r3 was reviewed in the third and last round the rules allow: Fable and Muse READY, Astra and Grok NOT READY (`…-r3.*.md`), all four on the same three points, which r4 takes. What each round changed is in §R.
+**Status:** Accepted, 2026-10-28 (Charlie: "accept"; the waiver for the doing-list given the same day, "approve waiver yes"). The text is r5. Charlie asked for this document and its first stage on 2026-10-27 ("Write an RFC for making Contract more verifiable based on the ideas in this Gist and any other good ideas … go ahead and implement it"). It builds on James Ide's assessment "A verifiable Contract" (2026-10-27), whose gaps G0–G7 and proposals D0–D9 are cited here by those names. r1 was reviewed blind by GPT-6 Astra (max), Grok 4.7 (xhigh), Muse Wonder 1.0 (xhigh) and Claude Fable 5.1, all NOT READY on the same points (`llp/reviews/rfc-2026-10-27-1151-r1.{astra,grok,muse,fable}.md`); the same four seats brainstormed separately (`…-r1-brainstorm.*.md`). r2 was reviewed by the same four, each given its own r1 review only: Fable READY with four fixes, Astra, Grok and Muse NOT READY (`…-r2.*.md`), converging on one delivery error and four scope errors. r3 was reviewed in the third and last round the rules allow: Fable and Muse READY, Astra and Grok NOT READY (`…-r3.*.md`), all four on the same three points, which r4 takes. r4 was reviewed in a fourth round Charlie asked for on 2026-10-28, beyond the three the rules allow: Fable and Muse READY, Astra and Grok NOT READY (`…-r4.*.md`), on three points r5 takes. What each round changed is in §R.
 **Systems:** the authored-test grammar (`contract/syntax/src/parser.rs`, `parser/steps.rs`, `ast.rs`, `contract/cli/src/tests_json.rs`); `difftest verify` and the harness (`semantics/difftest/src/verify.rs`, `lib.rs`, `script.rs`, `observe.rs`, `oracle.rs`); the observation on both sides (`observe.rs`, `Contract/Observe.lean`, and a trace of `advance` and `dispatch` in `Contract/Runtime.lean`); `contract verify` (`contract/cli/src/verify.rs`); the device test runner (`scripts/agent-test.mjs`); later stages: `Contract/Invariant.lean`, `Axiomatic.lean`, `StepSound.lean`, `TypeCheck.lean`
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Implementer:** stage 1 (§4): this session, 2026-10-27, GPT-6 Astra writing under Claude's direction. Stages 2 to 4 have none; §2's D9 to D12 are directions, not specifications, and say nothing an implementer could be held to.
@@ -52,6 +52,19 @@ Third round (r3 → r4):
 | Frame lines compare every root slot, a queue's included, in authored and suggested lines alike; the stage-2 templates' exclusion of queue slots is a limit of the proof, stated in D9, not of the check. | Astra, Muse | D1, D6, D9 |
 | `Contract.Observe` prints the proved functions' configuration and outcome and the twin's `ran` lines, and `trace disagrees` covers the outcome too. | Astra, Muse, Fable | D3 |
 | The line beside the deferred list's entry is written in the change that adds the grammar, pending Charlie's confirmation. | Fable | §4, Decisions |
+
+Fourth round (r4 → r5):
+
+| Change | Raised by | Where |
+|---|---|---|
+| An input's pair is two observed steps: `after "a"` reads its lines against the `land`'s configuration with `old` the configuration before the input, and is checked when the input's `ran` lines are exactly `handler a` and the `land`'s only the `then`s and `next`s it armed; the pair's `land` is not a clock step, so `after clock` keeps `advance_keeps_user_state`'s shape. | Grok | D1, D2 |
+| The device runner advances its test clock after every step, one millisecond per mutation request, sixteen rounds at most; delivery appends the same `clock +N` steps from the runner's counter, both sides replay them, and the census is recounted. | Astra | D4.1, D1, §5 |
+| D9's templates prove less than the frame check: a line is proved only when every other root slot is shown untouched, a queue slot is the unproved case whether or not the line names it, and the input pair needs a lemma of its own. | Grok, Astra | D9 |
+| The settle bound does not stop a block; the host's seek to a re-ask's due time is in the carve-out; the undeliverable steps are the parser's kinds minus the delivered set, printed by the census. | Grok, Fable | D4.1 |
+| D3's left-out kinds are §5's list, the runner's work before its advance loop is judged by the configuration's movement, and a tap whose arguments refused prints a `handler` line that names the action. | Muse, Grok, Fable | D3 |
+| A device checks `always` after boot and after every state-changing step, the test clock's advances and a `reload` included. | Astra | D8 |
+| §1's counts are §5's; the capture of the boot's host facts is named in §4; §3's `enum<…>` line says what exists. | Fable, Astra | §1, §3, §4 |
+| What the four seats left for the implementer is listed in §4. | all four | §4 |
 
 ## Summary
 
@@ -139,8 +152,8 @@ then two clock advances (`difftest/src/lib.rs`, `explore`). A block with a step 
 does not deliver (`clock data`, `clock settle`, `request`, `clock until`, `fail fetch`,
 `reload`, `back`, a `key`) is skipped whole with `SKIP` (`script.rs`, `test_case`). Of
 the 222 blocks in the ten test files (228 counting a nested app's), about a dozen are
-delivered whole; Excord's and the design tool's none; 85 blocks stop at a `clock until`
-and 61 at a `request`. A control that is not on the boot screen is never tapped. The
+delivered whole; Excord's and the design tool's none; 83 blocks stop at a `clock until`
+and 72 at a `request`. A control that is not on the boot screen is never tapped. The
 observation is one block per event: a tap runs the work already due and then the
 event, a clock advance runs every due task in turn, and the printed outcome is "the
 event's when it failed, else the due work's" (`observe.rs`, `Contract/Observe.lean`),
@@ -210,18 +223,23 @@ frame         = "only" "writes" { IDENT } NL          (* no other root slot chan
   operators do; `whole` says the number is an integer; `stays v` says that when the
   previous step's value was `v`, this step's is `v` too, which is `ready_stays`'s shape
   and the one form that reads the previous step inside `always`.
-- **`after "a" "name"`** holds after every input step whose only commit was `a`'s,
-  taken together with the `land` that follows it (D4.1: an input is followed by a
-  `land`, as the driver's is, so the `then` of what `a` sent has run); `old` is the
-  value before the input, which is the previous step's line, and the lines are read
-  after the `land`. A step in which `a` committed beside another handler's or a
-  task's commit, or whose `land` ran a commit the trace leaves out (D3), is counted,
-  not checked, and the report says how many per line. `only writes x y` says no root
-  slot but those changed across the pair, a `queue` mutation's slot included; `writes
-  none` that none did; `command f args` that the pair's commands include that call.
-- **`after clock "name"`** holds after every clock step (`clock +N` and `land`): every
-  commit inside it is a task's, a `then`'s or a queue's send, so it is the frame of
-  `advance_keeps_user_state`.
+- **`after "a" "name"`** holds over an input's pair (D4.1): the input step, then the
+  `land` step that follows it, as the driver's input ends by landing what it settled.
+  The two are two observed steps on both sides. The pair is checked when the input's
+  `ran` lines are exactly `handler a` and the `land`'s are only the `then`s and queue
+  `next`s that input armed; its `hold` and `frame` lines are read against the
+  `land`'s configuration, and `old` is the configuration before the input, the step
+  before the pair. A pair in which `a` committed beside another handler's or a task's
+  commit, whose input refused, or whose `land` ran a commit the trace leaves out (D3),
+  is counted, not checked, and the report says how many per line. The pair's `land` is
+  not a clock step. `only writes x y` says no root slot but those changed across the
+  pair, a `queue` mutation's slot included; `writes none` that none did; `command f
+  args` that the pair's commands include that call.
+- **`after clock "name"`** holds after every clock step: a `clock +N`, the test
+  clock's advances (D4.1) and a `land` that delivers `clock data` or opens a settle,
+  never the `land` of an input's pair, whose `then`s are the input's. Every commit
+  inside such a step is a task's, a `then`'s or a queue's send, so it has the shape of
+  `advance_keeps_user_state`; what D9 can prove of it is narrower.
 - **`never refuses "a"`** says no commit of `a` was refused, counted over the `ran`
   lines of D3; an action never run is `not exercised`, never passed.
 
@@ -278,8 +296,10 @@ Both sides print, after every step, every root slot, derive, resource, host comm
 them line for line and already reads `expect` lines against them (`lib.rs`,
 `expectations`). A property is an `expect` applied to every step instead of one: the
 harness splits each observation into steps, evaluates each `always` line against the
-step's lines (and the previous step's for `stays`), each `after` line against a step's
-and its predecessor's where D3's `ran` lines say the step is that action's, and reports
+step's lines (and the previous step's for `stays`), each `after "a"` line against an
+input's pair (D1: the `land`'s lines, with `old` from the step before the input) where
+D3's `ran` lines say the pair is that action's alone, each `after clock` line against
+a clock step and the step before it, and reports
 the first step on which a line is false, on either side. The runner's and the
 semantics' observations are matched separately, so a property true on one and false on
 the other is both a violation and a divergence, and the report says which.
@@ -323,8 +343,10 @@ ran queue upload refused
 
 `handler` is the event's own action; `task`, `then` and `queue` are the due work's
 kinds (LLP 1092). The lines are compared, so the two sides must agree on what ran. A
-tap whose curried arguments refused before the action, or that reached no handler,
-prints no `handler` line, and the outcome line says why on a `#` line as today.
+tap whose curried arguments refused before the action prints `ran handler a refused`
+and a `#` line that says the arguments refused, the same on both sides, so a D5
+finding names the action; a tap that reached no handler prints no `handler` line, and
+the outcome line says why on a `#` line as today.
 
 **The runner's half is new.** The runner's advance returns kernel commit receipts
 (`kernel/src/txn.rs`, `CommitReceipt`) that carry no action, kind or outcome, and a
@@ -332,10 +354,14 @@ refused commit leaves none. Stage 1 adds a traced-commit record inside the runne
 advance and dispatch (`runner/src/runner/advance.rs`: kind, action or mutation, outcome,
 refusal reason, in the runner's order), read by `observe.rs`. The runner has commit
 kinds the semantics does not (a transport's or MIDI port's answer landing, a re-ask, a
-wake's delivery, the advance tail's presence, polls, live times and text-axis frames);
-they print no `ran` line, the list of them is in `semantics/README.md` beside the
-format, a step that had one is counted and disqualified for `after`, and if the
-configuration moved the comparison fails as a divergence the receipt names as such.
+wake's delivery and expiry, a drop deadline, a transport-end action, and the advance
+tail's presence, polls, live times and text-axis frames; §5's list is this one); they
+print no `ran` line, the list of them is in `semantics/README.md` beside the format, a
+step that had one is counted and disqualified for `after`, and if the configuration
+moved the comparison fails as a divergence the receipt names as such. The work the
+runner's advance does before its loop and without a receipt (`advance_steps`: module
+deadlines, listed due work, presence) is judged the same way, by whether the
+configuration moved.
 
 **The semantics' half keeps the proved function.** `advance` and `dispatch` compute
 these commits and discard their names (`Runtime.lean`, `advance`'s `go`). Stage 1 adds
@@ -371,21 +397,36 @@ walks (default 2), comparing observations as today.
    D3 says. `land_then` can also commit what the semantics has no branch for; D3 says
    what happens then. An authored `tap` or `type` is delivered as the event followed by
    a `land`, as the driver's input ends by landing what it settled (LLP 1012 §2), so an
-   `expect` after a `tap` reads what the harness's `tap` alone would not. `clock data`
-   is delivered as one `land` (one `land_then` runs a whole `then` chain). `clock
-   settle` is expanded as the driver performs it (`scripts/agent.mjs`, `clock`;
-   `agent-inspect.mjs`, `nextCommitTasks`): a `clock +0`, then, while any task is due
-   within a millisecond of the clock, a `clock +N` to the latest such and a `clock +0`
-   again, sixteen rounds at most; the expansion is computed from the runner's live
-   task state at that point of the script and replaces the step in the case, so both
-   sides replay the same events. The host's part of a settle, its wait on motion,
-   scrolling and hatches and its advance to an animation's end, has no image here, and
-   the world line says so. A block is delivered up to its first step the run cannot
-   take (`request`, `clock until`, `fail fetch`, `reload`, `back`, `close`, `size`,
-   `pick`, `resize`, a `type … key`, a tap form that is not a press, a mid-test
-   `prefer`): the prefix runs, its `expect`s are judged, and the verdict names the step
-   the block stopped at and why. A block is `SKIP` only when its first step cannot be
-   taken. How many blocks this delivers is measured in §5, not claimed; the blocks that
+   `expect` after a `tap` reads what the harness's `tap` alone would not; the input and
+   its `land` are two observed steps, and D1 says which lines read which. The device
+   runner then advances its test clock after every step (`scripts/agent-test.mjs`,
+   `testMutationClock`): one millisecond per mutation request the step issued, as the
+   runner counts them (`Runner::mutation_requests`, `runner/src/runner/queue.rs`),
+   again while an advance issues more, sixteen rounds at most, so an input that sends
+   once and arms `after(1, …)` runs that task before the next authored `expect` on a
+   phone. Delivery appends the same: after each delivered step, the `clock +N` steps
+   that rule yields from the runner's counter at that point, each a clock step both
+   sides replay (and an `after clock` step, D1). `clock data` is delivered as one
+   `land` (one `land_then` runs a whole `then` chain). `clock settle` is expanded as
+   the driver performs it (`scripts/agent.mjs`, `clock`; `agent-inspect.mjs`,
+   `nextCommitTasks`): a `clock +0`, then, while any task is due within a millisecond
+   of the clock, a `clock +N` to the latest such (N the difference; the driver moves to
+   an absolute time) and a `clock +0` again, sixteen rounds at most, after which the
+   driver goes on to the next step and so does delivery, the receipt counting the
+   bound; the expansion is computed from the runner's live task state at that point of
+   the script and replaces the step in the case, so both sides replay the same events.
+   The host's part of a settle, its wait on motion, scrolling and hatches, its seek to
+   a re-ask's due time (the oracle schedules no re-ask) and its advance to an
+   animation's end, has no image here, and the world line says so. A block is
+   delivered up to its first step the run cannot take, which is any step kind the
+   parser knows other than `tap`, `type`, `clock +N`, `clock data`, `clock settle` and
+   `expect`; the census prints that list rather than this document keeping it (today
+   `request`, `clock until`, `fail fetch`, `reload`, `back`, `close`, `size`, `pick`,
+   `resize`, `fresh`, `drag`, a `type … key`, a tap form that is not a press, a
+   mid-test `prefer`): the prefix runs, its `expect`s are judged, and the verdict names
+   the step the block stopped at and why. A block is `SKIP` only when its first step
+   cannot be taken. How many blocks this delivers is measured in §5, not claimed; the
+   blocks that
    stop at `clock until` and `request` are the next steps worth delivering, with
    `request` the larger and the harder (it writes through the app's server).
 2. **The explore script**, as today, each tap followed by a `land`.
@@ -527,8 +568,10 @@ A receipt whose digests no longer match the tree is stale on its face.
 
 `bun exact.mjs verify` (and `verify ios`, `verify macos`) runs the app's tests under the
 driver (`scripts/agent-test.mjs`). It reads the `tests --json` output, which carries the
-properties as it carries the tests, and after each `tap`, `type` and `clock` step of
-each test reads `state` and matches every `always` line the same way. A false line is
+properties as it carries the tests, and reads `state` and matches every `always` line
+the same way after boot and after every step that can change the state: `tap`, `type`,
+`clock`, `reload`, and the test clock's advances that follow each step (D4.1); the
+claim covers every configuration the test observed, the first included. A false line is
 printed in D4's form with `on <host>` and the step, and fails the run as a failed
 `expect` does: the author wrote the line for the app's world, and the device run is the
 one stage-1 surface that reaches a failed fetch, a late answer, a reload and the real
@@ -549,11 +592,18 @@ receipt; today none of what an app author reads mentions `contract verify`.
 The direction, not a specification. The twelve theorems are four shapes, and two of them
 are `decide` today: `rotate_only_turns` is `runAction_untouched` with
 `Stmt.noAssigns`, and `advance_keeps_user_state` is `Reachable.advance_untouched`
-(`Invariant.lean`). A kept `only writes` or `after clock` line is therefore a fixed
-Lean template, the first `--prove` output with no hand (both rules assume the slot is
-not a `queue` mutation's, so a frame line that names one is checked in stage 1 and
-unproved by them), once `Stmt.noAssigns` looks through action calls (it answers `false` at every `.call`; a write set over the call
-graph, with cycles as "may write", is 150 to 250 lines of Lean). Then `always` lines
+(`Invariant.lean`). A kept `only writes` or `after clock` line is the first `--prove`
+candidate, with the gap between check and template stated: the check says no other
+root slot changed, a `queue` mutation's included; `Reachable.advance_untouched` and
+`Reachable.slotIn` require `isQueue p x = false` and so show a non-queue slot
+untouched and nothing of a queue slot, and `runAction_untouched` has no queue
+exclusion but speaks of one action's body, not of the `then` an input's pair lands.
+A line is proved only when every other root slot is shown untouched; an app with a
+queue slot gets `unproved` for that slot's sake whether or not the line names it, and
+the input pair's frame needs a lemma over the pair before any is proved. That lemma
+and `Stmt.noAssigns` looking through action calls (it answers `false` at every
+`.call`; a write set over the call graph, with cycles as "may write", is 150 to 250
+lines of Lean) are stage 2's first Lean work. Then `always` lines
 over states by the `slotIn` recipe (`Reachable.slotIn`, a `SlotOrigin` case,
 `BodyKeeps.of_wp`, `simp` with the `EvalR` rules and the number facts), with three
 verdicts and never a Lean error: proved; false in the semantics, with D4's
@@ -595,9 +645,11 @@ labelled unmodelled, are the search that tells D12 which failures are worth mode
   runner. The deferred list's take stands: `contract` blocks as executable assertions
   stay off the doing-list.
 - Properties that are types (`enum<…>` for a closed vocabulary, which the Muse
-  brainstorm argues would make Type Tour's proof the checker's). It is a type-system
-  change with its own RFC; D6 may print the vocabulary it saw, which is evidence for
-  that RFC.
+  brainstorm argues would make Type Tour's proof the checker's). `enum<…>` exists for
+  parameters and attributes (`docs/contract-grammar.md`; `Ty::Enum` lowers to the
+  plan's string enum, `contract/lower/src/lib.rs`); whether a root state may carry it
+  is a type-system question with its own RFC, and D6 may print the vocabulary it saw,
+  which is evidence for that RFC.
 - An SMT solver or `native_decide` in a proof.
 - Making any of this a blocking check. `verify` is the author's command and the async
   lane's; it is advice.
@@ -618,8 +670,10 @@ labelled unmodelled, are the search that tells D12 which failures are worth mode
    from its live task state, blocks delivered to their first undeliverable step, the
    refusal classes with the non-finite split at the runner's sites (`Value::typed`
    against `conforms`; the VM's `Arity` apart from the action's), the coverage counts;
-   `--runner-only` and the no-Lean path, with `contract verify`'s `lake` check moved
-   after the runner's half.
+   the test clock's advances after each delivered step; the capture of the boot's host
+   facts, so an app whose boot calls a host operation outside the oracle diverges at
+   that call and not at boot (§5); `--runner-only` and the no-Lean path, with
+   `contract verify`'s `lake` check moved after the runner's half.
 3. **The blocks and the matcher** (D1, D2): grammar in `contract_syntax` (`always`,
    `after`, `never refuses`; the `hold` and `frame` forms, `stays` included), refused
    beside a component; `contract tests --json` carries them; the matcher over
@@ -633,8 +687,8 @@ labelled unmodelled, are the search that tells D12 which failures are worth mode
    of shrunk findings and a sample.
 5. **The receipt and the suggestions** (D6, D7), and the demand run over the ten apps
    recorded in §5.
-6. **The device runner** (D8): `agent-test.mjs` matches `always` lines after each
-   step; `bun exact.mjs verify` runs `contract verify` after; the card, the recipe and
+6. **The device runner** (D8): `agent-test.mjs` matches `always` lines after boot and
+   after each state-changing step; `bun exact.mjs verify` runs `contract verify` after; the card, the recipe and
    the diary checkpoints.
 7. `--js` (D4), last.
 
@@ -654,8 +708,42 @@ Excord for the timing in §5. If the session runs short, items 6 and 7 are cut f
 then 5's suggestions; the trace, the delivery, the census, the blocks and the walk are
 the slice.
 
-**Stage 2:** D9, the cheap tier first. **Stages 3 and 4:** D10–D12, each a direction
-until it has an implementer and a date.
+**From the fourth round, for the implementer**, one line each, beside the decisions
+above:
+
+- The data oracle's seed is the case name (`oracle.rs`, `for_case`) and
+  `stored_variants` changes the name: hold the seed fixed across a script's store
+  variants, or "false only from a filled store" conflates two changed inputs.
+- Generate an enum-valued string from its members: the oracle draws unrestricted
+  strings where `conforms` enforces membership.
+- The shrinker removes single events; keep an input and its `land` together, and
+  drop the `land` when the input did not deliver, as the driver does.
+- The cone walk runs on the expanded root and the merged file's `fn`s as
+  `gates::check` does, respects binders (`Arrow`, `Match`, `Let`), resolves a resource
+  through a `Member` base and a bare ident, takes the status names from `scope.rs`'s
+  list, classifies `pending`/`failed`/`failure` by the argument's target, and runs on
+  the `tests --json` path too, so a device never checks a line `contract verify`
+  refuses; corpus cases: a resource reached through a derive chain, `performanceNow()`
+  through an `fn`.
+- Class T is split by value at every `SlotType` site, slot initializers included
+  (`router.rs`, `init_slot`); the VM's `Trap::Arity` stays apart from the action's
+  `RunnerError::Arity`.
+- `land` is a new `Event` constructor and label in `Observe.lean` and a new arm in
+  both of `script.rs`'s printers; the label is byte-identical on both sides.
+- A timer due exactly at the clock stands after a `land` and fires at the next
+  dispatch, so that step is counted, not checked, for `after`; the receipt's
+  multi-commit count shows it, and the format's note says so.
+- §5's Lean timing predates the twin, which runs on every step; re-measure before
+  `--confirm`'s default is final.
+- §5's blanks (multi-commit and per-`after` counts, suggestions kept, the four proof
+  apps' receipts, twin and walk timing) are filled in the stage-1 change, and the lane
+  logs it cites land with it.
+- Charlie's line beside the deferred list's entry is a placeholder until it is in his
+  words; items 1, 2, 4 and 5 land first so nothing waits on it.
+
+**Stage 2:** D9, the cheap tier first, deferred by the D6 measurement (§5) until a
+kept line is one a reader cannot settle from the code. **Stages 3 and 4:** D10–D12,
+each a direction until it has an implementer and a date.
 
 ## 5. Measured
 
@@ -663,27 +751,32 @@ Stage 1's lanes measured these on this Mac (an Apple Silicon machine, Lean's
 observation cache warm, Cargo's startup included); the lanes' reports under
 `target/review-1151/` hold the raw logs.
 
-**Delivery** (lane A1b, with `land`, inputs followed by `land` and the settle
-expansion), over the 228 blocks of the ten apps' test files, the nested Harmony app's
-included:
+**Delivery** (lane D, under r5's rule: `land`, inputs followed by `land`, the test
+clock's advances after each delivered step, the settle expansion, a settle bound that
+does not stop a block), over the 232 blocks of the ten apps' test files, the nested
+Harmony app's included:
 
 | App | Whole | Partial | Skipped | Partial blocks stop at | Skipped blocks stop at |
 |---|---:|---:|---:|---|---|
 | Agents | 0 | 0 | 3 | | `size` 3 |
 | Caltrain | 3 | 0 | 0 | | |
-| Design Tool | 11 | 39 | 45 | `request` 33; `type … key` 5; `reload` 1 | `request` 39; `fail fetch` 3; `size` 3 |
-| Excord | 0 | 85 | 3 | `clock until` 83; settle bound 2 | `fail fetch` 2; `size` 1 |
+| Design Tool | 11 | 41 | 47 | `request` 35; `type … key` 5; `reload` 1 | `request` 44; `fail fetch` 3 |
+| Excord | 0 | 85 | 3 | `clock until` 85 | `fail fetch` 2; `size` 1 |
 | Harmony | 0 | 0 | 6 | | `fresh` 6 |
 | Messages | 0 | 2 | 0 | a tap that is not a press 2 | |
-| Metronome | 9 | 0 | 0 | | |
+| Metronome | 5 | 0 | 4 | | `midi` 4 |
 | Reflow | 3 | 0 | 0 | | |
 | Shelf | 9 | 3 | 2 | `reload` 2; `back` 1 | a tap that is not a press 1; `fail fetch` 1 |
 | Variable Type | 2 | 0 | 3 | | `drag` 2; `type … key` 1 |
-| all | 37 | 129 | 62 | | |
+| all | 33 | 131 | 68 | | |
 
-Before stage 1 about a dozen blocks ran at all. The 85 Excord prefixes all agree with
-the semantics; the next steps worth delivering are `request` (72 blocks) and `clock
-until` (83), then `size` (7), which is a launch fact the harness could take.
+Before stage 1 about a dozen blocks ran at all. Against lane A1b's count under r4's
+rule (37, 129, 62): the two Excord blocks the settle bound stopped now run to their
+`clock until`; Metronome's four MIDI blocks are skipped, since their first step is a
+`prefer-midi` the census now classifies as undeliverable rather than consuming; the
+Design Tool's `size` skips became `request` stops once a leading `size` counted as a
+launch fact. The next steps worth delivering are `request` (79 blocks) and `clock
+until` (85).
 
 **What delivery exposed.** Two divergences that no run reached before: Shelf's Back
 test, at its one-millisecond task, has the semantics emit `setContentIndex` and
@@ -696,9 +789,13 @@ divergences on eight apps that call host operations outside the oracle
 origin/main `8233879705` all eight diverge at boot; after stage 1's capture of the
 boot's host facts they diverge at the first such call.
 
-**Wall-clock** (lane A1, before the twin ran beside `advance`; median of three warm
-runs, `cargo run -q`): Type Tour 1.3 s runner-only, 1.5 s with Lean; Excord 1.6 s
-runner-only, 3.1 s with Lean. The twin's cost and the walks' are lane A2's numbers.
+**Wall-clock** (lane D, the twin beside `advance`; `contract verify`, median of three
+warm runs, `DIFFTEST_CACHE=1`): with the default twenty walks, Type Tour 2.6 s
+runner-only and 3.3 s with Lean, Excord 44 s and 88 s; with `--walks 0`, Type Tour
+1.5 s and 2.0 s, Excord 23 s and 47 s. The walks cost Excord 21 s on the runner and
+40 s with Lean; Lean's share of a default Excord run is 43 s. The device runner's cost
+on the web host was not measured: lane D's sandbox refused the profile lock, and the
+number is owed.
 
 **The trace.** The projection proof (open question 2) did not close in a page; the
 twin runs beside the original on every step and `trace disagrees` has never printed
@@ -706,9 +803,51 @@ on the corpus. Commit kinds the trace leaves out: a transport's or MIDI port's a
 a re-ask, a wake's delivery and expiry, a drop deadline, a transport-end action, and
 the advance tail's presence, polls, live times and text-axis frames.
 
-Still to fill by lanes B, A2 and C: steps with more than one commit and per `after`
-line checked against counted only; the suggestions per app and who kept them; the
-receipts of the four proof apps; the device-runner cost.
+**Steps and `after` lines** (lane D, empty and seeded stores included). Over the ten
+apps' default runs, 13,224 observed steps, 785 with more than one commit. The ten
+apps have no authored `after` line, so `after` checked and counted only are both
+zero and open question 1's trigger cannot fire on them; on the four proof apps every
+`after` step was checked (Photo Editor 94, Update Lab 324, Video Player 168; none
+counted only). Under the question's stated rule, proofs come before per-commit
+observation.
+
+**The proof apps.** All twelve theorems, restated as blocks (Type Tour one, Update Lab
+five, Photo Editor three, Video Player three), held on every observed step. Of the
+fourteen verifications eight exited clean and six reported runner/Lean
+disagreements (Agents, the Design Tool, Excord, Harmony, Photo Editor, Shelf), none
+falsifying an authored line; the Design Tool's revert walk, shrunk from 55 to 29
+events, is in `QUEUE.md`, and Photo Editor's are host operations outside the oracle.
+
+**Suggestions, and the D6 measurement.** The search printed 394 property blocks over
+thirteen apps (Excord 107, the Design Tool 99, Messages 45, Shelf 36, Photo Editor
+23, Agents 19, Caltrain 16, Reflow 15, Video Player 11, Type Tour 9, Update Lab 8,
+Metronome 5, Variable Type 1; lane D's report has them verbatim). Charlie had no
+strong view on which to keep and asked the panel to decide, so on 2026-10-28 four
+judges, one per family and blind to each other, read each app as its author and
+kept or dropped every block (`llp/reviews/d6-2026-10-28-1151.{astra,fable,grok,muse}.md`).
+They kept 30, 12, 133 and 82. Twenty-one blocks had three or more votes, over ten
+apps, and those are now in the apps' test files: fifteen frames (`only writes`,
+`writes none`, two of them `after clock`), five closed sets (`screen`, `material`,
+`ageGate`, `draftStatus`, `filter`, `subject`, `printSize`) and one `whole`. The rest
+were what a finite sample shows or what the type says. No judge found a mistake a
+diary records that a kept block would have caught: the nearest (a dead `failure`
+branch, a read mark sent behind the lock, a timer counted from the wrong moment)
+need a mutation's status, a condition or the clock, which D1 refuses. The Fable
+judge found at least eleven suggested blocks that are false in the app and only
+unreached by the search (a `lock` that also clears `thread`, a `canvasView` with a
+third value); none had three votes, and `QUEUE.md` asks for a static pass over an
+action's writes and literal writes before a frame or a set is suggested.
+
+**Stage 2, decided.** Three of the four judges said the search earns its keep and
+the cheap proof tier should wait; one said build it now, since 74 of its 82 keeps
+are frames the templates already prove. The decision, taken for Charlie at his
+request: stage 2 is deferred. Every kept line is settled by reading one action's
+body, so a Lean verdict adds little to the check that runs on every `verify`; the
+templates return `unproved` for every frame on an app with a queue slot (six of
+the ten); and the input pair needs its lemma first. Stage 2 opens when a kept line
+is one a reader cannot settle from the code (a joint or conditional invariant, or
+arithmetic over `old`), which this corpus does not yet hold. The precision pass
+above and the coverage the §5 census names (`request`, `clock until`) come first.
 
 ## Open questions
 
@@ -736,15 +875,15 @@ receipts of the four proof apps; the device-runner cost.
   landed. D1's blocks are the authored-test grammar's, compile to nothing an app runs,
   and keep executable assertions out of a component's source; this document reads
   them as outside that take, as `clock until`, `fail fetch` and `request` were, and
-  that reading is written beside the entry in the change that adds the grammar,
-  marked as pending Charlie's confirmation, since the list wants a take or a waiver in
-  his words. If he reads it otherwise, stage 1's items 1, 2, 4 and 5 stand without the
-  blocks and the suggestions print as text an author cannot yet keep.
+  that reading is written beside the entry, with the waiver Charlie gave on
+  2026-10-28 ("approve waiver yes"), since the list wants a take or a waiver in his
+  words.
 - **Apparatus.** Stage 1 adds no check. It adds work to `verify`, a traced observation,
   a script event, and a recipe file; Charlie's instruction of 2026-10-27 is the
   approval `rules/RULES.md` "Agents" asks for this document and that work. Stages 2 to
   4 add nothing until they have an implementer.
 - **No refine loop.** This document was reviewed blind by the panel in the three
-  rounds `rules/DEFERRED.md` "Process" allows, and r4 is the last revision; what the
-  third round left is applied here and in the implementer's punch list, not in a
-  fourth round. It lands when Charlie says so, not when a reviewer does.
+  rounds `rules/DEFERRED.md` "Process" allows and, at Charlie's request on
+  2026-10-28, in a fourth; r5 takes what that round left and is the last revision.
+  What a reviewer still wants is the implementer's list in §4, not a fifth round. It
+  lands when Charlie says so, not when a reviewer does.

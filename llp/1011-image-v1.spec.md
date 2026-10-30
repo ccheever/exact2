@@ -130,8 +130,8 @@ which is the declared deviation. One source string works on every host, so a
 data module never tells hosts apart to choose one.
 
 **`load` and `error` (2026-10-06, #121).** An `image` hears HTML `<img>`'s
-two events on the web, macOS and iOS (Linux sends neither yet), each once
-per source: `load=` when the picture is ready, with no payload (`iframe`'s `load` is the same event; the compiler admits `load` on
+two events on every host, each once per source (Linux, Android and Windows
+from 2026-10-28): `load=` when the picture is ready, with no payload (`iframe`'s `load` is the same event; the compiler admits `load` on
 those two tags and on a native module), and `error=` when the source does not
 load, with the error's `message`, as a media element's `error` carries one.
 The message is the host's reason where it has one (§4) and a fixed text where
@@ -354,7 +354,22 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   process, never a raster worker, and share the transport's idle
   connections; up to 64 downloads wait or run, and a source asked for past
   that is asked again at the next poll, as one past the raster pipeline's
-  header bound is. The body spools to a file in a directory of the process's
+  header bound is. A picture that fills the screen (on screen, at least 90%
+  of its width and half its height: a viewer's full-size original) goes
+  ahead of the ordinary downloads waiting, behind any such picture already
+  waiting, and has 120 s for its whole load from its ask (a 12 MB original at
+  3 Mbit/s takes 32 s); a thread takes at most two of them in a row while an
+  ordinary one waits. A picture on screen whose download failed in a way
+  asking again may mend (the network, a lookup, a lost or refused
+  connection, a timeout, a TLS handshake, the spool, a 5xx, 408 or 429, an
+  empty body; not a cancel, another 4xx, a bad URL, too many redirects or
+  one to nowhere, or a body over the cap) is asked again after 1, 2,
+  4, 8, 16 and 30 s, six times a showing, never sooner than a 429's or 503's
+  `Retry-After`, and not again in a showing for one further off than 5
+  minutes, or unreadable (taken as an hour); the wait is kept by URL, so a
+  picture mounted anew meanwhile asks nothing either. Its retries start from
+  nothing once it leaves the screen and shows again (2026-10-28). Apple
+  keeps the same rules (below, "Retries"). The body spools to a file in a directory of the process's
   own under `exact/images/` in the user's cache (`XDG_CACHE_HOME` or
   `~/.cache`; `%LOCALAPPDATA%` on Windows), locked for the process's life as
   Apple's `RasterSpool` is, so the first spool of a launch removes the
@@ -368,9 +383,21 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   for the process, whatever their cache headers say, as a browser keeps the
   images a page has loaded, so a list scrolled back fetches nothing while
   they are there; nothing is kept across launches, and a body this host
-  cannot decode is not kept. Linux sends no image events (LLP 1011.001): a
-  failed download, or a body this host cannot decode, is a line on stderr
-  (`exact: image <url>: HTTP 404`). Linux and Windows decode PNG and SVG
+  cannot decode is not kept. Linux, Android and Windows send `load`, once a
+  source assignment, when its first picture is accepted for drawing (one
+  from the cache too), after that pass's sizes, and not again for a re-decode
+  or an unchanged source shown again (one changed and changed back between
+  two of the presenter's image syncs, the commits of one turn, counts as
+  unchanged); the handler runs with nothing the clock owes run before it,
+  on the node and source checked. They send `error` by Apple's rule
+  (below, "Retries"): once a source assignment, when its failure is final,
+  with the reason (`HTTP 404`, the transport's error, `not an image this
+  host decodes`, the core's refusal, Apple's names), never after its `load`,
+  and nothing is asked for that assignment after it. The reason, and the
+  line on stderr (`exact: image <url>: HTTP 404`), quote a link without its
+  query or fragment (a CDN's signature), on every native host; an SVG's
+  parser diagnostics, which quote the file, are counted on stderr, not quoted
+  (a bundled file's are the compiler's to name, LLP 1011.001 D5). Linux and Windows decode PNG and SVG
   bodies; a JPEG, GIF or WebP body fails there as a bundled one does, and
   Android's platform decoder reads all three (`image/jpeg.rs`).
 - **Events:** the loader sends a node that hears it the source's `load`
@@ -385,6 +412,37 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   1,000 ms, loading all the while, before it is the `error` `decode failed`
   (`RasterLoader.declineDelays`): a page's `<img>` errs for its file, never
   for a busy machine.
+- **Retries (2026-10-28)**, the Linux, Android and Windows host's rules (§4's
+  remote fetch above), one rule across the native hosts:
+  - A download that failed in a way asking again may mend is asked again
+    while its picture is on screen (`mayShow`), after 1, 2, 4, 8, 16 and
+    30 s, six times a showing (`RasterRetry`). The classes are the Linux
+    host's. It is never asked sooner than a 429's or 503's `Retry-After`
+    (seconds or an HTTP-date; unreadable, an hour), which is kept by URL,
+    so a view mounted anew meanwhile asks nothing either. A wait further
+    off than 5 minutes ends that showing's retries.
+  - Leaving the screen starts the count over; showing again runs a whole
+    ladder.
+  - A picture that fills the screen (on screen, at least 90% of the
+    window's width and half its height) downloads first (the task's high
+    priority, a hint the per-host scheduling honours without starving the
+    others), and its whole load has 120 s from its ask instead of 30 s. One
+    under way when its view grows to fill the screen, or scrolls on to,
+    moves to the longer bound too (Linux moves one still waiting for a
+    thread; one a thread has taken keeps its bound, and its retry asks as
+    urgent). Each response and read keeps 15 s.
+  - **The `error` waits for the retries.** A failure that may still be asked
+    again on screen sends no `error`: it goes out once that showing's
+    retries are spent, or its server's wait passes 5 minutes. A failure
+    asking again cannot mend sends it at once, as before. After an `error`
+    the source assignment is done: no retry, so never a `load` after it.
+  - **Off screen, the `error` waits until it has shown.** A picture that
+    fails while off screen is not asked again, and its `error` waits until
+    it has shown and spent a showing's retries. A browser fires an
+    off-screen `<img>`'s `error` at once. Here, though, a picture off screen
+    never had its retries, and an `error` sent then would be wrong for one
+    the next showing loads; it would also end the assignment. Linux, Android
+    and Windows send `error` by the same rule.
 - **Symbols** use a noninteractive, decorative `UIImageView` / `NSImageView`
   inside the existing kernel-owned image leaf. Native symbol configuration uses
   computed font size and the nearest of nine CSS weights; native tint updates
