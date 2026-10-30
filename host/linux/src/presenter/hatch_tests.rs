@@ -78,7 +78,7 @@ const PAINT: &str = r##"component App
   state shown = true
   state n = 0
   action widen
-    wide = not wide
+    wide = ! wide
   action hide
     shown = false
   action bump

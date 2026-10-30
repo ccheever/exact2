@@ -110,11 +110,11 @@ style Error
 
 component RealWorld
   derive current = top(nav)
-  derive slug = ((current.name == "article" or current.name == "edit") ? current.params.slug: "")
-  derive listName = ((current.name == "profile" or current.name == "favorites") ? current.params.username: "")
+  derive slug = ((current.name == "article" || current.name == "edit") ? current.params.slug: "")
+  derive listName = ((current.name == "profile" || current.name == "favorites") ? current.params.username: "")
   // `/` is the global feed, `/?feed=following` the signed-in reader's: read
   // from the URL, as React reads `?feed=following`.
-  derive following = (current.name == "home" and searchParam(current, "feed") == "following")
+  derive following = (current.name == "home" && searchParam(current, "feed") == "following")
   derive listKind = (current.name == "home" ? (following ? (me.signedIn ? "feed": ""): "global"): current.name == "tag" ? "tag": current.name == "profile" ? "author": current.name == "favorites" ? "favorited": "")
   state page = 1
   state loginNext = false
@@ -133,7 +133,7 @@ component RealWorld
   mutation tagEdit as shape Tags
   derive editorTags = match tagEdit { case some(t) => (t.session == editorSession ? t.items: post.tags), case none => post.tags }
   resource me = currentUser() as shape User else empty(avatar="/assets/default-avatar.svg")
-  resource tags = popularTags(current.name == "home" or current.name == "tag") as shape string[]
+  resource tags = popularTags(current.name == "home" || current.name == "tag") as shape string[]
   resource feed = articles(listKind, current.params.tag, listName, page, me.username) as shape Feed
   resource post = article(slug, me.username) as shape Article else empty(author=empty(found=true, image="/assets/default-avatar.svg"))
   resource thread = comments(slug, me.username) as shape Comment[]
@@ -199,15 +199,15 @@ component RealWorld
   action signedIn
     match auth
       case some(a)
-        if a.ok and (current.name == "login" or current.name == "register" or current.name == "settings")
+        if a.ok && (current.name == "login" || current.name == "register" || current.name == "settings")
           nav = open(nav, "/")
       case none
   action changed
     match change
       case some(c)
-        if c.ok and c.kind == "publish"
+        if c.ok && c.kind == "publish"
           nav = open(nav, path("article", c.slug))
-        if c.ok and c.kind == "delete"
+        if c.ok && c.kind == "delete"
           nav = open(nav, "/")
       case none
   // Your Feed is the signed-in reader's; a signed-out visit goes to sign in,
@@ -217,12 +217,12 @@ component RealWorld
   // feed, never Your Feed again. A tick looks, since `me` answering runs
   // nothing.
   action settle
-    let nextNav = loginNext and current.name == "home" and not me.signedIn ? push(nav, "/login") : nav
+    let nextNav = loginNext && current.name == "home" && ! me.signedIn ? push(nav, "/login") : nav
     if loginNext
       loginNext = false
-      if current.name == "home" and not me.signedIn
+      if current.name == "home" && ! me.signedIn
         nav = nextNav
-    if following and not pending(me) and not me.signedIn
+    if following && ! pending(me) && ! me.signedIn
       if depth(nextNav) > 1
         nav = replace(nextNav, "/login")
       else
@@ -250,7 +250,7 @@ component RealWorld
       // `/` and `/tag/:tag` are one page, outside the stack's rows, as React
       // keeps one <Home> mounted: going to a tag changes the feed and the
       // tabs, not the page.
-      if current.name == "home" or current.name == "tag"
+      if current.name == "home" || current.name == "tag"
         column navigationKey=`${current.id}` position="absolute" inset=0 overflow-y="auto" testId=`page-${current.name}`
           // @ref LLP 1123 D2 — native routes own their content.
           Header(me=me, current=current, go=go)
@@ -275,7 +275,7 @@ component RealWorld
       // entry's page, and the drafts its components hold (a child's state
       // lives as long as its instance, LLP 1017 P4c), survives Back.
       for e in stack(nav) key = e.id
-        if e.name != "home" and e.name != "tag"
+        if e.name != "home" && e.name != "tag"
           column navigationKey=`${e.id}` position="absolute" inset=0 overflow-y="auto" testId=`page-${e.name}`
             Header(me=me, current=e, go=go)
             if e.name == "login"
@@ -287,7 +287,7 @@ component RealWorld
             if e.name == "settings"
               head title="Settings — Conduit"
               SettingsPage(me=me, auth=auth, save=saveSettings, logout=logout)
-            if e.name == "editor" or e.name == "edit"
+            if e.name == "editor" || e.name == "edit"
               head title="Editor — Conduit"
               EditorPage(
                 post=post,
@@ -317,7 +317,7 @@ component RealWorld
                 postComment=postComment,
                 uncomment=uncomment
               )
-            if e.name == "profile" or e.name == "favorites"
+            if e.name == "profile" || e.name == "favorites"
               head title=`${e.params.username} — Conduit`
               ProfilePage(
                 me=me,
@@ -373,7 +373,7 @@ component Header
               text "⚙ Settings"
             link href=`/profile/${encodeURIComponent(me.username)}` press=go(`/profile/${encodeURIComponent(me.username)}`)
               class=NavLink
-              color=((current.name == "profile" and current.params.username == me.username) ? "-exact-label": "-exact-secondary-label")
+              color=((current.name == "profile" && current.params.username == me.username) ? "-exact-label": "-exact-secondary-label")
               testId="nav-profile"
               row align-items="center" gap=5
                 image me.avatar width=26 height=26 border-radius=50 object-fit="cover" aria-label=""
@@ -432,7 +432,7 @@ component Heart
     n: number
     favorite: action
   view
-    button press=favorite(slug, not on, n)
+    button press=favorite(slug, ! on, n)
       class=BtnSm
       margin-left="auto"
       border-color="AccentColor"
@@ -451,7 +451,7 @@ component Previews
     favorite: action
   view
     column
-      if loading and not feed.ready
+      if loading && ! feed.ready
         text "Loading articles..." padding-top=24
           padding-bottom=24
           border-top-style="solid"
@@ -572,8 +572,8 @@ component HomePage
               padding-right=16
               border-bottom-style="solid"
               border-bottom-width=2
-              border-color=((tag == "" and not following) ? "AccentColor": "transparent")
-              color=((tag == "" and not following) ? "AccentColor": "-exact-secondary-label")
+              border-color=((tag == "" && ! following) ? "AccentColor": "transparent")
+              color=((tag == "" && ! following) ? "AccentColor": "-exact-secondary-label")
               background-color="-exact-background"
               testId="tab-global"
               text "Global Feed"
@@ -606,7 +606,7 @@ component HomePage
             border-color="-exact-separator"
             testId="sidebar"
             text "Popular Tags" margin-bottom=3
-            if tagsLoading and tags.length == 0
+            if tagsLoading && tags.length == 0
               text "Loading tags..." color="-exact-secondary-label"
             row flex-wrap="wrap"
               for t in tags key = t
@@ -662,7 +662,7 @@ component AuthPage
           text(signup ? "Have an account?": "Need an account?")
         match auth
           case some(a)
-            if not a.ok
+            if ! a.ok
               Errors(errors=a.errors)
           case none
             box
@@ -740,7 +740,7 @@ component SettingsPage
           text-align="center"
         match auth
           case some(a)
-            if not a.ok
+            if ! a.ok
               Errors(errors=a.errors)
           case none
             box
@@ -833,7 +833,7 @@ component EditorPage
       column width="100%" max-width=950
         match change
           case some(c)
-            if not c.ok and c.kind == "publish"
+            if ! c.ok && c.kind == "publish"
               Errors(errors=c.errors)
           case none
             box
@@ -898,7 +898,7 @@ component ArticleActions
   view
     row align-items="center" flex-wrap="wrap" gap=8
       Meta(author=post.author, date=post.date, go=go)
-      if me.signedIn and me.username == post.author.username
+      if me.signedIn && me.username == post.author.username
         button press=go(`/editor/${encodeURIComponent(post.slug)}`)
           class=BtnSm
           border-color="-exact-separator"
@@ -917,14 +917,14 @@ component ArticleActions
         // Signed out, both go to sign up: links, so they work before the
         // runtime loads.
         if me.signedIn
-          button press=follow(post.author.username, not following)
+          button press=follow(post.author.username, ! following)
             class=BtnSm
             border-color="-exact-separator"
             color=(following ? "-exact-label": "-exact-secondary-label")
             background-color=(following ? "-exact-fill": "-exact-background")
             testId="follow"
             text(following ? `+ Unfollow ${post.author.username}`: `+ Follow ${post.author.username}`)
-          button press=favorite(post.slug, not post.favorited, post.favoritesCount)
+          button press=favorite(post.slug, ! post.favorited, post.favoritesCount)
             class=BtnSm
             border-color="AccentColor"
             color=(post.favorited ? "AccentColorText": "AccentColor")
@@ -964,7 +964,7 @@ component ArticlePage
     uncomment: action
   view
     column
-      if not post.found
+      if ! post.found
         column class=Container padding-top=24
           text(loading ? "Loading article...": "This article doesn't exist.") testId="article-loading"
       else
@@ -1146,7 +1146,7 @@ component ProfilePage
             text-align="center"
             margin-bottom=8
           if person.found
-            if me.signedIn and me.username == person.username
+            if me.signedIn && me.username == person.username
               button press=go("/settings")
                 class=BtnSm
                 align-self="flex-end"
@@ -1157,7 +1157,7 @@ component ProfilePage
                 text "⚙ Edit Profile Settings"
             else
               if me.signedIn
-                button press=follow(person.username, not following)
+                button press=follow(person.username, ! following)
                   class=BtnSm
                   align-self="flex-end"
                   border-color="-exact-separator"

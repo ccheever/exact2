@@ -7,7 +7,7 @@ component HeadlessLive
   action tick
     ticks = ticks + 1
   action flip
-    on = not on
+    on = ! on
   task ticker mount
     every(1000, tick)
   view

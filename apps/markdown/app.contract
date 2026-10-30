@@ -107,12 +107,12 @@ component Markdown
   mutation queuedEven as shape SpeechUtteranceInfo then keptEven
   mutation queuedOdd as shape SpeechUtteranceInfo then keptOdd
   mutation held as shape SpeechSynthesisState
-  derive readable = doc.blocks.filter(b => b.kind == "paragraph" or b.kind == "heading" or b.kind == "item" or b.kind == "quote")
+  derive readable = doc.blocks.filter(b => b.kind == "paragraph" || b.kind == "heading" || b.kind == "item" || b.kind == "quote")
   derive lastId = match spokenIds.at(-1) { case some(i) => i, case none => "" }
   derive speakingAt = match voice.utterance { case some(u) => spokenIds.indexOf(u), case none => -1 }
   derive speakingBlock = speakingAt < 0 ? "" : match spokenBlocks.at(speakingAt) { case some(b) => b, case none => "" }
-  derive finished = listening and last.state == "ended" and spokenIds.length == readable.length
-  derive failure = match last.error { case some(e) => e == "canceled" or e == "interrupted" ? "" : e, case none => "" }
+  derive finished = listening && last.state == "ended" && spokenIds.length == readable.length
+  derive failure = match last.error { case some(e) => e == "canceled" || e == "interrupted" ? "" : e, case none => "" }
 
   // What the host delivers, what the field shows, and what a followed link
   // does are one action, because they are one thing.
@@ -145,7 +145,7 @@ component Markdown
   action keptEven
     match queuedEven
       case some(u)
-        if listening and evenRun == run
+        if listening && evenRun == run
           let next = spokenIds.length + 1
           keep(u.id)
           queueOdd(next)
@@ -154,7 +154,7 @@ component Markdown
   action keptOdd
     match queuedOdd
       case some(u)
-        if listening and oddRun == run
+        if listening && oddRun == run
           let next = spokenIds.length + 1
           keep(u.id)
           queueEven(next)
@@ -172,7 +172,7 @@ component Markdown
     listening = false
     send held = cancelSpeech()
   action toggleFolder
-    folder = not folder
+    folder = ! folder
   action aim(path: string)
     aimed = path
   action forgetRecent
@@ -191,8 +191,8 @@ component Markdown
   // `currentColor` to follow, so the artwork is chosen rather than tinted
   // (LLP 1034 D3).
   derive iconSet = (scheme == "system" ? media.prefersColorScheme : scheme) == "dark" ? "-dark" : ""
-  derive hasFolder = not doc.siblings.isEmpty()
-  derive hasRecent = not recent.isEmpty()
+  derive hasFolder = ! doc.siblings.isEmpty()
+  derive hasRecent = ! recent.isEmpty()
   // The window is titled by the file it shows, as a Mac document window
   // is, so two documents in two windows or tabs tell apart (LLP 1069.010
   // D6); the welcome document's name is the app's.
@@ -249,7 +249,7 @@ component Markdown
         // a row holding a 4,000-point document is 4,000 points tall and the
         // window merely clips it. The web has the same rule and the same fix.
         row flex=1 min-height=0 width="100%"
-          if folder and (hasFolder or hasRecent)
+          if folder && (hasFolder || hasRecent)
             scroll width=230 height="100%" overflow-x="hidden" overscroll-behavior="contain" box-sizing="border-box" background-color="chrome" border-right-style="solid" border-right-width=1 border-color="edge" testId="folder"
               column width="100%" box-sizing="border-box" padding=8 gap=1
                 // What the person opened before, kept across launches:

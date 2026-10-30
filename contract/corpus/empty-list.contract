@@ -21,7 +21,7 @@ component EmptyList
   action pick(id: string)
     picked = coins.filter(c => c.id == id).map(c => c.id)
   action toggle
-    showAll = not showAll
+    showAll = ! showAll
   action tick
     send changed = tick()
   view

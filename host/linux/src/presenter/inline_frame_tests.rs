@@ -283,7 +283,7 @@ fn inline_frame_places_each_column_without_clipping_overflow() {
 #[test]
 fn inline_frame_stays_with_the_acknowledged_picture_and_its_fonts() {
     let source = app("text id=\"run\" testId=\"run\" font-size=(large ? 48 : 16)\n  text (large ? \"Hello\" : \"Hi\")", "line-height=\"60px\"", "", &["run"])
-        .replace("component App\n", "component App\n  state large = false\n  action change\n    large = not large\n")
+        .replace("component App\n", "component App\n  state large = false\n  action change\n    large = ! large\n")
         .replace("    column\n", "    column\n      button testId=\"change\" press=change\n        text \"change\"\n");
     let mut p = boot(&source);
     let first = p.display_frame().unwrap();

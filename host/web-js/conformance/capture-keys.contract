@@ -13,9 +13,9 @@ component CaptureKeys
       stopPropagation()
     if k == "z"
       preventDefault()
-    if k == "Enter" and e.shiftKey
+    if k == "Enter" && e.shiftKey
       preventDefault()
-    if k == "Enter" and not e.shiftKey
+    if k == "Enter" && ! e.shiftKey
       stopPropagation()
   action innerCapture(k: string)
     heard = `${heard}T${k};`

@@ -192,9 +192,9 @@ fn destroying_animated_virtual_rows_releases_bookkeeping_before_remount_or_reset
   state shown = true
   state big = false
   action hide
-    shown = not shown
+    shown = ! shown
   action toggle
-    big = not big
+    big = ! big
   view
     column
       button press=hide testId="hide"

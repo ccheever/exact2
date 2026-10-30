@@ -64,10 +64,10 @@ component Rivals
     playing = true
 
   action togglePause
-    paused = not paused
+    paused = ! paused
 
   action restart
-    again = not again
+    again = ! again
     paused = false
 
   action menu
@@ -111,7 +111,7 @@ component Rivals
               text "1 Rifle" padding=4 border-radius=6 font-size=12 background-color=(hud.slot == 1 ? "#e8ad61" : "#2d333b") color=(hud.slot == 1 ? "#10141b" : "#c9d1d9")
               text "2 Rockets" padding=4 border-radius=6 font-size=12 background-color=(hud.slot == 2 ? "#e8ad61" : "#2d333b") color=(hud.slot == 2 ? "#10141b" : "#c9d1d9")
               text "3 Knife" padding=4 border-radius=6 font-size=12 background-color=(hud.slot == 3 ? "#e8ad61" : "#2d333b") color=(hud.slot == 3 ? "#10141b" : "#c9d1d9")
-          if not hud.alive and not hud.over
+          if ! hud.alive && ! hud.over
             column testId="dead" position="absolute" top="34%" left=0 right=0 align-items="center" gap=6 pointer-events="none"
               text `Eliminated by ${hud.killed_by}` font-size=26 font-weight=800 color="#ff8a8a"
               text `Respawning in ${hud.respawn}` color="#c9d1d9"

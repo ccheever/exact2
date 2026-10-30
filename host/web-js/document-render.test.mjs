@@ -700,7 +700,7 @@ test('Rust-rendered spinners follow parent display after adoption without a posi
 component ProgressDocument
   state grid = false
   action toggle
-    grid = not grid
+    grid = ! grid
   view
     column
       button "Toggle" testId="toggle" press=toggle width=100 height=24

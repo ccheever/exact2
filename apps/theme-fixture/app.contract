@@ -6,7 +6,7 @@
 component App
   state swapped = false
   action swap
-    swapped = not swapped
+    swapped = ! swapped
   action dim
     setMode("dark-style", "dim")
   action black

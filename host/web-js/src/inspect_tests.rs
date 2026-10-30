@@ -47,7 +47,7 @@ fn a_site_in_rows_and_arms_names_the_regions_above_it() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
         dir.join("app.contract"),
-        "component App\n  state on = true\n  view\n    column gap=4\n      for x in [1, 2] key=x\n        if on\n          text `${x}` color=\"#336699\" font-weight=600\n        if not on\n          text \"off\"\n      text \"after\" padding=2\n",
+        "component App\n  state on = true\n  view\n    column gap=4\n      for x in [1, 2] key=x\n        if on\n          text `${x}` color=\"#336699\" font-weight=600\n        if ! on\n          text \"off\"\n      text \"after\" padding=2\n",
     )
     .unwrap();
     check(&dir);

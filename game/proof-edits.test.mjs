@@ -152,12 +152,12 @@ impl Game for EditLifetime {
   state alternate = false
   state again = false
   action restart
-    again = not again
+    again = ! again
   action queue
     postMessage("set player Tuning.speed 8", "world")
   action replace(message: string)
     if message == "replace"
-      alternate = not alternate
+      alternate = ! alternate
   action cycle
     postMessage("set player Tuning.speed 8", "world")
     postMessage("replace", "world")

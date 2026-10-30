@@ -72,11 +72,11 @@ component App
     refresh feed
   view
     column padding=16 gap=8
-      if failed(feed) or feed.error != ""
+      if failed(feed) || feed.error != ""
         text "Couldn’t load the feed." testId="feed-error"
         button press=reload testId="retry"
           text "Try Again"
-      else if not feed.loaded
+      else if ! feed.loaded
         progress aria-label="Loading" testId="feed-loading"
       else if feed.titles.length == 0
         text "Nothing here yet." color="-exact-secondary-label" testId="feed-empty"
@@ -708,7 +708,7 @@ shape Item
 component App
   state item = Item(id="1", title="Milk", done=false)
   action toggle
-    item = Item(item, done=not item.done)
+    item = Item(item, done=! item.done)
   view
     button press=toggle testId="item"
       text `${item.title}: ${item.done ? "done" : "to buy"}`
@@ -1279,7 +1279,7 @@ geometry.
 component App
   state on = false
   action flip
-    on = not on
+    on = ! on
   view
     button press=flip aria-label=(on ? "Pause" : "Play") testId="play"
       svg width=24 height=24 viewBox="0 0 24 24"

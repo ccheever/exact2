@@ -77,7 +77,7 @@ component Fixture
   action shoot
     send shot = takePhoto(track=track)
   action toggle
-    shown = not shown
+    shown = ! shown
   action languages(s: string, d: string)
     src = s
     dst = d

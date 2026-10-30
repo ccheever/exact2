@@ -39,7 +39,7 @@ component MyCalendars
                 column flex=1 min-width=0 gap=1
                   text event.title font-size=13 color=ink white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
                   text event.time font-size=11 color=muted font-variant-numeric="tabular-nums"
-            if agenda.events.length == 0 and agenda.error != "unread"
+            if agenda.events.length == 0 && agenda.error != "unread"
               text (agenda.error == "" ? "Nothing in your calendars" : "Your calendars can’t be read now.") testId="my-calendars-empty" font-size=12 color=muted
 
 // An item's guests and the editor's calendar actions: Invite…, which opens
@@ -106,11 +106,11 @@ component MyActivity
                 text w.time font-size=11 color=muted font-variant-numeric="tabular-nums"
               if w.distance != ""
                 text w.distance flex-shrink=0 font-size=12 color=muted font-variant-numeric="tabular-nums"
-        if month.error == "" and month.days.length == 0
+        if month.error == "" && month.days.length == 0
           text "No activity to show. If you turned off Calendar’s access, you can allow it in Settings › Health › Data Access & Devices." testId="my-activity-none" font-size=12 color=muted
-        if month.error == "" and month.days.length > 0 and month.from != ""
+        if month.error == "" && month.days.length > 0 && month.from != ""
           text `Calendar can see your activity from ${month.from}.` testId="my-activity-since" font-size=12 color=muted
-        if month.error == "" and month.days.length > 0 and not month.complete
+        if month.error == "" && month.days.length > 0 && ! month.complete
           text "Showing the activity Health shares with Calendar." testId="my-activity-shared" font-size=12 color=muted
-        if month.error != "" and month.error != "unread"
+        if month.error != "" && month.error != "unread"
           text "Your activity can’t be read now." testId="my-activity-error" font-size=12 color=muted

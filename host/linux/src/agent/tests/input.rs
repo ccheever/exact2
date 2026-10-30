@@ -449,7 +449,7 @@ fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
   action pressed(what: string)
     log = `${log}${what};`
   action arm
-    armed = not armed
+    armed = ! armed
   action edit(v: string)
     text = v
   action open

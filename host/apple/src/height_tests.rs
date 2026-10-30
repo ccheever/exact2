@@ -117,7 +117,7 @@ fn numeric_height_transitions_need_neither_keyword_opt_in_nor_border_box() {
             r#"component App
   state open = false
   action toggle
-    open = not open
+    open = ! open
   view
     column width=400 height=500
       button testId="toggle" press=toggle
@@ -665,9 +665,9 @@ fn accordions(measurer: Box<dyn exact_kernel::TextMeasurer>) -> Host<NoData> {
   state contentHeight = 120
   state counter = 0
   action toggleFirst
-    first = not first
+    first = ! first
   action toggleSecond
-    second = not second
+    second = ! second
   action optOut
     allowed = false
   action hide
@@ -697,9 +697,9 @@ fn accordions(measurer: Box<dyn exact_kernel::TextMeasurer>) -> Host<NoData> {
         text `${counter}`
       column testId="sections" display=(hidden ? "none" : "flex")
         if mounted
-          column testId="first-body" height=(first ? "auto" : "0px") box-sizing="border-box" overflow="hidden" inert=(not first) transition="height 1000ms linear"
+          column testId="first-body" height=(first ? "auto" : "0px") box-sizing="border-box" overflow="hidden" inert=(! first) transition="height 1000ms linear"
             box height=contentHeight
-          column testId="second-body" height=(second ? "auto" : "0px") box-sizing="border-box" overflow="hidden" inert=(not second) transition="height 1000ms linear"
+          column testId="second-body" height=(second ? "auto" : "0px") box-sizing="border-box" overflow="hidden" inert=(! second) transition="height 1000ms linear"
             box height=80
         box testId="following" height=20
 "#;
@@ -969,7 +969,7 @@ fn a_measuring_trait_change_retargets_a_running_auto_height_transition() {
     let source = r#"component App
   state open = false
   action toggle
-    open = not open
+    open = ! open
   view
     column width="100%" height="100%" interpolate-size="allow-keywords"
       button testId="toggle" press=toggle

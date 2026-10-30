@@ -401,7 +401,7 @@ mod tests {
             // Only one branch makes it twice: bound inside that branch.
             ("x > 0 ? f(x) + f(x) : 0", vec![("f@1", false)]),
             // Neither path always makes it: left alone.
-            ("x > 0 and f(x) > 0 ? 1 : f(x)", vec![]),
+            ("x > 0 && f(x) > 0 ? 1 : f(x)", vec![]),
             ("f(f(x)) + f(f(x))", vec![("f@1", true)]),
             ("max(f(x), f(x))", vec![("f@1", true)]),
         ] {

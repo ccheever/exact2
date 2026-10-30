@@ -54,7 +54,7 @@ fn fixed(hex: &str) -> ColorValue {
 #[test]
 fn patterned_border_styles_lower_for_sides_shorthand_and_binding() {
     let mut r = boot(
-        "component A\n  state dashed = false\n  action flip\n    dashed = not dashed\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"sides\" border-width=\"1px 2px 4px 3px\" border-style=\"dotted dashed solid none\"\n      box testId=\"long\" border-bottom-width=1 border-bottom-style=\"dotted\"\n      box testId=\"short\" border-bottom=\"4px dashed red\"\n      box testId=\"bound\" border-width=2 border-style=(dashed ? \"dashed\" : \"dotted\")\n",
+        "component A\n  state dashed = false\n  action flip\n    dashed = ! dashed\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"sides\" border-width=\"1px 2px 4px 3px\" border-style=\"dotted dashed solid none\"\n      box testId=\"long\" border-bottom-width=1 border-bottom-style=\"dotted\"\n      box testId=\"short\" border-bottom=\"4px dashed red\"\n      box testId=\"bound\" border-width=2 border-style=(dashed ? \"dashed\" : \"dotted\")\n",
     );
     let sides = style_of(&r, "sides");
     assert_eq!(
@@ -165,7 +165,7 @@ fn a_later_declaration_wins_whether_shorthand_or_longhand_and_a_class_yields() {
 #[test]
 fn a_computed_border_color_splits_each_arm_and_currentcolor_follows_color() {
     let r = boot(
-        "component A\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"box\" color=(on ? \"#00ff00\" : \"#ff0000\") border-color=(on ? \"#000000 currentcolor\" : \"currentcolor\") border-bottom-color=\"currentcolor\"\n",
+        "component A\n  state on = false\n  action flip\n    on = ! on\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"box\" color=(on ? \"#00ff00\" : \"#ff0000\") border-color=(on ? \"#000000 currentcolor\" : \"currentcolor\") border-bottom-color=\"currentcolor\"\n",
     );
     let red = fixed("#ff0000");
     let green = fixed("#00ff00");
@@ -505,7 +505,7 @@ fn a_bound_zero_is_a_length_and_a_bound_list_is_refused_by_every_row() {
 #[test]
 fn an_empty_font_family_declares_nothing() {
     let mut r = boot(
-        "component A\n  state plain = false\n  action flip\n    plain = not plain\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      text \"a\" testId=\"empty\" font-family=\"\"\n      text \"b\" testId=\"choice\" font-family=(plain ? \"\" : \"Georgia\")\n      Fam(f=\"\")\n\ncomponent Fam\n  props\n    f: string\n  view\n    text \"c\" testId=\"prop\" font-family=f\n",
+        "component A\n  state plain = false\n  action flip\n    plain = ! plain\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      text \"a\" testId=\"empty\" font-family=\"\"\n      text \"b\" testId=\"choice\" font-family=(plain ? \"\" : \"Georgia\")\n      Fam(f=\"\")\n\ncomponent Fam\n  props\n    f: string\n  view\n    text \"c\" testId=\"prop\" font-family=f\n",
     );
     assert!(!style_of(&r, "empty").mask.has(StyleId::FontFamily));
     assert!(!style_of(&r, "prop").mask.has(StyleId::FontFamily));
@@ -557,7 +557,7 @@ fn a_longhand_list_is_not_split_and_keywords_ignore_case() {
 #[test]
 fn a_choice_of_corner_lists_sets_each_corner() {
     let r = boot(
-        "component A\n  state xs = [1, 2, 3]\n  view\n    column\n      for x, i in xs key=x\n        Cell(first=(i == 0), last=(i == xs.length - 1), n=x)\n\ncomponent Cell\n  props\n    first: bool\n    last: bool\n    n: number\n  state z = 0\n  action noop\n    z = 1\n  view\n    scroll testId=`b${n}` swipeContent=`row-${n}` swipeTrailing=`del-${n}` overflow-x=\"scroll\" overflow-y=\"hidden\" height=50 display=\"flex\" flex-direction=\"row\" border-radius=(first and last ? \"12px\" : first ? \"12px 12px 2px 2px\" : last ? \"2px 2px 12px 12px\" : \"2px\")\n      row id=`row-${n}` width=\"100%\" flex-shrink=0\n        text \"x\"\n      button id=`del-${n}` width=40 press=noop\n        text \"d\"\n",
+        "component A\n  state xs = [1, 2, 3]\n  view\n    column\n      for x, i in xs key=x\n        Cell(first=(i == 0), last=(i == xs.length - 1), n=x)\n\ncomponent Cell\n  props\n    first: bool\n    last: bool\n    n: number\n  state z = 0\n  action noop\n    z = 1\n  view\n    scroll testId=`b${n}` swipeContent=`row-${n}` swipeTrailing=`del-${n}` overflow-x=\"scroll\" overflow-y=\"hidden\" height=50 display=\"flex\" flex-direction=\"row\" border-radius=(first && last ? \"12px\" : first ? \"12px 12px 2px 2px\" : last ? \"2px 2px 12px 12px\" : \"2px\")\n      row id=`row-${n}` width=\"100%\" flex-shrink=0\n        text \"x\"\n      button id=`del-${n}` width=40 press=noop\n        text \"d\"\n",
     );
     let corners = |id: &str| {
         let s = style_of(&r, id);

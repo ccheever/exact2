@@ -40,7 +40,7 @@ component App
   action grow
     rowHeight = 64
   action hide
-    shown = not shown
+    shown = ! shown
   view
     column
       button press=hide testId="hide"

@@ -18,7 +18,7 @@ test('bound springs animate paint and type on ordinary and pressed rows', async 
   state curve = "all -exact-spring() 0s 0.1s, font-weight 2s linear 0s"
   state typeCurve = "font-weight 2s linear, font-weight -exact-spring(100, 20, 1) 0s 125ms"
   action change
-    changed = not changed
+    changed = ! changed
   view
     column
       button "Change" press=change testId="change"

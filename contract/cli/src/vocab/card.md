@@ -64,7 +64,8 @@ scroll | scrollTop navigationScroll keyboardDismissMode | scroll scrollend
 dialog | closedby | cancel close
 
 ## rules
-- An event hands its action its payload after the captured arguments: text for a field, `select` or date; a bool for a checkbox or switch; a number for a range; nothing for `press` and `submit`. `change=set(i.id)` calls `set(id, payload)`.
+- Logic: `&&`, `||`, `!`; operands are booleans.
+- Event payload follows captures: text for fields, `select` or dates; bool for checkbox/switch; number for range; none for `press`/`submit`. `change=set(i.id)` calls `set(id, payload)`.
 
 ```contract
 component App

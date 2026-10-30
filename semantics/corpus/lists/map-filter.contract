@@ -10,7 +10,7 @@ component App
   resource items = items() as shape Item[]
   derive ids = items.map(i => i.id)
   derive ons = items.filter(i => i.on)
-  derive offs = items.filter(i => not i.on)
+  derive offs = items.filter(i => ! i.on)
   derive split = ons.length + offs.length == items.length
   derive doubled = items.map(i => i.n * 2)
   derive indexed = items.map((i, k) => `${k}:${i.id}`).join(",")

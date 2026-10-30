@@ -114,7 +114,7 @@ fn a_filled_role_is_a_filled_silhouette_and_its_outline_is_stroked() {
         r##"component App
   state saved = false
   action toggle
-    saved = not saved
+    saved = ! saved
   view
     button press=toggle testId="toggle" aria-label="Save"
       image (saved ? "symbol:bookmark-fill" : "symbol:bookmark") -exact-tint-color="#ff8d28"
@@ -603,7 +603,7 @@ fn inert_is_a_boolean_dom_attribute_without_removing_its_subtree() {
         r#"component App
   state blocked = true
   action flip
-    blocked = not blocked
+    blocked = ! blocked
   view
     column
       button press=flip testId="flip"
@@ -818,7 +818,7 @@ fn editor_hints_and_picker_policy_reach_the_dom_and_update() {
         r#"component App
   state enabled = false
   action toggle
-    enabled = not enabled
+    enabled = ! enabled
   view
     column
       button "Toggle" press=toggle testId="toggle"
@@ -1293,7 +1293,7 @@ fn a_node_takes_no_position_the_plan_did_not_give_it() {
         r##"component App
   state pinned = false
   action pin
-    pinned = not pinned
+    pinned = ! pinned
   view
     column
       button "Pin" press=pin testId="pin"
@@ -1454,7 +1454,7 @@ fn flex_and_grid_item_z_index_does_not_lift_plain_followers() {
             r#"component App
   state flex = true
   action toggle
-    flex = not flex
+    flex = ! flex
   view
     box display=(flex ? "{display}" : "block") testId="parent"
       box z-index=0 testId="first" press=toggle

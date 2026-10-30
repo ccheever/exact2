@@ -17,7 +17,7 @@ component ThemeChoice
     pick: action
     hover: action
   view
-    button press=pick(value) hover=hover(`theme-${value}`) testId=`theme-${value}` aria-label=`Use ${title} theme` aria-selected=(selected == value) position="relative" width="calc(25% - 7.5px)" flex-shrink=0 min-width=0 height=104 box-sizing="border-box" padding=6 border-width=(selected == value ? 2 : 1) border-style="solid" border-color=(selected == value ? accent : border) border-radius=12 background-color=(selected == value or hot ? field : surface) display="flex" flex-direction="column" align-items="center" gap=6 transition="background-color 100ms ease-out"
+    button press=pick(value) hover=hover(`theme-${value}`) testId=`theme-${value}` aria-label=`Use ${title} theme` aria-selected=(selected == value) position="relative" width="calc(25% - 7.5px)" flex-shrink=0 min-width=0 height=104 box-sizing="border-box" padding=6 border-width=(selected == value ? 2 : 1) border-style="solid" border-color=(selected == value ? accent : border) border-radius=12 background-color=(selected == value || hot ? field : surface) display="flex" flex-direction="column" align-items="center" gap=6 transition="background-color 100ms ease-out"
       if value == 0
         box testId="theme-classic-preview" width="100%" height=64 flex-shrink=0 border-radius=8 background-color="#ffffff" overflow="hidden" aria-hidden=true
           svg width="100%" height=64 viewBox="0 0 160 96" preserveAspectRatio="xMidYMid slice"
@@ -65,7 +65,7 @@ component Themes
   view
     if themeOpen
       box testId="theme-backdrop" press=closeThemes position="absolute" left=0 right=0 top=0 bottom=0 z-index=30 background-color="#ffffff00"
-      column id="theme-popup" testId="theme-popup" role="dialog" aria-label="Theme" press=keepThemes position="absolute" top=(compact ? "auto" : "calc(env(safe-area-inset-top) + 46px)") bottom=(compact ? "env(safe-area-inset-bottom)" : "auto") right=(compact ? 0 : 384) width=(compact ? viewport.width : 520) max-width=(compact ? "100%" : "calc(100% - 400px)") box-sizing="border-box" padding=14 gap=10 border-radius=12 border-width=1 border-style="solid" border-color=themeBorder background-color=themeSurface box-shadow="0 12px 40px rgba(28, 31, 44, 0.18)" z-index=31 opacity=(themeClosing ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : "opacity 120ms ease-in") animation=(viewport.prefersReducedMotion or themeClosing ? "none" : "dropIn 140ms ease-out")
+      column id="theme-popup" testId="theme-popup" role="dialog" aria-label="Theme" press=keepThemes position="absolute" top=(compact ? "auto" : "calc(env(safe-area-inset-top) + 46px)") bottom=(compact ? "env(safe-area-inset-bottom)" : "auto") right=(compact ? 0 : 384) width=(compact ? viewport.width : 520) max-width=(compact ? "100%" : "calc(100% - 400px)") box-sizing="border-box" padding=14 gap=10 border-radius=12 border-width=1 border-style="solid" border-color=themeBorder background-color=themeSurface box-shadow="0 12px 40px rgba(28, 31, 44, 0.18)" z-index=31 opacity=(themeClosing ? 0 : 1) transition=(viewport.prefersReducedMotion ? "none" : "opacity 120ms ease-in") animation=(viewport.prefersReducedMotion || themeClosing ? "none" : "dropIn 140ms ease-out")
         row height=24 align-items="center"
           text "Theme" flex=1 font-size=14 font-weight=600 color=themeInk
           button press=closeThemes testId="close-themes" aria-label="Close themes" aria-keyshortcuts="Escape" class=ToolButton width=24 height=24 border-radius=6 background-color="#ffffff00"

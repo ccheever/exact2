@@ -189,7 +189,7 @@ component A
       text rows.map(k => k.id).join("") testId="c"
       text rows.map(() => ".").join("") testId="d"
       text rows.map(r => r.n).map((n, i) => rows.map(s => (s.n + n + i).toString()).join("+")).join(" ") testId="e"
-      text rows.map(r => r.n).filter((n, i) => i > 0 and n > 1).join(",") testId="f"
+      text rows.map(r => r.n).filter((n, i) => i > 0 && n > 1).join(",") testId="f"
       text rows.filter(r => r.n > 99).map(r => r.id).join(",") testId="g"
 "#;
     struct Rows;

@@ -193,7 +193,7 @@ fn every_symbol_role_draws_its_path() {
 /// stands the other way when it settles.
 #[test]
 fn a_transitioning_d_morphs_the_path() {
-    const MORPH: &str = "component App\n  state open = false\n  action flip\n    open = not open\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n      svg testId=\"icon\" width=96 height=96 viewBox=\"0 0 24 24\"\n        path fill=\"none\" stroke=\"#000000\" stroke-width=2 d=(open ? \"M6 15 L12 9 L18 15\" : \"M6 9 L12 15 L18 9\") transition=\"d 400ms linear\"\n";
+    const MORPH: &str = "component App\n  state open = false\n  action flip\n    open = ! open\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n      svg testId=\"icon\" width=96 height=96 viewBox=\"0 0 24 24\"\n        path fill=\"none\" stroke=\"#000000\" stroke-width=2 d=(open ? \"M6 15 L12 9 L18 15\" : \"M6 9 L12 15 L18 9\") transition=\"d 400ms linear\"\n";
     let plan = contract::compile(MORPH).unwrap_or_else(|e| panic!("{e}"));
     let (mut p, error) = Presenter::boot_with(
         &plan.encode(),

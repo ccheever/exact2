@@ -121,11 +121,11 @@ component Llp
   action showAll
     section = -1
   action toggleOutline
-    showOutline = not showOutline
+    showOutline = ! showOutline
   action toggleIndex
-    showIndex = not showIndex
+    showIndex = ! showIndex
   action toggleNewest
-    newest = not newest
+    newest = ! newest
   action showOverlay(name: string)
     overlay = overlay == name ? "" : name
   action chooseScheme(name: string)
@@ -138,7 +138,7 @@ component Llp
   derive iconSet = (scheme == "system" ? media.prefersColorScheme : scheme) == "dark" ? "-dark" : ""
   derive searching = query != ""
   derive sectioned = doc.section >= 0
-  derive hasOutline = not doc.outline.isEmpty()
+  derive hasOutline = ! doc.outline.isEmpty()
   // The window says which project is open, not just which app this is
   // (LLP 1033 D7): the folder the corpus lives in, from `head` (LLP
   // 1069.010 D6).
@@ -205,7 +205,7 @@ component Llp
                 DocHeader(doc=doc, sectioned=sectioned, all=showAll)
                 for b in doc.blocks key=b.id
                   Blocks(block=b)
-          if showOutline and hasOutline
+          if showOutline && hasOutline
             scroll width=250 height="100%" overflow-x="hidden" overscroll-behavior="contain" box-sizing="border-box" background-color="chrome" border-left-style="solid" border-left-width=1 border-color="edge" testId="outline"
               column width="100%" box-sizing="border-box" padding=10 gap=1
                 button press=showAll aria-label="The whole document" testId="outline-all" width="100%" text-align="start"
@@ -277,7 +277,7 @@ component IndexLine
         text entry.overlay font-size=10 font-weight=700 color="accent"
       if entry.status != ""
         text entry.status font-size=10 color="faintInk"
-      if searching and entry.hits > 0
+      if searching && entry.hits > 0
         text `${entry.hits}` font-size=10 font-weight=700 color="accent"
 
 // There is no scrolling to an anchor in v1, so an outline row *shows* its

@@ -12,10 +12,10 @@ component Greybox
   action play
     playing = true
   action togglePause
-    paused = not paused
+    paused = ! paused
 
   action restart
-    again = not again
+    again = ! again
     paused = false
 
   view

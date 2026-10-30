@@ -24,10 +24,10 @@ component Paging
   state top = 0
   derive shown = cards.filter(c => c.n < hi)
   action more
-    if not loading
+    if ! loading
       loading = true
   action land
-    if loading and pages < 5
+    if loading && pages < 5
       hi = min(2000, hi + 30)
       loading = false
       pages = pages + 1

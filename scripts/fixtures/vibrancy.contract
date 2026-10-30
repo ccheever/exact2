@@ -10,9 +10,9 @@ component Vibrancy
   state dark = false
   state clip = false
   action clipping
-    clip = not clip
+    clip = ! clip
   action scheme
-    dark = not dark
+    dark = ! dark
     setScheme(dark ? "light" : "dark")
   view
     main testId="vibrancy" position="relative" width=390 height=520 background-color="light-dark(#ffffff, #121212)"

@@ -17,7 +17,7 @@ component Rem
   action medium
     setRootFontSize("medium")
   action flip
-    wide = not wide
+    wide = ! wide
   view
     column testId="page"
       text "unsized em" testId="unsized" font-size="1.25em" margin-left="-0.5em" padding-left="1em"

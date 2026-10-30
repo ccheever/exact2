@@ -41,15 +41,15 @@ component App
   view
     column padding=16 gap=12
       text "Lights" role="heading" aria-level=1
-      if network.available and (network.state == "prompt" or network.state == "unknown")
+      if network.available && (network.state == "prompt" || network.state == "unknown")
         text "Lights finds the WLED lights on your network. Your device asks once." testId="explain"
       if network.state == "denied"
         text "Local Network access is off. Turn it on in Settings, or add a light by its address." testId="denied"
         button press=openSettings testId="open-settings"
           text "Open Settings"
-      if not network.available
+      if ! network.available
         text "This device can't look for lights. Add one by its address." testId="unavailable"
-      if network.available and network.state != "denied" and lights.items.length == 0
+      if network.available && network.state != "denied" && lights.items.length == 0
         text "No lights found on this network." testId="none-found"
       for l in lights.items key=l.id
         row gap=12 align-items="center" testId=`light-${l.slug}`

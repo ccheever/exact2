@@ -10,7 +10,7 @@ component Clock
   action tick
     ticks = running ? ticks + 1 : ticks
   action toggle
-    running = not running
+    running = ! running
   action stamp
     at = performanceNow()
   task beat mount

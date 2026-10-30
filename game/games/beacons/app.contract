@@ -49,7 +49,7 @@ component Beacons
   // resumed one starts on a fresh grid.
   action togglePause
     let resuming = paused
-    paused = not resuming
+    paused = ! resuming
     if tilt
       if resuming
         send input = startSensorInput(surface="world", sensor="gravity", frequency=60, referenceFrame="screen")
@@ -58,16 +58,16 @@ component Beacons
 
   action restart
     let resuming = paused
-    again = not again
+    again = ! again
     paused = false
     setLight()
-    if resuming and tilt
+    if resuming && tilt
       send input = startSensorInput(surface="world", sensor="gravity", frequency=60, referenceFrame="screen")
 
   // The world's word for a beacon lit (logic/src/lib.rs), felt on the pad
   // in use. A failure (a pad with no motors) goes unread.
   action heard(text: string)
-    if padWord != "" and (text == "lit" or text == "all lit")
+    if padWord != "" && (text == "lit" || text == "all lit")
       send felt = playEffect(type="dual-rumble", duration=180, strongMagnitude=0.6, weakMagnitude=0.3)
     if text == "all lit"
       setLight(color="#e8ad61")
@@ -90,14 +90,14 @@ component Beacons
           text `Beacons ${hud.lit} / 3` aria-live="polite" testId="hud-lit" position="absolute" top=24 left=24 padding=12 background-color="#202731"
           button press=togglePause aria-label=(paused ? "Resume" : "Pause") testId="pause" position="absolute" top=24 right=24 padding=12 border-radius=8 background-color="#202731"
             text (paused ? "Resume" : "Pause") color="#ffffff"
-          if paused and motion.available
+          if paused && motion.available
             TiltPanel(tilt=tilt, state=motion.state, x=g.x - levelX, y=g.y - levelY, gx=g.x, gy=g.y, gz=g.z, angles=angles, setTilt=setTilt, setLevel=setLevel)
-          if hud.near != "" and padWord != ""
+          if hud.near != "" && padWord != ""
             row position="absolute" top=76 left=24 padding=12 gap=8 align-items="center" background-color="#202731"
               if padSymbol != ""
                 image ("symbol:sf/" + padSymbol) aria-hidden=true testId="near-symbol" width=20 height=20 object-fit="contain"
               text `Press ${padWord} to light this beacon` testId="near-prompt"
-          if hud.near != "" and padWord == ""
+          if hud.near != "" && padWord == ""
             text "Press E or Light to light this beacon" testId="near-prompt" position="absolute" top=76 left=24 padding=12 background-color="#202731"
           // The touch controls step aside while a pad plays.
           if pads.gamepads.length == 0
@@ -140,7 +140,7 @@ component TiltPanel
         input type="checkbox" switch checked=tilt change=setTilt testId="tilt" aria-label="Tilt to move" margin=0
       if state == "denied"
         text "Motion access is off for this site in Safari's settings." testId="tilt-denied" max-width="15rem" color="#ceddd8"
-      if tilt and state == "granted"
+      if tilt && state == "granted"
         // The level: a dot in a ring at the phone's tilt from the level, gliding
         // between the reading's polls (LLP 1133.013 D5).
         row align-items="center" gap=12

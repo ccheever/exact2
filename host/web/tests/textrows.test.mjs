@@ -16,7 +16,7 @@ beforeAll(async () => {
   writeFileSync(resolve(dir, 'app.contract'), `component App
   state on = false
   action flip
-    on = not on
+    on = ! on
   view
     column text-wrap="balance" font-family="Arial" font-size=16
       button press=flip testId="flip"

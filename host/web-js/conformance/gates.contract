@@ -27,7 +27,7 @@ component Gates
     if n % 3 == 2
       on = false
   action fly
-    flying = not flying
+    flying = ! flying
   action step
     framed = framed + 1
     if framed % 30 == 29

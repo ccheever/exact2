@@ -13,7 +13,7 @@ component Intersect
   action up
     offset = 0
   action toggle
-    shown = not shown
+    shown = ! shown
   view
     column gap=8 padding=10
       scroll id="port" testId="port" width=200 height=100 scrollTop=offset

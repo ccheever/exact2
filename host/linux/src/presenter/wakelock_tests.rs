@@ -16,9 +16,9 @@ const APP: &str = r#"component App
   state on = true
   state shown = true
   action flip
-    on = not on
+    on = ! on
   action hide
-    shown = not shown
+    shown = ! shown
   view
     column
       button press=flip testId="flip" height=30

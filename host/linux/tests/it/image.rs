@@ -113,7 +113,7 @@ fn raster_tint_preserves_alpha_background_and_border_in_both_painters() {
         r##"component App
   state dark = false
   action flip
-    dark = not dark
+    dark = ! dark
     setScheme(dark ? "light" : "dark")
   view
     column align-items="flex-start"

@@ -18,7 +18,7 @@ const SOURCE: &str = r#"component Player
     trailer = true
     episode = true
   action toggleTrailer
-    trailer = not trailer
+    trailer = ! trailer
   action showEpisode
     episode = true
   action skipBy(sign: number, d: MediaSessionActionDetails)

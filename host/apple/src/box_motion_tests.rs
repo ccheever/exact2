@@ -36,7 +36,7 @@ keyframes drop
 component A
   state on = false
   action go
-    on = not on
+    on = ! on
   view
     column
       button press=go testId="go"
@@ -196,7 +196,7 @@ keyframes glow
 component A
   state on = false
   action go
-    on = not on
+    on = ! on
   view
     column
       button press=go testId="go"
@@ -255,7 +255,7 @@ fn opacity_inside_a_glass_group_is_sampled() {
 component A
   state on = false
   action go
-    on = not on
+    on = ! on
   view
     column
       button press=go testId="go"
@@ -309,7 +309,7 @@ fn a_lowered_opacity_animation_under_a_group_is_switched_to_sampling() {
 component A
   state on = false
   action go
-    on = not on
+    on = ! on
   view
     column
       button press=go testId="go"
@@ -391,7 +391,7 @@ fn a_press_or_a_look_keeps_an_opacity_animation_sampled() {
 component A
   state on = false
   action go
-    on = not on
+    on = ! on
   view
     column
       button press=go testId="go"
@@ -476,7 +476,7 @@ fn linear_easings_lower_to_what_chrome_plays() {
         ),
     ];
     let mut app = String::from(
-        "keyframes slide\n  from translate=\"0px 0px\"\n  to translate=\"100px 0px\"\ncomponent A\n  state on = false\n  action go\n    on = not on\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n",
+        "keyframes slide\n  from translate=\"0px 0px\"\n  to translate=\"100px 0px\"\ncomponent A\n  state on = false\n  action go\n    on = ! on\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n",
     );
     for (i, (easing, _)) in cases.iter().enumerate() {
         app.push_str(&format!(
@@ -550,7 +550,7 @@ fn a_colours_linear_easing_lowers_to_what_chrome_plays() {
         ),
     ];
     let mut app = String::from(
-        "keyframes paint\n  from background-color=\"rgb(0, 0, 0)\"\n  to background-color=\"rgb(200, 0, 0)\"\ncomponent A\n  state on = false\n  action go\n    on = not on\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n",
+        "keyframes paint\n  from background-color=\"rgb(0, 0, 0)\"\n  to background-color=\"rgb(200, 0, 0)\"\ncomponent A\n  state on = false\n  action go\n    on = ! on\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n",
     );
     for (i, (easing, _)) in cases.iter().enumerate() {
         app.push_str(&format!(
@@ -774,7 +774,7 @@ fn lowered_matches_engine(colour: bool, seed: u64, boxes: usize) {
         app.push_str(&contract);
         cases.push((name, default, css, breaks));
     }
-    app.push_str("component A\n  state on = false\n  action go\n    on = not on\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n");
+    app.push_str("component A\n  state on = false\n  action go\n    on = ! on\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n");
     for (name, default, _, _) in &cases {
         app.push_str(&format!(
             "      box testId=\"{name}\" width=8 height=8 animation=(on ? \"{name} 1s {default} infinite\" : \"none\")\n"

@@ -453,7 +453,7 @@ component ThumbsBody
             for c in row.cells key=c.id
               box flex=1 min-width=0 aspect-ratio=1 border-radius=8 overflow="hidden" background-color="#E5E5EA"
                 image c.src width="100%" height="100%" object-fit="cover" animation=(freeze ? "none" : "fadeIn 200ms linear 1200ms both")
-        if not freeze
+        if ! freeze
           box position="absolute" top=0 left=0 width="100%" height="100%" animation="skeletonOut 1ms linear 1200ms both"
             box position="absolute" top=0 left=0 width="40%" height="100%" background-image="linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.65), rgba(255,255,255,0))" animation="shimmer 1000ms linear infinite"
 
@@ -543,7 +543,7 @@ component Runs
         if r.s == "code"
           text r.t font-family="Space Mono" font-size=14 font-weight=400 font-style="normal" color=color background-color="#F2F2F7"
         else
-          text r.t font-weight=(r.s == "bold" ? 700 : weight) font-style=(r.s == "italic" or italic ? "italic" : "normal") color=(r.s == "link" ? "#007AFF" : color)
+          text r.t font-weight=(r.s == "bold" ? 700 : weight) font-style=(r.s == "italic" || italic ? "italic" : "normal") color=(r.s == "link" ? "#007AFF" : color)
 
 // 9 — a dark card: the file and language, then numbered lines of coloured tokens, never wrapped
 // (`white-space: pre`, clipped at the card's padding).
@@ -680,7 +680,7 @@ component ThreadBody
     toggle: action
   derive epoch = floor(secs / 3)
   derive flip = mod(epoch + index, 2) == 1
-  derive open = live and k.at != epoch ? flip : k.expanded
+  derive open = live && k.at != epoch ? flip : k.expanded
   view
     column gap=0
       // The web's way: the box's height moves between three lines and `auto` (a transition

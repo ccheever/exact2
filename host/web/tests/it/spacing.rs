@@ -238,7 +238,7 @@ fn a_progress_restyles_when_only_its_parents_display_changes() {
         r#"component App
   state grid = false
   action toggle
-    grid = not grid
+    grid = ! grid
   view
     box display=(grid ? "grid" : "block") press=toggle testId="parent"
       progress testId="spinner"

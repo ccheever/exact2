@@ -37,8 +37,8 @@ const SOURCE = `component App
   state calm = true
   state shown = true
   action both
-    calm = not calm
-    shown = not shown
+    calm = ! calm
+    shown = ! shown
   view
     column
       button press=both testId="both"

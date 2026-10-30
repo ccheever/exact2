@@ -54,9 +54,9 @@ component PickerFrames
     keys: action
   view
     dialog id="react-picker" aria-label=(forDraft ? "Emoji" : "Add Reaction") close=closed key=keys tabindex=-1 testId="react-picker"
-      if picking and not popover
+      if picking && ! popover
         EmojiPicker(query=query, choices=choices, search=search, pick=pick)
-    if not touch
+    if ! touch
       column id="draft-picker" popover="auto" role="dialog" position-area="top span-left" aria-label="Emoji" toggle=toggled testId="draft-picker"
-        if picking and popover
+        if picking && popover
           EmojiPicker(query=query, choices=choices, search=search, pick=pick)

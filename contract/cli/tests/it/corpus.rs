@@ -1048,7 +1048,7 @@ fn native_swipe_bindings_keep_authored_ids_through_plan_roundtrip_and_updates() 
     let src = r#"component App
   state alternate = false
   action choose
-    alternate = not alternate
+    alternate = ! alternate
   view
     scroll swipeContent="row" swipeLeading=(alternate ? "second" : "first") swipeTrailing="delete" width=300 height=80
       row

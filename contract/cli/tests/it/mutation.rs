@@ -19,7 +19,7 @@ const WITH_CONTEXT: &str = r#"component App
   action tick(value: number)
     minute = value
   action toggle
-    display = not display
+    display = ! display
   action choose(value: string)
     car = value
   view
@@ -1203,7 +1203,7 @@ fn two_sends_to_one_mutation_on_one_path_are_refused() {
         "    if k == \"1\"\n      send edited = setImage(\"b\")\n    else\n      send edited = saveCard(\"a\")\n",
         "    match some(k)\n      case some(x)\n        send edited = setImage(x)\n      case none\n        send edited = saveCard(\"a\")\n",
         // A key handler's sequential, mutually exclusive tests.
-        "    if k == \"1\" and open\n      send edited = saveCard(\"a\")\n    if k == \"2\" or k == \"3\"\n      send edited = setImage(\"b\")\n    mode = \"c\"\n",
+        "    if k == \"1\" && open\n      send edited = saveCard(\"a\")\n    if k == \"2\" || k == \"3\"\n      send edited = setImage(\"b\")\n    mode = \"c\"\n",
         "    send edited = saveCard(\"a\")\n",
     ] {
         let plan = contract::compile(&app(body));

@@ -45,7 +45,7 @@ component Pairing
             text c.error color="-exact-system-red" font="-exact-footnote" testId="pair-error"
         case none
           text "" display="none"
-      if not clients.ok
+      if ! clients.ok
         text clients.error color="-exact-system-red" font="-exact-footnote" testId="clients-error"
       else if clients.clients.length == 0
         text "No client is paired." color="-exact-secondary-label" font="-exact-footnote" testId="no-clients"

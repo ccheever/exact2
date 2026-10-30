@@ -9,7 +9,7 @@ component Grid
   state flow = "row"
   state items = "center"
   action switchTemplate
-    alternate = not alternate
+    alternate = ! alternate
   action setGrid(nextColumns: string, nextPlacement: string)
     columns = nextColumns
     placement = nextPlacement

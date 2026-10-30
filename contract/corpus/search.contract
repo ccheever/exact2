@@ -19,7 +19,7 @@ component Search
       input value=typed change=edit testId="typed"
       text `${named.length} named` testId="named"
       for s in sessions key=s.code
-        row testId=`row-${s.code}` background-color=((typed != "" and s.code.startsWith(typed)) ? "#ffe08a" : "#ffffff")
+        row testId=`row-${s.code}` background-color=((typed != "" && s.code.startsWith(typed)) ? "#ffe08a" : "#ffffff")
           text s.code
           text (s.code.startsWith(typed) ? "*" : "") testId=`hit-${s.code}`
           text s.name

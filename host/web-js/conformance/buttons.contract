@@ -7,7 +7,7 @@ component Buttons
   state tall = false
   state shown = "block"
   action grow
-    tall = not tall
+    tall = ! tall
   action show(next: string)
     shown = next
   view

@@ -188,16 +188,16 @@ component Reflow
     elapsed = 0
     scrollTop = 0
   action appearance
-    let next = not dark
+    let next = ! dark
     dark = next
     setScheme(next ? "dark" : "light")
   action pause
-    running = not running
+    running = ! running
   // Advance by the time measured since the last step, so steps a
   // suspension skipped do not slow the scene
   action step
     let now = performanceNow()
-    if running and (scene == "balls" or scene == "ascii")
+    if running && (scene == "balls" || scene == "ascii")
       elapsed = elapsed + (now - stepped)
     stepped = now
   action dragDragon(dx: number, dy: number)

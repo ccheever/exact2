@@ -34,7 +34,7 @@ component App
                 text "Beta"
             box navigationSplit="placeholder" testId="empty"
               text "Choose an item"
-          if e.name == "item" or e.name == "deeper"
+          if e.name == "item" || e.name == "deeper"
             header
               button id="back" press=back testId=`back-${e.name}`
                 text "Back"

@@ -18,7 +18,7 @@ component ControlBars
   state draft = ""
   state opened = false
   state arrived = false
-  task fetching when opened and not arrived
+  task fetching when opened && ! arrived
     every(200, arrive)
   action pick(s: string)
     shape = s
@@ -55,7 +55,7 @@ component ControlBars
               text "Board" role="heading" aria-level=(shape == "large" ? 1 : 2)
             if shape == "caption"
               text "Signed in as Ada" testId="caption" padding="4px 16px"
-            if shape == "board" or shape == "large"
+            if shape == "board" || shape == "large"
               row role="tablist" aria-label="Filter" testId="filter" margin="8px 16px"
                 button role="tab" aria-selected=(filter == "all") press=show("all") testId="filter-all" flex=1
                   text "All"

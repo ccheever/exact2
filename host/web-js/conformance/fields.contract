@@ -23,13 +23,13 @@ component Fields
   state mode = "a"
   state few = false
   resource coins = coins(version) as shape Coin[]
-  derive shown = coins.filter(c => not few or c.up)
+  derive shown = coins.filter(c => ! few || c.up)
   action tick
     version = version + 1
   action flip
     mode = mode == "a" ? "b" : "a"
   action narrow
-    few = not few
+    few = ! few
   view
     column testId="root" gap=4 padding=8
       row gap=8

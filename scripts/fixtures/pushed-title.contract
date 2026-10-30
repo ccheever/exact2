@@ -82,9 +82,9 @@ component PushedTitle
     committedQuery = v
     searchChanges = searchChanges + 1
   action swapContent
-    swapped = not swapped
+    swapped = ! swapped
   action fail
-    failed = not failed
+    failed = ! failed
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" interactive-widget=(visualEditor ? "resizes-visual" : "resizes-content") width="100%" height=(pageOverflow ? "1600px" : "100%") display="flex" flex-direction="column"
       column flex=1 min-height=0 position="relative"
@@ -93,7 +93,7 @@ component PushedTitle
             for e in t.stack key=e.id
               column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" ? "modal" : "") testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
                 header testId=`header-${e.name}` display="flex" align-items="center" padding="8px 16px"
-                  text (e.name.slice(0, 1).toUpperCase() + e.name.slice(1)) role="heading" aria-level=(e.name == "inline" or e.name == "seek" ? 2 : 1)
+                  text (e.name.slice(0, 1).toUpperCase() + e.name.slice(1)) role="heading" aria-level=(e.name == "inline" || e.name == "seek" ? 2 : 1)
                   if e.name == "find"
                     input type="search" value=query input=search placeholder="Search" aria-label="Search" testId="find-search"
                   else if e.name == "seek"

@@ -843,7 +843,7 @@ const CONTACT_CLOSE_APP: &str = r#"component App
       button press=ask testId="open"
         text "Open"
       text `Count ${count} ups ${ups}` testId="status"
-      if not replaced
+      if ! replaced
         dialog id="confirm" role="alertdialog" aria-label="Proceed?"
           text "Choose one."
           button press=act pointerup=reopen key=shut destructive=true commandfor="confirm" command="close" testId="same"

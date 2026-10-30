@@ -21,7 +21,7 @@ fn complex_svg_attributes_stay_omitted_across_state_and_segment_changes() {
 component App
   state finite = false
   action toggle
-    finite = not finite
+    finite = ! finite
   view
     column
       button "Toggle" testId="toggle" press=toggle
@@ -524,7 +524,7 @@ style Empty
 component App
   state clear = true
   action toggle
-    clear = not clear
+    clear = ! clear
   view
     main navigationKey="/" color="#123456"
       button "Toggle" testId="toggle" press=toggle

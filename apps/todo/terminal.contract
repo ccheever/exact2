@@ -16,8 +16,8 @@ component Todos
   state draft = ""
   state next = 4
   state filter = "all"
-  derive shown = filter == "all" ? todos : todos.filter(t => filter == "done" ? t.done : not t.done)
-  derive left = todos.filter(t => not t.done).length
+  derive shown = filter == "all" ? todos : todos.filter(t => filter == "done" ? t.done : ! t.done)
+  derive left = todos.filter(t => ! t.done).length
 
   action write(value)
     draft = value
@@ -26,9 +26,9 @@ component Todos
     next = next + 1
     draft = ""
   action toggle(id: string)
-    todos = todos.map(t => t.id == id ? Todo(t, done=not t.done) : t)
+    todos = todos.map(t => t.id == id ? Todo(t, done=! t.done) : t)
   action clearDone
-    todos = todos.filter(t => not t.done)
+    todos = todos.filter(t => ! t.done)
   action showAll
     filter = "all"
   action showActive

@@ -219,7 +219,7 @@ fn a_board_hears_its_menu_point_its_wheel_its_drop_and_its_unload() {
   action openMenu(e: PointerEvent)
     menu = `${e.offsetX},${e.offsetY},${e.buttons}`
   action wheeled(e: WheelEvent)
-    if e.ctrlKey or e.metaKey
+    if e.ctrlKey || e.metaKey
       zoom = zoom - e.deltaY / 100
       preventDefault()
   action took(e: DragEvent)

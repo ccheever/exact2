@@ -47,7 +47,7 @@ component Shell
   view
     column testId="root"
       row
-        button "Back" testId="back" press=goBack disabled=(not back)
+        button "Back" testId="back" press=goBack disabled=(! back)
         button "Go" testId="go" press=go
         button "Reload" testId="reload" press=again
         button "Stop" testId="stop" press=halt

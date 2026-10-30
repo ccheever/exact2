@@ -1962,7 +1962,7 @@ component Beats
     pos = transport.anchorBeat * beat + performanceNow() - transport.anchorAt
     synced = anchor
   action toggle
-    playing = not playing
+    playing = ! playing
   view
     column padding=16 gap=8
       button press=toggle testId="toggle"
@@ -1970,7 +1970,7 @@ component Beats
       row gap=8 role="img" aria-label="Beat"
         for i in range(4) key=i
           view flex=1 padding=4 border-radius=4 position="relative" background-color="-exact-tertiary-fill"
-            if transport.state == "playing" and synced == anchor
+            if transport.state == "playing" && synced == anchor
               for g in [synced] key=g
                 view position="absolute" inset=0 border-radius=4 background-color="AccentColor" opacity=0
                   animation=lit(beat, 4 * beat, i * beat, pos) animation-timeline=Transport
@@ -2635,11 +2635,11 @@ component Hints
     meta = e.metaKey
   action forget()
     meta = false
-  task release when meta and not page.hasFocus
+  task release when meta && ! page.hasFocus
     after(1, forget)
   view
     column key=held keyup=held testId="list"
-      if meta and page.hasFocus
+      if meta && page.hasFocus
         text "⌘ held"
 ```
 

@@ -63,8 +63,8 @@ component DesignTool
   derive client = hello.client != "" ? hello.client : `design-tool:${person}`
   // Its scope (T6): below write, what writes is greyed, said once why; the
   // tool sends none of it (wire.ts), and the server refuses it too.
-  derive canWrite = hello.scope == "" or hello.scope == "write"
-  derive canPropose = canWrite or hello.scope == "propose"
+  derive canWrite = hello.scope == "" || hello.scope == "write"
+  derive canPropose = canWrite || hello.scope == "propose"
   // Pairing with another machine's server (remote mode): its address and the
   // code it shows, typed here; the code is not kept once sent.
   state remoteAt = ""
@@ -88,7 +88,7 @@ component DesignTool
   // file is open (the last read of it).
   resource appAxes = loadAppAxes(file, filesAt, epoch) as shape AppAxes else empty()
   derive pinAxes = file == "" ? design.axes : appAxes.axes
-  derive pinFontOk = pinFont == 0 or (pinFont >= 4 and pinFont <= 64)
+  derive pinFontOk = pinFont == 0 || (pinFont >= 4 && pinFont <= 64)
   resource changes = waitChanges(epoch, asks, client) as shape Changes else empty(ok=true)
   // Several live copies (LLP 1122 T7): one copy, a grid of modes, or the
   // selected view's states side by side; the axis the grid's dark copies
@@ -105,8 +105,8 @@ component DesignTool
   state gridCap = 6 persist
   state gridMirror = true
   state gridPoll = 0
-  derive galleryFrame = hello.local and hello.frame != "" ? `${hello.frame}/__dev/gallery/` : ""
-  derive gridPage = hello.local ? (galleryOn and canvasView == "grid" ? galleryFrame : hello.frame) : (canvasAt.frame != "" and canvasAt.frame.indexOf("#g=") < 0 ? canvasAt.frame : "")
+  derive galleryFrame = hello.local && hello.frame != "" ? `${hello.frame}/__dev/gallery/` : ""
+  derive gridPage = hello.local ? (galleryOn && canvasView == "grid" ? galleryFrame : hello.frame) : (canvasAt.frame != "" && canvasAt.frame.indexOf("#g=") < 0 ? canvasAt.frame : "")
   resource gridAt = loadGrid(client, canvasView, gridAxis, gridLarge, gridCap, gridPage, gridMirror, canWrite, hello.epoch, hello.local, gridPoll, changes.answer) as shape Grid else empty(ok=true)
   // The design file shown ("": the app's own), a group's "more" opened,
   // and the two tokens whose contrast is shown.
@@ -167,7 +167,7 @@ component DesignTool
   // frame is still on its way.
   state scrubWant = false
   resource scrub = scrubFrame(scrubAsk, scrubTick, file, editKind, editTarget, editWhen, editValue, client, proposal.review, changes.answer) as shape Scrub else empty(ok=true)
-  derive scrubShown = scrub.live or (scrubWant and pending(scrub))
+  derive scrubShown = scrub.live || (scrubWant && pending(scrub))
   // The changeset follows the long poll and each design read (which
   // measures what changed); history is read when shown.
   resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
@@ -204,38 +204,38 @@ component DesignTool
   // back is another).
   state upNote = ""
   state upNoteKey = ""
-  derive upFailed = match selectedUp { case some(r) => not r.ok, case none => false }
+  derive upFailed = match selectedUp { case some(r) => ! r.ok, case none => false }
   // Landed: another node, or this one said again with the move's own report (a move from the root stays on it).
-  task upLanded when upExpect >= 0 and inspected.has and inspected.arrival != upFromArrival and (inspected.key != upFromKey or inspected.movedUp == upExpect) key=inspected.arrival
+  task upLanded when upExpect >= 0 && inspected.has && inspected.arrival != upFromArrival && (inspected.key != upFromKey || inspected.movedUp == upExpect) key=inspected.arrival
     after(1, landUp)
-  task upRefused when upExpect >= 0 and not pending(selectedUp) and upFailed key=upFromKey
+  task upRefused when upExpect >= 0 && ! pending(selectedUp) && upFailed key=upFromKey
     after(1, dropUp)
   // The page refusing it (its own `unsupported`, said in the Inspector's refusals) ends the move too.
   state upRefusalsAt = ""
   derive refusalsKey = changes.refusalCounts.filter(r => r.id == inspected.build).map(r => `${r.count}`).join("")
-  task upPageRefused when upExpect >= 0 and refusalsKey != upRefusalsAt key=refusalsKey
+  task upPageRefused when upExpect >= 0 && refusalsKey != upRefusalsAt key=refusalsKey
     after(1, dropUp)
   // A page that can't step (it answered `unsupported inspect`): the move is over, and its up control greyed.
-  task upCantStep when upExpect >= 0 and changes.noStep.includes(inspected.build) key=`${upFromKey}|cant`
+  task upCantStep when upExpect >= 0 && changes.noStep.includes(inspected.build) key=`${upFromKey}|cant`
     after(1, dropUp)
   // The edit a panel began (a dial's, a param's, its row's Back to the package), whose proposal docks at the window's
   // bottom: the panels sit far above the panel's own place. One begun from the token grid stays in place, under it.
   state dockedFor = ""
-  derive docked = editKind != "" and dockedFor == `${editKind}|${editTarget}`
+  derive docked = editKind != "" && dockedFor == `${editKind}|${editTarget}`
   // The edit dock (third pass #7) shows while a cell is selected or an edit is open; the selected cell's branch, read
   // for the grid shown, is its editor. Each press of a grid cell (`pressed`, counted) moves the focus into it once it
   // shows (`focusedPress`), and Close or Escape gives it back to that cell (`returnTo`); a selection made otherwise
   // (the Inspector, an input's button) moves no focus and has no cell to give it back to.
-  derive editing = selToken != "" or editKind != ""
-  derive branchShown = selToken != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and (selPlace == "" or branch.place == selPlace)
+  derive editing = selToken != "" || editKind != ""
+  derive branchShown = selToken != "" && branch.ok && branch.token == selToken && branch.column == selColumn && branch.answer == design.answer && ! pending(branch) && (selPlace == "" || branch.place == selPlace)
   state pressed = 0
   state focusedPress = 0
   state returnTo = ""
   // Text typed in the value field and not yet committed (it commits on change: Enter, or leaving it) is pending too.
   state typing = false
   // A rename typed and not proposed is pending too.
-  derive closable = selToken != "" and editKind == "" and not scrubShown and not typing and renameTo.trim() == ""
-  task focusEditor when branchShown and focusedPress != pressed key=pressed
+  derive closable = selToken != "" && editKind == "" && ! scrubShown && ! typing && renameTo.trim() == ""
+  task focusEditor when branchShown && focusedPress != pressed key=pressed
     after(1, enterEditor)
   state historyPages = 1
   resource history = loadHistory(historyShown, historyPages, since, epoch) as shape History else empty(ok=true)
@@ -264,30 +264,30 @@ component DesignTool
   // under: a write since either, anyone's, leaves it stale until selected and opened again; a
   // re-read that moves nothing does not.)
   derive filesNow = changes.files.split(" ").slice(1).join(" ")
-  derive stateStale = (editKind == "set-state" or editKind == "set-row" or editKind == "promote-param" or editKind == "promote-token" or editKind == "detach-param") and (inspected.stale != "" or inspected.readOnly != "" or inspected.files != filesNow or `${inspected.key}␟${filesNow}` != stateFor)
+  derive stateStale = (editKind == "set-state" || editKind == "set-row" || editKind == "promote-param" || editKind == "promote-token" || editKind == "detach-param") && (inspected.stale != "" || inspected.readOnly != "" || inspected.files != filesNow || `${inspected.key}␟${filesNow}` != stateFor)
   // (A panel edit of a param is no branch editor draft: `draftFor` is the branch editor's.)
-  derive draftStale = editKind == branchOp and draftFor != "" and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
+  derive draftStale = editKind == branchOp && draftFor != "" && ! scopeOwn && (branch.token != editTarget || branch.when != editWhen)
   // The branch's value as the draft has it, and its typed fields.
-  derive shownValue = editKind == branchOp and draftFor != "" and editTarget == branch.token and not draftStale ? editValue : branch.value
+  derive shownValue = editKind == branchOp && draftFor != "" && editTarget == branch.token && ! draftStale ? editValue : branch.value
   // The branch by what it is, not which read: a read that gives the same
   // value back (after a scrub cancelled, an undo elsewhere) keeps the cut.
   derive branchKey = `${branch.token}␟${branch.column}␟${branch.when}␟${branch.value}␟${branch.readOnly}`
-  derive partsBase = rawFor == branchKey and editKind == branchOp and editTarget == branch.token ? rawBase : branch.value
+  derive partsBase = rawFor == branchKey && editKind == branchOp && editTarget == branch.token ? rawBase : branch.value
   resource typed = loadParts(branch.kind, partsBase, design.answer) as shape Typed else empty(ok=false)
   // The cut by its value and its parts (a reread that reads a name as
   // another kind cuts it otherwise, and a draft of the old cut is stale).
   derive partsKey = `${branchKey}␟${typed.of}␟${typed.parts.map(p => p.key).join(",")}`
   // The fields' texts: the draft's while it is this cell's token edit from
   // this cut, else the cut's own (another edit replaced it, or none).
-  derive fieldDraft = partFor == partsKey and editKind == branchOp and editTarget == branch.token
+  derive fieldDraft = partFor == partsKey && editKind == branchOp && editTarget == branch.token
   derive fieldTexts = fieldDraft ? partTexts : typed.parts.map(p => p.text)
   // Fields that must hold something and are empty (required, or holding the
   // place before a later part that is written): emptied, a later part would
   // read in its place, so nothing is drafted until they are filled.
-  derive partMissing = typed.parts.filter(p => p.control != "fixed" and fieldTexts.slice(p.index, p.index + 1).join("") == "" and (not p.optional or (p.after >= 0 and fieldTexts.slice(p.after, p.after + 1).join("") != ""))).map(p => p.label).join(", ")
+  derive partMissing = typed.parts.filter(p => p.control != "fixed" && fieldTexts.slice(p.index, p.index + 1).join("") == "" && (! p.optional || (p.after >= 0 && fieldTexts.slice(p.after, p.after + 1).join("") != ""))).map(p => p.label).join(", ")
   // A cell's token draft typed against another value of its branch (it
   // moved under it, a write elsewhere): stale, as one for another branch is.
-  derive partsStale = editKind == branchOp and editTarget == branch.token and draftFor != "" and draftFor != branchKey
+  derive partsStale = editKind == branchOp && editTarget == branch.token && draftFor != "" && draftFor != branchKey
 
   // The oldest highlight here fades after 3 s, then the next.
   task fading when lit.names.length > 0 key=`${lit.epoch}-${lit.file}-${lit.seq}`
@@ -295,39 +295,39 @@ component DesignTool
   // Each answer asks again: at once after one, after 3 s after a failure.
   // The rows nothing sets that the Inspector folds now (the selection's, and its held state's): never the row being
   // edited, none once shown for this visit.
-  derive foldedRows = initialFor == inspected.visit ? [] : inspected.rows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).map(r => r.name)
-  derive foldedHeld = initialFor == inspected.visit ? [] : inspected.heldRows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).map(r => r.name)
+  derive foldedRows = initialFor == inspected.visit ? [] : inspected.rows.filter(r => r.initial && ! (editTarget != "" && (editTarget == r.edit || editTarget == r.state))).map(r => r.name)
+  derive foldedHeld = initialFor == inspected.visit ? [] : inspected.heldRows.filter(r => r.initial && ! (editTarget != "" && (editTarget == r.edit || editTarget == r.state))).map(r => r.name)
   // Apply can be pressed: the proposal is in, for this draft, and nothing it rests on moved.
   // Said once each draft first can be applied, and kept while it is read again on each answer (no repeat), but not
   // while a scrub replaces Apply or the draft is stale (review2's round 1).
   state readyFor = ""
   derive draftReadyKey = `${editKind}|${editTarget}|${editWhen}|${editValue}`
-  derive readyLine = readyFor == draftReadyKey and editKind != "" and applyAnswer and not scrubShown ? "Proposal ready: Apply or Cancel." : ""
-  task sayReady when applyReady and editKind != "" and readyFor != draftReadyKey key=draftReadyKey
+  derive readyLine = readyFor == draftReadyKey && editKind != "" && applyAnswer && ! scrubShown ? "Proposal ready: Apply or Cancel." : ""
+  task sayReady when applyReady && editKind != "" && readyFor != draftReadyKey key=draftReadyKey
     after(1, markReady)
   // The answer in hand is this draft's and could be applied (a re-read on each answer keeps the last one in hand);
   // Apply itself waits on no read or write in flight.
-  derive applyAnswer = not (not proposal.ok or not proposal.active or proposal.key != draftKey or draftStale or partsStale or stateStale or not canPropose or (branch.readOnly != "" and editTarget == branch.token and editKind == branchOp))
-  derive applyReady = applyAnswer and not pending(proposal) and not pending(written)
-  task follow when not pending(changes) and changes.ok key=changes.answer
+  derive applyAnswer = ! (! proposal.ok || ! proposal.active || proposal.key != draftKey || draftStale || partsStale || stateStale || ! canPropose || (branch.readOnly != "" && editTarget == branch.token && editKind == branchOp))
+  derive applyReady = applyAnswer && ! pending(proposal) && ! pending(written)
+  task follow when ! pending(changes) && changes.ok key=changes.answer
     after(1, advance)
   task dropChoices when choices.drop.length > 0 key=choices.answer
     after(1, takeChoices)
   task choicesAgain when choices.again key=choices.answer
     after(1, reheld)
-  task retry when not pending(changes) and not changes.ok key=changes.answer
+  task retry when ! pending(changes) && ! changes.ok key=changes.answer
     after(3000, advance)
   // A newer design read under a held list on the long poll by cursor: asked once again (at once, from where it is),
   // so its swatches are of that read; no idle re-ask does it there (stage 14 D).
-  task heldSwatches when changes.stream and changes.held.length > 0 and design.answer > changes.heldDesign and not pending(design) key=design.answer
+  task heldSwatches when changes.stream && changes.held.length > 0 && design.answer > changes.heldDesign && ! pending(design) key=design.answer
     after(1, reheld)
   // A clients read refused while the poll goes on is asked again, each 3 s
   // (its own count: the poll's answers would put it off for ever).
-  task watchCanvas when canvasAt.frame.indexOf("#g=") >= 0 and (canvasPolled != canvasKey or canvasPollsLeft > 0) and not pending(canvasIn) and not pending(canvasAt) key=canvasPoll
+  task watchCanvas when canvasAt.frame.indexOf("#g=") >= 0 && (canvasPolled != canvasKey || canvasPollsLeft > 0) && ! pending(canvasIn) && ! pending(canvasAt) key=canvasPoll
     after(1000, pollCanvas)
-  task watchGrid when canvasView != "one" and gridPage != "" and not pending(gridAt) key=gridPoll
+  task watchGrid when canvasView != "one" && gridPage != "" && ! pending(gridAt) key=gridPoll
     after(1000, pollGrid)
-  task retryClients when hello.local and not pending(clients) and not clients.ok key=clientsTries
+  task retryClients when hello.local && ! pending(clients) && ! clients.ok key=clientsTries
     after(3000, reloadClients)
   // A build that goes (a rebuild's reload) is shown reloading for 10 s from the first going this window saw, those
   // going meanwhile with it, so none shows longer: past that, one not back is no build (stage 15 D1.2).
@@ -339,26 +339,26 @@ component DesignTool
   action advance
     // A change (an answer, paced while a scrub is open), another run, more
     // missed than the server keeps, or no answer: read the files again.
-    if changes.missed or not hello.ok or not changes.ok or changes.paced != pacedAt
+    if changes.missed || ! hello.ok || ! changes.ok || changes.paced != pacedAt
       refresh hello
       refresh canvasCheck
-    if not design.ok
+    if ! design.ok
       refresh design
     since = changes.seq
     filesAt = changes.files
     pacedAt = changes.paced
-    if not scrubShown
+    if ! scrubShown
       proposeAt = changes.paced
     epoch = changes.epoch
     // (The long poll's own reply asks nothing again: it goes on; a read, or its end, asks.)
-    if not changes.stream
+    if ! changes.stream
       asks = asks + 1
   action editRemoteAt(v: string)
     remoteAt = v
   action editRemoteCode(v: string)
     remoteCode = v
   action pairRemote
-    if not pending(pairedWith) and remoteAt.trim() != "" and remoteCode.trim() != ""
+    if ! pending(pairedWith) && remoteAt.trim() != "" && remoteCode.trim() != ""
       send pairedWith = pairRemote(remoteAt, remoteCode, person)
       remoteCode = ""
   action pollCanvas
@@ -389,22 +389,22 @@ component DesignTool
   action choosePairScope(v: string)
     pairScope = v
   action mintCode
-    if not pending(paircode)
+    if ! pending(paircode)
       send paircode = mintCode(pairScope)
   action revokeClient(c: string)
-    if not pending(revoked)
+    if ! pending(revoked)
       send revoked = revokeClient(c)
   action reconnect
     refresh hello
     refresh canvasCheck
     // A poll still held answers for itself; a second would race it. One
     // answered goes on from where it got to, as `advance` would.
-    if not pending(changes)
+    if ! pending(changes)
       if changes.ok
         since = changes.seq
         filesAt = changes.files
         pacedAt = changes.paced
-        if not scrubShown
+        if ! scrubShown
           proposeAt = changes.paced
         epoch = changes.epoch
       asks = asks + 1
@@ -426,7 +426,7 @@ component DesignTool
     renaming = true
   action dialNumber(op: string, name: string, unit: string, n: number)
     // A scrub open on another edit ends first.
-    if scrubShown and not (editKind == op and editTarget == name and editWhen == "")
+    if scrubShown && ! (editKind == op && editTarget == name && editWhen == "")
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = cancelScrub(scrubAsk)
@@ -443,14 +443,14 @@ component DesignTool
     editValue = `${n}${unit}`
   action dialStepped(op: string, name: string, unit: string, v: string)
     // A stepper's number, with its dial's unit.
-    if scrubShown and not (editKind == op and editTarget == name and editWhen == "")
+    if scrubShown && ! (editKind == op && editTarget == name && editWhen == "")
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = cancelScrub(scrubAsk)
     editKind = op
     editTarget = name
     // The dock newly opened for this edit: its row scrolled to the top, clear of it (the focus stays in the field).
-    if not docked or dockedFor != `${op}|${name}`
+    if ! docked || dockedFor != `${op}|${name}`
       scrollIntoView(`dial-${name}`, block="start")
     dockedFor = `${op}|${name}`
     editWhen = ""
@@ -461,24 +461,24 @@ component DesignTool
     scopeOwn = false
     editValue = v.trim() == "" ? "" : `${v.trim()}${unit}`
   action dialReleased(op: string, name: string, n: number)
-    if docked and dockedFor == `${op}|${name}`
+    if docked && dockedFor == `${op}|${name}`
       scrollIntoView(`dial-${name}`, block="start")
     // A slider let go: the scrub on it writes its last value, once that is
     // previewed.
-    if scrubShown and editKind == op and editTarget == name and editWhen == "" and not pending(written)
+    if scrubShown && editKind == op && editTarget == name && editWhen == "" && ! pending(written)
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = releaseScrub(file, editKind, editTarget, editWhen, editValue)
   action dialText(op: string, name: string, v: string)
     // A scrub open on another edit ends first.
-    if scrubShown and not (editKind == op and editTarget == name and editWhen == "")
+    if scrubShown && ! (editKind == op && editTarget == name && editWhen == "")
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = cancelScrub(scrubAsk)
     editKind = op
     editTarget = name
     // The dock newly opened for this edit: its row scrolled to the top, clear of it (the focus stays in the field).
-    if not docked or dockedFor != `${op}|${name}`
+    if ! docked || dockedFor != `${op}|${name}`
       scrollIntoView(`dial-${name}`, block="start")
     dockedFor = `${op}|${name}`
     editWhen = ""
@@ -510,13 +510,13 @@ component DesignTool
     partFor = ""
     scopeOwn = false
   action rescope
-    if not pending(written)
+    if ! pending(written)
       send written = rescopeLast(client)
   action toggleInspect
-    if not pending(inspectSent)
-      send inspectSent = sendInspect(client, not inspected.inspecting)
+    if ! pending(inspectSent)
+      send inspectSent = sendInspect(client, ! inspected.inspecting)
   action selectUp(up: number)
-    if not pending(selectedUp)
+    if ! pending(selectedUp)
       // How deep the selection it lands on should be, from the selection it moves from (review2 11:33).
       upFromKey = inspected.key
       upFromArrival = inspected.arrival
@@ -587,7 +587,7 @@ component DesignTool
   action stateValue(v: string)
     editValue = v.trim()
   action holdState(state: string)
-    if not pending(holdSent)
+    if ! pending(holdSent)
       send holdSent = sendHold(client, state)
   // A row's token, on the branch that won for the selected copy: the grid's
   // cell editor, its edits and scrubs, scoped to that branch.
@@ -618,7 +618,7 @@ component DesignTool
   action showImpact(token: string)
     impactToken = token
   action outlineImpact
-    if impactToken != "" and not pending(outlined)
+    if impactToken != "" && ! pending(outlined)
       send outlined = outlineUses(client, impactToken)
   action selectCell(token: string, column: string, press: bool)
     dockedFor = ""
@@ -650,7 +650,7 @@ component DesignTool
   // a value this client or the token's source can't edit) the dock itself.
   action enterEditor
     focusedPress = pressed
-    if (branch.expression and not pinning and not typed.ok) or branch.readOnly != "" or not canPropose
+    if (branch.expression && ! pinning && ! typed.ok) || branch.readOnly != "" || ! canPropose
       focus("edit-dock")
     else
       focus("branch-value")
@@ -669,7 +669,7 @@ component DesignTool
   // Escape in the dock (from its field or any control in it) closes it as Close does; with anything pending (a typed
   // value, a draft, a scrub) it does nothing.
   action dockKey(key: string)
-    if key == "Escape" and closable
+    if key == "Escape" && closable
       if returnTo != ""
         focus(returnTo)
       selToken = ""
@@ -678,14 +678,14 @@ component DesignTool
       returnTo = ""
       focusedPress = pressed
   action showDial(name: string, group: string, more: bool)
-    if more and not opened.includes(group)
+    if more && ! opened.includes(group)
       opened = opened.concat([group])
     focusDial = name
   action cellText(v: string)
     dockedFor = ""
     typing = false
     // A scrub open on another edit (another branch of it, a panel edit) ends first.
-    if scrubShown and not (editKind == branchOp and editTarget == branch.token and editWhen == (scopeOwn ? branch.own : branch.when))
+    if scrubShown && ! (editKind == branchOp && editTarget == branch.token && editWhen == (scopeOwn ? branch.own : branch.when))
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = cancelScrub(scrubAsk)
@@ -702,28 +702,28 @@ component DesignTool
     dockedFor = ""
     // One typed field: the value with this part changed and every other as
     // written, so the line written changes only there.
-    if typed.ok and typed.of == partsBase
-      if scrubShown and not (editKind == branchOp and editTarget == branch.token and editWhen == (scopeOwn ? branch.own : branch.when))
+    if typed.ok && typed.of == partsBase
+      if scrubShown && ! (editKind == branchOp && editTarget == branch.token && editWhen == (scopeOwn ? branch.own : branch.when))
         scrubTick = scrubTick + 1
         scrubWant = false
         send written = cancelScrub(scrubAsk)
       let texts = fieldTexts.map((t, j) => j == i ? v.trim() : t)
-      let missing = typed.parts.filter(p => p.control != "fixed" and texts.slice(p.index, p.index + 1).join("") == "" and (not p.optional or (p.after >= 0 and texts.slice(p.after, p.after + 1).join("") != ""))).length > 0
+      let missing = typed.parts.filter(p => p.control != "fixed" && texts.slice(p.index, p.index + 1).join("") == "" && (! p.optional || (p.after >= 0 && texts.slice(p.after, p.after + 1).join("") != ""))).length > 0
       partTexts = texts
       partFor = partsKey
       draftFor = branchKey
       editKind = branchOp
       editTarget = branch.token
       editWhen = scopeOwn ? branch.own : branch.when
-      editValue = missing ? "" : [typed.parts.map(p => p.control == "fixed" ? p.text : (texts.slice(p.index, p.index + 1).join("") == "" and p.optional ? "" : [p.pre, texts.slice(p.index, p.index + 1).join(""), p.post].join(""))).join(""), typed.tail].join("")
+      editValue = missing ? "" : [typed.parts.map(p => p.control == "fixed" ? p.text : (texts.slice(p.index, p.index + 1).join("") == "" && p.optional ? "" : [p.pre, texts.slice(p.index, p.index + 1).join(""), p.post].join(""))).join(""), typed.tail].join("")
   action onlyThisMode
     dockedFor = ""
-    if scrubShown and not (editKind == branchOp and editTarget == branch.token and editWhen == branch.own)
+    if scrubShown && ! (editKind == branchOp && editTarget == branch.token && editWhen == branch.own)
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = cancelScrub(scrubAsk)
     // A value already typed for this cell is kept, now for this mode alone.
-    if not (editKind == branchOp and draftFor != "" and editTarget == branch.token)
+    if ! (editKind == branchOp && draftFor != "" && editTarget == branch.token)
       editValue = branch.value
       // A fresh draft: the fields are the value's, and it is of this value.
       rawFor = ""
@@ -743,7 +743,7 @@ component DesignTool
     newValue = v
   // Its button's `disabled` is no guard against Enter in either field (`submit`).
   action addToken
-    if newName.trim() != "" and newValue.trim() != ""
+    if newName.trim() != "" && newValue.trim() != ""
       if scrubShown
         scrubTick = scrubTick + 1
         scrubWant = false
@@ -754,7 +754,7 @@ component DesignTool
       let n = newName.trim()
       // (Only in the app's design, opened as "" or by its path, where set-token of their name is the app's line; another
       // open file shows their rows beside its own but holds none of them, so a name added there is add-token, round 2.)
-      let theirs = design.appDesign and design.tokenGroups.filter(g => g.tokens.filter(t => t.name == n and (t.of == "base" or t.of == "package")).length > 0).length > 0
+      let theirs = design.appDesign && design.tokenGroups.filter(g => g.tokens.filter(t => t.name == n && (t.of == "base" || t.of == "package")).length > 0).length > 0
       editKind = theirs ? "set-token" : "add-token"
       // (Their read-only cell, if open, is no guard on the form's edit, as setForApp closes it, round 2.)
       if theirs
@@ -859,12 +859,12 @@ component DesignTool
     if selToken != ""
       focus("edit-dock")
   action startScrub
-    if not scrub.live and not pending(written)
+    if ! scrub.live && ! pending(written)
       scrubAsk = scrubAsk + 1
       scrubWant = true
   action keepScrub
     // The one write: what the server previews, once it is the draft.
-    if scrub.live and scrub.ready and not partsStale and not pending(scrub) and not pending(written)
+    if scrub.live && scrub.ready && ! partsStale && ! pending(scrub) && ! pending(written)
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = releaseScrub(file, editKind, editTarget, editWhen, editValue)
@@ -874,7 +874,7 @@ component DesignTool
     send written = cancelScrub(scrubAsk)
   action apply
     // Only the proposal shown, for the edit drafted, is written.
-    if canPropose and proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not draftStale and not partsStale and not pending(written) and not scrubShown
+    if canPropose && proposal.ok && proposal.active && ! pending(proposal) && proposal.key == draftKey && ! draftStale && ! partsStale && ! pending(written) && ! scrubShown
       send written = writeEdit(file, editKind, editTarget, editWhen, editValue, client, proposal.review)
   action afterWrite
     // The draft written is done with; one drafted since stays.
@@ -882,7 +882,7 @@ component DesignTool
       case some(w)
         if w.carried.length > 0
           picked = picked.concat(w.carried)
-        if w.ok and w.key != "" and w.key == draftKey
+        if w.ok && w.key != "" && w.key == draftKey
           editKind = ""
           // (Its dock and its readiness go with it: the same field edited again opens, and is said, afresh.)
           dockedFor = ""
@@ -890,15 +890,15 @@ component DesignTool
           scopeOwn = false
           rawFor = ""
           partFor = ""
-          if w.last == "remove" or w.last == "rename"
+          if w.last == "remove" || w.last == "rename"
             selToken = ""
       case none
         editKind = ""
   action undo
-    if not pending(written)
+    if ! pending(written)
       send written = undoLast(client)
   action redo
-    if not pending(written)
+    if ! pending(written)
       send written = redoLast(client)
   action reloadDesign
     refresh design
@@ -915,67 +915,67 @@ component DesignTool
   action choosePinFont(v: string)
     pinFont = match parseNumber(v) { case some(n) => n, case none => 0 }
   action applyPin
-    if not pending(pinned)
+    if ! pending(pinned)
       send pinned = sendPin(client, pinBuild, pinScheme, pinContrast, pinMode.join(" "), pinFont, false, false)
   action clearPins
     pinScheme = ""
     pinContrast = ""
     pinMode = []
     pinFont = 0
-    if not pending(pinned)
+    if ! pending(pinned)
       send pinned = sendPin(client, pinBuild, "", "", "", 0, false, true)
   action previewPin
-    if not pending(pinned) and pinBuild != "" and pinMode.length == 1
+    if ! pending(pinned) && pinBuild != "" && pinMode.length == 1
       send pinned = sendPin(client, pinBuild, "", "", pinMode.join(" "), 0, true, false)
   action chooseKind(k: string)
     importKind = k
   action pickImport
     showPicker("import-file")
   action importPicked(files: Picked[])
-    if not pending(imported) and files.length > 0
+    if ! pending(imported) && files.length > 0
       send imported = importFiles(client, importKind, files.map(f => f.path).join("\n"), files.map(f => f.name).join("\n"))
   // (`gen`, the card's `choiceGen` as shown: an accept or edit of a card not yet built again asks for another look)
   action acceptImportNow(proposal: string, gen: number)
-    if not pending(written)
+    if ! pending(written)
       send written = acceptImport(client, proposal, picked.join(";"), gen)
   action editImportValue(proposal: string, index: number, mode: number, gen: number, v: string)
-    if not pending(written)
+    if ! pending(written)
       send written = editImport(client, proposal, index, mode, gen, v, picked.join(";"))
   // A mapped token's id is picked when it differs from where it began (in, unless the server's choice leaves it out).
   action toggleLeaveOut(id: string, on: bool, checked: bool)
     picked = checked != on ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
   // Flips on a card another client chose on since: dropped, its choice the card's now (tamber/1.18).
   action takeChoices
-    picked = picked.filter(p => not choices.drop.includes(p))
+    picked = picked.filter(p => ! choices.drop.includes(p))
   // An offer's id is picked when it differs from where it began.
   action toggleOffer(id: string, on: bool, checked: bool)
     picked = checked != on ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
   action togglePick(id: string, checked: bool)
     picked = checked ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
   action acceptAll(proposal: string)
-    if not pending(written)
+    if ! pending(written)
       send written = acceptHeld(client, proposal, "")
   action acceptPicked(proposal: string, items: string)
-    if not pending(written) and items != ""
+    if ! pending(written) && items != ""
       send written = acceptHeld(client, proposal, items)
   action dropProposal(proposal: string)
-    if not pending(written)
+    if ! pending(written)
       send written = dropHeld(client, proposal)
   action fade
     faded = lit.fadeTo
   action commit
-    if not pending(committed)
+    if ! pending(committed)
       send committed = commitSession(client)
   action toggleHistory
-    historyShown = not historyShown
+    historyShown = ! historyShown
   action toggleFiles
-    filesShown = not filesShown
+    filesShown = ! filesShown
   action markReady
     readyFor = draftReadyKey
   // Where the step landed, always said (the Apple pass's #1): at the root (already, or before the steps asked), or a
   // copy other than the one the press named, the one holding it in its slot (a step the call-site chain doesn't list).
   action landUp
-    upNote = inspected.movedUp > 0 and inspected.key == upFromKey ? `It is at the app's root already: no other copy above holds this one, so it stays on ${inspected.source}.` : inspected.movedUp > 0 and inspected.movedStepped < inspected.movedUp ? `It reached the app's root after ${inspected.movedStepped} of ${inspected.movedUp} steps: no other copy above holds this one, so it selected ${inspected.source}.` : inspected.movedUp > 0 and upFromComponent != "" and inspected.component != "" and inspected.component != upFromComponent ? (upFromCallers.includes(`|${inspected.component}|`) ? `It landed on ${inspected.component}, the nearest copy with a node of its own here: ${inspected.source}.` : upFromFill ? `It landed on ${inspected.component}, which holds this fill (written in ${upFromComponent}) in its slot: ${inspected.source}.` : `It landed on ${inspected.component}, which holds ${upFromComponent} in its slot: ${inspected.source}.`) : ""
+    upNote = inspected.movedUp > 0 && inspected.key == upFromKey ? `It is at the app's root already: no other copy above holds this one, so it stays on ${inspected.source}.` : inspected.movedUp > 0 && inspected.movedStepped < inspected.movedUp ? `It reached the app's root after ${inspected.movedStepped} of ${inspected.movedUp} steps: no other copy above holds this one, so it selected ${inspected.source}.` : inspected.movedUp > 0 && upFromComponent != "" && inspected.component != "" && inspected.component != upFromComponent ? (upFromCallers.includes(`|${inspected.component}|`) ? `It landed on ${inspected.component}, the nearest copy with a node of its own here: ${inspected.source}.` : upFromFill ? `It landed on ${inspected.component}, which holds this fill (written in ${upFromComponent}) in its slot: ${inspected.source}.` : `It landed on ${inspected.component}, which holds ${upFromComponent} in its slot: ${inspected.source}.`) : ""
     upNoteKey = inspected.visit
     upExpect = -1
   action dropUp
@@ -985,7 +985,7 @@ component DesignTool
   action newerHistory
     historyPages = historyPages > 1 ? historyPages - 1 : 1
   action revert(commit: string)
-    if not pending(reverted)
+    if ! pending(reverted)
       send reverted = revertCommit(client, commit)
   action toggleMore(group: string)
     opened = opened.includes(group) ? opened.filter(g => g != group) : opened.concat([group])
@@ -1013,11 +1013,11 @@ component DesignTool
     main testId="root" width="100%" height="100%" display="flex" flex-direction="column"
       header display="flex" align-items="center" gap=12 padding="8px 16px"
         text "Design tool" role="heading" aria-level=1 flex=1
-        if person != "" and not renaming
+        if person != "" && ! renaming
           button press=changeName testId="person"
             text client
       scroll id="content" flex=1 min-height=0 padding=16
-        if person == "" or renaming
+        if person == "" || renaming
           column gap=8 max-width=420 testId="ask-name"
             text "Your name" role="heading" aria-level=2
             text "Every edit you make is written as yours, so others reading the history know who made it." color="-exact-secondary-label"
@@ -1026,7 +1026,7 @@ component DesignTool
             input value=draftName input=editName submit=saveName placeholder="Ada" aria-label="Your name" testId="name"
             button press=saveName disabled=(draftName.trim() == "") buttonStyle="filled" testId="save-name"
               text "Continue"
-        else if not hello.ok
+        else if ! hello.ok
           column gap=8 max-width=520 testId="no-server"
             text (hello.error.startsWith("This client was revoked") ? "Revoked" : "No design server") role="heading" aria-level=2 testId="no-server-title"
             text hello.error color="-exact-secondary-label" testId="no-server-message"
@@ -1039,11 +1039,11 @@ component DesignTool
               text "Its tool shows a code and an address. Pair from the tool that address serves (<address>/__tamber/tool/, its certificate accepted in this browser if its SHA-256 is the one shown): type the address and the code there. That server refuses a tool opened anywhere else." color="-exact-secondary-label" font="-exact-footnote" testId="pair-remote-how"
               input value=remoteAt input=editRemoteAt placeholder="https://192.168.1.20:7743" aria-label="Design server address" testId="remote-at"
               input value=remoteCode input=editRemoteCode submit=pairRemote placeholder="XXXXX-XXXXX" aria-label="Pairing code" testId="remote-code"
-              button press=pairRemote disabled=(pending(pairedWith) or remoteAt.trim() == "" or remoteCode.trim() == "") buttonStyle="bordered" testId="remote-pair"
+              button press=pairRemote disabled=(pending(pairedWith) || remoteAt.trim() == "" || remoteCode.trim() == "") buttonStyle="bordered" testId="remote-pair"
                 text "Pair"
               match pairedWith
                 case some(r)
-                  if not r.ok
+                  if ! r.ok
                     text r.error color="-exact-system-red" font="-exact-footnote" testId="remote-error"
                 case none
                   text "" display="none"
@@ -1052,7 +1052,7 @@ component DesignTool
             column gap=4 testId="hello"
               text hello.app role="heading" aria-level=2 testId="app"
               text `${hello.protocol} · IR format ${hello.format}` color="-exact-secondary-label" testId="protocol"
-              if not hello.local
+              if ! hello.local
                 text (canWrite ? `Paired with this design server as ${hello.client}, at write.` : canPropose ? `Paired as ${hello.client}, at propose: an edit is held for review, for someone with write to accept; undo, commit, pins, holds, outlines, inspect mode and scrubs are greyed.` : `Paired as ${hello.client}, at read: you see the design, its history and the inspector's last selections; edits, pins, holds and the rest are greyed.`) color="-exact-system-orange" font="-exact-footnote" testId="paired-scope"
             if hello.local
               Pairing(pairScope=pairScope, clients=clients, paircode=paircode, revoked=revoked, minting=pending(paircode), revoking=pending(revoked), choosePairScope=choosePairScope, mintCode=mintCode, revokeClient=revokeClient)
@@ -1074,24 +1074,24 @@ component DesignTool
                   link href=hello.page target="_blank" testId="canvas-open"
                     text "Open in a tab"
                 // (The gallery is the local dev loop's: a paired canvas's gateway serves the app's pages only.)
-                if hello.local and hello.page != "" and canvasView != "states"
+                if hello.local && hello.page != "" && canvasView != "states"
                   row gap=4 align-items="center"
                     input type="checkbox" checked=galleryOn change=toggleGallery aria-label="Variant gallery" testId="canvas-gallery"
                     text "Gallery"
               // (The local dev loop's: a paired canvas comes through its gateway.)
-              if hello.local and canvasCheck.refused != ""
+              if hello.local && canvasCheck.refused != ""
                 text canvasCheck.refused color="-exact-system-orange" font="-exact-footnote" testId="canvas-refused"
-              if galleryOn and hello.local and hello.page != "" and canvasView != "states"
+              if galleryOn && hello.local && hello.page != "" && canvasView != "states"
                 text "The variant gallery: each library component the app uses, once per variant value, on the app's design. Each cell is a column's width, as a caller's column shows it. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame." color="-exact-secondary-label" font="-exact-footnote" testId="gallery-note"
-              if not hello.local
+              if ! hello.local
                 // (A grant spent, or an entry slower than its 30 s: a new one.)
                 if canvasAt.frame != ""
                   button press=reloadCanvas disabled=pending(canvasAt) buttonStyle="bordered" testId="canvas-reload"
                     text "Reload Canvas"
                 // (Several copies once the one entry frame has entered: they load the gateway's pages on its session.)
-                if canvasAt.frame != "" and not pending(canvasAt) and (canvasView == "one" or canvasAt.frame.indexOf("#g=") >= 0)
+                if canvasAt.frame != "" && ! pending(canvasAt) && (canvasView == "one" || canvasAt.frame.indexOf("#g=") >= 0)
                   iframe src=canvasAt.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
-                else if canvasAt.frame != "" and not pending(canvasAt)
+                else if canvasAt.frame != "" && ! pending(canvasAt)
                   text "" display="none"
                 else
                   row gap=8 align-items="center" flex-wrap="wrap"
@@ -1125,7 +1125,7 @@ component DesignTool
                         input type="checkbox" checked=gridMirror change=toggleGridMirror aria-label="Mirror navigation" testId="grid-mirror"
                         text "Mirror navigation"
                   text (hello.local ? "Each copy is its own origin, with its own storage: each starts with its own data. Mirrored navigation replays no actions." : "Copies through the gateway share its storage: what one writes, the others may read. Mirrored navigation replays no actions.") color="-exact-secondary-label" font="-exact-footnote" testId="grid-shared"
-                  if not canWrite
+                  if ! canWrite
                     text "Pins and holds need write scope: each copy shows the app's own mode." color="-exact-secondary-label" font="-exact-footnote" testId="grid-scope"
                   if gridPage == ""
                     text (hello.local ? "No app running: the copies frame its dev loop's page." : "The copies come through the gateway once the canvas has entered.") color="-exact-secondary-label" testId="grid-none"
@@ -1150,17 +1150,17 @@ component DesignTool
                 option "The app's design" value=""
                 for f in hello.files.filter(f => !f.path.endsWith(".contract")) key=f.path
                   option f.path value=f.path
-            if pending(design) and design.answer == 0
+            if pending(design) && design.answer == 0
               row gap=8 align-items="center" testId="design-loading"
                 progress aria-label="Reading the design"
                 text "Reading the design…" color="-exact-secondary-label"
-            else if not design.ok
+            else if ! design.ok
               row gap=8 align-items="center"
                 text design.error color="-exact-system-red" white-space="pre-wrap" flex=1 testId="design-error"
                 button press=reloadDesign buttonStyle="bordered" testId="reload-design"
                   text "Try Again"
             // The design read, and nothing of it before or after a refusal.
-            if design.ok and design.answer != 0 and design.file == file
+            if design.ok && design.answer != 0 && design.file == file
               column gap=12 testId="dials"
                 text "Dials" role="heading" aria-level=2
                 if design.groups.length == 0
@@ -1169,13 +1169,13 @@ component DesignTool
                   column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`group-${g.name}`
                     text (g.name == "" ? "Dials" : g.name) role="heading" aria-level=3
                     for c in g.dials key=c.name
-                      DialControl(locked=(not canPropose), c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
+                      DialControl(locked=(! canPropose), c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
                     if g.more.length > 0
                       button press=toggleMore(g.name) testId=`more-${g.name}`
                         text (opened.includes(g.name) ? "Fewer" : `More (${g.more.length})`)
                       if opened.includes(g.name)
                         for c in g.more key=c.name
-                          DialControl(locked=(not canPropose), c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
+                          DialControl(locked=(! canPropose), c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
               if design.components.length > 0
                 column gap=12 testId="components"
                   text "Components" role="heading" aria-level=2
@@ -1194,13 +1194,13 @@ component DesignTool
                           if g.name != ""
                             text g.name font="-exact-subheadline"
                           for r in g.params key=r.c.name
-                            ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn, false), onBackToPackage=panelBackToPackage(r.packageToken, r.c.name))
+                            ParamControl(locked=(! canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn, false), onBackToPackage=panelBackToPackage(r.packageToken, r.c.name))
                           if g.more.length > 0
                             button press=toggleMore(`${k.identity}|${g.name}`) testId=`more-${k.name}-${g.name}`
                               text (opened.includes(`${k.identity}|${g.name}`) ? "Fewer" : `More (${g.more.length})`)
                             if opened.includes(`${k.identity}|${g.name}`)
                               for r in g.more key=r.c.name
-                                ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn, false), onBackToPackage=panelBackToPackage(r.packageToken, r.c.name))
+                                ParamControl(locked=(! canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn, false), onBackToPackage=panelBackToPackage(r.packageToken, r.c.name))
               column gap=8 testId="tokens"
                 text "Tokens" role="heading" aria-level=2
                 column overflow-x="auto" align-items="flex-start" testId="grid"
@@ -1225,7 +1225,7 @@ component DesignTool
                             if t.follows != ""
                               text `follows ${t.follows}` font="-exact-caption1" color="-exact-secondary-label" testId=`follows-${t.name}`
                           for cell in t.cells key=cell.column
-                            column width=96 flex-shrink=0 box-sizing="border-box" gap=2 padding=2 border-radius=6 border-width=2 border-style="solid" border-color=(selToken == t.name and selColumn == cell.column ? "AccentColor" : lit.cells.includes(`${t.name}|${cell.column}`) ? lit.cellMarks.filter(m => m.cell == `${t.name}|${cell.column}`).map(m => m.tint).join("") : "transparent") press=selectCell(t.name, cell.column, true) scroll-margin-top=8 scroll-margin-bottom="calc(50vh + 8px)" id=`cell-${t.name}-${cell.column}` role="button" aria-current=(selToken == t.name and selColumn == cell.column ? "true" : "false") aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
+                            column width=96 flex-shrink=0 box-sizing="border-box" gap=2 padding=2 border-radius=6 border-width=2 border-style="solid" border-color=(selToken == t.name && selColumn == cell.column ? "AccentColor" : lit.cells.includes(`${t.name}|${cell.column}`) ? lit.cellMarks.filter(m => m.cell == `${t.name}|${cell.column}`).map(m => m.tint).join("") : "transparent") press=selectCell(t.name, cell.column, true) scroll-margin-top=8 scroll-margin-bottom="calc(50vh + 8px)" id=`cell-${t.name}-${cell.column}` role="button" aria-current=(selToken == t.name && selColumn == cell.column ? "true" : "false") aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
                               if cell.kind == "box-shadow"
                                 // In a padded box of the column's scheme, so the shadow falls on its own ground.
                                 view padding=6 border-radius=4 color-scheme=cell.scheme background-color="-exact-background" testId=`cell-shadow-${t.name}-${cell.column}`
@@ -1242,20 +1242,20 @@ component DesignTool
                                 text `${b.ratio} on ${b.name}` font="-exact-caption2" color=(b.low ? "-exact-system-red" : "-exact-secondary-label") line-clamp=1 testId=`pair-${t.name}-${cell.column}-${b.name}`
                           // A base or package value per platform, a cell each across the grid (not wrapped in the name
                           // column), then what may be done with it: name, columns, controls, in reading order.
-                          for c in t.columns.filter(c => c.ships or openedBase.includes(t.name)) key=c.name
+                          for c in t.columns.filter(c => c.ships || openedBase.includes(t.name)) key=c.name
                             column width=160 flex-shrink=0 testId=`token-base-cell-${t.name}-${c.name}`
                               text `${c.label} ${c.value}${c.stretch ? " (a stretch)" : ""} · ${c.from}` font="-exact-caption2" color="-exact-secondary-label" testId=`token-base-${t.name}-${c.name}`
-                          if (t.columns.filter(c => not c.ships).length > 0 and not openedBase.includes(t.name)) or t.source != "app" or t.over != ""
+                          if (t.columns.filter(c => ! c.ships).length > 0 && ! openedBase.includes(t.name)) || t.source != "app" || t.over != ""
                             row gap=8 align-items="center" flex-shrink=0
-                              if t.columns.filter(c => not c.ships).length > 0 and not openedBase.includes(t.name)
+                              if t.columns.filter(c => ! c.ships).length > 0 && ! openedBase.includes(t.name)
                                 button press=openBase(t.name) testId=`token-base-more-${t.name}`
                                   text "Other platforms"
                               if t.source != "app"
-                                button press=setForApp(t.name, t.start, t.startFrom) disabled=(not canPropose) testId=`set-for-app-${t.name}`
+                                button press=setForApp(t.name, t.start, t.startFrom) disabled=(! canPropose) testId=`set-for-app-${t.name}`
                                   text "Set for this app"
                               if t.over != ""
                                 text t.over font="-exact-caption1" color="-exact-secondary-label" testId=`token-over-${t.name}`
-                                button press=backToBase(t.name) disabled=(not canPropose) testId=`back-${t.name}`
+                                button press=backToBase(t.name) disabled=(! canPropose) testId=`back-${t.name}`
                                   text t.back
               if design.icons.length > 0
                 column gap=4 testId="icons"
@@ -1276,16 +1276,16 @@ component DesignTool
                       button press=closeEditor testId="edit-dock-close"
                         text "Close"
                   // The branch of the cell chosen, read of the grid shown.
-                  if selPlace != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and branch.place != selPlace
+                  if selPlace != "" && branch.ok && branch.token == selToken && branch.column == selColumn && branch.answer == design.answer && ! pending(branch) && branch.place != selPlace
                     text "The design's axes changed since that copy was selected, so this column is another branch now: select it again." color="-exact-system-orange" testId="branch-moved"
                   if branchShown
                     column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="branch"
                       text (scopeOwn ? `${branch.token} · ${branch.own} (only this mode)` : branch.label) role="heading" aria-level=3 testId="branch-label"
                       if branch.readOnly != ""
                         text branch.readOnly color="-exact-secondary-label" font="-exact-footnote" testId="branch-readonly"
-                      if branch.kind == "duration" or branch.kind == "easing"
+                      if branch.kind == "duration" || branch.kind == "easing"
                         text "Rebuilds: an edit to a motion token rebuilds the app, so Apply writes it, with no scrub." font="-exact-footnote" color="-exact-secondary-label" testId="branch-rebuilds"
-                      if branch.expression and not pinning and not typed.ok
+                      if branch.expression && ! pinning && ! typed.ok
                         text `Follows ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}: edit those, or pin a value here.` color="-exact-secondary-label" testId="branch-inputs"
                         for n in branch.inputs key=n
                           button press=selectCell(n, selColumn, false) testId=`input-${n}`
@@ -1298,65 +1298,65 @@ component DesignTool
                               text `${d.name} (dial)`
                         for r in branch.roles key=r
                           text `${r}: ${branch.kind == "color" ? "a platform colour" : "a platform value"}, set by the system` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${r}`
-                        button press=pin disabled=(not canPropose or branch.readOnly != "") buttonStyle="bordered" testId="pin"
+                        button press=pin disabled=(! canPropose || branch.readOnly != "") buttonStyle="bordered" testId="pin"
                           text "Pin a value"
                       else
-                        if branch.expression and typed.ok
+                        if branch.expression && typed.ok
                           // Its fields keep the names it holds (a shadow's colour token).
                           text `Names ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}: its fields keep them; edit those for their own values.` color="-exact-secondary-label" testId="branch-names"
                           for n in branch.inputs key=n
                             button press=selectCell(n, selColumn, false) testId=`input-${n}`
                               text n
-                          for d in branch.dials.filter(d => not d.hidden) key=d.name
+                          for d in branch.dials.filter(d => ! d.hidden) key=d.name
                             button press=showDial(d.name, d.group, d.more) testId=`input-${d.name}`
                               text `${d.name} (dial)`
                         else if branch.expression
                           text `Pinned here: no longer follows ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}.` color="-exact-system-orange" testId="pinned"
-                        if typed.ok and typed.of == partsBase
+                        if typed.ok && typed.of == partsBase
                           column gap=6 testId="typed"
                             for p in typed.parts.filter(p => p.control != "fixed") key=p.key
                               row gap=8 align-items="center" testId=`part-${p.key}`
                                 text p.label width="7rem" color="-exact-secondary-label" font="-exact-footnote"
                                 if p.control == "number"
-                                  input type="number" value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
+                                  input type="number" value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(! canPropose || branch.readOnly != "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
                                 else if p.control == "select"
-                                  select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                                  select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(! canPropose || branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
                                     for o in p.options key=o
                                       option (o == "" ? "none" : o) value=o
                                 else if p.control == "inset"
-                                  select value=fieldTexts.slice(p.index, p.index + 1).join("").toLowerCase() change=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                                  select value=fieldTexts.slice(p.index, p.index + 1).join("").toLowerCase() change=partEdit(p.index) disabled=(! canPropose || branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
                                     option "outside" value=""
                                     option "inset" value="inset"
                                 else if p.control == "style"
-                                  select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                                  select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(! canPropose || branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
                                     option "unsaid" value=""
                                     option "italic" value="italic"
                                 else
-                                  input value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") placeholder=(p.optional ? "unsaid" : "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
+                                  input value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(! canPropose || branch.readOnly != "") placeholder=(p.optional ? "unsaid" : "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
                             if partMissing != ""
                               text `Give ${partMissing} a value: emptied, the part after it would be read in its place.` color="-exact-system-orange" font="-exact-footnote" testId="typed-missing"
-                        input value=shownValue input=typingValue change=cellText disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} value` id="branch-value" testId="branch-value"
-                      if not branch.exact
-                        button press=onlyThisMode disabled=(not canPropose or branch.readOnly != "") testId="only-this-mode"
+                        input value=shownValue input=typingValue change=cellText disabled=(! canPropose || branch.readOnly != "") aria-label=`${branch.token} value` id="branch-value" testId="branch-value"
+                      if ! branch.exact
+                        button press=onlyThisMode disabled=(! canPropose || branch.readOnly != "") testId="only-this-mode"
                           text "Only this mode"
-                      if not branch.param
+                      if ! branch.param
                         row gap=8
-                          input value=renameTo input=editRename submit=renameToken disabled=(not canPropose or branch.readOnly != "") placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
-                          button press=renameToken disabled=(renameTo.trim() == "" or not canPropose or branch.readOnly != "") testId="rename"
+                          input value=renameTo input=editRename submit=renameToken disabled=(! canPropose || branch.readOnly != "") placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
+                          button press=renameToken disabled=(renameTo.trim() == "" || ! canPropose || branch.readOnly != "") testId="rename"
                             text "Rename"
-                          button commandfor="confirm-remove" command="show-modal" disabled=(not canPropose or branch.readOnly != "") destructive=true testId="remove"
+                          button commandfor="confirm-remove" command="show-modal" disabled=(! canPropose || branch.readOnly != "") destructive=true testId="remove"
                             text "Remove"
-                  if not branch.ok
+                  if ! branch.ok
                     text branch.error color="-exact-system-red" testId="branch-error"
-                  if editKind == "promote-param" or editKind == "promote-token" or editKind == "detach-param"
+                  if editKind == "promote-param" || editKind == "promote-token" || editKind == "detach-param"
                     column gap=4 testId="move-editor"
                       text rowWords role="heading" aria-level=3 testId="row-label"
                       text (editKind == "detach-param" ? "One transaction: the param's default written at this row, and the param removed, with any param it alone left read (listed below); refused where the app's design sets it." : "One transaction: the new one, its default the value as written, and this row reading it.") color="-exact-secondary-label" font="-exact-footnote"
                       if stateStale
                         text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
                       if editKind != "detach-param"
-                        input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "promote-param" ? "The new param's name" : "The new token's name") testId="move-name"
-                  if editKind == "set-state" or editKind == "set-row"
+                        input value=editValue input=stateValue disabled=(! canPropose) aria-label=(editKind == "promote-param" ? "The new param's name" : "The new token's name") testId="move-name"
+                  if editKind == "set-state" || editKind == "set-row"
                     column gap=4 testId="state-editor"
                       if editKind == "set-row"
                         text rowWords role="heading" aria-level=3 testId="row-label"
@@ -1366,18 +1366,18 @@ component DesignTool
                         text "A state part's row: written by set-state, which rebuilds the app; a hold on it is held again once it has, where its node still corresponds." color="-exact-secondary-label" font="-exact-footnote"
                       if stateStale
                         text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
-                      input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "set-row" ? "The row's value" : "The state part's value") testId="state-value"
+                      input value=editValue input=stateValue disabled=(! canPropose) aria-label=(editKind == "set-row" ? "The row's value" : "The state part's value") testId="state-value"
                   if editKind != ""
                     // In the edit dock with the cell's editor (the third pass's #7; the second pass's param proposal, opened
                     // about 16,500 px below its field, docked first).
                     column gap=8 padding=12 border-radius=10 background-color="-exact-tertiary-background" id="proposal-dock" tabindex=-1 role="region" aria-label="Proposal" testId="proposal"
-                      if editKind == "set-token" and editTarget == setForAppName and setForAppNote != ""
+                      if editKind == "set-token" && editTarget == setForAppName && setForAppNote != ""
                         text setForAppNote font="-exact-footnote" color="-exact-secondary-label" testId="set-for-app-note"
-                      if draftStale or partsStale
+                      if draftStale || partsStale
                         text "The branch this edit was for has changed: choose the cell and type it again." color="-exact-system-orange" testId="draft-stale"
                       // Said to a screen reader as it comes: a typed draft keeps the focus in its field.
                       text readyLine aria-live="polite" font="-exact-footnote" color="-exact-secondary-label" testId="proposal-ready"
-                      if not proposal.ok
+                      if ! proposal.ok
                         text proposal.error color="-exact-system-red" white-space="pre-wrap" testId="proposal-error"
                       else if proposal.active
                         row gap=8 align-items="center"
@@ -1386,51 +1386,51 @@ component DesignTool
                         text proposal.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId="proposal-diff"
                       if scrubShown
                         column gap=4 testId="scrub"
-                          if not scrub.ok
+                          if ! scrub.ok
                             text scrub.error color="-exact-system-red" white-space="pre-wrap" testId="scrub-error"
                           else if scrub.open != ""
                             text (scrub.ready ? "Previewing: the running copies show this value, and the files are unchanged until Keep." : scrub.sending ? "Previewing: sending this value to the running copies…" : "Previewing the last value sent: this one is not previewed.") color="-exact-system-orange" testId="scrub-previewing"
                           row gap=8
-                            button press=keepScrub disabled=(not scrub.ok or not scrub.ready or partsStale or pending(scrub) or pending(written) or not canWrite) buttonStyle="filled" testId="scrub-keep"
+                            button press=keepScrub disabled=(! scrub.ok || ! scrub.ready || partsStale || pending(scrub) || pending(written) || ! canWrite) buttonStyle="filled" testId="scrub-keep"
                               text "Keep"
-                            button press=cancelScrub disabled=(not canWrite) testId="scrub-cancel"
+                            button press=cancelScrub disabled=(! canWrite) testId="scrub-cancel"
                               text "Cancel scrub"
                       else
                         row gap=8
-                          button id="proposal-apply" press=apply disabled=(not applyReady) buttonStyle="filled" testId="apply"
+                          button id="proposal-apply" press=apply disabled=(! applyReady) buttonStyle="filled" testId="apply"
                             text (canWrite ? "Apply" : "Propose for review")
-                          if editKind == "set-dial" or editKind == "set-token" or editKind == "set-param"
-                            button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written) or not canWrite or (branch.readOnly != "" and editTarget == branch.token and editKind == branchOp)) testId="scrub-start"
+                          if editKind == "set-dial" || editKind == "set-token" || editKind == "set-param"
+                            button press=startScrub disabled=(! hello.live || ! proposal.ok || ! proposal.active || pending(proposal) || proposal.key != draftKey || proposal.chip != "live" || ! proposal.scrubbable || draftStale || partsStale || pending(written) || ! canWrite || (branch.readOnly != "" && editTarget == branch.token && editKind == branchOp)) testId="scrub-start"
                               text "Scrub live"
                           button press=cancelEdit testId="cancel-edit"
                             text "Cancel"
-                        if (editKind == "set-dial" or editKind == "set-token" or editKind == "set-param") and proposal.ok and proposal.active and proposal.chip != "live"
+                        if (editKind == "set-dial" || editKind == "set-token" || editKind == "set-param") && proposal.ok && proposal.active && proposal.chip != "live"
                           text (hello.live ? "This edit rebuilds the app, so it can't be scrubbed: Apply writes it." : "Scrubbing previews on the running copies: open the tool through a dev loop (tamber tool --via).") color="-exact-secondary-label" font="-exact-footnote" testId="scrub-unavailable"
               // The Remove confirmation outside the dock, so its own Escape (which closes it) never reaches the dock's.
-              if branchShown and not branch.param
+              if branchShown && ! branch.param
                 dialog id="confirm-remove" role="alertdialog" aria-label=`Remove ${selToken}?`
-                  button press=removeToken disabled=(not canPropose or branch.readOnly != "") destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
+                  button press=removeToken disabled=(! canPropose || branch.readOnly != "") destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
                     text "Remove"
                   button commandfor="confirm-remove" command="close"
                     text "Cancel"
               column gap=8 testId="add"
                 text "Add a token" role="heading" aria-level=3
                 row gap=8
-                  input value=newName input=editNewName submit=addToken disabled=(not canPropose) placeholder="surface.raised" aria-label="New token's name" flex=1 min-width=0 testId="new-name"
-                  input value=newValue input=editNewValue submit=addToken disabled=(not canPropose) placeholder="light-dark(#fff, #000)" aria-label="New token's value" flex=1 min-width=0 testId="new-value"
-                  button press=addToken disabled=(newName.trim() == "" or newValue.trim() == "" or not canPropose) testId="add-token"
+                  input value=newName input=editNewName submit=addToken disabled=(! canPropose) placeholder="surface.raised" aria-label="New token's name" flex=1 min-width=0 testId="new-name"
+                  input value=newValue input=editNewValue submit=addToken disabled=(! canPropose) placeholder="light-dark(#fff, #000)" aria-label="New token's value" flex=1 min-width=0 testId="new-value"
+                  button press=addToken disabled=(newName.trim() == "" || newValue.trim() == "" || ! canPropose) testId="add-token"
                     text "Add"
-              if not scrubShown and scrub.ended != ""
+              if ! scrubShown && scrub.ended != ""
                 text scrub.ended color="-exact-secondary-label" testId="scrub-note"
               row gap=8 align-items="center" testId="undo-bar"
-                button press=undo disabled=(stack.undo == 0 or pending(written) or not canWrite) testId="undo"
+                button press=undo disabled=(stack.undo == 0 || pending(written) || ! canWrite) testId="undo"
                   text `Undo (${stack.undo})`
-                button press=redo disabled=(stack.redo == 0 or pending(written) or not canWrite) testId="redo"
+                button press=redo disabled=(stack.redo == 0 || pending(written) || ! canWrite) testId="redo"
                   text `Redo (${stack.redo})`
                 if stack.rescope != ""
-                  button press=rescope disabled=(pending(written) or not canWrite) testId="rescope"
+                  button press=rescope disabled=(pending(written) || ! canWrite) testId="rescope"
                     text stack.rescope
-                if not stack.ok
+                if ! stack.ok
                   text stack.error color="-exact-system-red" white-space="pre-wrap" flex=1 testId="write-error"
                 else if stack.note != ""
                   text stack.note color="-exact-secondary-label" flex=1 testId="write-note"
@@ -1446,7 +1446,7 @@ component DesignTool
                     option "Background…" value=""
                     for n in design.names key=n
                       option n value=n
-                if not contrast.ok
+                if ! contrast.ok
                   text contrast.error color="-exact-system-red" testId="contrast-error"
                 for r in contrast.ratios key=r.column
                   row gap=12
@@ -1465,20 +1465,20 @@ component DesignTool
               text "Import a theme" role="heading" aria-level=2
               text "Its tokens, the role overrides it offers (each off until ticked) and what it could not map are held as a proposal, reviewed above." color="-exact-secondary-label" font="-exact-footnote"
               row gap=8 align-items="center"
-                select value=importKind change=chooseKind disabled=(not canPropose) aria-label="Kind" testId="import-kind"
+                select value=importKind change=chooseKind disabled=(! canPropose) aria-label="Kind" testId="import-kind"
                   option "shadcn (CSS)" value="shadcn"
                   option "Tailwind v4 (CSS)" value="tailwind"
                   option "DTCG (JSON, a file a mode)" value="dtcg"
-                button press=pickImport disabled=(pending(imported) or not canPropose) testId="import-choose"
+                button press=pickImport disabled=(pending(imported) || ! canPropose) testId="import-choose"
                   text "Choose files…"
-                input type="file" multiple=(importKind == "dtcg") disabled=(not canPropose) id="import-file" testId="import-file" display="none" change=importPicked
+                input type="file" multiple=(importKind == "dtcg") disabled=(! canPropose) id="import-file" testId="import-file" display="none" change=importPicked
               match imported
                 case some(i)
                   text (i.ok ? i.note : i.error) color=(i.ok ? "-exact-secondary-label" : "-exact-system-red") white-space="pre-wrap" testId="import-result"
                   if i.counted != ""
                     text i.counted color="-exact-secondary-label" font="-exact-footnote" testId="import-counted"
                     for u in i.unmapped key=u.key
-                      text `${u.name} = ${u.value}${u.block != "" and not u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1"
+                      text `${u.name} = ${u.value}${u.block != "" && ! u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1"
                 case none
                   text "" display="none"
             ChangesPanel(changeset=changeset, scope=scope, canWrite=canWrite, committed=committed, committing=pending(committed), commit=commit)

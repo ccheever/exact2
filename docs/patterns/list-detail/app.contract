@@ -35,7 +35,7 @@ shape Reply
 
 fn titleOf(items: Item[], id: string): string = match first(items.filter(i => i.id == id)) { case some(i) => i.title, case none => "" }
 fn found(items: Item[], id: string): bool = items.filter(i => i.id == id).length > 0
-fn matches(i: Item, q: string): bool = i.title.toLowerCase().includes(q.trim().toLowerCase()) or i.notes.toLowerCase().includes(q.trim().toLowerCase())
+fn matches(i: Item, q: string): bool = i.title.toLowerCase().includes(q.trim().toLowerCase()) || i.notes.toLowerCase().includes(q.trim().toLowerCase())
 
 component App
   state query = ""
@@ -50,7 +50,7 @@ component App
   mutation removed as shape Reply refreshes lib
   mutation lockSaved as shape Reply refreshes lib
   derive selected = match stack(nav).filter(e => e.name == "item").at(-1) { case some(e) => e.params.id, case none => "" }
-  derive aimedLocked = lib.filter(i => i.id == aimed and i.locked).length > 0
+  derive aimedLocked = lib.filter(i => i.id == aimed && i.locked).length > 0
   derive shown = lib.filter(i => matches(i, query))
   derive saveError = match added { case some(r) => r.error, case none => "" }
   // Why Save is disabled, under the field (not red: nothing is wrong yet).
@@ -70,25 +70,25 @@ component App
   // A row is a link to its item; the browser's Back, Forward and a deep link arrive here too.
   // An item shown beside the list (a wide window) is replaced by the next one opened.
   action follow(url: string)
-    nav = top(nav).name == "item" and url.startsWith("/item/") ? replace(nav, url) : go(nav, url)
+    nav = top(nav).name == "item" && url.startsWith("/item/") ? replace(nav, url) : go(nav, url)
   action editTitle(v: string)
     draftTitle = v
   action editNotes(v: string)
     draftNotes = v
   action save
-    if draftTitle.trim() != "" and not pending(added)
+    if draftTitle.trim() != "" && ! pending(added)
       send added = addItem(draftTitle.trim(), draftNotes.trim())
   // The sheet closes only on an ok reply; a refusal keeps it open, saying why.
   action afterSave
     refusal = saveError
-    if saveError == "" and top(nav).name == "add"
+    if saveError == "" && top(nav).name == "add"
       nav = back(nav)
   action setLock(id: string, on: bool)
     send lockSaved = lockItem(id, on)
   action aim(id: string)
     aimed = id
   action flipLock
-    send lockSaved = lockItem(aimed, not aimedLocked)
+    send lockSaved = lockItem(aimed, ! aimedLocked)
   // The detail's Delete asks first: it is a loss the item's own screen confirms.
   action askRemove(id: string)
     aimed = id
@@ -118,11 +118,11 @@ component App
               EmptyState(symbol="symbol:alert", title="Can’t Open Items", message="Something went wrong reading them.")
                 button press=reload testId="retry"
                   text "Try Again"
-            else if lib.length == 0 and not pending(lib)
+            else if lib.length == 0 && ! pending(lib)
               EmptyState(symbol="symbol:document", title="No Items", message="Items you add appear here.")
                 button press=openAdd testId="empty-add"
                   text "Add Item"
-            else if shown.length == 0 and not pending(lib)
+            else if shown.length == 0 && ! pending(lib)
               EmptyState(symbol="symbol:search", title=`No Results for “${query.trim()}”`, message="Check the spelling or try a new search.")
             else
               list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
@@ -145,9 +145,9 @@ component App
           column navigationKey=`${e.id}` navigationScroll="item-detail" position="absolute" inset=0
             display="flex" flex-direction="column"
             header display="flex" align-items="center" padding="8px 16px"
-              text (found(lib, e.params.id) or pending(lib) ? titleOf(lib, e.params.id) : "Not Found") role="heading" aria-level=2 testId="detail-title"
+              text (found(lib, e.params.id) || pending(lib) ? titleOf(lib, e.params.id) : "Not Found") role="heading" aria-level=2 testId="detail-title"
             // An id that names nothing (a stale link, /item/999) says so, once the list has loaded.
-            if found(lib, e.params.id) or pending(lib)
+            if found(lib, e.params.id) || pending(lib)
               list id="item-detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
                 for it in lib.filter(x => x.id == e.params.id) key=it.id
                   ItemSections(item=it, setLock=setLock(it.id), askRemove=askRemove(it.id))
@@ -162,7 +162,7 @@ component App
                 image "symbol:close"
               text "New Item" role="heading"
               button press=save buttonStyle="bordered-prominent" aria-label="Save" testId="add-save"
-                disabled=(draftTitle.trim() == "" or pending(added))
+                disabled=(draftTitle.trim() == "" || pending(added))
                 image "symbol:checkmark"
             list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               section

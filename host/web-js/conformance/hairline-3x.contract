@@ -7,7 +7,7 @@
 component Hairline
   state edged = true
   action flip
-    edged = not edged
+    edged = ! edged
   view
     column testId="root" width=420 box-sizing="border-box" padding=16 gap=12
       button testId="flip" press=flip width=80 height=28

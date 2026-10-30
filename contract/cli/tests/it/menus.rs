@@ -176,7 +176,7 @@ fn an_hr_is_one_hairline_with_no_margin_and_its_authors_rows_win() {
 /// text is no width, and the compiler says so.
 #[test]
 fn a_hairline_is_one_device_pixel_of_the_scale_the_host_reports() {
-    let src = "component App\n  state on = true\n  action flip\n    on = not on\n  view\n    column width=200 testId=\"root\"\n      box testId=\"all\" height=20 border=\"-exact-hairline solid -exact-separator\"\n      box testId=\"bottom\" height=20 border-bottom-width=\"-exact-hairline\" border-bottom-style=\"solid\"\n      box testId=\"bound\" height=20 border-top-width=(on ? \"-exact-hairline\" : 0) border-top-style=\"solid\"\n      box testId=\"line\" height=\"-exact-hairline\"\n      row gap=\"-exact-HAIRLINE\" testId=\"gapped\"\n        box width=20 height=20\n        box width=20 height=20 testId=\"second\"\n      hr testId=\"rule\"\n      box testId=\"half\" height=20 border-bottom-width=0.5 border-bottom-style=\"solid\"\n      button press=flip testId=\"flip\"\n        text \"flip\"\n";
+    let src = "component App\n  state on = true\n  action flip\n    on = ! on\n  view\n    column width=200 testId=\"root\"\n      box testId=\"all\" height=20 border=\"-exact-hairline solid -exact-separator\"\n      box testId=\"bottom\" height=20 border-bottom-width=\"-exact-hairline\" border-bottom-style=\"solid\"\n      box testId=\"bound\" height=20 border-top-width=(on ? \"-exact-hairline\" : 0) border-top-style=\"solid\"\n      box testId=\"line\" height=\"-exact-hairline\"\n      row gap=\"-exact-HAIRLINE\" testId=\"gapped\"\n        box width=20 height=20\n        box width=20 height=20 testId=\"second\"\n      hr testId=\"rule\"\n      box testId=\"half\" height=20 border-bottom-width=0.5 border-bottom-style=\"solid\"\n      button press=flip testId=\"flip\"\n        text \"flip\"\n";
     let mut r = boot(src);
     let root = r.kernel().roots()[0];
     let boxes = |r: &mut Runner<NoData>| {
@@ -823,7 +823,7 @@ fn optional_popover_preserves_the_node_and_clears_without_a_journal_refusal() {
         r#"component App
   state full = false
   action flip
-    full = not full
+    full = ! full
   view
     column
       button testId="flip" press=flip

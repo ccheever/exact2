@@ -254,7 +254,7 @@ fn an_old_name_is_refused_with_its_new_one_in_every_context() {
 #[test]
 fn a_class_sets_and_clears_a_renamed_row() {
     let r = boot(
-        "style Pressed\n  -exact-press-scale=0.9\nstyle Plain\n  opacity=1\n\ncomponent App\n  state on = true\n  action flip\n    on = not on\n  view\n    column\n      view class=(on ? Pressed : Plain) press=flip testId=\"a\"\n      view class=Pressed -exact-press-scale=0.8 testId=\"b\"\n",
+        "style Pressed\n  -exact-press-scale=0.9\nstyle Plain\n  opacity=1\n\ncomponent App\n  state on = true\n  action flip\n    on = ! on\n  view\n    column\n      view class=(on ? Pressed : Plain) press=flip testId=\"a\"\n      view class=Pressed -exact-press-scale=0.8 testId=\"b\"\n",
     );
     assert_eq!(style_of(&r, "a").press_scale, 0.9);
     assert_eq!(

@@ -329,7 +329,7 @@ component App
     send fav = star()
   action tick
     n = n + 1
-  task t when not pending(fav)
+  task t when ! pending(fav)
     after(1000, tick)
 
   view

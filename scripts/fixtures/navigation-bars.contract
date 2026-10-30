@@ -83,15 +83,15 @@ component NavigationBars
         column navigationKey="parked-owner" testId="route-parked" position="absolute" inset=0
           button press=restore testId="restore-owners"
             text "Restore retained owners"
-      for e in stack(nav).filter(x => x.name != "glass" and x.name != "clear") key=e.id
-        column navigationKey=`${e.id}` navigationBar=(e.name == "viewer" or e.name == "form" ? "none" : "auto") navigationPresentation=(e.name == "sheet" or e.name == "titled" or e.name == "form" ? "modal" : "") navigationDetent=(e.name == "form" ? "45%" : "") navigationScroll=(e.name == "named" ? "named-second" : "") testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
+      for e in stack(nav).filter(x => x.name != "glass" && x.name != "clear") key=e.id
+        column navigationKey=`${e.id}` navigationBar=(e.name == "viewer" || e.name == "form" ? "none" : "auto") navigationPresentation=(e.name == "sheet" || e.name == "titled" || e.name == "form" ? "modal" : "") navigationDetent=(e.name == "form" ? "45%" : "") navigationScroll=(e.name == "named" ? "named-second" : "") testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
           if e.name == "tall"
             header testId="header-tall" display="flex" align-items="center" padding="8px 16px"
               text "Tall" role="heading" aria-level=1
             scroll testId="tall-scroll" flex=1 min-height=0
               text "tall top" testId="tall-top"
               column height=1600
-          else if e.name == "pair" or e.name == "named"
+          else if e.name == "pair" || e.name == "named"
             header testId=`header-${e.name}` display="flex" align-items="center" padding="8px 16px"
               text "Two" role="heading" aria-level=1
             scroll id=`${e.name}-first` testId=`${e.name}-first` flex=1 min-height=0
@@ -130,7 +130,7 @@ component NavigationBars
                 text "Left" role="heading" aria-level=2
                 text "Right" role="heading" aria-level=2
             column testId=`content-${e.name}` flex=1 min-height=0 padding=16 gap=8
-              if e.name == "own" or e.name == "viewer"
+              if e.name == "own" || e.name == "viewer"
                 button id="back" press=back testId=`${e.name}-back` align-self="flex-start"
                   text "Close"
               text `backs ${backs}` testId=`${e.name}-backs`

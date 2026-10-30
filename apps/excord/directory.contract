@@ -35,21 +35,21 @@ component DirectoryList
           for r in rail key=r.id
             if r.folder
               FolderButton(id=r.id, name=r.name, color=r.color, icons=r.guilds, open=openFolders.includes(r.id),
-                selected=(not dmsShown and r.guilds.map(g => g.id).includes(guild.id)), unread=r.unread, mentions=r.mentions, toggle=toggleFolder)
+                selected=(! dmsShown && r.guilds.map(g => g.id).includes(guild.id)), unread=r.unread, mentions=r.mentions, toggle=toggleFolder)
               if openFolders.includes(r.id)
                 // The folder's servers on a band behind their icons, the pills outside it.
                 column position="relative" padding="2px 0px" margin-bottom=4
                   view position="absolute" top=0 bottom=0 left=8 width="3.5rem" border-radius=16 background-color="-exact-quaternary-fill" aria-hidden=true
                   for g in r.guilds key=g.id
-                    ServerButton(id=g.id, name=g.name, icon=g.icon, acronym=g.acronym, symbol="", selected=(not dmsShown and g.id == guild.id), unread=g.unread, mentions=g.mentions, pick=pickServer)
+                    ServerButton(id=g.id, name=g.name, icon=g.icon, acronym=g.acronym, symbol="", selected=(! dmsShown && g.id == guild.id), unread=g.unread, mentions=g.mentions, pick=pickServer)
             else
               for g in r.guilds key=g.id
-                ServerButton(id=g.id, name=g.name, icon=g.icon, acronym=g.acronym, symbol="", selected=(not dmsShown and g.id == guild.id), unread=g.unread, mentions=g.mentions, pick=pickServer)
+                ServerButton(id=g.id, name=g.name, icon=g.icon, acronym=g.acronym, symbol="", selected=(! dmsShown && g.id == guild.id), unread=g.unread, mentions=g.mentions, pick=pickServer)
       list id="channels" appearance="auto" listStyle="plain" flex=1 min-width=0 padding-left="4.5rem"
         if gw.state == "stopped"
           section
             text `Not connected: ${gw.detail}` color="-exact-system-red" testId="stopped"
-        if not directoryLoaded
+        if ! directoryLoaded
           if directoryFailed
             section
               text "Couldn’t load your channels." color="-exact-system-red" testId="directory-error"

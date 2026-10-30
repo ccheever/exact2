@@ -24,7 +24,7 @@ const HINTS: &str = r#"component App
     log = `${log}d:${k}:${e.code}:${e.repeat}:${e.metaKey};`
     if k == "Meta"
       hints = true
-    if e.metaKey and e.code == "KeyW" and not e.repeat
+    if e.metaKey && e.code == "KeyW" && ! e.repeat
       closed = closed + 1
   action up(k: string, e: KeyboardEvent)
     log = `${log}u:${k}:${e.code}:${e.repeat}:${e.metaKey};`
@@ -161,7 +161,7 @@ const COMPOSER: &str = r#"component App
   state log = ""
   action compose(k: string, e: KeyboardEvent)
     log = `${log}${k}:${e.isComposing};`
-    if k == "Enter" and not e.isComposing
+    if k == "Enter" && ! e.isComposing
       sent = sent + 1
   view
     input key=compose testId="field"
@@ -178,8 +178,8 @@ fn is_composing_lets_a_handler_skip_the_candidates_enter() {
     assert_eq!(r.slot("sent"), Some(&Value::Number(1.0)));
     assert_eq!(r.slot("log"), Some(&Value::str("Enter:true;Enter:false;")));
     // `isComposing` is a bool.
-    let e = contract::compile(&COMPOSER.replace("not e.isComposing", "e.isComposing == 1"))
-        .unwrap_err();
+    let e =
+        contract::compile(&COMPOSER.replace("! e.isComposing", "e.isComposing == 1")).unwrap_err();
     assert_eq!(e.id, "type-operand", "{e}");
 }
 
@@ -199,11 +199,11 @@ component App
     meta = e.metaKey
   action forget()
     meta = false
-  task release when meta and not page.hasFocus
+  task release when meta && ! page.hasFocus
     after(1, forget)
   view
     column key=down keyup=up testId="list"
-      if meta and page.hasFocus
+      if meta && page.hasFocus
         text "⌘" testId="hint"
 "#;
 

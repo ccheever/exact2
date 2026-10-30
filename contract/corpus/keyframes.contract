@@ -15,7 +15,7 @@ style Fresh
 component Checklist
   state doing = true
   action toggle
-    doing = not doing
+    doing = ! doing
   view
     column testId="root"
       button press=toggle aria-label="Toggle" testId="toggle"

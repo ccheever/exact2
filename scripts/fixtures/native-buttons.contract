@@ -20,7 +20,7 @@ component NativeButtons
   action go
     presses = presses + 1
   action fade
-    fading = not fading
+    fading = ! fading
   action choose(p: string)
     period = p
   view

@@ -140,7 +140,7 @@ fn named_surface_arguments_survive_plan_roundtrip_and_live_updates() {
   state paused = false
   state again = false
   action pause
-    paused = not paused
+    paused = ! paused
   view
     canvas surface=world(restart=again, seed=min(9, 7), paused=paused)
 "#;

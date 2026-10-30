@@ -42,7 +42,7 @@ fn text(r: &Runner<NoData>, id: &str) -> String {
 /// once a second while `on` holds, and not after.
 #[test]
 fn the_timer_message_s_task_ticks_while_its_gate_holds() {
-    let wrote = "component App\n  state on = false\n  state n = 0\n  action step\n    n = n + 1\n  action toggle\n    on = not on\n  timer ticker interval=1000 running=on tick=step\n  view\n    button press=toggle testId=\"go\"\n      text `${n}` testId=\"n\"\n";
+    let wrote = "component App\n  state on = false\n  state n = 0\n  action step\n    n = n + 1\n  action toggle\n    on = ! on\n  timer ticker interval=1000 running=on tick=step\n  view\n    button press=toggle testId=\"go\"\n      text `${n}` testId=\"n\"\n";
     let e = contract::compile(wrote).unwrap_err();
     assert_eq!(e.id, "syntax-unknown-section", "{e}");
     let edit = "task stepTimer when on\n    every(1000, step)";

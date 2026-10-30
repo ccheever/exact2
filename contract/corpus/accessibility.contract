@@ -7,7 +7,7 @@ component Accessibility
   action increment
     count = count + 1
   action toggle
-    shown = not shown
+    shown = ! shown
   action nameIt
     named = true
   action setChecked(on: bool)

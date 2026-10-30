@@ -17,7 +17,7 @@ fn app(styles: &str, body: &str) -> String {
         .lines()
         .map(|l| format!("      {l}\n"))
         .collect::<String>();
-    format!("{styles}component App\n  state on = true\n  action flip\n    on = not on\n  view\n    column\n{body}")
+    format!("{styles}component App\n  state on = true\n  action flip\n    on = ! on\n  view\n    column\n{body}")
 }
 
 fn compile(styles: &str, body: &str) -> Plan {

@@ -410,7 +410,7 @@ fn a_replace_that_may_not_be_refused_or_reached_at_launch_is_not_named() {
         // Pressed on a pushed screen, where it replaces that screen.
         ("a pushed screen", first_screen(LEAVE, "e.name == \"habit\"")),
         ("no choice", first_screen(LEAVE, "e.id >= 0")),
-        ("an and", first_screen(LEAVE, "e.name == \"welcome\" and e.id >= 0")),
+        ("an and", first_screen(LEAVE, "e.name == \"welcome\" && e.id >= 0")),
         // Something that moves the router by itself first: a task, or another
         // handler in the same gesture.
         ("a task", first_screen(LEAVE, WELCOME).replace("  action begin\n", "  task t mount\n    after(1, ahead)\n  action ahead\n    nav = open(nav, path(\"habits\"))\n  action begin\n")),

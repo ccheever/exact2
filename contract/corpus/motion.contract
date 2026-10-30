@@ -10,7 +10,7 @@ component Motion
   state auto = false
   state launching = true
   action toggle
-    moved = not moved
+    moved = ! moved
   action bump
     auto = true
   action arrived

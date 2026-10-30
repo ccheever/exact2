@@ -17,7 +17,7 @@ fn line_of(src: &str, needle: &str) -> u32 {
 fn finder(choice: &str) -> String {
     let choice: String = choice.lines().map(|l| format!("        {l}\n")).collect();
     format!(
-        "shape Meal\n  id: string\n  name: string\ncomponent App\n  state query = \"\"\n  state chosen = []\n  state shared = \"\"\n  state tab = \"all\"\n  state open2 = false\n  resource meals = searchMeals(query) as shape Meal[] else empty()\n  resource viewport = exactViewport() as shape Meal else empty()\n  derive showingDetail = chosen.length > 0\n  action edit(v: string)\n    query = v\n  action open(m: Meal)\n    chosen = [m]\n  action back\n    chosen = []\n  action share(m: Meal)\n    shared = m.name\n  action pick(t: string)\n    tab = t\n    chosen = []\n  action toggle\n    open2 = not open2\n  view\n    column height=\"100%\" display=\"flex\" flex-direction=\"column\"\n      row padding=16\n        text \"Recipe Finder\" font-weight=700\n      scroll flex=1 min-height=0\n{choice}"
+        "shape Meal\n  id: string\n  name: string\ncomponent App\n  state query = \"\"\n  state chosen = []\n  state shared = \"\"\n  state tab = \"all\"\n  state open2 = false\n  resource meals = searchMeals(query) as shape Meal[] else empty()\n  resource viewport = exactViewport() as shape Meal else empty()\n  derive showingDetail = chosen.length > 0\n  action edit(v: string)\n    query = v\n  action open(m: Meal)\n    chosen = [m]\n  action back\n    chosen = []\n  action share(m: Meal)\n    shared = m.name\n  action pick(t: string)\n    tab = t\n    chosen = []\n  action toggle\n    open2 = ! open2\n  view\n    column height=\"100%\" display=\"flex\" flex-direction=\"column\"\n      row padding=16\n        text \"Recipe Finder\" font-weight=700\n      scroll flex=1 min-height=0\n{choice}"
     )
 }
 
@@ -122,21 +122,21 @@ fn routes_tabs_loading_empty_disclosure_and_overlays_are_not_named() {
 
 fn siblings(first: &str, second: &str) -> String {
     finder(&format!("if {first}\n{LIST}if {second}\n{LIST}"))
-        .replace("  derive showingDetail", "  derive wide = viewport.name == \"wide\"\n  derive phoneDetail = showingDetail\n  derive mixed = wide or pending(meals)\n  derive mixedState = wide or open2\n  derive showingDetail")
+        .replace("  derive showingDetail", "  derive wide = viewport.name == \"wide\"\n  derive phoneDetail = showingDetail\n  derive mixed = wide || pending(meals)\n  derive mixedState = wide || open2\n  derive showingDetail")
 }
 
 #[test]
 fn complementary_sibling_screens_are_named_once_at_the_first_if() {
     for (first, second) in [
-        ("showingDetail", "not showingDetail"),
-        ("not showingDetail", "showingDetail"),
-        ("not showingDetail", "not not showingDetail"),
+        ("showingDetail", "! showingDetail"),
+        ("! showingDetail", "showingDetail"),
+        ("! showingDetail", "! ! showingDetail"),
         ("chosen.length == 0", "chosen.length != 0"),
-        ("wide or not phoneDetail", "wide or phoneDetail"),
-        ("not phoneDetail or wide", "wide or phoneDetail"),
+        ("wide || ! phoneDetail", "wide || phoneDetail"),
+        ("! phoneDetail || wide", "wide || phoneDetail"),
         (
-            "viewport.name == \"wide\" or showingDetail",
-            "viewport.name == \"wide\" or not showingDetail",
+            "viewport.name == \"wide\" || showingDetail",
+            "viewport.name == \"wide\" || ! showingDetail",
         ),
     ] {
         let src = siblings(first, second);
@@ -152,23 +152,23 @@ fn complementary_sibling_screens_are_named_once_at_the_first_if() {
 fn unrelated_responsive_and_loading_siblings_stay_quiet() {
     for (first, second) in [
         ("showingDetail", "open2"),
-        ("wide", "not wide"),
-        ("wide or showingDetail", "not wide or not showingDetail"),
+        ("wide", "! wide"),
+        ("wide || showingDetail", "! wide || ! showingDetail"),
         (
-            "viewport.name == \"wide\" or showingDetail",
-            "viewport.name == \"narrow\" or not showingDetail",
+            "viewport.name == \"wide\" || showingDetail",
+            "viewport.name == \"narrow\" || ! showingDetail",
         ),
-        ("mixed or showingDetail", "mixed or not showingDetail"),
+        ("mixed || showingDetail", "mixed || ! showingDetail"),
         (
-            "mixedState or showingDetail",
-            "mixedState or not showingDetail",
+            "mixedState || showingDetail",
+            "mixedState || ! showingDetail",
         ),
-        ("pending(meals)", "not pending(meals)"),
+        ("pending(meals)", "! pending(meals)"),
         (
-            "pending(meals) or showingDetail",
-            "not (pending(meals) or showingDetail)",
+            "pending(meals) || showingDetail",
+            "! (pending(meals) || showingDetail)",
         ),
-        ("wide or pending(meals)", "wide or not pending(meals)"),
+        ("wide || pending(meals)", "wide || ! pending(meals)"),
     ] {
         let src = siblings(first, second);
         assert_eq!(warned(&src), [], "{first} / {second}");
@@ -177,14 +177,14 @@ fn unrelated_responsive_and_loading_siblings_stay_quiet() {
 
 #[test]
 fn sibling_swaps_keep_the_screen_exemptions_and_outermost_warning() {
-    let pair = format!("if showingDetail\n{LIST}if not showingDetail\n{LIST}");
+    let pair = format!("if showingDetail\n{LIST}if ! showingDetail\n{LIST}");
     for choice in [
         format!(
             "dialog id=\"d\" closedby=\"any\"\n  {}",
             pair.replace('\n', "\n  ")
         ),
         format!("column role=\"tabpanel\"\n  {}", pair.replace('\n', "\n  ")),
-        format!("if showingDetail\n{LIST}if not showingDetail\n  text \"Empty\""),
+        format!("if showingDetail\n{LIST}if ! showingDetail\n  text \"Empty\""),
         pair.replace("press=open(m)", "press=share(m)"),
     ] {
         assert_eq!(warned(&finder(&choice)), []);
@@ -205,7 +205,7 @@ fn sibling_swaps_keep_the_screen_exemptions_and_outermost_warning() {
 
     let nested = pair.lines().map(|l| format!("  {l}\n")).collect::<String>();
     for choice in [
-        format!("if showingDetail\n{nested}if not showingDetail\n{nested}"),
+        format!("if showingDetail\n{nested}if ! showingDetail\n{nested}"),
         format!("if showingDetail\n{nested}else\n{nested}"),
     ] {
         let src = finder(&choice);
@@ -231,7 +231,7 @@ fn persisted_state_in_a_viewport_arm_does_not_hide_a_later_screen_swap() {
         .replace("\n  ", "\n    ")
         .replacen("  column", "    column", 1);
     let src = finder(&format!(
-        "if viewport.name == \"wide\" and hidden\n  text \"Hidden\"\nelse if showingDetail\n  for m in chosen key=m.id\n{detail}else if not showingDetail\n{LIST}"
+        "if viewport.name == \"wide\" && hidden\n  text \"Hidden\"\nelse if showingDetail\n  for m in chosen key=m.id\n{detail}else if ! showingDetail\n{LIST}"
     ))
     .replace("  state open2", "  state hidden = false persist\n  state open2");
     assert_eq!(

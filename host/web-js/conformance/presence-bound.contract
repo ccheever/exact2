@@ -8,12 +8,12 @@ component PresenceBound
   state calm = true
   state shown = true
   action motion
-    calm = not calm
+    calm = ! calm
   action drop
-    shown = not shown
+    shown = ! shown
   action both
-    calm = not calm
-    shown = not shown
+    calm = ! calm
+    shown = ! shown
   view
     column testId="root" padding=10
       row gap=8

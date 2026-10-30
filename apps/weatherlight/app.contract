@@ -168,11 +168,11 @@ component Weatherlight
   resource viewport = exactViewport() as shape Viewport
   resource power = powerState() as shape PowerState else empty()
   resource network = connection() as shape NetworkInformation else empty(type="unknown")
-  derive hot = match power.thermalState { case some(t) => t == "serious" or t == "critical", case none => false }
-  derive resting = power.lowPowerMode or hot
-  derive animated = skyChoice == "play" or (skyChoice == "" and not resting)
-  derive saving = power.lowPowerMode or network.saveData
-  derive wide = viewport.width >= 1100 and viewport.width > viewport.height
+  derive hot = match power.thermalState { case some(t) => t == "serious" || t == "critical", case none => false }
+  derive resting = power.lowPowerMode || hot
+  derive animated = skyChoice == "play" || (skyChoice == "" && ! resting)
+  derive saving = power.lowPowerMode || network.saveData
+  derive wide = viewport.width >= 1100 && viewport.width > viewport.height
   derive tv = viewport.pointer == "none"
   derive locationError = asked == locating ? match failure(located) { case some(f) => f.code, case none => "" } : ""
   // A TV is read from across a room: text, and the boxes sized by it, grow.
@@ -285,14 +285,14 @@ component Weatherlight
   action askReview
     requestReview()
     send reviewed = reviewAsked()
-  task reviewing when review.available and outlook.ready and visit.ask
+  task reviewing when review.available && outlook.ready && visit.ask
     after(2000, askReview)
   // Refresh every ten minutes by the clock, not by counting ticks, which a
   // suspension skips; every thirty while saving. The first forecast is
   // fetched at once whatever the device says.
   action tick
     let now = performanceNow()
-    if revision == 0 or now - refreshedAt >= (saving ? 1800000 : 600000)
+    if revision == 0 || now - refreshedAt >= (saving ? 1800000 : 600000)
       revision = revision + 1
       refreshedAt = now
   task updates mount
@@ -309,7 +309,7 @@ component Weatherlight
               text "weatherlight" color="AccentColor" font-size=(24 * k) font-family="serif" font-weight=600 letter-spacing=-1
               text "A LITTLE CLOSER TO OUTSIDE" font-size=(9 * k) font-weight=600 letter-spacing=2 color="-exact-secondary-label"
           row align-items="center" gap=8 order=2
-            if location.available and location.state != "denied"
+            if location.available && location.state != "denied"
               button press=useLocation testId="use-location" padding=11 border-radius=22 background-color=(following ? "-exact-fill" : "-exact-tertiary-fill")
                 text (following ? "◉  Following you" : "◎  Use my location") font-size=(13 * k) color="-exact-label"
             button press=openSearch testId="change-city" aria-label="Search for a city" padding=11 border-radius=22 background-color="-exact-tertiary-fill"
@@ -338,7 +338,7 @@ component Weatherlight
             text "Location is off for Weatherlight. Turn it on in Settings, or choose a city." font-size=(13 * k) color="-exact-label" flex=1
             button press=openSettings testId="open-settings" padding=8 border-radius=14 background-color="-exact-fill"
               text "Open Settings" font-size=(12 * k) color="-exact-label"
-        if location.state != "denied" and locationError != ""
+        if location.state != "denied" && locationError != ""
           row padding=14 border-radius=14 background-color="-exact-secondary-grouped-background" testId="location-error"
             text (locationError == "PERMISSION_DENIED" ? "Location access was denied. Allow location in your browser or device settings, or choose a city." : "Couldn't get your location. Try again, or choose a city.") font-size=(13 * k) color="-exact-label"
         if supporting
@@ -383,7 +383,7 @@ component Weatherlight
                 if selected != "now"
                   button press=explore("now") testId="back-now" padding=10 border-radius=18 background-color="-exact-fill"
                     text "↶ Back to now" font-size=(12 * k) color="-exact-label"
-            if forecast.message != "" and not pending(forecast)
+            if forecast.message != "" && ! pending(forecast)
               row gap=12 justify-content="space-between" align-items="center" padding=14 border-radius=12 background-color="-exact-secondary-grouped-background" testId="network-notice"
                 text forecast.message color="-exact-label" font-size=(13 * k) flex=1
                 button appearance="none" press=reloadWeather testId="retry-weather" padding=8
@@ -397,21 +397,21 @@ component Weatherlight
               // The row scrolls sideways; a faded edge says more cards are there.
               view position="relative"
                 row overflow-x="scroll" overflow-y="hidden" gap=(tv ? 20 : 8) padding-top=(tv ? 8 : 0) padding-left=(tv ? 12 : 0) padding-right=(tv ? 12 : 0) padding-bottom=(tv ? 12 : 8) scroll=hoursScrolled testId="hourly-timeline"
-                  button press=explore("now") testId="hour-now" disabled=(not outlook.ready) height=(150 * k) width=(88 * k) flex-shrink=0 padding=14 box-sizing="border-box" border-radius=16 background-color=(selected == "now" ? "AccentColor" : "-exact-secondary-grouped-background")
+                  button press=explore("now") testId="hour-now" disabled=(! outlook.ready) height=(150 * k) width=(88 * k) flex-shrink=0 padding=14 box-sizing="border-box" border-radius=16 background-color=(selected == "now" ? "AccentColor" : "-exact-secondary-grouped-background")
                     column gap=13 align-items="center"
                       text "Now" font-size=(12 * k) color=(selected == "now" ? "light-dark(#ffffff, #000000)" : "-exact-secondary-label")
                       text "◉" font-size=(22 * k) color=(selected == "now" ? "light-dark(#ffffff, #000000)" : "-exact-system-brown")
                       text (outlook.ready ? "Live" : "—") font-size=(16 * k) font-weight=600 color=(selected == "now" ? "light-dark(#ffffff, #000000)" : "-exact-label")
                       text "Today" font-size=(10 * k) color=(selected == "now" ? "light-dark(#ffffff, #000000)" : "-exact-secondary-label")
                   for hour in outlook.hours key=hour.id
-                    button press=explore(hour.id) disabled=(not outlook.ready) testId=`hour-${hour.id}` aria-label=`${hour.label}, ${hour.temp}, ${hour.chance} chance of precipitation` scale=(selected == hour.id ? 1.025 : 1) transition="scale 180ms ease" height=(150 * k) width=(88 * k) flex-shrink=0 padding=14 box-sizing="border-box" border-radius=16 background-color=(selected == hour.id ? "AccentColor" : "-exact-secondary-grouped-background")
+                    button press=explore(hour.id) disabled=(! outlook.ready) testId=`hour-${hour.id}` aria-label=`${hour.label}, ${hour.temp}, ${hour.chance} chance of precipitation` scale=(selected == hour.id ? 1.025 : 1) transition="scale 180ms ease" height=(150 * k) width=(88 * k) flex-shrink=0 padding=14 box-sizing="border-box" border-radius=16 background-color=(selected == hour.id ? "AccentColor" : "-exact-secondary-grouped-background")
                       column gap=13 align-items="center"
                         text hour.label font-size=(12 * k) color=(selected == hour.id ? "light-dark(#ffffff, #000000)" : "-exact-secondary-label")
                         text hour.icon font-size=(22 * k) color=(selected == hour.id ? "light-dark(#ffffff, #000000)" : "-exact-system-brown")
                         text hour.temp font-size=(18 * k) font-weight=600 color=(selected == hour.id ? "light-dark(#ffffff, #000000)" : "-exact-label")
                         text hour.chance font-size=(10 * k) color=(selected == hour.id ? "light-dark(#ffffff, #000000)" : "-exact-secondary-label")
                 row position="absolute" top=0 bottom=0 left=0 width=56 background-image="linear-gradient(90deg, -exact-grouped-background 0%, transparent 100%)" opacity=(hoursLeft ? 1 : 0) transition="opacity 160ms ease" pointer-events="none" aria-hidden=true testId="hours-more-left"
-                row position="absolute" top=0 bottom=0 right=0 width=56 background-image="linear-gradient(270deg, -exact-grouped-background 0%, transparent 100%)" opacity=(hoursRight and outlook.ready ? 1 : 0) transition="opacity 160ms ease" pointer-events="none" aria-hidden=true testId="hours-more-right"
+                row position="absolute" top=0 bottom=0 right=0 width=56 background-image="linear-gradient(270deg, -exact-grouped-background 0%, transparent 100%)" opacity=(hoursRight && outlook.ready ? 1 : 0) transition="opacity 160ms ease" pointer-events="none" aria-hidden=true testId="hours-more-right"
           // Wide, the page fills the screen and the column is as tall as the
           // sky and the hours beside it; its cards scroll inside it, where
           // positioned, they add nothing to its height.
@@ -503,7 +503,7 @@ component Support
         button appearance="none" press=close testId="close-support" aria-label="Close Weatherlight+" padding=8
           text "Close ×" font-size=(16 * k) color="-exact-secondary-label"
       text (plus ? "You have Weatherlight+: sixteen days ahead." : "See sixteen days ahead instead of seven.") testId="plus-state" font-size=(13 * k) color="-exact-label"
-      if not plus
+      if ! plus
         for plan in plans.filter(p => p.type == "subscription") key=plan.itemId
           button press=upgrade(plan.itemId) disabled=busy testId=(plan.itemId == "plus.yearly" ? "plan-yearly" : "plan-monthly") padding=12 border-radius=10 background-color="-exact-grouped-background"
             row justify-content="space-between" gap=12 flex-wrap="wrap"

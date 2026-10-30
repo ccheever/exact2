@@ -430,7 +430,7 @@ fn direction_is_css_direction() {
 /// computed value, a `light-dark()` arm and a border side.
 #[test]
 fn transparent_is_a_colour() {
-    let src = "component A\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"box\" background-color=\"transparent\" color=(on ? \"#ff0000\" : \"TRANSPARENT\") border-color=\"transparent currentcolor\"\n      text \"a\" testId=\"text\" background-color=\"light-dark(transparent, #000000)\"\n";
+    let src = "component A\n  state on = false\n  action flip\n    on = ! on\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"box\" background-color=\"transparent\" color=(on ? \"#ff0000\" : \"TRANSPARENT\") border-color=\"transparent currentcolor\"\n      text \"a\" testId=\"text\" background-color=\"light-dark(transparent, #000000)\"\n";
     let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
     let plan = contract::bake(plan, NoData).unwrap();
     let mut r = Runner::boot(
@@ -611,9 +611,9 @@ fn a_glass_group_may_take_its_spacing_from_its_gap() {
   state wide = true
   state inner = true
   action flip
-    wide = not wide
+    wide = ! wide
   action turn
-    inner = not inner
+    inner = ! inner
   view
     column
       row testId="auto" glassGroup="auto" gap=8
@@ -1135,7 +1135,7 @@ fn percentage_corner_radii_survive_boot_and_dynamic_updates() {
 component Corners
   state round = false
   action flip
-    round = not round
+    round = ! round
   view
     button press=flip testId="box" width=160 height=80 border-radius=(round ? "50%" : "4px")
       view testId="static" border-radius="25%"

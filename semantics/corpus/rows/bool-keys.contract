@@ -10,7 +10,7 @@ component App
   derive items = ab.length >= c.length ? ab : c
   state flip = false
   action toggle
-    flip = not flip
+    flip = ! flip
   view
     column
       button "toggle" press=toggle testId="toggle"

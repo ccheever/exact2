@@ -14,7 +14,7 @@ component App
     column
       button press=reload testId="refresh"
         text "Refresh"
-      scroll refresh=reload refreshing=(pending(feed) and feed.owner == account) flex=1 min-height=0
+      scroll refresh=reload refreshing=(pending(feed) && feed.owner == account) flex=1 min-height=0
         if pending(feed)
           progress aria-label="Loading" testId="loading"
         if failed(feed)
@@ -22,7 +22,7 @@ component App
           button press=reload testId="retry"
             text "Try Again"
         if feed.owner == account
-          if feed.posts.length == 0 and not failed(feed)
+          if feed.posts.length == 0 && ! failed(feed)
             text "No posts yet."
           for p, i in feed.posts key=p
             text p testId=`post-${i}`

@@ -19,7 +19,7 @@ impl Edit {
     }
 }
 
-/// Rewrite retired list types, free method calls and view keywords. Other syntax
+/// Rewrite retired list types, free method calls, view keywords and operators. Other syntax
 /// errors refuse the migration without changing the source.
 pub fn migrate(src: &str) -> Result<String, Vec<SyntaxError>> {
     let (parsed, edits) = crate::parser::parsed_with_edits(src, 0);
@@ -56,6 +56,10 @@ pub fn migrate(src: &str) -> Result<String, Vec<SyntaxError>> {
 pub fn is_retired(id: &str) -> bool {
     matches!(
         id,
-        "syntax-list-type" | "syntax-method-form" | "syntax-view-keyword" | "syntax-else-keyword"
+        "syntax-list-type"
+            | "syntax-method-form"
+            | "syntax-view-keyword"
+            | "syntax-else-keyword"
+            | "syntax-operator-spelling"
     )
 }

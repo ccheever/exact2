@@ -37,7 +37,7 @@ component App
   action compose
     composed = composed + 1
   action toggleTray
-    tray = not tray
+    tray = ! tray
   view
     column globalshortcut=pressed padding=16 gap=8
       h1 "Desktop"

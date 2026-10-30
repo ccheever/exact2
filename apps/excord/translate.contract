@@ -22,7 +22,7 @@ shape Translated
 fn withTranslated(ts: Translated[], t: Translated): Translated[] = ts.filter(x => x.id != t.id).concat([t])
 // A failure's line, by the error's name (D7): a pack that is not there, a
 // download the person declined, or anything else.
-fn translateFailure(code: string, name: string): string = code == "InvalidStateError" or code == "NotAllowedError" ? `${name} isn’t downloaded` : "Couldn’t translate this message"
+fn translateFailure(code: string, name: string): string = code == "InvalidStateError" || code == "NotAllowedError" ? `${name} isn’t downloaded` : "Couldn’t translate this message"
 
 // The line a translation in progress shows: its failure, or its download.
 fn pendingLineOf(failed: string, name: string, pair: TranslatorAvailability): string = failed != "" ? translateFailure(failed, name) : (pair.availability == "downloading" ? `Downloading ${name}…${match pair.progress { case some(p) => ` ${round(p * 100)}%`, case none => "" }}` : "")

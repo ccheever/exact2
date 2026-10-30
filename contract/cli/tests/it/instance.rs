@@ -738,7 +738,7 @@ fn a_row_owned_state_reaches_the_rows_of_the_uses_own_each() {
         "column",
         "list virtualized=true height=400 estimated-item-height=40",
     ] {
-        let src = format!("shape Station\n  id: string\n  name: string\ncomponent App\n  resource stations = stations(\"asc\") as shape Station[]\n  view\n    column\n      for outer in stations key=outer.id\n        Rows(outer=outer, items=stations)\ncomponent Rows\n  props\n    outer: Station\n    items: Station[]\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      button \"flip\" press=flip testId=`flip-${{outer.id}}`\n      {list}\n        for item in items key=item.id\n          text (on ? \"on\" : \"off\") height=40 testId=`row-${{outer.id}}-${{item.id}}`\n");
+        let src = format!("shape Station\n  id: string\n  name: string\ncomponent App\n  resource stations = stations(\"asc\") as shape Station[]\n  view\n    column\n      for outer in stations key=outer.id\n        Rows(outer=outer, items=stations)\ncomponent Rows\n  props\n    outer: Station\n    items: Station[]\n  state on = false\n  action flip\n    on = ! on\n  view\n    column\n      button \"flip\" press=flip testId=`flip-${{outer.id}}`\n      {list}\n        for item in items key=item.id\n          text (on ? \"on\" : \"off\") height=40 testId=`row-${{outer.id}}-${{item.id}}`\n");
         let mut r = Runner::boot(
             contract::compile(&src).unwrap(),
             Stations,

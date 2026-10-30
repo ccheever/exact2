@@ -30,7 +30,7 @@ shape Stepped
   error: string
 
 fn portLabel(p: SerialPortRecord): string = p.name != "" ? p.name : p.id
-fn inUse(code: string): bool = code == "InvalidStateError" or code == "NetworkError"
+fn inUse(code: string): bool = code == "InvalidStateError" || code == "NetworkError"
 
 component App
   state tab = "monitor"
@@ -47,12 +47,12 @@ component App
   resource ports = portList(serial.attachedList) as shape SerialPortRecord[] else empty()
   derive chosen = ports.filter(p => p.id == port)
   derive portHere = chosen.filter(p => p.connected).length > 0
-  derive portRefused = chosen.filter(p => not p.granted).length > 0 and serial.state == "granted"
+  derive portRefused = chosen.filter(p => ! p.granted).length > 0 && serial.state == "granted"
   mutation picked as shape SerialPortRecord then pickedPort
   mutation opened as shape SerialOpened then connected
   resource conn = serialConnection(connection=connection) as shape SerialConnection else empty()
   resource log = serialLog(connection) as shape SerialLog else empty()
-  derive unplugged = connection != "" and (not conn.connected or log.error == "Disconnected")
+  derive unplugged = connection != "" && (! conn.connected || log.error == "Disconnected")
   derive openFailure = match failure(opened) { case some(f) => f.code, case none => "" }
   mutation sent as shape Sent
   mutation cleared as shape Cleared refreshes log
@@ -84,7 +84,7 @@ component App
   derive stepWritten = match stepped { case some(s) => s.written, case none => 0 }
   derive stepError = match stepped { case some(s) => s.error, case none => "" }
   // One step of the update at a time, each after the wait the board asked for (DFU's bwPollTimeout).
-  task stepping when updating and not pending(stepped)
+  task stepping when updating && ! pending(stepped)
     every(10, step)
 
   action show(t: string)
@@ -163,7 +163,7 @@ component App
             text "Firmware Update"
       if tab == "monitor"
         column role="tabpanel" flex=1 min-height=0 gap=8 padding="0px 16px 16px"
-          if not serial.available
+          if ! serial.available
             text "This device has no serial ports." testId="no-serial"
           else
             row gap=8 align-items="center" flex-wrap="wrap"
@@ -186,16 +186,16 @@ component App
                 option "CR" value="cr"
                 option "CR LF" value="crlf"
               if connection == ""
-                button press=connect disabled=(port == "" or not portHere or pending(opened)) testId="connect"
+                button press=connect disabled=(port == "" || ! portHere || pending(opened)) testId="connect"
                   text "Connect"
               else
                 button press=disconnect testId="disconnect"
                   text "Disconnect"
-                button press=resetBoard disabled=(resetting or unplugged) testId="reset-board"
+                button press=resetBoard disabled=(resetting || unplugged) testId="reset-board"
                   text "Reset Board"
               button press=clear disabled=(connection == "") testId="clear"
                 text "Clear"
-            if inUse(openFailure) and connection == ""
+            if inUse(openFailure) && connection == ""
               text "In use: another program or window has this port open." color="-exact-system-red" testId="in-use"
             if portRefused
               text "This port can't be opened: add a udev rule that gives your user access to it." testId="udev"
@@ -206,10 +206,10 @@ component App
                 row gap=8
                   text l.text font="-exact-footnote" font-family="monospace" color=(l.error != "" ? "-exact-secondary-label" : "-exact-label") flex=1 testId=`line-${l.id}`
             row gap=8
-              input value=draft input=type submit=sendDraft disabled=(connection == "" or unplugged) placeholder="Send to the board" aria-label="Send" testId="send" flex=1 min-width=0
+              input value=draft input=type submit=sendDraft disabled=(connection == "" || unplugged) placeholder="Send to the board" aria-label="Send" testId="send" flex=1 min-width=0
       else
         column role="tabpanel" flex=1 min-height=0 gap=12 padding="0px 16px 16px"
-          if not usb.available
+          if ! usb.available
             text "This device can't reach USB devices." testId="no-usb"
           else
             if usb.attachedList
@@ -229,7 +229,7 @@ component App
               button press=pickFile disabled=updating testId="choose-file"
                 text "Choose File…"
               text (imageName == "" ? "No file chosen" : imageName) flex=1 testId="file-name"
-            button press=update disabled=(board == "" or image == "" or updating) buttonStyle="bordered-prominent" testId="update"
+            button press=update disabled=(board == "" || image == "" || updating) buttonStyle="bordered-prominent" testId="update"
               text (updating ? "Updating…" : "Update")
             if total > 0
               progress value=written max=total aria-label="Update progress" testId="progress"

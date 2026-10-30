@@ -136,7 +136,7 @@ fn a_resize_takes_new_places_without_sliding() {
 fn a_resize_retires_running_layout_in_its_own_batch() {
     for width in ["100", "\"100%\""] {
         let mut host = boot_source(&format!(
-            "component App\n  state moved = false\n  action move\n    moved = not moved\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      view height=(moved ? 80 : 20)\n      view testId=\"box\" width={width} height=(moved ? 100 : 50) -exact-layout-transition=\"1s linear\"\n"
+            "component App\n  state moved = false\n  action move\n    moved = ! moved\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      view height=(moved ? 80 : 20)\n      view testId=\"box\" width={width} height=(moved ? 100 : 50) -exact-layout-transition=\"1s linear\"\n"
         ));
         let box_id = view(&host, "box").unwrap();
         let move_id = view(&host, "move").unwrap();
@@ -192,7 +192,7 @@ fn boot_source(source: &str) -> Host<NoData> {
 #[test]
 fn a_box_that_grows_starts_its_surface_at_its_old_size() {
     let mut host = boot_source(
-        "component App\n  state open = false\n  action toggle\n    open = not open\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      column testId=\"card\" -exact-layout-transition=\"400ms linear\"\n        text \"Title\"\n        if open\n          view height=120\n",
+        "component App\n  state open = false\n  action toggle\n    open = ! open\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      column testId=\"card\" -exact-layout-transition=\"400ms linear\"\n        text \"Title\"\n        if open\n          view height=120\n",
     );
     let (card, toggle) = (view(&host, "card").unwrap(), view(&host, "toggle").unwrap());
     let before = host.runner().kernel().node(card).unwrap().frame;
@@ -276,7 +276,7 @@ fn clip_shown(
         }
     });
     let mut host = boot_source(&format!(
-        "component App\n  state closed = false\n  action toggle\n    closed = not closed\n  view\n    column\n      button \"Toggle\" press=toggle testId=\"toggle\"\n      view testId=\"clip\" width={w} height={h} overflow=\"hidden\" -exact-layout-transition=\"{transition}\"\n        view testId=\"child\" width=200 height=200 background-color=\"red\"\n"
+        "component App\n  state closed = false\n  action toggle\n    closed = ! closed\n  view\n    column\n      button \"Toggle\" press=toggle testId=\"toggle\"\n      view testId=\"clip\" width={w} height={h} overflow=\"hidden\" -exact-layout-transition=\"{transition}\"\n        view testId=\"child\" width=200 height=200 background-color=\"red\"\n"
     ));
     let (clip, child, toggle) = (
         view(&host, "clip").unwrap(),
@@ -326,7 +326,7 @@ fn clip_shown(
 #[test]
 fn a_node_that_gains_the_row_animates_its_first_move() {
     let mut host = boot_source(
-        "component App\n  state on = false\n  action go\n    on = true\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      if not on\n        view height=50\n      text \"B\" testId=\"b\" -exact-layout-transition=(on ? \"200ms linear\" : \"none\")\n",
+        "component App\n  state on = false\n  action go\n    on = true\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      if ! on\n        view height=50\n      text \"B\" testId=\"b\" -exact-layout-transition=(on ? \"200ms linear\" : \"none\")\n",
     );
     let (b, go) = (view(&host, "b").unwrap(), view(&host, "go").unwrap());
     // One commit gains the row and moves the node: as a CSS transition
@@ -437,7 +437,7 @@ fn removing_a_layout_transition_presents_identity_mid_move() {
 #[test]
 fn hiding_an_ancestor_retires_a_descendants_layout_presentation() {
     let mut host = boot_source(
-        "component App\n  state moved = false\n  state hidden = false\n  action move\n    moved = true\n  action toggle\n    hidden = not hidden\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      button \"Hide\" press=toggle testId=\"toggle\"\n      column display=(hidden ? \"none\" : \"flex\")\n        view height=(moved ? 80 : 20)\n        view testId=\"box\" height=(moved ? 100 : 50) -exact-layout-transition=\"1s linear\"\n",
+        "component App\n  state moved = false\n  state hidden = false\n  action move\n    moved = true\n  action toggle\n    hidden = ! hidden\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      button \"Hide\" press=toggle testId=\"toggle\"\n      column display=(hidden ? \"none\" : \"flex\")\n        view height=(moved ? 80 : 20)\n        view testId=\"box\" height=(moved ? 100 : 50) -exact-layout-transition=\"1s linear\"\n",
     );
     let box_id = view(&host, "box").unwrap();
     host.dispatch_at(view(&host, "move").unwrap(), Event::Press, 0.0);
@@ -471,7 +471,7 @@ fn a_layout_springs_size_overshoot_is_clamped_to_zero() {
 #[test]
 fn a_box_crossing_into_its_block_does_not_move() {
     let mut host = boot_source(
-        "component App\n  state inflow = true\n  action lift\n    inflow = not inflow\n  view\n    column\n      button \"Lift\" press=lift testId=\"lift\"\n      view height=100\n      view testId=\"box\" popover=\"manual\" position=(inflow ? \"sticky\" : \"absolute\") height=50 -exact-layout-transition=\"1s linear\"\n",
+        "component App\n  state inflow = true\n  action lift\n    inflow = ! inflow\n  view\n    column\n      button \"Lift\" press=lift testId=\"lift\"\n      view height=100\n      view testId=\"box\" popover=\"manual\" position=(inflow ? \"sticky\" : \"absolute\") height=50 -exact-layout-transition=\"1s linear\"\n",
     );
     let box_id = view(&host, "box").unwrap();
     let kernel = |host: &Host<NoData>| host.runner().kernel().host_block(box_id).is_some();

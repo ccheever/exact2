@@ -9,9 +9,9 @@ component Fixture
   state last = ""
   resource heard = swatchReports() as shape SwatchReports else empty()
   action show
-    shown = not shown
+    shown = ! shown
   action hide
-    hidden = not hidden
+    hidden = ! hidden
   action recolor
     tint = (tint == "#d33" ? "#36c" : "#d33")
   action tapped(at: string)

@@ -57,7 +57,7 @@ pub const PAINT_SOURCE: &str = r##"keyframes fade
 component PaintGroups
   state on = false
   action flip
-    on = not on
+    on = ! on
   view
     column testId="root" width=240 height=240 background-color="#ffffff"
       view testId="nested-z" position="relative" width=120 height=80
@@ -102,9 +102,9 @@ component PresenceTimeline
   state large = false
   state shown = true
   action move
-    moved = not moved
+    moved = ! moved
   action grow
-    large = not large
+    large = ! large
   action hide
     shown = false
   view
@@ -162,7 +162,7 @@ pub const GEOMETRY_SOURCE: &str = r##"component GeometryReads
     left = frame("sheet").x
     natural = measure("sheet").height
     sized = frame("sheet").height
-    answered = not frame("bay").unavailable and not measure("sheet").unavailable
+    answered = ! frame("bay").unavailable && ! measure("sheet").unavailable
     missing = frame("nowhere").unavailable
   action first
     seenA = frame("bay").height

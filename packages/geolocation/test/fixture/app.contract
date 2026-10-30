@@ -16,7 +16,7 @@ component Fixture
   action locate
     send once = getCurrentPosition(maximumAge=0, enableHighAccuracy=false)
   action toggle
-    watching = not watching
+    watching = ! watching
   action raise
     send precise = requestPreciseLocation(purposeKey="purpose.geolocation")
   view

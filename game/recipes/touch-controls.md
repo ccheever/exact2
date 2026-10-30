@@ -52,7 +52,7 @@ component Game
   state touchControls = "auto"
   view
     canvas surface=world() testId="world" width="100%" height="100%"
-      if touchControls == "always" or (touchControls == "auto" and viewport.pointer == "coarse")
+      if touchControls == "always" || (touchControls == "auto" && viewport.pointer == "coarse")
         button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48
         button action="jump" testId="jump" position="absolute" right=24 bottom=24 padding=16
           text "Jump"

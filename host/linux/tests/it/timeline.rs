@@ -102,7 +102,7 @@ component Row
     n: number
   state kept = false
   action keep
-    kept = not kept
+    kept = ! kept
   view
     box testId=`row-${n}` timeline-scope="--swipe" width=300 height=56 flex-shrink=0 position="relative" overflow="hidden" box-sizing="border-box" padding=0 border-width=0
       box testId=`label-${n}` position="absolute" left=0 top=0 width=64 height="100%" animation="reveal 1s linear both" animation-timeline="--swipe" animation-range="0px 64px"
@@ -211,7 +211,7 @@ const UNRESOLVED: &str = r##"keyframes fade
 component App
   state two = true
   action flip
-    two = not two
+    two = ! two
   action noop
     two = two
   view
@@ -309,7 +309,7 @@ component App
   action geometry(w: number, h: number, pw: number, ph: number)
     x = x
   action release(px: number, py: number, s: number, vx: number, vy: number, vs: number)
-    x = ((px > 120 or vx > 800) ? 600 : 0)
+    x = ((px > 120 || vx > 800) ? 600 : 0)
   view
     box width="100%" height="100%"
       box testId="clip" timeline-scope="--fling" position="absolute" left=0 top=0 width=300 height=400 overflow="hidden" box-sizing="border-box" padding=0 border-width=0

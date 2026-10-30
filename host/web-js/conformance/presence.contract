@@ -22,9 +22,9 @@ component Presence
   state shown = true
   state third = true
   action toggle
-    shown = not shown
+    shown = ! shown
   action drop
-    third = not third
+    third = ! third
   view
     column testId="root" padding=10
       row gap=8

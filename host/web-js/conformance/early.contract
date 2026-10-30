@@ -17,7 +17,7 @@ component Early
   state words = ""
   state pick = "one"
   action toggleA(on: bool)
-    a = not a
+    a = ! a
   action setB(value: bool)
     b = value
   action setWords(value: string)

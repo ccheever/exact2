@@ -48,16 +48,16 @@ component Forest
     torches = n
 
   action toggleLite
-    lite = not lite
+    lite = ! lite
 
   action togglePrimitives
-    primitives = not primitives
+    primitives = ! primitives
 
   action togglePause
-    paused = not paused
+    paused = ! paused
 
   action restart
-    again = not again
+    again = ! again
     paused = false
 
   action menu

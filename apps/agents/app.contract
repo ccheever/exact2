@@ -106,12 +106,12 @@ component Agents
   resource data = snapshot(selected, query, revision, time.epochAtZero + tick, time.utcOffset) as shape Snapshot
   resource models = catalog(modelQuery, top(nav).name == "new") as shape Option[] else empty()
   derive streaming = data.rows.filter(r => r.streaming).length > 0
-  derive canSend = draft.trim() != "" and not data.streaming and not pending(changed)
+  derive canSend = draft.trim() != "" && ! data.streaming && ! pending(changed)
   // The device's model: offered unless this device or platform can never run one.
   resource device = languageModelAvailability() as shape LanguageModelAvailability else empty()
   mutation fetched as shape LanguageModelInfo then afterFetch
   derive deviceReason = match device.reason { case some(r) => r, case none => "" }
-  derive deviceOffered = not (device.availability == "unavailable" and (deviceReason == "device-not-eligible" or deviceReason == "not-supported"))
+  derive deviceOffered = ! (device.availability == "unavailable" && (deviceReason == "device-not-eligible" || deviceReason == "not-supported"))
   derive deviceReady = device.availability == "available"
   derive deviceProgress = match device.progress { case some(p) => round(p * 100), case none => 0 }
   derive deviceLine = deviceReady ? "Private and offline: nothing leaves this device." : deviceReason == "not-enabled" ? "Turn on Apple Intelligence in Settings to use this model." : deviceReason == "model-not-ready" ? "The on-device model isn’t ready yet." : device.availability == "downloading" ? `Downloading… ${deviceProgress}%` : device.availability == "downloadable" ? "Downloaded once, then it runs on this device." : "The on-device model isn’t available."
@@ -122,11 +122,11 @@ component Agents
     every(20000, poll)
   action poll
     tick = performanceNow()
-    if not pending(pulsed)
+    if ! pending(pulsed)
       send pulsed = pulse(time.epochAtZero + performanceNow())
 
   action follow(url: string)
-    nav = top(nav).name == "chat" and url.startsWith("/c/") ? replace(nav, url) : go(nav, url)
+    nav = top(nav).name == "chat" && url.startsWith("/c/") ? replace(nav, url) : go(nav, url)
     draft = ""
   action back
     nav = back(nav)
@@ -160,7 +160,7 @@ component Agents
   action afterChange
     match changed
       case some(c)
-        if top(nav).name == "new" and c.id != ""
+        if top(nav).name == "new" && c.id != ""
           nav = go(nav, path("chat", c.id))
           draft = ""
       case none
@@ -173,7 +173,7 @@ component Agents
       draft = ""
   // Return sends; Shift-Return is a new line.
   action composerKey(k: string, e: KeyboardEvent)
-    if k == "Enter" and not e.shiftKey and not e.altKey
+    if k == "Enter" && ! e.shiftKey && ! e.altKey
       preventDefault()
       sendDraft()
   action stop
@@ -215,7 +215,7 @@ component Agents
                         text r.subtitle font="-exact-footnote" color="AccentColor" line-clamp=1
                         text r.preview font="-exact-subheadline" color="-exact-secondary-label" line-clamp=2 testId=`preview-${r.id}`
                       image "symbol:forward-chevron"
-              if data.empty and not pending(data)
+              if data.empty && ! pending(data)
                 column position="absolute" inset=0 display="flex" justify-content="center" testId="empty"
                   EmptyState(symbol="symbol:sparkles", title=(query == "" ? "No Conversations" : "No Results"), message=(query == "" ? "Start one with any model, at any effort." : "Nothing matches that search."))
                     if query == ""
@@ -225,7 +225,7 @@ component Agents
           column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0 display="flex" flex-direction="column"
             interactive-widget="resizes-content"
             header display="flex" align-items="center" gap=8 padding="8px 16px"
-              text (data.found or pending(data) ? data.title : "Not Found") role="heading" aria-level=2 testId="chat-title"
+              text (data.found || pending(data) ? data.title : "Not Found") role="heading" aria-level=2 testId="chat-title"
               button popovertarget="model-menu" aria-label="Model" testId="model"
                 image "symbol:sf/cpu"
               if data.model != "device"
@@ -235,7 +235,7 @@ component Agents
                 image "symbol:delete"
             column id="model-menu" popover="auto" role="menu" position="absolute" aria-label="Model"
               if deviceOffered
-                button press=setModel("device") role="menuitemradio" aria-checked=(data.model == "device") disabled=(data.streaming or not deviceReady) popovertarget="model-menu" popovertargetaction="hide" testId="model-item-device"
+                button press=setModel("device") role="menuitemradio" aria-checked=(data.model == "device") disabled=(data.streaming || ! deviceReady) popovertarget="model-menu" popovertargetaction="hide" testId="model-item-device"
                   text "On this device"
               for o in models key=o.id
                 button press=setModel(o.id) role="menuitemradio" aria-checked=(data.model == o.id) disabled=data.streaming popovertarget="model-menu" popovertargetaction="hide" testId=`model-item-${o.id}`
@@ -264,11 +264,11 @@ component Agents
                         button press=toggleThought(m.id) buttonStyle="borderless" align-self="flex-start" testId=`thought-${m.id}`
                           image (opened.includes(m.id) ? "symbol:sf/chevron.down" : "symbol:forward-chevron")
                           text m.thought
-                        if opened.includes(m.id) or (m.waiting and m.thinking != "")
+                        if opened.includes(m.id) || (m.waiting && m.thinking != "")
                           row gap=10
                             view width=2 border-radius=1 background-color="-exact-separator"
                             text m.thinking flex=1 min-width=0 font="-exact-footnote" color="-exact-secondary-label" user-select="text" testId=`thinking-${m.id}`
-                      if m.waiting and m.thinking == ""
+                      if m.waiting && m.thinking == ""
                         text "Thinking…" color="-exact-secondary-label" testId=`waiting-${m.id}`
                       if m.body != ""
                         column gap=12 testId=`msg-${m.id}`
@@ -290,7 +290,7 @@ component Agents
                           if m.last
                             button press=retry buttonStyle="bordered" testId="retry"
                               text "Try Again"
-            if data.messages.length == 0 and data.found
+            if data.messages.length == 0 && data.found
               column position="absolute" top=0 left=0 right=0 bottom=110 display="flex" justify-content="center" align-items="center" gap=6 padding=24 testId="chat-empty"
                 image "symbol:sparkles" width=28 height=28 color="AccentColor"
                 text data.subtitle font="-exact-title3" text-align="center"
@@ -309,10 +309,10 @@ component Agents
                     background-color="-exact-label"
                     image "symbol:stop-fill" width=12 height=12 color="-exact-background"
                 else
-                  button appearance="none" press=sendDraft disabled=(not canSend) aria-label="Send" testId="send" class=Round
+                  button appearance="none" press=sendDraft disabled=(! canSend) aria-label="Send" testId="send" class=Round
                     background-color="AccentColor" opacity=(canSend ? 1 : 0.35)
                     image "symbol:sf/arrow.up" width=14 height=14 color="-exact-background"
-              text (data.connected or data.model == "device" ? data.subtitle : "Can’t reach the Agents service. Start it with: bun service.ts")
+              text (data.connected || data.model == "device" ? data.subtitle : "Can’t reach the Agents service. Start it with: bun service.ts")
                 font="-exact-caption1" color="-exact-secondary-label" text-align="center" testId="composer-caption"
         if e.name == "new"
           column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="new-form" position="absolute" inset=0 width="min(520px, 100vw)"
@@ -320,10 +320,10 @@ component Agents
               button id="back" press=back testId="new-cancel"
                 text "Cancel"
               text "New Conversation" role="heading"
-              button press=create buttonStyle="filled" disabled=(pending(changed) or (newModel == "device" and not deviceReady)) testId="new-start"
+              button press=create buttonStyle="filled" disabled=(pending(changed) || (newModel == "device" && ! deviceReady)) testId="new-start"
                 text "Start"
             list id="new-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-              if deviceOffered and modelQuery == ""
+              if deviceOffered && modelQuery == ""
                 section
                   button press=pickModel("device") role="radio" aria-checked=(newModel == "device") disabled=(device.availability == "unavailable") testId="model-device"
                     column flex=1 min-width=0 gap=1
@@ -331,7 +331,7 @@ component Agents
                       text deviceLine font="-exact-footnote" color="-exact-secondary-label" testId="device-line"
                     if newModel == "device"
                       image "symbol:checkmark" color="AccentColor"
-                  if newModel == "device" and device.availability == "downloadable"
+                  if newModel == "device" && device.availability == "downloadable"
                     button press=download disabled=pending(fetched) testId="download"
                       text "Download On-Device Model"
               if newModel != "device"
@@ -357,7 +357,7 @@ component Agents
                       text m.maker font="-exact-footnote" color="-exact-secondary-label"
                     if newModel == m.id
                       image "symbol:checkmark" color="AccentColor"
-                if models.length == 0 and not pending(models)
+                if models.length == 0 && ! pending(models)
                   text "No models match." color="-exact-secondary-label" testId="no-models"
       dialog id="delete" role="alertdialog" aria-label="Delete Conversation?"
         text "This conversation will be deleted from this Mac."

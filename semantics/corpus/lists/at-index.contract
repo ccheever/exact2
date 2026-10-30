@@ -8,7 +8,7 @@ component App
   state i = 0
   derive got = match items.at(i) { case some(x) => x.id, case none => "none" }
   derive inRange = items.at(i) != none
-  derive expectIn = i > -1 - items.length and i < items.length
+  derive expectIn = i > -1 - items.length && i < items.length
   derive agrees = inRange == expectIn
   derive nanIdx = items.at(0 / 0) == first(items)
   derive fracNeg = items.at(-0.5) == first(items)

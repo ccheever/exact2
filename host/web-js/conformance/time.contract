@@ -12,7 +12,7 @@ component Time
   state signup = false
   state last = ""
   action flip
-    signup = not signup
+    signup = ! signup
   action register
     last = "register"
   action login

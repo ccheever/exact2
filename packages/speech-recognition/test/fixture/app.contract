@@ -57,7 +57,7 @@ component Fixture
   action install
     send installed = installSpeechRecognition(langs=["en-US"], processLocally=true)
   action anywhere
-    local = not local
+    local = ! local
   view
     column gap=8 padding=16
       text `${status.available} ${status.state} ${status.inputs.length > 0 ? status.inputs.join(",") : "-"} ${status.local}` testId="status"

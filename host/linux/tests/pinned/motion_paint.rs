@@ -11,9 +11,9 @@ const APP: &str = r##"component App
   state on = false
   state dark = false
   action toggle
-    on = not on
+    on = ! on
   action scheme
-    dark = not dark
+    dark = ! dark
     setScheme(dark ? "light" : "dark")
   view
     column testId="page" width=200 height=300 background-color="light-dark(#ffffff, #000000)" transition="background-color 1s linear"
@@ -194,7 +194,7 @@ fn currentcolor_borders_and_inline_runs_follow_an_animating_color() {
 component App
   state on = false
   action toggle
-    on = not on
+    on = ! on
   view
     column testId="page" width=200 height=300
       column testId="glow" width=40 height=20 animation="lit 1s linear both"

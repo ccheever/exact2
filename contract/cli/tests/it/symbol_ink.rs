@@ -43,7 +43,7 @@ fn a_symbols_tint_is_its_colour_and_a_native_face_or_a_raster_keeps_its_own() {
 
 #[test]
 fn a_states_tint_is_answered_in_and_out_of_the_state_and_a_computed_source_by_what_it_is() {
-    let src = "component A\n  state off = false\n  state pic = \"symbol:heart\"\n  action flip\n    off = not off\n  action raster\n    pic = \"https://example.com/a.png\"\n  view\n    column color=\"#0000ff\"\n      button \"Flip\" press=flip testId=\"flip\"\n      button \"Raster\" press=raster testId=\"to-raster\"\n      image \"symbol:heart\" testId=\"state-only\" color=\"#ff0000\" disabled=off alt=\"Heart\"\n        :disabled\n          -exact-tint-color=\"#00ff00\"\n      image pic testId=\"computed\" -exact-tint-color=\"#ff0000\" alt=\"Pic\"\n";
+    let src = "component A\n  state off = false\n  state pic = \"symbol:heart\"\n  action flip\n    off = ! off\n  action raster\n    pic = \"https://example.com/a.png\"\n  view\n    column color=\"#0000ff\"\n      button \"Flip\" press=flip testId=\"flip\"\n      button \"Raster\" press=raster testId=\"to-raster\"\n      image \"symbol:heart\" testId=\"state-only\" color=\"#ff0000\" disabled=off alt=\"Heart\"\n        :disabled\n          -exact-tint-color=\"#00ff00\"\n      image pic testId=\"computed\" -exact-tint-color=\"#ff0000\" alt=\"Pic\"\n";
     let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
     let mut r = Runner::boot(
         plan,
@@ -103,7 +103,7 @@ fn a_grouped_rows_symbol_with_a_colour_and_only_a_states_tint_is_its_colour_not_
 
 #[test]
 fn a_computed_sources_state_tint_a_partial_template_and_an_apps_own_starts_with() {
-    let src = "component A\n  state off = false\n  state pic = \"symbol:heart\"\n  state suffix = \"bol:heart\"\n  action flip\n    off = not off\n  action raster\n    pic = \"https://example.com/a.png\"\n  view\n    column color=\"#0000ff\"\n      button \"Flip\" press=flip testId=\"flip\"\n      button \"Raster\" press=raster testId=\"to-raster\"\n      image pic testId=\"computed\" color=\"#0000ff\" disabled=off alt=\"Pic\"\n        :disabled\n          -exact-tint-color=\"#00ff00\"\n      image `sym${suffix}` testId=\"partial\" -exact-tint-color=\"#ff0000\" alt=\"Part\"\n";
+    let src = "component A\n  state off = false\n  state pic = \"symbol:heart\"\n  state suffix = \"bol:heart\"\n  action flip\n    off = ! off\n  action raster\n    pic = \"https://example.com/a.png\"\n  view\n    column color=\"#0000ff\"\n      button \"Flip\" press=flip testId=\"flip\"\n      button \"Raster\" press=raster testId=\"to-raster\"\n      image pic testId=\"computed\" color=\"#0000ff\" disabled=off alt=\"Pic\"\n        :disabled\n          -exact-tint-color=\"#00ff00\"\n      image `sym${suffix}` testId=\"partial\" -exact-tint-color=\"#ff0000\" alt=\"Part\"\n";
     let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
     let mut r = Runner::boot(
         plan,

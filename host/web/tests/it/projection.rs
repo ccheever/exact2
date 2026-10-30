@@ -76,7 +76,7 @@ fn a_lone_plain_text_is_its_boxs_text_content() {
         r##"component App
   state more = false
   action grow
-    more = not more
+    more = ! more
   view
     column
       button appearance="none" press=grow testId="grow"

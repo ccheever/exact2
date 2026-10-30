@@ -27,7 +27,7 @@ component App
     column
       button press=go disabled=busy opacity=(busy ? 0.6 : 1) testId="opacity"
         text "a"
-      button press=go disabled=(busy or not dirty) background-color=(dirty ? "#06f" : "#eee") testId="reads"
+      button press=go disabled=(busy || ! dirty) background-color=(dirty ? "#06f" : "#eee") testId="reads"
         text "a"
       button press=go disabled=busy color=`${busy ? "gray" : "black"}` testId="template"
         text "a"

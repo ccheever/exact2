@@ -23,7 +23,7 @@ component SelectAll
   action heardBound(s: Selection)
     bound = `${s.text}:${s.start}-${s.end}`
   action flip
-    whole = not whole
+    whole = ! whole
   action pressed
     presses = presses + 1
   view

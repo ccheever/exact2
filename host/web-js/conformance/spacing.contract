@@ -28,7 +28,7 @@ component Spacing
   action space
     gap = gap == 0 ? 8 : 0
   action squeeze
-    narrow = not narrow
+    narrow = ! narrow
   view
     column testId="root" width=420 box-sizing="border-box" padding=16 gap=12
       row gap=8

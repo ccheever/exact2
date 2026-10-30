@@ -219,7 +219,7 @@ component Editor
   action rename(value: string)
     fields = Fields(fields, title=value)
   action pin
-    fields = Fields(fields, pinned=not fields.pinned)
+    fields = Fields(fields, pinned=! fields.pinned)
   view
     column gap=8
       input value=fields.title input=rename testId="title"
@@ -767,7 +767,7 @@ component ReadingList
   action edit(value: string)
     draft = value
   action add
-    if draft.trim() != "" and not pending(saved)
+    if draft.trim() != "" && ! pending(saved)
       notice = ""
       send saved = addBook(draft.trim())
   action afterSave
@@ -789,7 +789,7 @@ component ReadingList
             text "Try again"
       row gap=8
         input value=draft input=edit submit=add placeholder="A book" aria-label="New book" disabled=pending(saved) testId="title" flex=1
-        button press=add disabled=(draft.trim() == "" or pending(saved)) testId="add"
+        button press=add disabled=(draft.trim() == "" || pending(saved)) testId="add"
           text "Add"
       if saveError != ""
         text saveError color="-exact-system-red" testId="save-error"
@@ -1457,7 +1457,7 @@ keyframes breathe
 component Motion
   state open = false
   action toggle
-    open = not open
+    open = ! open
   view
     column gap=12
       button press=toggle testId="toggle"

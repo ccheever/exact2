@@ -39,10 +39,10 @@ component App
   action edit(v: string)
     draft = v
   action save
-    if draft.trim() != "" and not pending(added)
+    if draft.trim() != "" && ! pending(added)
       send added = addNote(draft.trim())
   action afterSave
-    if saveError == "" and top(nav).name == "add"
+    if saveError == "" && top(nav).name == "add"
       draft = ""
       nav = back(nav)
   action askRemove

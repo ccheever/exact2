@@ -14,7 +14,7 @@ component Split
   state people = 2
   state peopleText = "2"
   derive bill = amount(billText)
-  derive billError = billText != "" and bill < 0 ? "Enter an amount, like 42.50." : ""
+  derive billError = billText != "" && bill < 0 ? "Enter an amount, like 42.50." : ""
   action editBill(v: string)
     billText = v
   action editPeople(v: string)

@@ -21,9 +21,9 @@ component App
   resource echo = echo(path, on, takeover) as shape Echo else empty()
   mutation answered as shape Sent
   action toggle
-    on = not on
+    on = ! on
   action takeOver
-    takeover = not takeover
+    takeover = ! takeover
   action answer
     send answered = answerLater()
   action focusWindow
@@ -32,7 +32,7 @@ component App
     column padding=16 gap=12
       text "Listen Fixture" role="heading" aria-level=1
       text echo.status testId="status"
-      if not echo.supported
+      if ! echo.supported
         text "This host cannot listen." testId="unsupported"
       text path testId="path"
       row gap=8

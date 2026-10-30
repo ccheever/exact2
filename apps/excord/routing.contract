@@ -38,8 +38,8 @@ members Excord
   state wantServerWas = ""
   state launchRead = false
   // The newest request (whether or not the account can act on it now); `wanting` is one that may still open.
-  derive owned = wantSeq == intent and wantId != ""
-  derive wanting = owned and not signedOutNow
+  derive owned = wantSeq == intent && wantId != ""
+  derive wanting = owned && ! signedOutNow
   // Each channel opened's title (`# name`, or a conversation's), for a visit beneath another (any server's).
   state visitNames: string [] = []
   // `follow` and `resume` read the request through these names.
@@ -48,7 +48,7 @@ members Excord
   // The one way to ask for a channel ("" for the list): newer than anything asked before.
   action ask(id: string, from: string, message: string)
     // A request whose server was already selected, now cancelled: its server goes back.
-    if owned and wantServer
+    if owned && wantServer
       server = wantServerWas
     let next = intent + 1
     intent = next
@@ -62,7 +62,7 @@ members Excord
       onScreen = ""
   // A newer step that opens nothing itself (the channel already open): older requests drop, their server back.
   action supersede
-    if owned and wantServer
+    if owned && wantServer
       server = wantServerWas
     intent = intent + 1
   // The open channel asked for again (its address, Back to it, a link into it): nothing to open, but nothing
@@ -74,7 +74,7 @@ members Excord
     // Its visit: on top already, nothing moves; just beneath (a request's visit over it), that one is popped;
     // else its address is gone to (`go` pops to a visit with that address, else pushes one).
     let below = match stack(nav).at(-2) { case some(e) => (e.name == "channel" ? e.params.channel : ""), case none => "" }
-    if top(nav).name == "channel" and top(nav).params.channel == open
+    if top(nav).name == "channel" && top(nav).params.channel == open
       nav = nav
     else if below == open
       nav = back(nav)
@@ -92,16 +92,16 @@ members Excord
     // a request already out goes on (and opens under its own address), and the host puts the address back.
     // A picture opens from its thumbnail only (`show`, viewer.contract), so an address to one (a Forward) is
     // no navigation either.
-    if (id == "" and piece(path, 1) != "") or url.includes("/photo/")
+    if (id == "" && piece(path, 1) != "") || url.includes("/photo/")
       nav = nav
-    else if id == "" and wide and open != ""
+    else if id == "" && wide && open != ""
       stayOpen()
     else
       // From over a picture the picture closes: an address beneath it (its channel's, the list's) is gone back
       // to, and a new one takes the picture's visit (`replace` keeps its id, so the web's history rewrites the
       // picture's entry and Back returns to its channel, not to a picture no visit holds).
       let under = photoOverChannel ? back(nav) : nav
-      nav = photoOverChannel and stack(under).filter(e => e.url == url).length == 0 ? replace(nav, url) : go(under, url)
+      nav = photoOverChannel && stack(under).filter(e => e.url == url).length == 0 ? replace(nav, url) : go(under, url)
       if id == ""
         leaving()
         ask("", "route", "")
@@ -116,7 +116,7 @@ members Excord
   // picture alone. `nav` moves once, here.
   action askBack
     let below = match stack(nav).at(-2) { case some(e) => (e.name == "channel" ? e.params.channel : ""), case none => "" }
-    if below == "" and wide and open != ""
+    if below == "" && wide && open != ""
       supersede()
     else
       nav = back(nav)
@@ -135,24 +135,24 @@ members Excord
     ask(id, "follow", message)
   // The launch's restore is the first request, if nothing was asked before it: the address's channel, or
   // at `/` (a native relaunch) the one kept, unless `wide`, where `resume` opens the remembered channel.
-  task readRestore when not launchRead
+  task readRestore when ! launchRead
     after(1, readLaunch)
   action readLaunch
     launchRead = true
     let id = screen == "channel" ? top(nav).params.channel : (wide ? "" : onScreen)
-    if intent == 0 and id != ""
+    if intent == 0 && id != ""
       ask(id, "launch", "")
   // An address's channel as the router decoded it (`/c/%31…`), for a request read from the raw address. The
   // visit takes the canonical address, so no spelling of one is ever kept (`go` and `stayOpen` match the
   // canonical one): for the channel open, `go` returns to its canonical visit if one is on the stack (dropping
   // a request's visit above it), else this visit is renamed; for another channel, the visit is renamed and the
   // request names that channel.
-  task routeDecoded when wanting and wantFrom == "route" and top(nav).name == "channel" and top(nav).params.channel != wantId
+  task routeDecoded when wanting && wantFrom == "route" && top(nav).name == "channel" && top(nav).params.channel != wantId
     after(1, takeDecoded)
   action takeDecoded
-    if wanting and wantFrom == "route" and top(nav).name == "channel"
+    if wanting && wantFrom == "route" && top(nav).name == "channel"
       let id = top(nav).params.channel
-      let canonical = stack(nav).filter(e => e.name == "channel" and e.params.channel == id and e.url == `/c/${id}`).length > 0
+      let canonical = stack(nav).filter(e => e.name == "channel" && e.params.channel == id && e.url == `/c/${id}`).length > 0
       if id == open
         supersede()
         nav = canonical ? go(nav, path("channel", open)) : replace(nav, path("channel", open))
@@ -161,17 +161,17 @@ members Excord
         nav = replace(nav, path("channel", id))
         wantId = id
   resource wantChan = loadChannel(wanting ? wantId : "", wanting ? gw.elsewhere : 0) as shape Channel else empty()
-  task wantGuild when wanting and not wantServer and wantChan.id == wantId and (wantChan.name != "" or wantChan.direct)
+  task wantGuild when wanting && ! wantServer && wantChan.id == wantId && (wantChan.name != "" || wantChan.direct)
     after(1, selectWant)
   action selectWant
-    if wanting and wantChan.id == wantId
+    if wanting && wantChan.id == wantId
       wantServerWas = server
       server = wantChan.guild != "" ? wantChan.guild : "@me"
       wantServer = true
-  task opening when wanting and wantServer and listed.map(c => c.id).includes(wantId)
+  task opening when wanting && wantServer && listed.map(c => c.id).includes(wantId)
     after(1, openWant)
   action openWant
-    if wanting and listed.map(c => c.id).includes(wantId)
+    if wanting && listed.map(c => c.id).includes(wantId)
       let id = wantId
       let message = wantMessage
       wantId = ""
@@ -188,7 +188,7 @@ members Excord
         jumpFromOffset = 0
   // What is on screen is kept for the next launch: a channel once it opens, nothing once the list shows or
   // the account signs out (signing in again starts at the list).
-  task keepOnScreen when launchRead and not wanting and (screen == "channel" and not signedOutNow ? open : "") != onScreen and (open != "" or screen == "channel" or signedOutNow) key = `${screen}:${open}:${signedOutNow}`
+  task keepOnScreen when launchRead && ! wanting && (screen == "channel" && ! signedOutNow ? open : "") != onScreen && (open != "" || screen == "channel" || signedOutNow) key = `${screen}:${open}:${signedOutNow}`
     after(1, rememberScreen)
   action rememberScreen
-    onScreen = screen == "channel" and not signedOutNow ? open : ""
+    onScreen = screen == "channel" && ! signedOutNow ? open : ""

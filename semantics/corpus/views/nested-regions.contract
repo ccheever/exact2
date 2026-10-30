@@ -4,7 +4,7 @@ component App
   state sel = none
   state n = 0
   action flipA
-    a = not a
+    a = ! a
   action pick
     sel = some(n)
   action inc

@@ -6,7 +6,7 @@ component Fit
   state fitted = true
   state digits = "00:00:48.12"
   action toggle
-    fitted = not fitted
+    fitted = ! fitted
   action longer
     digits = `${digits}3`
   view

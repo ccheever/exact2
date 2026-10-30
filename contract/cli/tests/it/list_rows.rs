@@ -27,7 +27,7 @@ fn boot(body: &str) -> Runner<NoData> {
         .map(|l| format!("      {l}\n"))
         .collect::<String>();
     let source = format!(
-        "style Sideways\n  display=\"flex\"\nstyle Down\n  display=\"flex\"\n  flex-direction=\"column\"\ncomponent App\n  state wide = false\n  action go\n    wide = not wide\n  view\n    column width=402 height=874\n{body}component Row\n  props\n    name: string\n  view\n    text name\ncomponent Part\n  view\n    section\n      text \"in a section\"\n"
+        "style Sideways\n  display=\"flex\"\nstyle Down\n  display=\"flex\"\n  flex-direction=\"column\"\ncomponent App\n  state wide = false\n  action go\n    wide = ! wide\n  view\n    column width=402 height=874\n{body}component Row\n  props\n    name: string\n  view\n    text name\ncomponent Part\n  view\n    section\n      text \"in a section\"\n"
     );
     let plan = contract::bake(
         contract::compile(&source).unwrap_or_else(|e| panic!("{e}")),

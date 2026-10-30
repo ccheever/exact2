@@ -47,12 +47,12 @@ component App
   derive c56 = true && false
   derive c57 = true || false
   derive c58 = !true
-  derive c59 = not true
+  derive c59 = ! true
   derive c60 = !!false
   derive c61 = true || 1 / 0 > 0
   derive c62 = false && 1 / 0 > 0
-  derive c63 = true and false
-  derive c64 = false or true
+  derive c63 = true && false
+  derive c64 = false || true
   derive c65 = 1 < 2 ? "y" : "n"
   derive c66 = true ? 1 : 0 / 0
   derive c67 = `${1e21}`

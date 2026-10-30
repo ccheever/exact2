@@ -9,7 +9,7 @@
 
 use AgeRange from "@exact/age-range"
 
-fn under(a: AgeRange): bool = a.status == "unverified" or (a.status == "sharing" and match a.upperBound { case some(u) => u < 18, case none => false })
+fn under(a: AgeRange): bool = a.status == "unverified" || (a.status == "sharing" && match a.upperBound { case some(u) => u < 18, case none => false })
 
 component AgeGate
   props

@@ -402,10 +402,10 @@ component App
                   image "symbol:add" font-size=13
             else
               header display="flex" align-items="center"
-                if e.name != "home" and e.name != "contentHidden" and e.name != "contentNone"
+                if e.name != "home" && e.name != "contentHidden" && e.name != "contentNone"
                   button id="back" press=back testId="back" aria-label="Back" width=44 height=44 visibility=(e.name == "hidden" ? "hidden" : "visible") display=(e.name == "hiddenNone" ? "none" : "flex") aria-keyshortcuts="Alt+B"
                     image "symbol:back" font-size=17 width=20 height=20
-                if e.name == "hidden" or e.name == "hiddenNone"
+                if e.name == "hidden" || e.name == "hiddenNone"
                   text "Today" role="heading" aria-level=2
                 if e.name == "row"
                   row role="heading" aria-level=1
@@ -426,7 +426,7 @@ component App
                 if e.name != "home"
                   button press=add testId="add" aria-label="Add"
                     image "symbol:add" font-size=13
-          if e.name == "contentHidden" or e.name == "contentNone"
+          if e.name == "contentHidden" || e.name == "contentNone"
             button id="back" press=back testId="back" aria-label="Back" width=44 height=44 visibility=(e.name == "contentHidden" ? "hidden" : "visible") display=(e.name == "contentNone" ? "none" : "flex") aria-keyshortcuts="Alt+B"
               image "symbol:back" font-size=17 width=20 height=20
           if e.name == "commanded"

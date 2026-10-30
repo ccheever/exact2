@@ -41,7 +41,7 @@ component Inspector
     column gap=8 testId="inspector"
       row gap=8 align-items="center"
         text "Inspector" role="heading" aria-level=2 flex=1
-        button press=toggleInspect disabled=(sendingInspect or not canWrite) buttonStyle=(inspected.inspecting ? "filled" : "bordered") testId="inspect-toggle"
+        button press=toggleInspect disabled=(sendingInspect || ! canWrite) buttonStyle=(inspected.inspecting ? "filled" : "bordered") testId="inspect-toggle"
           text (inspected.inspecting ? "Stop inspecting" : "Inspect")
       match inspectSent
         case some(i)
@@ -51,13 +51,13 @@ component Inspector
       if inspected.inspecting
         for r in changes.refusals key=r.id
           // A copy in the grid by its tile's label, as the grid shows it now.
-          if canvasView != "one" and gridAt.tiles.filter(t => t.build == r.id).length > 0
+          if canvasView != "one" && gridAt.tiles.filter(t => t.build == r.id).length > 0
             text `The ${gridAt.tiles.filter(t => t.build == r.id).map(t => t.label).join(", ")} copy (${r.host})${r.tail}` color="-exact-system-orange" font="-exact-footnote" testId=`inspect-refused-${r.id}`
           else
             text `${r.name}${r.tail}` color="-exact-system-orange" font="-exact-footnote" testId=`inspect-refused-${r.id}`
         if changes.refusedMore > 0
           text `and ${changes.refusedMore} more builds could not turn Inspect on` color="-exact-system-orange" font="-exact-footnote" testId="inspect-refused-more"
-      if not inspected.has
+      if ! inspected.has
         text (inspected.inspecting ? "Click a view in the canvas or on a device: its source, rows and tokens show here." : "Turn on Inspect, then click a view in the canvas or on a device: its source, rows and tokens show here.") color="-exact-secondary-label" testId="no-selection"
       else
         column gap=4 testId="selection"
@@ -67,19 +67,19 @@ component Inspector
           if changes.noStep.includes(inspected.build)
             text "This build can't move its selection up the chain: click the node itself." color="-exact-secondary-label" font="-exact-footnote" testId="selection-up-none"
           for c in inspected.chain key=c.up
-            button press=selectUp(c.up) disabled=(not inspected.inspecting or movingUp or changes.noStep.includes(inspected.build) or inspected.pageStale != "") aria-label=`Select ${c.text}` testId=`selection-up-${c.up}`
+            button press=selectUp(c.up) disabled=(! inspected.inspecting || movingUp || changes.noStep.includes(inspected.build) || inspected.pageStale != "") aria-label=`Select ${c.text}` testId=`selection-up-${c.up}`
               text `in ${c.text}` color="-exact-secondary-label" font="-exact-footnote"
           // No call site above it (the app's own node, or a slot fill the app wrote): one step still, by the page's own
           // tree (1.17), to a slot's host that holds it, or, with none, the app's root, as the note then says.
           if inspected.chain.length == 0
-            button press=selectUp(1) disabled=(not inspected.inspecting or movingUp or changes.noStep.includes(inspected.build) or inspected.pageStale != "") aria-label="Select what holds it" testId="selection-up-1"
+            button press=selectUp(1) disabled=(! inspected.inspecting || movingUp || changes.noStep.includes(inspected.build) || inspected.pageStale != "") aria-label="Select what holds it" testId="selection-up-1"
               text "up: what holds it (a slot's host), else the app's root" color="-exact-secondary-label" font="-exact-footnote"
-          if upNote != "" and upNoteKey == inspected.visit
+          if upNote != "" && upNoteKey == inspected.visit
             text upNote color="-exact-system-orange" font="-exact-footnote" testId="selection-up-note"
           // (A move refused: the server's or the page's words.)
           match selectedUp
             case some(r)
-              if not r.ok
+              if ! r.ok
                 text r.error color="-exact-system-red" font="-exact-footnote" white-space="pre-wrap" testId="selection-up-error"
             case none
               text "" display="none"
@@ -97,43 +97,43 @@ component Inspector
             text `Read-only: ${inspected.readOnly}` color="-exact-system-orange" testId="selection-readonly"
           if inspected.trimmed
             text "Some rows were left out: the report was too large." color="-exact-secondary-label" font="-exact-footnote"
-          if inspected.hold.status != "" and not inspected.hold.can
+          if inspected.hold.status != "" && ! inspected.hold.can
             text inspected.hold.status color="-exact-secondary-label" font="-exact-footnote" testId="hold-status"
           if inspected.hold.can
             column gap=4 testId="hold"
               row gap=8 align-items="center" flex-wrap="wrap"
                 text "Hold" font="-exact-footnote"
-                button press=holdState("active") disabled=(sendingHold or not canWrite) buttonStyle=(inspected.hold.state == "active" ? "filled" : "bordered") testId="hold-active"
+                button press=holdState("active") disabled=(sendingHold || ! canWrite) buttonStyle=(inspected.hold.state == "active" ? "filled" : "bordered") testId="hold-active"
                   text "Pressed"
-                button press=holdState("hover") disabled=(sendingHold or not canWrite) buttonStyle=(inspected.hold.state == "hover" ? "filled" : "bordered") testId="hold-hover"
+                button press=holdState("hover") disabled=(sendingHold || ! canWrite) buttonStyle=(inspected.hold.state == "hover" ? "filled" : "bordered") testId="hold-hover"
                   text "Hovered"
-                button press=holdState("focus-visible") disabled=(sendingHold or not canWrite) buttonStyle=(inspected.hold.state == "focus-visible" ? "filled" : "bordered") testId="hold-focus"
+                button press=holdState("focus-visible") disabled=(sendingHold || ! canWrite) buttonStyle=(inspected.hold.state == "focus-visible" ? "filled" : "bordered") testId="hold-focus"
                   text "Focused"
-                button press=holdState("") disabled=(sendingHold or inspected.hold.state == "" or not canWrite) testId="hold-release"
+                button press=holdState("") disabled=(sendingHold || inspected.hold.state == "" || ! canWrite) testId="hold-release"
                   text "Let go"
               if inspected.hold.status != ""
                 text inspected.hold.status color="-exact-secondary-label" font="-exact-footnote" testId="hold-status"
               match holdSent
                 case some(h)
-                  if not h.ok
+                  if ! h.ok
                     text h.error color="-exact-system-red" font="-exact-footnote" testId="hold-error"
                 case none
                   text ""
               if inspected.heldNote != ""
                 text inspected.heldNote color="-exact-system-orange" font="-exact-footnote" testId="held-note"
-              for r in inspected.heldRows.filter(r => not foldedHeld.includes(r.name)) key=r.name
+              for r in inspected.heldRows.filter(r => ! foldedHeld.includes(r.name)) key=r.name
                 row gap=8 align-items="center" flex-wrap="wrap" testId=`heldrow-${r.name}`
                   text r.name font="-exact-footnote" width="9rem"
                   text r.value font="-exact-caption1" font-family="ui-monospace, monospace" flex=1 min-width=0
                   text r.source color="-exact-secondary-label" font="-exact-caption1"
                   if r.token != ""
                     button press=editFromSelection(r.token, r.column, inspected.place) testId=`heldrow-link-${r.name}`
-                      text ((r.state != "" or r.edit != "") ? `Edit the token ${r.token} instead` : `Open ${r.token}`)
+                      text ((r.state != "" || r.edit != "") ? `Edit the token ${r.token} instead` : `Open ${r.token}`)
                   if r.state != ""
-                    button press=editState(r.state, r.stateText) disabled=(not canPropose) buttonStyle="bordered" testId=`heldrow-state-${r.name}`
+                    button press=editState(r.state, r.stateText) disabled=(! canPropose) buttonStyle="bordered" testId=`heldrow-state-${r.name}`
                       text r.stateLabel
                   if r.edit != ""
-                    button press=editRow(r.edit, r.editWords, r.editText) disabled=(not canPropose) buttonStyle="bordered" testId=`heldrow-row-${r.name}`
+                    button press=editRow(r.edit, r.editWords, r.editText) disabled=(! canPropose) buttonStyle="bordered" testId=`heldrow-row-${r.name}`
                       text r.editLabel
                   if r.reason != ""
                     text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`heldrow-reason-${r.name}`
@@ -141,7 +141,7 @@ component Inspector
                 button press=showInitial(inspected.visit) aria-label=`Show ${foldedHeld.length} more held rows nothing sets (initial values)` testId="heldrow-initial"
                   text `${foldedHeld.length} more rows nothing sets (initial values)`
           // Rows nothing sets, folded behind one control, but never the row being edited.
-          for r in inspected.rows.filter(r => not foldedRows.includes(r.name)) key=r.name
+          for r in inspected.rows.filter(r => ! foldedRows.includes(r.name)) key=r.name
             row gap=8 align-items="center" flex-wrap="wrap" testId=`selrow-${r.name}`
               text r.name font="-exact-footnote" width="9rem"
               text r.value font="-exact-caption1" font-family="ui-monospace, monospace" flex=1 min-width=0
@@ -155,28 +155,28 @@ component Inspector
               else if r.rung == "token"
                 button press=editFromSelection(r.token, r.column, inspected.place) buttonStyle="bordered" testId=`selrow-edit-${r.name}`
                   text `Edit ${r.token}`
-              else if (r.rung == "state" or r.rung == "template" or r.rung == "style") and r.token != ""
+              else if (r.rung == "state" || r.rung == "template" || r.rung == "style") && r.token != ""
                 button press=editFromSelection(r.token, r.column, inspected.place) testId=`selrow-token-${r.name}`
                   text `Edit the token ${r.token} instead`
               else if r.token != ""
                 button press=editFromSelection(r.token, r.column, inspected.place) testId=`selrow-link-${r.name}`
                   text `Open ${r.token}`
               if r.state != ""
-                button press=editState(r.state, r.stateText) disabled=(not canPropose) buttonStyle="bordered" testId=`selrow-state-${r.name}`
+                button press=editState(r.state, r.stateText) disabled=(! canPropose) buttonStyle="bordered" testId=`selrow-state-${r.name}`
                   text r.stateLabel
               if r.edit != ""
-                button press=editRow(r.edit, r.editWords, r.editText) disabled=(not canPropose) buttonStyle="bordered" testId=`selrow-row-${r.name}`
+                button press=editRow(r.edit, r.editWords, r.editText) disabled=(! canPropose) buttonStyle="bordered" testId=`selrow-row-${r.name}`
                   text r.editLabel
               if r.promote != ""
-                button press=moveRow("promote-param", r.promote, `${r.name}, as a new param`) disabled=(not canPropose) testId=`selrow-param-${r.name}`
+                button press=moveRow("promote-param", r.promote, `${r.name}, as a new param`) disabled=(! canPropose) testId=`selrow-param-${r.name}`
                   text "Make it a param"
-              if r.promote != "" and r.tokenize
-                button press=moveRow("promote-token", r.promote, `${r.name}, as a new token`) disabled=(not canPropose) testId=`selrow-tokenize-${r.name}`
+              if r.promote != "" && r.tokenize
+                button press=moveRow("promote-token", r.promote, `${r.name}, as a new token`) disabled=(! canPropose) testId=`selrow-tokenize-${r.name}`
                   text "Make it a token"
               if r.detach != ""
-                button press=moveRow("detach-param", r.detach, `${r.short}, detached to this template`) disabled=(not canPropose) testId=`selrow-detach-${r.name}`
+                button press=moveRow("detach-param", r.detach, `${r.short}, detached to this template`) disabled=(! canPropose) testId=`selrow-detach-${r.name}`
                   text "Detach to this template"
-              if r.rung == "" and r.reason != ""
+              if r.rung == "" && r.reason != ""
                 text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`selrow-reason-${r.name}`
           if foldedRows.length > 0
             button press=showInitial(inspected.visit) aria-label=`Show ${foldedRows.length} more rows nothing sets (initial values)` testId="selrow-initial"
@@ -184,8 +184,8 @@ component Inspector
       if impactToken != ""
         column gap=2 testId="impact"
           row gap=8 align-items="center"
-            text (readingUses or uses.token != impactToken ? `${impactToken}: reading its uses…` : uses.ok ? `${impactToken}: read at ${uses.sites.length} source site(s), statically (not a count of mounted copies)` : uses.error) font="-exact-footnote" flex=1 testId="impact-count"
-            button press=outlineImpact disabled=(outlining or not inspected.inspecting or not canWrite) testId="impact-outline"
+            text (readingUses || uses.token != impactToken ? `${impactToken}: reading its uses…` : uses.ok ? `${impactToken}: read at ${uses.sites.length} source site(s), statically (not a count of mounted copies)` : uses.error) font="-exact-footnote" flex=1 testId="impact-count"
+            button press=outlineImpact disabled=(outlining || ! inspected.inspecting || ! canWrite) testId="impact-outline"
               text "Outline"
           match outlined
             case some(o)

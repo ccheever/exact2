@@ -294,10 +294,6 @@
     "keywords": {
       "patterns": [
         {
-          "match": "(?<![A-Za-z0-9_\\-])(?:and|or|not)(?![A-Za-z0-9_]|-[A-Za-z])",
-          "name": "keyword.operator.logical.exact-contract"
-        },
-        {
           "match": "(?<![A-Za-z0-9_\\-])(?:true|false|none)(?![A-Za-z0-9_]|-[A-Za-z])",
           "name": "constant.language.exact-contract"
         },

@@ -31,7 +31,7 @@ component Media
   action quieter
     volume = 0.25
   action mute
-    muted = not muted
+    muted = ! muted
   action faster
     rate = 2
   action unpitch

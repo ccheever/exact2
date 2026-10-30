@@ -10,7 +10,7 @@ component App
   resource positive = loadZero(0) as shape string
   resource negative = loadZero(-0) as shape string
   action flip
-    flipped = not flipped
+    flipped = ! flipped
   view
     column
       text `${scalar} ${nested}` testId="nan"

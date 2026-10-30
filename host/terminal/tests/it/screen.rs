@@ -31,7 +31,7 @@ const APP: &str = r#"component App
     column
       for e in [epoch] key=e
         column role="log"
-          if not retired
+          if ! retired
             text `banner ${e}` id=`banner-${e}`
             text "line one" id=`a-${e}`
             text "line two" id=`b-${e}`
@@ -636,7 +636,7 @@ fn a_grouped_rows_separator_is_drawn_without_a_border_and_not_under_the_last_row
         r##"component App
   state show = true
   action toggle
-    show = not show
+    show = ! show
   view
     list appearance="auto" width=320 height=320
       section

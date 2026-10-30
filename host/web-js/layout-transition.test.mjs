@@ -13,12 +13,12 @@ const SOURCE = `component App
   state calm = false
   state shown = true
   action motion
-    calm = not calm
+    calm = ! calm
   action drop
-    shown = not shown
+    shown = ! shown
   action both
-    calm = not calm
-    shown = not shown
+    calm = ! calm
+    shown = ! shown
   view
     column
       button "Motion" press=motion testId="motion"

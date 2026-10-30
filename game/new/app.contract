@@ -33,21 +33,21 @@ component SmallGame
   // they become a top bar and a bottom strip, and the panel a sheet behind
   // the bar's Menu button, so nothing covers the middle of the world.
   derive portrait = viewport.height > viewport.width
-  derive touch = touchControls == "always" or (touchControls == "auto" and viewport.pointer == "coarse")
+  derive touch = touchControls == "always" || (touchControls == "auto" && viewport.pointer == "coarse")
   state sheet = false
 
   action play
     playing = true
 
   action togglePause
-    paused = not paused
+    paused = ! paused
 
   action restart
-    again = not again
+    again = ! again
     paused = false
 
   action toggleSheet
-    sheet = not sheet
+    sheet = ! sheet
 
   action cycleTouch
     touchControls = touchControls == "auto" ? "always" : (touchControls == "always" ? "never" : "auto")
@@ -85,7 +85,7 @@ component SmallGame
                   text "Light" color="#202731"
           // panel: what the player opens on purpose (the help, the shop, settings);
           // beside the world in landscape, a sheet in portrait.
-          if not portrait or sheet
+          if ! portrait || sheet
             column testId="panel" aria-label="Menu" position="absolute" top=(portrait ? "auto" : 80) bottom=(portrait ? 0 : "auto") right=(portrait ? 0 : 24) left=(portrait ? 0 : "auto") width=(portrait ? "auto" : 220) padding=16 gap=12 border-radius=12 background-color="#202731e6"
               text "WASD or arrows move · Space jumps · E lights"
               // The shop: each button holds its Actions action (1 and 2 on the keyboard).
@@ -99,7 +99,7 @@ component SmallGame
               if portrait
                 button press=toggleSheet testId="panel-close" padding=12 border-radius=12 background-color="#354751"
                   text "Close"
-          if hud.total > 0 and hud.lit == hud.total
+          if hud.total > 0 && hud.lit == hud.total
             column testId="victory" position="absolute" inset=0 align-items="center" justify-content="center" gap=20
               text "All beacons lit" font-size=32
               button press=restart autofocus aria-label="Play again" testId="again" padding=16 background-color="#e8ad61"

@@ -15,7 +15,7 @@ impl DataSource for NoData {
 
 #[test]
 fn the_status_bar_props_lower_and_follow_state() {
-    let src = "component App\n  state compact = false\n  action flip\n    compact = not compact\n  view\n    column testId=\"route\" status-bar-style=\"light-content\"\n      button press=flip testId=\"header\" status-bar-style=(compact ? \"dark-content\" : \"auto\") status-bar-animation=\"fade\"\n        text \"Flip\"\n";
+    let src = "component App\n  state compact = false\n  action flip\n    compact = ! compact\n  view\n    column testId=\"route\" status-bar-style=\"light-content\"\n      button press=flip testId=\"header\" status-bar-style=(compact ? \"dark-content\" : \"auto\") status-bar-animation=\"fade\"\n        text \"Flip\"\n";
     let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
     let mut r = Runner::boot(
         plan,

@@ -18,7 +18,7 @@ component Fixture
   action ask
     send asked = requestMotionPermission()
   action turn
-    screen = not screen
+    screen = ! screen
   view
     column gap=8 padding=16
       text `${status.available} ${status.state}` testId="status"

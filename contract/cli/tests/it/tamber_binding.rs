@@ -166,7 +166,7 @@ fn a_pin_above_moves_the_places_inputs() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("app.tamber"), DESIGN).unwrap();
-    std::fs::write(dir.join("app.contract"), "component App\n  state dim = false\n  action flip\n    dim = not dim\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column -exact-mode=(dim ? \"dark-style=dim\" : \"\") color=\"ink\"\n        text \"b\" testId=\"inner\"\n").unwrap();
+    std::fs::write(dir.join("app.contract"), "component App\n  state dim = false\n  action flip\n    dim = ! dim\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column -exact-mode=(dim ? \"dark-style=dim\" : \"\") color=\"ink\"\n        text \"b\" testId=\"inner\"\n").unwrap();
     let mut r = booted(contract::compile_path(&dir.join("app.contract")).unwrap());
     let _ = std::fs::remove_dir_all(&dir);
     let inner = node(&r, "inner");
@@ -224,7 +224,7 @@ fn a_scheme_above_moves_the_places_inputs() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("app.tamber"), DESIGN).unwrap();
-    std::fs::write(dir.join("app.contract"), "component App\n  state dark = false\n  action flip\n    dark = not dark\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column color-scheme=(dark ? \"dark\" : \"light\")\n        text \"b\" testId=\"inner\"\n").unwrap();
+    std::fs::write(dir.join("app.contract"), "component App\n  state dark = false\n  action flip\n    dark = ! dark\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column color-scheme=(dark ? \"dark\" : \"light\")\n        text \"b\" testId=\"inner\"\n").unwrap();
     let mut r = booted(contract::compile_path(&dir.join("app.contract")).unwrap());
     let _ = std::fs::remove_dir_all(&dir);
     let inner = node(&r, "inner");

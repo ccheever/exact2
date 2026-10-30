@@ -52,7 +52,7 @@ fn press_scale_is_a_row_set_only_where_authored() {
 fn a_press_scale_from_an_expression_follows_its_state() {
     let mut r = boot(concat!(
         "component App\n  state firm = false\n",
-        "  action soften\n    firm = not firm\n",
+        "  action soften\n    firm = ! firm\n",
         "  view\n    button press=soften -exact-press-scale=(firm ? 1 : 0.97) testId=\"b\"\n      text \"b\"\n",
     ));
     assert_eq!(style(&r, "b").press_scale, 0.97);
@@ -121,7 +121,7 @@ fn transform_origin_is_css_from_a_literal_or_an_expression() {
     use exact_kernel::Dimension::{Percent, Points};
     let mut r = boot(concat!(
         "component App\n  state low = false\n",
-        "  action drop\n    low = not low\n",
+        "  action drop\n    low = ! low\n",
         "  view\n    column testId=\"root\"\n",
         "      view rotate=3 transform-origin=\"top left\" testId=\"a\"\n",
         "      view scale=0.9 transform-origin=\"25%\" testId=\"b\"\n",
@@ -171,7 +171,7 @@ fn transform_origin_is_css_from_a_literal_or_an_expression() {
 fn the_pressed_paint_is_three_rows_set_only_where_authored() {
     let mut r = boot(concat!(
         "component App\n  state firm = false\n",
-        "  action soften\n    firm = not firm\n",
+        "  action soften\n    firm = ! firm\n",
         "  view\n    column testId=\"root\"\n",
         "      button press=soften -exact-press-opacity=(firm ? 1 : 0.5) testId=\"dim\"\n        text \"a\"\n",
         "      view press=soften -exact-press-background-color=\"light-dark(#e5e5ea, #3a3a3c)\" -exact-press-color=\"-exact-secondary-label\" testId=\"wash\"\n        text \"b\"\n",
@@ -199,7 +199,7 @@ fn the_pressed_paint_is_three_rows_set_only_where_authored() {
 
     let refused = |attr: &str| {
         let src = format!(
-            "component A\n  state on = false\n  action go\n    on = not on\n  view\n    view press=go {attr}\n      text \"a\"\n"
+            "component A\n  state on = false\n  action go\n    on = ! on\n  view\n    view press=go {attr}\n      text \"a\"\n"
         );
         format!("{}", contract::compile(&src).expect_err(attr))
     };

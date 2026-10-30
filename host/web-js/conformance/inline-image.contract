@@ -4,7 +4,7 @@
 component App
   state big = false
   action grow
-    big = not big
+    big = ! big
   view
     column testId="root" padding=8 gap=8 width=240
       button testId="grow" press=grow "Grow"

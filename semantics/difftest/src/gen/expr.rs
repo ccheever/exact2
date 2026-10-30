@@ -737,13 +737,13 @@ impl Gen<'_> {
                 format!("({a} {op} {b})")
             }
             2 => {
-                let op = *self.rng.pick(&["and", "or", "&&", "||"]);
+                let op = *self.rng.pick(&["&&", "||"]);
                 let a = self.expr(env, &Ty::Bool, d, false);
                 let b = self.expr(env, &Ty::Bool, d, false);
                 format!("({a} {op} {b})")
             }
             3 => {
-                let op = *self.rng.pick(&["not ", "!"]);
+                let op = "!";
                 format!("({op}{})", self.expr(env, &Ty::Bool, d, false))
             }
             4 => format!("({}).isEmpty()", self.sized(env, d)),

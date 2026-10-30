@@ -15,7 +15,7 @@ component App
   action open
     nav = push(nav, "/detail")
   action keep(k: string, e: KeyboardEvent)
-    if k == "ArrowLeft" and e.altKey
+    if k == "ArrowLeft" && e.altKey
       kept = kept + 1
       preventDefault()
   action claim

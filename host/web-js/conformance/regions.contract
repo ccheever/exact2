@@ -26,13 +26,13 @@ component Regions
   action push
     next = next + 1
   action restore
-    near = not near
+    near = ! near
   action pick(id)
     picked = some(id)
   action clear
     picked = none
   action toggle
-    open = not open
+    open = ! open
   action cycle
     mode = (mode + 1) % 3
   view
@@ -55,14 +55,14 @@ component Regions
           text `picked ${p}` testId="picked"
         case none
           text "nothing picked" testId="picked"
-      if open and mode != 2
+      if open && mode != 2
         column gap=4 testId="list"
           for it, i in items key=it
             button press=pick(it) testId=`row-${it}`
               row gap=8
                 text `${i}` testId=`index-${it}`
                 text it
-                if picked == some(it) or i == 0
+                if picked == some(it) || i == 0
                   text "★" testId=`star-${it}`
         // A list at the arm's top: built into the arm's fragment, its later
         // rows go where the arm landed (`rotate` drops one, `restore` adds).

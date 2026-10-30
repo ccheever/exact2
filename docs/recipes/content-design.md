@@ -30,7 +30,7 @@ component Stopwatch
   state running = false
   state laps = 0
   action toggle
-    running = not running
+    running = ! running
   action lapOrReset
     laps = running ? laps + 1 : 0
   view
@@ -38,7 +38,7 @@ component Stopwatch
       text "00:12.40" font-size="4.5rem" font-variant-numeric="tabular-nums"
         -exact-fit="shrink" white-space="nowrap" testId="readout"
       row align-self="stretch" justify-content="space-between"
-        RoundButton(label=(running ? "Lap" : "Reset"), tint=none, press=lapOrReset, disabled=(not running and laps == 0), testId="lap")
+        RoundButton(label=(running ? "Lap" : "Reset"), tint=none, press=lapOrReset, disabled=(! running && laps == 0), testId="lap")
         RoundButton(label=(running ? "Stop" : "Start"), tint=some(running ? "-exact-system-red" : "-exact-system-green"), press=toggle, disabled=false, testId="start")
 ```
 

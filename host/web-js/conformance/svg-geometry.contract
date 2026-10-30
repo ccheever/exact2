@@ -12,17 +12,17 @@ component App
   derive foreignExtent = initial ? "10px" : extent
   derive offset = zero ? 0 : small ? 10 : 20
   action resize
-    small = not small
+    small = ! small
   action omit
-    omitted = not omitted
+    omitted = ! omitted
   action collapse
-    zero = not zero
+    zero = ! zero
   action reset
-    initial = not initial
+    initial = ! initial
   action substitute
-    fallback = not fallback
+    fallback = ! fallback
   action thicken
-    thin = not thin
+    thin = ! thin
   view
     column background-color="#ffffff"
       row

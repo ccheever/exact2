@@ -8,7 +8,7 @@
 component Space
   state dark = false
   action scheme
-    dark = not dark
+    dark = ! dark
     setScheme(dark ? "light" : "dark")
   view
     main testId="space" position="relative" width=390 height=460 background-color="light-dark(#ffffff, #121212)"

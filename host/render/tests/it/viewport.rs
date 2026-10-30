@@ -25,7 +25,7 @@ component Page
     column flex-direction=(narrow ? "column" : "row")
       if narrow
         text "narrow" testId="narrow"
-      if not narrow
+      if ! narrow
         text "wide" testId="wide"
 "#;
 

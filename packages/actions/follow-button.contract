@@ -76,7 +76,7 @@ component FollowButton
       gap=(size == "tiny" ? "actions.follow-tiny-gap" : "actions.follow-gap")
       // Bluesky's ButtonIcon: the icon centred in a box the text's height,
       // pulled toward the pill's edge by its negative margins.
-      if icon == "both" or (icon == "follow" and not following) or (icon == "following" and following)
+      if icon == "both" || (icon == "follow" && ! following) || (icon == "following" && following)
         box part="icon"
           width=(size == "tiny" ? "actions.follow-tiny-icon-box" : "actions.follow-icon-box")
           height=(size == "tiny" ? "actions.follow-tiny-icon-box" : "actions.follow-icon-box")

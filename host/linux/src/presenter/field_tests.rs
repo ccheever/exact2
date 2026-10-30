@@ -1319,7 +1319,7 @@ fn field_sync_visits_only_fields_touched_by_commits() {
   action write
     body = "cd"
   action toggle
-    shown = not shown
+    shown = ! shown
   view
     column
       input id="field" testId="field" value=body

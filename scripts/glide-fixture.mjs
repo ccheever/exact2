@@ -23,7 +23,7 @@ export const CONTRACT = `component GlideSettle
   action jump
     send near = nearRead(asks)
   action landed
-    shown = not shown
+    shown = ! shown
   action arrived
     scrollIntoView("row-50", block="start", behavior="smooth")
   view

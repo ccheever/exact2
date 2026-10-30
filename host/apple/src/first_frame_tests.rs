@@ -22,7 +22,7 @@ const APP: &str = r##"keyframes sweep
 component A
   state on = false
   action go
-    on = not on
+    on = ! on
   view
     column
       button press=go testId="go"
@@ -158,7 +158,7 @@ const PLAYED: &str = r##"component A
   state on = false
   state fogged = false
   action go
-    on = not on
+    on = ! on
   action fog
     fogged = true
   view
@@ -285,7 +285,7 @@ fn a_played_springs_spec_is_made_once() {
     const SPRING: &str = r##"component A
   state on = false
   action go
-    on = not on
+    on = ! on
   view
     column
       button press=go testId="go"
@@ -521,7 +521,7 @@ fn after_the_takeover_the_hosts_clock_is_the_agents() {
 const ACCORDION: &str = r##"component A
   state open = false
   action toggle
-    open = not open
+    open = ! open
   view
     column width="100%" height="100%" interpolate-size="allow-keywords"
       button testId="toggle" press=toggle
@@ -895,7 +895,7 @@ fn box_transform_transitions_play_without_sampling_and_reclaim_for_the_agent() {
     let app = r##"component A
   state on = false
   action go
-    on = not on
+    on = ! on
   view
     column
       button press=go testId="go"

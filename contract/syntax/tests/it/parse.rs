@@ -28,7 +28,7 @@ component App
   view
     column gap=16 testId="main"
       text `${count} trains` font-size=24 font-weight=700
-      if query == "" and count > 0
+      if query == "" && count > 0
         for d in board key=d.id
           Row(dep=d, press=selectStation)
       else
@@ -239,7 +239,7 @@ fn font_declarations_parse_in_shorthand_and_block_forms() {
 
 #[test]
 fn precedence_and_multiline_calls_hold() {
-    let f = parse("component A\n  derive x = 1 + 2 * 3 == 7 and not false\n  derive y = f(\n    1,\n    2)\n  view\n    text \"a\"\n").unwrap();
+    let f = parse("component A\n  derive x = 1 + 2 * 3 == 7 && ! false\n  derive y = f(\n    1,\n    2)\n  view\n    text \"a\"\n").unwrap();
     let Expr::Binary(BinOp::And, l, r, _) = &f.components[0].derives[0].expr else {
         panic!()
     };

@@ -118,15 +118,15 @@ shape Found
 
 fn statusLabel(s: string): string = s == "want" ? "Want to Read" : (s == "reading" ? "Reading" : "Finished")
 fn percent(cur: number, total: number): number = total > 0 ? round(cur / total * 100) : 0
-fn matches(b: Book, f: string, q: string): bool = (f == "all" or b.status == f) and (q == "" or b.title.toLowerCase().includes(q) or b.author.toLowerCase().includes(q))
-fn wholePages(text: string): bool = match parseNumber(text) { case some(n) => floor(n) == n and n > 0 and n <= 10000, case none => false }
+fn matches(b: Book, f: string, q: string): bool = (f == "all" || b.status == f) && (q == "" || b.title.toLowerCase().includes(q) || b.author.toLowerCase().includes(q))
+fn wholePages(text: string): bool = match parseNumber(text) { case some(n) => floor(n) == n && n > 0 && n <= 10000, case none => false }
 fn pagesValue(text: string): number = match parseNumber(text) { case some(n) => n, case none => 0 }
 fn tagLine(cause: string): string = cause == "read-only" ? "This tag is locked." : (cause == "too-small" ? "This tag is too small." : (cause == "lost" ? "Hold the phone still until it's done." : (cause == "not-ndef" ? "This tag can't store a link." : (cause == "blocked" ? "NFC is blocked for this site." : "This tag couldn't be written."))))
 fn countText(n: number, one: string, many: string): string = n == 1 ? `1 ${one}` : `${n} ${many}`
 fn lineAt(lines: string[], i: number): string = match lines.at(i) { case some(x) => x, case none => "" }
 fn digitAt(s: string, i: number): number = match parseNumber(s.slice(i, i + 1)) { case some(n) => n, case none => -1 }
 // An ISBN-13: 978 or 979, thirteen digits, and its check digit (weights 1 and 3).
-fn isIsbn(s: string): bool = s.length == 13 and (s.startsWith("978") or s.startsWith("979")) and range(13).filter(i => digitAt(s, i) < 0).length == 0 and sum(range(13).map(i => digitAt(s, i) * (i % 2 == 0 ? 1 : 3))) % 10 == 0
+fn isIsbn(s: string): bool = s.length == 13 && (s.startsWith("978") || s.startsWith("979")) && range(13).filter(i => digitAt(s, i) < 0).length == 0 && sum(range(13).map(i => digitAt(s, i) * (i % 2 == 0 ? 1 : 3))) % 10 == 0
 
 component Shelf
   state query = ""
@@ -178,7 +178,7 @@ component Shelf
   derive finished = lib.books.filter(b => b.status == "done").length
   derive owned = lib.books.map(b => b.sourceKey)
   derive titleError = draftTitle.trim() == "" ? "Enter a title." : ""
-  derive pagesError = draftPages == "" or wholePages(draftPages) ? "" : "Pages must be a whole number from 1 to 10,000."
+  derive pagesError = draftPages == "" || wholePages(draftPages) ? "" : "Pages must be a whole number from 1 to 10,000."
   derive inProgress = lib.books.filter(b => b.status == "reading")
   derive indexKey = lib.books.map(b => `${b.id}|${b.title}|${b.author}|${b.status}`).join("\n")
 
@@ -193,29 +193,29 @@ component Shelf
       category=none, icons=none, url=`/book/${b.id}`, apple=none)))
     setAppShortcuts(shortcuts=inProgress.slice(0, 1).map(b => ShortcutItem(name=`Continue ${b.title}`,
       short_name=some(b.title), description=none, url=`/book/${b.id}`, icons=none, apple=none, android=none)))
-  derive canScan = formats.tracks and formats.formats.includes("ean_13") and camera.available
+  derive canScan = formats.tracks && formats.formats.includes("ean_13") && camera.available
   derive backCamera = MediaTrackConstraints(deviceId=none, groupId=none, facingMode=some("environment"), width=none, height=none, aspectRatio=none, frameRate=none, resizeMode=none, zoom=none, torch=none, sampleRate=none, sampleSize=none, channelCount=none, echoCancellation=none, autoGainControl=none, noiseSuppression=none, latency=none)
   // The first ISBN the scan has seen that Try Again did not pass over.
-  derive isbn = scanTrack == "" ? "" : match first(scan.seen.filter(s => isIsbn(s.rawValue) and not skipped.includes(s.rawValue))) { case some(s) => s.rawValue, case none => "" }
+  derive isbn = scanTrack == "" ? "" : match first(scan.seen.filter(s => isIsbn(s.rawValue) && ! skipped.includes(s.rawValue))) { case some(s) => s.rawValue, case none => "" }
   // The person's language and English; the platform's default where it reads neither.
   derive quoteLanguages = [time.locale, "en"]
   derive canQuote = readerAny.availability == "available"
   derive quoteLines = match quoted { case some(q) => q.texts.map(t => t.rawValue), case none => [] }
-  derive quoteChosen = range(quoteLines.length).filter(i => not quoteOff.includes(i)).map(i => lineAt(quoteLines, i))
+  derive quoteChosen = range(quoteLines.length).filter(i => ! quoteOff.includes(i)).map(i => lineAt(quoteLines, i))
   // The app draws the wait only where the platform draws none, and never
   // under the browser's permission prompt.
-  derive appPanel = nfc.readerUI == "app" and nfc.state == "granted"
+  derive appPanel = nfc.readerUI == "app" && nfc.state == "granted"
   derive nfcOff = nfc.radio == "off"
-  derive panelShown = appPanel and (pending(scanned) or pending(tagged))
+  derive panelShown = appPanel && (pending(scanned) || pending(tagged))
   task panel key=panelShown
     after(1, syncPanel)
 
   // What Shortcuts, Siri and an agent may do (LLP 1111 D2; LLP 1133.023
   // §11); app.json's `intents` gives each its face.
   tool logPages writes idempotent closed "Set the page you're on in a book." = logPages
-    fails when match logged { case some(a) => not a.ok, case none => false }
+    fails when match logged { case some(a) => ! a.ok, case none => false }
   tool addToShelf writes additive closed "Add a book to your shelf." = addTitled
-    fails when match logged { case some(a) => not a.ok, case none => false }
+    fails when match logged { case some(a) => ! a.ok, case none => false }
   action logPages(id: string, page: number)
     send logged = setPage(id, page)
   action addTitled(title: string, author: string, pages: number)
@@ -304,7 +304,7 @@ component Shelf
     skipped = skipped.concat([isbn])
   action save
     submitted = true
-    if titleError == "" and pagesError == ""
+    if titleError == "" && pagesError == ""
       let author = draftAuthor.trim() == "" ? "Unknown author" : draftAuthor.trim()
       send changed = addBook(draftTitle.trim(), author, pagesValue(draftPages), draftStatus, "", "", time.epochAtZero + performanceNow())
       nav = back(nav)
@@ -382,7 +382,7 @@ component Shelf
   action tagEnded
     match tagged
       case some(t)
-        if appPanel and t.cause != "cancelled"
+        if appPanel && t.cause != "cancelled"
           tagSaid = t.ok ? "Tagged" : tagLine(t.cause)
           showModal("tag-said")
       case none
@@ -431,7 +431,7 @@ component Shelf
                     gap=8
                     padding="8px 16px"
                     text "Library" role="heading" aria-level=1 flex=1
-                    if nfc.available and nfcOff
+                    if nfc.available && nfcOff
                       button press=turnOnNfc testId="scan-tag"
                         text "Turn On NFC"
                     else if nfc.available
@@ -446,7 +446,7 @@ component Shelf
                       aria-label="Search title or author"
                       testId="search"
                       width="100%"
-                  if nfc.available and nfc.state == "denied"
+                  if nfc.available && nfc.state == "denied"
                     text "NFC is blocked for this site. Allow it in the browser's site settings to scan tags." testId="nfc-blocked"
                       font="-exact-footnote"
                       color="-exact-secondary-label"
@@ -482,7 +482,7 @@ component Shelf
                   list id="library-list" testId="library-list" flex=1 min-height=0
                     for b in visible key = b.id
                       BookRow(book=b, aim=aim, swipeRemove=swipeRemove)
-                    if lib.ready and visible.length == 0
+                    if lib.ready && visible.length == 0
                       column border-top="none" border-bottom="none"
                         Empty(
                           title=(lib.books.length == 0 ? "No Books" : "No Results"),
@@ -568,7 +568,7 @@ component Shelf
                           text lineAt(quoteLines, i) flex=1 testId=`quote-line-${i}`
                           input type="checkbox"
                             role="switch"
-                            checked=(not quoteOff.includes(i))
+                            checked=(! quoteOff.includes(i))
                             change=toggleLine(i)
                             aria-label=lineAt(quoteLines, i)
                             testId=`quote-toggle-${i}`
@@ -674,7 +674,7 @@ component Shelf
                     if isbn == ""
                       text "Point the camera at the barcode on the back of the book" text-align="center"
                         testId="scan-hint"
-                    else if pending(lookup) or lookup.isbn != isbn
+                    else if pending(lookup) || lookup.isbn != isbn
                       progress aria-label="Looking up the book" testId="scan-looking"
                     else if lookup.found
                       text lookup.title role="heading" aria-level=3 text-align="center" testId="scan-title"
@@ -721,13 +721,13 @@ component Shelf
                   list id="discover-list"
                     testId="discover-list"
                     refresh=reload
-                    refreshing=(pending(works) and works.works.length > 0)
+                    refreshing=(pending(works) && works.works.length > 0)
                     flex=1
                     min-height=0
-                    if pending(works) and works.works.length == 0
+                    if pending(works) && works.works.length == 0
                       row justify-content="center" padding=40 border-top="none" border-bottom="none"
                         progress aria-label="Loading" testId="discover-loading"
-                    else if not works.ok
+                    else if ! works.ok
                       column border-top="none" border-bottom="none"
                         Empty(title="Couldn’t Load Books", message=works.error, tid="discover-error")
                         row justify-content="center"
@@ -844,7 +844,7 @@ component BookRow
             text (book.status == "reading" ? `${percent(book.currentPage, book.pages)}% · page ${book.currentPage} of ${book.pages}` : statusLabel(book.status)) font="-exact-footnote"
               color="-exact-secondary-label"
               testId=`book-status-${book.id}`
-            if book.status == "done" and book.rating > 0
+            if book.status == "done" && book.rating > 0
               Stars(value=book.rating, tid=`book-stars-${book.id}`)
           if book.status == "reading"
             Meter(value=percent(book.currentPage, book.pages), tid=`book-progress-${book.id}`)
@@ -882,7 +882,7 @@ component BookSections
           text `${book.pages}` testId="detail-pages"
     section background-color="transparent"
       StatusControl(status=book.status, choose=setStatus(book.id), prefix="detail-status")
-    if book.status != "want" and book.pages > 0
+    if book.status != "want" && book.pages > 0
       section testId="progress"
         header
           text "Progress"

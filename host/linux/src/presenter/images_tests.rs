@@ -443,7 +443,7 @@ fn error_app(source: &str) -> Presenter<()> {
   action loaded
     loads = loads + 1
   action toggle
-    shown = not shown
+    shown = ! shown
   action other
     name = "b"
   view

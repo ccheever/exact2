@@ -19,7 +19,7 @@ impl DataSource for NoData {
 /// A component whose view is `dialog`, indented under one `column`.
 fn app(dialog: &str) -> String {
     let body: String = dialog.lines().map(|l| format!("      {l}\n")).collect();
-    format!("component App\n  state busy = false\n  state name = \"\"\n  action go\n    busy = not busy\n  action edit(v: string)\n    name = v\n  action pick(v: string)\n    name = v\n  view\n    column\n{body}")
+    format!("component App\n  state busy = false\n  state name = \"\"\n  action go\n    busy = ! busy\n  action edit(v: string)\n    name = v\n  action pick(v: string)\n    name = v\n  view\n    column\n{body}")
 }
 
 /// The dialog `c`'s children by their test ids: a part as `message(…)` or

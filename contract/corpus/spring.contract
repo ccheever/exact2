@@ -3,7 +3,7 @@
 component Pop
   state big = false
   action toggle
-    big = not big
+    big = ! big
   view
     column testId="root"
       button press=toggle aria-label="Toggle" testId="toggle"

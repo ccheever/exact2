@@ -11,7 +11,7 @@ component Mounted
     pick = v
   action show
     pick = open ? "b" : "c"
-    open = not open
+    open = ! open
   view
     column testId="root" gap=8 padding=8 width=400
       row gap=8

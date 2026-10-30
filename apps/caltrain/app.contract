@@ -99,7 +99,7 @@ component Caltrain
   mutation alertSend as shape ActivityHandle
   state alertStarted = false
   resource activities = exactActivities() as shape Activities
-  derive tracked = first(activities.activities.filter(a => a.kind == "departure" and (a.activityState == "active" or a.activityState == "stale")))
+  derive tracked = first(activities.activities.filter(a => a.kind == "departure" && (a.activityState == "active" || a.activityState == "stale")))
   derive trackedId = match tracked { case some(a) => a.id, case none => following ? match activitySend { case some(a) => a.id, case none => "" } : "" }
   derive departureState = DepartureState(station=station.name, headsign="San Francisco", train=101, at=seededEpoch + 600000 + trainDelay, status=(trainDelay > 0 ? "Delayed by 10 minutes" : "On time"))
   action startTracking
@@ -113,7 +113,7 @@ component Caltrain
     trainDelay = 0
     following = false
 
-  derive trackedAlert = first(activities.activities.filter(a => a.kind == "service-alert" and (a.activityState == "active" or a.activityState == "stale")))
+  derive trackedAlert = first(activities.activities.filter(a => a.kind == "service-alert" && (a.activityState == "active" || a.activityState == "stale")))
   derive alertId = match trackedAlert { case some(a) => a.id, case none => alertStarted ? match alertSend { case some(a) => a.id, case none => "" } : "" }
   derive alertFollowing = alertId != ""
   action startAlert
@@ -163,7 +163,7 @@ component Caltrain
   action setMaterial(m: string)
     material = m
   action toggleDeck
-    deck = not deck
+    deck = ! deck
   action focusDeparture(id)
     focus = some(id)
   derive skyOn = match sky { case some(c) => true, case none => false }
@@ -337,7 +337,7 @@ component Content
               // a TV draws its ring outside the button, so its rows are wider apart.
               row gap=(tv ? 12 : 6)
                 // A TV has no light and dark scheme for the app to choose.
-                if not tv
+                if ! tv
                   button appearance="none" press=setScheme("light") aria-label="Light" testId="scheme-light"
                     text "Light" font-size="0.75em"
                   button appearance="none" press=setScheme("dark") aria-label="Dark" testId="scheme-dark"
@@ -407,15 +407,15 @@ component Content
               column gap=8
                 text "Nearest" font-size="0.75em" font-weight=700 letter-spacing=0.8 color="-exact-tertiary-label"
                 for s in nearby key=s.id
-                  StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
+                  StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn && s.id == hoverId))
                 text "All stations" font-size="0.75em" font-weight=700 letter-spacing=0.8 color="-exact-tertiary-label"
                 for s in allStations key=s.id
-                  StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
+                  StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn && s.id == hoverId))
             else
               column gap=8
                 text "Matches" font-size="0.75em" font-weight=700 letter-spacing=0.8 color="-exact-tertiary-label"
                 for s in matches key=s.id
-                  StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
+                  StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn && s.id == hoverId))
             button appearance="none" press=goHome aria-label="Back" aria-keyshortcuts="Escape" testId="stations-back"
               text "Back" font-size="0.8125em"
 

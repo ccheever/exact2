@@ -694,7 +694,7 @@ fn a_boot_gate_reads_a_derive_over_a_baked_answer() {
   state x = 1
   state n = 0
   resource flag = flag() as shape bool
-  derive go = flag and x > 0
+  derive go = flag && x > 0
   action tick
     n = n + 1
   task t when go
@@ -788,7 +788,7 @@ fn a_frame_task_armed_mid_frame_waits_for_the_next_one() {
   state b = 0
   action stepA
     a = a + 1
-    second = not second
+    second = ! second
   action stepB
     b = b + 1
   task fa mount
@@ -982,7 +982,7 @@ fn a_task_gate_parses_in_three_forms_and_lowers_to_plan_code() {
         .map(|t| (plan.str(t.name), t.gated, t.keyed))
         .collect();
     assert_eq!(rows, [("t", true, false), ("r", true, true)]);
-    let both = GATED.replace("task t when on\n", "task t when on and n < 3 key=k\n");
+    let both = GATED.replace("task t when on\n", "task t when on && n < 3 key=k\n");
     let plan = contract::compile(&both).unwrap();
     assert!(plan.timers[0].gated && plan.timers[0].keyed);
     // `mount` stays ungated, its gate the constant `true`.

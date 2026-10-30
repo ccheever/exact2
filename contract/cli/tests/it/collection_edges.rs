@@ -436,7 +436,7 @@ fn refused_second_edge_retries_once_without_repeating_the_successful_start() {
     let source = SOURCE
         .replace("refused = fail", "refused = false")
         .replace("ends = ends + 1", "ends = ends + 1\n    refused = fail")
-        .replace("fail = true", "fail = not fail");
+        .replace("fail = true", "fail = ! fail");
     let mut r = boot(&source);
     r.act("change", vec![Value::Number(0.), Value::Number(2.)])
         .unwrap();
@@ -749,7 +749,7 @@ fn rows_arriving_before_a_trailing_row_rearm_the_end() {
     let source = SOURCE
         .replace(
             "  state fail = false\n",
-            "  state fail = false\n  state limit = 20\n  derive shown = rows.filter((x) => x < limit or x == 199)\n  action grow\n    limit = limit + 20\n",
+            "  state fail = false\n  state limit = 20\n  derive shown = rows.filter((x) => x < limit || x == 199)\n  action grow\n    limit = limit + 20\n",
         )
         .replace("for x in rows key=x", "for x in shown key=x");
     let mut r = boot(&source);

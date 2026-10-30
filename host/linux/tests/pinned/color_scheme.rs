@@ -10,7 +10,7 @@ use std::path::PathBuf;
 const APP: &str = r##"component App
   state on = false
   action toggle
-    on = not on
+    on = ! on
   view
     column width=200 height=300 background-color="light-dark(#ffffff, #000000)"
       button testId="toggle" press=toggle width=40 height=20

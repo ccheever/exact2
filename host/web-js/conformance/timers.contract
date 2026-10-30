@@ -8,7 +8,7 @@ component Timers
   action tick
     ticks = running ? ticks + 1 : ticks
   action stop
-    running = not running
+    running = ! running
   task beat mount
     every(1000, tick)
   view

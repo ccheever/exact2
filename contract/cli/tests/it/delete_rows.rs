@@ -321,7 +321,7 @@ fn a_destructive_button_in_a_repeated_row_asks_for_delete() {
     let row = |section: &str| format!("list appearance=\"auto\" flex=1\n  section\n{section}");
     // The grouped row and a cell list's row.
     assert_eq!(
-        warned(&row("    for n in notes key=n.id\n      row\n        text n.title\n        if not n.locked\n          button press=remove(n.id) destructive=true\n            text \"Delete\"")),
+        warned(&row("    for n in notes key=n.id\n      row\n        text n.title\n        if ! n.locked\n          button press=remove(n.id) destructive=true\n            text \"Delete\"")),
         [21]
     );
     assert_eq!(

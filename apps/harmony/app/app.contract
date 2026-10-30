@@ -172,9 +172,9 @@ fn nobody(key: string): Person = Person(key=key, principal=`dev:${key}`, name=""
 fn emptyThread(): Thread = Thread(id="", kind="", title="", topic="", typing="", unread=0, messages=[], pins=[], members=[])
 fn bodyOf(messages: Msg[], id: string): string = match first(messages.filter(m => m.id == id)) { case some(m) => m.body, case none => "" }
 fn authorOf(messages: Msg[], id: string): string = match first(messages.filter(m => m.id == id)) { case some(m) => m.author, case none => "" }
-fn isMine(messages: Msg[], id: string): bool = messages.filter(m => m.id == id and m.mine).length > 0
-fn isPinned(messages: Msg[], id: string): bool = messages.filter(m => m.id == id and m.pinned).length > 0
-fn handleOk(name: string): bool = name.length >= 2 and name.length <= 32
+fn isMine(messages: Msg[], id: string): bool = messages.filter(m => m.id == id && m.mine).length > 0
+fn isPinned(messages: Msg[], id: string): bool = messages.filter(m => m.id == id && m.pinned).length > 0
+fn handleOk(name: string): bool = name.length >= 2 && name.length <= 32
 
 component Harmony
   // Who you are: one of the six personas, kept across launches.
@@ -198,7 +198,7 @@ component Harmony
   resource time = exactTime() as shape Clock
   resource page = exactPage() as shape Page
   derive now = time.epochAtZero + sampledAt
-  derive roomId = (top(nav).name == "room" or top(nav).name == "dm") ? top(nav).params.id : ""
+  derive roomId = (top(nav).name == "room" || top(nav).name == "dm") ? top(nav).params.id : ""
   // The clock and zone ride after `with`: the kept answer then shows at the
   // next launch before the first round (its arguments match without them).
   // Pushed, not polled: each change Snapback reports (`live.seq`) reads the
@@ -215,7 +215,7 @@ component Harmony
   derive emoji = world.emoji
   derive hits = world.hits
   derive thread = world.thread
-  derive unreachable = failed(world) and not world.loaded
+  derive unreachable = failed(world) && ! world.loaded
   derive me = match first(people.filter(p => p.key == persona)) { case some(p) => p, case none => nobody(persona) }
   derive others = people.filter(p => p.key != persona)
   derive shown = thread.id == roomId ? thread : emptyThread()
@@ -226,7 +226,7 @@ component Harmony
   derive shapeList = [EmojiShape(name="bolt", path="M13 2L3 14h8l-1 8 10-12h-8z"), EmojiShape(name="heart", path="M12 21s-7-4.5-9.5-9A5.5 5.5 0 0 1 12 6a5.5 5.5 0 0 1 9.5 6c-2.5 4.5-9.5 9-9.5 9z"), EmojiShape(name="star", path="M12 2l3 7 7 .6-5.3 4.7 1.6 7.2L12 17.8 5.7 21.5l1.6-7.2L2 9.6 9 9z"), EmojiShape(name="hex", path="M12 2l8.66 5v10L12 22l-8.66-5V7z"), EmojiShape(name="plane", path="M2 21l21-9L2 3v7l15 2-15 2z"), EmojiShape(name="spark", path="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"), EmojiShape(name="drop", path="M12 2s7 7.5 7 12a7 7 0 0 1-14 0c0-4.5 7-12 7-12z"), EmojiShape(name="check", path="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z")]
   derive hueList = ["hue.rose", "hue.sky", "hue.moss", "hue.amber", "hue.violet", "hue.teal"]
   derive shapePath = match first(shapeList.filter(s => s.name == emojiShape)) { case some(s) => s.path, case none => "" }
-  derive emojiHint = emojiName.trim() == "" ? "Name it: people will type :name: to use it." : not handleOk(emojiName.trim()) ? "Two to 32 letters, digits or underscores." : `People will type :${emojiName.trim()}:`
+  derive emojiHint = emojiName.trim() == "" ? "Name it: people will type :name: to use it." : ! handleOk(emojiName.trim()) ? "Two to 32 letters, digits or underscores." : `People will type :${emojiName.trim()}:`
   derive emojiRefusal = match failure(emojiCreated) { case some(f) => f.code == "EMOJI_EXISTS" ? "That name is taken." : "Couldn’t save the emoji. Try again.", case none => "" }
   derive channelRefusal = match failure(channelCreated) { case some(f) => "Couldn’t create the channel. Try again.", case none => "" }
   derive sendRefusal = match failure(sent) { case some(f) => f.code == "NOT_MEMBER" ? "You’re not in this room." : "Couldn’t send. Try again.", case none => "" }
@@ -253,19 +253,19 @@ component Harmony
   mutation caught as shape Caught then notifyMention
   // Asked when the switch turns on, in the press, so a catch-up's post finds the answer given.
   mutation notifyAsked as shape NotificationStatus
-  derive writing = pending(sent) or pending(edited) or pending(removed) or pending(reacted) or pending(pinToggled) or pending(typed) or pending(readMarked) or pending(channelCreated) or pending(dmOpened) or pending(profileSaved) or pending(emojiCreated) or pending(emojiRemoved)
+  derive writing = pending(sent) || pending(edited) || pending(removed) || pending(reacted) || pending(pinToggled) || pending(typed) || pending(readMarked) || pending(channelCreated) || pending(dmOpened) || pending(profileSaved) || pending(emojiCreated) || pending(emojiRemoved)
 
   // Changes arrive through `live`; the clock still moves every ten seconds,
   // between writes, for what changes with time alone (a typing line that
   // expires, "Today"), and as a fallback should the feed drop.
-  task clock when page.visibilityState == "visible" and not writing
+  task clock when page.visibilityState == "visible" && ! writing
     every(10000, tick)
   // The open room is read as soon as it is seen, and again as messages arrive.
-  task follow when page.visibilityState == "visible" and live.seq != seenSeq and not pending(world) key=live.seq
+  task follow when page.visibilityState == "visible" && live.seq != seenSeq && ! pending(world) key=live.seq
     after(1, catchUp)
   task relive when live.state == "error" key=liveEpoch
     after(2000, reconnect)
-  task readOpen when page.visibilityState == "visible" and roomId != "" and shown.unread > 0 and not pending(world) key=roomId
+  task readOpen when page.visibilityState == "visible" && roomId != "" && shown.unread > 0 && ! pending(world) key=roomId
     after(300, markOpen)
   task fillStatus when world.loaded key=persona
     after(1, loadStatus)
@@ -286,9 +286,9 @@ component Harmony
   state callPhase = ""
   resource callList = calls() as shape Call[] else empty()
   derive callId = `test-call-${callSeq}`
-  derive testCall = callList.filter(c => c.id == callId and c.state != "ended")
+  derive testCall = callList.filter(c => c.id == callId && c.state != "ended")
   derive inTestCall = testCall.length > 0
-  derive callAudio = testCall.filter(c => c.audio and c.state == "connected").length > 0
+  derive callAudio = testCall.filter(c => c.audio && c.state == "connected").length > 0
   derive callHeld = testCall.filter(c => c.state == "held").length > 0
   derive callMuted = testCall.filter(c => c.muted).length > 0
   mutation callOpened as shape MediaStream then testCallArm
@@ -298,12 +298,12 @@ component Harmony
   mutation callStopped as shape MediaStreamTrack
   mutation callDiscarded as shape Discarded
   // The microphone or the recorder refused (no microphone here, or its permission denied): the call ends `failed`.
-  derive callUnopened = (match failure(callOpened) { case some(f) => true, case none => false }) or (match failure(callStarted) { case some(f) => true, case none => false })
-  task testCallMic when callAudio and callPhase == "" key=callId
+  derive callUnopened = (match failure(callOpened) { case some(f) => true, case none => false }) || (match failure(callStarted) { case some(f) => true, case none => false })
+  task testCallMic when callAudio && callPhase == "" key=callId
     after(1, testCallOpen)
-  task testCallRefused when callPhase == "opening" and callUnopened key=callId
+  task testCallRefused when callPhase == "opening" && callUnopened key=callId
     after(1, testCallFailed)
-  task testCallTake when callPhase == "recording" and not callHeld key=callRecorder
+  task testCallTake when callPhase == "recording" && ! callHeld key=callRecorder
     after(5000, testCallStop)
   // A build without the grant starts nothing, however the action is reached.
   action testCallStart
@@ -377,21 +377,21 @@ component Harmony
           callPhase = ""
   // Held, the take pauses as an interruption pauses it, and resumes at the unhold.
   action testCallHeld(call: Call, e: CallEvent)
-    if call.id == callId and callRecorder != ""
+    if call.id == callId && callRecorder != ""
       if call.state == "held"
         send callPaused = pauseMediaRecorder(recorder=callRecorder)
       else
         send callPaused = resumeMediaRecorder(recorder=callRecorder)
   action tick
-    if not pending(world)
+    if ! pending(world)
       sampledAt = performanceNow()
   action reconnect
     liveEpoch = liveEpoch + 1
   action catchUp
-    if not pending(world)
+    if ! pending(world)
       seenSeq = live.seq
   action markOpen
-    if roomId != "" and shown.unread > 0 and not pending(readMarked)
+    if roomId != "" && shown.unread > 0 && ! pending(readMarked)
       send readMarked = markRead(persona, roomId)
   action loadStatus
     statusDraft = me.status
@@ -402,7 +402,7 @@ component Harmony
     nav = back(nav)
   // A row is a link to its room; in a wide window the open room is replaced.
   action follow(url: string)
-    nav = (top(nav).name == "room" or top(nav).name == "dm") and (url.startsWith("/c/") or url.startsWith("/dm/")) ? replace(nav, url) : go(nav, url)
+    nav = (top(nav).name == "room" || top(nav).name == "dm") && (url.startsWith("/c/") || url.startsWith("/dm/")) ? replace(nav, url) : go(nav, url)
     draft = ""
     replyTo = ""
     editing = ""
@@ -413,24 +413,24 @@ component Harmony
 
   action edit(v: string)
     draft = v
-    if roomId != "" and v.trim() != "" and editing == "" and not pending(world) and performanceNow() - lastTyped > 2500
+    if roomId != "" && v.trim() != "" && editing == "" && ! pending(world) && performanceNow() - lastTyped > 2500
       lastTyped = performanceNow()
       send typed = setTyping(persona, roomId)
   // Enter sends, Shift+Enter breaks the line; Escape leaves a reply or an edit.
   action composeKey(k: string, e: KeyboardEvent)
-    if k == "Enter" and not e.shiftKey
+    if k == "Enter" && ! e.shiftKey
       preventDefault()
-      if draft.trim() != "" and roomId != "" and not pending(sent) and not pending(edited)
+      if draft.trim() != "" && roomId != "" && ! pending(sent) && ! pending(edited)
         if editing != ""
           send edited = editMessage(persona, editing, draft.trim())
         else
           send sent = sendMessage(persona, roomId, draft.trim(), replyTo == "" ? none : some(replyTo))
-    if k == "Escape" and (replyTo != "" or editing != "")
+    if k == "Escape" && (replyTo != "" || editing != "")
       replyTo = ""
       editing = ""
       draft = ""
   action post
-    if draft.trim() != "" and roomId != "" and not pending(sent) and not pending(edited)
+    if draft.trim() != "" && roomId != "" && ! pending(sent) && ! pending(edited)
       if editing != ""
         send edited = editMessage(persona, editing, draft.trim())
       else
@@ -510,7 +510,7 @@ component Harmony
   action pickCategory(v: string)
     newCategory = v
   action createChannel
-    if newName.trim() != "" and not pending(channelCreated)
+    if newName.trim() != "" && ! pending(channelCreated)
       send channelCreated = createChannel(persona, newName.trim().toLowerCase().replaceAll(" ", "-"), newTopic.trim(), newCategory)
   action afterChannel
     match channelCreated
@@ -523,7 +523,7 @@ component Harmony
   action openNewDm
     nav = push(nav, "/new-message")
   action startDm(principal: string)
-    if not pending(dmOpened)
+    if ! pending(dmOpened)
       send dmOpened = openDm(persona, principal)
   action afterDm
     match dmOpened
@@ -559,7 +559,7 @@ component Harmony
     haptic("selection")
     emojiFill = token
   action saveEmoji
-    if handleOk(emojiName.trim()) and not pending(emojiCreated)
+    if handleOk(emojiName.trim()) && ! pending(emojiCreated)
       send emojiCreated = createEmoji(persona, emojiName.trim().toLowerCase(), shapePath, emojiFill)
   action afterEmoji
     nav = back(nav)
@@ -603,7 +603,7 @@ component Harmony
                     input type="search" value=query input=search placeholder="Search messages" aria-label="Search messages"
                       testId="search" width="100%"
                   if query.trim() != ""
-                    if hits.length == 0 and not pending(world)
+                    if hits.length == 0 && ! pending(world)
                       EmptyState(symbol="symbol:search", title=`No Results for “${query.trim()}”`, message="Search matches the start of a word in any room you’re in.")
                     else
                       list id="channels-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
@@ -623,7 +623,7 @@ component Harmony
                     EmptyState(symbol="symbol:alert", title="Can’t Reach Harmony", message="Check that the backend is running, then try again.")
                       button press=tick testId="retry"
                         text "Try Again"
-                  else if world.channels.length == 0 and world.loaded
+                  else if world.channels.length == 0 && world.loaded
                     EmptyState(symbol="symbol:hashtag", title="No Channels", message="Create the first channel for your team.")
                       button press=openNewChannel testId="empty-new-channel"
                         text "New Channel"
@@ -643,9 +643,9 @@ component Harmony
                               if r.unread > 0
                                 Badge(label=`${r.unread}`, tint=some("AccentColor"))
                               image "symbol:forward-chevron"
-              if e.name == "room" or e.name == "dm"
-                RoomScreen(routeKey=`${e.id}`, thread=shown, loading=(pending(world) and shown.id == ""), missing=(world.threadMissing and world.loaded), now=now, offset=time.utcOffset,
-                  draft=draft, replyTo=replyTo, editing=editing, hovered=hovered, sending=(pending(sent) or pending(edited)), sendRefusal=sendRefusal,
+              if e.name == "room" || e.name == "dm"
+                RoomScreen(routeKey=`${e.id}`, thread=shown, loading=(pending(world) && shown.id == ""), missing=(world.threadMissing && world.loaded), now=now, offset=time.utcOffset,
+                  draft=draft, replyTo=replyTo, editing=editing, hovered=hovered, sending=(pending(sent) || pending(edited)), sendRefusal=sendRefusal,
                   edit=edit, composeKey=composeKey, post=post, cancelCompose=cancelCompose, aim=aim, react=react, pickFor=pickFor, pickForComposer=pickForComposer, hover=hover, reply=startReply)
               if e.name == "newChannel"
                 column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="new-channel-form" position="absolute" inset=0
@@ -654,7 +654,7 @@ component Harmony
                       image "symbol:close"
                     text "New Channel" role="heading"
                     button press=createChannel buttonStyle="bordered-prominent" aria-label="Create" testId="new-channel-save"
-                      disabled=(newName.trim() == "" or pending(channelCreated))
+                      disabled=(newName.trim() == "" || pending(channelCreated))
                       image "symbol:checkmark"
                   list id="new-channel-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
                     section
@@ -684,7 +684,7 @@ component Harmony
                     text "Messages" role="heading" aria-level=1 flex=1
                     button press=openNewDm aria-label="New Message" testId="new-dm"
                       image "symbol:compose"
-                  if world.dms.length == 0 and world.loaded
+                  if world.dms.length == 0 && world.loaded
                     EmptyState(symbol="symbol:messages", title="No Direct Messages", message="Start a conversation with someone on the team.")
                       button press=openNewDm testId="empty-new-dm"
                         text "New Message"
@@ -779,7 +779,7 @@ component Harmony
                       header
                         text "Custom Emoji"
                       for em in emoji key=em.id
-                        row delete=removeEmoji(em.id) disabled=(not em.mine) testId=`emoji-${em.name}`
+                        row delete=removeEmoji(em.id) disabled=(! em.mine) testId=`emoji-${em.name}`
                           Glyph(emoji=`:${em.name}:`, custom=true, path=em.path, fill=em.fill, size="1.5rem")
                           text `:${em.name}:` flex=1 min-width=0 font-family="ui-monospace, monospace"
                           if em.mine
@@ -805,7 +805,7 @@ component Harmony
                       image "symbol:close"
                     text "New Emoji" role="heading"
                     button press=saveEmoji buttonStyle="bordered-prominent" aria-label="Save" testId="new-emoji-save"
-                      disabled=(not handleOk(emojiName.trim()) or pending(emojiCreated))
+                      disabled=(! handleOk(emojiName.trim()) || pending(emojiCreated))
                       image "symbol:checkmark"
                   list id="new-emoji-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
                     section
@@ -938,7 +938,7 @@ component RoomScreen
           image "symbol:people"
       if missing
         EmptyState(symbol="symbol:lock", title="Not in This Room", message="You don’t have access to this room, or it no longer exists.")
-      else if thread.id != "" and thread.messages.length == 0
+      else if thread.id != "" && thread.messages.length == 0
         EmptyState(symbol=(isDm ? "symbol:messages" : "symbol:hashtag"), title=(isDm ? `This is the beginning of your conversation with ${thread.title}.` : `Welcome to #${thread.title}`), message=(thread.topic != "" ? thread.topic : "Say something to get it started."))
       else
         list id=`transcript-${routeKey}` appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true flex=1 min-height=0
@@ -969,7 +969,7 @@ component RoomScreen
           textarea id=`composer-${routeKey}` value=draft input=edit key=composeKey rows=1 field-sizing="content" max-height=140 enterkeyhint="send"
             placeholder=(thread.id == "" ? "Message" : isDm ? `Message ${thread.title}` : `Message #${thread.title}`) aria-label="Message" testId="composer"
             flex=1 min-width=0 border="none" background-color="transparent" padding="7px 4px"
-          button press=post disabled=(draft.trim() == "" or sending or thread.id == "") buttonStyle="filled" retainFocus=true
+          button press=post disabled=(draft.trim() == "" || sending || thread.id == "") buttonStyle="filled" retainFocus=true
             aria-label=(editing != "" ? "Save" : "Send") title=(editing != "" ? "Save" : "Send") testId="send"
             image (editing != "" ? "symbol:checkmark" : "symbol:send")
       column id=`pins-${routeKey}` popover="auto" testId="pins-popover" padding=12 gap=8 width="22rem" max-width="92vw" max-height="70vh" overflow-y="auto"
@@ -1012,7 +1012,7 @@ component MessageRow
           box flex=1 height="-exact-hairline" background-color="-exact-separator"
           text formatDay(m.at, now, offset, "day") font="-exact-caption1" font-weight=600 color="-exact-secondary-label" testId=`day-${m.id}`
           box flex=1 height="-exact-hairline" background-color="-exact-separator"
-      if m.replyAuthor != "" or m.replyDeleted
+      if m.replyAuthor != "" || m.replyDeleted
         row align-items="center" gap=6 margin-left="3.25rem" margin-bottom=2
           image "symbol:reply" aria-hidden=true font="-exact-caption2" color="-exact-secondary-label"
           text (m.replyDeleted ? "Original message was deleted" : `${m.replyAuthor}  ${m.replyBody}`) font="-exact-footnote" color="-exact-secondary-label" line-clamp=1 flex=1 min-width=0 testId=`reply-${m.id}`

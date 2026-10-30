@@ -14,7 +14,7 @@ component App
   action setA(v: string)
     a = v
   action toggle
-    flag = not flag
+    flag = ! flag
   view
     column
       input value=a change=setA testId="a"

@@ -11,7 +11,7 @@
 component SpanPaint
   state dark = false
   action scheme
-    dark = not dark
+    dark = ! dark
     setScheme(dark ? "light" : "dark")
   view
     main testId="span-paint" position="relative" width=390 height=520 background-color="light-dark(#ffffff, #121212)"

@@ -21,7 +21,7 @@ const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target')
 const BROKEN = `component CheckFixture
   state on = false
   action toggle
-    on = not on
+    on = ! on
   view
     column testId="root" gap=8 padding=16 accent-color="light-dark(#6652c5, #b5a4ff)"
       text testId="fits" "Fits"

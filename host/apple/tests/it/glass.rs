@@ -54,9 +54,9 @@ fn an_auto_group_takes_its_spacing_from_its_gap_and_follows_it() {
   state wide = false
   state across = true
   action widen
-    wide = not wide
+    wide = ! wide
   action turn
-    across = not across
+    across = ! across
   view
     column
       row testId="row" glassGroup="auto" column-gap=(wide ? 20 : 8) row-gap=3 flex-direction=(across ? "row" : "column")

@@ -576,7 +576,7 @@ type-atom     = "number" | "string" | "bool" | "unit" | IDENT | "action"
 expr          = ternary ;
 ternary       = binary [ "?" expr ":" expr ] ;
 binary        = unary { binary-op unary } ;
-unary         = ( "-" | "not" | "!" ) unary | postfix ;
+unary         = ( "-" | "!" ) unary | postfix ;
 postfix       = primary { "." FIELD [ "(" [ arguments ] ")" ] } ;
 primary       = NUMBER | STRING | TEMPLATE | "true" | "false" | "none"
               | "some" "(" expr ")" | list | IDENT
@@ -596,18 +596,22 @@ have the same precedence. From weakest to strongest:
 | Level | Operators | Associativity |
 | --- | --- | --- |
 | Conditional | `? :` | Nested arms parse as expressions |
-| Or | `or`, `||` | Left |
-| And | `and`, `&&` | Left |
+| Or | `||` | Left |
+| And | `&&` | Left |
 | Equality | `==`, `!=` | Left |
 | Comparison | `<`, `<=`, `>`, `>=` | Left |
 | Additive | `+`, `-` | Left |
 | Multiplicative | `*`, `/`, `%` | Left |
-| Prefix | `-`, `not`, `!` | Right |
+| Prefix | `-`, `!` | Right |
 | Postfix | `.` | Left |
 
 Parentheses override precedence. Comparisons do not create Python-style chained
 comparison semantics. Logical operators short-circuit; ternary/match evaluates
 only its selected arm. Conditions require booleans.
+
+The operator words `and`, `or` and `not` are refused with their replacements:
+`&&`, `||` and `!`. `contract migrate <file.contract>` applies those edits,
+including expressions inside templates, while preserving comments and string text.
 
 Named arguments are accepted only by the corresponding constructs: component
 uses, a native module's sources and sends (the only place a dotted name,

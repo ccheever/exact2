@@ -33,26 +33,26 @@ component Proposals
             // An import (LLP 1122 D11): mapped tokens in until unticked, role
             // overrides out until ticked, what it did not map, and the count.
             text `${h.client} imports a ${h.importer} theme` font="-exact-headline" testId=`held-title-${h.proposal}`
-            if h.editedBy != "" and h.editedBy != h.client
+            if h.editedBy != "" && h.editedBy != h.client
               text `Edited by ${h.editedBy}` font="-exact-footnote" color="-exact-secondary-label" testId=`held-edited-${h.proposal}`
             text h.counted color=(h.countOk ? "-exact-secondary-label" : "-exact-system-red") font="-exact-footnote" testId=`held-count-${h.proposal}`
             // (An edit names the one it replaces as `from` too: the recompute's words are for a recompute.)
-            if h.replaces != "" and h.replaces != h.from
+            if h.replaces != "" && h.replaces != h.from
               text `Recomputed from ${h.replaces} with the items chosen, on the files as they are now: review its diff, then accept it to write it. The overrides kept are on because they were ticked.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
             else if h.from != ""
               text `Held again from ${h.from} with your edit, on the files as they are now: review its diff, then accept it.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
-            if h.replaces != "" or h.from != ""
+            if h.replaces != "" || h.from != ""
               // (what is chosen now, planned for the card as it is shown; none while that is being planned)
-              for d in diffs.filter(d => d.proposal == h.proposal and d.shown == `${h.choiceGen}|${picked.filter(p => p.startsWith(`${h.proposal}:`)).join(";")}`) key=d.proposal
+              for d in diffs.filter(d => d.proposal == h.proposal && d.shown == `${h.choiceGen}|${picked.filter(p => p.startsWith(`${h.proposal}:`)).join(";")}`) key=d.proposal
                 if d.note != ""
                   text d.note color="-exact-secondary-label" font="-exact-footnote" testId=`held-diff-note-${h.proposal}`
                 text d.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
-              if diffs.filter(d => d.proposal == h.proposal and d.shown == `${h.choiceGen}|${picked.filter(p => p.startsWith(`${h.proposal}:`)).join(";")}`).length == 0
+              if diffs.filter(d => d.proposal == h.proposal && d.shown == `${h.choiceGen}|${picked.filter(p => p.startsWith(`${h.proposal}:`)).join(";")}`).length == 0
                 text "Planning the diff of what is chosen…" color="-exact-secondary-label" font="-exact-footnote" testId=`held-diff-note-${h.proposal}`
             text `Tokens (${h.mapped.length})` role="heading" aria-level=3
             for m in h.mapped key=`${m.index}`
               row gap=8 align-items="center" flex-wrap="wrap" testId=`mapped-${h.proposal}-${m.index}`
-                input type="checkbox" disabled=(writing or not canWrite) checked=(m.on != picked.includes(`${h.proposal}:${m.index}`)) change=toggleLeaveOut(`${h.proposal}:${m.index}`, m.on) aria-label=m.name testId=`take-${h.proposal}-${m.index}`
+                input type="checkbox" disabled=(writing || ! canWrite) checked=(m.on != picked.includes(`${h.proposal}:${m.index}`)) change=toggleLeaveOut(`${h.proposal}:${m.index}`, m.on) aria-label=m.name testId=`take-${h.proposal}-${m.index}`
                 text m.name width=200 flex-shrink=0 font="-exact-footnote"
                 if m.kind != "token"
                   text m.text color="-exact-secondary-label" font="-exact-caption1" testId=`mapped-text-${h.proposal}-${m.index}`
@@ -65,43 +65,43 @@ component Proposals
                     if md.dark != ""
                       view width=16 height=16 border-radius=3 background-color=md.dark border="1px solid -exact-separator"
                     text md.label font="-exact-caption2" color="-exact-secondary-label"
-                    input value=md.value change=editImportValue(h.proposal, m.index, md.mode, h.choiceGen) disabled=(not canPropose) aria-label=`${m.name} ${md.label}` flex=1 min-width="12rem" font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
+                    input value=md.value change=editImportValue(h.proposal, m.index, md.mode, h.choiceGen) disabled=(! canPropose) aria-label=`${m.name} ${md.label}` flex=1 min-width="12rem" font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
             text (h.kept ? "Role overrides, as ticked" : "Role overrides, off until ticked") role="heading" aria-level=3
             for o in h.offers key=o.role
               row gap=8 align-items="center" testId=`offer-${h.proposal}-${o.role}`
                 if o.items != ""
-                  input type="checkbox" disabled=(writing or not canWrite) checked=(o.on != picked.includes(`${h.proposal}:${o.items}`)) change=toggleOffer(`${h.proposal}:${o.items}`, o.on) aria-label=`${o.role} = ${o.token}` testId=`override-${h.proposal}-${o.role}`
+                  input type="checkbox" disabled=(writing || ! canWrite) checked=(o.on != picked.includes(`${h.proposal}:${o.items}`)) change=toggleOffer(`${h.proposal}:${o.items}`, o.on) aria-label=`${o.role} = ${o.token}` testId=`override-${h.proposal}-${o.role}`
                 text `${o.role} = ${o.token}` font="-exact-footnote"
                 if o.note != ""
                   text o.note color="-exact-secondary-label" font="-exact-caption1" testId=`offer-note-${h.proposal}-${o.role}`
             text `Not mapped (${h.unmapped.length})` role="heading" aria-level=3
             for u in h.unmapped key=u.key
-              text `${u.name} = ${u.value}${u.block != "" and not u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1" testId=`unmapped-${h.proposal}-${u.key}`
+              text `${u.name} = ${u.value}${u.block != "" && ! u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1" testId=`unmapped-${h.proposal}-${u.key}`
             row gap=8
-              button press=acceptImportNow(h.proposal, h.choiceGen) disabled=(writing or not canWrite) buttonStyle="filled" testId=`accept-${h.proposal}`
+              button press=acceptImportNow(h.proposal, h.choiceGen) disabled=(writing || ! canWrite) buttonStyle="filled" testId=`accept-${h.proposal}`
                 text "Accept"
-              button press=dropProposal(h.proposal) disabled=(writing or not (canWrite or h.client == client)) destructive=true testId=`drop-${h.proposal}`
+              button press=dropProposal(h.proposal) disabled=(writing || ! (canWrite || h.client == client)) destructive=true testId=`drop-${h.proposal}`
                 text "Drop"
           else
             text `${h.client} proposes ${h.title}` testId=`held-title-${h.proposal}`
-            if h.editedBy != "" and h.editedBy != h.client
+            if h.editedBy != "" && h.editedBy != h.client
               text `Edited by ${h.editedBy}` font="-exact-footnote" color="-exact-secondary-label" testId=`held-edited-${h.proposal}`
             // (Edited, then perhaps recomputed: either way held again, the editor named above.)
-            if h.replaces != "" and h.editedBy != ""
+            if h.replaces != "" && h.editedBy != ""
               text `Held again from ${h.replaces} on the files as they are now: review it again.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
             else if h.replaces != ""
               text `Recomputed from ${h.replaces} on the files as they are now: review it again.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
             text h.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
             for it in h.items key=`${it.index}`
               row gap=8 align-items="center"
-                input type="checkbox" disabled=(not canWrite) checked=picked.includes(`${h.proposal}:${it.index}`) change=togglePick(`${h.proposal}:${it.index}`) aria-label=it.text testId=`pick-${h.proposal}-${it.index}`
+                input type="checkbox" disabled=(! canWrite) checked=picked.includes(`${h.proposal}:${it.index}`) change=togglePick(`${h.proposal}:${it.index}`) aria-label=it.text testId=`pick-${h.proposal}-${it.index}`
                 text it.text font="-exact-footnote"
             row gap=8
-              button press=acceptAll(h.proposal) disabled=(writing or not canWrite) buttonStyle="filled" testId=`accept-${h.proposal}`
+              button press=acceptAll(h.proposal) disabled=(writing || ! canWrite) buttonStyle="filled" testId=`accept-${h.proposal}`
                 text "Accept"
-              button press=acceptPicked(h.proposal, h.items.filter(it => picked.includes(`${h.proposal}:${it.index}`)).map(it => `${it.index}`).join(",")) disabled=(writing or not h.items.map(it => picked.includes(`${h.proposal}:${it.index}`)).includes(true) or not canWrite) testId=`accept-picked-${h.proposal}`
+              button press=acceptPicked(h.proposal, h.items.filter(it => picked.includes(`${h.proposal}:${it.index}`)).map(it => `${it.index}`).join(",")) disabled=(writing || ! h.items.map(it => picked.includes(`${h.proposal}:${it.index}`)).includes(true) || ! canWrite) testId=`accept-picked-${h.proposal}`
                 text "Accept picked"
-              button press=dropProposal(h.proposal) disabled=(writing or not (canWrite or h.client == client)) destructive=true testId=`drop-${h.proposal}`
+              button press=dropProposal(h.proposal) disabled=(writing || ! (canWrite || h.client == client)) destructive=true testId=`drop-${h.proposal}`
                 text "Drop"
 
 // The changeset: each write since the tool opened, and Commit.
@@ -123,10 +123,10 @@ component ChangesPanel
           row gap=6 align-items="center"
             view width=8 height=8 border-radius=4 background-color=e.tint
             text e.text color=(e.committed ? "-exact-secondary-label" : "-exact-label") flex=1 testId=`entry-text-${e.seq}`
-          if e.mine and e.diff != ""
+          if e.mine && e.diff != ""
             text e.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" color="-exact-secondary-label" testId=`entry-diff-${e.seq}`
       row gap=8 align-items="center"
-        button press=commit disabled=(committing or (scope.open == 0 and not scope.refused and not scope.unavailable) or not canWrite) buttonStyle="bordered" testId="commit"
+        button press=commit disabled=(committing || (scope.open == 0 && ! scope.refused && ! scope.unavailable) || ! canWrite) buttonStyle="bordered" testId="commit"
           text "Commit"
         text "Commits what this session wrote, never pushes." color="-exact-secondary-label" font="-exact-footnote"
       match committed
@@ -162,13 +162,13 @@ component HistoryPanel
       button press=toggleHistory testId="toggle-history"
         text (historyShown ? "Hide history" : "History")
       if historyShown
-        if not history.ok
+        if ! history.ok
           text history.error color="-exact-system-red" testId="history-error"
         for c in history.commits key=c.commit
           column gap=2 padding=8 border-radius=8 background-color="-exact-secondary-background" testId=`commit-${c.short}`
             row gap=8 align-items="center"
               text `${c.short} · ${c.author} · ${c.date}` font="-exact-footnote" color="-exact-secondary-label" flex=1
-              button press=revert(c.commit) disabled=(reverting or not canPropose) testId=`revert-${c.short}`
+              button press=revert(c.commit) disabled=(reverting || ! canPropose) testId=`revert-${c.short}`
                 text "Revert"
             text c.subject testId=`subject-${c.short}`
             for f in c.files key=f.file

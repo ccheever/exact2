@@ -120,7 +120,8 @@ impl Parser {
             if prec < min_prec {
                 break;
             }
-            self.next();
+            let token = self.next();
+            self.retired_operator(&token);
             // `a === b`: `==` then `=`.
             if matches!(op, BinOp::Eq | BinOp::Ne) && self.at_punct("=") {
                 let strict = if op == BinOp::Eq { "===" } else { "!==" };
@@ -148,7 +149,9 @@ impl Parser {
         } else {
             return self.postfix();
         };
-        let span = self.next().span;
+        let token = self.next();
+        self.retired_operator(&token);
+        let span = token.span;
         self.nest()?;
         let e = self.unary();
         self.depth -= 1;

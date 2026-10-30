@@ -286,15 +286,15 @@ mod tests {
   state locked = false
   state heard = ""
   action before(e: InputEvent)
-    if blocked and (e.inputType == "historyUndo" or e.inputType == "historyRedo")
+    if blocked && (e.inputType == "historyUndo" || e.inputType == "historyRedo")
       preventDefault()
   action edited(v: string, e: InputEvent)
     value = v
     heard = e.inputType
   action block
-    blocked = not blocked
+    blocked = ! blocked
   action lock
-    locked = not locked
+    locked = ! locked
   action reset
     value = "reset"
   view

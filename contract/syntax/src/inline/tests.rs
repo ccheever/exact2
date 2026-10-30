@@ -175,7 +175,7 @@ fn derive_source(rng: &mut Rng, derives: usize) -> String {
                 sub(rng),
                 sub(rng)
             ),
-            7 => format!("({} == {} and {} == 0)", sub(rng), sub(rng), sub(rng)),
+            7 => format!("({} == {} && {} == 0)", sub(rng), sub(rng), sub(rng)),
             8 => format!(
                 "match o {{ case some(v) => (v + {}), case none => {} }}",
                 sub(rng),

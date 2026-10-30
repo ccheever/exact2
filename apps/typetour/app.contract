@@ -61,7 +61,7 @@ component TypeTour
   action setAirplane(on: bool)
     airplane = on
   action toggleWifi
-    wifi = not wifi
+    wifi = ! wifi
   action setBluetooth(on: bool)
     bluetooth = on
   // The platform's date and time pickers (LLP 1069.001 slice 4).
@@ -303,7 +303,7 @@ component TypeTour
               box width=72
             scroll flex=1 min-height=0
               column padding=16 gap=6
-                text (thread == "ortega" ? "Friday 4:02 PM" : thread == "builds" ? "Saturday 11:20 PM" : thread == "mom" or thread == "james" ? "Yesterday 6:15 PM" : "Today 8:31 AM") font-size=12 font-weight=500 color="-exact-secondary-label" text-align="center" padding-bottom=10
+                text (thread == "ortega" ? "Friday 4:02 PM" : thread == "builds" ? "Saturday 11:20 PM" : thread == "mom" || thread == "james" ? "Yesterday 6:15 PM" : "Today 8:31 AM") font-size=12 font-weight=500 color="-exact-secondary-label" text-align="center" padding-bottom=10
                 if thread == "nico"
                   Bubble(body="Got the v4 Lilt build onto the Pink phone", out=false, scale=scale)
                   Bubble(body="The flare on the t reads at 17 px now. It was mush in v3.", out=false, scale=scale)

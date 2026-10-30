@@ -824,7 +824,7 @@ fn every_content_part_ends_with_one_working_call() {
         }
         // `press=toggle` and `press=pick(…)` name the author's own actions.
         let app = format!(
-            "use {part} from \"exact:content\"\n\ncomponent App\n  state running = false\n  state picked = \"\"\n  action toggle\n    running = not running\n  action pick(a: string)\n    picked = a\n  view\n    column\n      {call}\n"
+            "use {part} from \"exact:content\"\n\ncomponent App\n  state running = false\n  state picked = \"\"\n  action toggle\n    running = ! running\n  action pick(a: string)\n    picked = a\n  view\n    column\n      {call}\n"
         );
         std::fs::write(&path, &app).unwrap();
         let (compiled, warnings) = contract::compile_path_all_warned(&path, false);

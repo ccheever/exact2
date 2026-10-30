@@ -4,6 +4,50 @@ use super::diagnostics::{diagnostics, App};
 use std::process::Command;
 
 #[test]
+fn logical_words_are_refused_and_migrate_without_changing_meaning_or_literals() {
+    let before = r#"// and or not stay in prose.
+shape Words
+  and: bool
+  or: bool
+  not: bool
+component App
+  state words = Words(and=true, or=false, not=false)
+  derive truth = not words.not and words.and or words.or
+  derive guarded = false and (1 / 0 > 0) or true
+  view
+    column
+      text `é and ${not false and truth} or ${words.or}`
+      text "and or not"
+"#;
+    let app = App::new("logical-words");
+    let path = app.write("app.contract", before);
+    let all = diagnostics(&app.run(&["app.contract", "--json"]), 1);
+    assert_eq!(all.len(), 7, "{all:?}");
+    assert!(all.iter().all(|e| e["id"] == "syntax-operator-spelling"));
+    let migrated = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .arg("migrate")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(migrated.status.success(), "{migrated:?}");
+    let after = std::fs::read_to_string(&path).unwrap();
+    let expected = before
+        .replace(
+            "not words.not and words.and or words.or",
+            "! words.not && words.and || words.or",
+        )
+        .replace(
+            "false and (1 / 0 > 0) or true",
+            "false && (1 / 0 > 0) || true",
+        )
+        .replace("${not false and truth}", "${! false && truth}");
+    assert_eq!(after, expected);
+    assert_eq!(contract_syntax::migrate::migrate(&after).unwrap(), after);
+    contract::compile(&after).unwrap();
+    assert!(diagnostics(&app.run(&["app.contract", "--json"]), 0).is_empty());
+}
+
+#[test]
 fn retired_spellings_are_reported_together_and_migrated_in_one_command() {
     let app = App::new("migrate");
     let before = r#"// list<string>, trim(x), when and each in comments stay.

@@ -289,11 +289,11 @@ fn a_key_carries_its_modifiers_from_a_chord_and_the_keyboard() {
   action write(v: string)
     draft = v
   action compose(k: string, e: KeyboardEvent)
-    if k == "Enter" and not e.shiftKey
+    if k == "Enter" && ! e.shiftKey
       sent = draft
       draft = ""
       preventDefault()
-    if e.ctrlKey and k == "s"
+    if e.ctrlKey && k == "s"
       saved = saved + 1
   view
     column

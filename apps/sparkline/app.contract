@@ -45,7 +45,7 @@ component Sparkline
   state version = 0
   resource coins = coins(version) as shape Coin[]
   action toggleFreeze
-    frozen = not frozen
+    frozen = ! frozen
   action tick
     version = version + 1
   view

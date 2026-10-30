@@ -12,7 +12,7 @@
 component Gradients
   state dark = false
   action scheme
-    dark = not dark
+    dark = ! dark
     setScheme(dark ? "light" : "dark")
   view
     main testId="gradients" position="relative" width=390 height=650 background-color="light-dark(#ffffff, #121212)"

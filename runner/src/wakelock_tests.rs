@@ -19,9 +19,9 @@ const SOURCE: &str = r#"component App
   state mounted = true
   state word = "screen"
   action hide
-    shown = not shown
+    shown = ! shown
   action unmount
-    mounted = not mounted
+    mounted = ! mounted
   action set(w: string)
     word = w
   view

@@ -46,7 +46,7 @@ component TabEdge
                     button press=open popovertarget="sort-menu" popovertargetaction="hide" testId="sort-first"
                       text "First"
                 // A pushed screen is the next kind: scroll → plain list → grouped list → scroll.
-                if e.name == "scrolls" or e.name == "groupedPushed"
+                if e.name == "scrolls" || e.name == "groupedPushed"
                   scroll id=`content-${e.id}` testId=`content-${e.name}` flex=1 min-height=0
                     for r in rows key = r
                       button press=open
@@ -54,7 +54,7 @@ component TabEdge
                         padding="12px 16px"
                         text-align="start"
                         text `Row ${r}`
-                else if e.name == "plain" or e.name == "scrollsPushed"
+                else if e.name == "plain" || e.name == "scrollsPushed"
                   list id=`content-${e.id}` testId=`content-${e.name}` flex=1 min-height=0
                     for r in rows key = r
                       button press=open

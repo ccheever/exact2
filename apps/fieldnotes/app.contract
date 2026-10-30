@@ -114,16 +114,16 @@ component Fieldnotes
   resource library = library(query, saveRevision, serviceRevision) as shape Library
   mutation opened as shape Opened
   derive loaded = match opened { case some(n) => n.version == session.version ? Fields(title=n.title, body=n.body, pinned=n.pinned) : Fields(title="", body="", pinned=false), case none => Fields(title="", body="", pinned=false) }
-  derive openedReady = session.noteId == "" or match opened { case some(n) => n.version == session.version and n.ready, case none => false }
-  derive openInterrupted = session.noteId != "" and not pending(opened) and match opened { case some(n) => n.version != session.version, case none => true }
+  derive openedReady = session.noteId == "" || match opened { case some(n) => n.version == session.version && n.ready, case none => false }
+  derive openInterrupted = session.noteId != "" && ! pending(opened) && match opened { case some(n) => n.version != session.version, case none => true }
   derive openedMessage = match opened { case some(n) => n.version == session.version ? n.message : "", case none => "" }
   derive fields = match session.draft { case some(d) => d, case none => loaded }
   derive base = match session.original { case some(o) => o, case none => loaded }
   derive baseId = session.savedId != "" ? session.savedId : session.noteId
-  derive editingId = match saved { case some(s) => s.version == session.version and not s.failed ? s.id : baseId, case none => baseId }
-  derive reference = match saved { case some(s) => s.version == session.version and not s.failed ? Fields(title=s.title, body=s.body, pinned=s.pinned) : base, case none => base }
+  derive editingId = match saved { case some(s) => s.version == session.version && ! s.failed ? s.id : baseId, case none => baseId }
+  derive reference = match saved { case some(s) => s.version == session.version && ! s.failed ? Fields(title=s.title, body=s.body, pinned=s.pinned) : base, case none => base }
   derive dirty = fields != reference
-  derive busy = pending(saved) or pending(status) or pending(library) or pending(opened)
+  derive busy = pending(saved) || pending(status) || pending(library) || pending(opened)
   derive backupText = match status { case some(s) => s.backupText, case none => "" }
   // The share sheet, where the host has one (LLP 1069.003 D5).
   resource page = exactPage() as shape Page
@@ -141,10 +141,10 @@ component Fieldnotes
   mutation stepsAsked as shape PedometerStatus
   mutation climbsAsked as shape AltimeterStatus
   derive walking = walkStart > 0
-  resource walk = walk(walkStart, now, climbs.available and climbs.state != "denied") as shape Walk else empty()
+  resource walk = walk(walkStart, now, climbs.available && climbs.state != "denied") as shape Walk else empty()
   derive walkMinutes = max(0, floor((time.epochAtZero + now - walkStart) / 60000))
   derive figures = walkFigures(walk, walkMinutes, walkStart, time.utcOffset)
-  derive stepsOff = walkDenied or (walking and steps.state == "denied")
+  derive stepsOff = walkDenied || (walking && steps.state == "denied")
   task walkClock when walking
     every(1000, tickWalk)
   derive here = top(nav)
@@ -154,7 +154,7 @@ component Fieldnotes
   derive sharedBody = [searchParam(here, "text"), attached.text].filter(t => t != "").join("\n\n")
   state shareDraft = ShareDraft(entry=-1, title="", body="")
   derive shareFields = shareDraft.entry == here.id ? Fields(title=shareDraft.title, body=shareDraft.body, pinned=false) : Fields(title=searchParam(here, "title"), body=sharedBody, pinned=false)
-  derive arriving = incoming.pending > 0 or pending(attached)
+  derive arriving = incoming.pending > 0 || pending(attached)
 
   action search(value)
     query = value
@@ -165,14 +165,14 @@ component Fieldnotes
     query = ""
     focus("note-body")
   action changeTitle(value)
-    if openedReady and not pending(opened)
+    if openedReady && ! pending(opened)
       session = Session(session, draft=some(Fields(fields, title=value)))
   action changeBody(value)
-    if openedReady and not pending(opened)
+    if openedReady && ! pending(opened)
       session = Session(session, draft=some(Fields(fields, body=value)))
   action togglePin
-    if openedReady and not pending(opened)
-      session = Session(session, draft=some(Fields(fields, pinned=not fields.pinned)))
+    if openedReady && ! pending(opened)
+      session = Session(session, draft=some(Fields(fields, pinned=! fields.pinned)))
   action edit(id: string)
     send opened = openNote(id, session.version + 1)
     session = nextSession(id, session)
@@ -190,7 +190,7 @@ component Fieldnotes
   action showBackups
     if backups
       focus("note-body")
-    backups = not backups
+    backups = ! backups
   action backup
     send status = backupNotes()
   action readBackup
@@ -277,7 +277,7 @@ component Fieldnotes
           text "Fieldnotes" font-family="serif" font-size=26 font-weight=400
           text "A little room for your thoughts." font-size=12 color="-exact-secondary-label"
         row gap=8 align-items="center"
-          button press=newNote disabled=(dirty or busy) testId="new-note" aria-label="New note" aria-keyshortcuts="Meta+N Control+N" padding=10 background-color="AccentColor" border-radius=8
+          button press=newNote disabled=(dirty || busy) testId="new-note" aria-label="New note" aria-keyshortcuts="Meta+N Control+N" padding=10 background-color="AccentColor" border-radius=8
             row gap=6 align-items="center"
               image "symbol:add" font-size=13 font-weight=600 color="light-dark(#ffffff, #000000)"
               text "New note" color="light-dark(#ffffff, #000000)" font-weight=600 font-size=13
@@ -294,7 +294,7 @@ component Fieldnotes
                 text "Start walk" font-size=13 color="AccentColor"
       if walking
         text `Walking · ${figures}` font-size=14 font-variant-numeric="tabular-nums" testId="walk-line" flex-shrink=0
-      if walkSummary != "" and not walking
+      if walkSummary != "" && ! walking
         text walkSummary font-size=14 font-variant-numeric="tabular-nums" color="-exact-secondary-label" testId="walk-summary" flex-shrink=0
       if stepsOff
         text "Fieldnotes can't count your steps. You can allow Motion & Fitness for Fieldnotes in Settings." font-size=13 color="-exact-secondary-label" testId="walk-denied" flex-shrink=0
@@ -331,7 +331,7 @@ component Fieldnotes
           if dirty
             text "Save or discard the note you're editing before saving this one." font-size=13 color="-exact-secondary-label" testId="share-dirty"
           row gap=10 align-items="center" flex-wrap="wrap"
-            button press=saveShare disabled=(busy or dirty or arriving or (shareFields.title == "" and shareFields.body == "")) testId="save-share" padding=12 background-color="AccentColor" border-radius=7
+            button press=saveShare disabled=(busy || dirty || arriving || (shareFields.title == "" && shareFields.body == "")) testId="save-share" padding=12 background-color="AccentColor" border-radius=7
               text "Save note" color="light-dark(#ffffff, #000000)" font-weight=600
             button appearance="none" press=back testId="cancel-share" padding=12
               text "Cancel"
@@ -341,7 +341,7 @@ component Fieldnotes
             text "Keep a spare copy" font-family="serif" font-size=23
             text "Save a backup on this device, or copy the backup text somewhere safe. Restoring replaces all current notes." font-size=14 color="-exact-secondary-label"
             row gap=10 flex-wrap="wrap"
-              button press=backup disabled=(busy or dirty) testId="save-backup" padding=12 background-color="AccentColor" border-radius=7
+              button press=backup disabled=(busy || dirty) testId="save-backup" padding=12 background-color="AccentColor" border-radius=7
                 text "Save backup" color="light-dark(#ffffff, #000000)"
               button press=readBackup disabled=busy testId="read-backup" padding=12 background-color="-exact-fill" border-radius=7
                 text "Show saved backup" color="AccentColor"
@@ -361,15 +361,15 @@ component Fieldnotes
             if confirmRestore
               row gap=12 align-items="center" flex-wrap="wrap"
                 text (importName == "" ? "Replace all notes with this backup?" : `Replace all notes with ${importName}?`) font-size=14 testId="restore-question"
-                button press=restore disabled=(busy or dirty) testId="confirm-restore" padding=10 accent-color="-exact-system-red" background-color="AccentColor" border-radius=7
+                button press=restore disabled=(busy || dirty) testId="confirm-restore" padding=10 accent-color="-exact-system-red" background-color="AccentColor" border-radius=7
                   text "Replace notes" color="AccentColorText"
                 button appearance="none" press=cancelRestore testId="cancel-restore" padding=10
                   text "Cancel"
             else
               row gap=10 flex-wrap="wrap"
-                button appearance="none" press=askRestore disabled=(busy or dirty) testId="restore-backup" padding=10
+                button appearance="none" press=askRestore disabled=(busy || dirty) testId="restore-backup" padding=10
                   text "Restore backup…" color="-exact-system-red"
-                button appearance="none" press=chooseImport disabled=(busy or dirty) testId="import-backup" padding=10
+                button appearance="none" press=chooseImport disabled=(busy || dirty) testId="import-backup" padding=10
                   text "Import backup file…" color="AccentColor"
         else
           row testId="workspace" flex=1 min-height=400 gap=16 flex-wrap="wrap" align-items="stretch"
@@ -385,7 +385,7 @@ component Fieldnotes
                       text (query == "" ? "Your notebook starts here." : "No matching notes.") font-family="serif" font-size=22 testId="empty-notebook"
                       text (query == "" ? "Write a thought, a list, or something worth keeping." : "Try a different word.") font-size=14 color="-exact-secondary-label"
                   for note in library.notes key=note.id
-                    button press=edit(note.id) disabled=(dirty or busy) testId=`note-${note.id}` aria-label=note.title padding=16 border-style="solid" border-width=1 border-color=(note.id == editingId ? "AccentColor" : "-exact-separator") border-radius=9 background-color=(note.id == editingId ? "-exact-fill" : "-exact-secondary-grouped-background")
+                    button press=edit(note.id) disabled=(dirty || busy) testId=`note-${note.id}` aria-label=note.title padding=16 border-style="solid" border-width=1 border-color=(note.id == editingId ? "AccentColor" : "-exact-separator") border-radius=9 background-color=(note.id == editingId ? "-exact-fill" : "-exact-secondary-grouped-background")
                       column gap=6 align-items="flex-start"
                         if note.pinned
                           text "PINNED" font-size=10 font-weight=700 letter-spacing=1 color="-exact-secondary-label"
@@ -396,17 +396,17 @@ component Fieldnotes
             column testId="editor" flex=3 min-width=300 min-height=400 gap=14 padding=20 box-sizing="border-box" background-color="-exact-secondary-grouped-background" border-style="solid" border-width=1 border-color="-exact-separator" border-radius=12
               row justify-content="space-between" align-items="center"
                 text (editingId == "" ? "A NEW PAGE" : "YOUR NOTE") font-size=11 font-weight=700 letter-spacing=2 color="-exact-secondary-label"
-                button appearance="none" press=togglePin disabled=(busy or not openedReady) testId="pin-note" padding=8
+                button appearance="none" press=togglePin disabled=(busy || ! openedReady) testId="pin-note" padding=8
                   text (fields.pinned ? "Pinned" : "Pin note") font-size=13 color="-exact-secondary-label"
-              input appearance="none" id="note-title" value=(pending(opened) ? "" : fields.title) readonly=(pending(opened) or not openedReady) input=changeTitle placeholder="Untitled note" aria-label="Note title" testId="note-title" width="100%" box-sizing="border-box" padding=10 font-family="serif" font-size=27 border-width=0 background-color="-exact-secondary-grouped-background"
-              textarea appearance="none" id="note-body" font-family="sans-serif" value=(pending(opened) ? "" : fields.body) readonly=(pending(opened) or not openedReady) input=changeBody placeholder="What's on your mind?" aria-label="Note body" testId="note-body" width="100%" flex=1 min-height=160 box-sizing="border-box" padding=10 font-size=16 line-height="24px" border-width=0 background-color="-exact-secondary-grouped-background"
+              input appearance="none" id="note-title" value=(pending(opened) ? "" : fields.title) readonly=(pending(opened) || ! openedReady) input=changeTitle placeholder="Untitled note" aria-label="Note title" testId="note-title" width="100%" box-sizing="border-box" padding=10 font-family="serif" font-size=27 border-width=0 background-color="-exact-secondary-grouped-background"
+              textarea appearance="none" id="note-body" font-family="sans-serif" value=(pending(opened) ? "" : fields.body) readonly=(pending(opened) || ! openedReady) input=changeBody placeholder="What's on your mind?" aria-label="Note body" testId="note-body" width="100%" flex=1 min-height=160 box-sizing="border-box" padding=10 font-size=16 line-height="24px" border-width=0 background-color="-exact-secondary-grouped-background"
               row gap=10 align-items="center" flex-wrap="wrap" flex-shrink=0
-                button press=save disabled=(busy or not openedReady or not dirty or (fields.title == "" and fields.body == "")) testId="save-note" aria-keyshortcuts="Meta+S Control+S" padding=12 background-color="AccentColor" border-radius=7
+                button press=save disabled=(busy || ! openedReady || ! dirty || (fields.title == "" && fields.body == "")) testId="save-note" aria-keyshortcuts="Meta+S Control+S" padding=12 background-color="AccentColor" border-radius=7
                   text "Save note" color="light-dark(#ffffff, #000000)" font-weight=600
                 if dirty
                   button appearance="none" press=discard disabled=busy testId="discard" padding=12
                     text "Discard changes" color="-exact-secondary-label"
-                if page.canShare and (fields.title != "" or fields.body != "")
+                if page.canShare && (fields.title != "" || fields.body != "")
                   button appearance="none" press=shareNote disabled=busy testId="share-note" aria-label="Share note" padding=12
                     text "Share…" color="AccentColor"
                 if editingId != ""

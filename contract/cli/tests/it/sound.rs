@@ -281,7 +281,7 @@ fn a_hit_may_carry_a_rate_and_then_a_pan_after_its_group() {
 
 #[test]
 fn sound_is_a_word_only_at_the_top_level() {
-    contract::compile("component A\n  state sound = true\n  action flip\n    sound = not sound\n  view\n    button \"s\" press=flip\n")
+    contract::compile("component A\n  state sound = true\n  action flip\n    sound = ! sound\n  view\n    button \"s\" press=flip\n")
         .unwrap();
 }
 

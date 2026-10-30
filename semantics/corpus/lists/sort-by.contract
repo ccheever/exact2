@@ -27,7 +27,7 @@ component App
   derive sourceSorted = source == sortBy(source, t => t)
   derive sourceLength = sortBy(songs, s => s.bpm, "desc").length == songs.length
   action flip()
-    desc = not desc
+    desc = ! desc
   action add(n: number)
     nums = sortBy(nums.concat([n]), x => x)
   view

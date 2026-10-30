@@ -64,7 +64,7 @@ fn colour(r: &Runner<NoData>, test_id: &str) -> ColorValue {
 const SYMBOLS: &str = r#"component App
   state on = true
   action go
-    on = not on
+    on = ! on
   view
     column testId="root" width=402 height=874
       list appearance="auto" testId="list" flex=1
@@ -100,7 +100,7 @@ const SYMBOLS: &str = r#"component App
           button press=go testId="chosen"
             if on
               image "symbol:add" testId="chosen-icon"
-            else if not on
+            else if ! on
               image "symbol:star"
             text "Add" testId="chosen-title"
       text "accent" color="AccentColor" testId="accent"
@@ -192,7 +192,7 @@ fn a_rows_symbol_a_prop_names_or_an_if_shows_is_the_leading_symbol_of_an_action_
 const CHOICES: &str = r#"component App
   state picked = false
   action pick
-    picked = not picked
+    picked = ! picked
   view
     column testId="root" width=402 height=874
       list appearance="auto" testId="list" flex=1

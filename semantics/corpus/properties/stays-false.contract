@@ -2,6 +2,6 @@
 component App
   state ready = false
   action toggle
-    ready = not ready
+    ready = ! ready
   view
     button "Toggle" testId="toggle" press=toggle

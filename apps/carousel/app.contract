@@ -42,7 +42,7 @@ component Carousel
   action far
     jump = jump + 100000
   action toggle
-    eager = not eager
+    eager = ! eager
   view
     main testId="carousel" width="100%" height="100%" display="flex" flex-direction="column" background-color="-exact-background" color="-exact-label" font-family="system-ui"
       row flex-shrink=0 align-items="center" gap=8 padding=12

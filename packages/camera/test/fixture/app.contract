@@ -41,9 +41,9 @@ component Fixture
   action stop
     send changed = stopTrack(track=track)
   action toggle
-    shown = not shown
+    shown = ! shown
   action unplace
-    placed = not placed
+    placed = ! placed
   view
     column gap=8 padding=16
       text `${status.available} ${status.state}` testId="status"

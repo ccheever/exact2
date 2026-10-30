@@ -7,7 +7,7 @@ matching outlines elsewhere). `image "symbol:sf/<name>"` is any SF Symbol by App
 component Toolbar
   state starred = false
   action star
-    starred = not starred
+    starred = ! starred
   view
     row gap=16 padding=16 align-items="center"
       button aria-label="Add" testId="add"

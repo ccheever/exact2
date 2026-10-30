@@ -8,7 +8,7 @@
 //! to write, and that must build, so a message cannot point at a spelling the
 //! compiler refuses too.
 
-const HEAD: &str = "shape Item\n  id: string\n  name: string\n\ncomponent App\n  state on = true\n  action go\n    on = not on\n";
+const HEAD: &str = "shape Item\n  id: string\n  name: string\n\ncomponent App\n  state on = true\n  action go\n    on = ! on\n";
 
 /// A component with `state` (whole lines under the component, actions too)
 /// and `view` (the lines under a `column`).

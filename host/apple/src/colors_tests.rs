@@ -213,7 +213,7 @@ fn wide_colours_reach_the_presenter_in_their_space() {
 #[test]
 fn a_transition_to_a_wide_colour_ends_in_its_space() {
     let (mut host, _) = boot(
-        "component A\n  state on = false\n  action go()\n    on = not on\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      box testId=\"b\" width=20 height=20 background-color=(on ? \"color(display-p3 0 1 0)\" : \"#ff0000\") transition=\"background-color 300ms linear\"\n",
+        "component A\n  state on = false\n  action go()\n    on = ! on\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      box testId=\"b\" width=20 height=20 background-color=(on ? \"color(display-p3 0 1 0)\" : \"#ff0000\") transition=\"background-color 300ms linear\"\n",
     );
     let (go, b) = (view(&host, "go"), view(&host, "b"));
     let mut seen = ops(&host.dispatch_at(go, exact_runner::Event::Press, 100.0));
@@ -276,7 +276,7 @@ fn the_dynamic_range_limit_reaches_a_box_below_the_node_that_sets_it() {
 #[test]
 fn the_color_scheme_reaches_every_view_below_the_node_that_sets_it() {
     let (mut host, boot) = boot(
-        "component A\n  state dark = true\n  action flip\n    dark = not dark\n  view\n    column\n      column testId=\"sheet\" color-scheme=(dark ? \"dark\" : \"light\") background-color=\"light-dark(#ffffff, #000000)\"\n        button \"Flip\" press=flip testId=\"flip\"\n        box testId=\"leaf\" width=10 height=10 background-color=\"light-dark(#ffffff, #000000)\"\n      box testId=\"outside\" width=10 height=10 background-color=\"light-dark(#ffffff, #000000)\"\n",
+        "component A\n  state dark = true\n  action flip\n    dark = ! dark\n  view\n    column\n      column testId=\"sheet\" color-scheme=(dark ? \"dark\" : \"light\") background-color=\"light-dark(#ffffff, #000000)\"\n        button \"Flip\" press=flip testId=\"flip\"\n        box testId=\"leaf\" width=10 height=10 background-color=\"light-dark(#ffffff, #000000)\"\n      box testId=\"outside\" width=10 height=10 background-color=\"light-dark(#ffffff, #000000)\"\n",
     );
     let style = |batch: &str, id| {
         ops(batch)

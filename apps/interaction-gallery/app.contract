@@ -1,5 +1,5 @@
 // LLP 1041 §8.5: shared viewport collections and explicit height/transform bindings.
-fn photoFit(bw: number, bh: number, nw: number, nh: number): number = bw > 0 and bh > 0 and nw > 0 and nh > 0 ? min(bw / nw, bh / nh) : 0
+fn photoFit(bw: number, bh: number, nw: number, nh: number): number = bw > 0 && bh > 0 && nw > 0 && nh > 0 ? min(bw / nw, bh / nh) : 0
 fn photoZoom(scale: number): number = min(max(scale, 1), 4)
 fn photoClamp(value: number, natural: number, fit: number, zoom: number, port: number): number = min(max(value, -max(0, (natural * fit * zoom - port) / 2)), max(0, (natural * fit * zoom - port) / 2))
 // LLP 1051.000 §3: the sheet's stops from geometry. Full is the room its bay
@@ -113,11 +113,11 @@ component InteractionGallery
   state sheetFull = 640
   // The stop the sheet is at, by its authored name (180, 360, 640).
   derive sheetNominal = sheetPx == sheetFull ? 640 : (sheetPx == sheetRead ? 360 : sheetPx)
-  derive fullCollection = gallery.mode != "photos" and rendering != "manual"
+  derive fullCollection = gallery.mode != "photos" && rendering != "manual"
   resource rows = galleryRows(gallery.revision, (fullCollection ? 0 : gallery.page), fullCollection) as shape Photo[]
 
   action chooseRendering(value: string)
-    if value == "windowed" or value == "manual" or value == "eager"
+    if value == "windowed" || value == "manual" || value == "eager"
       rendering = value
 
   // An action reads state as it was before it ran, so the later lines read
@@ -137,7 +137,7 @@ component InteractionGallery
     sheetPx = sheetStop(height + velocity * 0.15, read, full)
 
   action command(op: string, id: string, n: number)
-    if op == "reset" or op == "load"
+    if op == "reset" || op == "load"
       sheetPx = sheetRead
     send changed = galleryAction(op, id, n)
     if op == "open"
@@ -148,7 +148,7 @@ component InteractionGallery
       focus(`mode-${id}`)
     if op == "lift"
       focus("place")
-    if op == "place" or op == "cancel"
+    if op == "place" || op == "cancel"
       if rendering == "windowed"
         focus("mode-reorder")
       else
@@ -182,7 +182,7 @@ component InteractionGallery
           CountButton(count=1000, label="1,000", gallery=gallery, command=command)
           CountButton(count=25000, label="25,000", gallery=gallery, command=command)
           text `${gallery.total} ${gallery.total == 1 ? "study" : "studies"} · 6 local images` font-size=(12 * k) color=theme.muted flex=1 min-width=170
-          button press=command("insert", "", 0) disabled=(not gallery.canInsert) testId="insert" aria-label="Insert a new study at the beginning" -exact-press-scale=0.97 padding=7 background-color=theme.card border-width=0 border-radius=6
+          button press=command("insert", "", 0) disabled=(! gallery.canInsert) testId="insert" aria-label="Insert a new study at the beginning" -exact-press-scale=0.97 padding=7 background-color=theme.card border-width=0 border-radius=6
             text "+ Add study" font-size=(12 * k) color=theme.ink
           button press=command("reset", "", 0) testId="reset" aria-label="Reset this collection and its edits" -exact-press-scale=0.97 padding=7 background-color=theme.card border-width=0 border-radius=6
             text "Reset" font-size=(12 * k) color=theme.muted
@@ -263,12 +263,12 @@ component InteractionGallery
                   for photo in rows key=photo.id
                     NoteCard(photo=photo, selected=gallery.selected.id, command=command)
       column flex-shrink=0 padding=12 gap=8 border-top-width=1 border-color=theme.edge background-color=theme.card
-        if not fullCollection
+        if ! fullCollection
           row gap=8 align-items="center" flex-wrap="wrap"
-            button press=command("previousPage", "", 0) testId="previous-page" disabled=(not gallery.canPagePrevious) aria-label="Previous page" padding=7 border-width=0 background-color=theme.page border-radius=6
+            button press=command("previousPage", "", 0) testId="previous-page" disabled=(! gallery.canPagePrevious) aria-label="Previous page" padding=7 border-width=0 background-color=theme.page border-radius=6
               text "Previous 12" font-size=(12 * k) color=theme.ink
             text `${gallery.first}–${gallery.end} of ${gallery.total} · Page ${gallery.page + 1}/${gallery.pages}` testId="page-range" font-size=(12 * k) color=theme.muted
-            button press=command("nextPage", "", 0) testId="next-page" disabled=(not gallery.canPageNext) aria-label="Next page" padding=7 border-width=0 background-color=theme.page border-radius=6
+            button press=command("nextPage", "", 0) testId="next-page" disabled=(! gallery.canPageNext) aria-label="Next page" padding=7 border-width=0 background-color=theme.page border-radius=6
               text "Next 12" font-size=(12 * k) color=theme.ink
             text "Browse your collection" font-size=(11 * k) color=theme.muted flex=1
         text gallery.notice testId="status" font-size=(11 * k) color=theme.accent
@@ -331,7 +331,7 @@ component SwipeRow
     n: number
   state kept = false
   action keep
-    kept = not kept
+    kept = ! kept
   view
     box testId=`swipe-row-${n}` timeline-scope="--swipe" width="100%" height=56 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=10 background-color=theme.wash
       row testId=`swipe-label-${n}` position="absolute" left=0 top=0 width=64 height="100%" align-items="center" justify-content="center" animation="swipeReveal 1s linear both" animation-timeline="--swipe" animation-range="0px 64px"
@@ -361,10 +361,10 @@ component CardDeck
   action releaseCard(x: number, y: number, scale: number, vx: number, vy: number, vscale: number)
     panX = 0
     panY = 0
-    if x > 120 or vx > 800
+    if x > 120 || vx > 800
       panX = clipWidth + 60
       panY = y
-    if x < -120 or vx < -800
+    if x < -120 || vx < -800
       panX = 0 - clipWidth - 60
       panY = y
   action deal
@@ -400,11 +400,11 @@ component Viewer
   state boxHeight = 0
   state portWidth = 0
   state portHeight = 0
-  derive geometryReady = boxWidth > 0 and boxHeight > 0 and portWidth > 0 and portHeight > 0
+  derive geometryReady = boxWidth > 0 && boxHeight > 0 && portWidth > 0 && portHeight > 0
   derive fit = photoFit(boxWidth, boxHeight, viewer.naturalWidth, viewer.naturalHeight)
 
   action chooseZoom(value: number)
-    if value == 1 or value == 2
+    if value == 1 || value == 2
       zoom = value
       panX = geometryReady ? photoClamp(panX, viewer.naturalWidth, fit, value, portWidth) : 0
       panY = geometryReady ? photoClamp(panY, viewer.naturalHeight, fit, value, portHeight) : 0
@@ -415,12 +415,12 @@ component Viewer
     panY = 0
 
   action photoGeometry(bw: number, bh: number, pw: number, ph: number)
-    if bw != boxWidth or bh != boxHeight or pw != portWidth or ph != portHeight
+    if bw != boxWidth || bh != boxHeight || pw != portWidth || ph != portHeight
       boxWidth = bw
       boxHeight = bh
       portWidth = pw
       portHeight = ph
-      if bw > 0 and bh > 0 and pw > 0 and ph > 0
+      if bw > 0 && bh > 0 && pw > 0 && ph > 0
         panX = photoClamp(panX, viewer.naturalWidth, photoFit(bw, bh, viewer.naturalWidth, viewer.naturalHeight), zoom, pw)
         panY = photoClamp(panY, viewer.naturalHeight, photoFit(bw, bh, viewer.naturalWidth, viewer.naturalHeight), zoom, ph)
       else
@@ -437,7 +437,7 @@ component Viewer
     // photo leaves on the release spring, carrying the fling, well past the
     // 410-point clip; the backdrop reaches 0 on the same spring. Anything
     // less springs back to centre, and the backdrop returns with it.
-    if photoZoom(scale) == 1 and (y > 120 or vy > 800)
+    if photoZoom(scale) == 1 && (y > 120 || vy > 800)
       panY = 900
 
   view
@@ -446,9 +446,9 @@ component Viewer
         row width="100%" gap=8 align-items="center" flex-wrap="wrap"
           ActionButton(id="close-viewer", label="Back to collection", op="close", target="", n=viewer.viewerToken, shortcut="Escape", command=command)
           text `${viewer.photo.rank} / ${gallery.total}` font-size=(12 * k) color=theme.muted flex=1
-          button press=command("previous", "", viewer.viewerToken) testId="previous-photo" disabled=(not gallery.hasPrevious) aria-keyshortcuts="Meta+[ Control+[" padding=8 border-width=0 border-radius=6 background-color=theme.card
+          button press=command("previous", "", viewer.viewerToken) testId="previous-photo" disabled=(! gallery.hasPrevious) aria-keyshortcuts="Meta+[ Control+[" padding=8 border-width=0 border-radius=6 background-color=theme.card
             text "Previous" font-size=(12 * k) color=theme.ink
-          button press=command("next", "", viewer.viewerToken) testId="next-photo" disabled=(not gallery.hasNext) aria-keyshortcuts="Meta+] Control+]" padding=8 border-width=0 border-radius=6 background-color=theme.card
+          button press=command("next", "", viewer.viewerToken) testId="next-photo" disabled=(! gallery.hasNext) aria-keyshortcuts="Meta+] Control+]" padding=8 border-width=0 border-radius=6 background-color=theme.card
             text "Next" font-size=(12 * k) color=theme.ink
         row width="100%" gap=8 align-items="center" flex-wrap="wrap"
           button press=chooseZoom(1) testId="viewer-zoom-fit" aria-label=`Fit${zoom == 1 ? ", selected" : ""}` padding=8 border-width=0 border-radius=6 background-color=(zoom == 1 ? theme.wash : theme.card)
@@ -495,7 +495,7 @@ component ArrangeCard
         if windowed
           box reorderFor="arrange-list" disabled=gallery.reordering touch-action="none" testId=`arrange-grip-${photo.id}` aria-label=`Drag ${photo.title} to reorder` padding=8 border-radius=6 background-color=theme.page
             text "⋮⋮" font-size=(16 * k) color=theme.muted
-        if gallery.reordering and gallery.liftedId != photo.id
+        if gallery.reordering && gallery.liftedId != photo.id
           ActionButton(id=`before-${photo.id}`, label="Preview here", op="before", target=photo.id, n=gallery.dragToken, shortcut="", command=command)
         else
           ActionButton(id=`lift-${photo.id}`, label="Pick up", op="lift", target=photo.id, n=0, shortcut="", command=command)

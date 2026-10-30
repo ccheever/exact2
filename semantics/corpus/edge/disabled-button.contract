@@ -9,7 +9,7 @@ component App
   action inc
     n = n + 1
   action toggle
-    off = not off
+    off = ! off
   view
     column
       button "inc" press=inc disabled=off testId="inc"

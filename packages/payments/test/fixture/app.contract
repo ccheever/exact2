@@ -43,7 +43,7 @@ component Fixture
       button press=start testId="start"
         text "Checkout"
       text checkout.error testId="error"
-      if checkout.id != "" and wallet.canMakePayment
+      if checkout.id != "" && wallet.canMakePayment
         exact-payment-button buttonType="buy" checkout=checkout.button press=pay testId="pay" height=48
       // The same send from a plain button, so a browser with no wallet still shows what `show()` answered.
       if checkout.id != ""

@@ -37,8 +37,8 @@ component MessagesStress
   // past that the virtualized transcript asks overlapping 200-record
   // windows, as the bounded mode does (LLP 1071 §7).
   derive whole = count <= 10000
-  derive paged = bounded or (windowed and not whole)
-  resource history = history(count, revision, batch, echo, offset, eager or (windowed and whole), paged ? some(cursor) : none) as shape History
+  derive paged = bounded || (windowed && ! whole)
+  resource history = history(count, revision, batch, echo, offset, eager || (windowed && whole), paged ? some(cursor) : none) as shape History
 
   action chooseCount(value: number)
     cursor = ""
@@ -55,7 +55,7 @@ component MessagesStress
     cursor = ""
     tailRequest = tailRequest + 1
     bounded = false
-    eager = not eager
+    eager = ! eager
     windowed = false
     running = false
     revision = 0
@@ -64,13 +64,13 @@ component MessagesStress
     cursor = ""
     tailRequest = tailRequest + 1
     bounded = false
-    windowed = not windowed
+    windowed = ! windowed
     eager = false
     running = false
     revision = 0
     page = 0
   action toggleBounded
-    bounded = not bounded
+    bounded = ! bounded
     windowed = false
     eager = false
     running = false
@@ -79,10 +79,10 @@ component MessagesStress
     cursor = ""
     tailRequest = tailRequest + 1
   action reachEarlier
-    if paged and history.hasEarlier
+    if paged && history.hasEarlier
       cursor = history.earlier
   action reachLater
-    if paged and history.hasLater
+    if paged && history.hasLater
       cursor = history.later
   action earlier
     page = min(count / 100 - 1, page + 1)
@@ -116,7 +116,7 @@ component MessagesStress
   action cancelReply
     replying = ""
   action sendDraft
-    if not draft.isEmpty()
+    if ! draft.isEmpty()
       cursor = ""
       tailRequest = tailRequest + 1
       echo = draft
@@ -187,7 +187,7 @@ component MessagesStress
           button appearance="none" press=latest testId="latest" padding=6
             text "Latest" font-size=12
           text `${history.earlier}–${history.later} · resident window, not whole history` testId="window-range" font-size=12
-      if not eager and not windowed and not bounded
+      if ! eager && ! windowed && ! bounded
         row flex-shrink=0 padding=8 gap=8 align-items="center" flex-wrap="wrap" background-color="#e8edf5"
           button appearance="none" press=earlier testId="earlier" padding=6
             text "Earlier 100" font-size=12
@@ -196,8 +196,8 @@ component MessagesStress
           button appearance="none" press=latest testId="latest" padding=6
             text "Latest page" font-size=12
           text `${offset + 1}–${offset + 100} of ${count}` testId="page-range" font-size=12
-      if windowed or bounded
-        list appearance="none" virtualized=true reachstart=reachEarlier reachend=reachLater scrollFollowEnd=(not paged or cursor == "") scrollTop=(paged ? 1000000 + tailRequest * 1000 : 0) testId="transcript" flex=1 min-height=80 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color="#f1f5fa"
+      if windowed || bounded
+        list appearance="none" virtualized=true reachstart=reachEarlier reachend=reachLater scrollFollowEnd=(! paged || cursor == "") scrollTop=(paged ? 1000000 + tailRequest * 1000 : 0) testId="transcript" flex=1 min-height=80 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color="#f1f5fa"
           for m in history.rows key=m.id
             column padding-left=12 padding-right=12 padding-top=5 padding-bottom=5 width="100%" box-sizing="border-box"
               box testId=`reply-hit-${m.id}` swiperight=replyTo(m.id) touch-action="pan-y" retainFocus=true transition="translate -exact-spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"

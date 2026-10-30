@@ -163,7 +163,7 @@ component EmptyState
   view
     scroll flex=1 min-width=0 min-height=0 display="flex" flex-direction="column"
       column margin-top="auto" margin-bottom="auto" align-items="center" padding="48px 24px" text-align="center"
-        if not text.accessibilityTextSize
+        if ! text.accessibilityTextSize
           image symbol width=48 height=48 object-fit="contain" margin-bottom=15 aria-hidden=true
             color="-exact-secondary-label"
         text title role="heading" aria-level=2
@@ -229,7 +229,7 @@ component Badge
   derive fill = match tint { case some(t) => t, case none => "-exact-tertiary-fill" }
   view
     row flex-shrink=0 align-items="center"
-      if preferences.prefersContrast == "custom" and (fill.startsWith("-exact-") or fill == "AccentColor")
+      if preferences.prefersContrast == "custom" && (fill.startsWith("-exact-") || fill == "AccentColor")
         row padding="2px 8px" border-radius=999 background-color="Highlight"
           text label font="-exact-caption1" font-weight=600 white-space="nowrap" color="HighlightText"
       else if fill == "-exact-tertiary-fill"
@@ -314,7 +314,7 @@ component AnswerTile
     press: action
     testId: string
   view
-    if status == "correct" or status == "wrong"
+    if status == "correct" || status == "wrong"
       button appearance="none" press=press disabled=true testId=testId aria-label=`${label}, ${status}`
         -exact-row-look="platform" display="flex" align-items="center" gap=12 padding="14px 16px" border-radius=12
         border="2px solid transparent" color="-exact-label" color-scheme=(status == "correct" ? "light" : "dark")
@@ -323,12 +323,12 @@ component AnswerTile
         image (status == "correct" ? "symbol:checkmark" : "symbol:close") width="1.375rem" height="1.375rem"
           object-fit="contain" flex-shrink=0 aria-hidden=true color="-exact-label"
     else
-      button appearance="none" press=press disabled=(status == "dimmed" or status == "chosen") testId=testId
-        aria-label=(status == "selected" or status == "chosen" ? `${label}, selected` : label)
+      button appearance="none" press=press disabled=(status == "dimmed" || status == "chosen") testId=testId
+        aria-label=(status == "selected" || status == "chosen" ? `${label}, selected` : label)
         -exact-row-look="platform" display="flex" align-items="center" gap=12 padding="14px 16px" border-radius=12
-        border=(status == "selected" or status == "chosen" ? "2px solid AccentColor" : "2px solid transparent")
+        border=(status == "selected" || status == "chosen" ? "2px solid AccentColor" : "2px solid transparent")
         background-color="-exact-tertiary-fill" color=(status == "dimmed" ? "-exact-secondary-label" : "-exact-label")
         text label flex=1 min-width=0 font="-exact-headline" text-align="start" aria-hidden=true
-        if status == "selected" or status == "chosen"
+        if status == "selected" || status == "chosen"
           image "symbol:checkmark" width="1.375rem" height="1.375rem" object-fit="contain" flex-shrink=0
             aria-hidden=true color="AccentColor"

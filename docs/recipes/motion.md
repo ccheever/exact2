@@ -25,7 +25,7 @@ component App
   state items = ["Kick", "Snare", "Hat"]
   state open = false
   action toggle
-    open = not open
+    open = ! open
   action remove(name: string)
     items = items.filter(i => i != name)
   view

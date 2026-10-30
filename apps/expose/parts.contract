@@ -268,7 +268,7 @@ component Bubble
   view
     row width="100%" justify-content=(role == "me" ? "flex-end" : "flex-start") testId=`bubble-${id}`
       row max-width="82%" padding-top=9 padding-bottom=9 padding-left=14 padding-right=14 border-radius="radiusBubble" align-items="flex-end" gap=2 background-color=(role == "me" ? "fore" : "theirBubble")
-        text (streaming and body == "" ? "Thinking" : body) font-size=(17 * scale) line-height=1.32 white-space="pre-wrap" overflow-wrap="anywhere" color=(role == "me" ? "reverse" : "fore")
+        text (streaming && body == "" ? "Thinking" : body) font-size=(17 * scale) line-height=1.32 white-space="pre-wrap" overflow-wrap="anywhere" color=(role == "me" ? "reverse" : "fore")
         if streaming
           box width=3 height=(17 * scale) border-radius=1 margin-bottom=2 background-color="signal" animation="blink 900ms ease-in-out infinite"
 

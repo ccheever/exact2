@@ -32,7 +32,7 @@ component Blog
           if e.name == "notfound"
             head title="Not found" robots="noindex" status=404
             text "Nothing here"
-          if e.name == "post" or e.name == "live"
+          if e.name == "post" || e.name == "live"
             head title=post.title
             text post.title testId="title"
           if e.name == "draft"

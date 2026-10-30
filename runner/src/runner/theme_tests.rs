@@ -79,7 +79,7 @@ const FACE: &str = "AtomFace(source=\"@a\", label=\"\", icon=\"\", title=\"\", d
 fn a_pin_above_reads_a_faces_colour_again() {
     let mut r = boot(plan(
         "pin",
-        &format!("atom mention prefix=\"@\"\ncomponent App\n  state dim = false\n  derive faces = [{FACE}, color=\"ink\", backgroundColor=\"\")]\n  action flip\n    dim = not dim\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n        textarea value=\"@a \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n"),
+        &format!("atom mention prefix=\"@\"\ncomponent App\n  state dim = false\n  derive faces = [{FACE}, color=\"ink\", backgroundColor=\"\")]\n  action flip\n    dim = ! dim\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n        textarea value=\"@a \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n"),
     ));
     assert_eq!(paint(&r, "color"), "light-dark(#111111ff, #eeeeeeff)");
     press(&mut r, "flip");
@@ -258,7 +258,7 @@ fn faces_that_read_no_token_leave_the_index() {
 fn an_unmounted_nodes_faces_leave_the_index() {
     let mut r = boot(plan(
         "unmount",
-        &format!("atom mention prefix=\"@\"\ncomponent App\n  state shown = true\n  derive faces = [{FACE}, color=\"ink\", backgroundColor=\"\")]\n  action hide\n    shown = not shown\n  view\n    column\n      button press=hide testId=\"hide\"\n        text \"hide\"\n      if shown\n        textarea value=\"@a \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n"),
+        &format!("atom mention prefix=\"@\"\ncomponent App\n  state shown = true\n  derive faces = [{FACE}, color=\"ink\", backgroundColor=\"\")]\n  action hide\n    shown = ! shown\n  view\n    column\n      button press=hide testId=\"hide\"\n        text \"hide\"\n      if shown\n        textarea value=\"@a \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n"),
     ));
     let editor = view(&r, "editor").unwrap();
     assert_eq!(indexed(&r), [editor]);

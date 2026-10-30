@@ -20,7 +20,7 @@ component Lists
   state hi = 700
   state said = 4
   state top = 0
-  derive shown = cards.filter(c => c.n >= lo and c.n < hi)
+  derive shown = cards.filter(c => c.n >= lo && c.n < hi)
   derive lines = cards.filter(c => c.n < said)
   action earlier
     lo = max(0, lo - 60)

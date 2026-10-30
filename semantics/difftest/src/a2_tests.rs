@@ -34,7 +34,7 @@ fn walk_reobserves_controls_replays_and_keeps_prefix_facts() {
     done = true
   view
     column
-      if not opened
+      if ! opened
         button "Open" testId="open" press=open
       if opened
         input testId="note" value=note input=edit

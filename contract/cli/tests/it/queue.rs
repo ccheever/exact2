@@ -605,7 +605,7 @@ fn a_task_key_refuses_a_reply_and_a_commit_made_again() {
     // once nothing is pending.
     let src = APP.replace("  state ticks = 0\n", "  state ticks = 0\n  state armed = false\n").replace(
         "  view\n",
-        "  action arm\n    armed = true\n    send rec = save(\"x\")\n  task watch key=armed and not pending(rec) ? 0 / 0 : 1\n    after(100000, bump)\n  view\n",
+        "  action arm\n    armed = true\n    send rec = save(\"x\")\n  task watch key=armed && ! pending(rec) ? 0 / 0 : 1\n    after(100000, bump)\n  view\n",
     );
     let mut r = boot_with(
         &src,
@@ -773,7 +773,7 @@ fn data_ready_s_sends_open_a_gate_and_a_bad_key_refuses_them() {
 fn the_commit_after_a_refused_queued_ask_reports_its_refusal() {
     let src = APP.replace("  state ticks = 0\n", "  state ticks = 0\n  state armed = false\n").replace(
         "  view\n",
-        "  action arm\n    armed = true\n    send rec = save(\"x\")\n    send rec = broken(\"z\")\n  task watch key=armed and not pending(rec) ? 0 / 0 : 1\n    after(100000, bump)\n  view\n",
+        "  action arm\n    armed = true\n    send rec = save(\"x\")\n    send rec = broken(\"z\")\n  task watch key=armed && ! pending(rec) ? 0 / 0 : 1\n    after(100000, bump)\n  view\n",
     );
     let mut r = boot_with(
         &src,

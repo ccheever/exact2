@@ -236,7 +236,7 @@ fn real_wasm_swipe_takeover_style_commits_and_deletion() {
     disabled = false
   action swipe
     count = count + 1
-    shown = not kill
+    shown = ! kill
   view
     column width=480 gap=10 padding=10
       input value=draft change=edit testId="input" height=32

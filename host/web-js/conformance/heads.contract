@@ -21,7 +21,7 @@ component Heads
   action back
     nav = back(nav)
   action toggle
-    deep = not deep
+    deep = ! deep
   action rename
     label = label == "one" ? "two" : "one"
   view

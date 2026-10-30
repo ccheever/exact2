@@ -7,7 +7,7 @@ style Photo
 component Shared
   state open = false
   action toggle
-    open = not open
+    open = ! open
   view
     column testId="root"
       button press=toggle aria-label="Toggle" testId="toggle"

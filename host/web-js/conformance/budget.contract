@@ -99,8 +99,8 @@ component Budget
   state armed = false
   state edge = false
   state poison = false
-  derive size = c == 1 or c == 38 ? 65536 : c == 2 or c == 37 ? 65537 : c == 3 ? 300 : c == 8 ? 32768 : c == 24 ? 32769 : c == 11 ? 2000 : c == 15 ? 20000 : c == 18 or c == 30 or c == 41 or c == 42 ? 10000 : c == 25 or c == 29 or c == 36 ? 30000 : c == 4 or c == 5 or c == 6 or c == 12 or c == 16 or c == 35 or c == 39 or c == 40 or c == 45 or c == 46 ? 40000 : 0
-  derive slen = c == 12 or c == 25 or c == 15 ? 2048 : c == 18 or c == 30 ? 1000 : c == 41 ? 4096 : c == 42 ? 3000 : c == 43 ? 65537 : c == 44 ? 65535 : 0
+  derive size = c == 1 || c == 38 ? 65536 : c == 2 || c == 37 ? 65537 : c == 3 ? 300 : c == 8 ? 32768 : c == 24 ? 32769 : c == 11 ? 2000 : c == 15 ? 20000 : c == 18 || c == 30 || c == 41 || c == 42 ? 10000 : c == 25 || c == 29 || c == 36 ? 30000 : c == 4 || c == 5 || c == 6 || c == 12 || c == 16 || c == 35 || c == 39 || c == 40 || c == 45 || c == 46 ? 40000 : 0
+  derive slen = c == 12 || c == 25 || c == 15 ? 2048 : c == 18 || c == 30 ? 1000 : c == 41 ? 4096 : c == 42 ? 3000 : c == 43 ? 65537 : c == 44 ? 65535 : 0
   resource k = cards(size, 0) as shape Card[]
   resource j = cards(c == 6 ? 30000 : 0, 0) as shape Card[]
   resource three = cards(c == 5 ? 3 : 0, 0) as shape Card[]
@@ -110,20 +110,20 @@ component Budget
   resource two = cards(c == 4 ? k.map(x => x).length : 0, c == 4 ? k.map(x => x).length : 0) as shape Card[]
   derive a6 = c == 6 ? k.map(x => x).length + b6 + j.map(x => x).length : 0
   derive b6 = c == 6 ? k.map(x => x).length : 0
-  derive d1 = c == 1 or c == 2 ? k.map(x => x).length : 0
+  derive d1 = c == 1 || c == 2 ? k.map(x => x).length : 0
   derive d3 = c == 3 ? k.map(a => k.map(b => b.n)).length : 0
-  derive d8 = c == 8 or c == 24 or c == 16 or c == 29 ? k.map(x => x.label).join(",").length : 0
+  derive d8 = c == 8 || c == 24 || c == 16 || c == 29 ? k.map(x => x.label).join(",").length : 0
   derive d9 = c == 9 ? d25("é").length : c == 32 ? d1(d25("é")).length : 0
   derive d11 = c == 11 ? k.map(x => Two(a=k, b=k)).length : 0
-  derive d12 = c == 12 or c == 25 ? k.map(x => str).length : 0
+  derive d12 = c == 12 || c == 25 ? k.map(x => str).length : 0
   derive d13 = c == 33 ? Pair(a=d25("a"), b=d25("a")).a.length : c == 13 ? Pair(a=d25("a"), b=d25("a") + "a").a.length : 0
   derive d14 = c == 34 ? encodeURIComponent(d24(" ") + d24("a")).length : c == 14 ? encodeURIComponent(d24(" ") + d24("a") + "a").length : c == 26 ? encodeRouteSegment(d24(" ") + d24("a") + "a").length : c == 27 ? encodeRouteSegment(empty).length : 0
   derive d15 = c == 15 ? twice(k.map(x => str)) : 0
   derive d18 = c == 18 ? thrice(k.map(x => str)) : c == 30 ? seven(k.map(x => str)) : 0
-  derive d35 = c == 35 or c == 36 ? k.concat(k).length : 0
-  derive d37 = c == 37 or c == 38 ? k.slice(0).length : 0
+  derive d35 = c == 35 || c == 36 ? k.concat(k).length : 0
+  derive d37 = c == 37 || c == 38 ? k.slice(0).length : 0
   derive d39 = c == 39 ? k.map(x => x.label).includes("none") : c == 40 ? k.map(x => x.label).includes("Card 0") : false
-  derive d41 = c == 41 or c == 42 ? k.map(x => str).concat(k.map(x => str)).length : 0
+  derive d41 = c == 41 || c == 42 ? k.map(x => str).concat(k.map(x => str)).length : 0
   derive d43 = c == 43 ? str.split("").length : c == 44 ? str.split("a").length : 0
   derive d45 = c == 45 ? k.map(x => x.label).indexOf("none") : c == 46 ? k.map(x => x.label).indexOf("Card 0") : -2
   derive same = three.filter(x => true)

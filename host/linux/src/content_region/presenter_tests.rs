@@ -617,7 +617,7 @@ fn natural_scroll_fixture(short: bool) -> Presenter<()> {
   action lengthen
     text = "{tall}"
   action toggle
-    showing = not showing
+    showing = ! showing
   view
     column width=400 height=500
       button press=shorten testId="shorten" height=30

@@ -21,7 +21,7 @@ impl DataSource for NoData {
 const SOURCE: &str = r#"component App
   state big = false
   action flip
-    big = not big
+    big = ! big
   view
     column testId="root"
       column font-weight=700 line-height=2

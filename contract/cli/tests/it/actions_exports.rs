@@ -117,7 +117,7 @@ fn following_is_said_by_the_label_alone_in_both_states_round_too() {
 component App
   state following = false
   action flip
-    following = not following
+    following = ! following
   view
     column
       FollowButton(id="pill", following=following, text=(following ? "Following" : "Follow"), label="", tone="primary", size="small", shape="pill", icon="both", press=flip)

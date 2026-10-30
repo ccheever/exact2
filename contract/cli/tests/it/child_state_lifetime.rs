@@ -317,7 +317,7 @@ component Hide
   slot
   state open = true
   action flip
-    open = not open
+    open = ! open
   view
     column
       text "flip" press=flip testId="flip"

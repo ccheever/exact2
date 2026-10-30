@@ -196,7 +196,7 @@ fn dirty_lists_follow_rows_parent_display_and_inserted_descendants() {
         r#"component App
   state changed = false
   action toggle
-    changed = not changed
+    changed = ! changed
   view
     box
       button "Toggle" testId="toggle" press=toggle
@@ -224,7 +224,7 @@ fn dirty_lists_follow_layout_policy_and_text_flow_structure() {
         r#"component App
   state changed = false
   action toggle
-    changed = not changed
+    changed = ! changed
   view
     box
       button "Toggle" testId="toggle" press=toggle

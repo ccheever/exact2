@@ -200,7 +200,7 @@ component DuoLab
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
             for entry in t.stack key=entry.id
               if t.name == "keyboard"
-                column navigationKey=`${entry.id}` navigationScroll=`keyboard-scroll-${entry.id}` id=`keyboard-route-${entry.id}` hatch="keyboard-route" data-keyboard-screen=entry.name data-focus-on-show=(entry.name == "keyboard-editor" ? "keyboard-editor" : entry.name == "keyboard" and returnFocus ? "keyboard-return" : "") class=Screen background-color=((entry.name == "keyboard" or entry.name == "keyboard-form") ? "-exact-grouped-background" : "Canvas") testId=`screen-${entry.name}`
+                column navigationKey=`${entry.id}` navigationScroll=`keyboard-scroll-${entry.id}` id=`keyboard-route-${entry.id}` hatch="keyboard-route" data-keyboard-screen=entry.name data-focus-on-show=(entry.name == "keyboard-editor" ? "keyboard-editor" : entry.name == "keyboard" && returnFocus ? "keyboard-return" : "") class=Screen background-color=((entry.name == "keyboard" || entry.name == "keyboard-form") ? "-exact-grouped-background" : "Canvas") testId=`screen-${entry.name}`
                   header class=Head display="flex" align-items="center" gap=8
                     text (entry.name == "keyboard" ? "Keyboard Check" : entry.name == "keyboard-form" ? "Far Focus" : entry.name == "keyboard-search" ? "Search" : "Editor") role="heading" aria-level=2
                     if entry.name == "keyboard-form"
@@ -305,7 +305,7 @@ component DuoLab
                         row gap=10 class=Card testId=`feed-${post.id}`
                           text post.who font-size=14 font-weight=600 flex-shrink=0 width=72
                           text post.body font-size=14 flex=1 min-width=0
-              if entry.name != "images" and entry.name != "reflow" and t.name != "keyboard"
+              if entry.name != "images" && entry.name != "reflow" && t.name != "keyboard"
                 column navigationKey=`${entry.id}` navigationBar="none" class=Screen testId=`screen-${entry.name}`
                   if entry.name == "fold"
                     // Two segments across: the list on the first, the detail on the
@@ -343,7 +343,7 @@ component DuoLab
                       column padding=16 gap=12
                         button press=openNote testId="open-note" padding=14 border-radius=10 background-color="AccentColor"
                           text "Push the note screen" font-size=16 font-weight=600 color="AccentColorText"
-                        text `Draft so far: ${title == "" and draft == "" ? "(nothing)" : title + " / " + draft}` testId="draft-echo" font-size=14 color="-exact-secondary-label"
+                        text `Draft so far: ${title == "" && draft == "" ? "(nothing)" : title + " / " + draft}` testId="draft-echo" font-size=14 color="-exact-secondary-label"
                   if entry.name == "note"
                     column flex=1 min-height=0 margin-left=paneLeft margin-right=paneRight class=Safe padding-left=panePadLeft padding-right=panePadRight
                       row align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=12

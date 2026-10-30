@@ -237,7 +237,7 @@ component Paint
   state changed = false
   derive keys = items.map(x => changed ? 5 - x.id : x.id)
   action toggle
-    changed = not changed
+    changed = ! changed
   view
     box testId="root"
       button "Toggle" testId="toggle" press=toggle
@@ -341,7 +341,7 @@ component Paint
   resource items = items() as shape Item[]
   state exclusion = {exclusion}
   action toggle
-    exclusion = not exclusion
+    exclusion = ! exclusion
   view
     box
       button "Toggle" testId="toggle" press=toggle

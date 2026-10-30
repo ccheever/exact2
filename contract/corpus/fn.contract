@@ -12,7 +12,7 @@ component Fns
   derive price = dollars(cents)
   derive label = pick(on, "yes", "no")
   action flip
-    on = not on
+    on = ! on
   action bump
     cents = quad(cents)
   view

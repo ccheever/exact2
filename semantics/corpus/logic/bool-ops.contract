@@ -2,18 +2,18 @@
 component App
   state p = false
   state q = false
-  derive both = p and q
-  derive either = p or q
-  derive neither = not p and not q
-  derive xor = (p or q) and not (p and q)
-  derive prec = p or q and false
-  derive prec2 = not p or q
+  derive both = p && q
+  derive either = p || q
+  derive neither = ! p && ! q
+  derive xor = (p || q) && ! (p && q)
+  derive prec = p || q && false
+  derive prec2 = ! p || q
   derive tern = p ? (q ? "pq" : "p") : (q ? "q" : "none")
   derive nested = p ? 1 : q ? 2 : 3
   action flipP
-    p = not p
+    p = ! p
   action flipQ
-    q = not q
+    q = ! q
   view
     column
       text `${both} ${either} ${neither} ${xor}` testId="ops"

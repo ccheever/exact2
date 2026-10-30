@@ -87,7 +87,7 @@ component PhotoEditor
   resource devices = enumerateDevices() as shape MediaDeviceList else empty()
   resource live = mediaStreamTrack(track=track) as shape MediaStreamTrack else empty()
   resource library = photoLibraryStatus() as shape PhotoLibraryStatus else empty()
-  resource recent = recents(showRecents or library.state == "granted") as shape PhotoAssetList else empty()
+  resource recent = recents(showRecents || library.state == "granted") as shape PhotoAssetList else empty()
   mutation opened as shape MediaStream then show
   mutation shot as shape Photo then taken
   mutation adjusted as shape MediaStreamTrack
@@ -100,8 +100,8 @@ component PhotoEditor
   resource orders = printOrders(ordersRead) as shape PrintOrders else empty()
   mutation ordered as shape PaymentResult then paid
   // A track the app holds that has not ended: Take Photo shows it again rather than asking for another.
-  derive holding = track != "" and live.readyState == "live"
-  derive canFlip = devices.devices.map(d => d.facingMode == some("user")).includes(true) and devices.devices.map(d => d.facingMode == some("environment")).includes(true)
+  derive holding = track != "" && live.readyState == "live"
+  derive canFlip = devices.devices.map(d => d.facingMode == some("user")).includes(true) && devices.devices.map(d => d.facingMode == some("environment")).includes(true)
   derive hasTorch = match live.capabilities { case some(c) => c.torch == some(true), case none => false }
   derive torchOn = live.settings.torch == some(true)
   // The camera that faces `facing`; every other constraint the platform's (LLP 1133.008 D2).
@@ -110,7 +110,7 @@ component PhotoEditor
   // A failed send runs no `then`, so its failure is read here; a cancel is no failure to the person.
   derive payFailure = match failure(ordered) { case some(f) => (f.code == "AbortError" ? "" : "Couldn’t pay (" + f.code + ")."), case none => "" }
   // A photo of the app's own (the camera's or a copy) can be transformed; the bundled sample cannot.
-  derive canSave = library.available and library.addState != "denied" and photo.slice(0, 5) == "app:/"
+  derive canSave = library.available && library.addState != "denied" && photo.slice(0, 5) == "app:/"
   action rotate
     turns = turns + 1
   action reset
@@ -127,7 +127,7 @@ component PhotoEditor
   action loaded
     ready = true
   action takePicture
-    if not holding
+    if ! holding
       send opened = getUserMedia(video=true, videoConstraints=facingOnly)
     nav = push(nav, "/camera")
   action show
@@ -140,7 +140,7 @@ component PhotoEditor
     send adjusted = applyConstraints(track=track, facingMode=(facing == "environment" ? "user" : "environment"))
     facing = facing == "environment" ? "user" : "environment"
   action torch
-    send adjusted = applyConstraints(track=track, torch=not torchOn)
+    send adjusted = applyConstraints(track=track, torch=! torchOn)
   action shutter
     send shot = takePhoto(track=track)
   action taken
@@ -240,7 +240,7 @@ component PhotoEditor
                   text "Rotate 90°" font-size=15 font-weight=600
                 button press=reset testId="reset" aria-label="Reset zoom, rotation, position and crop" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="-exact-fill" color="-exact-label"
                   text "Reset" font-size=15 font-weight=600
-                if camera.available and camera.state != "denied"
+                if camera.available && camera.state != "denied"
                   button press=takePicture testId="take-photo" aria-label="Take a photo to edit" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="-exact-fill" color="-exact-label"
                     text "Take Photo" font-size=15 font-weight=600
                 if wallet.canMakePayment
@@ -251,7 +251,7 @@ component PhotoEditor
                     text "Save to Photos" font-size=15 font-weight=600
               if saveLine != ""
                 text saveLine testId="save-line" aria-live="polite" font-size=13 color="-exact-secondary-label"
-              if library.available and library.addState == "denied"
+              if library.available && library.addState == "denied"
                 row align-items="center" gap=12 flex-wrap="wrap" testId="save-denied"
                   text "Photo Editor can’t add to your photos. Turn it on in Settings." font-size=13 color="-exact-secondary-label" flex=1
                   button press=openSettings testId="open-photo-settings" aria-label="Open Settings"
@@ -264,10 +264,10 @@ component PhotoEditor
                       text "Photo Editor can’t see your photos. Turn it on in Settings." font-size=13 color="-exact-secondary-label" flex=1
                       button press=openSettings testId="open-recents-settings" aria-label="Open Settings"
                         text "Open Settings"
-                  if library.state == "prompt" and not showRecents
+                  if library.state == "prompt" && ! showRecents
                     button press=showPhotos testId="show-recents" aria-label="Show your recent photos" align-self="flex-start" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="-exact-fill" color="-exact-label"
                       text "Show" font-size=15 font-weight=600
-                  if library.state != "denied" and recent.assets.length > 0
+                  if library.state != "denied" && recent.assets.length > 0
                     row gap=6 overflow-x="auto" testId="recent-strip"
                       for a, i in recent.assets key=a.id
                         button press=openRecent(a.id, a.picture) testId=`recent-${i + 1}` aria-label=`Edit photo ${i + 1}` flex-shrink=0 padding=0 border-radius=6 overflow="hidden"

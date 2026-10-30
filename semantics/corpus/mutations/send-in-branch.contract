@@ -17,7 +17,7 @@ component App
     else
       send saved = save(draft, maybe)
   action pin
-    draft = Draft(draft, pinned=not draft.pinned)
+    draft = Draft(draft, pinned=! draft.pinned)
   action setMaybe
     maybe = some(3)
   view

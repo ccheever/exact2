@@ -132,7 +132,7 @@ component MessageRow
             for p in m.paragraphs key=p.id
               text font-size=16 color="#000000"
                 for r in p.runs key=r.id
-                  text r.t font-family=(r.s == "code" ? "ui-monospace" : "system-ui") font-size=(r.s == "code" ? 15 : 16) background-color=(r.s == "code" ? "#F2F2F7" : "#00000000") font-weight=(r.s == "bold" or r.s == "mention" ? 600 : 400) font-style=(r.s == "italic" ? "italic" : "normal") color=(r.s == "link" or r.s == "mention" ? "#007AFF" : r.s == "tag" ? "#5856D6" : "#000000") text-decoration-line=(r.s == "link" ? "underline" : "none")
+                  text r.t font-family=(r.s == "code" ? "ui-monospace" : "system-ui") font-size=(r.s == "code" ? 15 : 16) background-color=(r.s == "code" ? "#F2F2F7" : "#00000000") font-weight=(r.s == "bold" || r.s == "mention" ? 600 : 400) font-style=(r.s == "italic" ? "italic" : "normal") color=(r.s == "link" || r.s == "mention" ? "#007AFF" : r.s == "tag" ? "#5856D6" : "#000000") text-decoration-line=(r.s == "link" ? "underline" : "none")
           match m.photos
             case some(ph)
               Photos(ph=ph)
@@ -146,7 +146,7 @@ component MessageRow
                   text l.title font-size=15 font-weight=600 color="#000000" line-clamp=2 text-overflow="ellipsis"
                   text l.description font-size=13 color="#3C3C43" line-clamp=2 text-overflow="ellipsis"
             case none
-          if not m.reactions.isEmpty()
+          if ! m.reactions.isEmpty()
             row margin-top=8 flex-wrap="wrap" gap=6
               for r in m.reactions key=r.emoji
                 button press=react(m.id, r.emoji) testId=`react-${m.id}-${r.emoji}` aria-label=`${r.emoji} ${r.count}` display="flex" flex-direction="row" align-items="center" gap=4 height=28 box-sizing="border-box" padding-top=0 padding-bottom=0 padding-left=10 padding-right=10 border-width=0 border-radius=14 background-color="#F2F2F7"

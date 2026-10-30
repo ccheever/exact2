@@ -9,7 +9,7 @@ component Resize
   state calls = 0
   state taps = 0
   action widen
-    wide = not wide
+    wide = ! wide
   action other
     taps = taps + 1
   action fit(w: number, h: number, r: DOMRectReadOnly)

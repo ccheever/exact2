@@ -41,13 +41,13 @@ component Textflow
     scene = value
     elapsed = 0
   action appearance
-    let next = not dark
+    let next = ! dark
     dark = next
     setScheme(next ? "dark" : "light")
   action typeSize
-    largeType = not largeType
+    largeType = ! largeType
   action pause
-    running = not running
+    running = ! running
   // Advance by the time measured since the last step, so steps a
   // suspension skipped do not slow the scene
   action step

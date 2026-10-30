@@ -79,7 +79,7 @@ component App
   action save
     let at = time.epochAtZero + performanceNow()
     now = performanceNow()
-    if title.trim() != "" and cost > 0
+    if title.trim() != "" && cost > 0
       send added = addExpense(title.trim(), category, cost, formatDate(at, time.utcOffset, "iso"), at)
       nav = back(nav)
   view
@@ -111,7 +111,7 @@ component App
                     EmptyState(symbol="symbol:alert", title="Can’t Load Spending", message="Something went wrong reading it.")
                       button press=reload testId="retry"
                         text "Try Again"
-                  else if summary.recent.length == 0 and not pending(summary)
+                  else if summary.recent.length == 0 && ! pending(summary)
                     EmptyState(symbol="symbol:chart", title="Nothing spent this month", message="Spending shows here by category as it comes in.")
                       button press=openAdd testId="empty-add"
                         text "Add Expense"
@@ -137,7 +137,7 @@ component App
                     enterkeyhint="next" testId="title" flex=1 min-width=0
                 row
                   input value=amountText input=editAmount submit=save inputmode="decimal" placeholder="Amount, like 12.50"
-                    aria-label="Amount" aria-invalid=(amountText != "" and cost <= 0) testId="amount" flex=1 min-width=0
+                    aria-label="Amount" aria-invalid=(amountText != "" && cost <= 0) testId="amount" flex=1 min-width=0
                 footer
                   text saveHint testId="save-hint"
               section

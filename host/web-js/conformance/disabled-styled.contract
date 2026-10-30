@@ -7,7 +7,7 @@ component DisabledStyled
   state busy = true
   state dirty = false
   action toggle
-    busy = not busy
+    busy = ! busy
   view
     column gap=8
       button press=toggle testId="toggle"

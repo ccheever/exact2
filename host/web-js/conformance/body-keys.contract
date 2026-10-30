@@ -15,6 +15,6 @@ component BodyKeys
     gone = true
   view
     column keycapture=captured key=down keyup=up testId="root" padding=8
-      if not gone
+      if ! gone
         button "Leave" press=leave testId="leave"
       text heard testId="heard"

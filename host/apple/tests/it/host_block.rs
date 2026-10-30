@@ -197,7 +197,7 @@ fn a_popover_leaving_its_block_is_sent_a_block_op_with_no_size() {
         r##"component Pins
   state inflow = false
   action toggle
-    inflow = not inflow
+    inflow = ! inflow
   view
     column testId="page" width="100%" height="100%"
       button testId="toggle" press=toggle

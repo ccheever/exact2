@@ -44,7 +44,7 @@ component Row
     x: Item
   state open = x.even
   action toggle
-    open = not open
+    open = ! open
   view
     column testId=`row-${x.id}` height=64 press=toggle transition="opacity 200ms" opacity=(x.even ? 1 : 0.5)
       text x.title animation="fade 400ms"

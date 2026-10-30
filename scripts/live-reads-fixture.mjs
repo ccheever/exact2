@@ -61,7 +61,7 @@ component LiveReads
     if d != down
       down = d
   action checkLatest
-    if not pending(latest)
+    if ! pending(latest)
       send latest = pollLatest(reread)
   action gotLatest
     match latest
@@ -81,7 +81,7 @@ component LiveReads
   action arm
     fresh = fresh
   action toggleVideos
-    send keep = keepVideos(not trending.videosOff)
+    send keep = keepVideos(! trending.videosOff)
   action wasKept
     kept = kept + 1
   view
@@ -113,7 +113,7 @@ component LiveReads
         text "Trending topics" testId="show_trending_topics"
         button press=toggleVideos testId="show_trending_videos"
           text (trending.videosOff ? "Trending videos: off" : "Trending videos: on")
-      if down or fresh
+      if down || fresh
         button press=loadLatest testId="loadLatestBtn"
           text "Load new posts"
       list testId="feed" scroll=scrolled flex=1 min-height=0

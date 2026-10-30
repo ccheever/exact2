@@ -8,7 +8,7 @@
 component Shadows
   state dark = false
   action scheme
-    dark = not dark
+    dark = ! dark
     setScheme(dark ? "light" : "dark")
   view
     main testId="shadows" position="relative" width=390 height=460 background-color="light-dark(#ffffff, #121212)"

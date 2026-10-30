@@ -39,7 +39,7 @@ fn prop(r: &Runner<NoData>, test_id: &str, id: PropId) -> Option<String> {
 #[test]
 fn aria_pressed_is_a_toggle_buttons_tristate() {
     let mut r = boot(
-        "component App\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      button press=flip aria-pressed=on testId=\"flash\"\n        text \"Flashlight\"\n      button press=flip aria-pressed=\"mixed\" testId=\"some\"\n        text \"Some\"\n      button press=flip aria-pressed=true testId=\"lit\"\n        text \"Lit\"\n      button press=flip testId=\"plain\"\n        text \"Plain\"\n",
+        "component App\n  state on = false\n  action flip\n    on = ! on\n  view\n    column\n      button press=flip aria-pressed=on testId=\"flash\"\n        text \"Flashlight\"\n      button press=flip aria-pressed=\"mixed\" testId=\"some\"\n        text \"Some\"\n      button press=flip aria-pressed=true testId=\"lit\"\n        text \"Lit\"\n      button press=flip testId=\"plain\"\n        text \"Plain\"\n",
     );
     assert_eq!(
         prop(&r, "flash", PropId::AccessibilityPressed).as_deref(),

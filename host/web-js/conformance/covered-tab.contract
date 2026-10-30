@@ -19,7 +19,7 @@ component CoveredTab
   derive current = top(nav)
   state hi = 0
   state asks = 0
-  derive rows = cards.filter(c => c.n < hi or c.n == 1999)
+  derive rows = cards.filter(c => c.n < hi || c.n == 1999)
   action pick(name: string)
     nav = select(nav, name)
   action back

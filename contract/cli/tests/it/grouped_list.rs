@@ -22,7 +22,7 @@ fn app(body: &str) -> String {
         .map(|l| format!("      {l}\n"))
         .collect::<String>();
     format!(
-        "component App\n  state on = true\n  state dark = false\n  action go\n    dark = not dark\n  action flip(v: bool)\n    on = v\n  view\n    column testId=\"root\" width=402 height=874\n{body}"
+        "component App\n  state on = true\n  state dark = false\n  action go\n    dark = ! dark\n  action flip(v: bool)\n    on = v\n  view\n    column testId=\"root\" width=402 height=874\n{body}"
     )
 }
 
@@ -178,7 +178,7 @@ fn a_radio_is_its_rows_accessory() {
   section
     row
       text "Free" flex=1
-      input type="radio" name="plan" value="free" checked=(not dark) testId="free"
+      input type="radio" name="plan" value="free" checked=(! dark) testId="free"
     row
       input type="radio" name="plan" value="pro" checked=dark testId="pro"
       text "Pro"

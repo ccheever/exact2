@@ -24,7 +24,7 @@ component App
   action retitle(value: string)
     draft = some(Fields(fields, title=value))
   action pin
-    draft = some(Fields(fields, pinned=not fields.pinned))
+    draft = some(Fields(fields, pinned=! fields.pinned))
   action replace(next: Fields)
     draft = some(next)
   action save

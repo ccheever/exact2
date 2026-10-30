@@ -125,13 +125,13 @@ component ColorGallery
     videoSource = value
     videoPlaying = true
   action toggleVideo()
-    videoPlaying = not videoPlaying
+    videoPlaying = ! videoPlaying
   action choose(value: string)
     limit = value
   action toggleMoved()
-    moved = not moved
+    moved = ! moved
   action scrolled(left: number, top: number)
-    if host != "web" and docked != (top >= 128)
+    if host != "web" && docked != (top >= 128)
       docked = top >= 128
   view
     // On the web the document scrolls; natively the scroll view does.
@@ -277,8 +277,8 @@ component ColorGallery
               button "P3 SDR" press=chooseVideo("assets/p3-sdr.mov") testId="video-p3"
             button (videoPlaying ? "Pause videos" : "Play videos") press=toggleVideo testId="video-toggle"
             row column-gap=8
-              video videoSource controls=false muted=true loop=true playsinline=true preload="auto" paused=(not videoPlaying) width=170 height=100 testId="video-inline"
-              video videoSource controls=true muted=true loop=true playsinline=true preload="auto" paused=(not videoPlaying) width=170 height=100 testId="video-controls"
+              video videoSource controls=false muted=true loop=true playsinline=true preload="auto" paused=(! videoPlaying) width=170 height=100 testId="video-inline"
+              video videoSource controls=true muted=true loop=true playsinline=true preload="auto" paused=(! videoPlaying) width=170 height=100 testId="video-controls"
 
           text "Transitions" class=Section
           text "Two seconds, linear. Legacy colors move in sRGB; a color in its own space moves in Oklab, so its midpoint stays light and saturated." class=Legend

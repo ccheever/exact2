@@ -29,7 +29,7 @@ component App
   state on = false
   state parentInk = "#123456"
   action flip
-    on = not on
+    on = ! on
   action retint
     parentInk = "#654321"
   view
@@ -98,7 +98,7 @@ component App
 /// primitive's attribute and moved nothing).
 #[test]
 fn order_moves_a_flex_item_and_a_bound_order_moves_it_again() {
-    let src = "component A\n  state rail = true\n  action flip\n    rail = not rail\n  view\n    row testId=\"row\" width=300\n      view testId=\"main\" width=200 height=10\n      view testId=\"rail\" width=100 height=10 order=(rail ? -1 : 0)\n      view testId=\"last\" width=0 height=10 order=1\n";
+    let src = "component A\n  state rail = true\n  action flip\n    rail = ! rail\n  view\n    row testId=\"row\" width=300\n      view testId=\"main\" width=200 height=10\n      view testId=\"rail\" width=100 height=10 order=(rail ? -1 : 0)\n      view testId=\"last\" width=0 height=10 order=1\n";
     let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
     let mut r = Runner::boot(
         plan,
@@ -128,7 +128,7 @@ fn order_moves_a_flex_item_and_a_bound_order_moves_it_again() {
 /// background or a tint is the keyword, which each host paints in `color`.
 #[test]
 fn inherit_unset_and_currentcolor_are_csss() {
-    let src = "style Loud\n  color=\"#ff0000\"\ncomponent A\n  state on = false\n  action flip\n    on = not on\n  view\n    column color=\"#0000ff\"\n      text \"a\" testId=\"inherit\" class=Loud color=\"inherit\"\n      text \"b\" testId=\"bound\" color=(on ? \"unset\" : \"#00ff00\")\n      view testId=\"swatch\" background-color=\"currentcolor\"\n      image \"symbol:add\" testId=\"icon\" -exact-tint-color=\"currentColor\" alt=\"Add\"\n      input testId=\"field\" value=\"\" enterkeyhint=\"send\"\n";
+    let src = "style Loud\n  color=\"#ff0000\"\ncomponent A\n  state on = false\n  action flip\n    on = ! on\n  view\n    column color=\"#0000ff\"\n      text \"a\" testId=\"inherit\" class=Loud color=\"inherit\"\n      text \"b\" testId=\"bound\" color=(on ? \"unset\" : \"#00ff00\")\n      view testId=\"swatch\" background-color=\"currentcolor\"\n      image \"symbol:add\" testId=\"icon\" -exact-tint-color=\"currentColor\" alt=\"Add\"\n      input testId=\"field\" value=\"\" enterkeyhint=\"send\"\n";
     let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
     let mut r = Runner::boot(
         plan,
@@ -284,7 +284,7 @@ style Quiet
 component A
   state on = false
   action flip
-    on = not on
+    on = ! on
   view
     column testId="page" color="#111111"
       text "own" testId="own" color="-exact-system-red"

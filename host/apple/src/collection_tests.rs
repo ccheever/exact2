@@ -531,7 +531,7 @@ fn rows_the_data_moves_still_play_their_layout_transition() {
         text "pad"
       list virtualized=true height=200 width=240 padding-left=(padded ? 20 : 0) padding-right=(padded ? 0 : 20) testId="edited"
         for row in rows key=row
-          column height=(tall and row == 0 ? 80 : 20) width=200 position="relative" left=(nudged and row == 1 ? 20 : 0) -exact-layout-transition=(row == 0 ? "none" : "300ms ease-in-out")
+          column height=(tall && row == 0 ? 80 : 20) width=200 position="relative" left=(nudged && row == 1 ? 20 : 0) -exact-layout-transition=(row == 0 ? "none" : "300ms ease-in-out")
             text `${row}`
       list virtualized=true height=200 width=240 testId="other"
         for row in others key=row

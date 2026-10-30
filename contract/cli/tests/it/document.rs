@@ -452,11 +452,11 @@ fn scroll_document_binds_an_expression_too() {
         Some(PropValue::Bool(true))
     );
     assert_eq!(
-        marked(&page("document=(not signedOut)")),
+        marked(&page("document=(!signedOut)")),
         Some(PropValue::Bool(false))
     );
     assert_eq!(marked(&page("document")), Some(PropValue::Bool(true)));
-    let src = page("document=(not signedOut)");
+    let src = page("document=(!signedOut)");
     assert_eq!(contract_syntax::fmt::format(&src).unwrap(), src);
     for (src, id, says) in [
         (

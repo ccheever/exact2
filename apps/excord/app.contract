@@ -146,7 +146,7 @@ component Excord
   mutation translator as shape TranslatorInfo then runTranslation
   mutation translation as shape TranslatorResult then landTranslation
   mutation detectorMade as shape LanguageDetectorInfo refreshes lang
-  derive canTranslate = lang.detector == "downloadable" or (lang.language != "" and lang.language != myLanguage and pair.availability != "unavailable")
+  derive canTranslate = lang.detector == "downloadable" || (lang.language != "" && lang.language != myLanguage && pair.availability != "unavailable")
   derive pendingLine = translating == "" ? "" : pendingLineOf(match failure(translator) { case some(f) => f.code, case none => match failure(translation) { case some(f) => f.code, case none => "" } }, translatingFrom, pair)
   derive translations = pendingLine == "" ? translated : withTranslated(translated, Translated(id=translating, text="", line=pendingLine))
   resource viewport = exactViewport() as shape Viewport
@@ -166,25 +166,25 @@ component Excord
   // range. Otherwise it is read once the snapshot names the open channel and again when its rows change,
   // so a list opens on them. The keys are negative so that none is a revision.
   resource members = loadMembers(open, membersShown ? gw.members : gw.channel == open ? -2 - gw.memberRows : -1) as shape MemberRow[] else empty()
-  derive membersBeside = showMembers and paneWidth >= 900 and chan.guild != ""
-  derive membersShown = membersBeside or membersSheet
+  derive membersBeside = showMembers && paneWidth >= 900 && chan.guild != ""
+  derive membersShown = membersBeside || membersSheet
   // The rail's open folders, kept across launches.
   state openFolders: string[] = [] persist
-  derive dmsShown = server == "@me" or guilds.length == 0
+  derive dmsShown = server == "@me" || guilds.length == 0
   // What covers the screens: the image viewer, or the lock while the launch or a return waits on it.
   // Nothing under it takes a press, a key or a shortcut.
-  derive locked = session.locked or lockedOut
-  derive covered = viewing != "" or locked
+  derive locked = session.locked || lockedOut
+  derive covered = viewing != "" || locked
   derive dmUnread = dms.map(c => c.unread > 0).includes(true)
   // The list shows the most recent conversations, a hundred more at each ask, and any older one that is
   // unread, mentions the reader or is open: a platform list builds every row, and a large account's
   // thousands took seconds to open. The switcher finds any of them.
   state dmsShownCount = 100
-  derive recentDms = dms.slice(0, dmsShownCount).concat(dms.slice(dmsShownCount).filter(c => c.unread > 0 or c.mentions > 0 or c.id == open))
+  derive recentDms = dms.slice(0, dmsShownCount).concat(dms.slice(dmsShownCount).filter(c => c.unread > 0 || c.mentions > 0 || c.id == open))
   derive dmMentions = sum(dms.map(c => c.mentions))
   // The browser tab's title, as Discord's: what mentions the reader, then the channel on screen; locked, the app's name alone.
   derive mentionTotal = dmMentions + sum(guilds.map(g => g.mentions))
-  derive pageTitle = locked ? "Excord" : `${mentionTotal > 0 ? `(${mentionTotal}) ` : guilds.map(g => g.unread).includes(true) or dmUnread ? "• " : ""}Excord${reading and chan.name != "" ? ` | ${chan.guild != "" ? "#" : "@"}${chan.name}` : ""}`
+  derive pageTitle = locked ? "Excord" : `${mentionTotal > 0 ? `(${mentionTotal}) ` : guilds.map(g => g.unread).includes(true) || dmUnread ? "• " : ""}Excord${reading && chan.name != "" ? ` | ${chan.guild != "" ? "#" : "@"}${chan.name}` : ""}`
   derive guild = dmsShown ? Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) : match first(guilds.filter(g => g.id == server).concat(guilds)) { case some(g) => g, case none => Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) }
   resource categories = loadChannels(guild.id, gw.channelList) as shape Category[] else empty()
   // The server's channels, never another's: a load that failed keeps the last server's answer.
@@ -193,15 +193,15 @@ component Excord
   // From 900 points, browsers open the last or first channel beside the list and omit Back.
   // Browser history keeps the reader's place through `leave`. On the Mac and Windows the host's
   // split opens nothing until a channel is chosen and hides Back; Android pushes, the list first.
-  derive wide = viewport.displayMode == "browser" and viewport.width >= 900
+  derive wide = viewport.displayMode == "browser" && viewport.width >= 900
   derive listed = dmsShown ? dms : channels
   derive remembered = draftOf(lastChannels, dmsShown ? "@me" : guild.id)
   derive resumeChannel = listed.map(c => c.id).includes(remembered) ? remembered : match first(listed) { case some(c) => c.id, case none => "" }
   resource dms = loadDms(gw.dmList) as shape Channel[] else empty()
   // Keep the directory visible through refreshes and reconnects. A new account waits
   // for its complete READY (large accounts arrive in slices) and the lists it starts.
-  derive directoryLoaded = gw.me != "" and directoryFor == gw.me
-  derive directoryFailed = failed(guilds) or failed(categories) or failed(dms)
+  derive directoryLoaded = gw.me != "" && directoryFor == gw.me
+  derive directoryFailed = failed(guilds) || failed(categories) || failed(dms)
   // The snapshot carries the versions of the channel on screen; until it names the
   // one just opened, the version of other channels stands in, which moves with its changes too.
   // It is negated so that the two counters never give the same key.
@@ -256,13 +256,13 @@ component Excord
   // The window answers the reader's present request (a page or a jump has
   // landed). A window's pin asks for the same rows, so pinning it keeps it current.
   // A window still lacking the page that holds its anchor (or its tail) answers nothing yet.
-  derive current = win.channel == open and (win.anchor == anchor or win.pin == anchor) and win.need != "around" and win.need != "latest"
+  derive current = win.channel == open && (win.anchor == anchor || win.pin == anchor) && win.need != "around" && win.need != "latest"
   derive pageKey = `${win.channel}/${win.need}/${win.cursor}`
   // Asks count too: a page whose window the host refused runs no `afterPage` and would be asked for good.
-  derive historyFailed = win.channel == open and win.need != "" and pageAsked == pageKey and (pageTries >= 3 or (pageAsks >= 3 and not pending(paged)))
-  derive historyLoading = pending(win) or win.channel != open or win.need != ""
+  derive historyFailed = win.channel == open && win.need != "" && pageAsked == pageKey && (pageTries >= 3 || (pageAsks >= 3 && ! pending(paged)))
+  derive historyLoading = pending(win) || win.channel != open || win.need != ""
   // The transcript is on screen, not the channel list, a picture or the lock screen over it.
-  derive reading = top(nav).name == "channel" and not locked
+  derive reading = top(nav).name == "channel" && ! locked
   derive draft = editing == "" ? draftOf(drafts, open) : editText
   // A name being written (`@ada`, `#gen`, `:fer`) and what it could be.
   resource suggestions = suggest(open, draft) as shape Suggestion[] else empty()
@@ -294,23 +294,23 @@ component Excord
   derive signInError = match signedIn { case some(r) => (r.ok ? "" : r.error), case none => "" }
   // The fixture signs itself in, unless the platform dropped its locked token (Lock Excord).
   derive droppedLock = match unlocked { case some(r) => r.error == "Sign in again", case none => false }
-  derive signedOutNow = gw.state == "signed-out" and (not gw.fixture or droppedLock)
+  derive signedOutNow = gw.state == "signed-out" && (! gw.fixture || droppedLock)
   derive editFailure = match edited { case some(r) => (r.ok ? "" : r.error), case none => "" }
   derive deleteFailure = match deleted { case some(r) => (r.ok ? "" : r.error), case none => "" }
   derive clock = time.epochAtZero + now
   derive newCount = max(0, chan.arrived - baseArrived)
   // The lock is offered where the device can keep the token locked (on the web it cannot).
-  derive lockable = session.signedIn and lock.available and lock.presenceSecrets
+  derive lockable = session.signedIn && lock.available && lock.presenceSecrets
   derive biometryLabel = lock.biometry == "faceID" ? "Require Face ID" : lock.biometry == "touchID" ? "Require Touch ID" : lock.biometry == "opticID" ? "Require Optic ID" : "Require Passcode"
   // Android names no modality: the switch takes the platform's own label ("Use fingerprint").
   derive lockLabel = match lock.android { case some(a) => match a.label { case some(l) => l, case none => biometryLabel }, case none => biometryLabel }
-  derive unreadText = `${win.unread}${win.unreadMore ? "+" : ""} new ${win.unread == 1 and not win.unreadMore ? "message" : "messages"} since ${formatTime(win.unreadAt, time.utcOffset, "short")}`
+  derive unreadText = `${win.unread}${win.unreadMore ? "+" : ""} new ${win.unread == 1 && ! win.unreadMore ? "message" : "messages"} since ${formatTime(win.unreadAt, time.utcOffset, "short")}`
 
-  task attend when not page.hasFocus and mentionTotal + dms.filter(c => c.unread > 0).length > 0 key=`${mentionTotal} ${sum(dms.map(c => c.unread))}`
+  task attend when ! page.hasFocus && mentionTotal + dms.filter(c => c.unread > 0).length > 0 key=`${mentionTotal} ${sum(dms.map(c => c.unread))}`
     after(1, attend)
   task tick mount
     every(60000, step)
-  task directory when directoryFor != gw.me and (gw.me == "" or (gw.queued == 0 and not pending(guilds) and not pending(categories) and not pending(dms) and not directoryFailed))
+  task directory when directoryFor != gw.me && (gw.me == "" || (gw.queued == 0 && ! pending(guilds) && ! pending(categories) && ! pending(dms) && ! directoryFailed))
     after(1, directoryLanded)
   // The heartbeat is the gateway session's (`discord/gateway.ts`); this asks it each
   // second whether one is due, which is also the data module's clock.
@@ -322,61 +322,61 @@ component Excord
   // A gateway answer the host refused (a turn over its budget) ends the stream with no close the module
   // hears; asked again, the resource connects again (the identify budget bounds how often). Not while
   // `digest` applies a large READY: connecting drops the rest, and a resume would not bring it back.
-  task regateway when failed(gateway) and session.ready and session.signedIn and gw.queued == 0 and not pending(digested)
+  task regateway when failed(gateway) && session.ready && session.signedIn && gw.queued == 0 && ! pending(digested)
     every(10000, redialNow)
-  task pickerLost when picking and pickerPopover and viewport.pointer == "coarse"
+  task pickerLost when picking && pickerPopover && viewport.pointer == "coarse"
     after(1, pickerClosed)
   task record when gw.state == "recording"
     after(1, recordNow)
   // Discord refusing the token (close 4004) signs out: the channel on screen goes with the account.
-  task resume when wide and top(nav).name == "home" and resumeChannel != "" and not signedOutNow and pendingOpen == ""
+  task resume when wide && top(nav).name == "home" && resumeChannel != "" && ! signedOutNow && pendingOpen == ""
     after(1, openResume)
-  task signedOutHome when signedOutNow and top(nav).name != "home"
+  task signedOutHome when signedOutNow && top(nav).name != "home"
     after(1, toSignIn)
   members "./routing.contract"
   members "./viewer.contract"
   members "./light.contract"
   members "./typing.contract"
   members "./browse.contract"
-  task digest when gw.queued > 0 and not pending(digested) key=gw.seq
+  task digest when gw.queued > 0 && ! pending(digested) key=gw.seq
     after(1, digestNow)
-  task traffic when live and open != ""
+  task traffic when live && open != ""
     every(2500, trafficTick)
-  task scrollQuiet when (scrolling and not settling) or (settling and not endSeen) key=`${scrollTick}/${endGap}/${target}`
+  task scrollQuiet when (scrolling && ! settling) || (settling && ! endSeen) key=`${scrollTick}/${endGap}/${target}`
     after(200, scrollSettled)
-  task unhighlight when highlight != "" and target == "" key=highlight
+  task unhighlight when highlight != "" && target == "" key=highlight
     after(2500, clearHighlight)
   // A jump, a restored place or a return to the present lands once the window holding it has.
-  task land when target != "" and current and not pending(win) key=target
+  task land when target != "" && current && ! pending(win) key=target
     after(1, landJump)
   // A message arriving while the reader is within a row of the end is followed
   // (§3.7); the list follows by itself only from the end exactly.
-  task follow when current and anchor == "" and not away and chan.arrived > followed key=chan.arrived
+  task follow when current && anchor == "" && ! away && chan.arrived > followed key=chan.arrived
     after(1, followEnd)
   // What the reader has seen at the end is acknowledged a second after it shows,
   // while the transcript is in front: at most one ack a second. Leaving the end
   // or the channel acknowledges at once what was on screen (`scrolled`, `back`).
   // It is asked again when the channel changes (a message reached the tail after the
   // ack chose its newest) and after a failed ack, at most three times.
-  task ack when reading and not signedOutNow and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible" key=`${chan.version}/${ackTries}`
+  task ack when reading && ! signedOutNow && current && anchor == "" && ! away && chan.unread > 0 && page.visibilityState == "visible" key=`${chan.version}/${ackTries}`
     after(1000, ackNow)
   // The lead (F1): a page a step while fewer than 100 rows stand above a reader in history (never a short live tail); after a jump, the highlight, and after a restore, the placement's scroll report (leadHeld).
-  task leadOlder when reading and current and target == "" and highlight == "" and not leadHeld and (away or (anchor != "" and win.hasAfter)) and win.need == "" and win.hasBefore and keys.indexOf(topKey) >= 0 and keys.indexOf(topKey) < 100 and anchor != win.firstId key=win.firstId
+  task leadOlder when reading && current && target == "" && highlight == "" && ! leadHeld && (away || (anchor != "" && win.hasAfter)) && win.need == "" && win.hasBefore && keys.indexOf(topKey) >= 0 && keys.indexOf(topKey) < 100 && anchor != win.firstId key=win.firstId
     after(1, older)
   // The page the window lacks while the channel is read; a failed one is asked again, at most three times.
-  task fetchPage when reading and win.channel == open and not signedOutNow and win.need != "" and not historyFailed and not pending(paged) and not pending(editPaged) key=`${pageKey}/${pageTries}`
+  task fetchPage when reading && win.channel == open && ! signedOutNow && win.need != "" && ! historyFailed && ! pending(paged) && ! pending(editPaged) key=`${pageKey}/${pageTries}`
     after(1, pageNow)
   // The bar says what was unread when the channel opened: its label is held from
   // the first window that answers it, as arrivals and sends move the count on.
-  task unreadLands when unreadBar and unreadLabel == "" and current
+  task unreadLands when unreadBar && unreadLabel == "" && current
     after(1, holdUnread)
   task pumping when slow
     every(150, pumpNow)
-  task findEdit when editLookup and reading and not session.locked and not lockedOut and not pending(editTarget) and not pending(editPaged) and not pending(paged) and editTarget.channel == open key=`${editTarget.id}/${editTarget.need}/${editTarget.cursor}`
+  task findEdit when editLookup && reading && ! session.locked && ! lockedOut && ! pending(editTarget) && ! pending(editPaged) && ! pending(paged) && editTarget.channel == open key=`${editTarget.id}/${editTarget.need}/${editTarget.cursor}`
     after(1, resolveEdit)
   // A launch that begins locked asks for the check once, right after the first
   // data answer; a cancel leaves the lock screen and its Unlock button.
-  task unlockAtLaunch when session.locked and not launchAsked
+  task unlockAtLaunch when session.locked && ! launchAsked
     after(1, unlockFirst)
   // A gate follows a state, and the page is visible at launch: the action skips
   // its own first run and then hears every return (docs/agent-pitfalls.md).
@@ -402,7 +402,7 @@ component Excord
   action clearHighlight
     highlight = ""
   action ackNow
-    if not away
+    if ! away
       send acked = markRead(open)
   action afterAck
     match acked
@@ -422,7 +422,7 @@ component Excord
         pageTries = r.ok ? 0 : pageTries + 1
         // A collection at offset zero shows prepended rows. A transcript keeps
         // the message being read, including when a slow page lands at that edge.
-        if r.ok and reading and pageAsked.startsWith(`${open}/before/`) and historyStart and target == "" and topKey != ""
+        if r.ok && reading && pageAsked.startsWith(`${open}/before/`) && historyStart && target == "" && topKey != ""
           target = topKey
           targetBlock = "offset"
           restoreOffset = topOffset
@@ -433,7 +433,7 @@ component Excord
     pageAsks = 0
   action followEnd
     followed = chan.arrived
-    if not away and endGap > 0.5
+    if ! away && endGap > 0.5
       scrollIntoView("transcript", lastKey, offset=1000000, behavior="smooth")
 
   // Opening a channel: at its newest (§3.1), at its first unread with the bar (§3.2), or where this session left it (§3.3).
@@ -442,16 +442,16 @@ component Excord
     putMembersAway()
     intent = intent + 1
     // The lists leave the channel being viewed as it was when it opened (`live.ts`); `chan` is its current row.
-    let c = id == open and chan.id == id ? chan : channelOf(channels.concat(dms).concat(targets.map(t => t.channel)), id)
+    let c = id == open && chan.id == id ? chan : channelOf(channels.concat(dms).concat(targets.map(t => t.channel)), id)
     let p = placeOf(places, id)
     // A split opens one channel over another: the one left keeps its place and draft, and is read
     // as `leaving` reads it (its `viewChannel` is this one's below).
-    if screen == "channel" and open != "" and open != id
-      places = places.filter(q => q.channel != open).concat([Place(channel=open, anchor=anchor, key=topKey, offset=topOffset, atEnd=not away)])
+    if screen == "channel" && open != "" && open != id
+      places = places.filter(q => q.channel != open).concat([Place(channel=open, anchor=anchor, key=topKey, offset=topOffset, atEnd=! away)])
       if editing != ""
         drafts = withDraft(drafts, open, stash)
         stash = ""
-      if not away and anchor == "" and chan.unread > 0 and viewing == ""
+      if ! away && anchor == "" && chan.unread > 0 && viewing == ""
         send acked = markRead(open)
     let t = performanceNow()
     now = t
@@ -477,7 +477,7 @@ component Excord
     unreadLabel = ""
     baseArrived = c.arrived
     followed = c.arrived
-    if p.channel == id and not p.atEnd
+    if p.channel == id && ! p.atEnd
       anchor = p.anchor
       target = p.key
       restoreOffset = p.offset
@@ -488,7 +488,7 @@ component Excord
     ackTries = 0
     pageTries = 0
     pageAsks = 0
-    if c.ageRestricted and ageGate == ""
+    if c.ageRestricted && ageGate == ""
       ageGate = "asked"
       send age = requestAgeRange(ageGates=[18])
     send joined = viewChannel(id)
@@ -503,24 +503,24 @@ component Excord
     openFolders = openFolders.includes(id) ? openFolders.filter(f => f != id) : openFolders.concat([id])
   // A hundred more past the first conversation not shown: the next hundred may already show, unread.
   action moreDms
-    let hidden = dms.slice(dmsShownCount).map(c => c.unread > 0 or c.mentions > 0 or c.id == open).indexOf(false)
+    let hidden = dms.slice(dmsShownCount).map(c => c.unread > 0 || c.mentions > 0 || c.id == open).indexOf(false)
     dmsShownCount = (hidden < 0 ? dms.length : dmsShownCount + hidden) + 100
   action retryChannels
     refresh categories
   action pickServer(v: string)
     server = v
     intent = intent + 1
-    if wide and top(nav).name != "home"
+    if wide && top(nav).name != "home"
       leaving()
       nav = go(nav, "/")
   action openResume
-    if wide and top(nav).name == "home" and resumeChannel != ""
+    if wide && top(nav).name == "home" && resumeChannel != ""
       openChannel(resumeChannel)
   // Signing in keeps the pasted token; the field is cleared once it is taken.
   action editToken(v: string)
     tokenDraft = v
   action signInNow
-    if tokenDraft.trim() != "" and not pending(signedIn)
+    if tokenDraft.trim() != "" && ! pending(signedIn)
       dmsShownCount = 100
       send signedIn = signIn(tokenDraft)
   action afterSignIn
@@ -550,7 +550,7 @@ component Excord
   action leaving
     cancelEditLookup()
     putMembersAway()
-    places = places.filter(p => p.channel != open).concat([Place(channel=open, anchor=anchor, key=topKey, offset=topOffset, atEnd=not away)])
+    places = places.filter(p => p.channel != open).concat([Place(channel=open, anchor=anchor, key=topKey, offset=topOffset, atEnd=! away)])
     if editing != ""
       drafts = withDraft(drafts, open, stash)
       editing = ""
@@ -560,7 +560,7 @@ component Excord
       stashReplyTo = ""
       stashReplyName = ""
     // What arrived behind a picture was not seen: leaving from the viewer reads nothing.
-    if not away and anchor == "" and chan.unread > 0 and viewing == ""
+    if ! away && anchor == "" && chan.unread > 0 && viewing == ""
       send acked = markRead(open)
     send joined = viewChannel("")
 
@@ -570,7 +570,7 @@ component Excord
   // beyond it; toward the top, `leadOlder` anchors from 100 rows (F1). `reachstart` alone gives one viewport of
   // lead, which a fling overruns. A page is asked only of a window that answers the present request, whatever else is refreshing.
   action scrolled(x: number, y: number, e: ScrollEvent)
-    if not scrolling
+    if ! scrolling
       scrolling = true
       hoverKey = ""
     scrollTick = scrollTick + 1
@@ -582,26 +582,26 @@ component Excord
     // offset): only a reader whose first visible row or its offset moved changes whether they are at the end. While a
     // send's return to the end is owed or still settling, a fling's remaining reports do not decide it (`scrollEnded`
     // puts the list back at its end). Any report at the live end clears an anchor left over (a restore given up there).
-    let moved = k != topKey or max(e.firstVisibleOffset - topOffset, topOffset - e.firstVisibleOffset) > 0.5
-    if isAway != away and moved and target == "" and not settling
+    let moved = k != topKey || max(e.firstVisibleOffset - topOffset, topOffset - e.firstVisibleOffset) > 0.5
+    if isAway != away && moved && target == "" && ! settling
       away = isAway
       if isAway
         baseArrived = chan.arrived
-        if anchor == "" and chan.unread > 0 and reading
+        if anchor == "" && chan.unread > 0 && reading
           send acked = markRead(open)
         if anchor == ""
           anchor = win.pin
       else
         followed = chan.arrived
-        if anchor != "" and not win.hasAfter
+        if anchor != "" && ! win.hasAfter
           anchor = ""
-    if not isAway and not away and anchor != "" and not win.hasAfter and target == "" and not settling
+    if ! isAway && ! away && anchor != "" && ! win.hasAfter && target == "" && ! settling
       anchor = ""
-    if at >= 0 and current and target == ""
-      if at < 15 and win.hasBefore
+    if at >= 0 && current && target == ""
+      if at < 15 && win.hasBefore
         anchor = win.firstId
       else
-        if at > keys.length - 15 and win.hasAfter
+        if at > keys.length - 15 && win.hasAfter
           anchor = win.lastId
     endGap = gap < 1 ? 0 : round(gap)
     historyStart = e.scrollTop <= 0.5
@@ -612,10 +612,10 @@ component Excord
     endSeen = true
     scrollSettled()
   action older
-    if win.hasBefore and current and target == ""
+    if win.hasBefore && current && target == ""
       anchor = win.firstId
   action newer
-    if win.hasAfter and current and target == ""
+    if win.hasAfter && current && target == ""
       anchor = win.lastId
 
   // "The end" is the last row with an offset past it, which the list clamps to the
@@ -672,7 +672,7 @@ component Excord
             scrollIntoView("transcript", key, offset=restoreOffset, behavior="instant")
             leadHeld = true
             // A saved place not at the end, placed, is away from it, whether or not the list reports a move.
-            away = away or targetBlock == "place"
+            away = away || targetBlock == "place"
           else
             scrollIntoView("transcript", key, block="center", behavior="instant")
           target = ""
@@ -696,29 +696,29 @@ component Excord
       drafts = withDraft(drafts, open, v)
     else
       editText = v
-    if v.trim() != "" and editing == ""
+    if v.trim() != "" && editing == ""
       send typed = sendTyping(open, time.epochAtZero + performanceNow())
   action keyed(k: string, e: KeyboardEvent)
     // A Return that confirms an input method's candidate is the input method's.
-    if (k == "Enter" or k == "Tab") and not e.shiftKey and not e.isComposing and suggestions.length > 0
+    if (k == "Enter" || k == "Tab") && ! e.shiftKey && ! e.isComposing && suggestions.length > 0
       preventDefault()
       match first(suggestions)
         case some(s)
           pick(s.text)
         case none
           aimed = aimed
-    else if k == "Enter" and not e.shiftKey and not e.isComposing
+    else if k == "Enter" && ! e.shiftKey && ! e.isComposing
       preventDefault()
       post()
     else
-      if k == "ArrowUp" and draft == "" and editing == "" and replyTo == "" and not e.isComposing and not e.shiftKey and not e.ctrlKey and not e.altKey and not e.metaKey
+      if k == "ArrowUp" && draft == "" && editing == "" && replyTo == "" && ! e.isComposing && ! e.shiftKey && ! e.ctrlKey && ! e.altKey && ! e.metaKey
         preventDefault()
-        if not e.repeat and not editLookup
+        if ! e.repeat && ! editLookup
           editRequest = editRequest + 1
           editLookupError = ""
           editPageAsked = ""
           editLookup = true
-      else if (k == "PageUp" or k == "PageDown") and not e.isComposing
+      else if (k == "PageUp" || k == "PageDown") && ! e.isComposing
         preventDefault()
         scrollBy("transcript", 0, (k == "PageUp" ? -1 : 1) * max(80, frame("transcript").height - 60))
   action pick(text: string)
@@ -731,7 +731,7 @@ component Excord
     cancelEditLookup()
     focusDraft()
   action resolveEdit
-    if draft != "" or editing != "" or replyTo != ""
+    if draft != "" || editing != "" || replyTo != ""
       cancelEditLookup()
     else
       if editTarget.id != ""
@@ -751,18 +751,18 @@ component Excord
   action afterEditPage
     match editPaged
       case some(r)
-        if not r.ok and editLookup and editPageRequest == editRequest
+        if ! r.ok && editLookup && editPageRequest == editRequest
           editLookup = false
           editLookupError = r.error
       case none
         editLookup = editLookup
   action channelKey(k: string, e: KeyboardEvent)
-    if k == "Escape" and picking and pickerPopover and not e.isComposing
+    if k == "Escape" && picking && pickerPopover && ! e.isComposing
       closePicker()
-    else if k == "Escape" and not e.isComposing and reading and not session.locked and not lockedOut
+    else if k == "Escape" && ! e.isComposing && reading && ! session.locked && ! lockedOut
       preventDefault()
-      if not e.repeat
-        if editLookup or editLookupError != ""
+      if ! e.repeat
+        if editLookup || editLookupError != ""
           cancelEditLookup()
         else
           if editing != ""
@@ -777,9 +777,9 @@ component Excord
   action post
     if pending(pastedPictures)
       aimed = aimed
-    else if draft.trim() != "" or (picked.length > 0 and editing == "")
+    else if draft.trim() != "" || (picked.length > 0 && editing == "")
       if editing != ""
-        if not pending(edited)
+        if ! pending(edited)
           savingChannel = open
           savingId = editing
           savingRevision = editRevision
@@ -795,7 +795,7 @@ component Excord
         attachError = ""
         replyTo = ""
         drafts = withDraft(drafts, open, "")
-        if away or anchor != ""
+        if away || anchor != ""
           away = false
           anchor = ""
           target = "end"
@@ -812,14 +812,14 @@ component Excord
   action afterSent
     match sent
       case some(r)
-        if r.ok and r.channel == open
+        if r.ok && r.channel == open
           unreadBar = false
       case none
         aimed = aimed
   // A save belongs to one edit session, even if the same message is reopened.
   // Text typed while that save is pending remains editable after it succeeds.
   action afterEdit
-    if open == savingChannel and editing == savingId and editRevision == savingRevision
+    if open == savingChannel && editing == savingId && editRevision == savingRevision
       if editFailure == ""
         editError = ""
         if draft == savingText
@@ -839,7 +839,7 @@ component Excord
     replyName = ""
     focusDraft()
   action toggleReplyMention
-    replyMention = not replyMention
+    replyMention = ! replyMention
   action cancelEdit
     editing = ""
     editText = ""
@@ -870,7 +870,7 @@ component Excord
   // already focused. The offset is past any draft, which every host clamps to the end as HTML does,
   // since `draft` here is still the one this action's caller began with.
   action focusDraft
-    if not composing
+    if ! composing
       setSelectionRange("composer", 1000000000, 1000000000)
     focus("composer")
   action beginReply(id: string, author: string)
@@ -888,13 +888,13 @@ component Excord
   // What a poll's card asks (`PollView`); a vote replaces the reader's earlier one, as in Discord.
   action pollAct(what: string, id: string, answer: string, multi: bool)
     if what == "pick"
-      pollPicks = pollPicks.includes(`${id}:${answer}`) ? pollPicks.filter(k => k != `${id}:${answer}`) : (multi ? pollPicks : pollPicks.filter(k => not k.startsWith(`${id}:`))).concat([`${id}:${answer}`])
+      pollPicks = pollPicks.includes(`${id}:${answer}`) ? pollPicks.filter(k => k != `${id}:${answer}`) : (multi ? pollPicks : pollPicks.filter(k => ! k.startsWith(`${id}:`))).concat([`${id}:${answer}`])
     else if what == "vote"
       // The choices stay until the vote is taken back, so a vote Discord refuses can be sent again.
       send changed = vote(open, id, pollPicks.filter(k => k.startsWith(`${id}:`)).map(k => k.slice(id.length + 1)))
     else if what == "unvote"
       send changed = vote(open, id, noAnswers())
-      pollPicks = pollPicks.filter(k => not k.startsWith(`${id}:`))
+      pollPicks = pollPicks.filter(k => ! k.startsWith(`${id}:`))
     else if what == "results"
       revealed = revealed.concat([`poll:${id}`])
     else
@@ -993,14 +993,14 @@ component Excord
       let channelId = piece(part, 2)
       let messageId = piece(part, 3)
       // The channel open: a newer step than any request still out, and its message shown.
-      if channelId != "" and channelId == open
+      if channelId != "" && channelId == open
         stayOpen()
         if messageId != ""
           jumpTo(messageId)
       else if channelId != ""
         askFollow(channelId, messageId)
   action showProfile(userId: string, messageId: string)
-    if not locked
+    if ! locked
       profileUser = userId
       profileMessage = messageId
       profileChannel = open
@@ -1009,7 +1009,7 @@ component Excord
     profileUser = ""
   action toggleMembers
     if paneWidth >= 900
-      showMembers = not showMembers
+      showMembers = ! showMembers
     else
       membersSheet = true
       showModal("members")
@@ -1028,13 +1028,13 @@ component Excord
     close("members")
     showProfile(userId, messageId)
   action openSwitcher
-    if not locked
+    if ! locked
       switchQuery = ""
       switching = true
       showModal("switcher")
   // ⌘K (Ctrl+K) wherever the focus is, a channel's composer included, as Discord's desktop app takes it.
   action windowKey(k: string, e: KeyboardEvent)
-    if (e.metaKey or e.ctrlKey) and (k == "k" or k == "K") and not e.isComposing and not switching
+    if (e.metaKey || e.ctrlKey) && (k == "k" || k == "K") && ! e.isComposing && ! switching
       preventDefault()
       openSwitcher()
     else
@@ -1042,7 +1042,7 @@ component Excord
   action searchSwitcher(v: string)
     switchQuery = v
   action switcherKey(k: string, e: KeyboardEvent)
-    if k == "Enter" and not e.isComposing
+    if k == "Enter" && ! e.isComposing
       preventDefault()
       match first(targets)
         case some(t)
@@ -1073,15 +1073,15 @@ component Excord
     showPicker("attach")
   // Discord refuses a file over its 10 MB limit; a picture over it is made smaller when it is sent (`upload`).
   action filesPicked(files: Picked[])
-    let refused = files.filter(f => f.size > 10485760 and not f.type.startsWith("image/"))
-    let fit = files.filter(f => f.size <= 10485760 or f.type.startsWith("image/"))
+    let refused = files.filter(f => f.size > 10485760 && ! f.type.startsWith("image/"))
+    let fit = files.filter(f => f.size <= 10485760 || f.type.startsWith("image/"))
     let over = picked.length + fit.length > 10
     picked = picked.concat(fit).slice(0, 10)
     attachError = refused.length > 0 ? `${refused.map(f => f.name).join(", ")} ${refused.length == 1 ? "is" : "are"} over Discord's 10 MB limit.` : over ? "A message takes up to 10 files." : ""
     focusDraft()
   // Pictures pasted into the composer join the picked ones, as Discord's do; text pastes as text.
   action pastedInto(e: ClipboardEvent)
-    if e.files.length > 0 and editing == ""
+    if e.files.length > 0 && editing == ""
       preventDefault()
       attachError = ""
       send pastedPictures = adoptPasted(open, e.files, time.epochAtZero + performanceNow())
@@ -1105,7 +1105,7 @@ component Excord
   action scrollSettled
     scrolling = false
     hoverKey = pointerKey
-    if settling and target == ""
+    if settling && target == ""
       if endGap > 0.5
         scrollIntoView("transcript", lastKey, offset=1000000, behavior="instant")
         endGap = 0
@@ -1114,7 +1114,7 @@ component Excord
   action hoverRow(key: string, on: bool)
     let over = on ? key : (pointerKey == key ? "" : pointerKey)
     pointerKey = over
-    if not scrolling
+    if ! scrolling
       hoverKey = over
   action startReply(id: string, author: string)
     beginReply(id, author)
@@ -1133,9 +1133,9 @@ component Excord
   action injectNow(what: string)
     send changed = inject(open, what, topKey, time.epochAtZero + performanceNow())
   action toggleLive
-    live = not live
+    live = ! live
   action toggleSlow
-    slow = not slow
+    slow = ! slow
     lagAnchor = anchor
     lagVersion = histVersion
   action holdUnread
@@ -1151,7 +1151,7 @@ component Excord
     launchAsked = true
     send unlocked = unlockSession()
   action onReturn
-    if launched and session.ready and session.lockOn
+    if launched && session.ready && session.lockOn
       lockedOut = true
       // A dialog shows above everything, the lock included: the lock closes them.
       switching = false
@@ -1166,7 +1166,7 @@ component Excord
       hidePopover("fixture-menu")
     launched = true
   action unlockTap
-    if not pending(unlocked) and not pending(returned)
+    if ! pending(unlocked) && ! pending(returned)
       if session.locked
         send unlocked = unlockSession()
       else
@@ -1188,7 +1188,7 @@ component Excord
   action loginSettings
     openLoginItemSettings()
   action toggleTray
-    keepInTray = not keepInTray
+    keepInTray = ! keepInTray
   action showWindow
     focus()
   action attend
@@ -1200,10 +1200,10 @@ component Excord
   view
     main testId="excord" navigationKey=`${top(nav).id}` navigationBack="back" navigate=leave key=windowKey interactive-widget="resizes-content" width="100%" height="100%"
       head title=pageTitle
-      if keepInTray and match login.windows { case some(w) => true, case none => false }
-        TrayIcon(unread=(mentionTotal > 0 or dmUnread), open=showWindow)
+      if keepInTray && match login.windows { case some(w) => true, case none => false }
+        TrayIcon(unread=(mentionTotal > 0 || dmUnread), open=showWindow)
       for e in stack(nav) key=e.id
-        if e.name == "home" and signedOutNow
+        if e.name == "home" && signedOutNow
           column navigationKey=`${e.id}` navigationScroll="sign-in" position="absolute" inset=0 inert=covered
             header display="flex" align-items="center" padding="8px 16px"
               h1 "Sign In to Discord" flex=1 min-width=0
@@ -1222,7 +1222,7 @@ component Excord
                 footer
                   text "On a computer, open discord.com in a browser and sign in, then open the browser's developer tools and their Network tab. Pick any request to discord.com/api and copy the value of its Authorization header. Excord keeps the token in this device's secure storage and sends it only to Discord. Treat it like a password: anyone who has it can use your account."
               section
-                button press=signInNow disabled=(tokenDraft.trim() == "" or pending(signedIn)) testId="sign-in"
+                button press=signInNow disabled=(tokenDraft.trim() == "" || pending(signedIn)) testId="sign-in"
                   text (pending(signedIn) ? "Signing In…" : "Sign In")
                 if signInError != ""
                   text signInError color="-exact-system-red" testId="sign-in-error"
@@ -1231,7 +1231,7 @@ component Excord
         else if e.name == "home"
           column navigationKey=`${e.id}` navigationScroll="channels" position="absolute" inset=0 inert=covered
             header display="flex" align-items="center" gap=8 padding="8px 16px"
-              h1 (not directoryLoaded ? "Excord" : dmsShown ? "Direct Messages" : guild.name) flex=1 min-width=0 line-clamp=1 testId="directory-title"
+              h1 (! directoryLoaded ? "Excord" : dmsShown ? "Direct Messages" : guild.name) flex=1 min-width=0 line-clamp=1 testId="directory-title"
               button press=openSwitcher aria-label="Find or Start a Conversation" aria-keyshortcuts="Meta+K Control+K" testId="switcher-open"
                 image "symbol:search"
               button popovertarget="account-menu" aria-label="Account" testId="account"
@@ -1248,7 +1248,7 @@ component Excord
                 button press=setLogin(login.state == "disabled", false) popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=(login.state != "disabled") testId="login-switch"
                   text "Open Excord at Login"
                 if login.state == "enabled"
-                  button press=setLogin(true, not login.hidden) popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=login.hidden testId="login-hidden"
+                  button press=setLogin(true, ! login.hidden) popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=login.hidden testId="login-hidden"
                     text "Start Hidden"
                 if login.state == "requires-approval"
                   button press=loginSettings popovertarget="account-menu" popovertargetaction="hide" testId="login-approve"
@@ -1257,7 +1257,7 @@ component Excord
                 button press=toggleTray popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=keepInTray testId="tray-switch"
                   text "Keep Excord Running in the Notification Area"
               MentionLightItems(hid=hid, lightId=lightId, known=(lights.length > 0), on=mentionLight, toggle=toggleLight, choose=chooseLight)
-              if not gw.fixture
+              if ! gw.fixture
                 hr
                 button press=askSignOut destructive=true popovertarget="account-menu" popovertargetaction="hide" testId="menu-sign-out"
                   image "symbol:sign-out"
@@ -1279,8 +1279,8 @@ component Excord
             DirectoryList(gw=gw, dmsShown=dmsShown, guild=guild, dmUnread=dmUnread, dmMentions=dmMentions, rail=rail, openFolders=openFolders, directoryLoaded=directoryLoaded, directoryFailed=directoryFailed, recentDms=recentDms, dms=dms, here=here, current=(screen == "channel" ? open : ""), channelsFailed=failed(categories), pickServer=pickServer, toggleFolder=toggleFolder, openChannel=openChannel, moreDms=moreDms, retryChannels=retryChannels)
         else if e.name == "photo"
           column navigationKey=`${e.id}` navigationPresentation="fullscreen" navigationSource=`photo-${e.params.photo}` position="absolute" inset=0 class=ViewerRoute animation=(viewZoom == 1 ? "viewerFade 1s linear both" : "none")
-            if viewing != "" and not locked
-              ImageViewer(src=viewing, thumb=(viewing != "" and not viewingLoaded ? viewingThumb : ""), loaded=viewerLoaded, photo=`photo-${e.params.photo}`, alt=viewingAlt, panX=viewPanX, panY=viewPanY, zoom=viewZoom, geometry=viewerGeometry, release=viewerRelease, toggleZoom=viewerToggleZoom, close=closeViewer)
+            if viewing != "" && ! locked
+              ImageViewer(src=viewing, thumb=(viewing != "" && ! viewingLoaded ? viewingThumb : ""), loaded=viewerLoaded, photo=`photo-${e.params.photo}`, alt=viewingAlt, panX=viewPanX, panY=viewPanY, zoom=viewZoom, geometry=viewerGeometry, release=viewerRelease, toggleZoom=viewerToggleZoom, close=closeViewer)
         // A channel visit beneath another (a link's) shows its title, not its transcript: one transcript, the
         // top visit's, its ids the page's.
         else if e.id != shownVisit
@@ -1290,7 +1290,7 @@ component Excord
         else
           column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0 inert=covered
             header display="flex" align-items="center" gap=8 padding="8px 16px"
-              if not wide
+              if ! wide
                 button id="back" press=back aria-label="Back" testId="back"
                   image "symbol:back"
               h2 (chan.guild != "" ? `# ${chan.name}` : chan.name) flex=1 min-width=0 line-clamp=1
@@ -1334,12 +1334,12 @@ component Excord
             // The transcript and its composer, and beside them the member list when there is room.
             row flex=1 min-height=0 position="relative" resize=paneResized
               column flex=1 min-width=0 min-height=0
-                if historyFailed and rows.length > 0
+                if historyFailed && rows.length > 0
                   row align-items="center" gap=12 padding="8px 16px" flex-wrap="wrap" background-color="-exact-secondary-background"
                     text "Couldn’t load more messages." testId="history-error" flex=1 min-width=0
                     button press=retryHistory testId="retry-history"
                       text "Retry"
-                if unreadBar and unreadLabel != ""
+                if unreadBar && unreadLabel != ""
                   row align-items="center" column-gap=12 padding="0px 16px" flex-shrink=0 background-color="AccentColor" testId="unread"
                     button appearance="none" press=jumpToUnread testId="unread-bar" aria-label=unreadLabel flex=1 min-width=0 padding="9px 0px"
                       text unreadLabel color="AccentColorText" font="-exact-footnote" font-weight=600 line-clamp=1 text-align="left" flex=1 min-width=0
@@ -1354,7 +1354,7 @@ component Excord
                       reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
                       flex=1 min-height=0 padding-top=8 padding-bottom=22
                       for m in rows key=m.key
-                        MessageRow(m=m, contrast=(mediaPreferences.prefersContrast == "custom"), touch=(viewport.pointer == "coarse"), clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, picks=pollPicks, swipeX=(viewport.pointer == "coarse" and m.key == swipeKey ? swipeX : 0), dragging=(viewport.pointer == "coarse" and dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow, browse=openLink, poll=pollAct, translations=translations, original=showOriginal)
+                        MessageRow(m=m, contrast=(mediaPreferences.prefersContrast == "custom"), touch=(viewport.pointer == "coarse"), clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, picks=pollPicks, swipeX=(viewport.pointer == "coarse" && m.key == swipeKey ? swipeX : 0), dragging=(viewport.pointer == "coarse" && dragging && m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow, browse=openLink, poll=pollAct, translations=translations, original=showOriginal)
                   if rows.length == 0
                     column position="absolute" inset=0 align-items="center" justify-content="center" gap=12 padding=24
                       if historyFailed
@@ -1377,7 +1377,7 @@ component Excord
                           view width=5 height=5 border-radius=3 background-color="-exact-secondary-label"
                             animation=(viewport.prefersReducedMotion ? "none" : `typingDot 1.2s ${d == "0" ? 0 : d == "1" ? 160 : 320}ms ease-in-out infinite`)
                       text typing.line testId="typing" font="-exact-caption1" color="-exact-secondary-label" line-clamp=1 flex=1 min-width=0
-                  if away and (newCount > 0 or win.hasAfter)
+                  if away && (newCount > 0 || win.hasAfter)
                     button press=toPresent buttonStyle="filled" testId="jump-present" position="absolute" bottom=28 right=16
                       text (newCount > 0 ? `${newCount} new ${newCount == 1 ? "message" : "messages"}` : "Jump to Present")
                 column padding=(viewport.pointer == "coarse" ? "4px 12px 6px" : "4px 16px 16px") max-height="50vh" flex-shrink=0 min-height=0
@@ -1388,13 +1388,13 @@ component Excord
                   if editLookupError != ""
                     text editLookupError font="-exact-footnote" color="-exact-system-red" padding="0px 4px 4px" flex-shrink=0 testId="find-edit-error"
                   // One bar for a reply and an edit: its height holds through the swap, so the transcript keeps its end.
-                  if replyTo != "" or editing != ""
+                  if replyTo != "" || editing != ""
                     row align-items="center" gap=8 padding="4px 4px" flex-shrink=0 testId=(editing != "" ? "editing" : "reply-bar")
                       if editing != ""
-                        if editError != "" and not (pending(edited) and editRevision == savingRevision)
+                        if editError != "" && ! (pending(edited) && editRevision == savingRevision)
                           text `Not saved: ${editError}` font="-exact-footnote" color="-exact-system-red" flex=1 min-width=0 testId="edit-error"
                         else
-                          text (pending(edited) and editRevision == savingRevision ? "Saving message…" : "Editing message") font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0
+                          text (pending(edited) && editRevision == savingRevision ? "Saving message…" : "Editing message") font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0
                         RoundButton(symbol="symbol:close", label="Cancel edit", testId="cancel-edit", press=cancelEdit, disabled=false, size=22, reach=(viewport.pointer == "coarse" ? 11 : 4))
                       else
                         text `Replying to ${replyName}` font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="replying"
@@ -1425,7 +1425,7 @@ component Excord
                         button appearance="none" press=pick(g.text) testId=`suggest-${g.id}` aria-label=g.label
                           row gap=10 align-items="center" padding="6px 12px" min-width=0
                             if g.avatar != ""
-                              image g.avatar width=24 height=24 border-radius=(g.glyph == "" and g.detail != "" ? 12 : 4) object-fit="cover" flex-shrink=0 aria-hidden=true
+                              image g.avatar width=24 height=24 border-radius=(g.glyph == "" && g.detail != "" ? 12 : 4) object-fit="cover" flex-shrink=0 aria-hidden=true
                             else
                               text g.glyph width="1.5rem" text-align="center" font="-exact-title3" color="-exact-secondary-label" flex-shrink=0 aria-hidden=true
                             text g.label font-weight=500 flex="0 1 auto" min-width=0 line-clamp=1
@@ -1439,7 +1439,7 @@ component Excord
                     // The field draws no ring of its own: the pill's border shows the focus. One line
                     // sits at Send's middle, whatever height the platform gives Send; Send stays at the
                     // bottom as the field grows.
-                    row flex=1 min-width=0 min-height=0 align-items="center" padding="3px 3px 3px 14px" border-radius=21 border=(composing and viewport.pointer != "coarse" ? "1px solid AccentColor" : "1px solid -exact-separator")
+                    row flex=1 min-width=0 min-height=0 align-items="center" padding="3px 3px 3px 14px" border-radius=21 border=(composing && viewport.pointer != "coarse" ? "1px solid AccentColor" : "1px solid -exact-separator")
                       focusin=composerFocus(true) focusout=composerFocus(false)
                       textarea id="composer" value=draft input=edit selectionchange=caretMoved paste=pastedInto key=keyed focus=focusComposer blur=blurComposer rows=1 field-sizing="content" max-height="9rem" min-height=0
                         placeholder=(chan.guild != "" ? `Message #${chan.name}` : chan.direct ? `Message @${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
@@ -1449,13 +1449,13 @@ component Excord
                         :hover
                           opacity = 1
                         image "symbol:emoji" width=24 height=24
-                      button press=post disabled=((draft.trim() == "" and (picked.length == 0 or editing != "")) or pending(pastedPictures) or (editing != "" and pending(edited))) buttonStyle="filled"
+                      button press=post disabled=((draft.trim() == "" && (picked.length == 0 || editing != "")) || pending(pastedPictures) || (editing != "" && pending(edited))) buttonStyle="filled"
                         retainFocus=true aria-label=(editing == "" ? "Send" : "Save edit") testId="send" align-self="flex-end"
                         image "symbol:send"
               if membersBeside
                 scroll width="15rem" flex-shrink=0 border-left="1px solid -exact-separator" testId="members"
                   MemberList(rows=members, open=showProfile)
-              if chan.ageRestricted and ageGate != "confirmed"
+              if chan.ageRestricted && ageGate != "confirmed"
                 AgeGate(age=age, asking=pending(age), confirm=confirmAge, leave=back)
       dialog id="members" aria-label="Members" close=membersClosed key=dialogKey tabindex=-1 testId="members-sheet"
         scroll max-height="70vh" width="20rem" max-width="100%"
@@ -1490,9 +1490,9 @@ component Excord
         button commandfor="delete-failed" command="close" testId="delete-error-ok"
           text "OK"
       // Nothing of the account shows while the launch is locked or a return has covered it.
-      if session.locked or lockedOut
+      if session.locked || lockedOut
         column position="absolute" inset=0 align-items="center" justify-content="center" gap=16 padding=24 background-color="-exact-background" testId="lock-screen"
           image "symbol:lock" font-size=44 color="-exact-secondary-label"
           text "Excord is locked" font="-exact-title3"
-          button press=unlockTap disabled=(pending(unlocked) or pending(returned)) buttonStyle="filled" testId="unlock"
-            text ((pending(unlocked) or pending(returned)) ? "Unlocking…" : "Unlock")
+          button press=unlockTap disabled=(pending(unlocked) || pending(returned)) buttonStyle="filled" testId="unlock"
+            text ((pending(unlocked) || pending(returned)) ? "Unlocking…" : "Unlock")

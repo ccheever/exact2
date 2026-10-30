@@ -21,7 +21,7 @@ component AgendaRow
     hover: action
   view
     box testId=`agenda-row-${id}` position="relative" width="100%" height=52 flex-shrink=0 hover=hover(`row-${id}`)
-      row aria-hidden=true width="100%" height=52 box-sizing="border-box" padding-left=12 padding-right=36 border-radius=8 background-color=(hot and not hidden ? fill : "#ffffff00") opacity=(hidden ? 0 : 1) align-items="center" gap=10 transition="background-color 100ms ease-out"
+      row aria-hidden=true width="100%" height=52 box-sizing="border-box" padding-left=12 padding-right=36 border-radius=8 background-color=(hot && ! hidden ? fill : "#ffffff00") opacity=(hidden ? 0 : 1) align-items="center" gap=10 transition="background-color 100ms ease-out"
         box id=`row-mark-${id}` testId=`row-mark-${id}` width=20 height=20 flex-shrink=0
           AgendaMark(kind=kind, color=color, completed=completed)
         column flex=1 min-width=0 gap=3 align-items="flex-start"
@@ -29,8 +29,8 @@ component AgendaRow
           text rangeLabel id=`row-range-${id}` font-size=12 color=muted white-space="nowrap" overflow="hidden" text-overflow="ellipsis" max-width="100%"
       calendar-drag-handle id=`agenda-item-${id}` testId=`agenda-item-${id}` event-id=id menu-kind=kind completed=(completed ? "true" : "false") enabled=(disabled ? "false" : "true") press=edit(id, kind) message=command(id, kind, completed) aria-label=`${title}, ${rangeLabel}` position="absolute" left=0 top=0 right=0 bottom=0
       if kind == "todo"
-        button testId=`todo-check-${id}` press=toggle(id, not completed) role="checkbox" aria-checked=completed aria-label=`Complete ${title}` disabled=disabled position="absolute" left=4 top=8 width=36 height=36 padding=0 border-width=0 background-color="#ffffff00"
-      if hot and not hidden and not disabled
+        button testId=`todo-check-${id}` press=toggle(id, ! completed) role="checkbox" aria-checked=completed aria-label=`Complete ${title}` disabled=disabled position="absolute" left=4 top=8 width=36 height=36 padding=0 border-width=0 background-color="#ffffff00"
+      if hot && ! hidden && ! disabled
         button testId=`delete-${id}` press=remove(id) aria-label=`Delete ${title}` position="absolute" right=8 top=15 width=22 height=22 padding=0 border-width=0 border-radius=11 background-color="#ffffff00" display="flex" align-items="center" justify-content="center" -exact-press-scale=0.92
           image "symbol:close" font-size=10 color=muted
 

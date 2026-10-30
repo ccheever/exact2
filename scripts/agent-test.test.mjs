@@ -48,7 +48,7 @@ test('device properties see boot, typing and clock changes, and reset stays betw
   action step
     n = n + 1
   action toggle
-    ready = not ready
+    ready = ! ready
   action edit(v: string)
     textValue = v
   view

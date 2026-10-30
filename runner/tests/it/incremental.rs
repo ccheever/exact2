@@ -593,7 +593,7 @@ component Deck
   action revise
     revision = revision + 1
   action toggle
-    shown = not shown
+    shown = ! shown
   action jump
     scrollTo = scrollTo + 40
   action moveItem(item: string, before: option<string>)
@@ -639,7 +639,7 @@ component Card
   state open = false
   state taps = 0
   action flip
-    open = not open
+    open = ! open
     taps = taps + 1
   view
     column

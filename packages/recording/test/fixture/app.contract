@@ -62,7 +62,7 @@ component Fixture
   action enable
     send trk = setTrackEnabled(track=trackId, enabled=true)
   action meter
-    metering = not metering
+    metering = ! metering
   action bogus
     send trk = stopTrack(track="no-such-track")
   view

@@ -97,7 +97,7 @@ component Unsaid
     openURL("https://example.com/")
     said = "Asked to open example.com"
   action author
-    authored = not authored
+    authored = ! authored
   action rename(value)
     name = value
   action openForm

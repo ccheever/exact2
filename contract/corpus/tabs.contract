@@ -49,7 +49,7 @@ component Tabs
           column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" inset=0
             for e in t.stack key=e.id
               column navigationKey=`${e.id}` navigationPresentation=(e.name == "add" ? "modal" : "") testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column" gap=8 padding=16 background-color=(e.name == "add" ? "#fde68a" : "#ffffff")
-                if e.name != "home" and e.name != "saved"
+                if e.name != "home" && e.name != "saved"
                   button id="back" press=back testId=`back-${e.name}`
                     text "Back"
                 if e.name == "home"
@@ -75,7 +75,7 @@ component Tabs
                     text "Note"
                 if e.name == "note"
                   text "A note" testId="note-title"
-      row role="tablist" testId="tabs" display=(current.name == "full" or current.name == "add" ? "none" : "flex") flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb"
+      row role="tablist" testId="tabs" display=(current.name == "full" || current.name == "add" ? "none" : "flex") flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb"
         button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home") testId="tab-home" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center"
           image "symbol:home" width=22 height=22 object-fit="contain"
           text "Home"

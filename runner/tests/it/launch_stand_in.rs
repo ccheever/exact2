@@ -14,7 +14,7 @@ component App
   state station = "Harbor" persist
   state jumped = ""
   resource board = board(station) as shape Departure[]
-  task reveal when not pending(board) key=station
+  task reveal when ! pending(board) key=station
     after(1, jump)
   action jump
     match first(board)

@@ -346,7 +346,7 @@ fn with_nothing_focused_the_root_hears_keys() {
     gone = true
   view
     column keycapture=captured key=down keyup=up testId="root" width=300 height=200
-      if not gone
+      if ! gone
         button "Leave" press=leave testId="leave"
       text heard testId="log"
 "#;
@@ -1362,7 +1362,7 @@ fn native_module_events_commit_only_for_the_view_allocation_that_emitted_them() 
   action disable
     enabled = false
   action toggle
-    shown = not shown
+    shown = ! shown
   view
     column width=400 height=400
       text selection testId="selection" height=24
@@ -1371,7 +1371,7 @@ fn native_module_events_commit_only_for_the_view_allocation_that_emitted_them() 
       button "Toggle" press=toggle testId="toggle" height=32
       if visible
         column visibility=(shown ? "visible" : "hidden")
-          native-menu change=choose disabled=(not enabled) width=120 height=40 testId="menu"
+          native-menu change=choose disabled=(! enabled) width=120 height=40 testId="menu"
 "#;
     let (mut p, error) = Presenter::boot_with(
         &crate::test_plan(source),

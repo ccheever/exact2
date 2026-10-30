@@ -79,12 +79,12 @@ component ParamControl
         text l.text title=l.level color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-level`
       if r.set
         text `${r.package ? "Back to the default" : "Reset"} removes the app's line${r.whens > 0 ? ` and its ${r.whens} when ${r.whens == 1 ? "branch" : "branches"} with it` : ""}.` color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-whens`
-      if r.package and r.packageToken != "" and r.appSet
+      if r.package && r.packageToken != "" && r.appSet
         row gap=8 align-items="center" padding="0 4px"
           button press=onBackToPackage disabled=(locked) testId=`param-${r.short}-package`
             text "Back to the package"
           text `removes the app's line for ${r.packageToken}, with any when branches it has: the token follows the package's line${r.levelSelf ? "; the app's own value of this param still wins over it" : r.set ? "; the app's own line for this param stays" : ""}.` color="-exact-secondary-label" font="-exact-footnote" flex=1 testId=`param-${r.short}-package-note`
-      if r.package and r.token != ""
+      if r.package && r.token != ""
         button press=onToken disabled=(locked) testId=`param-${r.short}-token`
           text (r.tokenPackage != "" ? `Edit the package token ${r.token} instead` : r.tokenBase ? `Edit Exact's base ${r.token} instead` : `Edit the token ${r.token} instead`)
       if r.pinned.length > 0

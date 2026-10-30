@@ -118,10 +118,10 @@ component Metronome
   derive current = floor(transport.anchorBeat + (performanceNow() - transport.anchorAt) * transport.bpm / 60000) + 0 * beat
   derive shown = transport.state == "countin" ? `Count-in ${current + 5}` : transport.state == "playing" ? `Beat ${current % 4 + 1}` : transport.state == "waiting" ? "Waiting for clock" : "Stopped"
   // Following a clock, the device's tempo while the sequence follows it.
-  derive tempo = follow != "" and transport.state != "stopped" ? transport.bpm : bpm
+  derive tempo = follow != "" && transport.state != "stopped" ? transport.bpm : bpm
 
   action toggle
-    playing = not playing
+    playing = ! playing
   action slower
     bpm = max(30, bpm - 1)
   action faster
@@ -169,7 +169,7 @@ component Metronome
 
   sequence click when playing
     play(tracks, bpm=bpm, from=countIn ? -4 : 0, countIn=clicks, clock=follow, clockOut=clock ? output : "")
-  task readout when transport.state == "countin" or transport.state == "playing"
+  task readout when transport.state == "countin" || transport.state == "playing"
     every(frame, draw)
   task practiceTick when practiceState == "countdown"
     every(1000, tickPractice)

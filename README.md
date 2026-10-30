@@ -361,7 +361,7 @@ component Todos
   state draft = ""
   mutation changed as shape Change refreshes todos
   resource todos = todos() as shape Todo[]
-  derive left = todos.filter(t => not t.done).length
+  derive left = todos.filter(t => ! t.done).length
 
   action edit(value: string)
     draft = value

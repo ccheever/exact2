@@ -26,7 +26,7 @@ const SRC: &str = r#"component App
     top = frame("sheet").y
     natural = measure("sheet").height
     sized = frame("sheet").height
-    answered = not frame("bay").unavailable and not measure("sheet").unavailable
+    answered = ! frame("bay").unavailable && ! measure("sheet").unavailable
     missing = frame("nowhere").unavailable
   view
     column id="bay" height=500
@@ -974,7 +974,7 @@ fn intersect_compiles_and_dispatches_its_entry_after_authored_arguments() {
 #[test]
 fn measure_is_the_border_box_at_auto_height_and_frame_the_laid_out_box() {
     let read = |root: &str| {
-        let src = format!("component App\n  state natural = -1\n  state drawn = -1\n  state answered = false\n  task boot mount\n    after(1, read)\n  action read\n    natural = measure(\"root\").height\n    drawn = frame(\"root\").height\n    answered = not measure(\"root\").unavailable\n  view\n    main id=\"root\" height=\"100%\"{root}\n      column position=\"absolute\" inset=0\n        text \"route\"\n");
+        let src = format!("component App\n  state natural = -1\n  state drawn = -1\n  state answered = false\n  task boot mount\n    after(1, read)\n  action read\n    natural = measure(\"root\").height\n    drawn = frame(\"root\").height\n    answered = ! measure(\"root\").unavailable\n  view\n    main id=\"root\" height=\"100%\"{root}\n      column position=\"absolute\" inset=0\n        text \"route\"\n");
         let mut r = Runner::boot(
             contract::compile(&src).unwrap(),
             NoData,

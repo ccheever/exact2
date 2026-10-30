@@ -46,7 +46,7 @@ component Records
     let next = Fields(fields, title=`${fields.title}!`)
     draft = some(next)
   action pin
-    let flipped = not fields.pinned
+    let flipped = ! fields.pinned
     if flipped
       let word = "pinned"
       label = word

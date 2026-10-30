@@ -96,7 +96,7 @@ component Harness
     Cmd(name="/wave", help="animation: the waving logo"),
     Cmd(name="/quit", help="leave"),
   ]
-  derive matches = isCommand(draft) and not draft.includes(" ") ? matching(commands, draft) : []
+  derive matches = isCommand(draft) && ! draft.includes(" ") ? matching(commands, draft) : []
   derive animating = anim != ""
   derive animations = ["/plasma", "/fire", "/matrix", "/spinners", "/bars", "/donut", "/knot", "/tesseract", "/warp", "/tunnel", "/wave"]
   derive inline = terminal.mode != "fullscreen"
@@ -113,7 +113,7 @@ component Harness
   task disarm when quitArmed
     after(2000, unarm)
   // What the terminal printed is the data module's to let go of.
-  task letGo when terminal.printed != "" and terminal.printed != lastRetired key=terminal.printed
+  task letGo when terminal.printed != "" && terminal.printed != lastRetired key=terminal.printed
     after(1, retire)
 
   action step
@@ -149,7 +149,7 @@ component Harness
             else
               // A turn starts when its prompt is sent, not when the step
               // after it runs
-              if not session.busy
+              if ! session.busy
                 stepped = performanceNow()
               send sent = submit(text)
         history = [text].concat(history)
@@ -169,40 +169,40 @@ component Harness
   // twice on an empty prompt leaves. Each key it uses, it claims with
   // preventDefault().
   action onKey(key: string, e: KeyboardEvent)
-    if key == "Enter" and not e.shiftKey and not e.altKey
+    if key == "Enter" && ! e.shiftKey && ! e.altKey
       sendText(match matches.at(sel) { case some(c) => c.name, case none => draft.trim() })
       preventDefault()
     else
-      if key == "Tab" and matches.length > 0
+      if key == "Tab" && matches.length > 0
         complete()
         preventDefault()
       else
-        if key == "ArrowDown" and matches.length > 0
+        if key == "ArrowDown" && matches.length > 0
           sel = (sel + 1) % matches.length
           preventDefault()
         else
-          if key == "ArrowUp" and matches.length > 0
+          if key == "ArrowUp" && matches.length > 0
             sel = (sel + matches.length - 1) % matches.length
             preventDefault()
           else
-            if key == "ArrowUp" and back + 1 < history.length and not draft.includes("\n")
+            if key == "ArrowUp" && back + 1 < history.length && ! draft.includes("\n")
               draft = match history.at(back + 1) { case some(h) => h, case none => draft }
               back = back + 1
               preventDefault()
             else
-              if key == "ArrowDown" and back >= 0 and not draft.includes("\n")
+              if key == "ArrowDown" && back >= 0 && ! draft.includes("\n")
                 draft = match history.at(back - 1) { case some(h) => h, case none => "" }
                 back = back - 1
                 preventDefault()
               else
-                if key == "Escape" and (animating or session.busy)
+                if key == "Escape" && (animating || session.busy)
                   if animating
                     anim = ""
                   else
                     send stopped = interrupt()
                   preventDefault()
                 else
-                  if key == "c" and e.ctrlKey
+                  if key == "c" && e.ctrlKey
                     preventDefault()
                     if animating
                       anim = ""
@@ -251,7 +251,7 @@ component Harness
             Transcript(entries=session.entries, tick=tick)
       // The live tail: everything below the log is redrawn in place.
       column testId="live" flex-shrink=0
-        if session.busy and session.approval.id == ""
+        if session.busy && session.approval.id == ""
           row margin-top="1lh" color="#d78700"
             text `${star(tick)} ${phaseWord(session.phase)}…` font-weight=700
             text ` (${seconds(busyMs)} · ↓ ${kilo(session.tokensOut)} tokens · esc to interrupt)` white-space="pre" color="#8a8a8a"
@@ -310,7 +310,7 @@ component Harness
         text "↑/↓ to move · enter or click to choose · esc to cancel" color="#6c6c6c" margin-bottom="1lh"
         scroll flex=1 min-height=0 testId="model-list"
           for m in session.models key=m.id
-            button press=pickModel(m.id) commandfor="models" command="close" disabled=(not m.available) testId=`model-${m.id}` text-align="start" display="flex" gap="1ch"
+            button press=pickModel(m.id) commandfor="models" command="close" disabled=(! m.available) testId=`model-${m.id}` text-align="start" display="flex" gap="1ch"
               text (m.id == session.model ? "●" : "○") color=(m.available ? "#87afff" : "#585858")
               text m.label color=(m.available ? "inherit" : "#585858") flex-grow=1
               text (m.available ? m.provider : `${m.provider} · no key`) color="#6c6c6c"
@@ -397,7 +397,7 @@ component BlockView
         for l, i in b.lines key=i
           Runs(runs=l.runs, pre=true)
     else
-      column margin-top=(b.kind == "p" and not first ? "1lh" : "0")
+      column margin-top=(b.kind == "p" && ! first ? "1lh" : "0")
         Runs(runs=b.runs, pre=false)
 
 // A transcript entry. Its `aria-busy` says whether it can still change; its

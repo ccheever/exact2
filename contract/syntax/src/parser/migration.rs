@@ -38,6 +38,25 @@ impl Parser {
         self.edits.push(Edit::new(span, span, replacement));
     }
 
+    pub(super) fn retired_operator(&mut self, token: &Token) {
+        let TokenKind::Ident(word) = &token.kind else {
+            return;
+        };
+        let replacement = match word.as_str() {
+            "and" => "&&",
+            "or" => "||",
+            "not" => "!",
+            _ => return,
+        };
+        self.retired.push(SyntaxError {
+            id: "syntax-operator-spelling",
+            message: format!("write `{replacement}` instead of `{word}`; `contract migrate <file.contract>` applies the edit"),
+            span: token.span,
+        });
+        self.edits
+            .push(Edit::new(token.span, token.span, replacement));
+    }
+
     pub(super) fn method_edits(&self, start: usize, name: &str, count: usize) -> Vec<Edit> {
         if name == "length" && count != 1 {
             return Vec::new();

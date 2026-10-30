@@ -469,7 +469,7 @@ fn a_changed_pin_sets_its_subtrees_themed_rows_again() {
         "pin-change",
         &[
             ("app.tamber", MODES),
-            ("app.contract", "component App\n  state dim = false\n  action flip\n    dim = not dim\n  view\n    column testId=\"page\" background-color=\"page\" color=\"ink\"\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column testId=\"card\" -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n        column testId=\"deep\" background-color=\"page\"\n          text \"b\" testId=\"inner\"\n"),
+            ("app.contract", "component App\n  state dim = false\n  action flip\n    dim = ! dim\n  view\n    column testId=\"page\" background-color=\"page\" color=\"ink\"\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column testId=\"card\" -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n        column testId=\"deep\" background-color=\"page\"\n          text \"b\" testId=\"inner\"\n"),
         ],
     );
     let mut r = booted(contract::compile_path(&path).unwrap());
@@ -504,7 +504,7 @@ fn a_changed_pin_sets_its_subtrees_themed_rows_again() {
 #[test]
 fn a_token_edit_sets_only_its_rows_and_paints() {
     let rows: Vec<String> = (0..1000).map(|i| i.to_string()).collect();
-    let view = format!("component App\n  state dim = false\n  state rows: number[] = [{}]\n  action flip\n    dim = not dim\n  view\n    column testId=\"root\" -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      for i in rows key=i\n        row testId=`row-${{i}}` background-color=\"page\"\n          text `${{i}}` color=\"ink\" testId=`text-${{i}}`\n", rows.join(", "));
+    let view = format!("component App\n  state dim = false\n  state rows: number[] = [{}]\n  action flip\n    dim = ! dim\n  view\n    column testId=\"root\" -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      for i in rows key=i\n        row testId=`row-${{i}}` background-color=\"page\"\n          text `${{i}}` color=\"ink\" testId=`text-${{i}}`\n", rows.join(", "));
     let path = app(
         "token-edit",
         &[("app.tamber", MODES), ("app.contract", &view)],
@@ -609,7 +609,7 @@ fn a_changed_inherited_colour_is_set_again_at_a_boundary_below() {
         "inherited-change",
         &[
             ("app.tamber", "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = light-dark(#111111, #eeeeee)\n    when dark-style=dim: light-dark(#111111, #cccccc)\n  soft = light-dark(#555555, #999999)\n    when dark-style=dim: light-dark(#555555, #777777)\n"),
-            ("app.contract", "component App\n  state quiet = false\n  action flip\n    quiet = not quiet\n  view\n    column color=(quiet ? \"soft\" : \"ink\")\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column -exact-mode=\"dark-style=dim\"\n        text \"b\" testId=\"inner\"\n"),
+            ("app.contract", "component App\n  state quiet = false\n  action flip\n    quiet = ! quiet\n  view\n    column color=(quiet ? \"soft\" : \"ink\")\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column -exact-mode=\"dark-style=dim\"\n        text \"b\" testId=\"inner\"\n"),
         ],
     );
     let mut r = booted(contract::compile_path(&path).unwrap());
@@ -644,7 +644,7 @@ fn an_inner_pin_takes_the_axis_its_outer_pin_moves() {
         "nested-pins",
         &[
             ("app.tamber", TWO_AXES),
-            ("app.contract", "component App\n  state dim = false\n  action flip\n    dim = not dim\n  view\n    column -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column testId=\"inner\" -exact-mode=\"density=compact\"\n        text \"a\" testId=\"text\" color=\"ink\"\n"),
+            ("app.contract", "component App\n  state dim = false\n  action flip\n    dim = ! dim\n  view\n    column -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column testId=\"inner\" -exact-mode=\"density=compact\"\n        text \"a\" testId=\"text\" color=\"ink\"\n"),
         ],
     );
     let mut r = booted(contract::compile_path(&path).unwrap());
@@ -668,7 +668,7 @@ fn an_unset_colour_passes_the_token_around_it_to_a_boundary() {
         "unset-colour",
         &[
             ("app.tamber", MODES),
-            ("app.contract", "component App\n  state loud = false\n  action flip\n    loud = not loud\n  view\n    column color=\"ink\"\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column color=(loud ? \"#ff0000\" : none)\n        column -exact-mode=\"dark-style=dim\"\n          text \"a\" testId=\"text\"\n"),
+            ("app.contract", "component App\n  state loud = false\n  action flip\n    loud = ! loud\n  view\n    column color=\"ink\"\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column color=(loud ? \"#ff0000\" : none)\n        column -exact-mode=\"dark-style=dim\"\n          text \"a\" testId=\"text\"\n"),
         ],
     );
     let mut r = booted(contract::compile_path(&path).unwrap());
@@ -736,7 +736,7 @@ fn a_boundarys_own_colour_going_restores_its_implied_row() {
         "own-colour",
         &[
             ("app.tamber", MODES),
-            ("app.contract", "component App\n  state loud = false\n  action flip\n    loud = not loud\n  view\n    column color=\"ink\"\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column -exact-mode=\"dark-style=dim\" color=(loud ? \"#ff0000\" : none)\n        text \"a\" testId=\"text\"\n"),
+            ("app.contract", "component App\n  state loud = false\n  action flip\n    loud = ! loud\n  view\n    column color=\"ink\"\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column -exact-mode=\"dark-style=dim\" color=(loud ? \"#ff0000\" : none)\n        text \"a\" testId=\"text\"\n"),
         ],
     );
     let mut r = booted(contract::compile_path(&path).unwrap());
@@ -1086,7 +1086,7 @@ fn wide_mark_cost() {
     // Each row also carries its own wide colour: 1,000 distinct styles. A
     // second list of 200 windowed rows shifts by 10 a commit, as a scroll
     // mounts and retires rows.
-    let view = format!("component App\n  state dim = false\n  state rows: number[] = [{}]\n  state n = 0\n  action flip\n    dim = not dim\n  action bump\n    n = n + 1\n  state start = 0\n  action shift\n    start = start + 10\n  view\n    column testId=\"root\" -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      button press=bump testId=\"bump\"\n        text `${{n}}`\n      button press=shift testId=\"shift\"\n        text \"shift\"\n      for j in rows.slice(start, start + 200) key=j\n        text `w${{j}}` border-color={window} border-width=1\n      for i in rows key=i\n        row testId=`row-${{i}}` background-color=\"page\" border-color={border} border-width=1\n          text `${{i}}` color=\"ink\" testId=`text-${{i}}`\n", rows.join(", "));
+    let view = format!("component App\n  state dim = false\n  state rows: number[] = [{}]\n  state n = 0\n  action flip\n    dim = ! dim\n  action bump\n    n = n + 1\n  state start = 0\n  action shift\n    start = start + 10\n  view\n    column testId=\"root\" -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      button press=bump testId=\"bump\"\n        text `${{n}}`\n      button press=shift testId=\"shift\"\n        text \"shift\"\n      for j in rows.slice(start, start + 200) key=j\n        text `w${{j}}` border-color={window} border-width=1\n      for i in rows key=i\n        row testId=`row-${{i}}` background-color=\"page\" border-color={border} border-width=1\n          text `${{i}}` color=\"ink\" testId=`text-${{i}}`\n", rows.join(", "));
     let path = app(
         "wide-mark-cost",
         &[("app.tamber", &p3), ("app.contract", &view)],

@@ -13,8 +13,8 @@ component TimerTest
     ticks = 0
     running = false
     second = false
-    recording = not quiet
-    if not quiet
+    recording = ! quiet
+    if ! quiet
       startTrace_EXPERIMENTAL()
   action start
     running = true
@@ -26,30 +26,30 @@ component TimerTest
     if recording
       stopTrace_EXPERIMENTAL()
     recording = false
-    quiet = not quiet
+    quiet = ! quiet
   action save
     if recording
       stopTrace_EXPERIMENTAL()
     recording = false
-  task restart when not running
+  task restart when ! running
     after(1, start)
-  task offset when running and not second
+  task offset when running && ! second
     after(25, stagger)
-  task preciseFirst when running and policy == 0
+  task preciseFirst when running && policy == 0
     every(250, tick)
-  task preciseSecond when running and second and policy == 0
+  task preciseSecond when running && second && policy == 0
     every(250, tick)
-  task tolerantFirst when running and policy == 1
+  task tolerantFirst when running && policy == 1
     every(250, tick, tolerance=40)
-  task tolerantSecond when running and second and policy == 1
+  task tolerantSecond when running && second && policy == 1
     every(250, tick, tolerance=40)
-  task scrollFirst when running and policy == 2
+  task scrollFirst when running && policy == 2
     every(250, tick, wait=scrollend)
-  task scrollSecond when running and second and policy == 2
+  task scrollSecond when running && second && policy == 2
     every(250, tick, wait=scrollend)
-  task updateFirst when running and policy == 3
+  task updateFirst when running && policy == 3
     every(250, tick, wait=update)
-  task updateSecond when running and second and policy == 3
+  task updateSecond when running && second && policy == 3
     every(250, tick, wait=update)
   view
     column height="100%" padding=12 gap=8 wakelock="screen"

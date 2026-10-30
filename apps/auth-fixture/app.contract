@@ -53,14 +53,14 @@ component AuthFixture
   // A second loopback sign-in, waiting beside the first on its own port.
   mutation preparedSecond as shape Result
   mutation signedSecond as shape Result refreshes session
-  derive busy = pending(prepared) or pending(signed)
-  derive busySecond = pending(preparedSecond) or pending(signedSecond)
+  derive busy = pending(prepared) || pending(signed)
+  derive busySecond = pending(preparedSecond) || pending(signedSecond)
   derive conditional = match caps.conditionalGet { case some(c) => c, case none => false }
   // A conditional request while the sign-in screen shows and no sheet is up;
   // the gate's turning true again after one ends starts the next, until the
   // data code reports the platform refuses them (an error line).
-  derive offering = match suggested { case some(r) => r.ok or r.message == "", case none => true }
-  task suggesting when caps.available and conditional and offering and not session.signedIn and not pending(passkey) and not pending(suggested)
+  derive offering = match suggested { case some(r) => r.ok || r.message == "", case none => true }
+  task suggesting when caps.available && conditional && offering && ! session.signedIn && ! pending(passkey) && ! pending(suggested)
     after(1, suggest)
   // A nonce for the next press, fetched when the screen shows; each sign-in fetches the next.
   task prepareIdentity mount
@@ -68,7 +68,7 @@ component AuthFixture
   action getNonce
     send nonce = identityNonce()
   // One passive request beside a passkey per sign-out, where the target offers one.
-  task offerIdentity when identities.available and identityOffer and not session.signedIn and not pending(identity) and not pending(passkey) and not pending(nonce)
+  task offerIdentity when identities.available && identityOffer && ! session.signedIn && ! pending(identity) && ! pending(passkey) && ! pending(nonce)
     after(1, offer)
   action offer
     identityOffer = false
@@ -128,11 +128,11 @@ component AuthFixture
         text "Sign in on the second port"
       button press=signOut testId="sign-out" padding=12 border-radius=8 background-color="#dfe5ee"
         text "Sign out"
-      if not session.signedIn
+      if ! session.signedIn
         input value=username input=setUsername placeholder="Username" autocomplete="username webauthn" aria-label="Username" testId="username"
-      if not session.signedIn and identities.providers.apple.active
+      if ! session.signedIn && identities.providers.apple.active
         exact-sign-in-button provider="apple" press=appleSignIn testId="apple-sign-in" width="100%" height=44
-      if not session.signedIn and identities.providers.google.active
+      if ! session.signedIn && identities.providers.google.active
         exact-sign-in-button provider="google" press=googleSignIn testId="google-sign-in" width="100%" height=44
       match identity
         case some(i)
@@ -147,7 +147,7 @@ component AuthFixture
       if caps.available
         button press=createPasskey disabled=pending(passkey) testId="create-passkey"
           text "Create a passkey"
-        if not session.signedIn
+        if ! session.signedIn
           button press=signInPasskey disabled=pending(passkey) testId="sign-in-passkey"
             text "Sign in with a passkey"
         if session.signedIn

@@ -75,7 +75,7 @@ pub(super) fn stray(word: &str) -> String {
 }
 
 impl Parser {
-    /// An expression continued on an indented line (`? …`, `: …`, `+ …`, `and …`):
+    /// An expression continued on an indented line (`? …`, `: …`, `+ …`, `&& …`):
     /// a declaration is one line unless parentheses hold it (authoring bench: a
     /// multi-line ternary in a `fn` or a `derive`).
     pub(super) fn continued_expression<T>(&self, id: &'static str) -> Option<R<T>> {

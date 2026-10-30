@@ -12,13 +12,13 @@ component App
   state leading = false
   derive items = [TextRow(id="item", styled=styled, bold=bold, leading=leading)]
   action flip
-    weighted = not weighted
+    weighted = ! weighted
   action styleItem
-    styled = not styled
+    styled = ! styled
   action boldItem
-    bold = not bold
+    bold = ! bold
   action leadItem
-    leading = not leading
+    leading = ! leading
   view
     column testId="root" padding=8 gap=4
       button testId="flip" press=flip "Flip"

@@ -525,7 +525,7 @@ component App
     else
       send changed = move(item, col, at)
   action flush
-    if queued != "" and not stalled
+    if queued != "" && ! stalled
       send changed = move(queued, queuedCol, queuedAt)
       queued = ""
   action stall

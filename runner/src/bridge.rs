@@ -1187,7 +1187,7 @@ mod tests {
                 Err(DataError::UnknownSource(source.into()))
             }
         }
-        let plan = contract::compile("component App\n  state on = false\n  action flip\n    on = not on\n  view\n    button press=flip testId=\"cap\" backgroundMaterial=(on ? \"none\" : \"glass\")\n      text \"x\"\n").unwrap();
+        let plan = contract::compile("component App\n  state on = false\n  action flip\n    on = ! on\n  view\n    button press=flip testId=\"cap\" backgroundMaterial=(on ? \"none\" : \"glass\")\n      text \"x\"\n").unwrap();
         let mut r = Runner::boot(
             plan,
             NoData,

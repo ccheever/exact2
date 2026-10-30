@@ -4,8 +4,8 @@
 component App
   state d = 0
   state items = 0
-  derive guarded = d != 0 and 10 / d > 1
-  derive fallback = d == 0 or 10 / d > 1
+  derive guarded = d != 0 && 10 / d > 1
+  derive fallback = d == 0 || 10 / d > 1
   derive avg = items == 0 ? 0 : 100 / items
   action setD(v: number)
     d = v

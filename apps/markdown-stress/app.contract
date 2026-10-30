@@ -85,7 +85,7 @@ component MarkdownStress
   state draft = ""
   state editorText = "# A heading\n\nSome **bold**, *italic* and `code` with [a link](https://example.com).\n\n- one\n- [ ] two\n\n> quoted\n\n```\nlet a = 1;\n```"
   state draftTooLong = false
-  resource doc = document(profile, size, revision, page, eager or windowed, single) as shape Document
+  resource doc = document(profile, size, revision, page, eager || windowed, single) as shape Document
 
   action enableContentRegion
     contentRegion = true
@@ -111,19 +111,19 @@ component MarkdownStress
     running = false
     ticks = 0
   action toggleEager
-    eager = not eager
+    eager = ! eager
     windowed = false
     single = false
     page = 0
     running = false
   action toggleWindowed
-    windowed = not windowed
+    windowed = ! windowed
     eager = false
     single = false
     page = 0
     running = false
   action toggleSingle
-    single = not single
+    single = ! single
     eager = false
     windowed = false
     page = 0
@@ -151,7 +151,7 @@ component MarkdownStress
       let nextTicks = min(20, ticks + 1)
       revision = nextRevision
       ticks = nextTicks
-      running = nextTicks < 20 and nextRevision < 1000
+      running = nextTicks < 20 && nextRevision < 1000
   action editMarkdown(value)
     editorText = value
   action editDraft(value)
@@ -219,7 +219,7 @@ component MarkdownStress
         text `${doc.sourceBytes} source bytes · ${doc.totalBlocks} parsed blocks · ${doc.materialized} supplied blocks · ${doc.tableRows} table rows · revision ${doc.revision}` testId="stats" font-size=12 color="ink"
         text `${doc.largestBlock} text bytes in largest block · ${wide ? "1200" : "640"} px column · ${running ? "reparsing" : "paused"}` testId="load-stats" font-size=12 color="softInk"
         text (single ? "ONE NODE: the whole source as one text markup=\"markdown\" node; the host styles it (LLP 1045 D4)." : windowed ? "WINDOWED: complete parsed document; only nearby blocks mounted. One giant block remains giant." : eager ? "EAGER: all blocks mounted. Large documents may stall input." : "MANUAL PAGE: 40 blocks; the entire document is still parsed. One giant block remains giant.") testId="mode" font-size=11 color="warnInk"
-      if not eager and not windowed
+      if ! eager && ! windowed
         row flex-shrink=0 padding=6 gap=8 flex-wrap="wrap" align-items="center" background-color="chrome"
           button press=previousPage testId="previous-page" padding=6 background-color="control" border-width=0
             text "Previous 40" font-size=12 color="ink"

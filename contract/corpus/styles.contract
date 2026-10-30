@@ -19,7 +19,7 @@ style Idle
 component Styles
   state selected = false
   action toggle
-    selected = not selected
+    selected = ! selected
   view
     column testId="root" gap=8
       column class=Card testId="card"

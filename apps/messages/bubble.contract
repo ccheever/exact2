@@ -50,21 +50,21 @@ component MessageRow
   derive fraction = min(1, travel / 56)
   // A run ends at a change of sender or at the receipt; what the clock
   // decides is here, from the date, not in the snapshot.
-  derive closes = m.ends or m.id == receiptId
-  derive tail = closes or m.nextReacted
-  derive gap = closes and not m.last ? 8 : 2
-  derive avatar = m.avatars and closes
+  derive closes = m.ends || m.id == receiptId
+  derive tail = closes || m.nextReacted
+  derive gap = closes && ! m.last ? 8 : 2
+  derive avatar = m.avatars && closes
   derive elapsed = m.fresh ? now - m.at : 100000
   derive time = formatTime(m.at, offset, "short")
   derive stampLabel = m.stamped ? `Today ${time}` : ""
   derive receiptLabel = m.id != receiptId ? "" : (m.status != "" ? m.status : (elapsed >= 4650 ? `Read ${time}` : "Delivered"))
-  derive receiptNew = m.fresh and elapsed >= 1130 and elapsed < 2150
-  derive arrival = m.fresh and elapsed < 900
+  derive receiptNew = m.fresh && elapsed >= 1130 && elapsed < 2150
+  derive arrival = m.fresh && elapsed < 900
   view
     column testId=`message-row-${m.id}` position="relative" padding-top=2 padding-bottom=gap margin-top=(m.reaction != "" ? 13 : 0) padding-left=16 padding-right=16 box-sizing="border-box" flex-shrink=0
       if stampLabel != ""
-        text stampLabel testId=`stamp-${m.id}` font-size=11 line-height="13px" font-weight=500 class=Secondary text-align="center" margin-bottom=16 animation=(arrival and not reduced ? "stamp 270ms ease-out" : "none")
-      column position="relative" padding-left=(group and not m.outgoing ? 31 : 0) translate=`${0 - travel * (m.outgoing ? 1.107143 : 1)}px 0px` transition=(dragging or reduced ? "none" : "translate -exact-spring(150, 24.5, 1)")
+        text stampLabel testId=`stamp-${m.id}` font-size=11 line-height="13px" font-weight=500 class=Secondary text-align="center" margin-bottom=16 animation=(arrival && ! reduced ? "stamp 270ms ease-out" : "none")
+      column position="relative" padding-left=(group && ! m.outgoing ? 31 : 0) translate=`${0 - travel * (m.outgoing ? 1.107143 : 1)}px 0px` transition=(dragging || reduced ? "none" : "translate -exact-spring(150, 24.5, 1)")
         if m.sender != ""
           text m.sender class=Secondary font-size=11 line-height="13px" margin-left=12 margin-bottom=4
         if avatar
@@ -73,7 +73,7 @@ component MessageRow
         if m.reply != ""
           text m.reply font-size=13 class=Secondary border-left-width=2 border-left-style="solid" border-color="#aeaeb2" padding-left=8 margin-bottom=6 line-clamp=2
         row position="relative" justify-content=(m.outgoing ? "flex-end" : "flex-start") padding-bottom=(tail ? 6.65 : 0)
-          box id=`message-actions-${m.id}` testId=`message-actions-${m.id}` tabindex=0 retainFocus=true user-select="none" position="relative" opacity=(hidden ? 0 : 1) contextmenu=select(m.id, m.body, m.outgoing) dblclick=select(m.id, m.body, m.outgoing) swiperight=reply(m.id, m.body) touch-action="pan-y" transition="translate -exact-spring(300, 30, 1)" animation=(arrival and not m.outgoing and not reduced ? "received 220ms ease-out" : "none") aria-label=m.body
+          box id=`message-actions-${m.id}` testId=`message-actions-${m.id}` tabindex=0 retainFocus=true user-select="none" position="relative" opacity=(hidden ? 0 : 1) contextmenu=select(m.id, m.body, m.outgoing) dblclick=select(m.id, m.body, m.outgoing) swiperight=reply(m.id, m.body) touch-action="pan-y" transition="translate -exact-spring(300, 30, 1)" animation=(arrival && ! m.outgoing && ! reduced ? "received 220ms ease-out" : "none") aria-label=m.body
             Balloon(body=m.preview, outgoing=m.outgoing, tail=tail, maximum=maximum, identifier=`bubble-${m.id}`)
             if m.truncated
               button appearance="none" press=read(m.body) testId=`read-${m.id}` aria-label="Read full message" position="absolute" right=10 bottom=7 width=22 height=22
@@ -81,10 +81,10 @@ component MessageRow
             if m.reaction != ""
               button press=select(m.id, m.body, m.outgoing) retainFocus=true testId=`reaction-${m.id}` position="absolute" top=-19 left=(m.outgoing ? "calc(100% - 27px)" : "-9px") width=36 height=36 border-radius=18 background-color="#0088ff" border-width=1 border-style="solid" border-color="light-dark(#ffffff, #000000)" display="flex" align-items="center" justify-content="center" z-index=2
                 text m.reaction font-size=21 color="#ffffff"
-          column position="absolute" top=0 bottom=(tail ? 6.65 : 0) right=-70 width=54 justify-content="center" opacity=(fraction * fraction) translate=`${0 - travel * 0.178571}px 0px` transition=(dragging or reduced ? "none" : "translate -exact-spring(150, 24.5, 1), opacity 220ms ease-out")
+          column position="absolute" top=0 bottom=(tail ? 6.65 : 0) right=-70 width=54 justify-content="center" opacity=(fraction * fraction) translate=`${0 - travel * 0.178571}px 0px` transition=(dragging || reduced ? "none" : "translate -exact-spring(150, 24.5, 1), opacity 220ms ease-out")
             text time font-size=11 line-height="13px" class=Secondary text-align="right" white-space="nowrap" font-variant-numeric="tabular-nums"
       if receiptLabel != ""
-        text receiptLabel testId=`receipt-${m.id}` text-align="right" font-size=11 line-height="13px" font-weight=600 class=Secondary margin-top=2 margin-right=19.667 animation=(receiptNew and not reduced ? "receipt 610ms cubic-bezier(0.25, 1, 0.5, 1)" : "none")
+        text receiptLabel testId=`receipt-${m.id}` text-align="right" font-size=11 line-height="13px" font-weight=600 class=Secondary margin-top=2 margin-right=19.667 animation=(receiptNew && ! reduced ? "receipt 610ms cubic-bezier(0.25, 1, 0.5, 1)" : "none")
 
 component Typing
   props

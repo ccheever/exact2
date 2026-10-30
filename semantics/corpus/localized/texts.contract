@@ -15,7 +15,7 @@ component App
     name = v
   action more
     n = n * 2.5
-    done = not done
+    done = ! done
     log = t("spaced", value=n)
   view
     column

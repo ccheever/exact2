@@ -8,7 +8,7 @@ use exact_runner::Event;
 fn a_colour_outside_srgb_is_refused_as_it_is_set() {
     // The wide colour is state, not a literal: another test's boot limits
     // this process to sRGB, and the compiler checks literals against it.
-    let src = "component A\n  state wide = false\n  state p3 = \"color(display-p3 1 0 0)\"\n  action go()\n    wide = not wide\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      box testId=\"in\" width=4 height=4 background-color=\"oklch(0.7 0.05 200)\"\n      box testId=\"b\" width=4 height=4 background-color=(wide ? p3 : \"#00ff00\")\n";
+    let src = "component A\n  state wide = false\n  state p3 = \"color(display-p3 1 0 0)\"\n  action go()\n    wide = ! wide\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      box testId=\"in\" width=4 height=4 background-color=\"oklch(0.7 0.05 200)\"\n      box testId=\"b\" width=4 height=4 background-color=(wide ? p3 : \"#00ff00\")\n";
     let plan = contract::compile(src).unwrap().encode();
     let mut h = Host::boot(
         &plan,

@@ -125,7 +125,7 @@ fn inherited_text_color_reaches_untouched_descendants_as_an_unresolved_pair() {
     let src = r##"component Ink
   state changed = false
   action toggle
-    changed = not changed
+    changed = ! changed
   view
     column color=(changed ? "light-dark(#123456, #abcdef)" : "light-dark(#000000, #ffffff)")
       button press=toggle testId="toggle"

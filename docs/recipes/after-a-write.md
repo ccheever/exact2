@@ -20,7 +20,7 @@ component TagList
   action edit(v: string)
     draft = v
   action add
-    if draft.trim() != "" and not pending(added)
+    if draft.trim() != "" && ! pending(added)
       send added = addTag(draft.trim())
   action afterAdd
     if match added { case some(r) => r.ok, case none => false }
@@ -34,7 +34,7 @@ component TagList
               aria-label="New tag" testId="draft"
             if shownError != ""
               text shownError font="-exact-footnote" color="-exact-system-red" testId="add-error"
-          button press=add disabled=(draft.trim() == "" or pending(added)) buttonStyle="filled" testId="add"
+          button press=add disabled=(draft.trim() == "" || pending(added)) buttonStyle="filled" testId="add"
             text "Add"
       section
         for t in tags key=t.name

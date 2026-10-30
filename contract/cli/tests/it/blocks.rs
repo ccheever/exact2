@@ -524,7 +524,7 @@ fn an_inert_ancestor_keeps_a_lifted_block_from_being_reached() {
     still = true
   view
     column
-      column id="page" height=800 inert=(not still)
+      column id="page" height=800 inert=(! still)
         column id="route" position="absolute" top=0 left=0 width=200 height=500
           button id="sheet-button" width=100 height=40
             text "button"

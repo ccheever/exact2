@@ -56,14 +56,14 @@ component MonthPage
                 box testId=`bar-${page.id}-${bar.id}` aria-hidden=true position="absolute" left=`calc(${bar.startCol * 100 / 7}% + 2px)` top=(34 + bar.lane * 24) width=`calc(${(bar.kind == "todo" ? 1 : bar.span) * 100 / 7}% - 4px)` height=20 box-sizing="border-box" padding-left=(bar.kind == "todo" ? 2 : 6) padding-right=(bar.kind == "todo" ? 2 : 6) overflow="hidden" background-color=(bar.kind != "event" ? "#ffffff00" : paletteColor(theme, bar.color)) border-top-left-radius=(bar.continuesBefore ? 0 : 4) border-bottom-left-radius=(bar.continuesBefore ? 0 : 4) border-top-right-radius=(bar.continuesAfter ? 0 : 4) border-bottom-right-radius=(bar.continuesAfter ? 0 : 4) display="flex" align-items="center" justify-content=(bar.kind == "plan" ? "center" : "flex-start") opacity=(dragId == bar.eventId ? 0.3 : 1)
                   if bar.kind == "plan"
                     box position="absolute" left=0 right=0 top=2 height=2 background-color=paletteColor(theme, bar.color)
-                    if not bar.continuesBefore
+                    if ! bar.continuesBefore
                       box position="absolute" left=0 top=0 width=6 height=6 border-radius=3 background-color=paletteColor(theme, bar.color)
-                    if not bar.continuesAfter
+                    if ! bar.continuesAfter
                       svg position="absolute" right=0 top=0 width=8 height=6 viewBox="0 0 8 6"
                         path d="M 1 0 L 7 3 L 1 6" fill="none" stroke=paletteColor(theme, bar.color) stroke-width=2
                   if bar.kind == "todo"
                     TodoMark(completed=bar.completed, color=paletteColor(theme, bar.color), size=12)
-                  text bar.title margin-left=(bar.kind == "todo" ? 4 : 0) text-decoration-line=(bar.completed ? "line-through" : "none") opacity=(bar.completed ? 0.5 : 1) position=(bar.kind == "plan" ? "absolute" : "relative") left=(bar.kind == "plan" ? 0 : "auto") right=(bar.kind == "plan" ? 0 : "auto") top=(bar.kind == "plan" ? 7 : "auto") text-align=(bar.kind == "plan" ? "center" : "left") line-height="12px" font-size=11 font-weight=500 color=(bar.kind == "plan" and theme == 0 ? paletteColor(theme, bar.color) : (theme == 0 ? "#292934" : themeInk)) background-color="#ffffff00" padding-left=(bar.kind == "plan" ? 3 : 0) padding-right=(bar.kind == "plan" ? 3 : 0) max-width="100%" white-space="nowrap" text-overflow="clip" overflow="hidden"
+                  text bar.title margin-left=(bar.kind == "todo" ? 4 : 0) text-decoration-line=(bar.completed ? "line-through" : "none") opacity=(bar.completed ? 0.5 : 1) position=(bar.kind == "plan" ? "absolute" : "relative") left=(bar.kind == "plan" ? 0 : "auto") right=(bar.kind == "plan" ? 0 : "auto") top=(bar.kind == "plan" ? 7 : "auto") text-align=(bar.kind == "plan" ? "center" : "left") line-height="12px" font-size=11 font-weight=500 color=(bar.kind == "plan" && theme == 0 ? paletteColor(theme, bar.color) : (theme == 0 ? "#292934" : themeInk)) background-color="#ffffff00" padding-left=(bar.kind == "plan" ? 3 : 0) padding-right=(bar.kind == "plan" ? 3 : 0) max-width="100%" white-space="nowrap" text-overflow="clip" overflow="hidden"
               for cell in week.cells key=`sticker-${cell.id}`
                 if cell.stickerId != ""
                   image `assets/stickers/${cell.stickerId}.png` testId=`sticker-${page.id}-${cell.date}` position="absolute" left=`calc(${(weekday(cell.day) + 1) * 100 / 7}% - 36px)` bottom=4 width=32 height=32 object-fit="contain" aria-hidden=true opacity=(activeDragId == `sticker-day:${cell.day}:${cell.stickerId}` ? 0 : 1)
@@ -71,7 +71,7 @@ component MonthPage
                 button id=`day-${page.month}-${cell.day}` testId=`date-${page.id}-${cell.date}` press=choose(cell.day) touch-action="pan-y" dblclick=create("event", cell.day, cell.date) key=move(cell.day) hover=hover(`day-${cell.day}`) disabled=blocked aria-label=cell.date aria-selected=(selected == cell.day) position="absolute" left=`${weekday(cell.day) * 100 / 7}%` top=0 width="14.285714%" height="100%" padding=0 border-width=0 background-color="#ffffff00"
               if compact
                 for bar in week.bars key=`handle-${bar.id}`
-                  for cell in week.cells.filter((cell) => weekday(cell.day) >= bar.startCol and weekday(cell.day) < bar.startCol + (bar.kind == "todo" ? 1 : bar.span)) key=cell.id
+                  for cell in week.cells.filter((cell) => weekday(cell.day) >= bar.startCol && weekday(cell.day) < bar.startCol + (bar.kind == "todo" ? 1 : bar.span)) key=cell.id
                     calendar-drag-handle testId=`bar-handle-${page.id}-${bar.id}-${cell.date}` event-id=bar.eventId menu-kind=bar.kind message=command(bar.eventId, bar.kind, bar.completed) completed=(bar.completed ? "true" : "false") enabled=(blocked ? "false" : "true") press=choose(cell.day) aria-label=bar.title position="absolute" left=`calc(${weekday(cell.day) * 100 / 7}% + 2px)` top=(34 + bar.lane * 24) width=`calc(${100 / 7}% - 4px)` height=20
                 for cell in week.cells key=`sticker-handle-${cell.id}`
                   if cell.stickerId != ""
@@ -102,16 +102,16 @@ component DateCell
   derive hot = hovered == `day-${cell.day}`
   view
     box position="relative" width="14.285714%" height="100%" box-sizing="border-box" padding-top=5 border-style="solid" border-top-width=1 border-left-width=(weekday(cell.day) == 0 ? 0 : 1) border-bottom-width=0 border-right-width=0 border-color=gridLine background-color=(highlighted ? "rgba(174,192,255,0.30)" : cellFill) display="flex" flex-direction="column" align-items="center" justify-content="flex-start" transition="background-color 100ms ease-out"
-      box position="absolute" left=4 top=4 right=4 bottom=4 border-radius=9 box-sizing="border-box" border-style="solid" border-width=1 background-color=(isSelected and not highlighted ? selectedFill : (hot and not highlighted ? hoverFill : "#ffffff00")) border-color=(isSelected and not highlighted ? selectedRing : "#ffffff00") transition="background-color 120ms ease-out, border-color 120ms ease-out" aria-hidden=true
+      box position="absolute" left=4 top=4 right=4 bottom=4 border-radius=9 box-sizing="border-box" border-style="solid" border-width=1 background-color=(isSelected && ! highlighted ? selectedFill : (hot && ! highlighted ? hoverFill : "#ffffff00")) border-color=(isSelected && ! highlighted ? selectedRing : "#ffffff00") transition="background-color 120ms ease-out, border-color 120ms ease-out" aria-hidden=true
       if highlighted
         svg position="absolute" left=0 top=0 width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden=true
           path d="M 0 0.5 L 100 0.5 M 0 99.5 L 100 99.5" fill="none" stroke="#AAC4FF" stroke-width=1 stroke-dasharray="5 4" vector-effect="non-scaling-stroke"
-          if cell.day == hoverDay or weekday(cell.day) == 0
+          if cell.day == hoverDay || weekday(cell.day) == 0
             path d="M 0.5 0 L 0.5 100" fill="none" stroke="#AAC4FF" stroke-width=1 stroke-dasharray="5 4" vector-effect="non-scaling-stroke"
-          if cell.day == hoverDay + dragSpan or weekday(cell.day) == 6
+          if cell.day == hoverDay + dragSpan || weekday(cell.day) == 6
             path d="M 99.5 0 L 99.5 100" fill="none" stroke="#AAC4FF" stroke-width=1 stroke-dasharray="5 4" vector-effect="non-scaling-stroke"
       box width=24 height=24 border-radius=12 background-color=(cell.day == today ? themeAccent : "#ffffff00") display="flex" align-items="center" justify-content="center"
-        text `${cell.number}` font-size=13 font-weight=(cell.day == today or isSelected ? 600 : 400) color=(cell.day == today ? "#ffffff" : (isSelected ? themeAccent : (cell.inMonth ? themeInk : themeMuted)))
+        text `${cell.number}` font-size=13 font-weight=(cell.day == today || isSelected ? 600 : 400) color=(cell.day == today ? "#ffffff" : (isSelected ? themeAccent : (cell.inMonth ? themeInk : themeMuted)))
       if dot
         box testId=`device-dot-${cell.date}` width=4 height=4 margin-top=2 border-radius=2 background-color=themeMuted aria-hidden=true
       if steps != ""

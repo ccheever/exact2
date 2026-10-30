@@ -953,7 +953,7 @@ fn reads_d3_leaves_alone_compile() {
     for (case, src) in [
         (
             "exclusive literal arms",
-            "component App\n  state r = 0\n  action move(dr: number)\n    r = r + dr\n  action key(k: string)\n    if k == \"ArrowDown\" or k == \"Enter\"\n      move(1)\n    if k == \"ArrowUp\"\n      move(-1)\n  view\n    button press=key(\"Enter\") testId=\"go\"\n      text \"go\"\n",
+            "component App\n  state r = 0\n  action move(dr: number)\n    r = r + dr\n  action key(k: string)\n    if k == \"ArrowDown\" || k == \"Enter\"\n      move(1)\n    if k == \"ArrowUp\"\n      move(-1)\n  view\n    button press=key(\"Enter\") testId=\"go\"\n      text \"go\"\n",
         ),
         (
             "one frame",

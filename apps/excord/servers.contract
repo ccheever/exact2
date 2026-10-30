@@ -52,7 +52,7 @@ component FolderButton
     toggle: action
   view
     row align-items="center" width="4.5rem" padding="4px 0px"
-      view width=4 height=(selected and not open ? 40 : unread and not open ? 8 : 0) border-radius="0px 4px 4px 0px" background-color="-exact-label" transition="height 200ms ease" aria-hidden=true
+      view width=4 height=(selected && ! open ? 40 : unread && ! open ? 8 : 0) border-radius="0px 4px 4px 0px" background-color="-exact-label" transition="height 200ms ease" aria-hidden=true
       button appearance="none" press=toggle(id) testId=`server-${id}` margin-left=8 aria-expanded=open
         aria-label=`${name != "" ? name : "Folder"}, ${open ? "open" : "closed"}${mentions > 0 ? `, ${mentions} ${mentions == 1 ? "mention" : "mentions"}` : unread ? ", unread" : ""}`
         view position="relative" width="3rem" height="3rem"
@@ -68,7 +68,7 @@ component FolderButton
                 else
                   row aspect-ratio="1 / 1" border-radius=6 align-items="center" justify-content="center" background-color="-exact-secondary-background"
                     text g.acronym.slice(0, 1) font="-exact-caption2" font-weight=700
-          if mentions > 0 and not open
+          if mentions > 0 && ! open
             view position="absolute" right=-6 bottom=-6
               Badge(label=(mentions > 99 ? "99+" : `${mentions}`), tint=some("-exact-system-red"))
 

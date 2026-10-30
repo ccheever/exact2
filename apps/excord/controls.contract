@@ -62,7 +62,7 @@ component MessageMenu
         text "Copy Message Link"
       if mine
         hr
-        if not forwarded
+        if ! forwarded
           button press=edit popovertarget="message-menu" popovertargetaction="hide" testId="menu-edit"
             image "symbol:pencil"
             text "Edit Message"

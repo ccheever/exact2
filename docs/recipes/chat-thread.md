@@ -22,7 +22,7 @@ component Chat
   action edit(v: string)
     draft = v
   action post
-    if draft.trim() != "" and not pending(sent)
+    if draft.trim() != "" && ! pending(sent)
       send sent = sendMessage(draft.trim())
       draft = ""
     focus("composer")
@@ -45,7 +45,7 @@ component Chat
             textarea id="composer" value=draft input=edit rows=1 field-sizing="content" max-height=140
               placeholder="Message" aria-label="Message" testId="composer" flex=1 min-width=0
               border="none" background-color="transparent"
-            button press=post disabled=(draft.trim() == "" or pending(sent)) buttonStyle="filled"
+            button press=post disabled=(draft.trim() == "" || pending(sent)) buttonStyle="filled"
               retainFocus=true aria-label="Send" testId="send"
               image "symbol:send"
 ```

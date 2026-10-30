@@ -190,7 +190,7 @@ fn paletteColor(theme: number, color: string): string = (theme == 1 ? (color == 
 fn unit(value: number): number = max(0, min(1, value))
 fn edgeSpeed(y: number, height: number): number = y < 56 ? -840 * unit((56 - y) / 56) * unit((56 - y) / 56) : (y > height - 56 ? 840 * unit((y - height + 56) / 56) * unit((y - height + 56) / 56) : 0)
 fn weekday(day: number): number = day + 4 - floor((day + 4) / 7) * 7
-fn inRange(day: number, first: number, span: number): bool = first != -1000000 and day >= first and day <= first + span
+fn inRange(day: number, first: number, span: number): bool = first != -1000000 && day >= first && day <= first + span
 fn scrollSlot(month: number): number = month - floor(month / 7) * 7
 fn savedScroll(month: number, m0: number, y0: number, m1: number, y1: number, m2: number, y2: number, m3: number, y3: number, m4: number, y4: number, m5: number, y5: number, m6: number, y6: number): number = (month == m0 ? y0 : (month == m1 ? y1 : (month == m2 ? y2 : (month == m3 ? y3 : (month == m4 ? y4 : (month == m5 ? y5 : (month == m6 ? y6 : 0)))))))
 fn magnitude(value: number): number = max(value, 0 - value)

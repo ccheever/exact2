@@ -7,7 +7,7 @@ component App
   derive chained = (a == true) == (b == false)
   derive cmp = (1 < 2) == a
   action flip
-    b = not b
+    b = ! b
   view
     column
       text `${eq} ${ne} ${chained} ${cmp}` testId="r"

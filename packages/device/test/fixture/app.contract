@@ -20,7 +20,7 @@ component Fixture
   resource facts = facts(reading) as shape Facts
   resource power = powerState() as shape PowerState else empty()
   action toggle
-    reading = not reading
+    reading = ! reading
   view
     column gap=8 padding=16
       text facts.battery testId="battery"

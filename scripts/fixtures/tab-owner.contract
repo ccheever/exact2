@@ -22,7 +22,7 @@ component TabOwner
   action pick(name: string)
     nav = select(nav, name)
   action turn
-    spin = not spin
+    spin = ! spin
   action flatten
     flat = true
   action observe(e: IntersectionObserverEntry)
@@ -50,7 +50,7 @@ component TabOwner
           text "First"
         button role="tab" aria-controls="panel-second" aria-selected=(nav.tab == "second") press=pick("second") flex=1
           text "Second"
-      box position="absolute" left=-80 top=600 width=100 height=20 rotate=(spin and not flat ? "90deg" : "none") intersect=observeBeacon
+      box position="absolute" left=-80 top=600 width=100 height=20 rotate=(spin && ! flat ? "90deg" : "none") intersect=observeBeacon
       button press=turn testId="turn" position="absolute" left=0 bottom=0 width=1 height=1 aria-label="Turn"
       button press=flatten testId="flatten" position="absolute" left=2 bottom=0 width=1 height=1 aria-label="Flatten"
       button press=read testId="read" position="absolute" left=1 bottom=0 width=1 height=1 aria-label="Read"

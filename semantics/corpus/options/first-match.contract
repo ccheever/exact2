@@ -8,7 +8,7 @@ component App
   state chosen = "none"
   derive head = first(items)
   derive hasHead = head != none
-  derive agree = hasHead == not items.isEmpty()
+  derive agree = hasHead == ! items.isEmpty()
   action chooseFirst
     match first(items)
       case some(i)

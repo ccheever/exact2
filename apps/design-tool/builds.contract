@@ -36,7 +36,7 @@ component Builds
       for r in reloading key=r.id
         if r.gen > reloadSeen
           text `${r.host} · ${r.id} · reloading` font="-exact-footnote" color="-exact-secondary-label" testId=`build-reloading-${r.id}`
-      if builds.length == 0 and (reloading.length == 0 or reloadGen <= reloadSeen)
+      if builds.length == 0 && (reloading.length == 0 || reloadGen <= reloadSeen)
         text "No build is connected. The canvas's page is one once a dev loop runs; a device joins launched at the dev URL: bun exact.mjs ios --run --url <dev url>, or the Mac's likewise." color="-exact-secondary-label" testId="no-builds"
       for b in builds key=b.id
         column gap=2 padding=8 border-radius=8 background-color="-exact-secondary-background" testId=`build-${b.id}`
@@ -47,37 +47,37 @@ component Builds
             else if b.behind
               text "handing back" font="-exact-caption1" color="-exact-system-orange" testId=`build-pin-${b.id}`
           if b.reported
-            text `${b.scheme}${b.contrast != "" and b.contrast != "no-preference" ? ` · contrast ${b.contrast}` : ""}${b.mode != "" ? ` · ${b.mode}` : ""}${b.rootFontSize > 0 ? ` · ${b.rootFontSize}px` : ""}` testId=`build-status-${b.id}`
+            text `${b.scheme}${b.contrast != "" && b.contrast != "no-preference" ? ` · contrast ${b.contrast}` : ""}${b.mode != "" ? ` · ${b.mode}` : ""}${b.rootFontSize > 0 ? ` · ${b.rootFontSize}px` : ""}` testId=`build-status-${b.id}`
           else
             text "Not reported yet: it has not said what it shows." color="-exact-secondary-label" font="-exact-caption1" testId=`build-status-${b.id}`
           if b.unsupported != ""
             text `Not applied: ${b.unsupported}` color="-exact-system-orange" font="-exact-caption1" testId=`build-unsupported-${b.id}`
       row gap=8 align-items="center" flex-wrap="wrap" testId="pin-form"
-        select value=pinBuild change=choosePinBuild disabled=(not canWrite) aria-label="Pin on" testId="pin-build"
+        select value=pinBuild change=choosePinBuild disabled=(! canWrite) aria-label="Pin on" testId="pin-build"
           option "Every build" value=""
           for b in builds key=b.id
             option `${b.host} · ${b.id}` value=b.id
-        select value=pinScheme change=choosePinScheme disabled=(not canWrite) aria-label="Scheme" testId="pin-scheme"
+        select value=pinScheme change=choosePinScheme disabled=(! canWrite) aria-label="Scheme" testId="pin-scheme"
           option "Scheme…" value=""
           option "Light" value="light"
           option "Dark" value="dark"
-        select value=pinContrast change=choosePinContrast disabled=(not canWrite) aria-label="Contrast" testId="pin-contrast"
+        select value=pinContrast change=choosePinContrast disabled=(! canWrite) aria-label="Contrast" testId="pin-contrast"
           option "Contrast…" value=""
           option "More" value="more"
           option "Less" value="less"
           option "No preference" value="no-preference"
         for a in pinAxes key=a.name
-          select value=pinMode.filter(m => m.indexOf(`${a.name}=`) == 0).map(m => m.slice(a.name.length + 1)).join("") change=choosePinMode(a.name) disabled=(not canWrite) aria-label=a.name testId=`pin-mode-${a.name}`
+          select value=pinMode.filter(m => m.indexOf(`${a.name}=`) == 0).map(m => m.slice(a.name.length + 1)).join("") change=choosePinMode(a.name) disabled=(! canWrite) aria-label=a.name testId=`pin-mode-${a.name}`
             option `${a.name}…` value=""
             for v in a.values key=v
               option v value=v
-        input type="number" min=4 max=64 value=(pinFont > 0 ? `${pinFont}` : "") disabled=(not canWrite) placeholder="px" change=choosePinFont aria-label="Root font size" width=80 testId="pin-font"
-        button press=applyPin disabled=(sendingPin or (pinScheme == "" and pinContrast == "" and pinMode.length == 0 and pinFont == 0) or not pinFontOk or not canWrite) buttonStyle="filled" testId="pin-apply"
+        input type="number" min=4 max=64 value=(pinFont > 0 ? `${pinFont}` : "") disabled=(! canWrite) placeholder="px" change=choosePinFont aria-label="Root font size" width=80 testId="pin-font"
+        button press=applyPin disabled=(sendingPin || (pinScheme == "" && pinContrast == "" && pinMode.length == 0 && pinFont == 0) || ! pinFontOk || ! canWrite) buttonStyle="filled" testId="pin-apply"
           text "Pin"
         // One axis on one build, alone: it replaces that build's pin.
-        button press=previewPin disabled=(sendingPin or pinBuild == "" or pinMode.length != 1 or pinScheme != "" or pinContrast != "" or pinFont != 0 or not canWrite) testId="pin-preview"
+        button press=previewPin disabled=(sendingPin || pinBuild == "" || pinMode.length != 1 || pinScheme != "" || pinContrast != "" || pinFont != 0 || ! canWrite) testId="pin-preview"
           text "Preview this mode only"
-        button press=clearPins disabled=(sendingPin or not canWrite) testId="pin-clear"
+        button press=clearPins disabled=(sendingPin || ! canWrite) testId="pin-clear"
           text "Hand back"
       match pinned
         case some(p)

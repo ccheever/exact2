@@ -22,7 +22,7 @@ component App
   derive xs = range(size)
   tool bump writes closed "Add to the count." = bump
     returns count.n
-    fails when match logged { case some(a) => not a.ok, case none => false }
+    fails when match logged { case some(a) => ! a.ok, case none => false }
   tool look reads "Look." = look
   action bump(by: number)
     send logged = add(by)

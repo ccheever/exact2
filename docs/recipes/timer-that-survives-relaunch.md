@@ -36,7 +36,7 @@ component Stopwatch
       row gap=12
         button press=toggle buttonStyle="bordered-prominent" testId="start-stop"
           text (running ? "Stop" : "Start")
-        button press=reset disabled=(running or elapsed == 0) buttonStyle="bordered" testId="reset"
+        button press=reset disabled=(running || elapsed == 0) buttonStyle="bordered" testId="reset"
           text "Reset"
 ```
 

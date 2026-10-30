@@ -3,7 +3,7 @@
 component Fade
   state shown = true
   action toggle
-    shown = not shown
+    shown = ! shown
   view
     column testId="root"
       button press=toggle aria-label="Toggle" testId="toggle"

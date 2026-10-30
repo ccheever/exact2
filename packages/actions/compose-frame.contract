@@ -71,7 +71,7 @@ component ComposeFrame
       text "" role="heading" aria-level=2 flex=1
       // Drafts, not for a reply: left out, not hidden, as a host projects a
       // screen's header buttons into its own bar.
-      if drafts and not reply
+      if drafts && ! reply
         button testId="compose-drafts" appearance="auto"
           aria-label=draftsLabel
           press=openDrafts
@@ -104,7 +104,7 @@ component ComposeFrame
           button testId="compose-gallery-button"
             aria-label="Gallery"
             press=choose
-            disabled=(not gallery)
+            disabled=(! gallery)
             opacity=(gallery ? 1 : "actions.compose-dim")
             padding="actions.compose-tool-pad"
             border-radius="actions.compose-tool-corner"
@@ -117,7 +117,7 @@ component ComposeFrame
           button testId="openCameraButton"
             aria-label="Camera"
             press=openCamera
-            disabled=(not camera)
+            disabled=(! camera)
             opacity=(camera ? 1 : "actions.compose-dim")
             padding="actions.compose-tool-pad"
             border-radius="actions.compose-tool-corner"
@@ -129,7 +129,7 @@ component ComposeFrame
           button testId="compose-gif-button"
             aria-label="Select GIF"
             press=gifs
-            disabled=(not gif)
+            disabled=(! gif)
             opacity=(gif ? 1 : "actions.compose-dim")
             padding="actions.compose-tool-pad"
             border-radius="actions.compose-tool-corner"

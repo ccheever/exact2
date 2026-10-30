@@ -19,7 +19,7 @@ component Box
     gi: number
   state open = true
   action toggle
-    open = not open
+    open = ! open
   view
     column
       button "t" press=toggle testId=`box-${gi}`

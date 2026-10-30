@@ -13,7 +13,7 @@ component Frames
   action beat
     beats = beats + 1
   action toggle
-    running = not running
+    running = ! running
   task ticker mount
     every(frame, step)
   task metronome mount

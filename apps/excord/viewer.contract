@@ -10,7 +10,7 @@
 // route's `navigationSource` names the thumbnail's `id`, LLP 1035.001). The
 // picture's address and size are kept in state: a relaunch does not reopen it.
 
-fn photoFit(bw: number, bh: number, nw: number, nh: number): number = bw > 0 and bh > 0 and nw > 0 and nh > 0 ? min(bw / nw, bh / nh) : 0
+fn photoFit(bw: number, bh: number, nw: number, nh: number): number = bw > 0 && bh > 0 && nw > 0 && nh > 0 ? min(bw / nw, bh / nh) : 0
 fn photoZoom(scale: number): number = min(max(scale, 1), 4)
 fn photoClamp(value: number, natural: number, fit: number, zoom: number, port: number): number = min(max(value, -max(0, (natural * fit * zoom - port) / 2)), max(0, (natural * fit * zoom - port) / 2))
 
@@ -33,18 +33,18 @@ members Excord
   state viewPortWidth = 0
   state viewPortHeight = 0
   // The picture is over its channel's route, as `show` puts it.
-  derive photoOverChannel = top(nav).name == "photo" and params(nav, "channel").length == 2
+  derive photoOverChannel = top(nav).name == "photo" && params(nav, "channel").length == 2
   // The picture on screen ("" while none is). A picture's route that `show` did not open here (a
   // web reload at its address, a Forward to it past its channel) shows nothing and goes: from over
   // its channel, Back; from over the list, its history entry becomes the channel's.
-  derive viewing = photoOverChannel and top(nav).params.photo == viewingKey ? viewingSrc : ""
-  task strayViewer when top(nav).name == "photo" and viewing == ""
+  derive viewing = photoOverChannel && top(nav).params.photo == viewingKey ? viewingSrc : ""
+  task strayViewer when top(nav).name == "photo" && viewing == ""
     after(1, dropStrayViewer)
   action dropStrayViewer
     if top(nav).name == "photo"
       nav = photoOverChannel ? back(nav) : replace(nav, path("channel", top(nav).params.channel))
   // The lock screen is drawn under a presented route, so locking closes the picture.
-  task viewerLocked when top(nav).name == "photo" and locked
+  task viewerLocked when top(nav).name == "photo" && locked
     after(1, closeViewer)
   action show(key: string, src: string, thumb: string, alt: string, w: number, h: number)
     if top(nav).name == "channel"
@@ -77,7 +77,7 @@ members Excord
     let w = viewingWidth > 0 ? viewingWidth : viewBoxWidth
     let h = viewingHeight > 0 ? viewingHeight : viewBoxHeight
     let fit = photoFit(viewBoxWidth, viewBoxHeight, w, h)
-    if photoZoom(scale) == 1 and (y > 120 or vy > 800)
+    if photoZoom(scale) == 1 && (y > 120 || vy > 800)
       closeViewer()
     else
       viewZoom = photoZoom(scale)

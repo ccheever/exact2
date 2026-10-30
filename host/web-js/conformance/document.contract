@@ -4,7 +4,7 @@
 component Document
   state on = true
   action flip
-    on = not on
+    on = ! on
   view
     column testId="root" height="100%"
       button press=flip testId="flip"

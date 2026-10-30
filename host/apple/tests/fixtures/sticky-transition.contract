@@ -1,7 +1,7 @@
 component StickyTransition
   state moved = false
   action move
-    moved = not moved
+    moved = ! moved
   view
     column width=300
       button testId="move" press=move

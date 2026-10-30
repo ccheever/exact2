@@ -19,7 +19,7 @@ impl DataSource for NoData {
 const SRC: &str = r##"component App
   state on = false
   action toggle
-    on = not on
+    on = ! on
   view
     column testId="page" background-color="light-dark(#ffffff, #000000)" transition="background-color 1s linear"
       button press=toggle testId="toggle" background-color=(on ? "#0000ff00" : "#ff0000") color=(on ? "#ffffff" : "#000000") box-shadow=(on ? "0 4px 12px #00000080" : "none") transition="background-color 1s linear, color 1s linear, box-shadow 1s linear"
@@ -172,7 +172,7 @@ fn a_light_dark_keyframe_follows_the_presenter_appearance() {
 const INHERITING: &str = r##"component App
   state on = false
   action toggle
-    on = not on
+    on = ! on
   view
     column testId="box" color=(on ? "#ffffff" : "#000000") transition="color 1s linear" border-width=2 border-style="solid" border-left-color="#ff0000"
       button press=toggle testId="toggle"
@@ -311,7 +311,7 @@ fn a_view_in_its_own_appearance_resolves_by_it() {
 #[test]
 fn a_color_scheme_change_moves_and_its_report_does_not_snap_it() {
     let mut host = boot(
-        "component App\n  state dark = false\n  action flip\n    dark = not dark\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n      column color-scheme=(dark ? \"dark\" : \"light\")\n        column testId=\"page\" height=10 background-color=\"light-dark(#ffffff, #000000)\" transition=\"background-color 1s linear\"\n",
+        "component App\n  state dark = false\n  action flip\n    dark = ! dark\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n      column color-scheme=(dark ? \"dark\" : \"light\")\n        column testId=\"page\" height=10 background-color=\"light-dark(#ffffff, #000000)\" transition=\"background-color 1s linear\"\n",
     );
     let (flip, page) = (view(&host, "flip"), view(&host, "page"));
     host.set_scheme(false);
@@ -341,7 +341,7 @@ fn a_side_that_stays_currentcolor_follows_color_and_one_that_becomes_it_moves() 
         r##"component App
   state on = false
   action toggle
-    on = not on
+    on = ! on
   view
     column
       button press=toggle testId="toggle"

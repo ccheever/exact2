@@ -36,7 +36,7 @@ component MenuItem
     icon: space
   view
     column testId=`${id}-item`
-      if not first
+      if ! first
         box height="lists.menu-hairline" background-color="param.divider"
       button part="surface" role="menuitem"
         testId=id

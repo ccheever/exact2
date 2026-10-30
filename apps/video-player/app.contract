@@ -41,7 +41,7 @@ component VideoPlayer
   action edit(value)
     note = value
   action toggle
-    paused = not paused
+    paused = ! paused
   action playing
     paused = false
   action stopped
@@ -68,7 +68,7 @@ component VideoPlayer
     pending = true
     pressedAt = performanceNow()
   action settle
-    if pending and performanceNow() - pressedAt > 500
+    if pending && performanceNow() - pressedAt > 500
       seekTo = (target == seekTo ? target + 0.001 : target)
       position = target
       pending = false

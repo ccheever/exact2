@@ -16,7 +16,7 @@ shape Place
   about: string
 
 fn nameOf(places: Place[], id: string): string = match first(places.filter(p => p.id == id)) { case some(p) => p.name, case none => "" }
-fn matches(p: Place, q: string): bool = p.name.toLowerCase().includes(q.trim().toLowerCase()) or p.area.toLowerCase().includes(q.trim().toLowerCase())
+fn matches(p: Place, q: string): bool = p.name.toLowerCase().includes(q.trim().toLowerCase()) || p.area.toLowerCase().includes(q.trim().toLowerCase())
 
 component App
   state saved = [] persist
@@ -24,7 +24,7 @@ component App
   state savedQuery = ""
   resource places = loadPlaces() as shape Place[] else empty()
   derive placesShown = places.filter(p => matches(p, placesQuery))
-  derive savedShown = places.filter(p => saved.includes(p.id) and matches(p, savedQuery))
+  derive savedShown = places.filter(p => saved.includes(p.id) && matches(p, savedQuery))
   action pick(name: string)
     nav = select(nav, name)
   // A row is a link to its place; the browser's Back, Forward and a deep link arrive here too.
@@ -48,20 +48,20 @@ component App
                 display="flex" flex-direction="column"
                 header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
                   text (e.name == "places" ? "Starter" : e.name == "saved" ? "Saved" : nameOf(places, e.params.id))
-                    role="heading" aria-level=(e.name == "places" or e.name == "saved" ? 1 : 2) flex=1
-                  if e.name == "place" or e.name == "savedPlace"
+                    role="heading" aria-level=(e.name == "places" || e.name == "saved" ? 1 : 2) flex=1
+                  if e.name == "place" || e.name == "savedPlace"
                     button press=toggle(e.params.id) aria-label=(saved.includes(e.params.id) ? "Remove from Saved" : "Save")
                       testId=`save-${t.name}`
                       image (saved.includes(e.params.id) ? "symbol:bookmark-fill" : "symbol:bookmark")
-                  if e.name == "places" or (e.name == "saved" and saved.length > 0)
+                  if e.name == "places" || (e.name == "saved" && saved.length > 0)
                     input type="search" value=(t.name == "saved" ? savedQuery : placesQuery) input=search(t.name)
                       placeholder="Search" aria-label=(t.name == "saved" ? "Search Saved" : "Search Places")
                       testId=`search-${t.name}` width="100%"
                 // An empty tab and a search with no match are each an `EmptyState` in the list's place.
-                if e.name == "saved" and saved.length == 0
+                if e.name == "saved" && saved.length == 0
                   EmptyState(symbol="symbol:bookmark", title="No Saved Places", message="Open a place and tap the bookmark.")
-                else if e.name == "places" or e.name == "saved"
-                  if (t.name == "saved" ? savedShown : placesShown).length == 0 and not pending(places)
+                else if e.name == "places" || e.name == "saved"
+                  if (t.name == "saved" ? savedShown : placesShown).length == 0 && ! pending(places)
                     EmptyState(symbol="symbol:search", title="No Results", message="Check the spelling or try a new search.")
                   else
                     list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0

@@ -43,11 +43,11 @@ fn magnitude(v: number): number = max(v, 0 - v)
 // What a release decides, from where the card is and how fast it was going:
 // up past the threshold (and more up than sideways) is a super like, then
 // right is a like, left a nope, and anything else springs back (0).
-fn verdict(x: number, y: number, vx: number, vy: number, at: number): number = (0 - y > magnitude(x) and (0 - y > at or vy < -800)) ? 3 : ((x > at or vx > 800) ? 2 : ((x < 0 - at or vx < -800) ? 1 : 0))
+fn verdict(x: number, y: number, vx: number, vy: number, at: number): number = (0 - y > magnitude(x) && (0 - y > at || vy < -800)) ? 3 : ((x > at || vx > 800) ? 2 : ((x < 0 - at || vx < -800) ? 1 : 0))
 
 // A card's travel: the top one's release rides a spring home (or back in,
 // after an undo); a thrown card flies out on an ease-out curve.
-fn cardTransition(pos: number, dragging: bool): string = (pos == -1 or not dragging) ? (pos == 0 ? "translate -exact-spring(260, 22, 1), rotate -exact-spring(260, 22, 1), scale 300ms ease-out, opacity 200ms ease-out" : "translate 420ms cubic-bezier(.2, .8, .2, 1), rotate 420ms cubic-bezier(.2, .8, .2, 1), scale 300ms ease-out, opacity 200ms ease-out") : "none"
+fn cardTransition(pos: number, dragging: bool): string = (pos == -1 || ! dragging) ? (pos == 0 ? "translate -exact-spring(260, 22, 1), rotate -exact-spring(260, 22, 1), scale 300ms ease-out, opacity 200ms ease-out" : "translate 420ms cubic-bezier(.2, .8, .2, 1), rotate 420ms cubic-bezier(.2, .8, .2, 1), scale 300ms ease-out, opacity 200ms ease-out") : "none"
 
 // One pink accent; the page, controls and verdicts use platform roles.
 style Brand
@@ -91,8 +91,8 @@ component Spark
   // The one after next (hidden until it moves up), the next, the top and
   // the parked card, in the data's bottom-to-top order so each paints over
   // the one before; each keyed by id, so a card keeps its node as it rises.
-  derive deck = profiles.filter((p) => p.n >= index - 1 and p.n <= index + 2)
-  derive topLikesYou = profiles.filter((p) => p.n == index and p.likesYou).length > 0
+  derive deck = profiles.filter((p) => p.n >= index - 1 && p.n <= index + 2)
+  derive topLikesYou = profiles.filter((p) => p.n == index && p.likesYou).length > 0
   // How far the top card is towards a decision, 0 to 1: the next card grows
   // with it, so it is already full size when the top one leaves.
   derive progress = unit(max(magnitude(x), 0 - y) / throwAt)
@@ -115,7 +115,7 @@ component Spark
       else
         stack = stack * 4 + decision
         likes = likes + (decision >= 2 ? 1 : 0)
-        matched = (decision >= 2 and topLikesYou) ? index : -1
+        matched = (decision >= 2 && topLikesYou) ? index : -1
         flungY = y
         flungPhoto = photo
         photo = 0
@@ -231,9 +231,9 @@ component Card
       row position="absolute" top=8 left=10 right=10 gap=4 testId=(pos == 0 ? "photo-pips" : `pips-${p.id}`)
         for u in p.photos key=u
           column flex=1 height=4 border-radius=2 background-color="-exact-label" opacity=(shown == u ? 1 : 0.4)
-      Stamp(testId=(pos == 0 ? "stamp-like" : `like-${p.id}`), label="LIKE", color="-exact-system-green", tilt=-16, shown=(pos == 0 ? (0 - y > magnitude(x) ? 0 : unit(x / stampAt)) : (pos == -1 and lastDir == 2 ? 1 : 0)), dragging=dragging, top=48, left=22)
-      Stamp(testId=(pos == 0 ? "stamp-nope" : `nope-${p.id}`), label="NOPE", color="-exact-system-red", tilt=16, shown=(pos == 0 ? (0 - y > magnitude(x) ? 0 : unit((0 - x) / stampAt)) : (pos == -1 and lastDir == 1 ? 1 : 0)), dragging=dragging, top=48, left=(cardWidth - 160))
-      Stamp(testId=(pos == 0 ? "stamp-super" : `super-${p.id}`), label="SUPER LIKE", color="-exact-system-blue", tilt=-8, shown=(pos == 0 ? (0 - y > magnitude(x) ? unit((0 - y) / stampAt) : 0) : (pos == -1 and lastDir == 3 ? 1 : 0)), dragging=dragging, top=150, left=(cardWidth / 2 - 100))
+      Stamp(testId=(pos == 0 ? "stamp-like" : `like-${p.id}`), label="LIKE", color="-exact-system-green", tilt=-16, shown=(pos == 0 ? (0 - y > magnitude(x) ? 0 : unit(x / stampAt)) : (pos == -1 && lastDir == 2 ? 1 : 0)), dragging=dragging, top=48, left=22)
+      Stamp(testId=(pos == 0 ? "stamp-nope" : `nope-${p.id}`), label="NOPE", color="-exact-system-red", tilt=16, shown=(pos == 0 ? (0 - y > magnitude(x) ? 0 : unit((0 - x) / stampAt)) : (pos == -1 && lastDir == 1 ? 1 : 0)), dragging=dragging, top=48, left=(cardWidth - 160))
+      Stamp(testId=(pos == 0 ? "stamp-super" : `super-${p.id}`), label="SUPER LIKE", color="-exact-system-blue", tilt=-8, shown=(pos == 0 ? (0 - y > magnitude(x) ? unit((0 - y) / stampAt) : 0) : (pos == -1 && lastDir == 3 ? 1 : 0)), dragging=dragging, top=150, left=(cardWidth / 2 - 100))
       // The photo's halves page through the photos on a tap and drag the card
       // otherwise: `pan` and `press` on one node (LLP 1057.001 §1 rule 4), not
       // a press inside a panning card, which would keep the contact (rule 3).

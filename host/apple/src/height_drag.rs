@@ -320,7 +320,7 @@ mod tests {
   state at = -1
   state open = true
   state closed = 0
-  task close when not open
+  task close when ! open
     after(300, done)
   action done
     closed = closed + 1

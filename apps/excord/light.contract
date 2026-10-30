@@ -11,9 +11,9 @@ members Excord
   resource lights = mentionLights(hid.attachedList) as shape HIDDeviceRecord[] else empty()
   mutation chosenLight as shape HIDDeviceRecord[]
   derive lightId = match lights.filter(l => l.connected).at(0) { case some(l) => l.id, case none => "" }
-  resource lit = setMentionLight(lightId, mentionLight and not locked and mentionTotal > 0) as shape Lit else empty()
+  resource lit = setMentionLight(lightId, mentionLight && ! locked && mentionTotal > 0) as shape Lit else empty()
   action toggleLight
-    mentionLight = not mentionLight
+    mentionLight = ! mentionLight
   action chooseLight
     send chosenLight = requestLight(filters=lightFilter)
     mentionLight = true
@@ -28,14 +28,14 @@ component MentionLightItems
     toggle: action
     choose: action
   view
-    if hid.available and (lightId != "" or on or not hid.attachedList)
+    if hid.available && (lightId != "" || on || ! hid.attachedList)
       hr
       if lightId != ""
         button press=toggle popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=on testId="light-switch"
           text "Mention Light"
-      else if known or (on and hid.attachedList)
+      else if known || (on && hid.attachedList)
         button disabled=true testId="light-missing"
           text "Mention Light: Not Connected"
-      if lightId == "" and not hid.attachedList
+      if lightId == "" && ! hid.attachedList
         button press=choose popovertarget="account-menu" popovertargetaction="hide" testId="choose-light"
           text "Choose Light…"

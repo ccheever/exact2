@@ -27,7 +27,7 @@ component ZoomTabs
                 else
                   view press=open id="zoom" testId="open" margin-top=100 margin-left=30 width=160 height=180 background-color="AccentColor"
                   button "Hide bar in photo" press=hideAndOpen testId="hide-open"
-      row role="tablist" testId="tabs" display=(hideInPhoto and top(nav).name == "photo" ? "none" : "flex")
+      row role="tablist" testId="tabs" display=(hideInPhoto && top(nav).name == "photo" ? "none" : "flex")
         button role="tab" aria-controls="panel-first" aria-selected=(nav.tab == "first") press=pick("first") flex=1
           image "symbol:home"
           text "First"

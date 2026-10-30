@@ -5,7 +5,7 @@
 component FontSmoothing
   state on = false
   action flip
-    on = not on
+    on = ! on
   view
     main testId="font-smoothing" position="relative" width=420 height=220 background-color="#ffffff" color="#000000" font-family="system-ui"
       column testId="auto" position="absolute" left=12 top=12 width=124 row-gap=6

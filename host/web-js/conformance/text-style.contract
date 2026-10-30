@@ -5,7 +5,7 @@
 component App
   state big = false
   action flip
-    big = not big
+    big = ! big
   view
     column testId="root" padding=8 gap=4
       button testId="flip" press=flip "Flip"

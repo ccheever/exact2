@@ -10,7 +10,7 @@
 component TextPaint
   state dark = false
   action scheme
-    dark = not dark
+    dark = ! dark
     setScheme(dark ? "light" : "dark")
   view
     main testId="text-paint" position="relative" width=390 height=460 background-color="light-dark(#ffffff, #121212)"

@@ -319,7 +319,7 @@ fn a_text_fields_type_is_a_choice_between_text_fields_types() {
     // parameter is written without a type.
     let field = |kind: &str| {
         format!(
-            "component App\n  state shown = false\n  state secret = \"\"\n  action toggle\n    shown = not shown\n  action keep(value)\n    secret = value\n  view\n    column\n      input value=secret change=keep type={kind} testId=\"secret\"\n      button press=toggle testId=\"toggle\"\n        text \"Show\"\n"
+            "component App\n  state shown = false\n  state secret = \"\"\n  action toggle\n    shown = ! shown\n  action keep(value)\n    secret = value\n  view\n    column\n      input value=secret change=keep type={kind} testId=\"secret\"\n      button press=toggle testId=\"toggle\"\n        text \"Show\"\n"
         )
     };
     let mut r = boot(&field("shown ? \"text\" : \"password\""));
@@ -734,7 +734,7 @@ fn a_date_carries_htmls_value_format_within_min_and_max() {
 #[test]
 fn spellcheck_and_autocorrect_take_a_bool_as_their_words() {
     let mut r = boot(
-        "component App\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      input spellcheck=false autocorrect=false testId=\"off\"\n      input spellcheck=on autocorrect=on testId=\"bound\"\n      input spellcheck=\"true\" autocorrect=\"on\" testId=\"words\"\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n",
+        "component App\n  state on = false\n  action flip\n    on = ! on\n  view\n    column\n      input spellcheck=false autocorrect=false testId=\"off\"\n      input spellcheck=on autocorrect=on testId=\"bound\"\n      input spellcheck=\"true\" autocorrect=\"on\" testId=\"words\"\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n",
     );
     let words = |r: &Runner<NoData>, id: &str| {
         let node = r.kernel().node(view_of(r, id)).unwrap();

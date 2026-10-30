@@ -54,15 +54,15 @@ component Recorder
   mutation installed as shape SpeechRecognitionInstall refreshes language, speech
   derive recording = recorderId != ""
   derive visibleTakes = library.takes.filter(t => t.name != takeName)
-  derive busy = pending(opened) or pending(started) or pending(saved)
+  derive busy = pending(opened) || pending(started) || pending(saved)
   derive denied = mic.state == "denied"
-  derive cannotRecord = busy or (not recording and (denied or not mic.available))
+  derive cannotRecord = busy || (! recording && (denied || ! mic.available))
   derive speechOff = speech.state == "denied"
   // A live transcript where the recognizer shares the take's track; Transcribe where it reads a file; neither
   // where it must own the microphone (D8).
-  derive speechReady = speech.available and speech.local and not speechOff and language.availability == "available"
-  derive live = speechReady and speech.inputs.includes("track")
-  derive fromFile = speechReady and speech.inputs.includes("file")
+  derive speechReady = speech.available && speech.local && ! speechOff && language.availability == "available"
+  derive live = speechReady && speech.inputs.includes("track")
+  derive fromFile = speechReady && speech.inputs.includes("file")
   derive lastHeard = heard.results.slice(-2).map(r => r.alternatives.slice(0, 1).map(a => a.transcript).join("")).join(" ")
   derive interimHeard = match heard.interim { case some(i) => i.alternatives.slice(0, 1).map(a => a.transcript).join(""), case none => "" }
   action toggle
@@ -150,7 +150,7 @@ component Recorder
     column testId="recorder" width="100%" height="100%" gap=16 padding=20 box-sizing="border-box" background-color="-exact-background" color="-exact-label" accent-color="light-dark(#0b66d6, #68a5fe)" font-family="system-ui"
       text "Recorder" font-size=24 font-weight=600
       audio-waveform track=trackId tint=(recording ? "#d1242f" : "#0b66d6") testId="waveform" width="100%" height=140 flex-shrink=0 padding=8 box-sizing="border-box" border-radius=12 background-color="-exact-secondary-background"
-      if recording and recognitionId != ""
+      if recording && recognitionId != ""
         text (lastHeard + (interimHeard == "" ? "" : " " + interimHeard)) testId="live-transcript" font-size=14 color="-exact-secondary-label"
       row gap=12 align-items="center"
         // System red and AccentColorText do not guarantee 4.5:1 on every host.
@@ -173,7 +173,7 @@ component Recorder
         text "Speech recognition is off for Recorder, so takes record without transcripts." testId="speech-denied" font-size=13 color="-exact-secondary-label"
         button press=openSettings testId="speech-settings"
           text "Open Settings"
-      if speech.available and not speechOff and language.availability != "available"
+      if speech.available && ! speechOff && language.availability != "available"
         text "Transcripts need an on-device language." testId="speech-local" font-size=13 color="-exact-secondary-label"
         if language.availability == "downloadable"
           button press=install disabled=pending(installed) testId="speech-install"
@@ -182,7 +182,7 @@ component Recorder
           text "Downloading language…" testId="speech-downloading"
         match installed
           case some(result)
-            if not result.installed
+            if ! result.installed
               text "The language could not be installed. Try again." testId="speech-install-failed"
           case none
             text ""
@@ -199,6 +199,6 @@ component Recorder
             audio src=take.path controls=true preload="metadata" width="100%" testId=("play-" + take.name)
             if take.transcript != ""
               text take.transcript testId=("transcript-" + take.name) font-size=13 color="-exact-secondary-label"
-            if fromFile and not take.complete and not recording
+            if fromFile && ! take.complete && ! recording
               button press=transcribe(take.path, take.name) disabled=(transcribing != "") testId=("transcribe-" + take.name)
                 text (transcribing == take.name ? "Transcribing…" : "Transcribe")

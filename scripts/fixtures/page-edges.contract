@@ -9,7 +9,7 @@ component PageEdges
   action shorten
     short = true
   action toggleHead
-    head = not head
+    head = ! head
   view
     main testId="app" width="100%" height="100%" display="flex" flex-direction="column"
       if head

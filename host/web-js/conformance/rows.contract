@@ -19,7 +19,7 @@ component Rows
   resource close = nearest(loc, 4) as shape Station[]
   state near = false
   state dropped = false
-  derive names = (near ? close : line).filter(s => not dropped or s.zone != 3).map(s => s.name)
+  derive names = (near ? close : line).filter(s => ! dropped || s.zone != 3).map(s => s.name)
   state scale = 1.5
   state positioned = false
   state flex = true
@@ -27,12 +27,12 @@ component Rows
   action rekey
     epoch = epoch + 1
   action paint
-    positioned = not positioned
-    flex = not flex
+    positioned = ! positioned
+    flex = ! flex
   action reverse
-    near = not near
+    near = ! near
   action drop
-    dropped = not dropped
+    dropped = ! dropped
   action grow
     scale = scale * 2
   view

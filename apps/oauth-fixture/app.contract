@@ -43,7 +43,7 @@ component OAuthFixture
         option "GitHub" value="github"
         option "Salesforce" value="salesforce"
       text (session.signedIn ? "Signed in" : "Signed out") testId="status"
-      if problem != "" and not pending(signedIn)
+      if problem != "" && ! pending(signedIn)
         text problem color="-exact-system-red" testId="error"
       if session.signedIn
         text me.name testId="name"

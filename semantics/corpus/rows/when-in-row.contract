@@ -20,7 +20,7 @@ component Row
     index: number
   state open = false
   action toggle
-    open = not open
+    open = ! open
   view
     column
       button "t" press=toggle testId=`t-${index}`

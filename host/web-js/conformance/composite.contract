@@ -13,7 +13,7 @@ keyframes fade
 component Composite
   state on = false
   action flip
-    on = not on
+    on = ! on
   view
     column testId="root" padding=10 gap=8
       button press=flip testId="flip"

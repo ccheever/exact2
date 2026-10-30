@@ -143,8 +143,8 @@ component Expose
   resource power = powerState() as shape PowerState else empty()
   derive known = battery.level >= 0
   derive fill = known ? round(battery.level * 35) / 2 : 17.5
-  derive charging = known and battery.charging
-  derive saving = known and power.lowPowerMode
+  derive charging = known && battery.charging
+  derive saving = known && power.lowPowerMode
 
   mutation reply as shape Turn refreshes chat, inbox
   mutation cleared as shape Turn refreshes chat, inbox
@@ -159,19 +159,19 @@ component Expose
   resource inbox = inbox(replyRevision + clearedRevision, liveKey) as shape Inbox
   resource chat = conversation(thread, replyRevision + clearedRevision, liveKey) as shape Conversation
   resource intelligence = intelligence(savedRevision) as shape Intelligence
-  derive inThread = screen == "messages" and thread == "expose"
-  derive banner = bannerAt > 0 and not inThread
+  derive inThread = screen == "messages" && thread == "expose"
+  derive banner = bannerAt > 0 && ! inThread
 
   action tick
     let stamp = performanceNow()
-    let nextBannerAt = replyDone and replyRevision != bannerSeen and not inThread ? stamp : bannerAt
+    let nextBannerAt = replyDone && replyRevision != bannerSeen && ! inThread ? stamp : bannerAt
     if nowMs == 0
       setScheme(appearance)
     nowMs = stamp
-    if replyDone and replyRevision != bannerSeen
+    if replyDone && replyRevision != bannerSeen
       bannerSeen = replyRevision
-    bannerAt = nextBannerAt > 0 and stamp - nextBannerAt > 7000 ? 0 : nextBannerAt
-    if toastAt > 0 and stamp - toastAt > 2600
+    bannerAt = nextBannerAt > 0 && stamp - nextBannerAt > 7000 ? 0 : nextBannerAt
+    if toastAt > 0 && stamp - toastAt > 2600
       toastAt = 0
   task ticker mount
     every(1000, tick)
@@ -281,13 +281,13 @@ component Expose
                   if t.id == "expose"
                     Notice(id="expose", glyph="E", app="Messages", title="Expose", body=t.preview, time="now", press=openThread("expose"))
               if dismissed != "all"
-                if not dismissed.includes("nico")
+                if ! dismissed.includes("nico")
                   Notice(id="nico", glyph="M", app="Messages", title="Nico", body="Can you push the build to Silver tonight? I want to see the lock screen on the 4a Pro.", time="now", press=openThread("nico"))
-                if not dismissed.includes("reader")
+                if ! dismissed.includes("reader")
                   Notice(id="reader", glyph="R", app="Reader", title="Reader", body="New this morning: The clock is the loudest thing on your phone", time="12m", press=openArticle("loud-clock"))
-                if not dismissed.includes("crew")
+                if ! dismissed.includes("crew")
                   Notice(id="crew", glyph="M", app="Messages", title="Type Crew", body="James: I still think the g needs a smaller ear", time="1h", press=openThread("crew"))
-                if not dismissed.includes("update")
+                if ! dismissed.includes("update")
                   Notice(id="update", glyph="E", app="Settings", title="Expose", body="Expose 1.0 is ready. It will install tonight while the phone charges.", time="3h", press=openPage("about"))
                 row justify-content="center" padding-top=4
                   button press=clearNotices testId="clear-notices" -exact-press-scale=0.95 height=32 padding-left=16 padding-right=16 border-radius=16 background-color="veil11" display="flex" flex-direction="row" align-items="center"
@@ -418,13 +418,13 @@ component Expose
                       text "E" font-family="glyphFace" font-weight=900 font-size=36 line-height="40px" color="reverse"
                     text "Expose" font-family="liltFace" font-weight=700 font-size=20
                     text `${intelligence.modelName} · via OpenRouter` font-size=12 class=Muted
-                    if not intelligence.hasKey
+                    if ! intelligence.hasKey
                       button press=openPage("intelligence") testId="thread-add-key" -exact-press-scale=0.97 margin-top=4 height=34 padding-left=14 padding-right=14 border-radius=17 background-color="signal" display="flex" flex-direction="row" align-items="center"
                         text "Add an OpenRouter key" font-size=14 font-weight=600 color="AccentColorText"
                 else
                   text (thread == "mom" ? "Saturday 6:02 PM" : thread == "builds" ? "Yesterday 11:20 PM" : "Today 8:20 AM") font-size=12 font-weight=500 class=Muted text-align="center" padding-bottom=10
                 for m in chat.messages key=m.id
-                  if chat.kind != "assistant" and m.role == "them" and chat.id == "crew"
+                  if chat.kind != "assistant" && m.role == "them" && chat.id == "crew"
                     text m.sender font-size=12 class=Muted padding-left=14 margin-top=6
                   Bubble(id=m.id, body=m.body, role=m.role, streaming=m.streaming, scale=scale)
                 if chat.error != ""
@@ -437,7 +437,7 @@ component Expose
                   path d="M12 5v14M5 12h14" fill="none" stroke="fore" stroke-width=2.4 stroke-linecap="round"
               row flex=1 min-width=0 min-height=36 border-radius=18 border-style="solid" border-width=1 border-color="fieldRim" align-items="center" padding-left=14 padding-right=4 gap=6
                 input appearance="none" id="composer" testId="composer" value=draft input=write submit=sendDraft placeholder=(chat.kind == "assistant" ? "Ask Expose" : "Message") aria-label="Message" flex=1 min-width=0 height=34 border-width=0 font-size=(17 * scale) color="fore" disabled=(chat.kind != "assistant")
-                if draft.trim() != "" and chat.kind == "assistant"
+                if draft.trim() != "" && chat.kind == "assistant"
                   button press=sendDraft testId="send" aria-label="Send" -exact-press-scale=0.9 width=28 height=28 border-radius=14 background-color="signal" display="flex" flex-direction="row" align-items="center" justify-content="center"
                     svg viewBox="0 0 24 24" width=16 height=16
                       path d="M12 19V6M6 12l6-6 6 6" fill="none" stroke="AccentColorText" stroke-width=2.6 stroke-linecap="round" stroke-linejoin="round"

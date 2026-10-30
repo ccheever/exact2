@@ -148,7 +148,7 @@ component Groceries
   resource groceries = loadItems() as shape Item[] else empty()
   mutation added as shape Reply refreshes groceries then afterAdd
   mutation saved as shape Reply queue refreshes groceries
-  derive left = groceries.filter(i => not i.done).length
+  derive left = groceries.filter(i => ! i.done).length
   derive addError = match added { case some(r) => r.error, case none => "" }
 
   action edit(v: string)
@@ -169,7 +169,7 @@ component Groceries
           column flex=1 min-width=0 gap=4
             input value=draft input=edit submit=add placeholder="Add an item"
               aria-label="New item" testId="draft"
-            if addError != "" and not pending(added)
+            if addError != "" && ! pending(added)
               text addError font="-exact-footnote" color="-exact-system-red" testId="add-error"
           button press=add disabled=(draft.trim() == "") buttonStyle="filled" testId="add"
             text "Add"
@@ -192,7 +192,8 @@ component Groceries
   blur; its handler should normalize the draft. Use `submit` for explicit submission.
 - **Expressions** are TypeScript's: what compiles means what it means in TypeScript, and
   what does not is refused with what to write. The web's string and array methods are
-  methods (`s.trim()`, `xs.filter(x => …)`, `xs.length`); the rest are functions
+  methods (`s.trim()`, `xs.filter(x => …)`, `xs.length`); boolean logic is `&&`, `||`, `!`.
+  The rest are functions
   (`first(xs)`, `round(n)`). What differs: no truthiness; absence is an option (`none`,
   `some(x)`, `match`), not `null`; a value never changes (`xs.concat([x])`, a record copy
   `Shape(old, field=value)`); `==` compares lists and records by value; a stored number is

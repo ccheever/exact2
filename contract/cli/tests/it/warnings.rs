@@ -561,7 +561,7 @@ fn a_read_before_the_assignment_on_another_path_or_of_a_let_is_not_named() {
         // both satisfy; the right of an `and` runs where its left held.
         (
             "exclusive",
-            "if mode == \"a\"\n  count = 1\nif mode == \"b\"\n  doubled = count\nif mode == \"b\" and count > 0\n  shown = \"b\"",
+            "if mode == \"a\"\n  count = 1\nif mode == \"b\"\n  doubled = count\nif mode == \"b\" && count > 0\n  shown = \"b\"",
         ),
         // A chain over the starting state steps once an action.
         (
@@ -821,7 +821,7 @@ fn symbols_answer_to_apple_names_and_aliases_and_the_plan_carries_the_role() {
     }
     // Each arm of a choice is its role, and warns once; an unknown name in an arm is refused.
     let (plan, warnings) = contract::compile_warned(
-        "component App\n  state on = false\n  view\n    button press=toggle aria-label=\"Mark\"\n      image (on ? \"symbol:checkmark.circle.fill\" : \"symbol:circle\")\n  action toggle\n    on = not on\n",
+        "component App\n  state on = false\n  view\n    button press=toggle aria-label=\"Mark\"\n      image (on ? \"symbol:checkmark.circle.fill\" : \"symbol:circle\")\n  action toggle\n    on = ! on\n",
     );
     assert!(plan
         .unwrap()

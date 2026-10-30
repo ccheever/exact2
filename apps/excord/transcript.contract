@@ -14,14 +14,14 @@ fn codeColor(kind: string): string = kind == "hl-keyword" ? "-exact-system-pink"
 
 // A message's time as Discord writes it: "Today at 4:42 PM", "Yesterday at …", then the weekday within
 // the week and the short date before it ("Tuesday, 4:42 PM", "10/11/26, 4:42 PM").
-fn recent(day: string): bool = day == "Today" or day == "Yesterday" or day == "Tomorrow"
+fn recent(day: string): bool = day == "Today" || day == "Yesterday" || day == "Tomorrow"
 fn stamp(at: number, clock: number, offset: number): string = recent(formatDay(at, clock, offset, "day")) ? formatDay(at, clock, offset, "day-time") : `${formatDay(at, clock, offset, "list")}, ${formatTime(at, offset, "short")}`
 
 // How long a poll has left, as Discord words it.
 fn timeLeft(ms: number): string = ms >= 86400000 ? `${floor(ms / 86400000)}d left` : ms >= 3600000 ? `${floor(ms / 3600000)}h left` : `${max(1, ceil(ms / 60000))}m left`
 fn votes(n: number): string = n == 1 ? "1 vote" : `${formatNumber(n, "decimal")} votes`
 
-fn decoration(r: Run): string = r.underline and r.strike ? "underline line-through" : r.underline ? "underline" : r.strike ? "line-through" : "none"
+fn decoration(r: Run): string = r.underline && r.strike ? "underline line-through" : r.underline ? "underline" : r.strike ? "line-through" : "none"
 
 component MessageRow
   props
@@ -58,8 +58,8 @@ component MessageRow
     // Translations kept for the session, and Show Original's action (translate.contract).
     translations: Translated[]
     original: action
-  derive dayChange = m.prevAt == 0 or formatDate(m.at, offset, "iso") != formatDate(m.prevAt, offset, "iso")
-  derive leads = not m.grouped or dayChange or isNew or m.reply.length > 0
+  derive dayChange = m.prevAt == 0 || formatDate(m.at, offset, "iso") != formatDate(m.prevAt, offset, "iso")
+  derive leads = ! m.grouped || dayChange || isNew || m.reply.length > 0
   view
     column id=`message-${m.key}` testId=`message-${m.id}` padding-top=(leads ? 14 : 1) padding-bottom=1
       if dayChange
@@ -120,7 +120,7 @@ component MessageRow
               column flex=1 min-width=0 gap=4
                 if leads
                   row gap=6 align-items="baseline" flex-wrap="wrap"
-                    text m.author font-weight=600 min-width=0 max-width="100%" overflow-wrap="break-word" color=(not contrast and m.color != "" ? m.color : "-exact-label") press=profile(m.authorId, m.id) testId=`author-${m.id}`
+                    text m.author font-weight=600 min-width=0 max-width="100%" overflow-wrap="break-word" color=(! contrast && m.color != "" ? m.color : "-exact-label") press=profile(m.authorId, m.id) testId=`author-${m.id}`
                     if m.bot
                       Badge(label="APP", tint=some("AccentColor"))
                     text stamp(m.at, clock, offset) font="-exact-caption1" color="-exact-secondary-label"
@@ -142,14 +142,14 @@ component MessageRow
                       for i, n in m.media key=i.id
                         TileView(i=i, mkey=m.key, square=false, tall=(n == 0), revealed=revealed, reveal=reveal, show=show)
                   else if m.media.length > 1
-                    view display="grid" grid-template-columns=(m.media.length == 2 or m.media.length == 4 ? "1fr 1fr" : "1fr 1fr 1fr") gap=4 max-width="26rem" border-radius=8 overflow="hidden" testId=`mosaic-${m.key}`
+                    view display="grid" grid-template-columns=(m.media.length == 2 || m.media.length == 4 ? "1fr 1fr" : "1fr 1fr 1fr") gap=4 max-width="26rem" border-radius=8 overflow="hidden" testId=`mosaic-${m.key}`
                       for i in m.media key=i.id
                         TileView(i=i, mkey=m.key, square=true, tall=false, revealed=revealed, reveal=reveal, show=show)
                   else
                     for i in m.media key=i.id
                       MediaView(i=i, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
                   for f in m.files key=f.id
-                    if f.spoiler and not revealed.includes(`${m.key}:${f.id}`)
+                    if f.spoiler && ! revealed.includes(`${m.key}:${f.id}`)
                       button appearance="none" press=reveal(`${m.key}:${f.id}`) align-self="flex-start" padding="12px 20px" border-radius=8 background-color="-exact-secondary-label" aria-label="Spoiler file, double tap to reveal" testId=`file-${m.key}-${f.id}`
                         text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background"
                     else
@@ -187,7 +187,7 @@ component MessageRow
                     button press=discard(m.key) destructive=true testId=`discard-${m.id}`
                       text "Delete"
             // A pointer's quick actions, at the message's top right.
-            if hovered and m.state == "sent"
+            if hovered && m.state == "sent"
               row position="absolute" top=-14 right=16 padding=2 gap=2 border-radius=8 border="1px solid -exact-separator" background-color="-exact-background" testId=`tools-${m.id}`
                 button appearance="none" press=react(m.id, "👍") padding="4px 6px" border-radius=6 aria-label="React with thumbs up" testId=`tool-react-${m.id}`
                   text "👍"
@@ -273,7 +273,7 @@ component Runs
   derive ink = kind == "subtext" ? "-exact-secondary-label" : "-exact-label"
   view
     for r in runs key=r.id
-      if r.spoiler != "" and not revealed.includes(`${mkey}:${r.spoiler}`)
+      if r.spoiler != "" && ! revealed.includes(`${mkey}:${r.spoiler}`)
         text r.text font=face font-weight=(r.bold ? 700 : weight) font-style=(r.italic ? "italic" : "normal")
           background-color="-exact-system-gray" color="-exact-system-gray" border-radius=3
           aria-label="Spoiler" press=reveal(`${mkey}:${r.spoiler}`) testId=`spoiler-${mkey}-${r.spoiler}`
@@ -282,20 +282,20 @@ component Runs
           TimeRun(r=r, face=face, weight=weight, ink=ink)
         else
           if r.kind == "code"
-            if kind == "heading" or kind == "subtext"
+            if kind == "heading" || kind == "subtext"
               text r.text font=face font-family="ui-monospace" font-weight=weight color=ink background-color="-exact-tertiary-fill" border-radius=4
             else
               text r.text font-family="ui-monospace" font-size="0.875em" background-color="-exact-tertiary-fill" border-radius=4
           else
             // A link to Discord opens in the app; any other in the browser.
-            if r.kind == "link" and r.ref != ""
+            if r.kind == "link" && r.ref != ""
               text r.text color="AccentColor" press=follow(r.ref) font=face font-weight=(weight == 700 ? 700 : r.bold ? 600 : 400) font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) testId=`follow-${mkey}-${r.id}`
             else if r.kind == "link"
               text r.text href=r.href font=face font-weight=(weight == 700 ? 700 : r.bold ? 600 : 400) font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
             else
-              if (r.kind == "user" or r.kind == "channel") and r.ref != ""
+              if (r.kind == "user" || r.kind == "channel") && r.ref != ""
                 text r.text font=face font-weight=(weight == 700 ? 700 : 500) color="AccentColor" background-color="-exact-tertiary-fill" border-radius=4 press=follow(r.ref) testId=`follow-${mkey}-${r.id}`
-              else if r.kind == "user" or r.kind == "role" or r.kind == "channel" or r.kind == "everyone"
+              else if r.kind == "user" || r.kind == "role" || r.kind == "channel" || r.kind == "everyone"
                 text r.text font=face font-weight=(weight == 700 ? 700 : 500) color="AccentColor" background-color="-exact-tertiary-fill" border-radius=4
               else
                 if r.kind == "edited"
@@ -351,8 +351,8 @@ component MediaView
     revealed: string[]
     reveal: action
     show: action
-  derive sized = i.width > 0 and i.height > 0
-  derive covered = i.spoiler and not revealed.includes(`${mkey}:${i.id}`)
+  derive sized = i.width > 0 && i.height > 0
+  derive covered = i.spoiler && ! revealed.includes(`${mkey}:${i.id}`)
   view
     view position="relative" width=(sized ? i.fitWidth : 320) max-width="100%" aspect-ratio=(sized ? `${i.width} / ${i.height}` : covered ? "16 / 9" : "auto") border-radius=8 overflow="hidden" background-color="-exact-secondary-background" testId=`media-${mkey}-${i.id}`
       if covered
@@ -374,7 +374,7 @@ component TileView
     show: action
   view
     view position="relative" aspect-ratio=(square ? "1 / 1" : "auto") grid-row=(tall ? "1 / 3" : "auto") overflow="hidden" background-color="-exact-secondary-background" testId=`media-${mkey}-${i.id}`
-      if i.spoiler and not revealed.includes(`${mkey}:${i.id}`)
+      if i.spoiler && ! revealed.includes(`${mkey}:${i.id}`)
         button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-secondary-label" aria-label="Reveal spoiler image" testId=`reveal-media-${mkey}-${i.id}`
           text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background" margin="auto"
       else
@@ -426,11 +426,11 @@ component EmbedView
                     BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
           for i in e.image key=i.id
             MediaView(i=i, mkey=mkey, revealed=revealed, reveal=reveal, show=show)
-          if e.footer != "" or e.at > 0
+          if e.footer != "" || e.at > 0
             row gap=6 align-items="center" padding-top=2 min-width=0
               if e.footerIcon != ""
                 image e.footerIcon width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 aria-hidden=true
-              text (e.footer != "" and e.at > 0 ? `${e.footer} • ${stamp(e.at, clock, offset)}` : e.footer != "" ? e.footer : stamp(e.at, clock, offset)) font="-exact-caption1" color="-exact-secondary-label" min-width=0 overflow-wrap="break-word" testId=`footer-${mkey}-${e.id}`
+              text (e.footer != "" && e.at > 0 ? `${e.footer} • ${stamp(e.at, clock, offset)}` : e.footer != "" ? e.footer : stamp(e.at, clock, offset)) font="-exact-caption1" color="-exact-secondary-label" min-width=0 overflow-wrap="break-word" testId=`footer-${mkey}-${e.id}`
         for t in e.thumbnail key=t.id
           image t.src width=72 height=72 object-fit="cover" border-radius=6 margin="10px 10px 10px 0px" flex-shrink=0 aria-label=t.alt
 
@@ -446,8 +446,8 @@ component PollView
     picks: string[]
     results: bool
     poll: action
-  derive ended = p.closed or (p.expiry > 0 and clock >= p.expiry)
-  derive tally = ended or p.voted or results
+  derive ended = p.closed || (p.expiry > 0 && clock >= p.expiry)
+  derive tally = ended || p.voted || results
   derive chosen = picks.filter(k => k.startsWith(`${mid}:`)).length
   view
     column max-width="28rem" padding=16 gap=12 border-radius=8 border="1px solid -exact-separator" background-color="-exact-secondary-background" testId=`poll-${mkey}`
@@ -466,7 +466,7 @@ component PollView
               else if a.emoji != ""
                 text a.emoji
               text a.text flex=1 min-width=0 font-weight=(a.winner ? 600 : 400)
-              if a.me or a.winner
+              if a.me || a.winner
                 image "symbol:select-fill" width=18 height=18 color=(a.me ? "AccentColor" : "-exact-system-green")
               if p.known
                 text votes(a.count) font="-exact-footnote" color="-exact-secondary-label" font-variant-numeric="tabular-nums" testId=`poll-${mkey}-${a.id}-votes`
@@ -485,13 +485,13 @@ component PollView
                   color=(picks.includes(`${mid}:${a.id}`) ? "AccentColor" : "-exact-tertiary-label")
       row align-items="center" gap=12 flex-wrap="wrap"
         text `${p.known ? `${votes(p.votes)} · ` : ""}${ended ? "Poll closed" : p.expiry > 0 ? timeLeft(p.expiry - clock) : "No end"}` font="-exact-footnote" color="-exact-secondary-label" font-variant-numeric="tabular-nums"
-        if not ended and not p.voted
+        if ! ended && ! p.voted
           button appearance="none" press=poll(results ? "back" : "results", mid, "", p.multi) testId=`poll-${mkey}-results`
             text (results ? "Go back to vote" : "Show results") font="-exact-footnote" font-weight=600 color="AccentColor"
-        if not ended and p.voted
+        if ! ended && p.voted
           button appearance="none" press=poll("unvote", mid, "", p.multi) testId=`poll-${mkey}-unvote`
             text "Remove vote" font="-exact-footnote" font-weight=600 color="AccentColor"
-        if not tally
+        if ! tally
           view flex=1
           button press=poll("vote", mid, "", p.multi) disabled=(chosen == 0) buttonStyle="filled" testId=`poll-${mkey}-vote`
             text "Vote"

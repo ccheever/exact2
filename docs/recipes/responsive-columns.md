@@ -54,7 +54,7 @@ refused. Put one `intersect=` marker after the columns, inside their scroller:
 component Feed
   state cards = [0, 1, 2]
   action loadMore(entry: IntersectionObserverEntry)
-    if entry.isIntersecting and cards.length < 12
+    if entry.isIntersecting && cards.length < 12
       let next = cards.length
       cards = cards.concat([next, next + 1, next + 2])
   view

@@ -35,13 +35,13 @@ component Keys
     heard = `${heard}f${k}`
     if k == "x"
       preventDefault()
-    if k == "Escape" or (k == "Enter" and text == "go")
+    if k == "Escape" || (k == "Enter" && text == "go")
       stopPropagation()
   action outer(k: string, e: KeyboardEvent)
     heard = `${heard}o${k}${e.repeat ? "r" : ""}`
-    if k == "Enter" and text == ""
+    if k == "Enter" && text == ""
       preventDefault()
-    if (e.metaKey or e.ctrlKey) and k == "s"
+    if (e.metaKey || e.ctrlKey) && k == "s"
       saved = saved + 1
       preventDefault()
   action grid(k: string)
@@ -59,7 +59,7 @@ component Keys
   action write(v: string)
     draft = v
   action compose(k: string, e: KeyboardEvent)
-    if k == "Enter" and not e.shiftKey
+    if k == "Enter" && ! e.shiftKey
       sent = draft
       draft = ""
       preventDefault()

@@ -22,7 +22,7 @@ fn view(host: &Host<NoData>, test_id: &str) -> u32 {
 
 #[test]
 fn a_change_to_a_controls_viewless_contents_says_controls() {
-    let src = "component App\n  state on = false\n  state other = false\n  action flip\n    on = not on\n  action poke\n    other = not other\n  view\n    column\n      button appearance=\"auto\" buttonStyle=\"bordered\" press=poke testId=\"native\"\n        text (on ? \"Sent\" : \"Send\")\n      select testId=\"choice\" value=\"a\"\n        option value=\"a\" disabled=on\n          text \"A\"\n        option value=\"b\"\n          text \"B\"\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n      text (other ? \"Yes\" : \"No\") testId=\"other\"\n";
+    let src = "component App\n  state on = false\n  state other = false\n  action flip\n    on = ! on\n  action poke\n    other = ! other\n  view\n    column\n      button appearance=\"auto\" buttonStyle=\"bordered\" press=poke testId=\"native\"\n        text (on ? \"Sent\" : \"Send\")\n      select testId=\"choice\" value=\"a\"\n        option value=\"a\" disabled=on\n          text \"A\"\n        option value=\"b\"\n          text \"B\"\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n      text (other ? \"Yes\" : \"No\") testId=\"other\"\n";
     let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
     let (mut host, _) = Host::boot(
         &plan.encode(),
@@ -47,9 +47,9 @@ fn a_change_to_a_controls_viewless_contents_says_controls() {
 #[test]
 fn each_viewless_change_alone_says_controls() {
     for (label, src) in [
-        ("face text", "component App\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      button appearance=\"auto\" buttonStyle=\"bordered\" testId=\"native\"\n        text (on ? \"Sent\" : \"Send\")\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n"),
-        ("option", "component App\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      select testId=\"choice\" value=\"a\"\n        option value=\"a\" disabled=on\n          text \"A\"\n        option value=\"b\"\n          text \"B\"\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n"),
-        ("face swap", "component App\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      button appearance=\"auto\" buttonStyle=\"bordered\" aria-label=\"Go\" testId=\"native\"\n        if on\n          image \"symbol:sf/checkmark\"\n        else\n          text \"Go\"\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n"),
+        ("face text", "component App\n  state on = false\n  action flip\n    on = ! on\n  view\n    column\n      button appearance=\"auto\" buttonStyle=\"bordered\" testId=\"native\"\n        text (on ? \"Sent\" : \"Send\")\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n"),
+        ("option", "component App\n  state on = false\n  action flip\n    on = ! on\n  view\n    column\n      select testId=\"choice\" value=\"a\"\n        option value=\"a\" disabled=on\n          text \"A\"\n        option value=\"b\"\n          text \"B\"\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n"),
+        ("face swap", "component App\n  state on = false\n  action flip\n    on = ! on\n  view\n    column\n      button appearance=\"auto\" buttonStyle=\"bordered\" aria-label=\"Go\" testId=\"native\"\n        if on\n          image \"symbol:sf/checkmark\"\n        else\n          text \"Go\"\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n"),
     ] {
         let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
         let (mut host, _) = Host::boot(

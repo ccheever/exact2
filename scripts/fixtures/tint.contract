@@ -2,7 +2,7 @@
 component Tint
   state dark = false
   action scheme
-    dark = not dark
+    dark = ! dark
     setScheme(dark ? "light" : "dark")
   view
     main width=390 height=460 background-color="#ffffff"

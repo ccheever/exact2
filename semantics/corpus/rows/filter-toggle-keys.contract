@@ -11,9 +11,9 @@ component App
   derive ab = a.length >= b.length ? a : b
   derive items = ab.length >= c.length ? ab : c
   state onlyOn = false
-  derive shown = items.filter(it => not onlyOn or it.on)
+  derive shown = items.filter(it => ! onlyOn || it.on)
   action toggle
-    onlyOn = not onlyOn
+    onlyOn = ! onlyOn
   view
     column
       button "toggle" press=toggle testId="toggle"

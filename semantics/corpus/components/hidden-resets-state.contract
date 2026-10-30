@@ -4,7 +4,7 @@
 component App
   state open = true
   action toggle
-    open = not open
+    open = ! open
   view
     column
       button "toggle" press=toggle testId="toggle"

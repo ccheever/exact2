@@ -16,7 +16,7 @@ fn a_tinted_raster_is_its_alpha_masking_the_tint() {
         r##"component App
   state wide = false
   action toggle
-    wide = not wide
+    wide = ! wide
   view
     column
       button "Toggle" press=toggle testId="toggle"
