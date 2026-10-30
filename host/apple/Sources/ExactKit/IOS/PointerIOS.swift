@@ -107,9 +107,13 @@ final class PointerRecognizer: UIGestureRecognizer {
         let lifetimes = pressPath == nil && target != nil ? source.map { presenter?.pressLifetimes(from: $0, to: target) ?? [] } ?? [] : []
         // A handler may disable a node further up before its turn, or stop
         // this down; the up's path and the hold stay.
+        presenter?.defaultPrevented = false
         dispatch(path.compactMap(\.node).filter { $0.handlers.contains("pointerdown") }) { n in
             if !n.disabled { n.presenter?.pointer(n.id, .down, sample(first, at: n)) }
         }
+        // Prevented, the view it went down on takes no focus from this touch (LLP 1005 §3).
+        if presenter?.defaultPrevented == true { presenter?.preventedTouches.add(first) }
+        presenter?.defaultPrevented = false
         if let pressPath, let presenter {
             if !pressPath.isLive(in: presenter) { presenter.cancelledPressTouches.add(first) }
         } else if !lifetimes.allSatisfy({ $0() }) { presenter?.cancelledPressTouches.add(first) }
@@ -183,6 +187,8 @@ final class PointerRecognizer: UIGestureRecognizer {
     private func lift(_ touches: Set<UITouch>) {
         guard let held = touch, touches.contains(held) else { return }
         touch = nil
+        // A turn later, once UIKit's own tap (a field's focus) has had the lift.
+        if presenter?.preventedTouches.contains(held) == true { DispatchQueue.main.async { [weak presenter] in presenter?.preventedTouches.remove(held) } }
         presenter?.cancelledPressTouches.remove(held)
         let nodes = path.compactMap(\.node).filter { $0.handlers.contains("pointerup") }
         path = []
@@ -624,6 +630,16 @@ extension NodeView {
         guard let presenter else { return nil }
         let handoff = presenter.beginPress(control: target.map { $0.textArea ?? $0.field ?? $0 })
         guard !presenter.contextRetainsFocus(self) else { return handoff }
+        // A press whose `pointerdown` an action prevented moves no focus, nor ends the editing there (LLP 1005 §3);
+        // what was typed is committed (`change`), as every press commits it on the Mac.
+        if keepsFocus(from: self) {
+            // Not while an input method composes: the confirmed text commits at its end, as the Mac waits for it.
+            if let id = presenter.edited, let field = presenter.views[id], (field.field?.markedTextRange ?? field.textArea?.markedTextRange) == nil,
+               let text = field.field?.text ?? field.textArea?.text {
+                presenter.commitEdit(id, text, change: field.handlers.contains("change"))
+            }
+            return handoff
+        }
         let bubbled = target.map { presenter.pressBox(of: $0, from: self) !== $0 } ?? false
         var at: UIView? = self
         while let view = at, view !== presenter.viewport, view !== presenter.documentMount {
@@ -675,6 +691,19 @@ extension NodeView {
         var at: UIView? = view
         while let candidate = at { if let node = candidate as? NodeView { return node }; at = candidate.superview }
         return nil
+    }
+}
+#endif
+
+#if os(iOS) || os(tvOS)
+extension NodeView {
+    /// Whether `view` keeps out of the focus a touch whose `pointerdown` an
+    /// action prevented (`Presenter.preventedTouches`): the view it went down
+    /// on, and those it is in, until a turn after its lift (LLP 1005 §3).
+    /// An action's own `focus()` (`Presenter.authoredFocus`) still reaches it.
+    func keepsFocus(from view: UIView) -> Bool {
+        guard presenter?.authoredFocus != true else { return false }
+        return presenter?.preventedTouches.allObjects.contains { touch in touch.view.map { $0 === view || $0.isDescendant(of: view) } ?? false } ?? false
     }
 }
 #endif

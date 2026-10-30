@@ -1556,9 +1556,20 @@ stops that event at its handler, as DOM's
 does: no handler after it hears that event. The stop is that event's alone. A
 stopped `pointerdown` still sends its `pointerup` to every node it passed, and
 the pointer's moves stay with the node that holds them. The event's default
-action still happens: only `preventDefault()` stops a key's typing or a
-wheel's scroll, and a stopped `pointerdown` or `pointerup` leaves the click's
-`press` alone.
+action still happens: only `preventDefault()` stops a key's typing, a
+wheel's scroll or a press's focus move, and a stopped `pointerdown` or
+`pointerup` leaves the click's `press` alone. A `pointerdown` action that
+calls `preventDefault()` keeps the focus where it is, places no caret and
+starts no selection, as Chrome's does, by mouse and by touch; the `press`
+still fires, and an action's own `focus()` still moves the focus. (On iOS a
+field that already has the focus still places its caret where the touch
+lifts; LLP 1005 §3.) A formatting toolbar keeps its editor focused so:
+
+```text
+action keep(e: PointerEvent)
+  preventDefault()
+button pointerdown=keep press=bold …
+```
 
 `press` is DOM's `click` stopped at its handler: a press goes to the nearest
 node from the one pressed up that takes a press (a `press` handler or a

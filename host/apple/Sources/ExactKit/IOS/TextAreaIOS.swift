@@ -108,6 +108,7 @@ final class TextField: UITextField {
     /// no selection of the person's; one a script set while it had no focus
     /// is shown instead (x2apps codeedit #2).
     override func becomeFirstResponder() -> Bool {
+        if owner?.keepsFocus(from: self) == true { return false } // a prevented pointerdown's touch (LLP 1005 §3)
         let selections = owner?.presenter?.fieldSelections
         let ok = selections?.quietly { super.becomeFirstResponder() } ?? super.becomeFirstResponder()
         if ok, let owner { selections?.focused(owner) }
@@ -303,6 +304,7 @@ package final class TextArea: UITextView {
         if !remaining.isEmpty {super.pressesCancelled(remaining,with:event)}
     }
     package override func becomeFirstResponder() -> Bool {
+        if owner?.keepsFocus(from: self) == true { return false } // a prevented pointerdown's touch (LLP 1005 §3)
         let wasFirst = isFirstResponder
         let focused = super.becomeFirstResponder()
         // Read-only selection has no editing-began delegate callback.

@@ -341,7 +341,8 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
         return UIView()
     }
     func interactionShouldBegin(_ interaction: UITextInteraction, at point: CGPoint) -> Bool {
-        guard let node, host.admits(node) else { return false }
+        // Not under a touch whose `pointerdown` an action prevented: it starts no selection (LLP 1005 §3).
+        guard let node, host.admits(node), !node.keepsFocus(from: node), !(document.map { node.keepsFocus(from: $0.surface) } ?? false) else { return false }
         return true
     }
 
