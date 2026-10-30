@@ -353,7 +353,7 @@ fn about_to_wait_honors_retry_pending_redraw_and_earlier_timer() {
         app.about_to_wait(events);
         assert_eq!(events.control_flow(), ControlFlow::Wait);
         // A runner wake must win over the presenter's later retry.
-        let timed = contract::compile("component App\n  state n: Int = 0\n  action bump\n    n = n + 1\n  every(500, bump)\n  view\n    text \"idle\"\n").unwrap().encode();
+        let timed = contract::compile("component App\n  state n = 0\n  action bump\n    n = n + 1\n  task timer mount\n    every(500, bump)\n  view\n    text \"idle\"\n").unwrap().encode();
         let (mut p, _) = Presenter::boot_with(&timed, (), (160., 80.), 1., Default::default(),
             exact_linux::presenter::PainterChoice::Cpu).unwrap();
         p.frame();
