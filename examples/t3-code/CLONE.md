@@ -62,30 +62,33 @@ review finds no introduced issue, verifies the genuine reply, streaming, active
 Stop and exact recovery, and passes 373 read-only artifact comparisons. Its
 comment audit is clear.
 
-The remaining header mouse failure is bounded inside AppKit window dispatch in
-the named agent Mac flow. One live toggle at `[1253,26]` targets SVG 57 and resolves
-button 56. Event `-7` passes both observed local monitors and enters the existing
-`ExactWindow.sendEvent`. Node 57 returns true from `acceptsFirstMouse`; the window
-call returns without a NodeView mouse callback or `MouseChain.receivedDown`.
-The complete journal interval is empty. Epoch, mutation count and closed-panel
-state stay unchanged, and the before/after captures are byte-identical.
+The remaining header mouse failure depends on AppKit's window-drag policy in the
+named agent Mac flow. During toggle event `-7` at `[1253,26]`, AppKit naturally queries
+button 56's inherited `mouseDownCanMoveWindow`, which returns true. Public stack
+data places the query in titlebar gesture recognition. SVG 57 accepts first mouse;
+both observed monitors pass the contact, but no NodeView mouse callback or
+`MouseChain.receivedDown` follows. The complete journal interval is empty, state
+is unchanged and the before/after captures are byte-identical.
 
-The following Add Project control, event `-8`, reaches NodeView and MouseChain,
-journals its press and opens the palette in the same inactive, non-key window.
-The failure persists under observation. AppKit's handling after first-mouse
-acceptance and before the NodeView callbacks remains unobserved; no consuming
-responder or product cause is proved. The earlier `Alt+Meta+B` route works.
-`chrome: 'platform'` does not project this custom styled header into native
-toolbar buttons. Neither a header fix nor a delivery workaround is applied.
+One separate temporary build returns false only for `toggle-right-panel`.
+The same AgentMac input reaches mouseDown and mouseUp, journals button 56's
+`toggleRight` press and visibly opens the right-panel chooser. Add Project works
+in both builds. Pre-contact captures, hit geometry, inactive/non-key window
+conditions and input flags match. Absolute screen origins differ because the
+unchanged launcher positions agent windows by PID. This is one bounded experiment
+under `context.agent=true`; ordinary mouse and Keychain behavior remain
+unqualified. No product fix or general header policy is chosen. The earlier
+`Alt+Meta+B` route works; `chrome: 'platform'` does not project this custom header
+into native toolbar buttons.
 
-All eight temporary source edits and the original index are restored exactly.
-The standard clean rebuild verifies 156 bundle files, 3,513 inputs and its
-signature, then connects and opens the palette without instrumentation. The
-contact and clean-smoke launches quit normally before controller close. All
-owned processes exit; the original listener and window defaults remain exact.
-Evidence and limits are under
-`target/t3-poc-evidence/desktop-header-contact-forensics/`. Ordinary-app input,
-native OS chrome and full parity remain unqualified.
+All eight temporary source edits and the original index are restored exactly
+before documentation. The standard normal rebuild verifies 156 bundle files,
+3,513 actual inputs and its signature, then connects and opens the palette with
+no probe output. All three launches quit normally before controller close; owned
+processes exit and the original listener and window defaults remain exact.
+Natural-query evidence, the scoped counterfactual, inspected captures and limits
+are under `target/t3-poc-evidence/desktop-header-drag-policy/`. Native OS chrome
+and full parity remain unqualified.
 
 Draft Browser file assets now retain captured workspace provenance separately from
 Browser ownership. The clean standard bundle from `56f150341d` passes the original
