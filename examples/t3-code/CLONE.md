@@ -119,9 +119,9 @@ Heading/table controls, natural wrapping and single code pans remain usable.
 Baseline native measurements proved the long-code blanking mechanism. The raster
 was marked whole and settled at 592 points despite uncut paint widths of 787.54
 and 969.28 points. Legal inner scrolling exposed those missing pixels. Later
-outward pans chained into the fixture root. The separate end-padding discrepancy
-remains unqualified. Source and the temporary observer are restored exactly;
-evidence is under `target/t3-poc-evidence/phone-code-native-metrics/`.
+outward pans chained into the fixture root. Those measurements did not qualify the
+separate end-padding discrepancy. Source and the temporary observer are restored exactly.
+Evidence is under `target/t3-poc-evidence/phone-code-native-metrics/`.
 
 The painting correction now retains measured coverage in each raster result.
 Both real preview owners pass initial, middle, legal edge and return pans on EAS,
@@ -144,9 +144,26 @@ The clean normal build from `7060041026` passes Home, Settings, Search typing an
 clearing, New task, Back and process restart on EAS. Both preview edges repeat
 with complete final words and zero pixel mismatches. Evidence for this review
 correction is under the raster implementation's `parent-review-fix/` directory.
-End padding and fixture-root chaining remain outside this painting correction.
+End padding is corrected below. Fixture-root chaining remains open.
 Entries, normal declarations and temporary observers are restored; the cloud
 device is shut down.
+
+The shared code scroller now uses a flex row and retains 14-point trailing padding
+after its allocated paragraph. The workspace preview at 16-point light and the
+attachment preview at 20-point dark pass initial, middle, legal-edge and return
+pans on EAS. Source and forced lines remain exact, with one image and zero pixel
+mismatches per flow.
+Short code keeps its card and scrollport dimensions and has no horizontal range.
+Native word selection remains reachable; guarded Copy execution remains unqualified.
+The normal build from `c102ae291c` passes Home, Settings, Search typing and clearing,
+app-owned keyboard dismissal, New task, Back and process restart on fresh EAS.
+All 4,153 mobile tests, strict TypeScript, generator verification and six root
+checks pass. Evidence is under
+`target/t3-poc-evidence/phone-code-end-padding-implementation/`.
+The fixture toolbar still permits 37.6667-point root travel after excess pans.
+Final edge captures restore only that root through a fresh accessibility header gesture.
+Connected cloud routes and full phone, iPad and desktop parity remain unqualified.
+This slice reaches no release checkpoint. The TestFlight build is unchanged.
 
 Formatted-prose evidence is under
 `target/t3-poc-evidence/phone-formatted-prose-implementation/`. Supplied-data
