@@ -348,7 +348,7 @@ package final class TextArea: UITextView {
     @objc package func copyPlainText() {
         // tvOS has no pasteboard.
         #if !os(tvOS)
-        guard markup != nil, selectedRange.length > 0, let plain = MarkdownLink.installed?.plain(text, range: selectedRange, atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "") else { return }
+        guard markup != nil, selectedRange.length > 0, let plain = MarkdownLink.installed?.plain(text, range: selectedRange, atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "", spoken: false) else { return }
         UIPasteboard.general.string = plain
         #endif
     }

@@ -215,10 +215,10 @@ function installMarkupEditor(textarea, host) {
     showPlaceholder();
   }
   function read() { source = utf16.decode(new Uint16Array(wasm.memory.buffer, wasm.mde_source(h), wasm.mde_source_len(h))); }
-  /** Each atom's kind, label, icon, title, role, destination, source and its face's paint and direction, in source order (`mde_atom_faces`). */
+  /** Each atom's kind, label, icon, title, role, destination, source and its face's paint, direction and accessible name, in source order (`mde_atom_faces`). */
   function atomFaces() {
     const out = [], lines = text(wasm.mde_atom_faces(h)).split('\n');
-    for (let k = 0; k + 10 < lines.length; k += 11) { const [kind, label, icon, title, role, href, src, color, backgroundColor, direction] = lines.slice(k, k + 10); out.push({ kind, label, icon, title, role, href, source: src, color, backgroundColor, direction }); }
+    for (let k = 0; k + 11 < lines.length; k += 12) { const [kind, label, icon, title, role, href, src, color, backgroundColor, direction, ariaLabel] = lines.slice(k, k + 11); out.push({ kind, label, icon, title, role, href, source: src, color, backgroundColor, direction, ariaLabel }); }
     return out;
   }
   /** The field's `atoms` and `atomFaces` into the editor (LLP 1045.000 D2), and its kinds' paint; a change redraws. */
@@ -765,7 +765,7 @@ function installMarkupEditor(textarea, host) {
     return left === Infinity ? null : new DOMRect(left, top, right - left, bottom - top);
   }
   /** The atoms as drawn, for the agent's `state.atoms` (LLP 1045.000 D9). */
-  const atomList = () => destroyed ? [] : islands().map(({ box, s, e }) => ({ kind: box.dataset.exactAtom, source: box.dataset.atomSource, start: s, end: e, label: box.getAttribute('aria-label') ?? '', box }));
+  const atomList = () => destroyed ? [] : islands().map(({ box, s, e }) => ({ kind: box.dataset.exactAtom, source: box.dataset.atomSource, start: s, end: e, label: box.textContent, box }));
   el.exactMarkup = { sync, format(command, argument = '') { if (destroyed || !writable()) return false; el.focus(); return run(command, String(argument)); }, setValue, destroy, rangeFrame, atoms: atomList };
   configure();
   const initialFocus = document.activeElement === textarea;

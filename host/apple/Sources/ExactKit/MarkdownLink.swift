@@ -21,8 +21,9 @@ package protocol MarkdownCapability: AnyObject {
     func editor() -> MarkdownEditing
     /// `range` (UTF-16, the whole source when nil) of `source` without its
     /// Markdown syntax, each atom the whole source recognizes inside it its
-    /// label (Copy Plain Text); `atoms` and `faces` are the node's (LLP 1045.000).
-    func plain(_ source: String, range: NSRange?, atoms: String, faces: String) -> String?
+    /// label (Copy Plain Text), or `spoken` its accessible name (what
+    /// VoiceOver reads); `atoms` and `faces` are the node's (LLP 1045.000).
+    func plain(_ source: String, range: NSRange?, atoms: String, faces: String, spoken: Bool) -> String?
     /// Apply a formatting command to `node`'s editor.
     func format(_ node: NodeView, command: String, argument: String, selection: NSRange?) -> Bool
     /// Ask for a link and apply it to `node`'s selection.
@@ -124,12 +125,16 @@ package final class MarkupAtom: NSObject {
     /// Its face's direction, `ltr` or `rtl`, which lays out its icon and
     /// label (D4); empty to follow its line's.
     package let direction: String
+    /// Its face's `ariaLabel`; empty for its label.
+    package let ariaLabel: String
     package init(kind: String, label: String, icon: String, title: String, role: String, href: String, ink: [Double]?, background: [Double]?,
-                 selected: Bool, emphasized: Bool = true, dark: Bool, contrast: Bool, direction: String = "") {
+                 selected: Bool, emphasized: Bool = true, dark: Bool, contrast: Bool, direction: String = "", ariaLabel: String = "") {
         (self.kind, self.label, self.icon, self.title, self.role, self.href) = (kind, label, icon, title, role, href)
         (self.ink, self.background, self.selected, self.emphasized, self.dark, self.contrast) = (ink, background, selected, emphasized, dark, contrast)
-        self.direction = direction
+        (self.direction, self.ariaLabel) = (direction, ariaLabel)
     }
+    /// What assistive technology reads it as (D8): its `ariaLabel`, else its label.
+    package var spokenName: String { ariaLabel.isEmpty ? label : ariaLabel }
 }
 
 extension NSAttributedString.Key {
@@ -146,8 +151,8 @@ extension NSAttributedString.Key {
 }
 
 extension NSAttributedString {
-    /// The text in `range` a person reads: without what the editor hides,
-    /// each atom its label (LLP 1045.000 D8).
+    /// The text in `range` assistive technology reads: without what the
+    /// editor hides, each atom its accessible name (LLP 1045.000 D8).
     package func shownText(in range: NSRange) -> String {
         let text = string as NSString
         var out = ""
@@ -156,8 +161,8 @@ extension NSAttributedString {
             let atom = attributes[.markupAtom] as? MarkupAtom
             guard attributes[.markupHidden] != nil || atom != nil else { return }
             out += text.substring(with: NSRange(location: at, length: run.location - at))
-            // An atom's label, once, at its first code unit.
-            if let atom, atomRange(at: run.location)?.location == run.location { out += atom.label }
+            // An atom's name, once, at its first code unit.
+            if let atom, atomRange(at: run.location)?.location == run.location { out += atom.spokenName }
             at = NSMaxRange(run)
         }
         return out + text.substring(with: NSRange(location: at, length: NSMaxRange(range) - at))

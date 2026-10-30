@@ -49,6 +49,10 @@ private func iconFace(_ direction: String) -> String {
     ##"[{"source":"[Quote](t3-citation:1)","label":" ","icon":"symbol:sf/circle.fill","title":"","color":"#000000","backgroundColor":"#ffffff","direction":"\##(direction)"}]"##
 }
 
+/// A face whose accessible name is not its label (D2's `ariaLabel`), as
+/// T3 Code's image chip draws its upload's state and is read by its file.
+private let named = #"[{"source":"[Quote](t3-citation:1)","label":"A quote 40%","icon":"","title":"The quoted passage","ariaLabel":"Image attachment, quote"}]"#
+
 /// The citation's face while an upload is `percent` done: its label follows
 /// the upload, as T3 Code's image chip does, and its source stays.
 private func upload(_ percent: Int) -> String {
@@ -209,6 +213,29 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertTrue(attachments(f).first?.atom.selected == true)
         let facts = try XCTUnwrap(MarkupCommands.selection(f.string, range: hit.range, atoms: AtomHandle.of(MarkdownAtoms(kinds: kinds, faces: faces))))
         XCTAssertTrue(facts.contains(#""atom":"[Quote](t3-citation:1)""#), facts)
+    }
+
+    /// D8: a face's `ariaLabel` names its element and stands for it in the
+    /// field's accessible text; the pill draws its label, and plain copy
+    /// takes the label. A new name alone keeps the element.
+    func testAFacesAriaLabelIsItsAccessibleName() throws {
+        let (node, f, window) = editor(faces: named)
+        defer { window.close() }
+        XCTAssertEqual(attachments(f).first?.atom.label, "A quote 40%", "the pill draws its label")
+        let element = try XCTUnwrap(f.atomElements.first)
+        XCTAssertEqual(element.accessibilityLabel(), "Image attachment, quote")
+        XCTAssertEqual(element.accessibilityHelp(), "The quoted passage")
+        XCTAssertEqual(f.accessibilityValue(), "Ask Image attachment, quote now")
+        XCTAssertEqual(f.accessibilityString(for: NSRange(location: 0, length: b)), "Ask Image attachment, quote")
+        XCTAssertEqual(f.accessibilityAttributedString(for: NSRange(location: 0, length: b))?.string, "Ask Image attachment, quote")
+        let scoped = presenter.axElements(roots: [window.contentView!], scope: [3])["elements"] as? [[String: Any]] ?? []
+        XCTAssertTrue(scoped.contains { $0["name"] as? String == "Image attachment, quote" }, "`tree --ax` names it: \(scoped.compactMap { $0["name"] })")
+        XCTAssertEqual(MarkdownLink.installed?.plain(source, range: nil, atoms: kinds, faces: named, spoken: false), "Ask A quote 40% now", "copy takes the label")
+        drain()
+        node.applyProps(set: ["atomFaces": named.replacingOccurrences(of: "attachment, quote", with: "attachment, quote, 2 MB")], clear: [])
+        drain()
+        XCTAssertTrue(f.atomElements.first === element, "the element VoiceOver may be on is kept")
+        XCTAssertEqual(element.accessibilityLabel(), "Image attachment, quote, 2 MB")
     }
 
     func testAClickOnAPillSelectsTheAtom() throws {
@@ -446,12 +473,12 @@ final class InlineAtomEditorMacTests: XCTestCase {
         let (node, f, window) = editor(selection: NSRange(location: a + 2, length: 2))
         defer { window.close() }
         XCTAssertEqual(f.markup?.copyRange(NSRange(location: a + 2, length: b - a), in: f.textStorage!), NSRange(location: a, length: b - a + 2))
-        XCTAssertEqual(MarkdownLink.installed?.plain(source, range: nil, atoms: node.props["atoms"]!, faces: node.props["atomFaces"]!), "Ask A quote now")
+        XCTAssertEqual(MarkdownLink.installed?.plain(source, range: nil, atoms: node.props["atoms"]!, faces: node.props["atomFaces"]!, spoken: false), "Ask A quote now")
         // ⌘⇧C of a selection of exactly a prefix atom: the token is found in
         // the whole source, where the space before it decides it.
         let mention = "see @x here"
         let faced = #"[{"source":"@x","label":"x.rs","icon":"","title":""}]"#
-        XCTAssertEqual(MarkdownLink.installed?.plain(mention, range: NSRange(location: 4, length: 2), atoms: kinds, faces: faced), "x.rs")
+        XCTAssertEqual(MarkdownLink.installed?.plain(mention, range: NSRange(location: 4, length: 2), atoms: kinds, faces: faced, spoken: false), "x.rs")
         // The text view's command copies the selection's labels (the
         // person's clipboard is put back after).
         let board = NSPasteboard.general, kept = board.pasteboardItems?.map { item in
@@ -516,6 +543,23 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         XCTAssertTrue(atom.accessibilityTraits.contains(.button))
         XCTAssertTrue(atom.accessibilityActivate())
         XCTAssertEqual(f.selectedRange, NSRange(location: a, length: b - a))
+    }
+
+    /// D8: a face's `ariaLabel` names its element and stands for it in the
+    /// field's value; the pill draws its label. A new name alone keeps the
+    /// element.
+    func testAFacesAriaLabelIsItsAccessibleName() throws {
+        let (p, node, f) = field(faces: named)
+        XCTAssertEqual((f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom)?.label, "A quote 40%", "the pill draws its label")
+        XCTAssertEqual(f.accessibilityValue, "Ask Image attachment, quote now")
+        let element = try XCTUnwrap(node.accessibilityElements?.compactMap { $0 as? AtomElement }.first)
+        XCTAssertEqual(element.accessibilityLabel, "Image attachment, quote")
+        XCTAssertEqual(element.accessibilityHint, "The quoted passage")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["atomFaces": named.replacingOccurrences(of: "attachment, quote", with: "attachment, quote, 2 MB")]]]))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertTrue(node.accessibilityElements?.compactMap { $0 as? AtomElement }.first === element, "the element VoiceOver may be on is kept")
+        XCTAssertEqual(element.accessibilityLabel, "Image attachment, quote, 2 MB")
     }
 
     func testATraitChangeRedrawsThePillsAndKeepsTheElements() throws {
@@ -726,6 +770,26 @@ final class InlineAtomReaderTests: XCTestCase {
         XCTAssertEqual(runs.map(\.text).joined(), "Ask \u{202F}\u{2066}A\u{00A0}quote\u{2069}\u{202F} now")
         // Without atoms the same source is its link text, as before.
         XCTAssertEqual(MarkupRuns.expand(source, base: base, color: nil).map(\.text).joined(), "Ask Quote now")
+    }
+
+    /// D8: a reader is read with each atom as its accessible name, its face's
+    /// `ariaLabel`, where its pill draws the label, and without the atoms'
+    /// Markdown source.
+    func testAReaderReadsAnAtomByItsAriaLabel() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let drawn = MarkupRuns.expand(source, base: base, color: nil, atoms: MarkdownAtoms(kinds: kinds, faces: named))
+        XCTAssertEqual(drawn.first { $0.href.hasPrefix(MarkupRuns.atomScheme) }?.text, "\u{202F}\u{2066}A\u{00A0}quote\u{00A0}40%\u{2069}\u{202F}")
+        let node = NodeView(id: 2, kind: "text", presenter: Presenter())
+        node.props = ["text": source, "markup": "markdown", "atoms": kinds, "atomFaces": named]
+        XCTAssertEqual(node.accessibleText, "Ask Image attachment, quote now")
+        node.updateTextAccessibility()
+        #if os(macOS)
+        XCTAssertEqual(node.accessibilityLabel(), "Ask Image attachment, quote now", "its element reads it so, not its source")
+        #else
+        XCTAssertEqual(node.accessibilityLabel, "Ask Image attachment, quote now", "its element reads it so, not its source")
+        #endif
+        node.props["atomFaces"] = faces
+        XCTAssertEqual(node.accessibleText, "Ask A quote now", "without one, its label")
     }
 
     /// A face's paint is drawn over its kind's, for the appearance drawn in;

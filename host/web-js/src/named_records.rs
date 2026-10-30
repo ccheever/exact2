@@ -88,7 +88,7 @@ mod tests {
             r#"atom mention prefix="@"
 component App
   state c = "red"
-  derive faces = [AtomFace(source="@a", label="", icon="", title="", color=c, backgroundColor="", direction="")]
+  derive faces = [AtomFace(source="@a", label="", icon="", title="", color=c, backgroundColor="", direction="", ariaLabel="")]
   view
     column
       textarea value="@a " markup="markdown" atoms="mention" atomFaces=faces
@@ -241,7 +241,7 @@ console.log(JSON.stringify({{ out: JSON.parse(out), journal }}));
 atom mention prefix="@"
 component App
   state name = "systemRedColor"
-  derive faces = [AtomFace(source="@a", label="", icon="", title="", color="brand", backgroundColor="-exact-platform-color(web Highlight, #ffffff)", direction=""), AtomFace(source="@b", label="", icon="", title="", color=`-exact-platform-color(web ${name}, #ff0000)`, backgroundColor="", direction="")]
+  derive faces = [AtomFace(source="@a", label="", icon="", title="", color="brand", backgroundColor="-exact-platform-color(web Highlight, #ffffff)", direction="", ariaLabel=""), AtomFace(source="@b", label="", icon="", title="", color=`-exact-platform-color(web ${name}, #ff0000)`, backgroundColor="", direction="", ariaLabel="")]
   view
     textarea value="@a @b " markup="markdown" atoms="mention" atomFaces=faces
 "#,

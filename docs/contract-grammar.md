@@ -1438,7 +1438,7 @@ atom skill prefix="$" background-color="light-dark(#efe7ff, #2c2340)"
 
 component Composer
   state draft = ""
-  derive faces = [AtomFace(source="@src/main.rs", label="main.rs", icon="assets/file.svg", title="src/main.rs", color="", backgroundColor="light-dark(#e3f0ff, #1d3045)", direction="")]
+  derive faces = [AtomFace(source="@src/main.rs", label="main.rs", icon="assets/file.svg", title="src/main.rs", color="", backgroundColor="light-dark(#e3f0ff, #1d3045)", direction="", ariaLabel="")]
   action pressed(e: AtomEvent)
     open = e.source
   view
@@ -1460,7 +1460,7 @@ component Composer
   one scheme, a shared prefix character, or both relative are refused
   (`lower-atom-duplicate`).
 - `atomFaces` takes `AtomFace(source, label, icon, title, color,
-  backgroundColor, direction)` records, keyed by an atom's whole source: equal
+  backgroundColor, direction, ariaLabel)` records, keyed by an atom's whole source: equal
   source is one atom, and new text is a new key. An empty label is a link's text
   or a token without its prefix and quotes; the icon is an image source (the web
   draws a URL or asset, not yet a `symbol:`). `color` and `backgroundColor`
@@ -1483,7 +1483,11 @@ component Composer
   on the JS target. A colour that is none leaves the kind's paint, and the
   journal says so. A pill lays out its icon and then its label in its line's
   direction, so in a right-to-left line its icon is on the right; `direction`
-  (`ltr`, `rtl`) pins its own, and empty follows the line.
+  (`ltr`, `rtl`) pins its own, and empty follows the line. Assistive
+  technology reads the label as the pill's name and `title` as its description;
+  a nonempty `ariaLabel` is the name instead, as `aria-label` names a node, so
+  a pill can say more than it draws (`ariaLabel="Image attachment, a.png, 2 MB"`
+  over a label of `"a.png 40%"`).
 - `atompress` hands its action an optional `AtomEvent`: `kind`, `source`,
   `href` (a link's destination as written), `start`, `end` (UTF-16) and the
   modifiers. It never navigates. In the reader an atom is a tab stop that

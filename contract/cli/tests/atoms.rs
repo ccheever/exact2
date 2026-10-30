@@ -46,7 +46,7 @@ component App
   state draft = "[q](t3-citation:1) @a "
   state pressed = ""
   state selected = ""
-  derive faces = [AtomFace(source="@a", label="A", icon="", title="Alice", color="light-dark(#d52c36, #ff6762)", backgroundColor="", direction="")]
+  derive faces = [AtomFace(source="@a", label="A", icon="", title="Alice", color="light-dark(#d52c36, #ff6762)", backgroundColor="", direction="", ariaLabel="Alice's mention")]
   action press(e: AtomEvent)
     pressed = e.kind + " " + e.source + " " + e.href + " " + e.start.toString() + "-" + e.end.toString() + (e.metaKey ? " meta" : "")
   action select(s: MarkdownSelection)
@@ -83,7 +83,8 @@ fn a_markdown_field_carries_its_kinds_paint_and_faces() {
     assert_eq!(
         json_prop(&runner, "editor", PropId::AtomFaces),
         json!([{"source": "@a", "label": "A", "icon": "", "title": "Alice",
-                "color": "light-dark(#d52c36ff, #ff6762ff)", "backgroundColor": "", "direction": ""}])
+                "color": "light-dark(#d52c36ff, #ff6762ff)", "backgroundColor": "", "direction": "",
+                "ariaLabel": "Alice's mention"}])
     );
     assert_eq!(
         json_prop(&runner, "reader", PropId::Atoms),
@@ -106,7 +107,7 @@ atom mention prefix="@"
 component App
   state draft = "@a @b @c "
   state name = "systemRedColor"
-  derive faces = [AtomFace(source="@a", label="", icon="", title="", color="brandRed", backgroundColor="-exact-platform-color(macos systemBlueColor, #0000ff)", direction=""), AtomFace(source="@b", label="", icon="", title="", color=`-exact-platform-color(macos ${name}, #ff0000)`, backgroundColor="light-dark(#d52c36 #ff6762)", direction=""), AtomFace(source="@c", label="", icon="", title="", color=`var(--exact-separator, -exact-platform-color(macos ${name}, #ff0000))`, backgroundColor="", direction="")]
+  derive faces = [AtomFace(source="@a", label="", icon="", title="", color="brandRed", backgroundColor="-exact-platform-color(macos systemBlueColor, #0000ff)", direction="", ariaLabel=""), AtomFace(source="@b", label="", icon="", title="", color=`-exact-platform-color(macos ${name}, #ff0000)`, backgroundColor="light-dark(#d52c36 #ff6762)", direction="", ariaLabel=""), AtomFace(source="@c", label="", icon="", title="", color=`var(--exact-separator, -exact-platform-color(macos ${name}, #ff0000))`, backgroundColor="", direction="", ariaLabel="")]
   view
     textarea value=draft markup="markdown" atoms="mention" atomFaces=faces testId="editor"
 "##,
@@ -168,7 +169,7 @@ fn designed(name: &str, contract: &str) -> Runner<NoData> {
 fn a_faces_token_colour_follows_set_mode_and_set_token() {
     let mut r = designed(
         "modes",
-        "atom mention prefix=\"@\"\ncomponent App\n  state c = \"ink\"\n  derive faces = [AtomFace(source=\"@a\", label=\"\", icon=\"\", title=\"\", color=c, backgroundColor=\"brand\", direction=\"\")]\n  action dim\n    setMode(\"dark-style\", \"dim\")\n  view\n    column\n      button press=dim testId=\"dim\"\n        text \"dim\"\n      textarea value=\"@a \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n",
+        "atom mention prefix=\"@\"\ncomponent App\n  state c = \"ink\"\n  derive faces = [AtomFace(source=\"@a\", label=\"\", icon=\"\", title=\"\", color=c, backgroundColor=\"brand\", direction=\"\", ariaLabel=\"\")]\n  action dim\n    setMode(\"dark-style\", \"dim\")\n  view\n    column\n      button press=dim testId=\"dim\"\n        text \"dim\"\n      textarea value=\"@a \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n",
     );
     let paint = |r: &Runner<NoData>, key: &str| {
         json_prop(r, "editor", PropId::AtomFaces)[0][key]
@@ -204,7 +205,7 @@ fn a_faces_token_colour_follows_set_mode_and_set_token() {
 #[test]
 fn a_faces_profile_colour_is_a_standard_spaces_only() {
     let runner = boot(
-        "color-profile --press src=\"assets/press.icc\" rendering-intent=\"perceptual\"\natom mention prefix=\"@\"\ncomponent App\n  state press = \"color(--press 0.1 0.8 0.2)\"\n  derive faces = [AtomFace(source=\"@a\", label=\"\", icon=\"\", title=\"\", color=\"color(--dci-p3 1 0 0)\", backgroundColor=press, direction=\"\"), AtomFace(source=\"@b\", label=\"\", icon=\"\", title=\"\", color=\"color(display-p3 1 0 0)\", backgroundColor=\"\", direction=\"\")]\n  view\n    column\n      textarea value=\"@a @b \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n      text \"x\" color=press testId=\"bound\"\n",
+        "color-profile --press src=\"assets/press.icc\" rendering-intent=\"perceptual\"\natom mention prefix=\"@\"\ncomponent App\n  state press = \"color(--press 0.1 0.8 0.2)\"\n  derive faces = [AtomFace(source=\"@a\", label=\"\", icon=\"\", title=\"\", color=\"color(--dci-p3 1 0 0)\", backgroundColor=press, direction=\"\", ariaLabel=\"\"), AtomFace(source=\"@b\", label=\"\", icon=\"\", title=\"\", color=\"color(display-p3 1 0 0)\", backgroundColor=\"\", direction=\"\", ariaLabel=\"\")]\n  view\n    column\n      textarea value=\"@a @b \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n      text \"x\" color=press testId=\"bound\"\n",
     );
     let faces = json_prop(&runner, "editor", PropId::AtomFaces);
     assert_eq!(faces[0]["color"], "color(--dci-p3 1 0 0)");
@@ -341,6 +342,12 @@ fn the_compiler_refuses_what_an_atom_cannot_be() {
     );
     let auto = APP.replace("direction=\"\"", "direction=\"auto\"");
     assert!(refused(&auto).contains("type-"), "{auto}");
+    // And its accessible name, empty for its label.
+    let unnamed = APP.replace(", ariaLabel=\"Alice's mention\"", "");
+    assert!(
+        refused(&unnamed).contains("type-record-missing"),
+        "{unnamed}"
+    );
     // Two kinds of different forms in one list are fine.
     contract::compile(&field(
         "atom a link=\"x:\"\natom b link=\"relative\"\natom c prefix=\"@\"",
