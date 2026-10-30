@@ -204,6 +204,8 @@ export const prepareCheck = ['prepare', 'sh', ['-c', [
   `EXACT_WEB_LINK=all EXACT_WEB_DIST=${JSON.stringify(resolve(DISTS, 'caltrain-wasm'))} bun host/web/build.mjs caltrain-web --wasm`,
   `EXACT_WEB_DIST=${JSON.stringify(resolve(DISTS, 'caltrain-js'))} bun host/web/build.mjs caltrain-web`,
   `EXACT_WEB_LINK=all EXACT_WEB_DIST=${JSON.stringify(resolve(DISTS, 'fieldnotes'))} bun host/web/build.mjs fieldnotes-web`,
+  // The bounded feed's data, which host/web-js/lower-equal.test.mjs requires (LLP 1071.001 part B, B5).
+  'bench/dioxus/prepare.sh',
 ].join(' && ')]];
 const distEnv = [`EXACT_WEB_DIST=${resolve(DISTS, 'caltrain-wasm')}`, `EXACT_WEB_JS_DIST=${resolve(DISTS, 'caltrain-js')}`,
   `EXACT_NO_GPU_WASM_DIST=${resolve(DISTS, 'caltrain-wasm')}`, `EXACT_NO_GPU_JS_DIST=${resolve(DISTS, 'caltrain-js')}`,

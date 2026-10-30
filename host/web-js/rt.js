@@ -824,10 +824,10 @@ export function normal(prop, t) {
   if (v === undefined) { const s = Scratch ??= document.createElement("i").style; s.removeProperty(prop); s.setProperty(prop, t); Normal.set(k, v = same(s.getPropertyValue(prop))); if (Normal.size > 4096) Normal.clear(); }
   return v;
 }
-export { gridValue } from "./grid.js";
+export { gridValue } from "./grid.js"; export { Pc } from "./lower.js";
 // A row's CSS text: authored blanks declare nothing; internal custom properties may carry an empty token (text-style presence); `auto` on a maximum is CSS's unbounded `none` (LLP 1102 §3.11); a bound `-exact-hairline` is the sheet's one device pixel, as css.rs writes a literal one (LLP 1115.000 D10.3); a layout region is its safe area (LLP 1123 D10).
-import { regions } from "./regions.js"; import "./said.js"; const cssText = (prop, unit, v) => { const t = v == null ? null : typeof v === "number" ? v + unit : !String(v).trim() && !prop.startsWith("--") ? null : /^\s*-exact-hairline\s*$/i.test(v) ? "var(--exact-hairline, 1px)" : regions(String(v)); return t === "auto" && (prop === "max-width" || prop === "max-height") ? "none" : t; };
-function css(e, prop, unit, v, rendered) {
+import { regions } from "./regions.js"; import "./said.js"; export const cssText = (prop, unit, v) => { const t = v == null ? null : typeof v === "number" ? v + unit : !String(v).trim() && !prop.startsWith("--") ? null : /^\s*-exact-hairline\s*$/i.test(v) ? "var(--exact-hairline, 1px)" : regions(String(v)); return t === "auto" && (prop === "max-width" || prop === "max-height") ? "none" : t; };
+export function css(e, prop, unit, v, rendered) {
   // The value this binding last wrote: the same again writes nothing (a write restyles and repaints the node, for every dynamic row a list update touched).
   const last = e.$css ??= {}, t = cssText(prop, unit, v);
   if (last[prop] === t) return;
