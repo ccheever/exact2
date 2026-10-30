@@ -2,7 +2,11 @@
 use egui::{
     Color32, FontData, FontDefinitions, FontFamily, Rect, ScrollArea, Ui, UiBuilder, pos2, vec2,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 mod heights;
 #[path = "../../gpui/src/model.rs"]
@@ -19,6 +23,8 @@ struct HeavyList {
     width: f32,
     start: Option<usize>,
     reactions: row::Reactions,
+    motion: String,
+    epoch: Instant,
 }
 
 impl eframe::App for HeavyList {
@@ -57,6 +63,29 @@ impl eframe::App for HeavyList {
             0,
             row::color(0xe5e5ea),
         );
+        let elapsed = self.epoch.elapsed();
+        if self.motion == "bar" {
+            ui.painter().rect_filled(
+                Rect::from_min_size(
+                    screen.min,
+                    vec2(screen.width() * (elapsed.as_secs_f32() % 2.) / 2., 2.),
+                ),
+                0,
+                row::color(0x007aff),
+            );
+            ui.ctx().request_repaint();
+        } else if self.motion == "caret" {
+            if elapsed.as_millis() % 1000 < 500 {
+                ui.painter().rect_filled(
+                    Rect::from_min_size(screen.min + vec2(112., 10.), vec2(1., 20.)),
+                    0,
+                    row::color(0x007aff),
+                );
+            }
+            let next = (elapsed.as_millis() / 500 + 1) * 500;
+            ui.ctx()
+                .request_repaint_after(Duration::from_millis(next as u64).saturating_sub(elapsed));
+        }
         let bounds = Rect::from_min_max(screen.min + vec2(16., 40.5), screen.max - vec2(16., 0.));
         let mut list = ui.new_child(UiBuilder::new().max_rect(bounds));
         if self.width != bounds.width() {
@@ -204,6 +233,11 @@ fn main() -> eframe::Result {
     )
     .expect("heavy-list data");
     assert_eq!(file.messages.len(), 10_000);
+    let motion = std::env::var("BENCH_MOTION").unwrap_or_default();
+    assert!(
+        matches!(motion.as_str(), "" | "bar" | "caret"),
+        "BENCH_MOTION must be bar or caret"
+    );
     let start = std::env::var("BENCH_START_INDEX").ok().map(|value| {
         let index: usize = value.parse().expect("BENCH_START_INDEX");
         assert!(index < file.messages.len());
@@ -268,6 +302,8 @@ fn main() -> eframe::Result {
                 reactions: Default::default(),
                 width: 0.,
                 start,
+                motion,
+                epoch: Instant::now(),
             }))
         }),
     )

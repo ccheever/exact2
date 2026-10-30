@@ -50,6 +50,15 @@ shape Feed
   rows: Message[]
 shape Config
   live: bool
+  motion: string
+
+keyframes benchProgress
+  from translate="-800px 0px"
+  to translate="0px 0px"
+
+keyframes benchCaret
+  from opacity=1
+  to opacity=0
 
 // "3m ago" / "2h ago" / "4d ago".
 fn ago(minutes: number): string = minutes < 60 ? `${floor(minutes)}m ago` : minutes < 1440 ? `${floor(minutes / 60)}h ago` : `${floor(minutes / 1440)}d ago`
@@ -64,6 +73,7 @@ component Heavy
   // (a resource would be baked with the build machine's environment).
   mutation config as shape Config
   derive live = match config { case some(c) => c.live, case none => false }
+  derive motion = match config { case some(c) => c.motion, case none => "" }
   action react(id: string, emoji: string)
     send changed = react(id, emoji)
   // Every 250 ms: the first tick asks for the launch config; in live mode
@@ -86,9 +96,14 @@ component Heavy
 
   view
     main testId="heavy" viewport-fit="cover" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" padding-top="env(safe-area-inset-top)" background-color="#ffffff" color="#000000" font-family="system-ui"
-      row flex-shrink=0 width="100%" box-sizing="border-box" align-items="center" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=0.5 border-color="#E5E5EA"
+      row position="relative" flex-shrink=0 width="100%" box-sizing="border-box" align-items="center" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=0.5 border-color="#E5E5EA"
         text "Heavy list" testId="title" flex=1 font-size=17 font-weight=600
         text (live ? "Live: on" : "Live: off") testId="live" font-size=13 color="#8E8E93"
+        if motion == "bar"
+          box position="absolute" left=0 top=0 width="100%" height=2 overflow="hidden"
+            box testId="bench-bar" width="100%" height=2 background-color="#007AFF" animation="benchProgress 2s linear infinite"
+        if motion == "caret"
+          box testId="bench-caret" position="absolute" left=112 top=10 width=1 height=20 background-color="#007AFF" animation="benchCaret 1s steps(2, jump-none) infinite"
       list id="messages" virtualized=true estimated-item-height=160 testId="messages" flex=1 min-height=0 width="100%" overflow-x="hidden" background-color="#ffffff"
         for m in feed.rows key=m.id
           MessageRow(m=m, secs=secs, react=react)

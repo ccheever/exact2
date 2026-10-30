@@ -1,6 +1,11 @@
 //! The whole-app GPUI arm of LLP 1149 §4, using heavy-list/SPEC.md's data.
 use gpui::{prelude::*, *};
-use std::{cell::RefCell, path::PathBuf, rc::Rc};
+use std::{
+    cell::RefCell,
+    path::PathBuf,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 mod model;
 mod picture;
@@ -11,6 +16,8 @@ struct HeavyList {
     images: PathBuf,
     list: ListState,
     reactions: row::Reactions,
+    motion: String,
+    epoch: Instant,
 }
 
 impl Render for HeavyList {
@@ -21,7 +28,12 @@ impl Render for HeavyList {
         let reactions = self.reactions.clone();
         let width = f32::from(window.viewport_size().width);
         let scale = window.scale_factor();
+        let elapsed = self.epoch.elapsed().as_secs_f32();
+        if self.motion == "bar" {
+            window.request_animation_frame();
+        }
         div()
+            .relative()
             .size_full()
             .font_family(".SystemUIFont")
             .text_color(rgb(0))
@@ -70,6 +82,28 @@ impl Render for HeavyList {
                 .flex_1(),
             )
             .child(picture::complete(self.list.clone()))
+            .when(self.motion == "bar", |view| {
+                view.child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top_0()
+                        .w(px(width * (elapsed % 2.) / 2.))
+                        .h(px(2.))
+                        .bg(rgb(0x007aff)),
+                )
+            })
+            .when(self.motion == "caret" && elapsed % 1. < 0.5, |view| {
+                view.child(
+                    div()
+                        .absolute()
+                        .left(px(112.))
+                        .top(px(10.))
+                        .w(px(1.))
+                        .h(px(20.))
+                        .bg(rgb(0x007aff)),
+                )
+            })
     }
 }
 
@@ -94,6 +128,11 @@ fn main() {
     )
     .expect("heavy-list data");
     assert_eq!(file.messages.len(), 10_000);
+    let motion = std::env::var("BENCH_MOTION").unwrap_or_default();
+    assert!(
+        matches!(motion.as_str(), "" | "bar" | "caret"),
+        "BENCH_MOTION must be bar or caret"
+    );
     Application::new().run(move |cx| {
         // AppKit's 32 pt title bar makes the outer window 800 pt high on this Mac.
         let mut bounds = Bounds::centered(None, size(px(800.), px(768.)), cx);
@@ -119,11 +158,33 @@ fn main() {
                         offset_in_item: px(0.),
                     });
                 }
-                cx.new(|_| HeavyList {
-                    messages: Rc::new(file.messages),
-                    images: data.join("images"),
-                    list,
-                    reactions: Rc::new(RefCell::new(Default::default())),
+                cx.new(|cx| {
+                    let epoch = Instant::now();
+                    if motion == "caret" {
+                        cx.spawn(async move |view, cx| {
+                            loop {
+                                let next = (epoch.elapsed().as_millis() / 500 + 1) * 500;
+                                cx.background_executor()
+                                    .timer(
+                                        Duration::from_millis(next as u64)
+                                            .saturating_sub(epoch.elapsed()),
+                                    )
+                                    .await;
+                                if view.update(cx, |_, cx| cx.notify()).is_err() {
+                                    break;
+                                }
+                            }
+                        })
+                        .detach();
+                    }
+                    HeavyList {
+                        messages: Rc::new(file.messages),
+                        images: data.join("images"),
+                        list,
+                        reactions: Rc::new(RefCell::new(Default::default())),
+                        motion,
+                        epoch,
+                    }
                 })
             },
         )
