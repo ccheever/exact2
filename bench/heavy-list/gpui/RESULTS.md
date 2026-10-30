@@ -4399,6 +4399,16 @@ the earlier failing build. A passing rerun therefore cannot establish
 that this rebase added its recovery fix. The source comparison is retained
 in `target/s0/landing/windows-rebase-source.json`.
 
+The continuation's GO window, **2026-10-30T18:14:31Z–21:14:31Z**, expires
+without `target/s0/GO`. `target/s0/landing/go-poll.jsonl` retains the
+thirty-second polls and `go-expired.txt` records expiry. No forced
+device-loss, DPI, resize, minimize/restore, caret, sleep/wake, shared-window,
+composition-window or startup/fallback journey runs in this recheck.
+The prepared runner is `target/s0/landing/native-journeys.py`, copied to
+the NucBox as `target/s0/landing-native-journeys.py`. Mica recovery remains
+unverified, so there is no new failure to bisect and no recovery change.
+The passing suites do not close that qualification. `QUEUE.md` retains it.
+
 The exclusive reducer's verification passes. An additional historical
 G3c aggregation fails because its older driver records lack
 `emptyCallbacks`; main's unchanged reducer fails on the same inputs.
@@ -4418,5 +4428,12 @@ recheck. No new performance target was predicted or measured.
 | Prediction | Result on the named instrument |
 |---|---|
 | Six checks with `RUST_TEST_THREADS=2`: every command exits 0; the upload timeout does not recur | Met: all seven invocations exit 0, including clippy and fmt; the full root run passes the upload and asynchronous-core tests |
-| NucBox `shelf_device_loss`: exit 0 and recovered Mica pixels within the existing band, with no recovery policy change | Pending the fresh `target/s0/GO` required for this display journey |
-| Metal pinned/image, Ink, Linux and native Windows suites: every command exits 0 | Miss on the initial Windows Ink launches under SSH (`E_ACCESSDENIED`); both pass in the interactive desktop session. All 18 Mac commands and 22 completed Windows groups pass; display journeys remain pending |
+| NucBox `shelf_device_loss`: exit 0 and recovered Mica pixels within the existing band, with no recovery policy change | Unexercised: the three-hour wait expires without the fresh `target/s0/GO` required for this display journey |
+| Metal pinned/image, Ink, Linux and native Windows suites: every command exits 0 | Miss on the initial Windows Ink launches under SSH (`E_ACCESSDENIED`); both pass in the interactive desktop session. All 18 Mac commands and 22 completed Windows groups pass; display journeys remain unrun |
+
+`target/s0/landing/TEST-RESULTS.txt` collects the unchanged result lines.
+Complete output is retained in `MAC-TEST-OUTPUT.txt` and
+`WINDOWS-TEST-OUTPUT.txt`; the latter includes
+the failed SSH launches as well as the passing desktop runs. The rebase's
+range comparison is `rebase-range-diff.txt`; `verified-source.bundle`
+and `verified-source-sha256.json` identify the code that passed.
