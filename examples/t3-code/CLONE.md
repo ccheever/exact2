@@ -75,10 +75,24 @@ The rebuilt normal app preserves Dark appearance across a process restart.
 Restoring System appearance persists across a second restart. Both restarted
 processes retain the native Home controls on EAS.
 
-Text-only bold table cells still take the literal Markdown fallback. The private
-preview compiles, but its EAS process exits before its first screen. Native table
-acceptance remains unqualified and this slice has no production edits. Parser
-and projection checks and the normal app's unpaired startup pass.
+Text-only strong table cells now render through the existing native text runs.
+The generated adapter admits direct strong nodes with positioned plain-text
+children and retains whole-segment fallback for unsupported content. Existing
+plain/code records, Source bytes and fenced-code identities remain exact.
+The matched standard-host fixture mounts the actual workspace and attachment
+components on EAS. Both render decoded mixed cells and strong headers at
+16-point light and 20-point dark appearance. Native word selection is reachable;
+cross-run selection and guarded code Copy execution remain unqualified. Wide
+tables pan to their edges while surrounding prose stays fixed. The unpaired
+attachment control still selects Source. All 4,118 mobile tests, 218 focused
+tests, strict app and owner TypeScript, generator verification, desktop minimap
+tests and six root checks pass. The separately rebuilt normal app passes Home,
+Settings, Search, New task and relaunch on EAS. Both entry files restore exactly,
+and the normal native module retains its prior hash. The private module differs
+as in the accepted baseline; its cause remains unestablished. Evidence is under
+`target/t3-poc-evidence/phone-rich-table-final/`. Connected file reads, auth, cache
+lifecycle, persistence and full phone parity remain unqualified by this fixture.
+This change is outside the delivered TestFlight build.
 
 These earlier implementation checkpoints are available on GitHub:
 
