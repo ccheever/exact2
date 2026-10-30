@@ -62,33 +62,43 @@ review finds no introduced issue, verifies the genuine reply, streaming, active
 Stop and exact recovery, and passes 373 read-only artifact comparisons. Its
 comment audit is clear.
 
-The remaining header mouse failure depends on AppKit's window-drag policy in the
-named agent Mac flow. During toggle event `-7` at `[1253,26]`, AppKit naturally queries
-button 56's inherited `mouseDownCanMoveWindow`, which returns true. Public stack
-data places the query in titlebar gesture recognition. SVG 57 accepts first mouse;
-both observed monitors pass the contact, but no NodeView mouse callback or
-`MouseChain.receivedDown` follows. The complete journal interval is empty, state
-is unchanged and the before/after captures are byte-identical.
+Desktop header mouse input now reserves existing press regions from AppKit's
+window movement handling. The computed NodeView override returns false for
+buttons, existing press owners and their physical descendants. Blank views retain
+the superclass answer. Pointer-only root listeners and semantic roles gain no
+reservation. Disabled and inert controls keep their structural reservation while
+existing input guards still refuse activation. No classifier, focus rule, chrome
+or agent input path changes.
 
-One separate temporary build returns false only for `toggle-right-panel`.
-The same AgentMac input reaches mouseDown and mouseUp, journals button 56's
-`toggleRight` press and visibly opens the right-panel chooser. Add Project works
-in both builds. Pre-contact captures, hit geometry, inactive/non-key window
-conditions and input flags match. Absolute screen origins differ because the
-unchanged launcher positions agent windows by PID. This is one bounded experiment
-under `context.agent=true`; ordinary mouse and Keychain behavior remain
-unqualified. No product fix or general header policy is chosen. The earlier
-`Alt+Meta+B` route works; `chrome: 'platform'` does not project this custom header
-into native toolbar buttons.
+The transparent full-size titlebar regression misses its second application
+click on unchanged production and passes with the fix. All 96 selected native
+tests pass, covering first mouse, focus, field editing, caret and text selection.
+Live handler removal, physical reparenting and a lifted popover's logical parent
+also pass. Blank-region property comparisons qualify policy, not physical dragging.
+All six root checks, 6,921 desktop tests and strict application TypeScript pass.
 
-All eight temporary source edits and the original index are restored exactly
-before documentation. The standard normal rebuild verifies 156 bundle files,
-3,513 actual inputs and its signature, then connects and opens the palette with
-no probe output. All three launches quit normally before controller close; owned
-processes exit and the original listener and window defaults remain exact.
-Natural-query evidence, the scoped counterfactual, inspected captures and limits
-are under `target/t3-poc-evidence/desktop-header-drag-policy/`. Native OS chrome
-and full parity remain unqualified.
+The clean standard bundle from `2ea073b284` passes the original header contact at
+`[1253,26]` through the supported Exact Mac controller. The visible chooser opens,
+its actual panel control closes it, and the remounted header control reopens it.
+The original thread-details header control opens its popover; an outside contact
+dismisses it. Body Add Project opens its palette. Every measured contact has one
+journaled press, a complete zero-drop interval and matching state and inspected
+native captures. No provider conversation is created and the composer stays empty.
+
+All 156 bundle files, 3,513 actual inputs, ABI values and the strict signature
+verify. Only MouseEventsMac.swift differs in the baseline and final input
+manifests. No temporary production probes were added. Normal Quit stops the app
+and backend before controller close. Owned processes exit; the original listener
+and window defaults remain exact. Evidence is under
+`target/t3-poc-evidence/desktop-header-drag-fix/`. Root review is pending; the
+implementation remains local. The earlier natural-query experiment remains under
+`desktop-header-drag-policy/`.
+
+This qualifies named agent Mac input with `context.agent=true`. Ordinary mouse,
+physical window dragging, normal-app Keychain restart and full desktop parity
+remain unqualified. Other titlebar input, including standalone selection, native
+editors, value controls, raw canvases and reorder grips, remains unqualified.
+Mobile and TestFlight are unchanged.
 
 Draft Browser file assets now retain captured workspace provenance separately from
 Browser ownership. The clean standard bundle from `56f150341d` passes the original
@@ -131,7 +141,7 @@ preserved byte for byte. Earlier asset evidence remains under
 `desktop-draft-preview-implementation/`, and its historical failure remains in
 `desktop-native-browser-shortcut-acceptance/`. Owned processes exit, the original
 listener and window defaults remain unchanged, and the isolated ports are free.
-Header mouse input, primary-launcher parity, normal-app storage and cookie
+Ordinary mouse input, primary-launcher parity, normal-app storage and cookie
 restart, physical keys and full desktop parity remain unqualified. The held
 recording, separate-window and mini-frame paths are not requalified natively by
 this unit. Mobile and TestFlight are unchanged.
