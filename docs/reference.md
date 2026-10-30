@@ -934,8 +934,11 @@ refused (a trailing `/` is allowed). Only hosts strictly under the suffix
 match, at the grant's scheme and port (explicit or the scheme's default);
 the bare suffix and sibling domains do not. A scheme no line names is refused (`wss:`
 does not admit `ws:`). The platform's own refusals still apply: App Transport
-Security refuses cleartext beyond the local network, and a browser refuses
-`ws:` from an `https:` page except to loopback. A render-server page's
+Security refuses `http:` beyond the local network unless the platform's
+`appTransportSecurity` in `app.json` (`host.macos`, `host.ios`) sets
+`allowsArbitraryLoads`, which turns it off for every connection the app makes
+and which App Store review asks the app to justify (LLP 1030); a browser
+refuses `ws:` from an `https:` page except to loopback. A render-server page's
 `connect-src` carries the scheme source as written. The render server itself
 doesn't hold a scheme-wide `net.fetch` line: a source that needs one keeps its
 placeholder in the rendered page, and the client fetches it after adoption.
@@ -1617,7 +1620,10 @@ WebSocket. Three kinds of grant line:
 - `net.fetch local-network`, `net.websocket local-network`: any host the URL writes
   as an RFC 1918, link-local or unique-local address, or a `.local` name, never a
   name that resolves to one. It derives `NSAllowsLocalNetworking`, so cleartext
-  `http` reaches such a host. `net.fetch local-network development` admits loopback
+  `http` reaches such a host. Beside `appTransportSecurity.allowsArbitraryLoads`,
+  which already allows every host, the build leaves it out, since ATS ignores
+  `NSAllowsArbitraryLoads` when `NSAllowsLocalNetworking` is present.
+  `net.fetch local-network development` admits loopback
   too, in a development build only; a development bake writes the word itself, so
   a fixture at `127.0.0.1` answers under the agent, and a production bake refuses it.
 
