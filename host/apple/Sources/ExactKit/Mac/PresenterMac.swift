@@ -599,6 +599,7 @@ package final class Presenter {
         cancelPageElementScroll(viewport.contentView)
         focusEvents.reset()
         pointerHeld = nil; pointerPath = []; pointerSource = nil; mouseChain.bubbledPress?.cancel()
+        mouseChain.early = nil; mouseChain.reported = []; mouseChain.heldUp = nil; mouseChain.releaseAfterBubbling = false
         elements.reset()
         blocks.forgetRects() // the new runtime's ids are its own
         resetFlights()

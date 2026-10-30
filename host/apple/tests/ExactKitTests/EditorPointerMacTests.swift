@@ -6,11 +6,11 @@ import XCTest
 /// A press in a text area or an input reaches `pointerdown` and `pointerup`
 /// from its node up, as a web `<textarea>`'s does, around AppKit's own
 /// tracking, which still places the caret. A press that moves the focus
-/// into an input hears `focus` first: NSWindow gives the hit view the focus
-/// before its `mouseDown`, where Chrome fires `pointerdown` first (a window
-/// that is never key, as a test's, focuses no text view at a click). An
-/// editor that does not track (disabled) leaves the press to the node: its
-/// up is the release.
+/// into an input hears `focus` first here: NSWindow gives the hit view the
+/// focus before its `mouseDown`, and a bare presenter has no session
+/// window's monitor to send the down before it, as Chrome orders them
+/// (EditorPointerOrderMacTests). An editor that does not track (disabled)
+/// leaves the press to the node: its up is the release.
 final class EditorPointerMacTests: XCTestCase {
     private var window: NSWindow!
     override func tearDown() { window?.close(); window = nil }

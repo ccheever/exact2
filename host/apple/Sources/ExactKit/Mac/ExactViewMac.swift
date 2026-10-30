@@ -296,6 +296,7 @@ public final class ExactView: NSView {
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow !== window { session.natives.windowLeaving(window); rootEdits.leave(window) }   // its window hatch ends while the window is there
+        if newWindow !== window { session.presenter.releaseEarlyPress(nil) } // its monitor goes, which would release it (LLP 1005)
         super.viewWillMove(toWindow: newWindow)
     }
 
@@ -328,8 +329,12 @@ public final class ExactView: NSView {
                 // Inspect mode's monitor has every event (InspectMac.swift): none is the app's.
                 if Inspect.on || InspectHost.draining { return event }
                 #endif
-                // AppKit can route an up to no view after the pressed subtree leaves its window.
-                if [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type),
+                // An early press in an editor no tracking took is released at its up, wherever it goes;
+                // its up while its down still bubbles waits for the down (LLP 1005).
+                if event.type == .leftMouseUp, self.session.presenter.releaseEarlyPress(event) { return nil }
+                // AppKit can route an up to no view after the pressed subtree leaves its window
+                // (an early press still bubbling is released when it has bubbled).
+                if [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type), self.session.presenter.mouseChain.early == nil,
                    let source = self.session.presenter.pointerSource, source.window == nil {
                     source.pointerReleased(event)
                 }
@@ -353,7 +358,10 @@ public final class ExactView: NSView {
                     self.session.presenter.tables.pointer(event)
                     self.session.presenter.menus.pointer(event)
                     // A click on the window behind a `closedby="any"` sheet is the sheet's.
-                    return self.session.presenter.dialogs.pointer(event) ? nil : event
+                    if self.session.presenter.dialogs.pointer(event) { return nil }
+                    // A press in an editor: its `pointerdown` before NSWindow focuses it (LLP 1005).
+                    self.session.presenter.pressEditorFirst(event)
+                    return event
                 }
                 if event.type == .keyDown { self.session.presenter.flushKeyViewLoop() }
                 let focused = self.ownsShortcutFocus(in: event.window)
