@@ -47,6 +47,7 @@ impl Work {
             self.command.commit();
             return Ok(None);
         }
+        crate::device::apple::benchmark_painter(true);
         crate::device::apple::benchmark_present(self.benchmark);
         let result =
             self.renderer
@@ -193,15 +194,28 @@ impl Upload {
 
 impl Metal {
     pub fn attach_layer(&mut self, layer: Layer) -> Result<()> {
+        let _trace = Trace::new(c"boot Metal attach layer");
+        if let Some((pipeline, thread)) = self.prepared_present.take() {
+            return self.attach_prepared_layer(layer, pipeline, thread);
+        }
         self.wait(self.submitted)?;
         let started = Instant::now();
         let pipelines = setup::pipelines(&self.device, MTLPixelFormat::BGRA8Unorm)?;
         self.info.shaders_ms += started.elapsed().as_secs_f64() * 1000.;
         self.info.cached &= pipelines.cached;
         pipelines.save();
+        self.attach_prepared_layer(layer, pipelines.replace, Rc::new(Thread::new()?))
+    }
+
+    pub(super) fn attach_prepared_layer(
+        &mut self,
+        layer: Layer,
+        pipeline: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
+        thread: Rc<Thread>,
+    ) -> Result<()> {
+        let _trace = Trace::new(c"boot Metal attach prepared layer");
         let render_layer = layer.render_layer();
         render_layer.raw.setDevice(Some(&self.device));
-        let thread = Rc::new(Thread::new()?);
         self.thread = Some(thread.clone());
         self.window = Some(Window {
             thread,
@@ -212,7 +226,7 @@ impl Metal {
             })),
             renderer: std::sync::Arc::new(std::sync::Mutex::new(Renderer {
                 layer: render_layer,
-                pipeline: pipelines.replace,
+                pipeline,
                 sampler: self.sampler.clone(),
                 white: self.white_alpha.raw.clone(),
                 ring: Ring::default(),

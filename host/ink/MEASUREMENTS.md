@@ -3151,3 +3151,37 @@ G6c honors the Windows carrier's presentation deadline: [the D3D11 fling, startu
 G6d fixes the Windows review findings and rechecks the NucBox: [lifecycle qualification, three pacing trials and the remaining cadence regression](../../bench/heavy-list/gpui/RESULTS.md#g6d-the-windows-reviews-lifecycle-fixes).
 
 G6e restores the full-period reservation wait and removes the clean-frame skip: [cadence restored, the strict CPU gate missed, and native qualification](../../bench/heavy-list/gpui/RESULTS.md#g6e-the-full-period-reservation-wait-restored).
+
+## Stage 0b — direct Metal startup (2026-10-30)
+
+Pre-change diagnosis and predictions (written before the implementation runs).
+The carrier's probe records inclusive `CACurrentMediaTime` spans. In the second
+passive diagnostic, Metal's constructor plus layer attachment took 11.591 ms;
+wgpu's took 8.540 ms. Metal spent 9.973 ms opening two archives, 0.110 ms selecting
+the device, 0.550 ms creating the queue, 0.580 ms creating four pipeline states,
+and 0.080 ms creating samplers, buffers and white textures. These are one-launch
+diagnostics, not medians or a gate result. Raw traces and launch context are in
+`target/stage-0b/baseline-diagnostic-2/`; `baseline-diagnostic/` retains the first
+attempt. Complete scenes were submitted, but drawable presented times were zero.
+
+Prediction P1: sharing one archive and metallib for the RGBA states and the BGRA
+presentation state will put the ten-warm-launch median device-plus-pipeline phase
+at **8 ms**, and within **5 ms** of wgpu on the same probe. The unused BGRA blend
+state leaves startup entirely. BGRA replacement is needed only for presentation;
+RGBA source-over remains necessary for the first ink frame. The compose target
+already waits until `Ink::begin`; this stage does not change D7's compose path.
+The phase includes layer attachment, so moving work there cannot satisfy the gate.
+
+Prediction P2: an absent or rejected archive will compile **zero pipelines on the
+boot thread**. The CPU painter will produce the first submitted frame through the
+same Metal layer, while a separate worker builds and saves the archive. In ten
+absent-cache launches, the median first displayed pixel will be **300 ms** or less,
+and the first full ink frame **450 ms** or less on the existing presented-drawable
+probe. These are predictions for this carrier, not the unmet 100 ms obligation.
+The headless transition test will require exact CPU pixels first and later ink
+pixels within D9's mean-error <5/255 and outlier fraction <6% band.
+
+Prediction P3: ten retained-cache launches after that population will stay within
+**2 ms** of P1's measured median device-plus-pipeline phase and will start on ink.
+All predictions must be compared with retained samples; inability to obtain a
+nonzero displayed timestamp leaves the displayed-time prediction unmeasured.

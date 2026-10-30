@@ -1,5 +1,10 @@
 //! The carrier owns the view; the render thread only owns its Metal layer.
 //! @ref LLP 1149 D7, D11, D12.
+#[cfg(exact_ink_metal)]
+pub use super::metal::startup::Startup;
+#[cfg(not(exact_ink_metal))]
+#[path = "apple/startup_unavailable.rs"]
+mod startup_unavailable;
 use super::{Error, Result};
 use objc2::{rc::Retained, MainThreadMarker};
 use objc2_app_kit::{NSApplication, NSView};
@@ -8,6 +13,8 @@ use objc2_core_graphics::CGColorSpace;
 use objc2_metal::{MTLDrawable, MTLPixelFormat};
 use objc2_quartz_core::CAMetalLayer;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+#[cfg(not(exact_ink_metal))]
+pub use startup_unavailable::Startup;
 use std::{
     rc::Rc,
     sync::{
@@ -120,6 +127,10 @@ pub(crate) struct RenderLayer {
     wake: Arc<dyn Fn() + Send + Sync>,
 }
 impl RenderLayer {
+    #[cfg(exact_ink_metal)]
+    pub(crate) fn framebuffer_only(self) {
+        self.raw.setFramebufferOnly(true);
+    }
     pub fn track(&self, drawable: &objc2::runtime::ProtocolObject<dyn objc2_metal::MTLDrawable>) {
         let retry = self.retry.clone();
         let wake = self.wake.clone();
@@ -384,6 +395,25 @@ pub fn benchmark_frame(complete: bool, offset: f32) {
 
 pub(crate) fn benchmark_scene() -> (bool, f32) {
     BENCHMARK.get()
+}
+
+/// Record which painter owns the next whole drawable, on the present worker.
+pub(crate) fn benchmark_painter(ink: bool) {
+    type Mark = unsafe extern "C" fn(i32);
+    static MARK: std::sync::OnceLock<Option<Mark>> = std::sync::OnceLock::new();
+    let mark = MARK.get_or_init(|| unsafe {
+        let symbol = libc::dlsym(libc::RTLD_DEFAULT, c"g1_painter".as_ptr());
+        if symbol.is_null() {
+            None
+        } else {
+            Some(std::mem::transmute::<*mut std::ffi::c_void, Mark>(symbol))
+        }
+    });
+    if let Some(mark) = mark {
+        unsafe {
+            mark(i32::from(ink));
+        }
+    }
 }
 
 /// Set the probe's metadata on the worker immediately before drawable acquisition.
