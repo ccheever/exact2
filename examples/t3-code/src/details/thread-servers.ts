@@ -8,6 +8,7 @@ import type { T3Client } from '../client/client';
 import { obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
+import { wakeShell } from '../client/command-waits';
 import { can } from '../connections/command-permissions';
 import { pushToast } from '../shell/toast';
 import { openExternal } from '../client/external-open';
@@ -75,8 +76,10 @@ export async function threadServerLocal(client: T3Client, native: Native, op: st
   if (op === 'stop') {
     if (server.pid === null || stopping.has(client)) return '';
     stopping.set(client, key);
-    try { await client.stopLocalServer(native, { pid: server.pid, port: server.port }); }
-    catch (error) { if (letGo(error)) throw error; failure(client, 'Could not stop server', error); }
+    try {
+      await wakeShell(native); // the row spins and Stop is disabled while the server stops
+      await client.stopLocalServer(native, { pid: server.pid, port: server.port });
+    } catch (error) { if (letGo(error)) throw error; failure(client, 'Could not stop server', error); }
     finally { stopping.delete(client); }
   }
   return '';

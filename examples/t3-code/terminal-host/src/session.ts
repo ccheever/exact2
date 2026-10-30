@@ -11,7 +11,7 @@
 //   no retained copy (the reference keeps one so a remounted viewport can replay it; a remounted page gets the
 //   history back from the attach snapshot instead). Status, error and version fold as applyTerminalAttachStreamEvent
 //   folds them.
-// - The PTY grid the server shares (6d450a4284 terminalSession.ts `grid`) goes to the surface as it changes.
+// - The PTY grid the server shares (terminalSession.ts `grid`) goes to the surface as it changes.
 // - Provider sign-in input (ProviderAuthTerminal.tsx) goes over the same socket, one `provider.auth.respond` at a
 //   time in 4,096-unit slices, as T3 Code's serial queue sends it.
 import { decode, encode, failure, identifier, request, type Frame } from "../../src/transport/transport-wire";

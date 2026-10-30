@@ -219,7 +219,6 @@ function parsedSlices(code: CodeState): RenderablePatch[] {
     return parsed;
   });
 }
-/** Ordered within a slice, not across them: a late slice never moves a file the reader is part way through. */
 /** Every loaded file, in the file tree's order (orderDiffFilesLikeTree): a test listed last sits in its directory. */
 export function filesOf(code: CodeState): PrDiffFile[] { return orderDiffFilesLikeTree(parsedSlices(code).flatMap(parsed => (parsed?.kind === 'files' ? orderDiffFiles(parsed.files) : [])), file => file.path); }
 /** The files the list shows: while tests are hidden, a file asked for stays so that a jump to it still lands. */

@@ -1,4 +1,4 @@
-// The test-file rule the Hide test files toggle uses (packages/shared/src/changedFileKind.ts at 6d450a4284), and the
+// The test-file rule the Hide test files toggle uses (packages/shared/src/changedFileKind.ts), and the
 // Changes panel hiding them (DiffPanel isFileShown): tests and test support hide, a turn diff's named file stays, and
 // the choice is one saved preference.
 import { describe, expect, test } from 'bun:test';

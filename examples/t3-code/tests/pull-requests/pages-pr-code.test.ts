@@ -653,7 +653,7 @@ describe('"Add to agent" (PullRequestCodeTab finishSelection)', () => {
   });
 });
 
-describe('Hide test files (PullRequestCodeTab 6d450a4284)', () => {
+describe('Hide test files (PullRequestCodeTab)', () => {
   const testsPatch = [
     'diff --git a/web/settings.ts b/web/settings.ts', '--- a/web/settings.ts', '+++ b/web/settings.ts', '@@ -1 +1 @@', '-a', '+b',
     'diff --git a/server/ws.ts b/server/ws.ts', '--- a/server/ws.ts', '+++ b/server/ws.ts', '@@ -1 +1 @@', '-a', '+b',

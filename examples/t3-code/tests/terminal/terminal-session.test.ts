@@ -39,7 +39,6 @@ const BASE_SNAPSHOT: TerminalSessionSnapshot = {
 };
 
 describe("terminal session reducers", () => {
-  // 6d450a4284 (49a9e80e0b) terminalSession.test.ts.
   it("follows the shared PTY grid from snapshots and activity without disturbing output", () => {
     const attached = applyTerminalAttachStreamEvent(nextTerminalAttachSeedState(), {
       type: "snapshot",

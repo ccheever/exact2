@@ -118,7 +118,7 @@ export function toggleFileDiffFoldForViewed(fileKey: string, viewed: boolean, fo
   if (next.has(fileKey)) next.delete(fileKey); else next.add(fileKey);
   return next;
 }
-/** getFileViewedRange (6d450a4284): the pressed file and, with an anchor still listed, every file between them in shown order. */
+/** getFileViewedRange: the pressed file and, with an anchor still listed, every file between them in shown order. */
 export function getFileViewedRange<T extends { readonly fileKey: string }>(files: readonly T[], fileKey: string, anchorFileKey: string | null): readonly T[] {
   const index = files.findIndex(file => file.fileKey === fileKey);
   if (index === -1) return [];

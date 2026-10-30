@@ -80,7 +80,7 @@ type State = { url: string; urlAt: number; urlError: string; content: Content | 
   frame: FrameState; revision: number;
   /** Why a draft's bytes cannot reach the page. */
   bytesError: string;
-  /** This preview's own word wrap (AttachmentFilePreview's wordWrapOverride, 6d450a4284); null follows Settings' word wrap. */
+  /** This preview's own word wrap (AttachmentFilePreview's wordWrapOverride); null follows Settings' word wrap. */
   wrap: boolean | null };
 const states = new WeakMap<T3Client, Map<string, State>>();
 const STALE_URL_MS = 5 * 60_000; // AttachmentFilePreview: signed URLs live an hour; re-mint after five minutes

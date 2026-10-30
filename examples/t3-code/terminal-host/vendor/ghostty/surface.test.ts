@@ -294,7 +294,7 @@ describe("GhosttyTerminalSurface visibility", () => {
     expect(onResize).toHaveBeenCalledTimes(1);
   });
 
-  // 6d450a4284 (49a9e80e0b): another client's PTY grid is drawn, clamped per axis to this surface's fit, while the
+  // Another client's PTY grid is drawn, clamped per axis to this surface's fit, while the
   // PTY still hears this surface's own measured grid.
   it("draws the shared PTY grid within its own fit and reports its measured grid", async () => {
     const harness = createHarness();

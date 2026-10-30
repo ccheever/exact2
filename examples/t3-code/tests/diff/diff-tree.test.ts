@@ -48,7 +48,7 @@ describe('diff tree reading order', () => {
   });
 });
 
-// 6d450a4284 diffFileTree.logic.test.ts.
+// From the reference's diffFileTree.logic.test.ts.
 describe('orderDiffFilesLikeTree', () => {
   it('pulls a test listed last into its directory, keeping the first-seen order', () => {
     expect(orderDiffFilesLikeTree(['server/device/Host.ts', 'web/settings.ts', 'server/ws.ts', 'server/device/Host.test.ts', 'web/settings.test.ts'], path => path))

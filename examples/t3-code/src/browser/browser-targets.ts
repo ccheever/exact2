@@ -78,7 +78,7 @@ export function environmentHostname(client: T3Client): string | null {
 }
 
 // ── Discovered local servers ────────────────────────────────────────────────────────────────────
-/** `agent`: the thread whose agent started it (6d450a4284; older servers omit it). */
+/** `agent`: the thread whose agent started it (older servers omit it). */
 export type DiscoveredLocalServer = { host: string; port: number; url: string; processName: string | null; pid: number | null; terminal: { threadId: string; terminalId: string } | null;
   agent?: { threadId: string } | null };
 export type PreviewableServer = DiscoveredLocalServer & { source: 'scanner' | 'configured'; requestedUrl: string };

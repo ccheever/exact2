@@ -168,7 +168,7 @@ test('a Markdown list marker paints punctuation grey; the heading keeps its ink,
     .toEqual([['# install the tools', 'com']]);
 });
 
-test('Hide test files leaves the tests out of the list, the tree and Collapse all, and is offered only when the diff has tests (DiffPanel 6d450a4284)', async () => {
+test('Hide test files leaves the tests out of the list, the tree and Collapse all, and is offered only when the diff has tests (DiffPanel)', async () => {
   const withTests = `${treePatch}diff --git a/src/a.test.ts b/src/a.test.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/a.test.ts\n@@ -0,0 +1 @@\n+test()\n`;
   const { client, command } = harness(withTests);
   await command('diff'); await command('diff-scope', '', 'latest');

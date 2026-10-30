@@ -124,7 +124,7 @@ type FilesState = {
   refreshRevision: number;
   /** FilePreviewPanel's `handledReveal`: the line request the rendered toggle answered, after which it renders. */
   handledReveal: { path: string; requestId: number } | null;
-  /** Each file's own word wrap (FilePreviewPanel's wordWrapOverride, 6d450a4284); a file with none follows Settings' word wrap. */
+  /** Each file's own word wrap (FilePreviewPanel's wordWrapOverride); a file with none follows Settings' word wrap. */
   wraps: Map<string, boolean>;
 };
 // Preferences the reference keeps in localStorage (t3code.fileExplorerOpen, t3code.renderMarkdown, t3code.renderTable),

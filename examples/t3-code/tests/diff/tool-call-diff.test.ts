@@ -72,7 +72,7 @@ describe('toolCallDiff', () => {
   });
 });
 
-describe('the diff panel\'s tool-call source (DiffPanel 6d450a4284)', () => {
+describe('the diff panel\'s tool-call source (DiffPanel)', () => {
   const fixture = () => {
     const client = new T3Client();
     Object.assign(client, { environmentId: 'env', projectId: 'p1', threadId: 't1', diffOpen: true });

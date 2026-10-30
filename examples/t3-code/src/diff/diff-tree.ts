@@ -50,7 +50,7 @@ export function diffFileTreePositions(paths: ReadonlyArray<string>): Map<string,
 }
 
 /**
- * orderDiffFilesLikeTree (6d450a4284): a flat list in tree order. Each directory stays contiguous and siblings are
+ * orderDiffFilesLikeTree: a flat list in tree order. Each directory stays contiguous and siblings are
  * ranked as compareDiffFileTreeEntries ranks them, so the list never disagrees with the tree.
  */
 export function orderDiffFilesLikeTree<T>(files: readonly T[], pathOf: (file: T) => string): T[] {

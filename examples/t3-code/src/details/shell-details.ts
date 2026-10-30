@@ -2,8 +2,8 @@
 // BranchToolbar panel sections, chat/OpenInPicker.tsx, editorPreferences.ts,
 // GitActionsControl.logic.ts resolveQuickAction, BranchToolbarEnvironmentSelector):
 // where the thread runs, the workspace folder, the preferred editor, the
-// version-control rows from vcs.refreshStatus, the lineage (shell-lineage.ts), and, as
-// of 6d450a4284, the items the card shows (thread-details-items.ts), Servers and Usage.
+// version-control rows from vcs.refreshStatus, the lineage (shell-lineage.ts), the items
+// the card shows (thread-details-items.ts), Servers and Usage.
 import type { T3Client } from '../client/client';
 import { arr, obj, str, num, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';

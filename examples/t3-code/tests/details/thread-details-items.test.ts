@@ -1,4 +1,4 @@
-// What the thread details card shows (threadDetailsItems.ts and ThreadDetailsItemsMenu.tsx at 6d450a4284): the ten
+// What the thread details card shows (threadDetailsItems.ts and ThreadDetailsItemsMenu.tsx): the ten
 // items and their defaults, the choices stored as differences, the menu's rows and Reset, the saved record read back,
 // and the card's sections following the choices (shell-details.contract DetailsBody, git.contract GitRows).
 import { describe, expect, test } from 'bun:test';

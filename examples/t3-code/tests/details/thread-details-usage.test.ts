@@ -1,4 +1,4 @@
-// The thread details card's Usage item (ThreadDetailsUsage.tsx at 6d450a4284): the selected provider's limit windows and
+// The thread details card's Usage item (ThreadDetailsUsage.tsx): the selected provider's limit windows and
 // the thread's context window, each as room left, with the error and warning tones and the tooltip's lines.
 import { describe, expect, test } from 'bun:test';
 import { usageView } from '../../src/details/thread-details-usage';

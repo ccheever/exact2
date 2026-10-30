@@ -1,6 +1,6 @@
-// The thread details card's Servers section (ThreadServersPanel.tsx and portDiscoveryState.ts useThreadDiscoveredPorts
-// at 6d450a4284): the servers this thread's terminals and agent started, their source line, when Stop is offered, a ⌘-press
-// to the system browser, and Stop through preview.stopLocalServer with the reference's failure toast.
+// The thread details card's Servers section (ThreadServersPanel.tsx and portDiscoveryState.ts useThreadDiscoveredPorts):
+// the servers this thread's terminals and agent started, their source line, when Stop is offered, a ⌘-press to the
+// system browser, and Stop through preview.stopLocalServer with the reference's failure toast.
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
@@ -67,5 +67,15 @@ describe('a row\'s presses (ThreadServersPanel open and stop)', () => {
     await threadServerLocal(failing.client, native, 'stop', '5173:5173');
     expect(toasts(failing.client).map(toast => [toast.title, toast.description])).toEqual([['Could not stop server', 'This server is no longer running.']]);
     expect(threadServersView(failing.client, 't1').busy).toBe(false);
+  });
+  test('Stop wakes the shell before it waits, so the row is drawn stopping', async () => {
+    const f = fixture();
+    await watchThreadServers(f.client, native, true);
+    f.servers([server(5173, { agent: { threadId: 't1' } })]);
+    const drawn: object[] = [];
+    const waking = { later: async (request: { op: string }) => { if (request.op === 'wake') drawn.push(threadServersView(f.client, 't1')); return {}; } } as unknown as Native;
+    await threadServerLocal(f.client, waking, 'stop', '5173:5173');
+    expect(drawn).toMatchObject([{ busy: true, rows: [{ stopping: true }] }]);
+    expect(threadServersView(f.client, 't1')).toMatchObject({ busy: false, rows: [{ stopping: false }] });
   });
 });
