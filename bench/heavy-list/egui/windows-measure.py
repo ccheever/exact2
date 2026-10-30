@@ -252,6 +252,7 @@ def main():
     parser.add_argument('--diagnostic',action='store_true')
     parser.add_argument('--cold',action='store_true')
     parser.add_argument('--startup-only',action='store_true')
+    parser.add_argument('--fling-only',action='store_true')
     parser.add_argument('--arm',choices=['d3d11','wgpu','egui'])
     args=parser.parse_args()
     out=Path(args.out).resolve(); out.mkdir(parents=True,exist_ok=True)
@@ -266,9 +267,10 @@ def main():
         while not stop.wait(5): record(out/'quiet.jsonl',quiet_sample())
     observer=threading.Thread(target=monitor); observer.start()
     try:
-        arms=['d3d11','wgpu','egui']
-        for number in range(1,11):
-            order=arms[(number-1)%3:]+arms[:(number-1)%3]
+        arms=[args.arm] if args.arm else ['d3d11','wgpu','egui']
+        for number in range(1,6 if args.fling_only else 11):
+            offset=(number-1)%len(arms)
+            order=arms[offset:]+arms[:offset]
             for arm in order:
                 if args.cold:
                     with (out/f'{arm}-{number}-reset.log').open('wb') as reset_log:
