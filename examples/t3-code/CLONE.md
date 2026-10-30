@@ -94,6 +94,19 @@ This qualifies offline preference storage and the choice UI. Hardware input,
 IME, Return dispatch and connected submission remain separate. The cloud session
 is shut down. No product code changed, and TestFlight is unchanged.
 
+The same normal build passes About and license navigation on fresh EAS. About's
+Version `0.1.0` matches the bundle. Searching `shikijs` shows `@shikijs/langs`
+and `@shikijs/themes`, both `4.2.0 · MIT`. Opening `@shikijs/langs` shows Mobile metadata.
+Its complete notice matches bundled text after observed accessibility line-break
+normalization, and the rendered ending is visible. Back retains the query and both
+results without re-entry. An unmatched query shows no-results feedback. The app's
+Clear text control restores the list. About, Settings, Home search clearing,
+New task and Back remain usable. Evidence is under
+`target/t3-poc-evidence/phone-information-navigation/`.
+This qualifies local information navigation, not complete license coverage, range
+selection, connected behavior or broader parity. No product or test code changed.
+The cloud session is shut down, and TestFlight is unchanged.
+
 Text-only strong table cells now render through the existing native text runs.
 The generated adapter admits direct strong nodes with positioned plain-text
 children and retains whole-segment fallback for unsupported content. Existing
