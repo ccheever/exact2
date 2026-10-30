@@ -113,7 +113,7 @@ component GuideDiffs
               for item in card.items key=item.id
                 if item.kind == "pr-draft" and not view.canComment
                   column width="100%" gap="0.5rem" padding="0.75rem" box-sizing="border-box" testId="guide-ask-lines-draft"
-                    textarea data-editable="yes" id="guide-lines-question" value=draftText input=edit rows=2 placeholder="Ask about these lines…" aria-label="Question about selected guide lines" autocorrect="off" spellcheck="false" testId="guide-lines-question" width="100%" min-height="3rem"
+                    textarea data-editable="yes" id="guide-lines-question" value=draftText input=edit rows=2 placeholder="Ask about these lines…" aria-label="Question about selected guide lines" autocorrect="off" spellcheck="false" testId="guide-lines-question" width="100%" min-height="3rem" resize="vertical"
                     row gap="0.5rem" justify-content="flex-end"
                       button press=cancel testId="guide-lines-cancel"
                         text "Cancel"

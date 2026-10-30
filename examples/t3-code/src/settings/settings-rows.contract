@@ -530,9 +530,8 @@ component CoreField
         color=pal.muted
 
 // ThreadTitleInstructionsSettings' Textarea (ui/textarea.tsx: field-sizing content, min-h-17.5, max-h-64) under the
-// row's text, in `mt-3 max-w-2xl pb-3.5`. The reference's also resizes vertically (Tailwind preflight's
-// `textarea { resize: vertical }`), which the compiler refuses (`lower-css-resize`). Edits stay
-// local and save, trimmed, when the field is left after an edit that changes the value (any edit while Mixed). Its
+// row's text, in `mt-3 max-w-2xl pb-3.5`, resized vertically (Tailwind preflight's `textarea { resize: vertical }`): a
+// dragged height replaces its content height, within min-height and max-height. Edits stay local and save, trimmed, when the field is left after an edit that changes the value (any edit while Mixed). Its
 // caller keys it on the value, as the reference keys its field, so it keeps what was typed until a new value arrives.
 component CoreTextArea
   props
@@ -556,7 +555,7 @@ component CoreTextArea
     edited = false
   view
     column width="100%" max-width="42rem" padding-bottom="0.875rem" box-sizing="border-box"
-      textarea value=draft input=edit change=leave rows=4 placeholder=placeholder aria-label=label disabled=disabled autocorrect="off" field-sizing="content" width="100%" min-height="4.5rem" max-height="16.125rem" box-sizing="border-box" padding-left="0.6875rem" padding-right="0.6875rem" padding-top="0.3125rem" padding-bottom="0.3125rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" font-size="0.875rem" line-height="1.25rem" color=pal.text opacity=(disabled ? 0.64 : 1) id=`setting-${rowId}` testId=`setting-${rowId}` data-paint="input canvas text" data-pick="canvas" data-editable="yes" data-focus-stop=(disabled ? "" : "enabled page")
+      textarea value=draft input=edit change=leave rows=4 placeholder=placeholder aria-label=label disabled=disabled autocorrect="off" field-sizing="content" width="100%" min-height="4.5rem" max-height="16.125rem" box-sizing="border-box" padding-left="0.6875rem" padding-right="0.6875rem" padding-top="0.3125rem" padding-bottom="0.3125rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" font-size="0.875rem" line-height="1.25rem" color=pal.text opacity=(disabled ? 0.64 : 1) id=`setting-${rowId}` testId=`setting-${rowId}` data-paint="input canvas text" data-pick="canvas" data-editable="yes" data-focus-stop=(disabled ? "" : "enabled page") resize="vertical"
         ::placeholder
           color=pal.muted
 
