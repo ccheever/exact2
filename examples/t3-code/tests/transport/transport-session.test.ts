@@ -92,6 +92,28 @@ describe('pairing (authorization/remote.ts, resolver.ts)', () => {
     expect(await enabled()).toEqual([true]);
   });
 
+  // onboarding.test.ts (003ccd336d): the server reports its own environment id, so a link cannot add a route to a saved one.
+  test('a pairing link that claims a saved environment at a new address is refused before its code is spent', async () => {
+    const OTHER = 'http://127.0.0.1:4002';
+    const home = new FakeServer(ORIGIN, 'env-1', { label: 'Studio' }), stranger = new FakeServer(OTHER, 'env-1', { label: 'Studio' });
+    const drive = new Drive(home, stranger);
+    expect((await drive.op(pairing())).ok).toBe(true);
+    const refused = await drive.op({ op: 'pairEnvironment', origin: OTHER, credential: 'code-1' });
+    expect(refused.error).toMatchObject({ kind: 'Pairing',
+      message: "That address claims to be Studio, which is already saved. Add it as a route from that environment's settings instead." });
+    expect(stranger.requests.map(request => request.path)).toEqual(['/.well-known/t3/environment']);
+    expect(stranger.codes.has('code-1')).toBe(true);
+    const saved = value(await drive.op({ op: 'environments' })).saved as Obj[];
+    expect(saved.map(entry => (entry.routes as Obj[]).map(route => route.origin))).toEqual([[ORIGIN]]);
+    // The focused connection's pairing is refused the same way.
+    expect((await drive.op(pairing(OTHER))).error).toMatchObject({ kind: 'Pairing' });
+    expect(stranger.codes.has('code-1')).toBe(true);
+    // Its own address pairs again, and "Add a route" (which names the environment) still adds one.
+    home.codes.add('code-2');
+    expect((await drive.op({ op: 'pairEnvironment', origin: ORIGIN, credential: 'code-2' })).ok).toBe(true);
+    expect((await drive.op({ op: 'pairEnvironment', origin: OTHER, credential: 'code-1', expectedEnvironmentId: 'env-1' })).ok).toBe(true);
+  });
+
   test('a refused code saves nothing and names the reference error', async () => {
     const drive = new Drive(new FakeServer(ORIGIN));
     const reply = await drive.op(pairing(ORIGIN, 'wrong'));

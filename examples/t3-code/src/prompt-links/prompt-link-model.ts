@@ -1,15 +1,20 @@
-// T3 Code 9c161462c9 (MIT, LICENSE-T3): packages/client-runtime/src/promptLinks.ts.
+// T3 Code 6d450a4284 (MIT, LICENSE-T3): packages/client-runtime/src/promptLinks.ts.
 // The clone keeps received entities as plain objects; repository and PR keys retain the reference's matching rules.
 import { arr, obj, str, type Obj } from '../client/domain';
 import { resolveSelectableModel } from '../composer/composer-controls-model';
 import { visiblePullRequests } from '../panel/shell-pr';
 import type { PromptLinkPullRequest, PromptLinkRepository } from './prompt-links';
 
+// A link's `owner/name` is GitHub's. GitCafe syncs a repository two-way with GitHub under the
+// same path, so a checkout cloned from git.cafe counts as the linked repository.
+const PROMPT_LINK_REPOSITORY_HOSTS = ['github.com', 'git.cafe', 'staging.git.cafe'];
+
 export function findPromptLinkProject<T extends Obj>(projects: readonly T[], repository: PromptLinkRepository): T | undefined {
-  const key = `github.com/${repository.owner}/${repository.name}`.toLowerCase();
+  const path = `${repository.owner}/${repository.name}`.toLowerCase();
+  const keys = new Set(PROMPT_LINK_REPOSITORY_HOSTS.map(host => `${host}/${path}`));
   return projects.find(project => {
     const identity = obj(project.repositoryIdentity);
-    return str(obj(identity.origin).canonicalKey ?? identity.canonicalKey).toLowerCase() === key;
+    return keys.has(str(obj(identity.origin).canonicalKey ?? identity.canonicalKey).toLowerCase());
   });
 }
 export function findPromptLinkPullRequestThread<T extends Obj>(threads: readonly T[], pullRequest: PromptLinkPullRequest): T | undefined {

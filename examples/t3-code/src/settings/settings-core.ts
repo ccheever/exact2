@@ -137,14 +137,14 @@ export function decodeClientPrefs(saved: unknown): ClientPrefs {
   return next;
 }
 
-type Device = { composerCollapseOnScroll: boolean; planModeEnabled: boolean; timestampFormat: string; appearanceMode: string; sendShortcut: string };
-export const DEVICE_DEFAULTS: Device = { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' };
+type Device = { planModeEnabled: boolean; timestampFormat: string; appearanceMode: string; sendShortcut: string };
+export const DEVICE_DEFAULTS: Device = { planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' };
 const DEVICE_CHOICES: Record<string, readonly string[]> = { timestampFormat: ['locale', '12-hour', '24-hour'], appearanceMode: ['system', 'light', 'dark'], sendShortcut: ['enter', 'mod-enter-multiline', 'mod-enter'] };
 type LocalPrefs = { deviceSettings: Device; clientSettings?: ClientPrefs; groupingMode: string; lastGroupingMode?: string; customThemes?: CustomTheme[] };
 /** Apply one device-local change in place. Returns false when the key is not a device setting. */
 export function applyDeviceSetting(local: LocalPrefs, key: string, value: string): boolean {
   const device = local.deviceSettings as Record<string, unknown>;
-  if (key in DEVICE_CHOICES || key === 'composerCollapseOnScroll' || key === 'planModeEnabled') {
+  if (key in DEVICE_CHOICES || key === 'planModeEnabled') {
     if (key in DEVICE_CHOICES ? !DEVICE_CHOICES[key]!.includes(value) : !['true', 'false'].includes(value)) throw new ClientError('Unsupported device setting.');
     device[key] = key in DEVICE_CHOICES ? value : value === 'true';
     return true;

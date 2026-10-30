@@ -54,6 +54,10 @@ export class GhosttyTerminalSurfaceBase {
   readonly scrollbar: HTMLDivElement;
   cols = 1;
   rows = 1;
+  /** The drawn grid: the shared PTY grid, clamped per axis to the measured one. */
+  protected measuredCols = 1;
+  protected measuredRows = 1;
+  protected sharedGrid: { readonly cols: number; readonly rows: number } | null = null;
 
   protected readonly mount: HTMLElement;
   protected readonly context: CanvasRenderingContext2D;

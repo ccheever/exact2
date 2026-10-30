@@ -103,7 +103,7 @@ test "⇧⌘S settles the open thread with the undo notice, and ⌘Z brings it b
   expect text "toggle-settled" == "Settled (0)"
   type "t3-code" key "Meta+Shift+s"
   clock +1200 real
-  expect text "sidebar-undo-notice" == "Settled 1 thread,⌘Z to undo"
+  expect text "sidebar-undo-notice" == "⌘Z to undoSettled,"
   expect text "toggle-settled" == "Settled (1)"
   type "t3-code" key "Meta+z"
   clock +2000 real

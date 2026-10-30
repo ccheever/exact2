@@ -456,27 +456,45 @@ export function scorePullRequestMatch(entry: Obj, query: string): number {
   return 10;
 }
 /**
+ * withLinkedComposerPullRequestsFirst: the thread's linked pull requests that match a text query (as a searched entry,
+ * or by every word of their number, title, repository and branch) ahead of the searched ones.
+ */
+function withLinkedFirst(matches: Obj[], linked: Obj[], query: string, key: (entry: Obj) => string): Obj[] {
+  const byKey = new Map(matches.map(entry => [key(entry), entry]));
+  const words = query.toLowerCase().split(/\s+/u).filter(Boolean);
+  const first = linked.flatMap(entry => {
+    const match = byKey.get(key(entry));
+    if (match !== undefined) return [match];
+    const text = `#${String(entry.number)} ${str(entry.title)} ${str(entry.repository)} ${str(entry.headBranch)}`.toLowerCase();
+    return words.every(word => text.includes(word)) ? [entry] : [];
+  });
+  const firstKeys = new Set(first.map(key));
+  return [...first, ...matches.filter(entry => !firstKeys.has(key(entry)))];
+}
+/**
  * Rows for `#query` (ChatComposer pull-request items): a number keeps entries
  * whose number contains it, the exact one first, then newest
  * (filterComposerPullRequestMatches); text keeps what the host matched or the
- * row shows, most convincing first (rankPullRequestMatches). Twelve at most.
+ * row shows, most convincing first (rankPullRequestMatches), after the thread's
+ * linked pull requests that match (withLinkedComposerPullRequestsFirst). Twelve at most.
  */
 export function pullRequestRows(entries: Obj[], projectId: string, repository: string, query: string, providers: Obj[] = [], links: Obj[] = []): MenuRow[] {
   const repo = repository.trim().toLowerCase();
   const scoped = entries.filter(entry => str(entry.projectId) === projectId && str(entry.repository).trim().toLowerCase() === repo);
   const newest = (a: Obj, b: Obj) => str(b.updatedAt).localeCompare(str(a.updatedAt));
   let matches: Obj[];
+  // composerPullRequestsFromLinks: the thread's linked pull requests that carry a snapshot.
+  const linked = links.filter(link => link.source !== 'stack-dismissed' && link.snapshot != null).map(link => ({ ...obj(link.snapshot), projectId, repository: link.repository, number: link.number, url: link.url, updatedAt: obj(link.snapshot).updatedAt ?? link.linkedAt }));
+  const key = (entry: Obj) => `${str(entry.repository).trim().toLowerCase()}#${String(entry.number)}`;
   if (/^\d*$/.test(query)) {
-    const linked = links.filter(link => link.source !== 'stack-dismissed' && link.snapshot != null).map(link => ({ ...obj(link.snapshot), projectId, repository: link.repository, number: link.number, url: link.url, updatedAt: obj(link.snapshot).updatedAt ?? link.linkedAt }));
-    const key = (entry: Obj) => `${str(entry.repository).trim().toLowerCase()}#${String(entry.number)}`;
     const linkedKeys = new Set(linked.map(key));
     const unique = new Map<string, Obj>();
     for (const entry of [...scoped, ...linked]) if (String(entry.number).includes(query) && !unique.has(key(entry))) unique.set(key(entry), entry);
     const exact = (entry: Obj) => Number(String(entry.number) === query);
     matches = [...unique.values()].sort((a, b) => exact(b) - exact(a) || Number(linkedKeys.has(key(b))) - Number(linkedKeys.has(key(a))) || newest(a, b));
   } else {
-    matches = scoped.filter(entry => providers.find(provider => str(provider.host) === str(entry.host))?.searchesOnHost === true || matchesPullRequestQuery(entry, query))
-      .sort((a, b) => scorePullRequestMatch(b, query) - scorePullRequestMatch(a, query) || newest(a, b));
+    matches = withLinkedFirst(scoped.filter(entry => providers.find(provider => str(provider.host) === str(entry.host))?.searchesOnHost === true || matchesPullRequestQuery(entry, query))
+      .sort((a, b) => scorePullRequestMatch(b, query) - scorePullRequestMatch(a, query) || newest(a, b)), linked, query, key);
   }
   return matches.slice(0, 12).map(entry => {
     const state = pullRequestState(entry), [icon, light, dark] = PR_ICON[state] ?? PR_ICON.open!;

@@ -80,7 +80,7 @@ describe('Restore defaults resets what the reference resets', () => {
     const client = fake();
     client.local.clientSettings = decodeClientPrefs(CHANGED);
     for (const key of Object.keys(CLIENT_DEFAULTS)) expect([key, prefsOf(client)[key]]).toEqual([key, CHANGED[key as keyof typeof CHANGED]]);
-    client.local.deviceSettings = { composerCollapseOnScroll: false, planModeEnabled: true, timestampFormat: '24-hour', appearanceMode: 'dark', sendShortcut: 'mod-enter', snapShotEnabled: true };
+    client.local.deviceSettings = { planModeEnabled: true, timestampFormat: '24-hour', appearanceMode: 'dark', sendShortcut: 'mod-enter', snapShotEnabled: true };
     client.local.groupingMode = 'separate';
     const listed = restoreLabels(client.local as never, null);
     expect(listed).not.toContain('Font smoothing');

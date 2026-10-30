@@ -209,11 +209,12 @@ describe('group limits', () => {
 });
 
 describe('copy the thread reference', () => {
-  test('Copy thread ID and Copy PR link are found by their own words', () => {
+  test('Copy thread and Copy PR link are found by their own words; Copy thread shows the title it copies', () => {
     const c = client([{ id: 'a', title: 'Alpha', updatedAt: at(1) }]);
     c.threadId = 'a';
     const copy = (query: string) => view(c, query).rows.find(entry => entry.op === 'copy-thread')?.title ?? null;
-    expect([copy('thread id'), copy('reference'), copy('pull request link')]).toEqual(['Copy thread ID', 'Copy thread ID', null]);
+    expect([copy('thread id'), copy('reference'), copy('pull request link')]).toEqual(['Copy thread', 'Copy thread', null]);
+    expect(view(c, 'copy thread').rows.find(entry => entry.op === 'copy-thread')?.description).toBe('Alpha');
     c.shell.threads[0]!.linkedPullRequest = { number: 12, url: 'https://github.com/acme/web/pull/12' };
     expect([copy('thread id'), copy('reference'), copy('pull request link')]).toEqual([null, 'Copy PR link', 'Copy PR link']);
   });

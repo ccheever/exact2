@@ -82,6 +82,10 @@ component TerminalPulse
 component ThreadRow
   inject
     threadJumpHints: bool // a thread.jump.N shortcut's modifiers held alone for 200 ms (app.contract)
+    // The sidebar's tree (sidebar.contract): the row holding the Tab stop, and its focus and arrow keys.
+    sidebarTreeStop: string
+    treeFocused: action
+    treeKey: action
     // A file drop on the row (app.contract attachFiles, legacy-sidebar-drop.ts queueRowDrop).
     attachFiles: action
   props
@@ -117,6 +121,9 @@ component ThreadRow
   derive hovering = hoverId == t.hoverKey or hoverId.startsWith(`${t.hoverKey}#`)
   // A utility page is not a thread route: no row is open there.
   derive isOpen = t.selected and page == ""
+  derive treeLevel = ["working", "snoozed", "settled"].includes(t.section) ? 2 : 1
+  // Tab reaches the hidden actions of the row holding the tree's stop only, so the tree stays one stop for the rest.
+  derive actionsReachable = sidebarTreeStop == `thread-${t.id}` or actionsFocused
   // SidebarThreadRow's makeWorkspaceFileDropHandlers (Sidebar.tsx): a file drag over the row rings it (ring-1 ring-inset
   // ring-primary/70, and the hover surface unless it is the open row), and a drop opens the thread with the files in its
   // composer (handleThreadFileDrop). A draft row takes none.
@@ -204,7 +211,10 @@ component ThreadRow
                 row width="100%" height="0.875rem" margin-top="0.125rem" align-items="center" justify-content="flex-end"
                   SidebarProviderMark(driver=t.providerDriver, icon=t.providerIcon, badge=t.providerBadge, accent=t.providerBadgeColor)
           else
-            button cursor="pointer" id=`thread-${t.id}` press=openPress pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label width="100%" height=(t.metaEmpty ? "auto" : "4.875rem") box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : (fileDrag ? "inset 0 0 0 1px light-dark(#1b4ed8b3, #346bf1b3)" : ring)) display="flex" flex-direction="column" align-items="stretch" gap=0
+            button cursor="pointer" id=`thread-${t.id}` press=openPress pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label role="treeitem" aria-level=treeLevel aria-current=(isOpen ? "page" : "false") tabindex=(sidebarTreeStop == `thread-${t.id}` ? 0 : -1) focus=treeFocused(`thread-${t.id}`) key=treeKey(`thread-${t.id}`) width="100%" height=(t.metaEmpty ? "auto" : "4.875rem") box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : (fileDrag ? "inset 0 0 0 1px light-dark(#1b4ed8b3, #346bf1b3)" : ring)) display="flex" flex-direction="column" align-items="stretch" gap=0
+              // SidebarThreadRow: focus-visible:ring-2 ring-inset ring-ring.
+              :focus-visible
+                box-shadow="inset 0 0 0 2px light-dark(#1b4ed8, #346bf1)"
               row width="100%" height="1.25rem" gap="0.375rem" align-items="center"
                 if t.draft
                   SidebarTip(tip=`${t.hoverKey}#draft`, hoverCard=hoverCard)
@@ -229,7 +239,7 @@ component ThreadRow
                     else
                       row align-items="center" flex-shrink=0 max-width=(shown ? "0px" : "15rem") overflow="hidden" opacity=(shown ? 0 : 1)
                         SidebarStatusSlot(t=t, now=now)
-                      row align-items="stretch" flex-shrink=0 max-width=(shown ? "15rem" : "0px") overflow=(shown ? "visible" : "hidden") opacity=(shown ? 1 : 0) pointer-events=(shown ? "auto" : "none") aria-hidden=(not shown)
+                      row align-items="stretch" flex-shrink=0 max-width=(shown ? "15rem" : "0px") overflow=(shown ? "visible" : "hidden") opacity=(shown ? 1 : 0) pointer-events=(shown ? "auto" : "none") aria-hidden=(not shown) inert=(not shown and not actionsReachable)
                         SidebarCardActions(t=t, busy=busy, run=run, menu=menu, hoverCard=hoverCard, pressDown=pressDown, hoverId=hoverId, sweep=sweep, release=dragEnd, sweepKeys=sweepKeys, snoozeKey=snoozeKey, snoozePress=snoozePress, focusIn=actionsIn, focusOut=actionsOut)
                   if swept
                     SidebarDropVerb(verb=sweptBadge, ink="light-dark(#1b4ed8, #346bf1)")
@@ -268,7 +278,8 @@ component ThreadRow
               KeyMenu(menuId=`snooze-${t.id}-keys`, items=snoozeItems, keyed=0, gap="0px", modal=true)
                 for preset in presets key=preset.id
                   SnoozeMenuItem(keysId=`snooze-${t.id}-keys`, itemId=`snooze-${t.id}-${preset.id}`, label=preset.label, detail=preset.wakeLabel, popId=`snooze-${t.id}`, press=run(`snooze:${preset.id}`, t.id, ""))
-                box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+                if presets.length > 0
+                  box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
                 SnoozeMenuItem(keysId=`snooze-${t.id}-keys`, itemId=`snooze-${t.id}-custom`, label="Custom…", detail="", popId=`snooze-${t.id}`, press=run("snooze:custom", t.id, ""))
         else
           if t.renaming
@@ -276,7 +287,10 @@ component ThreadRow
               SidebarProjectGlyph(g=t.glyph, size=16, dim=false)
               SidebarRenameField(t=t, local=local, run=run)
           else
-            button cursor="pointer" id=`thread-${t.id}` press=openPress pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label width="100%" height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.375rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : (fileDrag ? "inset 0 0 0 1px light-dark(#1b4ed8b3, #346bf1b3)" : ring)) display="flex" flex-direction="row" align-items="center" gap="0.625rem"
+            button cursor="pointer" id=`thread-${t.id}` press=openPress pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label role="treeitem" aria-level=treeLevel aria-current=(isOpen ? "page" : "false") tabindex=(sidebarTreeStop == `thread-${t.id}` ? 0 : -1) focus=treeFocused(`thread-${t.id}`) key=treeKey(`thread-${t.id}`) width="100%" height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.375rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : (fileDrag ? "inset 0 0 0 1px light-dark(#1b4ed8b3, #346bf1b3)" : ring)) display="flex" flex-direction="row" align-items="center" gap="0.625rem"
+              // SidebarThreadRow: focus-visible:ring-2 ring-inset ring-ring.
+              :focus-visible
+                box-shadow="inset 0 0 0 2px light-dark(#1b4ed8, #346bf1)"
               // Receding favicon (opacity-40 grayscale), restored on hover.
               if (not isOpen or t.section == "settled") and not hovering
                 box opacity=0.4 flex-shrink=0 display="flex" align-items="center"
@@ -301,12 +315,12 @@ component ThreadRow
                   // opacity-0 buttons do: the control under the pointer survives the row's
                   // hover handing over to it, so its tooltip can open.
                   if t.canWake
-                    row align-items="stretch" flex-shrink=0 margin-right=(hovering ? "-0.25rem" : "0px") max-width=(hovering ? "3.75rem" : "0px") overflow="hidden" opacity=(hovering ? 1 : 0) aria-hidden=(not hovering)
+                    row align-items="stretch" flex-shrink=0 margin-right=(hovering ? "-0.25rem" : "0px") max-width=(hovering ? "3.75rem" : "0px") overflow="hidden" opacity=(hovering ? 1 : 0) aria-hidden=(not hovering) inert=(not hovering and not actionsReachable)
                       SidebarTip(tip=`${t.hoverKey}#wake`, hoverCard=hoverCard)
                         button cursor="pointer" id=`sweep-${t.id}` press=run("unsnooze", t.id, "") contextmenu=menu(t.id, `sweep-${t.id}`) contextPopover="thread-menu" focus=hoverCard("", false) pointerdown=pressDown pan=sweep(t.id, "unsnooze") panrelease=dragEnd(`sweep|unsnooze|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Wake thread now" testId=`wake-${t.id}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
                           SidebarIcon(name="alarm-clock-off", size=12, color=(hoverId == `${t.hoverKey}#wake` ? "light-dark(#18181b, #f1f3f7)" : tool))
                   if t.canUnsettle
-                    row align-items="stretch" flex-shrink=0 margin-right=(hovering ? "-0.25rem" : "0px") max-width=(hovering ? "3.75rem" : "0px") overflow="hidden" opacity=(hovering ? 1 : 0) aria-hidden=(not hovering)
+                    row align-items="stretch" flex-shrink=0 margin-right=(hovering ? "-0.25rem" : "0px") max-width=(hovering ? "3.75rem" : "0px") overflow="hidden" opacity=(hovering ? 1 : 0) aria-hidden=(not hovering) inert=(not hovering and not actionsReachable)
                       SidebarTip(tip=`${t.hoverKey}#unsettle`, hoverCard=hoverCard)
                         button cursor="pointer" id=`sweep-${t.id}` press=run("unsettle", t.id, "") contextmenu=menu(t.id, `sweep-${t.id}`) contextPopover="thread-menu" focus=hoverCard("", false) pointerdown=pressDown pan=sweep(t.id, "unsettle") panrelease=dragEnd(`sweep|unsettle|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Un-settle thread" testId=`unsettle-${t.id}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
                           SidebarIcon(name="undo-2", size=14, color=(hoverId == `${t.hoverKey}#unsettle` ? "light-dark(#18181b, #f1f3f7)" : tool))
@@ -565,6 +579,10 @@ component SearchResult
 // It hovers through the window's hover id (`draft:<project>`), so its Discard
 // control keeps it hovered and the overlay draws that control's tooltip.
 component DraftCard
+  inject
+    sidebarTreeStop: string
+    treeFocused: action
+    treeKey: action
   props
     d: SidebarDraft
     run: action
@@ -584,10 +602,15 @@ component DraftCard
       preventDefault()
       menu(d.id, `draft-${d.id}`)
       showPopover("draft-menu", source=`draft-${d.id}`)
+    else
+      treeKey(`draft-${d.id}`, k, e)
   view
     column id=`row-draft:${d.id}` hover=hoverCard(`draft:${d.id}`) contextmenu=menu(d.id, `draft-${d.id}`) contextPopover="draft-menu" width="100%" position="relative" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box"
       box id=`row-draft:${d.id}#discard` position="absolute" top=0 left=0 width=0 height=0 aria-hidden=true
-      button cursor="pointer" id=`draft-${d.id}` press=run("open-draft", d.id, "") key=rowKey aria-label=`${d.preview}, Unsent draft, ${d.projectName}` testId=`draft-${d.id}` width="100%" height="4.875rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" border-radius="0.375rem" border-width=0 background-color=(hovering ? "#fe9a0014" : "#fe9a000a") display="flex" flex-direction="column" align-items="stretch"
+      button cursor="pointer" id=`draft-${d.id}` press=run("open-draft", d.id, "") key=rowKey focus=treeFocused(`draft-${d.id}`) role="treeitem" aria-level=1 tabindex=(sidebarTreeStop == `draft-${d.id}` ? 0 : -1) aria-label=`${d.preview}, Unsent draft, ${d.projectName}` testId=`draft-${d.id}` width="100%" height="4.875rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" border-radius="0.375rem" border-width=0 background-color=(hovering ? "#fe9a0014" : "#fe9a000a") display="flex" flex-direction="column" align-items="stretch"
+        // SidebarDraftBlock: focus-visible:ring-2 ring-inset ring-ring.
+        :focus-visible
+          box-shadow="inset 0 0 0 2px light-dark(#1b4ed8, #346bf1)"
         row width="100%" height="1.25rem" gap="0.375rem" align-items="center"
           SidebarIcon(name="square-pen", size=12, color="light-dark(#bb4d00, #ffb900)")
           SidebarProjectGlyph(g=d.glyph, size=16, dim=false)

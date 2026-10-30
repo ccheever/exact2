@@ -28,17 +28,17 @@ const attribute = (text: string, name: string): string => {
 };
 
 describe('the footer under a page', () => {
-  test.each([['sidebar.contract', 'Sidebar', { sidebar: { revealPending: '', revealRow: '' } }],
+  test.each([['sidebar.contract', 'Sidebar', { sidebar: { revealPending: '', revealRow: '', tree: [], treeCurrent: '' } }],
     ['legacy-sidebar.contract', 'LegacySidebar', { legacy: { revealPending: '', revealRow: '' } }]] as const)(
     '%s keeps Settings, Pull requests and Usage under Usage; the pull requests page draws Back instead', (file, name, data) => {
       const sidebar = contractComponent(file, name), state = sidebar.state();
       for (const button of ['testId="connection-settings"', 'testId="open-pull-requests"', 'testId="open-usage"']) {
-        expect(sidebar.drawn(button, state, { data, page: 'usage', pullRequests: true })).toBe(true);
-        expect(sidebar.drawn(button, state, { data, page: '', pullRequests: true })).toBe(true);
-        expect(sidebar.drawn(button, state, { data, page: 'pull-requests', pullRequests: true })).toBe(false);
+        expect(sidebar.drawn(button, state, { data, min: Math.min, max: Math.max, page: 'usage', pullRequests: true })).toBe(true);
+        expect(sidebar.drawn(button, state, { data, min: Math.min, max: Math.max, page: '', pullRequests: true })).toBe(true);
+        expect(sidebar.drawn(button, state, { data, min: Math.min, max: Math.max, page: 'pull-requests', pullRequests: true })).toBe(false);
       }
-      expect(sidebar.drawn('text "Back"', state, { data, page: 'usage', pullRequests: true })).toBe(false);
-      expect(sidebar.drawn('text "Back"', state, { data, page: 'pull-requests', pullRequests: true })).toBe(true);
+      expect(sidebar.drawn('text "Back"', state, { data, min: Math.min, max: Math.max, page: 'usage', pullRequests: true })).toBe(false);
+      expect(sidebar.drawn('text "Back"', state, { data, min: Math.min, max: Math.max, page: 'pull-requests', pullRequests: true })).toBe(true);
     });
 });
 
@@ -63,8 +63,10 @@ test('the jump badges are pills, as `rounded-full` on their 1.25rem height', () 
   }
 });
 
-test('the undo notice is a group, not a live region: the shell\'s announcer speaks it', () => {
-  expect(line('undo-notice.contract', 'testId="sidebar-undo-notice"')).toContain('role="group"');
+test('the undo notice is a footer item, not a live region: the shell\'s announcer speaks it', () => {
+  expect(line('undo-notice.contract', 'testId="sidebar-undo-notice"')).toContain('role="listitem"');
+  expect(line('undo-notice.contract', 'testId="sidebar-undo-notice"')).not.toContain('aria-live');
+  expect(line('undo-notice.contract', 'testId="legacy-undo-notice"')).toContain('role="group"');
 });
 
 test('the drag ghost\'s count is a pill', () => {

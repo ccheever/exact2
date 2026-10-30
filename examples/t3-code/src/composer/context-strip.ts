@@ -7,9 +7,8 @@
 // draft, the static machine row for a started thread (envLocked). A No project draft is the common
 // case since c47f4263f9 offers every machine's "No project" folder.
 // exact2-required changes: isDraftHeroState is "a draft" (!client.threadId; this client's draft
-// never has a timeline); hostsRestingComposerControls is false, because a resting card here draws
-// its own controls row (composer-controls.contract ComposerFooter `resting`) and the strip is not
-// mounted while the card rests (app-main.contract), so the strip never hosts those controls.
+// never has a timeline). Since v0.1.5 a draft always shows the strip, which names the Permissions its
+// first send uses; the machine selector shows only with the environment indicator.
 // useLabelsOverflow (BranchToolbar.tsx at 74541bab17, with resolveContextStripLabelsCompact) reads the
 // laid-out strip from its layout frame (layout-frames.ts) and the module's anchors instead of the DOM.
 import type { T3Client } from '../client/client';
@@ -38,22 +37,20 @@ export function shouldShowComposerContextStrip(input: {
   hasActiveProject: boolean;
   isGitRepo: boolean;
   showEnvironmentIndicator: boolean;
-  /** A collapsed composer's controls currently fit in their measured strip host. */
-  hostsRestingComposerControls: boolean;
 }): boolean {
+  // A new thread always shows the strip, since it names the permissions the first send uses.
   return (
     input.hasActiveProject &&
-    (input.isDraftHeroState || input.persistInActiveThreads) &&
-    (input.isGitRepo || input.showEnvironmentIndicator || input.hostsRestingComposerControls)
+    (input.isDraftHeroState || (input.persistInActiveThreads && (input.isGitRepo || input.showEnvironmentIndicator)))
   );
 }
 
 type Strip = { show: boolean; gitless: boolean; envLocked: boolean } & typeof NO_RUN_ON;
 
 /**
- * The strip of a project that is not a Git repository: shown only when the environment indicator
- * shows (a choice of machines, or a remote one); a draft gets the "Run on" Select with every
- * machine, a started thread the static machine row.
+ * The strip of a project that is not a Git repository: a draft's always shows, a started thread's only when the
+ * environment indicator shows (a choice of machines, or a remote one); with the indicator a draft gets the "Run on"
+ * Select with every machine, a started thread the static machine row.
  */
 export function gitlessStrip<T extends Strip>(client: T3Client, hidden: T, persist: boolean, source: EnvironmentFleet = fleet): T {
   const options = environmentOptions(client, source), active = options.find(option => option.selected) ?? null;
@@ -62,8 +59,9 @@ export function gitlessStrip<T extends Strip>(client: T3Client, hidden: T, persi
   const add = active && draft ? addTargetOptions(client, source) : [];
   const showEnvironmentIndicator = shouldShowEnvironmentIndicator({ activeEnvironment: active && { isPrimary: active.primary }, canPickEnvironment: options.length > 1 || add.length > 0 });
   const show = shouldShowComposerContextStrip({ isDraftHeroState: draft, persistInActiveThreads: persist, hasActiveProject: !!client.projectId,
-    isGitRepo: false, showEnvironmentIndicator, hostsRestingComposerControls: false });
-  if (!show || !active) return hidden;
+    isGitRepo: false, showEnvironmentIndicator });
+  if (!show) return hidden;
+  if (!showEnvironmentIndicator || !active) return { ...hidden, show: true, gitless: true, envShow: false };
   // The Select's popup holds only the "Run on" group, so it sizes to the machine labels alone.
   const envMenuWidth = runOnMenuWidth(client.presentation, options.map(option => option.label), [], 0, add.length > 0);
   const shown = autoIndicator(client, active); // "Auto balance" leads the group while it is offered

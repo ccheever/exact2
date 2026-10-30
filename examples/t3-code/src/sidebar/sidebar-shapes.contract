@@ -150,6 +150,35 @@ shape Thread
   hoverErrorWarning: bool
   // handleThreadContextMenu's items, or the bulk menu's on a selected row (the row's context popover).
   menu: SidebarMenuRow[]
+  // The row's own environment's snooze options (SidebarThreadRow's), none while it cannot snooze.
+  snoozePresets: SnoozePreset[]
+// A row of the sidebar's tree (sidebar-view.ts sidebarTree), by element id; `expanded` is "true" or "false" on a shelf header.
+shape SidebarTreeRow
+  id: string
+  parent: string
+  expanded: string
+// UpdateEverythingDialog (update-everything.ts updateEverythingDialog): a row per machine that updates.
+shape UpdateDialogRow
+  id: string
+  label: string
+  app: string // "This app", "Server", "Desktop app", or "" for a provider-only machine
+  skipped: bool
+  restartsLast: bool
+  providers: string
+  running: string // "2 running" when its restart interrupts threads
+shape UpdateDialogSkipped
+  id: string
+  label: string
+  reason: string
+shape UpdateDialogView
+  open: bool
+  title: string
+  version: string
+  providers: string
+  rows: UpdateDialogRow[]
+  skippedRows: UpdateDialogSkipped[]
+  skippedOpen: bool
+  warning: string
 shape SidebarScope
   key: string
   label: string
@@ -200,6 +229,8 @@ shape SidebarView
   scopeInk: string
   scopeSurface: string
   scopeGlyph: ProjectGlyph
+  scopeGlyphSecond: ProjectGlyph
+  scopeCount: number
   scopes: SidebarScope[]
   scopeOpen: bool
   scopeQuery: string
@@ -209,10 +240,9 @@ shape SidebarView
   renameHeld: bool // a double-click's rename waits for its row's environment (sidebar-rename-wait.ts)
   selectionCount: number
   undoText: string
+  undoShort: string // the footer's summary: "Settled," or "Settled 2,"
   undoLabel: string
   undoUntil: number
-  // The shelf whose header the notice sits above ("working", "snoozed", "settled"); "" puts it in the footer.
-  undoHost: string
   dialog: string
   dialogTitle: string
   dialogDescription: string
@@ -238,5 +268,8 @@ shape SidebarView
   sweepEpoch: number
   // The open row while it is listed (each mount of the sidebar scrolls to it), and again while a route change owes its
   // scroll (route-reveal.ts).
+  tree: SidebarTreeRow[]
+  treeCurrent: string
+  updateDialog: UpdateDialogView
   revealRow: string
   revealPending: string

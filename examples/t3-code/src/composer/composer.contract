@@ -74,14 +74,10 @@ component ComposerCard
     richComposerOwner: string
     composerFieldInputSerial: number
     composerMoved: action
-    // A press in the prompt: a resting composer expands (composer-members.contract).
-    composerPressed: action
     composerBeforeInput: action
     composerIntentNotice: string
     composerKeyEvent: action
     composerKeyReleased: action
-    // Whether the resting composer's change animates (cite-members.contract).
-    restMotion: bool
     // A copy or cut of the prompt's selection: its image and file chips are held for a paste into another draft.
     composerCopied: action
     // A press on a reference's pill (app.contract composerChipPress).
@@ -95,9 +91,7 @@ component ComposerCard
     data: Snapshot
     viewportWidth: number
     text: string
-    resting: bool
     busy: bool
-    narrow: bool
     keyModels: string
     modelsOpen: bool
     optionsOpen: string
@@ -121,7 +115,6 @@ component ComposerCard
   // An image's chip follows its size with its upload's state, as its tile reads it (ImageContextChip).
   derive faces = richComposer.chips.map((c) => composerAtomFace(c, uploadChipStatus(c.face.imageId, data.composer.uploads.images, composerUploads)))
   derive sendable = data.canSend and data.composer.uploadBlock == "" and (text != "" or data.snapshotDrafts.length > 0)
-  derive restingChip = data.composer.compactTokens != "" and not (data.composer.canResume and not sendable) and data.composer.queueEditing == ""
   // The field's value and selection as its events last reported them, where a held paste goes. Focused but not yet
   // edited or moved in, the field reports none: its caret is at the end of its value.
   state pasteValue = ""
@@ -177,7 +170,7 @@ component ComposerCard
       preventDefault()
       attachFiles("fold", [`${fold}\t${data.snapshotOwner}\t${richComposerOwner}\t${start}\t${end}\t${round(performanceNow() * 1000)}`, text, e.text], [], false, "")
   view
-    column width="100%" border-radius="1rem" border-style="solid" border-width=1 border-color=(contextOver ? "light-dark(#1b4ed8b3, #346bf1b3)" : (data.look.themed ? data.look.border : "light-dark(#00000014, #ffffff0d)")) background-color=(data.look.themed ? data.look.popover : "light-dark(#fefefe, #101010)") box-shadow="0 1px 2px light-dark(#0000000d, #00000000), inset 0 1px 0 0 light-dark(#00000000, #ffffff08)" box-sizing="border-box" testId="composer-surface" position="relative" resize=frameMoved id="composer-surface" -exact-layout-transition=(restMotion ? `${data.look.panelMs}ms cubic-bezier(0.32, 0.72, 0, 1)` : "none") data-paint=`${(contextOver ? "" : (data.look.themed ? "border" : ""))} ${(data.look.themed ? "surfaceOverlay" : "")}` data-pick=((data.look.themed ? "surfaceOverlay" : "") != "" ? (data.look.themed ? "surfaceOverlay" : "") : ((contextOver ? "" : (data.look.themed ? "border" : "")) != "" ? (contextOver ? "" : (data.look.themed ? "border" : "")) : ""))
+    column width="100%" border-radius="1rem" border-style="solid" border-width=1 border-color=(contextOver ? "light-dark(#1b4ed8b3, #346bf1b3)" : (data.look.themed ? data.look.border : "light-dark(#00000014, #ffffff0d)")) background-color=(data.look.themed ? data.look.popover : "light-dark(#fefefe, #101010)") box-shadow="0 1px 2px light-dark(#0000000d, #00000000), inset 0 1px 0 0 light-dark(#00000000, #ffffff08)" box-sizing="border-box" testId="composer-surface" position="relative" resize=frameMoved id="composer-surface" data-paint=`${(contextOver ? "" : (data.look.themed ? "border" : ""))} ${(data.look.themed ? "surfaceOverlay" : "")}` data-pick=((data.look.themed ? "surfaceOverlay" : "") != "" ? (data.look.themed ? "surfaceOverlay" : "") : ((contextOver ? "" : (data.look.themed ? "border" : "")) != "" ? (contextOver ? "" : (data.look.themed ? "border" : "")) : ""))
       // bg-accent/45 and ring-primary/70 while a thread is held over the composer.
       // ultrathink-frame, a static 2pt spectrum ring over the card's edge (index.css .ultrathink-frame::before:
       // the 120deg six-stop spectrum at 220% size shows its first 45%; saturate(.82) brightness(.92) baked into the stops). An SVG
@@ -193,8 +186,7 @@ component ComposerCard
           rect x=0 y=0 width="100%" height="100%" rx=16 ry=16 fill="none" stroke="url(#ultrathink-spectrum)" stroke-width=4
       if contextOver
         box position="absolute" left=0 top=0 right=0 bottom=0 border-radius="0.9375rem" background-color="light-dark(#f4f4f573, #ffffff05)" aria-hidden=true testId="composer-context-over"
-      // Resting, the prompt row reserves the floating actions' width: the send, and the Compact chip beside it.
-      column padding-top=(resting ? "0.4375rem" : "1rem") padding-bottom=(resting ? "0.4375rem" : "0.5rem") padding-left="1rem" padding-right=(resting ? (restingChip ? `${3.5 * rem + data.composer.compactWidth + 0.5 * rem}px` : "3.5rem") : "1rem") gap="0.5rem" box-sizing="border-box" width="100%"
+      column padding-top="1rem" padding-bottom="0.5rem" padding-left="1rem" padding-right="1rem" gap="0.5rem" box-sizing="border-box" width="100%"
         // SnapShot attachment frames are snapshot.contract's.
         SnapshotDrafts(images=data.snapshotDrafts, disabled=(busy or data.uncertain), remove=removeSnapshot, ask=askRemove, videos=data.composerVideos, preparing=data.composer.preparingImages, command=command, uploads=data.composer.uploads, live=composerUploads)
         // The queued message's own attachments while it is edited (removable; new ones attach as usual).
@@ -211,25 +203,26 @@ component ComposerCard
         // focus: `outline="none"` (main #459, issues/closed/20261009-field-outline-none.md).
         // Its -m-1 p-1 sits in a flow-root container, so the text and the placeholder both start at the container's top;
         // the field here has neither margin nor padding (a negative margin would collapse through the wrap and lift both).
-        box width="100%" max-height=(resting ? "2rem" : "12.5rem") overflow-y=(resting ? "hidden" : "auto") pointerdown=composerPressed testId="composer-scroll-region"
+        // The field is two lines tall at least (min-h-[calc(2lh+--spacing(2))] over its p-1), so a second line does not grow it.
+        box width="100%" max-height="12.5rem" overflow-y="auto" testId="composer-scroll-region"
           box position="relative" width="100%" id="composer-field-wrap"
             if text == ""
-              text data.composer.placeholder font-family=data.look.promptFont position="absolute" left=0 top=0 right=0 font-size="0.875rem" line-height=(resting ? "2rem" : "1.421875rem") line-clamp=(resting ? 1 : 3) color="light-dark(#71717a, #a1a1a1)" pointer-events="none" aria-hidden=true testId="composer-placeholder"
+              text data.composer.placeholder font-family=data.look.promptFont position="absolute" left=0 top=0 right=0 font-size="0.875rem" line-height="1.421875rem" line-clamp=3 color="light-dark(#71717a, #a1a1a1)" pointer-events="none" aria-hidden=true testId="composer-placeholder"
             // Switching threads lands the focus here, so the field's name says the thread (ChatComposer ariaLabel). Each source
             // line reads in its block's majority direction (ComposerTextDirectionExtension); on macOS the arrow keys follow it.
             if richComposer.mode == "rich"
-              textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite paste=pasted copy=richCopied cut=richCopied markup="markdown" atoms="citation context file mention skill" atomFaces=faces paragraphDirs=richComposer.dirs atompress=richAtom selectionchange=richMoved beforeinput=richBeforeInput key=richKey keyup=richKeyReleased focus=onFocus blur=richBlurred aria-label=data.composer.fieldLabel aria-description=data.composer.placeholder width="100%" field-sizing=(resting ? "fixed" : "content") height=(resting ? "2rem" : "auto") min-height=(resting ? "2rem" : "2.5rem") font-family=data.look.promptFont font-size=data.look.promptSize line-height=(resting ? "2rem" : `${data.look.promptSize * 1.625}px`) padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#18181b, #f5f5f5)" caret-color="light-dark(#18181b, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
+              textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite paste=pasted copy=richCopied cut=richCopied markup="markdown" atoms="citation context file mention skill" atomFaces=faces paragraphDirs=richComposer.dirs atompress=richAtom selectionchange=richMoved beforeinput=richBeforeInput key=richKey keyup=richKeyReleased focus=onFocus blur=richBlurred aria-label=data.composer.fieldLabel aria-description=data.composer.placeholder width="100%" field-sizing="content" height="auto" min-height=`${data.look.promptSize * 1.625 * 2}px` font-family=data.look.promptFont font-size=data.look.promptSize line-height=`${data.look.promptSize * 1.625}px` padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#18181b, #f5f5f5)" caret-color="light-dark(#18181b, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
             else
               // With Markdown formatting off the field is plain source: the editor draws atoms only where it styles Markdown
               // (LLP 1045.000 D3), so a reference shows its source there. A literal answer has no chips (the reference's too).
-              textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite paste=pasted copy=richCopied cut=richCopied selectionchange=richMoved beforeinput=richBeforeInput key=richKey keyup=richKeyReleased focus=onFocus blur=richBlurred aria-label=data.composer.fieldLabel aria-description=data.composer.placeholder width="100%" field-sizing=(resting ? "fixed" : "content") height=(resting ? "2rem" : "auto") min-height=(resting ? "2rem" : "2.5rem") font-family=data.look.promptFont font-size=data.look.promptSize line-height=(resting ? "2rem" : `${data.look.promptSize * 1.625}px`) padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#18181b, #f5f5f5)" caret-color="light-dark(#18181b, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
-        ComposerCodeHeaders(source=richComposer, owner=richComposerOwner, value=text, resting=resting)
+              textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite paste=pasted copy=richCopied cut=richCopied selectionchange=richMoved beforeinput=richBeforeInput key=richKey keyup=richKeyReleased focus=onFocus blur=richBlurred aria-label=data.composer.fieldLabel aria-description=data.composer.placeholder width="100%" field-sizing="content" height="auto" min-height=`${data.look.promptSize * 1.625 * 2}px` font-family=data.look.promptFont font-size=data.look.promptSize line-height=`${data.look.promptSize * 1.625}px` padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#18181b, #f5f5f5)" caret-color="light-dark(#18181b, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
+        ComposerCodeHeaders(source=richComposer, owner=richComposerOwner, value=text)
       // The prompt editor (composer-editor.contract): the length line.
       if composerIntentNotice != ""
         text composerIntentNotice role="status" padding="0.5rem 1rem" testId="composer-intent-notice"
-      if editor.promptLimit != "" and not resting
+      if editor.promptLimit != ""
         PromptLengthValidation(message=editor.promptLimit)
-      ComposerFooter(data=data, viewportWidth=viewportWidth, text=text, resting=resting, busy=busy, narrow=narrow, keyModels=keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, send=send, stop=stop, openModels=openModels, openOptions=openOptions, interaction=interaction, command=command, openProviders=openProviders)
+      ComposerFooter(data=data, viewportWidth=viewportWidth, text=text, busy=busy, keyModels=keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, send=send, stop=stop, openModels=openModels, openOptions=openOptions, interaction=interaction, command=command, openProviders=openProviders)
 
 // One attachment the queued edit keeps (ChatView composerEditingQueuedAttachments):
 // an image's 56pt thumbnail or a file's name, with its remove button.

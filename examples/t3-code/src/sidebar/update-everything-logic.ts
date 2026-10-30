@@ -1,11 +1,11 @@
-// Update everything's pure logic, T3 Code 9c161462c9 (MIT, see LICENSE-T3):
+// Update everything's pure logic, T3 Code 6d450a4284 (MIT, see LICENSE-T3):
 // apps/web/src/components/sidebar/updateEverything.logic.ts and packages/shared/src/cliRelease.ts
 // cliReleaseChannelOf.
 // Port changes: a machine's server config is the server's JSON (`Obj`), and a server target is
 // server-update.ts's (`updateTargetFromConfig`, which also carries the saved environment's key the
-// transport runs the job under).
+// transport runs the job under). The fleet's Stable and Nightly switch (collectChannelSwitchTargets) is not ported.
 import { obj, str, type Obj } from '../client/domain';
-import { resolveServerSelfUpdateCapability, resolveVersionMismatch, supportsDesktopAppUpdate } from '../connections/version-skew';
+import { compareSemver, resolveServerSelfUpdateCapability, resolveVersionMismatch, supportsDesktopAppUpdate } from '../connections/version-skew';
 import { updateTargetFromConfig, type ServerUpdateState, type ServerUpdateTarget } from '../connections/server-update';
 
 export interface UpdateEverythingMachine {
@@ -43,23 +43,27 @@ export function collectRestartingMachines(machines: readonly UpdateEverythingMac
 
 export interface SkippedMachine { readonly environmentId: string; readonly label: string; readonly reason: string }
 
+/** Boot services before this build installed the server from npm, not from release archives. */
+const RELEASE_ARCHIVE_SELF_UPDATE_SINCE = '0.0.41-nightly.20260914.1700';
+
 /**
- * Two kinds are in neither list: servers already on the target, and servers this app hosts,
- * which would relaunch the app mid-run and update with the app's own install anyway. A
- * desktop-managed server follows its own app's update feed, so the channel rule does not apply
- * to it.
+ * Skip current and app-hosted servers; the latter update with the app and would relaunch mid-run.
+ * Desktop-managed servers use their own feed. `waitForNpm` lists targets that need
+ * `t3@<targetVersion>` on npm first. `releaseArchivesPublished` means the version came from the
+ * desktop feed: its GitHub Release goes public with the CLI archives that boot services download.
  */
-export function collectServerUpdateTargets(machines: readonly UpdateEverythingMachine[], targetVersion: string): { targets: ServerUpdateTarget[]; skipped: SkippedMachine[] } {
+export function collectServerUpdateTargets(machines: readonly UpdateEverythingMachine[], targetVersion: string, releaseArchivesPublished: boolean):
+  { targets: ServerUpdateTarget[]; skipped: SkippedMachine[]; waitForNpm: ServerUpdateTarget[] } {
   const targets: ServerUpdateTarget[] = [];
   const skipped: SkippedMachine[] = [];
+  const waitForNpm: ServerUpdateTarget[] = [];
   for (const machine of machines) {
     const config = machine.serverConfig;
     if (machine.hostedByThisApp) continue;
     if (config !== null && resolveVersionMismatch(str(environmentOf(config).serverVersion) || null, targetVersion) === null) continue;
     const skip = (reason: string) => skipped.push({ environmentId: machine.environmentId, label: machine.label, reason });
-    if (config === null || !machine.connected) { skip('not connected'); continue; }
-    if (!machine.canMaintain) { skip('no permission'); continue; }
-    if (machine.updateState.status === 'running') { skip('already updating'); continue; }
+    const unavailable = unavailableReason(machine);
+    if (config === null || unavailable !== null) { skip(unavailable ?? 'not connected'); continue; }
     const selfUpdate = resolveServerSelfUpdateCapability(config);
     const desktopAppUpdate = supportsDesktopAppUpdate(config);
     if (selfUpdate === null) { skip('needs a manual update'); continue; }
@@ -69,9 +73,19 @@ export function collectServerUpdateTargets(machines: readonly UpdateEverythingMa
       skip(`on the ${cliReleaseChannelOf(serverVersion)} channel`);
       continue;
     }
-    targets.push({ ...updateTargetFromConfig(config, machine.key, machine.environmentId, machine.label), targetVersion });
+    const target = { ...updateTargetFromConfig(config, machine.key, machine.environmentId, machine.label), targetVersion };
+    targets.push(target);
+    if (selfUpdate !== 'desktop-managed' && (!releaseArchivesPublished || selfUpdate === 'respawn'
+      || compareSemver(serverVersion, RELEASE_ARCHIVE_SELF_UPDATE_SINCE) < 0)) waitForNpm.push(target);
   }
-  return { targets, skipped };
+  return { targets, skipped, waitForNpm };
+}
+
+function unavailableReason(machine: UpdateEverythingMachine): string | null {
+  if (machine.serverConfig === null || !machine.connected) return 'not connected';
+  if (!machine.canMaintain) return 'no permission';
+  if (machine.updateState.status === 'running') return 'already updating';
+  return null;
 }
 
 export interface UpdateEverythingSteps<Providers, Servers> {
@@ -231,8 +245,19 @@ export function getUpdateEverythingToastView(result: UpdateEverythingResult, app
 
 export interface UpdateEverythingPlan {
   readonly localVersion: string | null;
+  /** Machines whose servers this app hosts; this app's update restarts them. */
+  readonly localMachines: readonly { readonly environmentId: string; readonly label: string }[];
   readonly servers: readonly Pick<ServerUpdateTarget, 'environmentId' | 'serverLabel' | 'selfUpdate' | 'targetVersion'>[];
   readonly providerMachines: readonly { readonly environmentId: string; readonly label: string; readonly providers: readonly string[] }[];
+  readonly skipped: readonly SkippedMachine[];
+}
+
+export interface UpdateEverythingRow {
+  readonly environmentId: string | null;
+  readonly label: string;
+  readonly app: 'this-app' | 'server' | 'desktop-app' | null;
+  readonly skipped: string | null;
+  readonly providers: readonly string[];
 }
 
 function countLabel(count: number, noun: string): string | null {
@@ -244,25 +269,23 @@ function joinList(parts: readonly string[]): string {
   return `${parts.slice(0, -1).join(', ')}, and ${parts.at(-1)}`;
 }
 
-export function describeUpdateEverything(plan: UpdateEverythingPlan): { summary: string; lines: string[] } {
+/** One row per machine: this app's machines first, then servers, provider-only, and skipped. */
+export function describeUpdateEverything(plan: UpdateEverythingPlan): { summary: string; version: string | null; providerCount: number; rows: UpdateEverythingRow[] } {
   const providerCount = plan.providerMachines.reduce((count, machine) => count + machine.providers.length, 0);
   const summary = `Update ${joinList([plan.localVersion ? 'this app' : null, countLabel(plan.servers.length, 'server'), countLabel(providerCount, 'provider')]
     .filter((part): part is string => part !== null))}`;
-  const machines = new Map<string, { label: string; items: string[] }>();
-  const itemsFor = (environmentId: string, label: string) => {
-    const existing = machines.get(environmentId);
-    if (existing) return existing.items;
-    const items: string[] = [];
-    machines.set(environmentId, { label, items });
-    return items;
+  const rows = new Map<string | null, UpdateEverythingRow>();
+  const update = (environmentId: string | null, label: string, change: Partial<UpdateEverythingRow>) => {
+    const row = rows.get(environmentId) ?? { environmentId, label, app: null, skipped: null, providers: [] };
+    rows.set(environmentId, { ...row, ...change });
   };
-  for (const server of plan.servers) {
-    itemsFor(server.environmentId, server.serverLabel).push(server.selfUpdate === 'desktop-managed' ? 'desktop app update' : `server to ${server.targetVersion}`);
+  if (plan.localVersion) {
+    if (plan.localMachines.length === 0) update(null, 'This app', { app: 'this-app' });
+    for (const machine of plan.localMachines) update(machine.environmentId, machine.label, { app: 'this-app' });
   }
-  for (const machine of plan.providerMachines) itemsFor(machine.environmentId, machine.label).push(...machine.providers);
-  return {
-    summary,
-    lines: [...(plan.localVersion ? [`This app: ${plan.localVersion}, restarts last`] : []),
-      ...Array.from(machines.values(), ({ label, items }) => `${label}: ${items.join(', ')}`)],
-  };
+  for (const server of plan.servers) update(server.environmentId, server.serverLabel, { app: server.selfUpdate === 'desktop-managed' ? 'desktop-app' : 'server' });
+  for (const machine of plan.providerMachines) update(machine.environmentId, machine.label, { providers: machine.providers });
+  for (const machine of plan.skipped) update(machine.environmentId, machine.label, { skipped: machine.reason });
+  return { summary, version: plan.localVersion ?? plan.servers.find(server => server.selfUpdate !== 'desktop-managed')?.targetVersion ?? null,
+    providerCount, rows: Array.from(rows.values()) };
 }

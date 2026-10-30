@@ -2,7 +2,8 @@
 // BranchToolbar panel sections, chat/OpenInPicker.tsx, editorPreferences.ts,
 // GitActionsControl.logic.ts resolveQuickAction, BranchToolbarEnvironmentSelector):
 // where the thread runs, the workspace folder, the preferred editor, the
-// version-control rows from vcs.refreshStatus and the lineage (shell-lineage.ts).
+// version-control rows from vcs.refreshStatus, the lineage (shell-lineage.ts), the items
+// the card shows (thread-details-items.ts), Servers and Usage.
 import type { T3Client } from '../client/client';
 import { arr, obj, str, num, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
@@ -23,6 +24,9 @@ import { EDITOR_DEFINITIONS } from '../shared/editors';
 import { openInView } from '../connections/remote-open'; // OpenInPicker's remote Open: deep links for environments on other machines
 import { threadAutomations, NO_AUTOMATIONS } from './thread-automations'; // ThreadAutomationsPanel
 import { autoBalanceState } from '../composer/auto-balance';
+import { threadDetailsMenu, threadDetailsVisibility } from './thread-details-items';
+import { NO_SERVERS, threadServersView, watchThreadServers } from './thread-servers'; // ThreadServersPanel
+import { NO_USAGE, threadUsage } from './thread-details-usage'; // ThreadDetailsUsage
 
 /** EDITORS in contracts/editor.ts order; `file-manager` is Finder on macOS (editorLabelForPlatform). */
 export const EDITORS: [string, string][] = EDITOR_DEFINITIONS.map(editor => [editor.id, editor.label]);
@@ -81,10 +85,12 @@ export function environmentIndicator(input: { isPrimary: boolean; available: num
 
 type LineageView = ReturnType<typeof lineageView>;
 const noLineage: LineageView = { lineageTitle: 'Lineage', lineage: [], showLineage: false, previousCount: 0, previousFailed: 0, mergeRunId: '', mergeTargetId: '', mergeSourceId: '', mergeLabel: '', mergeHint: '' };
-const empty = { versionClient: '', versionServer: '', versionLabel: '', ready: false, inline: false, error: '', folderName: '', folderLabel: '', cwd: '', editorId: '', editorLabel: '', editors: [] as { id: string; label: string; selected: boolean }[], editorShortcut: '', editorShow: false, editorHint: '', editorUnavailable: '', editorEmpty: false,
+// A function, not a constant: the Servers and Usage modules sit in an import cycle with this one.
+const empty = () => ({ versionClient: '', versionServer: '', versionLabel: '', ready: false, inline: false, error: '', folderName: '', folderLabel: '', cwd: '', editorId: '', editorLabel: '', editors: [] as { id: string; label: string; selected: boolean }[], editorShortcut: '', editorShow: false, editorHint: '', editorUnavailable: '', editorEmpty: false,
   isGit: false, branch: '', actionLabel: 'Commit', actionKind: 'show_hint', actionDisabled: true, actionHint: '', insertions: 0, deletions: 0,
   envModeSelect: false, envMode: 'local', envIcon: 'folder', previousLabel: '', actionIcon: 'git-commit', changesEnabled: false, diffScheme: 'red-green',
-  envShow: false, envLabel: '', envKind: 'server', automations: NO_AUTOMATIONS, git: EMPTY_GIT, prRows: emptyPrRows(), ...NO_SCRIPTS, ...noLineage };
+  envShow: false, envLabel: '', envKind: 'server', automations: NO_AUTOMATIONS, git: EMPTY_GIT, prRows: emptyPrRows(), ...NO_SCRIPTS, ...noLineage,
+  items: threadDetailsVisibility({ local: {} }), itemsMenu: threadDetailsMenu({ local: {} }), servers: NO_SERVERS, usage: NO_USAGE });
 /** usePreferredEditor's stored choice (persisted in t3-code.json, shell-prefs.ts). */
 export function rememberEditor(client: T3Client, editor: string): void { shellPrefs(client).lastEditor = editor; }
 export const lastEditor = (client: T3Client): string => shellPrefs(client).lastEditor;
@@ -107,9 +113,9 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   // The popover: chat is narrow, or the floating player left the docked card no placement (ThreadDetailsCard's mode).
   if (!(inline || open) || !native?.available || !client.ready || !client.projectId) {
     // While the card is closed the stream follows the strip's workspace, or ends when the strip is hidden.
-    if (native?.available && client.ready) { await watchVcsStatus(client, native, stripWorkspace(client), now); await refreshVcsOnFocus(client, native, '', focused); }
+    if (native?.available && client.ready) { await watchVcsStatus(client, native, stripWorkspace(client), now); await refreshVcsOnFocus(client, native, '', focused); await watchThreadServers(client, native, false); }
     await releaseNativeParent(client, native); // lineage-parent.ts: the closed card no longer watches a native coordinator
-    return empty;
+    return empty();
   }
   const thread = client.shell.threads.find(entry => entry.id === threadId);
   const project = client.shell.projects.find(entry => entry.id === (thread ? thread.projectId : client.projectId));
@@ -144,7 +150,12 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   if (balance.automatic) Object.assign(env, { envLabel: balance.label, envKind: 'scale' });
   // lineage-parent.ts: a native coordinator's stream while its member is shown (a draft or another thread releases it).
   const nativeParent = await nativeParentStatus(client, native, threadId);
+  const items = threadDetailsVisibility(client);
+  // The Servers section's stream lasts while the card shows it for a started thread.
+  await watchThreadServers(client, native, items.servers && !!thread);
   return {
+    items, itemsMenu: threadDetailsMenu(client), servers: thread && items.servers ? threadServersView(client, threadId) : NO_SERVERS,
+    usage: items.usage ? threadUsage(client, thread ? threadId : '', now) : NO_USAGE,
     versionClient: '', versionServer: '', versionLabel: '',
     ready: true, inline, error, folderName: creating ? 'New worktree' : cwd.replace(/\/+$/, '').split('/').pop() ?? '',
     // The panel names the workspace kind only when it is not the project folder.

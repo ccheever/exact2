@@ -92,6 +92,7 @@ const KEYED: Record<string, { component: string; wraps: string[] }> = {
   'settings-rest-dialogs.contract dialogId': { component: 'SettingsConfirm', wraps: ['focus(busy ? dialogId : `${dialogId}-confirm`)', 'focus(busy ? dialogId : `${dialogId}-cancel`)'] },
   'shell-panels.contract "app-confirm"': { component: 'AppConfirm', wraps: ['focus(busy ? confirmId : `${confirmId}-confirm`)', 'focus(busy ? confirmId : `${confirmId}-cancel`)'] },
   'sidebar-overlays.contract "sidebar-snooze"': { component: 'SidebarSnoozeDialog', wraps: ['focus("snooze-close")', 'focus(toggleId)'] },
+  'update-everything.contract "update-everything-confirm"': { component: 'UpdateEverythingDialog', wraps: ['focus(d.skippedRows.length > 0 ? "update-everything-skipped" : "update-everything-confirm-cancel")', 'focus("update-everything-confirm-confirm")'] },
   'this-machine.contract "local-environment-dialog"': { component: 'LocalEnvironmentDialog', wraps: ['focus("local-environment-confirm")', 'focus("local-environment-cancel")'] },
   'usage-bars.contract "reset-credit-dialog"': { component: 'ResetCreditDialog', wraps: ['focus(busy ? "reset-credit-dialog" : "reset-credit-confirm")', 'focus(busy ? "reset-credit-dialog" : "reset-credit-cancel")'] },
 };
@@ -102,6 +103,7 @@ const NOT_MODAL: Record<string, string> = {
   'composer-controls.contract `notice-details-card-${id}`': 'Popover (NoticeDescription, openOnHover)',
   'thread-end.contract `thread-now-details-card-${message.id}`': 'Popover (ThreadNow NoticeText, openOnHover)',
   'requests.contract `approval-why-card-${id}`': 'Popover (ComposerPendingApprovalPanel, openOnHover)',
+  'timeline-approval.contract `timeline-approval-why-card-${id}`': 'Popover (TimelinePendingApprovalRow, openOnHover)',
   'composer-chip-popover.contract "chip-popover"': 'Popover',
   'citation-comment.contract "citation-comment"': 'Popover (AssistantCitationChip\'s comment)',
   'diff.contract "diff-base-picker"': 'Popover',
@@ -537,6 +539,7 @@ describe('every modal dialog gives focus back through a surviving observer or it
     'connections-network-dialogs.contract "pairing-reveal-dialog"': ['connections-network-dialogs.contract', ['pairing-reveal-dialog']],
     'pages-pr-stack.contract "pr-stack-dialog"': ['pages-pr-actions.contract', ['pr-stack-dialog']],
     'usage-bars.contract "reset-credit-dialog"': ['app-overlays.contract', ['reset-credit-dialog']],
+    'update-everything.contract "update-everything-confirm"': ['sidebar-overlays.contract', ['update-everything-confirm']],
   };
   const own: Record<string, [string, string]> = {
     // AppRouteModal's finalFocus={false}: closing leaves the focus where it is, blurred first (the close button's leave).
@@ -557,7 +560,8 @@ describe('every modal dialog gives focus back through a surviving observer or it
   const shared: Record<string, string[]> = {
     'app-settings.contract': ['project-remove', 'project-remove-member', 'archive-delete', 'signal-kill', 'archive-context-delete', 'theme-remove', 'update-install'],
     'legacy-sidebar.contract': ['legacy-remove-project', 'legacy-archive-many'],
-    'app-overlays.contract': ['server-update-confirm', 'update-everything-confirm', 'app-confirm'],
+    'app-overlays.contract': ['server-update-confirm', 'app-confirm'],
+    'prompt-links.contract': ['pairing-link-confirm'],
     'providers-wizard.contract': ['wizard-sign-out-confirm'],
     'settings-appearance-import.contract': ['theme-update'],
   };

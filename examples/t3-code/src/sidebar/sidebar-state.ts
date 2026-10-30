@@ -2,7 +2,7 @@
 // reference keeps them in localStorage and its persisted UI store) and the
 // window's transient sidebar session (rename, selection, paging, dialogs,
 // undo), held beside the client the way sidebar-search keeps searches.
-import { obj, str, type Obj } from '../client/domain';
+import { obj, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { RouteReveal } from './route-reveal';
 import type { ShownOrder } from '../palette/palette-search';
@@ -11,16 +11,17 @@ export const SETTLED_TAIL_INITIAL_COUNT = 10;
 export const SETTLED_TAIL_PAGE_COUNT = 25;
 
 /**
- * Shelf expansion (t3code:sidebar:*-expanded), project scope (sidebarProjectScopeKey) and local visits;
+ * Shelf expansion (t3code:sidebar:*-expanded), project scope (sidebarProjectScopeKeys) and local visits;
  * for the legacy sidebar, the persisted UI store's projectExpandedById and projectOrder (uiStateStore.ts).
  */
 export interface SidebarPrefs {
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean;
-  scope: string; visited: Record<string, string>;
+  /** The projects the list shows, none for all. A key whose project is not loaded stays, so its scope returns with it. */
+  scopes: string[]; visited: Record<string, string>;
   projectExpanded: Record<string, boolean>; projectOrder: string[];
 }
 export function defaultSidebarPrefs(): SidebarPrefs {
-  return { settledExpanded: false, snoozedExpanded: false, workingExpanded: false, scope: '', visited: {}, projectExpanded: {}, projectOrder: [] };
+  return { settledExpanded: false, snoozedExpanded: false, workingExpanded: false, scopes: [], visited: {}, projectExpanded: {}, projectOrder: [] };
 }
 export function decodeSidebarPrefs(value: unknown): SidebarPrefs {
   const saved = obj(value), visited: Record<string, string> = {};
@@ -29,9 +30,12 @@ export function decodeSidebarPrefs(value: unknown): SidebarPrefs {
   }
   const projectExpanded: Record<string, boolean> = {};
   for (const [key, value] of Object.entries(obj(saved.projectExpanded)).slice(-1000)) if (key && typeof value === 'boolean') projectExpanded[key] = value;
-  const projectOrder = [...new Set((Array.isArray(saved.projectOrder) ? saved.projectOrder : []).filter((key): key is string => typeof key === 'string' && key.length > 0))].slice(0, 1000);
+  const keys = (list: unknown) => [...new Set((Array.isArray(list) ? list : []).filter((key): key is string => typeof key === 'string' && key.length > 0))];
+  const projectOrder = keys(saved.projectOrder).slice(0, 1000);
+  // A file from before several projects keeps its one key (uiStateStore's sidebarProjectScopeKey).
+  const scopes = keys(Array.isArray(saved.scopes) ? saved.scopes : [saved.scope]).filter(key => key.length <= 2000).slice(0, 1000);
   return { settledExpanded: saved.settledExpanded === true, snoozedExpanded: saved.snoozedExpanded === true,
-    workingExpanded: saved.workingExpanded === true, scope: str(saved.scope).slice(0, 2000), visited, projectExpanded, projectOrder };
+    workingExpanded: saved.workingExpanded === true, scopes, visited, projectExpanded, projectOrder };
 }
 /** The client's preferences carry the sidebar block; older files decode to the defaults. */
 export function sidebarPrefs(client: T3Client): SidebarPrefs {
@@ -155,10 +159,17 @@ export function noteSnapshotTime(client: T3Client, now: number): void {
   if (Number.isFinite(now) && now > 1e12 && now > (snapshotTimes.get(client) ?? 0)) snapshotTimes.set(client, now);
 }
 export function latestWall(client: T3Client): number { return Math.max(wall(client), snapshotTimes.get(client) ?? 0); }
+/** The time the menus now painted were resolved at: the latest snapshot's, else `wall`. */
+export function shownWall(client: T3Client): number { return snapshotTimes.get(client) ?? wall(client); }
 /** threadUndoNoticeSummary: "Settled 2 threads", "Discarded 1 draft". */
 export function undoSummary(undo: UndoEntry): string {
   const count = undo.threadIds.length;
   return `${undo.action} ${count} ${undo.action === 'Discarded' ? 'draft' : 'thread'}${count === 1 ? '' : 's'}`;
+}
+/** SidebarThreadUndoNotice's summary, short enough to sit beside the footer's icons: "Settled", "Settled 2". */
+export function undoShortSummary(undo: UndoEntry): string {
+  const count = undo.threadIds.length;
+  return count === 1 ? undo.action : `${undo.action} ${count}`;
 }
 /** showThreadUndoNotice: the notice lives five seconds. */
 export function undoLive(client: T3Client): boolean {

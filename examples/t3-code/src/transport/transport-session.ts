@@ -29,6 +29,7 @@ import {
 } from './transport-wire';
 import type { ActivityReporter } from './transport-activity';
 import { CLIENT_VERSION } from '../connections/version-skew';
+import { knownAddressRefusal } from '../connections/connection-routes';
 
 export interface SocketHandle { readonly readyState: number; readonly bufferedAmount: number; send(data: string): void; close(code?: number, reason?: string): void }
 export interface SocketEvent { type: string; data?: unknown; code?: number; reason?: string; kind?: string; message?: string; status?: number }
@@ -451,6 +452,8 @@ export class Session {
       }
       if (!this.token) throw new TransportFailure('Credential', 'Paste a pairing link or token from this T3 server.');
     } else {
+      const refusal = this.pairingSsh ? null : knownAddressRefusal(this.hooks.catalog.entryForEnvironment(environment), this.origin);
+      if (refusal) throw new TransportFailure('Pairing', refusal);
       const grant = obj(await exchangeScopes(this.exchangeScope, this.legacyExchangeScope, scope =>
         this.http('/oauth/token', { epoch, method: 'POST', body: exchangeForm(credential, scope), contentType: 'application/x-www-form-urlencoded', authorized: false }))
         .catch(error => { throw pairingRefused(error, descriptor, this.pairingSsh); }));
@@ -1155,13 +1158,18 @@ export class Session {
     if (expected && environment !== expected) {
       throw new TransportFailure('Pairing', `That ${request.ssh === true ? 'host' : 'address'} reaches ${str(descriptor.label) || 'another environment'}, a different machine. Add it as its own environment instead.`);
     }
+    // A pairing that names no saved machine adds no address to one (an SSH tunnel pairs at a loopback address).
+    const primaryId = str(request.primaryEnvironmentId);
+    if (!expected && request.ssh !== true && environment !== primaryId) {
+      const refusal = knownAddressRefusal(this.hooks.catalog.entryForEnvironment(environment), target);
+      if (refusal) throw new TransportFailure('Pairing', refusal);
+    }
     const problem = compatibility(descriptor);
     if (problem) throw new TransportFailure('Protocol', problem.message);
     const grant = await exchangeScopes(str(request.scope), str(request.legacyScope), scope => send('/oauth/token', exchangeForm(code, scope)))
       .catch(error => { throw pairingRefused(error, descriptor, request.ssh === true); });
     if (grant.token_type !== 'Bearer' || !str(grant.access_token)) throw new TransportFailure('Protocol', 'The server did not issue a bearer access token.');
     // This machine's own server (the primary's environment id): the code is spent, nothing is saved (registry.ts register).
-    const primaryId = str(request.primaryEnvironmentId);
     if (primaryId && primaryId === environment) return this.ok({ origin: target, environmentId: environment, label: str(descriptor.label), primary: true });
     this.hooks.catalog.saveToken(str(grant.access_token), target, environment);
     this.hooks.catalog.remember(target, descriptor, this.hooks.wall(this.hooks.now()));

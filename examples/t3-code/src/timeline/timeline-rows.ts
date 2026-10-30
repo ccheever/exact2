@@ -1,4 +1,5 @@
-// Timeline rows adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3; the turn-ended live row at 74541bab17):
+// Timeline rows adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3; the turn-ended live row at 74541bab17, pending
+// approvals, handoffs before a superseded attempt, usage-limit pauses and pending queued messages at v0.1.5):
 // apps/web/src/session-logic.ts deriveTimelineEntriesFromVisibleTurnItems and
 // apps/web/src/components/chat/MessagesTimeline.logic.ts deriveMessagesTimelineRows
 // (turn folds, superseded attempts, live work, working and thinking rows).
@@ -32,7 +33,7 @@ export type Row =
       thought?: WorkEntry }
   | { kind: 'working'; id: string; createdAt: string;
       /** A running compaction owns the Working row, so its divider appears only once it ends. */
-      compacting?: string }
+      compacting?: true }
   | { kind: 'thinking'; id: string; createdAt: string; continues?: boolean; groupId?: string; expanded?: boolean }
   | { kind: 'group'; id: string; createdAt: string; runId: string; groupId: string; count: number; expanded: boolean; summary: string; icon: string; toolIcon: Obj | null; failed: boolean; continues?: boolean }
   | { kind: 'fold'; id: string; createdAt: string; runId: string; label: string; expanded: boolean }
@@ -65,6 +66,8 @@ export interface RowInput {
   threadStartCheckpointReady?: boolean;
   /** The run ordinals the provider conversation can rewind to (ChatView availableRevertTurnCounts); undefined: any. */
   availableRevertTurnCounts?: ReadonlySet<number>;
+  /** The approvals answerable on their own row (timeline-approvals.ts): each stays out of folds, groups and the live row. */
+  pendingApprovalRequestIds?: ReadonlySet<string>;
 }
 
 const STANDALONE = new Set(['fork', 'handoff', 'run_interrupt_request', 'run_interrupt_result', 'subagent', 'secret_request']);
@@ -102,6 +105,8 @@ export function timelineEntries(input: Pick<RowInput, 'rows' | 'attempts' | 'nod
   for (const row of input.rows) {
     const item = obj(row.item), type = str(item.type), id = rowKey(row);
     if (turnItemIsWorkspacePreparation(item)) continue; // a retried preparation's cancelled failure hides too
+    // A queued message still waiting is the composer's queue row, not yet a message of the timeline.
+    if (type === 'user_message' && item.inputIntent === 'queued_turn' && item.status === 'pending') continue;
     if (type === 'user_message' && answered.has(str(item.messageId))) continue;
     const createdAt = str(item.startedAt ?? item.updatedAt), attempt = resolveAttempt(item);
     const base = { id, createdAt, row, ...(attempt ? { attempt } : {}) };
@@ -128,6 +133,15 @@ const failedItem = (entry: Entry): Obj | null => {
   const item = entry.kind === 'event' ? entry.item : entry.kind === 'work' ? entry.entry.item : null;
   return item?.type === 'error' && item.status === 'failed' && (item.parentItemId === null || item.parentItemId === undefined) ? item : null;
 };
+/** itemizedFailedRunIds: a usage-limit pause keeps its run's tool groups; any other failure itemizes the run's work. */
+function itemizedFailedRuns(entries: Entry[], failedRuns: ReadonlySet<string>): Set<string> {
+  const usageLimited = new Set<string>(), otherFailures = new Set<string>();
+  for (const entry of entries) {
+    const item = failedItem(entry);
+    if (item?.runId) (obj(item.failure).class === 'usage_limit' ? usageLimited : otherFailures).add(str(item.runId));
+  }
+  return new Set([...failedRuns].filter(runId => !usageLimited.has(runId) || otherFailures.has(runId)));
+}
 const messageEnd = (entry: Entry) => entry.kind === 'message' ? str(entry.item.updatedAt, entry.createdAt) : entry.createdAt;
 const latestIso = (a: string | null, b: string | null) => !a ? b : !b ? a : !Number.isFinite(Date.parse(a)) ? b : !Number.isFinite(Date.parse(b)) ? a
   : Date.parse(b) > Date.parse(a) ? b : a;
@@ -179,7 +193,8 @@ export function deriveRows(input: RowInput): Row[] {
   const attemptGroups = new Map<string, Entry[]>();
   for (const entry of entries) {
     if (entry.attempt?.status !== 'superseded' || completeAttempts.has(entry.attempt.id) || failedRuns.has(entry.attempt.runId) || entry.kind === 'message' && entry.role === 'user'
-      || entry.kind === 'document' || persistentResource(entry) || liveSubagents.has(entry.id) || entry.kind === 'work' && entry.entry.itemType === 'system_notice') continue;
+      || entry.kind === 'event' && entry.item.type === 'handoff' || entry.kind === 'document' || persistentResource(entry) || liveSubagents.has(entry.id)
+      || entry.kind === 'work' && entry.entry.itemType === 'system_notice') continue;
     attemptGroups.set(entry.attempt.id, [...attemptGroups.get(entry.attempt.id) ?? [], entry]);
   }
   const attemptFolds = new Map<string, { runId: string; attemptId: string; createdAt: string; hidden: Set<string> }>();
@@ -187,10 +202,15 @@ export function deriveRows(input: RowInput): Row[] {
     const first = group[0]!;
     attemptFolds.set(first.id, { runId: first.attempt!.runId, attemptId: first.attempt!.id, createdAt: first.createdAt, hidden: new Set(group.map(entry => entry.id)) });
   }
+  const itemizedRuns = itemizedFailedRuns(entries, failedRuns);
+  const pendingApprovals = input.pendingApprovalRequestIds ?? new Set<string>();
+  const isPendingApproval = (entry: WorkEntry) => entry.item.type === 'approval_request' && pendingApprovals.has(str(entry.item.requestId));
   const collapsed = new Set<string>();
   for (const fold of folds.values()) if (!input.expandedRuns.has(fold.runId)) fold.hidden.forEach(id => collapsed.add(id));
   const collapsedAttempts = new Set<string>();
   for (const fold of attemptFolds.values()) if (!input.expandedAttempts.has(fold.attemptId)) fold.hidden.forEach(id => collapsedAttempts.add(id));
+  // A pending approval stays answerable on its row, whatever fold it sits in.
+  if (pendingApprovals.size) for (const entry of entries) if (entry.kind === 'work' && isPendingApproval(entry.entry)) { collapsed.delete(entry.id); collapsedAttempts.delete(entry.id); }
   const inActive = (runId: string) => runId ? activeRuns.has(runId) : runlessWorkActive;
   const entryActive = (entry: WorkEntry) => input.isWorking && entry.status === 'inProgress' && entry.runId === unsettled && !!unsettled;
   const headerIndex = input.isWorking ? boundary + 1 : entries.length;
@@ -202,7 +222,7 @@ export function deriveRows(input: RowInput): Row[] {
     for (let index = entries.length - 1; index >= headerIndex; index--) {
       const entry = entries[index]!;
       if (entry.kind !== 'work' || entry.entry.tone === 'error' || entry.entry.sourceActivityKind === 'runtime.error'
-        || ['system_notice', 'notification'].includes(entry.entry.itemType) || entry.entry.questionAnswer !== undefined || !inActive(entry.entry.runId)
+        || ['system_notice', 'notification'].includes(entry.entry.itemType) || entry.entry.questionAnswer !== undefined || isPendingApproval(entry.entry) || !inActive(entry.entry.runId)
         || entry.entry.sourceActivityKind === 'context-compaction' || collapsed.has(entry.id) || collapsedAttempts.has(entry.id)
         || folds.has(entry.id) || attemptFolds.has(entry.id)) break;
       const attempt = entry.attempt?.id ?? null;
@@ -214,7 +234,7 @@ export function deriveRows(input: RowInput): Row[] {
   const visibleTail = activeTail.filter(entry => visibleInGroup(entry.entry, true));
   const anchor = activeTail[0], latestVisible = last(visibleTail);
   const latestRunning = findLast(visibleTail, entry => entry.entry.status === 'inProgress');
-  const keepsLive = !!latestRunning || !!latestVisible && successKeepsLive(latestVisible.entry);
+  const keepsLive = !!latestRunning || !!latestVisible && successKeepsLive(latestVisible.entry) && !pendingApprovals.size;
   const latestFailed = !latestRunning && !!latestVisible && latestVisible.entry.status !== 'declined' && displayFailed(latestVisible.entry);
   const latestThought = findLast(visibleTail, item => item.entry.itemType === 'reasoning' && !!item.entry.detail?.trim());
   const liveRow: Extract<Row, { kind: 'live' }> | null = anchor && latestVisible && !latestFailed ? (() => {
@@ -228,7 +248,8 @@ export function deriveRows(input: RowInput): Row[] {
   const rows: Row[] = [];
   const pushWorking = () => {
     if (compaction.onlyFinished || compaction.running !== null && compaction.waiting === null) return;
-    rows.push({ kind: 'working', id: 'working-indicator-row', createdAt: input.activeStartedAt, ...(compaction.label ? { compacting: compaction.label } : {}) });
+    rows.push({ kind: 'working', id: 'working-indicator-row', createdAt: compaction.startedAt ?? input.activeStartedAt,
+      ...(compaction.waiting !== null ? { compacting: true as const } : {}) });
   };
   let activity = false;
   const pushLive = () => {
@@ -265,19 +286,20 @@ export function deriveRows(input: RowInput): Row[] {
     if (entry.kind === 'work' && compaction.compacted.has(entry.entry.runId) && entry.entry.questionAnswer && resumeCompactionAge(entry.entry.questionAnswer) !== null) continue;
     if (entry.kind === 'work') {
       const work = entry.entry;
-      if (work.runId && failedRuns.has(work.runId) || work.itemType === 'error' && work.status === 'failed' || work.tone === 'error'
+      if (isPendingApproval(work) || work.runId && itemizedRuns.has(work.runId) || work.itemType === 'error' && work.status === 'failed' || work.tone === 'error'
         || work.sourceActivityKind === 'runtime.error' || work.itemType === 'system_notice' || work.itemType === 'notification' || work.questionAnswer !== undefined) {
-        // WorkGroupSection draws only what a collapsed group shows: a failed run's unfinished tool call has no row.
-        if (visibleInGroup(work)) rows.push({ kind: 'entry', id: entry.id, createdAt: entry.createdAt, entries: [work] });
+        // WorkGroupSection draws only what a collapsed group shows (a failed run's unfinished tool call has no row), and
+        // a pending approval.
+        if (isPendingApproval(work) || visibleInGroup(work)) rows.push({ kind: 'entry', id: entry.id, createdAt: entry.createdAt, entries: [work] });
         continue;
       }
       const grouped = [work];
       let cursor = index + 1;
       while (cursor < entries.length) {
         const next = entries[cursor]!;
-        if (next.kind !== 'work' || next.entry.sourceActivityKind === 'context-compaction' || next.entry.tone === 'error'
+        if (next.kind !== 'work' || next.entry.sourceActivityKind === 'context-compaction' || next.entry.itemType === 'error' && next.entry.status === 'failed' || next.entry.tone === 'error'
           || next.entry.sourceActivityKind === 'runtime.error' || ['system_notice', 'notification'].includes(next.entry.itemType)
-          || next.entry.questionAnswer !== undefined || liveIds.has(next.id) || collapsed.has(next.id) || collapsedAttempts.has(next.id) || folds.has(next.id) || attemptFolds.has(next.id)
+          || next.entry.questionAnswer !== undefined || isPendingApproval(next.entry) || liveIds.has(next.id) || collapsed.has(next.id) || collapsedAttempts.has(next.id) || folds.has(next.id) || attemptFolds.has(next.id)
           || next.entry.runId !== work.runId || next.attempt?.id !== entry.attempt?.id) break;
         grouped.push(next.entry); cursor++;
       }
@@ -355,7 +377,8 @@ export function deriveRows(input: RowInput): Row[] {
   }
   if (input.isWorking && !rows.some(row => row.kind === 'working') && headerIndex === entries.length) pushWorking();
   // A setup that owns the working slot shows no activity row of its own.
-  if (input.isWorking && input.latestRunTurnEnded !== true && !setupOwnsWorkingSlot && !compaction.active && !compaction.onlyFinished && (!activity || latestFailed)) {
+  if (input.isWorking && input.latestRunTurnEnded !== true && !setupOwnsWorkingSlot && !compaction.active && !compaction.onlyFinished
+    && (latestFailed || !activity && !pendingApprovals.size)) {
     // A failed latest tool hands the row back to thinking; its group stays
     // reachable through the same disclosure the live row offers.
     if (latestFailed && anchor) {

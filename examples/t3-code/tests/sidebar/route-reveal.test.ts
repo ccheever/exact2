@@ -84,7 +84,7 @@ describe('the sidebar\'s route reveal', () => {
     (client as unknown as { threadId: string }).threadId = 'a';
     sidebarSnapshot(client, NOW, helpers);
     await sidebarLocal(client, native, 'reveal-done', 'a', '');
-    sidebarPrefs(client).scope = 'ga';
+    sidebarPrefs(client).scopes = ['ga'];
     sidebarSession(client).selection = ['a'];
     // The same route under the chosen scope: nothing widens.
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.scopeKey).toBe('ga');
@@ -93,14 +93,14 @@ describe('the sidebar\'s route reveal', () => {
     const view = sidebarSnapshot(client, NOW, helpers);
     expect(view.sidebar).toMatchObject({ scopeKey: '', revealRow: 'b', revealPending: 'b', selectionCount: 0 });
     expect(view.threads.map(row => row.id)).toContain('b');
-    expect(sidebarPrefs(client).scope).toBe('');
+    expect(sidebarPrefs(client).scopes).toEqual([]);
   });
 
   it('search defers the reveal; the row reveals when the list returns', () => {
     const client = window([shell('a', 'pa'), shell('b', 'pb')]);
     (client as unknown as { query: string }).query = 'Thread';
     (client as unknown as { threadId: string }).threadId = 'b';
-    sidebarPrefs(client).scope = 'ga';
+    sidebarPrefs(client).scopes = ['ga'];
     expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ revealRow: '', revealPending: '', scopeKey: 'ga' });
     (client as unknown as { query: string }).query = '';
     expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ revealRow: 'b', revealPending: 'b', scopeKey: '' });

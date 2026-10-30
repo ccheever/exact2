@@ -56,7 +56,7 @@ describe('command palette root', () => {
   test('actions follow the reference order with shortcut labels, then recent threads', () => {
     const view = commandView(client(), { page: '', query: '', now: NOW, scheme: 'dark', matches: new Map(), matchQuery: '', searching: false });
     const titles = view.rows.map(entry => entry.title);
-    expect(titles.slice(0, 8)).toEqual(['New thread in Parity fixture', 'New thread in...', 'Copy thread ID', 'Link pull request to thread', 'Show linked pull requests', 'Restart agent session', 'Go to file', 'Search project contents']);
+    expect(titles.slice(0, 8)).toEqual(['New thread in Parity fixture', 'New thread in...', 'Copy thread', 'Link pull request to thread', 'Show linked pull requests', 'Restart agent session', 'Go to file', 'Search project contents']);
     expect(titles).toContain('Open settings');
     expect(view.rows[0]!.header).toBe('Actions');
     expect(view.rows[0]!.shortcut).toBe('⇧⌘N');
@@ -80,7 +80,7 @@ describe('command palette root', () => {
     expect(view.rows[0]!.top).toBe(8 + 28);
     expect(view.rows[0]!.height).toBe(32);
     expect(view.rows[1]!.top).toBe(8 + 28 + 32);
-    const copy = view.rows.find(entry => entry.title === 'Copy thread ID')!;
+    const copy = view.rows.find(entry => entry.title === 'Copy thread')!;
     expect(copy.height).toBe(48);
     expect(copy.top).toBe(8 + 28 + 64);
     const recent = view.rows.find(entry => entry.op === 'thread')!;

@@ -5,6 +5,8 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { minimapItems } from '../../src/timeline/timeline-minimap';
+import { timelineMessages, timelineSnapshot, transcriptRows } from '../../src/timeline/timeline-presentation';
+import type { T3Client } from '../../src/client/client';
 import { contractComponent, type Env } from '../support/contract-action-fixture';
 import { contractFns } from '../support/contract-fn-fixture';
 import { appPath } from '../support/app-files';
@@ -199,5 +201,27 @@ describe('A strip or chevron jumps through the public keyed command', () => {
     (t.scope.viewport as Env).prefersReducedMotion = true;
     t.jump('u1', -1);
     expect(t.calls.at(-1)).toEqual(['scrollIntoView', 'transcript', 'u1', { offset: -24, behavior: 'instant' }]);
+  });
+});
+
+// timelineMinimapItems.ts at v0.1.5 (#26239).
+describe('a thread link in the minimap preview', () => {
+  test('previews a thread autolink as prose, not its URL', () => {
+    const preview = (body: string) => minimapItems([{ id: 'u', kind: 'user', body: 'Go' }, { id: 'a', kind: 'assistant', body }])[0]!.excerpt;
+    expect(preview('Started <t3-thread://v2/env-1/thread-1> and [Fix CI](t3-thread://v2/env-1/t2).')).toBe('Started a thread and Fix CI.');
+    // The drawn body writes an autolink as a link whose text is its URL (relabelThreadLinks).
+    expect(preview('Started [t3-thread://v1/thread-1](t3-thread://v1/thread-1).')).toBe('Started a thread.');
+  });
+  test('reads the answer as written, so an autolink to a known thread is still "a thread", not its title', () => {
+    const turn = (id: string, type: string, text: string) => ({ id, threadId: 't1', runId: 'r1', ordinal: id === 'u' ? 1 : 2, status: 'completed',
+      startedAt: '2026-10-03T00:00:00.000Z', updatedAt: '2026-10-03T00:00:00.000Z', type, text, messageId: `m-${id}`, inputIntent: 'turn_start', attachments: [], streaming: false });
+    const items = [turn('u', 'user_message', 'Go'), turn('a', 'assistant_message', 'Started <t3-thread://v1/t2>.')];
+    const projection = { thread: { id: 't1', projectId: 'p1' }, runs: [{ id: 'r1', status: 'completed' }], attempts: [], nodes: [], checkpoints: [],
+      visibleTurnItems: items.map((item, position) => ({ position, visibility: 'local', sourceThreadId: 't1', sourceItemId: item.id, item })) };
+    const client = { threadId: 't1', projectId: 'p1', environmentId: 'env-a', shell: { projects: [{ id: 'p1', workspaceRoot: '/work' }], threads: [{ id: 't2', projectId: 'p1', title: 'Fix CI' }] },
+      config: { providers: [] }, local: { deviceSettings: { timestampFormat: '24-hour' } }, thread: { projection }, projection } as unknown as T3Client;
+    const answer = timelineMessages(client, transcriptRows(client), 0).find(row => row.kind === 'assistant')!;
+    expect(answer.body).toBe('Started [Fix CI](t3-thread://v1/t2).');
+    expect(timelineSnapshot(client).minimap.map(item => item.excerpt)).toEqual(['Started a thread.']);
   });
 });

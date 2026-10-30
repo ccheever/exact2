@@ -358,3 +358,14 @@ export function storedRoute(route: ConnectionRoute): Record<string, unknown> {
   return { id: route.id, origin: route.origin, kind: route.kind ?? '', learned: route.learned === true, credential: credentialConnectionId(route.id),
     ...(route.authorization ? { authorization: route.authorization } : {}), ...(route.network ? { network: route.network } : {}), ...(route.ssh ? { ssh: route.ssh } : {}) };
 }
+/**
+ * assertKnownAddress (registry.ts): a pairing that names no saved environment may not add an
+ * address to one, because the server reports its own environment id. The refusal, or null when
+ * `origin` is new or already one of the saved environment's addresses. Checked before the code is spent.
+ */
+export function knownAddressRefusal(saved: Record<string, unknown> | null | undefined, origin: string): string | null {
+  if (!saved) return null;
+  const route: ConnectionRoute = { id: trimSlash(origin), origin: trimSlash(origin), kind: '' };
+  if (findRouteToSameAddress(savedRoutes(saved), route) !== undefined) return null;
+  return `That address claims to be ${asString(saved.label)}, which is already saved. Add it as a route from that environment's settings instead.`;
+}

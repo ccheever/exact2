@@ -5,7 +5,9 @@ import type { Files, Native } from '../../src/client/protocol';
 import { toasts } from '../../src/shell/toast';
 import { ageLabel, effectiveSnoozed, isWoke, orderKeyBetween, planReorder, recedes, sectionOf, sidebarStatus, snoozeWakeLabel,
   sortActive, sortPinned, topStatus, unseenCompletion, wokeAt, workingDuration, capabilities, sidebarVisible } from '../../src/sidebar/sidebar-model';
-import { bulkMenuItems, menuRows, nativeTemplate, threadMenuItems } from '../../src/sidebar/sidebar-menu';
+import { bulkMenuItems, menuRows, nativeTemplate, threadMenuItems, threadMenuState } from '../../src/sidebar/sidebar-menu';
+import { projectScopes } from '../../src/sidebar/sidebar-view';
+const sidebarSnapshotMenuState = (client: T3Client, now: number) => threadMenuState(client, client.shell.threads[0]!, false, projectScopes(client), now);
 import { sidebarSnapshot, terminalProcessCount } from '../../src/sidebar/sidebar-view';
 import { legacySidebarSnapshot } from '../../src/sidebar/legacy-sidebar-view';
 import { threadItems } from '../../src/palette/palette';
@@ -13,7 +15,7 @@ import { terminalMetadataEvent } from '../../src/terminal/terminal-drawer-view';
 import { contractComponent } from '../support/contract-action-fixture';
 import { recordTerminalFocus } from '../../src/terminal/terminal-focus';
 import { sidebarCommand, sidebarLocal, sidebarSelecting, undoLatest, visitOpenThread } from '../../src/sidebar/sidebar-commands';
-import { localDate, localTime, resolveCustomSnooze, sidebarPrefs, sidebarSession, setRuntimeClock } from '../../src/sidebar/sidebar-state';
+import { decodeSidebarPrefs, localDate, localTime, resolveCustomSnooze, sidebarPrefs, sidebarSession, setRuntimeClock } from '../../src/sidebar/sidebar-state';
 import { titleMenu } from '../../src/shell/shell';
 import { announcements } from '../../src/shell/announce';
 import { resolveSidebarRowThreadId } from '../../src/sidebar/sidebar-lineage';
@@ -222,7 +224,12 @@ describe('thread action menus (threadActionMenu.logic.ts, Sidebar.logic.ts bulk 
     expect(items.map(item => item.label)).toEqual(['New thread on main', 'Pin thread', 'Settle thread', 'Snooze', 'Rename thread', 'Regenerate title',
       'Mark unread', 'Filter by Parity fixture', 'Auto-settle behavior', 'Copy', 'Project settings', 'Archive thread', 'Delete']);
     expect(items.find(item => item.id === 'snooze')!.children!.map(child => child.label)).toEqual(['In 1 hour (13:00)', 'Custom…']);
-    expect(items.find(item => item.id === 'copy')!.children!.map(child => child.label)).toEqual(['Path', 'Branch', 'Thread ID']);
+    expect(items.find(item => item.id === 'copy')!.children!.map(child => child.label)).toEqual(['Path', 'Branch', 'Thread', 'Thread ID']);
+    // A No project thread with its own folder, on a server that can promote it: after the project filter, off while it runs.
+    const promotable = threadMenuItems({ branch: '', projectFilter: null, isPinned: false, isSettled: false, autoSettleEnabled: true, isSnoozed: false,
+      canSnoozeNow: true, isRegeneratingTitle: false, isRunning: true, caps, presets, canTurnIntoProject: true });
+    expect(promotable.map(item => item.label).slice(6, 8)).toEqual(['Turn into project', 'Auto-settle behavior']);
+    expect(promotable.find(item => item.id === 'turn-into-project')!.disabled).toBe(true);
     const minimal = threadMenuItems({ branch: '', projectFilter: { label: 'P', isActive: true }, isPinned: true, isSettled: true, autoSettleEnabled: false,
       isSnoozed: true, canSnoozeNow: false, isRegeneratingTitle: true, isRunning: true, caps: capabilities({}), presets });
     expect(minimal.map(item => item.label)).toEqual(['Rename thread', 'Mark unread', 'Show all projects', 'Copy', 'Project settings', 'Archive thread', 'Delete']);
@@ -259,16 +266,20 @@ describe('the rows\' context popover (sidebar-row.contract ThreadMenu, DraftMenu
       'Settle thread', 'Snooze ▸', '— Rename thread', 'Regenerate title', 'Mark unread', 'Auto-settle behavior ▸', '— Copy ▸', 'Project settings', '— Archive thread', 'Delete']);
     expect(rows.filter(row => row.parent === 'snooze').map(row => `${row.separated ? '— ' : ''}${row.label}`)).toEqual(['In 1 hour (13:00)', '— Custom…']);
     expect(rows.filter(row => row.parent === 'auto-settle').map(row => [row.id, row.check, row.checked])).toEqual([['auto-settle:enabled', true, true], ['auto-settle:disabled', true, false]]);
-    expect(rows.filter(row => row.parent === 'copy').map(row => row.id)).toEqual(['copy-path', 'copy-branch', 'copy-thread-id']);
+    expect(rows.filter(row => row.parent === 'copy').map(row => row.id)).toEqual(['copy-path', 'copy-branch', 'copy-thread', 'copy-thread-id']);
     expect(rows.find(row => row.id === 'delete')).toMatchObject({ destructive: true, check: false, sub: false });
   });
 
   test('each row carries its menu; a selected row the bulk one; a choice runs as the menu\'s did', async () => {
     const { client, calls } = fake([shell('a', { branch: 'feature/x', worktreePath: '/wt/a' }), shell('b'), shell('c')]);
     const rows = sidebarSnapshot(client, NOW, helpers).threads;
-    expect(rows.find(row => row.id === 'a')!.menu.filter(entry => entry.parent === 'copy').map(entry => entry.label)).toEqual(['Path', 'Branch', 'Thread ID']);
+    expect(rows.find(row => row.id === 'a')!.menu.filter(entry => entry.parent === 'copy').map(entry => entry.label)).toEqual(['Path', 'Branch', 'Thread', 'Thread ID']);
     await sidebarCommand(client, native, files, 'menu-choice', 'a', 'copy-path');
     expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['/wt/a']);
+    // Copy › Thread: the thread's chip, "Thread copied" with its title.
+    await sidebarCommand(client, native, files, 'menu-choice', 'a', 'copy-thread');
+    expect(calls.filter(call => call.op === 'copyText').at(-1)?.text).toBe('[Thread a](t3-context://v1/thread/thread_a)');
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Thread copied', description: 'Thread a' });
     sidebarSession(client).selection = ['b', 'c'];
     const selected = sidebarSnapshot(client, NOW, helpers).threads;
     expect(selected.find(row => row.id === 'b')!.menu.filter(entry => entry.parent === '').map(entry => entry.label)).toEqual(['Settle (2)', 'Snooze (2)', 'Regenerate titles (2)', 'Mark unread (2)', 'Delete (2)']);
@@ -348,6 +359,42 @@ describe('sidebar projection (sidebar-view.ts)', () => {
     expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ emptyText: 'No projects yet', emptyAddProject: true });
   });
 
+  test('the filter takes several projects: Shift adds or removes one, a pick shows one alone, and a key not loaded stays stored', async () => {
+    const { client } = fake([shell('a'), shell('b', { projectId: 'p2' })]);
+    const groups = client.projectGroups;
+    client.projectGroups = () => [...groups.call(client), { key: 'g3', name: 'Third', members: [{ id: 'p3' }] }];
+    client.shell.projects = [...client.shell.projects, { id: 'p3', title: 'Third', workspaceRoot: '/third' }];
+    await sidebarLocal(client, native, 'scope-open', '', '');
+    await sidebarLocal(client, native, 'scope-toggle', '', 'g2');
+    await sidebarLocal(client, native, 'scope-toggle', '', 'g3');
+    let view = sidebarSnapshot(client, NOW, helpers);
+    expect(view.threads.map(row => row.id)).toEqual(['b']);
+    expect(view.sidebar).toMatchObject({ scopeOpen: true, scopeKey: 'g2\ng3', scopeLabel: 'Other, Third', scopeCount: 2 });
+    expect(view.sidebar.scopes.filter(item => item.selected).map(item => item.label)).toEqual(['Other', 'Third']);
+    await sidebarLocal(client, native, 'scope-toggle', '', 'g1');
+    expect(sidebarSnapshot(client, NOW, helpers).threads.map(row => row.id)).toEqual(['a', 'b']);
+    await sidebarLocal(client, native, 'scope-toggle', '', 'g1');
+    client.shell.threads = [shell('a')];
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.emptyText).toBe('No threads in these projects yet');
+    // A project not loaded yet keeps its key; the list shows the projects that are.
+    client.projectGroups = groups;
+    expect(sidebarPrefs(client).scopes).toEqual(['g2', 'g3']);
+    view = sidebarSnapshot(client, NOW, helpers);
+    expect(view.sidebar).toMatchObject({ scopeKey: 'g2', scopeCount: 1, emptyText: 'No threads in Other yet' });
+    // A plain pick shows that project alone and closes the menu; the thread menu's filter replaces the scope.
+    await sidebarLocal(client, native, 'scope', '', 'g1');
+    expect(sidebarPrefs(client).scopes).toEqual(['g1']);
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.scopeOpen).toBe(false);
+    await sidebarLocal(client, native, 'scope', '', '');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.scopes[0]).toMatchObject({ all: true, selected: true });
+  });
+
+  test('a saved single project key from an older file reads as one chosen project', () => {
+    expect(decodeSidebarPrefs({ scope: 'g2' }).scopes).toEqual(['g2']);
+    expect(decodeSidebarPrefs({ scopes: ['g1', 'g2', 'g1', 3], scope: 'g9' }).scopes).toEqual(['g1', 'g2']);
+    expect(decodeSidebarPrefs({}).scopes).toEqual([]);
+  });
+
   test('search keys move the highlight with wrap-around, Escape clears; pending text while the server searches', async () => {
     const { client } = fake([shell('a', { title: 'alpha one' }), shell('b', { title: 'alpha two' }), shell('c', { title: 'beta' })]);
     (client as unknown as { query: string }).query = 'alpha';
@@ -391,16 +438,20 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
     expect(strip(dispatched).map(payload => `${payload.type}:${payload.threadId}`)).toEqual(['thread.settle:a', 'thread.settle:c', 'thread.unsettle:c', 'thread.unsettle:a']);
   });
 
-  test('the undo notice sits on the first bottom shelf header; while searching or with no rows it sits in the footer', async () => {
+  test("the footer's undo notice reads the short summary; the full sentence stays for the announcement and the legacy footer", async () => {
     const { client } = fake([shell('a', { createdAt: iso(-1) }), shell('b', { createdAt: iso(-2) }), shell('z', { snoozedUntil: iso(3_600_000) })], { threadId: 'a' });
     await sidebarCommand(client, native, files, 'settle', 'a', '');
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ undoText: 'Settled 1 thread,', undoHost: 'snoozed' });
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ undoShort: 'Settled,', undoText: 'Settled 1 thread,' });
     (client as unknown as { query: string }).query = 'Thread';
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoHost).toBe('');
-    // With nothing snoozed, Settled is the first bottom shelf.
-    const plain = fake([shell('a', { createdAt: iso(-1) }), shell('b', { createdAt: iso(-2) })], { threadId: 'a' });
-    await sidebarCommand(plain.client, native, files, 'settle', 'a', '');
-    expect(sidebarSnapshot(plain.client, NOW, helpers).sidebar.undoHost).toBe('settled');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoShort).toBe('Settled,');
+    (client as unknown as { query: string }).query = '';
+    await sidebarCommand(client, native, files, 'settle', 'b', '');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ undoShort: 'Settled 2,', undoText: 'Settled 2 threads,' });
+    // It is drawn in the footer's utility row, never over the list.
+    const view = appPath('src/sidebar/sidebar.contract');
+    const source = require('node:fs').readFileSync(view, 'utf8') as string;
+    expect(source.match(/FooterUndoNotice\(/g)).toHaveLength(1);
+    expect(source).not.toContain('undoHost');
   });
 
   test('the undo notice is announced as "<summary>, ⌘Z to undo" when it changes, and an unspoken one is dropped when it goes', async () => {
@@ -587,6 +638,29 @@ describe('sidebar navigation, drafts and the hover card', () => {
     sidebarSession(client).selection = [];
     await sidebarCommand(client, native, files, 'delete', 'b', '');
     expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: 'delete', dialogReturn: 'thread-b' });
+  });
+
+  test("the menus list the environment's snooze options soonest first; a passed time warns; Custom links to the settings", async () => {
+    const { client, dispatched } = fake([shell('a'), shell('b')]);
+    (client.config as Obj).settings = { snoozePresets: [{ kind: 'at', day: 'tomorrow', time: '09:00' }, { kind: 'after', minutes: 30 }] };
+    const now = Date.now();
+    const rows = threadMenuItems(sidebarSnapshotMenuState(client, now)).find(item => item.id === 'snooze')!.children!;
+    expect(rows.map(item => item.id)).toEqual(['snooze:after:30', 'snooze:at:tomorrow:09:00', 'snooze:custom']);
+    expect(rows.at(-1)).toMatchObject({ separatorBefore: true });
+    expect(sidebarSnapshot(client, now, helpers).threads.find(row => row.id === 'a')!.snoozePresets.map(preset => preset.label)).toEqual(['In 30 minutes', 'Tomorrow']);
+    await sidebarCommand(client, native, files, 'snooze:after:30', 'a', '');
+    expect(Date.parse(String(dispatched.at(-1)?.snoozedUntil)) - now).toBeGreaterThanOrEqual(30 * 60_000);
+    // An option the settings no longer hold, or a time that has passed, snoozes nothing and says so.
+    const count = dispatched.length;
+    await sidebarCommand(client, native, files, 'snooze:at:today:00:00', 'b', '');
+    expect(dispatched).toHaveLength(count);
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'warning', title: 'Could not snooze thread', description: 'That snooze time has passed. Choose another time.' });
+    // No options: the Custom row has no separator above it.
+    (client.config as Obj).settings = { snoozePresets: [] };
+    expect(threadMenuItems(sidebarSnapshotMenuState(client, now)).find(item => item.id === 'snooze')!.children).toEqual([{ id: 'snooze:custom', label: 'Custom…', separatorBefore: false }]);
+    await sidebarCommand(client, native, files, 'snooze:custom', 'b', '');
+    expect(await sidebarCommand(client, native, files, 'snooze-settings', '', '')).toBe('sidebar:settings:threads');
+    expect(sidebarSnapshot(client, now, helpers).sidebar.dialog).toBe('');
   });
 });
 

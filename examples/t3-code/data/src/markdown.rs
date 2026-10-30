@@ -234,8 +234,11 @@ include!("markdown_inert.rs");
 /// The resolver's mark for a workspace file link (`[label](src/a.ts:3)`): T3
 /// draws it as a file chip, not a web link.
 const FILE_LINK: &str = "t3-file:";
-/// A link to another thread (`[title](t3-thread://v1/<id>)`): drawn as that thread's chip.
-const THREAD_LINK: &str = "t3-thread://v1/";
+/// A link to another thread (`[title](t3-thread://v1/<id>)`, or `t3-thread://v2/<environment>/<id>` and its autolink
+/// `<t3-thread://v2/…>`): drawn as that thread's chip.
+fn thread_link(href: &str) -> bool {
+    href.starts_with("t3-thread://v1/") || href.starts_with("t3-thread://v2/")
+}
 
 /// MarkdownFileLink's chip label: the file's name, then " · L3" for a line.
 fn file_chip(target: &str) -> (String, &'static str) {
@@ -310,7 +313,7 @@ fn chat_run(value: Value, link_start: bool) -> Value {
         }
     } else if href.starts_with("t3-skill:") {
         ("context-skill", "")
-    } else if href.starts_with(THREAD_LINK) {
+    } else if thread_link(&href) {
         // A thread link is its thread's chip (MarkdownThreadLink); message-chips.ts resolves it by the href.
         ("context-thread", "")
     } else if href.starts_with("t3-citation://") {
@@ -883,7 +886,7 @@ fn flow_tokens(block: &markdown_parse::Block) -> Option<Vec<markdown_parse::Run>
             || run.href.starts_with("t3-context://")
             || run.href.starts_with("t3-citation://")
             || run.href.starts_with("t3-skill:")
-            || run.href.starts_with(THREAD_LINK)
+            || thread_link(&run.href)
         {
             tokens.push(run.clone());
             continue;
@@ -954,7 +957,7 @@ fn collapse_spaces(tokens: Vec<markdown_parse::Run>) -> Vec<markdown_parse::Run>
             || token.href.starts_with("t3-context://")
             || token.href.starts_with("t3-citation://")
             || token.href.starts_with("t3-skill:")
-            || token.href.starts_with(THREAD_LINK)
+            || thread_link(&token.href)
         {
             previous_space = false;
             collapsed.push(token);

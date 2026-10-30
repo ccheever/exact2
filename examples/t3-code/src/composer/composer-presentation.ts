@@ -4,7 +4,9 @@
 import { arr, obj, str, type Obj } from '../client/domain';
 import { requestPresentation } from './requests';
 import type { T3Client } from '../client/client';
-import { footerLayout, traitsDisplay, primaryAction, composerNotices, providerControl, contextMeter, compactChip } from './composer-controls-view';
+import { effortBlockWidth, footerLayout, traitsDisplay, primaryAction, composerNotices, providerControl, contextMeter, compactChip } from './composer-controls-view';
+import { resolveComposerControlsOwnership } from './composer-controls-ownership';
+import { effortBars, resolveEffortGlyph } from './effort-glyph';
 import { planFollowUp, noteNow } from './composer-controls';
 import { queuedEditView, settleQueuedEdits } from './composer-controls-queue';
 import { endSummary, threadNowProbes } from './thread-end';
@@ -13,7 +15,7 @@ import { attachOffered, preparingImages } from './composer-controls-attach';
 import { readySend, uploadBlock, uploadTable } from './composer-uploads';
 import { fanoutSelections, fanoutView } from './composer-controls-fanout';
 import { composerSelection } from './composer-provider-selection';
-import { chordGlyphs, displayModelName, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './composer-controls-model';
+import { chordGlyphs, displayModelName, optionValue, REASONING_SELECT_DESCRIPTOR_IDS, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './composer-controls-model';
 import { composerRequiresModifier, sendChords, sendCommandChords } from './composer-editor-intent';
 import { layoutFrames } from '../shell/layout-frames';
 import { draftHoldsCommandEnter } from '../diff/diff';
@@ -33,12 +35,13 @@ import { usageConfirm, usageResetClock } from './composer-controls-usage'; // th
 import { stripLabelsCompact, stripLabelTexts } from './context-strip'; // the context strip's labels or icons
 import type { ComposerNotice, FooterSteps } from './composer-controls-view';
 
-/** runtimeModeConfig.ts: label, description and lucide icon per mode. */
+/** runtimeModeConfig.ts (v0.1.5): label, description and lucide icon per mode; full access is a crossed shield, since an
+ *  open lock reads like a closed one at small sizes. */
 export const runtimeModes = [
   { mode: 'approval-required', label: 'Supervised', description: 'Ask before commands and file changes.', icon: 'lock' },
   { mode: 'auto-accept-edits', label: 'Auto-accept edits', description: 'Auto-approve edits, ask before other actions.', icon: 'pen-line' },
   { mode: 'auto', label: 'Auto', description: 'Supported providers approve routine actions; others still ask.', icon: 'sparkles' },
-  { mode: 'full-access', label: 'Full access', description: 'Allow commands and edits without prompts.', icon: 'lock-open' },
+  { mode: 'full-access', label: 'Full access', description: 'Allow commands and edits without prompts.', icon: 'shield-off' },
 ];
 const SAVED_OPTION_LABELS: Record<string, string> = { agent: 'Agent', effort: 'Effort', reasoningEffort: 'Reasoning effort', variant: 'Reasoning' };
 
@@ -77,6 +80,13 @@ export function threadPhase(projection: Obj): string {
 }
 
 const UNAVAILABLE_BADGE = 'Unavailable';
+const stringOrNull = (value: unknown) => typeof value === 'string' ? value : null;
+
+/** resolveProjectSettings(settings, projectId).settings.defaultRuntimeMode: the project's override, else the server's. */
+function defaultRuntimeModeOf(client: ComposerSource): string {
+  const settings = obj(client.config.settings), overrides = obj(obj(settings.projectSettingsOverrides)[client.projectId]);
+  return str(overrides.defaultRuntimeMode || settings.defaultRuntimeMode);
+}
 
 /** ChatComposer.tsx placeholder chain (74541bab17; one default line since 3816296021, composerPlaceholder.ts). */
 export function composerPlaceholder(input: { connected: boolean; approval: boolean; question: boolean; choiceOnly: boolean;
@@ -195,30 +205,64 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   const modelLabel = model ? `${displayModelName(model)}${model.isUnavailable === true ? ' (Unavailable)' : ''}` : modelTitle;
   // ProviderModelPicker's Unavailable Badge (outline, sm): its text with 3pt padding and the 1pt border each side.
   const badge = model?.isUnavailable === true && !fanoutSelections(client as unknown as T3Client) ? measured(client.presentation, UNAVAILABLE_BADGE, 10, 500) + 8 : 0;
-  const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: display.label !== '',
-    runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: controlsWidth(client.presentation),
+  // TraitsPicker in the composer (v0.1.5): the primary reasoning select as a word ("High", Settings › Appearance ›
+  // Effort display "label", the default) or rising bars ("bars"); Max, Ultracode and Ultrathink keep their names, and
+  // traits the bars cannot show (an agent mode) read as their label. The gauge shows only in an icon-only footer.
+  const primary = descriptors.find(descriptor => descriptor.type === 'select' && descriptor.id === ultra.primaryId);
+  const glyph = primary && REASONING_SELECT_DESCRIPTOR_IDS.has(str(primary.id))
+    ? resolveEffortGlyph(primary, ultra.controlled ? 'ultrathink' : stringOrNull(optionValue(primary, resolvedCurrent(primary, shown), selection, reported))) : null;
+  const effortDisplay = (client.local as { clientSettings?: { effortDisplay?: unknown } }).clientSettings?.effortDisplay === 'bars' ? 'bars' : 'label';
+  const effortWord = glyph ? (glyph.special ?? (effortDisplay === 'label' ? glyph.label : '')) : display.label;
+  const effort = { shown: display.label !== '', word: effortWord, bars: glyph && !effortWord ? glyph.count : 0,
+    speed: glyph ? display.speedLabel ?? '' : '', other: glyph ? display.otherLabels.join(' · ') : '' };
+  // ComposerControlsBar: Permissions hide while the thread's mode is the project's default, or while the new thread's
+  // strip names them (permissionsShownInStrip: a draft of a project, whose strip always shows).
+  const defaultRuntimeMode = defaultRuntimeModeOf(client);
+  const permissionsInStrip = !client.threadId && !!client.projectId;
+  const accessMatchesDefault = runtime.mode === defaultRuntimeMode;
+  const planUi = planVisible;
+  const firstOwnership = resolveComposerControlsOwnership({ matchesDefault: accessMatchesDefault || permissionsInStrip, hasTraits: effort.shown,
+    planModeUiEnabled: planUi, collapsed: false, measuredHiddenBlockCount: 0 });
+  const { steps, measuredHidden, ...layout } = footerLayout({ model: modelTitle, traits: effortBlockWidth(effort, measuredLabels(client.presentation)),
+    runtime: firstOwnership.accessDisplay === 'label' ? runtime.label : '', runtimeShown: firstOwnership.accessDisplay !== 'hidden', mode: firstOwnership.showModeBlock,
+    plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: controlsWidth(client.presentation),
     measure: measuredLabels(client.presentation), previous: footerSteps.get(client), badge });
   footerSteps.set(client, steps);
-  // The "More composer controls" rows for the expanded and the resting footer.
-  const runtimeRows = runtimes.map(option => ({ mode: option.mode, label: option.label, selected: option === runtime }));
-  const more = overflowMenu({ traits: traits.items, traitsHidden: layout.traitsOverflow, modeHidden: layout.modeOverflow, planVisible, interactionMode: client.interactionMode, runtimes: runtimeRows });
-  const restingMore = overflowMenu({ traits: traits.items, traitsHidden: layout.restingTraitsOverflow, modeHidden: layout.restingModeOverflow, planVisible, interactionMode: client.interactionMode, runtimes: runtimeRows });
+  const ownership = resolveComposerControlsOwnership({ matchesDefault: accessMatchesDefault || permissionsInStrip, hasTraits: effort.shown,
+    planModeUiEnabled: planUi, collapsed: false, measuredHiddenBlockCount: measuredHidden });
+  const keyEffort = commandChords(client.config, 'composer.effort', 'Meta+Shift+E', false, keyContext), keyMode = commandChords(client.config, 'composer.mode', 'Meta+Shift+A', false, keyContext);
+  // The effort chip's name and tooltip: "Effort: High · Fast", and while it holds Permissions, "Permissions: Supervised · ⇧⌘A".
+  const permissionsHint = ownership.accessDisplay === 'hidden' || accessMatchesDefault || permissionsInStrip
+    ? [`Permissions: ${runtime.label}`, chordGlyphs(keyMode.split(' ')[0] ?? '')].filter(Boolean).join(' · ') : '';
+  const traitsTip = [`Effort: ${display.label}`, effort.speed, permissionsHint].filter(Boolean).join(' · ');
+  // The "More composer controls" rows; Permissions join them only while their home is in the menu.
+  const more = overflowMenu({ traits: traits.items, traitsHidden: ownership.traitsHidden, modeHidden: ownership.modeHidden, planVisible, interactionMode: client.interactionMode,
+    showPermissions: ownership.overflowShowsPermissions });
   return {
     placeholder: composerPlaceholder({ connected: client.connection === 'connected', ...requests, planReady: !!requests.planReady,
       projectRequired: !client.projectId, providerUnavailable: chosen.showProviderUnavailable,
       phase: client.threadId ? threadPhase(client.projection) : 'disconnected' }),
     modelTip: modelShortcut ? `${modelLabel} · ${modelShortcut}` : modelLabel, fieldLabel: fieldLabel(client),
-    traitsLabel: display.label,
+    traitsLabel: display.label, traitsTip,
+    effortShown: effort.shown, effortWord: effort.word, effortBars: glyph && !effort.word ? effortBars(glyph) : [], effortBarsWidth: glyph ? 4 * glyph.count - 2 : 0,
+    effortSpeed: effort.speed, effortOther: effort.other,
     providerIcon: acpInstanceIcon(client.config, provider),
-    ...layout, traitsCount: traits.count, traitsSelected: traits.selected, traits: traits.items,
+    ...layout, traitsOverflow: ownership.traitsHidden, modeOverflow: ownership.modeHidden, traitsCount: traits.count, traitsSelected: traits.selected, traits: traits.items,
+    // Where Permissions live (resolveComposerControlsOwnership): the chip shows its label, its icon or nothing; the
+    // effort chip or the overflow menu answers composer.mode while it does not. Without an effort chip, upstream's
+    // Permissions chip keeps its data-composer-shortcut="composer.mode", so it answers whatever ownership says.
+    accessDisplay: ownership.accessDisplay, accessEmphasized: !accessMatchesDefault, showModeBlock: ownership.showModeBlock,
+    effortOwnsMode: effort.shown && ownership.effortOwnsModeShortcut, overflowPermissions: ownership.overflowShowsPermissions, permissionsInStrip,
+    permissionsTip: `Permissions: ${runtime.label}. ${runtime.description}`,
+    stripPermissionsTip: ['Permissions', chordGlyphs(keyMode.split(' ')[0] ?? '')].filter(Boolean).join(' · '),
     runtimeMode: runtime.mode, runtimeLabel: runtime.label, runtimeIcon: runtime.icon, runtimeDescription: runtime.description,
     runtimeSelected: Math.max(0, runtimes.indexOf(runtime)), runtimeCount: runtimes.length,
     runtimes: runtimes.map((option, index) => ({ ...option, selected: option === runtime, index })),
     planVisible, planActive: planVisible && client.interactionMode === 'plan',
     ultrathink: ultrathinkFrame(client, prompt),
-    more: more.items, moreCount: more.count, restingMore: restingMore.items, restingMoreCount: restingMore.count,
-    moreMenuWidth: effortMenuWidth(client.presentation, more.items), restingMoreMenuWidth: effortMenuWidth(client.presentation, restingMore.items), moreMenuHeight: traitsMenuHeight(more.items), restingMoreMenuHeight: traitsMenuHeight(restingMore.items), // the spectrum ring and the model icon's chroma
-    keyEffort: commandChords(client.config, 'composer.effort', 'Meta+Shift+E', false, keyContext), keyMode: commandChords(client.config, 'composer.mode', 'Meta+Shift+A', false, keyContext),
+    more: more.items, moreCount: more.count,
+    moreMenuWidth: effortMenuWidth(client.presentation, more.items), moreMenuHeight: traitsMenuHeight(more.items),
+    keyEffort, keyMode,
   };
 }
 

@@ -213,7 +213,7 @@ describe('the card\'s Git rows (GitActionsControl panel)', () => {
     expect(gitCardView(client, status({ branchChanges: { insertions: 0, deletions: 2 } }), '', '/repo', 100, '', true).quiet).toBe(false);
     expect(gitCardView(client, status(), 'fatal: bad object', '/repo', 100, '', true).quiet).toBe(false);
     const rows = contractComponent('git.contract', 'GitRows');
-    const scope = (quiet: boolean) => ({ compact: false, KmItem: (item: Obj) => item, details: { git: { repo: true, quiet, progress: false, success: false, menu: [], branch: { show: false } } } });
+    const scope = (quiet: boolean) => ({ compact: false, KmItem: (item: Obj) => item, details: { items: { branch: true, gitActions: true, changes: true }, git: { repo: true, quiet, progress: false, success: false, menu: [], branch: { show: false } } } });
     expect([rows.drawn('testId="details-git-group"', rows.state(), scope(true)), rows.drawn('GitChanges(details=details', rows.state(), scope(true))]).toEqual([false, false]);
     expect([rows.drawn('testId="details-git-group"', rows.state(), scope(false)), rows.drawn('GitChanges(details=details', rows.state(), scope(false))]).toEqual([true, true]);
   });

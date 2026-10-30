@@ -182,7 +182,7 @@ describe('a Send press carries its own pointer modifiers', () => {
   test('each Send button presses `sendPress`, which hands `send` its MouseEvent\'s modifiers', async () => {
     const fns = contractFns('press-modifiers.contract');
     const mouse = (mods: string) => ({ metaKey: mods.includes('meta'), ctrlKey: mods.includes('ctrl'), altKey: mods.includes('alt'), shiftKey: mods.includes('shift') });
-    for (const name of ['PrimaryActions', 'ComposerFooter']) {
+    for (const name of ['PrimaryActions']) {
       const component = contractComponent('composer-controls.contract', name);
       for (const [mods, held] of [['', ''], ['meta', 'meta'], ['meta alt', 'meta+alt'], ['ctrl shift', 'control+shift'], ['meta ctrl alt shift', 'meta+control+alt+shift']]) {
         const sent: string[] = [];
@@ -191,7 +191,7 @@ describe('a Send press carries its own pointer modifiers', () => {
       }
     }
     const controls = await Bun.file(appPath('composer-controls.contract')).text();
-    expect(controls.split('button press=sendPress ').length - 1).toBe(3); // plan refine, Send, the resting Send
+    expect(controls.split('button press=sendPress ').length - 1).toBe(2); // plan refine and Send
     expect(controls).not.toContain('button press=send ');
     // The reference resolves its send chords only in the composer's editor (composerSubmissionIntentForKey): with the
     // composer unfocused ⌘↩ sends nothing, so Send declares no chord (the composer's key action takes them).

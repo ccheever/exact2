@@ -12,9 +12,10 @@ import { diffReview, loadDiffFiles } from '../diff/diff-review';
 import { type Native, type Files } from './protocol';
 import { letGo } from './let-go';
 import { panelState } from '../panel/panel-surfaces';
+import { toolCallDiffTarget } from '../timeline/timeline-inspect';
 
 /** Opening or closing the Diff is the person's panel choice (rightPanelStore userAction), which a proactive opening respects. */
-const PANEL_CHOICES = new Set(['close-diff', 'diff', 'checkpoint-diff', 'turn-diff']);
+const PANEL_CHOICES = new Set(['close-diff', 'diff', 'checkpoint-diff', 'turn-diff', 'tool-diff']);
 
 /** The changes panel: open (a turn's checkpoint, a scope), refresh, whitespace, view options, copy a path, close. */
 export async function diffOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
@@ -26,7 +27,7 @@ export async function diffOps(this: T3Client, op: string, id: string, value: str
     else if (op === 'diff-view') { diffView(this, id, value, diffPaths(this)); if (id === 'layout') rememberDiffLayout(this, value); }
     else if (op === 'diffreview') resultMessage = await diffReview(this, native, id, value, n); // diff-review.ts: tree reveal, large diffs, hidden lines, line comments
     else if (op === 'diffbase') await baseRefs(this, native, id, value);
-    else if (['diff', 'checkpoint-diff', 'turn-diff', 'diff-scope', 'diff-base', 'diff-refresh', 'diff-whitespace'].includes(op)) await diff.call(this, native, op, id, value, n);
+    else if (['diff', 'checkpoint-diff', 'turn-diff', 'tool-diff', 'diff-scope', 'diff-base', 'diff-refresh', 'diff-whitespace'].includes(op)) await diff.call(this, native, op, id, value, n);
     else return false;
     return true;
   } finally { Object.assign(out, { message: resultMessage, id, value }); }
@@ -34,7 +35,7 @@ export async function diffOps(this: T3Client, op: string, id: string, value: str
 /** The changes panel asks the server for the current selection; a stale answer never replaces a newer one. */
 async function diff(this: T3Client, native: Native, op: string, id: string, value: string, n: number): Promise<void> {
   // Only opening commands open the panel; a refetch queued behind a close never reopens it.
-  if (op !== 'diff' && op !== 'checkpoint-diff' && op !== 'turn-diff' && !this.diffOpen) {
+  if (op !== 'diff' && op !== 'checkpoint-diff' && op !== 'turn-diff' && op !== 'tool-diff' && !this.diffOpen) {
     if (op === 'diff-whitespace') this.diffState.ignoreWhitespace = !this.diffState.ignoreWhitespace;
     return;
   }
@@ -44,7 +45,10 @@ async function diff(this: T3Client, native: Native, op: string, id: string, valu
   let request;
   try {
     if (op === 'checkpoint-diff') selectCheckpoint(this, n, id);
-    else if (op === 'turn-diff') selectTurn(this, value, id); // a file change's Open diff: its run, its file
+    else if (op === 'turn-diff') selectTurn(this, value, id);
+    // A file change's Open diff names its tool call; until the panel shows a tool call's own change, its run's diff
+    // opens at its file.
+    else if (op === 'tool-diff') { const target = toolCallDiffTarget(this.projection, id); selectTurn(this, target?.runId ?? '', target?.filePath ?? ''); }
     else if (op === 'diff-scope') selectScope(this, value);
     else if (op === 'diff-base') selectBaseRef(this, value); // the comparison target picker's choice (Automatic, a ref, its remote switch)
     else if (op === 'diff') selectScope(this, 'branch'); // generic opens show Changes (diff.ts, upstream d1034d62b2)

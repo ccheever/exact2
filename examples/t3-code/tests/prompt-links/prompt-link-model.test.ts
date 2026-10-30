@@ -12,6 +12,17 @@ test('repository matching uses the first exact origin and never groups a fork wi
   expect(findPromptLinkProject(projects, { owner: 'me', name: 't3code' })?.id).toBe('fork');
 });
 
+test('repository matching accepts checkouts cloned from git.cafe and its staging host', () => {
+  const projects = [
+    { id: 'gitlab', repositoryIdentity: { canonicalKey: 'gitlab.com/pingdotgg/t3code' } },
+    { id: 'cafe', repositoryIdentity: { canonicalKey: 'git.cafe/PingDotGG/t3code' } },
+    { id: 'staging', repositoryIdentity: { canonicalKey: 'staging.git.cafe/pingdotgg/other' } },
+  ];
+  expect(findPromptLinkProject(projects, { owner: 'pingdotgg', name: 't3code' })?.id).toBe('cafe');
+  expect(findPromptLinkProject(projects, { owner: 'pingdotgg', name: 'other' })?.id).toBe('staging');
+  expect(findPromptLinkProject(projects, { owner: 'pingdotgg', name: 'missing' })).toBeUndefined();
+});
+
 test('PR links open the most recently updated visible match, including legacy links', () => {
   const link = { host: 'github.com', repository: 'pingdotgg/t3code', number: 7 };
   const threads = [

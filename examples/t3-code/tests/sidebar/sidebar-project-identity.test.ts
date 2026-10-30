@@ -42,7 +42,7 @@ describe('the project filter', () => {
     const menu = sidebarSnapshot(c, NOW, helpers).sidebar.scopes;
     expect(menu.map(scope => [scope.label, scope.mark])).toEqual([['All projects', ''], ['agent-edits', 'AE'], ['t3-fixture/shared-notes', 'SN']]);
     expect(menu.find(scope => scope.key === 'g1')!.glyph.text).toBe('SN');
-    sidebarPrefs(c).scope = 'g1';
+    sidebarPrefs(c).scopes = ['g1'];
     const sidebar = sidebarSnapshot(c, NOW, helpers).sidebar;
     expect([sidebar.scopeLabel, sidebar.scopeMark, sidebar.scopeGlyph.text]).toEqual(['t3-fixture/shared-notes', 'SN', 'SN']);
   });

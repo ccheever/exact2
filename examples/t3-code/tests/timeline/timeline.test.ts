@@ -306,7 +306,7 @@ describe('compactions T3 Code starts (#24334, #25837)', () => {
   test('a bare /compact turn is one live row; only compacting on return speaks through the Working row', () => {
     for (const [reason, live] of [
       ['beforeCacheExpires', { kind: 'compaction', live: true, title: 'Compacting before the cache expires…' }],
-      ['onReturn', { kind: 'working', live: true, icon: 'minimize', title: 'Compacting after being idle…' }],
+      ['onReturn', { kind: 'working', live: true, icon: 'minimize', title: 'Compacting for', startedMs: Date.parse(at(0)) }],
       [undefined, { kind: 'compaction', live: true, title: 'Compacting context' }],
     ] as const) {
       for (const items of [[prompt(reason)], [prompt(reason), compaction('c', 'running')]]) expect(rows(client(items, running))).toMatchObject([live]);
@@ -315,7 +315,7 @@ describe('compactions T3 Code starts (#24334, #25837)', () => {
   test('the finished divider leads with why T3 Code compacted, and a compaction-only run leaves no Working row', () => {
     const done = compaction('c', 'completed', { afterTokenCount: 19_000 });
     for (const [reason, title] of [['beforeCacheExpires', 'Context automatically compacted before cache expiry 899K → 19K tokens'],
-      ['onReturn', 'Context compacted after being idle 899K → 19K tokens'], [undefined, 'Context compacted 899K → 19K tokens']] as const) {
+      ['onReturn', 'Context compacted before sending 899K → 19K tokens'], [undefined, 'Context compacted 899K → 19K tokens']] as const) {
       const settled = rows(client([prompt(reason), done]));
       expect(settled).toMatchObject([{ kind: 'compaction', live: false, title }]);
       expect(settled[0]!.activities![0]).toMatchObject({ body: title.split(' 899K')[0], detail: '899K', result: '19K' });
@@ -346,7 +346,8 @@ describe('compactions T3 Code starts (#24334, #25837)', () => {
     const answered = item('q', 'user_input_request', 1, { requestId: 'rq', questions: [],
       questionAnswer: { requestId: 'rq', questionTextById: { resume: question }, answers: { resume: 'Compact and continue' }, attachmentsByQuestionId: {} } });
     const after = (items: Obj[], projection: Obj = {}) => rows(client([user('u', 0, 'Continue'), answered, ...items], projection)).slice(1);
-    expect(after([compaction('c', 'running')], running)).toMatchObject([{ kind: 'working', title: 'Compacting after 1h 5m idle…' }]);
+    // The question is answered mid-turn, so the Working row times the compaction, not the turn (#26299).
+    expect(after([compaction('c', 'running')], running)).toMatchObject([{ kind: 'working', title: 'Compacting for', startedMs: Date.parse(at(1)) }]);
     expect(after([compaction('c', 'completed')])).toMatchObject([{ kind: 'compaction', title: 'Context compacted after 1h 5m idle' }]);
     const later = after([compaction('c', 'completed'), compaction('c2', 'running')], running);
     expect(later.filter(row => row.kind === 'compaction')).toMatchObject([{ title: 'Context compacted after 1h 5m idle', live: false }, { title: 'Compacting context', live: true }]);

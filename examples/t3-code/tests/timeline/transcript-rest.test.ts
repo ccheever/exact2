@@ -3,6 +3,7 @@
 // message lengths. Ported from the AppKit cases T3Timeline.swift had.
 import { describe, expect, test } from 'bun:test';
 import { contractComponent, type Env } from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 
 const root = contractComponent('app.contract', 'T3Code');
 const column = contractComponent('app-main.contract', 'ChatColumn');
@@ -91,17 +92,10 @@ describe('the composer rests on a reader\'s movement away from the end', () => {
   });
 });
 
-describe('a press in the prompt expands a resting composer', () => {
-  const card = contractComponent('composer.contract', 'ComposerCard');
-  test('the prompt region hears the press, whose field may already have the focus (ChatComposer onPointerDownCapture)', () => {
-    const presses: unknown[] = [];
-    // On macOS a press in the text area reaches its ancestors' pointerdown (exact2 #1105).
-    const scope: Env = { composerPressed: () => presses.push('press'), richComposer: { chips: [] }, text: '',
-      data: { canSend: false, snapshotDrafts: [], composer: { compactTokens: '', canResume: false, queueEditing: '' } } };
-    (card.attribute('testId="composer-scroll-region"', 'pointerdown', {}, scope) as () => void)();
-    expect(presses).toEqual(['press']);
-    const state: Env = { restResting: true };
-    root.call('composerPressed', state, {}, []);
-    expect(state.restResting).toBe(false);
+describe('the composer never rests (T3 Code v0.1.5 #25869)', () => {
+  test('the root never lets it rest, and the prompt region needs no press to expand it', () => {
+    expect(appText('src/timeline/cite-members.contract')).toContain('derive canRest = false');
+    expect(appText('src/composer/composer.contract')).not.toContain('pointerdown=composerPressed');
   });
 });
+

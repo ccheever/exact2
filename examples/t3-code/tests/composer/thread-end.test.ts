@@ -239,9 +239,9 @@ describe('what the thread is doing (ThreadNow)', () => {
     Object.assign(client.shell.threads[0]!, { pendingBackgroundTasks: [{ taskId: 'a', kind: 'command', description: 'npm run dev' }] });
     const line = threadNowRows(client)[0]!;
     expect(line.collapsible).toBe(false);
-    client.presentation.anchors = { [`tn:${line.id}`]: [0, 60], 't:12:400:Running: npm run dev': [0, 110] };
+    client.presentation.anchors = { [`tn:${line.id}`]: [0, 60], 't:12:400:Running npm run dev': [0, 110] };
     expect(threadNowRows(client)[0]!.collapsible).toBe(true);
-    client.presentation.anchors = { [`tn:${line.id}`]: [0, 140], 't:12:400:Running: npm run dev': [0, 110] };
+    client.presentation.anchors = { [`tn:${line.id}`]: [0, 140], 't:12:400:Running npm run dev': [0, 110] };
     expect(threadNowRows(client)[0]!.collapsible).toBe(false);
   });
 });
@@ -271,5 +271,26 @@ describe('notices above the composer (ComposerBannerStack)', () => {
     client.thread!.projection.turnItems = [{ type: 'user_input_request', requestId: 'ask', questions: [{ id: 'q', header: 'Pick', question: 'Which?', options: [{ label: 'A' }] }] }];
     expect(snapshot(client).composer.notices.every(notice => notice.group === 'environment' && (notice.variant === 'error' || notice.variant === 'warning'))).toBe(true);
     void disk;
+  });
+});
+
+describe('a queued message wears its sent form\'s attribution (QueuedMessage, #26159)', () => {
+  test('automation and agent messages fold to their sender and one line; T3 Code\'s says so', async () => {
+    const { client } = await queue(3);
+    const messages = arr(client.projection.messages);
+    Object.assign(messages[0]!, { text: 'GitHub labeled a pull request.\nFollow the runbook.', createdBy: 'agent', scheduledTaskId: 'task:webhook', createdAt: '2026-10-27T12:00:00.000Z' });
+    Object.assign(messages[1]!, { text: '\nReview finished.', createdBy: 'agent', creationSource: 'provider', senderThreadId: 't2', createdAt: '2026-10-27T12:00:00.000Z' });
+    Object.assign(messages[2]!, { text: 'Continue where you left off.', createdBy: 'agent', creationSource: 'server', createdAt: '2026-10-27T12:00:00.000Z' });
+    const rows = queuedTurnRows(client);
+    const lead = client.shell.threads.find(thread => thread.id === 't2')!.title;
+    expect(rows.map(row => [row.intent, row.sender, row.summary, row.groupId, row.sourceThreadId])).toEqual([
+      ['automation', 'Automation', 'GitHub labeled a pull request.', 'task:webhook', ''],
+      ['agent', lead, 'Review finished.', '', 't2'],
+      ['t3code', '', '', '', '']]);
+    expect(rows.every(row => row.createdAt === '2026-10-27T12:00:00.000Z')).toBe(true);
+  });
+  test('a message the user typed keeps its plain bubble', async () => {
+    const { client } = await queue(1);
+    expect(queuedTurnRows(client)[0]).toMatchObject({ intent: '', sender: '', summary: '' });
   });
 });

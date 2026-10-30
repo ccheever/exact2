@@ -3,6 +3,10 @@ use GitCard from "../details/git-shapes.contract"
 // panel controls and labels, the right panel's surface chooser, the thread
 // details panel and the thread title's action menu.
 use AutomationsView from "../details/thread-automations.contract"
+use DetailsItems from "../details/thread-details-shapes.contract"
+use DetailsItemsMenu from "../details/thread-details-shapes.contract"
+use ThreadServersView from "../details/thread-details-shapes.contract"
+use UsageView from "../details/thread-details-shapes.contract"
 use PanelView from "../panel/panel-shapes.contract"
 use DetailsPrRowList from "../panel/pr-attachment-shapes.contract"
 use ComposerFilePreview from "../panel/pr-attachment-shapes.contract"
@@ -204,6 +208,11 @@ shape ShellDetails
   prRows: DetailsPrRowList
   // ThreadAutomationsPanel (thread-automations.ts): the thread's bound scheduled tasks.
   automations: AutomationsView
+  // What the card shows (thread-details-items.ts), its menu, the Servers section and the Usage item.
+  items: DetailsItems
+  itemsMenu: DetailsItemsMenu
+  servers: ThreadServersView
+  usage: UsageView
   // The branch picker, Git actions and their dialogs (git-card.ts).
   git: GitCard
 // The control a workspace area last held (shell-members.contract workspaceEntered).

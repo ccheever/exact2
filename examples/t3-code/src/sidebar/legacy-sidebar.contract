@@ -188,7 +188,7 @@ component LegacySidebar
         text "No projects yet" padding-left="0.5rem" padding-right="0.5rem" padding-top="1rem" font-size="0.75rem" line-height="1rem" text-align="center" color="light-dark(#71717b, #8f8f8f)" testId="legacy-no-projects" flex-shrink=0
       // SidebarChromeFooter: the undo notice, the provider pill and the utility menu.
       if data.sidebar.undoText != "" and now < data.sidebar.undoUntil
-        UndoNotice(text=data.sidebar.undoText, label=data.sidebar.undoLabel, over=false, surface="", muted=(data.look.themed ? data.look.sidebarMuted : "light-dark(#71717b, #a3a3a3)"), ink=(data.look.themed ? data.look.sidebarText : "light-dark(#18181b, #f1f3f7)"), run=run)
+        UndoNotice(text=data.sidebar.undoText, label=data.sidebar.undoLabel, muted=(data.look.themed ? data.look.sidebarMuted : "light-dark(#71717b, #a3a3a3)"), ink=(data.look.themed ? data.look.sidebarText : "light-dark(#18181b, #f1f3f7)"), run=run)
       // One pill a view, so a changed view leaves as the reference's does; a timed one leaves when its time is up.
       if data.sidebar.pillKey != "" and (data.sidebar.pillUntil == 0 or now < data.sidebar.pillUntil)
         for pillKey in [data.sidebar.pillKey] key=pillKey

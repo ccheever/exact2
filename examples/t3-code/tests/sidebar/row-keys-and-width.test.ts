@@ -72,7 +72,7 @@ describe('keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 refe
   test('a draft row\'s ContextMenu and Shift+F10 open its menu from the row; other keys open none', () => {
     const card = contractComponent('sidebar-row.contract', 'DraftCard'), state = card.state(), done: unknown[][] = [];
     const scope = { d: { id: 'p1' }, menu: (...args: unknown[]) => done.push(['menu', ...args]), preventDefault: () => done.push(['preventDefault']),
-      showPopover: (...args: unknown[]) => done.push(['showPopover', ...args]), run: (...args: unknown[]) => done.push(['run', ...args]) };
+      showPopover: (...args: unknown[]) => done.push(['showPopover', ...args]), run: (...args: unknown[]) => done.push(['run', ...args]), treeKey: () => {} };
     const key = (shiftKey: boolean, metaKey = false) => ({ shiftKey, metaKey, ctrlKey: false, altKey: false, key: '', code: '', repeat: false });
     card.call('rowKey', state, scope, ['ContextMenu', key(false)]);
     card.call('rowKey', state, scope, ['F10', key(true)]);

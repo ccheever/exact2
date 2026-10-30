@@ -182,7 +182,7 @@ describe('thread undo (showThreadUndoNotice)', () => {
       restAccess: () => ({ ids: async () => ['c'], request: async (_method: string, payload: Obj) => { dispatched.push(payload); return {}; }, call: async () => ({}) }),
     } as unknown as T3Client;
     const before = Date.now();
-    await sidebarCommand(client, { available: true, watch() {}, later: async () => ({}) } as unknown as Native, {} as never, 'snooze:hour', 'a', '');
+    await sidebarCommand(client, { available: true, watch() {}, later: async () => ({}) } as unknown as Native, {} as never, 'snooze:after:60', 'a', '');
     const until = Date.parse(String(dispatched[0]?.snoozedUntil));
     expect(dispatched[0]?.type).toBe('thread.snooze');
     expect(until - before).toBeGreaterThanOrEqual(3_600_000);
@@ -235,10 +235,10 @@ describe('sidebar wall time', () => {
 describe('remembered shelves (useLocalStorage t3code:sidebar:*-expanded)', () => {
   test('shelf expansion and the project scope survive the preferences file; junk decodes to the defaults', async () => {
     const { adoptSidebarPrefs, defaultSidebarPrefs, sidebarPrefs } = await import('../../src/sidebar/sidebar-state');
-    const saved = JSON.parse(JSON.stringify({ sidebar: { ...defaultSidebarPrefs(), settledExpanded: true, workingExpanded: true, scope: 'g2', visited: { a: '2026-10-04T10:00:00.000Z', b: 'nope' } } }));
+    const saved = JSON.parse(JSON.stringify({ sidebar: { ...defaultSidebarPrefs(), settledExpanded: true, workingExpanded: true, scopes: ['g2'], visited: { a: '2026-10-04T10:00:00.000Z', b: 'nope' } } }));
     const local = {};
     adoptSidebarPrefs(local, saved);
-    expect(sidebarPrefs({ local } as unknown as T3Client)).toEqual({ settledExpanded: true, snoozedExpanded: false, workingExpanded: true, scope: 'g2', visited: { a: '2026-10-04T10:00:00.000Z' }, projectExpanded: {}, projectOrder: [] });
+    expect(sidebarPrefs({ local } as unknown as T3Client)).toEqual({ settledExpanded: true, snoozedExpanded: false, workingExpanded: true, scopes: ['g2'], visited: { a: '2026-10-04T10:00:00.000Z' }, projectExpanded: {}, projectOrder: [] });
     const fresh = {};
     adoptSidebarPrefs(fresh, { sidebar: 'garbage' });
     expect(sidebarPrefs({ local: fresh } as unknown as T3Client)).toEqual(defaultSidebarPrefs());

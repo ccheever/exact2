@@ -1,5 +1,5 @@
 // The thread's queued messages and the queued-message edit,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 7c3b3b3605ef: chat/QueuedRunsControl.tsx,
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 7c3b3b3605ef, and chat/QueuedRunsControl.tsx at v0.1.5,
 // packages/client-runtime/src/state/threadWorkflows.ts (deriveThreadQueueWorkflowState,
 // getUserQueuedThreadRuns), packages/client-runtime/src/queuedRunEdit.ts (makeQueuedRunEditStore,
 // queuedRunEditBlockedReason) and chat/useQueuedRunEdit.ts (beginEdit, cancelEdit, saveEdit).
@@ -41,7 +41,7 @@ export function queueState(projection: Obj) {
       const message = messages.find(candidate => candidate.id === entry.userMessageId), guest = obj(obj(message?.context).guest);
       const images = arr(message?.attachments).filter(attachment => attachment.type === 'image');
       // A queued guest message shows the guest's words; the owner can cancel it, not rewrite it.
-      return { run: entry, text: typeof guest.text === 'string' ? guest.text : message ? str(message.text) : 'Queued message', messageId: str(entry.userMessageId),
+      return { run: entry, message, text: typeof guest.text === 'string' ? guest.text : message ? str(message.text) : 'Queued message', messageId: str(entry.userMessageId),
         editable: obj(message?.context).guest === undefined, images: images.length, thumbnails: images.map(image => ({ id: str(image.id), name: str(image.name) })) };
     }),
     activeRunId: str(run?.id),
@@ -56,11 +56,14 @@ export function queueState(projection: Obj) {
 /** One queued message as the timeline's end lists it: the server's queue, then a queued send it has not acknowledged. */
 export type QueuedItem = { key: string; runId: string; text: string; editable: boolean; thumbnails: Array<{ id: string; name: string }>;
   /** Its place in the server's queue (-1 for a send still saving). */
-  serverIndex: number; pending: boolean };
+  serverIndex: number; pending: boolean;
+  /** The message it will send, whose attribution it wears (QueuedMessage, resolveUserMessagePresentation); absent while saving. */
+  message?: Obj };
 export function queuedItems(client: T3Client): QueuedItem[] {
   if (!client.threadId) return [];
   const items: QueuedItem[] = queueState(client.projection).queued.map((entry, serverIndex) => ({ key: str(entry.run.id), runId: str(entry.run.id),
-    text: queuedPreviewText(entry.text, entry.thumbnails.length > 0), editable: entry.editable, thumbnails: entry.thumbnails, serverIndex, pending: false }));
+    text: queuedPreviewText(entry.text, entry.thumbnails.length > 0), editable: entry.editable, thumbnails: entry.thumbnails, serverIndex, pending: false,
+    ...(entry.message ? { message: entry.message } : {}) }));
   const pending = pendingQueued(client);
   return pending ? [...items, pending] : items;
 }

@@ -33,10 +33,10 @@ describe('repository display names (deriveProjectGroupLabel)', () => {
     fleet.entries.set(key, { key, origin: 'http://fixture.invalid', environmentId: 'env-b', phase: 'connected', message: '', traceId: '', generation: 1, synchronized: 1, lastEvent: 0,
       subscriptions: {}, config: {}, shell: { projects: [{ id: 'b', title: 'Scratch B', workspaceRoot: '/b', isScratch: true }], threads: [{ id: 'remote', projectId: 'b', status: 'idle' }] } as never, scopes: [], error: '', requested: true });
     try {
-      sidebarPrefs(client).scope = 'env-a:/a';
+      sidebarPrefs(client).scopes = ['env-a:/a'];
       const scratch = projectScopes(client).find(group => group.key === NO_PROJECT_SCOPE)!;
       expect(scratch.name).toBe('No project'); expect([...scratch.ids]).toEqual(['a', 'fleet:env-b:b']);
-      expect(sidebarPrefs(client).scope).toBe(NO_PROJECT_SCOPE);
+      expect(sidebarPrefs(client).scopes).toEqual([NO_PROJECT_SCOPE]);
       expect(partition(client, 0).active.map(thread => thread.id).sort()).toEqual(['fleet:env-b:remote', 'local']);
       expect(client.projectGroups()).toHaveLength(2); expect(client.shell.projects).toHaveLength(2);
     } finally { fleet.entries.delete(key); }

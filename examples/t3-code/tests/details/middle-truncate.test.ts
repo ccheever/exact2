@@ -26,7 +26,7 @@ describe('splitForMiddleTruncate', () => {
 
 test('the branch row draws a split label as its head and tail, and a short one whole', () => {
   const rows = contractComponent('git.contract', 'GitRows');
-  const git = (branch: { label: string; labelHead: string; labelTail: string }) => ({ KmItem: (item: unknown) => item, details: { git: { menu: [], branch: { show: true, ...branch } } } });
+  const git = (branch: { label: string; labelHead: string; labelTail: string }) => ({ KmItem: (item: unknown) => item, details: { items: { branch: true }, git: { menu: [], branch: { show: true, ...branch } } } });
   const split = git({ label: 'feature/ui-polish', labelHead: 'feature/', labelTail: 'ui-polish' });
   expect(rows.drawn('text details.git.branch.labelTail', rows.state(), split)).toBe(true);
   expect(rows.drawn('text details.git.branch.label title=', rows.state(), split)).toBe(false);

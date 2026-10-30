@@ -142,14 +142,13 @@ test('repository_path and physical overrides persist; guarded member removal ret
 test('device settings persist locally, affect projection, and do not write an unavailable server scope', async () => {
   const { client, native, command, disk } = await connected();
   const before = JSON.stringify(native.config.settings);
-  await command('device-setting', 'composerCollapseOnScroll', 'false');
   await command('device-setting', 'planModeEnabled', 'true');
   await command('device-setting', 'timestampFormat', '24-hour');
-  expect(snapshot(client)).toMatchObject({ composerCollapseOnScroll: false, planModeEnabled: true });
+  expect(snapshot(client)).toMatchObject({ planModeEnabled: true });
   expect(JSON.stringify(native.config.settings)).toBe(before);
   expect(native.calls.filter(call => call.method === 'server.updateSettings')).toHaveLength(0);
   const restored = new T3Client(); await restored.refresh(native, disk.files);
-  expect(restored.local.deviceSettings).toEqual({ composerCollapseOnScroll: false, planModeEnabled: true, timestampFormat: '24-hour', appearanceMode: 'system', sendShortcut: 'enter', snapShotShortcut: 'shift+shift', snapShotEnabled: false, snapShotIncludeAccessibility: true, snapShotPlaySound: true, snapShotSound: 'soft-pop', snapShotFlash: true, snapShotAnimations: true });
+  expect(restored.local.deviceSettings).toEqual({ planModeEnabled: true, timestampFormat: '24-hour', appearanceMode: 'system', sendShortcut: 'enter', snapShotShortcut: 'shift+shift', snapShotEnabled: false, snapShotIncludeAccessibility: true, snapShotPlaySound: true, snapShotSound: 'soft-pop', snapShotFlash: true, snapShotAnimations: true });
   expect((await command('device-setting', 'timestampFormat', 'invalid')).message).toBe('Unsupported device setting.');
   expect(client.local.deviceSettings.timestampFormat).toBe('24-hour');
 });
