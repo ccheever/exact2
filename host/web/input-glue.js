@@ -959,6 +959,27 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const note = (e, key) => { if (!root.contains(e.target)) return; touched = true; pressed = { el: e.target?.closest?.("button, a[href], [tabindex]") ?? null, focus: document.activeElement, key, at: performance.now() }; };
   document.addEventListener("pointerdown", e => note(e, false), true);
   document.addEventListener("click", e => { if (!pressed?.el?.contains?.(e.target) || performance.now() - pressed.at > 2000) note(e, e.detail === 0); }, true);
+  // The press that moved the focus, if one did: one noted in the last two seconds.
+  const recentPress = () => pressed && performance.now() - pressed.at < 2000 ? pressed : null;
+  // Whether the person used the keyboard last: the press was a key's, or any key came after it (an Escape that closes
+  // a sheet, a shortcut that opens a dialog).
+  let keyedAt = -Infinity;
+  addEventListener("keydown", () => { keyedAt = performance.now(); }, true);
+  const byKey = by => by.key || keyedAt >= by.at;
+  // A pointer's press that opens a dialog moves the focus into it with no ring, as it moves the focus to a route
+  // (`arrive`) and as Chromium and Firefox decide; WebKit marks that focus `:focus-visible` after a touch. The shell
+  // leaves the platform's ring off the marked node (index.html) until a key is pressed or the focus leaves it.
+  let unringed = null;
+  const ring = () => { unringed?.removeAttribute("data-exact-no-ring"); unringed = null; };
+  addEventListener("keydown", ring, true);
+  document.addEventListener("focusout", e => { if (e.target === unringed) ring(); }, true);
+  document.addEventListener("focusin", e => {
+    const into = e.target.closest?.("dialog[open]"), by = recentPress();
+    if (!into || !root.contains(into) || into.contains(e.relatedTarget) || !by || byKey(by)) return;
+    ring();
+    unringed = e.target;
+    unringed.setAttribute("data-exact-no-ring", "");
+  }, true);
   const lands = el => !!el?.isConnected && !inertAncestor(el) && el.getClientRects().length > 0 && !el.matches(":disabled");
   const titleOf = route => [...route.children].find(c => c.localName === "header")?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]");
   // @ref LLP 1115.000 D4.5 — a modal route (a sheet) is a dialog to assistive technology: `role="dialog"` and
@@ -979,7 +1000,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const top = key == null ? null : [...nav.querySelectorAll("[navigationKey]")].find(r => r.getAttribute("navigationKey") === key && r.parentElement.closest("[navigationKey]") === nav);
     if (!top) return;
     const routes = [...top.parentElement.children].filter(r => r.hasAttribute("navigationKey") && !r.hasAttribute("data-exiting")), stack = routes.slice(0, routes.indexOf(top) + 1);
-    const was = shown, active = document.activeElement, by = pressed && performance.now() - pressed.at < 2000 ? pressed : null;
+    const was = shown, active = document.activeElement, by = recentPress();
     shown = stack;
     if (!was || was[0] !== stack[0] || was.at(-1) === top) return;
     const back = was.includes(top);
@@ -989,7 +1010,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const origin = back ? origins.get(was[was.indexOf(top) + 1]) : null;
     const to = lands(origin) ? origin : titleOf(top) ?? top;
     if (!to.hasAttribute("tabindex") && to.tabIndex < 0) { to.tabIndex = -1; to.addEventListener("blur", () => to.removeAttribute("tabindex"), { once: true }); }
-    const focus = () => to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : touched ? {} : { focusVisible: false }) }); focus(); if (document.activeElement?.closest("[data-exiting]")) focus(); // from a frame in a shadow root Firefox lands the focus on the second call
+    const focus = () => to.focus({ preventScroll: true, ...(by ? { focusVisible: byKey(by) } : touched ? {} : { focusVisible: false }) }); focus(); if (document.activeElement?.closest("[data-exiting]")) focus(); // from a frame in a shadow root Firefox lands the focus on the second call
   };
   return {
     arrive, // once the piece is made (the stack as it stands), then after each commit's tree, its focus commands and its `autofocus`

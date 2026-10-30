@@ -1280,6 +1280,41 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the pai
   } finally {}
 }, 60_000);
 
+// A dialog a tap opens takes the focus with no ring, as a route does after a pointer's press (WebKit marks that focus
+// `:focus-visible` after a touch); one a key opens shows its ring, after a tap too when a
+// key other than Enter or Space opens it (a shortcut's).
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a dialog a tap opens has no focus ring; a key's has one`, async () => {
+  const browser = await suiteBrowser(engine);
+  const page = await browser.newPage({ viewport: { width: 400, height: 600 }, hasTouch: true });
+  try {
+    await page.goto(`http://127.0.0.1:${server.address().port}/unsaid`);
+    await page.waitForFunction(() => window.ready);
+    await page.evaluate(() => {
+      document.getElementById('exact-root').innerHTML = `
+        <button id="ask" type="button" data-native data-button-style="bordered" commandfor="sure" command="show-modal">Delete something</button>
+        <button id="other" type="button" data-native data-button-style="bordered">Something else</button>
+        <dialog id="sure" role="alertdialog" aria-label="Delete it?"><button id="yes" type="button" data-native data-button-style="bordered" commandfor="sure" command="close">Delete</button></dialog>`;
+      addEventListener('keydown', e => { if (e.key === 'k' && !document.getElementById('sure').open) document.getElementById('sure').showModal(); });
+    });
+    const ring = () => page.evaluate(() => [document.activeElement.id, getComputedStyle(document.activeElement).outlineStyle !== 'none']);
+    await page.tap('#ask');
+    await page.waitForFunction(() => document.getElementById('sure').open);
+    const tapped = await ring();
+    await page.evaluate(() => document.getElementById('sure').close());
+    await page.focus('#ask');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.getElementById('sure').open);
+    const entered = await ring();
+    await page.evaluate(() => document.getElementById('sure').close());
+    await page.tap('#other');
+    await page.keyboard.press('k');
+    await page.waitForFunction(() => document.getElementById('sure').open);
+    expect([engine, tapped, entered, await ring()]).toEqual([engine, ['yes', false], ['yes', true], ['yes', true]]);
+  } finally {
+    await browser.close();
+  }
+}, 30000);
+
 for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: press feedback respects buttons and the scroller that moves the target`, async () => {
   const browser = await suiteBrowser(engine);
   const page = await browser.newPage();

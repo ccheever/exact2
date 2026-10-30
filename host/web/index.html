@@ -175,6 +175,10 @@
   #exact-root button:not([data-native]):focus-visible,
   #exact-root input:not([data-native]):focus-visible,
   #exact-root textarea:not([data-native]):not([markup="markdown"]):focus-visible { outline: revert; outline-offset: 2px; }
+  /* A focus a pointer's press moved into a dialog has no platform ring until a key is pressed (input-glue.js): more
+     specific than `[data-native]`'s `all: revert` (above), which restores that ring. Under forced colors the system's ring
+     stays; a ring the shell or an author draws on purpose is more specific and theirs. */
+  @media not (forced-colors: active) { #exact-root [data-exact-no-ring]:focus-visible { outline: none; } }
   /* The UA's own reset, which \`all: unset\` undid: a field shows what was
      typed, as the kernel measures it and native fields draw it (LLP 1064 D6). The Markdown editor stands in for a textarea. */
   #exact-root [data-native], input, textarea, .exact-markdown-editor { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
