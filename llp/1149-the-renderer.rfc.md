@@ -1092,14 +1092,17 @@ and disclose their freshly copied images; desktop captures use input attachment
 or UI Automation focus without a client click. See [G6d’s before/after tables
 and retained trials](../bench/heavy-list/gpui/RESULTS.md#g6d-the-windows-reviews-lifecycle-fixes).
 
-**G5, 2026-10-29**: all four arms have the bar and caret workloads, and the
-shared probe records Metal command-buffer GPU spans by phase. The builds,
-offscreen GPU accounting check, aggregation fixture and required checks
-passed. The display's `GO` file did not arrive during the three-hour wait
-ending 2026-10-30 01:30:13 PDT: **zero samples**, so CPU, frame cadence,
-footprint and GPU cost remain **unmeasured** for fling, bar and caret.
-Every workload expectation remains untested; no benchmark window was opened.
-Power was skipped because passwordless `powermetrics` was unavailable
+**G5, prepared 2026-10-29; run set aside 2026-10-30**: all four arms have
+bar and caret workloads, and the shared probe records Metal command-buffer
+GPU spans by phase. The development-Mac series on 2026-10-30, 09:30–09:38
+PDT, was spoiled: only 44 of 91 monitor observations were quiet, load reached
+170 as other lanes built, nearly every fling and bar sample had a focus-loss
+sidecar, and only 14 power samples were collected in eight minutes. Raw files
+remain under `target/g5/series` on that Mac; no row is taken from the run.
+G5 stays **prepared**, with its workload expectations untested by a qualified
+run. Measurement moves to **G5m** on the dedicated silver M5 Max once it is
+set up. All four arms launched in both modes after the rebase; egui's
+blinking remains unverified after three inactive or focus-lost observations
 (`bench/heavy-list/gpui/RESULTS.md`, “G5”).
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
