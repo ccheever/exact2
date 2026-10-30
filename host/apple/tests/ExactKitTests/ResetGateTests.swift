@@ -351,10 +351,12 @@ final class ResetGateTests: XCTestCase {
         defer { ExactSession.asyncFills = wasAsync }
         for asynchronous in [false, true] {
             ExactSession.asyncFills = asynchronous
-            let (session, plan) = try boot("TIMER_ADMISSION")
+            let (session, plan) = try boot("RESET_GATE_ADMISSION")
             func count() -> Int? { (try? words(session))?.compactMap { Int($0) }.max() }
             until("booted, and nothing in flight") { count() == 0 && !session.ownerInFlight && !session.applying && !session.advanceInFlight }
-            let cutoff = session.now() + 200 // past the 100 ms timers' first due
+            // Past the minute timers' first due: only these checks admit them, not a real update callback, so a slow
+            // boot (a loaded full suite's) has a minute's margin before the hold, where 100 ms timers had none.
+            let cutoff = session.now() + 60_100
             let (checked, replays, _) = held(session) {
                 session.timerAdmissions.check(frame: false, update: true, at: cutoff)
                 // A posted check runs, held, and its held answer lands.
@@ -367,7 +369,7 @@ final class ResetGateTests: XCTestCase {
             XCTAssertEqual(count(), 0, "nothing fired while held")
             XCTAssertFalse(session.timerAdmissions.hasPendingForTests, "the held check left nothing pending")
             XCTAssertTrue(session.apply(plan, label: "generation"))
-            session.timerAdmissions.check(update: true, at: session.now() + 200) // what the next update callback calls
+            session.timerAdmissions.check(update: true, at: session.now() + 60_100) // the next update callback's check, a minute on
             until("the next update's check admits the firing") { count() == 1 }
             session.destroy(); self.session = nil
             #if os(iOS)
