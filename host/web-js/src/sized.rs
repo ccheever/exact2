@@ -6,8 +6,9 @@
 //!
 //! A sized node that parents a sized node writes its children's properties under the pair's other
 //! name (`-2`), so its own `justify-self` still reads what its parent wrote; the names alternate
-//! down a chain of them ([`alternates`]). A component's root placed directly inside a canvas reads
-//! the first name: its parent is in another template, which this static pass doesn't see.
+//! down a chain of them ([`alternates`]). Uses are inlined into the one tree `parents` is built
+//! over, so a component's root placed directly inside a canvas reads that canvas's names too; only
+//! a node with no parent in it (the root) reads the first names.
 use exact_kernel::{Display, JustifyItems, NodeRef, PositionType, StyleId};
 use exact_web::host::template::Parts;
 
