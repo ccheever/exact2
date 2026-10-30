@@ -883,7 +883,6 @@ impl<D: DataSource> Runner<D> {
                 return;
             }
         }
-        // A child this commit may not let go stays (LLP 1133.007 D13).
         if self.holds_child(target) {
             return self.discard_request(&request);
         }
@@ -905,8 +904,6 @@ impl<D: DataSource> Runner<D> {
         self.number_data_call(&mut request);
         request.reach = self.reach_of(self.origin_for(Some(target)));
         self.log(super::lines::enqueued(ticket, &name, &request));
-        // A program starts only from the app's origin (LLP 1133.007 D13):
-        // otherwise the ticket is refused here and never reaches the host.
         let refusal = self.process_refusal(&request);
         self.note_asked(target, ticket);
         self.note_handles(ticket, &source, &request.body);
@@ -931,13 +928,7 @@ impl<D: DataSource> Runner<D> {
             sent: false,
             grant: request
                 .stream
-                .then(|| {
-                    crate::grants::admitting_request(
-                        self.data.grants(),
-                        request.grants.as_deref(),
-                        &request,
-                    )
-                })
+                .then(|| crate::grants::admitting_request(self.data.grants(), &request))
                 .flatten()
                 .map(str::to_string),
             ask_again: false,
@@ -1281,9 +1272,7 @@ impl<D: DataSource> Runner<D> {
             sockets::socket_message(count, m);
         }
         let p = p.clone();
-        if let Outcome::Message(m) = &outcome {
-            self.note_child_message(p.ticket, m);
-        }
+        self.note_child_outcome(p.ticket, &outcome);
         self.sync_pending_flags();
         let (ticket, target, name) = (p.ticket, p.target, self.target_name(p.target));
         let what = super::lines::fulfilling(ticket, &name, summary);
