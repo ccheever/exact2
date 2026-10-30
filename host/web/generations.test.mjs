@@ -10,11 +10,11 @@ import { takeLock } from './build-lock.mjs';
 import { buildTreeFile, replaceBuild } from './serve.mjs';
 import { GENERATION, generationFile, generationOf, generationPath, leaseGeneration, leasedGenerations, reapGenerations, servedFile } from './generations.mjs';
 
-/** A JS-target build naming `k` in every file: its document (base `/`), its module, a lazy chunk named by `k` as a
- * hashed chunk is, its plan; and its receipt. */
+/** A JS-target build naming `k` in every file: its document (base `/`) and the shell beside it, its module, a lazy
+ * chunk named by `k` as a hashed chunk is, its plan; and its receipt. */
 function build(dir, k) {
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'index.html'), `<!doctype html><html><head><base href="/"><script type="module" src="./app.js"></script></head><body>build ${k}</body></html>`);
+  for (const page of ['index.html', 'shell.html']) writeFileSync(join(dir, page), `<!doctype html><html><head><base href="/"><script type="module" src="./app.js"></script></head><body>build ${k}</body></html>`);
   writeFileSync(join(dir, 'app.js'), `build ${k}`);
   writeFileSync(join(dir, `chunk-${k}.js`), `build ${k}`);
   writeFileSync(join(dir, 'app.plan'), `build ${k}`);
@@ -116,9 +116,10 @@ test('a generation path is checked strictly: its id\'s form, no dot segment or e
     }
     expect(generationPath(`/.exact/gen/${id}/app.js`)).toEqual({ id, path: '/app.js' });
     expect(generationPath('/app.js')).toBe(null);
-    // A path the build has no file for is an app location: its document, never a file outside it.
+    // A page the build has no file or route for is a miss: 404 with the shell (the client draws its notfound
+    // route), never a file outside it.
     const outside = await servedFile(dist, `/.exact/gen/${id}/secret`, 'text/html');
-    expect([outside.route, text(outside).includes('outside')]).toEqual(['/index.html', false]);
+    expect([outside.status, outside.route, text(outside).includes('outside')]).toEqual([404, '/shell.html', false]);
     expect(text(await servedFile(dist, `/.exact/gen/${id}/app.js`))).toBe('build 1');
     // Under another base (a server that serves the build under a path): the same, under that path.
     expect(generationPath(`/tool/.exact/gen/${id}/app.js`, '/tool/')).toEqual({ id, path: '/app.js' });

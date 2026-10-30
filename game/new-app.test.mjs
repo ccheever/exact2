@@ -72,6 +72,9 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
     // A setting's local value (`import.meta.env`, LLP 1153 D4) stays out of the repository.
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.env\.local$/m);
+    // `npm start` and `bun start` serve the built site (LLP 1153 D3.3).
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'package.json'), 'utf8')).scripts, { start: 'bun exact.mjs serve' });
+    assert.deepEqual(appVerbs('field-log', dir).serve, ['host/web/serve.mjs']);
     // The runner is a few lines a builder can read (LLP 1116.006 D7): where the verbs are, and the checkout's app-cli.mjs.
     const launcher = readFileSync(resolve(dir, 'exact.mjs'), 'utf8');
     assert.ok(launcher.trimEnd().split('\n').length <= 25, `exact.mjs is ${launcher.split('\n').length} lines`);
@@ -587,6 +590,13 @@ test('update --without edits any spelling of the workspace member, and a refusal
     assert.deepEqual(state(), again);
     assert.ok(existsSync(resolve(dir, 'linux/Cargo.toml')));
     assert.deepEqual(readdirSync(dir).filter(f => f.startsWith('.linux')), []);
+    // The last native store may go: a manifest naming no native platform ships none (LLP 1153 D1.5).
+    writeFileSync(apple, appleManifest);
+    app.deploy.store = { web: '0', linux: '0' };
+    writeFileSync(manifest, JSON.stringify(app, null, 2) + '\n');
+    assert.match(createApp(dir, { update: true, without: 'linux' }), /without linux \(removed its workspace member, app\.json deploy\.store\.linux, linux\/\)/);
+    assert.deepEqual(JSON.parse(readFileSync(manifest, 'utf8')).deploy.store, { web: '0' });
+    assert.ok(!existsSync(resolve(dir, 'linux')));
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000);
 

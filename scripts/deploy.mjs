@@ -62,8 +62,6 @@ import { filesystemLock, removePrivateTree } from './filesystem.mjs';
 import { entryPlans, listBuildFiles, listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const PLATFORMS = ['web', 'ios', 'macos', 'linux'];
-/** The platforms that hold an update store and so a stream, when the manifest names none (`deploy.store`, `deploy.binaries`). The web is the origin row: a fresh load is current. */
-const STREAM_PLATFORMS = ['ios', 'macos', 'linux'];
 const USAGE = 'usage: bun scripts/deploy.mjs <app> [--origin <dir|url>] [--channel <name>] [--only bundle|origin] [--platform <web|ios|macos|linux>]... [--snapshot <sha>] [--dirty] [--release <id>] [--keys <dir>] [--json] [--yes]\n       bun scripts/deploy.mjs keygen <id> [--keys <dir>] [--json]';
 // ------------------------------------------------------------------ arguments
 function parseArgs(argv) {
@@ -622,17 +620,15 @@ export function deployRun(target, release) {
 
 // ------------------------------------------------------------------ the bake
 
-/** The web root on the JS target (LLP 1071 §7, delivery), when it takes the
- * app: the wasm bake's baked plan compiled to JavaScript into `<run>/web-js`
- * (`host/web-js/build.mjs --production`), carrying the bake's origin files,
- * so the root and every stream's bundle share one plan. The bake stays what
- * the streams publish; the web needs no update client, since a fresh load
- * of the atomic root is current. Returns the directory; a JS build that
- * fails refuses the deploy, as the app's web build does. */
+/** The web root on the JS target (LLP 1071 §7, delivery), when it takes the app: the wasm bake's baked plan compiled
+ * to JavaScript into `<run>/web-js` (`host/web-js/build.mjs --production`), carrying the bake's origin files, so the
+ * root and every stream's bundle share one plan. The bake stays what the streams publish; the web needs no update
+ * client, since a fresh load of the atomic root is current. With no bake (`web` null, LLP 1153 D3.6), the app's own
+ * Contract, with no envelope. Returns the directory; a JS build that fails refuses the deploy, as the web build does. */
 function bakeJs(app, run, web, exactRoot, sourceRoot) {
   const out = resolve(run, 'web-js');
   const env = sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_APP_DIR: app.dir });
-  const r = spawnSync(process.execPath, [resolve(exactRoot, 'host/web-js/build.mjs'), app.name, '--plan', resolve(web, 'app.plan'), '--out', out, '--production'], {
+  const r = spawnSync(process.execPath, [resolve(exactRoot, 'host/web-js/build.mjs'), app.name, ...(web ? ['--plan', resolve(web, 'app.plan')] : []), '--out', out, '--production'], {
     cwd: exactRoot, env, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
   });
   if (r.status === 0) { process.stderr.write(`web root: the JS target (${out})\n`); return out; }
@@ -707,13 +703,13 @@ function channelOf(manifest) {
   return names.length === 1 ? names[0] : 'prod';
 }
 
-/** Native deployment targets, including binary-only L=0. Classification decides the carrier before touching a stream. */
+/** Native deployment targets, including binary-only L=0: what `deploy.store` and `deploy.binaries` name, and none when they name none (LLP 1153 D1.5). Classification decides the carrier before touching a stream. */
 export function nativePlatforms(manifest) {
   const deploy = manifest.deploy ?? {};
   const named = [...new Set([...Object.keys(deploy.store ?? {}), ...Object.keys(deploy.binaries ?? {})])].filter((p) => p !== 'web');
   const unknown = named.filter((p) => !PLATFORMS.includes(p));
   if (unknown.length) refuse(`app.json names the platform${unknown.length > 1 ? 's' : ''} ${unknown.join(', ')} under deploy; this repo builds ${PLATFORMS.join(', ')}`);
-  return PLATFORMS.filter((p) => (named.length ? named : STREAM_PLATFORMS).includes(p));
+  return PLATFORMS.filter((p) => named.includes(p));
 }
 
 /** What the bundle changes against a head: `app.plan` and each asset by digest — new, changed, removed — with a `.wgsl` whose cohort is this one marked an asset (its interface digest is an input to the id, so an unchanged id is an unchanged interface). */
@@ -1329,19 +1325,21 @@ async function deployCaptured(opts, capsule) {
   if (signer) log(`signing as ${signer.keyId} (${signer.path})`);
   if (signer) origin.useSigner?.(signer);
 
-  log(`snapshot ${snapshot.id}${snapshot.sources.length > 1 ? ` (${snapshot.sources.map((source) => `${source.roles.join('+')} ${source.commit.slice(0, 7)}`).join(', ')})` : ''}${snapshot.dirty ? ' + uncommitted changes (--dirty)' : ''}; baking into ${run}`);
-  const web = bake(app, run, exactRoot, sourceRoot);
+  // A manifest naming no native platform has no stream and no envelope (LLP 1153 D3.6): nothing is baked.
+  const webOnly = app.manifest.game === undefined && !nativePlatforms(app.manifest).length;
+  log(`snapshot ${snapshot.id}${snapshot.sources.length > 1 ? ` (${snapshot.sources.map((source) => `${source.roles.join('+')} ${source.commit.slice(0, 7)}`).join(', ')})` : ''}${snapshot.dirty ? ' + uncommitted changes (--dirty)' : ''}; ${webOnly ? 'building the web root, no stream named,' : 'baking'} into ${run}`);
+  const web = webOnly ? null : bake(app, run, exactRoot, sourceRoot);
   const webRoot = wantOrigin && app.manifest.game === undefined ? bakeJs(app, run, web, exactRoot, sourceRoot) : web;
-  const bundle = readBundle(web, app);
-  const builds = {web:readBuilds(app,{EXACT_UPDATE_TRUST:'production',EXACT_BAKE_OUTPUT:resolve(run,'bake')}).find(r=>r.compat.inputs.platform==='web')};
-  if(!builds.web)refuse('the web build emitted no completed graph receipt');
+  const bundle = webOnly ? null : readBundle(web, app);
+  const builds = webOnly ? {} : {web:readBuilds(app,{EXACT_UPDATE_TRUST:'production',EXACT_BAKE_OUTPUT:resolve(run,'bake')}).find(r=>r.compat.inputs.platform==='web')};
+  if(!webOnly&&!builds.web)refuse('the web build emitted no completed graph receipt');
   for(const platform of platforms)builds[platform]=buildFor(app,platform,sourceRoot,run);
   const compat=Object.fromEntries(Object.entries(builds).map(([p,r])=>[p,r.compat]));
   for(const [platform,build] of Object.entries(builds)) {
     const cards=[{name:'app.plan',sha256:bundle.plan.sha256,bytes:bundle.plan.bytes.length},...bundle.assets.map(a=>({name:a.name,sha256:a.sha256,bytes:a.bytes.length}))];
     if(canonicalJson(build.graph.artifacts.map(({name,sha256,bytes})=>({name,sha256,bytes})).sort((a,b)=>a.name.localeCompare(b.name)))!==canonicalJson(cards.sort((a,b)=>a.name.localeCompare(b.name))))refuse(`${platform} bake graph differs from the packaged bundle`);
   }
-  if (rustPackage(app)) {
+  if (!webOnly && rustPackage(app)) {
     bundle.platforms = {};
     const env = sealedSourceEnv(sourceRoot, {CARGO_TARGET_DIR:app.target,EXACT_UPDATE_TRUST:'production'});
     const nativeTargets = [...new Set(platforms.filter(p=>['native','tiered'].includes(builds[p].compat.inputs.rustMode)).map(p=>builds[p].compat.target))];
@@ -1359,10 +1357,11 @@ async function deployCaptured(opts, capsule) {
       builds[platform]=result.build; bundle.platforms[platform]=result.bundle;
     }
   }
-  log(`compatibility ids: ${Object.entries(compat).map(([p, c]) => `${p} ${c.id}`).join(', ')}`);
+  if (!webOnly) log(`compatibility ids: ${Object.entries(compat).map(([p, c]) => `${p} ${c.id}`).join(', ')}`);
 
   const table = await classify({ app, opts, origin, channel, snapshot, release, web: webRoot, bundle, compat, builds, platforms, wantOrigin });
   table.appdrop = appdropPlan(app, table, builds);
+  if (webOnly) table.notes.push('app.json names no native platform under deploy, so this publishes the web root alone: no stream, and no envelope for a native client');
   if (!opts.json) console.log(renderTable(table) + (table.appdrop ? `\n${renderAppdrop(table.appdrop)}` : ''));
 
   if (!opts.yes) {

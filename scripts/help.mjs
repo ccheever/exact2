@@ -107,15 +107,32 @@ export const HELP = {
   },
   'web-build': {
     line: 'build the web app once (the page test web and agent web drive)',
-    usage: 'bun exact.mjs web-build [--render rust|js|none]',
+    usage: 'bun exact.mjs web-build [--out <dir>] [--render rust|js|none]',
     flags: [
-      ['--render rust|js|none', 'pre-rendered pages: rust (default, the app\'s <app>-render entry), js (Bun), none'],
+      ['--out <dir>', 'build there (dist, say) instead of target/web-dist, and say how a static host serves it'],
+      ['--render rust|js|none', 'pre-rendered pages: rust (the app\'s <app>-render entry; the default where it has one), js (Bun; the default otherwise), none'],
     ],
     internal: ['--js', '--wasm', '--bake'],
     body: `Builds the JS target (a game: wasm) into the app's target/web-dist; about a second when
-nothing changed. A capability the JS runtime lacks fails the build, named.
+nothing changed. A capability the JS runtime lacks fails the build, named. Beside the pages
+are shell.html and routes.json, the route table a static host serves them by (serve).
 Ports    none. Runs to completion: exit 0 when it built. test web and agent web run it first.`,
-    example: 'bun exact.mjs web-build',
+    example: 'bun exact.mjs web-build --out dist && bun exact.mjs serve dist',
+  },
+  serve: {
+    line: 'serve a built site, as a static host would (npm start)',
+    usage: 'bun exact.mjs serve [<dir>] [--port <n>] [--lan]',
+    flags: [
+      ['--port <n>', 'listen on <n> (default 8765)'],
+      ['--lan', 'bind every interface, so another device on this network opens it'],
+      ['--origin <dir>', 'a directory deploy published to, in place of a build'],
+    ],
+    internal: ['--loopback'],
+    body: `Serves <dir> (default target/web-dist, web-build's) and prints its URL. For a request: the
+file at its path; else, for a page whose path a route in routes.json matches, shell.html with
+200; else 404.html with 404. A static host serves the directory by the same rule.
+Ports    one HTTP port, on 127.0.0.1 (--lan: every interface). Runs in the foreground until ^C.`,
+    example: 'bun exact.mjs serve dist --port 3000',
   },
   test: {
     line: 'run *.test.contract (or the files named) on a host: web by default',

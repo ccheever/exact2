@@ -54,17 +54,18 @@ if (process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH !== '0') {
     process.exit(again.status ?? 1);
   }
 }
-// `--production` (delivery, scripts/deploy.mjs): a release over a wasm bake's
-// baked plan (`--plan <dist>/app.plan`) — agent mode refused, and the bake's
-// origin files (the envelope, the web manifest, install and auth pages,
-// sitemap) and head links carried, so the web root it publishes is the
-// wasm root's in everything but the program (LLP 1071 §7, delivery).
+// `--production` (delivery, scripts/deploy.mjs): a release, agent mode
+// refused. Over a wasm bake's baked plan (`--plan <dist>/app.plan`), the
+// bake's origin files (the envelope, the web manifest, install and auth
+// pages, sitemap) and head links are carried, so the web root it publishes
+// is the wasm root's in everything but the program (LLP 1071 §7, delivery).
+// With no bake (an app that names no native platform, LLP 1153 D3.6), it
+// builds the app's own Contract, links its web manifest, and has no envelope.
 const production = args.includes('--production');
 // `--dev` (host/web-js/dev.mjs): typed state checkpoint hooks that ordinary
 // and production builds neither emit nor link.
 const devReload = args.includes('--dev');
 if (production && devReload) { console.error('--production and --dev are mutually exclusive'); process.exit(2); }
-if (production && !opt('--plan')) { console.error('--production builds over a wasm bake: name its --plan <dist>/app.plan'); process.exit(2); }
 // Its app.ts copy loses a development build's only grant lines (`configure`), which reads the trust.
 if (production && (process.env.EXACT_UPDATE_TRUST ?? 'production') !== 'production') { console.error(`--production builds under EXACT_UPDATE_TRUST=production, not ${process.env.EXACT_UPDATE_TRUST}`); process.exit(2); }
 if (production) process.env.EXACT_UPDATE_TRUST = 'production';
@@ -573,8 +574,12 @@ if (!production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js'))
   if (scoped !== code) writeFileSync(resolve(gen, f), scoped);
 }
 // Bun's bundler, in this process, for the server bundle. A build that
-// renders nothing (the dev loop's) makes no server bundle.
-const how = opt('--render') ?? 'rust';
+// renders nothing (the dev loop's) makes no server bundle. Pages render with
+// the app's native render entry where it has one (`<app>-render`, in an
+// authored crate), else under Bun (LLP 1153 D3.5).
+const renderBin = `${app}-render`;
+const renderAt = [['linux', `${app}-linux`], ['web', `${app}-web`]].find(([dir]) => existsSync(resolve(appDir, dir, 'src/bin', `${renderBin}.rs`)));
+const how = opt('--render') ?? (renderAt ? 'rust' : 'js');
 // Inject only into the app's module graph (the capture, under gen), never
 // the copied host runtime. Oxc resolves lexical bindings, so an authored
 // local `fetch` stays local.
@@ -687,7 +692,11 @@ ${preloads}<style>${base}${css}</style>
 <div id="exact-root"${manifest.audio_session ? ` data-audio-session="${manifest.audio_session}"` : ''}></div>
 ${args.includes('--inline') ? `<script type="module">${readFileSync(resolve(out, 'app.js'), 'utf8').replaceAll('</script', '<\\/script')}</script>` : '<script type="module" src="./app.js"></script>'}
 `);
-if (production) {
+if (production && !opt('--plan')) {
+  // No bake, so no envelope to link: the web manifest written above, as a bake's page links it.
+  const links = ['<link rel="manifest" href="./manifest.json">', ...(webManifest.theme_color ? [`<meta name="theme-color" content="${attr(webManifest.theme_color)}">`] : [])];
+  writeFileSync(resolve(out, 'index.html'), readFileSync(resolve(out, 'index.html'), 'utf8').replace(/(<meta name="viewport"[^>]*>\n)/, `$1${links.map(l => l + '\n').join('')}`));
+} else if (production) {
   const bake = dirname(resolve(opt('--plan')));
   const links = readFileSync(resolve(bake, 'index.html'), 'utf8').match(/^<(?:link rel="(?:alternate|manifest)"|meta name="theme-color")[^>]*>$/gm) ?? [];
   writeFileSync(resolve(out, 'index.html'), readFileSync(resolve(out, 'index.html'), 'utf8').replace(/(<meta name="viewport"[^>]*>\n)/, `$1${links.map(l => l + '\n').join('')}`)); // its `<html lang>` is already the manifest's, as the bake's is
@@ -798,33 +807,41 @@ cpSync(opt('--plan') ? resolve(opt('--plan')) : resolve(gen, 'app.plan'), resolv
 rmSync(resolve(out, 'app.plan.map.json'), { force: true });
 if (!production && !opt('--plan') && existsSync(resolve(gen, 'app.plan.map.json'))) cpSync(resolve(gen, 'app.plan.map.json'), resolve(out, 'app.plan.map.json'));
 // The install pages and their data (LLP 1030.003 D6a), as the wasm build
-// writes them (a release carries its bake's, above). The build is named by
-// the program's bytes: the plan and the page's module.
-if (!production) {
+// writes them (a release over a bake carries its bake's, above). The build is
+// named by the program's bytes: the plan and the page's module.
+if (!production || !opt('--plan')) {
   const [{ readManifest }, { writeInstallPages }] = await Promise.all([import('../../scripts/app.mjs'), import('../../scripts/install-page.mjs')]);
-  // A release is `--production`'s, so this is a development build whatever
-  // the shell's EXACT_UPDATE_TRUST; with no bake receipt its reach is unknown.
-  const [source, changes] = await revision;
+  // A release is `--production`'s, so otherwise this is a development build
+  // whatever the shell's EXACT_UPDATE_TRUST; with no bake receipt its reach is unknown.
+  const [source, changes] = await revision ?? [null, null];
   const id = createHash('sha256').update(readFileSync(resolve(out, 'app.plan'))).update(readFileSync(resolve(out, 'app.js'))).digest('hex');
   writeInstallPages(out, readManifest(appDir, app), { id, source, dirty: changes === null ? null : !!changes, builtAt: new Date().toISOString(),
-    mode: 'Development build' });
+    mode: production ? 'Release build' : 'Development build' });
 }
 // The type check, which ran while the page bundled: its diagnostics are the
 // native bake's (host/web/build.mjs keeps them in its summary).
 const typeError = await captured?.typed;
 if (typeError) { console.error(`${typeError.message ?? typeError}\nerror: ${app}: app.ts failed the type check every host's build runs`); process.exit(1); }
-// Pages at build (LLP 1048.000): `--render rust` (the default) runs the app's
-// native render entry (`<app>-render`, exact_render) over this shell;
-// `--render js` runs this runtime under Bun (render.mjs). Either page adopts.
-// `--render none` renders nothing: the dev loop's, where every route is the
-// shell and the page builds itself (a render entry rebuilds on every
-// Contract edit, since its crate bakes the plan).
+// Pages at build (LLP 1048.000): `--render rust` (the default where the app
+// has one) runs the app's native render entry (`<app>-render`, exact_render)
+// over this shell; `--render js` runs this runtime under Bun (render.mjs).
+// Either page adopts. `--render none` renders nothing: the dev loop's, where
+// every route is the shell and the page builds itself (a render entry
+// rebuilds on every Contract edit, since its crate bakes the plan).
 const pages = JSON.parse(readFileSync(resolve(gen, 'pages.json'), 'utf8'));
-// The shell a page is composed over stays as shell.html (a render server's, too).
-if (pages.length) cpSync(resolve(out, 'index.html'), resolve(out, 'shell.html'));
+// The shell, before a rendered home page replaces index.html: what a host
+// serves for a route with no page of its own, and what a page is composed
+// over (a render server's, too). And the route table a host serves by
+// (LLP 1153 D3: host/web/serve.mjs `buildTreeFile` applies it).
+cpSync(resolve(out, 'index.html'), resolve(out, 'shell.html'));
+{
+  const { planRouteTable } = await import('../web/serve.mjs');
+  const routes = planRouteTable(readFileSync(resolve(out, 'app.plan'))).map(({ name, pattern, render, notfound }) => ({ name, pattern, render, notfound }));
+  writeFileSync(resolve(out, 'routes.json'), JSON.stringify({ routes }, null, 2) + '\n');
+}
+if (pages.length && !opt('--render') && !renderAt) console.log(`${app}: no ${renderBin} entry, so its pages render under Bun (--render js)`);
 if (pages.length && how === 'rust') {
-  const bin = `${app}-render`;
-  const at = [['linux', `${app}-linux`], ['web', `${app}-web`]].find(([dir]) => existsSync(resolve(appDir, dir, 'src/bin', `${bin}.rs`)));
+  const bin = renderBin, at = renderAt;
   if (!at) { console.error(`--render rust: ${app} has no ${bin} entry; use --render js`); process.exit(1); }
   const plan = opt('--plan') ? resolve(opt('--plan')) : resolve(out, 'app.plan');
   // The render entry runs here as a build tool, in the app's own workspace and target (an authored app outside the

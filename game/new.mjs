@@ -780,7 +780,8 @@ function writeApp(dir, name, { title = titleOf(name), id = newAppId(name) } = {}
     '.gitignore': '/target/\n/dist/\n/dist.*\n/dist-windows/\n/node_modules/\n/app.contract.d.ts\n/.exact/\n/.env.local\n',
     // Contract libraries come through node_modules (LLP 1091 D9): `bun add`
     // one, or `"name": "file:../path"` for a local library.
-    'package.json': JSON.stringify({ name, private: true, dependencies: {} }, null, 2) + '\n',
+    // `npm start` and `bun start` serve the built site (LLP 1153 D3.3).
+    'package.json': JSON.stringify({ name, private: true, scripts: { start: 'bun exact.mjs serve' }, dependencies: {} }, null, 2) + '\n',
     'AGENTS.md': agentNotes(dir, name),
     // The web alone; a native platform's keys come with its first verb or `--with` (scripts/app-shells.mjs).
     'app.json': JSON.stringify({
@@ -1134,6 +1135,8 @@ function dropPlatform(dir, platform) {
     if (members !== workspace) { writeFileSync(workspacePath, members); removed.push('its workspace member'); }
     if (manifestText !== null) {
       const manifest = JSON.parse(manifestText), deploy = manifest.deploy ?? {};
+      // The last native key may go: a manifest that names no native platform ships none (scripts/deploy.mjs
+      // `nativePlatforms`, LLP 1153 D1.5).
       for (const [key, table] of [['host', manifest.host], ['deploy.store', deploy.store], ['deploy.binaries', deploy.binaries]]) {
         if (table && platform in table) { delete table[platform]; removed.push(`app.json ${key}.${platform}`); }
       }

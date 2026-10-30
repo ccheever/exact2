@@ -8,11 +8,12 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createApp } from '../game/new.mjs';
+import { appVerbs } from './app-cli.mjs';
 import { HELP, helpText, indexText, knownFlags } from './help.mjs';
 import { scriptFlags } from './help-parity.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
-const APP_VERBS = ['status', 'web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'windows', 'android', 'update', 'lock', 'contract', 'tamber', 'hatch', 'snapback', 'backend', 'pattern', 'docs', 'feedback'];
+const APP_VERBS = ['status', 'web', 'web-build', 'serve', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'windows', 'android', 'update', 'lock', 'contract', 'tamber', 'hatch', 'snapback', 'backend', 'pattern', 'docs', 'feedback'];
 const timed = (args, options) => {
   const t = performance.now(), r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 15_000, ...options });
   return { ...r, ms: performance.now() - t };
@@ -29,7 +30,7 @@ test('each verb of a new app\'s exact.mjs, and no verb, answers help from exact2
     mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
     mkdirSync(resolve(sdk, 'js/bake/src'), { recursive: true });
     for (const file of ['scripts/help.mjs', 'scripts/app-cli.mjs', 'scripts/bun.mjs', 'js/bake/src/__exact_env.mjs']) copyFileSync(resolve(ROOT, file), resolve(sdk, file));
-    for (const file of ['host/web/dev.mjs', 'host/web/build.mjs', 'host/apple/build.mjs', 'scripts/agent.mjs', 'scripts/verify.mjs', 'scripts/build-linux.mjs', 'scripts/agent-android.mjs', 'scripts/exact.mjs', 'scripts/feedback.mjs']) {
+    for (const file of ['host/web/dev.mjs', 'host/web/build.mjs', 'host/web/serve.mjs', 'host/apple/build.mjs', 'scripts/agent.mjs', 'scripts/verify.mjs', 'scripts/build-linux.mjs', 'scripts/agent-android.mjs', 'scripts/exact.mjs', 'scripts/feedback.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), `require('node:fs').appendFileSync(${JSON.stringify(started)}, ${JSON.stringify(file)} + '\\n');`);
     }
@@ -77,7 +78,7 @@ test('the scripts a verb runs answer --help and refuse a flag they do not take, 
   const env = { ...process.env };
   delete env.EXACT_APP_DIR;
   for (const [verb, args] of [
-    ['web', ['host/web/dev.mjs', '--app', 'caltrain']], ['web-build', ['host/web/build.mjs', 'caltrain']],
+    ['web', ['host/web/dev.mjs', '--app', 'caltrain']], ['web-build', ['host/web/build.mjs', 'caltrain']], ['serve', ['host/web/serve.mjs']],
     ['agent', ['scripts/agent.mjs', 'web', '--app', 'caltrain', 'tree']], ['test', ['scripts/agent.mjs', 'web', '--test', 'x.test.contract']],
     ['verify', ['scripts/verify.mjs', 'web', '--app', 'caltrain']],
     ['ios', ['host/apple/build.mjs', '--ios', 'caltrain-apple']], ['mac', ['host/apple/build.mjs', 'caltrain-apple']],
@@ -132,9 +133,12 @@ test('a first build\'s helps are short, and --help all has every flag', () => {
 // verb's script parses (a form never names a flag that does not exist).
 test('help is the one read: the verbs and the forms a build uses, in one screen, naming only flags the verbs parse', () => {
   assert.doesNotMatch(helpText('status'), /undefined/);
-  const text = indexText({ verbs: Object.keys(HELP).filter((v) => !['new', 'add'].includes(v)) });
-  assert.ok(text.split('\n').length <= 36, `the index is ${text.split('\n').length} lines`);
-  assert.ok(Buffer.byteLength(text) <= 2800, `the index is ${Buffer.byteLength(text)} bytes`);
+  // The index an app's exact.mjs prints, and a game's.
+  const [text, gameText] = [false, true].map((game) => indexText({ verbs: Object.keys(appVerbs('app', '.', { game })) }));
+  for (const index of [text, gameText]) {
+    assert.ok(index.split('\n').length <= 36, `the index is ${index.split('\n').length} lines`);
+    assert.ok(Buffer.byteLength(index) <= 2800, `the index is ${Buffer.byteLength(index)} bytes`);
+  }
   // What builders used across rounds 10 and 11: verify's platform and `--shots`, test's platform, agent's `--storage`, `--size`
   // and its common operations, web and ios `--run`, contract's build and vocab, pattern.
   for (const form of [

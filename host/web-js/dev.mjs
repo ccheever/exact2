@@ -1033,7 +1033,8 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     // its scripts, chunks and plan are read from that build while the next one is put in place.
     const served = await servedFile(dist, url.pathname, req.headers.accept);
     if (served.status === 410 || served.status === 400 || served.status === 503) { res.writeHead(served.status, { 'cache-control': 'no-store', ...(served.status === 503 ? { 'retry-after': '1' } : {}) }); res.end(); return; }
-    const found = served.status === 200 ? served : null;
+    // A miss is a 404, with the build's page for one where it has one (serve.mjs `buildTreeFile`).
+    const found = served.body ? served : null;
     // No build yet (the first failed): a blank page that shows the errors and reloads when one lands.
     if (!found && error && (url.pathname === '/' || appDocumentPath(url.pathname, acceptsHTML(req.headers.accept)))) { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(`<!doctype html><meta charset="utf-8"><body>${client(seq, logicRevision)}`); return; }
     if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
@@ -1052,7 +1053,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
       }
       body += client(seq, logicRevision);
     }
-    sendStaticBody(req, res, body, { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
+    sendStaticBody(req, res, body, { 'content-type': webContentType(found.route), 'cache-control': 'no-store' }, found.status);
   });
   // The resident loop's producers (host/web/dev.mjs `--serve-as`: the
   // resident compiler, the TypeScript and Rust module producers, the

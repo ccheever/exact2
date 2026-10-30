@@ -60,6 +60,7 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     status: ['scripts/exact.mjs', 'status', dir],
     web: ['host/web/dev.mjs', '--app', name],
     'web-build': ['host/web/build.mjs', name],
+    serve: ['host/web/serve.mjs'],
     test: ['scripts/agent.mjs', host, '--app', name],
     agent: ['scripts/agent.mjs', host, '--app', name],
     // Builds itself, so not below (LLP 1116.004 D7): one report of the build, the tests and check.
@@ -262,6 +263,9 @@ if (verb === 'contract') {
   if ((verb === 'test' || verb === 'agent') && host === 'windows' && !rest.includes('--size') && existsSync(manifest)) rest.push('--size', windowsWindow(JSON.parse(readFileSync(manifest, 'utf8'))).join('x'));
   // An Android drive is the APK's (`bun exact.mjs android` installs it), unless it asks for the headless Linux host.
   if ((verb === 'test' || verb === 'agent') && host === 'android' && !rest.includes('--headless') && !rest.includes('--reader')) rest.push('--reader');
+  // A finished site is served to this machine unless --lan asks for every interface (LLP 1153 D3.3); the dev loop
+  // and serve.mjs run alone keep LAN (LLP 1023 D8).
+  if (verb === 'serve' && !rest.includes('--lan')) rest.push('--loopback');
   if (verb !== 'test') return log(await script(verbs[verb], rest));
   // An app with a server of its own (the rest pattern's) has it run for the tests, where app.ts calls it, on an empty
   // database kept through them: as verify runs it, by the same code (LLP 1116.007 D2).

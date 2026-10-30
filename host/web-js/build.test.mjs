@@ -1,6 +1,8 @@
 import { test, expect, mock, spyOn } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { moduleGrants, webCompiler } from './module.mjs';
@@ -92,34 +94,86 @@ test('production lazy host modules ignore agent storage and entropy parameters',
       });
       expect(result.status, result.stdout + result.stderr).toBe(0);
     };
-    const dev = resolve(dir, 'dev'), prod = resolve(dir, 'prod');
+    // A release over a bake's plan, and one with no bake (an app that names no native platform, LLP 1153 D3.6).
+    const dev = resolve(dir, 'dev'), prod = resolve(dir, 'prod'), webOnly = resolve(dir, 'web-only');
     build(dev);
     build(prod, ['--production', '--plan', resolve(dev, 'app.plan')]);
+    build(webOnly, ['--production']);
     const development = await import(pathToFileURL(resolve(dev, 'storage-environment.js')).href);
-    const production = await import(pathToFileURL(resolve(prod, 'storage-environment.js')).href);
     const appId = 'test.agent-gate', own = development.storageKey(appId, 'https://example.test/');
     expect(own).toMatch(/^test\.agent-gate@[a-f0-9]{12}$/);
     expect(development.storageKey(appId, 'https://example.test/?agent&storage=x')).toBe(`${own}/agent/x`);
     expect(development.storageKey(appId, 'https://example.test/?agent')).toBeNull();
     expect(development.agentSeed('http://localhost/?agent&seed=7')).toBe(7);
-    for (const origin of ['https://example.test', 'http://localhost']) {
-      for (const query of ['', '?agent', '?agent&storage=x', '?agent&storage=../invalid']) {
-        expect(production.storageKey(appId, origin + '/' + query)).toBe(appId);
+    for (const release of [prod, webOnly]) {
+      const production = await import(pathToFileURL(resolve(release, 'storage-environment.js')).href);
+      for (const origin of ['https://example.test', 'http://localhost']) {
+        for (const query of ['', '?agent', '?agent&storage=x', '?agent&storage=../invalid']) {
+          expect(production.storageKey(appId, origin + '/' + query)).toBe(appId);
+        }
+        expect(production.agentSeed(origin + '/?agent&seed=7')).toBeNull();
       }
-      expect(production.agentSeed(origin + '/?agent&seed=7')).toBeNull();
+      const shipped = readdirSync(release, { recursive: true }).filter(name => /\.m?js$/.test(name));
+      expect(shipped).toContain('picker-glue.js');
+      expect(shipped).toContain('storage-environment.js');
+      expect(shipped).toContain('navigation.js');
+      for (const name of shipped) {
+        expect(readFileSync(resolve(release, name), 'utf8'), name).not.toContain('const AGENT_ADMITTED = true;');
+      }
     }
-    const shipped = readdirSync(prod, { recursive: true }).filter(name => /\.m?js$/.test(name));
-    expect(shipped).toContain('picker-glue.js');
-    expect(shipped).toContain('storage-environment.js');
-    expect(shipped).toContain('navigation.js');
-    for (const name of shipped) {
-      expect(readFileSync(resolve(prod, name), 'utf8'), name).not.toContain('const AGENT_ADMITTED = true;');
-    }
+    // With no bake, the page links its web manifest and no envelope, and the install pages name a release.
+    const page = readFileSync(resolve(webOnly, 'index.html'), 'utf8');
+    expect(page).toContain('<link rel="manifest" href="./manifest.json">');
+    expect(page).not.toContain('application/vnd.exact.envelope+json');
+    expect(readdirSync(webOnly)).not.toContain('exact.json');
+    expect(readFileSync(resolve(webOnly, '.exact/install.json'), 'utf8')).toContain('"mode": "Release build"');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }, 30000);
 
+
+// LLP 1153 D3: `web-build --out` writes a site any static host serves (its pages, the shell, the route table and
+// 404.html, none of the build's intermediates), ends saying how a host serves it, and serve.mjs serves it so.
+test('web-build --out writes a site, with its route table, that serve.mjs serves by the hosting rule', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-site-')), app = resolve(dir, 'site'), out = resolve(dir, 'dist');
+  let server;
+  try {
+    mkdirSync(app);
+    writeFileSync(resolve(app, 'app.json'), JSON.stringify({ name: 'Site', app: { id: 'test.site', name: 'Site' } }));
+    writeFileSync(resolve(app, 'app.contract'), 'routes nav\n  home "/" render=build\n  item "/item/:id"\n  live "/live" render=request\n  notfound render=build\n\ncomponent App\n  view\n    text top(nav).url\n');
+    const built = spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
+    expect(built.status, built.stdout + built.stderr).toBe(0);
+    expect(built.stdout).toContain('site: no site-render entry, so its pages render under Bun (--render js)');
+    expect(built.stdout).toContain('/live: render=request is rendered by a render server; a static host serves its shell');
+    expect(built.stdout.trimEnd().split('\n').slice(-3).join('\n')).toMatch(/dist: the site, for any static host\. bun host\/web\/serve\.mjs .*dist serves it[^]*shell\.html with status 200; else 404\.html with status 404\.\n {2}A host with a single fallback page serves shell\.html/);
+    expect(JSON.parse(readFileSync(resolve(out, 'routes.json'), 'utf8')).routes).toEqual([
+      { name: 'home', pattern: '/', render: 'build', notfound: false },
+      { name: 'item', pattern: '/item/:id', render: 'client', notfound: false },
+      { name: 'live', pattern: '/live', render: 'request', notfound: false },
+      { name: 'notfound', pattern: '', render: 'build', notfound: true },
+    ]);
+    const files = readdirSync(out);
+    for (const name of ['index.html', 'shell.html', '404.html', 'routes.json', '.exact-build.json']) expect(files).toContain(name);
+    for (const name of ['.gen', 'app.plan.map.json']) expect(files).not.toContain(name);
+    expect(JSON.parse(readFileSync(resolve(out, '.exact-build.json'), 'utf8')).inputs).toBeUndefined();
+    expect(readdirSync(dir).sort()).toEqual(['dist', 'site']);
+    const { serveBuildTree } = await import('../web/serve.mjs');
+    server = createServer((req, res) => serveBuildTree(out, req, res));
+    await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+    const page = (name) => readFileSync(resolve(out, name), 'utf8');
+    for (const [path, status, file] of [['/', 200, 'index.html'], ['/item/7', 200, 'shell.html'], ['/live', 200, 'shell.html'], ['/no/such/route', 404, '404.html'], ['/nope.png', 404, '404.html']]) {
+      const r = await fetch(`http://127.0.0.1:${server.address().port}${path}`);
+      // (A served document names its build's generation in its base.)
+      expect([path, r.status, (await r.text()).replace(/<base href="[^"]*">/, '<base href="/">')]).toEqual([path, status, page(file)]);
+    }
+  } finally {
+    if (server) { server.closeAllConnections(); await new Promise(ok => server.close(ok)); }
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 60000);
 
 test('Snapback mutation success types check final answers through helpers and preserve ordinary resource values', async () => {
   const {configure, check} = await import('../../js/bake/src/typescript.mjs');

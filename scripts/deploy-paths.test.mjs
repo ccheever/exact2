@@ -6,10 +6,20 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep, toNamespacedPath } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { assertCapturedContractSources, contractCompiler, installedContractPackage, unrelocatableContractDependency } from './deploy.mjs';
+import { assertCapturedContractSources, contractCompiler, installedContractPackage, nativePlatforms, unrelocatableContractDependency } from './deploy.mjs';
 import * as asyncLane from './async.mjs';
 import { pinned } from './test-workspace.mjs';
 const {appleTouched, glueTests, retainSkippedFailures} = asyncLane;
+
+// LLP 1153 D1.5: the native platforms a deploy ships are the ones the manifest names, and none when it names none.
+test('a deploy ships the native platforms deploy.store and deploy.binaries name, and none for a web-only manifest', () => {
+  expect(nativePlatforms({})).toEqual([]);
+  expect(nativePlatforms({ deploy: {} })).toEqual([]);
+  expect(nativePlatforms({ deploy: { store: { web: '0' } } })).toEqual([]);
+  expect(nativePlatforms({ deploy: { store: { web: '0', linux: '0', ios: '0' } } })).toEqual(['ios', 'linux']);
+  expect(nativePlatforms({ deploy: { store: { web: '0' }, binaries: { macos: true } } })).toEqual(['macos']);
+  expect(() => nativePlatforms({ deploy: { store: { tvos: '0' } } })).toThrow(/names the platform tvos under deploy/);
+});
 
 test('async retains only failures from checks skipped on this commit', () => {
   const previous = ['ios: failed', 'ios-touch: failed', 'lane: failed', 'tvos: failed', 'install: failed'];
