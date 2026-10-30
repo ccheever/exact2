@@ -46,6 +46,9 @@ impl Identity {
 #[derive(Default)]
 pub(crate) struct Delivery {
     pub settle_bounds: usize,
+    pub until_met: usize,
+    pub until_not_met: usize,
+    pub until_field_paths: usize,
     pub mutation_events: usize,
     pub mutation_bounds: usize,
     pub whole: usize,
@@ -120,6 +123,10 @@ impl Receipt<'_> {
         println!(
             "  delivery: {} settle bounds; {} test-clock advances, {} bounds",
             d.settle_bounds, d.mutation_events, d.mutation_bounds
+        );
+        println!(
+            "  clock until: {} met, {} not met, {} field path",
+            d.until_met, d.until_not_met, d.until_field_paths
         );
         println!("  steps: {} ({} with more than one commit; {} poisoned; {} with a commit the trace leaves out); stores: empty, {} seeded", c.steps, c.multiple, c.poisoned, c.omitted, d.stores);
         let declared: BTreeSet<_> = self

@@ -154,6 +154,23 @@ to an animation's end have no image here; verify prints that limit on its world
 line. The census computes undeliverable kinds from the parser's step enum minus
 the delivered kinds and prints the supported forms of input and clock steps.
 
+`clock until state <path> == <literal> within <ms>` emits one `land`, then
+reads the observation with the same matcher as `expect state`. A match lets the
+block continue. A miss stops it as `clock until (not met)`, naming the path,
+observed value and literal. This is a stop of the world's: the oracle has already
+answered, no later answer is pending, and the wait never advances time to fire a
+timer. It is neither an app failure nor a property violation. Both evaluators
+replay the landing; a disagreement still fails verification. The `.events` file
+records its `clock until` origin and bound in a comment. The bound has no effect
+in this world. The usual mutation clock runs after a met step.
+
+The observation matcher reads only top-level values. A field or index path such
+as `session.phase` or `rows.0` stops at `clock until (field path)` before landing.
+The receipt counts met waits, not-met stops and field-path stops separately.
+A leading `size WxH` is consumed as a launch fact with no event: the harness has
+no layout. The test parser refuses a `size` after an input; a `resize` still
+stops the block.
+
 An event is delivered as every host delivers one, at the current time: the
 work already due (a timer, a mutation's `then`, a queue's next send) fires
 first, then the event, which runs even when that work refused

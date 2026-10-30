@@ -472,13 +472,13 @@ pub fn expectations_on(s: &Scripted, rust: &[String]) -> Result<(), String> {
         match item {
             Item::Event(_) => k += 1,
             Item::Observe(_) => {}
-            Item::Settle { .. } => return Err("settle was not expanded".into()),
+            Item::Settle { .. } | Item::Until { .. } => {
+                return Err("clock step was not expanded".into());
+            }
             Item::Expect(e, _) => {
                 let step = steps.get(k).copied().unwrap_or(&[]);
                 let ok = match e {
-                    Expect::State(name, v) => ["slot", "derive", "resource"]
-                        .iter()
-                        .any(|kind| step.contains(&format!("{kind} {name} {v}"))),
+                    Expect::State(name, v) => script::state_value(step, name) == Some(v.as_str()),
                     Expect::Text(id, v) => step.contains(&format!(
                         "view {} {}",
                         observe::quote(id),

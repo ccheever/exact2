@@ -59,6 +59,7 @@ pub(crate) fn expand(script: &mut Scripted, plan: Option<&exact_plan::Plan>) -> 
     let mut skip_land = false;
     let mut count = 0;
     let mut settles = false;
+    let mut origins = std::collections::BTreeMap::new();
     let mut items = std::mem::take(&mut script.items).into_iter().peekable();
     while let Some(item) = items.next() {
         let last_span;
@@ -89,6 +90,47 @@ pub(crate) fn expand(script: &mut Scripted, plan: Option<&exact_plan::Plan>) -> 
             Item::Observe(span) => {
                 last_span = span;
                 expanded.push(Item::Observe(span));
+            }
+            Item::Until {
+                path,
+                literal,
+                within,
+                span,
+            } => {
+                last_span = span;
+                origins.insert(
+                    script.delivery.events.len(),
+                    format!("# clock until state {path} == {literal} within {within}"),
+                );
+                let lines = driver.step(&Event::Land);
+                expanded.push(Item::Event(Event::Land));
+                script.delivery.events.push(span);
+                let want = match &literal {
+                    serde_json::Value::String(s) => crate::observe::quote(s),
+                    serde_json::Value::Number(n) => crate::observe::number(n.as_f64().unwrap()),
+                    serde_json::Value::Bool(b) => b.to_string(),
+                    serde_json::Value::Null => "none".into(),
+                    _ => unreachable!("the test parser accepts only scalar clock-until literals"),
+                };
+                let got = crate::script::state_value(&lines, &path);
+                if got != Some(want.as_str()) {
+                    let got = got.unwrap_or("<not printed>");
+                    let shown = got
+                        .strip_prefix('n')
+                        .filter(|hex| hex.len() == 16)
+                        .and_then(|hex| u64::from_str_radix(hex, 16).ok())
+                        .map_or_else(
+                            || got.to_string(),
+                            |bits| exact_runner::stdlib::format_number(f64::from_bits(bits)),
+                        );
+                    script.delivery.stopped = Some((
+                        span,
+                        "clock until (not met)".into(),
+                        format!("clock until: {path} is {shown}, not {literal}; no answer is pending in this world"),
+                    ));
+                    break;
+                }
+                script.delivery.until_met += 1;
             }
             Item::Settle { span } => {
                 last_span = span;
@@ -141,12 +183,16 @@ pub(crate) fn expand(script: &mut Scripted, plan: Option<&exact_plan::Plan>) -> 
         })
         .collect();
     script.delivery.settle_events = settles.then_some(count);
-    if settles || script.delivery.mutation_events > 0 {
+    if settles || script.delivery.mutation_events > 0 || !origins.is_empty() {
         let text = script
             .case
             .events
             .iter()
-            .map(Event::label)
+            .enumerate()
+            .map(|(i, event)| match origins.get(&i) {
+                Some(origin) => format!("{origin}\n{}", event.label()),
+                None => event.label(),
+            })
             .collect::<Vec<_>>()
             .join("\n");
         let dir = crate::work_dir().join("expansions");

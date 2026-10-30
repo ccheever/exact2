@@ -776,7 +776,11 @@ rule (37, 129, 62): the two Excord blocks the settle bound stopped now run to th
 `prefer-midi` the census now classifies as undeliverable rather than consuming; the
 Design Tool's `size` skips became `request` stops once a leading `size` counted as a
 launch fact. The next steps worth delivering are `request` (79 blocks) and `clock
-until` (85).
+until` (85). Lane F (2026-10-30) delivered `clock until` as one `land` and a read, and
+a leading `size` as a launch fact: 36 whole, 139 partial, 65 skipped of 240. All 93
+Excord blocks that reach a `clock until` wait on `gateway.state`, a field path the
+matcher cannot read, so the field adapter D1 defers to stage 2 is what unblocks them
+(`QUEUE.md`).
 
 **What delivery exposed.** Two divergences that no run reached before: Shelf's Back
 test, at its one-millisecond task, has the semantics emit `setContentIndex` and
