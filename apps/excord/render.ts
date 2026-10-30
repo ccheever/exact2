@@ -372,6 +372,16 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
     poll, reply: replyOf(m, dirs) };
 }
 
+// A rendered row, frozen to its leaves: windowOf answers it again on every page until it changes, and the
+// runtime keeps a frozen row's JSON to cross it again without stringifying it (js/src/binary.js `keptReply`).
+function frozen<T>(value: T): T {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const inner of Object.values(value)) frozen(inner);
+  }
+  return value;
+}
+
 /** A renderer that redraws a row only when its message, its predecessor, its reply's original (or its
  * deletion), its author, whoever used the command it answers or its system line names, its guild's roles,
  * or the guild's name its line reads changed: the store replaces each of these objects whenever it changes it. */
@@ -392,7 +402,7 @@ export function createRenderer(dirs: Directories): (m: Stored, previous?: Stored
     if (found && found.m === m && found.previous === previous && found.ref === ref && found.gone === gone
       && found.roles === roles && found.author === author && found.invoker === invoker && found.named === named
       && found.server === server) return found.row;
-    const row = renderMessage(m, previous, dirs);
+    const row = frozen(renderMessage(m, previous, dirs));
     cache.delete(key);
     cache.set(key, { m, previous, ref, gone, roles, author, invoker, named, server, row });
     if (cache.size > 1200) cache.delete(cache.keys().next().value!);

@@ -604,10 +604,23 @@ UIKit.
   up. A native button's own tracking loop reports both (its up before the
   action it sends). A text area or an input's editor runs AppKit's tracking
   loop too; `tracksPointer` reports the down before it and the up after it.
-  A press that moves the focus into one delivers the old field's `change`
-  and `blur` and the new one's `focus` before `pointerdown`: NSWindow makes
-  the hit view first responder before it sends `mouseDown`. Chrome fires
-  `pointerdown` first. A drag of selected text out of a text area or an
+  NSWindow makes the hit view first responder before it sends `mouseDown`,
+  so in a session's window its monitor sends the down first
+  (`Presenter.pressEditorFirst`): a press that moves the focus into one
+  delivers `pointerdown`, then the old field's `change` and `blur` and the
+  new one's `focus`, then `pointerup`, as Chrome does, and the tracking
+  reports only the up. An early down whose tracking never starts (a
+  `pointerdown` handler took the editor away) is released at the button's
+  up, or when the session's view leaves its window; an up that a loop of
+  its own `pointerdown` took while the down bubbled (a sheet's animation)
+  is kept from the window, which has not had the down, and queued again
+  once the down has bubbled, so the window has the down and then the up
+  and every node hears its down first. A window under a
+  sheet takes no early down. A control-click (AppKit's contextual click), a click AppKit keeps
+  from the editor (a first click into a window that is not key, unless the
+  editor takes it) and an editor under another view go as before. Chrome
+  lets a `mousedown` `preventDefault` keep the focus where it is; nothing
+  here does (a later ruling). A drag of selected text out of a text area or an
   input's editor is AppKit's dragging session, which runs after the loop
   returns: `pointerup` comes as the drag starts, where Chrome sends
   `pointercancel` (declared, not measured). A disabled editor tracks

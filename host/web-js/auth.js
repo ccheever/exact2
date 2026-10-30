@@ -1,5 +1,5 @@
 // `openAuthSession` on the JS target (LLP 1069.006): the runner's rules
-// (runner/src/auth.rs — the request's checks, the grants, one session per
+// (runner/src/auth.rs — the request's checks, the grants, one sheet per
 // window and supersession, the callback's match, the agent's hold) for a
 // TypeScript source running in the page. Outside the agent the web host's
 // own `auth-glue.js` opens the popup, inside the press's call stack, and
@@ -148,8 +148,9 @@ export function install(grants, target) {
     // A loopback callback other than the page's own (LLP 1133.005 D9), after the grants as the runner's `arm`:
     // the popup and its callback page are the web's.
     if (loopbackCallback(s.callback) && s.callback !== location.origin + CALLBACK) return refuse(501, "a page cannot listen");
-    // One session per window: the same target's earlier one is superseded;
-    // another target's live one refuses this (409).
+    // One popup per window: the same target's earlier one is superseded;
+    // another target's live one refuses this (409). A page has no loopback
+    // sign-in, which the runner lets wait beside others.
     for (let i = Live.length - 1; i >= 0; i--) if (Live[i].target === name) { say(`auth ${Live[i].ticket}: cancelled by supersession`); Live[i].close?.(); Live[i].release(); Live.splice(i, 1); }
     if (Live.length) return refuse(409, "already open");
     const l = { ticket, target: name, session: s, done, release };

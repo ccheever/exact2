@@ -286,10 +286,11 @@ fn resize_given_an_action_is_the_element_resize_event_and_a_string_is_css() {
     let due = r.resize_due(0);
     assert_eq!(due.len(), 2, "both widened: {due:?}");
     assert_eq!(due[0].1.width, 300.0);
-    // A string is CSS's: refused where no host can drag, kept where it can.
-    let error =
-        contract::compile("component App\n  view\n    textarea resize=\"both\"\n").unwrap_err();
-    assert_eq!(error.id, "lower-css-resize");
+    // A string is CSS's property: the person's grip on a textarea.
+    for value in ["none", "both", "horizontal", "vertical", "block", "inline"] {
+        let source = format!("component App\n  view\n    textarea resize=\"{value}\"\n");
+        contract::compile(&source).unwrap_or_else(|e| panic!("resize={value}: {e:?}"));
+    }
     // An action whose last parameter is not the record leaves it unbound.
     let error = contract::compile(
         "component App\n  action fit(w: number, h: number, r: ScrollEvent)\n    w = w\n  view\n    box resize=fit\n",

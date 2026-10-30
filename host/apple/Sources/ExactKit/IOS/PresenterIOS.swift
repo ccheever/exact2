@@ -713,6 +713,8 @@ package final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
     /// What native containers cover of boxes (LLP 1075.003 §3.5).
     var onCovers: (([(UInt32, HostCover?)]) -> Void)?
+    /// The border box a person dragged a box's `resize` grip to; nil keeps an axis (ResizeGrip.swift).
+    var onResizeBox: ((UInt32, CGFloat?, CGFloat?) -> Void)?
     /// In `reset`: host state its views would move with no runtime to tell stays as it was (FocusEvents' focus,
     /// OwnersIOS' blocks, ExactView `fit`'s geometry; ResetGate).
     private(set) var resetting = false

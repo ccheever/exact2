@@ -1,8 +1,9 @@
 //! A loopback redirect for `openAuthSession` (LLP 1133.005 D9, RFC 8252
 //! §7.3): bound on `127.0.0.1:<port>` (or `[::1]`) before the browser
 //! opens, it answers the one `GET` whose path is the callback's and whose
-//! query carries `state` exactly once with a short page, and hands back the
-//! full callback URL; anything else gets a 400 and the receiver stays open.
+//! query carries `state` exactly once, and exactly one `code` or `error`
+//! (RFC 6749 §4.1.2, §4.1.2.1), with a short page, and hands back the full
+//! callback URL; anything else gets a 400 and the receiver stays open.
 //! Each connection has 5 s to send its head, of at most 32 KiB; at most 8
 //! are open at once, and while they are, new ones wait in the backlog; a
 //! reply that cannot be written within 5 s is abandoned.
@@ -228,21 +229,32 @@ fn check<'a>(head: &'a str, callback: &Callback) -> Result<&'a str, &'static str
     if host.as_slice() != [want.as_str()] {
         return Err("This request is not for this address.");
     }
+    // A request target carries no fragment (RFC 9112 §3.2), and a browser
+    // sends none. Drop one as the runner's URL parse does, so both read the
+    // same query.
+    let target = target.split_once('#').map_or(target, |(before, _)| before);
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
     if path != callback.path {
         return Err("This address answers only the sign-in's return.");
     }
-    // The runner's rule (`exact_runner::auth::accept`): nonempty
-    // `&`-separated pairs, name and value percent-decoded.
-    let states: Vec<String> = (query.split('&').filter(|p| !p.is_empty()))
-        .map(|pair| pair.split_once('=').unwrap_or((pair, "")))
-        .filter(|(name, _)| decode(name) == "state")
-        .map(|(_, value)| decode(value))
-        .collect();
+    // The runner's rules (`exact_runner::auth::accept` and
+    // `one_code_or_error`): nonempty `&`-separated pairs, name and value
+    // percent-decoded.
+    let values = |want: &str| -> Vec<String> {
+        (query.split('&').filter(|p| !p.is_empty()))
+            .map(|pair| pair.split_once('=').unwrap_or((pair, "")))
+            .filter(|(name, _)| decode(name) == want)
+            .map(|(_, value)| decode(value))
+            .collect()
+    };
+    let states = values("state");
     if states.len() != 1 || !same(&states[0], &callback.state) {
         return Err("This is not the sign-in this app is waiting for.");
     }
-    Ok(target)
+    match (values("code").as_slice(), values("error").as_slice()) {
+        ([one], []) | ([], [one]) if !one.is_empty() => Ok(target),
+        _ => Err("This return carries no single code or error."),
+    }
 }
 
 /// `exact_runner::auth`'s decoding: `%` and two hex digits as a byte, `+`
@@ -355,6 +367,11 @@ mod tests {
             "GET /auth/callback?state=s+1 HTTP/1.1\r\nHost: evil.test\r\n\r\n".to_string(),
             format!("GET /auth/callback?state=s+2 HTTP/1.1\r\n{host}\r\n\r\n"),
             format!("GET /auth/callback?state=s+1&state=s+1 HTTP/1.1\r\n{host}\r\n\r\n"),
+            // The right `state`, but no single code or error: the receiver
+            // stays open for the real return.
+            format!("GET /auth/callback?state=s+1 HTTP/1.1\r\n{host}\r\n\r\n"),
+            format!("GET /auth/callback?code=&state=s+1 HTTP/1.1\r\n{host}\r\n\r\n"),
+            format!("GET /auth/callback?code=c&error=e&state=s+1 HTTP/1.1\r\n{host}\r\n\r\n"),
         ] {
             let answer = ask(port, &bad);
             assert!(answer.starts_with("HTTP/1.1 400"), "{bad}: {answer}");
@@ -430,7 +447,7 @@ mod tests {
             // The receiver answers and closes first, leaving TIME_WAIT behind.
             let answer = ask(
                 port,
-                &format!("GET /cb?state=s+A HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
+                &format!("GET /cb?code=c&state=s+A HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
             );
             assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
             assert!(rx.recv_timeout(Duration::from_secs(5)).is_ok());
@@ -492,7 +509,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(200));
         let answer = ask(
             port,
-            &format!("GET /cb?state=s+A HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
+            &format!("GET /cb?code=c&state=s+A HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
         );
         assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
         assert!(rx.recv_timeout(Duration::from_secs(5)).is_ok());
@@ -514,11 +531,77 @@ mod tests {
         // decodes.
         let answer = ask(
             port,
-            &format!("GET /cb?st%61te=s+%41 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
+            &format!("GET /cb?st%61te=s+%41&c%6Fde=c HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
         );
         assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
         assert!(rx.recv_timeout(Duration::from_secs(5)).is_ok());
         drop(idle);
+    }
+
+    /// Two sign-ins wait at once on their own ports and complete
+    /// independently, as the reference's do ("allows two accounts to
+    /// complete independently"); a stray return to one ends neither.
+    #[test]
+    #[ignore = "async lane: binds a real loopback port"]
+    fn two_receivers_on_two_ports_complete_independently() {
+        let ports: Vec<u16> = (0..2)
+            .map(|_| TcpListener::bind("127.0.0.1:0").unwrap())
+            .collect::<Vec<_>>()
+            .iter()
+            .map(|l| l.local_addr().unwrap().port())
+            .collect();
+        let (tx, rx) = mpsc::channel();
+        let receivers: Vec<Receiver> = ports
+            .iter()
+            .map(|&port| {
+                let tx = tx.clone();
+                open(callback(port), Box::new(move |url| tx.send(url).unwrap())).unwrap()
+            })
+            .collect();
+        let get = |port: u16, query: &str| {
+            ask(
+                port,
+                &format!("GET /cb?{query} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
+            )
+        };
+        assert!(get(ports[0], "state=s+A").starts_with("HTTP/1.1 400"));
+        assert!(get(ports[1], "state=s+A&error=access_denied").starts_with("HTTP/1.1 200"));
+        assert!(get(ports[0], "state=s+A&code=a").starts_with("HTTP/1.1 200"));
+        let mut got: Vec<String> = (0..2)
+            .map(|_| rx.recv_timeout(Duration::from_secs(5)).unwrap())
+            .collect();
+        got.sort();
+        let mut want = vec![
+            format!("http://127.0.0.1:{}/cb?state=s+A&code=a", ports[0]),
+            format!(
+                "http://127.0.0.1:{}/cb?state=s+A&error=access_denied",
+                ports[1]
+            ),
+        ];
+        want.sort();
+        assert_eq!(got, want);
+        drop(receivers);
+    }
+
+    /// The runner drops a fragment before it reads the query
+    /// (`exact_runner::auth::one_code_or_error`), so the receiver does too:
+    /// a `code` after `#` is none, and what follows `#` is not passed on.
+    #[test]
+    fn a_fragment_is_dropped_as_the_runner_drops_it() {
+        let cb = callback(4333);
+        let head = |target: &str| format!("GET {target} HTTP/1.1\r\nHost: 127.0.0.1:4333");
+        assert_eq!(
+            check(&head("/cb?state=s+A&#&code=c"), &cb),
+            Err("This return carries no single code or error.")
+        );
+        assert_eq!(
+            check(&head("/cb#?state=s+A&code=c"), &cb),
+            Err("This is not the sign-in this app is waiting for.")
+        );
+        assert_eq!(
+            check(&head("/cb?state=s+A&code=c#x"), &cb),
+            Ok("/cb?state=s+A&code=c")
+        );
     }
 
     #[test]

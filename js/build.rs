@@ -199,6 +199,7 @@ fn main() {
         "presence",
         "timers",
         "outlive",
+        "kept-json",
     ] {
         let source = manifest.join(format!("tests/fixtures/{name}.ts"));
         println!("cargo:rerun-if-changed={}", source.display());

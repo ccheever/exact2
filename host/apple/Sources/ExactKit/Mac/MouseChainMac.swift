@@ -219,6 +219,23 @@ final class MouseChain {
     weak var doubled: NSEvent?
     /// The press an editor's tracking loop reports (`NodeView.tracksPointer`).
     weak var tracked: NSEvent?
+    /// A press in an editor whose `pointerdown` the window's monitor sent
+    /// before NSWindow focused the editor (`Presenter.pressEditorFirst`):
+    /// its tracking reports only the up, and its release, if no tracking
+    /// takes it, is the monitor's. Held until one of them takes it, as
+    /// AppKit may let the event go first.
+    var early: NSEvent?
+    /// Early presses released before their tracking began (the session's
+    /// view left its window, or a loop took the up first): their up is
+    /// gone, so no tracking runs for them. The last few, each until then.
+    var reported: [NSEvent] = []
+    /// The early down is still bubbling (`pointerPressed`): the press's up,
+    /// if a handler's loop took it then (a sheet's animation), is held and
+    /// queued again once the down has bubbled, so the window has the down
+    /// and then the up, as a hand's come, and no node hears its up before
+    /// its down or the focus the press moves. A release asked for meanwhile
+    /// (the view left its window) waits for the bubbling too.
+    var earlyBubbling = false, heldUp: NSEvent?, releaseAfterBubbling = false
     private(set) var order: [MouseRecognizer] = []
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -331,17 +348,20 @@ extension NodeView {
     /// area or an input's editor, which keeps the button's drags and up from
     /// the node, as a native button's loop does (NativeButtonsMac.swift). An
     /// input's field hands its down to its editor, which reports nothing
-    /// again. A press that moves the focus has delivered the old field's
-    /// `change` and `blur` and the new one's `focus` by now: NSWindow
-    /// focuses the hit view before its `mouseDown` (LLP 1005). The press a
-    /// nested event loop inside a handler tracks (an alert's, a menu's) is
-    /// its own, and the outer one is kept.
+    /// again. NSWindow focuses the hit view before its `mouseDown`, so in a
+    /// session's window the monitor has sent the down already, before the
+    /// old field's `change` and `blur` and the new one's `focus`, as Chrome
+    /// orders them (`Presenter.pressEditorFirst`; LLP 1005); here only the
+    /// up is left. The press a nested event loop inside a handler tracks
+    /// (an alert's, a menu's) is its own, and the outer one is kept.
     func tracksPointer(_ event: NSEvent, _ track: () -> Void) {
         guard let chain = presenter?.mouseChain, chain.tracked !== event else { return track() }
         let outer = chain.tracked
         chain.tracked = event
         defer { chain.tracked = outer }
-        pointerPressed(event)
+        // Released already, its up gone: AppKit's tracking would wait for another, so none runs.
+        if let index = chain.reported.firstIndex(where: { $0 === event }) { chain.reported.remove(at: index); return }
+        if chain.early === event { chain.early = nil } else { pointerPressed(event) }
         track()
         pointerReleased(nil)
     }
@@ -349,9 +369,12 @@ extension NodeView {
     /// the node's way, as a disabled box's does: its `mouseUp` reaches the
     /// node through the responder chain.
     func pressesUntracked(_ editor: NSView, _ event: NSEvent) -> Bool {
-        let tracks = !disabled && ((editor as? NSTextView)?.isSelectable ?? true) && ((editor as? NSControl)?.isEnabled ?? true)
+        let tracks = tracksPress(editor)
         if !tracks { mouseDown(with: event) }
         return !tracks
+    }
+    func tracksPress(_ editor: NSView) -> Bool {
+        !disabled && ((editor as? NSTextView)?.isSelectable ?? true) && ((editor as? NSControl)?.isEnabled ?? true)
     }
     /// `pointerup` for every node the button's down was held by, innermost first.
     func pointerReleased(_ event: NSEvent?) {
@@ -459,6 +482,67 @@ extension NodeView {
     }
 }
 extension Presenter {
+    /// A press in a text area or an input reports its `pointerdown` here,
+    /// from the window's monitor, before NSWindow gives the editor the focus
+    /// (the old field's `change` and `blur`, the new one's `focus`), as
+    /// Chrome orders them (LLP 1005); the editor's tracking reports the up
+    /// (`NodeView.tracksPointer`). Only where AppKit gives the editor the
+    /// press: the window's topmost view at the point (its toolbar's too, for
+    /// a search field lent to it) is the editor, which tracks
+    /// (`tracksPress`), in a window that takes the click (key, or the editor
+    /// takes the first click), and not a control-click, AppKit's contextual
+    /// click. Anything else goes its way as before.
+    func pressEditorFirst(_ event: NSEvent) {
+        guard event.type == .leftMouseDown else { return }
+        // A new press: an early one whose up nothing saw (a loop took it) is over; one still
+        // bubbling is not (this press is a click in its handler's loop, and goes its way).
+        if mouseChain.early != nil, !mouseChain.earlyBubbling { releaseEarlyPress(nil) }
+        guard !event.modifierFlags.contains(.control), mouseChain.tracked == nil, !pointerHolds,
+              let window = event.window, let frame = window.contentView?.superview ?? window.contentView,
+              let hit = TableRowCell.whatIsThere({ frame.hitTest(frame.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow) }),
+              let node = Self.editorOwner(hit), views[node.id] === node, node.tracksPress(hit),
+              // A window under a sheet (an alert's too) or another's modal session takes no click.
+              window.attachedSheet == nil, NSApp.modalWindow.map({ $0 === window }) ?? true,
+              (NSApp.isActive && window.isKeyWindow) || hit.acceptsFirstMouse(for: event) else { return }
+        mouseChain.early = event
+        mouseChain.earlyBubbling = true
+        node.pointerPressed(event)
+        mouseChain.earlyBubbling = false
+        if let up = mouseChain.heldUp {
+            mouseChain.heldUp = nil
+            NSApp.postEvent(up, atStart: true) // for the editor's tracking, else the monitor's release
+        }
+        if mouseChain.releaseAfterBubbling { mouseChain.releaseAfterBubbling = false; releaseEarlyPress(nil) }
+    }
+    /// The node whose editor `hit` is, as each editor's `mouseDown` finds it
+    /// (TextAreaMac.swift): a text area's, an input's field (the page's, or
+    /// one lent to the toolbar or an alert) or that field's editor.
+    static func editorOwner(_ hit: NSView) -> NodeView? {
+        if let area = hit as? TextArea { return area.owner.flatMap { $0.textArea === area ? $0 : nil } }
+        let field = (hit as? NSTextField) ?? ((hit as? NSTextView)?.delegate as? NSTextField)
+        guard let field, let node = field.delegate as? NodeView, node.field === field else { return nil }
+        return hit === field || hit === field.currentEditor() ? node : nil
+    }
+    /// The up of an early press no tracking took (AppKit kept a first click,
+    /// a `pointerdown` handler took the editor away, or its window went):
+    /// its `pointerup`, before anything else can take the up, or when the
+    /// session's view leaves its window and the monitor with it. True for
+    /// the press's up while its down still bubbles (`heldUp`): the monitor
+    /// keeps it from the window, which has not had the down yet.
+    @discardableResult func releaseEarlyPress(_ event: NSEvent?) -> Bool {
+        guard let early = mouseChain.early else { return false }
+        if mouseChain.earlyBubbling {
+            // The first up is the press's; another is a later contact's, and goes its way.
+            guard let event else { mouseChain.releaseAfterBubbling = true; return false }
+            guard mouseChain.heldUp == nil else { return false }
+            mouseChain.heldUp = event
+            return true
+        }
+        mouseChain.early = nil
+        mouseChain.reported = Array((mouseChain.reported + [early]).suffix(4))
+        pointerSource?.pointerReleased(event)
+        return false
+    }
     /// A node still holds the button that went down: the held one, or an
     /// ancestor its down bubbled to, waiting for the up.
     var pointerHolds: Bool { pointerHeld != nil || !pointerPath.isEmpty }

@@ -64,6 +64,31 @@ function fixture(messages: Message[], query: S.HistoryQuery = { limit: 50 }) {
   return { store, render, row, view };
 }
 
+// Every rendered row is frozen to its leaves (the runtime keeps a frozen row's JSON to cross it again), so
+// nothing may write to one: a module's code is strict, and a write throws.
+test('every row the renderer returns is frozen to its leaves, and a write to one throws', () => {
+  const m = message(0, { content: '**bold** <:ferris:' + ferris + '> and https://example.com',
+    reactions: [{ count: 2, me: true, emoji: { id: null, name: '👍' } } as Reaction],
+    embeds: [{ type: 'rich', title: 'An embed', description: 'text', fields: [{ name: 'a', value: 'b' }] }] as Message['embeds'],
+    attachments: [{ id: missing, filename: 'a.png', size: 1, url: cdn + '/a.png', proxy_url: cdn + '/a.png', width: 2, height: 2, content_type: 'image/png' }] as Attachment[] });
+  // A window of 20 rows, as a page's.
+  const f = fixture([...Array.from({ length: 19 }, (_, i) => message((i - 19) * 1000, { content: `row ${i}` })), m]);
+  const unfrozen = (v: unknown, path: string): string[] => v === null || typeof v !== 'object' ? []
+    : !Object.isFrozen(v) ? [path] : Object.entries(v).flatMap(([k, inner]) => unfrozen(inner, `${path}.${k}`));
+  const rows = f.view().rows;
+  expect(rows.length).toBe(20);
+  for (const row of rows) expect(unfrozen(row, row.id)).toEqual([]);
+  const row = rows[19];
+  expect(row.blocks.length + row.embeds.length + row.media.length + row.reactions.length).toBeGreaterThan(3);
+  expect(() => { (row as { plain: string }).plain = 'changed'; }).toThrow(TypeError);
+  expect(() => { (row.reactions as unknown[]).push({}); }).toThrow(TypeError);
+  // The row marked New is a copy of the renderer's, not frozen itself, so the runtime doesn't keep it.
+  const marked = f.view(undefined, '', rows[18].id).rows[19];
+  expect(marked.isNew).toBe(true);
+  expect(marked).not.toBe(row);
+  expect(Object.isFrozen(marked)).toBe(false);
+});
+
 test('store rows supply the transcript identity, author, clock and declared fields', () => {
   const m = message(0, { author: me }), f = fixture([m, message(1000, { author: bot, member: { roles: [role] } })]);
   const [first, second] = f.view().rows;

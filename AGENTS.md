@@ -94,11 +94,13 @@ section binds (`rules/RULES.md`, "Agents").
   the web JS target's conformance run (`host/web-js/conform.mjs --strict`) and its
   Chrome-oracle Firefox/WebKit steps (`conform-firefox`, `conform-webkit`),
   the separate game workspace's locked tests, the UIKit XCTests, touch smoke and
-  the tvOS compile
+  the tvOS and watchOS compiles
   when a coalesced range changes anything outside `llp/`, `issues/`, `rules/`,
   `docs/`, `QUEUE.md`, and `*.md` paths
   (`build.mjs --test --ios`; `build.mjs --tvos --no-install`, which builds and signs
-  the Apple TV bundle and asks for no simulator), the
+  the Apple TV bundle and asks for no simulator; `build.mjs --watchos --no-install`,
+  which builds and signs Caltrain's watch bundle with the pinned nightly and
+  `rust-src`, and asks for no simulator), the
   Contract semantics (`semantics/README.md`: the Lean proofs, the extracted VM's, and
   `contract-difftest` running the runner and the web JS target against the Lean
   semantics; each skipped when its inputs are those of a run that passed,
