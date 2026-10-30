@@ -102,8 +102,7 @@ impl Atoms {
     /// The kinds the compiler wrote (`atoms`, `[{"name", "link" | "prefix",
     /// "role"}, …]`) and the faces the app bound (`atomFaces`, `[{"source",
     /// "label", "icon", "title", "color", "backgroundColor", "direction",
-    /// "ariaLabel"}, …]`). Malformed
-    /// input reads as none.
+    /// "ariaLabel"}, …]`). Malformed input reads as none.
     pub fn parse(kinds: &str, faces: &str) -> Self {
         let mut out = Atoms::default();
         if let Some(Json::Array(rows)) = Json::parse(kinds) {

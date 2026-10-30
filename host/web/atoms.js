@@ -11,8 +11,9 @@
  * its label in its line's direction, which it inherits, or in the one its
  * face pins (`a.direction`, `ltr` or `rtl`). A button, or a link as
  * declared, named by its face's `a.ariaLabel` or else its label, and
- * described by its title; its icon is not read. `editing` makes it the editor's island: no tab stop, no source of its
- * own. Its `data-atom-*` attributes are what a press reports. */
+ * described by its title; its icon is not read. `editing` makes it the
+ * editor's island: no tab stop, no source of its own. Its `data-atom-*`
+ * attributes are what a press reports. */
 export function atomBox(a, css = '', editing = false) {
   const box = document.createElement('span');
   const set = (name, value) => value && box.setAttribute(name, value);
@@ -43,9 +44,9 @@ export function atomBox(a, css = '', editing = false) {
 
 /** A reader piece's pill: its detail `[kind, role, icon, title, href,
  * source, start, end, color, backgroundColor, direction, ariaLabel]`, its
- * label `text`,
- * in the piece's scale, weight and flags (italic 1, strike 4), its kind's
- * paint from the text's `data-atom-styles` and its face's over it. */
+ * label `text`, in the piece's scale, weight and flags (italic 1, strike 4),
+ * its kind's paint from the text's `data-atom-styles` and its face's over
+ * it. */
 export function readerAtom(el, text, detail, scale = 1, weight = 0, flags = 0) {
   const [kind, role, icon, title, href, source, start, end, color = '', backgroundColor = '', direction = '', ariaLabel = ''] = detail;
   let styles = {};
