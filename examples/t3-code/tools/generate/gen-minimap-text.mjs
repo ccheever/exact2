@@ -13,11 +13,13 @@ export async function generate() {
     { file: join(here, '../../mobile/shared/file-markdown-parser.d.ts'), text: `export interface FileTableRun { id: string; kind: 'text' | 'code' | 'strong'; text: string }
 export interface FileTableCell { id: string; numeric: boolean; runs: FileTableRun[] }
 export interface FileTableRow { id: string; header: boolean; cells: FileTableCell[] }
-export interface FileTableSlice { start: number; end: number; columns: number; rows: FileTableRow[] }
-export type FileMarkdownPlanSegment =
-  | { kind: 'code'; start: number; end: number; value: string; language: string }
-  | { kind: 'prose'; start: number; end: number; tables: FileTableSlice[] };
-export function fileMarkdownPlan(source: string): FileMarkdownPlanSegment[] | null;
+export interface FileMarkdownInput { readonly kind: 'markdown' | 'code'; readonly text: string; readonly language: string }
+export type FileMarkdownPart =
+  | { readonly kind: 'code'; readonly blockIndex: number }
+  | { readonly kind: 'markdown'; readonly blockIndex: number; readonly idSuffix: string; readonly text: string }
+  | { readonly kind: 'heading'; readonly blockIndex: number; readonly idSuffix: string; readonly text: string; readonly level: 1 | 2 | 3 | 4 | 5 | 6 }
+  | { readonly kind: 'table'; readonly blockIndex: number; readonly idSuffix: string; readonly columns: number; readonly rows: FileTableRow[] };
+export function fileMarkdownPlan(source: string, blocks: readonly FileMarkdownInput[]): readonly FileMarkdownPart[];
 ` },
   ];
 }

@@ -87,7 +87,7 @@ function fileTableSlice(node, start, end) {
   return { ...range, columns, rows };
 }
 
-export function fileMarkdownPlan(source) {
+function fileSegments(source) {
   if (source.includes('\r')) return null;
   const document = markdownPreviewParser.parse(source);
   if (!document.children.some(node => node.type === 'table')) return null;
@@ -120,4 +120,112 @@ export function fileMarkdownPlan(source) {
   }
   prose(source.length);
   return usable ? segments : null;
+}
+
+function matchingProsePlans(source, blocks) {
+  const plan = fileSegments(source), matched = new Map();
+  if (!plan || plan.length !== blocks.length) return matched;
+  let end = 0;
+  for (const [index, segment] of plan.entries()) {
+    const block = blocks[index];
+    if (!block || segment.start < end || segment.end < segment.start || segment.end > source.length
+      || source.slice(end, segment.start).trim()) return new Map();
+    if (segment.kind === 'code') {
+      if (block.kind !== 'code' || block.text !== segment.value || block.language !== segment.language) return new Map();
+    } else {
+      if (block.kind !== 'markdown' || block.text !== source.slice(segment.start, segment.end)) return new Map();
+      matched.set(index, segment);
+    }
+    end = segment.end;
+  }
+  return source.slice(end).trim() ? new Map() : matched;
+}
+
+function admitsPlainFold(text) {
+  for (const line of text.split('\n')) {
+    if (/^[ \t]*$/.test(line)) continue;
+    if (/[\t\u2028\u2029]| {2,}$/.test(line) || /`{2}/.test(line)) return false;
+    const plain = line.replace(/`[^`]+`/g, 'code');
+    if (!/^[\p{L}\p{N}]/u.test(plain) || /^\d+[.)](?:[ \t]|$)/.test(plain)
+      || /[`\\[\]<>*_~|&#$@]/.test(plain) || /\b(?:[a-z][a-z\d+.-]*:\/\/|www\.)/i.test(plain)) return false;
+  }
+  return true;
+}
+
+function proseFragments(text) {
+  if (/^[ \t]*\[|^ {0,3}(?:`{3,}|~{3,}|[-+*][ \t]|\d+[.)][ \t]|>)|^[ \t]+\S|</m.test(text)) {
+    return [{ kind: 'markdown', start: 0, end: text.length, idSuffix: '', plainFold: false }];
+  }
+  const fragments = [], lines = text.split('\n');
+  let offset = 0, start = 0, split = false;
+  const prose = end => {
+    if (text.slice(start, end).trim()) fragments.push({ kind: 'markdown', start, end, idSuffix: `:text:${start}`, plainFold: false });
+  };
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index], next = Math.min(text.length, offset + line.length + 1);
+    const heading = /^(#{1,6})[ \t]+(.+)$/.exec(line), level = heading?.[1].length;
+    const content = heading?.[2]?.trim() ?? '';
+    if (level !== undefined && content && !/[\\`*_~\[\]<>&#]/.test(content) && !/https?:\/\//i.test(content)
+      && (index === 0 || !lines[index - 1].trim()) && (index + 1 === lines.length || !lines[index + 1].trim())) {
+      prose(offset);
+      fragments.push({ kind: 'heading', start: offset, end: next, idSuffix: `:heading:${offset}`, text: content, level });
+      start = next; split = true;
+    }
+    offset = next;
+  }
+  if (split) prose(text.length);
+  else fragments.push({ kind: 'markdown', start: 0, end: text.length, idSuffix: '', plainFold: false });
+  if (fragments.every(fragment => fragment.kind !== 'markdown' || admitsPlainFold(text.slice(fragment.start, fragment.end)))) {
+    for (const fragment of fragments) if (fragment.kind === 'markdown') fragment.plainFold = true;
+  }
+  return fragments;
+}
+
+function insertTables(text, fragments, plan) {
+  const tables = plan.tables.map(table => ({ ...table, start: table.start - plan.start, end: table.end - plan.start }));
+  let previous = 0;
+  for (const table of tables) {
+    if (table.start < previous || table.end <= table.start || table.end > text.length
+      || !fragments.some(fragment => fragment.kind === 'markdown' && table.start >= fragment.start && table.end <= fragment.end)) return fragments;
+    previous = table.end;
+  }
+  const result = [];
+  for (const fragment of fragments) {
+    const contained = tables.filter(table => table.start >= fragment.start && table.end <= fragment.end);
+    if (!contained.length) { result.push(fragment); continue; }
+    let start = fragment.start;
+    const prose = end => {
+      if (text.slice(start, end).trim()) result.push({ kind: 'markdown', start, end,
+        idSuffix: start === fragment.start ? fragment.idSuffix : `:text:${start}`, plainFold: false });
+    };
+    for (const table of contained) {
+      prose(table.start);
+      result.push({ ...table, kind: 'table', idSuffix: `:table:${table.start}` });
+      start = table.end;
+    }
+    prose(fragment.end);
+  }
+  return result;
+}
+
+/** Final file-preview instructions; all cuts use the unchanged source partition. */
+export function fileMarkdownPlan(source, blocks) {
+  const plans = matchingProsePlans(source, blocks), result = [];
+  for (const [blockIndex, block] of blocks.entries()) {
+    if (block.kind === 'code') { result.push({ kind: 'code', blockIndex }); continue; }
+    let fragments = proseFragments(block.text);
+    const plan = plans.get(blockIndex);
+    if (plan?.tables.length) fragments = insertTables(block.text, fragments, plan);
+    for (const fragment of fragments) {
+      const { kind, idSuffix } = fragment;
+      if (kind === 'table') result.push({ kind, blockIndex, idSuffix, columns: fragment.columns, rows: fragment.rows });
+      else if (kind === 'heading') result.push({ kind, blockIndex, idSuffix, text: fragment.text, level: fragment.level });
+      else {
+        const original = block.text.slice(fragment.start, fragment.end);
+        const text = fragment.plainFold ? original.replace(/(\S) ?\n(?=\S)/g, '$1 ') : original;
+        result.push({ kind, blockIndex, idSuffix, text });
+      }
+    }
+  }
+  return result;
 }
