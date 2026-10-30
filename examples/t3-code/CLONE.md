@@ -37,6 +37,17 @@ Independent review finds no introduced issue and passes nine existing Browser
 tests. It verifies all 156 bundle files, the actual ABI table and baked identity.
 Browser and chat UI acceptance remain open.
 
+The existing Exact Mac controller now passes isolated project creation and draft
+recovery. All 156 files and the source receipt match the clean `859f7b8676` bundle;
+only this handoff differs at HEAD. Onboarding skips history import. The actual
+palette creates one scratch project on its own authenticated server, and the
+composer retains an exact unsent draft after normal Quit and an explicit project
+reopen with a different seed. App state, tree and inspected native view captures
+agree. This proves named agent scratch persistence with `context.agent=true`,
+not normal-app storage or Keychain persistence. Provider Send, streaming and Stop,
+native OS chrome, physical keys and IME remain unqualified by this unit. Evidence
+is under `target/t3-poc-evidence/desktop-exact-controller-acceptance/`.
+
 The earlier standard desktop bundle from clean source `667c11267d` uses C ABI 18,
 runtime 5 and Apple native ABI 3. Its executable SHA-256 starts
 `ace5a0a9533f05a3`; its module starts `1dda02be376510c2`. The official pinned
@@ -56,7 +67,7 @@ automatically and reaches ready on loopback port 16437. Protocol 2 and
 and recorded children. The second launch retains the same environment ID.
 This proves bootstrap restart, not conversation or draft persistence.
 
-Desktop UI acceptance stops at Connect, step 1. Agent-device reads that normal
+The earlier normal-app UI drive stops at Connect, step 1. Agent-device reads that normal
 AppKit screen, but screenshot capture times out. Foregrounding and the advised
 wait both leave `RUNNER_BUSY`; the driver approach stops after three attempts.
 No screenshot succeeds. Onboarding choices, project creation, advertised model
