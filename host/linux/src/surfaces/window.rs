@@ -851,6 +851,7 @@ mod tests {
     #[test]
     #[allow(unsafe_code)]
     fn reservation_refusal_retries_and_lifecycle_clears_its_deadline() {
+        use wgpu::rwh as raw_window_handle;
         struct UnusedWindow;
         impl raw_window_handle::HasWindowHandle for UnusedWindow {
             fn window_handle(
