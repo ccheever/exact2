@@ -20,7 +20,7 @@ final class TextUpdateIOSTests: XCTestCase {
         result.tint = UIColor.red.cgColor
         let start = CACurrentMediaTime()
         for _ in 0..<1600 {
-            node.textRasterKey = key; node.textRasterReady = false
+            node.textRasterKey = key; node.textMore.accepted = nil
             node.showTextRaster(result, for: key)
         }
         print("D3 tinted updates=1600 ms=\((CACurrentMediaTime() - start) * 1000)")
@@ -39,7 +39,7 @@ final class TextUpdateIOSTests: XCTestCase {
         var replacement = TextRasterImage(try XCTUnwrap(context.makeImage()), frame: node.bounds, coverage: TextRasterCoverage(support: node.bounds, answered: node.bounds, ink: node.bounds, shadows: .null), headroom: 0)
         replacement.tint = UIColor.blue.cgColor
         CATransaction.begin(); CATransaction.setAnimationDuration(1)
-        node.textRasterReady = false
+        node.textMore.accepted = nil
         node.showTextRaster(replacement, for: key)
         CATransaction.commit()
         XCTAssertTrue(node.textRasterLayer === ink)
@@ -49,7 +49,7 @@ final class TextUpdateIOSTests: XCTestCase {
         XCTAssertTrue(ink.animationKeys()?.isEmpty ?? true)
         XCTAssertTrue(ink.mask?.animationKeys()?.isEmpty ?? true)
         replacement.tint = nil
-        node.textRasterReady = false
+        node.textMore.accepted = nil
         node.showTextRaster(replacement, for: key)
         let untinted = try XCTUnwrap(node.textRasterLayer)
         XCTAssertFalse(untinted === ink)
@@ -59,7 +59,7 @@ final class TextUpdateIOSTests: XCTestCase {
         untinted.render(in: context)
         XCTAssertEqual(Array(UnsafeBufferPointer(start: bytes, count: 4)), [0, 0, 0, 255])
         replacement.tint = UIColor.red.cgColor
-        node.textRasterReady = false
+        node.textMore.accepted = nil
         node.showTextRaster(replacement, for: key)
         let retinted = try XCTUnwrap(node.textRasterLayer)
         XCTAssertNil(untinted.superlayer)

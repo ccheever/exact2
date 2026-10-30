@@ -251,7 +251,7 @@ final class NodePoolIOSTests: XCTestCase {
         let key = TextRasterKey(spec: text.paragraphSpec(), size: text.bounds.size, box: text.paragraphBox(), scale: 1)
         var ink = TextRasterImage(try XCTUnwrap(context.makeImage()), frame: text.bounds, coverage: TextRasterCoverage(support: text.bounds, answered: text.bounds, ink: text.bounds, shadows: .null), headroom: 0)
         ink.tint = UIColor.red.cgColor
-        text.textRasterKey = key; text.textRasterReady = false
+        text.textRasterKey = key; text.textMore.accepted = nil
         text.showTextRaster(ink, for: key)
         XCTAssertTrue(text.textRasterLayer is TintInk)
         p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11]) + row(20, "Bye")

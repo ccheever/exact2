@@ -20,9 +20,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var paintGhost = false
     /// The box is `draw(_:)`'s to paint: Core Animation cannot say it (`applyBoxLayer`).
     var boxDrawn = false
-    /// The key is set and paints the whole paragraph (not a band of it).
-    private(set) var textRasterWhole = false
-    var textRasterReady = false
     var textRasterFailed = false
     var textLayoutValid = false
     /// What the host's own writers hid (a covered route, a tab a native control
@@ -79,7 +76,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         get { specs?.rasterKey }
         set {
             if newValue != nil || specs != nil { textMore.rasterKey = newValue }
-            textRasterWhole = newValue.map { $0.clip == nil } ?? false
         }
     }
     package var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }

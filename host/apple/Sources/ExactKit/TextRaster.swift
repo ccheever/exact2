@@ -374,7 +374,7 @@ struct TextRasterJob {
         return (down ? clip.maxY >= height : clip.minY <= 0) || ahead >= port.height / 2
     }
     func render(lines reused: [CTLine]? = nil) -> TextRasterImage? {
-        if let measuredGlyphs, let measuredColor, !ellipsis, clamped == nil, !justifies, shadow == nil,
+        if let measuredGlyphs, let measuredColor, !ellipsis, clamped == nil, !justifies, shadow == nil, layerShadow == nil,
            ColorRange.headroom(measuredColor) <= 1 && !ColorRange.needsExtendedComponents(measuredColor) {
             return render(measuredGlyphs, color: measuredColor)
         }
