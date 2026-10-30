@@ -10,11 +10,14 @@
 //! of the kind the evaluator infers; a redeclaration under
 //! `@media (prefers-color-scheme: dark)` makes the two a `light-dark()`, which
 //! is what that query means; `--a: var(--b)` is a reference to the token
-//! `b`. Everything else is refused by name, and nothing is written for it: a
-//! scope the page switches (`.dark`, `[data-theme="dark"]`), which is an app
-//! axis the author declares; a value composed around a `var()`; a value the
-//! evaluator, or the compiler after it, refuses. The import exits 1 when it
-//! refused anything, having written the rest.
+//! `b`. Each scheme's value is the declaration that wins it, as CSS's cascade
+//! picks one. Everything else is refused by name, and nothing is written for
+//! it: a scope the page switches (`.dark`, `[data-theme="dark"]`), which is
+//! an app axis the author declares; a value composed around a `var()`; a
+//! value the evaluator, or the compiler after it, refuses. The import exits 1
+//! when it refused anything, having written the rest. When the design it
+//! would write is refused outside the markers (a token of the author's
+//! naming one the stylesheet no longer declares), it writes nothing.
 
 use exact_tamber::import::css_read;
 use std::path::{Path, PathBuf};
@@ -123,46 +126,39 @@ pub fn run(args: &[String]) -> ExitCode {
     });
     // Each token the evaluator or the compiler refuses is dropped, and the
     // rest checked again: a reference to a dropped one is refused in turn.
-    let vocab = contract_lower::tamber_vocab();
-    let (text, kinds) = loop {
+    let built = dir.join("app.contract");
+    let app = match built.is_file() {
+        true => contract::tamber_params::params_of(&built),
+        false => contract::tamber_params::AppParams::default(),
+    };
+    let (text, kinds, outside) = loop {
         let (text, first) = render(&base, at, &start, &tokens);
         let block = first..first + tokens.len();
-        let (lines, kinds) = match exact_tamber::check(&text, &vocab) {
-            Ok(folding) => {
-                let kinds: Vec<(String, &'static str)> = folding
-                    .tokens
-                    .iter()
-                    .map(|t| (t.name.clone(), t.kind.name()))
-                    .collect();
-                let compiled = crate::tamber::admission(&text, &[], None).unwrap_or_default();
-                (
-                    compiled
-                        .into_iter()
-                        .map(|(_, line, _, id, message)| (line as usize, id, message))
-                        .collect(),
-                    kinds,
-                )
+        let (said, kinds) = match checked(&text, &path, &built, &dir, &app) {
+            Ok(checked) => checked,
+            Err(why) => {
+                eprintln!("contract tamber import css: {why}; nothing written");
+                return ExitCode::from(2);
             }
-            Err(all) => (
-                all.into_iter()
-                    .map(|d| (d.line as usize, d.id.to_string(), d.message))
-                    .collect::<Vec<_>>(),
-                Vec::new(),
-            ),
         };
-        let mut dropped = vec![false; tokens.len()];
-        for (line, id, message) in lines {
-            if block.contains(&line) && !dropped[line - first] {
-                dropped[line - first] = true;
-                let t = &tokens[line - first];
-                refused.push((
-                    format!("--{}", t.name),
-                    format!("`{} = {}`: [{id}] {message}", t.name, t.value),
-                ));
+        let (mut dropped, mut outside) = (vec![false; tokens.len()], Vec::new());
+        for refusal in said {
+            match refusal.line.filter(|line| block.contains(line)) {
+                Some(line) if !dropped[line - first] => {
+                    dropped[line - first] = true;
+                    let t = &tokens[line - first];
+                    let why = format!("[{}] {}", refusal.id, refusal.message);
+                    refused.push((
+                        format!("--{}", t.name),
+                        format!("`{} = {}`: {why}", t.name, t.value),
+                    ));
+                }
+                Some(_) => {}
+                None => outside.push(refusal.shown),
             }
         }
         if !dropped.contains(&true) {
-            break (text, kinds);
+            break (text, kinds, outside);
         }
         let mut k = 0;
         tokens.retain(|_| {
@@ -170,6 +166,22 @@ pub fn run(args: &[String]) -> ExitCode {
             !dropped[k - 1]
         });
     };
+    let say_refused = || {
+        for (name, why) in &refused {
+            println!("  refused {name}: {why}");
+        }
+    };
+    if !outside.is_empty() {
+        eprintln!(
+            "contract tamber import css: with this import, {} is refused outside the import's markers, so it is left as it was:",
+            path.display()
+        );
+        for shown in &outside {
+            eprintln!("  {shown}");
+        }
+        say_refused();
+        return ExitCode::from(1);
+    }
     if let Err(e) = std::fs::write(&path, &text) {
         eprintln!("contract tamber import css: {}: {e}", path.display());
         return ExitCode::from(2);
@@ -193,9 +205,7 @@ pub fn run(args: &[String]) -> ExitCode {
         let note = t.note.map_or(String::new(), |n| format!("  ({n})"));
         println!("  {} = {}  {kind}{note}", t.name, t.value);
     }
-    for (name, why) in &refused {
-        println!("  refused {name}: {why}");
-    }
+    say_refused();
     if refused.is_empty() {
         ExitCode::SUCCESS
     } else {
@@ -203,19 +213,99 @@ pub fn run(args: &[String]) -> ExitCode {
     }
 }
 
-/// The stylesheet's tokens in the order it declares them, and each custom
-/// property refused, with why.
+/// One refusal of a candidate design: the design's line it is on (`None`
+/// for another file's), its id and words, and how it is said.
+struct Refusal {
+    line: Option<usize>,
+    id: String,
+    message: String,
+    shown: String,
+}
+
+/// Every refusal of `text` as the design at `path`, as `contract tamber
+/// check` makes them: the evaluator's fold with the app's params and its
+/// packages' designs, then the compiler's build; and each token's kind when
+/// it folds. An `Err` when the build could not be made.
+#[allow(clippy::type_complexity)]
+fn checked(
+    text: &str,
+    path: &Path,
+    built: &Path,
+    dir: &Path,
+    app: &contract::tamber_params::AppParams,
+) -> Result<(Vec<Refusal>, Vec<(String, &'static str)>), String> {
+    let vocab = contract_lower::tamber_vocab();
+    let folded = match (app.tokens.is_empty(), app.packages.is_empty()) {
+        (true, true) => exact_tamber::check(text, &vocab),
+        (_, false) => contract::tamber_params::fold_with(text, app, &vocab).map(|(f, _)| f),
+        (false, true) => exact_tamber::parse(text).and_then(|d| {
+            exact_tamber::check_design(contract::tamber_params::laid(&d, app), &vocab)
+        }),
+    };
+    let folding = match folded {
+        Ok(folding) => folding,
+        Err(all) => {
+            let said = all.iter().map(|d| Refusal {
+                line: Some(d.line as usize),
+                id: d.id.to_string(),
+                message: d.message.clone(),
+                shown: contract::tamber_params::located(d, app, path),
+            });
+            return Ok((said.collect(), Vec::new()));
+        }
+    };
+    let kinds = (folding.tokens.iter())
+        .map(|t| (t.name.clone(), t.kind.name()))
+        .collect();
+    let svgs = crate::tamber::svgs(&folding, Some(dir), app);
+    // An app with params or packages' designs is admitted by its own build,
+    // which reads this text in place of the file's.
+    let whole = !app.tokens.is_empty() || app.failed || !app.packages.is_empty();
+    let compiled = match whole && path.is_file() {
+        true => contract::with_design_text(path, text.to_string(), || {
+            crate::tamber::admission(text, &svgs, Some(built.to_path_buf()))
+        })?,
+        false => crate::tamber::admission(text, &svgs, None)?,
+    };
+    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let said = compiled.into_iter().map(|(file, line, col, id, message)| {
+        let design = file
+            .as_deref()
+            .is_none_or(|f| canonical(f) == canonical(path));
+        let at = file.unwrap_or_else(|| path.to_path_buf());
+        Refusal {
+            line: design.then_some(line as usize),
+            shown: format!("{}:{line}:{col}: {id}: {message}", at.display()),
+            id,
+            message,
+        }
+    });
+    Ok((said.collect(), kinds))
+}
+
+/// One custom property declaration read: its name, its value, whether only
+/// the dark scheme applies it, and what decides between two for one name
+/// (CSS Cascade 4 §6: importance, then specificity, then order of
+/// appearance).
+struct Decl {
+    name: String,
+    value: String,
+    dark: bool,
+    rank: (bool, u8, usize),
+}
+
+/// The stylesheet's tokens in the order it first declares them, and each
+/// custom property refused, with why.
 fn read(css: &str) -> (Vec<Token>, Vec<(String, String)>) {
     let (blocks, deep) = css_read(css);
     let mut refused: Vec<(String, String)> = deep
         .into_iter()
         .map(|d| (d.prelude, format!("line {}: {}, not read", d.line, d.why)))
         .collect();
-    // Each name: its light (`:root`) and dark values, last declaration winning.
-    let mut sides: Vec<(String, Option<String>, Option<String>)> = Vec::new();
+    let mut decls: Vec<Decl> = Vec::new();
     for block in &blocks {
-        let dark = match scope(&block.context) {
-            Ok(dark) => dark,
+        let (dark, specificity) = match scope(&block.context) {
+            Ok(scope) => scope,
             Err(why) => {
                 for (name, _) in &block.decls {
                     refused.push((name.clone(), why.clone()));
@@ -223,71 +313,94 @@ fn read(css: &str) -> (Vec<Token>, Vec<(String, String)>) {
                 continue;
             }
         };
-        for (name, value) in &block.decls {
-            let at = match sides.iter().position(|(n, ..)| n == name) {
-                Some(at) => at,
-                None => {
-                    sides.push((name.clone(), None, None));
-                    sides.len() - 1
-                }
-            };
-            let side = if dark {
-                &mut sides[at].2
-            } else {
-                &mut sides[at].1
-            };
-            *side = Some(value.clone());
+        for (name, raw) in &block.decls {
+            let (value, important) = importance(raw);
+            let rank = (important, specificity, decls.len());
+            let name = name.clone();
+            decls.push(Decl {
+                name,
+                value,
+                dark,
+                rank,
+            });
         }
     }
+    let mut names: Vec<&str> = Vec::new();
+    for d in &decls {
+        if !names.contains(&d.name.as_str()) {
+            names.push(&d.name);
+        }
+    }
+    // The declaration that wins `name` in a scheme: the light one reads
+    // `:root` alone, the dark one `:root` and the dark query's.
+    let winner = |name: &str, dark: bool| {
+        (decls.iter())
+            .filter(|d| d.name == name && (dark || !d.dark))
+            .max_by_key(|d| d.rank)
+    };
     let mut tokens = Vec::new();
-    for (var, light, dark) in sides {
-        let name = var.trim_start_matches('-').to_string();
-        if !exact_tamber::is_name(&name) {
+    for var in names {
+        let Some(name) = var.strip_prefix("--").filter(|n| exact_tamber::is_name(n)) else {
             refused.push((
-                var,
-                format!(
-                    "`{name}` is no Tamber token name: one or more identifiers, joined by dots"
-                ),
+                var.to_string(),
+                format!("`{var}` names no Tamber token: past its `--`, a name is identifiers joined by dots"),
             ));
             continue;
-        }
-        let Some(light) = light else {
+        };
+        let Some(light) = winner(var, false) else {
             refused.push((
-                var,
+                var.to_string(),
                 "declared only under `prefers-color-scheme: dark`: `:root` gives it no light side"
                     .into(),
             ));
             continue;
         };
-        let (light, mut note) = match value(&light) {
+        let (light_value, mut note) = match value(&light.value) {
             Ok(v) => v,
             Err(why) => {
-                refused.push((var, why));
+                refused.push((var.to_string(), why));
                 continue;
             }
         };
-        let value = match dark.map(|d| value(&d)) {
-            None => light,
+        let dark = winner(var, true).filter(|d| d.rank != light.rank);
+        let value = match dark.map(|d| value(&d.value)) {
+            None => light_value,
             Some(Err(why)) => {
-                refused.push((var, format!("its dark value: {why}")));
+                refused.push((var.to_string(), format!("its dark value: {why}")));
                 continue;
             }
             Some(Ok((dark, dropped))) => {
                 note = note.or(dropped);
-                match dark == light {
-                    true => light,
-                    false => format!("light-dark({light}, {dark})"),
+                match dark == light_value {
+                    true => light_value,
+                    false => format!("light-dark({light_value}, {dark})"),
                 }
             }
         };
+        let name = name.to_string();
         tokens.push(Token { name, value, note });
     }
     (tokens, refused)
 }
 
-/// Whether a block's context is the dark side of the page's root (`true`)
-/// or its light side, or why it is neither.
-fn scope(context: &[String]) -> Result<bool, String> {
+/// A declaration's value without its `!important`, and whether it had one.
+fn importance(raw: &str) -> (String, bool) {
+    let v = raw.trim();
+    let lower = v.to_ascii_lowercase();
+    let bang = lower
+        .strip_suffix("important")
+        .map(str::trim_end)
+        .and_then(|rest| rest.strip_suffix('!'));
+    match bang {
+        Some(rest) => (v[..rest.len()].trim_end().to_string(), true),
+        None => (v.to_string(), false),
+    }
+}
+
+/// Whether a block's context applies in the dark scheme only (`true`) or in
+/// both, with its selector's specificity (`:root`, a pseudo-class, over
+/// `html`, a type), or why it is neither.
+fn scope(context: &[String]) -> Result<(bool, u8), String> {
     let squash = |s: &str| {
         s.split_whitespace()
             .collect::<Vec<_>>()
@@ -295,60 +408,50 @@ fn scope(context: &[String]) -> Result<bool, String> {
             .to_ascii_lowercase()
     };
     // `html` is the root of an HTML page, as `:root` is.
-    let root = |s: &str| matches!(squash(s).as_str(), ":root" | "html");
+    let root = |s: &str| match squash(s).as_str() {
+        ":root" => Some(2),
+        "html" => Some(1),
+        _ => None,
+    };
+    let dark = |s: &str| {
+        matches!(
+            squash(s).as_str(),
+            "@media (prefers-color-scheme: dark)" | "@media (prefers-color-scheme:dark)"
+        )
+    };
     match context {
-        [r] if root(r) => Ok(false),
-        [media, r]
-            if root(r)
-                && matches!(
-                    squash(media).as_str(),
-                    "@media (prefers-color-scheme: dark)" | "@media (prefers-color-scheme:dark)"
-                ) =>
-        {
-            Ok(true)
-        }
-        _ => {
-            let shown = context.join(" { ") + &" }".repeat(context.len().saturating_sub(1));
-            let switched = context.iter().any(|c| c.contains('.') || c.contains('['));
-            Err(match switched {
-                true => format!("`{shown}` is a scope the page switches: in Tamber that is an app axis, which the design declares (`axes`, docs/recipes/tamber.md)"),
-                false => format!("`{shown}` is neither block the import reads: `:root` (or `html`), and `:root` inside `@media (prefers-color-scheme: dark)`"),
-            })
-        }
+        [r] => root(r).map(|s| (false, s)),
+        [media, r] if dark(media) => root(r).map(|s| (true, s)),
+        _ => None,
     }
+    .ok_or_else(|| {
+        let shown = context.join(" { ") + &" }".repeat(context.len().saturating_sub(1));
+        let switched = context.iter().any(|c| c.contains('.') || c.contains('['));
+        match switched {
+            true => format!("`{shown}` is a scope the page switches: in Tamber that is an app axis, which the design declares (`axes`, docs/recipes/tamber.md)"),
+            false => format!("`{shown}` is neither block the import reads: `:root` (or `html`), and `:root` inside `@media (prefers-color-scheme: dark)`"),
+        }
+    })
 }
 
-/// A custom property's value as a token's: on one line, a whole `var()` as
-/// the name it references; what was dropped from it, if anything.
+/// A custom property's value as a token's: on one line, and one whole
+/// `var()` as the name it references; what was dropped from it, if anything.
 fn value(raw: &str) -> Result<(String, Option<&'static str>), String> {
-    let mut v = raw.split_whitespace().collect::<Vec<_>>().join(" ");
-    let important = v.to_ascii_lowercase().rfind("!important");
-    if let Some(at) = important.filter(|at| v[at + 10..].trim().is_empty()) {
-        v = v[..at].trim_end().to_string();
-    }
+    let v = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     if v.is_empty() {
         return Err("an empty value".into());
     }
-    let lower = v.to_ascii_lowercase();
-    if !lower.contains("var(") {
+    if !v.to_ascii_lowercase().contains("var(") {
         return Ok((v, None));
     }
-    // One `var(--b)`, or `var(--b, fallback)`, and nothing around it.
-    let inner = lower
-        .strip_prefix("var(")
-        .and_then(|_| v[4..].strip_suffix(')'))
-        .map(str::trim)
-        .and_then(|i| i.strip_prefix("--"));
-    let whole = inner.and_then(|i| {
-        let (name, fallback) = match i.split_once(',') {
-            Some((n, f)) => (n.trim(), Some(f)),
-            None => (i.trim(), None),
-        };
-        (exact_tamber::is_name(name) && !name.contains('('))
-            .then(|| (name.to_string(), fallback.is_some()))
-    });
-    match whole {
-        Some((name, fallback)) => Ok((name, fallback.then_some("its fallback dropped: a token is never undefined"))),
+    match contract_lower::var_tokens::whole_var(&v) {
+        Some((name, fallback)) if exact_tamber::is_name(&name) => Ok((
+            name,
+            fallback.then_some("its fallback dropped: a token is never undefined"),
+        )),
+        Some((name, _)) => Err(format!(
+            "`{v}` references `--{name}`, which names no Tamber token"
+        )),
         None => Err(format!("`{v}` is composed around a `var()`: Tamber writes the value it makes, or an expression over the tokens it names bare (`color-mix(in srgb, brand 60%, white)`)")),
     }
 }

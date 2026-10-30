@@ -15,7 +15,8 @@
 //!   passes after the loader say nothing more of it.
 //! - A component's argument that is one `var()` naming a token is that token,
 //!   as a row reads it once the component is expanded. Any other argument is
-//!   left as written: it may be text.
+//!   left as written, since it may be text; where it reaches a style row, a
+//!   `var()` in it naming no token is refused there ([`carried`]).
 
 use crate::{tags, LowerError};
 use contract_syntax::{Attr, DesignSource, Expr, File, Node, Span, TemplatePart, ThemeDecl};
@@ -116,6 +117,69 @@ pub fn rewrite(file: &mut File, tokens: &Tokens) -> Rewritten {
         nodes(&mut c.view, tokens, &mut out);
     }
     out
+}
+
+/// An app's design as [`Tokens::of`] reads it: `app.tamber`'s text, its
+/// packages' designs and an inline `theme`.
+type Noted = (Option<String>, Vec<DesignSource>, Option<ThemeDecl>);
+
+thread_local! {
+    /// The design a `var()` may name while the app's styles are lowered,
+    /// read into [`Tokens`] only when a row needs them ([`carried`]).
+    static DESIGN: std::cell::RefCell<Option<Noted>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Note `file`'s design for the rows [`carried`] checks, as lowering starts.
+pub(crate) fn note(file: &File) {
+    let design = file.design.as_ref().map(|d| d.text.clone());
+    let noted = (design, file.package_designs.clone(), file.theme.clone());
+    DESIGN.with(|d| *d.borrow_mut() = Some(noted));
+}
+
+/// A style row's `var()` that reached it through a component's argument,
+/// which the loader writes only when the argument is one `var()` naming a
+/// token: one naming no token is refused as the loader refuses it in a row,
+/// naming the tokens the row takes. A `var()` among other words of an
+/// argument, naming a token, is left for the row's own check.
+pub(crate) fn carried(a: &Attr) -> Result<(), LowerError> {
+    fn mentions(e: &Expr) -> bool {
+        let named = |s: &str| {
+            s.as_bytes()
+                .windows(4)
+                .any(|w| w.eq_ignore_ascii_case(b"var("))
+        };
+        match e {
+            Expr::Str(s, _) => named(s),
+            Expr::Template(parts, _) => parts.iter().any(|p| match p {
+                TemplatePart::Text(t) => named(t),
+                TemplatePart::Expr(e) => mentions(e),
+            }),
+            Expr::Ternary(_, yes, no, _) => mentions(yes) || mentions(no),
+            Expr::Match { some, none, .. } => mentions(some) || mentions(none),
+            Expr::Let { value, body, .. } => mentions(value) || mentions(body),
+            Expr::Binary(contract_syntax::BinOp::Add, l, r, _) => mentions(l) || mentions(r),
+            _ => false,
+        }
+    }
+    if !tags::style(&a.name) || !mentions(&a.value) {
+        return Ok(());
+    }
+    let Some((design, packages, theme)) = DESIGN.with(|d| d.borrow().clone()) else {
+        return Ok(());
+    };
+    let tokens = Tokens::of(design.as_deref(), &packages, theme.as_ref());
+    let (mut out, mut refused) = (Rewritten::default(), None);
+    value(
+        &mut a.value.clone(),
+        &tokens,
+        Mode::Row,
+        &mut out,
+        &mut refused,
+    );
+    match refused {
+        Some((why, literal, span)) => Err(refusal(a, why, &literal, span, &tokens)),
+        None => Ok(()),
+    }
 }
 
 /// The one warning for every fallback [`rewrite`] dropped, at the first.
@@ -219,7 +283,7 @@ type Refused = Option<(Why, String, Span)>;
 fn value(e: &mut Expr, tokens: &Tokens, mode: Mode, out: &mut Rewritten, refused: &mut Refused) {
     match e {
         Expr::Str(s, span) => {
-            if mode == Mode::Whole && !whole_call(s) {
+            if mode == Mode::Whole && whole_var(s).is_none() {
                 return;
             }
             match text(s, tokens, false, &mut None) {
@@ -278,10 +342,17 @@ fn value(e: &mut Expr, tokens: &Tokens, mode: Mode, out: &mut Rewritten, refused
     }
 }
 
-/// Whether `s` is one `var()` call and nothing else.
-fn whole_call(s: &str) -> bool {
-    let calls = calls(s.trim(), false, &mut None);
-    matches!(calls.as_slice(), [Found::Call { at, .. }] if at.start == 0 && at.end == s.trim().len())
+/// `text` as one `var()` call and nothing else, its parentheses balanced:
+/// the name it gives and whether it writes a fallback; `None` for any other
+/// text.
+pub fn whole_var(text: &str) -> Option<(String, bool)> {
+    let text = text.trim();
+    match calls(text, false, &mut None).as_slice() {
+        [Found::Call { at, name, fallback }] if at.start == 0 && at.end == text.len() => {
+            Some((name.clone(), fallback.is_some()))
+        }
+        _ => None,
+    }
 }
 
 /// A `var(` in a literal's text.
@@ -598,7 +669,12 @@ mod tests {
             .unwrap();
         assert_eq!(fallbacks, ["var(--ink, #111)"]);
         assert_eq!(call_name("var(--ink, #111)"), "ink");
-        assert!(whole_call(" var(--ink) "));
-        assert!(!whole_call("color: var(--ink);"));
+        assert_eq!(whole_var(" var(--ink) "), Some(("ink".into(), false)));
+        assert_eq!(
+            whole_var("var(--ink, rgb(0 0 0))"),
+            Some(("ink".into(), true))
+        );
+        assert_eq!(whole_var("color: var(--ink);"), None);
+        assert_eq!(whole_var("var(--ink, #000) var(--paper)"), None);
     }
 }

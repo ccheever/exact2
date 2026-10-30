@@ -1,7 +1,10 @@
 //! @ref LLP 1153 D6 — `var(--name)` is the token `name`: it compiles to the
-//! plan the name compiles to, every kind; a name the design lacks is refused
-//! naming the tokens the row could take, fallback or not; a fallback is
-//! warned once; a token of another kind is refused as its name is.
+//! plan the name compiles to, for a colour, a length, a number, a type, a
+//! family, a box and a text shadow, a duration and an easing; a name the
+//! design lacks is refused naming the tokens the row could take, fallback or
+//! not, in a row or where a component's argument carries it to one; a
+//! fallback is warned once; a token of another kind is refused as its name
+//! is.
 
 use std::path::PathBuf;
 
@@ -15,17 +18,19 @@ fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
     dir.join("app.contract")
 }
 
-const DESIGN: &str = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  ink = light-dark(#111111, #eeeeee)\n    when density=compact: light-dark(#222222, #dddddd)\n  paper = #ffffff  scheme=fixed\n  space.row = 12px\n    when density=compact: 8px\n  faded: number = 0.5\n  type.body = -exact-body/1.35 \"InterVariable\"\n  face = \"InterVariable\", system-ui\n  shadow.card: box-shadow = 0 1px 3px ink\n  duration.fast = 150ms\n";
+const DESIGN: &str = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  ink = light-dark(#111111, #eeeeee)\n    when density=compact: light-dark(#222222, #dddddd)\n  paper = #ffffff  scheme=fixed\n  space.row = 12px\n    when density=compact: 8px\n  faded: number = 0.5\n  type.body = -exact-body/1.35 \"InterVariable\"\n  face = \"InterVariable\", system-ui\n  shadow.card: box-shadow = 0 1px 3px ink\n  glow: text-shadow = 0 0 2px #ff0000\n  duration.fast = 150ms\n  easing.standard = cubic-bezier(0.2, 0, 0, 1)\n";
 
 /// One view, its tokens spelled by `t`: as the token's name, or as `var()`.
 fn view(t: &dyn Fn(&str) -> String) -> String {
     format!(
-        "keyframes appear\n  from opacity=0\n  to opacity=1\n\nstyle Card\n  background-color=\"{paper}\"\n\ncomponent App\n  view\n    column class=Card padding=\"{row}\" color=\"{ink}\" box-shadow=\"{shadow}\" transition=\"opacity {fast}\"\n      text \"a\" font=\"{body}\" opacity=\"{faded}\" border=\"1px solid {ink}\"\n      text \"b\" font-family=\"{face}\" animation=\"appear {fast}\"\n      Badge(tint=\"{ink}\")\n\ncomponent Badge\n  props\n    tint: string\n  view\n    text \"c\" color=tint\n",
+        "keyframes appear\n  from opacity=0\n  to opacity=1\n\nstyle Card\n  background-color=\"{paper}\"\n\ncomponent App\n  view\n    column class=Card padding=\"{row}\" color=\"{ink}\" box-shadow=\"{shadow}\" transition=\"opacity {fast} {ease}\"\n      text \"a\" font=\"{body}\" opacity=\"{faded}\" border=\"1px solid {ink}\" text-shadow=\"{glow}\"\n      text \"b\" font-family=\"{face}\" animation=\"appear {fast}\"\n      Badge(tint=\"{ink}\")\n\ncomponent Badge\n  props\n    tint: string\n  view\n    text \"c\" color=tint\n",
         paper = t("paper"),
         row = t("space.row"),
         ink = t("ink"),
         shadow = t("shadow.card"),
         fast = t("duration.fast"),
+        ease = t("easing.standard"),
+        glow = t("glow"),
         body = t("type.body"),
         faded = t("faded"),
         face = t("face"),
@@ -126,6 +131,28 @@ fn a_name_the_design_lacks_is_refused_naming_the_tokens_of_its_kind() {
         "{}",
         e.message
     );
+}
+
+#[test]
+fn a_name_the_design_lacks_is_refused_where_an_argument_carries_it_to_a_row() {
+    for tint in ["var(--missing, #000)", "var(--missing)"] {
+        let view = format!("component App\n  view\n    column\n      Badge(tint=\"{tint}\")\n\ncomponent Badge\n  props\n    tint: string\n  view\n    text \"c\" color=tint\n");
+        let path = app(
+            "carried",
+            &[("app.tamber", DESIGN), ("app.contract", &view)],
+        );
+        let e = contract::compile_path(&path).unwrap_err();
+        assert_eq!(e.id, "tamber-unknown-token", "{tint}: {e}");
+        assert!(
+            e.message.contains("its colour tokens are `ink`, `paper`"),
+            "{tint}: {}",
+            e.message
+        );
+    }
+    // An argument no style row reads is text, left as written.
+    let view = "component App\n  view\n    column\n      Label(words=\"var(--missing)\")\n\ncomponent Label\n  props\n    words: string\n  view\n    text words\n";
+    let path = app("text", &[("app.tamber", DESIGN), ("app.contract", view)]);
+    contract::compile_path(&path).unwrap_or_else(|e| panic!("{e}"));
 }
 
 #[test]

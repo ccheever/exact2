@@ -192,23 +192,7 @@ pub fn run(args: &[String]) -> ExitCode {
                 .or_else(|| path.parent().map(Path::to_path_buf))
         }
     };
-    // Each SVG where the build reads it: under the assets of the root whose
-    // file writes it (a package's under its root, stage 13), by its path there.
-    let mut svgs: Vec<(PathBuf, &str, Option<PathBuf>)> = folding
-        .icons
-        .iter()
-        .filter_map(|i| {
-            let svg = i.svg.as_deref()?;
-            let at =
-                contract_lower::icons::Home::of(i, home.as_deref(), &app.packages, &app.tokens);
-            // A package's read as the build reads it (round 3, R3-4): one that leaves it is
-            // not copied, and is refused as the build refuses it.
-            let root = at.package.and(at.root).map(Path::to_path_buf);
-            Some((at.svg(svg)?, svg, root))
-        })
-        .collect();
-    svgs.sort_unstable();
-    svgs.dedup();
+    let svgs = svgs(&folding, home.as_deref(), &app);
     let refused = match admission(
         &src,
         &svgs,
@@ -273,6 +257,31 @@ pub fn run(args: &[String]) -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// Each SVG the build reads for `folding`'s icons, where it reads it: under
+/// the assets of the root whose file writes it (a package's under its root,
+/// stage 13), by its path there. `home` is the app's directory.
+pub(crate) fn svgs<'f>(
+    folding: &'f exact_tamber::Folding,
+    home: Option<&Path>,
+    app: &contract::tamber_params::AppParams,
+) -> Vec<(PathBuf, &'f str, Option<PathBuf>)> {
+    let mut svgs: Vec<(PathBuf, &str, Option<PathBuf>)> = folding
+        .icons
+        .iter()
+        .filter_map(|i| {
+            let svg = i.svg.as_deref()?;
+            let at = contract_lower::icons::Home::of(i, home, &app.packages, &app.tokens);
+            // A package's read as the build reads it (round 3, R3-4): one that leaves it is
+            // not copied, and is refused as the build refuses it.
+            let root = at.package.and(at.root).map(Path::to_path_buf);
+            Some((at.svg(svg)?, svg, root))
+        })
+        .collect();
+    svgs.sort_unstable();
+    svgs.dedup();
+    svgs
 }
 
 /// The compiler's refusals of design `src`, read as the design of an app

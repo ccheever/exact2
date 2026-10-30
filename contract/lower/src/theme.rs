@@ -227,6 +227,7 @@ impl Lowerer<'_> {
         bindable: bool,
         asset_root: Option<&std::path::Path>,
     ) -> exact_kernel::style::theme::ThemeScope {
+        crate::var_tokens::note(file);
         crate::icons::clear(asset_root);
         ROLES.with(|r| r.borrow_mut().clear());
         crate::control_roles::note_accent(None);
