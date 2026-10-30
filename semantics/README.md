@@ -406,6 +406,11 @@ section). `contract verify` runs `cargo run -p contract-difftest --
 verify` in the checkout it was built from. Warm on a small app it takes
 a few seconds.
 
+An unsupported first difference remains `OUTSIDE` when an oracle reply
+is missing later in the script: the unsupported input can leave the two
+evaluators in different states. A missing reply before that boundary
+still diverges. The trace-twin and omitted-commit checks are unchanged.
+
 **Changing the compiler, runner or semantics.** Before landing a change
 under `contract/`, `runner/`, `plan/` or `semantics/`, run
 `cargo run -p contract-difftest -- quick`. From the files changed since the

@@ -356,22 +356,15 @@ fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
         }
         None
     };
-    // The semantics asked a question the runner never did: the two took
-    // different paths, whatever the outcome lines say.
-    if let Some(at) = lean_raw
+    let missing = lean_raw
         .iter()
         .position(|l| l.contains("# refused: the oracle has no answer"))
-    {
-        return Verdict::Diverge {
-            at: lean_raw[..at]
+        .map(|at| {
+            lean_raw[..at]
                 .iter()
                 .filter(|l| !l.starts_with('#'))
-                .count(),
-            rust: rust_raw,
-            lean,
-            lean_raw,
-        };
-    }
+                .count()
+        });
     // Where the two first differ, the runner refusing a step for passing
     // one of its evaluation bounds is outside the semantics, which is
     // unbounded (LLP 1090 D8): every executor refuses that step alike.
@@ -402,11 +395,22 @@ fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
     };
     let first = rust.iter().zip(&lean).position(|(a, b)| a != b);
     if let Some(at) = first.or((rust.len() != lean.len()).then(|| rust.len().min(lean.len()))) {
-        if !omitted_at(&rust_raw, at) {
+        if missing.is_none_or(|missing| at < missing) && !omitted_at(&rust_raw, at) {
             if let Some(why) = unsupported(at).or_else(|| bound(at)).or_else(|| unset(at)) {
                 return Verdict::Unsupported(why);
             }
         }
+    }
+    // An unsupported step can change later oracle calls. A missing reply
+    // before that boundary remains a divergence, even when both outcomes
+    // say "refused".
+    if let Some(at) = missing {
+        return Verdict::Diverge {
+            at,
+            rust: rust_raw,
+            lean,
+            lean_raw,
+        };
     }
     let at = rust.iter().zip(&lean).position(|(a, b)| a != b);
     match at {
@@ -795,5 +799,44 @@ mod tests {
                 "{note}"
             );
         }
+    }
+
+    #[test]
+    fn a_missing_reply_does_not_supersede_an_earlier_unsupported_step() {
+        let rust = lines(&[
+            "== boot",
+            "outcome ok",
+            "== type \"mode\" \"grid\"",
+            "outcome ok",
+            "== clock +10",
+            "outcome ok",
+        ]);
+        let lean = lines(&[
+            "== boot",
+            "outcome ok",
+            "== type \"mode\" \"grid\"",
+            "outcome refused",
+            "# unsupported: a payload for a `select` control",
+            "== clock +10",
+            "outcome refused",
+            "# refused: the oracle has no answer for load",
+        ]);
+        assert!(matches!(
+            compare(rust.clone(), lean.clone()),
+            Verdict::Unsupported(_)
+        ));
+
+        // Missing replies before the unsupported input still fail, even
+        // when the two outcomes at that earlier step agree.
+        let mut rust = rust;
+        let mut lean = lean;
+        for observation in [&mut rust, &mut lean] {
+            observation.splice(2..2, lines(&["== tap \"initial\"", "outcome refused"]));
+        }
+        lean.insert(4, "# refused: the oracle has no answer for initial".into());
+        assert!(matches!(
+            compare(rust, lean),
+            Verdict::Diverge { at: 4, .. }
+        ));
     }
 }
