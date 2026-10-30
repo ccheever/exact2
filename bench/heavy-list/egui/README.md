@@ -152,3 +152,9 @@ workspace's clippy (`-D warnings`) and fmt. No check needed a retry. The root
 build/test/check commands used this worktree's `target/`; tests used
 `RUST_TEST_THREADS=2`. Exact commands, exit codes and logs are retained in
 `target/g4b/checks/`. Timed samples remain pending the display window.
+
+The G4b timed series was not collected. The original GO arrived during the
+rebuilds, leaving too little of its display window for the full series. The
+bounded wait for a renewed window ended without a fresh GO. No wheel events
+were posted, and no four-arm timing tables or new native/GPUI/Ink parity
+captures are claimed. The prepared series can be resumed from `target/g4b/plan.txt`.
