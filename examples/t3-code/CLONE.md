@@ -35,7 +35,7 @@ The original server listener and clone window defaults remain unchanged.
 Evidence is under `target/t3-poc-evidence/desktop-browser-roster-fix/`.
 Independent review finds no introduced issue and passes nine existing Browser
 tests. It verifies all 156 bundle files, the actual ABI table and baked identity.
-Browser and chat UI acceptance remain open.
+Browser and normal-app chat UI acceptance remain open.
 
 The existing Exact Mac controller now passes isolated project creation and draft
 recovery. All 156 files and the source receipt match the clean `859f7b8676` bundle;
@@ -43,10 +43,21 @@ only this handoff differs at HEAD. Onboarding skips history import. The actual
 palette creates one scratch project on its own authenticated server, and the
 composer retains an exact unsent draft after normal Quit and an explicit project
 reopen with a different seed. App state, tree and inspected native view captures
-agree. This proves named agent scratch persistence with `context.agent=true`,
-not normal-app storage or Keychain persistence. Provider Send, streaming and Stop,
-native OS chrome, physical keys and IME remain unqualified by this unit. Evidence
-is under `target/t3-poc-evidence/desktop-exact-controller-acceptance/`.
+agree. This proves named agent scratch persistence. The controller's source sets
+`context.agent=true`. Normal-app storage and Keychain persistence remain separate.
+
+Through that controller, authorized Codex with the advertised GPT-6.1-Sol model
+creates a real thread and returns the requested unique reply. A later assistant
+response grows from 1,376 to 3,732 characters while running. The actual Stop control
+produces Run interrupted. Its 5,427-character result stays unchanged over four
+seconds. After another normal Quit, explicitly reopening the created thread
+restores the reply, interrupted response and exact unsent composer draft in the
+same named agent store. All owned processes exit. The original port-3773 listener,
+clone window defaults, all product sources and all 156 bundle files remain exact.
+Native OS chrome, physical keys, IME and normal-app credential restart behavior
+remain unqualified. Evidence and limits are under
+`target/t3-poc-evidence/desktop-exact-controller-acceptance/`. Desktop parity remains
+incomplete. Mobile driver work and TestFlight remain unchanged.
 
 The earlier standard desktop bundle from clean source `667c11267d` uses C ABI 18,
 runtime 5 and Apple native ABI 3. Its executable SHA-256 starts
