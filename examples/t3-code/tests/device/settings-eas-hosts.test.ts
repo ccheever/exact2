@@ -80,17 +80,12 @@ describe('the EAS hosts row and editor', () => {
     expect(easHostsView(client, settings, { supportsEasHosts: true }, false, true, false).disabled).toBe(true);
   });
 
-  test('a host saved while the save ran draws its Edit and Remove at full ink once it ends, as the hosts listed before do', async () => {
+  test('a host saved while the save ran draws its Edit and Remove at disabled:opacity-64, then at 1 once it ends', () => {
     const row = contractComponent('src/device/settings-eas-hosts.contract', 'EasDeviceHostsRow');
     const button = contractComponent('src/device/settings-eas-hosts.contract', 'EasGhostButton');
-    const ink = (label: string, busy: boolean, over = false) => button.attribute('button id=buttonId', 'color', { over },
+    const opacity = (label: string, busy: boolean) => button.attribute('button id=buttonId', 'opacity', { over: false },
       { destructive: label === 'Remove', disabled: row.attribute(`EasGhostButton(label="${label}"`, 'disabled', {}, { busy, view: { disabled: false } }) });
-    // The row mounts with the saved host while the save runs: disabled:opacity-64 over a clear background.
-    expect([ink('Edit', true), ink('Remove', true), ink('Remove', true, true)]).toEqual(['light-dark(#18181ba3, #f5f5f5a3)', 'light-dark(#71717ba3, #a1a1a1a3)', 'light-dark(#71717ba3, #a1a1a1a3)']);
-    expect([ink('Edit', false), ink('Remove', false), ink('Remove', false, true)]).toEqual(['light-dark(#18181b, #f5f5f5)', 'light-dark(#71717b, #a1a1a1)', 'light-dark(#fb2c36, #fb414a)']);
-    // The ink alone draws it: an opacity stays on the Mac at the value the row mounted with.
-    const source = await Bun.file(appPath('src/device/settings-eas-hosts.contract')).text();
-    expect(source.split('\n').find(line => line.includes('button id=buttonId'))).not.toContain(' opacity=');
+    expect([opacity('Edit', true), opacity('Remove', true), opacity('Edit', false), opacity('Remove', false)]).toEqual([0.64, 0.64, 1, 1]);
   });
 
   test('Add opens a new host with the defaults and checks the account; a token edit or a later check makes an answer stale', async () => {

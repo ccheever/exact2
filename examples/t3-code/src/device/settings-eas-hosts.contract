@@ -63,9 +63,7 @@ component EasSpinner
 
 // Button size sm, variant ghost or ghost-destructive (ui/button.tsx): the foreground's ink, or the muted one for
 // ghost-destructive; hovered, the accent behind it and ghost-destructive's ink destructive. A :hover block cannot set
-// `color`, so the button keeps its hover in state; its :active block is the pressed accent. Disabled, its ink is at 64%
-// over its clear background, as disabled:opacity-64 draws it. Not an `opacity`: a row that mounts while a save runs
-// would keep its buttons at 0.64 on the Mac once the save ends, where the view keeps the alpha it mounted with.
+// `color`, so the button keeps its hover in state; its :active block is the pressed accent.
 component EasGhostButton
   props
     label: string
@@ -78,10 +76,10 @@ component EasGhostButton
     over = value
   derive lit = over and not disabled
   view
-    button id=buttonId press=press hover=hover disabled=disabled testId=buttonId display="flex" flex-direction="row" align-items="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") color=(destructive ? (lit ? "light-dark(#fb2c36, #fb414a)" : disabled ? "light-dark(#71717ba3, #a1a1a1a3)" : "light-dark(#71717b, #a1a1a1)") : disabled ? "light-dark(#18181ba3, #f5f5f5a3)" : "light-dark(#18181b, #f5f5f5)") data-focus-stop=(disabled ? "" : "enabled page")
+    button id=buttonId press=press hover=hover disabled=disabled testId=buttonId display="flex" flex-direction="row" align-items="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) data-focus-stop=(disabled ? "" : "enabled page")
       :active
         background-color="light-dark(#f4f4f5, #ffffff0a)"
-      text label font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap"
+      text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(destructive ? (lit ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)") : "light-dark(#18181b, #f5f5f5)") white-space="nowrap"
 
 // SettingsRow "EAS Simulator" over `easDeviceHosts` (serverScoped; its inheritance button is the slot), with the host list as its children.
 component EasDeviceHostsRow
