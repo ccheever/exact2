@@ -281,6 +281,24 @@ fn a_first_login_capture_needs_the_apps_origin() {
 }
 
 #[test]
+fn a_start_from_another_origin_is_refused_by_the_host_too() {
+    let file = script(r#"{"incarnations":[{"pid":51,"steps":[]}]}"#);
+    let (core, woke) = setup(&[("path:t3", &format!("script:{file}"))]);
+    for (ticket, kind) in [(1, "spawn"), (2, "execFile")] {
+        let body = format!(r#"{{"kind":"{kind}","program":"path:t3"}}"#);
+        let mut out = request(ticket, &body, kind == "spawn");
+        out.request.reach.origin = CallOrigin::Tool;
+        core.run(out, None).unwrap();
+        match next(&core, &woke) {
+            Outcome::Failed { message, .. } => {
+                assert!(message.starts_with("person-required"), "{kind}: {message}")
+            }
+            other => panic!("{kind}: {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn every_kind_the_runner_declares_is_one_the_host_runs() {
     let (core, woke) = setup(&[]);
     for (ticket, (kind, _)) in (1..).zip(exact_runner::process::KINDS) {

@@ -31,8 +31,7 @@ component App
     text server testId="server"
 "#;
 
-/// The fixture's module, as under the agent: stage 0 starts only the
-/// agent's substitutes, so outside it `processStatus().available` is false.
+/// The fixture's module, as under the agent.
 fn module() -> Module {
     Module::new(HBC.to_vec(), "test.process", "process.spawn path:t3\n").with_agent_seed(Some(1))
 }
@@ -355,7 +354,7 @@ fn an_exec_file_its_signal_aborts_resumes_rejected_and_is_cancelled() {
 }
 
 #[test]
-fn outside_the_agent_nothing_is_available_and_a_raw_request_is_refused() {
+fn outside_the_agent_programs_start_and_a_raw_request_is_refused() {
     let mut m =
         Module::new(HBC.to_vec(), "test.process", "process.spawn path:t3\n").with_agent_seed(None);
     m.load().unwrap();
@@ -364,7 +363,7 @@ fn outside_the_agent_nothing_is_available_and_a_raw_request_is_refused() {
     let r = Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/").unwrap();
     assert_eq!(
         r.resource("s").and_then(Value::as_str),
-        Some(r#"{"available":false,"state":"unknown"}"#)
+        Some(r#"{"available":true,"state":"granted"}"#)
     );
     // `fetch("exact-process:")` skips the binding's checks: it never leaves the module.
     let raw = r

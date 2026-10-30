@@ -1991,12 +1991,17 @@ static jsi::Value filesystem_promise(jsi::Runtime& r, jsi::Value value, uint32_t
           if (end == std::string::npos) break;
           start = end + 1;
         }
-        if (fields.size() != 4) throw jsi::JSError(r, "invalid filesystem stat");
+        if (fields.size() != 4 && fields.size() != 6) throw jsi::JSError(r, "invalid filesystem stat");
         jsi::Object result(r);
         result.setProperty(r, "size", std::stod(fields[0]));
         result.setProperty(r, "isFile", fields[1] == "1");
         result.setProperty(r, "isDirectory", fields[2] == "1");
         result.setProperty(r, "modifiedMs", std::stod(fields[3]));
+        // Exact patch 24: the permission bits, and whether an lstat met a link.
+        if (fields.size() == 6) {
+          result.setProperty(r, "mode", std::stod(fields[4]));
+          result.setProperty(r, "isSymbolicLink", fields[5] == "1");
+        }
         return jsi::Value(r, result);
       });
   return promise.getPropertyAsFunction(r, "then").callWithThis(r, promise, convert);
@@ -2040,7 +2045,7 @@ jsi::Function Adapter::async_binding(const char* name, uint32_t op, const void* 
                 std::make_shared<State::ImagePromiseOwner>(id, state),
                 "Image operation Promise");
           }
-          if (op == 113 || op == 116)
+          if (op == 113 || op == 116 || op == 122)
             promise = filesystem_promise(r, std::move(promise), op);
         } catch (...) {
           // A constructor can invoke the executor and then throw. Finish every
@@ -2125,7 +2130,10 @@ jsi::Object Adapter::storage(const void* grants, const jsi::Function& factory) {
       {"readFile",110}, {"writeFile",111}, {"appendFile",112}, {"readdir",113},
       {"mkdir",114}, {"rm",115}, {"stat",116}, {"rename",117}, {"copyFile",118},
       {"realpath",119}, {"atomicWriteFile",120}, {"compressImage",121},
-      {"transformImage",121}};
+      {"transformImage",121},
+      // Exact patch 24 (exact2 LLP 1133.007 D6a).
+      {"lstat",122}, {"readlink",123}, {"access",124}, {"chmod",125},
+      {"symlink",126}, {"digest",127}, {"flock",128}, {"unlock",129}};
   jsi::Object fs(rt);
   for (const auto& method : fs_methods)
     fs.setProperty(rt, method.name, async_binding(method.name, method.op, grants));

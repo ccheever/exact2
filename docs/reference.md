@@ -1646,7 +1646,9 @@ lives while the resource holds it, and `execFile`, `execPath`,
 Each program is named by a grant line: `process.spawn path:ssh`,
 `process.spawn /usr/bin/tar`, `process.spawn home:/.t3/runtime/versions` or a
 `bundle:` helper; the call names it as its line does
-(`spawn("path:ssh", …)`). The mapper receives `spawn`, `stdout` and `stderr`
+(`spawn("path:ssh", …)`). A `path:` name runs the first program of its name
+on the login shell's `PATH`, and none where an `fs.write` line lets the app
+write (LLP 1133.007 D7, §9). The mapper receives `spawn`, `stdout` and `stderr`
 chunks, `exit`, `close`, `drain`, `ready` and `ready-timeout` in order, with
 that incarnation's handle (`write`, `end`, `kill`); a mutation writes through
 a kept handle, staged with its commit. A `write` that answers `false` hears
@@ -1667,16 +1669,42 @@ app's. A plain `fetch` to `exact-process:` is refused. macOS and Linux
 implement it; iOS, tvOS, Android, Windows and the web reject every name with
 `NotSupportedError`, and `processStatus()` says which (`{available, state}`).
 
+A child starts in a process group of its own with the default signal
+dispositions and only its three pipes; releasing its resource, a `kill`, the
+app's quit and its exit end the whole group, so a grandchild that holds the
+pipes after its parent exits ends too. After a crash, the next launch ends a
+group whose leader is still running; with the leader gone it ends the group
+only when the app led its own session, so a Mac app launched from the Finder
+(session 1) or from a terminal leaves that group's survivors running. `storage.fs`
+reads and writes `home:/…` (the user's home, under a grant narrower than
+`home:/`) and reads `bundle:/…` (the app bundle, read-only), following no
+link below either root, nor below a native `fs.read` or `fs.write`
+directory (one is refused, as under `app:/`); a native line is reached
+through a system link such as macOS's `/var` but not through one the user
+owns or could replace (`~/Dropbox`): such a line must name the link's target, and a native
+line names a directory, not a file; and it gains
+`lstat`, `readlink`, `access`, `chmod`, `symlink`, `digest(path, "SHA-256")`
+and `flock(path, {timeout})`, whose lock is held until the lock's `unlock()`,
+else until the answer that took it ends (a TypeScript source's only, for
+now); `stat`
+answers `mode` and `isSymbolicLink`. These are the TypeScript runtime 6: an
+older prelude has none of them, so a call throws a plain `TypeError` and the
+fields read `undefined`, and a module that names one needs `typescriptRuntime`
+6 (one that reads only `stat().mode` is not detected). An `env.read
+login:<NAME>` name is a shell variable's (`[A-Za-z_][A-Za-z0-9_]*`).
+
 Under the agent nothing runs unless the drive names it: `--process
-<target>=script:<file.json>` answers from a script with no process (the
-format is `host/apple/src/executor_process_script.rs`'s), and its events,
-restart delays and readiness move with `clock`. A tool's call (`call <tool>
-<json>`) runs as a tool's commit, to see the refusal. `packages/child-process/test/`
-holds a fixture app and its script. Real programs (`--process
-<target>=real`, or a substitute executable) need the process transport,
-LLP 1133.007's stage 1; until then nothing starts outside the agent, and
-`processStatus().available` is false there. `--home <dir>` is read and
-changes nothing until stage 1's `home:` paths.
+<target>=<executable>` runs that file in the target's place,
+`--process <target>=script:<file.json>` answers from a script with no process
+(the format is `host/apple/src/executor_process_script.rs`'s), and
+`--process <target>=real` runs the granted program itself. A script's events,
+restart delays and readiness move with `clock`; a real child's run on the
+wall, which `clock +<ms> real` waits for. `--login-env NAME=value`
+(repeated) stands in for the login shell and `--home <dir>` for the home
+directory. A tool's call (`call <tool> <json>`) runs as a tool's commit,
+to see the refusal.
+`packages/child-process/test/` holds a fixture app, its script and a helper
+program that starts a grandchild.
 
 ### Apple Health
 

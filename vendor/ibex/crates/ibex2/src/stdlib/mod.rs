@@ -13,6 +13,7 @@ pub mod fetch;
 pub mod fetch_async;
 pub mod fs;
 pub mod fs_image;
+pub(crate) mod fs_more;
 #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
 pub(crate) mod intl;
 #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]

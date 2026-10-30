@@ -54,14 +54,17 @@ pub(crate) struct Processes {
     children: Mutex<HashMap<u64, Arc<ChildCtl>>>,
     /// Every child stream's ticket, whose outcomes the agent's clock owes.
     streams: Mutex<std::collections::HashSet<u64>>,
+    /// The process groups this executor started, by group id: each one's
+    /// kill signal and grace, for a quit (`real.rs`).
+    groups: Mutex<HashMap<i32, (String, f64)>>,
     /// The runner took a completion: output waiting for room goes on.
     pub(crate) drained: Condvar,
     /// The supervisors' clock: the agent's under the agent.
     clock: Arc<Clock>,
     /// The drive's launch facts, under the agent.
     agent: Option<AgentFacts>,
-    /// The host starts programs: macOS and Linux (§8). Off, every process
-    /// request answers `Unsupported` (iOS, the render host).
+    /// The host starts programs (§8). Off, every process request answers
+    /// `Unsupported` (the render host).
     enabled: AtomicBool,
     /// The login variables captured for the app's origin, which later
     /// reads answer for any origin (D13).
@@ -90,6 +93,7 @@ impl Processes {
         Processes {
             children: Mutex::default(),
             streams: Mutex::default(),
+            groups: Mutex::default(),
             drained: Condvar::new(),
             clock: Arc::new(clock),
             agent,
@@ -127,7 +131,6 @@ pub(crate) fn release_one_shot(shared: &Shared, ticket: u64) {
 pub(crate) struct AgentFacts {
     processes: Vec<(String, String)>,
     login_env: Vec<(String, String)>,
-    #[allow(dead_code)] // `home:` paths are the storage work's (stage 1)
     pub(crate) home: Option<std::path::PathBuf>,
 }
 
@@ -157,6 +160,25 @@ impl AgentFacts {
     }
 }
 
+/// The person's home directory as this launch sees it (D6): under the agent
+/// the drive's `--home`, or an empty scratch directory (§7); else the
+/// password database's, not `$HOME`, which a launcher may set.
+pub(crate) fn home(processes: &Processes) -> Option<std::path::PathBuf> {
+    match &processes.agent {
+        Some(facts) => Some(facts.home.clone().unwrap_or_else(|| {
+            static SCRATCH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+            (SCRATCH.get_or_init(|| {
+                let dir =
+                    std::env::temp_dir().join(format!("exact-agent-home-{}", std::process::id()));
+                let _ = std::fs::create_dir_all(&dir);
+                dir
+            }))
+            .clone()
+        })),
+        None => real::home_dir(),
+    }
+}
+
 /// What runs for a program: itself, another executable, or a script.
 pub(crate) enum Ran {
     Real,
@@ -176,7 +198,6 @@ impl Ran {
 }
 
 /// A call's options, as the binding wrote them (js/src/process.js).
-#[allow(dead_code)] // `args`, `cwd` and `input` are the real transport's (stage 1)
 pub(crate) struct Spec {
     pub(crate) kind: String,
     pub(crate) program: String,
@@ -186,6 +207,8 @@ pub(crate) struct Spec {
     /// Each of stdin, stdout and stderr: a pipe, or ignored.
     pub(crate) pipes: [bool; 3],
     pub(crate) stdin_from: Option<String>,
+    /// `stdin_from`, opened once it is admitted.
+    pub(crate) stdin_file: Option<Arc<std::fs::File>>,
     pub(crate) input: Option<Vec<u8>>,
     pub(crate) utf8: bool,
     pub(crate) kill_signal: String,
@@ -198,6 +221,8 @@ pub(crate) struct Spec {
     /// a one-shot still running then ends as `Timeout`.
     pub(crate) deadline: Option<f64>,
     pub(crate) max_buffer: usize,
+    /// The program's native path, once admitted (a real one, or the drive's substitute).
+    pub(crate) native: Option<std::path::PathBuf>,
 }
 
 /// `exactRestart` (D4).
@@ -275,9 +300,10 @@ impl Spec {
                 },
             }
         };
+        // `null` is an option left out, as a Rust source writes it (`exact_data::process`).
         let string = |key: &str| -> Result<Option<String>, String> {
             match o.get(key) {
-                None => Ok(None),
+                None | Some(Json::Null) => Ok(None),
                 Some(Json::String(s)) => Ok(Some(s.clone())),
                 Some(_) => Err(bad(&format!("{key} is a string"))),
             }
@@ -287,7 +313,7 @@ impl Spec {
             return Err(bad("program is its grant line's name"));
         }
         let args = match o.get("args") {
-            None => Vec::new(),
+            None | Some(Json::Null) => Vec::new(),
             Some(Json::Array(a)) if a.iter().all(Json::is_string) => a
                 .iter()
                 .filter_map(|s| s.as_str().map(str::to_string))
@@ -295,7 +321,7 @@ impl Spec {
             Some(_) => return Err(bad("args are strings")),
         };
         let env = match o.get("env") {
-            None => None,
+            None | Some(Json::Null) => None,
             Some(Json::Array(pairs)) => Some(
                 (pairs.iter())
                     .map(|p| match p.as_array().map(Vec::as_slice) {
@@ -318,7 +344,7 @@ impl Spec {
             return Err(bad("killSignal is a signal kill takes"));
         }
         let pipes = match o.get("stdio") {
-            None => [true; 3],
+            None | Some(Json::Null) => [true; 3],
             Some(Json::Array(a))
                 if a.len() <= 3 && a.iter().all(|s| s == "pipe" || s == "ignore") =>
             {
@@ -328,7 +354,7 @@ impl Spec {
             Some(_) => return Err(bad("stdio entries are pipe or ignore")),
         };
         let restart = match o.get("restart") {
-            None => None,
+            None | Some(Json::Null) => None,
             Some(Json::Object(r)) => {
                 if let Some(key) = r.keys().find(|k| {
                     !["when", "delay", "maxDelay", "preventExitStatus"].contains(&k.as_str())
@@ -360,7 +386,7 @@ impl Spec {
             Some(_) => return Err(bad("exactRestart is an object")),
         };
         let ready = match o.get("ready") {
-            None => None,
+            None | Some(Json::Null) => None,
             Some(Json::Object(r)) => {
                 if let Some(key) = r.keys().find(|k| {
                     !["url", "interval", "timeout", "accept", "onTimeout"].contains(&k.as_str())
@@ -406,7 +432,7 @@ impl Spec {
             Some(_) => return Err(bad("exactReady is an object")),
         };
         let max_buffer = match o.get("maxBuffer") {
-            None => 1 << 20,
+            None | Some(Json::Null) => 1 << 20,
             Some(v) => match v.as_u64().filter(|n| (1..=1 << 24).contains(n)) {
                 Some(n) => n as usize,
                 None => return Err(bad("maxBuffer is 1 to 16777216 bytes")),
@@ -430,6 +456,7 @@ impl Spec {
             cwd: string("cwd")?,
             pipes,
             stdin_from: string("stdinFrom")?,
+            stdin_file: None,
             input,
             utf8: encoding.as_deref() == Some("utf8"),
             kill_signal,
@@ -441,6 +468,7 @@ impl Spec {
             ready,
             timeout: ms(o.get("timeout"), "timeout", 3_600_000)?.filter(|t| *t > 0.0),
             deadline: deadline.map(f64::from),
+            native: None,
             max_buffer,
             kind,
         })
@@ -466,6 +494,17 @@ pub(crate) struct ChildCtl {
 impl ChildCtl {
     fn send(&self, input: Input) {
         let _ = self.tx.lock().unwrap().send(input);
+    }
+
+    /// A child no stream holds: a one-shot `execFile`'s.
+    pub(crate) fn detached(tx: mpsc::Sender<Input>) -> ChildCtl {
+        ChildCtl {
+            tx: Mutex::new(tx),
+            turn: Mutex::new(()),
+            incarnation: AtomicU32::new(1),
+            ended: AtomicBool::new(false),
+            queued: AtomicU64::new(0),
+        }
     }
 
     /// Incarnation `n` runs now, its stdin open unless ignored.
@@ -501,7 +540,6 @@ pub(crate) enum Input {
     /// The resource let the child go, or the app quits.
     Release,
     /// What a real child's reader, writer or waiter saw, for incarnation `n`.
-    #[allow(dead_code)] // the real transport's (stage 1)
     Child(u32, supervise::Seen),
     /// A readiness probe's answer, for incarnation `n`.
     Probe(u32, bool),
@@ -552,7 +590,7 @@ fn answer(
             "this host starts no programs (LLP 1133.007 §8)",
         );
     }
-    let spec = match Spec::parse(&request.body, request.timeout_ms) {
+    let mut spec = match Spec::parse(&request.body, request.timeout_ms) {
         Ok(spec) => spec,
         Err(why) => return failed(FailureKind::Refused, why),
     };
@@ -591,7 +629,7 @@ fn answer(
     }
     let origin = request.reach.origin;
     match spec.kind.as_str() {
-        "appEnv" => return environment(scoped, &set, false, &shared.processes),
+        "appEnv" => return environment(shared, scoped, &set, false),
         "loginEnv" => {
             let names: Vec<String> = (exact_grants::process::login_variables(scoped).into_iter())
                 .map(str::to_string)
@@ -599,7 +637,7 @@ fn answer(
             if !shared.processes.login_readable(origin, &names) {
                 return person_required("loginShellEnvironment", origin);
             }
-            let outcome = environment(scoped, &set, true, &shared.processes);
+            let outcome = environment(shared, scoped, &set, true);
             if matches!(outcome, Outcome::Response(_)) && origin == CallOrigin::App {
                 (shared.processes.login_captured.lock().unwrap()).extend(names);
             }
@@ -612,12 +650,36 @@ fn answer(
         let why = format!("outside the app's grants (process.spawn {})", spec.program);
         return failed(FailureKind::Refused, why);
     }
+    // The runner refuses a start from any origin but the app's (D13); the
+    // host holds it too. A `path:` name reads the login shell's `PATH`,
+    // which only the app's origin captures first (D5, D13); once captured,
+    // it answers any origin.
+    if spec.kind != "execPath" && origin != CallOrigin::App {
+        let why = format!(
+            "person-required: {} from a {} origin starts no program (LLP 1133.007 D13)",
+            spec.kind,
+            origin.word()
+        );
+        return failed(FailureKind::Refused, why);
+    }
+    let login_path = spec.program.starts_with("path:") && shared.processes.agent.is_none();
+    let path = ["PATH".to_string()];
+    if login_path && !shared.processes.login_readable(origin, &path) {
+        return person_required(&spec.kind, origin);
+    }
+    if login_path && origin == CallOrigin::App {
+        (shared.processes.login_captured.lock().unwrap()).extend(path);
+    }
+    // `exactStdinFrom` is opened as `storage.fs` opens a path to read it:
+    // admitted under `fs.read`, and below its root with nothing followed
+    // (ibex2's `open_read`). Each incarnation reads it from its start.
     if let Some(path) = &spec.stdin_from {
-        if !set.permits(&ibex2::grant::Operation::FsRead { path: path.clone() }) {
-            return failed(
-                FailureKind::Refused,
-                format!("outside the app's grants (fs.read {path})"),
-            );
+        let roots =
+            (shared.root_paths.get()).map(|p| shared.roots.get_or_init(|| super::body::open(p)));
+        let directories = roots.and_then(|d| d.as_ref().ok());
+        match ibex2::stdlib::fs::open_read(&set, directories, path) {
+            Ok(file) => spec.stdin_file = Some(Arc::new(file)),
+            Err(e) => return failed(FailureKind::Refused, format!("exactStdinFrom {path}: {e}")),
         }
     }
     if let Some(ready) = &spec.ready {
@@ -652,8 +714,18 @@ fn answer(
             },
         },
     };
+    if spec.kind == "execPath" {
+        return exec_path(shared, scoped, grants, &spec, &ran);
+    }
+    // A real program's native path, checked against its grant once its
+    // links are followed (D6, D7).
+    if !matches!(ran, Ran::Script(_)) {
+        match real::program(shared, scoped, grants, &spec, &ran) {
+            Ok(path) => spec.native = Some(path),
+            Err(outcome) => return outcome,
+        }
+    }
     match spec.kind.as_str() {
-        "execPath" => exec_path(&spec, &ran),
         "execFile" => supervise::exec_file(shared, &spec, ran, abort),
         _ => {
             let (tx, rx) = mpsc::channel();
@@ -710,53 +782,54 @@ fn reply(body: Json) -> Outcome {
 }
 
 /// `execPath`: the native path a spawn of the target would run, or `null`.
-fn exec_path(spec: &Spec, ran: &Ran) -> Outcome {
+fn exec_path(shared: &Shared, grants: &str, app: &str, spec: &Spec, ran: &Ran) -> Outcome {
     match ran {
         Ran::Script(script) => reply(json!({ "path": script.path() })),
         Ran::File(file) => reply(json!({ "path": file })),
-        Ran::Real => match real::resolve(&spec.program, spec.env.as_deref()) {
-            Ok(path) => reply(json!({ "path": path })),
-            Err(outcome) => outcome,
-        },
+        Ran::Real => reply(json!({ "path": real::resolve(shared, grants, app, spec) })),
     }
 }
 
 /// `appEnvironment()` or `loginShellEnvironment()`: the variables the
 /// grants name, `env.read NAME` or `env.read login:NAME` (D5).
 fn environment(
+    shared: &Shared,
     scoped: &str,
     set: &ibex2::grant::GrantSet,
     login: bool,
-    processes: &Processes,
 ) -> Outcome {
     let names: Vec<&str> = match login {
         true => exact_grants::process::login_variables(scoped),
         false => set.readable_env(),
     };
-    let mut out = serde_json::Map::new();
-    // Outside the agent the login shell is the person's, captured once.
-    let captured = match login && processes.agent.is_none() {
-        true => match real::login_variables(&names) {
-            Ok(found) => found,
-            Err(outcome) => return outcome,
-        },
-        false => HashMap::new(),
+    let values = if login {
+        login_variables(shared, &names)
+    } else {
+        (names.iter())
+            .filter_map(|n| Some((n.to_string(), std::env::var(n).ok()?)))
+            .collect()
     };
-    let given = (processes.agent.as_ref()).filter(|facts| login && !facts.login_env.is_empty());
-    for name in names {
-        let value = match given {
-            // A drive never runs the person's shell (§7).
-            Some(facts) => (facts.login_env.iter())
-                .find(|(k, _)| k == name)
-                .map(|(_, v)| v.clone()),
-            None if login && processes.agent.is_none() => captured.get(name).cloned(),
-            None => std::env::var(name).ok(),
-        };
-        if let Some(value) = value {
-            out.insert(name.to_string(), Json::String(value));
-        }
+    reply(json!(values))
+}
+
+/// The login shell's variables `names` (D5): captured once a launch; under
+/// the agent the drive's `--login-env`, else the app's own, so a drive
+/// never runs the person's shell (§7).
+pub(crate) fn login_variables(shared: &Shared, names: &[&str]) -> HashMap<String, String> {
+    match &shared.processes.agent {
+        Some(facts) if !facts.login_env.is_empty() => (names.iter())
+            .filter_map(|n| {
+                Some((
+                    n.to_string(),
+                    facts.login_env.iter().find(|(k, _)| k == n)?.1.clone(),
+                ))
+            })
+            .collect(),
+        Some(_) => (names.iter())
+            .filter_map(|n| Some((n.to_string(), std::env::var(n).ok()?)))
+            .collect(),
+        None => real::login_environment(shared, names),
     }
-    reply(Json::Object(out))
 }
 
 /// Queue one event of stream `ticket` behind the ones the runner has not
@@ -925,7 +998,19 @@ pub(crate) fn quit(shared: &Shared) {
     for child in &children {
         child.send(Input::Release);
     }
-    real::quit(QUIT_GRACE_MS);
+    groups::quit(shared, QUIT_GRACE_MS);
+}
+
+/// The app's directories are known: a launch after a crash ends what its
+/// children left (D9), off the host's thread.
+pub(crate) fn launched(shared: &Arc<Shared>) {
+    if !shared.processes.enabled.load(Ordering::Acquire) {
+        return;
+    }
+    let shared = shared.clone();
+    let _ = std::thread::Builder::new()
+        .name("exact-child-reap".into())
+        .spawn(move || groups::reap_once(&shared));
 }
 
 #[cfg(test)]
@@ -956,9 +1041,14 @@ impl Core {
 }
 
 impl Core {
-    /// Start programs for data code: a desktop host's executor (§8).
+    /// Start programs for data code: a desktop host's executor (§8). Its
+    /// `home:` and `bundle:` directories are storage's too (D6).
     pub(crate) fn allow_processes(&self) {
         self.shared.processes.enabled.store(true, Ordering::Release);
+        ibex2::stdlib::fs::set_roots(ibex2::stdlib::fs::Roots {
+            home: home(&self.shared.processes),
+            bundle: real::bundle().ok(),
+        });
     }
 
     /// The clock the host's process work keeps, for the runner under the
@@ -1002,7 +1092,10 @@ impl exact_runner::WorkClock for Work {
     }
 }
 
-#[path = "executor_process_none.rs"]
+// Only the desktops start programs (§8): iOS, tvOS and Android link none of it.
+#[path = "executor_process_groups.rs"]
+mod groups;
+#[path = "executor_process_real.rs"]
 mod real;
 
 #[cfg(test)]

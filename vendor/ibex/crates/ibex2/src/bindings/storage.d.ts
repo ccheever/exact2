@@ -23,6 +23,22 @@ export interface FileSystem {
   rename(from: string, to: string): Promise<void>;
   copyFile(from: string, to: string): Promise<void>;
   realpath(path: string): Promise<string>;
+  /** Exact patch 24 (exact2 LLP 1133.007 D6a): `stat` of a link itself. */
+  lstat(path: string): Promise<FileStat>;
+  /** A symbolic link's target. Needs `fs.read`. */
+  readlink(path: string): Promise<string>;
+  /** Resolves when this user may access the path as `mode` asks (0 exists,
+   * 1 execute, 2 write, 4 read), counting ownership, ACLs and mounts. */
+  access(path: string, mode: number): Promise<void>;
+  /** Its permission bits; on Windows only the read-only bit. Needs `fs.write`. */
+  chmod(path: string, mode: number): Promise<void>;
+  /** A symbolic link at `path` to `target`, as Node's. Needs `fs.write` on `path`. */
+  symlink(target: string, path: string): Promise<void>;
+  /** A file's SHA-256, -384 or -512, lowercase hex, read in bounded memory. */
+  digest(path: string, algorithm: "SHA-256" | "SHA-384" | "SHA-512"): Promise<string>;
+  /** An exclusive advisory lock (POSIX `flock`), made if absent and left on
+   * disk, waiting up to `timeout` ms: held until `unlock()`. Needs `fs.write`. */
+  flock(path: string, options?: { timeout?: number }): Promise<{ unlock(): Promise<void> }>;
   /** Exact patch 9 (exact2 LLP 1069.002 A1), the app interface: decode the
    * image at `from`, scale it to fit `maxDimension` and encode a JPEG of at
    * most `maxBytes` at `to`, searching quality as Bluesky's composer does;
@@ -167,6 +183,10 @@ export interface FileStat {
   readonly isFile: boolean;
   readonly isDirectory: boolean;
   readonly modifiedMs: number;
+  /** Exact patch 24: its permission bits, natively (the web's records have none). */
+  readonly mode?: number;
+  /** Exact patch 24: an `lstat` that met a symbolic link. */
+  readonly isSymbolicLink?: boolean;
 }
 
 /** SQLite INTEGER results are bigint, including small integers. Number

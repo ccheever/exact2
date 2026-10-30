@@ -11,5 +11,6 @@
       { "at": 0, "stdout": "again\n" },
       { "at": 100, "exit": 78 }
     ] }
-  ]
+  ],
+  "execFile": { "stdout": "fixture-child 1.0\n", "code": 0, "after": 0 }
 }

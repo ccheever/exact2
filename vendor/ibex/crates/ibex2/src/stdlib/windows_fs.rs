@@ -107,6 +107,12 @@ pub(super) fn perform(
         FsOp::Stat => {
             let m = path.open()?.metadata().map_err(error)?;
             Ok(FsResult::Stat(Stat {
+                mode: if m.permissions().readonly() {
+                    0o444
+                } else {
+                    0o666
+                },
+                is_symlink: false,
                 size: m.len(),
                 is_file: m.is_file(),
                 is_directory: m.is_dir(),
@@ -205,6 +211,15 @@ pub(super) fn perform(
             }
         }
         FsOp::Mkdir => unreachable!("mkdir admission walks only authorized missing components"),
+        // Exact patch 24's operations wait for Windows (exact2 LLP 1133.007 stage 3).
+        FsOp::Lstat
+        | FsOp::Readlink
+        | FsOp::Access
+        | FsOp::Chmod
+        | FsOp::Symlink
+        | FsOp::Digest
+        | FsOp::Flock
+        | FsOp::Unlock => Err(HostError::Failed("unsupported: on Windows yet".into())),
     }
 }
 

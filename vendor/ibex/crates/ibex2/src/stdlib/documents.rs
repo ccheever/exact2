@@ -230,6 +230,8 @@ pub fn run_document(
                 is_file: false,
                 is_directory: true,
                 modified_ms: 0,
+                mode: 0,
+                is_symlink: false,
             })),
             _ => Err(DocumentError::new(DocumentErrorKind::PermissionDenied).guest(path)),
         },

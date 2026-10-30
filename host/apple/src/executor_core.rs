@@ -444,6 +444,7 @@ impl Core {
     /// before the first request; without it such a request is refused.
     pub(super) fn set_app_roots(&self, roots: [std::path::PathBuf; 3]) {
         let _ = self.shared.root_paths.set(roots);
+        process::launched(&self.shared);
     }
 
     #[cfg(test)]

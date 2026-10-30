@@ -217,9 +217,7 @@
   // A fact (§6): granted where a program may start and a `process.spawn` line names one; never `prompt`.
   function processStatus() {
     var grants = String(global.exact && global.exact.grants || "").split("\n").some(function (line) { return /^\s*process\.spawn\s/.test(line); });
-    // Stage 0 runs only the agent's substitutes (§7): outside the agent nothing starts yet.
-    var starts = available && seam.agent();
-    return { available: starts, state: !starts ? "unknown" : grants ? "granted" : "denied" };
+    return { available: available, state: !available ? "unknown" : grants ? "granted" : "denied" };
   }
   global.__exact_child_process = Object.freeze({
     spawn: spawn, execFile: execFile, execPath: execPath, processStatus: processStatus,
