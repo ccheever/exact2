@@ -301,14 +301,13 @@ fn css_text_in(
             (StyleId::UserSelect, RowValue::Enum(v)) => selection::push(&mut out, v),
             (StyleId::ControlSize, RowValue::Enum(size)) => control_size::push(&mut out, size),
             // LLP 1069.011.001 D9: browser-owned corners.
+            // A capsule's ends are half-circles, so it takes no curve (index.html).
             (StyleId::ControlCornerStyle, RowValue::Enum(corner)) => {
-                out.push_str("--exact-control-radius:");
                 out.push_str(if *corner == "capsule" {
-                    "calc(infinity * 1px)"
+                    "--exact-control-radius:calc(infinity * 1px);--exact-control-curve:round;"
                 } else {
-                    "revert"
+                    "--exact-control-radius:revert;--exact-control-curve:initial;"
                 });
-                out.push(';');
             }
             (StyleId::TextBoxEdge, RowValue::Enum(edge)) => {
                 crate::text_box_css::push_edge(edge, &mut out)

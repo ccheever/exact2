@@ -158,7 +158,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   // Every symbol's scale is one of the two rows: a bar item's restates the image's.
   expect(all(neutral, '--exact-symbol-scale').sort()).toEqual([String(value.get('symbol-scale')), String(value.get('button-symbol-scale'))]);
   expect(all(neutral, 'font-weight').sort()).toEqual(['400', String(value.get('control-weight'))]);
-  expect(shell.includes(`font-weight: ${value.get('control-weight')}; --exact-said-font-weight: ; border-radius: var(--exact-control-radius, ${length('control-radius')});`)).toBe(true);
+  expect(shell.includes(`font-weight: ${value.get('control-weight')}; --exact-said-font-weight: ; border-radius: var(--exact-control-radius, calc(${length('control-radius')} * var(--exact-curve-reach))); corner-shape: var(--exact-control-curve, var(--exact-curve));`)).toBe(true);
   expect(rows.filter(([name, kind]) => kind === 'number' && !RATIO[name] && !['control-line-height', 'control-weight', 'select-line-height'].includes(name)).map(([name]) => name)).toEqual([]);
 });
 
@@ -264,7 +264,8 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
         segments: [box('segments')[2] < 300, Math.abs(box('segments')[2] - box('chosen')[2] - box('segment')[2] - 6) < 1, box('segments')[3], css('chosen', 'boxShadow') !== 'none'],
         bar: [color('bar'), color('bar', 'backgroundColor'), css('bar', 'backdropFilter') ?? css('bar', 'webkitBackdropFilter'), css('bar', 'borderBottomWidth'), color('bar-button', 'borderTopColor')[3]],
         tabs: [color('tabs', 'backgroundColor'), css('tabs', 'borderTopWidth'), css('tabs', 'boxShadow')],
-        list: [color('list', 'backgroundColor'), css('card', 'borderTopLeftRadius'), color('list-said', 'backgroundColor')],
+        list: [color('list', 'backgroundColor'), css('card', 'borderTopLeftRadius'), css('card', 'cornerTopLeftShape') ?? 'round', color('list-said', 'backgroundColor')],
+        curved: CSS.supports('corner-shape', 'superellipse(2)'),
         sheet: [color('sheet', 'backgroundColor'), css('sheet', 'position'), box('sheet')[2], box('sheet')[3]],
       }));
       expect([at('page'), got.page]).toEqual([at('page'), [INK[scheme], GROUND[scheme]]]);
@@ -301,7 +302,9 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('bar'), got.bar]).toEqual([at('bar'), [INK[scheme], GROUND[scheme], 'none', '1px', 0]]);
       expect([at('tabs'), got.tabs]).toEqual([at('tabs'), [GROUND[scheme], '1px', 'none']]);
       // A grouped list: the neutral ground over the sheet's literal, 12 px cards; a ground the author wrote stays.
-      expect([at('list'), got.list]).toEqual([at('list'), [scheme === 'light' ? [245, 245, 245, 1] : GROUND[scheme], '12px', [1, 2, 3, 1]]]);
+      // Apple's continuous curve where the engine draws `corner-shape`, over the radius scaled to its reach.
+      const surface = got.curved ? ['18.24px', 'superellipse(1.6)'] : ['12px', 'round'];
+      expect([at('list'), got.list]).toEqual([at('list'), [scheme === 'light' ? [245, 245, 245, 1] : GROUND[scheme], ...surface, [1, 2, 3, 1]]]);
       // A sheet in a wide window is a card, 560 wide and a sheet's height whatever it holds: 45rem, less the window's
       // 64 px margin in this 700 px window.
       expect([at('sheet'), got.sheet]).toEqual([at('sheet'), [GROUND[scheme], 'fixed', 560, 636]]);
@@ -485,6 +488,12 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('menu press under hover'), await page.evaluate(() => css('item', 'backgroundImage') !== 'none')]).toEqual([at('menu press under hover'), true]);
       await page.evaluate(() => document.getElementById('item').removeAttribute('data-pressed'));
       await page.keyboard.press('Escape');
+      // A corner shape its author wrote wins over the platform's curve, on a sidebar's tab too.
+      expect([at('authored corner'), await page.evaluate(() => {
+        if (!CSS.supports('corner-shape', 'bevel')) return 'no corner-shape';
+        document.getElementById('exact-root').insertAdjacentHTML('beforeend', '<div data-exact-sidebar><div role="tablist"><button role="tab" id="bevelled-tab" style="corner-shape: bevel">Tab</button></div></div>');
+        return css('bevelled-tab', 'cornerTopLeftShape');
+      })]).toEqual([at('authored corner'), expect.stringMatching(/^(bevel|superellipse\(0\)|no corner-shape)$/)]);
       // A popover of the author's content has the web's margin, a padding its author wrote wins, and a menu keeps its own.
       expect([at('popover margin'), await page.evaluate(() => {
         document.getElementById('exact-root').insertAdjacentHTML('beforeend', '<div popover id="content-popover">Plain</div><div popover id="padded-popover" style="padding: 8px">Padded</div>');
@@ -538,7 +547,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // An alert reads from the start. Its actions share the row equally (416 less 24 of padding each side and a 12 px
       // gap is 178 each), and a destructive one's edge is its red, where the other's is the look's line.
       const alert = await page.evaluate(() => { document.getElementById('alert').showModal(); return [css('alert', 'width'), css('alert', 'textAlign'), css('alert', 'borderTopLeftRadius'), color('alert', 'backgroundColor'), box('delete')[2], box('cancel')[2], css('delete', 'borderTopColor') === css('delete', 'color'), css('cancel', 'borderTopColor') === css('delete', 'borderTopColor')]; });
-      expect([at('alert'), alert]).toEqual([at('alert'), ['416px', 'start', '12px', SURFACE[scheme], 178, 178, true, false]]);
+      expect([at('alert'), alert]).toEqual([at('alert'), ['416px', 'start', surface[0], SURFACE[scheme], 178, 178, true, false]]);
       await context.close();
     }
     // A touch device: a control is 44 px, but for a small one, which keeps its own box as UIKit's does. (A narrow
@@ -571,9 +580,9 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a sheet
         const at = (t) => { for (const a of opened.getAnimations()) { a.pause(); a.currentTime = t; } return Math.round(box('opened')[1]); };
         const path = moving.length ? [at(0), at(200)] : [];
         for (const a of opened.getAnimations()) a.finish();
-        return [css('opened', 'position'), box('opened'), css('opened', 'borderTopLeftRadius'), css('opened', 'borderBottomLeftRadius'), box('tabs')[1] < box('opened')[1] + box('opened')[3], css('opened', 'zIndex'), moving, path.length === 0 || (path[0] === 712 && path[1] > 12 && path[1] < 712)];
+        return [css('opened', 'position'), box('opened'), CSS.supports('corner-shape', 'superellipse(2)') ? css('opened', 'borderTopLeftRadius') === '18.24px' : css('opened', 'borderTopLeftRadius') === '12px', css('opened', 'borderBottomLeftRadius'), box('tabs')[1] < box('opened')[1] + box('opened')[3], css('opened', 'zIndex'), moving, path.length === 0 || (path[0] === 712 && path[1] > 12 && path[1] < 712)];
       });
-      expect([engine, reducedMotion, got]).toEqual([engine, reducedMotion, ['fixed', [0, 12, 400, 688], '12px', '0px', true, '1', reducedMotion === 'reduce' ? [] : ['box-shadow', 'translate'], true]]);
+      expect([engine, reducedMotion, got]).toEqual([engine, reducedMotion, ['fixed', [0, 12, 400, 688], true, '0px', true, '1', reducedMotion === 'reduce' ? [] : ['box-shadow', 'translate'], true]]);
       await context.close();
     }
   } finally {

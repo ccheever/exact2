@@ -302,6 +302,28 @@ fn apple_continuous_is_a_superellipse_over_a_scaled_radius() {
 }
 
 #[test]
+fn a_capsule_control_takes_no_curve() {
+    fn corner(style: &str) -> String {
+        css(
+            &[(StyleId::ControlCornerStyle, StyleValue::Text(style.into()))],
+            &[],
+        )
+    }
+    assert!(
+        corner("capsule")
+            .contains("--exact-control-radius:calc(infinity * 1px);--exact-control-curve:round;"),
+        "{}",
+        corner("capsule")
+    );
+    // Any other corners leave the platform's curve to the shell (index.html).
+    assert!(
+        corner("medium").contains("--exact-control-radius:revert;--exact-control-curve:initial;"),
+        "{}",
+        corner("medium")
+    );
+}
+
+#[test]
 fn background_image_is_one_declaration_over_the_colour() {
     fn t(s: &str) -> StyleValue<'_> {
         StyleValue::Text(s.into())

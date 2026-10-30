@@ -241,8 +241,8 @@
   /* Checkbox, radio, range and file, drawn (D4.9): the line's height, in the accent, where the node's appearance is
      the platform's (`data-exact-control`, which the host writes under this look; `appearance="none"` hands the box
      to the author, unmarked). A checked mark is the accent under the ink that reads on it. */
-  #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]) { appearance: none; box-sizing: border-box; width: 1.25em; height: 1.25em; border: 1px solid var(--exact-line); border-radius: 4px; background-color: var(--exact-secondary-grouped-background); }
-  #exact-root input[data-exact-control][type="radio"] { border-radius: 50%; }
+  #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]) { appearance: none; box-sizing: border-box; width: 1.25em; height: 1.25em; border: 1px solid var(--exact-line); border-radius: calc(4px * var(--exact-curve-reach)); corner-shape: var(--exact-curve); background-color: var(--exact-secondary-grouped-background); }
+  #exact-root input[data-exact-control][type="radio"] { border-radius: 50%; corner-shape: round; }
   #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"])::before { content: ""; display: block; width: 100%; height: 100%; }
   #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]):checked { border-color: transparent; background-color: var(--exact-accent, AccentColor); color: #fff; }
   @supports (color: lab(from red l a b)) { #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]):checked { color: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); } }
@@ -260,7 +260,7 @@
   #exact-root input[data-exact-control][type="range"]::-moz-range-thumb { box-sizing: border-box; width: 1.25em; height: 1.25em; border: 2px solid var(--exact-secondary-grouped-background); border-radius: 50%; background-color: var(--exact-accent, AccentColor); }
   /* A file field keeps the browser's words; its button is the outline button. */
   #exact-root input[data-exact-control][type="file"] { color: var(--exact-secondary-label); }
-  #exact-root input[data-exact-control][type="file"]::file-selector-button { box-sizing: border-box; min-height: 2.25em; margin-inline-end: .75em; padding: .375em 1em; border: 1px solid var(--exact-line); border-radius: 8px; background-color: transparent; color: var(--exact-label); font: inherit; font-weight: 500; --exact-said-font-weight: ; }
+  #exact-root input[data-exact-control][type="file"]::file-selector-button { box-sizing: border-box; min-height: 2.25em; margin-inline-end: .75em; padding: .375em 1em; border: 1px solid var(--exact-line); border-radius: calc(8px * var(--exact-curve-reach)); corner-shape: var(--exact-curve); background-color: transparent; color: var(--exact-label); font: inherit; font-weight: 500; --exact-said-font-weight: ; }
   @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { #exact-root input[data-exact-control][type="file"]:enabled::file-selector-button:hover { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); } } }
   @media (any-pointer: coarse) { #exact-root input[data-exact-control][type="file"]::file-selector-button { min-height: 44px; } }
 
@@ -288,8 +288,8 @@
      its segments, the chosen one a chip of the page's ground. A segment takes its own title's width, as a control's
      size is the platform's (a `flex: 1` on it shares out what room the track is given beyond that, and no longer
      splits a track that hugs its titles into equal parts too narrow for the longest). */
-  :where(#exact-root [role="tablist"]:has(> button[data-button-style][role="tab"]):not(:has(> [aria-controls])), #exact-root [role="radiogroup"]:has(> button[data-button-style][role="radio"])) { width: fit-content; max-width: 100%; box-sizing: border-box; background-color: var(--exact-tertiary-fill); border-radius: 8px; padding: 3px; }
-  #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { min-height: calc(2.25em - 6px); border-color: transparent; border-radius: 6px; padding: .25em .75em; }
+  :where(#exact-root [role="tablist"]:has(> button[data-button-style][role="tab"]):not(:has(> [aria-controls])), #exact-root [role="radiogroup"]:has(> button[data-button-style][role="radio"])) { width: fit-content; max-width: 100%; box-sizing: border-box; background-color: var(--exact-tertiary-fill); border-radius: calc(8px * var(--exact-curve-reach)); corner-shape: var(--exact-curve); padding: 3px; }
+  #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { min-height: calc(2.25em - 6px); border-color: transparent; border-radius: calc(6px * var(--exact-curve-reach)); corner-shape: var(--exact-curve); padding: .25em .75em; }
   #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls]), [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { flex-basis: auto !important; }
   #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: var(--exact-secondary-label); }
   #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls])[aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(var(--exact-background), var(--exact-fill)); box-shadow: 0 1px 2px rgb(0 0 0 / .16); }
@@ -394,7 +394,7 @@
      2026-10-12: 17 judgments to 1 for this row, LLP 1115.000 D4.) A grouped alert's message box keeps a gutter at
      its inline end, where an overlay scroll indicator (iOS, a Mac trackpad) draws beside the words, not over them,
      and its actions keep a flat alert's 16px from a row above them (none under only its label's title). */
-  :where(#exact-root dialog) { border: none; border-radius: 12px; background-color: var(--exact-secondary-grouped-background); color: var(--exact-label); box-shadow: var(--exact-modal); }
+  :where(#exact-root dialog) { border: none; border-radius: calc(12px * var(--exact-curve-reach)); corner-shape: var(--exact-curve); background-color: var(--exact-secondary-grouped-background); color: var(--exact-label); box-shadow: var(--exact-modal); }
   :where(#exact-root dialog)::backdrop { background-color: var(--exact-scrim); }
   :where(#exact-root dialog[role="alertdialog"]) { width: min(26rem, calc(100vw - 32px)); padding: 24px; gap: 8px 12px; text-align: start; }
   :where(#exact-root dialog[role="alertdialog"][aria-label])::before { font-size: 1.125em; }
@@ -415,7 +415,7 @@
      navigation.js marks it `data-exact-chooser`) is drawn there as a menu headed by its name, as the Mac draws one,
      with no row for its cancel where Escape and a click outside cancel (any popover but a `manual` one). The page is
      not told the kernel's shape, so one with text stays centred even where the kernel calls it a chooser. */
-  :where(#exact-root [popover]) { border: none; border-radius: 12px; padding: 0; background-color: var(--exact-secondary-grouped-background); color: var(--exact-label); box-shadow: var(--exact-raised); }
+  :where(#exact-root [popover]) { border: none; border-radius: calc(12px * var(--exact-curve-reach)); corner-shape: var(--exact-curve); padding: 0; background-color: var(--exact-secondary-grouped-background); color: var(--exact-label); box-shadow: var(--exact-raised); }
   :where(#exact-root [popover]:is([role="menu"], [data-exact-chooser])) { box-sizing: border-box; min-width: 11rem; max-width: min(20rem, calc(100vw - 16px)); padding: 4px; }
   /* A popover of the author's own content keeps it off its edges by the web's margin, as UIKit's and AppKit's keep a
      view controller's content inside its layout margins (16 pt); the browser has none of its own. In `rem`, so it is
@@ -434,7 +434,7 @@
   @position-try --exact-inset-start { left: auto; right: calc(100% - var(--exact-inset-x)); }
   @position-try --exact-inset-up { top: auto; bottom: calc(100% - var(--exact-inset-y)); }
   @position-try --exact-inset-up-start { left: auto; right: calc(100% - var(--exact-inset-x)); top: auto; bottom: calc(100% - var(--exact-inset-y)); }
-  #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style] { min-height: 2em; border: none; border-radius: 8px; padding: .25em .625em; background-color: transparent; color: var(--exact-label); font-weight: 400; --exact-said-font-weight: ; justify-content: start; text-align: start; --exact-button-space-width: .5em; }
+  #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style] { min-height: 2em; border: none; border-radius: calc(8px * var(--exact-curve-reach)); corner-shape: var(--exact-curve); padding: .25em .625em; background-color: transparent; color: var(--exact-label); font-weight: 400; --exact-said-font-weight: ; justify-content: start; text-align: start; --exact-button-space-width: .5em; }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style][data-destructive="true"] { color: var(--exact-accent); }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:disabled { color: var(--exact-gray-text); }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:focus-visible { outline-offset: -2px; }
@@ -458,14 +458,14 @@
      colour the author wrote still wins. */
   :where(#exact-root [navigationPresentation="modal"]) { color: var(--exact-label); }
   /* Every browser uses the same sheet ground; an authored ground still wins. */
-  #exact-root [navigationPresentation="modal"] { background-color: var(--exact-background); position: fixed !important; inset: calc(env(safe-area-inset-top, 0px) + 12px) 0 0 !important; margin: 0 !important; box-sizing: border-box !important; width: auto !important; height: auto !important; max-height: none !important; z-index: 1; border-radius: 12px 12px 0 0; overflow: clip; box-shadow: 0 0 0 100vmax var(--exact-scrim); transition: translate .4s cubic-bezier(.32, .72, 0, 1), box-shadow .4s cubic-bezier(.32, .72, 0, 1); }
+  #exact-root [navigationPresentation="modal"] { background-color: var(--exact-background); position: fixed !important; inset: calc(env(safe-area-inset-top, 0px) + 12px) 0 0 !important; margin: 0 !important; box-sizing: border-box !important; width: auto !important; height: auto !important; max-height: none !important; z-index: 1; border-radius: calc(12px * var(--exact-curve-reach)) calc(12px * var(--exact-curve-reach)) 0 0; corner-shape: var(--exact-curve); overflow: clip; box-shadow: 0 0 0 100vmax var(--exact-scrim); transition: translate .4s cubic-bezier(.32, .72, 0, 1), box-shadow .4s cubic-bezier(.32, .72, 0, 1); }
   @starting-style { #exact-root [navigationPresentation="modal"] { translate: 0 100vh; box-shadow: 0 0 0 100vmax transparent; } }
   @media (prefers-reduced-motion: reduce) { #exact-root [navigationPresentation="modal"] { transition: none; } }
   #exact-root [data-exact-covered]::after { content: none; }
   #exact-root [navigationPresentation="modal"][data-exact-covered] { box-shadow: none; }
   @media (min-width: 900px) {
     #exact-root [navigationPresentation="modal"][data-exact-covered] { box-shadow: var(--exact-modal); }
-    #exact-root [navigationPresentation="modal"] { inset: 0 !important; margin: auto !important; width: min(35rem, calc(100vw - 64px)) !important; height: min(45rem, calc(100vh - 64px)) !important; border-radius: 12px; box-shadow: var(--exact-modal), 0 0 0 100vmax var(--exact-scrim); }
+    #exact-root [navigationPresentation="modal"] { inset: 0 !important; margin: auto !important; width: min(35rem, calc(100vw - 64px)) !important; height: min(45rem, calc(100vh - 64px)) !important; border-radius: calc(12px * var(--exact-curve-reach)); corner-shape: var(--exact-curve); box-shadow: var(--exact-modal), 0 0 0 100vmax var(--exact-scrim); }
     @starting-style { #exact-root [navigationPresentation="modal"] { box-shadow: var(--exact-modal), 0 0 0 100vmax transparent; } }
   }
 
@@ -474,7 +474,7 @@
      a ground the author wrote on the list stays (`data-exact-said`). A card is the sheet's own node. */
   #exact-root [data-liststyle]:not([data-exact-said~="background-color"]) { background-color: var(--exact-grouped-background) !important; }
   #exact-root [data-liststyle="plain"]:not([data-exact-said~="background-color"]) { background-color: var(--exact-background) !important; }
-  #exact-root [data-liststyle="inset-grouped"] > section > div { border-radius: 12px !important; }
+  #exact-root [data-liststyle="inset-grouped"] > section > div { border-radius: calc(12px * var(--exact-curve-reach)) !important; corner-shape: var(--exact-curve) !important; }
 
   /* Forced colours: the drawn marks would lose their fills, so each is the browser's own again. */
   @media (forced-colors: active) {

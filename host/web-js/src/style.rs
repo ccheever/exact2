@@ -1116,7 +1116,11 @@ pub fn style_writes(id: u16, timeline: bool, written: bool) -> Result<Vec<Write>
         ],
         StyleId::TintColor => vec![with("--exact-tint", &TINT_MAP)],
         StyleId::PlaceholderColor => vec![with("--exact-placeholder-color", "v=>v==null?v:/^\\s*(unset)?\\s*$/i.test(v)?'initial':v")],
-        StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],
+        // A capsule's ends are half-circles, so it takes no curve (index.html).
+        StyleId::ControlCornerStyle => vec![
+            with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'"),
+            with("--exact-control-curve", "v=>v==null?v:v==='capsule'?'round':'initial'"),
+        ],
         StyleId::ColumnGap | StyleId::RowGap => {
             let column = row == StyleId::ColumnGap;
             let mut writes = one(if column { "column-gap" } else { "row-gap" }, "px");
