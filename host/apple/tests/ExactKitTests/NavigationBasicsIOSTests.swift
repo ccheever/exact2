@@ -506,16 +506,11 @@ final class NavigationBasicsIOSTests: XCTestCase {
         // A heading in a wrapper with a bar item (Chat's press group aside)
         // and a box before a direct heading are not avatars: Home's badge
         // button is an item, and its title stays UIKit's.
-        nav.popViewController(animated: false)
-        // Settled, whatever the machine's load: UIKit's pop and the session's answer to it (a fixed 0.3 s let a loaded
-        // full run read Home while Plain's subtitle still stood)
+        nav.popViewController(animated: false) // then settled, UIKit's pop and the session's answer, whatever the load
         until("Home settles") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil && !session.advanceInFlight && !Agent(session: session).nativeInFlight() }
         let home = try XCTUnwrap(nav.topViewController)
         XCTAssertFalse(home.navigationItem.titleView is HeaderTitleView, "Home's segments keep the title view")
-        if #available(iOS 26.0, *) {
-            let stack = nav.viewControllers.map { "\($0.navigationItem.title ?? "?") / \($0.navigationItem.subtitle ?? "none")" }
-            XCTAssertNil(home.navigationItem.subtitle, "Home has no text after its heading; the stack: \(stack)")
-        }
+        if #available(iOS 26.0, *) { XCTAssertNil(home.navigationItem.subtitle, "Home has no text after its heading; the stack: \(nav.viewControllers.map { "\($0.navigationItem.title ?? "?") / \($0.navigationItem.subtitle ?? "none")" })") }
     }
 
     /// LLP 1075.003 §9.15: a readout (`role="status"`) after the header's
