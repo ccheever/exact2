@@ -519,13 +519,13 @@ package final class Runtime {
     }
     package func tickAsync(now: Double, frame: Double? = nil, capture: UInt64 = 0, measureFrame: Bool = false, done: @escaping (Batch) -> Void) {
         if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
-        let queued = capture == 0 ? 0 : CACurrentMediaTime()
+        let queued = capture == 0 ? 0 : hostMediaTime()
         Owner.shared.post { [self] in
             guard !destroyed else { return }
-            let began = capture == 0 ? 0 : CACurrentMediaTime()
+            let began = capture == 0 ? 0 : hostMediaTime()
             var batch = read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now))
             if measureFrame || capture != 0 { batch.frameWorkTiming = FrameWorkTiming(capture: capture, frame: frame,
-                queued: queued, began: began, finished: capture == 0 ? 0 : CACurrentMediaTime()) }
+                queued: queued, began: began, finished: capture == 0 ? 0 : hostMediaTime()) }
             done(batch)
         }
     }
@@ -732,13 +732,13 @@ package final class Runtime {
     /// due by `now`, or with `frame` that display frame's (`frame(now:wall:)`).
     package func advanceAsync(now: Double, frame: Double? = nil, admitted: Bool = false, capture: UInt64 = 0, measureFrame: Bool = false, done: @escaping (Batch) -> Void) {
         if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
-        let queued = capture == 0 ? 0 : CACurrentMediaTime()
+        let queued = capture == 0 ? 0 : hostMediaTime()
         Owner.shared.post { [self] in
             guard !destroyed else { return }
-            let began = capture == 0 ? 0 : CACurrentMediaTime()
+            let began = capture == 0 ? 0 : hostMediaTime()
             var batch = read(frame.map { admitted ? exact_admitted_frame(rt, $0, now) : exact_frame_at(rt, $0, now) } ?? exact_advance(rt, now, 0))
             if measureFrame || capture != 0 { batch.frameWorkTiming = FrameWorkTiming(capture: capture, frame: frame,
-                queued: queued, began: began, finished: capture == 0 ? 0 : CACurrentMediaTime()) }
+                queued: queued, began: began, finished: capture == 0 ? 0 : hostMediaTime()) }
             done(batch)
         }
     }
