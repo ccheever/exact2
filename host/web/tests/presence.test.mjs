@@ -88,7 +88,8 @@ beforeAll(async () => {
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
     res.writeHead(200, { 'content-type': req.url === '/' ? 'text/html' : 'text/javascript' });
     if (req.url === '/js/names.js') { res.end('export const sourceTypes = {};'); return; }
-    const path = req.url.startsWith('/js/') ? req.url.slice(4) : req.url.slice(1);
+    // `/js/` is the JS target's directory, beside this one; its modules import ours as `../web/`.
+    const path = req.url.startsWith('/js/') ? req.url.slice(4) : req.url.replace(/^\/(web\/)?/, '');
     const js = resolve(WEB, '../web-js', path);
     // names.js is a build's output (the plan's names), which rt.js reaches through perf.js since db825de7b.
     if (req.url === '/js/names.js') { res.end('export const sourceTypes = {};'); return; }
@@ -112,6 +113,14 @@ afterAll(async () => {
 const card = 'width:100px;height:40px;background:red;--exact-layout-transition:1000 0 linear';
 const fixture = html => evaluate(`fixture(${JSON.stringify(html)})`);
 const style = (css, id = 'card') => evaluate(`batch({ops:[{op:'style',id:${JSON.stringify(id)},css:${JSON.stringify(css)}}]})`);
+// What paints on top at a point of the holder, the ghosts made hit-testable for the read
+const topmost = (x, y) => evaluate(`(() => {
+  const ghosts = [...document.querySelectorAll('[data-exiting]')];
+  for (const g of ghosts) { g.inert = false; g.style.pointerEvents = 'auto'; }
+  const r = document.getElementById('holder').getBoundingClientRect(), el = document.elementFromPoint(r.left + ${x}, r.top + ${y});
+  for (const g of ghosts) { g.inert = true; g.style.pointerEvents = 'none'; }
+  return el.id || el.exactExitId;
+})()`);
 
 check('presence inspection reads the moving surface and the leaving ghost', async () => {
   await fixture(`<div id="card" data-view="7" style="${card}"></div>`);
@@ -236,16 +245,22 @@ check('reordering equal siblings keeps a surface anchored when its owner has the
   expect(await evaluate('surface().getBoundingClientRect().y')).toBeCloseTo(before, 1);
 });
 
-check('ghosts stay above authored z and isolate their parent until its last exit ends', async () => {
+check('ghosts keep their paint order among their siblings and isolate their parent until its last exit ends', async () => {
+  // After the exits: `plain` and `later` (moved up over the card's box) at 0-40, the ghosts at 0-40 and 80-120.
   await fixture(`<div id="holder" style="position:relative">
-    <div id="card" style="width:100px;height:40px"></div>
-    <div id="second" style="width:100px;height:40px"></div>
-    <div id="ranked" style="position:absolute;z-index:2147483645;width:100px;height:40px"></div>
+    <div id="card" style="width:200px;height:40px;z-index:5"></div>
+    <div id="plain" style="width:200px;height:40px"></div>
+    <div id="second" style="position:relative;z-index:2;width:200px;height:40px"></div>
+    <div id="later" style="position:relative;top:-40px;width:100px;height:40px"></div>
   </div>`);
   await evaluate(`batch({ops:[{op:'exit',id:'card',css:'pulse 1000ms linear both'},
     {op:'exit',id:'second',css:'pulse 2000ms linear both'}]}); seek(0)`);
   expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('isolate');
-  expect(await evaluate('[...document.querySelectorAll("[data-exiting]")].map(el => el.style.zIndex)')).toEqual(['2147483646', '2147483646']);
+  expect(await topmost(150, 20)).toBe('card'); // a positioned box over an in-flow one
+  expect(await topmost(50, 20)).toBe('later'); // level 0 in tree order: the z-index it had no use for stays unused
+  expect(await evaluate('[...document.querySelectorAll("[data-exiting]")].map(el => getComputedStyle(el).zIndex)')).toEqual(['auto', '2']);
+  // Each ghost starts at its own last box, though the first one's exit took it out of flow before the second's
+  expect(await evaluate('[...document.querySelectorAll("[data-exiting]")].map(el => el.offsetTop)')).toEqual([0, 80]);
   await evaluate(`document.getAnimations().find(a => a.effect.getTiming().duration === 1000).finish(); Promise.resolve()`);
   expect(await evaluate('document.querySelectorAll("[data-exiting]").length')).toBe(1);
   expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('isolate');
@@ -254,6 +269,60 @@ check('ghosts stay above authored z and isolate their parent until its last exit
   expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('isolate');
   await evaluate('document.getAnimations().forEach(a => a.finish()); Promise.resolve()');
   expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('');
+});
+
+check('a ghost paints its subtree in its turn, though only its position made it a stacking context', async () => {
+  // After the exit, `later` (z-index 1) lies over the card's box, where the card's child has z-index 10. The exit
+  // animates a colour, which makes no stacking context of its own, as an opacity animation would.
+  await fixture(`<style>@keyframes tint { to { background-color: blue } }</style><div id="holder" style="position:relative">
+    <div id="card" style="position:sticky;top:0;width:200px;height:40px"><div id="inner" style="position:relative;z-index:10;height:40px"></div></div>
+    <div id="plain" style="width:200px;height:40px"></div>
+    <div id="later" style="position:relative;z-index:1;top:-40px;width:100px;height:40px"></div>
+  </div>`);
+  await evaluate(`leave('tint 1000ms linear both'); seek(0)`);
+  expect(await topmost(50, 20)).toBe('later');
+});
+
+check('a view that leaves while lifted stops being lifted, as Apple lets go of it', async () => {
+  // Lifts the element `id` as an Arrange drag does, through a motion controller that knows only it, and reads its
+  // `z-index`
+  const lift = id => evaluate(`(async () => {
+    const { motionController } = await import('./motion-glue.js');
+    const el = document.getElementById('${id}');
+    window.lifting = motionController({ views: new Map([['${id}', el]]), now: () => 0, generation: () => 0, request: () => {}, applyBatch: () => {}, inert: () => false });
+    lifting.raiseReorder('${id}', true);
+    return getComputedStyle(el).zIndex;
+  })()`);
+  // After the exit, `later` lies over the card's box; the lift had raised the card over everything
+  await fixture(`<div id="holder" style="position:relative">
+    <div id="card" style="width:200px;height:40px"></div>
+    <div id="plain" style="width:200px;height:40px"></div>
+    <div id="later" style="position:relative;top:-40px;width:100px;height:40px"></div>
+  </div>`);
+  expect(await lift('card')).toBe('2147483647');
+  await evaluate(`leave('pulse 1000ms linear both'); seek(0)`);
+  expect(await topmost(50, 20)).toBe('later');
+  expect(await evaluate('getComputedStyle(document.querySelector("[data-exiting]")).zIndex')).toBe('auto');
+  // And a lifted row inside a view that leaves
+  await fixture(`<div id="holder" style="position:relative"><div id="card" style="width:200px;height:80px">
+    <div id="row" style="width:200px;height:40px"></div></div></div>`);
+  expect(await lift('row')).toBe('2147483647');
+  await evaluate(`leave('pulse 1000ms linear both'); seek(0)`);
+  expect(await evaluate('(() => { const cs = getComputedStyle(document.querySelector("[data-exiting] > div")); return [cs.zIndex, cs.position]; })()')).toEqual(['auto', 'static']);
+});
+
+check('a flex or grid items ghost paints at the z-index that ranked it', async () => {
+  for (const display of ['flex', 'grid;grid-auto-flow:column;grid-template-columns:50px 50px 50px']) {
+    // After the exit, `low` and `high` take the card's place, one half each
+    await fixture(`<div id="holder" style="position:relative;display:${display}">
+      <div id="card" style="flex:none;width:100px;height:40px;z-index:5"></div>
+      <div id="low" style="flex:none;position:relative;z-index:3;width:50px;height:40px"></div>
+      <div id="high" style="flex:none;position:relative;z-index:7;width:50px;height:40px"></div>
+    </div>`);
+    await evaluate(`leave('pulse 1000ms linear both'); seek(0)`);
+    expect(await topmost(25, 20)).toBe('card');
+    expect(await topmost(75, 20)).toBe('high');
+  }
 });
 
 check('a finished or cancelled ghost restores the parents current isolation row', async () => {

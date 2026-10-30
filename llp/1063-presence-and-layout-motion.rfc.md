@@ -86,11 +86,17 @@ emptied one leaves as the row, where the window placed it, playing its one
 root's `exit-animation` (a row of several roots goes at once).
 
 **D4 — The leaving view is a ghost, out of layout.** Siblings take its place
-immediately; it keeps its last laid-out box and paints above its old siblings
-(web: `position:absolute` at its last offset box, which a positioned element
-does by painting order; UIKit/AppKit: brought to front). It receives no input
-(`inert` / `isUserInteractionEnabled=false` / `routeInert`), is hidden from
-accessibility (`aria-hidden` / `accessibilityElementsHidden` /
+immediately. The ghost keeps its last laid-out box and its place in paint
+order: it paints as the positioned box it becomes, by its own rank and then
+tree order (LLP 1083.000 D4). A node with an exit animation and no `z-index`
+paints at level 0, so its ghost paints over in-flow siblings and under a later
+sibling that also paints at level 0, such as content that glides into its
+place. On the web the ghost is `position:absolute` at its last box, where it
+was in the DOM, and isolated, so that its subtree paints in its turn, as a
+view's does on Apple; on UIKit and AppKit it keeps its rank and its place in
+`subviews`. LLP 1083.000 §4 lists where the hosts differ. The ghost receives
+no input (`inert` / `isUserInteractionEnabled=false` / `routeInert`), is hidden
+from accessibility (`aria-hidden` / `accessibilityElementsHidden` /
 `setAccessibilityHidden`), gives up focus, and on the web loses every `id`
 attribute in its subtree. On Apple it and its descendants leave the
 presenter's maps, so focus-by-id and every other lookup find only the live
@@ -222,6 +228,15 @@ a leaving screen where the platform does not.
 
 ## Known gaps
 
+- Web, JS target: a leaving view is read when its region removes it, during
+  the commit's tree update, after the commit's earlier writes. So the ghost's
+  box, and whether its `z-index` applies, already reflect those writes: if
+  the same commit drops the parent's top padding, the ghost starts its exit
+  that much higher than it was painted. The web host's batches and Apple read
+  every leaving view before the commit changes anything. An app avoids it by
+  keeping the parent's layout unchanged in that commit, for example with a
+  margin on the leaving view in place of a padding on its parent
+  (`docs/agent-pitfalls.md`, "Layout").
 - Web: the stand-in paints below all of its parent's in-flow content
   (`z-index: -1` in the parent, isolated for the while), so an earlier
   sibling's content that overflows onto a box whose size is moving shows over

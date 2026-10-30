@@ -131,6 +131,25 @@ function createPresence(root) {
     else el.style.removeProperty('isolation');
   };
   let frame = null;
+  // What a leaving view's ghost keeps (LLP 1063 D4), read as it leaves: the `left` and `top` that keep its border box
+  // where it is (its offsets less its margins), its border-box size, and whether its `z-index` applies (a positioned
+  // box's or a flex or grid item's)
+  const kept = el => {
+    const cs = getComputedStyle(el);
+    return [[el.offsetLeft - parseFloat(cs.marginLeft), el.offsetTop - parseFloat(cs.marginTop), el.offsetWidth, el.offsetHeight],
+      cs.position !== 'static' || /flex|grid/.test(getComputedStyle(el.parentElement).display)];
+  };
+  // A view stops being lifted when it leaves, and so does any lifted view inside it, as on Apple, where the reorder
+  // hold lets go of a view that has left. Each gets back the `z-index` and `position` the Arrange lift overwrote
+  // (motion-glue.js `overlay`).
+  const unlift = leaving => {
+    const lifts = globalThis.exact?.lifts;
+    for (const [el, [zIndex, position]] of lifts ?? []) {
+      if (!leaving.contains(el)) continue;
+      el.style.zIndex = zIndex; el.style.position = position;
+      lifts.delete(el);
+    }
+  };
   let first = new Map();
 
   // Read the element's presented paint without our transparent surface or
@@ -288,19 +307,24 @@ function createPresence(root) {
           if (at) first.set(el, [at, going(el)]);
         }
       }
+      // The batch's leaving views, each read before any exit takes one out of flow
+      const exits = (batch.ops ?? []).filter(op => op.op === 'exit').map(op => [views.get(op.id), op.css]).filter(([el]) => el?.isConnected);
+      for (const [el] of exits) unlift(el);
+      const readings = exits.map(([el]) => kept(el));
       // Let this commit update the underlying row before reapplying the
       // ghost policy in after(). Both run in the same task, before paint.
       for (const [parent, held] of ghostParents) {
         restoreIsolation(parent, held);
         held.released = true;
       }
-      for (const op of batch.ops ?? []) if (op.op === 'exit') this.exit(views.get(op.id), op.css);
+      exits.forEach(([el, css], i) => this.exit(el, css, readings[i]));
     },
-    exit(el, css) {
+    // `at`: what `kept` returned for it, when `before` read it ahead of the batch's exits
+    exit(el, css, at) {
       if (!el?.isConnected || !css) return;
       stop(el);
-      const cs = getComputedStyle(el), s = el.style;
-      const box = [el.offsetLeft - parseFloat(cs.marginLeft), el.offsetTop - parseFloat(cs.marginTop), el.offsetWidth, el.offsetHeight];
+      unlift(el);
+      const [box, ranked] = at ?? kept(el), s = el.style, parent = el.parentElement;
       // No input, no accessibility, no focus, no ids: a view re-created with
       // the same key while this one leaves is the only one with its names.
       el.setAttribute('data-exiting', '');
@@ -315,9 +339,12 @@ function createPresence(root) {
       s.transition = 'none';
       s.position = 'absolute'; s.left = `${box[0]}px`; s.top = `${box[1]}px`;
       s.width = `${box[2]}px`; s.height = `${box[3]}px`; s.boxSizing = 'border-box'; s.pointerEvents = 'none';
-      // Above all authored z-indices and just below the Arrange lift.
-      s.zIndex = '2147483646';
-      const parent = el.parentElement;
+      // It keeps its paint order among its siblings (LLP 1083.000 D4): its own `z-index`, or level 0 in tree
+      // order, as a positioned box. A `z-index` that had no effect before it was positioned still has none.
+      if (!ranked) s.zIndex = 'auto';
+      // And it paints its subtree in its turn, as a ghost does on Apple: a sticky or fixed box was a stacking
+      // context by its position alone, which an absolute one with no `z-index` is not
+      s.isolation = 'isolate';
       let held = ghostParents.get(parent);
       if (!held) {
         held = { count: 0, value: parent.style.getPropertyValue('isolation'), priority: parent.style.getPropertyPriority('isolation'), released: false };
