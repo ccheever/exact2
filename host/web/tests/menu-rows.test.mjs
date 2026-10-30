@@ -146,6 +146,16 @@ check('a button is marked open while the popover it opened is open, a submenu\'s
   await until(marked, []);
 }), 60000);
 
+check('a click the input glue swallows as stray opens nothing, though this rule heard it first', () => inChrome(async (evaluate, press, until) => {
+  await press('opener');
+  await until('open()', ['menu']);
+  // As the input glue does when this rule registered first: it says the click is stray, then swallows it.
+  await evaluate(`globalThis.exact.strayClick = () => true; addEventListener('click', e => { if (exact.strayClick(e)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true)`);
+  await press('react');
+  await evaluate('new Promise(ok => setTimeout(ok, 50))');
+  expect(await evaluate('open()')).not.toContain('picker');
+}), 60000);
+
 check('a commandfor row and a key\'s press take the rule too', () => inChrome(async (evaluate, press, until, enter) => {
   await press('opener');
   await until('open()', ['menu']);

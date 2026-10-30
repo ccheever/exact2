@@ -530,7 +530,7 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     await finger('touchEnd');
     // A person's scroll under a press ends it (the browser takes the touch to pan: `pointercancel`), and a touch that
     // stops a list a person set moving is no press.
-    await evaluate(`document.getElementById('away').insertAdjacentHTML('beforebegin', '<div id="scroller" style="position:fixed;top:0;left:0;width:300px;height:40px;overflow:auto"><div id="deep" data-exact-on="press" style="height:200px">deep</div><div style="height:100px"></div></div>')`);
+    await evaluate(`document.getElementById('away').insertAdjacentHTML('beforebegin', '<div id="scroller" style="position:fixed;top:0;left:0;width:300px;height:40px;overflow:auto"><div id="deep" data-exact-on="press" style="height:200px">deep</div><div id="next" data-exact-on="press" style="height:100px">next</div></div>')`);
     const scrollTop = () => evaluate(`document.getElementById('scroller').scrollTop`);
     const [across] = await centre('scroller');
     await finger('touchStart', [across, 35]);
@@ -561,6 +561,17 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     await scroll(20);
     expect(await marked('deep', 'data-pressed')).toBe(true);
     await finger('touchEnd');
+    // A touch belongs to the target it began on: lifted after the app scrolled another under the finger, it presses
+    // neither, though the browser aims the tap's `click` at the one under the finger then. The next tap presses.
+    await released('deep');
+    await evaluate(`window.clicked = []; for (const id of ['deep', 'next']) document.getElementById(id).addEventListener('click', () => clicked.push(id))`);
+    await scroll(0);
+    await finger('touchStart', [across, 20]);
+    await scroll(200);
+    await finger('touchEnd');
+    await finger('touchStart', [across, 20]);
+    await finger('touchEnd');
+    expect(await evaluate('clicked.join()')).toBe('next');
     await evaluate(`document.getElementById('scroller').remove()`);
     // A pressable nothing scrolls under shows its press at the touch, as a tab bar's item does on iOS: in a fixed bar,
     // or a sticky one, as the route header is in a scrolling document.
@@ -1339,7 +1350,17 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: press f
       pointer('fixed', 'pointerup');
       return [before, after];
     });
-    expect(seen).toEqual({ authoredButton: '0.4', movingPage: false, appScroll: true, wheelElsewhere: true, afterScrollEnd: true, fixedBar: [true, true] });
+    // A touch lifted off its target swallows only the browser's click; a script's `click()` still runs.
+    seen.scriptClick = await page.evaluate(() => {
+      const el = document.getElementById('fixed');
+      let clicked = false;
+      el.addEventListener('click', () => { clicked = true; }, { once: true });
+      pointer('fixed', 'pointerdown');
+      el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch', pointerId: 1, isPrimary: true, button: 0, clientX: 2000, clientY: 2000 }));
+      el.click();
+      return clicked;
+    });
+    expect(seen).toEqual({ authoredButton: '0.4', movingPage: false, appScroll: true, wheelElsewhere: true, afterScrollEnd: true, fixedBar: [true, true], scriptClick: true });
     // Ignore delayed feedback if the target is disabled or removed before its timer fires
     await page.clock.runFor(151);
     for (const change of ['disabled', 'removed']) {

@@ -62,6 +62,7 @@ function menuRows() {
   if (globalThis.exactMenuRows) return;
   globalThis.exactMenuRows = true;
   addEventListener("click", e => {
+    if (globalThis.exact?.strayClick?.(e)) return; // the input glue swallows it: a lift off the target the touch began on
     const row = e.target.closest?.("button[popovertarget], button[commandfor]");
     const menu = row?.closest('[popover][role="menu"]');
     // Only a row that opens a popover at the click: every other keeps HTML's own activation (a press

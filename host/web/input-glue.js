@@ -908,7 +908,28 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (press.delay) return;
     showHeld(press, inside(press, e));
   }, true);
-  document.addEventListener("pointerup", e => { if (e.pointerId === press?.id) release(false, inside(press, e)); }, true);
+  // A touch belongs to the target it began on, as UIKit hit-tests a touch once: lifted outside that target's box as it
+  // stands now (the app may have moved it from under the finger), it presses nothing, though the browser aims its
+  // `click` at whatever is under the finger then. Only the click that lift makes is swallowed: a trusted one a pointer
+  // made (`detail` above 0, where a key's or assistive technology's activation has 0), within a second, before any
+  // other press or key. `exact.strayClick` says so to a listener that may have heard it first (menu-rows.js, which
+  // defers a row's action).
+  let strayUntil = -Infinity;
+  const stray = e => e.isTrusted && e.detail > 0 && performance.now() <= strayUntil;
+  (globalThis.exact ??= {}).strayClick = stray;
+  addEventListener("click", e => {
+    if (!stray(e)) return;
+    strayUntil = -Infinity;
+    e.preventDefault(); e.stopImmediatePropagation();
+  }, true);
+  for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => { strayUntil = -Infinity; }, true);
+  document.addEventListener("pointerup", e => {
+    if (e.pointerId !== press?.id) return;
+    press.box = boxOf(press.el);
+    const lifted = inside(press, e);
+    if (press.touch && !lifted) strayUntil = performance.now() + 1000;
+    release(false, lifted);
+  }, true);
   document.addEventListener("pointercancel", e => { if (e.pointerId === press?.id) release(); }, true);
   // Leaving the page, the window or the tab may take the release with it, as the pointer dispatch below assumes: the
   // press, a key's too, ends at once. A gesture that claims the contact (motion-glue's swipe) ends the press as it
