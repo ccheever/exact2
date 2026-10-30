@@ -83,6 +83,17 @@ restart. Defaults are restored and the cloud session is shut down. Evidence is
 under `target/t3-poc-evidence/phone-typography-preferences/`. This qualifies
 offline preference behavior, not quantitative font or connected terminal parity.
 
+The normal build from `c102ae291c` also passes Return-key preference persistence
+on fresh EAS. The observed starting selection is Send message. Insert new line
+remains selected after leaving and reopening Keyboard and after a process restart.
+Restoring Send message persists after another restart. Accessibility selection
+and inspected native checkmarks agree. Home controls, Settings navigation,
+New task and Back remain usable. Evidence is under
+`target/t3-poc-evidence/phone-keyboard-preference-persistence/`.
+This qualifies offline preference storage and the choice UI. Hardware input,
+IME, Return dispatch and connected submission remain separate. The cloud session
+is shut down. No product code changed, and TestFlight is unchanged.
+
 Text-only strong table cells now render through the existing native text runs.
 The generated adapter admits direct strong nodes with positioned plain-text
 children and retains whole-segment fallback for unsupported content. Existing
