@@ -60,6 +60,7 @@ export interface Table {
  * unless it says so (LLP 1041 §8.4), and a route check that waits out its 2.5 s would hold every other read.
  */
 export const fetchHttp: Http = async (url, init) => {
+  // A named object, not literal keys: the README's tsc line lacks Exact's RequestInit fields and rejects them inline.
   const exact = { exactTimeout: init.timeoutMs, exactIndependentHttp: { maxResponseBytes: init.maxBytes ?? 1024 * 1024 } };
   const response = await fetch(url, { method: init.method ?? 'GET', headers: init.headers, ...(init.bodyFrom ? { exactBodyFrom: init.bodyFrom } : { body: init.body }), signal: init.signal,
     redirect: 'manual', ...exact } as RequestInit);

@@ -625,8 +625,8 @@ Differences that belong to the app:
   stream resource, admitted by `net.websocket ws:` and `wss:` since servers are named at run time
   (#703), whose mapper answers Pings and acknowledges chunks in the frame's own commit (#705, LLP
   1016.000 D7); HTTP goes through `fetch` (`net.fetch http:` and `https:`). `app.json`'s
-  `appTransportSecurity.allowsArbitraryLoads` turns App Transport Security off, so an environment at plain
-  `http:` by a host name pairs, as in the reference's Chromium. The answer or command
+  `host.macos.appTransportSecurity.allowsArbitraryLoads` turns App Transport Security off, so an
+  environment at a plain `http:` host name pairs, as in the reference's Chromium. The answer or command
   that asks for a request sends it on that socket itself and awaits the reply (#736, D7's amendment
   of 2026-10-18); a frame no turn may send yet (the socket is not open) waits in the outbox, which
   the mapper sends when the socket opens and after each frame. A data module's timer lives only
