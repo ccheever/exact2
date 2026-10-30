@@ -416,11 +416,13 @@ struct TextRasterJob {
         let room = room ?? bounds
         var limit = room.insetBy(dx: -Self.maxInkOverflow, dy: -Self.maxInkOverflow), shadowed = CGRect.null
         for (line, position) in zip(lines, positions) {
+            var linePaint = CGRect.null
             let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
             if !ink.isNull, !ink.isEmpty {
                 let glyphs = CGRect(x: position.x + ink.minX, y: position.y - ink.maxY, width: ink.width, height: ink.height)
                 let padded = glyphs.insetBy(dx: -1 / scale, dy: -1 / scale)
                 painted = painted.union(padded); glyphPaint = glyphPaint.union(padded)
+                linePaint = linePaint.union(padded)
                 // Runs' own shadows are in these pixels (LLP 1077 D3).
                 var shadows = TextRunShadow.reach(line, ink: glyphs)
                 if let s = shadow ?? layerShadow {
@@ -440,9 +442,42 @@ struct TextRasterJob {
                 if width > 0 {
                     let lineBox = CGRect(x: position.x, y: position.y - ascent, width: width, height: ascent + descent)
                     painted = painted.union(lineBox); glyphPaint = glyphPaint.union(lineBox)
+                    linePaint = linePaint.union(lineBox)
                 }
             }
-            for fill in TextLinePaint.backgrounds(line, at: position) { painted = painted.union(fill.rect); glyphPaint = glyphPaint.union(fill.rect) }
+            for fill in TextLinePaint.backgrounds(line, at: position) {
+                painted = painted.union(fill.rect); glyphPaint = glyphPaint.union(fill.rect); linePaint = linePaint.union(fill.rect)
+            }
+            if case .viewport = retention {
+                for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+                    let attrs = CTRunGetAttributes(run) as NSDictionary
+                    guard attrs[NSAttributedString.Key.exactHidden] as? Bool != true,
+                          let width = attrs[NSAttributedString.Key.strokeWidth] as? NSNumber, width.doubleValue != 0 else { continue }
+                    let font = attrs[kCTFontAttributeName] as! CTFont
+                    let stroke = abs(width.doubleValue) * CTFontGetSize(font) / 200
+                    let count = CTRunGetGlyphCount(run)
+                    var glyphs = [CGGlyph](repeating: 0, count: count), origins = [CGPoint](repeating: .zero, count: count)
+                    CTRunGetGlyphs(run, CFRange(), &glyphs); CTRunGetPositions(run, CFRange(), &origins)
+                    var ink = CGRect.null
+                    // A miter can reach beyond half the stroke width at an italic corner.
+                    for (glyph, origin) in zip(glyphs, origins) {
+                        guard let path = CTFontCreatePathForGlyph(font, glyph, nil) else { continue }
+                        let outline = path.copy(strokingWithWidth: stroke * 2, lineCap: .butt, lineJoin: .miter, miterLimit: 10)
+                        ink = ink.union(outline.boundingBoxOfPath.applying(CTRunGetTextMatrix(run)).offsetBy(dx: origin.x, dy: origin.y))
+                    }
+                    ink = ink.insetBy(dx: -1 / scale, dy: -1 / scale)
+                    let decorated = CGRect(x: position.x + ink.minX, y: position.y - ink.maxY, width: ink.width, height: ink.height)
+                    painted = painted.union(decorated); glyphPaint = glyphPaint.union(decorated); linePaint = linePaint.union(decorated)
+                    if let s = TextRunShadow.of(run) {
+                        let cast = decorated.offsetBy(dx: s.offset.width, dy: s.offset.height).insetBy(dx: -s.blur * 1.5 - 1, dy: -s.blur * 1.5 - 1)
+                        painted = painted.union(cast); shadowed = shadowed.union(cast)
+                    }
+                }
+                if let s = shadow ?? layerShadow, !linePaint.isNull {
+                    let cast = linePaint.offsetBy(dx: s.offset.width, dy: s.offset.height).insetBy(dx: -s.blur * 1.5 - 1, dy: -s.blur * 1.5 - 1)
+                    painted = painted.union(cast); shadowed = shadowed.union(cast)
+                }
+            }
         }
         // Truncation inserts runs whose paint need not occur in the source.
         let runs = lines.flatMap { CTLineGetGlyphRuns($0) as! [CTRun] }
@@ -483,8 +518,10 @@ struct TextRasterJob {
         for s in casters {
             let glyphs = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: Self.srgb,
                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-            if let glyphs { paint(lines, positions, frame: frame, height: height, scale: scale, pass: .caster(s), into: glyphs) }
-            if let image = glyphs?.makeImage() { casts.append((image, s)) }
+            guard let glyphs else { return nil }
+            paint(lines, positions, frame: frame, height: height, scale: scale, pass: .caster(s), into: glyphs)
+            guard let image = glyphs.makeImage() else { return nil }
+            casts.append((image, s))
         }
         if !casts.isEmpty {
             let castHeadroom = casts.reduce(Float(1)) { max($0, ColorRange.headroom($1.1.color)) }
@@ -500,6 +537,7 @@ struct TextRasterJob {
                     ctx.restoreGState()
                 }
             })?.pixels
+            guard out.cast != nil else { return nil }
             out.castHeadroom = castHeadroom
         }
         return out

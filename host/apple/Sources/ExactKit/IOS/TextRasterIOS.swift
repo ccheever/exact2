@@ -135,13 +135,16 @@ final class TextRasterizer {
 
     /// Old displayed output and every unfinished reservation remain charged, including this node's replacements.
     private func leadTaken() -> Int {
+        func charge(_ taken: Int, _ bytes: Int) -> Int {
+            taken + min(Self.leadRoom - taken, max(0, bytes - Self.maximumBytes))
+        }
         let shown = banded.allObjects.reduce(0) { taken, node in
             guard let image = node.specs?.accepted?.result else { return taken }
-            return taken + max(0, image.image.bytesPerRow * image.image.height
-                + (image.cast.map { $0.bytesPerRow * $0.height } ?? 0) - Self.maximumBytes)
+            return charge(taken, image.image.bytesPerRow * image.image.height
+                + (image.cast.map { $0.bytesPerRow * $0.height } ?? 0))
         }
         return working.reduce(shown) { taken, work in
-            taken + (work.wasAbandoned ? 0 : max(0, work.reservedBytes - Self.maximumBytes))
+            work.wasAbandoned ? taken : charge(taken, work.reservedBytes)
         }
     }
 

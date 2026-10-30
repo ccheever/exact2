@@ -601,7 +601,48 @@ final class TextPaintTests: XCTestCase {
         XCTAssertNil(TextRasterJob.byteCount(width: Int.max, height: 3, pixelBytes: 8, cast: true))
     }
 
-    private func assertNativeWindow(_ raster: TextRasterImage, paragraph: Paragraph, port: CGRect, scale: CGFloat,
+    func testViewportCoverageIncludesStrokedItalicInk() throws {
+        for text in ["ffff", String(repeating: "ffff ", count: 180)] {
+            var stroked = Run(text: text, size: 32, weight: 400, family: 0, italic: true,
+                              lineHeight: 38, letterSpacing: 0)
+            stroked.stroke = [12, 0, 0, 0, 255]
+            var spec = Spec(runs: [stroked], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+            spec.whiteSpace = 4
+            let paragraph = engine.paragraph(spec, width: 336)
+            let box = CGRect(x: 0, y: 0, width: 336, height: paragraph.height)
+            let advance = CTLineGetTypographicBounds(paragraph.lines[0], nil, nil, nil)
+            let port = CGRect(x: floor(max(-20, advance - 340) * 3) / 3, y: -20, width: 364, height: 80)
+            let job = TextRasterJob(source: engine.attributed(spec), ranges: paragraph.lines.map(CTLineGetStringRange),
+                                    baselines: paragraph.baselines, flush: 0, box: box, size: box.size, scale: 3,
+                                    retention: .viewport(required: port, preferred: port, maximumBytes: TextRasterJob.maximumBytes),
+                                    crop: true, antialiased: true)
+            try assertNativeWindow(try XCTUnwrap(job.render()), paragraph: paragraph, port: port, scale: 3)
+        }
+    }
+
+    func testPartialWindowsKeepInlineBackgroundsAndShadowCasters() throws {
+        for hdr in [false, true] {
+            var shaded = run(String(repeating: "marked code ", count: 160), background: [220, 220, 220, 255])
+            shaded.shadow = [400, 0, 0] + (hdr ? [255, 0, 0, 255, 0, 2, 0, 0, 1] : [255, 0, 0, 255])
+            var spec = Spec(runs: [run("plain "), shaded], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+            spec.whiteSpace = 4
+            let paragraph = engine.paragraph(spec, width: 336)
+            let box = CGRect(x: 0, y: 0, width: 336, height: paragraph.height)
+            let advance = CTLineGetTypographicBounds(paragraph.lines[0], nil, nil, nil)
+            let port = CGRect(x: floor((advance - 164) * 3) / 3, y: -20, width: 364, height: 80)
+            let job = TextRasterJob(source: engine.attributed(spec), ranges: paragraph.lines.map(CTLineGetStringRange),
+                                    baselines: paragraph.baselines, flush: 0, box: box, size: box.size, scale: 3,
+                                    retention: .viewport(required: port, preferred: port.insetBy(dx: -200, dy: -100), maximumBytes: 1_048_576),
+                                    crop: true, antialiased: true)
+            let raster = try XCTUnwrap(job.render())
+            XCTAssertFalse(raster.coverage.whole)
+            XCTAssertTrue(raster.coverage.covers(port))
+            XCTAssertEqual(raster.cast != nil, hdr)
+            try assertNativeWindow(raster, paragraph: paragraph, port: port, scale: 3, linePainter: true)
+        }
+    }
+
+    private func assertNativeWindow(_ raster: TextRasterImage, paragraph: Paragraph, port: CGRect, scale: CGFloat, linePainter: Bool = false,
                                     file: StaticString = #filePath, line: UInt = #line) throws {
         let width = Int((port.width * scale).rounded()), height = Int((port.height * scale).rounded(.up))
         let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
@@ -611,6 +652,10 @@ final class TextPaintTests: XCTestCase {
         context.translateBy(x: -port.minX, y: -port.minY)
         context.setShouldSmoothFonts(false)
         for (text, baseline) in zip(paragraph.lines, paragraph.baselines) {
+            if linePainter {
+                TextLinePaint.draw(text, at: CGPoint(x: 0, y: TextEngine.paintedBaseline(baseline, scale: scale)), in: context, scale: scale)
+                continue
+            }
             context.saveGState()
             context.translateBy(x: 0, y: TextEngine.paintedBaseline(baseline, scale: scale))
             context.scaleBy(x: 1, y: -1)
@@ -620,6 +665,7 @@ final class TextPaintTests: XCTestCase {
         }
         let expected = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
         let pixels = rasterPixels(raster)
+        let cast = raster.cast.map { rasterPixels(TextRasterImage($0, frame: raster.frame, coverage: raster.coverage, headroom: raster.castHeadroom)) }
         #if os(macOS)
         let rw = raster.surface.width, rh = raster.surface.height
         #else
@@ -628,15 +674,22 @@ final class TextPaintTests: XCTestCase {
         let dx = Int(((port.minX - raster.frame.minX) * scale).rounded())
         let dy = Int(((port.minY - raster.frame.minY) * scale).rounded())
         var missing = 0, referenceInk = 0
+        var differences: [String] = []
         for y in 0..<height { for x in 0..<width {
             let alpha = Int(expected[(y * width + x) * 4 + 3])
             if alpha > 32 { referenceInk += 1 }
             let sx = x + dx, sy = y + dy
-            let actual = sx >= 0 && sx < rw && sy >= 0 && sy < rh ? Int((pixels[sy * rw + sx].w * 255).rounded()) : 0
-            if abs(alpha - actual) > 2 { missing += 1 }
+            let inside = sx >= 0 && sx < rw && sy >= 0 && sy < rh
+            let ink = inside ? pixels[sy * rw + sx].w : 0
+            let shadow = inside ? cast?[sy * rw + sx].w ?? 0 : 0
+            let actual = Int(((ink + shadow * (1 - ink)) * 255).rounded())
+            if abs(alpha - actual) > 2 {
+                missing += 1
+                if differences.count < 8 { differences.append("x=\(x + dx),y=\(y + dy): \(actual)/\(alpha)") }
+            }
         } }
         XCTAssertGreaterThan(referenceInk, 100, "the independent native window contains text", file: file, line: line)
-        XCTAssertEqual(missing, 0, "every native reference pixel survives the legal code pan", file: file, line: line)
+        XCTAssertEqual(missing, 0, "every native reference pixel survives the requested window; frame=\(raster.frame); \(differences)", file: file, line: line)
     }
 
     private func rasterBytes(_ r: TextRasterImage) -> Data {
