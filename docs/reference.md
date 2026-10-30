@@ -1646,7 +1646,9 @@ lives while the resource holds it, and `execFile`, `execPath`,
 Each program is named by a grant line: `process.spawn path:ssh`,
 `process.spawn /usr/bin/tar`, `process.spawn home:/.t3/runtime/versions` or a
 `bundle:` helper; the call names it as its line does
-(`spawn("path:ssh", …)`). The mapper receives `spawn`, `stdout` and `stderr`
+(`spawn("path:ssh", …)`). A `path:` name runs the first program of its name
+on the login shell's `PATH`, and none where an `fs.write` line lets the app
+write (LLP 1133.007 D7, §9). The mapper receives `spawn`, `stdout` and `stderr`
 chunks, `exit`, `close`, `drain`, `ready` and `ready-timeout` in order, with
 that incarnation's handle (`write`, `end`, `kill`); a mutation writes through
 a kept handle, staged with its commit. A `write` that answers `false` hears
@@ -1676,7 +1678,8 @@ only when the app led its own session, so a Mac app launched from the Finder
 (session 1) or from a terminal leaves that group's survivors running. `storage.fs`
 reads and writes `home:/…` (the user's home, under a grant narrower than
 `home:/`) and reads `bundle:/…` (the app bundle, read-only), following no
-link below either root (one is refused, as under `app:/`), and gains
+link below either root, nor below a native `fs.read` or `fs.write`
+directory (one is refused, as under `app:/`), and gains
 `lstat`, `readlink`, `access`, `chmod`, `symlink`, `digest(path, "SHA-256")`
 and `flock(path, {timeout})`, whose lock is held until the lock's `unlock()`,
 else until the answer that took it ends (a TypeScript source's only, for

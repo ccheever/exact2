@@ -639,9 +639,9 @@ fn run_namespaced(
 
 /// Open `path` to read it, admitted under `fs.read` as `storage.fs` admits
 /// it: an `app:/` path through the app's directories, a `home:` or `bundle:`
-/// one below its root, `O_NOFOLLOW` all the way, a native one as spelt and
-/// as realized with its last component `O_NOFOLLOW`. What a child's stdin
-/// reads from (exact2 LLP 1133.007 D2's `exactStdinFrom`).
+/// one below its root and a native one below its granted directory,
+/// `O_NOFOLLOW` all the way. What a child's stdin reads from (exact2 LLP
+/// 1133.007 D2's `exactStdinFrom`).
 pub fn open_read(
     grants: &GrantSet,
     directories: Option<&super::app_fs::AppDirectories>,
@@ -666,8 +666,86 @@ pub fn open_read(
         return Err(HostError::Failed(format!("unsupported: no {path} here")));
     }
     let native = normalize(path)?;
-    admit(grants, FsOp::ReadFile, &native, None)?;
-    regular(open_native(&native).map_err(|e| HostError::Failed(format!("{path}: {e}")))?)
+    #[cfg(unix)]
+    {
+        admit_as(grants, FsOp::ReadFile, &native, None)?;
+        regular(native_below(grants, &native, false)?.0.open()?)
+    }
+    #[cfg(not(unix))]
+    {
+        admit(grants, FsOp::ReadFile, &native, None)?;
+        regular(open_native(&native).map_err(|e| HostError::Failed(format!("{path}: {e}")))?)
+    }
+}
+
+/// A native operation (exact2 LLP 1133.007 D6a, Exact patch 24), admitted as
+/// spelt: run below the realized directory of the deepest grant line that
+/// admits each path, every component below it opened `O_NOFOLLOW`
+/// (`app_fs::run_below`), as a `home:` path is. A link below a granted
+/// directory, one the app's own code made included, is refused rather than
+/// followed, so the operation reaches the file it was admitted for, never
+/// makes a dangling link's target, and needs no check of a realized path.
+#[cfg(unix)]
+fn run_native(
+    grants: &GrantSet,
+    op: FsOp,
+    path: &Path,
+    destination: Option<&Path>,
+    data: Option<&[u8]>,
+) -> Result<FsResult, HostError> {
+    let (needs_read, needs_write) = op.required();
+    // A path is walked from the line its use needs: what is written from an
+    // `fs.write` line, a rename's source too, which it removes.
+    let written = needs_write && (destination.is_none() || op == FsOp::Rename);
+    let (source, native) = native_below(grants, path, written || !needs_read)?;
+    if op == FsOp::Realpath {
+        source.open()?;
+        return Ok(FsResult::Text(native.display().to_string()));
+    }
+    let target = destination
+        .map(|to| native_below(grants, to, true))
+        .transpose()?
+        .map(|(below, _)| below);
+    super::app_fs::run_below(op, source, target, data.unwrap_or(&[]))
+}
+
+/// `path` below the realized directory of the deepest `fs.write` (`write`)
+/// or `fs.read` line that admits it, and its native path. The granted
+/// directory is the person's, opened as realized; nothing below it is
+/// followed.
+#[cfg(unix)]
+fn native_below(
+    grants: &GrantSet,
+    path: &Path,
+    write: bool,
+) -> Result<(super::app_fs::Below, PathBuf), HostError> {
+    let capability = if write { "fs.write" } else { "fs.read" };
+    let root =
+        (grants.fs_root(&path.to_string_lossy(), write)).ok_or(HostError::Denied { capability })?;
+    let parts: Vec<String> = (path
+        .strip_prefix(&root)
+        .map_err(|_| HostError::Denied { capability })?)
+    .iter()
+    .map(|part| part.to_string_lossy().into_owned())
+    .collect();
+    let failed = |e: std::io::Error| HostError::Failed(format!("{}: {e}", path.display()));
+    let real = std::fs::canonicalize(&root).map_err(failed)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC);
+    }
+    let opened = options.open(&real).map_err(failed)?;
+    let native = parts.iter().fold(real, |at, part| at.join(part));
+    Ok((
+        super::app_fs::Below {
+            root: opened,
+            parts,
+            name: "granted",
+        },
+        native,
+    ))
 }
 
 /// Execute a filesystem operation with authority checked in its original namespace.
@@ -702,8 +780,18 @@ pub fn run(
     {
         let path = normalize(path)?;
         let destination = destination.map(normalize).transpose()?;
-        admit(grants, op, &path, destination.as_deref())?;
-        perform(op, &path, destination.as_deref(), data)
+        // Unix walks from the granted directory, refusing every link below
+        // it, so the spelt path is the one reached (`run_native`).
+        #[cfg(unix)]
+        {
+            admit_as(grants, op, &path, destination.as_deref())?;
+            run_native(grants, op, &path, destination.as_deref(), data)
+        }
+        #[cfg(not(unix))]
+        {
+            admit(grants, op, &path, destination.as_deref())?;
+            perform(op, &path, destination.as_deref(), data)
+        }
     }
 }
 
@@ -898,6 +986,10 @@ pub fn run_with_limits(
 #[cfg(all(test, unix))]
 #[path = "fs_namespaces_tests.rs"]
 mod namespaces_tests;
+
+#[cfg(all(test, unix))]
+#[path = "fs_native_tests.rs"]
+mod native_tests;
 
 #[cfg(all(test, unix))]
 mod bounded_tests {

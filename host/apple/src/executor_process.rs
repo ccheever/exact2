@@ -715,12 +715,12 @@ fn answer(
         },
     };
     if spec.kind == "execPath" {
-        return exec_path(shared, scoped, &spec, &ran);
+        return exec_path(shared, scoped, grants, &spec, &ran);
     }
     // A real program's native path, checked against its grant once its
     // links are followed (D6, D7).
     if !matches!(ran, Ran::Script(_)) {
-        match real::program(shared, scoped, &spec, &ran) {
+        match real::program(shared, scoped, grants, &spec, &ran) {
             Ok(path) => spec.native = Some(path),
             Err(outcome) => return outcome,
         }
@@ -782,11 +782,11 @@ fn reply(body: Json) -> Outcome {
 }
 
 /// `execPath`: the native path a spawn of the target would run, or `null`.
-fn exec_path(shared: &Shared, grants: &str, spec: &Spec, ran: &Ran) -> Outcome {
+fn exec_path(shared: &Shared, grants: &str, app: &str, spec: &Spec, ran: &Ran) -> Outcome {
     match ran {
         Ran::Script(script) => reply(json!({ "path": script.path() })),
         Ran::File(file) => reply(json!({ "path": file })),
-        Ran::Real => reply(json!({ "path": real::resolve(shared, grants, spec) })),
+        Ran::Real => reply(json!({ "path": real::resolve(shared, grants, app, spec) })),
     }
 }
 

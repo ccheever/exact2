@@ -310,6 +310,20 @@ impl GrantSet {
         }
     }
 
+    /// The deepest native `fs.write` (`write`) or `fs.read` directory that
+    /// covers `path` as written: where a walk below the grant starts (Exact
+    /// patch 24: exact2 LLP 1133.007 D6a).
+    pub fn fs_root(&self, path: &str, write: bool) -> Option<std::path::PathBuf> {
+        (self.grants.iter())
+            .filter_map(|grant| match (grant, write) {
+                (Grant::FsWrite(prefix), true) | (Grant::FsRead(prefix), false) => Some(prefix),
+                _ => None,
+            })
+            .filter(|prefix| prefix.0.first().is_some_and(String::is_empty) && prefix.covers(path))
+            .max_by_key(|prefix| prefix.0.len())
+            .map(|prefix| std::path::PathBuf::from(format!("/{}", prefix.0[1..].join("/"))))
+    }
+
     /// The kv scopes this set may use, in a stable order (LLP 0070 §1).
     pub fn kv_scopes(&self) -> Vec<&str> {
         self.grants

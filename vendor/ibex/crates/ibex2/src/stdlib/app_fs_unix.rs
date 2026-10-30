@@ -677,8 +677,10 @@ fn at_parent(op: FsOp, parent: &File, leaf: &str, data: &[u8]) -> Result<FsResul
                 if st.st_mode & libc::S_IFMT == libc::S_IFLNK {
                     return Err(error(io::Error::from_raw_os_error(libc::ELOOP)));
                 }
-                last(libc::faccessat(fd, c.as_ptr(), mode, libc::AT_EACCESS))
-                    .map(|()| FsResult::Done)
+                // `AT_SYMLINK_NOFOLLOW`: a link swapped in after the fstatat is
+                // checked as itself, never what it names.
+                let flags = libc::AT_EACCESS | libc::AT_SYMLINK_NOFOLLOW;
+                last(libc::faccessat(fd, c.as_ptr(), mode, flags)).map(|()| FsResult::Done)
             }
             FsOp::Chmod => {
                 let mode = argument()

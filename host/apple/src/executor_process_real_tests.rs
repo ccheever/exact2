@@ -404,6 +404,38 @@ fn a_program_the_app_wrote_does_not_run_by_its_name() {
 }
 
 #[test]
+fn a_path_name_found_where_the_app_may_write_does_not_run() {
+    // Where `path:sh` resolves on the login shell's `PATH`.
+    let (probe, woke, _) = core("process.spawn path:sh");
+    let ask = serde_json::json!({ "kind": "execPath", "program": "path:sh" });
+    probe.run(request(1, ask.clone(), false), None).unwrap();
+    let path = |out: &[Outcome]| match &out[0] {
+        Outcome::Response(r) => serde_json::from_slice::<serde_json::Value>(&r.body).unwrap(),
+        other => panic!("{other:?}"),
+    };
+    let found = path(&collect(&probe, &woke, |o| !o.is_empty()))["path"].clone();
+    let dir = std::path::Path::new(found.as_str().unwrap())
+        .parent()
+        .unwrap()
+        .to_owned();
+    // An `fs.write` line over that directory lets the app write what the
+    // name finds, so the name runs nothing there and resolves to nothing.
+    let grants = format!("process.spawn path:sh\nfs.write {}", dir.display());
+    let (core, woke, _) = core(&grants);
+    let call =
+        serde_json::json!({ "kind": "execFile", "program": "path:sh", "args": ["-c", "exit 7"] });
+    core.run(request(1, call, false), None).unwrap();
+    let out = collect(&core, &woke, |o| !o.is_empty());
+    assert!(
+        matches!(&out[0], Outcome::Failed { message, .. } if message.contains("where the app may write")),
+        "{out:?}"
+    );
+    core.run(request(2, ask, false), None).unwrap();
+    let out = collect(&core, &woke, |o| !o.is_empty());
+    assert_eq!(path(&out)["path"], serde_json::Value::Null);
+}
+
+#[test]
 fn a_link_out_of_a_granted_directory_is_outside_its_grant() {
     let dir = std::env::temp_dir().join(format!("exact-real-link-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

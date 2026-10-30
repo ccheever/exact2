@@ -89,13 +89,15 @@ pub(super) fn bundle() -> Result<PathBuf, String> {
 }
 
 /// The program a spawn names, as a native path: a `path:` name looked up on
-/// the login shell's `PATH`, never on one the call writes (D7), a namespace
-/// path resolved; then checked again against the line that admitted it, by
-/// whole names after realization, so a symlink under a granted directory
-/// that leads outside it is outside it (D6, D7).
+/// the login shell's `PATH`, never on one the call writes (D7), and refused
+/// where one of the app's `fs.write` lines (`app`) lets it write (§9); a
+/// namespace path resolved; then checked again against the line that
+/// admitted it, by whole names after realization, so a symlink under a
+/// granted directory that leads outside it is outside it (D6, D7).
 pub(crate) fn program(
     shared: &Shared,
     grants: &str,
+    app: &str,
     spec: &Spec,
     ran: &Ran,
 ) -> Result<PathBuf, Outcome> {
@@ -109,12 +111,22 @@ pub(crate) fn program(
         let path = super::login_variables(shared, &["PATH"])
             .remove("PATH")
             .unwrap_or_default();
-        return os::find_on_path(name, &path).ok_or_else(|| {
+        let found = os::find_on_path(name, &path).ok_or_else(|| {
             failed(
                 FailureKind::NotFound,
                 format!("spawn {}: no executable `{name}` on the PATH", spec.program),
             )
-        });
+        })?;
+        // Where the app may write, it may be a file the app wrote: that runs
+        // only by a line that names its path (§9).
+        return match writable(shared, app, &found) {
+            Some(line) => Err(refused(format!(
+                "spawn {}: {} is where the app may write (`{line}`): a program there runs only by a `process.spawn` line that names its path (LLP 1133.007 §9)",
+                spec.program,
+                found.display()
+            ))),
+            None => Ok(found),
+        };
     }
     let path = native(shared, &spec.program).map_err(refused)?;
     let real = std::fs::canonicalize(&path).map_err(|e| {
@@ -546,9 +558,32 @@ pub(super) fn exec(
     exec_reply(spec, &stdout, &stderr, code, signal, timed_out)
 }
 
+/// The `fs.write` line of the app's grants `app` under which it may write
+/// `path`, its directory entry or what it names, compared by realized whole
+/// names: a native line, or a `home:` or `app:` one.
+fn writable(shared: &Shared, app: &str, path: &Path) -> Option<String> {
+    let realize = ibex2::stdlib::fs::realize;
+    let entry = match (path.parent(), path.file_name()) {
+        (Some(parent), Some(leaf)) => realize(parent).join(leaf),
+        _ => path.to_path_buf(),
+    };
+    let reached = [entry, realize(path)];
+    (app.lines().map(str::trim)).find_map(|line| {
+        let mut words = line.split_whitespace();
+        let target = (words.next() == Some("fs.write"))
+            .then(|| words.next())
+            .flatten()?;
+        let dir = realize(&native(shared, target).ok()?);
+        reached
+            .iter()
+            .any(|p| p.starts_with(&dir))
+            .then(|| line.to_string())
+    })
+}
+
 /// `execPath` (D7): the native path a spawn of `program` would run, or `None`.
-pub(super) fn resolve(shared: &Shared, grants: &str, spec: &Spec) -> Option<String> {
-    program(shared, grants, spec, &Ran::Real)
+pub(super) fn resolve(shared: &Shared, grants: &str, app: &str, spec: &Spec) -> Option<String> {
+    program(shared, grants, app, spec, &Ran::Real)
         .ok()
         .filter(|path| os::executable(path))
         .map(|path| path.display().to_string())

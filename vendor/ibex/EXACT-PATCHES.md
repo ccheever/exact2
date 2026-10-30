@@ -423,8 +423,11 @@ child's handlers are defaults. A `PATH` lookup skips relative entries.
 reads) against roots the host sets (`set_roots`), the bundle read only,
 each path admitted as spelt and run from its root's retained descriptor
 with every component opened `O_NOFOLLOW` (`app_fs_unix.rs` `run_below`,
-which `app:/` paths share), so no link below a root is followed; `open_read`
-opens a path to read it the same way, for a child's stdin; and `stat`
+which `app:/` paths share), so no link below a root is followed; a native
+absolute path is run the same way, admitted as spelt and as realized, from
+the realized directory of the deepest grant line that admits it
+(`GrantSet::fs_root`); `access` checks its leaf with `AT_SYMLINK_NOFOLLOW`;
+`open_read` opens a path to read it the same way, for a child's stdin; and `stat`
 reads `mode` and `isSymbolicLink`; `fs_more.rs` adds `lstat`, `readlink`,
 `access`, `chmod`, `symlink`, `digest` and `flock`/`unlock`, host opcodes
 122 to 129 in `host_opcodes.rs` and `boundary_abi.rs`, the methods in

@@ -774,7 +774,7 @@ fn family_enforcement(line: &str) -> &'static str {
         }
         // LLP 1133.007 D7: the program, not what it is told; a shell, an
         // interpreter or `ssh` named here runs any program it is given.
-        "process.spawn" => "the executor starts it (macOS, Linux): a path: name is the first program of that name on the login shell's PATH, never one the app wrote; its arguments are free, and a shell, interpreter or ssh runs any program",
+        "process.spawn" => "the executor starts it (macOS, Linux): a path: name is the first program of that name on the login shell's PATH, never one where an fs.write line lets the app write; its arguments are free, and a shell, interpreter or ssh runs any program",
         "secret.hold" => "the runner's volatile store: in no event, state or snapshot (LLP 1133.007 D8)",
         _ => "runtime",
     }
