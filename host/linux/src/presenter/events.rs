@@ -563,7 +563,7 @@ impl<D: DataSource> Presenter<D> {
     ) -> (Option<String>, bool) {
         let target = self
             .focus
-            .or_else(|| self.alert_root())
+            .or_else(|| self.alert_root().filter(|_| self.alert_inert()))
             .or_else(|| self.host.roots().first().copied());
         let mut path = Vec::new();
         let mut at = target.and_then(|id| self.handler_target(id, kind));

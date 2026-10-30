@@ -316,6 +316,8 @@ struct Build {
     item: (i32, i32),
     /// How far each list scrolls, read once.
     limits: BTreeMap<ViewId, f32>,
+    /// An open popover's root, which the page's walk passes over.
+    top: Option<ViewId>,
 }
 
 impl Build {
@@ -696,11 +698,10 @@ impl<D: DataSource> Presenter<D> {
 
     fn access_walk_node(&self, b: &mut Build, node: NodeRef<'_>, mut scope: Scope) {
         let id = node.id;
-        // An open popover is drawn in the top layer: no clip or scroll of its
-        // page ancestors holds it (a modal box is walked alone, from here).
-        if self.alert_root() == Some(id) {
-            scope.shift = (0., 0.);
-            scope.clip = (0., 0., self.viewport.0, self.viewport.1);
+        // An open popover is drawn in the top layer: it is walked after the
+        // page, under no clip or scroll of its page ancestors.
+        if b.top == Some(id) {
+            return;
         }
         let (hidden, inert) = self.host.route_visibility(id);
         if hidden
@@ -1082,6 +1083,7 @@ impl<D: DataSource> Presenter<D> {
             origin: (frame[0], frame[1]),
             item: (0, 0),
             limits: self.collection_scroll_limits(),
+            top: None,
         };
         // A modal box is the whole tree; under a popover the page is live.
         if let Some(root) = self.alert_root().filter(|_| self.alert_inert()) {
@@ -1134,8 +1136,14 @@ impl<D: DataSource> Presenter<D> {
             });
             scope.parent = id;
         }
+        b.top = self.alert_root();
         for root in self.host.runner().roots() {
             self.access_walk(&mut b, root, scope);
+        }
+        if let Some(top) = b.top.take() {
+            scope.shift = (0., 0.);
+            scope.clip = (0., 0., self.viewport.0, self.viewport.1);
+            self.access_walk(&mut b, top, scope);
         }
         self.access_bottom(&mut b);
         Self::access_sets(&mut b.out);

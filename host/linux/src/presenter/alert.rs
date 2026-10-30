@@ -267,7 +267,9 @@ impl<D: DataSource> Presenter<D> {
             self.host.log(e);
         }
         // HTML's dialog focusing steps fall back to the dialog itself.
-        if dialog && self.focus.is_none() && self.alert.as_ref().is_some_and(|a| a.serial == serial)
+        if dialog
+            && self.focus.is_none_or(|f| !self.alert_holds(f))
+            && self.alert.as_ref().is_some_and(|a| a.serial == serial)
         {
             if let Some(e) = self.set_focus(Some(id), now) {
                 self.host.log(e);
@@ -534,7 +536,14 @@ impl<D: DataSource> Presenter<D> {
             scrim,
         });
         let measured = self.alert_inputs(id);
-        let placed = [origin.0, origin.1, f.width, f.height].map(f64::from);
+        // The runner takes a block root's rectangle as its block, the root
+        // sitting in it by its frame (margins included): the border box
+        // then lands where it is drawn, before its own transform.
+        let (bw, bh, fx, fy) = match self.host.kernel().host_block_size(id) {
+            Some((w, h)) => (w, h, f.x, f.y),
+            None => (f.width, f.height, 0., 0.),
+        };
+        let placed = [origin.0 - fx, origin.1 - fy, bw, bh].map(f64::from);
         let open = self.alert.as_mut().unwrap();
         open.measured = measured;
         // Reads see a popover where it is placed, before its own transform.
@@ -643,7 +652,7 @@ impl<D: DataSource> Presenter<D> {
         // Under a popover the page is live: only Escape is the popover's
         // (its close request); every other key takes the page's own path,
         // shortcuts and Back included.
-        if !self.alert_inert() && name != "Escape" {
+        if !self.alert_inert() && (name != "Escape" || !self.alert_takes_back()) {
             return false;
         }
         let opening = self.alert.as_ref().unwrap().serial;
@@ -751,33 +760,35 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn alert_takes_back(&self) -> bool {
         self.alert.as_ref().is_some_and(|a| !a.manual)
     }
-    /// Sequential focus order with an open popover's stops right after its
-    /// invoker's (HTML's popover focus scope); the tree's order otherwise.
-    pub(super) fn alert_tab_order(&self, mut order: Vec<ViewId>) -> Vec<ViewId> {
+    /// The sequential focus order, `(tabindex rank, tree position, view)`
+    /// entries already sorted, with an open popover's stops, in their own
+    /// order, right after its invoker's (HTML's popover focus scope).
+    /// Unchanged with no popover, no invoker, an invoker inside the popover
+    /// (Chromium's rule) or one that is no stop.
+    pub(super) fn alert_tab_order(
+        &self,
+        mut order: Vec<(i64, usize, ViewId)>,
+    ) -> Vec<(i64, usize, ViewId)> {
         let Some(invoker) = self
             .alert
             .as_ref()
             .filter(|a| !a.modal)
             .and_then(|a| a.invoker)
+            .filter(|i| !self.alert_holds(*i) && order.iter().any(|o| o.2 == *i))
         else {
             return order;
-        };
-        let k = self.host.kernel();
-        let within = |id: ViewId| {
-            std::iter::successors(k.node(id), |n| n.parent.and_then(|p| k.node(p)))
-                .any(|n| n.id == invoker)
         };
         let inside: Vec<_> = order
             .iter()
             .copied()
-            .filter(|id| self.alert_holds(*id))
+            .filter(|o| self.alert_holds(o.2))
             .collect();
-        order.retain(|id| !self.alert_holds(*id));
-        let Some(at) = order.iter().rposition(|id| within(*id)) else {
-            order.extend(inside);
-            return order;
-        };
-        order.splice(at + 1..at + 1, inside);
+        order.retain(|o| !self.alert_holds(o.2));
+        let at = order
+            .iter()
+            .position(|o| o.2 == invoker)
+            .map_or(order.len(), |i| i + 1);
+        order.splice(at..at, inside);
         order
     }
     /// Whether `id` is inside the open popover's invoker or any button that
@@ -787,9 +798,13 @@ impl<D: DataSource> Presenter<D> {
             return false;
         };
         let k = self.host.kernel();
+        use exact_kernel::invocation::Action;
         std::iter::successors(k.node(id), |n| n.parent.and_then(|p| k.node(p))).any(|n| {
             Some(n.id) == open.invoker
-                || exact_kernel::Invocation::of(k, &n).is_some_and(|i| i.target == open.key)
+                || exact_kernel::Invocation::of(k, &n).is_some_and(|i| {
+                    i.target == open.key
+                        && matches!(i.action, Action::Show | Action::Hide | Action::Toggle)
+                })
         })
     }
     /// The agent's `tap` on a node under the open box: a press outside it,

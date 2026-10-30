@@ -525,8 +525,7 @@ impl<D: DataSource> Presenter<D> {
         boxed: &BTreeSet<ViewId>,
     ) -> Option<String> {
         let mut order: Vec<(i64, usize, ViewId)> = Vec::new();
-        let tree = self.alert_tab_order(self.host.preorder());
-        for (at, id) in tree.into_iter().enumerate() {
+        for (at, id) in self.host.preorder().into_iter().enumerate() {
             if self.tabbable(id, boxed) {
                 let index = self
                     .host
@@ -539,6 +538,7 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         order.sort_unstable();
+        let order = self.alert_tab_order(order);
         let n = order.len();
         let next = match self.focus.and_then(|f| order.iter().position(|o| o.2 == f)) {
             _ if n == 0 => return None,
@@ -620,7 +620,7 @@ impl<D: DataSource> Presenter<D> {
     fn key_pressed(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
         // A held Select chooses nothing in a surface it opened either
         // (LLP 1115.001.003 D3).
-        if repeat && code == "Select" && self.surface_takes_keys() {
+        if repeat && code == "Select" && self.page_inert() {
             return;
         }
         // An open surface of the top layer takes every key (`top.rs`).

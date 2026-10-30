@@ -705,7 +705,7 @@ impl<D: DataSource> Presenter<D> {
     /// and Space choose the focused row. Whether a surface took the key.
     /// Whether a surface is open to take the keys ([`Self::surface_key`]).
     pub(crate) fn surface_takes_keys(&self) -> bool {
-        self.alert.is_some() || self.top.open.is_some()
+        self.alert_takes_back() || self.top.open.is_some()
     }
 
     #[cfg(windows)]
