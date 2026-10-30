@@ -21,6 +21,8 @@ import { REDEEM_IDLE, redeemStep, resetCreditsShown, resetCreditsSummary, type R
 import { redactedValue } from '../shared/redacted-text';
 import { startDetached, type DetachedReply } from './composer-replies';
 import { openExternal } from '../client/external-open';
+import { draftFallbackOf } from './composer-provider-selection';
+import { fanoutSelections } from './composer-controls-fanout';
 
 export { isUsageLimitsCommand };
 const DRIVER_LABELS: Record<string, string> = { codex: 'Codex', claudeAgent: 'Claude', cursor: 'Cursor', grok: 'Grok', opencode: 'OpenCode', antigravity: 'Antigravity', pi: 'Pi', acpRegistry: 'ACP Registry' };
@@ -100,6 +102,8 @@ export type UsageNotice = { id: string; variant: string; icon: string; title: st
   action2: string; action2Label: string; dismiss: string; dismissLabel: string; priority: number; lines: string[]; actionReason: string; dismissId: string; segments: Array<{ key: string; label: string; threadId: string; aria: string; last: boolean }>;
   /** The second action shows, disabled. */
   action2Disabled?: boolean;
+  /** The action command's id and value (the fallback notice's pick: its model and instance). */
+  actionId?: string; actionValue?: string;
   redact?: string; redactMask?: string; redactAfter?: string; usage?: UsageAccountView[] };
 /**
  * usageLimitRecoveryBannerItem: a run stopped by its subscription limit. Resume at reset schedules (or cancels) the
@@ -118,8 +122,38 @@ function limitRecovery(client: T3Client, now: number) {
     snoozed: recovery.snooze === true && recovery.runId === runId && recovery.resetAt === resetAt && !!resetAt
       && Date.parse(str(shell.snoozedUntil)) === Date.parse(resetAt) && !resetPassed };
 }
+/** The fallback windows dismissed here, per environment (ChatView's `t3code:fallback-notice-dismissed:<environment>`). */
+const dismissedFallback = new WeakMap<object, Map<string, string>>();
+export function dismissFallbackNotice(client: T3Client, window: string): void {
+  const map = dismissedFallback.get(client) ?? new Map<string, string>();
+  map.set(client.environmentId, window);
+  dismissedFallback.set(client, map);
+}
+/**
+ * modelFallbackBannerItem: a new thread that started on the fallback model, while it still has it and no other pick,
+ * says so until dismissed for that provider's window: "Using <fallback>", "<provider> is out of usage · resets <when>",
+ * and "Use <default>" picks the default model.
+ */
+function fallbackNotice(client: T3Client, now: number): UsageNotice | null {
+  const fallback = draftFallbackOf(client);
+  if (!fallback || client.threadId || fanoutSelections(client)) return null;
+  if (client.providerId !== fallback.selection.instanceId || client.modelId !== fallback.selection.model) return null;
+  const window = `${str(fallback.provider.instanceId)}:${fallback.resetsAt ?? ''}`;
+  if (dismissedFallback.get(client)?.get(client.environmentId) === window) return null;
+  const providers = arr(client.config.providers);
+  const name = (instanceId: string, model: string) => str(arr(providers.find(entry => entry.instanceId === instanceId)?.models).find(entry => entry.slug === model)?.name, model);
+  const resets = fallback.resetsAt ? ` · resets ${formatUpcomingTimestamp(fallback.resetsAt, client.local.deviceSettings.timestampFormat, now)}` : '';
+  return { id: 'fallback-model', variant: 'info', icon: 'gauge', title: `Using ${name(fallback.selection.instanceId, fallback.selection.model)}`, priority: 2,
+    description: `${str(fallback.provider.displayName, str(fallback.provider.driver))} is out of usage${resets}`,
+    action: 'model', actionLabel: `Use ${name(fallback.defaultSelection.instanceId, fallback.defaultSelection.model)}`, actionId: fallback.defaultSelection.model,
+    actionValue: fallback.defaultSelection.instanceId, action2: '', action2Label: '', dismiss: 'cclocal:fallback-dismiss', dismissLabel: 'Dismiss fallback model notice',
+    dismissId: window, lines: [], actionReason: '', segments: [] };
+}
+
 export function usageNotices(client: T3Client, now: number): UsageNotice[] {
   const notices: UsageNotice[] = [];
+  const fallback = fallbackNotice(client, now);
+  if (fallback) notices.push(fallback);
   const limit = limitRecovery(client, now);
   if (limit) {
     const saving = client.busy && client.pending?.description === 'Change limit recovery';

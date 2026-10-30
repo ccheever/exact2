@@ -22,6 +22,7 @@ import { providerLock } from './composer-controls-commands';
 import { projectProviderEnabled } from '../providers/project-provider-overrides';
 import { modelPreferenceSource } from '../providers/model-preferences';
 import { applyPickerPrefs } from '../providers/settings-b-models';
+import { composerNow } from './composer-controls'; // the snapshot's wall time: data sources have no Date.now()
 
 export const NO_PROVIDER_INSTANCE_ID = 't3code_no_provider';
 export const DEFAULT_MODEL = 'gpt-6-astra';
@@ -294,3 +295,90 @@ export function composerPair(client: SelectionSource, fanout = false): { provide
   const chosen = composerSelection(client, fanout);
   return chosen.entry ? { providerId: chosen.instanceId, modelId: chosen.model } : { providerId: client.providerId, modelId: client.modelId };
 }
+
+// ── The fallback model (T3 Code v0.1.5 #26164, packages/shared/src/usageLimits.ts) ──────────────────────────────────
+
+export type ModelPick = { instanceId: string; model: string };
+
+/**
+ * exhaustedUsageWindow: a usage window of the provider at 100% that has not reset by `now`. With a model, only the
+ * windows that limit that model count: Cursor's Auto pool limits Auto, Composer and Grok only with its API pool;
+ * Antigravity's pools are per model family (a "3p" pool covers Claude and GPT); OpenCode Go's limit only Go models.
+ */
+export function exhaustedUsageWindow(provider: Obj | undefined, now: number, model?: string): Obj | undefined {
+  const exhausted = arr(obj(provider?.usageLimits).windows).filter(window => (Number(window.usedPercent) || 0) >= 100
+    && (!window.resetsAt || !Number.isFinite(Date.parse(str(window.resetsAt))) || Date.parse(str(window.resetsAt)) > now));
+  if (model === undefined) return exhausted[0];
+  switch (str(provider?.driver)) {
+    case 'cursor': {
+      const api = exhausted.find(window => window.id === 'apiPercentUsed'), auto = exhausted.find(window => window.id === 'autoPercentUsed');
+      return /^(auto|default|grok|composer)/.test(model) ? auto && api : api;
+    }
+    case 'antigravity': {
+      const family = /^(gemini|claude|gpt)-/.exec(model)?.[1];
+      return exhausted.find(window => {
+        const pool = /^(gemini|claude|gpt|3p)-/.exec(str(window.id))?.[1];
+        return pool === undefined || family === undefined || pool === family || (pool === '3p' && (family === 'claude' || family === 'gpt'));
+      });
+    }
+    case 'opencode': return exhausted.find(window => !str(window.id).startsWith('go_') || model.startsWith('opencode-go/'));
+    default: return exhausted[0];
+  }
+}
+
+/** resolveProjectProviderInstanceEnabled: the project's override, else the instance's setting, else the driver default. */
+function instanceEnabledFor(settings: Obj, projectId: string, instanceId: string): boolean {
+  const configured = obj(settings.providerInstances)[instanceId];
+  const inherited = configured !== undefined ? obj(configured).enabled !== false : unconfiguredDefaultEnabled(instanceId);
+  return projectId ? projectProviderEnabled(settings, projectId, instanceId, inherited) : inherited;
+}
+
+/**
+ * resolveNewThreadModelSelection: a new thread starts on the fallback model while the default model's provider is out
+ * of usage, as long as the fallback can run (enabled, installed, signed in, available, in usage, and on in this
+ * project); `fallback` names the exhausted provider and when it resets. A model the user chose is never replaced.
+ */
+export function resolveNewThreadModelSelection(input: { defaultSelection: ModelPick | null; explicitSelection?: ModelPick | null;
+  fallbackSelection: ModelPick | null; providers: Obj[]; now: number; settings?: Obj; projectId?: string | null }):
+  { selection: ModelPick | null; fallback: { provider: Obj; resetsAt: string | null } | null } {
+  const selection = input.explicitSelection ?? input.defaultSelection, unchanged = { selection, fallback: null };
+  if (input.explicitSelection || !selection || !input.fallbackSelection) return unchanged;
+  const provider = input.providers.find(entry => entry.instanceId === selection.instanceId);
+  const window = exhaustedUsageWindow(provider, input.now, selection.model);
+  const fallback = input.providers.find(entry => entry.instanceId === input.fallbackSelection?.instanceId);
+  if (!provider || !window || fallback?.enabled !== true || fallback.installed !== true || obj(fallback.auth).status === 'unauthenticated'
+    || fallback.availability === 'unavailable' || exhaustedUsageWindow(fallback, input.now, input.fallbackSelection.model)
+    || (input.settings && !instanceEnabledFor(input.settings, input.projectId ?? '', str(fallback.instanceId)))) return unchanged;
+  return { selection: input.fallbackSelection, fallback: { provider, resetsAt: window.resetsAt ? str(window.resetsAt) : null } };
+}
+
+const pickOf = (value: unknown): ModelPick | null => {
+  const pick = obj(value);
+  return str(pick.instanceId) && str(pick.model) ? { instanceId: str(pick.instanceId), model: str(pick.model) } : null;
+};
+
+/**
+ * A draft's default and, when its provider is out of usage, the fallback it starts on instead (ChatView's
+ * draftModelResolution): the project's default model, else the first ready provider's default (the selection a draft
+ * without one takes, client.ts chooseDefaults), against the server's `fallbackModelSelection`.
+ */
+export function draftModelFallback(client: Pick<SelectionSource, 'config' | 'projectId' | 'threadId'> & { shell?: { projects: Obj[] } }, defaultSelection: ModelPick | null, now: number) {
+  if (client.threadId) return null;
+  const settings = obj(client.config.settings);
+  const resolution = resolveNewThreadModelSelection({ defaultSelection, fallbackSelection: pickOf(settings.fallbackModelSelection),
+    providers: arr(client.config.providers), settings, projectId: client.projectId || null, now });
+  return resolution.fallback && resolution.selection && defaultSelection ? { selection: resolution.selection, defaultSelection, ...resolution.fallback } : null;
+}
+
+/** The fallback a draft started on (chooseDefaults), which the fallback notice describes while the draft keeps it. */
+const draftFallbacks = new WeakMap<object, NonNullable<ReturnType<typeof draftModelFallback>>>();
+/**
+ * chooseDefaults' hook: the pick a new draft starts on, the fallback while its default's provider is out of usage
+ * (useHandleNewThread). `pick` is the default it chose; the answer is the one to use.
+ */
+export function startOnFallback(client: Pick<SelectionSource, 'config' | 'projectId' | 'threadId'>, pick: ModelPick | null, now = composerNow(client)): ModelPick | null {
+  const fallback = draftModelFallback(client, pick, now);
+  if (fallback) draftFallbacks.set(client, fallback); else draftFallbacks.delete(client);
+  return fallback ? fallback.selection : pick;
+}
+export const draftFallbackOf = (client: object) => draftFallbacks.get(client);

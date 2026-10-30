@@ -13,6 +13,7 @@ import { compatibilityProblem } from './protocol-outdated';
 import { type ComposerControlsPrefs, emptyComposerControls, decodeComposerControls, applySticky, applyStaged, reconcileStagedModels } from '../composer/composer-controls';
 import { adoptStash } from '../composer/composer-editor-stash';
 import { adoptComposerFiles } from '../composer/composer-editor-files';
+import { startOnFallback } from '../composer/composer-provider-selection'; // a new draft on the fallback model (#26164)
 import { sidebarOpened, sidebarRefreshed } from '../sidebar/sidebar-commands';
 import { takeRowDrops } from '../sidebar/legacy-sidebar-drop';
 import { IMAGE_ATTACHMENT_MAX_EDGE } from '../composer/image-attachment-size';
@@ -540,9 +541,11 @@ export class T3Client {
       : providers.find(provider => provider.instanceId === selection.instanceId && providerAvailable(provider));
     const models = arr(provider?.models);
     const model = automatic ? models.find(model => model.isDefault === true && model.isCustom !== true) || models.find(model => model.isCustom !== true) || models[0] : models.find(model => model.slug === selection.model);
-    this.providerId = provider && model ? str(provider.instanceId) : '';
-    this.modelId = provider && model ? str(model.slug) : '';
-    this.modelOptions = !automatic && provider && model ? arr(selection.options) : [];
+    // A default whose provider is out of usage starts on the fallback model (composer-provider-selection.ts).
+    const pick = provider && model ? { instanceId: str(provider.instanceId), model: str(model.slug) } : null, started = startOnFallback(this, pick);
+    this.providerId = started?.instanceId ?? '';
+    this.modelId = started?.model ?? '';
+    this.modelOptions = !automatic && started === pick && pick ? arr(selection.options) : [];
     this.runtimeMode = str(overrides.defaultRuntimeMode || settings.defaultRuntimeMode, 'approval-required');
     this.interactionMode = 'default';
     applySticky(this);

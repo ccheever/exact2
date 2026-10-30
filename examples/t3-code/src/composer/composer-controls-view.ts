@@ -160,7 +160,7 @@ export type ComposerNotice = { id: string; group: string; variant: string; icon:
   action: string; actionLabel: string; action2: string; action2Label: string; dismiss: string; dismissLabel: string; priority: number; lines: string[];
   /** Why the action is disabled (its tooltip), '' when it is enabled; the second action shown disabled; the ids the
    *  action and dismiss commands receive. */
-  actionReason: string; action2Disabled: boolean; actionId: string; dismissId: string; segments: NoticeSegment[];
+  actionReason: string; action2Disabled: boolean; actionId: string; actionValue: string; dismissId: string; segments: NoticeSegment[];
   /** The title's and the actions' tooltips, a red icon; `details`: the description is clipped (composer-presentation.ts). */
   tip: string; actionTip: string; action2Tip: string; iconTone: string; details: boolean;
   /** Auto balance: the multi-machine banner's popover rows and its title's accessible name. */
@@ -172,7 +172,7 @@ export type ComposerNotice = { id: string; group: string; variant: string; icon:
   /** A title in two parts: `title` a muted lead-in, then this code (the branch mismatch's branch), `tip` on it. */
   code: string };
 const notice = (value: Partial<ComposerNotice> & { id: string; title: string }): ComposerNotice => ({ group: 'attention', variant: 'info', icon: '', description: '',
-  action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', action2Disabled: false, actionId: '', dismissId: '', segments: [],
+  action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', action2Disabled: false, actionId: '', actionValue: '', dismissId: '', segments: [],
   tip: '', actionTip: '', action2Tip: '', iconTone: '', details: false, machines: [], menuLabel: '', redact: '', redactMask: '', redactAfter: '', usage: [], code: '', ...value });
 
 const BACKGROUND_KINDS: Record<string, { order: number; singular: string; plural: string }> = {

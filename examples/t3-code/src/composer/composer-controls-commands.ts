@@ -17,7 +17,7 @@ import { retryDraftUpload, runDraftUploads } from './composer-uploads';
 import { foldPaste, heldPaste } from './composer-editor-files';
 import { uuid } from '../transport/transport-wire';
 import { queueRowDrop } from '../sidebar/legacy-sidebar-drop';
-import { openUsageLimits, closeUsageLimits, changeLimitRecovery, usageLocal } from './composer-controls-usage';
+import { openUsageLimits, closeUsageLimits, changeLimitRecovery, dismissFallbackNotice, usageLocal } from './composer-controls-usage';
 import { feedbackLocal } from './composer-feedback';
 import type { T3Client } from '../client/client';
 import { keepsFullHistory, setKeepFullHistory } from './composer-controls-resume';
@@ -283,6 +283,7 @@ export async function composerLocal(client: T3Client, _native: Native, _storage:
   if (op === 'balance-load') return loadHostResources(client, _native, id, Number(value) || 0); // the machines' host resources
   if (op === 'usage-limits') { openUsageLimits(client, composerNow(client)); return ''; }
   if (op === 'usage-limits-dismiss') { closeUsageLimits(client); return ''; }
+  if (op === 'fallback-dismiss') { dismissFallbackNotice(client, id); return ''; } // the fallback model notice, for this window
   // Manage usage and the reset credit confirm (composer-controls-usage.ts), the /feedback banner's
   // Copy ID and dismiss (composer-feedback.ts).
   if (op.startsWith('usage-')) return usageLocal(client, _native, op, id);
