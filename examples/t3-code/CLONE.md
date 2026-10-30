@@ -10,11 +10,37 @@ The clone is incomplete. The desktop app is in `examples/t3-code`; the separate
 iPhone and iPad app is in `examples/t3-code/mobile`.
 
 Continue on `t3/t3-clone-pr216-poc`, which pushes to PR216's remote branch
-`feat(example)/t3-code-ios`. It includes remote main through `1c7b918556` and the
+`feat(example)/t3-code-ios`. It includes remote main through `d0910f93df` and the
 verified iPhone POC. The independent native NewTask editor is now active. Its
 normal iPhone build creates a real thread, receives `FINAL_NATIVE_OK`, and
 restores the reply and environment after restart. Full phone parity remains open.
 The older checkpoints below are provenance, not the current starting point.
+
+The pinned Exact main refresh is merged in `8be77acc64` from
+`d0910f93df67925681cd16a49de58d300b7eeb7f`. The compatibility change supplies
+three empty AtomFace style fields; the full desktop plan failed before it and
+built after it. A stale menu test now checks the two required tab removals while
+allowing the window's other authored removals. All six root checks, locked clone
+Rust tests, Clippy, formatting and the quick semantics comparison pass. The
+44 selected shared native tests, UIKit test compilation and tvOS no-install build pass.
+
+Fresh normal iPhone builds use C ABI 18 and runtime compatibility 5, retaining
+Apple native ABI 3 and the qualified 36-tag roster. EAS passes native Home controls,
+Settings/Appearance/Back, Search typing and clearing, app keyboard dismissal,
+New Task/Back and ordinary relaunch, both before and after the private fixture.
+Return preference and base text size persist across restarts; starting values are
+restored. At 16-point light appearance, the supplied-data workspace and attachment
+previews retain exact code and displayed Source through legal-edge and return
+checks, with 14-point end padding and zero reference-pixel mismatches. The translated
+HDR shadow reaches a stable idle state. All temporary sources restore exactly;
+the final normal build is clean and the EAS session is shut down.
+
+Evidence and limits are in
+`target/t3-poc-evidence/main-refresh-20261030/integration/receipt.md`.
+Connected cloud routes, hardware input and full phone, iPad and desktop parity
+remain unqualified. Independent integration review is pending. The authorized
+real-provider POC is preserved, the delivered TestFlight build is unchanged, and
+this integration reaches no new release checkpoint.
 
 The native integration passes emoji editing, Photos import and cancel, inline
 preview and Back with unflushed text preserved, explicit image removal, native
@@ -249,7 +275,7 @@ These earlier implementation checkpoints are available on GitHub:
   Stop and restart pass in the normal iPhone app. Bounded cache transfers also
   address the separate 4 MiB native-request refusals.
 
-The working branch incorporates remote `main` at `1c7b918556`. Five conflict
+An earlier integration incorporated remote `main` at `1c7b918556`. Five conflict
 resolutions preserve both the clone's production package qualification and
 main's development flags, system-framework linking and source-sweep exclusions.
 The clone lockfile adds the three dependencies its updated path crates require.
@@ -264,7 +290,7 @@ After restart, the interrupted conversation reopens with an empty composer and
 receives `MAIN_RESTART_OK`. This integration is outside the delivered TestFlight
 build below. Full phone parity remains open.
 
-The latest main refresh merges without conflicts. Its symbol fixtures now register
+A later main refresh merged without conflicts. Its symbol fixtures now register
 handwritten images with the runtime and supply its current browser hooks. All 31
 affected symbol, paint and list tests pass, including an independent rerun. Rust
 build/tests/Clippy/formatting, workspace and boot pass. Caps then retained the desktop
