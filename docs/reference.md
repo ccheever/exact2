@@ -1673,8 +1673,11 @@ link below either root (one is refused, as under `app:/`), and gains
 and `flock(path, {timeout})`, whose lock is held until the lock's `unlock()`,
 else until the answer that took it ends (a TypeScript source's only, for
 now); `stat`
-answers `mode` and `isSymbolicLink`. An `env.read login:<NAME>` name is a
-shell variable's (`[A-Za-z_][A-Za-z0-9_]*`).
+answers `mode` and `isSymbolicLink`. These are the TypeScript runtime 6: an
+older prelude has none of them, so a call throws a plain `TypeError` and the
+fields read `undefined`, and a module that names one needs `typescriptRuntime`
+6 (one that reads only `stat().mode` is not detected). An `env.read
+login:<NAME>` name is a shell variable's (`[A-Za-z_][A-Za-z0-9_]*`).
 
 Under the agent nothing runs unless the drive names it: `--process
 <target>=<executable>` runs that file in the target's place,

@@ -871,6 +871,12 @@ fn a_bundle_needs_the_runtime_of_the_newest_option_it_names() {
     assert_eq!(needs(b"fetch(u, {signal: AbortSignal.timeout(5e3)})"), 5);
     assert_eq!(
         needs(b"fetch(u, {method:\"POST\",exactUploadProgress:!0,exactStream:m})"),
+        5
+    );
+    // LLP 1133.007 D6a's operations.
+    assert_eq!(
+        needs(b"const l = await storage.fs.flock(p, {timeout: 0})"),
         super::TYPESCRIPT_RUNTIME
     );
+    assert_eq!(needs(b"(await fs.lstat(p)).isSymbolicLink"), 6);
 }
