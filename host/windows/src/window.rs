@@ -618,7 +618,9 @@ impl<D: DataSource + Default + 'static> App<D> {
             |_| !p.pending(),
             |target| p.host().kernel().find_by_test_id(&target).len() == 1,
         );
-        if (self.frame_limit.is_some() || std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some())
+        if (self.frame_limit.is_some()
+            || std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some()
+            || std::env::var("EXACT_AGENT_WINDOW_PROBE").as_deref() == Ok("on"))
             && !self.measured_first_screen
             && p.last_frame_succeeded()
             && !p.data_activating()
