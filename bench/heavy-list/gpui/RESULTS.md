@@ -3161,3 +3161,46 @@ captures are in `native/` and `journeys/`; Mac logs are in `checks/`.
 Egui, Ink/wgpu, driver-cache-cold startup, energy, input latency and isolated
 renderer cost were not remeasured. G6's fonts, whole-app paths and readiness
 non-comparables remain.
+
+## G5: the static screen and the GPU
+
+@ref LLP 1149 §4.1; preparation on 2026-10-29, `lane/g5-static`, based on
+`48653eb5cb` (includes G4 at `be5413a907`). Three interleaved rounds each of
+fling, `bar` and `caret` use G4's four arms, screen, data and quiet rule.
+There are no cold-only launches or cold-start comparisons. Each measured
+phase begins after the complete-scene readiness handshake.
+
+**Expectation, stated before measurement.** In `bar`, native main-thread
+CPU should be near zero because Core Animation runs the animation; here
+“near zero” means below 10 ms/s, including the shared display-link probe.
+Ink and GPUI should pay the frame's bookkeeping; egui should rebuild visible
+rows each frame. In `caret`, every arm should be near idle between the two
+visibility changes per second. Continuous frame submissions would falsify
+that idle expectation; CPU totals alone cannot identify the work's stacks.
+
+`BENCH_MOTION=bar` paints a #007AFF fill at the top of the title bar, 2 points
+high, advancing across 800 points in two seconds. Contract translates the
+fill inside a clipped box; GPUI requests animation frames; egui requests a
+repaint each frame. `BENCH_MOTION=caret` paints a 1×20-point #007AFF caret
+at (112, 10) in that bar. Contract uses `steps(2, jump-none)` so its two states
+are opaque and transparent; GPUI's timer and egui's `request_repaint_after`
+wake at each 500 ms boundary. The list stays at row zero and receives no input.
+Plain `steps(2)` would produce a half-opacity state. Live mode is off.
+
+The linked probe discovers the concrete Metal queue class from a queue on
+the default device, hooks its three command-buffer creation methods, then
+hooks `commit` on the first returned buffer's concrete class. Each completion
+adds `GPUEndTime - GPUStartTime` and a count to the phase recorded at commit.
+Counts, missing timestamps and outstanding buffers are retained; a 250 ms
+grace after measurement lets boundary buffers finish. An offscreen three-buffer
+check matched the accumulated time to the buffers' own timestamps and kept
+all three in their commit phase after the phase changed. GPU times sum buffer
+spans, including possible overlaps; they are not a union of device occupancy.
+**The GPU runs at whatever clock the load earns: these are busy times under
+that clock, not work units.** Work in WindowServer is outside this process
+hook; no observed command buffers does not mean zero GPU cost for native
+Core Animation. Native's frames/s remains display-link cadence, not presented
+pixels. G4's whole-app and visual non-comparables still apply.
+
+Power was skipped: `sudo -n /usr/bin/powermetrics --samplers cpu_power,gpu_power -i 1000 -n 1`
+returned “sudo: a password is required”.

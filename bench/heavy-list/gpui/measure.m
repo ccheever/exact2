@@ -1,10 +1,17 @@
-// Five interleaved rounds; wheel.swift supplies LLP 1142 D3's process-targeted gestures.
+// Interleaved rounds; wheel.swift supplies LLP 1142 D3's process-targeted gestures.
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <CoreGraphics/CoreGraphics.h>
 #include <signal.h>
 
 static NSTask *runningApp, *runningWheel;
+static volatile sig_atomic_t appPID, wheelPID;
+
+static void interrupted(int number) {
+    if (wheelPID) kill(wheelPID, SIGTERM);
+    if (appPID) kill(appPID, SIGTERM);
+    _exit(128 + number);
+}
 
 static void fail(NSString *why) {
     if (runningWheel.running) [runningWheel terminate];
@@ -77,7 +84,12 @@ static BOOL lostFocus(NSString *output) {
 
 int main(int argc, const char **argv) {
     @autoreleasepool {
-        if (argc < 5 || argc > 8) fail(@"measure <result-dir> <native-executable> <gpui-executable> <exact-wheel> [rounds=5] [first-round=1] [cold-only]; G3_PAINTED_BIN adds ink; G4_EGUI_BIN adds egui; G3_ONLY_INK=1 runs only ink");
+        signal(SIGTERM, interrupted);
+        signal(SIGINT, interrupted);
+        if (argc < 5 || argc > 8) fail(@"measure <result-dir> <native-executable> <gpui-executable> <exact-wheel> [rounds=5] [first-round=1] [cold-only]; G3_PAINTED_BIN adds ink; G4_EGUI_BIN adds egui; BENCH_MOTION=bar|caret selects ten seconds without input or rest");
+        NSString *motion = NSProcessInfo.processInfo.environment[@"BENCH_MOTION"];
+        if (motion && ![@[@"bar", @"caret"] containsObject:motion]) fail(@"BENCH_MOTION must be bar or caret");
+        NSString *workload = motion ?: @"fling";
         NSString *ink = NSProcessInfo.processInfo.environment[@"G3_PAINTED_BIN"];
         NSString *egui = NSProcessInfo.processInfo.environment[@"G4_EGUI_BIN"];
         BOOL onlyInk = [NSProcessInfo.processInfo.environment[@"G3_ONLY_INK"] boolValue];
@@ -119,6 +131,7 @@ int main(int argc, const char **argv) {
                 NSString *executable = [arm isEqual:@"egui"] ? egui : [arm isEqual:@"ink"] ? ink
                     : [arm isEqual:@"native"] ? @(argv[2]) : @(argv[3]);
                 NSTask *app = launch(executable, @[], env, log);
+                appPID = app.processIdentifier;
                 runningApp = app;
                 fprintf(stdout, "%s pid=%d\n", name.UTF8String, app.processIdentifier); fflush(stdout);
                 activate(app);
@@ -126,12 +139,22 @@ int main(int argc, const char **argv) {
                 NSMutableArray *checks = [NSMutableArray array];
                 BOOL focused = focus(app, output, checks);
                 NSDictionary *ready = waitFile([output stringByAppendingString:@".ready"], app);
+                if (motion && round == first && getenv("G5_CAPTURE") && focused && !lostFocus(output)) {
+                    for (int frame = 0; frame < 2; frame++) {
+                        NSString *capture = [output stringByAppendingFormat:@".%d.png", frame];
+                        NSTask *shot = launch(@"/usr/sbin/screencapture", @[@"-x", @"-o", @"-l",
+                            [ready[@"window"] stringValue], capture], nil, log);
+                        [shot waitUntilExit];
+                        if (shot.terminationStatus) fail(@"motion capture failed");
+                        until(CACurrentMediaTime() + 0.5);
+                    }
+                }
                 NSMutableArray *inputs = [NSMutableArray array];
                 if (focused && !lostFocus(output) && !coldOnly) {
                     kill(app.processIdentifier, SIGUSR2);
-                    NSDictionary *start = waitFile([output stringByAppendingString:@".fling"], app);
+                    NSDictionary *start = waitFile([output stringByAppendingFormat:@".%@", workload], app);
                     double began = [start[@"time"] doubleValue];
-                    for (int fling = 0; fling < 4; fling++) {
+                    for (int fling = 0; !motion && fling < 4; fling++) {
                         until(began + fling * 2.5);
                         if (lostFocus(output)) break;
                         focused = focus(app, output, checks);
@@ -140,7 +163,9 @@ int main(int argc, const char **argv) {
                         double inputStart = CACurrentMediaTime();
                         NSTask *wheel = launch(@(argv[4]), @[[[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]], nil, log);
                         runningWheel = wheel;
+                        wheelPID = wheel.processIdentifier;
                         [wheel waitUntilExit];
+                        wheelPID = 0;
                         [inputs addObject:@[@(inputStart), @(CACurrentMediaTime())]];
                         if (wheel.terminationStatus) fail(@"wheel helper failed");
                     }
@@ -148,7 +173,7 @@ int main(int argc, const char **argv) {
                         until(began + 10);
                         kill(app.processIdentifier, SIGUSR2);
                         NSDictionary *rest = waitFile([output stringByAppendingString:@".rest"], app);
-                        until([rest[@"time"] doubleValue] + 10);
+                        if (!motion) until([rest[@"time"] doubleValue] + 10);
                     }
                 }
                 if (!focused || lostFocus(output)) {
@@ -160,6 +185,7 @@ int main(int argc, const char **argv) {
                     fprintf(stdout, "%s discarded: %s\n", name.UTF8String, [(losses ?: checks.lastObject) description].UTF8String);
                     fflush(stdout);
                     [app terminate]; [app waitUntilExit]; [log closeFile];
+                    appPID = 0;
                     if (attempt) break;
                     continue;
                 }
@@ -168,11 +194,12 @@ int main(int argc, const char **argv) {
                 result[@"inputWindows"] = inputs;
                 result[@"focusChecks"] = checks;
                 BOOL accepted = [result[@"activeAtStart"] boolValue] && [result[@"activeAtEnd"] boolValue]
-                    && ![result[@"fling"][@"inactiveTicks"] unsignedIntegerValue] && ![result[@"focusLosses"] count];
+                    && ![result[workload][@"inactiveTicks"] unsignedIntegerValue] && ![result[@"focusLosses"] count];
                 result[@"accepted"] = @(accepted);
                 [[NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:NULL]
                     writeToFile:output atomically:YES];
                 [app waitUntilExit];
+                appPID = 0;
                 [log closeFile];
                 if (app.terminationStatus) fail(@"app failed after reporting");
                 if (!accepted) {
@@ -181,13 +208,23 @@ int main(int argc, const char **argv) {
                     if (attempt) break;
                     continue;
                 }
-                if (!coldOnly && [arm isEqual:@"native"] && [result[@"nativeOffsetEnd"] doubleValue] < 500) fail(@"native list did not scroll");
-                if (!coldOnly && ([@[@"gpui", @"egui"] containsObject:arm])
+                if (motion) {
+                    BOOL moved;
+                    if ([arm isEqual:@"native"]) moved = [result[@"nativeOffsetEnd"] doubleValue] != 0;
+                    else {
+                        NSDictionary *offset = result[[arm stringByAppendingString:@"OffsetEnd"]];
+                        moved = [offset[@"item"] intValue] != 0 || [offset[@"withinItem"] doubleValue] != 0;
+                    }
+                    if (moved || [result[workload][@"wheelEvents"] unsignedIntegerValue] != 0)
+                        fail(@"static workload moved from row zero");
+                }
+                if (!motion && !coldOnly && [arm isEqual:@"native"] && [result[@"nativeOffsetEnd"] doubleValue] < 500) fail(@"native list did not scroll");
+                if (!motion && !coldOnly && ([@[@"gpui", @"egui"] containsObject:arm])
                     && [result[[arm stringByAppendingString:@"OffsetEnd"]][@"item"] intValue] == 0)
                     fail([arm stringByAppendingString:@" list did not scroll"]);
-                if (!coldOnly && [arm isEqual:@"ink"] && [result[@"inkOffsetEnd"][@"withinItem"] doubleValue] < 500) fail(@"ink list did not scroll");
+                if (!motion && !coldOnly && [arm isEqual:@"ink"] && [result[@"inkOffsetEnd"][@"withinItem"] doubleValue] < 500) fail(@"ink list did not scroll");
                 if ([result[@"thermalStart"] intValue] != [result[@"thermalEnd"] intValue]) fail(@"thermal state changed; retain this run but do not compare it");
-                fprintf(stdout, "%s cold=%.3f ms\n", name.UTF8String, [result[@"coldMs"] doubleValue]); fflush(stdout);
+                fprintf(stdout, "%s %s complete\n", name.UTF8String, workload.UTF8String); fflush(stdout);
                 break;
               }
             }
