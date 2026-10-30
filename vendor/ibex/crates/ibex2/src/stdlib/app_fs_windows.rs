@@ -76,6 +76,12 @@ pub(crate) fn document(
             };
             let meta = file.metadata()?;
             Ok(FsResult::Stat(crate::stdlib::fs::Stat {
+                mode: if meta.permissions().readonly() {
+                    0o444
+                } else {
+                    0o666
+                },
+                is_symlink: false,
                 size: meta.len(),
                 is_file: meta.is_file(),
                 is_directory: meta.is_dir(),

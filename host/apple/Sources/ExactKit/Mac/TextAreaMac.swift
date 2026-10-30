@@ -116,11 +116,11 @@ package final class TextArea: NSTextView {
         guard markup != nil, let storage = textStorage, let full, full.length == range.length, NSMaxRange(range) <= storage.length,
               storage.hidesSource(in: range) else { return full }
         let shown = NSMutableAttributedString(attributedString: full)
-        // Hidden runs read as nothing, an atom as its label (LLP 1045.000 D8).
+        // Hidden runs read as nothing, an atom as its name (LLP 1045.000 D8).
         storage.enumerateAttributes(in: range, options: .reverse) { attributes, run, _ in
             let local = NSRange(location: run.location - range.location, length: run.length)
             if let atom = attributes[.markupAtom] as? MarkupAtom {
-                let label = storage.atomRange(at: run.location)?.location == run.location ? atom.label : ""
+                let label = storage.atomRange(at: run.location)?.location == run.location ? atom.spokenName : ""
                 shown.replaceCharacters(in: local, with: label)
             } else if attributes[.markupHidden] != nil { shown.deleteCharacters(in: local) }
         }
@@ -295,7 +295,7 @@ package final class TextArea: NSTextView {
 
     @objc package func copyPlainText(_ sender: Any?) {
         guard markup != nil, selectedRange().length > 0,
-              let plain = MarkdownLink.installed?.plain(string, range: selectedRange(), atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "") else { return }
+              let plain = MarkdownLink.installed?.plain(string, range: selectedRange(), atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "", spoken: false) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(plain, forType: .string)
     }
@@ -505,6 +505,7 @@ extension NodeView {
         f.minSize = NSSize(width: 0, height: scroller.contentSize.height)
         f.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         f.setFrameSize(NSSize(width: scroller.contentSize.width, height: max(f.frame.height, scroller.contentSize.height)))
+        layoutResizeGrip()
     }
     package func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
         TextInputLimit.allows(textView.string, range: affectedCharRange, replacement: replacementString ?? "", props: props)

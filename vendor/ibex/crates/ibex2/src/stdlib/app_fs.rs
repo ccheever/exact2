@@ -11,7 +11,7 @@ pub use implementation::*;
 pub(crate) use implementation::{atomic_native, document, document_file};
 
 #[cfg(unix)]
-pub(crate) use implementation::remove_native;
+pub(crate) use implementation::{remove_native, run_below, Below};
 
 #[cfg(not(any(unix, windows)))]
 mod implementation {

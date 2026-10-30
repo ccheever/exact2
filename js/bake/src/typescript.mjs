@@ -1072,10 +1072,12 @@ function moduleBindings(stage, app) {
   // The target the build compiles, as an implementation's `targets` names it, or none (a loop serving several).
   const mapping=resolve(stage,'__exact_paths.json'), named=existsSync(mapping) ? JSON.parse(readFileSync(mapping,'utf8')).target : null;
   const target=['web','ios','macos','tvos','android','windows','linux'].includes(named) ? named : null, out=new Map();
-  const interfaces=moduleInterfaces(app); for (const {name,declaration,implementations} of interfaces) {
+  const interfaces=moduleInterfaces(app); for (const {name,root,declaration,implementations} of interfaces) {
     const file='__exact_modules/'+name.replace(/^@/,'').replace(/\//g,'__')+'.ts';
     mkdirSync(resolve(stage,'__exact_modules'),{recursive:true});
-    const text=moduleBinding(name,declaration,implementations.map(i=>i.json),names=>domDeclarations(app,names),membersOf(name,interfaces),target), at=resolve(stage,file);
+    // An interface the executor implements carries its own binding (LLP 1133.007 D12).
+    const own=Array.isArray(declaration.executor) && typeof declaration.binding==='string' ? readFileSync(resolve(root,declaration.binding),'utf8') : null;
+    const text=own ?? moduleBinding(name,declaration,implementations.map(i=>i.json),names=>domDeclarations(app,names),membersOf(name,interfaces),target), at=resolve(stage,file);
     if (!existsSync(at) || readFileSync(at,'utf8')!==text) writeFileSync(at,text);
     out.set(name,'./'+file);
   }

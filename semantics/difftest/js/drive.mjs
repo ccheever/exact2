@@ -272,7 +272,7 @@ async function drive(code, c, hostSources) {
       // A paragraph of inline runs has no text of its own: its runs carry it (agent.js `record`, `run`).
       const run = e.parentElement?.hasAttribute('data-exact-text') && e.parentElement.getAttribute('markup') !== 'markdown';
       const text = (e.hasAttribute('data-exact-text') || e.localName === 'option' || svgText || run) && (e.$source != null || !e.childElementCount)
-        ? quote(e.$source ?? e.textContent) : '-';
+        ? (e.$unset ? '-' : quote(e.$source ?? e.textContent)) : '-';
       out.push(`view ${quote(id)} ${text}`);
     }, true);
   };

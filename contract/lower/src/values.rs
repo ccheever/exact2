@@ -459,14 +459,6 @@ fn style_value(
                     span,
                 );
             }
-            if rows.contains(&StyleId::Resize)
-                && matches!(
-                    v.as_str(),
-                    "both" | "horizontal" | "vertical" | "block" | "inline"
-                )
-            {
-                return err("lower-css-resize", "CSS resize handles are not implemented by the native layout presenters; only `resize=\"none\"` is portable. Other values require user-controlled box geometry, not a different property name", span);
-            }
             // @ref LLP 1115.000 D11.6 — `text` and `all` are honoured where a
             // host has text selection (the web, macOS, iOS); `contain` names
             // a selection behaviour no native presenter has.

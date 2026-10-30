@@ -68,6 +68,7 @@ pub mod orientation;
 pub mod page;
 pub mod perf;
 pub mod presence;
+pub mod process;
 pub mod request;
 pub mod runner;
 pub mod save_file;
@@ -108,6 +109,7 @@ pub use instance::collection::{
 };
 pub use instance::{DocNode, DocTree, DocTreeError, ListLinks, SurfaceUpdate, LISTS};
 pub use page::Page;
+pub use process::{ProcessOp, WorkClock, PROCESS_URL};
 pub use request::{
     io_grants, Answer, Dispatch, FailureKind, HttpScheduling, LongPoll, Message, Outcome,
     Placement, Redirect, Reply, Request, RequestOut, Response, RetryReader, Retrying, SocketOp,

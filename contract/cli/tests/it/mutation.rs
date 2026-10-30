@@ -656,8 +656,8 @@ component App
 
   view
     column testId="root"
-      for item in items key=item.id
-        text item.id + item.id
+      for item in items key=item.id + item.id
+        text item.id
 "#;
 
 struct PoisonSource;
@@ -668,8 +668,8 @@ impl DataSource for PoisonSource {
             "items" if args[0].as_number() == Some(0.0) => {
                 Ok(Value::list(vec![Value::record(vec![Value::str("one")])]))
             }
-            // Doubled by the view, past the runner's longest string: a trap
-            // while the tree changes, the way data can still poison it.
+            // Doubled by a row key, past the runner's longest string: a trap
+            // in a key, the way data can still poison the runner.
             "items" => Ok(Value::list(vec![Value::record(vec![Value::str(
                 &"x".repeat((exact_runner::vm::MAX_STRING / 2) + 1),
             )])])),

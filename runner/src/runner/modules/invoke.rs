@@ -343,12 +343,18 @@ impl<D: DataSource> Runner<D> {
                 let ticket = self.next_ticket;
                 self.next_ticket += 1;
                 request.reach = self.reach_of(run.origin);
-                self.requests.push(RequestOut {
-                    ticket,
-                    target: NAME.into(),
-                    request,
-                    forced: false,
-                });
+                // A program starts only from the app's origin (LLP 1133.007
+                // D13): a handler's is refused before it reaches the host,
+                // so no ordered work waits on it.
+                match self.process_refusal(&request) {
+                    Some(why) => self.refuse_tool(ticket, why, false),
+                    None => self.requests.push(RequestOut {
+                        ticket,
+                        target: NAME.into(),
+                        request,
+                        forced: false,
+                    }),
+                }
                 self.extensions.invocations.running.insert(ticket, run);
                 self.native_slot().changed("");
                 return;

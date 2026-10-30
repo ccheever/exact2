@@ -30,7 +30,7 @@ pub(super) struct Checkpoint {
     failed_mut: Vec<Option<crate::failure::Failure>>,
     refresh_next: Vec<usize>,
     writes: super::writes::Writes,
-    unsent: Vec<(usize, String, Vec<Value>)>,
+    unsent: Vec<Unsent>,
     reconciling: Vec<usize>,
     pending: Vec<PendingReq>,
     queues: super::queue::Saved,
@@ -47,6 +47,8 @@ pub(super) struct Checkpoint {
     resource_inspection: Vec<crate::perf::ResourceWork>,
     /// Who each request and `then` is from (LLP 1133.023 D7).
     origins: super::modules::OriginsSaved,
+    /// The arguments refused a child's resource (LLP 1133.007 D13).
+    refused_args: super::modules::Refused,
 }
 
 /// What a settlement publishes that a refusal after it — the gate step
@@ -123,6 +125,7 @@ impl<D: DataSource> Runner<D> {
             refused: self.keeping.refused.len(),
             resource_inspection: self.ids.work.resources.clone(),
             origins: self.origins_saved(),
+            refused_args: self.refused_saved(),
             letting: self.letting_len(),
         }
     }
@@ -196,6 +199,7 @@ impl<D: DataSource> Runner<D> {
                 self.pending = c.pending;
                 self.letting_restored(c.letting);
                 self.origins_restore(c.origins);
+                self.refused_restore(c.refused_args);
                 self.queues.restore(c.queues);
                 self.timers = c.timers;
                 if let Some(p) = c.published {
@@ -419,7 +423,7 @@ impl<D: DataSource> Runner<D> {
         // opened at launch was refused, and lost). A queue's waits in its
         // queue instead, every send in order, its head asked once the source
         // is ready (LLP 1092 D2).
-        let mut unsent: Vec<(usize, String, Vec<Value>)> = Vec::new();
+        let mut unsent: Vec<Unsent> = Vec::new();
         for (m, source, sargs) in &outcome.sends {
             let m = *m as usize;
             self.accept_write(m, source, sargs);
@@ -427,7 +431,7 @@ impl<D: DataSource> Runner<D> {
             let early = !self.data.ready() && !exact_plan::runner_owned_source(source);
             if early && !queue {
                 unsent.retain(|u| u.0 != m);
-                unsent.push((m, source.clone(), sargs.clone()));
+                unsent.push((m, source.clone(), sargs.clone(), self.sent_by()));
                 // It replaces a send still in flight (newest wins).
                 replaced.push(m);
                 continue;
@@ -567,10 +571,10 @@ impl<D: DataSource> Runner<D> {
         }
         // Waiting from here, so the settlement sees them pending; a refusal
         // puts the waiting sends back as they were (the checkpoint).
-        for (m, source, args) in &unsent {
+        for (m, source, args, by) in &unsent {
             self.unsent.retain(|u| u.0 != *m);
             if !assigned.contains(m) {
-                self.unsent.push((*m, source.clone(), args.clone()));
+                self.unsent.push((*m, source.clone(), args.clone(), *by));
                 self.pending_mut[*m] = true;
             }
         }
@@ -667,7 +671,7 @@ impl<D: DataSource> Runner<D> {
                 self.forget(Target::Mutation(m));
             }
         }
-        for (m, _, _) in unsent.iter().filter(|u| !assigned.contains(&u.0)) {
+        for (m, ..) in unsent.iter().filter(|u| !assigned.contains(&u.0)) {
             self.log(super::lines::unsent(
                 self.plan.str(self.plan.mutations[*m].name),
             ));
@@ -799,8 +803,11 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Let go of `target`'s request in flight, keeping a send that waits
-    /// for the source.
-    pub(super) fn forget_ticket(&mut self, target: Target) {
+    /// for the source; `false` keeps a child (LLP 1133.007 D13).
+    pub(super) fn forget_ticket(&mut self, target: Target) -> bool {
+        if self.holds_child(target) {
+            return false;
+        }
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let p = self.pending.remove(pos);
             self.note_retired(&p);
@@ -810,6 +817,7 @@ impl<D: DataSource> Runner<D> {
             self.forgot = true;
             self.log(super::lines::forgot(t, &self.target_name(target)));
         }
+        true
     }
 
     /// The resources mutation `m` declares it refreshes.
@@ -879,6 +887,9 @@ impl<D: DataSource> Runner<D> {
                 return;
             }
         }
+        if self.holds_child(target) {
+            return self.discard_request(&request);
+        }
         // A re-ask after a turn over its budget carries its streak on.
         let reasks = self.overrun_reasks(target, &args, forced);
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
@@ -895,9 +906,10 @@ impl<D: DataSource> Runner<D> {
         let name = self.target_name(target);
         let mut request = request;
         self.number_data_call(&mut request);
-        self.log(super::lines::enqueued(ticket, &name, &request));
-        self.note_asked(target, ticket);
         request.reach = self.reach_of(self.origin_for(Some(target)));
+        self.log(super::lines::enqueued(ticket, &name, &request));
+        let refusal = self.ask_refusal(target, &args, &request);
+        self.note_asked(target, ticket);
         self.note_handles(ticket, &source, &request.body);
         self.note_send(ticket, &request.body);
         self.presence_noted(ticket, &request);
@@ -906,7 +918,7 @@ impl<D: DataSource> Runner<D> {
                 Target::Resource(i) => self.inspected_request(i),
                 Target::Mutation(_) => 0,
             },
-            refusal: None,
+            refusal: refusal.map(|why| (why, false)),
             refused: false,
             ticket,
             target,
@@ -920,13 +932,7 @@ impl<D: DataSource> Runner<D> {
             sent: false,
             grant: request
                 .stream
-                .then(|| {
-                    crate::grants::admitting(
-                        self.data.grants(),
-                        request.grants.as_deref(),
-                        &request.url,
-                    )
-                })
+                .then(|| crate::grants::admitting_request(self.data.grants(), &request))
                 .flatten()
                 .map(str::to_string),
             ask_again: false,
@@ -943,6 +949,7 @@ impl<D: DataSource> Runner<D> {
             reask_at: None,
             reasks,
         });
+        self.note_child(ticket, &request);
         if request.stream && request.upload_progress {
             let args = self
                 .pending
@@ -951,12 +958,13 @@ impl<D: DataSource> Runner<D> {
                 .unwrap_or_default();
             self.upload_sent(target, &args, ticket);
         }
-        self.requests.push(RequestOut {
-            ticket,
-            target: name,
-            request,
-            forced,
-        });
+        self.requests
+            .extend(refusal.is_none().then_some(RequestOut {
+                ticket,
+                target: name,
+                request,
+                forced,
+            }));
         // An abort heard before this request was enqueued (in the same
         // commit, or a worker's turn that landed late) names it now.
         self.match_aborts();
@@ -982,7 +990,7 @@ impl<D: DataSource> Runner<D> {
         for (i, awaiting) in self.awaiting.iter().enumerate() {
             self.pending_res[i] |= *awaiting;
         }
-        for (m, _, _) in &self.unsent {
+        for (m, ..) in &self.unsent {
             self.pending_mut[*m] = true;
         }
     }
@@ -1268,6 +1276,7 @@ impl<D: DataSource> Runner<D> {
             sockets::socket_message(count, m);
         }
         let p = p.clone();
+        self.note_child_outcome(p.ticket, &outcome);
         self.sync_pending_flags();
         let (ticket, target, name) = (p.ticket, p.target, self.target_name(p.target));
         let what = super::lines::fulfilling(ticket, &name, summary);
@@ -1411,8 +1420,10 @@ impl<D: DataSource> Runner<D> {
                 // A round of an ask made before a watched topic changed
                 // carries the ask again to its last (LLP 1016.002 D4).
                 self.log(super::lines::one_more(&name));
+                let ticket = self.next_ticket;
                 self.enqueue(p.target, p.source, p.args, request, false);
-                if let Some(next) = self.pending.last_mut() {
+                // `enqueue` may keep a ticket or a running child, and push none.
+                if let Some(next) = self.pending.last_mut().filter(|n| n.ticket >= ticket) {
                     next.ask_again |= p.ask_again;
                     next.module_again = next.module_again.or(p.module_again);
                     next.origin = p.origin;

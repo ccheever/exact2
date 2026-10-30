@@ -297,8 +297,9 @@ uint64_t exact_markup_edit(const uint8_t *utf8, size_t len, uint32_t start, uint
 /* {formats:string,mixed:bool,link:string,unavailable:string,atom:string}; token lists use spaces. */
 uint64_t exact_markup_selection(const uint8_t *utf8, size_t len, uint64_t atoms, uint32_t start, uint32_t end,
     const uint8_t **out, size_t *count);
-/* Raw UTF-8 plain text, sharing the same handle lifetime. */
-uint64_t exact_markup_plain(const uint8_t *utf8, size_t len, uint64_t atoms, uint32_t start, uint32_t end, const uint8_t **out, size_t *count);
+/* Raw UTF-8 plain text, sharing the same handle lifetime; `spoken` 1 reads each atom as its
+ * accessible name (its face's `ariaLabel`, else its label), 0 as its label. */
+uint64_t exact_markup_plain(const uint8_t *utf8, size_t len, uint64_t atoms, uint8_t spoken, uint32_t start, uint32_t end, const uint8_t **out, size_t *count);
 /* LLP 1045 D11: each source line's direction under `paragraphDirs` `auto`, as the web editor decides
  * it: one ASCII digit per line, 0 none, 1 left to right, 2 right to left. Same handle lifetime. */
 uint64_t exact_markup_auto(const uint8_t *utf8, size_t len, uint64_t atoms, const uint8_t **out, size_t *count);

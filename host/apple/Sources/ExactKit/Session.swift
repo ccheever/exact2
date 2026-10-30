@@ -751,6 +751,9 @@ public final class ExactSession {
         // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout as an intrinsic
         // size does, on AppKit too (LLP 1115.002 D8.1); the hatches replay once the module connects.
         presenter.onCovers = { [unowned self] covers in whenIdle(bound: true) { [unowned self] in applyUnlessEmpty(runtime.covers(covers)) } }
+        presenter.onResizeBox = { [unowned self] id, width, height in
+            whenIdle(bound: true) { [unowned self] in applyUnlessEmpty(runtime.resizeBox(id, width: width, height: height)) }
+        }
         #if os(iOS) || os(tvOS)
         natives.onHatchesConnected = { [weak self] in
             self?.presenter.navigation.replayHatches()

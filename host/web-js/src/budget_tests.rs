@@ -190,3 +190,15 @@ fn development_derive_checks_name_the_authored_derive() {
     assert!(dev.contains(",\"doubled\")"), "{dev}");
     assert!(!production.contains(",\"doubled\")"), "{production}");
 }
+
+/// A prop or style binding that can trap is guarded (`tg`): its trap unsets
+/// the row with a journal line naming its site, and the commit goes on
+/// (LLP 1017.003 D3). One that names nothing of budget.js's cannot trap and
+/// is left as it is.
+#[test]
+fn a_binding_that_can_trap_unsets_its_row() {
+    let (_, js) = js("component App\n  state n = 1\n  view\n    column\n      text range(n).map(i => \"x\").join(\",\") opacity=range(n).length / 2\n      text `${n}`\n");
+    assert!(js.contains("tg(e1,1,\"text\",()=>"), "{js}");
+    assert!(js.contains("tg(e1,1,\"opacity\",()=>"), "{js}");
+    assert!(!js.contains("tg(e2,"), "{js}");
+}

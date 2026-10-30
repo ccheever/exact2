@@ -176,6 +176,18 @@ test('a web drive takes its port from --port, else EXACT_PORT, and refuses anyth
   expect(() => parseFlags(['web', '--storage', 'proof', '--keep-storage', '--reset-storage'])).toThrow('mutually exclusive');
 });
 
+// LLP 1133.007 §7: only the drive's own flags let a program run.
+test('an inherited EXACT_AGENT_PROCESS opens no process gate', () => {
+  process.env.EXACT_AGENT_PROCESS = 'path:sh=real';
+  process.env.EXACT_AGENT_HOME = '/tmp/inherited';
+  parseFlags(['macos', 'tree']);
+  expect(process.env.EXACT_AGENT_PROCESS).toBeUndefined();
+  expect(process.env.EXACT_AGENT_HOME).toBeUndefined();
+  parseFlags(['macos', '--process', 'path:sh=real', 'tree']);
+  expect(process.env.EXACT_AGENT_PROCESS).toBe('path:sh=real');
+  delete process.env.EXACT_AGENT_PROCESS;
+});
+
 // App farm 082: Chrome's fatal line came before a native stack the tail kept instead.
 test("a Chrome that dies at launch is reported by its first fatal line, before the stack's tail", () => {
   const log = launchLog();

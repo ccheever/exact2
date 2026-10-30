@@ -5,11 +5,21 @@
 import Foundation
 import QuartzCore
 
+/// The media clock, seconds. watchOS has no `CACurrentMediaTime`; `systemUptime`
+/// reads the same `mach_absolute_time`.
+package func hostMediaTime() -> Double {
+    #if os(watchOS)
+    ProcessInfo.processInfo.systemUptime
+    #else
+    CACurrentMediaTime()
+    #endif
+}
+
 package final class HostPhases: @unchecked Sendable {
     package static let shared = HostPhases()
     package init() {}
     /// The media clock, seconds; a test gives its own.
-    package var clock: () -> Double = CACurrentMediaTime
+    package var clock: () -> Double = hostMediaTime
 
     /// The fixed phases: what the host does on the main thread to put a frame
     /// up. Each is charged only the time no phase inside it took.

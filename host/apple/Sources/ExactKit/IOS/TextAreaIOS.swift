@@ -348,7 +348,7 @@ package final class TextArea: UITextView {
     @objc package func copyPlainText() {
         // tvOS has no pasteboard.
         #if !os(tvOS)
-        guard markup != nil, selectedRange.length > 0, let plain = MarkdownLink.installed?.plain(text, range: selectedRange, atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "") else { return }
+        guard markup != nil, selectedRange.length > 0, let plain = MarkdownLink.installed?.plain(text, range: selectedRange, atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "", spoken: false) else { return }
         UIPasteboard.general.string = plain
         #endif
     }
@@ -570,6 +570,7 @@ extension NodeView {
                                                        right: max(0, layoutBounds.width - r.maxX) + bounds.width - layoutBounds.width)
             }
         } else { area.frame = contentBox() }
+        layoutResizeGrip()
         #endif
     }
     /// The app's value into the editor: the changed middle only, with the

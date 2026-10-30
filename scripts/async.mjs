@@ -8,8 +8,8 @@
  * and the script capture fixtures,
  * the web host's app-building document test in its own step, the web JS target's conformance run
  * (`host/web-js/conform.mjs --strict`), the separate game workspace and in-repo game tests,
- * the UIKit XCTests on a simulator and the tvOS compile (`build.mjs --tvos
- * --no-install`) for any range beyond documentation-only edits,
+ * the UIKit XCTests on a simulator and the tvOS and watchOS compiles (`build.mjs
+ * --tvos --no-install`, `--watchos --no-install`) for any range beyond documentation-only edits,
  * the
  * Contract semantics (`semantics/README.md`) as four checks — the Lean proofs,
  * the extracted VM's proofs, the differential run against the Lean semantics
@@ -79,8 +79,7 @@ function laneTests() {
 
 const workspace = ['--workspace'];
 const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player', 'caltrain', 'typetour', 'carousel', 'sparkline', 'svg-gallery', 'spark', 'markdown-stress', 'reflow', 'textflow', 'canvas-gallery', 'duo-lab', 'update-lab', 'native-fixture', 'photo-editor', 'recorder', 'fieldnotes', 'markdown', 'messages', 'interaction-gallery', 'motion-gallery'];
-// The second lane: watchOS compiles Caltrain with the pinned nightly and
-// rust-src (webToolchainEnv names their install); tvOS uses Caltrain (its TypeScript-free build needs no
+// The second lane: tvOS uses Caltrain (its TypeScript-free build needs no
 // Hermes) and installs it on an Apple TV simulator, which the first lane's
 // compile does not; Linux and Windows compile their target-only branches:
 // Windows with Windows Desk, on x64 and ARM64 (LLP 1115.004 D0.3), Linux with every app (`*-linux` is the
@@ -89,7 +88,6 @@ const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player
 // reader's Kotlin and a module's (LLP 1133.002 stage 4, Charlie's say-so).
 export function tierTwoChecks() {
   return [
-    ['watchos', 'bun', ['host/apple/build.mjs', '--watchos', '--no-install']],
     ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']],
     ['linux', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu', 'CXX_x86_64_unknown_linux_gnu=zig c++ -target x86_64-linux-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-unknown-linux-gnu', '-p', '*-linux']],
     ['windows', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_pc_windows_gnu=zig cc -target x86_64-windows-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-pc-windows-gnu', '-p', 'exact-windows', '-p', 'windows-desk']],
@@ -99,6 +97,7 @@ export function tierTwoChecks() {
   ];
 }
 export const tvosCompile = ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos', '--no-install']];
+export const watchosCompile = ['watchos', 'bun', ['host/apple/build.mjs', '--watchos', '--no-install']];
 export const gameScaffoldCheck = ['game-scaffold', 'bun', ['test', 'game/proof-game.test.mjs', 'game/new.test.mjs', '--test-name-pattern', 'proof script|worldPixels|AGENTS.md lists vocab|new logic/tests file']];
 export const gameCheck = ['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']];
 // The T3 Code clone's own workspace (examples/t3-code/Cargo.toml): its build script bakes the whole app on
@@ -199,6 +198,11 @@ export function checks(sha, since, selection = {}) {
     // and signed, installed on nothing (Charlie, 2026-10-12): it needs the tvOS
     // SDK and Rust's tvOS simulator target, and no simulator. Tier 2 installs.
     ...(apple ? [tvosCompile] : []),
+    // watchOS compiles ExactCore and the snapshot driver's Swift a third time, and a
+    // name watchOS lacks breaks it (CACurrentMediaTime in HostPhases, 2026-10-26). It
+    // builds Caltrain's watch bundle with the pinned nightly and rust-src
+    // (webToolchainEnv names their install), and no simulator.
+    ...(apple ? [watchosCompile] : []),
     ...semanticsChecks(),
     ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
   ];
@@ -273,7 +277,7 @@ export function semanticsChecks(base = process.env) {
 /** What the semantics checks read at the worktree's checkout, read once for all four. */
 const semanticsInputs = () => new Inputs(WT, semanticsEnv(process.env));
 
-export function retainSkippedFailures(previous, result, conditionalNames = ['lane', 'ios', 'ios-touch', 'tvos']) {
+export function retainSkippedFailures(previous, result, conditionalNames = TIER === 1 ? ['lane', 'ios', 'ios-touch', 'tvos', 'watchos'] : []) {
   const conditional = new Set(conditionalNames);
   result.failures.push(...previous.filter(f => {
     const name = f.split(': ', 1)[0];

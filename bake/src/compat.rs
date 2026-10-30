@@ -52,13 +52,28 @@ pub(crate) const RUST_ABI: u32 = 4;
 /// aborting turn, where a refused commit drops its continuation's writes; and,
 /// sharing it as well, `fetch`'s `exactUploadProgress` (LLP 1016.000 D10),
 /// which an older prelude would ignore, giving the mapper no progress and the
-/// reply as a byte stream's messages.
-pub(crate) const TYPESCRIPT_RUNTIME: u32 = 5;
+/// reply as a byte stream's messages. 6: `storage.fs`'s `lstat`, `readlink`,
+/// `access`, `chmod`, `symlink`, `digest` and `flock`, and `stat`'s `mode`
+/// and `isSymbolicLink` (LLP 1133.007 D6a), which an older prelude lacks: a
+/// call throws a plain `TypeError` rather than `NotSupportedError`, and the
+/// fields read `undefined`. The operations work on `app:/` paths under an
+/// existing `fs` grant, so the grant ceiling does not keep them from an
+/// older binary. A module that reads only `stat().mode` names nothing below
+/// and is not detected.
+pub(crate) const TYPESCRIPT_RUNTIME: u32 = 6;
 
 /// What each runtime past the first added that a bundle names to use (see
 /// [`TYPESCRIPT_RUNTIME`]): a `fetch` option an older prelude would ignore,
-/// or, for 5's abort changes, what makes an abort signal.
-const RUNTIME_OPTIONS: [(u32, &str); 7] = [
+/// or, for 5's abort changes, what makes an abort signal. `mode` and
+/// `access` are left out of 6's: they would match far more than D6a.
+const RUNTIME_OPTIONS: [(u32, &str); 14] = [
+    (6, "isSymbolicLink"),
+    (6, "symlink"),
+    (6, "readlink"),
+    (6, "lstat"),
+    (6, "chmod"),
+    (6, "digest"),
+    (6, "flock"),
     (5, "exactUploadProgress"),
     (5, "AbortController"),
     (5, "AbortSignal"),

@@ -436,7 +436,8 @@ impl Collection {
             ListAxis::Vertical => 0,
             ListAxis::Horizontal => 1,
         }];
-        // A trap here poisons like every other binding's (LLP 1090 D6).
+        // A list's reads of its own options are its structure, as a region's
+        // subject is: a trap here still poisons (LLP 1017.003 D3).
         let mut manual = false;
         for b in descriptor.bindings.iter().map(|b| plan.binding(b)) {
             if b.kind == BindingKind::Prop && b.id == PropId::ScrollRestoration as u16 {

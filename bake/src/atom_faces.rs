@@ -60,7 +60,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             dir.join("app.contract"),
-            format!("atom mention prefix=\"@\"\ncomponent App\n  derive faces = [AtomFace(source=\"@a\", label=\"\", icon=\"\", title=\"\", color=\"\", backgroundColor=\"\", direction=\"\")]\n  view\n{view}"),
+            format!("atom mention prefix=\"@\"\ncomponent App\n  derive faces = [AtomFace(source=\"@a\", label=\"\", icon=\"\", title=\"\", color=\"\", backgroundColor=\"\", direction=\"\", ariaLabel=\"\")]\n  view\n{view}"),
         )
         .unwrap();
         dir

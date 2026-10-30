@@ -18,8 +18,9 @@ impl DataSource for Duplicates {
     }
 }
 
-/// `label` answers `some` until `poke` has run, then `none`, which the
-/// view unwraps: a trap while the tree changes, the one way left to poison.
+/// `label` answers `some` until `poke` has run, then `none`, which a
+/// `when`'s subject unwraps: a trap in a region's subject, key or row
+/// initializer still poisons (LLP 1017.003 D3).
 pub(super) struct Fragile;
 
 impl DataSource for Fragile {
@@ -43,23 +44,16 @@ pub(super) fn fragile() -> Runner<Fragile> {
     arg.load_slot(pokes);
     let arg = b.code(arg);
     let resource = b.resource("label", "label", &[arg], label, None);
-    let mut text = Asm::new();
-    text.load_resource(resource).op(Opcode::Unwrap, &[]);
-    let text = b.code(text);
-    b.node(
-        NodeType::Text as u8,
-        None,
-        None,
-        0,
-        &[BindingsRow {
-            kind: BindingKind::Prop,
-            id: PropId::Text as u16,
-            expr: text,
-            written: true,
-        }],
-        &[],
-        None,
-    );
+    let ok = b.str("ok");
+    let mut cond = Asm::new();
+    cond.load_resource(resource)
+        .op(Opcode::Unwrap, &[])
+        .str(ok)
+        .simple(Opcode::Eq);
+    let cond = b.code(cond);
+    let unit = b.constant(&Value::Unit);
+    let root = b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    b.region(RegionKind::When, Some(root), None, 0, cond, unit, 2);
     let scheme = b.str("setScheme");
     let dark = b.str("dark");
     for (name, slot) in [("poke", pokes), ("tick", ticks)] {
@@ -209,4 +203,95 @@ fn an_invalid_value_from_data_unsets_its_row_and_is_journaled() {
     assert_eq!(position(&r), None);
     r.act("place", vec![Value::Number(3.)]).unwrap();
     assert_eq!(position(&r), Some(exact_kernel::PropValue::Int(3)));
+}
+
+/// A prop or style binding that traps is invalid at computed-value time, as
+/// a refused value is: its row is unset, one journal line names its site and
+/// the trap, and the runner goes on (LLP 1017.003 D3). Here a text and a
+/// style binding pass the list-step bound once `n` grows. One that goes on
+/// trapping is journaled once, until it evaluates to a value again.
+#[test]
+fn a_binding_that_traps_unsets_its_row_and_the_runner_goes_on() {
+    const SOURCE: &str = "component App
+  state n = 1
+  state ticks = 0
+  action grow
+    n = 65537
+  action regrow
+    n = n + 1
+  action shrink
+    n = 2
+  action tick
+    ticks = ticks + 1
+  task beat mount
+    every(1000, tick)
+  view
+    column
+      text range(n).map(i => \"x\").join(\",\") testId=\"names\" opacity=range(n).length / 65537
+      text `${ticks}` testId=\"ticks\"
+";
+    let mut r = Runner::boot(
+        contract::compile(SOURCE).unwrap(),
+        Schedule::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let view = |r: &Runner<Schedule>, id: &str| {
+        let key = r.kernel().find_first_by_test_id(id).unwrap();
+        r.kernel().node_by_key(key).unwrap().id
+    };
+    let text = |r: &Runner<Schedule>, id: &str| {
+        let node = r.kernel().node(view(r, id)).unwrap();
+        node.props.get(PropId::Text).cloned()
+    };
+    let opacity = |r: &Runner<Schedule>| {
+        let mut row = exact_kernel::StyleMask::default();
+        row.set(StyleId::Opacity);
+        let node = r.kernel().node(view(r, "names")).unwrap();
+        node.style.mask.intersects(row)
+    };
+    assert_eq!(text(&r, "names"), Some(exact_kernel::PropValue::from("x")));
+    assert!(opacity(&r));
+    let before = r.journal().count();
+    r.act("grow", vec![]).unwrap();
+    assert!(!r.is_poisoned());
+    assert_eq!(text(&r, "names"), None, "the text's row is unset");
+    assert!(!opacity(&r), "and the style's");
+    let trapped: Vec<_> = r
+        .journal()
+        .skip(before)
+        .filter(|l| l.contains("trapped"))
+        .collect();
+    assert_eq!(trapped.len(), 2, "{trapped:?}");
+    assert!(
+        trapped[0].contains(": text trapped Trap(IterationLimit { pc: ")
+            && trapped[0].ends_with("; unset")
+            && trapped[0].contains("(site "),
+        "{trapped:?}"
+    );
+    assert!(trapped[1].contains(": opacity trapped Trap(IterationLimit { pc: "));
+    let trapping = |r: &Runner<Schedule>, from: usize| {
+        r.journal()
+            .skip(from)
+            .filter(|l| l.contains("trapped"))
+            .count()
+    };
+    let before = r.journal().count();
+    r.act("regrow", vec![]).unwrap();
+    assert_eq!(trapping(&r, before), 0, "still trapping: no new line");
+    assert_eq!(text(&r, "names"), None);
+    // Its next timer fires, and the row comes back when the binding does.
+    r.advance(1_000.0).unwrap();
+    assert_eq!(text(&r, "ticks"), Some(exact_kernel::PropValue::from("1")));
+    r.act("shrink", vec![]).unwrap();
+    assert_eq!(
+        text(&r, "names"),
+        Some(exact_kernel::PropValue::from("x,x"))
+    );
+    assert!(opacity(&r));
+    let before = r.journal().count();
+    r.act("grow", vec![]).unwrap();
+    assert_eq!(trapping(&r, before), 2, "trapping again after a value");
 }

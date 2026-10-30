@@ -32,6 +32,7 @@ mod reorder_codec;
 mod reorder_group;
 pub use intersect::Intersection;
 pub use shown::BlockPlacement;
+mod box_resize;
 mod resize;
 pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
 mod held;
@@ -303,6 +304,12 @@ impl PendingReq {
 
 type FocusPath = Vec<(ViewId, NodesId, Vec<Frame>)>;
 
+/// A send made before the data source was ready: its mutation, source and
+/// arguments, and the origin and invocation of the commit that made it,
+/// which `data_ready` sends it under (LLP 1133.002 D12), as a queue's
+/// waiting send keeps them (`queue.rs`).
+type Unsent = (usize, String, Vec<Value>, (CallOrigin, u64));
+
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
     plan: Plan,
@@ -404,7 +411,7 @@ pub struct Runner<D: DataSource> {
     landed: Vec<usize>,
     /// Sends made before the data source was ready, by mutation, sent at
     /// `data_ready` (LLP 1027 D4): pending meanwhile, one per mutation.
-    unsent: Vec<(usize, String, Vec<Value>)>,
+    unsent: Vec<Unsent>,
     /// When each mutation's `then` action is due, as a one-shot timer: infinite until an answer lands.
     then_due: Vec<f64>,
     /// `queue` mutations' waiting sends, `next`s and stalls (LLP 1092).

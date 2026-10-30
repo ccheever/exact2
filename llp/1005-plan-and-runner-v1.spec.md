@@ -416,10 +416,13 @@ web's JS target reads it as no value before a row's map does), so a component's 
 data's error too (Charlie, 2026-09-22, a separate decision): the later
 rows take the identities `d1:<key>`, `d2:<key>` in order — no canonical key
 text starts with `d` — and each such row's creation writes one journal
-line. With values conforming at every boundary, what remains is a plan
-defect or a trap while the tree changes; for a type-checked plan, a string
-past `MAX_STRING` built by a binding, or a route segment a binding asks
-`encodeRouteSegment` to encode and it refuses.
+line. A prop or style binding that traps is invalid at computed-value time
+in the same way: its row is unset and one journal line names the trap,
+once until the binding evaluates to a value again (LLP 1017.003 D3). With
+values conforming at every boundary, what remains is a plan defect or a
+trap, while the tree changes, at one of the five sites D3 names: a region's
+subject, a row key, a row's state initializer, a surface argument, or a
+virtualized list's reads of its own options at creation.
 
 **The clock.** `advance(now_ms)` fires every due timer in order (earliest
 first, plan index on ties), each at its own due time, then moves the clock.
@@ -604,10 +607,23 @@ UIKit.
   up. A native button's own tracking loop reports both (its up before the
   action it sends). A text area or an input's editor runs AppKit's tracking
   loop too; `tracksPointer` reports the down before it and the up after it.
-  A press that moves the focus into one delivers the old field's `change`
-  and `blur` and the new one's `focus` before `pointerdown`: NSWindow makes
-  the hit view first responder before it sends `mouseDown`. Chrome fires
-  `pointerdown` first. A drag of selected text out of a text area or an
+  NSWindow makes the hit view first responder before it sends `mouseDown`,
+  so in a session's window its monitor sends the down first
+  (`Presenter.pressEditorFirst`): a press that moves the focus into one
+  delivers `pointerdown`, then the old field's `change` and `blur` and the
+  new one's `focus`, then `pointerup`, as Chrome does, and the tracking
+  reports only the up. An early down whose tracking never starts (a
+  `pointerdown` handler took the editor away) is released at the button's
+  up, or when the session's view leaves its window; an up that a loop of
+  its own `pointerdown` took while the down bubbled (a sheet's animation)
+  is kept from the window, which has not had the down, and queued again
+  once the down has bubbled, so the window has the down and then the up
+  and every node hears its down first. A window under a
+  sheet takes no early down. A control-click (AppKit's contextual click), a click AppKit keeps
+  from the editor (a first click into a window that is not key, unless the
+  editor takes it) and an editor under another view go as before. Chrome
+  lets a `mousedown` `preventDefault` keep the focus where it is; nothing
+  here does (a later ruling). A drag of selected text out of a text area or an
   input's editor is AppKit's dragging session, which runs after the loop
   returns: `pointerup` comes as the drag starts, where Chrome sends
   `pointercancel` (declared, not measured). A disabled editor tracks
