@@ -194,6 +194,9 @@ pub struct Presenter<D: DataSource> {
     focus_out: Vec<(ViewId, Event)>,
     /// The current pointer press may yield its focus to a newly mounted field.
     pub(crate) autofocus_from: Option<ViewId>,
+    /// The controls commits disabled and blurred (`blur_disabled_focus`) since
+    /// a press began, so its fallback does not give its own the focus back.
+    pub(crate) disabled_blur: Vec<ViewId>,
     /// The text field typed into since it took the focus: its `change`
     /// fires on blur or Enter, HTML's commit (LLP 1069.001 D4).
     pub(crate) edited: Option<ViewId>,
@@ -476,6 +479,7 @@ impl<D: DataSource> Presenter<D> {
             focus: None,
             focus_out: Vec::new(),
             autofocus_from: None,
+            disabled_blur: Vec::new(),
             edited: None,
             fields: BTreeMap::new(),
             field_history: Default::default(),
