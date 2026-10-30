@@ -509,10 +509,8 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - A ChatGPT sign-in's browser page, once the callback is in, reads "Return to T3 Code (Exact)" and "You can close
   this tab." (the host's page, LLP 1133.005 D9), where the reference's adds "Your sign-in response has been received.
   T3 Code is finishing the connection."
-- Two ChatGPT sign-ins cannot wait at once: a window holds one auth session (LLP 1069.006 D3), so the second waits
-  for the first to end, where the reference receives both, each on its port. A callback with the sign-in's `state`
-  but no `code` or `error` ends the receiver (Exact's listener accepts on `state` alone), where the reference answers
-  it 400 and keeps listening; the sign-in then has to start again.
+- Two ChatGPT sign-ins wait at once, each on its port, as the reference's do; a third waits for one of them to end
+  (the window's two receivers, `codex-setup-host.ts` `LOOPBACK_SLOTS`), where the reference receives any number.
 - The notification sounds are WAV copies of the reference's two MP3s, since `playSound` reads WAV.
 
 Main has closed records the clone was written around. The clone now uses these: a process
@@ -530,6 +528,20 @@ and the notification click ([`issues/closed/20261009-notification-default-click-
 without a sound, its click's `navigate` location opens the thread (`app.contract` `notificationOpen`), and it
 holds the Dock badge and the permission's fact and request (`shell-notify.ts`); their sounds are the reference's
 two, played with `playSound`.
+It also uses an atom face's `ariaLabel`, which names each composer chip with the reference's `aria-label` while an
+image chip's drawn label follows its upload
+([`issues/closed/20261030-an-atom-is-named-only-by-its-drawn-label.md`](../../issues/closed/20261030-an-atom-is-named-only-by-its-drawn-label.md);
+`composer-chip-presentation.ts` `chipAccessibleName`); an opacity a view mounted at, presented again when it
+changes, so a freshly saved EAS host's Edit and Remove draw `disabled:opacity-64` and then 1
+([`issues/closed/20261030-a-node-mounted-at-one-opacity.md`](../../issues/closed/20261030-a-node-mounted-at-one-opacity.md));
+`resize="vertical"` on each textarea Tailwind's preflight gives a grip
+([`issues/closed/20261030-textarea-resize-refused.md`](../../issues/closed/20261030-textarea-resize-refused.md));
+loopback sign-ins side by side, where a callback with no `code` or `error` is answered 400 and the receiver keeps
+listening (#1169, LLP 1133.005 D9); and a prop or style binding that traps is unset while the runner goes on
+([`issues/closed/20261030-binding-trap-poisons-the-runner.md`](../../issues/closed/20261030-binding-trap-poisons-the-runner.md)).
+A code block's tokens and a find line's parts still carry their offset `at`, counted once by their producers: summed
+per row, as the compiler's `lower-row-own-list` warns, a long highlighted block's later rows would pass the runner's
+list-step bound and lose their find and citation marks.
 These it does not use, because on macOS they do not do what the reference does:
 
 - `showModal(id)` / `close(id)` ([`issues/closed/20261009-gui-dialog-action-commands.md`](../../issues/closed/20261009-gui-dialog-action-commands.md), #282).

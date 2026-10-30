@@ -18,8 +18,9 @@ shape FindPart
   text: string
   find: number
   // Where the part starts in its run's or block's text, in UTF-16 units, counted once by its producer (markdown_find.rs
-  // find_parts). Summed here per part, as markdown.contract CodeToken `at` was, FindToken's condition summed twice:
-  // about 10 list steps a part, past the runner's 65,536 an evaluation at about 6,550 parts, which poisoned the runner.
+  // find_parts). Summed here per part, as markdown.contract CodeToken `at` would be, FindToken's condition sums twice:
+  // about 10 list steps a part, past the runner's 65,536 an evaluation at about 6,550 parts, where the binding traps
+  // and is unset, so the later parts lose their find marks.
   at: number
 // A line drawn outside the Markdown (a workflow opening's title, description, a phase title) in highlight parts.
 shape FindLine

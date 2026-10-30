@@ -1,9 +1,10 @@
 // A code block draws one text per token, each with its offset for find and citation marks (markdown.contract
 // CodeBlock), and a token's find parts by theirs (thread-find.contract FindToken). The runner bounds the list steps one
 // evaluation takes (runner/src/vm.rs MAX_LIST_STEPS, LLP 1017.003 D3): map, filter and join take a step an item, indexOf
-// one an item up to the one it finds, slice one an item it keeps. Summing the tokens before each one in Contract took
-// about 5N steps for the last of N, so a coloured 1,500-line block of about 26,000 tokens trapped (IterationLimit) and
-// poisoned the runner; FindToken summed the find parts before each part twice, past the bound at about 6,550 parts.
+// one an item up to the one it finds, slice one an item it keeps. Summing the tokens before each one in Contract takes
+// about 5N steps for the last of N, so in a coloured 1,500-line block of about 26,000 tokens the later tokens' bindings
+// trap (IterationLimit) and are unset, losing their marks; FindToken summing the find parts before each part twice
+// passes the bound at about 6,550 parts.
 // Both offsets are counted once by their producers (CodeToken `at` in TypeScript, FindPart `at` in
 // data/src/markdown_find.rs), and a token is handed only its own lines' find parts. Counted counts the steps these
 // expressions take.

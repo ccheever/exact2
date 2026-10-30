@@ -98,9 +98,10 @@ shape CodeToken
   text: string
   cls: string
   // Where the token starts in its block's code, in UTF-16 units (find and citation marks), counted once in TypeScript
-  // (timeline-highlight.ts codeTokens). Summed here per token, the last of N tokens took about 5N list steps (map,
-  // indexOf, slice, map and join each walk the list), past the runner's 65,536 an evaluation (runner/src/vm.rs
-  // MAX_LIST_STEPS) at about 13,100 tokens, and the trap poisoned the runner.
+  // (timeline-highlight.ts codeTokens). Summed here per token, the last of N tokens takes about 5N list steps (map,
+  // indexOf, slice, map and join each walk the list; the compiler's `lower-row-own-list`), past the runner's 65,536 an
+  // evaluation (runner/src/vm.rs MAX_LIST_STEPS) at about 13,100 tokens, where the binding traps and is unset: a long
+  // block's later tokens would lose their find and citation marks.
   at: number
   // The lines its first and last characters are on: CodeBlock hands FindToken those lines' find parts.
   line: number
