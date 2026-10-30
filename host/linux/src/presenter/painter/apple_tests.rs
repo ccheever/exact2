@@ -26,9 +26,9 @@ fn archive_miss_starts_with_cpu_pixels_then_replaces_the_whole_frame_with_ink() 
     let plan = contract::compile(
         r##"component App
   view
-    column width=160 height=120 background="#23394f" padding=8
+    column width=160 height=120 background-color="#23394f" padding=8
       text "Archive startup" color="#f3e7ca" font-size=18
-      box width=75 height=35 background="#e83a5b" border-radius=7
+      box width=75 height=35 background-color="#e83a5b" border-radius=7
 "##,
     )
     .unwrap()

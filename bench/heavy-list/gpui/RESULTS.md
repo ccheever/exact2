@@ -3267,8 +3267,13 @@ The Mac carrier meets the warm phase gate: **6.581 ms** p50 for direct Metal
 against **6.699 ms** for wgpu, ten phase traces each. Ten archive-deleted launches
 display CPU pixels at **231.070 ms** p50 and the first ink frame at **418.335 ms**,
 with compilation off the boot thread. Ten retained-cache launches start on ink
-at **407.945 ms**, with a **9.957 ms** phase under load. Part two remains unmet:
-the headless D9 assertion and unchanged quiet timing are unqualified. The
-separate 100 ms first-screen obligation also remains unmet. [Stage 0b's full record](../../../host/ink/MEASUREMENTS.md#stage-0b--direct-metal-startup-2026-10-30)
+at **407.945 ms**, with a **9.957 ms** phase under load, missing P3's prediction.
+The headless D9 transition assertion now passes: exact CPU pixels first, then
+ink at mean error **0.023/255**, with **0.000%** of pixels beyond 32. Quiet
+retained-cache timing remains unqualified until **G4m on the silver M5 Max**,
+the measurement Mac's next series after this lane lands. LLP 1149.001 r9's
+summed first-screen comparison remains unqualified; the warm cohort lacks
+complete ten-launch display distributions. The separate 100 ms first-screen
+obligation remains unmet, now owned by M10 under Q6's ruling. [Stage 0b's full record](../../../host/ink/MEASUREMENTS.md#stage-0b--direct-metal-startup-2026-10-30)
 contains the predictions, phase breakdown, quiet-run and missing-timestamp
 limits, checks and retained files under `target/stage-0b/`.
