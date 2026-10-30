@@ -857,6 +857,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   send's reply matters (LLP 1092). Until 2026-10-05 the continuation vanished
   natively, which held the Signal clone's sends forever (build 35).
 
+- **`redirect: 'manual'` shows a redirect natively and hides it on the web.**
+  Natively a fetch with `redirect: 'manual'` answers the 3xx with its
+  `Location`; in a browser it answers an opaque redirect (status 0, no headers),
+  and a `Cookie` header the app sets is dropped. An app's own OAuth sign-in
+  that reads the authorization step's `Location` therefore works natively only:
+  a web build sends that request from a server (`docs/contract-for-agents.md`,
+  "An app's own sign-in screens").
+
 - **Resetting a mutation beside its send can discard the new reply.** For a
   mutation without `queue`, `saved = none` in the action that sends `saved`
   forgets its in-flight reply even when the reset is written first: assignments
