@@ -798,8 +798,11 @@ warm runs, `DIFFTEST_CACHE=1`): with the default twenty walks, Type Tour 2.6 s
 runner-only and 3.3 s with Lean, Excord 44 s and 88 s; with `--walks 0`, Type Tour
 1.5 s and 2.0 s, Excord 23 s and 47 s. The walks cost Excord 21 s on the runner and
 40 s with Lean; Lean's share of a default Excord run is 43 s. The device runner's cost
-on the web host was not measured: lane D's sandbox refused the profile lock, and the
-number is owed.
+on the web host (2026-10-30, three warm runs of `verify web --app typetour`: the
+authored test with its `always` line checked after every step, the screens at two
+widths light and dark, and the relaunch): 10.9 s median inside the run, 20.6 s wall
+with the build check, against 1.5 s for the harness's runner-only verify of the same
+app.
 
 **The trace.** The projection proof (open question 2) did not close in a page; the
 twin runs beside the original on every step and `trace disagrees` has never printed
