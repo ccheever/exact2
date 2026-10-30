@@ -2825,3 +2825,193 @@ input-to-photon latency or isolated renderer cost was measured. G6's
 whole-application and readiness non-comparables still apply. Egui and
 Ink/wgpu were not remeasured; their DX12 backend selections and original
 numbers remain controls, not new samples.
+
+## G6d: the Windows reviews’ lifecycle fixes
+
+Source **`d7fe8c32cb`**, measured before rebasing; `measured-source.bundle` retains it.
+Release executable SHA-256:
+`76e8eaf04a109588cddab88be65c930863b77521e516ccff9b774dfe544c5a2e`.
+
+**Finding:** the lifecycle fixes pass native qualification. CPU, working set
+and p95 remain close to G6c, but cadence is not fully preserved: displays fall
+from 58.25 to 56.41 per gesture second, late intervals rise from zero to
+0.993/s, and p99 rises from 17.17 to 33.33 ms. G6d stops after its third
+performance revision; `QUEUE.md` retains this remaining regression.
+
+The reservation path keeps a non-device-lost error as a refused frame, logs once
+per failure streak, and retries one refresh period later. Restore, focus, resize
+and DPI events clear presentation backoff without shortening device recovery.
+After a failed material setup, successful presents retry Mica at most three
+times and request the transparent replacement frame when it returns. A clean
+redraw checks device removal without reserving capacity, so TDR still reaches
+CPU/WARP recovery. Capacity timeouts back off on consecutive refusals.
+Each reservation wait requests at most half a refresh period (8 ms at 60 Hz).
+Two bounded waits share the first period, with the carrier’s deadline giving
+the event loop a turn between them; further refusals back off to one second.
+Occlusion keeps its idle backoff. A clean, noncontinuous frame reserves nothing.
+Geometry and CPU snapshots preserve damage still owed to the composition window.
+
+Readiness is checked after first-pixel data activation and requires a clean
+picture. Shelf’s baked screen can remain unchanged by activation; the prior
+probe waited for an unnecessary second paint, which the clean-frame guard now
+skips. A changed picture still needs its next successful present. The DWM proxy
+and DXGI timestamp keep their definitions, but this removes that extra dispatch
+from unchanged-screen startup and must be considered beside G6c.
+
+Windowless tests exercise reservation errors, clean-frame admission, damage
+retention, lifecycle reset and the carrier’s `about_to_wait` control flow with
+a stubbed presentation deadline and an earlier runner timer. The native modal
+fixture shares its one Winit event loop with the carrier test. Capacity and
+material-retry tests cover bounded refusal and recovery. Desktop captures now
+use `AttachThreadInput` for foreground activation; Settings’ protected
+`ApplicationFrameHost` refuses attachment, so the fixture then requests focus
+through UI Automation. Neither path sends a client click.
+
+### Fling and rest
+
+Five fresh-process D3D11 fling/rest samples, the same 800×800 outer window,
+784×761 client, 96 DPI and 60 Hz NucBox desktop as G6c. The release retains
+PDB line tables (`CARGO_PROFILE_RELEASE_DEBUG=1`, `CARGO_PROFILE_RELEASE_STRIP=none`).
+The unchanged driver posts one wheel event per `DwmFlush` return. No build,
+test or cache reset overlaps collection. Application, driver and OS caches
+are retained. Each process runs four gestures within ten seconds, then rests
+for ten seconds. All 24 fling quiet observations pass (maximum 7.6% CPU);
+all 11 startup observations pass (maximum 6.6%). There are no compiler
+processes, focus losses or lost ETW events. Values are median [minimum–maximum].
+
+| Metric | G6c | G6d |
+| --- | --- | --- |
+| Fling process CPU, ms/s | 82.46 [73.11–84.05] | 84.07 [74.78–87.22] |
+| Fling main-thread CPU, ms/s | 66.89 [59.11–70.01] | 63.89 [51.41–68.56] |
+| Rest process CPU, ms/s | 1.55 [0.00–4.66] | 1.55 [0.00–3.11] |
+| Rest main-thread CPU, ms/s | 1.55 [0.00–3.11] | 0.00 [0.00–1.55] |
+| Displays / gesture second | 58.25 [58.08–58.46] | 56.41 [56.04–56.46] |
+| Display interval p95, ms | 16.77 [16.74–16.93] | 16.75 [16.74–16.75] |
+| Display interval p99, ms | 17.17 [16.78–17.30] | 33.33 [33.28–33.35] |
+| Late intervals / gesture second | 0.000 [0.000–0.000] | 0.993 [0.742–0.995] |
+| Lifetime peak working set, MiB | 153.04 [152.35–153.66] | 153.85 [152.94–153.91] |
+| End-of-rest working set, MiB | 153.04 [152.35–153.66] | 153.85 [152.94–153.91] |
+
+PresentMon 2.6.0 reports `Composed: Flip`. Display p50 is
+16.68 [16.67–16.68] ms; the full ten-second phase, including pauses,
+displays 23.02 [22.93–23.04]/s. Every rest has zero displays. The driver
+posts 244 [243–244] wheel events; its largest within-gesture gap is
+18.29 [18.22–23.51] ms, with no gap above 25 ms.
+
+| Run | G6c snapshots / frames | G6d snapshots / frames |
+| --- | --- | --- |
+| 1 | 252 / 252 | 234 / 234 |
+| 2 | 251 / 251 | 234 / 234 |
+| 3 | 249 / 249 | 233 / 233 |
+| 4 | 248 / 248 | 233 / 233 |
+| 5 | 251 / 251 | 232 / 232 |
+| Total | 1,251 / 1,251 | 1,166 / 1,166 |
+
+### Startup
+
+Ten separate fresh-process launches, five seconds apart, with application,
+driver and OS caches retained. The egui and Ink/wgpu arms and driver-cache-cold
+series were not remeasured. DWM is the complete-screen synchronization proxy;
+DXGI identifies the corresponding displayed composition frame.
+
+| Series | DWM complete-screen proxy, ms | DXGI display timestamp, ms |
+| --- | --- | --- |
+| G6c | 182.25 [171.22–211.84] | 194.67 [182.68–223.86] |
+| G6d | 161.84 [155.63–181.27] | 176.85 [167.07–192.07] |
+
+The complete-screen proxies are lower than G6c’s, but readiness now follows
+data activation in the same draw. These historical before/after series do not
+isolate the scheduling change or close G6c’s paired-startup question.
+G6c’s separate paired control is reproducible with `windows-paired-startup.py`
+and `windows-paired-summary.py`; each control launch runs a freshly copied image.
+Its OS prefetch and real-time scanning conditions differ from ordinary launches.
+
+### The shortened-wait trials
+
+Two complete quiet trials precede the final scheduler. They are retained,
+not mixed into the final table. Both preserve one snapshot per successful
+frame, but neither preserves G6c's cadence.
+
+| Revision | Process CPU, ms/s | Displays / gesture second | Display p95, ms | Late intervals / gesture second | Snapshots / frames |
+| --- | --- | --- | --- | --- | --- |
+| Half-period wait, original retry backoff (`cf02ff55f1`) | 88.83 [79.45–93.43] | 43.21 [41.04–45.50] | 50.05 [50.01–50.05] | 8.14 [6.96–8.65] | 912 / 912 |
+| First retry at the end of the period (`b2fa19453d`) | 85.69 [74.76–88.82] | 55.38 [54.89–55.47] | 16.77 [16.76–16.85] | 1.74 [1.24–1.99] | 1,147 / 1,147 |
+
+The first deadline added two periods after the partial wait. Subtracting the
+elapsed wait restored p95, but still missed display slots. The final revision
+splits the first reservation period across two bounded waits, returning to the
+carrier between them; successive timeouts then increase the idle delay.
+These are the three performance revisions of G6d; no fourth was attempted.
+`timeout-trial/` and `deadline-trial/` retain both earlier series, their ten
+startup launches, quiet observations and qualification. Their fling/startup
+quiet maxima are respectively 8.4%/6.5% and 7.3%/6.2%, with no loaded observation.
+
+### Native qualification
+
+All six D3D11 desktop journeys pass on the final `gpu-dev` Shelf build.
+The pixel columns use S2's fixed band against a fresh launch; mean channel
+error is out of 255.
+
+| Journey | G6c | G6d |
+| --- | --- | --- |
+| Resize | Pass; mean 0.020671, 0.0296% over 32 | Pass; mean 0.020690, 0.0301% over 32 |
+| Minimize/restore | Pass; identical pixels | Pass; identical pixels |
+| DPI 100→150→100→150→100% | Pass; final pixels identical | Pass; final 1024×720 at 96 DPI, identical pixels |
+| Idle caret | Pass; three transitions, 20 changed pixels | Pass; three transitions, 20 changed pixels; fresh comparison identical |
+| Forced device loss | Pass; CPU-to-hardware 453.445 ms, identical pixels | Pass; 398.810 ms, identical pixels; refused Mica restored |
+| Sleep/wake | Pass; 75.607 s, mean 0.000277, no pixels over 32 | Pass; 76.606 s, mean 0.000277, no pixels over 32 |
+
+Both 150% DPI captures pass against a fresh 150% launch: mean 0.001828,
+0.002713% of pixels over 32. The recovery log records a real DWM material
+refusal on WARP and the fixture's injected refusal on hardware attachment;
+both are followed by `Mica retry 1/3 after present: restored`. The recovered
+capture was inspected: sidebar material and content are present. This closes
+G6c's queued transient-Mica case. Sleep/wake retains S2's limitation: it does
+not isolate the wake source or establish a timer-only wake. Lock/unlock was
+not repeated.
+
+The NucBox passes 44 Ink library tests (27 ignored), 39 Windows tests (one
+ignored), pinned paint 56 (one ignored), borders 6, tint 2, backdrop 5,
+gradients 1, visual 8, materials 1 and image 3 on each of D3D11 and wgpu.
+Ten shared-window tests, fourteen composition tests and all ten
+startup/fallback fault journeys pass with ignored tests explicitly enabled.
+Builds use S2.8b's native `fxc`, required GPU flags and one test thread.
+Shelf keeps unmodified `gpu-dev`; only the exact-linux test crate uses
+optimization level zero. UI Automation is a test dependency.
+
+All six Mac checks pass on the measurement source: all-target build, root
+tests, clippy plus fmt, staged caps, boot and full-workspace all-target check.
+Root tests report 7,257 passed and 82 ignored with `RUST_TEST_THREADS=2`.
+The separate exact-linux library and integration suites also pass.
+
+The branch was rebased onto `origin/main` **`175bdab9d1`**. Only queue placement
+needed conflict resolution; the source patches are unchanged. All six Mac
+checks pass again: **7,272 tests passed, 83 ignored**. On the rebased NucBox
+mirror, Shelf and the native test binaries rebuild; Ink 44, Windows 39,
+shared-window 10 and composition 14 tests pass on each of D3D11 and wgpu.
+The timed series and six desktop journeys above remain measurements of the
+pre-rebase source; they were not repeated after rebasing.
+
+Raw evidence is retained in both worktrees under `target/g6d/`:
+`final/{warm,warm-startup}/` holds process samples, PresentMon CSVs and quiet
+observations; `native/`, `preflight/` and `journeys/` hold qualification.
+`device-loss-recovery.log` and `device-loss-recovered.png` retain material
+recovery. `initial-native/`, `qualification3-native/`, `qualification3-journeys/`,
+`qualification4-journeys/` and the trace logs retain failed qualification and
+diagnostic runs, including the readiness-ordering, idle-removal and foreground
+refusals. No timed sample is drawn from those runs. `checks-complete/` holds
+the Mac checks before rebasing; `checks-rebased/` and `native-rebased/` hold
+the post-rebase checks. The source bundle preserves the measured revision
+despite rewritten commit IDs.
+
+To repeat the timed series on the signed-in desktop after a release build:
+
+```powershell
+python bench/heavy-list/egui/windows-measure.py --arm d3d11 --fling-only --out target/g6d/final/warm
+python bench/heavy-list/egui/windows-measure.py --arm d3d11 --startup-only --out target/g6d/final/warm-startup
+python bench/heavy-list/egui/windows-summary.py target/g6d/final
+```
+
+Use a new directory for another attempt. Egui and Ink/wgpu, driver-cache-cold
+startup, live mode, energy, input-to-photon latency and isolated renderer cost
+were not remeasured. G6's whole-app and readiness non-comparables still apply.

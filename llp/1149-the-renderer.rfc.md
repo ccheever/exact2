@@ -1060,8 +1060,8 @@ is unavailable. G6c's ten startup launches give **182.25 ms** DWM and
 control gives **184.29/188.43 ms** before/after DWM, median paired increase
 **3.28 ms**. The startup prediction is missed; unchanged startup is not
 established after three performance revisions. All six final D3D11 desktop
-journeys and native suites pass. A transient DWM refusal to reapply Mica during an earlier
-TDR remains queued. S2's Shelf **142/859 ms** first screens and **48/139 ms**
+journeys and native suites pass. G6d below closes the transient Mica refusal
+seen during an earlier TDR. S2's Shelf **142/859 ms** first screens and **48/139 ms**
 device creation, with **457 ms** wgpu pipelines, do not predict egui's
 whole-app startup. Egui owns layout, text and virtualization without the
 kernel or runner; Windows uses Segoe UI, with Consolas in egui's code runs.
@@ -1069,6 +1069,26 @@ Eframe exposes no DXGI swap chain, so its readiness is a DWM proxy plus
 next-dispatch delay. These whole-app paths retain unequal scroll work,
 geometry, images and readiness. See [G6c's before/after tables, prediction
 and qualification](../bench/heavy-list/gpui/RESULTS.md#g6c-one-paint-per-refresh).
+
+**G6d, Windows, 2026-10-30**: reservation errors retry without terminating;
+visibility, focus, resize and DPI events clear presentation backoff; successful
+presents retry transient Mica refusal, bounded to three attempts. Clean redraws
+skip reservation but still detect device removal. Each capacity wait requests
+half a period, with an event-loop turn between the first two attempts and
+backoff after further timeouts. All six D3D11 desktop journeys and both-device
+native suites pass; TDR returns from CPU/WARP to hardware in **398.810 ms**, with
+Mica restored and identical pixels. Five quiet flings give **84.07/63.89 ms/s**
+process/main CPU, **153.85 MiB** peak/end working set and **16.75 ms** display p95.
+**1,166 snapshots / 1,166 frames** preserve the paint invariant, but G6c’s cadence
+is not fully preserved: **56.41 versus 58.25 displays/s**, **0.993 versus zero**
+late intervals/s, and **33.33 versus 17.17 ms** p99. After three performance
+revisions, this remaining regression is queued. Ten quiet startup launches give
+**161.84 ms DWM / 176.85 ms DXGI**; readiness now follows data activation in the
+same draw, so these historical distributions do not isolate a startup gain.
+Egui and Ink/wgpu were not remeasured. The paired-control scripts are committed
+and disclose their freshly copied images; desktop captures use input attachment
+or UI Automation focus without a client click. See [G6d’s before/after tables
+and retained trials](../bench/heavy-list/gpui/RESULTS.md#g6d-the-windows-reviews-lifecycle-fixes).
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and

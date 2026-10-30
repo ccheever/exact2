@@ -3147,3 +3147,5 @@ backpressure and fixes the recovery material and DPI fixture failures; see
 [the attribution and qualification results](../../bench/heavy-list/gpui/RESULTS.md#g6b-the-d3d11-fling-traced).
 
 G6c honors the Windows carrier's presentation deadline: [the D3D11 fling, startup and desktop journeys remeasured](../../bench/heavy-list/gpui/RESULTS.md#g6c-one-paint-per-refresh).
+
+G6d fixes the Windows review findings and rechecks the NucBox: [lifecycle qualification, three pacing trials and the remaining cadence regression](../../bench/heavy-list/gpui/RESULTS.md#g6d-the-windows-reviews-lifecycle-fixes).
