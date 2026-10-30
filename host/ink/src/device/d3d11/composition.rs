@@ -497,7 +497,7 @@ impl D3d11 {
         ))
     }
 
-    /// Reserve capacity before painting, waiting at most half a display period.
+    /// Reserve capacity before painting, waiting one display period rounded to ms.
     /// `present` consumes this reservation without polling the handle again.
     pub fn prepare_present(&mut self, size: [u32; 2]) -> Result<bool> {
         self.collect_presented_devices();
@@ -698,7 +698,7 @@ fn refresh_period(numerator: u32, denominator: u32) -> Option<Duration> {
 }
 
 fn reservation_wait_ms(period: Duration) -> u32 {
-    (period / 2).as_millis().min(50) as u32
+    period.as_nanos().div_ceil(1_000_000).min(100) as u32
 }
 
 fn record_capacity(refused_checks: &mut u32, ready: bool) {
@@ -716,14 +716,8 @@ fn retry_delay(period: Duration, refused_checks: u32) -> Duration {
 }
 
 fn capacity_retry_delay(period: Duration, refused_checks: u32, waited: Duration) -> Duration {
-    // Split one period across two bounded waits, with an event-loop turn between
-    // them. A later refusal backs off; the UI thread never waits a whole period.
-    let delay = if refused_checks == 1 {
-        period.saturating_sub(Duration::from_millis(reservation_wait_ms(period) as u64))
-    } else {
-        retry_delay(period, refused_checks.saturating_sub(2))
-    };
-    delay.saturating_sub(waited)
+    // The wait consumes the first period; repeated timeouts add idle backoff.
+    retry_delay(period, refused_checks.saturating_sub(1)).saturating_sub(waited)
 }
 
 fn presented(status: windows::core::HRESULT) -> Result<bool> {
@@ -853,13 +847,13 @@ mod tests {
     }
 
     #[test]
-    fn timeouts_back_off_without_a_full_period_ui_wait() {
+    fn timeouts_back_off_after_a_full_period_reservation_wait() {
         for hz in [60, 120, 144] {
             let period = refresh_period(hz, 1).unwrap();
             let waited = Duration::from_millis(reservation_wait_ms(period) as u64);
-            assert!(waited <= period / 2);
-            assert_eq!(waited * 2 + capacity_retry_delay(period, 1, waited), period);
-            assert_eq!(waited + capacity_retry_delay(period, 2, waited), period);
+            assert!(waited >= period && waited - period < Duration::from_millis(1));
+            assert_eq!(capacity_retry_delay(period, 1, waited), Duration::ZERO);
+            assert_eq!(waited + capacity_retry_delay(period, 2, waited), period * 2);
             assert_eq!(capacity_retry_delay(period, 1, period * 2), Duration::ZERO);
             let mut refused = 0;
             let mut previous = Duration::ZERO;
