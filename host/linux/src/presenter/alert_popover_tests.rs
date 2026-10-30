@@ -141,13 +141,23 @@ fn each_kind_keeps_its_own_focus_and_inertness() {
             "commandfor=\"menu\" command=\"show-modal\"",
         )
         .replace(
-            "column id=\"menu\" testId=\"menu\" popover=\"auto\"",
+            "column id=\"menu\" testId=\"menu\" popover=\"auto\" role=\"dialog\"",
             "dialog id=\"menu\" testId=\"menu\"",
         );
-    let alert = dialog.replace(
-        "dialog id=\"menu\"",
-        "dialog role=\"alertdialog\" aria-label=\"Prompt\" id=\"menu\"",
-    );
+    // An alert's rows are actions that close it and one cancel.
+    let alert = dialog
+        .replace(
+            "dialog id=\"menu\"",
+            "dialog role=\"alertdialog\" aria-label=\"Prompt\" id=\"menu\"",
+        )
+        .replace(
+            "press=save",
+            "press=save commandfor=\"menu\" command=\"close\"",
+        )
+        .replace(
+            "testId=\"other\"",
+            "testId=\"other\" commandfor=\"menu\" command=\"close\"",
+        );
     for (kind, source, inert) in [
         ("popover", APP.to_owned(), false),
         ("dialog", dialog, true),

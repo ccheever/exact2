@@ -68,7 +68,21 @@ impl<D: DataSource> Presenter<D> {
             .and_then(|a| self.host.kernel().node_by_key(a.key))
             .map(|n| n.id)
     }
+    /// Whether the page under the open box takes input: not under a modal
+    /// dialog or an alert, and under a popover, as HTML's page stays live.
     pub(crate) fn alert_allows(&self, id: ViewId) -> bool {
+        !self.alert_inert() || self.alert_holds(id)
+    }
+    /// Whether the open box is modal, so the page under it is inert.
+    pub(crate) fn alert_inert(&self) -> bool {
+        self.alert.as_ref().is_some_and(|a| a.modal)
+    }
+    /// Whether the page is inert: under a modal box or a shape surface.
+    pub(crate) fn page_inert(&self) -> bool {
+        self.shape_surface_open() || self.alert_inert()
+    }
+    /// Whether `id` is the open box or inside it.
+    pub(crate) fn alert_holds(&self, id: ViewId) -> bool {
         let Some(open) = &self.alert else {
             return true;
         };
@@ -157,8 +171,12 @@ impl<D: DataSource> Presenter<D> {
         if let Err(e) = self.pointer_cancel(now) {
             self.host.log(e);
         }
-        if let Some(e) = self.set_focus(None, now) {
-            self.host.log(e);
+        // HTML's popover leaves the focus where it was (its focusing steps
+        // move it only to what autofocuses inside); a modal box takes it.
+        if modal {
+            if let Some(e) = self.set_focus(None, now) {
+                self.host.log(e);
+            }
         }
         // A surface presented by a synchronous blur handler owns focus and paint.
         if self.top_open() {
@@ -210,7 +228,7 @@ impl<D: DataSource> Presenter<D> {
             .host
             .preorder()
             .into_iter()
-            .filter(|id| self.alert_allows(*id) && !self.alert_message(*id))
+            .filter(|id| self.alert_holds(*id) && !self.alert_message(*id))
             .filter(|id| {
                 self.host
                     .kernel()
@@ -230,13 +248,15 @@ impl<D: DataSource> Presenter<D> {
         });
         let error = match autofocus {
             Some(id) => self.set_focus(Some(id), now),
-            None => self.move_focus_in(false, now, &boxed),
+            None if modal => self.move_focus_in(false, now, &boxed),
+            None => None,
         };
         if let Some(e) = error {
             self.host.log(e);
         }
         // HTML's dialog focusing steps fall back to the dialog itself.
-        if self.focus.is_none() && self.alert.as_ref().is_some_and(|a| a.serial == serial) {
+        if modal && self.focus.is_none() && self.alert.as_ref().is_some_and(|a| a.serial == serial)
+        {
             if let Some(e) = self.set_focus(Some(id), now) {
                 self.host.log(e);
             }
@@ -281,6 +301,18 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         self.brush.alert = None;
+        // A popover gives the focus back only from inside it (HTML's hide
+        // popover steps); a modal box always does.
+        let inside = |p: &Self, id: ViewId| {
+            let k = p.host.kernel();
+            std::iter::successors(k.node(id), |n| n.parent.and_then(|q| k.node(q)))
+                .any(|n| n.key == open.key)
+        };
+        if !open.modal && self.focus.is_none_or(|id| !inside(self, id)) {
+            self.dirty = true;
+            self.back_changed();
+            return;
+        }
         if let Some(e) = self.set_focus(None, now) {
             self.host.log(e);
         }
@@ -626,7 +658,7 @@ impl<D: DataSource> Presenter<D> {
             "Enter" | " " => {
                 if let Some(id) = self
                     .focus
-                    .filter(|id| self.alert_allows(*id) && !self.alert_message(*id))
+                    .filter(|id| self.alert_holds(*id) && !self.alert_message(*id))
                 {
                     self.invoke(id, now, false);
                 }
@@ -649,21 +681,49 @@ impl<D: DataSource> Presenter<D> {
             })
     }
     pub(super) fn alert_pointer(&mut self, x: f32, y: f32, now: f64) -> bool {
-        if self.alert.is_none() || self.hit(x, y).is_some() {
+        let Some(open) = &self.alert else {
+            return false;
+        };
+        let modal = open.modal;
+        let hit = self.hit(x, y);
+        if hit.is_some_and(|id| self.alert_holds(id)) {
+            return false;
+        }
+        // A popover's press outside it reaches the live page: one on its
+        // invoker leaves it to the invoker's toggle, any other dismisses it
+        // first (HTML's light dismiss), where an absorbed press would need a
+        // second one.
+        if !modal && hit.is_some_and(|id| self.alert_invoker_holds(id)) {
             return false;
         }
         if self.alert_light_dismiss() {
-            // The dismissing press is absorbed, including on the invoker:
-            // a second press opens it again (WinUI Flyout light dismiss).
             self.alert_close_request(now);
         }
-        true
+        modal
+    }
+    /// Whether `id` is the open popover's invoker or inside it.
+    fn alert_invoker_holds(&self, id: ViewId) -> bool {
+        let Some(invoker) = self.alert.as_ref().and_then(|a| a.invoker) else {
+            return false;
+        };
+        let k = self.host.kernel();
+        std::iter::successors(k.node(id), |n| n.parent.and_then(|p| k.node(p)))
+            .any(|n| n.id == invoker)
     }
     /// The agent's `tap` on a node under the open box: a press outside it,
-    /// which dismisses it where a person's would and presses nothing.
+    /// which dismisses it where a person's would. Under a modal box it
+    /// presses nothing; under a popover it goes on to the page.
     pub(super) fn alert_outside_tap(&mut self, id: ViewId) -> Option<Result<String, String>> {
-        let serial = self.alert.as_ref()?.serial;
-        if self.alert_allows(id) || !self.alert_light_dismiss() {
+        let open = self.alert.as_ref()?;
+        let (serial, modal) = (open.serial, open.modal);
+        if self.alert_holds(id) || !self.alert_light_dismiss() {
+            return None;
+        }
+        // Under a popover the tap goes on to the live page ([`Self::alert_pointer`]).
+        if !modal {
+            if !self.alert_invoker_holds(id) {
+                self.alert_close_request(self.host.now());
+            }
             return None;
         }
         self.alert_close_request(self.host.now());
@@ -684,7 +744,7 @@ impl<D: DataSource> Presenter<D> {
         let rows: Vec<_> = self
             .boxes
             .iter()
-            .filter(|b| self.alert_allows(b.id))
+            .filter(|b| self.alert_holds(b.id))
             .map(|b| serde_json::json!({"id":b.id,"rect":b.rect}))
             .collect();
         let open = self.alert.as_ref().unwrap();

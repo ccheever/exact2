@@ -392,7 +392,7 @@ impl<D: DataSource> Presenter<D> {
                 self.collection_scroll_input(a, off);
             }
         }
-        if self.alert.is_some() {
+        if self.alert_inert() {
             return;
         }
         if let Some(target) = self.box_of(id) {

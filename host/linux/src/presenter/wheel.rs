@@ -173,7 +173,7 @@ impl<D: DataSource> Presenter<D> {
             }
             at = parent;
         }
-        if self.alert.is_some() {
+        if self.alert_inert() {
             return;
         }
         let doc = self.document();

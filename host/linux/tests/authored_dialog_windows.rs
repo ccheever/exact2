@@ -64,8 +64,12 @@ fn key(p: &mut Presenter<()>, name: &str) {
     p.frame();
 }
 fn outside(p: &mut Presenter<()>) {
-    p.pointer_down(10., 80., 1.).unwrap();
-    p.pointer_up(10., 80., 2.).unwrap();
+    // Each click later than the last: one that reaches a popover's live page
+    // keeps the pointer's clock.
+    static CLICKS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let at = 10. * f64::from(CLICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)) + 1.;
+    p.pointer_down(10., 80., at).unwrap();
+    p.pointer_up(10., 80., at + 1.).unwrap();
     p.run_commands(|| ());
     p.frame();
 }
@@ -382,11 +386,13 @@ fn authored_popovers_anchor_dismiss_and_replace() {
     assert_eq!(state["surface"]["kind"], "popover");
     assert_eq!(state["surface"]["modal"], false);
     assert_eq!(words(&p, "toggles"), "closed>open");
+    // A click outside light-dismisses it and reaches the live page (HTML),
+    // here the Page button: it presses and takes the focus.
     outside(&mut p);
     assert!(p.surface_json().is_null());
-    assert_eq!(words(&p, "result"), ":0:0");
+    assert_eq!(words(&p, "result"), ":0:1");
     assert_eq!(words(&p, "toggles"), "open>closed");
-    assert_eq!(p.focus(), Some(invoker));
+    assert_eq!(p.focus(), Some(id(&p, "page")));
     tap(&mut p, "invoker");
     key(&mut p, "Escape");
     assert!(p.surface_json().is_null());
@@ -492,6 +498,8 @@ fn authored_controls_keep_radio_keys_and_tab_inside() {
                     "dialog id=\"box\"",
                     "column id=\"box\" popover=\"auto\" role=\"dialog\"",
                 )
+                // A popover moves the focus in only to what autofocuses (HTML).
+                .replace("value=\"a\"", "value=\"a\" autofocus=true")
         } else {
             source.into()
         };
@@ -507,7 +515,14 @@ fn authored_controls_keep_radio_keys_and_tab_inside() {
         key(&mut p, "ArrowLeft");
         assert_eq!(p.focus(), Some(id(&p, "b")));
         assert_eq!(words(&p, "choice"), "b");
-        for name in ["close", "b", "close", "b"] {
+        // Tab stays inside a modal box; a popover's page is live, so Tab
+        // goes on from its last stop to the page's first.
+        let order = if popover {
+            ["close", "open", "outside", "b"]
+        } else {
+            ["close", "b", "close", "b"]
+        };
+        for name in order {
             key(&mut p, "Tab");
             assert_eq!(p.focus(), Some(id(&p, name)));
         }
