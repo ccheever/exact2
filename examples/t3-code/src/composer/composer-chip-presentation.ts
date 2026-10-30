@@ -1,15 +1,13 @@
 import type { T3Client } from '../client/client';
-import { chipContexts, selectedProvider, workspaceCwd } from './composer-editor';
+import { chipContexts, pullRequestRecords, selectedProvider, threadContextRecords, workspaceCwd } from './composer-editor';
 import { skillChipLabels, skillDisplayName } from './composer-editor-menu';
 import { workspaceValues } from './composer-workspace-snapshots';
 import { workspaceFileIcon } from '../shared/file-metadata';
 import type { ComposerChip } from './composer-source-chips';
-import { threadContextRecords } from './composer-editor';
 import { UNREADABLE_THREAD_TIP, unreadableThreads } from './composer-thread-machines';
 import { projectGlyph, type ProjectGlyph } from '../sidebar/sidebar-glyph';
 import { projectIdentity } from '../client/presentation';
 import { obj, str } from '../client/domain';
-import { pullRequestRecords } from './composer-editor';
 import { terminologyForUrl } from '../details/git-logic';
 
 export type ComposerChipFace = {

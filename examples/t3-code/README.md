@@ -531,8 +531,8 @@ two, played with `playSound`.
 It also uses an atom face's `ariaLabel`, which names each composer chip with the reference's `aria-label` while an
 image chip's drawn label follows its upload
 ([`issues/closed/20261030-an-atom-is-named-only-by-its-drawn-label.md`](../../issues/closed/20261030-an-atom-is-named-only-by-its-drawn-label.md);
-`composer-chip-presentation.ts` `chipAccessibleName`); an opacity a view mounted at, presented again when it
-changes, so a freshly saved EAS host's Edit and Remove draw `disabled:opacity-64` and then 1
+`composer-chip-presentation.ts` `chipAccessibleName`); a change to the opacity a view was mounted with, which is
+now drawn, so a freshly saved EAS host's Edit and Remove draw `disabled:opacity-64` and then 1
 ([`issues/closed/20261030-a-node-mounted-at-one-opacity.md`](../../issues/closed/20261030-a-node-mounted-at-one-opacity.md));
 `resize="vertical"` on each textarea Tailwind's preflight gives a grip
 ([`issues/closed/20261030-textarea-resize-refused.md`](../../issues/closed/20261030-textarea-resize-refused.md));

@@ -10,9 +10,9 @@ import { providerWritable } from './provider-permissions';
 // let an answer go after the request left (let-go.ts). The desktop's receiveProviderAuthCallback
 // is openAuthSession's loopback redirect (LLP 1133.005 D9): a flow names the authorization URL
 // whose callback it wants (`flow.receiving`), the window holds a resource on it (app.contract
-// `codexLoopback`, or `codexLoopbackSecond` while another sign-in waits), and that answer (`receiveCallback`) has the host bind the redirect's port,
-// open the browser and answer the one callback, then completes the flow; a new URL, or none, lets
-// the answer go, which frees the port. `returnUrl` is omitted from provider.auth.start (the server
+// `codexLoopback`, or `codexLoopbackSecond` while another sign-in waits), and that answer
+// (`receiveCallback`) has the host bind the redirect's port, open the browser and answer the one
+// callback, then completes the flow; a new URL, or none, lets the answer go, which frees the port. `returnUrl` is omitted from provider.auth.start (the server
 // does not use it in client mode; the clone registers no URL scheme) and is '' in the handoff.
 import { arr, obj, str, type Obj } from '../client/domain';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';

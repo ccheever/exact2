@@ -531,8 +531,9 @@ component CoreField
 
 // ThreadTitleInstructionsSettings' Textarea (ui/textarea.tsx: field-sizing content, min-h-17.5, max-h-64) under the
 // row's text, in `mt-3 max-w-2xl pb-3.5`, resized vertically (Tailwind preflight's `textarea { resize: vertical }`): a
-// dragged height replaces its content height, within min-height and max-height. Edits stay local and save, trimmed, when the field is left after an edit that changes the value (any edit while Mixed). Its
-// caller keys it on the value, as the reference keys its field, so it keeps what was typed until a new value arrives.
+// dragged height replaces its content height, within min-height and max-height. Edits stay local and save, trimmed,
+// when the field is left after an edit that changes the value (any edit while Mixed). Its caller keys it on the value,
+// as the reference keys its field, so it keeps what was typed until a new value arrives.
 component CoreTextArea
   props
     rowId: string
