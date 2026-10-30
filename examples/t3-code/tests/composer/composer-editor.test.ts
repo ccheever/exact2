@@ -338,7 +338,7 @@ describe('context links in one pass', () => {
       const records = [{ contextId: 't_1', threadId: 'thread-1' }, { contextId: 'i', threadId: 'thread-i' }];
       expect(projectPendingUserInputAnswer(text, records)).toBe(replaced(text, match => {
         const found = target(match[3]!), record = found?.[0] === 'thread' ? records.find(record => record.contextId === found[1]) : undefined;
-        return record ? formatThreadLink(record.threadId, match[2]!) : null;
+        return record ? formatThreadLink({ environmentId: null, threadId: record.threadId }, match[2]!) : null;
       }));
     }
   });

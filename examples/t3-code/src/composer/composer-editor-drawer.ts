@@ -32,11 +32,8 @@ export function composerDrawer(frames: Obj): ComposerDrawer {
 }
 
 /**
- * resolveComposerTimelineInset: while the composer rests, its stack keeps the
- * height it had expanded, so resting and expanding again (reaching the end, a
- * fold opening there) never resizes the transcript. The reservation belongs to
- * one thread's composer (`owner`) and is rebuilt from that thread's own
- * expanded stack. A card taller than its 48pt resting row is expanded.
+ * The composer stack's height, held per thread's composer (`owner`) and rebuilt
+ * from that thread's own stack once its card is laid out (taller than 60pt).
  */
 export type StackHold = { owner: string; height: number };
 export function composerStackHold(hold: StackHold, owner: string, frames: Obj): number {

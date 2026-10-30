@@ -174,7 +174,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['providers-setup.contract', 'ProviderAccountRow', 'triggerKey'], ['git.contract', 'GitRows', 'gitMenuKey'],
     ['pages-usage-prices.contract', 'UsagePricesApply', 'triggerKey'], ['project-scripts.contract', 'ScriptRow', 'triggerKey'],
     ['shell-details.contract', 'OpenInRow', 'triggerKey'], ['files-surface.contract', 'FileHeader', 'editorsKey'],
-    ['requests.contract', 'ApprovalActions', 'menuKey'], ['diff.contract', 'DiffToolbar', 'scopeKey'], ['device-workspace.contract', 'RailMenuButton', 'triggerKey'],
+    ['requests.contract', 'ApprovalActions', 'menuKey'], ['timeline-approval.contract', 'ApprovalMore', 'menuKey'], ['diff.contract', 'DiffToolbar', 'scopeKey'], ['device-workspace.contract', 'RailMenuButton', 'triggerKey'],
     ['add-project-machine.contract', 'AddMachineTargetSelect', 'triggerKey'], ['add-project-machine.contract', 'AddMachineSubmenu', 'rowKey'],
   ];
   // Submenu triggers open on Enter, Space (and ArrowRight, Base UI's submenu key); their arrows belong to the parent menu.

@@ -9,6 +9,9 @@ import { projectGlyph, type ProjectGlyph } from '../sidebar/sidebar-glyph';
 import { projectIdentity } from '../client/presentation';
 import { obj, str } from '../client/domain';
 import { terminologyForUrl } from '../details/git-logic';
+import { chipInk, contextChipInks } from '../shared/chip-accents';
+import { paintOf } from '../appearance/settings-appearance-look';
+import { themeRoles } from '../appearance/settings-appearance';
 
 export type ComposerChipFace = {
   kind: string; label: string; suffix: string; icon: string; fileToken: string;
@@ -17,6 +20,9 @@ export type ComposerChipFace = {
   glyph: ProjectGlyph;
   /** The reference chip's `aria-label`, which names it where its drawn label carries the upload state (chipAccessibleName). */
   ariaLabel: string;
+  /** Its ink in both halves of the appearance (shared/chip-accents.ts): a document's accent for a PDF, Word file, sheet,
+   *  slides or EPUB, the error ink when invalid; '' (the field's text) for an unresolved chip or a kind without one. */
+  ink: string;
 };
 const NO_GLYPH: ProjectGlyph = { kind: '', d: '', emoji: '', src: '', text: '', ink: '', surface: '', gray: '', graySurface: '' };
 const icons: Readonly<Record<string, string>> = {
@@ -41,6 +47,7 @@ export function composerChipFaces(client: T3Client, value: string, chips: readon
     return project ? projectGlyph(client, project, projectIdentity) : NO_GLYPH;
   };
   const pullRequests = new Map(preview ? [] : pullRequestRecords(client, value).map(record => [str(record.contextId), obj(record.pullRequest)]));
+  const inks = chipInks(client);
   return chips.map(chip => {
     let kind: string = chip.kind, label = chip.label, suffix = '', imageId = '', tip = '', available = true, glyph = '', expired = false, title = '';
     if (chip.kind === 'skill') label = skills[chip.name] ?? skillDisplayName({ name: chip.name });
@@ -64,9 +71,34 @@ export function composerChipFaces(client: T3Client, value: string, chips: readon
     const ariaLabel = chipAccessibleName({ kind, label, suffix, available, expired, title, path: chip.kind === 'mention' ? chip.path : '',
       thread: chip.kind === 'context' && chip.contextKind === 'thread' ? str(threadOf(chip.contextId)?.title).trim() : '',
       pullRequest: chip.kind === 'context' ? pullRequests.get(chip.contextId) : undefined });
-    return { kind: !available && kind === 'terminal' ? 'invalid' : kind, label, suffix, icon, fileToken: fileToken === 'folder' ? '' : fileToken,
-      imageId, available, interactive, comment, tip, glyph: chip.kind === 'context' && kind === 'thread' && available ? glyphOf(chip.contextId) : NO_GLYPH, ariaLabel };
+    const shownKind = !available && kind === 'terminal' ? 'invalid' : kind;
+    // documentIconColorForFileName: a workspace mention by its path and an attached file (not a video) by its name.
+    const document = chip.kind === 'mention' ? documentKind(chip.path) : chip.kind === 'context' && kind === 'file' ? documentKind(label) : '';
+    const ink = shownKind === 'invalid' ? inks.invalid : !available ? '' : inks[document || shownKind] ?? '';
+    return { kind: shownKind, label, suffix, icon, fileToken: fileToken === 'folder' ? '' : fileToken,
+      imageId, available, interactive, comment, tip, glyph: chip.kind === 'context' && kind === 'thread' && available ? glyphOf(chip.contextId) : NO_GLYPH, ariaLabel, ink };
   });
+}
+
+/** The document kinds that take their own accent (documentIconColorForFileName), by a file name's extension. */
+export function documentKind(name: string): string {
+  const n = name.toLowerCase();
+  return /\.pdf$/.test(n) ? 'doc-pdf' : /\.(docx?|odt|rtf)$/.test(n) ? 'doc-word' : /\.(xlsx?|ods|csv|tsv)$/.test(n) ? 'doc-spreadsheet'
+    : /\.(pptx?|odp)$/.test(n) ? 'doc-slides' : /\.epub$/.test(n) ? 'doc-epub' : '';
+}
+
+/** Every kind's ink as `light-dark()`, solved per theme half (contextChipVariables); kept while the themes stay. */
+const inkCache = new WeakMap<object, { key: string; inks: Record<string, string> }>();
+export function chipInks(client: T3Client): Record<string, string> {
+  const { prefs, custom } = paintOf(client);
+  // The status colours a palette leaves to the standard ones (STANDARD_STATUS_COLORS): the error foreground.
+  const light = { errorForeground: '#c10007', ...themeRoles(prefs.themeLight, 'light', custom) }, dark = { errorForeground: '#ff6467', ...themeRoles(prefs.themeDark, 'dark', custom) };
+  const key = JSON.stringify([light, dark]), cached = inkCache.get(client);
+  if (cached?.key === key) return cached.inks;
+  const a = contextChipInks(light), b = contextChipInks(dark);
+  const inks = Object.fromEntries(Object.keys(a).map(kind => [kind, chipInk(kind, a, b)]).filter(([, ink]) => ink));
+  inkCache.set(client, { key, inks });
+  return inks;
 }
 
 const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);

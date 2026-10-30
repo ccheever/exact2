@@ -59,12 +59,29 @@ describe('composer controls', () => {
     expect(two.count).toBe(7);
     expect(two.selected).toBe(2);
   });
+  test('Permissions hide at the default, show their label off it, and a new thread names them in its strip (#25869)', () => {
+    const settings = { defaultRuntimeMode: 'full-access' };
+    const at = (extra: object) => composerView(client({ config: { providers: [provider('exact_fixture', fixtureModels)], settings }, ...extra }), { approval: false, question: false, choiceOnly: false });
+    expect(at({})).toMatchObject({ accessDisplay: 'hidden', showModeBlock: false, effortOwnsMode: true, permissionsInStrip: false,
+      traitsTip: 'Effort: Medium · Permissions: Full access · ⇧⌘A', effortWord: 'Medium', effortBars: [] });
+    expect(at({ runtimeMode: 'approval-required' })).toMatchObject({ accessDisplay: 'label', accessEmphasized: true, showModeBlock: true, effortOwnsMode: false,
+      traitsTip: 'Effort: Medium', permissionsTip: 'Permissions: Supervised. Ask before commands and file changes.' });
+    expect(at({ threadId: '', runtimeMode: 'approval-required' })).toMatchObject({ accessDisplay: 'hidden', permissionsInStrip: true, stripPermissionsTip: 'Permissions · ⇧⌘A' });
+    // Without traits there is no effort chip: the Permissions icon keeps composer.mode, and the strip opens it.
+    const bare = (extra: object) => composerView(client({ config: { providers: [provider('exact_fixture', [{ slug: 'gpt-6-astra', name: 'GPT-6-Astra' }])], settings }, ...extra }),
+      { approval: false, question: false, choiceOnly: false });
+    expect(bare({})).toMatchObject({ effortShown: false, accessDisplay: 'icon', effortOwnsMode: false, overflowPermissions: false, keyMode: 'Meta+Shift+A' });
+    expect(bare({ threadId: '' })).toMatchObject({ effortShown: false, accessDisplay: 'icon', effortOwnsMode: false, permissionsInStrip: true });
+    // Settings › Appearance › Effort display "Bars": the level as bars, the word only for named levels.
+    expect(at({ local: { favoriteModels: [], deviceSettings: { planModeEnabled: false }, clientSettings: { effortDisplay: 'bars' } } })).toMatchObject({ effortWord: '',
+      effortBars: [{ x: 0, y: 6, height: 6, on: true }, { x: 4, y: 3, height: 9, on: true }, { x: 8, y: 0, height: 12, on: false }], effortBarsWidth: 10 });
+  });
   test('runtime options follow the provider support list and the served labels', () => {
     expect(runtimeModes.map(mode => mode.label)).toEqual(['Supervised', 'Auto-accept edits', 'Auto', 'Full access']);
     const view = composerView(client({ config: { providers: [provider('exact_fixture', fixtureModels, { supportedRuntimeModes: ['approval-required', 'full-access'] })] } }),
       { approval: false, question: false, choiceOnly: false });
     expect(view.runtimes.map(option => option.mode)).toEqual(['approval-required', 'full-access']);
-    expect(view).toMatchObject({ runtimeLabel: 'Full access', runtimeIcon: 'lock-open', runtimeSelected: 1, traitsLabel: 'Medium', planVisible: false });
+    expect(view).toMatchObject({ runtimeLabel: 'Full access', runtimeIcon: 'shield-off', runtimeSelected: 1, traitsLabel: 'Medium', planVisible: false });
     const legacy = composerView(client({ runtimeMode: 'auto' , config: { providers: [provider('exact_fixture', fixtureModels, { supportedRuntimeModes: ['approval-required'] })] } }),
       { approval: false, question: false, choiceOnly: false });
     expect(legacy.runtimeLabel).toBe('Supervised');
@@ -72,15 +89,15 @@ describe('composer controls', () => {
   test("an unavailable model's badge widens the picker in the footer's layout, except on a multi-model draft", () => {
     const unavailable = fixtureModels.map(model => model.slug === 'gpt-6-astra' ? { ...model, isUnavailable: true } : model);
     // The probes' widths (composer-measure.ts): the labels, and the badge's text at 10pt medium.
-    const anchors = { controls: [0, 380], 'm-model-sm': [0, 90], 'm-traits-sm': [0, 50], 'm-runtime-sm': [0, 70], 't:10:500:Unavailable': [0, 52] };
+    const anchors = { controls: [0, 300], 'm-model-sm': [0, 90], 'm-traits-sm': [0, 50], 'm-runtime-sm': [0, 70], 't:10:500:Unavailable': [0, 52] };
     const view = (models: object[], extra: object = {}, fanout = false) => {
       const draft = client({ presentation: { anchors }, config: { providers: [provider('exact_fixture', models)] }, ...extra });
       if (fanout) setFanout(draft as unknown as Parameters<typeof setFanout>[0], [{ instanceId: 'exact_fixture', model: 'gpt-6-astra', options: [] }, { instanceId: 'exact_fixture', model: 'gpt-5.6-luna', options: [] }]);
       return composerView(draft, { approval: false, question: false, choiceOnly: false });
     };
-    // Picker 48 + 90, Reasoning 34 + 22 + 50, Full access 56 + 70: 370 fits the 388 the controls row gives.
+    // Picker 36 + 90, Medium 2 + 50, Full access 38 + 70, 2pt apart: 290 fits the 300 the controls row gives.
     expect(view(fixtureModels).runtimeIconOnly).toBe(false);
-    // The badge adds its text, 3pt padding and a 1pt border each side, and the trigger's 6pt gap: 436 does not.
+    // The badge adds its text, 3pt padding and a 1pt border each side, and the trigger's 6pt gap: 356 does not.
     expect(view(unavailable).runtimeIconOnly).toBe(true);
     // A multi-model trigger draws no badge (ProviderModelPicker: only without selectedEntries).
     expect(view(unavailable, { threadId: '' }, true).runtimeIconOnly).toBe(false);

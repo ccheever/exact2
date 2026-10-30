@@ -27,7 +27,7 @@ const SERVER_KEYS = new Set(['worktreesDirectory', 'favorites', 'providerModelPr
 const CLIENT_KEYS = new Set(['notificationMode', 'inAppNotificationsEnabled', 'diffColorScheme', 'chatWidth', 'loadBalancingEnabled', 'loadBalancingWeights', 'appearanceContrast',
   'panelAnimationDurationMs', 'confirmQuit', 'confirmThreadArchive', 'confirmThreadDelete', 'confirmThreadUnpin', 'diffFilesCollapsed', 'diffIgnoreWhitespace', 'diffLayout',
   'environmentIdentificationMode', 'glassOpacity', 'fontSizeInterface', 'fontSizePrompt', 'fontSizeCode', 'fontSizeTerminal', 'fontFamilyCode', 'fontFamilyComposer',
-  'fontFamilySans', 'fontFamilyTerminal', 'fontSmoothing', 'persistComposerContextStrip', 'planModeEnabled', 'contextWindowMeterEnabled', 'composerCollapseOnScroll',
+  'fontFamilySans', 'fontFamilyTerminal', 'fontSmoothing', 'persistComposerContextStrip', 'planModeEnabled', 'contextWindowMeterEnabled',
   'composerRichTextEnabled', 'sendShortcut', 'followUpBehavior', 'proactivePanelsEnabled', 'showSkillsInSlashMenu', 'legacySidebarEnabled', 'sidebarWorkingShelfEnabled',
   'wordWrap', 'theme', 'themeLight', 'themeDark', 'typographyAdvanced', 'sidebarProjectSortOrder', 'mathRenderingEnabled']);
 const PROJECT_SCOPED_KEYS = new Set<string>(PROJECT_SCOPED_SERVER_SETTING_KEYS);

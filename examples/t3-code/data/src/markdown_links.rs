@@ -50,6 +50,7 @@ fn kept_by_transform(href: &str) -> bool {
     let lower = href.to_ascii_lowercase();
     lower.starts_with("t3-context://")
         || lower.starts_with("t3-thread://v1/")
+        || lower.starts_with("t3-thread://v2/")
         || lower.starts_with("t3-citation://")
         || lower.starts_with("file:")
         || windows_drive(href)
@@ -1010,6 +1011,50 @@ mod link_tests {
                 "t3-thread://v1/thread-42".into(),
                 "context-thread".into()
             )]
+        );
+    }
+
+    /// A v2 link names its thread's environment. Its autolink, which relabelThreadLinks writes as a link whose text is its
+    /// URL (the parser's autolinks are http(s) and mail only), is a chip too; message-chips.ts names it.
+    #[test]
+    fn a_v2_thread_link_and_its_autolink_are_thread_chips() {
+        let Value::Record(doc) = document(
+            Value::str("a"),
+            "See [Old title](t3-thread://v2/env-1/thread-1) and [t3-thread://v2/env-2/thread-2](t3-thread://v2/env-2/thread-2).",
+        ) else {
+            panic!("document")
+        };
+        let Value::List(blocks) = &doc[1] else {
+            panic!("blocks")
+        };
+        let Value::Record(block) = &blocks[0] else {
+            panic!("block")
+        };
+        let Value::List(runs) = &block[7] else {
+            panic!("runs")
+        };
+        let chips: Vec<(String, String)> = runs
+            .iter()
+            .filter_map(|run| {
+                let Value::Record(fields) = run else {
+                    panic!("run")
+                };
+                let text = |at: usize| fields[at].as_str().unwrap_or("").to_string();
+                (!text(5).is_empty()).then(|| (text(5), text(6)))
+            })
+            .collect();
+        assert_eq!(
+            chips,
+            vec![
+                (
+                    "t3-thread://v2/env-1/thread-1".into(),
+                    "context-thread".into()
+                ),
+                (
+                    "t3-thread://v2/env-2/thread-2".into(),
+                    "context-thread".into()
+                ),
+            ]
         );
     }
 }

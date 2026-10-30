@@ -360,7 +360,8 @@ component WorkEntry
         // WorkLogDetails kind="panel" keeps pb-2 under the inspector.
         if expanded and not entry.reasoning and (entry.replArguments.length > 0 or entry.terminal or entry.toolImages.length > 0 or entry.body != "" or entry.output != "" or entry.result != "" or entry.changePath != "" or entry.results.length > 0)
           column margin-left="1.75rem" margin-top="0.25rem" padding-top="0.25rem" padding-bottom="0.75rem" gap="0.5rem" box-sizing="border-box"
-            // V2ItemInspector file_change: the path, its +/- counts and, for a run's change, Open diff.
+            // V2ItemInspector file_change: the path, its +/- counts and, for a run's change, Open diff, which names the
+            // tool call (`entry.id`, toolCallDiffTarget).
             if entry.changePath != ""
               row width="100%" flex-wrap="wrap" align-items="center" gap="0.5rem"
                 text entry.changePath min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size=codeSize line-height=1.625 overflow-wrap="anywhere" color="light-dark(#71717b, #a1a1a1)"
@@ -369,7 +370,7 @@ component WorkEntry
                     text `+${entry.additions}` font-size="0.75rem" line-height="1rem" color=(diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#007a55, #00d492)")
                     text `-${entry.deletions}` font-size="0.75rem" line-height="1rem" color=(diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#c10007, #ff6467)")
                 if entry.diffRunId != ""
-                  button press=command("turn-diff", entry.diffPath, entry.diffRunId, 0) testId=`work-open-diff-${entry.id}` aria-label="Open diff" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+                  button press=command("tool-diff", entry.id, "", 0) testId=`work-open-diff-${entry.id}` aria-label="Open diff" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0
                     text "Open diff" font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
             for argument in entry.replArguments key=argument.id
               row width="100%" align-items="start" gap="0.5rem"

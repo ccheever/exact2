@@ -52,7 +52,6 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["proactive-panels", "Proactive panels", "diffs", "", "automatically open diff pull request pr right panel agent completion", "", ""],
   ["skills-in-slash-menu", "Show skills in slash menu", "chat", "", "command menu dollar $ slash /", "", ""],
   ["composer-rich-text", "Rich text composer", "chat", "", "composer rich text tiptap bold italic markdown styled wysiwyg", "", ""],
-  ["composer-collapse", "Collapse composer on scroll", "chat", "", "composer rest resting scroll wheel conversation timeline shrink minimize", "", ""],
   ["send-shortcut", "Send shortcut", "chat", "", "enter return command ctrl multiline prompt new line composer", "", ""],
   ["follow-up-behavior", "Follow-up behavior", "chat", "", "queue steer running turn send default behavior composer", "", ""],
   ["provider-update-checks", "Provider update checks", "maintenance", "", "installed cli versions newer available codex claude cursor grok fx opencode", "environment-defaults", ""],

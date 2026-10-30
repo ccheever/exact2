@@ -1,6 +1,7 @@
 use InlineDocument from "../timeline/inline-documents.contract"
 use CommandSpan from "../timeline/command-output.contract"
 use SecretCardView from "../timeline/secret-card.contract"
+use TimelineApproval from "../timeline/timeline-approval.contract"
 use CodeToken from "../timeline/markdown.contract"
 use DiffFindView, FindDiffSegment from "../diff/diff-find.contract"
 use CodeHighlight from "../timeline/markdown.contract"
@@ -161,6 +162,8 @@ shape Message
   attribution: string
   // A folded automation or agent message's one line (its task title or first line).
   summary: string
+  // A queued automation or agent message's fold heading ("Automation", or the sending thread's title).
+  sender: string
   targetId: string
   actionLabel: string
   copied: number
@@ -183,6 +186,8 @@ shape Message
   // Code font/size, word wrap and the message's chips (message-chips.ts).
   md: MarkdownEnv
   secret: SecretCardView[]
+  // A pending approval answerable on its work row (timeline-approvals.ts).
+  approval: TimelineApproval[]
   // A workflow opening's title, description and phase titles with the thread find's matches marked.
   findLines: FindLine[]
 shape Provider
@@ -212,6 +217,10 @@ shape Approval
   count: string
   mono: bool
   detail: string
+  // The composer's presentation (requests.ts) carries these too; a snapshot field outside its shape refuses it whole.
+  reason: string
+  whyAsked: string
+  feedback: bool
   canRespond: bool
   operable: bool
   live: bool
@@ -485,7 +494,6 @@ shape Snapshot
   modelLabel: string
   modelShortLabel: string
   modelUnavailable: bool
-  composerCollapseOnScroll: bool
   planModeEnabled: bool
   composerResting: bool
   transcriptAway: bool
@@ -668,7 +676,6 @@ shape Settings
   defaultModel: string
   defaultModelExplicit: bool
   modelOverridden: bool
-  composerCollapseOnScroll: bool
   planModeEnabled: bool
   timestampFormat: string
   appearanceMode: string

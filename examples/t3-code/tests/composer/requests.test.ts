@@ -240,16 +240,18 @@ describe('connection and thread errors', () => {
 });
 
 describe('request rows in the work log', () => {
-  test("a pending approval is the running turn's live activity, after its earlier tools", () => {
+  // TimelinePendingApprovalRow (#26255): the approval answers on its own row; the work before it stops reading as live.
+  test('a pending approval is its own row after the running turn\'s earlier tools', () => {
     const row = (id: string, item: Obj) => ({ sourceThreadId: 't1', sourceItemId: id, ordinal: 0, item: { id, runId: 'r1', status: 'completed', startedAt: '2026-10-03T00:00:00Z', ...item } });
     const { client } = harness({ runs: [{ id: 'r1', status: 'running', startedAt: '2026-10-03T00:00:00Z' }],
       runtimeRequests: [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'live' } }] });
     const items = [row('u', { type: 'user_message', text: 'fixture approval' }), row('c', { type: 'command_execution', input: 'ls', output: '' }),
       row('q', { type: 'approval_request', requestId: 'a', prompt: 'Allow the fixture?' })];
     Object.assign(client.thread!.projection, { turnItems: items.map(entry => entry.item), visibleTurnItems: items });
-    const live = transcriptPresentation(client).filter(message => message.kind === 'live');
-    expect(live).toHaveLength(1);
-    expect(live[0]).toMatchObject({ title: 'Allow the fixture?', icon: 'message-circle', live: true });
+    const rows = transcriptPresentation(client);
+    expect(rows.flatMap(message => message.approval ?? [])).toMatchObject([{ id: 'a', label: 'Command approval', detail: 'Allow the fixture?', live: true }]);
+    expect(rows.findIndex(message => (message.approval ?? []).length > 0)).toBeGreaterThan(rows.findIndex(message => message.title === 'Ran ls'));
+    expect(rows.some(message => message.live && (message.kind === 'live' || message.kind === 'thinking'))).toBe(false);
   });
 });
 

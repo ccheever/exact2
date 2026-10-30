@@ -114,11 +114,20 @@ export function workspaceLabels(worktree: boolean): string[] { return [worktree 
 export function composerMenus(presentation: Obj, view: { traits: Trait[]; runtimes: Runtime[] }, runOn: string[], extra: Probe[] = []) {
   return {
     menuProbes: uniqueProbes([...menuProbes(view.traits, view.runtimes, runOn.length ? [...runOn, ...workspaceLabels(false), ...workspaceLabels(true)] : []), ...extra]),
-    effortMenuWidth: effortMenuWidth(presentation, view.traits),
-    runtimeMenuWidth: runtimeMenuWidth(presentation, view.runtimes),
-    effortMenuHeight: traitsMenuHeight(view.traits), runtimeMenuHeight: runtimeMenuHeight(view.runtimes),
+    // The effort menu holds the Permissions section under its traits (ComposerControlsBar extraMenuContent), and
+    // the Permissions chip's menu is that section alone.
+    effortMenuWidth: Math.max(effortMenuWidth(presentation, view.traits), PERMISSIONS_MENU_WIDTH),
+    runtimeMenuWidth: PERMISSIONS_MENU_WIDTH,
+    effortMenuHeight: traitsMenuHeight(view.traits) + 9 + PERMISSIONS_SECTION_HEIGHT, runtimeMenuHeight: 10 + PERMISSIONS_SECTION_HEIGHT,
   };
 }
+
+/**
+ * ComposerPermissionsSection (w-72 px-2 py-1.5, gap-1.5): its header, the 28pt toggle, the shown mode's name and its
+ * description's two reserved lines; a menu holding it is that wide plus its padding and border.
+ */
+export const PERMISSIONS_SECTION_HEIGHT = 12 + 16 + 6 + 28 + 6 + 20 + 2 + 32;
+export const PERMISSIONS_MENU_WIDTH = 288 + 10;
 
 type CheckRow = { label: string; status: string };
 /** pages-text-width.ts checkMenuWidth with measured texts: MenuCheckboxItems (8 + 16pt check + 8, the label, 12, the status, 16) in a min-w-40 MenuPopup. */
@@ -137,7 +146,7 @@ export function checkMenu(presentation: Obj, rows: CheckRow[], extra: string[] =
  * the Interface font size (the root font size) as the reference's rem-sized popups do.
  */
 export const ROOT_SIZED_MENU_FIELDS = ['effortMenuWidth', 'runtimeMenuWidth', 'effortMenuHeight', 'runtimeMenuHeight',
-  'moreMenuWidth', 'restingMoreMenuWidth', 'moreMenuHeight', 'restingMoreMenuHeight', 'sendTipWidth', 'compactWidth'] as const;
+  'moreMenuWidth', 'moreMenuHeight', 'sendTipWidth', 'compactWidth'] as const;
 export function atRootFontSize<T extends object>(row: T, rootFontSize: number): T {
   if (rootFontSize === 16) return row;
   const out = { ...row } as Record<string, unknown>;

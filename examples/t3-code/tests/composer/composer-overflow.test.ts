@@ -1,11 +1,11 @@
 // The footer's overflow steps and the "More composer
-// controls" rows (CompactComposerControlsMenu.tsx, T3 Code 1e2ecbd975, MIT; see LICENSE-T3).
+// controls" rows (CompactComposerControlsMenu.tsx, T3 Code v0.1.5, MIT; see LICENSE-T3).
 import { describe, expect, test } from 'bun:test';
 import { footerLayout } from '../../src/composer/composer-controls-view';
 import { overflowMenu } from '../../src/composer/composer-overflow';
 import { traitsMenu } from '../../src/composer/composer-presentation';
 
-const base = { model: 'Claude Opus 4.6', traits: 'High', traitsIcon: false, runtime: 'Full access', plan: 'Build' };
+const base = { model: 'Claude Opus 4.6', traits: 40, runtime: 'Full access', runtimeShown: true, mode: true, plan: 'Build' };
 const effort = { id: 'effort', label: 'Reasoning', type: 'select', options: [{ id: 'medium', label: 'Medium' }, { id: 'high', label: 'High', isDefault: true }] };
 
 describe('footerLayout overflow (G11)', () => {
@@ -15,7 +15,7 @@ describe('footerLayout overflow (G11)', () => {
     let previous: ReturnType<typeof footerLayout>['steps'] | undefined;
     for (let host = 600; host >= 1; host -= 1) {
       const layout = at(host, previous); previous = layout.steps;
-      const state = layout.controlsHidden ? 'hidden' : layout.traitsOverflow ? 'traits-menu' : layout.modeOverflow ? 'mode-menu' : layout.traitsIconOnly ? 'traits-icon' : layout.runtimeIconOnly ? 'mode-icon' : 'labels';
+      const state = layout.controlsHidden ? 'hidden' : layout.measuredHidden >= 2 ? 'traits-menu' : layout.measuredHidden === 1 ? 'mode-menu' : layout.traitsIconOnly ? 'traits-icon' : layout.runtimeIconOnly ? 'mode-icon' : 'labels';
       if (order[order.length - 1] !== state) order.push(state);
     }
     expect(order).toEqual(['labels', 'mode-icon', 'traits-icon', 'mode-menu', 'traits-menu', 'hidden']);
@@ -23,33 +23,32 @@ describe('footerLayout overflow (G11)', () => {
     const back: string[] = [];
     for (let host = 1; host <= 600; host += 1) {
       const layout = at(host, previous); previous = layout.steps;
-      const state = layout.controlsHidden ? 'hidden' : layout.traitsOverflow ? 'traits-menu' : layout.modeOverflow ? 'mode-menu' : layout.traitsIconOnly ? 'traits-icon' : layout.runtimeIconOnly ? 'mode-icon' : 'labels';
+      const state = layout.controlsHidden ? 'hidden' : layout.measuredHidden >= 2 ? 'traits-menu' : layout.measuredHidden === 1 ? 'mode-menu' : layout.traitsIconOnly ? 'traits-icon' : layout.runtimeIconOnly ? 'mode-icon' : 'labels';
       if (back[back.length - 1] !== state) back.push(state);
     }
     expect(back).toEqual(['hidden', 'traits-menu', 'mode-menu', 'traits-icon', 'mode-icon', 'labels']);
   });
   test('an unmeasured host keeps every control', () => {
-    expect(footerLayout({ ...base, host: 0 })).toMatchObject({ modeOverflow: false, traitsOverflow: false, controlsHidden: false });
+    expect(footerLayout({ ...base, host: 0 })).toMatchObject({ measuredHidden: 0, controlsHidden: false });
   });
 });
 
 describe('overflowMenu (CompactComposerControlsMenu)', () => {
-  const runtimes = [{ mode: 'approval-required', label: 'Supervised', selected: false }, { mode: 'full-access', label: 'Full access', selected: true }];
   const traits = traitsMenu([effort], []).items;
-  test('mode hidden: Mode (Chat, Plan) when Plan UI is on, then Access', () => {
-    const menu = overflowMenu({ traits, traitsHidden: false, modeHidden: true, planVisible: true, interactionMode: 'plan', runtimes });
-    expect(menu.items.map(item => item.kind === 'option' ? `${item.label}${item.selected ? '*' : ''}` : item.kind === 'header' ? `[${item.label}]` : '-'))
-      .toEqual(['[Mode]', 'Chat', 'Plan*', '-', '[Access]', 'Supervised', 'Full access*']);
-    expect(menu.count).toBe(4);
+  const label = (item: { kind: string; label: string; selected: boolean }) => item.kind === 'option' ? `${item.label}${item.selected ? '*' : ''}` : item.kind === 'header' ? `[${item.label}]` : '-';
+  test('mode hidden: Mode (Chat, Plan) when Plan UI is on, then a divider before Permissions while they live here', () => {
+    const menu = overflowMenu({ traits, traitsHidden: false, modeHidden: true, planVisible: true, interactionMode: 'plan', showPermissions: true });
+    expect(menu.items.map(label)).toEqual(['[Mode]', 'Chat', 'Plan*', '-']);
+    expect(menu.count).toBe(2);
+    expect(overflowMenu({ traits, traitsHidden: false, modeHidden: true, planVisible: true, interactionMode: 'plan', showPermissions: false }).items.map(label))
+      .toEqual(['[Mode]', 'Chat', 'Plan*']);
   });
   test('traits hidden too: the traits content leads; without Plan UI there is no Mode group', () => {
-    const menu = overflowMenu({ traits, traitsHidden: true, modeHidden: true, planVisible: false, interactionMode: 'default', runtimes });
-    expect(menu.items.map(item => item.kind === 'option' ? item.label : item.kind === 'header' ? `[${item.label}]` : '-'))
-      .toEqual(['[Reasoning]', 'Medium', 'High', '-', '[Access]', 'Supervised', 'Full access']);
-    expect(menu.items.filter(item => item.kind === 'option').map(item => item.index)).toEqual([0, 1, 2, 3]);
-    expect(menu.items.find(item => item.label === 'Supervised')?.descriptor).toBe('__runtime');
+    const menu = overflowMenu({ traits, traitsHidden: true, modeHidden: true, planVisible: false, interactionMode: 'default', showPermissions: true });
+    expect(menu.items.map(label)).toEqual(['[Reasoning]', 'Medium', 'High*', '-']);
+    expect(menu.items.filter(item => item.kind === 'option').map(item => item.index)).toEqual([0, 1]);
   });
   test('nothing hidden: no menu', () => {
-    expect(overflowMenu({ traits, traitsHidden: false, modeHidden: false, planVisible: true, interactionMode: 'default', runtimes })).toEqual({ items: [], count: 0 });
+    expect(overflowMenu({ traits, traitsHidden: false, modeHidden: false, planVisible: true, interactionMode: 'default', showPermissions: false })).toEqual({ items: [], count: 0 });
   });
 });
