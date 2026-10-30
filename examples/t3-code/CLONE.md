@@ -102,7 +102,9 @@ Markdown row tap produce no journaled press or navigation. Those paths stop
 without retries. Shared Markdown's action regressions pass before and after UUID
 reservation, including deferred alias and ID capture. All 6,921 desktop tests,
 strict application TypeScript and all six root checks pass. The regression and
-correction are separate local commits; root owns independent review and pushes.
+correction are separate commits. Independent review finds no introduced defect,
+passes 123 existing tests and 13 boundary probes, and verifies the actual signed
+bundle and native records. The comment audit is clear.
 
 Evidence, redacted native records, artifact identities and cleanup are under
 `target/t3-poc-evidence/desktop-draft-preview-implementation/`. The historical
