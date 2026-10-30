@@ -156,8 +156,10 @@ extension Presenter {
     }
 
     /// A frame layout sent for `v`, drawn on the grid; a box whose origin
-    /// moves moves its children's edges with it.
-    func applyFrame(_ v: NodeView, _ rect: CGRect) {
+    /// moves moves its children's edges with it. Inside an animation UIKit
+    /// has open, it moves only if the last frame showed it (`moveOrPlace`).
+    func applyFrame(_ v: NodeView, _ rect: CGRect) { moveOrPlace(v) { frame(v, rect) } }
+    private func frame(_ v: NodeView, _ rect: CGRect) {
         let origin = gridOrigin(above: v)
         let place = PixelGrid.place(rect, in: origin, scale: gridScale(under: origin))
         let moved = place.origin != v.grid?.origin
@@ -194,7 +196,7 @@ extension Presenter {
             // only the absolute origin its own children are placed from changes, and its box keeps its frame.
             if place.drawn == old.drawn {
                 child.grid = place
-                child.placeTextRaster() // its text's box is placed from its absolute origin
+                moveOrPlace(child) { child.placeTextRaster() } // its text's box is placed from its absolute origin
                 menus.framed(child); stickies.regridded(child.id)
                 regridChildren(of: child)
                 return

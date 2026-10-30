@@ -617,10 +617,13 @@ final class FlatLeaves {
         view.applyStyle(style ?? leaf.style)
         view.applyProps(set: leaf.faceBoxSize.map { ["faceBoxSize": $0] } ?? [:], clear: [])
         let placed = place(leaf)
-        view.frame = placed.drawn
-        view.grid = placed
-        if let content = leaf.content { view.applyKernelContentBox(content.box, padding: content.padding) }
-        view.alpha = CGFloat(leaf.opacity)
+        // A new view, so it takes its place at once inside an animation UIKit has open (`Presenter.moveOrPlace`)
+        presenter.moveOrPlace(view) {
+            view.frame = placed.drawn
+            view.grid = placed
+            if let content = leaf.content { view.applyKernelContentBox(content.box, padding: content.padding) }
+            view.alpha = CGFloat(leaf.opacity)
+        }
         presenter.views[id] = view
         if leaf.rank != 0 { view.setRank(leaf.rank) }
         if let parentID = leaf.parent { remount.insert(parentID) }
