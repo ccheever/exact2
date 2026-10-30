@@ -431,3 +431,125 @@ fn a_popover_inside_a_scroller_stays_in_the_accessibility_tree() {
         "save is in the tree with its box"
     );
 }
+
+/// The reads see the popover where it is drawn with a margin too: the
+/// runner takes a block root's rectangle as its block, margins included.
+#[test]
+fn reads_see_a_popover_with_a_margin_where_it_is_drawn() {
+    let source = APP.replace("  state saves = 0", MEASURED).replace(
+        "role=\"dialog\" width=200",
+        "role=\"dialog\" width=200 margin-left=20 margin-top=12",
+    );
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    let drawn = painted(&mut p, "menu");
+    assert_eq!(read_frame(&mut p, "menu"), Some(drawn));
+}
+
+/// A positive `tabindex` inside the popover orders it within the popover's
+/// scope, which still follows its invoker (HTML's flattened order).
+#[test]
+fn a_positive_tabindex_stays_in_the_popovers_scope() {
+    let source = APP
+        .replace(
+            "      column id=\"menu\"",
+            "      button \"After\" testId=\"after\" width=120 height=30\n      column id=\"menu\"",
+        )
+        .replace("testId=\"other\"", "testId=\"other\" tabindex=1");
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    for next in ["other", "save", "after"] {
+        p.key_down("Tab", 0.);
+        assert_eq!(p.focus, Some(id(&p, next)), "{next}");
+    }
+}
+
+/// A popover whose page ancestor is scrolled out of view is still drawn in
+/// the top layer, and in the accessibility tree.
+#[test]
+fn a_popover_under_an_offscreen_scroller_stays_in_the_accessibility_tree() {
+    let source = APP
+        .replace(
+            "      column id=\"menu\" testId=\"menu\"",
+            "      scroll testId=\"clip\" position=\"absolute\" top=900 height=10 width=40\n        box height=100\n        column id=\"menu\" testId=\"menu\"",
+        )
+        .replace("        button \"Save\"", "          button \"Save\"")
+        .replace("        button \"Other\"", "          button \"Other\"");
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    assert!(p.rect_of(id(&p, "save")).is_some(), "drawn");
+    let save = id(&p, "save");
+    assert!(p.access_tree().0.iter().any(|n| n.view == save));
+}
+
+/// A `dialog` popover with nothing to focus inside takes the focus itself
+/// (the dialog focusing steps' fallback).
+#[test]
+fn a_dialog_popover_with_no_stop_focuses_itself() {
+    let source = APP
+        .replace(
+            "column id=\"menu\" testId=\"menu\" popover=\"auto\" role=\"dialog\"",
+            "dialog id=\"menu\" testId=\"menu\" popover=\"auto\"",
+        )
+        .replace(
+            "        button \"Save\" testId=\"save\" press=save height=30\n",
+            "        text \"Only text\"\n",
+        )
+        .replace("        button \"Other\" testId=\"other\" height=30\n", "");
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    assert!(p.alert.is_some());
+    assert_eq!(p.focus, Some(id(&p, "menu")));
+}
+
+/// A button whose command targets the open popover but is no popover
+/// command (`close`) is an ordinary press outside it: it light-dismisses.
+#[test]
+fn a_close_command_outside_light_dismisses_an_auto_popover() {
+    let source = APP.replace(
+        "      button \"Probe\"",
+        "      button \"Shut\" testId=\"shut\" commandfor=\"menu\" command=\"close\" width=120 height=30\n      button \"Probe\"",
+    );
+    let mut p = boot(&source);
+    click(&mut p, "open", 0.);
+    assert!(p.alert.is_some());
+    click(&mut p, "shut", 200.);
+    assert!(p.alert.is_none());
+}
+
+/// Escape under a manual popover is the page's: a page shortcut hears it.
+#[test]
+fn escape_under_a_manual_popover_reaches_the_page() {
+    let source = APP
+        .replace("popover=\"auto\"", "popover=\"manual\"")
+        .replace(
+            "testId=\"probe\" press=probe",
+            "testId=\"probe\" press=probe aria-keyshortcuts=\"Escape\"",
+        );
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    p.hardware_key("Escape", "Escape", true, false);
+    p.hardware_key("Escape", "Escape", false, false);
+    p.run_commands(|| ());
+    assert_eq!(count(&p, "probes"), Some(Value::Number(1.)));
+    assert!(p.alert.is_some());
+}
+
+/// A popover opened with nothing focused does not take the page's keys:
+/// they go to the page's root, not the popover's handlers.
+#[test]
+fn an_unfocused_popover_does_not_hear_the_pages_keys() {
+    let source = APP
+        .replace(
+            "  state saves = 0",
+            "  state saves = 0\n  state heard = 0\n  action hear(key: string)\n    heard = heard + 1",
+        )
+        .replace("role=\"dialog\" width=200", "role=\"dialog\" width=200 key=hear");
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    assert!(p.alert.is_some());
+    // As a programmatic opening with nothing focused leaves it.
+    p.focus = None;
+    p.key_down("x", 0.);
+    assert_eq!(count(&p, "heard"), Some(Value::Number(0.)));
+}
