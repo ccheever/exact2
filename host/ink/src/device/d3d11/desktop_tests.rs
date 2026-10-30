@@ -362,7 +362,8 @@ impl Shelf {
                     && !clicked
                 {
                     // Settings can own the last input after a DPI change.
-                    // Activate Shelf with a real title-bar click in that case.
+                    // Shelf's empty lower-right client margin cannot turn
+                    // repeated activation into a title-bar double-click.
                     use windows::Win32::UI::Input::KeyboardAndMouse::*;
                     SetWindowPos(
                         self.hwnd,
@@ -374,9 +375,13 @@ impl Shelf {
                         SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE,
                     )
                     .unwrap();
-                    let mut rect = RECT::default();
-                    GetWindowRect(self.hwnd, &mut rect).unwrap();
-                    SetCursorPos(rect.left + 100, rect.top + 12).unwrap();
+                    let rect = self.client();
+                    let mut point = POINT {
+                        x: rect.right - 24,
+                        y: rect.bottom - 24,
+                    };
+                    assert!(ClientToScreen(self.hwnd, &mut point).as_bool());
+                    SetCursorPos(point.x, point.y).unwrap();
                     let events = [MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP].map(|flags| INPUT {
                         r#type: INPUT_MOUSE,
                         Anonymous: INPUT_0 {
