@@ -553,3 +553,138 @@ fn an_unfocused_popover_does_not_hear_the_pages_keys() {
     p.key_down("x", 0.);
     assert_eq!(count(&p, "heard"), Some(Value::Number(0.)));
 }
+
+/// A press on a popover over a page scroller's track is the popover's: the
+/// page's scrollbar under it takes nothing.
+#[test]
+fn a_page_scrollbar_under_a_popover_takes_no_press() {
+    let source = APP
+        .replace(
+            "      button \"Probe\"",
+            "      column testId=\"pane\" width=480 height=300 overflow-y=\"auto\"\n        box height=2000 flex-shrink=0\n      button \"Probe\"",
+        )
+        .replace("role=\"dialog\" width=200", "role=\"dialog\" width=200 height=200 left=\"280px\" top=\"40px\"");
+    let mut p = boot(&source);
+    p.set_scrollbars(false);
+    tap(&mut p, "open");
+    let pane = id(&p, "pane");
+    let bar = *p
+        .brush
+        .scrollbars
+        .bars
+        .iter()
+        .find(|b| b.id == pane && b.vertical)
+        .unwrap();
+    let menu = p.rect_of(id(&p, "menu")).unwrap();
+    let (x, y) = (bar.track.0 + bar.track.2 / 2., menu.1 + menu.3 / 2.);
+    assert!(
+        x >= menu.0 && x < menu.0 + menu.2,
+        "the popover covers the track at {x}"
+    );
+    p.pointer_down(x, y, 0.).unwrap();
+    p.pointer_up(x, y, 1.).unwrap();
+    p.frame();
+    assert_eq!(p.scroll_of(pane), (0., 0.));
+    assert!(p.alert.is_some());
+}
+
+/// Tab from a focused node that is no stop (an autofocused `tabindex=-1`)
+/// goes on from its place, inside the popover's scope.
+#[test]
+fn tab_from_a_focused_non_stop_goes_on_from_its_place() {
+    let source = APP.replace(
+        "testId=\"save\"",
+        "testId=\"save\" autofocus=true tabindex=-1",
+    );
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    assert_eq!(p.focus, Some(id(&p, "save")));
+    p.key_down("Tab", 0.);
+    assert_eq!(p.focus, Some(id(&p, "other")));
+}
+
+/// An invoker that is no stop still owns its popover's scope: Shift+Tab
+/// from the popover's first stop goes to what comes before the invoker.
+#[test]
+fn an_invoker_that_is_no_stop_keeps_its_popovers_scope() {
+    let source = APP
+        .replace(
+            "      column id=\"menu\"",
+            "      button \"After\" testId=\"after\" width=120 height=30\n      column id=\"menu\"",
+        )
+        .replace(
+            "testId=\"open\" popovertarget",
+            "testId=\"open\" tabindex=-1 popovertarget",
+        );
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    p.focus = Some(id(&p, "save"));
+    p.move_focus(true, 0.);
+    assert_eq!(p.focus, Some(id(&p, "probe")));
+}
+
+/// A button that no longer targets the popover is an ordinary press
+/// outside it, though it opened it.
+#[test]
+fn a_former_invoker_light_dismisses() {
+    let source = APP
+        .replace(
+            "  state saves = 0",
+            "  state saves = 0\n  state armed = true\n  action disarm\n    armed = false",
+        )
+        .replace(
+            "popovertarget=\"menu\"",
+            "popovertarget=(armed ? \"menu\" : \"\")",
+        );
+    let mut p = boot(&source);
+    click(&mut p, "open", 0.);
+    assert!(p.alert.is_some());
+    p.host.runner_mut().act("disarm", vec![]).unwrap();
+    p.run_commands(|| ());
+    p.frame();
+    click(&mut p, "open", 200.);
+    assert!(p.alert.is_none());
+}
+
+/// Whether the popover is manual is read as it is now, not as it opened.
+#[test]
+fn a_popover_turned_auto_hears_escape() {
+    let source = APP
+        .replace(
+            "  state saves = 0",
+            "  state saves = 0\n  state kind = \"manual\"\n  action auto\n    kind = \"auto\"",
+        )
+        .replace("popover=\"auto\"", "popover=kind");
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    p.host.runner_mut().act("auto", vec![]).unwrap();
+    p.run_commands(|| ());
+    p.frame();
+    p.key_down("Escape", 300.);
+    p.frame();
+    assert!(p.alert.is_none());
+}
+
+/// In the accessibility tree a popover is no child of the page's scroller.
+#[test]
+fn a_popover_is_no_child_of_the_page_scroller_in_the_accessibility_tree() {
+    let source = APP
+        .replace(
+            "column width=\"100%\" height=\"100%\"",
+            "column width=\"100%\"",
+        )
+        .replace(
+            "        button \"Other\" testId=\"other\" height=30\n",
+            "        button \"Other\" testId=\"other\" height=30\n      box height=2000\n",
+        );
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    let nodes = p.access_tree().0;
+    let save = id(&p, "save");
+    let mut at = nodes.iter().find(|n| n.view == save).expect("save").parent;
+    while at != 0 {
+        let n = nodes.iter().find(|n| n.id == at).unwrap();
+        assert_ne!(n.view, 0, "the page scroller holds the popover");
+        at = n.parent;
+    }
+}
