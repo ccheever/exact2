@@ -19,6 +19,15 @@ members T3Code
   state paletteReturnQuery = ""
   // The closing palette returns the focus it took (PaletteFinalFocus): no composer is shown to take it.
   state paletteRestore = false
+  // Focus Next or Previous Workspace Area moves once the palette has closed (restoreWorkspaceFocusFromPalette).
+  state paletteWorkspaceMove = 0
+  state paletteWorkspaceSerial = 0
+  task paletteWorkspaceMoved when paletteWorkspaceMove != 0 and not paletteOpen key=paletteWorkspaceSerial
+    after(1, paletteWorkspaceRun)
+  action paletteWorkspaceRun
+    let direction = paletteWorkspaceMove
+    paletteWorkspaceMove = 0
+    workspaceMove(direction, "")
   resource palette = paletteView(paletteOpen, paletteMode, palettePage, paletteQuery, `${paletteCase ? "case " : ""}${paletteWord ? "word " : ""}${paletteRegex ? "regex" : ""}`, paletteCursor >= 0, wallTime.epochAtZero + elapsed, scheme, data.revision) as shape PaletteView
   mutation paletteChanged as shape PaletteResult refreshes data then paletteDone
   derive paletteHighlight = palette.count == 0 ? -1 : (paletteCursor >= 0 ? min(paletteCursor, palette.count - 1) : (palette.autoHighlight and (paletteCursor == -1 or palette.panel == "picker") ? 0 : -1))
@@ -150,12 +159,20 @@ members T3Code
       paletteCursor = op == "mode" and arg == "content" ? -1 : -2
       paletteScroll = 0
       focus("palette-input") // a clicked row takes the focus on its mouse down (NSWindow), so the field takes it back
+    // A command that goes nowhere gives the focus back as closing the palette does; one that navigates leaves it to
+    // where it went (getCommandPaletteReturnFocus).
     if op == "device"
       paletteOpen = false
+      paletteFocusBack(palettePage)
       send localChanged = command("device-setting", arg, arg2, 0)
     if op == "copy-thread"
       paletteOpen = false
+      paletteFocusBack(palettePage)
       send localChanged = command("restlocal:copy-thread", ":", "", 0)
+    if op == "workspace-focus"
+      paletteOpen = false
+      paletteWorkspaceMove = arg == "next" ? 1 : -1
+      paletteWorkspaceSerial = paletteWorkspaceSerial + 1
     let editing = settingsThemeDialog == "create" or settingsThemeDialog == "edit" or settingsThemeDialog == "duplicate"
     if op == "theme-editor"
       paletteOpen = false

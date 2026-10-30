@@ -7,10 +7,10 @@ import { searchSettings } from '../../src/settings/settings-search';
 // Settings › Appearance › Render math (AppearanceSettingsPanel.tsx at 74541bab17) and the math pages' reports
 // (MathTypeset's cache): display formulas are ```math fences (data/src/markdown_math.rs, its own tests).
 describe('Render math', () => {
-  test('the Appearance row is off by default, after Chat width, and resets to off', () => {
+  test('the Appearance row is off by default, after Effort display, and resets to off', () => {
     const rows = (math: boolean) => appearanceSections(decodeClientPrefs({ mathRenderingEnabled: math }), false).flatMap(section => section.rows);
     const titles = rows(false).map(row => row.title);
-    expect(titles.indexOf('Render math')).toBe(titles.indexOf('Chat width') + 1);
+    expect(titles.indexOf('Render math')).toBe(titles.indexOf('Effort display') + 1);
     expect(rows(false).find(row => row.id === 'math-rendering')).toMatchObject({ kind: 'switch', checked: false, resettable: false, target: 'mathRenderingEnabled',
       description: 'Typeset LaTeX math, such as $x^2$ or \\[x^2\\], in messages and Markdown previews. The composer keeps TeX source editable.' });
     expect(rows(true).find(row => row.id === 'math-rendering')).toMatchObject({ checked: true, resettable: true, resetLabel: 'math rendering' });

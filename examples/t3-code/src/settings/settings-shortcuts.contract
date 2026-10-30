@@ -20,6 +20,7 @@ component ShortcutDispatch
   inject
     pickerAnnounce: action
     modelPickTaken: bool
+    workspaceMove: action // workspace.focusNext / focusPrevious (shell-members.contract)
   props
     items: KeyDispatch[]
     selectThread: action
@@ -123,6 +124,10 @@ component ShortcutDispatch
         // A command whose argument is its value (composer.cycleHost → environment-run-on).
         if item.kind == "command-value"
           ShortcutButton(item=item, press=command(item.target, "", item.extra, 0))
+        // F6 and ⇧F6 (AppSidebarLayout's capture listener): an aria-keyshortcuts button hears its chord before the focused
+        // element, so the key leaves a field or a list as it does a control.
+        if item.kind == "workspace-focus"
+          ShortcutButton(item=item, press=workspaceMove(item.target == "next" ? 1 : -1, ""))
         // ⌥↑ (thread.editQueuedMessage, kind "composer-key") is no menu chord: the composer takes it only with the caret
         // at the very start (app.contract composerKeyEvent), so elsewhere the key moves the caret.
 

@@ -58,6 +58,7 @@ use DialogFinalFocus from "../shared/dialog-trap.contract"
 component ChatColumn
   inject
     frameMoved: action
+    workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
     threadFind: ThreadFindView
     rem: number
     // Ends a citation's placement (app.contract citePlace): the reader's wheel or a minimap jump moves the transcript.
@@ -317,7 +318,8 @@ component ChatColumn
             text "Send a message to start the conversation." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" testId="empty-timeline-hint"
       if data.messages.length > 0
         // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
-        column flex=1 min-height=0 width="100%" position="relative"
+        // The conversation is a workspace area (ChatView workspaceAreaProps("conversation", 1, "Conversation")).
+        column flex=1 min-height=0 width="100%" position="relative" id="workspace-conversation" tabindex=-1 role="region" aria-label="Conversation" focusin=workspaceEntered("conversation")
           // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out).
           // `keep-mounted`: the rows the window keeps wherever it is (timeline-kept-rows.ts), so a screen reader wraps
           // from the first message to the last.
@@ -339,7 +341,7 @@ component ChatColumn
       // measures it for the transcript's end reservation): absolute at the chat's foot over the lane alone, so the
       // transcript beside it still takes the pointer and the wheel; an empty thread keeps it in flow under the hero.
       // The banners sit above the card; the drawer layer paints after both, over the banners, clipped at the card.
-      column position=(overlaid ? "absolute" : "relative") left=(overlaid ? stackLeft : 0) bottom=0 width=(overlaid ? stackWidth : "100%") padding-left=(overlaid ? "0px" : "3rem") padding-right=(overlaid ? 0 : 3 * rem + laneInset) flex-shrink=0 align-items="center" box-sizing="border-box" id="frame-overlay" resize=frameMoved testId="composer-overlay"
+      column position=(overlaid ? "absolute" : "relative") left=(overlaid ? stackLeft : 0) bottom=0 width=(overlaid ? stackWidth : "100%") padding-left=(overlaid ? "0px" : "3rem") padding-right=(overlaid ? 0 : 3 * rem + laneInset) flex-shrink=0 align-items="center" box-sizing="border-box" id="frame-overlay" resize=frameMoved role="region" aria-label="Message input" focusin=workspaceEntered("composer") testId="composer-overlay"
         column padding-top=(overlaid ? "0px" : "0.75rem") width="100%" max-width=data.look.chatMax position="relative" box-sizing="border-box"
           // The banners share a row with the stash's shoulder tab.
           row width="100%" align-items="flex-end" id="frame-shoulder" resize=frameMoved
@@ -387,7 +389,10 @@ component ChatColumn
       // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and becomes the header's
       // popover when no readable height (160pt) is left; its rows fold to the canvas's density (ThreadDetailsCard).
       if details.inline and canvas.cardShown
-        ThreadDetailsInline(details=details, density=canvas.density, maxHeight=max(0, (canvas.ready ? canvas.cardHeight : viewport.height - 76) - (threadFind.open ? 48 : 0)), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion, busy=commandPending, stopping=lineageStopping)
+        // The card is a workspace area (ThreadDetailsCard workspaceAreaProps("details", 3, "Thread details")); it is placed
+        // out of this holder's flow.
+        box id="workspace-details" tabindex=-1 role="region" aria-label="Thread details" focusin=workspaceEntered("details")
+          ThreadDetailsInline(details=details, density=canvas.density, maxHeight=max(0, (canvas.ready ? canvas.cardHeight : viewport.height - 76) - (threadFind.open ? 48 : 0)), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion, busy=commandPending, stopping=lineageStopping)
       // data-chat-workspace-drop-overlay: inset 8pt in the area under the 52pt header, over the transcript and the composer
       // (z-40), border-2 border-dashed border-primary/60 bg-primary/[0.035], its pill bg-background/95 with border-primary/25.
       if fileDrag and not overHeader
@@ -399,6 +404,8 @@ component ChatColumn
 
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
 component RightPanels
+  inject
+    workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
   props
     data: Snapshot
     narrowDiff: bool
@@ -434,6 +441,7 @@ component RightPanels
   state shown = false
   action entered(e: FocusEvent)
     focused = true
+    workspaceEntered("panel", e)
   action left(e: FocusEvent)
     match e.relatedTarget
       case some(other)
@@ -450,10 +458,10 @@ component RightPanels
   view
     box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=((data.diffOpen or rightPanel) and not narrowDiff ? 2 : 1) height=1 opacity=0 pointer-events="none"
     if data.diffOpen and not narrowDiff
-      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left
+      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left id="workspace-panel" tabindex=-1 role="region" aria-label="Workspace panel"
         DiffPanel(data=data, shell=shell, command=command, close=panelUi("close", ""), ui=panelUi, maximized=rightMaximized, resize=resizeDiff, finishResize=finishDiffResize, scheme=scheme, sheet=false, detailsOpen=detailsOpen, details=detailsAct, local=chatLocal)
     if rightPanel and not data.diffOpen and not narrowDiff
-      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left
+      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left id="workspace-panel" tabindex=-1 role="region" aria-label="Workspace panel"
         SurfacePanel(shell=shell, sheet=false, maximized=rightMaximized, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=scheme, prDetail=prDetail, prDocuments=prDocuments, filesDocuments=filesDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, look=data.look, confirm=confirm, closePending=closePending, width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth))
 
 // The utility pages (Usage, Pull Requests) and the no-environment/no-projects landing over the main view.

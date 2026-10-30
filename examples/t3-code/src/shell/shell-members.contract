@@ -1,6 +1,8 @@
 // T3Code's shell: pages, details, the terminal drawer, dialogs, toasts and the panel (LLP 1091.002).
 use Page from "./app-shapes.contract"
 use ShellView, ShellDetails from "./shell-shapes.contract"
+use WorkspaceTarget, workspaceContainer, workspaceShown from "./shell-shapes.contract"
+use navActiveRoute from "../settings/settings-core.contract"
 use TranscriptMarkdown from "../timeline/markdown.contract"
 use ChatCanvasView from "./chat-canvas.contract"
 use TerminalDrawerView from "../terminal/terminal.contract"
@@ -338,3 +340,52 @@ members T3Code
       send terminalChanged = command(confirmOp == "terminallocal:close" ? "terminallocal:focus" : "terminalpanellocal:focus", confirmTarget, "", 0)
     else if not accept and confirmOp == "shelllocal:surface-close-confirmed" and shell.panel.terminal.open
       send terminalChanged = command("terminalpanellocal:focus", `${shell.panel.terminal.threadKey}|${shell.panel.terminal.terminalId}`, "", 0)
+  // Workspace areas (lib/workspaceFocus.ts): F6 and ⇧F6 move the focus to the next or previous shown area, in the
+  // order sidebar, conversation, composer, thread details, right panel and terminal; in Settings, its sections and its
+  // page. An area takes back the control it last held while that control is still shown (the conversation's only while
+  // it is in view, so the timeline keeps following a running turn), else its own stop: the open thread's row or the
+  // sidebar's search, the conversation itself, the composer, the card or panel itself, the terminal's page. A modal
+  // keeps the key, as only its own shortcut buttons hear chords while it shows.
+  state workspaceArea = ""
+  state workspaceTargets: WorkspaceTarget[] = []
+  action workspaceEntered(area: string, e: FocusEvent)
+    workspaceArea = area
+    if e.target != ""
+      workspaceTargets = workspaceTargets.filter((entry) => entry.area != area).concat([WorkspaceTarget(area=area, target=e.target)])
+  // `from` names the area the key came from when the focus is in a page the window cannot see into (the terminal's).
+  action workspaceMove(direction: number, from: string)
+    let order = settingsOpen ? ["settings-nav", "settings"] : ["sidebar", "conversation", "composer", "details", "panel", "terminal"]
+    let shown = order.filter((area) => workspaceShown(area, frame(workspaceContainer(area)).width, frame(workspaceContainer(area)).height, frame(workspaceContainer(area)).unavailable, details.inline and canvas.cardShown and not settingsOpen, terminalDrawer.open))
+    let at = shown.indexOf(from != "" ? from : workspaceArea)
+    let index = at < 0 ? (direction > 0 ? 0 : shown.length - 1) : (at + direction + shown.length) % shown.length
+    match shown.at(index)
+      case some(area)
+        workspaceFocusArea(area)
+      case none
+  action workspaceFocusArea(area: string)
+    let remembered = workspaceTargets.filter((entry) => entry.area == area).map((entry) => entry.target).join("")
+    let held = frame(remembered)
+    let lane = frame(workspaceContainer(area))
+    let usable = remembered != "" and not held.unavailable and held.width > 0 and (area != "conversation" or (held.y + held.height > lane.y and held.y < lane.y + lane.height))
+    workspaceArea = area
+    if area == "terminal"
+      send terminalChanged = command("terminallocal:focus", "", "", 0)
+    else if usable
+      focus(remembered)
+    else if area == "sidebar"
+      focus(data.threadId != "" and frame(`row-${data.threadId}`).width > 0 ? `row-${data.threadId}` : "search-threads")
+    else if area == "composer"
+      focus("composer")
+    else if area == "settings-nav"
+      focus(`settings-${navActiveRoute(settingsRoute)}`)
+    else
+      focus(workspaceContainer(area))
+  // TriageDraftHero's "or run npx t3 triage": the command is copied and the button reads "Copied" for 1.5 s.
+  state triageCopied = 0
+  task triageCopiedShown when triageCopied > 0 key=triageCopied
+    after(1500, triageCopyDone)
+  action triageCopy
+    triageCopied = triageCopied + 1
+    send localChanged = command("pageslocal:copy", "", "npx t3 triage", 0)
+  action triageCopyDone
+    triageCopied = 0

@@ -838,7 +838,7 @@ describe('paints', () => {
   // SettingsSidebarNav's "/" Kbd is ui/kbd.tsx's: the foreground at 7% under muted text, the page's paint, not the sidebar's.
   test('the search field\'s "/" chip paints as the foreground', () => {
     const nav = contractComponent('settings-core.contract', 'SettingsNav');
-    expect(nav.attribute('id=`paint-SettingsNav-5-${route}`', 'data-paint', {}, {})).toBe('text');
+    expect(nav.attribute('id=`paint-SettingsNav-5-${route}`', 'data-paint', { navFocused: '', navFocusedRoute: '' }, { nav: { searching: false, items: [] }, route: 'general', navActiveRoute: (route: string) => route })).toBe('text');
   });
   // ui/combobox.tsx ComboboxItem: highlighted bg-foreground/[0.09], selected bg-foreground/[0.06].
   test("the font picker's rows fill with the palette's option highlight, else its selection", () => {

@@ -37,6 +37,10 @@ shape PagesHome
   // HostedStaticOnboardingState's second paragraph: the Local environment switched off, or the pairing hint.
   noEnvironmentDescription: string
   scratchShortcut: string // chat.newWithoutProject's label, the tip under "or start without a project"
+  // TriageDraftHero: a No project draft holding the triage prompt, its machine's name and server version.
+  triageDraft: bool
+  triageMachine: string
+  triageVersion: string
 
 // useNavigateBack's history over the utility pages (app.contract pageTrail): the pages a
 // page's Back goes back through after `current` opens `name`. A page opened from another keeps the one it left; one
@@ -62,7 +66,10 @@ component EmptyThread
     addProject: action
   view
     column flex=1 min-height=0 width="100%" justify-content="flex-end" align-items="center" padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" testId="empty-thread"
-      if data.connected and data.threadId == "" and home.landing == ""
+      if data.connected and data.threadId == "" and home.landing == "" and home.triageDraft
+        column width="100%" max-width=cap padding-bottom=(shoulder ? "0px" : "0.25rem") margin-bottom=(shoulder ? "-0.75rem" : "0px") box-sizing="border-box" align-items="center" flex-shrink=0
+          TriageHero(home=home, command=command)
+      if data.connected and data.threadId == "" and home.landing == "" and not home.triageDraft
         // DraftHeroHeadline: the heading is named by its content, project picker included: an aria-label of its own
         // would hide that button inside it from a screen reader's browse mode.
         column width="100%" max-width=cap padding-bottom=(shoulder ? "0px" : "0.25rem") margin-bottom=(shoulder ? "-0.75rem" : "0px") box-sizing="border-box" align-items="center" flex-shrink=0
@@ -84,6 +91,35 @@ component EmptyThread
                 HeroPicker(home=home, scheme=scheme, size=14, command=command, addProject=addProject)
               if home.scratchLine
                 ScratchLink(busy=busy, shortcut=home.scratchShortcut, command=command)
+
+// TriageDraftHero, in place of "What should we work on?": the heading and one line under it, the machine the agent
+// works on (with its server version) and "or run npx t3 triage", which copies the command and reads "Copied" for 1.5 s.
+component TriageHero
+  inject
+    triageCopied: number
+    triageCopy: action
+  props
+    home: PagesHome
+    command: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    text "What went wrong?" font-size="1.875rem" font-weight=400 line-height="2.25rem" letter-spacing=-0.75 text-align="center" width="100%" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=1 testId="triage-hero-heading"
+    row width="100%" height="1.5rem" margin-top="0.5rem" align-items="center" justify-content="center" gap="0.375rem" testId="triage-hero-line"
+      Tip(label="The agent reads T3 Code's logs and source here, and asks before it applies a fix or posts anything.", side="bottom", align="center", offset=4)
+        row min-width=0 tabindex=0 align-items="baseline" testId="triage-hero-machine"
+          text home.triageMachine font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" line-clamp=1
+          if home.triageVersion != ""
+            text `v${home.triageVersion}` margin-left="0.375rem" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" white-space="nowrap"
+      text "·" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" aria-hidden=true
+      Tip(label="Copy command, for a terminal", side="bottom", align="center", offset=4)
+        button press=triageCopy hover=hover testId="triage-hero-copy" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="baseline" position="relative" cursor="pointer"
+          if triageCopied > 0
+            text "Copied" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
+          else
+            text "or run" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
+            text "npx t3 triage" margin-left="0.25rem" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
 
 // DraftHeroProjectHeading: "What should we build in <project>?" on one line when the window is lg and that line
 // fits; otherwise "What should we build?" over the project picker at text-base. HeroWidthProbe lays the one-line

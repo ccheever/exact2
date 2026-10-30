@@ -149,6 +149,10 @@ component T3Code
     interacted
     pickerAnnounce
     modelPickTaken
+    workspaceEntered // F6's workspace areas (src/shell/shell-members.contract)
+    workspaceMove
+    triageCopied // the triage hero's "Copied" (src/shell/shell-members.contract)
+    triageCopy
     renameHoldsKeys
     renameFocused
     inlineDocumentViewportWidth

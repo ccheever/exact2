@@ -143,6 +143,7 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
     overlays(); add('theme.select', 'palette', 'command', 'Change Theme', 'theme'); add('usage.open', 'palette-run', 'usage', 'Open Usage'); appearanceRow(add, client, threads, browseProvider, modelQuery, context);
     modelPickerRows(add, client, threads, browseProvider, modelQuery, context); // a General model row's picker (ModelPickerContent's own keys)
     sidebarRow(add, client, threads, browseProvider, modelQuery, context);
+    workspaceRow(add); // Settings' own areas: its sections and its page
     return out;
   }
   overlays();
@@ -197,7 +198,12 @@ export type DispatchRow = (add: DispatchAdd, client: T3Client, threads: Obj[], b
 // order (the host files a button's first ⌘ chord as its menu key equivalent,
 // so order is kept). A feature adds a row function, here or in its own file,
 // and one entry below; no row reads another's locals.
-const MAIN_ROWS: DispatchRow[] = [paletteRows, appearanceRow, threadOrderRows, navigationRows, scratchRow, threadRows, panelRows, (add, client) => previewToggleRow(add, client), terminalRows, turnRows, effortRows, modelPickerRows, threadCommandRows, sidebarRow];
+const MAIN_ROWS: DispatchRow[] = [workspaceRow, paletteRows, appearanceRow, threadOrderRows, navigationRows, scratchRow, threadRows, panelRows, (add, client) => previewToggleRow(add, client), terminalRows, turnRows, effortRows, modelPickerRows, threadCommandRows, sidebarRow];
+/** workspace.focusNext / focusPrevious: F6 and ⇧F6 (⌘F6 and ⇧⌘F6 too) move between the shown workspace areas. */
+function workspaceRow(add: DispatchAdd): void {
+  add('workspace.focusNext', 'workspace-focus', 'next', 'Focus Next Workspace Area');
+  add('workspace.focusPrevious', 'workspace-focus', 'previous', 'Focus Previous Workspace Area');
+}
 /** The palette, usage, theme editor and new-thread commands. */
 function paletteRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // theme.select opens the palette on Change theme; usage.open and themeEditor.toggle run the palette's rows.

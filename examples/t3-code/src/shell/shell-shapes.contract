@@ -206,3 +206,12 @@ shape ShellDetails
   automations: AutomationsView
   // The branch picker, Git actions and their dialogs (git-card.ts).
   git: GitCard
+// The control a workspace area last held (shell-members.contract workspaceEntered).
+shape WorkspaceTarget
+  area: string
+  target: string
+// The element that is each workspace area (shell-members.contract workspaceMove).
+fn workspaceContainer(area: string): string = area == "composer" ? "frame-overlay" : (area == "settings-nav" ? "settings-navigation" : (area == "settings" ? "settings-content-scroll" : `workspace-${area}`))
+// Whether an area is shown: laid out, the terminal drawer open; the details card is placed out of its holder's flow, so
+// it is shown when the canvas shows it.
+fn workspaceShown(area: string, width: number, height: number, unavailable: bool, card: bool, drawer: bool): bool = area == "details" ? card : (not unavailable and width > 0 and height > 0 and (area != "terminal" or drawer))

@@ -81,6 +81,7 @@ fn escapeFocusNext(current: string, field: string, focused: bool): string = focu
 component SettingsWindow
   inject
     rem: number
+    workspaceEntered: action // Settings' page is a workspace area (shell-members.contract)
     routeKeyboard: RouteKeyboard
   props
     themeInspecting: bool
@@ -299,7 +300,7 @@ component SettingsWindow
           SettingsTopBar(route=settingsRoute, crumb=settingsCore.breadcrumb, pal=settingsCore.palette, busy=commandPending, restorable=(settingsCore.restoreCount > 0), escapeFree=(not escapeOwned and settingsQuery == ""), restore=coreRestoreOpen, close=closeModal)
           // Each page owns its scroller (SettingsPageContainer's `data-settings-page-scroll`): a new page opens at its top.
           for page in [settingsPage] key=page
-            scroll flex=1 min-height=0 width="100%" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" id="settings-content-scroll" scrollTop=settingsScrollTop scroll-behavior="smooth" testId="settings-content-scroll"
+            scroll flex=1 min-height=0 width="100%" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" id="settings-content-scroll" tabindex=-1 role="region" aria-label="Settings content" focusin=workspaceEntered("settings") scrollTop=settingsScrollTop scroll-behavior="smooth" testId="settings-content-scroll"
               column gap="1.125rem" width="100%" max-width=(settingsRoute == "diagnostics" ? "72rem" : "56rem") min-width=0 margin-left="auto" margin-right="auto" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="3rem" box-sizing="border-box" position="relative" id="settings-content-column"
                 if settingsMenu != ""
                   button press=coreMenuClose position="absolute" left=0 top=0 width="100%" height="100%" z-index=40 background-color="#00000000" aria-label="Close menu" aria-keyshortcuts="Escape" testId="settings-menu-backdrop" title=""

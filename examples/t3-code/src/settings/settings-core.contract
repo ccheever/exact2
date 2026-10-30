@@ -323,6 +323,8 @@ component CoreMark
 // combobox, `/` focuses it), then the section groups (SETTINGS_NAV_GROUPS: a heading or, without one, space alone)
 // or the ranked results. testIds keep `settings-<route>` for the drivers.
 component SettingsNav
+  inject
+    workspaceEntered: action // Settings' sections are a workspace area (shell-members.contract)
   props
     nav: CoreNav
     route: string
@@ -334,14 +336,36 @@ component SettingsNav
     pick: action
     clear: action
   state hovered = ""
+  // useSettingsSectionNavigation: the sections are one Tab stop, the last focused section's while the open one is the
+  // same, else the open one's; ↑ ↓ Home and End move the focus without opening a section, ← and → do nothing.
+  state navFocused = ""
+  state navFocusedRoute = ""
+  derive navIds = nav.searching ? [] : nav.items.map((item) => item.id)
+  derive navStop = navFocusedRoute == navActiveRoute(route) and navIds.includes(navFocused) ? navFocused : navActiveRoute(route)
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
+  action navEntered(id: string)
+    navFocused = id
+    navFocusedRoute = navActiveRoute(route)
+  action navKey(id: string, k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey
+      let at = navIds.indexOf(id)
+      let next = k == "ArrowDown" ? min(at + 1, navIds.length - 1) : (k == "ArrowUp" ? max(at - 1, 0) : (k == "Home" ? 0 : (k == "End" ? navIds.length - 1 : -1)))
+      if k == "ArrowLeft" or k == "ArrowRight"
+        preventDefault()
+      else if next >= 0 and at >= 0
+        preventDefault()
+        match navIds.at(next)
+          case some(target)
+            navEntered(target)
+            focus(`settings-${target}`)
+          case none
   // SettingsSidebarNav's search ignores a key that confirms an input method's candidate.
   action searchKey(k: string, e: KeyboardEvent)
     if not e.isComposing
       onKey(k)
   view
-    column width="15rem" height="100%" flex-shrink=0 position="relative" background-color=pal.sidebar border-right-width=1 border-right-style="solid" border-color=pal.sidebarBorder testId="settings-navigation" id="settings-navigation" data-paint="sidebar border" data-pick="sidebar"
+    column width="15rem" height="100%" flex-shrink=0 position="relative" background-color=pal.sidebar border-right-width=1 border-right-style="solid" border-color=pal.sidebarBorder testId="settings-navigation" id="settings-navigation" tabindex=-1 role="navigation" aria-label="Settings sections" focusin=workspaceEntered("settings-nav") data-paint="sidebar border" data-pick="sidebar"
       column flex=1 min-height=0 padding="0.5rem" gap="0.5rem" position="relative"
         row height="2rem" flex-shrink=0 padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.375rem" align-items="center" box-sizing="border-box"
           CorePaintIcon(ownId=`paint-icon-SettingsNav-2-${route}`, paint="mutedForeground", name="search", size=16, color=pal.sidebarMuted)
@@ -360,7 +384,7 @@ component SettingsNav
         if nav.searching and nav.count == 0
           text "No settings found" role="status" font-size="0.75rem" color=pal.sidebarMuted text-align="center" padding-top="1.5rem" padding-bottom="1.5rem" testId="settings-search-empty" id="settings-search-empty" data-paint="mutedForeground" data-pick="mutedForeground"
         scroll flex=1 min-height=0 width="100%" testId="settings-navigation-scroll"
-          column gap="0.25rem" width="100%" role=(nav.searching ? "listbox" : "list") aria-label=(nav.searching ? "Settings search results" : "Settings sections")
+          column gap="0.25rem" width="100%" role=(nav.searching ? "listbox" : "tree") aria-label=(nav.searching ? "Settings search results" : "Settings sections")
             for item in nav.items key=item.id
               if nav.searching
                 button press=pick(item.route, item.target, item.scope, item.id) hover=hover(item.id) role="option" aria-selected=(item.id == hovered or (hovered == "" and item.active)) class=SettingsGhost justify-content="flex-start" align-items="flex-start" width="100%" min-height="3.25rem" padding="0.5rem" gap="0.5rem" border-radius="0.5rem" background-color=((item.id == hovered or (hovered == "" and item.active)) ? pal.rowActive : "#00000000") testId=`settings-${item.id}` id=`settings-${item.id}` data-paint=`${((item.id == hovered or (hovered == "" and item.active)) ? "sidebarRowSelected" : "")}` data-pick=(((item.id == hovered or (hovered == "" and item.active)) ? "sidebarRowSelected" : "") != "" ? ((item.id == hovered or (hovered == "" and item.active)) ? "sidebarRowSelected" : "") : "")
@@ -371,9 +395,10 @@ component SettingsNav
                     text item.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.sidebarText line-clamp=1 id=`paint-SettingsNav-9-${route}-${item.id}` data-paint="sidebar" data-pick="sidebar"
                     text item.section font-size="0.6875rem" font-weight=500 line-height="1rem" color=pal.sectionMuted line-clamp=1 id=`paint-SettingsNav-10-${route}-${item.id}` data-paint="mutedForeground" data-pick="mutedForeground"
               else
+                // The heading names its group of sections; a heading is no tree child, so it is not read.
                 if item.heading != ""
-                  text item.heading role="heading" aria-level=3 font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" margin-top=(item.groupStart ? "0.75rem" : "0rem") color=pal.sectionMuted id=`paint-SettingsNav-heading-${item.id}` data-paint="mutedForeground" data-pick="mutedForeground"
-                button press=pick(item.route, "", "", item.id) margin-top=(item.groupStart and item.heading == "" ? "0.75rem" : "0rem") hover=hover(item.id) aria-selected=(navActiveRoute(route) == item.route) class=SettingsGhost justify-content="flex-start" width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" background-color=(navActiveRoute(route) == item.route ? pal.rowActive : (item.id == hovered ? pal.rowHover : "#00000000")) testId=`settings-${item.id}` id=`settings-${item.id}` data-paint=`${(navActiveRoute(route) == item.route ? "sidebarRowSelected" : (item.id == hovered ? "sidebarRowSelected" : ""))}` data-pick=((navActiveRoute(route) == item.route ? "sidebarRowSelected" : (item.id == hovered ? "sidebarRowSelected" : "")) != "" ? (navActiveRoute(route) == item.route ? "sidebarRowSelected" : (item.id == hovered ? "sidebarRowSelected" : "")) : "") data-focus-stop="enabled"
+                  text item.heading aria-hidden=true font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" margin-top=(item.groupStart ? "0.75rem" : "0rem") color=pal.sectionMuted id=`paint-SettingsNav-heading-${item.id}` data-paint="mutedForeground" data-pick="mutedForeground"
+                button press=pick(item.route, "", "", item.id) key=navKey(item.id) focus=navEntered(item.id) tabindex=(item.id == navStop ? 0 : -1) role="treeitem" aria-current=(navActiveRoute(route) == item.route ? "page" : "") margin-top=(item.groupStart and item.heading == "" ? "0.75rem" : "0rem") hover=hover(item.id) aria-selected=(navActiveRoute(route) == item.route) class=SettingsGhost justify-content="flex-start" width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" background-color=(navActiveRoute(route) == item.route ? pal.rowActive : (item.id == hovered ? pal.rowHover : "#00000000")) testId=`settings-${item.id}` id=`settings-${item.id}` data-paint=`${(navActiveRoute(route) == item.route ? "sidebarRowSelected" : (item.id == hovered ? "sidebarRowSelected" : ""))}` data-pick=((navActiveRoute(route) == item.route ? "sidebarRowSelected" : (item.id == hovered ? "sidebarRowSelected" : "")) != "" ? (navActiveRoute(route) == item.route ? "sidebarRowSelected" : (item.id == hovered ? "sidebarRowSelected" : "")) : "") data-focus-stop=(item.id == navStop ? "enabled" : "")
                   CorePaintIcon(ownId=`paint-icon-SettingsNav-5-${route}-${item.id}`, paint=(navActiveRoute(route) == item.route ? "sidebar" : "mutedForeground"), name=item.icon, size=16, color=(navActiveRoute(route) == item.route ? pal.sidebarText : pal.sidebarIcon))
                   text item.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(navActiveRoute(route) == item.route ? pal.sidebarText : pal.sidebarMuted) line-clamp=1 id=`paint-SettingsNav-12-${route}-${item.id}` data-paint=`${(navActiveRoute(route) == item.route ? "sidebar" : "mutedForeground")}` data-pick=((navActiveRoute(route) == item.route ? "sidebar" : "mutedForeground") != "" ? (navActiveRoute(route) == item.route ? "sidebar" : "mutedForeground") : "")
       button press=onKey("/") aria-keyshortcuts="/" aria-label="Focus settings search" position="absolute" width=1 height=1 opacity=0 left=0 top=0 tabindex=-1 testId="settings-search-shortcut" title=""

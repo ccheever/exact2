@@ -17,6 +17,7 @@ import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { chordWinners, type DispatchContext } from '../shell/keyboard-dispatch';
 import { linkMode } from './palette-linkpr';
 import { scratchRoot, isScratchProject } from '../pages/pages-home';
+import { triageEnvironment } from './palette-triage';
 import { pickerProjects } from './palette-projects'; // Project order
 import { openPanelPullRequestUrl, threadReferenceTarget } from '../sidebar/thread-reference';
 import { addProjectEnvironments, newProjectEnvironments, projectLocation } from './palette-environments';
@@ -332,6 +333,8 @@ export function rootActions(client: T3Client): Item[] {
   }
   if (str(client.config.scratchWorkspaceRoot)) action('new-thread-without-project', ['new thread', 'no project', 'without project', 'none', 'chat'],
     { op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'New thread without a project', shortcut: commandShortcut(client, 'chat.newWithoutProject'), jump: fieldChords(client, 'chat.newWithoutProject') });
+  if (triageEnvironment(client)) action('triage', ['triage', 'bug', 'issue', 'report', 'broken', 'debug', 'help', 'support'],
+    { op: 'flow', arg: 'triage', icon: 'bug', title: 'Triage an issue', description: 'An agent investigates a T3 Code problem and helps file an issue' });
   if (composerPromptLink(client, false)) {
     action('copy-prompt-link', ['copy', 'share', 'prompt', 'link'], { op: 'flow', arg: 'copy-prompt-link', icon: 'link', title: 'Copy prompt link' });
     if (promptLinkRepositoryOf(projects.find(project => project.id === client.projectId))) action('copy-prompt-link-with-context', ['copy', 'share', 'prompt', 'link', 'repository', 'model'], { op: 'flow', arg: 'copy-prompt-link', arg2: 'context', icon: 'link', title: 'Copy prompt link with repo and model' });
@@ -365,6 +368,10 @@ export function rootActions(client: T3Client): Item[] {
   }))];
   if (capabilities(client).pullRequests === true) action('pull-requests', [...changeRequestWords, 'review', 'merge', 'branch'], { op: 'pull-requests', icon: 'pull-request', title: 'Open pull requests' });
   action('usage', ['usage', 'use', 'tokens', 'cost', 'spend', 'limits', 'stats', 'analytics'], { op: 'usage', icon: 'chart', title: 'Open usage', shortcut: commandShortcut(client, 'usage.open') });
+  // The workspace areas F6 moves between (shell-members.contract workspaceMove), after the palette has closed.
+  for (const [direction, title, command] of [['next', 'Focus Next Workspace Area', 'workspace.focusNext'], ['previous', 'Focus Previous Workspace Area', 'workspace.focusPrevious']] as const) {
+    action(`workspace-focus-${direction}`, [title, 'accessibility', 'navigation', 'focus', 'F6'], { op: 'workspace-focus', arg: direction, icon: 'monitor', title, shortcut: commandShortcut(client, command) });
+  }
   action('settings', ['settings', 'preferences', 'configuration', 'keybindings'], { op: 'settings', arg: 'general', icon: 'settings', title: 'Open settings' });
   if (current) action('project-settings', ['project', 'settings', 'name', 'icon', 'scripts', 'model', 'workspace', 'grouping', 'checkout', 'remove', 't3.json'],
     { op: 'project-settings', arg: str(current.id), icon: 'folder', title: 'Project settings', description: str(current.title) });

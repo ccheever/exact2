@@ -20,6 +20,7 @@ import { lastEditor } from '../details/shell-details';
 import { linkPullRequest } from './palette-linkpr';
 import { linkFromPicker } from '../pull-requests/pages-pr-links';
 import { openScratchProject } from '../composer/scratch-project';
+import { startTriage } from './palette-triage';
 import { startTrackedClone } from '../shell/project-clones-live';
 import { cloneTracking } from '../client/live-streams';
 import { letGo } from '../client/let-go';
@@ -126,6 +127,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
     if (op === 'thread-pull-requests') { await openSurface(client, native, 'pull-requests'); client.revision++; return done(client); }
     if (op === 'open-favorite') return await openInEditor(client, native, op, id, value);
     if (op === 'scratch') return await startScratch(client, native);
+    if (op === 'triage') return done(client, await startTriage(client, native));
     if (op === 'link-pr') return (await linkPullRequest(client, access, storage, id)) ? done(client) : stay(client, false);
     if (op === 'pr-link-thread') return (await linkFromPicker(client, native, storage, id)) ? done(client) : stay(client, false); // the thread picker
     // The add-project ops act on the environment the page chose (browseEnvironmentId).

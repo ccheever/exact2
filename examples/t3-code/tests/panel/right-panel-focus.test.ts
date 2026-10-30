@@ -7,7 +7,8 @@ import { contractComponent, type Env } from '../support/contract-action-fixture'
 const panels = contractComponent('app-main.contract', 'RightPanels');
 function run(steps: [string, unknown[]][]) {
   const state: Env = { focused: false, shown: false }, focused: string[] = [];
-  for (const [name, args] of steps) panels.call(name, state, { focus: (id: string) => focused.push(id) }, args);
+  // Entering also tells the window which workspace area holds the focus (shell-members.contract workspaceEntered).
+  for (const [name, args] of steps) panels.call(name, state, { focus: (id: string) => focused.push(id), workspaceEntered: () => {} }, args);
   return focused;
 }
 const focusIn = { target: 'files-search', relatedTarget: null };
