@@ -23,7 +23,7 @@ import { canonical, matchPattern } from '../web-js/route-pattern.js';
 import { guardFlags } from '../../scripts/help.mjs';
 
 import { INSTALL_FILES, INSTALL_PUBLIC, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
-import { keepGeneration, reapGenerations, servedFile } from './generations.mjs';
+import { generationOf, keepGeneration, reapGenerations, servedFile } from './generations.mjs';
 
 const PUBLIC_FILES = new Set([
   ...INSTALL_PUBLIC,
@@ -632,7 +632,7 @@ function* servedRouteTable(dist) {
       if (routeFileIdentity(dist, ['routes.json']) !== identity) continue;
       const table = bytes === null ? null : JSON.parse(Buffer.from(bytes, 'base64').toString('utf8'));
       const routes = Array.isArray(table?.routes) && table.routes.every((r) => typeof r?.pattern === 'string')
-        ? table.routes.map((r) => ({pattern: r.pattern, notfound: r.notfound === true})) : [];
+        ? table.routes.map((r) => ({pattern: r.pattern, notfound: r.notfound === true, render: r.render})) : [];
       if (servedRoutePlans.size >= 32) servedRoutePlans.delete(servedRoutePlans.keys().next().value);
       servedRoutePlans.set(key, {identity, plan: routes});
       return routes;
@@ -764,13 +764,14 @@ export function replaceOut(stage, out) {
   });
 }
 
-/** The lines `web-build --out` ends with (LLP 1153 D3): a route a static root cannot render on request, then the
- * directory and the rule any static host serves it by, which `serve` applies (`buildTreeFile`). */
+/** The lines `web-build --out` ends with (LLP 1153 D3): each route a static root cannot render on request, which
+ * `serve` renders, then the directory and the rule any static host serves it by, which `serve` applies
+ * (`buildTreeFile`). */
 export function hostingNotes(dist, serve = 'bun exact.mjs serve') {
   const shown = relative(process.cwd(), dist) || '.', routes = JSON.parse(readFileSync(resolve(dist, 'routes.json'), 'utf8')).routes;
   const missing = existsSync(resolve(dist, '404.html')) ? '404.html with status 404' : 'status 404, a page with shell.html as its body (the client draws the notfound route)';
   return [
-    ...routes.filter((r) => r.render === 'request' || r.render === 'cached').map((r) => `${r.notfound ? 'notfound' : r.pattern}: render=${r.render} is rendered by a render server; a static host serves its shell, and the client draws it`),
+    ...routes.filter((r) => r.render === 'request' || r.render === 'cached').map((r) => `${r.notfound ? 'notfound' : r.pattern}: render=${r.render}, so serve renders its page ${r.render === 'cached' ? 'and keeps it 60 s' : 'for each request'}; a static host serves its shell, and the client draws it`),
     `${shown}: the site, for any static host. ${serve} ${shown} serves it by the rule a host applies:`,
     `  a file at the path; else, for a page whose path a route in routes.json matches, shell.html with status 200; else ${missing}.`,
     '  A host with a single fallback page serves shell.html for every page it lacks; the client then draws the notfound route.',
@@ -857,8 +858,10 @@ function* treeFile(dist, pathname, accept, miss) {
     if (document || navigation) {
       const routes = yield* servedRouteTable(root);
       if (!stillBuild(dist, was)) continue;
-      const shell = appDocumentPath(pathname, navigation, routes) && matchPattern(routes, canonical(pathname)) >= 0 && file('/shell.html');
-      if (shell) return shell;
+      const at = appDocumentPath(pathname, navigation, routes) ? matchPattern(routes, canonical(pathname)) : -1;
+      // (With the route's render policy: `serve` renders a `request` or `cached` route's page instead.)
+      const shell = at >= 0 && file('/shell.html');
+      if (shell) return { ...shell, render: routes[at].render };
     }
     const page = miss && (file('/404.html') ?? (document ? file('/shell.html') : null));
     if (page) return { ...page, status: 404 };
@@ -869,15 +872,43 @@ function* treeFile(dist, pathname, accept, miss) {
 }
 /** A JS-target build's file for a request, from the build the page booted (generations.mjs): a document names its
  * generation in its base, and a path under one, or any path for a drive's `pinned` one, is read from that build. A
- * generation kept no more is 410, which the page's glue answers by loading the page again. */
-export async function serveBuildTree(dist, req, res, { pinned = null } = {}) {
+ * generation kept no more is 410, which the page's glue answers by loading the page again. With `pages` (`serve`'s
+ * `sitePages`, LLP 1153 D3.4), a `render=request` or `cached` route's page is rendered for the request in place of
+ * its shell. */
+export async function serveBuildTree(dist, req, res, { pinned = null, pages = null } = {}) {
   // The raw target is refused as serveStatic refuses it (an encoded dot
   // segment); a parsed URL would resolve one into another route.
   const target = webRequestURL(req.url);
   const r = target ? await servedFile(dist, target.pathname, req.headers.accept, { pinned }) : { status: 404 };
   if (r.status === 410) { res.writeHead(410, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`build generation ${r.id} is no longer kept here: load the page again\n`); return; }
+  if (pages && r.status === 200 && r.route === '/shell.html' && ['request', 'cached'].includes(r.render) && ['GET', 'HEAD'].includes(req.method)) {
+    let page = null;
+    try { const render = pages(); page = render && await render(target.pathname + target.search, (name) => req.headers[name]); } catch (error) {
+      console.error(`render ${target.pathname}: ${error.message}`);
+      res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('This page could not be rendered.\n'); return;
+    }
+    if (page) {
+      res.writeHead(page.status, page.headers);
+      if (typeof page.body === 'string' || page.body instanceof Uint8Array) res.end(req.method === 'HEAD' ? undefined : page.body);
+      else if (req.method === 'HEAD') { page.body.cancel(); res.end(); }
+      else { for await (const chunk of page.body) res.write(chunk); res.end(); }
+      return;
+    }
+  }
   if (!r.body) { res.writeHead(r.status, { 'cache-control': 'no-store' }); res.end(); return; }
   sendStaticBody(req, res, r.body, { 'content-type': webContentType(r.route), 'cache-control': 'no-store' }, r.status);
+}
+
+/** `serve`'s `pages` for the JS-target build at `dist`: the page server (`render.mjs` `pageServer`) of the build there
+ * now, made again when another build replaces it, which drops the pages it kept; null for a build with no server
+ * bundle (`--render none`), whose `render=request` and `cached` routes are then served their shell. */
+function sitePages(dist, pageServer) {
+  let current = { id: undefined, page: null };
+  return () => {
+    const id = generationOf(dist);
+    if (id !== current.id) current = { id, page: existsSync(resolve(dist, '.gen/server.js')) ? pageServer(dist) : null };
+    return current.page;
+  };
 }
 
 const assetTrees = (rust) => ['assets', 'deck', 'shaders', 'plans', 'activities', ...(rust ? ['rust'] : [])];
@@ -1184,7 +1215,8 @@ async function main() {
   const host = loopback ? '127.0.0.1' : '0.0.0.0';
   const compression = compressionCache();
   const warming = js ? Promise.resolve(0) : warmCompression(dist, compression);
-  const server = createServer((req, res) => js ? serveBuildTree(dist, req, res) : serveStatic(dist, req, res, {host,port}, compression));
+  const pages = js ? sitePages(dist, (await import('../web-js/render.mjs')).pageServer) : null;
+  const server = createServer((req, res) => js ? serveBuildTree(dist, req, res, { pages }) : serveStatic(dist, req, res, {host,port}, compression));
   server.on('error', (error) => { console.error(error.code === 'EADDRINUSE' ? `serve: port ${port} is in use; --port <n> names another` : `serve: ${error.message}`); process.exit(1); });
   server.listen(port, host, () => {
     const urls = [`http://127.0.0.1:${server.address().port}/`];
@@ -1197,6 +1229,9 @@ async function main() {
     try { const { app } = JSON.parse(readFileSync(resolve(dist, js ? '.exact-build.json' : 'exact.json'), 'utf8')); served = ` ${app.name} (${app.id})${js ? ', the JS target' : ''}`; } catch { /* an older build has no envelope */ }
     console.log(urls.join('\n') + `\n  (serving${served} from ${dist}; ctrl-c to stop)`);
     if (!js) warming.then(n => console.log(`  (${n} files compressed: brotli and gzip)`));
+    let rendered = [];
+    try { rendered = JSON.parse(readFileSync(resolve(dist, 'routes.json'), 'utf8')).routes.filter((r) => r.render === 'request' || r.render === 'cached'); } catch { /* no route table */ }
+    if (js && rendered.length && !existsSync(resolve(dist, '.gen/server.js'))) console.log(`  (${rendered.map((r) => r.pattern).join(', ')}: their shell, since this build has no server bundle to render them with; web-build makes one)`);
   });
   return 0;
 }

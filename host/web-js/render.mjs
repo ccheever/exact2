@@ -98,6 +98,57 @@ export function renderer(dist) {
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.css': 'text/css', '.mp4': 'video/mp4', '.plan': 'application/octet-stream' };
 
+/** A page per request for one built dist, as the Rust render server sends it (host/render/src/serve.rs, stream.rs):
+ * `page(location, header)`, where `header(name)` reads a request header, answers `{ status, headers, body }`, the body
+ * a string, bytes, or a ReadableStream of bytes. A `cached` route's page is kept at the origin for its public lifetime
+ * (60 s, 64 locations); brotli (quality 5) when the reader takes it; a browser's navigation gets the head at once and
+ * the rest after the render. `render.mjs --serve` and `host/web/serve.mjs` (`serve`, LLP 1153 D3.4) answer with it. */
+export function pageServer(dist, render = renderer(dist), log = console.log) {
+  const cache = new Map();
+  const brotli = header => /\bbr\b/.test(header('accept-encoding') ?? '');
+  const send = (header, html, status, cacheControl) => {
+    const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': cacheControl, vary: 'Accept-Encoding' };
+    if (!brotli(header)) return { status, headers, body: html };
+    headers['content-encoding'] = 'br';
+    return { status, headers, body: brotliCompressSync(html, { params: { [constants.BROTLI_PARAM_QUALITY]: 5 } }) };
+  };
+  return async function page(key, header) {
+    const t = performance.now(), hit = cache.get(key);
+    const revalidate = /no-cache|no-store|max-age=0/.test(header('cache-control') ?? '');
+    if (hit && hit.until > Date.now() && !revalidate) return send(header, hit.html, hit.status, 'public, max-age=0, s-maxage=60');
+    const begun = await render.begin(key);
+    const keep = page => {
+      if (page.policy === 'cached' && page.status === 200) { if (cache.size >= 64) cache.delete(cache.keys().next().value); cache.set(key, { html: page.html, status: page.status, until: Date.now() + 60000 }); }
+      log(`render ${page.location} ${page.status} ${(performance.now() - t).toFixed(1)}ms bytes=${page.html.length}${page.flushed ? ' flushed' : ''}`);
+    };
+    // A browser's navigation gets the head now and the rest after the
+    // render (host/render/src/stream.rs): a 200, `private, no-cache`; the
+    // not-found page waits for its 404.
+    if (header('sec-fetch-dest') === 'document' && !begun.notfound) {
+      const br = brotli(header);
+      let z;
+      const body = new ReadableStream({ async start(out) {
+        z = br && createBrotliCompress({ params: { [constants.BROTLI_PARAM_QUALITY]: 5 } });
+        // A reader that went away closes the stream under us: its bytes go nowhere.
+        if (z) z.on('data', d => { try { out.enqueue(d); } catch {} });
+        const put = text => new Promise(ok => { if (!z) { out.enqueue(new TextEncoder().encode(text)); ok(); } else { z.write(text); z.flush(constants.BROTLI_OPERATION_FLUSH, ok); } });
+        await put(begun.head);
+        const page = await begun.finish().catch(e => ({ error: e }));
+        await put(page.error ? "<title>Unavailable</title>\n<p>This page couldn't be rendered.</p>\n" : page.rest);
+        if (z) await new Promise(ok => { z.on('end', ok); z.end(); });
+        try { out.close(); } catch {}
+        if (page.error) log(`render ${key} 500 ${page.error.message}`); else keep({ ...page, flushed: true });
+      }, cancel() { z?.destroy?.(); } });
+      const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': begun.policy === 'request' ? 'no-store' : 'private, no-cache', vary: 'Accept-Encoding' };
+      if (br) headers['content-encoding'] = 'br';
+      return { status: 200, headers, body };
+    }
+    const page = await begun.finish();
+    keep(page);
+    return send(header, page.html, page.status, page.policy === 'cached' ? 'public, max-age=0, s-maxage=60' : 'no-store');
+  };
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const dist = resolve(args[0]);
@@ -105,61 +156,21 @@ if (import.meta.main) {
   const opt = (n, d) => { const i = args.indexOf(n); return i < 0 ? d : args[i + 1]; };
   if (args.includes('--serve')) {
     const port = Number(opt('--port', 8830));
-    // A `cached` route's page is kept at the origin for its public lifetime
-    // (60 s, 64 locations), as the Rust render server keeps it (serve.rs).
-    const cache = new Map(), files = new Map();
-    // Brotli when the browser takes it, as the Rust render server sends: a
-    // page as it is sent (quality 5), a dist file once (quality 11).
-    const send = (req, body, type, status, cacheControl, q = 5) => {
-      const h = { 'content-type': type, 'cache-control': cacheControl, vary: 'Accept-Encoding' };
-      if (/\bbr\b/.test(req.headers.get('accept-encoding') ?? '') && /html|javascript|css|json|wasm|svg/.test(type)) { body = brotliCompressSync(body, { params: { [constants.BROTLI_PARAM_QUALITY]: q } }); h['content-encoding'] = 'br'; }
-      return new Response(body, { status, headers: h });
-    };
+    const page = pageServer(dist, render), files = new Map();
     Bun.serve({ port, hostname: '127.0.0.1', async fetch(req) {
       const url = new URL(req.url);
       const file = resolve(dist, '.' + decodeURIComponent(url.pathname));
       if (file.startsWith(dist + '/') && !file.includes('/.gen/') && existsSync(file) && extname(file)) {
         const type = TYPES[extname(file)] ?? 'application/octet-stream';
+        // A dist file compressed once, at quality 11.
         if (/\bbr\b/.test(req.headers.get('accept-encoding') ?? '') && /html|javascript|css|json|wasm|svg/.test(type)) {
           let br = files.get(file); if (!br) files.set(file, br = brotliCompressSync(readFileSync(file), { params: { [constants.BROTLI_PARAM_QUALITY]: 11 } }));
           return new Response(br, { headers: { 'content-type': type, 'content-encoding': 'br', 'cache-control': 'no-cache', vary: 'Accept-Encoding' } });
         }
         return new Response(Bun.file(file), { headers: { 'content-type': type, 'cache-control': 'no-cache' } });
       }
-      const t = performance.now();
-      const key = url.pathname + url.search, hit = cache.get(key);
-      const revalidate = /no-cache|no-store|max-age=0/.test(req.headers.get('cache-control') ?? '');
-      if (hit && hit.until > Date.now() && !revalidate) return send(req, hit.html, 'text/html; charset=utf-8', hit.status, 'public, max-age=0, s-maxage=60');
-      const begun = await render.begin(key);
-      const keep = page => {
-        if (page.policy === 'cached' && page.status === 200) { if (cache.size >= 64) cache.delete(cache.keys().next().value); cache.set(key, { html: page.html, status: page.status, until: Date.now() + 60000 }); }
-        console.log(`render ${page.location} ${page.status} ${(performance.now() - t).toFixed(1)}ms bytes=${page.html.length}${page.flushed ? ' flushed' : ''}`);
-      };
-      // A browser's navigation gets the head now and the rest after the
-      // render, as the Rust render server sends it (host/render/src/stream.rs):
-      // a 200, `private, no-cache`; the not-found page waits for its 404.
-      if (req.headers.get('sec-fetch-dest') === 'document' && !begun.notfound) {
-        const br = /\bbr\b/.test(req.headers.get('accept-encoding') ?? '');
-        let z;
-        const body = new ReadableStream({ async start(out) {
-          z = br && createBrotliCompress({ params: { [constants.BROTLI_PARAM_QUALITY]: 5 } });
-          // A reader that went away closes the stream under us: its bytes go nowhere.
-          if (z) z.on('data', d => { try { out.enqueue(d); } catch {} });
-          const put = text => new Promise(ok => { if (!z) { out.enqueue(new TextEncoder().encode(text)); ok(); } else { z.write(text); z.flush(constants.BROTLI_OPERATION_FLUSH, ok); } });
-          await put(begun.head);
-          const page = await begun.finish().catch(e => ({ error: e }));
-          await put(page.error ? "<title>Unavailable</title>\n<p>This page couldn't be rendered.</p>\n" : page.rest);
-          if (z) await new Promise(ok => { z.on('end', ok); z.end(); });
-          try { out.close(); } catch {}
-          if (page.error) console.log(`render ${key} 500 ${page.error.message}`); else keep({ ...page, flushed: true });
-        }, cancel() { z?.destroy?.(); } });
-        const h = { 'content-type': 'text/html; charset=utf-8', 'cache-control': begun.policy === 'request' ? 'no-store' : 'private, no-cache', vary: 'Accept-Encoding' };
-        if (br) h['content-encoding'] = 'br';
-        return new Response(body, { status: 200, headers: h });
-      }
-      const page = await begun.finish();
-      keep(page);
-      return send(req, page.html, 'text/html; charset=utf-8', page.status, page.policy === 'cached' ? 'public, max-age=0, s-maxage=60' : 'no-store');
+      const { status, headers, body } = await page(url.pathname + url.search, name => req.headers.get(name));
+      return new Response(body, { status, headers });
     } });
     console.log(`serving ${dist} with pages rendered by the JavaScript runtime on ${port}`);
   } else if (args.includes('--build')) {

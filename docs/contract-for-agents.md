@@ -2327,8 +2327,9 @@ table in the plan's order with each route's pattern, render policy and `notfound
 exact.mjs serve dist` serves it on 127.0.0.1 (`--lan`: every interface), and any static host
 serves it by the same rule: a file at the path; else, for a page whose path a route matches,
 `shell.html` with 200; else `404.html` with 404. A host with a single fallback page serves
-`shell.html` for every page it lacks, and the client draws the `notfound` route. A route
-declared `render=request` or `cached` is a render server's; a static host serves its shell.
+`shell.html` for every page it lacks, and the client draws the `notfound` route. For a route
+declared `render=request` or `cached`, `serve` renders the page for the request under Bun
+(a `cached` page kept 60 s), so it arrives with its data; a static host serves its shell.
 `npm start` runs `bun exact.mjs serve`, which with no directory serves the last `web-build`
 without `--out`.
 

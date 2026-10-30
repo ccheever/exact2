@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { moduleGrants, webCompiler } from './module.mjs';
+import { spawnOwned } from '../../scripts/test-children.mjs';
 
 test.each([
   ['empty', ''],
@@ -134,46 +135,86 @@ test('production lazy host modules ignore agent storage and entropy parameters',
 
 
 // LLP 1153 D3: `web-build --out` writes a site any static host serves (its pages, the shell, the route table and
-// 404.html, none of the build's intermediates), ends saying how a host serves it, and serve.mjs serves it so.
-test('web-build --out writes a site, with its route table, that serve.mjs serves by the hosting rule', async () => {
+// 404.html, none of the build's intermediates but the server bundle), ends saying how a host serves it, and serve.mjs
+// serves it so; `serve` (serve.mjs as the verb runs it) renders a `render=request` route's page for each request and
+// keeps a `cached` one's.
+test('web-build --out writes a site that serve.mjs serves by the hosting rule, rendering request and cached routes', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-site-')), app = resolve(dir, 'site'), out = resolve(dir, 'dist');
-  let server;
+  let server, serve;
   try {
     mkdirSync(app);
     writeFileSync(resolve(app, 'app.json'), JSON.stringify({ name: 'Site', app: { id: 'test.site', name: 'Site' } }));
-    writeFileSync(resolve(app, 'app.contract'), 'routes nav\n  home "/" render=build\n  item "/item/:id"\n  live "/live" render=request\n  notfound render=build\n\ncomponent App\n  view\n    text top(nav).url\n');
+    writeFileSync(resolve(app, 'app.contract'), 'shape Note\n  text: string\n\nroutes nav\n  home "/" render=build\n  item "/item/:id"\n  live "/live" render=request\n  feed "/feed" render=cached\n  notfound render=build\n\n'
+      + 'component App\n  resource note = note("rendered") as shape Note\n  view\n    column\n      text top(nav).url\n      text note.text\n');
+    writeFileSync(resolve(app, 'app.ts'), "import type { Answer, Result, Sources } from './app.contract.d.ts';\nexport const appId = 'test.site';\nexport const grants = '';\n"
+      + "const sources: Sources = { note: ([what]): Result<'note'> => ({ text: `The note, ${what}.` }) };\n"
+      + 'export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);\n');
     const built = spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
     expect(built.status, built.stdout + built.stderr).toBe(0);
     expect(built.stdout).toContain('site: no site-render entry, so its pages render under Bun (--render js)');
-    expect(built.stdout).toContain('/live: render=request is rendered by a render server; a static host serves its shell');
+    expect(built.stdout).toContain('/live: render=request, so serve renders its page for each request; a static host serves its shell');
+    expect(built.stdout).toContain('/feed: render=cached, so serve renders its page and keeps it 60 s; a static host serves its shell');
     expect(built.stdout.trimEnd().split('\n').slice(-3).join('\n')).toMatch(/dist: the site, for any static host\. bun host\/web\/serve\.mjs .*dist serves it[^]*shell\.html with status 200; else 404\.html with status 404\.\n {2}A host with a single fallback page serves shell\.html/);
     expect(JSON.parse(readFileSync(resolve(out, 'routes.json'), 'utf8')).routes).toEqual([
       { name: 'home', pattern: '/', render: 'build', notfound: false },
       { name: 'item', pattern: '/item/:id', render: 'client', notfound: false },
       { name: 'live', pattern: '/live', render: 'request', notfound: false },
+      { name: 'feed', pattern: '/feed', render: 'cached', notfound: false },
       { name: 'notfound', pattern: '', render: 'build', notfound: true },
     ]);
     const files = readdirSync(out);
     for (const name of ['index.html', 'shell.html', '404.html', 'routes.json', '.exact-build.json']) expect(files).toContain(name);
-    for (const name of ['.gen', 'app.plan.map.json']) expect(files).not.toContain(name);
+    expect(readdirSync(resolve(out, '.gen'))).toEqual(['server.js']);
+    expect(files).not.toContain('app.plan.map.json');
     expect(JSON.parse(readFileSync(resolve(out, '.exact-build.json'), 'utf8')).inputs).toBeUndefined();
     expect(readdirSync(dir).sort()).toEqual(['dist', 'site']);
+    // As a static host serves it: a request or cached route gets the shell, which has none of the data.
     const { serveBuildTree } = await import('../web/serve.mjs');
     server = createServer((req, res) => serveBuildTree(out, req, res));
     await new Promise(ok => server.listen(0, '127.0.0.1', ok));
     const page = (name) => readFileSync(resolve(out, name), 'utf8');
+    expect(page('shell.html')).not.toContain('The note, rendered.');
     for (const [path, status, file] of [['/', 200, 'index.html'], ['/item/7', 200, 'shell.html'], ['/live', 200, 'shell.html'], ['/no/such/route', 404, '404.html'], ['/nope.png', 404, '404.html']]) {
       const r = await fetch(`http://127.0.0.1:${server.address().port}${path}`);
       // (A served document names its build's generation in its base.)
       expect([path, r.status, (await r.text()).replace(/<base href="[^"]*">/, '<base href="/">')]).toEqual([path, status, page(file)]);
     }
+    // As `serve` serves it: each route's page rendered with its data, the live one per request, the cached one once.
+    const probe = createServer();
+    await new Promise(ok => probe.listen(0, '127.0.0.1', ok));
+    const port = probe.address().port;
+    await new Promise(ok => probe.close(ok));
+    serve = spawnOwned(process.execPath, ['host/web/serve.mjs', out, '--port', String(port), '--loopback'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+    let said = '';
+    const renders = (path) => (said.match(new RegExp(`render ${path} 200 `, 'g')) ?? []).length;
+    // What serve has said, once `done` holds of it (its output is the event; bounded so a failure names it).
+    const heard = (done) => new Promise((ok, no) => {
+      const timer = setTimeout(() => { serve.stdout.off('data', check); no(new Error(`serve did not say it: ${said}`)); }, 30_000);
+      const check = () => { if (done(said)) { clearTimeout(timer); serve.stdout.off('data', check); ok(); } };
+      serve.stdout.on('data', check); check();
+    });
+    serve.stdout.on('data', (data) => { said += data; });
+    serve.stderr.on('data', (data) => { said += data; });
+    await heard((text) => text.includes(`http://127.0.0.1:${port}/`));
+    const get = async (path) => { const r = await fetch(`http://127.0.0.1:${port}${path}`); return { status: r.status, cache: r.headers.get('cache-control'), body: await r.text() }; };
+    const feed = [await get('/feed'), await get('/feed')], live = [await get('/live'), await get('/live')];
+    for (const r of [...feed, ...live]) expect([r.status, r.body.includes('The note, rendered.'), r.body.includes('<div id="exact-root"></div>')]).toEqual([200, true, false]);
+    expect(feed.map((r) => r.cache)).toEqual(['public, max-age=0, s-maxage=60', 'public, max-age=0, s-maxage=60']);
+    expect(feed[1].body).toBe(feed[0].body);
+    expect(live.map((r) => r.cache)).toEqual(['no-store', 'no-store']);
+    // Each render is said before its page is sent: once the second live one is said, the cached page was rendered once.
+    await heard(() => renders('/live') === 2);
+    expect(renders('/feed')).toBe(1);
+    expect(await get('/item/7')).toMatchObject({ status: 200, body: expect.not.stringContaining('The note, rendered.') });
+    expect((await get('/no/such/route')).status).toBe(404);
   } finally {
+    await serve?.stop(5_000);
     if (server) { server.closeAllConnections(); await new Promise(ok => server.close(ok)); }
     rmSync(dir, { recursive: true, force: true });
   }
-}, 60000);
+}, 90000);
 
 test('Snapback mutation success types check final answers through helpers and preserve ordinary resource values', async () => {
   const {configure, check} = await import('../../js/bake/src/typescript.mjs');

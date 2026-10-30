@@ -98,8 +98,14 @@ if (target !== '--wasm' && !game && !bakeOnly) {
     for (const line of compiler) console.error(line);
     for (const line of (js.stderr ?? '').split('\n')) if (/^(warning|app\.contract\.d\.ts): /.test(line)) console.error(line);
     // A site to host holds the site: not the build's intermediates (`.gen`, the app's captured sources among them),
-    // nor the development source map, which delivery leaves out too.
-    if (outDir) for (const name of ['.gen', 'app.plan.map.json']) rmSync(resolve(stage, name), { recursive: true, force: true });
+    // nor the development source map, which delivery leaves out too. It keeps the server bundle `serve` renders a
+    // `render=request` or `cached` route's page with, when it has such a route (LLP 1153 D3.4).
+    if (outDir) {
+      const routes = JSON.parse(readFileSync(resolve(stage, 'routes.json'), 'utf8')).routes, bundle = resolve(stage, '.gen/server.js');
+      const server = routes.some((r) => r.render === 'request' || r.render === 'cached') && existsSync(bundle) ? readFileSync(bundle) : null;
+      for (const name of ['.gen', 'app.plan.map.json']) rmSync(resolve(stage, name), { recursive: true, force: true });
+      if (server) { mkdirSync(dirname(bundle)); writeFileSync(bundle, server); }
+    }
     // `env`: each setting app.ts read, as inlined, and its source (LLP 1153 D4), for the drive's logs and `changedSettings`.
     writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
       manifestSha256: appManifestDigest(app), files: buildFileCards(stage), ...(inputs ? { inputs, inputsAt } : {}), ...builtSettings(stage) }) + '\n');

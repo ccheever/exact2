@@ -193,8 +193,9 @@ export function withGenerationBase(html, id, base = '/') {
 
 /** What a server answers for a request path on `dist` (`base`, the path it serves the build under): a generation's
  * file (a path under one, or any path for a drive's `pinned` one), else the current build's, read whole from one
- * build; a document's base set to its generation. `{ status, route?, body?, id? }`: 200, 400 for a malformed
- * generation path, 404 (with the build's page for a miss where it has one), or 410 for a generation kept no more. */
+ * build; a document's base set to its generation. `{ status, route?, body?, id?, render? }`: 200, 400 for a malformed
+ * generation path, 404 (with the build's page for a miss where it has one), or 410 for a generation kept no more;
+ * `render`, for the shell, is the render policy of the route it is served for. */
 export async function servedFile(dist, pathname, accept = '', { base = '/', pinned = null } = {}) {
   const under = generationPath(pathname, base);
   if (under === 'bad') return { status: 400 };
@@ -220,5 +221,5 @@ export async function servedFile(dist, pathname, accept = '', { base = '/', pinn
   }
   if (!found) return { status: 404 };
   const body = found.route.endsWith('.html') && found.id ? withGenerationBase(found.body, found.id, base) : found.body;
-  return { status: found.status ?? 200, route: found.route, body, id: found.id };
+  return { status: found.status ?? 200, route: found.route, body, id: found.id, render: found.render };
 }

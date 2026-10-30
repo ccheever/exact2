@@ -130,7 +130,8 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
     internal: ['--loopback'],
     body: `Serves <dir> (default target/web-dist, web-build's) and prints its URL. For a request: the
 file at its path; else, for a page whose path a route in routes.json matches, shell.html with
-200; else 404.html with 404. A static host serves the directory by the same rule.
+200, or for a render=request or cached route its page rendered under Bun (cached: kept 60 s);
+else 404.html with 404. A static host serves the directory so, with those routes' shell.
 Ports    one HTTP port, on 127.0.0.1 (--lan: every interface). Runs in the foreground until ^C.`,
     example: 'bun exact.mjs serve dist --port 3000',
   },
