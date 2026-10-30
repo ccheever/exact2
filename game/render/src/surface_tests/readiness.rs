@@ -17,7 +17,7 @@ impl Game for ReadinessGame {
         world.publish("score", 7);
     }
     fn tick(world: &mut World, _: &Input, _: &ReadinessArgs) {
-        world.publish("score", world.tick());
+        world.publish("score", world.tick() as f64);
     }
     fn paused(args: &ReadinessArgs) -> bool {
         args.paused
