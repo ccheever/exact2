@@ -20,11 +20,14 @@ import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, realp
 import { homedir, release, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
+import { WASM_IMAGE_NOISE, bindingShape, bindingsCheck, componentIR, imageBoxes, irShape, namedCrops, namedOf, namedReport, pixelDiff, sameImageBoxes, unionNamed } from './stage12-named.mjs';
+import { s15b2Stage } from './stage12-s15b2.mjs';
 import { baseLength, cellsOf, drive as scaleDrive, overridesOf, pageTop } from './scale-check.mjs';
 import { webDist } from './app.mjs';
 import { jsTargetBuild } from '../host/web/serve.mjs';
 import { placements } from './library-gate.mjs';
 import { KEYBOARD_UP, keyboardRedrive } from './stage12-keyboard.mjs';
+import { islandAllow } from './stage12-island.mjs';
 export { KEYBOARD_UP, keyboardInset, keyboardRedrive } from './stage12-keyboard.mjs';
 import { caseOps, caseReads, cases as exactCases, inspectDrive, locate, matches, apart as standsApart, same, COMPONENTS, EMPTY, readsOf } from './s13c-restyle.mjs';
 
@@ -65,6 +68,8 @@ export const SCREENS = [
  * platform's own clock, the field's leading 4 px over its first line. */
 export const ALLOW = {
   composer: { target: 'compose-text', reason: 'the app\'s own text field\'s caret, blinking on the platform\'s clock (theme2 12:06)', rect: ({ x, y, h }) => [x, y, 4, Math.min(h, 40)].map(Math.round) },
+  // Stage 15 B batch 2's new-chat sheet opens with its search field focused: the same caret.
+  'new-chat': { target: 'chat-search', reason: 'the app\'s own search field\'s caret (the new-chat sheet opens focused), blinking on the platform\'s clock', rect: ({ x, y, h }) => [x, y, 4, Math.min(h, 40)].map(Math.round) },
 };
 
 /** The allowlist rectangles a drive's output gives for `screen`. */
@@ -180,25 +185,30 @@ function driveScreens(copy, host, dir, env) {
     for (const [screen] of SCREENS) {
       const png = join(dir, `${host}-${scheme}-${screen}.png`);
       const wasm = host === 'web-wasm';
-      const args = [join(copy, 'exact.mjs'), 'agent', wasm ? 'web' : host, '--json', '--storage', 'stage12-gate', '--reset-storage', '--epoch', EPOCH,
+      // The web drives the side's dist as built (buildSide's, the agent checking its receipt), through the SDK's agent:
+      // the copy's `exact.mjs agent web` rebuilds the 9.5 MB app each drive (about 2.5 min a shot, 7 s this way).
+      const web = host.startsWith('web') ? [join(sdkOf(copy), 'scripts/agent.mjs'), 'web', '--app', /name: "([^"]+)"/.exec(readFileSync(join(copy, 'exact.mjs'), 'utf8'))[1]] : null;
+      const args = [...(web ?? [join(copy, 'exact.mjs'), 'agent', host]), '--json', '--storage', 'stage12-gate', '--reset-storage', '--epoch', EPOCH,
         ...(host === 'ios' || host === 'macos' ? [] : ['--size', SIZE]), ...(host === 'ios' && process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : []),
         ...screenOps(screen, scheme, png)];
-      let r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
+      const drive = { cwd: copy, env: { ...cloneWebEnv(env, wasm), ...(web ? { EXACT_APP_DIR: resolve(copy) } : {}) } };
+      let r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), drive);
       // A drive that failed before any layout (the simulator refusing a
       // launch, say) is driven once more, and says so.
       let retried = '';
       if (!r.ok && !r.out.includes('"nodes"')) {
         retried = r.out.trim().split('\n').filter(l => /rror/.test(l)).slice(0, 1).join('').slice(0, 160) || 'no layout';
-        r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
+        r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), drive);
       }
       // iOS's keyboard, where the shot needs it up: driven again while it is down.
-      const kb = host === 'ios' && KEYBOARD_UP.includes(screen) ? keyboardRedrive(ALLOW[screen].target, REFUSED, r, () => runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) })) : { r, down: false, keyboard: '' };
+      const kb = host === 'ios' && KEYBOARD_UP.includes(screen) ? keyboardRedrive(ALLOW[screen].target, REFUSED, r, () => runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), drive)) : { r, down: false, keyboard: '' };
       r = kb.r;
       const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
-      const allow = r.ok ? allowOf(screen, r.out) : [];
+      // iOS's Dynamic Island, the capture's, where it meets no library box (theme2 15:32 (a)).
+      const allow = r.ok ? allowOf(screen, r.out)?.concat(islandAllow(host, r.out)) ?? null : [];
       const shown = r.ok ? renderedIds(r.out) : null;
-      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null && !kb.down, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], components: r.ok ? renderedComponents(r.out) : [], appComponents: r.ok ? renderedComponents(r.out, true) : [], ...(retried ? { retried } : {}), ...(kb.keyboard ? { keyboard: kb.keyboard } : {}), said: kb.down ? 'the software keyboard never came up (three drives)' : allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
+      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null && !kb.down, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], named: r.ok ? namedOf(NAMED, screen, r.out, host) : [], images: r.ok && host === 'web-wasm' ? imageBoxes(r.out) : [], components: r.ok ? renderedComponents(r.out) : [], appComponents: r.ok ? renderedComponents(r.out, true) : [], ...(retried ? { retried } : {}), ...(kb.keyboard ? { keyboard: kb.keyboard } : {}), said: kb.down ? 'the software keyboard never came up (three drives)' : allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
     }
   }
   return rows;
@@ -232,8 +242,7 @@ function provenance(copy) {
   } catch { /* no simulator named */ }
   // The SDK the copy builds with: its exact.mjs's EXACT2 (the environment's,
   // else its default), not this script's checkout.
-  const named = /const EXACT2 = resolve\(import\.meta\.dir, process\.env\.EXACT2 \?\? "([^"]+)"\)/.exec(readFileSync(join(copy, 'exact.mjs'), 'utf8'))?.[1];
-  const sdk = process.env.EXACT2 ? resolve(process.env.EXACT2) : named ? resolve(copy, named) : null;
+  const sdk = sdkOf(copy);
   return {
     gate: git(ROOT, 'rev-parse', 'HEAD'), sdk, exact2: sdk ? git(sdk, 'rev-parse', 'HEAD') : null, sdkDirty: sdk ? git(sdk, 'status', '--porcelain', '--untracked-files=no') !== '' : null,
     copy: git(copy, 'rev-parse', 'HEAD'), copyDirty: git(copy, 'status', '--porcelain') !== '',
@@ -265,27 +274,7 @@ export function baseline(copy, out, hosts = CLONE_HOSTS, env = process.env) {
  * change of one level there still fails. An edge pixel is one a 4-neighbour
  * differs from by more than `edge` in some channel, in the before shot. */
 export const WEB_NOISE = { floor: 2, edge: 32 };
-
-/** Pixels differing between two screenshots outside `allow` (rectangles
- * [x, y, w, h], each with a reason): any channel apart, or more than
- * `noise.floor` apart on a before-shot edge pixel (`noise.edge`):
- * {differ, total, size}. A size change is every pixel. */
-export function pixelDiff(a, b, allow = [], noise = null) {
-  const A = decodePng(a), B = decodePng(b);
-  if (A.width !== B.width || A.height !== B.height) return { differ: A.width * A.height, total: A.width * A.height, size: [A.width, A.height, B.width, B.height] };
-  const inside = (x, y) => allow.some(([rx, ry, rw, rh]) => x >= rx && x < rx + rw && y >= ry && y < ry + rh);
-  let differ = 0;
-  for (let y = 0; y < A.height; y++) {
-    for (let x = 0; x < A.width; x++) {
-      const i = (y * A.width + x) * 4;
-      const d = apart(A.data, i, B.data, i);
-      if (d === 0 || inside(x, y)) continue;
-      if (noise && d <= noise.floor && edgeAt(A, x, y, noise.edge)) continue;
-      differ++;
-    }
-  }
-  return { differ, total: A.width * A.height };
-}
+export { pixelDiff };
 
 /** Two baseline records shot for shot (each host, scheme and screen):
  * differing pixels outside both sides' allowlisted rectangles, strict zero
@@ -297,20 +286,9 @@ export function comparePixels(before, after) {
     const a = later.get(key(b));
     if (!b.ok || !a?.ok) return { shot: key(b), ok: false, said: !a ? 'no after shot' : `not shot: ${(b.ok ? a : b).said}` };
     const allow = [...b.allow ?? [], ...a.allow ?? []];
-    const d = pixelDiff(readFileSync(b.png), readFileSync(a.png), allow.map(r => r.rect), b.host.startsWith('web') ? WEB_NOISE : null);
-    return { shot: key(b), ok: d.differ === 0, differ: d.differ, total: d.total, allow };
-  });
-}
-
-/** The largest channel difference between pixel `i` of `p` and `j` of `q`. */
-const apart = (p, i, q, j) => Math.max(Math.abs(p[i] - q[j]), Math.abs(p[i + 1] - q[j + 1]), Math.abs(p[i + 2] - q[j + 2]), Math.abs(p[i + 3] - q[j + 3]));
-
-/** Whether (x, y) is an anti-aliased edge: a 4-neighbour more than `edge` apart. */
-function edgeAt(img, x, y, edge) {
-  const i = (y * img.width + x) * 4;
-  return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
-    const nx = x + dx, ny = y + dy;
-    return nx >= 0 && ny >= 0 && nx < img.width && ny < img.height && apart(img.data, i, img.data, (ny * img.width + nx) * 4) > edge;
+    const named = unionNamed(b.named, a.named);
+    const d = pixelDiff(readFileSync(b.png), readFileSync(a.png), allow.map(r => r.rect), b.host.startsWith('web') ? WEB_NOISE : null, named, b.host === 'web-wasm' ? sameImageBoxes(b.images, a.images) : []), imageNoise = (d.images ?? []).filter(i => i.count);
+    return { shot: key(b), ok: d.differ === 0, differ: d.differ, total: d.total, allow, ...(imageNoise.length ? { imageNoise } : {}), ...(d.names || imageNoise.length ? { names: d.names ?? [], png: [b.png, a.png] } : {}) };
   });
 }
 
@@ -321,6 +299,8 @@ export const RETIRED = [];
 /** The exports a stage's adoption instantiates from the copy's own files (stage 15 B's Avatar and VerifiedBadge, which
  * the packages placed inside PostCard and ProfileHeader already): after's files place each, before's none. */
 export const APP_PLACED = [];
+/** A stage's NAMED pixel changes (stage 15 B batch 2, scripts/stage12-named.mjs) and its bindings (theme2's option B). */
+export const NAMED = [], BINDINGS = [];
 
 /** The library components a source map's view nodes instantiate from a file no package's: the innermost call site
  * (`chain[0]`, the instantiation's span) in the copy's own sources, not inside another package component. */
@@ -429,7 +409,8 @@ const conformEvidence = c => {
  * else its default). */
 function sdkOf(copy) {
   const named = /const EXACT2 = resolve\(import\.meta\.dir, process\.env\.EXACT2 \?\? "([^"]+)"\)/.exec(readFileSync(join(copy, 'exact.mjs'), 'utf8'))?.[1];
-  return process.env.EXACT2 ? resolve(process.env.EXACT2) : named ? resolve(copy, named) : null;
+  // As the copy's launcher reads it: an EXACT2 override, like its default, against the copy's directory.
+  return process.env.EXACT2 ? resolve(copy, process.env.EXACT2) : named ? resolve(copy, named) : null;
 }
 
 /** host/web-js/conform.mjs on a copy, run from the SDK it builds with (its
@@ -474,6 +455,9 @@ function buildSide(copy, side) {
   for (const verb of [['web-build'], ['web-build', '--wasm'], ['linux'], ['mac'], ['ios', ...(process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : [])]]) {
     const wasm = verb[1] === '--wasm';
     const r = run(process.execPath, [join(copy, 'exact.mjs'), ...verb], { cwd: copy, env: cloneWebEnv(env, wasm) });
+    // Each build's whole output kept (its compiler warnings: the web drives no longer rebuild and say them).
+    mkdirSync(join(ROOT, 'target', 'stage12-gate'), { recursive: true });
+    writeFileSync(join(ROOT, 'target', 'stage12-gate', `build-${side}-${verb.join('-').replace(/[^\w-]+/g, '')}.log`), r.out);
     if (!r.ok) return `${side}: ${verb.join(' ')} failed: ${r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300)}`;
   }
   if (jsTargetBuild(cloneWasmDist(env))) return `${side}: ${cloneWasmDist(env)} is not a wasm build`;
@@ -511,6 +495,11 @@ export function consumerPixels(opts) {
   if (broken.length) return fail(broken.map(x => x.error).join('; '));
   if (kept.length) return fail(`--copy still declares ${kept.map(x => x.line).join(', ')}: not the adoption`);
   if (unborn.length) return fail(`--before never declared ${unborn.map(x => x.line).join(', ')}: not the baseline`);
+  // Theme2's option B: each binding draws nothing of its own and places only what it binds to (after's source map).
+  // And its shape on the compiler's own parse of the copy (`contract lean --components`), which no formatting fools.
+  const lean = BINDINGS.length ? run(process.execPath, [join(opts.copy, 'exact.mjs'), 'contract', 'lean', 'app.contract', '--components', '--name', BINDINGS[0].component], { cwd: opts.copy }).out : '';
+  const bound = [...bindingsCheck(maps.after, BINDINGS), ...BINDINGS.map(b => ({ binding: b.component, ...bindingShape(maps.after, b) })), ...BINDINGS.map(b => ({ binding: b.component, ...irShape(componentIR(lean, b.component)) }))];
+  if (bound.some(b => !b.ok)) return fail(...bound.map(b => `binding ${b.binding}: ${b.said}`));
   // Conform on the clone (the JS target's harness: the app's wasm build
   // against its JS build, step by step), on each side: the adoption adds no
   // failure the baseline doesn't have.
@@ -524,6 +513,10 @@ export function consumerPixels(opts) {
   }
   const r = comparePixels(shots.before, shots.after);
   const bad = r.filter(x => !x.ok);
+  // Named changes: each name's pixels and box, and both sides' crops of every named box on every shot, for theme2 to read.
+  const crops = join(ROOT, 'target', 'stage12-gate', 'named-crops');
+  const report = namedReport(NAMED, r), cropped = r.flatMap(x => (x.names ? namedCrops(x.png[0], x.png[1], [...x.names, ...(x.imageNoise ?? []).map(i => ({ target: `image-noise-${i.rect.join('-')}`, rect: i.rect }))], crops, x.shot) : []));
+  const missingNames = report.filter(n => n.status === 'MISSING');
   // Rendered: each library component shown on the screens shot (a testId
   // only its package's view writes, which the copy's own sources don't),
   // and none of PostCard's, ActionRow's or AtCard's before.
@@ -548,14 +541,22 @@ export function consumerPixels(opts) {
     ...bad.map(x => `  ${x.shot}: ${x.differ ?? x.said}${x.differ ? ' px' : ''}`),
     ...['before', 'after'].flatMap(side => shots[side].shots.filter(x => x.retried).map(x => `  ${side} ${x.host} ${x.scheme} ${x.screen}: driven again after a drive that failed before any layout (${x.retried})`)),
     ...['before', 'after'].flatMap(side => shots[side].shots.filter(x => x.keyboard).map(x => `  ${side} ${x.host} ${x.scheme} ${x.screen}: ${x.keyboard}`)),
-    'the allowlist (LLP 1139 §5: at most 10% of a library component\'s box): the caret strip lies inside the composer\'s own field (compose-text, the app\'s) and the system keyboard\'s rect below the viewport (from the layout\'s keyboard inset), so neither covers a library component\'s box, by construction (allowOf)',
+    'the allowlist (LLP 1139 §5: at most 10% of a library component\'s box): the caret strip lies inside the composer\'s own field (compose-text, the app\'s) and the system keyboard\'s rect below the viewport (from the layout\'s keyboard inset), so neither covers a library component\'s box, by construction (allowOf); on iOS the Dynamic Island\'s rect and the top-left corner pixels, the capture\'s, each only where no library component\'s box meets it (islandAllow, theme2 15:32 (a))',
     `the adoption places ${ADOPTED.length} of ${ADOPTED.length} library components in its views (${ADOPTED.map(i => i.split('#')[1]).join(', ')}; the build's source map), before ${BEFORE_USES.length ? `only the earlier stage's (${BEFORE_USES.map(i => i.split('#')[1]).join(', ')})` : 'none'}`,
     ...(TITLES['consumer-pixels'] && !unseen.length && !own.length && !shownEarly.length ? [] : [`rendered on the screens shot: ${RENDERED.length - unseen.length} of ${RENDERED.length} (${RENDERED.map(([name]) => name).filter(n => !unseen.includes(n)).join(', ')})${unseen.length ? `; NOT shown: ${unseen.join(', ')}` : ''}${own.length ? `; the copy's own sources write a package's testId: ${own.join(', ')}` : ''}${shownEarly.length ? `; before already shows ${shownEarly.join(', ')}` : ''}`]),
     `shown on the screens shot, by each node's source map, every host: ${byComponent.length - new Set(notShown.map(x => x.split(' on ')[0])).size} of ${byComponent.length}${notShown.length ? `; NOT shown: ${notShown.join(', ')}` : ''}${shownBefore.length ? `; before already shows ${shownBefore.join(', ')}` : ''}`,
     ...(APP_PLACED.length ? [`shown where the copy's own files instantiate them, every host: ${APP_PLACED.map(id => id.split('#')[1]).join(', ')}${appNotShown.length ? `; NOT shown: ${appNotShown.join(', ')}` : ''}`] : []),
     ...byComponent.map(c => { const all = [...new Set(Object.values(c.per).flat())]; const same = hosts.every(h => c.per[h].length === all.length); return `  ${c.name}: ${same ? all.join(', ') : hosts.map(h => `${h} ${c.per[h].join(', ') || 'none'}`).join('; ')}`; }),
+    ...bound.map(b => `binding ${b.binding}: ${b.said}`),
+    ...(NAMED.length ? [`named changes (theme2 23:16: inside each named box allowed and reported, strict outside; crops of every named box on every shot in ${crops}, ${cropped.length} files):`,
+      ...report.map(n => `  ${n.status} ${n.screen} ${n.target}: ${n.change}; ${n.differ} px over ${n.shots.length} of ${n.seen} shots${n.shots.length ? `, boxes ${n.shots.map(h => `${h.shot.split(' ').slice(0, 2).join('-')} ${h.box.join(',')}`).join('; ')}` : ''}`),
+      // For theme2's reading (10:47 (7)): each named box's rect (pad included) and its two crops, shot by shot.
+      'each named box, shot by shot: its rect [x, y, w, h] and its crops (before, after) in the directory above:',
+      ...r.flatMap(x => (x.names ?? []).map(m => `  ${x.shot} ${m.target}: [${m.rect.join(', ')}] ${m.differ} px; ${cropped.filter(f => f.includes(`${x.shot.replace(/[^\w.-]+/g, '-')}-${m.target.replace(/[^\w.-]+/g, '-')}-`)).map(f => f.split('/').pop()).join(', ')}`))] : []),
+    ...(r.some(x => x.imageNoise) ? [`web-wasm image-raster noise (theme2 22:01: at most ${WASM_IMAGE_NOISE} levels inside an Image box laid out alike on both sides), box by box: its rect, count, largest difference and crops (before, after) in the directory above:`, ...r.filter(x => x.imageNoise).flatMap(x => x.imageNoise.map(i => `  ${x.shot}: [${i.rect.join(', ')}] ${i.count} px, at most ${i.max} levels; ${cropped.filter(f => f.includes(`${x.shot.replace(/[^\w.-]+/g, '-')}-image-noise-${i.rect.join('-')}-`)).map(f => f.split('/').pop()).join(', ')}`))] : []),
+    ...(r.some(x => x.allow?.length) ? ['the allowlist, shot by shot (the caret strips and the iOS keyboard band):', ...r.filter(x => x.allow?.length).map(x => `  ${x.shot}: ${x.allow.map(a => `[${a.rect.join(', ')}] ${a.reason.split(',')[0]}`).join('; ')}`)] : []),
     ...conformEvidence(conform)];
-  return bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length || notShown.length || shownBefore.length || appNotShown.length ? fail(...evidence) : pass(...evidence);
+  return missingNames.length || bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length || notShown.length || shownBefore.length || appNotShown.length ? fail(...evidence) : pass(...evidence);
 }
 
 /** The library lines' required hosts (LLP 1139 §5): the web's JS target
@@ -1382,6 +1383,9 @@ export const STAGES = {
   },
 };
 
+// Stage 15 B batch 2's: batch 1's and its own (scripts/stage12-s15b2.mjs).
+STAGES.s15b2 = s15b2Stage(STAGES.s15b, SIGN_IN);
+
 /** Run the gate as `stage`'s (`--stage`): its tag, adoption, screens, rendered testIds and restyle cases. */
 export function useStage(stage) {
   const p = STAGES[stage];
@@ -1389,7 +1393,7 @@ export function useStage(stage) {
   EXACT = !!p.exact;
   RELEASE = p.release ?? null;
   TITLES = p.titles ?? {};
-  for (const [list, items] of [[ADOPTED, p.adopted], [BEFORE_USES, p.before], [SCREENS, p.screens], [RENDERED, p.rendered], [RESTYLE, p.restyle], [RETIRED, p.retired ?? []], [APP_PLACED, p.appPlaced ?? []]]) list.splice(0, list.length, ...items);
+  for (const [list, items] of [[ADOPTED, p.adopted], [BEFORE_USES, p.before], [SCREENS, p.screens], [RENDERED, p.rendered], [RESTYLE, p.restyle], [RETIRED, p.retired ?? []], [APP_PLACED, p.appPlaced ?? []], [NAMED, p.named ?? []], [BINDINGS, p.bindings ?? []]]) list.splice(0, list.length, ...items);
   return p;
 }
 
@@ -1468,12 +1472,15 @@ export function parse(argv) {
 
 if (import.meta.main) {
   const opts = parse(process.argv.slice(2));
-  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--stage s12|s13c|s15b] [--only <line> …] [--screen <name> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline [--stage s12|s13c|s15b] --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
+  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--stage s12|s13c|s15b|s15b2] [--only <line> …] [--screen <name> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline [--stage s12|s13c|s15b|s15b2] --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
   const stage = useStage(opts.stage);
   if (opts.screens.length) SCREENS.splice(0, SCREENS.length, ...SCREENS.filter(([n]) => opts.screens.includes(n)));
   RERUN_SCREENS.push(...opts.screens);
   if (opts.mode === 'baseline') {
-    const r = baseline(resolve(opts.copy), resolve(opts.out), opts.hosts.length ? opts.hosts : CLONE_HOSTS);
+    // Built first, into the before side's target, so the drives (the web's on its dist as built) shoot the copy as it is.
+    const built = buildSide(resolve(opts.copy), 'before');
+    if (built) { console.error(built); process.exit(1); }
+    const r = baseline(resolve(opts.copy), resolve(opts.out), opts.hosts.length ? opts.hosts : CLONE_HOSTS, { ...process.env, CARGO_TARGET_DIR: join(ROOT, 'target', 'stage12-gate-before') });
     const bad = r.shots.filter(s => !s.ok);
     console.log(`baseline: ${r.shots.length - bad.length} of ${r.shots.length} screens; plan ${r.plan.sha ?? `FAILED (${r.plan.said})`}; ${join(opts.out, 'baseline.json')}`);
     for (const s of bad) console.log(`  FAILED ${s.host} ${s.scheme} ${s.screen}: ${s.said}`);
