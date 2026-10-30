@@ -549,12 +549,13 @@ These it does not use, because on macOS they do not do what the reference does:
   clone gets it on main with no change of its own. No drive has tabbed to a link in a Markdown
   table cell since.
 
-App Swift this clone keeps, where moving it onto what main offers would change what someone using
-the app sees, or where main has nothing to move it onto (each is a framework capability to add):
+App Swift this clone keeps (`modules/apple/`) does what main has no call for, or what moving onto main's
+call would change for someone using the app. It is not work left while it works. A piece of it moves into
+exact2 only when a library many apps can reuse needs it.
 
 - `T3BrowserPage.swift`, `T3BrowserRecorder.swift`, `T3BrowserAgentCursor.swift` and `T3BrowserCapture.swift`: what a
   Browser tab's frame hands its `t3-browser-page` hatch (LLP 1020.002 tier 3). The recording (the frame as a capture
-  source, LLP 1020.002 D8, waits on B10), the agent's cursor drawn on the page's view and the separate preview window's
+  source, LLP 1020.002 D8), the agent's cursor drawn on the page's view and the separate preview window's
   snapshots need the page's web view; the artifact directory is the local server's own folder, outside the app's
   files, where a capture moves in and Reveal in Finder acts, which has no framework call; a saved recording's bytes
   go to the environment from there, since the data module reads only the app's files.
@@ -623,7 +624,9 @@ Differences that belong to the app:
 - The server connections are the data module's (`src/transport/`). Each environment's socket is a
   stream resource, admitted by `net.websocket ws:` and `wss:` since servers are named at run time
   (#703), whose mapper answers Pings and acknowledges chunks in the frame's own commit (#705, LLP
-  1016.000 D7); HTTP goes through `fetch` (`net.fetch http:` and `https:`). The answer or command
+  1016.000 D7); HTTP goes through `fetch` (`net.fetch http:` and `https:`). `app.json`'s
+  `appTransportSecurity.allowsArbitraryLoads` turns App Transport Security off, so an environment at plain
+  `http:` by a host name pairs, as in the reference's Chromium. The answer or command
   that asks for a request sends it on that socket itself and awaits the reply (#736, D7's amendment
   of 2026-10-18); a frame no turn may send yet (the socket is not open) waits in the outbox, which
   the mapper sends when the socket opens and after each frame. A data module's timer lives only

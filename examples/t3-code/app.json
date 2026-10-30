@@ -50,7 +50,7 @@
       "minimumOS": "14.0",
       "oneTimeCodeAutofill": "marked",
       "appTransportSecurity": {
-        "allowsArbitraryLoadsInWebContent": true
+        "allowsArbitraryLoads": true
       },
       "window": {
         "width": 1280,

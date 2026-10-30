@@ -13,7 +13,7 @@
 // `kind`, never from the address. `allowInsecure` is always true here (a native app is not an
 // HTTPS page), so a learned plain-HTTP LAN or tailnet address (the server reports only numeric
 // private IPv4s, DirectEndpoints.ts) is walked and connects with the token it borrows, as the
-// reference desktop does (App Transport Security exempts IP literals), unless that token was paired
+// reference desktop does (app.json turns App Transport Security off), unless that token was paired
 // over HTTPS, loopback or the tailnet (sendsTokenInClear).
 // The relay kind stays for test parity and is never created (this client has no T3 Connect).
 import { isLocalLoopbackHost, isPrivateNetworkHost, isSharedAddressSpaceHost, isTailnetHost } from './host-classification';
