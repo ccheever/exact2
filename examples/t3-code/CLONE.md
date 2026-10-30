@@ -86,19 +86,32 @@ and window defaults remain unchanged. Evidence and the unresolved native boundar
 are under `target/t3-poc-evidence/desktop-panel-input-forensics/`. No ordinary-app
 defect or full parity is established.
 
-The normal restored bundle now reaches Files through the existing `Alt+Meta+B`
-shortcut. The live chooser, journaled shortcut press and released modifiers agree.
-The actual palette creates an isolated project, and its real HTML tree row opens.
-The existing preview-browser control records a press, then shows
-"Unable to open file in browser" and "Failed to load orchestration projection
-for thread …". No Browser tab, frame or iframe appears. Navigation, history,
-reload, memo input and tab retention remain unrun. This does not resolve the
-header mouse-input defect or establish a runtime-selection cause. Evidence is in
-`target/t3-poc-evidence/desktop-native-browser-shortcut-acceptance/`.
-All 156 bundle files and 3,513 actual inputs match the clean `cb2730639b` build.
-Owned processes exit, and the original listener and window defaults stay exact.
-Normal-app storage, physical input, primary-launcher parity and full desktop
-parity remain unqualified. No product source or test changes.
+Draft Browser file assets now retain captured workspace provenance separately from
+Browser ownership. The clean standard bundle from `56f150341d` passes the original
+native Files flow through `Alt+Meta+B`, the actual HTML tree row and the existing
+preview-browser control. The projection-error toast is gone. A real session,
+frame, partition and `browser-page` guest show the owned file content while the
+persisted thread ID stays empty and the exact unsent draft remains intact.
+The same reserved Browser UUID survives navigation to owned A, its real link to B,
+Back, Forward and settled Reload. Actual HTTP requests and a new response and
+document token prove Reload. Inspected WebKit-composited captures agree.
+
+Native tab retention and shared Markdown Browser entry remain open. Keyboard
+Add Surface and Files work, but the later HTML row tap, Browser-tab Enter and
+Markdown row tap produce no journaled press or navigation. Those paths stop
+without retries. Shared Markdown's action regressions pass before and after UUID
+reservation, including deferred alias and ID capture. All 6,921 desktop tests,
+strict application TypeScript and all six root checks pass. The regression and
+correction are separate local commits; root owns independent review and pushes.
+
+Evidence, redacted native records, artifact identities and cleanup are under
+`target/t3-poc-evidence/desktop-draft-preview-implementation/`. The historical
+failure remains in `desktop-native-browser-shortcut-acceptance/`. All 156 corrected
+bundle files and 3,513 actual inputs verify; the old `cb2730639b` artifact is
+preserved byte for byte. Owned processes exit, and the original listener and
+window defaults remain unchanged. Header mouse input, primary-launcher parity,
+normal-app storage, physical keys and full desktop parity remain unqualified.
+Mobile and TestFlight are unchanged.
 
 The earlier standard desktop bundle from clean source `667c11267d` uses C ABI 18,
 runtime 5 and Apple native ABI 3. Its executable SHA-256 starts
