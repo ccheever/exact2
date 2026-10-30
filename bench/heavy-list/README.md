@@ -159,14 +159,16 @@ ssh ccheever@100.76.94.78 '
   cd ~/projects/exact2-measure
   sudo -n /bin/launchctl asuser $(id -u) /usr/bin/sudo -u ccheever \
     /usr/bin/env PATH="$PATH" /usr/bin/caffeinate -d -i \
-    python3 target/g0/run-series.py qualify target/g0/qualification
+    python3 target/g0/refresh-ae835f960c/run-series.py qualify target/g0/refresh-ae835f960c/qualification
 '
 ```
 
 This opens Ink with `G1_COLD_ONLY=1`, checks the probe's ready and focus
 reports, captures its window with `screencapture -l`, then exits without
-gestures. Inspect `target/g0/qualification/ink.png`. In the same command,
-replace `qualify target/g0/qualification` with `series target/g0/g4m` to run
+gestures. Inspect `target/g0/refresh-ae835f960c/qualification/ink.png`.
+For another series, use a fresh result directory. In the same command,
+replace `qualify target/g0/refresh-ae835f960c/qualification` with
+`series target/g0/refresh-ae835f960c/g4m` to run
 five rotating fling/rest rounds and five further cold-only rounds, with
 five-second quiet observations and one-second power samples. The wrapper
 requires a successful qualification first. Its full GUI paths remain

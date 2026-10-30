@@ -3280,14 +3280,23 @@ limits, checks and retained files under `target/stage-0b/`.
 
 ## G4m: the four arms on the measurement Mac
 
-Preparation, 2026-10-30, `lane/measure-mac`. The silver M5 Max's isolated
-`~/projects/exact2-measure` worktree is detached at fetched `origin/main`
-`d16c84ee034ba9ab75df011786620164abf3387c`. Builds use its own `target/`;
-the retained preparation and eventual series live in `target/g0/`.
-G4's driver, probe, four-arm order, gestures and two-table aggregation remain
-the instruments. A completed series will establish a current-source baseline
-on the silver Mac. G4 used earlier source, so the comparison will not isolate
-the hardware difference.
+Arms refreshed on 2026-10-30 from `origin/main`
+`ae835f960c04534e2c489c3888dbe6d017ae419e`, including G5's static modes and GPU
+hook and Stage 0b's boot path. The dedicated silver M5 Max's
+`~/projects/exact2-measure` worktree uses its own `target/`. The release arms,
+probe, `measure` and `exact-wheel` all build; the four linked bundles pass
+`codesign --verify --deep --strict`. Their shared probe SHA-256 is
+`40d6c4aaea87df9f25386259e3f0725b18905ca456b3b3cba57cc3c9a444d825`.
+All 105 source data hashes and both GPUI/egui bundled copies pass.
+`target/g0/refresh-ae835f960c/provenance.json` records the executable and
+instrument hashes. The old preparation under `target/g0/` remains retained.
+
+There is no GO file on this Mac (Charlie, 2026-10-30). GUI commands use the
+privileged Aqua-session launch followed by the user switch and `caffeinate`.
+The existing driver retains G4's rotating arm order, activation and key-window
+checks and one retake. The prepared wrappers retain five-second quiet
+observations and one-second CPU/GPU/task power samples. G4 used earlier source
+and a different probe, so this comparison cannot isolate hardware.
 
 **Predictions, written before any GUI run.** G4's probe and driver are the
 instrument. CPU and peak-footprint medians should fall within G4's observed
@@ -3302,52 +3311,24 @@ ranges; median interval p95 should remain 8.33 ms at the table's precision.
 
 The required collection is five quiet fling/rest samples and ten quiet
 successful fresh-process launches per arm, with every failed attempt retained.
-**Collected: zero of five and zero of ten for each arm.** Caches stay retained.
-Power has no previous row or predicted saving; no benchmark power was measured.
+Caches stay retained. Power has no predicted saving. G5m uses three rotating
+rounds of fling, bar and caret, with first-round static captures and G5's
+unchanged expectations. The boot-only series pairs ten retained Metal launches
+with ten wgpu controls, then runs ten Metal archive misses; Stage 0b's P1–P5
+remain the predictions. `plan.txt` records them before measurement.
 
-All four release arms, the driver, wheel helper and probe build. The data's
-105 SHA-256 checks pass. `Native.app`, `GPUI.app`, `Ink.app` and `Egui.app`
-pass `codesign --verify --deep --strict`; their linked probes share SHA-256
-`23abd140ac6dd6168dbcef3f1365e801ed135aa5147c93245717f4b6e4022a9c`.
-`provenance.json` records the executable, instrument and lockfile hashes.
-The Ink bundle runs `--help` without opening a window; that checks loading,
-not rendering or presentation. Metal Toolchain 27.2 was installed before
-the final builds; the earlier build without it explicitly lacked direct
-Metal and is not a measurement arm. Native uses supported ad-hoc signing
-(`EXACT_IDENTITY=-`); no renderer source changed.
+**Window qualification is blocked by the locked session.** Accessibility,
+event posting and Screen Recording preflights pass. The first Ink attempt
+exits before opening its window with `CVDisplayLinkCreate: -6661`; macOS
+reports the display asleep. After `caffeinate -u` wakes it, the second attempt
+submits a frame but cannot become active or key. Its focus checks report
+`loginwindow` (PID 450) as frontmost. A fresh IORegistry read confirms
+`CGSSessionScreenIsLocked=true`. No gesture or capture has run, and no timing
+from either attempt qualifies as a benchmark sample. The unlock request is
+pending; no GO wait is involved.
 
-The Aqua-session preflight, through privileged `launchctl asuser` followed
-by `sudo -u ccheever`, returns UID 501 and passes Accessibility, event-posting
-and Screen Recording checks. Passwordless `powermetrics` produces a plist
-sample with the requested CPU, GPU and task samplers. That setup sample is
-not benchmark power evidence. Its process-path and underflow warnings are
-retained in `power-preflight-granted.log` beside the raw plist.
-The collector also samples and stops on SIGINT with exit code 0 through the
-same Aqua launch chain (`power-stop-preflight.json`). The final permission
-preflight still passes all three checks (`permissions-final.txt`).
-
-All six checks pass in the development worktree: build, tests, Clippy plus
-fmt, caps, boot and the workspace all-target check. The first build failed
-because workspace packages had not been installed; after `bun install
---frozen-lockfile`, the same command passes. Both logs remain under
-`target/g0/checks/`, with commands, exits and verbatim test-result lines.
-The remote build and preparation logs are retained in
-`~/projects/exact2-measure/target/g0/` and copied to the development worktree's
-`target/g0/silver/`. The prepared launch commands are in the benchmark
-[README](../README.md#the-measurement-mac).
-
-**Status: stopped after the required GO wait.** The file
-`~/projects/exact2-measure/GO` remained absent from 09:51:40 to 12:51:40 PDT
-on 2026-10-30. The bounded polling loops retained 288 observations in
-`go-polls.jsonl`; `go-wait-result.json` records the three-hour timeout.
-This lane opened no benchmark window, posted no gesture and attempted no
-window capture. The cold-only qualification, both G4m tables and the power
-rows remain unmeasured. Agreement with G4 is unknown; G4m does not replace
-G4 as §4's baseline.
-
-Charlie still needs to finish the display settings, unlock the session and
-create a fresh GO. `power-settings-final.txt` reports AC system sleep off
-but display sleep at ten minutes; automatic locking was not verified.
-The prepared wrapper holds display and idle sleep off with `caffeinate`
-during a run. The GUI paths remain unqualified until the cold-only launch,
-probe readiness and window capture succeed.
+Both attempts, build logs, data checks, predictions, wrappers, session-state
+reads and provenance remain under `target/g0/refresh-ae835f960c/` on the silver
+Mac and `target/g0/silver-current/` in this worktree. G4m and G5m have no
+qualified samples yet; G4 remains the baseline. Stage 0b's quiet qualification
+and summed first-screen comparison remain open.
