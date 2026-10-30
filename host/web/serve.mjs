@@ -15,7 +15,8 @@ import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
 import { withLock } from './build-lock.mjs';
 import { canonicalBytes } from '../../scripts/deploy-signing.mjs';
-import { copyShaders, developmentURLScheme, webDist, webHostFiles } from '../../scripts/app.mjs';
+import { copyShaders, developmentURLScheme, resolveApp, webDist, webHostFiles } from '../../scripts/app.mjs';
+import { settingChanges } from '../../js/bake/src/__exact_env.mjs';
 import { acceptsHTML, appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
 import { INSTALL_FILES, INSTALL_PUBLIC, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
@@ -1082,8 +1083,8 @@ async function main() {
   const at = argv.indexOf('--origin');
   if (at >= 0 && (!argv[at + 1] || argv[at + 1].startsWith('--'))) throw new Error('--origin needs a directory');
   const dist = at >= 0 ? resolve(argv.splice(at, 2)[1]) : webDist();
-  // TODO(LLP 1153 D3): the `serve` verb asks `changedSettings` (js/bake/src/__exact_env.mjs) here, and rebuilds on a
-  // difference when the app's sources are beside the build, or refuses it, naming the name and both values.
+  const settled = settleBuild(dist);
+  if (settled) return settled;
   // A JS-target build (LLP 1071) is served as its tree, uncompressed.
   const js = jsTargetBuild(dist);
   if (!js && !await readStaticFileAsync(dist, '/app.wasm')) {
@@ -1114,6 +1115,39 @@ async function main() {
     warming.then(n => console.log(`  (${n} files compressed: brotli and gzip)`));
   });
   return 0;
+}
+
+/** The build in `dist` brought to this environment's settings (LLP 1153 D4): a setting it inlined that the
+ * environment or the app's files now give another value is built again when the app's sources are beside the build,
+ * and refused, naming the setting and both values, when they are not (a build copied elsewhere). 0 when it may be
+ * served, else the exit code. */
+function settleBuild(dist) {
+  let marker;
+  try { marker = JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')); } catch { return 0; }
+  if (!marker.env) return 0;
+  const app = sourcesOf(dist, marker.app?.id), changed = settingChanges(marker.env, process.env, app);
+  if (!changed.length) return 0;
+  const said = (s) => (s ? `${JSON.stringify(s.value)} (${s.source})` : 'unset');
+  const what = changed.map(({ name, built, now }) => `import.meta.env.${name} was built as ${said(built)} and is ${said(now)} here`).join('; ');
+  if (!app) {
+    console.error(`${dist}: ${what}, and the app's sources are not beside this build to build it again: build it with these settings (bun exact.mjs web-build), or serve it with the ones it was built with`);
+    return 2;
+  }
+  console.error(`${dist}: ${what}: building it again`);
+  const built = spawnSync(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app], { stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist } });
+  return built.status === 0 ? 0 : built.status ?? 1;
+}
+
+/** The directory of the app whose sources made the build in `dist` (its marker's app `id`), when they are beside it:
+ * an `app.json` of that id above it, or the app whose own build directory it is (an app of this checkout builds into
+ * host/web/dist); else null. */
+function sourcesOf(dist, id) {
+  for (let dir = dirname(dist); ; dir = dirname(dir)) {
+    try { if (JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).app?.id === id) return dir; } catch { /* none here */ }
+    if (dirname(dir) === dir) break;
+  }
+  try { const app = resolveApp(); if (app.id === id && webDist() === dist) return app.dir; } catch { /* no app resolves */ }
+  return null;
 }
 
 /** A development page's trace (LLP 1079 D5): ⌥⇧T posts its journal, frames and

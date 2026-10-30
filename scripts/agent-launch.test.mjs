@@ -876,28 +876,36 @@ test('backend diagnostics name the selected source and warn when a saved selecti
 
 
 // LLP 1153 D4: a setting app.ts reads at build (`import.meta.env.NAME`), declared in app.json's `env`.
-test('a setting is read from the environment, then .env.local, then .env, never taking what Bun loaded from them as the environment', async () => {
-  const {noteBunLoaded,settingValues} = await import('../js/bake/src/__exact_env.mjs');
+test('a setting is read from the environment, then .env.local, then .env, and what Bun loaded from them is never the environment', async () => {
+  const {settingValues} = await import('../js/bake/src/__exact_env.mjs');
   const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-'));
+  // The environment a command started in `dir` with `given` hands its processes: a real Bun, which loads the files
+  // there, and the note its first exact2 script takes (`noteBunLoaded`).
+  const module=JSON.stringify(resolve(import.meta.dir,'../js/bake/src/__exact_env.mjs'));
+  const launched=given=>{
+    const r=Bun.spawnSync([process.execPath,'-e',`import(${module}).then(m=>{m.noteBunLoaded();console.log(JSON.stringify(process.env))})`],{cwd:dir,env:{PATH:process.env.PATH,HOME:process.env.HOME,...given}});
+    if (r.exitCode!==0) throw new Error(r.stderr.toString());
+    return JSON.parse(r.stdout.toString());
+  };
   try {
     writeFileSync(resolve(dir,'.env'),'# the shared values\nA=a-env\nB="b-env # quoted, not a comment" # a comment\nC=c-env\n');
     writeFileSync(resolve(dir,'.env.local'),"B='b-local'\n");
     writeFileSync(resolve(dir,'.env.development'),'D=d-development\n');
-    const names=['A','B','C','D'];
-    expect(settingValues(dir,names,{})).toEqual({A:{value:'a-env',source:'.env'},B:{value:'b-local',source:'.env.local'},C:{value:'c-env',source:'.env'},D:null});
-    // `bun exact.mjs` in the app put its files in the environment before any script ran: each is still the file's,
-    // and `.env.development`, which Bun reads and this does not, sets nothing.
-    expect(settingValues(dir,names,{A:'a-env',B:'b-local',C:'c-env',D:'d-development'})).toEqual(settingValues(dir,names,{}));
-    // A value the environment sets itself wins, even one a lower file holds.
-    expect(settingValues(dir,names,{A:'a-shell',B:'b-env # quoted, not a comment'})).toEqual({A:{value:'a-shell',source:'environment'},B:{value:'b-env # quoted, not a comment',source:'environment'},C:{value:'c-env',source:'.env'},D:null});
-    // The first script of a command notes what Bun loaded, once; a process below reads the files as they are now,
-    // though it inherited the values Bun loaded before an edit.
-    const launched={A:'a-env',B:'b-local',C:'c-shell',D:'d-development'};
-    noteBunLoaded(launched,dir);
-    expect(launched.EXACT_BUN_LOADED.split(',').sort()).toEqual(['A','B','D']);
-    const below={...launched,EXACT_BUN_LOADED:'A'};noteBunLoaded(below,dir);expect(below.EXACT_BUN_LOADED).toBe('A');
+    const names=['A','B','C','D'], files={A:{value:'a-env',source:'.env'},B:{value:'b-local',source:'.env.local'},C:{value:'c-env',source:'.env'},D:null};
+    expect(settingValues(dir,names,{})).toEqual(files);
+    // Bun put the files in the environment before any script ran: each value is still the file's, and
+    // `.env.development`, which Bun reads and this does not, sets nothing.
+    const loaded=launched({}), exported=launched({A:'a-env',C:'c-shell'});
+    expect(loaded.A).toBe('a-env');
+    expect(settingValues(dir,names,loaded)).toEqual(files);
+    // A variable the command was given is the environment's, though a file holds the same value.
+    expect(settingValues(dir,names,exported)).toEqual({...files,A:{value:'a-env',source:'environment'},C:{value:'c-shell',source:'environment'}});
+    // An edit after the command started: the given value still wins; the one Bun loaded gives way to the file.
     writeFileSync(resolve(dir,'.env'),'A=a-edited\nC=c-env\n');
-    expect(settingValues(dir,names,launched)).toEqual({A:{value:'a-edited',source:'.env'},B:{value:'b-local',source:'.env.local'},C:{value:'c-shell',source:'environment'},D:null});
+    expect(settingValues(dir,['A'],exported)).toEqual({A:{value:'a-env',source:'environment'}});
+    expect(settingValues(dir,['A'],loaded)).toEqual({A:{value:'a-edited',source:'.env'}});
+    // A command no exact2 script started notes nothing: what it was handed is the environment.
+    expect(settingValues(dir,['A'],{A:'a-env'})).toEqual({A:{value:'a-env',source:'environment'}});
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 
@@ -935,7 +943,7 @@ test('import.meta.env inlines each declared setting in app.ts, its grant follows
       "app.ts:1:13: import.meta.env.API_BASE_URL's default after ?? must be a string literal",
     ].join('\n'));
     // Another module's read is found where the bundle captures it.
-    expect(strayReads(dir,resolve(dir,'api.ts'),'export const API = import.meta.env.API_BASE_URL;\n',(c,o)=>parseSync('api.ts',c,o)))
+    expect(strayReads(resolve(dir,'api.ts'),'export const API = import.meta.env.API_BASE_URL;\n',(c,o)=>parseSync('api.ts',c,o),at=>`api.ts${at}`))
       .toEqual(["api.ts:1:20: import.meta.env is read only in a top-level const of app.ts: const API = import.meta.env.API_BASE_URL, with ?? 'a default' or without, then API where it is used"]);
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
@@ -975,6 +983,32 @@ test('a setting is a web build input by value and source, and serve finds one ch
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 
+
+test('a native build is stale when a setting its module inlined has another value now', async () => {
+  const {receiptChanges}=await import('./agent-launch.mjs');
+  const {resolveApp}=await import('./app.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-native-')), name='EXACT_TEST_SETTING', before=process.env.EXACT_APP_DIR;
+  try {
+    writeFileSync(resolve(dir,'app.json'),JSON.stringify({name:'Native',app:{id:'com.exact.native',name:'Native'},env:[name]}));
+    writeFileSync(resolve(dir,'app.contract'),'component App\n  view\n    text "x"\n');
+    const app=resolveApp(dir), receipt=resolve(dir,'target/receipt.json');
+    mkdirSync(dirname(receipt),{recursive:true});
+    // As completeBuild records a Mac build whose bake inlined the setting from the environment.
+    writeFileSync(receipt,JSON.stringify({target:'aarch64-apple-darwin',started:new Date().toISOString(),
+      build:{binary:{inputs:[],missing:[],directories:[]},settings:{dir,env:{[name]:{value:'http://a.example',source:'environment'}}}}}));
+    process.env[name]='http://a.example';
+    try {
+      expect(receiptChanges(receipt,app)).toEqual([]);
+      process.env[name]='http://b.example';
+      expect(receiptChanges(receipt,app)).toEqual([`import.meta.env.${name}`]);
+    } finally { delete process.env[name]; }
+    // Unset now, and in no file: the build's value is gone too.
+    expect(receiptChanges(receipt,app)).toEqual([`import.meta.env.${name}`]);
+  } finally {
+    if (before===undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR=before;
+    rmSync(dir,{recursive:true,force:true});
+  }
+});
 
 test('activity addresses use the gallery reads and keep state separate from the app', async () => {
   const { widgetStep } = await import('./agent-widget.mjs');

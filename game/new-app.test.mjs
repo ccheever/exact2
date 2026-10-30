@@ -43,6 +43,9 @@ const withCli = (sdk) => {
   }
   // A bare `test` lists the app's authored tests through scripts/app.mjs.
   link('scripts/app.mjs');
+  // The settings module an app's build imports for `import.meta.env` (LLP 1153 D4).
+  mkdirSync(resolve(sdk, 'js/bake/src'), { recursive: true });
+  copyFileSync(resolve(root, 'js/bake/src/__exact_env.mjs'), resolve(sdk, 'js/bake/src/__exact_env.mjs'));
 };
 
 test('a new outside app passes the checks every run makes, and a drifted one is told what to paste', () => {

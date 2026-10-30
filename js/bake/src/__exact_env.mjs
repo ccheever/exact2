@@ -4,8 +4,9 @@
 // native bake writes this file into its stage beside `__exact_config.mjs`, which imports it
 // (js/bake/src/resident.rs `ENV`); the web build and the scripts import it from here.
 import { existsSync, readFileSync } from 'node:fs';
-import { relative, resolve, sep } from 'node:path';
+import { resolve } from 'node:path';
 import { parseEnv } from 'node:util';
+import { dlopen, FFIType } from 'bun:ffi';
 
 /** The files a value is read from after the environment, in order. */
 export const ENV_FILES = ['.env.local', '.env'];
@@ -22,35 +23,58 @@ export function declaredSettings(app) {
 // written, with no `$` expansion; https://nodejs.org/api/util.html#utilparseenvcontent). An absent file assigns none.
 const assignments = (app, file) => { const path = resolve(app, file); return existsSync(path) ? parseEnv(readFileSync(path, 'utf8')) : {}; };
 
-// Bun loads `.env` files from its working directory into the environment before a script's first line runs
+// Bun loads `.env` files from its working directory into `process.env` before a script's first line runs
 // (https://bun.sh/docs/runtime/env): `.env.local` (except when NODE_ENV is `test`), then `.env.<NODE_ENV, else
-// development>`, then `.env`, never over a variable already set. So `bun exact.mjs` run in the app carries the app's
-// files in `process.env`, and every process it starts inherits them; `--no-env-file` on a child cannot remove them,
-// and no script runs before the loading to read the environment without them. Instead the first exact2 script of a
-// command notes the names Bun loaded while the files still hold what Bun read (`noteBunLoaded`, called by
-// scripts/app.mjs and the app's launcher, into EXACT_BUN_LOADED, which every process below inherits): those names'
-// inherited values are Bun's, however the files have changed since (a dev loop builds long after it started). Any
-// value equal to what Bun's loading of the app's files gives now is taken as Bun's too, which covers a command no
-// exact2 script started. Either way a variable set to that very value is said to come from the file: the source named
-// differs, not the value.
+// development>`, then `.env`, never over a variable already set. Every process a script starts inherits them as its
+// own environment, and `--no-env-file` on a child cannot take them out. The environment a process was started with is
+// still there to read, untouched by that loading (and by a script's assignments to `process.env`): the C library's
+// (getenv(3); on Linux /proc/self/environ, proc(5)). So the first exact2 script of a command (scripts/app.mjs and the
+// app's launcher call `noteBunLoaded`) notes in EXACT_BUN_LOADED each name Bun loaded, one set in `process.env` but not
+// in the environment it was given, and every process below inherits the note: those names' values are Bun's, never
+// the environment's, whatever the files say later (a dev loop builds long after it started). A variable the command
+// was given is the environment's whether or not a file holds the same value. On Windows, which this reads no started
+// environment for, nothing is noted, and a value Bun loaded counts as the environment's.
 const bunLoaded = (dir, env) => {
   const mode = env.NODE_ENV || 'development';
   return Object.assign({}, ...['.env', `.env.${mode}`, ...mode === 'test' ? [] : ['.env.local']].map(file => assignments(dir, file)));
 };
+// Whether the environment this process was started with holds a name; null where it cannot be read.
+let startedWith;
+const given = () => {
+  if (startedWith !== undefined) return startedWith;
+  startedWith = null;
+  try {
+    if (process.platform === 'linux') {
+      const names = new Set(readFileSync('/proc/self/environ', 'latin1').split('\0').map(pair => pair.slice(0, pair.indexOf('='))));
+      startedWith = name => names.has(name);
+    } else if (process.platform === 'darwin') {
+      const { symbols } = dlopen('/usr/lib/libSystem.B.dylib', { getenv: { args: [FFIType.cstring], returns: FFIType.cstring } });
+      startedWith = name => symbols.getenv(Buffer.from(`${name}\0`)) !== null;
+    }
+  } catch { /* unreadable: nothing is noted */ }
+  return startedWith;
+};
+// The names Bun loaded into this process from its working directory's `.env` files.
+const loadedHere = () => {
+  const candidates = Object.keys(bunLoaded(process.cwd(), process.env)).filter(name => process.env[name] !== undefined);
+  const has = candidates.length ? given() : null;
+  return has ? candidates.filter(name => !has(name)) : [];
+};
+// The names whose values in `env` are Bun's: those noted above, and, in `process.env`, those this process loaded.
+const bunNames = env => new Set([...(env.EXACT_BUN_LOADED ?? '').split(',').filter(Boolean), ...env === process.env ? loadedHere() : []]);
 
-/** Notes in `env` the names Bun loaded from `cwd`'s `.env` files, unless a process above this one has. */
-export function noteBunLoaded(env = process.env, cwd = process.cwd()) {
-  if (env.EXACT_BUN_LOADED !== undefined) return;
-  const loaded = bunLoaded(cwd, env);
-  env.EXACT_BUN_LOADED = Object.keys(loaded).filter(name => env[name] === loaded[name]).join(',');
+/** Adds to EXACT_BUN_LOADED, which every process this one starts inherits, the names Bun loaded into this process from
+ * `.env` files. Each exact2 script calls it before it starts a process (scripts/app.mjs on import), so the first
+ * one's note reaches every process below it. */
+export function noteBunLoaded() {
+  process.env.EXACT_BUN_LOADED = [...bunNames(process.env)].join(',');
 }
 
 /** Each of `names` with its value and source (`environment`, `.env.local` or `.env`), or null where none sets it. */
 export function settingValues(app, names, env = process.env) {
-  const files = Object.fromEntries(ENV_FILES.map(file => [file, assignments(app, file)])), bun = bunLoaded(app, env);
-  const noted = new Set((env.EXACT_BUN_LOADED ?? '').split(','));
+  const files = Object.fromEntries(ENV_FILES.map(file => [file, assignments(app, file)])), bun = bunNames(env);
   return Object.fromEntries(names.map(name => {
-    if (env[name] !== undefined && !noted.has(name) && env[name] !== bun[name]) return [name, { value: env[name], source: 'environment' }];
+    if (env[name] !== undefined && !bun.has(name)) return [name, { value: env[name], source: 'environment' }];
     const file = ENV_FILES.find(f => Object.hasOwn(files[f], name));
     return [name, file ? { value: files[file][name], source: file } : null];
   }));
@@ -124,27 +148,43 @@ export function inlineSettings(code, app, parse, env = process.env) {
   return { code, record };
 }
 
-/** Each `import.meta.env` in the captured module `file` under `stage`, as `path:line:col: why`: once `inlineSettings`
- * has run, app.ts has none left, so any is a read where none is allowed. */
-export function strayReads(stage, file, code, parse) {
+/** Each `import.meta.env` in the captured module `file`, the app's or a package's: once `inlineSettings` has run,
+ * app.ts has none left, so any is a read where none is allowed. `where(':line:col')` names the place, as the capture
+ * names it (`path:line:col`, or `name@version (path:line:col)` in a package). */
+export function strayReads(file, code, parse, where, inPackage = false) {
   if (!/\bimport\s*\.\s*meta\b/.test(code) || /\.d\.[cm]?ts$/.test(file) || !/\.[cm]?[jt]sx?$/.test(file)) return [];
-  const lang = /\.[cm]?tsx?$/.test(file) ? (file.endsWith('x') ? 'tsx' : 'ts') : 'js', label = relative(stage, file).split(sep).join('/');
-  const at = lineColumn(code);
-  return metaEnvs(parse(code, { lang })).map(node => `${label}:${at(node.start)}: ${READ}`);
+  const lang = /\.[cm]?tsx?$/.test(file) ? (file.endsWith('x') ? 'tsx' : 'ts') : 'js', at = lineColumn(code);
+  return metaEnvs(parse(code, { lang })).map(node => inPackage
+    ? `${where(`:${at(node.start)}`)} reads import.meta.env, which only app.ts may: app.ts reads the setting (const API = import.meta.env.API_BASE_URL) and passes it in`
+    : `${where(`:${at(node.start)}`)}: ${READ}`);
 }
 
-/** The settings whose value differs from what the build in `dist` inlined (its `.exact-build.json`'s `env`), each as
- * `{ name, built, now }` (a setting, or null where none is set). With `app`, the app's directory beside the build,
- * each is read again from its sources; without it (a build copied away from them) only `env` can change one, and a
- * name it leaves unset keeps the build's value. */
+/** Each setting of `record` (name to the value and source a build inlined) whose value its sources give otherwise
+ * now, as `{ name, built, now }` (a setting, or null where none is set). With `app`, the app's directory beside the
+ * build, each is read again from `env` and the app's files; without it (a build copied away from them) only `env` can
+ * change one, and a name it leaves unset keeps the build's value. */
+export function settingChanges(record, env = process.env, app = null) {
+  const read = app ? settingValues(app, Object.keys(record), env) : {}, bun = bunNames(env);
+  return Object.entries(record).flatMap(([name, was]) => {
+    const now = app ? read[name] ?? (was?.source === 'default' ? was : null)
+      : env[name] !== undefined && !bun.has(name) ? { value: env[name], source: 'environment' } : was;
+    return now?.value === was?.value ? [] : [{ name, built: was, now }];
+  });
+}
+
+/** `settingChanges` for the build in `dist`, from what its `.exact-build.json` says it inlined (`env`). */
 export function changedSettings(dist, env = process.env, app = null) {
   let built = {};
   try { built = JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')).env ?? {}; } catch { /* no record: none inlined */ }
-  const read = app ? settingValues(app, Object.keys(built), env) : {};
-  return Object.entries(built).flatMap(([name, was]) => {
-    const now = app ? read[name] ?? (was?.source === 'default' ? was : null) : env[name] !== undefined ? { value: env[name], source: 'environment' } : was;
-    return now?.value === was?.value ? [] : [{ name, built: was, now }];
-  });
+  return settingChanges(built, env, app);
+}
+
+/** What the bake in `baked` inlined (its receipt's `env`), as a native build's record keeps it beside the app's
+ * directory `app`, for `pendingBuildInputs`: nothing when it read no setting. */
+export function bakedSettings(baked, app) {
+  let env = null;
+  try { env = JSON.parse(readFileSync(resolve(baked, 'app.module.json'), 'utf8')).env ?? null; } catch { /* no TypeScript module */ }
+  return env ? { settings: { dir: app, env } } : {};
 }
 
 /** What a JS build in `out` inlined (`host/web-js/build.mjs` keeps `configure`'s record in its stage), as its

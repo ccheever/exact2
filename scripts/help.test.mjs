@@ -27,7 +27,8 @@ test('each verb of a new app\'s exact.mjs, and no verb, answers help from exact2
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { seed: ['bun', 'seed.mjs'] } }, null, 2));
     // A fake exact2 whose every script, run, leaves a mark: a help that built or served anything would.
     mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
-    for (const file of ['scripts/help.mjs', 'scripts/app-cli.mjs', 'scripts/bun.mjs']) copyFileSync(resolve(ROOT, file), resolve(sdk, file));
+    mkdirSync(resolve(sdk, 'js/bake/src'), { recursive: true });
+    for (const file of ['scripts/help.mjs', 'scripts/app-cli.mjs', 'scripts/bun.mjs', 'js/bake/src/__exact_env.mjs']) copyFileSync(resolve(ROOT, file), resolve(sdk, file));
     for (const file of ['host/web/dev.mjs', 'host/web/build.mjs', 'host/apple/build.mjs', 'scripts/agent.mjs', 'scripts/verify.mjs', 'scripts/build-linux.mjs', 'scripts/agent-android.mjs', 'scripts/exact.mjs', 'scripts/feedback.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), `require('node:fs').appendFileSync(${JSON.stringify(started)}, ${JSON.stringify(file)} + '\\n');`);

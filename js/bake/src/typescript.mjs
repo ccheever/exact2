@@ -578,7 +578,7 @@ export function capturedSources(stage, refusals=null) {
       id=physicalId(id);
       const parse=(c,o)=>this.parse(c,o), js=/\.[cm]?js$/.test(id) && within(id,stage);
       // The app's own JavaScript is checked as package code is, and for the clock as the app's TypeScript is.
-      report([...(files.has(id) ? [] : [...ambientRefusals(stage,id,code,parse), ...strayReads(stage,id,code,parse)]), ...(js ? packageRefusals(code,(at)=>label(id,at),parse) : [])]);
+      report([...(files.has(id) ? [] : ambientRefusals(stage,id,code,parse)), ...strayReads(id,code,parse,(at)=>label(id,at),files.has(id)), ...(js ? packageRefusals(code,(at)=>label(id,at),parse) : [])]);
       return null;
     },
     buildEnd() {
