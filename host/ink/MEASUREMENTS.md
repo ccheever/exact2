@@ -3185,3 +3185,22 @@ Prediction P3: ten retained-cache launches after that population will stay withi
 **2 ms** of P1's measured median device-plus-pipeline phase and will start on ink.
 All predictions must be compared with retained samples; inability to obtain a
 nonzero displayed timestamp leaves the displayed-time prediction unmeasured.
+
+Measurement control P4 (before the final passive pilot): both pilot arms must have
+**zero active or key benchmark windows**. winit's activation flag only changes the
+argument to `activateIgnoringOtherApps`; it still calls that method, and
+`set_visible(true)` calls `makeKeyAndOrderFront`. The boot-only probe now selects
+AppKit's accessory activation policy and suppresses these activation/key requests,
+while allowing `orderFrontRegardless` to expose the layer. This applies only to
+`G1_BOOT_ONLY`. The earlier `warm/` series is retained as an exploratory run; it is
+not evidence that the display-ownership condition held.
+
+Prediction P5 (before the queue-reservation correction): **zero command-pool
+stalls in ten cache-miss launches**. `miss-passive/metal-2.sample.txt` shows both
+the main thread and `ink-present` waiting in `MTLCommandQueue.commandBuffer`.
+The CPU job allocated its command on the worker after the handoff had allowed
+ink's main-thread uploads to reserve the queue's remaining commands. Those
+uploads were behind the CPU job. Reserving the CPU command before enqueueing it
+removes that cycle; the worker then needs no new command-pool slot to commit it.
+The earlier miss series is retained, including its timeout, and cannot meet the
+cache-miss gate.

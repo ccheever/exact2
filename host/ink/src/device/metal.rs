@@ -47,6 +47,12 @@ pub struct Buffer {
     owner: Rc<()>,
 }
 
+#[cfg(target_os = "macos")]
+type PreparedPresentation = (
+    Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
+    Rc<crate::present::Thread>,
+);
+
 pub struct Metal {
     device: Retained<ProtocolObject<dyn MTLDevice>>,
     queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
@@ -73,10 +79,7 @@ pub struct Metal {
     #[cfg(target_os = "macos")]
     window: Option<present::Window>,
     #[cfg(target_os = "macos")]
-    prepared_present: Option<(
-        Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
-        Rc<crate::present::Thread>,
-    )>,
+    prepared_present: Option<PreparedPresentation>,
 }
 
 impl Metal {

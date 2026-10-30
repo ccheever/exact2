@@ -200,9 +200,16 @@ impl Startup {
             .layer
             .as_ref()
             .ok_or(Error::Unsupported("CPU startup has no Metal layer"))?;
+        // Reserve before enqueueing: ink uploads may fill the command pool
+        // during the handoff, and the worker must be able to commit their predecessor.
+        let command = self
+            .context
+            .queue
+            .commandBuffer()
+            .ok_or_else(|| Error::Device("CPU command allocation".into()))?;
         let work = CpuFrame {
             device: self.context.device.clone(),
-            queue: self.context.queue.clone(),
+            command,
             layer: layer.render_layer(),
             pixels,
             benchmark: crate::device::apple::benchmark_scene(),
@@ -242,7 +249,7 @@ fn prepare(
 
 struct CpuFrame {
     device: Retained<ProtocolObject<dyn MTLDevice>>,
-    queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
+    command: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
     layer: RenderLayer,
     pixels: Arc<tiny_skia::Pixmap>,
     benchmark: (bool, f32),
@@ -254,6 +261,20 @@ unsafe impl Send for CpuFrame {}
 impl CpuFrame {
     fn run(self) -> Result<()> {
         let _trace = Trace::new(c"worker CPU present");
+        let result = self.encode();
+        // An unavailable drawable still releases the reserved command-pool slot.
+        self.command.commit();
+        self.command.waitUntilCompleted();
+        if self.command.status() == MTLCommandBufferStatus::Error {
+            return Err(Error::DeviceLost(format!(
+                "CPU present failed: {:?}",
+                self.command.error()
+            )));
+        }
+        result
+    }
+
+    fn encode(&self) -> Result<()> {
         crate::device::apple::benchmark_painter(false);
         crate::device::apple::benchmark_present(self.benchmark);
         let Some(drawable) = self.layer.raw.nextDrawable() else {
@@ -284,20 +305,9 @@ impl CpuFrame {
             return Ok(());
         }
         let source = cpu_texture(&self.device, &self.pixels)?;
-        let command = self
-            .queue
-            .commandBuffer()
-            .ok_or_else(|| Error::Device("CPU command allocation".into()))?;
-        blit(&command, &source, &target)?;
+        let command = &self.command;
+        blit(command, &source, &target)?;
         command.presentDrawable(ProtocolObject::from_ref(&*drawable));
-        command.commit();
-        command.waitUntilCompleted();
-        if command.status() == MTLCommandBufferStatus::Error {
-            return Err(Error::DeviceLost(format!(
-                "CPU present failed: {:?}",
-                command.error()
-            )));
-        }
         Ok(())
     }
 }
