@@ -2304,8 +2304,9 @@ includes pauses between gestures. Rest counts cover the following ten seconds.
 | Posting gaps over 25 ms, count | 0 [0–0] | 0 [0–0] | 0 [0–1] |
 
 **Finding, corrected by G6c.** Direct D3D11 reaches the complete heavy-list
-screen first: the final ten-launch series is **182.25 ms**; G6's original
-D3D11/egui/Ink-wgpu medians were **175.98/248.76/716.21 ms**, rising to
+screen first: G6c's ten-launch series is **182.25 ms**; egui and Ink/wgpu
+were not remeasured, and egui's DWM proxy includes another event dispatch.
+G6's original D3D11/egui/Ink-wgpu medians were **175.98/248.76/716.21 ms**, rising to
 **249.30/348.00/1007.25 ms** after supported driver-cache resets. The final
 D3D11 range is wider than G6's; [G6c's paired startup control](#g6c-one-paint-per-refresh)
 finds a **+3.28 ms** median paired increase; unchanged startup is not
@@ -2724,7 +2725,10 @@ repeat the driver-cache reset or the two wgpu controls.
 
 The contemporaneous control alternates ten before and ten after processes,
 reversing order each pair, five seconds apart, at the same executable path
-with the same assets and application cache. Before is G6b's preserved
+with the same assets and application cache. Each launch runs a freshly copied
+executable image; OS prefetch and real-time scanning can differ from the
+ordinary startup series. The committed `egui/windows-paired-startup.py` and
+`egui/windows-paired-summary.py` reproduce this control. Before is G6b's preserved
 `636f1fe2ae` release with matching PDB settings (SHA-256
 `6d69997deac5ba5d8b34cf3c61ab04005937301ab22940479b445ab6af6e16e2`);
 the later G6b fixes concern recovery and the DPI fixture. After is the final

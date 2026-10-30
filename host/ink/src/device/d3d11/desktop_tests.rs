@@ -352,47 +352,21 @@ impl Shelf {
 
     fn capture_pixels(&mut self) -> tiny_skia::Pixmap {
         self.alive();
-        let mut clicked = false;
         until("Shelf is unobscured", || {
             self.alive();
             unsafe {
+                use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
                 let _ = SetForegroundWindow(self.hwnd);
-                if GetForegroundWindow() != self.hwnd
-                    && !GetForegroundWindow().is_invalid()
-                    && !clicked
-                {
-                    // Settings can own the last input after a DPI change.
-                    // Shelf's empty lower-right client margin cannot turn
-                    // repeated activation into a title-bar double-click.
-                    use windows::Win32::UI::Input::KeyboardAndMouse::*;
-                    SetWindowPos(
-                        self.hwnd,
-                        Some(HWND_TOP),
-                        0,
-                        0,
-                        0,
-                        0,
-                        SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE,
-                    )
-                    .unwrap();
-                    let rect = self.client();
-                    let mut point = POINT {
-                        x: rect.right - 24,
-                        y: rect.bottom - 24,
-                    };
-                    assert!(ClientToScreen(self.hwnd, &mut point).as_bool());
-                    SetCursorPos(point.x, point.y).unwrap();
-                    let events = [MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP].map(|flags| INPUT {
-                        r#type: INPUT_MOUSE,
-                        Anonymous: INPUT_0 {
-                            mi: MOUSEINPUT {
-                                dwFlags: flags,
-                                ..Default::default()
-                            },
-                        },
-                    });
-                    assert_eq!(SendInput(&events, size_of::<INPUT>() as i32), 2);
-                    clicked = true;
+                if GetForegroundWindow() != self.hwnd {
+                    let foreground = GetWindowThreadProcessId(GetForegroundWindow(), None);
+                    let current = GetCurrentThreadId();
+                    let attached = foreground != 0
+                        && foreground != current
+                        && AttachThreadInput(current, foreground, true).as_bool();
+                    let _ = SetForegroundWindow(self.hwnd);
+                    if attached {
+                        assert!(AttachThreadInput(current, foreground, false).as_bool());
+                    }
                 }
                 GetForegroundWindow() == self.hwnd
             }
