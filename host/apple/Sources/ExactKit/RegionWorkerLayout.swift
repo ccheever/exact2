@@ -84,7 +84,8 @@ final class RegionWorkerLayout {
             guard hi > lo else { continue }
             let line = line(at: i)
             let flush: CGFloat = source.align == 1 ? 0.5 : source.align == 2 ? 1 : 0
-            let x = box.minX + TextEngine.penOffset(line, flush: flush, room: Double(box.width), rtl: source.direction == 1)
+            let x = box.minX + TextEngine.penOffset(line, flush: flush, room: Double(box.width), rtl: source.direction == 1,
+                                                    whiteSpace: source.whiteSpace, source: preparation.attributed)
             let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
             var above: CGFloat = 0, below: CGFloat = 0
             _ = CTLineGetTypographicBounds(line, &above, &below, nil)
@@ -244,7 +245,8 @@ final class RegionWorkerLayout {
             maxWidth = max(maxWidth, w)
             if retainHits {
                 if compact {
-                    summaries.append(RegionLine(line, flush: flush, width: width, rtl: source.direction == 1, captureHits: false,
+                    summaries.append(RegionLine(line, flush: flush, width: width, rtl: source.direction == 1, whiteSpace: source.whiteSpace,
+                                                text: attributed, captureHits: false,
                                                 conservativeInk: lineInk.isNull ? .zero : lineInk))
                 } else { lines.append(line) }
             }
@@ -272,7 +274,7 @@ final class RegionWorkerLayout {
             metadata = try RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
                 lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: height,
                 lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits, captureHits: false,
-                metadataCheckpoint: beforeMetadata)
+                attributed: attributed, metadataCheckpoint: beforeMetadata)
         }
         return RegionWorkerLayout(source: source, lines: retainHits ? lines : [], baselines: retainHits ? baselines : [],
                                   metadata: metadata, preparation: preparation)

@@ -18,13 +18,13 @@ extension TextEngine {
     }
 
     /// What a line's trailing white space adds to its width that CSS does
-    /// not count (CSS Text 3 §4.1.3): collapsible spaces at a line's end are
-    /// removed; under `pre-wrap` (`whiteSpace` 1) preserved ones hang, wholly
-    /// at a soft wrap and, before a forced break or at the paragraph's end, as
-    /// far as they would not fit in `room`; under `pre` (4) they count. At the
-    /// paragraph's end CSS Text 3 hangs them wholly, but Chrome counts them in
-    /// a max-content width: a `pre-wrap` "Say " in a flex row is as wide as
-    /// "Say" and its space. The spaces hang only past the box's room.
+    /// not count. Collapsible spaces at a line's end are removed (CSS Text 3
+    /// §4.1.2, Phase II rule 3). `pre-wrap`'s (`whiteSpace` 1) hang at a soft
+    /// wrap and, before a forced break, which the end of the block also is
+    /// (§5), conditionally hang: only as far as they would not fit in `room`
+    /// (rule 4). §8.2 counts conditionally hanging spaces in a max-content
+    /// size, so a `pre-wrap` "Say " is as wide as "Say" and its space, as
+    /// Chrome measures it. `pre`'s (4) count.
     package static func uncountedTrailingWidth(_ line: CTLine, whiteSpace: Int, source: NSAttributedString, room: CGFloat) -> CGFloat {
         if whiteSpace == 4 { return 0 }
         let trailing = CGFloat(CTLineGetTrailingWhitespaceWidth(line))
@@ -35,6 +35,12 @@ extension TextEngine {
             guard let last = Unicode.Scalar(text.character(at: end - 1)), CharacterSet.newlines.contains(last) else { return trailing }
         }
         return min(trailing, max(0, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - room))
+    }
+
+    /// The part of a line's trailing white space that its width counts
+    /// (`uncountedTrailingWidth` leaves the rest out), in a box `room` wide.
+    package static func countedTrailingWidth(_ line: CTLine, whiteSpace: Int, source: NSAttributedString, room: CGFloat) -> CGFloat {
+        max(0, CGFloat(CTLineGetTrailingWhitespaceWidth(line)) - uncountedTrailingWidth(line, whiteSpace: whiteSpace, source: source, room: room))
     }
 
     package static func inkedSoftHyphen(_ line: CTLine, source: NSAttributedString, range: CFRange) -> CTLine {
@@ -67,18 +73,25 @@ extension TextEngine {
 
 extension TextEngine {
     /// Where a line starts in a box `room` wide, flush `flush` (0 left, 0.5
-    /// centre, 1 right): CoreText's pen offset, except that a line wider than
-    /// its box is start-aligned and overflows its end edge, as CSS Text 3
-    /// §7.1 has it ("the contents are start-aligned") and Chrome draws it.
-    /// CoreText flushes the overlong line the other way, so a right-aligned
-    /// column at an accessibility text size spilled left over its neighbour
-    /// (round 13's weather: the "High" header ran into "Low") where the web
-    /// spills right. A line that fits is CoreText's.
-    package static func penOffset(_ line: CTLine, flush: CGFloat, room: Double, rtl: Bool) -> CGFloat {
-        let offset = CGFloat(CTLineGetPenOffsetForFlush(line, flush, room))
-        guard flush != 0 || rtl else { return offset }
-        let slack = flush == 1 ? offset : CGFloat(CTLineGetPenOffsetForFlush(line, 1, room))
-        return slack < 0 ? (rtl ? slack : 0) : offset
+    /// centre, 1 right). The line aligns as its ink and the trailing spaces
+    /// its width counts (`countedTrailingWidth`, from `whiteSpace` and the
+    /// line's `source`): they do not hang, so CSS Text 3 §4.1.2 aligns them
+    /// with the rest of the line. CoreText's pen offset leaves every trailing
+    /// space out. A right-aligned `pre-wrap` "Say " ends its space,
+    /// not its "y", at the right edge, as in Chrome. CoreText draws a
+    /// right-to-left line's trailing spaces left of its pen, so there the
+    /// pen moves right by them. A line wider than its box is start-aligned
+    /// and overflows its end edge, as §6.1 has it ("the contents are
+    /// start-aligned") and Chrome draws it. CoreText flushes the overlong
+    /// line the other way, so a right-aligned column at an accessibility
+    /// text size spilled left over its neighbour (round 13's weather: the
+    /// "High" header ran into "Low") where the web spills right.
+    package static func penOffset(_ line: CTLine, flush: CGFloat, room: Double, rtl: Bool, whiteSpace: Int = 0, source: NSAttributedString? = nil) -> CGFloat {
+        let counted = source.map { countedTrailingWidth(line, whiteSpace: whiteSpace, source: $0, room: CGFloat(room)) } ?? 0
+        // The room beside the line's ink (CoreText's offset for a right flush)
+        let slack = CGFloat(CTLineGetPenOffsetForFlush(line, 1, room))
+        guard slack - counted >= 0 else { return rtl ? slack : 0 }
+        return CGFloat(CTLineGetPenOffsetForFlush(line, flush, room)) - counted * flush + (rtl ? counted : 0)
     }
 }
 
@@ -163,7 +176,8 @@ extension Paragraph {
         // CSS `text-indent` and a list item's indent: the line aligns in
         // what its inset leaves.
         let inset = insets.at(CTLineGetStringRange(lines[index]).location)
-        return inset.left + TextEngine.penOffset(lines[index], flush: flush, room: Double(width - inset.width), rtl: insets.rtl)
+        return inset.left + TextEngine.penOffset(lines[index], flush: flush, room: Double(width - inset.width), rtl: insets.rtl,
+                                                 whiteSpace: shape?.spec.whiteSpace ?? 0, source: shape?.attributed)
     }
 
     /// First select the band, then the closest painted fragment in that band.
