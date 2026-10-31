@@ -5057,3 +5057,24 @@ remain unverified. The existing `amdihk64.dll_unloaded` fault event identifies
 a module, not a cause:
 whether it is an AMD overlay hook loaded into every process, and whether
 the crash reproduces with the candidate off, remain unverified.
+
+### Native collection — predictions before the runs
+
+Source `f3ff290579`, branch `lane/1149-001-s1w-native`. The NucBox mirror is
+`projects/exact2-1149-001-s1w-native`, with its own `target/`. This chunk
+changes no Rust and runs no Mac build. Raw commands, logs, captures and
+exit codes are retained under `target/stage-1w-native/` on both machines.
+
+| Prediction | Instrument |
+| --- | --- |
+| Zero eager imports of `dbghelp.dll`, `d2d1.dll` and `dwrite.dll` in this revision's Shelf. | Complete native `dumpbin /imports` output and executable SHA-256, candidates disabled. No startup saving is predicted. |
+| Zero failing S2.8b suites and desktop journeys on D3D11, and on wgpu except for the separately assessed paint crash. | Native `gpu-dev` executables, one test thread, required device flags; each named filter retains its result and exit. |
+| Native edit, selection and lifetime fixtures pass; Shelf type/select/cut/paste/undo retain their values at 100% and 150%. | Native fixtures and desktop captures with the RichEdit candidate enabled. |
+| One UIA attempt discovers the native fragment within 30 seconds. | The existing Shelf discovery fixture; a failure retains the rejected tree and provider identity. |
+| Static-face advance error stays below 0.02 device pixels; unhinted coverage means fall below 4.589/255 for Inter and 12.335/255 for Segoe UI. | One 9,540-row DirectWrite audit with both rasters unhinted, retained font bytes and per-glyph CSV. Axes and colour remain refused. |
+
+The final wgpu paint run has no pass prediction: chunk A's access violation
+in `amdihk64.dll_unloaded` and subsequent machine hang require an isolated
+candidate-off run, module inventory and immediate fault-event/WER capture.
+It runs last. A repeat of that fault ends collection without another paint
+attempt. No AMD setting is changed by this chunk.
