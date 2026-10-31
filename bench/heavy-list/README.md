@@ -159,15 +159,46 @@ Their “quiet” label means that old rule only. The complete (a) CPU baseline 
 taken under that background; re-take it when the machine is quiet. The owner
 must stop the fleet/Claude session and its polling loops, simulators and
 DeviceHub, and PerfPowerServices if it is spinning, before the next series.
-The proposed bounds are ≤2 whole-machine busy cores and ≤0.25 core for the
-largest non-benchmark process at every five-second observation, besides all
-load averages below 30 and no compiler. `gpui/run-hook.py` records CPU-tick
-deltas (including exited tasks), the five largest non-benchmark processes,
-and `pmset -g` / `pmset -g batt` per series. Its `--single` mode retains one
-instrument sample even if loaded and produces no scoreboard table. See
-[the predictions, background and reproduction](gpui/RESULTS.md#g4m-the-instruments-share).
-The probe's instructions and cycles accompany phase CPU; historical samples
-without those counters cannot establish a clock-versus-work attribution.
+The bounds are ≤2 whole-machine busy cores, all load averages below 30 and
+no compiler. WindowServer counts as benchmark work because it composites the
+benchmark's frames. Other processes stay at or below 0.25 core, except transient
+macOS daemons: at most 10% of a series' five-second observations may cross
+0.25 core, and none may exceed 1.0 core. User workloads get no allowance.
+`gpui/run-hook.py` retains CPU-tick deltas, the five largest other processes,
+and power source/mode. Its `--single` mode retains an instrument sample even
+when loaded and produces no scoreboard table. See
+[the instrument comparison](gpui/RESULTS.md#g4m-the-instruments-share) and
+[the amended G4q audit](gpui/RESULTS.md#g4q1-the-clock).
+
+Every Mac CPU row carries its **effective GHz**: the phase's process-cycle
+delta divided by its process-CPU-second delta and by 10⁹. Calculate each
+sample before aggregating; include instructions per cycle. A row whose arms
+ran below **3 GHz** is not a scoreboard row. Missing counters are unavailable,
+not evidence of a qualified clock. G4m and the five-round hook comparison lack
+them; G4q's retained counters show low clocks and disqualify its CPU rows.
+The silver's M5 Max names its CPU levels **Super** and **Performance**. Calling
+the lower level an efficiency cluster would misidentify this machine.
+
+**No restoring launch recipe is established.** G4q.1 tested the SSH/Aqua chain
+below, LaunchServices and an interactive-QoS probe override. The Rust arms
+remained below 2 GHz. LaunchServices requested interactive QoS and used an app
+role, but did not restore G4's CPU ranges. The override is diagnostic only and
+must never become a scoreboard setting. A Terminal child reached the driver's
+preflight, which refused because Terminal lacks Accessibility permission.
+The direct `osascript` route had timed out; opening a `.command` file in Terminal
+worked without that automation route. A Terminal comparison still needs the
+owner's Accessibility grant, then a new clock sample before any series.
+
+To reproduce the tested LaunchServices route, enter the user's Aqua bootstrap
+domain as below. For each signed bundle set that domain's
+`DYLD_INSERT_LIBRARIES` to its probe, then invoke `open -n -W -a <bundle>` with
+its probe environment and application arguments. Use the probe's recorded PID
+for signals and accounting, not `open`'s PID. Clear the domain variable after
+launch and on failure. G4q.1 retains the exact driver and wrapper under
+`target/g0/clock-2035d50319/`; these are diagnostic launch instructions, not a
+qualified CPU recipe. Keep power sampling separate and never run two lanes'
+arms together. Check for M10's `measure`, arms and `target/g0/run-*.py` before
+each launch; wait in bounded intervals up to one hour if they are active.
 
 The G4 driver and its four signed bundles are prepared under `target/g0/`.
 `build.sh`, `bundle.py` and the build logs retain the commands; the data must pass

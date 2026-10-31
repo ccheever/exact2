@@ -25,7 +25,7 @@ def quiet_series(rows):
                 and p['cpuCores'] > PROCESS_LIMIT]
         crossings += bool(over)
         if any(p['cpuCores'] > 1.0 or not p['command'].startswith(
-                ('/System/', '/usr/libexec/', '/usr/sbin/', '/sbin/')) for p in over):
+                ('/System/Library/', '/usr/libexec/', '/usr/sbin/', '/sbin/')) for p in over):
             return False
     return crossings / len(rows) <= 0.1
 

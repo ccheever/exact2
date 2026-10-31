@@ -340,10 +340,13 @@ static NSDictionary *usage(void) {
         uint64_t policy[8] = {0}; count = sizeof(policy) / (sizeof(integer_t)); defaults = false;
         kern_return_t policyStatus = task_policy_get(mach_task_self(), TASK_POLICY_STATE,
             (task_policy_t)policy, &count, &defaults);
-        sample[@"taskPolicy"] = @{@"roleStatus": @(roleStatus), @"role": @(category.role),
-            @"stateStatus": @(policyStatus), @"effectiveRaw": [NSString stringWithFormat:@"%016llx", policy[7]],
-            @"effectiveRole": @((policy[7] >> 20) & 15), @"qosClamp": @((policy[7] >> 27) & 7),
-            @"darwinBackground": @((policy[7] & 1) != 0)};
+        sample[@"taskPolicy"] = @{@"roleStatus": @(roleStatus),
+            @"role": roleStatus == KERN_SUCCESS ? @(category.role) : NSNull.null,
+            @"stateStatus": @(policyStatus),
+            @"effectiveRaw": policyStatus == KERN_SUCCESS ? [NSString stringWithFormat:@"%016llx", policy[7]] : NSNull.null,
+            @"effectiveRole": policyStatus == KERN_SUCCESS ? @((policy[7] >> 20) & 15) : NSNull.null,
+            @"qosClamp": policyStatus == KERN_SUCCESS ? @((policy[7] >> 27) & 7) : NSNull.null,
+            @"darwinBackground": policyStatus == KERN_SUCCESS ? @((policy[7] & 1) != 0) : NSNull.null};
         sample[@"processQos"] = @{
             @"default": @(r.ri_cpu_time_qos_default * tickSeconds),
             @"maintenance": @(r.ri_cpu_time_qos_maintenance * tickSeconds),

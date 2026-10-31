@@ -3277,6 +3277,10 @@ launch's **669.576 ms** tail and every earlier failure remain in the record.
 
 ## G4m: the four arms on the measurement Mac
 
+**Clock qualification (G4q.1):** this series has no retained cycle counters.
+Its clock is unavailable; it is not a savings baseline. Later low-clock samples
+do not retroactively establish this series' cluster or clock.
+
 Measured 2026-10-30 on the dedicated silver M5 Max, source
 `42d5066572c148461b4b059306be1fd2225b45f0`, fetched from `origin/main`.
 All four release arms, the probe, driver and wheel helper were rebuilt in
@@ -4759,6 +4763,11 @@ Third rebase onto `43e0d93b85`: the `probe.m` and `window.rs` conflicts retain S
 
 ## G4m, the instrument's share
 
+**Clock qualification (G4q.1):** this series has no retained cycle counters.
+Its clock is unavailable; it is not a savings baseline. The later single Ink
+counter sample is 2.195 GHz during fling, and G4q's Rust arms run below 2 GHz.
+Those observations do not retroactively establish this series' cluster or clock.
+
 **Predictions before measurement, 2026-10-30.** Five rounds per configuration,
 interleaved by round on the silver Mac: (a) command-buffer hook off, power
 sampling off; (b) hook on, power off; (c) hook on, power on as G4m. The
@@ -5371,6 +5380,13 @@ the headless tests. The timer-workload CPU attribution remains queued.
 
 
 ## G4q, the quiet baselines
+
+**Clock qualification (G4q.1):** the retained fling and rest counters show low
+clocks. These CPU rows are excluded regardless of quiet qualification. The
+later diagnostic locates Rust main threads on the M5 Max's lower Performance
+cluster; this machine has no cluster named Efficiency. Under the amended quiet
+rule, four cohorts pass; see G4q.1. The original outcome below uses the original
+bounds and remains the record of that run.
 
 **Outcome:** every prescribed cohort and its one retry exceeded the landed
 quiet bounds. All twenty are retained and excluded; no scoreboard row is
@@ -6281,3 +6297,385 @@ Raw inputs, reductions, launch sources and observations are retained under
 `target/g4q-clock/` here and `target/g0/clock-2035d50319/` on silver.
 The silver reports performance-level names **Super** and **Performance**;
 no efficiency-core assignment is inferred from GHz alone.
+
+### G4q.1 results and qualification
+
+**The low clock is measured; a restoring launch recipe is not established.**
+G4q's Rust fling samples run at 1.59–1.97 effective GHz. The new main-thread
+counters put them mostly on the M5 Max's lower **Performance** level, not its
+**Super** level. This machine has no efficiency-core level: `hw.perflevel0.name`
+is `Super`, level 1 is `Performance`, matching Apple's
+[M5 Max CPU description](https://www.apple.com/newsroom/2026/03/apple-debuts-m5-pro-and-m5-max-to-supercharge-the-most-demanding-pro-workflows/).
+The brief's “efficiency-cluster clock” describes the suspected symptom, not
+this chip's cluster name. Cycles alone do not identify a cluster.
+
+LaunchServices changes the task role and effective QoS accounting, but the
+Rust arms remain below 2 GHz. The constructor override also misses. Terminal
+reaches the driver's preflight but has no Accessibility grant, so that remedy
+has no sample. No tested remedy restores a ≥3 GHz clock for all four arms or
+reproduces all four G4 CPU ranges. The hypothesis that SSH ancestry alone
+explains the gap is not established. Task placement, burst-driven frequency
+selection and other process policy remain candidates; this experiment does
+not apportion their costs or the instrument's own overhead.
+
+### Retained phase clocks
+
+For each accepted sample, effective GHz is `Δri_cycles / ΔCPU seconds / 10⁹`;
+IPC is `Δri_instructions / Δri_cycles`. CPU seconds use the probe's existing
+Mach-timebase conversion. These are ratios within each sample, never ratios
+of independently aggregated medians. XNU documents the accounting in
+[recount](https://github.com/apple-oss-distributions/xnu/blob/main/doc/observability/recount.md).
+
+| Cohort / sample | Native GHz / IPC | GPUI GHz / IPC | Ink GHz / IPC | egui GHz / IPC |
+|---|---:|---:|---:|---:|
+| fling-a-1, fling 1 | 2.700 / 2.765 | 1.592 / 1.884 | 1.971 / 1.982 | 1.678 / 1.809 |
+| fling-a-1, fling 2 | 2.549 / 2.627 | 1.592 / 1.929 | 1.672 / 2.120 | 1.707 / 1.808 |
+| fling-a-1, fling 3 | 2.557 / 2.741 | 1.640 / 1.929 | 1.820 / 2.026 | 1.700 / 1.770 |
+| fling-a-1, fling 4 | 2.832 / 2.959 | 1.629 / 1.875 | 1.720 / 2.102 | 1.671 / 1.783 |
+| fling-a-1, fling 5 | 2.806 / 2.661 | 1.604 / 1.911 | 1.755 / 2.096 | 1.659 / 1.829 |
+| fling-a-1, rest 1 | 1.490 / 0.561 | 1.376 / 1.143 | 1.471 / 0.860 | 1.380 / 0.917 |
+| fling-a-1, rest 2 | 1.458 / 0.590 | 1.376 / 1.167 | 1.545 / 0.857 | 1.326 / 1.010 |
+| fling-a-1, rest 3 | 1.596 / 0.584 | 1.381 / 1.160 | 1.444 / 0.851 | 1.365 / 1.004 |
+| fling-a-1, rest 4 | 1.467 / 0.619 | 1.412 / 1.134 | 1.506 / 0.858 | 1.456 / 0.938 |
+| fling-a-1, rest 5 | 1.404 / 0.614 | 1.361 / 1.186 | 1.520 / 0.808 | 1.328 / 0.979 |
+| fling-a-2, fling 1 | 2.771 / 2.877 | 1.884 / 1.828 | 1.806 / 2.127 | 1.684 / 1.796 |
+| fling-a-2, fling 2 | 2.589 / 2.791 | 1.612 / 1.888 | 1.774 / 1.967 | 1.685 / 1.787 |
+| fling-a-2, fling 3 | 2.620 / 2.904 | 1.863 / 1.803 | 1.711 / 2.106 | unavailable |
+| fling-a-2, fling 4 | 2.720 / 2.919 | 1.903 / 1.783 | 1.682 / 2.035 | 1.704 / 1.782 |
+| fling-a-2, fling 5 | 3.008 / 2.945 | 1.612 / 1.872 | 1.693 / 2.078 | 1.819 / 1.786 |
+| fling-a-2, rest 1 | 1.449 / 0.585 | 1.385 / 1.173 | 1.406 / 0.861 | 1.514 / 0.897 |
+| fling-a-2, rest 2 | 1.564 / 0.552 | 1.352 / 1.217 | 1.547 / 0.847 | 1.427 / 0.901 |
+| fling-a-2, rest 3 | 1.730 / 0.813 | 1.376 / 1.178 | 1.385 / 0.988 | unavailable |
+| fling-a-2, rest 4 | 1.433 / 0.601 | 1.405 / 1.108 | 1.411 / 0.889 | 1.351 / 1.003 |
+| fling-a-2, rest 5 | 1.521 / 0.566 | 1.367 / 1.134 | 1.432 / 0.895 | 1.378 / 0.937 |
+
+The missing egui round in `fling-a-2` was rejected, including its retry; it is
+not zero. `retained.json` also contains the counter-bearing power samples,
+with their separate instrument identity. They are not CPU baselines.
+
+| Historical hook sample | Fling GHz / IPC | Rest GHz / IPC |
+|---|---:|---:|
+| Configurations (a), (b), (c), rounds 1–5, all four arms | unavailable | unavailable |
+| Later hook-off Ink instrument sample | 2.195 / 1.802 | 1.895 / 0.869 |
+
+Original G4m and all sixty hook-comparison samples lack cycle/instruction
+endpoints. Their clocks cannot be recovered. The later Ink sample is
+`target/g4m-hook-review/single/sample/ink-1.json`; its CPU is 134.735 ms/s
+in fling and 2.420 at rest. It establishes a low clock only for that sample.
+These historical series are marked clock-unqualified, not retroactively
+assigned to a cluster. None is a savings baseline.
+
+### Launches and thread placement
+
+Measured 2026-10-30, 20:46–21:05 PDT. All four applications are byte-identical
+before their code signatures to the retained G4q arms (`code-identity.json`).
+Only the diagnostic probe and
+launch adapter change; signed copies and both probe versions remain on silver.
+Every row below is one accepted ten-second fling. `ssh-power` uses the original
+SSH → privileged Aqua-session switch → user → caffeinate → Python → driver
+chain alongside `powermetrics`. `ssh` repeats it without the sampler.
+`services` launches each bundle with `open -n -W -a`; the GUI bootstrap domain's
+`DYLD_INSERT_LIBRARIES` names that bundle's probe and is cleared after launch.
+The driver uses the constructor's PID file to signal the application rather
+than `open`. `qos` uses the SSH chain with `G1_CLOCK_QOS=1`: the constructor's
+`setpriority(PRIO_DARWIN_PROCESS, 0, 0)` and
+`pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0)` both return zero.
+That override is diagnostic only. `-confirm` is a second sample with task-role
+reads; the power-off SSH control uses that probe too.
+
+| Launch / arm | Effective GHz | IPC | Process CPU, ms/s | Presented frames/s | Main on Performance | Requested QoS |
+|---|---:|---:|---:|---:|---:|---:|
+| ssh-power / native | 2.824 | 2.567 | 177.74 | — | 41.6% | 21 |
+| ssh-power / gpui | 1.939 | 1.374 | 196.55 | 88.95 | 91.5% | 21 |
+| ssh-power / ink | 1.913 | 1.788 | 158.10 | 33.38 | 88.8% | 21 |
+| ssh-power / egui | 1.724 | 1.556 | 146.01 | 41.49 | 92.0% | 21 |
+| ssh / native | 2.853 | 2.577 | 182.22 | — | 44.1% | 21 |
+| ssh / gpui | 1.648 | 1.585 | 199.96 | 88.68 | 94.7% | 21 |
+| ssh / ink | 1.871 | 1.758 | 158.63 | 33.39 | 93.0% | 21 |
+| ssh / egui | 1.750 | 1.489 | 151.66 | 41.50 | 96.5% | 21 |
+| services / native | 3.049 | 2.903 | 147.34 | — | 18.8% | 33 |
+| services / gpui | 1.822 | 1.526 | 184.03 | 88.98 | 93.1% | 33 |
+| services / ink | 1.997 | 1.846 | 147.21 | 33.20 | 90.0% | 33 |
+| services / egui | 1.849 | 1.470 | 142.38 | 40.99 | 92.7% | 33 |
+| services-confirm / native | 2.862 | 2.813 | 136.63 | — | 27.8% | 33 |
+| services-confirm / gpui | 1.884 | 1.536 | 179.13 | 88.99 | 92.8% | 33 |
+| services-confirm / ink | 1.967 | 1.893 | 146.92 | 33.49 | 89.4% | 33 |
+| qos / native | 2.881 | 2.442 | 180.23 | — | 55.6% | 33 |
+| qos / gpui | 1.666 | 1.617 | 192.78 | 89.06 | 93.0% | 33 |
+| qos / ink | 1.870 | 1.882 | 149.50 | 33.39 | 89.1% | 33 |
+| qos / egui | 1.707 | 1.533 | 148.48 | 41.40 | 94.1% | 33 |
+| qos-confirm / native | 2.832 | 2.643 | 183.19 | — | 42.0% | 33 |
+| qos-confirm / gpui | 1.723 | 1.591 | 189.22 | 89.19 | 92.1% | 33 |
+| qos-confirm / ink | 1.915 | 1.814 | 152.67 | 33.29 | 91.5% | 33 |
+| qos-confirm / egui | 1.727 | 1.552 | 146.22 | 41.58 | 93.8% | 33 |
+
+“Main on Performance” is the main thread's lower-level CPU divided by its CPU
+across both levels. It comes from XNU `thread_selfcounts` kind 4, called on the
+main thread, using `hw.perflevel` ordering; it is not inferred from process
+GHz or a system-wide frequency. The ABI is declared in
+[XNU's resource header](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/resource_private.h).
+Requested QoS 21 means default and 33 means user interactive. Presented rates
+count the painted arms' presentation timestamps over the full phase. Native's
+AppKit path provides no comparable callback, so its rate is unavailable.
+
+The first `qos` native sample overlaps preparation of the second diagnostic
+probe and is excluded from causal comparisons. Its confirmation avoids that
+build. In the LaunchServices confirmation egui failed readiness twice; those
+rejections remain and supply no row. The first LaunchServices native attempt
+lost focus to another Heavy list PID; its accepted retry is shown. The first
+three configurations checked other lane processes before their cohort; the
+second probe's driver additionally checks before every arm. M10 started between
+arms in the last confirmation; the guard waited 96.34 seconds, with nineteen
+blocked observations, before launching egui.
+All attempts, including refusals, remain in their original directories.
+
+The SSH power-off control passes all its recorded amended quiet observations.
+Other measured configurations exceed at least one whole-series bound; these
+are diagnostic samples, not qualified scoreboard series. `pmset` reports AC
+power and `powermode 0`. The extra per-level/QoS reads and `launchctl procinfo`
+inspection have not been calibrated against the ordinary probe. In particular,
+their rest CPU is not a renderer regression estimate.
+
+The exact rest endpoints are retained too:
+
+| Launch / arm | Effective GHz | IPC | Process CPU, ms/s | Presented frames/s | Main on Performance | Requested QoS |
+|---|---:|---:|---:|---:|---:|---:|
+| ssh-power / native | 1.527 | 0.621 | 2.71 | — | 93.2% | 21 |
+| ssh-power / gpui | 2.034 | 0.752 | 5.62 | 0.00 | 90.2% | 21 |
+| ssh-power / ink | 1.594 | 0.834 | 3.04 | 0.00 | 94.4% | 21 |
+| ssh-power / egui | 1.512 | 0.875 | 0.86 | 0.00 | 100.0% | 21 |
+| ssh / native | 1.461 | 0.601 | 3.00 | — | 98.7% | 21 |
+| ssh / gpui | 1.392 | 1.184 | 5.03 | 0.00 | 98.5% | 21 |
+| ssh / ink | 1.415 | 0.928 | 3.22 | 0.00 | 100.0% | 21 |
+| ssh / egui | 1.432 | 0.957 | 0.91 | 0.00 | 89.0% | 21 |
+| services / native | 1.440 | 0.611 | 2.95 | — | 100.0% | 33 |
+| services / gpui | 1.424 | 1.203 | 4.77 | 0.00 | 100.0% | 33 |
+| services / ink | 1.427 | 0.810 | 3.18 | 0.00 | 100.0% | 33 |
+| services / egui | 1.410 | 0.966 | 0.94 | 0.00 | 100.0% | 33 |
+| services-confirm / native | 1.618 | 0.554 | 2.92 | — | 100.0% | 33 |
+| services-confirm / gpui | 2.215 | 0.753 | 4.90 | 0.00 | 100.0% | 33 |
+| services-confirm / ink | 2.255 | 0.597 | 2.80 | 0.00 | 100.0% | 33 |
+| qos / native | 1.919 | 0.531 | 2.56 | — | 100.0% | 33 |
+| qos / gpui | 1.407 | 1.162 | 5.01 | 0.00 | 98.5% | 33 |
+| qos / ink | 1.390 | 0.878 | 3.28 | 0.00 | 98.4% | 33 |
+| qos / egui | 1.335 | 1.022 | 0.88 | 0.00 | 100.0% | 33 |
+| qos-confirm / native | 1.426 | 0.678 | 2.77 | — | 98.0% | 33 |
+| qos-confirm / gpui | 1.373 | 1.219 | 4.96 | 0.00 | 98.9% | 33 |
+| qos-confirm / ink | 1.450 | 0.865 | 3.30 | 0.00 | 98.3% | 33 |
+| qos-confirm / egui | 1.382 | 0.962 | 0.93 | 0.00 | 100.0% | 33 |
+
+**QoS and role.** Phase deltas of `rusage_info_v4` give the following share of
+process CPU. “Other” sums maintenance, background and utility. The first probe
+has no task-role read; the second uses `TASK_CATEGORY_POLICY`, where 0 is
+unspecified and 1 is foreground application.
+
+| Launch / arm | Legacy + default | User initiated | User interactive | Other | Task role |
+|---|---:|---:|---:|---:|---|
+| ssh-power / native | 84.6% | 15.4% | 0.0% | 0.01% | unavailable |
+| ssh-power / gpui | 59.5% | 40.5% | 0.0% | 0.04% | unavailable |
+| ssh-power / ink | 78.2% | 21.8% | 0.0% | 0.04% | unavailable |
+| ssh-power / egui | 70.3% | 29.6% | 0.0% | 0.05% | unavailable |
+| ssh / native | 85.5% | 14.5% | 0.0% | 0.01% | 0 |
+| ssh / gpui | 60.9% | 39.1% | 0.0% | 0.04% | 0 |
+| ssh / ink | 78.2% | 21.7% | 0.0% | 0.03% | 0 |
+| ssh / egui | 71.3% | 28.6% | 0.0% | 0.04% | 0 |
+| services / native | 18.0% | 4.9% | 77.0% | 0.01% | unavailable |
+| services / gpui | 1.2% | 22.6% | 76.2% | 0.02% | unavailable |
+| services / ink | 23.2% | 4.7% | 72.1% | 0.03% | unavailable |
+| services / egui | 13.8% | 8.5% | 77.7% | 0.05% | unavailable |
+| services-confirm / native | 14.0% | 4.8% | 81.2% | 0.01% | 1 |
+| services-confirm / gpui | 1.3% | 21.9% | 76.7% | 0.03% | 1 |
+| services-confirm / ink | 24.9% | 4.9% | 70.2% | 0.04% | 1 |
+| qos / native | 16.5% | 83.4% | 0.0% | 0.01% | unavailable |
+| qos / gpui | 1.2% | 98.7% | 0.0% | 0.03% | unavailable |
+| qos / ink | 22.3% | 77.7% | 0.0% | 0.04% | unavailable |
+| qos / egui | 16.1% | 83.9% | 0.0% | 0.05% | unavailable |
+| qos-confirm / native | 15.8% | 84.1% | 0.0% | 0.01% | 0 |
+| qos-confirm / gpui | 1.2% | 98.8% | 0.0% | 0.03% | 0 |
+| qos-confirm / ink | 24.8% | 75.1% | 0.0% | 0.04% | 0 |
+| qos-confirm / egui | 16.1% | 83.9% | 0.0% | 0.05% | 0 |
+
+`launchctl procinfo` and `ps -o pid,ppid,pri,nice,comm` are retained per launched
+PID. Direct children are not launchd-managed and name `sshd-keygen-wrapper`
+as responsible. LaunchServices children have parent 1, a GUI application job,
+`spawn type = app` and `spawn role = ui`, and are responsible for themselves.
+The main thread requests interactive QoS in both remedies, but only
+LaunchServices produces substantial user-interactive CPU accounting. The
+constructor override accounts most CPU as user initiated. That is consistent
+with an inherited limit, but does not measure its value. `launchctl procinfo`
+does not print a QoS clamp on this OS; `TASK_POLICY_STATE` returns
+`KERN_INVALID_ARGUMENT` (2). The retained v2 raw fields are zero-initialized
+when that call fails: those zeros do **not** mean an unclamped task. The final
+probe emits null for unavailable policy fields.
+
+### Power sampler's independent view
+
+`sudo powermetrics --samplers tasks,cpu_power --show-process-qos
+--show-process-amp --show-process-ipc -i 1000` records the original launch.
+Only full one-second intervals inside the fling are joined to each PID, with a
+one-second interior guard because plist timestamps have second precision.
+The CA-to-wall offset comes from the paired quiet observations. Cluster
+frequencies are active-time frequencies, with their active residency alongside;
+they cover all system work, not just the benchmark.
+
+| Arm | Interior samples | QoS CPU: default / initiated / interactive | Clusters: active GHz; residency |
+|---|---:|---:|---|
+| native | 7 | 84.2% / 15.8% / 0.0% | P0-Cluster 1.785; 84.3%; P1-Cluster 1.622; 88.3%; S-Cluster 2.812; 67.7% |
+| gpui | 7 | 59.9% / 38.9% / 0.0% | P0-Cluster 1.483; 94.5%; P1-Cluster 1.844; 87.7%; S-Cluster 2.782; 66.5% |
+| ink | 7 | 76.3% / 23.0% / 0.0% | P0-Cluster 1.354; 95.0%; P1-Cluster 1.701; 55.0%; S-Cluster 2.841; 64.6% |
+| egui | 6 | 70.5% / 29.5% / 0.0% | P0-Cluster 1.344; 95.1%; P1-Cluster 1.627; 62.5%; S-Cluster 2.770; 75.6% |
+
+The power sampler and the probe agree that the original launch accounts almost
+all CPU in default/legacy and user-initiated tiers, including native. Native
+is not observed as user interactive under that launch. The direct main-thread
+counters establish Rust placement on the lower Performance level; the system
+cluster table alone would not establish it. Power-off control clocks remain
+low, so power sampling is not required for the symptom. One pair does not
+estimate the sampler's CPU cost.
+
+### Predictions against results
+
+| Prediction, written before collection | Result |
+|---|---|
+| Original launch: each Rust arm <2.5 GHz and >50% main CPU on the lower level | Met: GPUI 1.939 GHz / 91.5%, Ink 1.913 / 88.8%, egui 1.724 / 92.0% |
+| Terminal: all four 3.0–4.5 GHz; CPU within native 112.39–143.12, GPUI 82.05–89.05, Ink 84.98–87.07, egui 64.93–71.54 ms/s | Untested: Terminal lacks Accessibility; no arm launched |
+| LaunchServices: all four 3.0–4.5 GHz | Miss: first native 3.049 meets; all Rust samples 1.822–1.997 miss, and native confirmation 2.862 misses |
+| LaunchServices: all four CPU ranges above | Miss: first native 147.34, GPUI 184.03, Ink 147.21, egui 142.38; only native confirmation 136.63 reaches its range |
+| Painted frames/s within 5% of G4q attempt 1 medians (88.78, 33.39, 41.60) | Met for accepted LaunchServices and override samples: GPUI 88.98–89.19, Ink 33.20–33.49, egui 40.99–41.58; Terminal untested, LaunchServices confirmation egui unavailable |
+| Constructor override: all four 3.0–4.5 GHz | Miss in every accepted sample; see both rows per available arm above |
+
+### Amended quiet bound
+
+WindowServer is benchmark work because it composites the benchmark's frames;
+it still counts toward whole-machine busy cores. A transient macOS daemon may
+exceed 0.25 core in at most 10% of a series' observations, never exceeding 1.0
+core. Other user workloads have no exception. Load <30, no compiler and ≤2 busy
+cores still apply at every observation. This is the orchestrator's amendment,
+applied after the G4q runs; their original qualification records are preserved.
+
+The audit uses the twelve successful gate observations and the complete run,
+including its trailing observation. “Process crossings” counts observations
+with any remaining process over 0.25 core, including failures outside the daemon
+allowance. “Other failures” lists those process failures separately from
+busy/load/compiler failures. Completeness still requires every accepted arm.
+
+| Cohort | Process crossings / observations | Maximum, cores | Other failures | Complete | Amended quiet |
+|---|---:|---:|---:|---|---|
+| bar-a-1 | 8/63 | 0.859 | 0 process; 7 busy/load/compiler | yes | fail |
+| bar-a-2 | 0/63 | 0.000 | 0 process; 1 busy/load/compiler | yes | fail |
+| bar-b-1 | 2/63 | 0.686 | 0 process; 0 busy/load/compiler | yes | pass |
+| bar-b-2 | 1/63 | 0.252 | 1 process; 0 busy/load/compiler | yes | fail |
+| bar-power-1 | 4/24 | 0.788 | 0 process; 9 busy/load/compiler | yes | fail |
+| bar-power-2 | 6/24 | 0.336 | 0 process; 9 busy/load/compiler | yes | fail |
+| boot-miss-1 | 0/14 | 0.000 | 0 process; 1 busy/load/compiler | yes | fail |
+| boot-miss-2 | 0/14 | 0.000 | 0 process; 1 busy/load/compiler | yes | fail |
+| boot-retained-1 | 1/16 | 0.283 | 0 process; 0 busy/load/compiler | yes | pass |
+| boot-retained-2 | 2/16 | 0.514 | 2 process; 3 busy/load/compiler | yes | fail |
+| caret-a-1 | 1/63 | 0.463 | 0 process; 0 busy/load/compiler | yes | pass |
+| caret-a-2 | 7/63 | 0.942 | 0 process; 0 busy/load/compiler | yes | fail |
+| caret-b-1 | 4/64 | 0.559 | 0 process; 0 busy/load/compiler | yes | pass |
+| caret-b-2 | 10/64 | 1.031 | 9 process; 6 busy/load/compiler | yes | fail |
+| cold-a-1 | 0/37 | 0.000 | 0 process; 2 busy/load/compiler | yes | fail |
+| cold-a-2 | 3/37 | 0.779 | 0 process; 4 busy/load/compiler | yes | fail |
+| fling-a-1 | 7/102 | 2.460 | 2 process; 0 busy/load/compiler | yes | fail |
+| fling-a-2 | 6/115 | 2.077 | 5 process; 0 busy/load/compiler | no | fail |
+| fling-power-1 | 1/31 | 0.421 | 1 process; 0 busy/load/compiler | yes | fail |
+| fling-power-2 | 2/31 | 0.843 | 1 process; 0 busy/load/compiler | yes | fail |
+
+Thus `bar-b-1`, `caret-a-1`, `caret-b-1` and `boot-retained-1` now pass the quiet
+bound. No G4q CPU row enters the scoreboard: the retained clocks fail the new
+≥3 GHz instrument rule. GPU and boot quiet qualification is not completion
+of M8 or M10's other conditions.
+
+### Launch recipe and reproduction
+
+There is no qualified restoring recipe to prescribe. The tested LaunchServices
+recipe is retained in `measure.m` and `run-clock.py`, including exact per-app
+environment, PID handling, stdout/stderr and GUI-domain cleanup. Run it from the
+Aqua session with a fresh suffix, after the before-each-launch M10 guard:
+
+```sh
+cd ~/projects/exact2-measure
+sudo -n launchctl asuser $(id -u) sudo -u ccheever \
+  /usr/bin/caffeinate -u -d -i /usr/bin/python3 \
+  target/g0/clock-2035d50319/run-clock.py services --suffix=-new
+```
+
+The Terminal AppleScript request timed out after 84 seconds without starting
+the wrapper. Opening the retained executable `terminal.command` with
+`open -a Terminal` did start it, but `terminal/driver.log` reports:
+
+```text
+this terminal lacks Accessibility permission for CGEvent.postToPid
+```
+
+No permission was changed. A Terminal rerun needs that grant, a fresh output
+name in the command file, and a clean clock sample before any full series.
+The constructor override is never part of a launch recommendation.
+
+The development raw root is `target/g4q-clock/`; the original signed bundles,
+raws and launch sources remain at `~/projects/exact2-measure/target/g0/clock-2035d50319/`
+on silver. The first probe is retained as `probe-v1.m`, `probe-v1.dylib` and
+`v1-*.app`; the second as `probe-v2.m`, `probe-v2.dylib` and the primary bundles.
+The `qos/provenance.json` label incorrectly says v2 because the first v2 build
+failed before that run; its binary hash and absent task-policy fields identify
+v1. Both source versions and the failed-build correction are retained, rather
+than rewriting that collection metadata. The final committed probe changes
+only failed-policy serialization to null after those measurements.
+
+From this checkout, the retained reductions reproduce all tables without
+launching apps or sampling power:
+
+```sh
+python3 target/g4q-clock/reduce-retained.py
+python3 target/g4q-clock/reduce-runs.py
+python3 target/g4q-clock/reduce-power.py
+bun bench/heavy-list/gpui/aggregate.mjs target/g4q-clock/ssh/series/fling/ink-1.json --sample
+bun bench/heavy-list/gpui/aggregate.mjs target/g4q/silver/target/g0/quiet-d5429830d2/fling-a-1 --verify
+```
+
+`retained.json`, `runs.json`, `power-summary.json` and `quiet-amended.json`
+retain the unrounded values, phase endpoints or input paths. The old G4q and
+hook raw roots cited above remain intact. No cited raw file was deleted.
+
+The collection mirror contains **1,204 files, 314,731,471 bytes**, enumerated in
+`target/g4q-clock/raw-sha256.json`, whose SHA-256 is
+`09deec28a5ed632f3df0610a33307e08c0966a382945d97432ec6ebb118a81fa`.
+It includes both signed instrument versions. Reductions and verification logs
+are retained separately in the same root and copied to silver's `report/`.
+
+### Verification
+
+The final probe builds with `-Wall -Wextra -Werror`; its existing offscreen
+self-test passes in both hook modes. Seven quiet-rule boundary cases and all
+twenty post-hoc cohort classifications pass. All twenty original G4q reports
+reproduce, including the added per-sample clock aggregates. All four application
+executables match G4q before their signatures. Full verbatim output is
+`target/g4q-clock/verification-output.txt`; the probe output is:
+
+```text
+probe: painter-specific completeness and one boot-expose wake passed
+probe: GPU hook off; three buffers completed, commit-phase accounting passed
+probe: painter-specific completeness and one boot-expose wake passed
+probe: GPU hook on; three buffers completed, commit-phase accounting passed
+```
+
+The six checks could not run under the repository's quiet condition. Three
+five-minute waits expired with load averages above 30 or other compilers
+present; `checks/results.json` records:
+
+```json
+{"unrun": "three five-minute load/compiler waits expired"}
+```
+
+The short structural checks were then run separately, without a quiet timing
+claim. Caps and boot pass, and `cargo fmt --all -- --check` exits zero with no
+output. Build, tests, clippy and workspace check remain unrun in this lane;
+there is no output to report for them. The full gate observations are retained
+in `checks/repository-quiet.jsonl`. No test failure was treated as a pass.
+
+After rebasing onto `origin/main` `197877789a`, caps, boot and formatting pass
+again; their verbatim logs are `rebase-caps.log`, `rebase-boot.log` and
+`rebase-fmt.log`. The forced-QoS sample reports its counters, while ordinary
+scoreboard aggregation refuses it (`clock-aggregation-test.log`). The rebase
+changes no measured application or diagnostic input.
