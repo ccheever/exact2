@@ -41,7 +41,6 @@ struct App<D: DataSource> {
     display: Option<DisplayLink>,
     presenter: Option<Presenter<D>>,
     prepared: Option<exact_linux::presenter::PreparedAppleFrame>,
-    prepared_tick: bool,
     agent: Option<super::agent::Agent>,
     started: Instant,
     tick_pending: Arc<AtomicBool>,
@@ -146,7 +145,6 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         display: None,
         presenter: None,
         prepared: None,
-        prepared_tick: false,
         agent: None,
         started,
         tick_pending: Default::default(),
@@ -214,7 +212,6 @@ impl<D: DataSource + Default + 'static> App<D> {
         );
         if old_scale != self.scale || p.host().viewport() != viewport {
             self.prepared = None;
-            self.prepared_tick = false;
         }
         layer.resize([size.width, size.height], self.scale);
         if let Some(e) = p.resize_scaled(
@@ -245,9 +242,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         if self.hidden {
             return Ok(None);
         }
-        if !prepare
-            && (self.prepared.is_some() || self.prepared_tick && self.awaiting_first_present())
-        {
+        if !prepare && self.prepared.is_some() {
             return Ok(None);
         }
         let Some(p) = &mut self.presenter else {
@@ -422,9 +417,15 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 }
                 trace_mark(c"display wake", || 0.);
                 self.tick_pending.store(false, Ordering::Release);
-                self.prepared_tick = false;
-                if let Some(frame) = self.prepared.take() {
-                    self.prepared_tick = true;
+                if !self.awaiting_first_present() {
+                    self.prepared = None;
+                }
+                if self.hidden {
+                    return;
+                }
+                if let Some(frame) = &self.prepared {
+                    // A redraw waits for AppKit's next transaction. Retry the
+                    // same pixels here until the compositor selects a drawable.
                     if let Err(e) = self
                         .presenter
                         .as_mut()
@@ -432,6 +433,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                         .present_prepared_apple_frame(frame)
                     {
                         self.fail(events, e);
+                    }
+                    if !self.presenter.as_ref().unwrap().last_frame_succeeded() {
+                        self.prepared = None;
                     }
                     return;
                 }

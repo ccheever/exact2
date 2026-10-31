@@ -174,6 +174,17 @@ agent (0.29 core). Retain the five largest non-benchmark processes and the
 five largest user processes so system work cannot hide a user-process breach.
 After signing, launch each arm once as an unrecorded throwaway before a cohort;
 first-execution signature validation is not the scoreboard's cold launch.
+**M10 cut 1d, launch cohorts:** after five amendments without a qualified
+startup cohort, the orchestrator makes quiet a gate before each launch and
+a report during it. Launching wakes XProtect and the daemons listed above.
+`startup.py` requires ten seconds with no user process above 0.25 core and
+non-benchmark total below 1.0 core before each launch. During launch it samples
+every 250 ms and at exit, retaining observed maxima beside every sample;
+those maxima never exclude a launch. `ps` shares are rolling observations,
+not instantaneous process CPU. Power sampling remains off. The first launch
+of each freshly signed arm is a throwaway. `measure.m`'s `G1_ONLY_ARM` lets
+the startup driver gate each cold-only launch separately and forbids replacing
+a failed original with a retry. Fling, rest and static qualification is unchanged.
 `gpui/run-hook.py` retains CPU-tick deltas, the five largest other processes,
 and power source/mode. Its `--single` mode retains an instrument sample even
 when loaded and produces no scoreboard table. See

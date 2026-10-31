@@ -405,13 +405,14 @@ impl<D: DataSource> Presenter<D> {
             .then_some(PreparedAppleFrame(pixels)))
     }
 
-    /// Present in AppKit's current transaction. Do not poll or repaint between the pair.
+    /// Copy in AppKit's current transaction; keep the frame for a dropped-present retry.
+    /// Do not poll the painter or repaint while this prepared frame is retained.
     #[cfg(target_os = "macos")]
     pub fn present_prepared_apple_frame(
         &mut self,
-        frame: PreparedAppleFrame,
+        frame: &PreparedAppleFrame,
     ) -> Result<(), String> {
-        if let Some(pixels) = frame.0 {
+        if let Some(pixels) = &frame.0 {
             let boot = self
                 .surfaces
                 .apple_boot
@@ -421,7 +422,7 @@ impl<D: DataSource> Presenter<D> {
                 .preparing
                 .as_mut()
                 .ok_or("CPU presentation device changed")?;
-            let accepted = match preparing.present_cpu(pixels, true) {
+            let accepted = match preparing.present_cpu(pixels.clone(), true) {
                 Ok(accepted) => accepted,
                 Err(error) => {
                     boot.refused(error, std::time::Instant::now());

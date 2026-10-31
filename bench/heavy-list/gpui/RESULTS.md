@@ -932,33 +932,6 @@ suite was rerun for this report-only change.
 All budgets within cap. 10 categories inspected.
 ```
 
-## M10, cut 1d: present the prepared frame every tick until displayed
-
-**Prediction before the run, 2026-10-31.** Keep cut 1's early paint and
-cut 1b's compose-target copy. After its first presentation, copy the prepared
-frame into a fresh drawable on every display-link tick until a positive
-`presentedTime`, then return to ordinary demand. The old retry requested a
-Winit redraw on the tick and waited for AppKit's redraw event and transaction.
-Each dropped presentation spends a drawable and a copy; it need not repeat
-the paint walk. CPU archive-miss frames follow the same cadence. D7, D11,
-D15 and the bounded failure-wake backstop remain unchanged.
-
-| Prediction | Instrument |
-| --- | --- |
-| Warm complete screen about 150 ms, range 140–170: 116 ms show return + 25 ms for two or three display periods + about 10 ms compositor work | `startup.py`, hook off, trace on, power off; five warm/cold launches per arm, then ten paired before/after launches per arm |
-| Ink cold median at least 30 ms below GPUI; prior single-launch controls were GPUI 212 ms and egui 218 ms | `measure.m` cold-only, ten launches per arm before and after, native/GPUI/Ink/egui |
-| One or two zero callbacks per launch, then a positive callback within 17 ms of show return | Drawable callbacks joined to the show-return marker in the traced launches; report callback observation separately from display time |
-| First-frame pixels identical, CPU-first archive miss hands off, unshown frames retry | Prepared-frame parity, archive transition and painted-carrier suites, plus live silver launches |
-| Fling, rest and static rows unchanged | Ordinary-demand behavior after the first positive callback; separate measured rows required for a performance claim |
-
-The orchestrator's launch qualification replaces five amendments that produced
-no qualified startup cohort: launching wakes XProtect and the system daemons
-listed in cut 1b. Require ten quiet seconds **before each launch**, with no
-user process above 0.25 core and non-benchmark total below 1.0 core. Record
-during-launch maxima beside every row; they never exclude a launch. The first
-launch of each freshly signed arm is a throwaway. Cold remains a fresh process
-with application and system caches retained. Before uses M10 tip `9a88c8bead`'s
-carrier. Artifacts for this cut are retained under `target/m10-c1d/`.
 
 ## S1.2: idle and startup fixes; cadence and footprint remain open
 
@@ -8884,3 +8857,31 @@ The staged caps check (`checks/caps.log`) exits zero:
 ```text
 All budgets within cap. 10 categories inspected.
 ```
+
+## M10, cut 1d: present the prepared frame every tick until displayed
+
+**Prediction before the run, 2026-10-31.** Keep cut 1's early paint and
+cut 1b's compose-target copy. After its first presentation, copy the prepared
+frame into a fresh drawable on every display-link tick until a positive
+`presentedTime`, then return to ordinary demand. The old retry requested a
+Winit redraw on the tick and waited for AppKit's redraw event and transaction.
+Each dropped presentation spends a drawable and a copy; it need not repeat
+the paint walk. CPU archive-miss frames follow the same cadence. D7, D11,
+D15 and the bounded failure-wake backstop remain unchanged.
+
+| Prediction | Instrument |
+| --- | --- |
+| Warm complete screen about 150 ms, range 140–170: 116 ms show return + 25 ms for two or three display periods + about 10 ms compositor work | `startup.py`, hook off, trace on, power off; five warm/cold launches per arm, then ten paired before/after launches per arm |
+| Ink cold median at least 30 ms below GPUI; prior single-launch controls were GPUI 212 ms and egui 218 ms | `measure.m` cold-only, ten launches per arm before and after, native/GPUI/Ink/egui |
+| One or two zero callbacks per launch, then a positive callback within 17 ms of show return | Drawable callbacks joined to the show-return marker in the traced launches; report callback observation separately from display time |
+| First-frame pixels identical, CPU-first archive miss hands off, unshown frames retry | Prepared-frame parity, archive transition and painted-carrier suites, plus live silver launches |
+| Fling, rest and static rows unchanged | Ordinary-demand behavior after the first positive callback; separate measured rows required for a performance claim |
+
+The orchestrator's launch qualification replaces five amendments that produced
+no qualified startup cohort: launching wakes XProtect and the system daemons
+listed in cut 1b. Require ten quiet seconds **before each launch**, with no
+user process above 0.25 core and non-benchmark total below 1.0 core. Record
+during-launch maxima beside every row; they never exclude a launch. The first
+launch of each freshly signed arm is a throwaway. Cold remains a fresh process
+with application and system caches retained. Before uses M10 tip `9a88c8bead`'s
+carrier. Artifacts for this cut are retained under `target/m10-c1d/`.

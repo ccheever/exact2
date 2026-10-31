@@ -1,4 +1,4 @@
-"""M10 startup cohorts; signature-prewarmed arms, user-process quiet bound, retained raw phases."""
+"""M10 startup cohorts: ten quiet seconds before each launch; during-launch load is reported."""
 import argparse
 import ctypes
 import hashlib
@@ -116,56 +116,59 @@ def run(args):
             return row
     monitor = StartupQuiet(out / 'quiet.jsonl', paths + [base / 'measure', base / 'exact-wheel'])
     wait_for_lane(out)
-    consecutive = 0
-    gate_deadline = time.monotonic() + args.gate_seconds
-    while time.monotonic() < gate_deadline and consecutive < 12:
-        time.sleep(5)
-        observation = monitor.observe()
-        consecutive = consecutive + 1 if observation['quiet'] else 0
-        print('QUIET', consecutive, observation['nonBenchmarkBusyCores'], flush=True)
-    write(out / 'gate.json', dict(passed=consecutive == 12, consecutive=consecutive))
-    if consecutive != 12:
-        raise RuntimeError('sixty-second quiet gate not met; no launches')
-    first_sample = len(monitor.rows)
-    monitor.thread.start()
+    # Five prior amendments admitted no startup cohort: launches wake XProtect
+    # and other daemons. Gate before each launch and retain load during it.
     schedule = []
     child = None
     try:
         for round_number in range(1, args.rounds + 1):
             order = arms[(round_number-1) % len(arms):] + arms[:(round_number-1) % len(arms)]
             if args.scoreboard:
-                wait_for_lane(out)
-                assert monitor.error is None, monitor.error
-                assert not monitor.rows[first_sample:] or quiet.quiet_series(monitor.rows[first_sample:]), 'loaded cohort retained; stop'
-                env = {k: v for k, v in os.environ.items()
-                       if not k.startswith(('EXACT_', 'G1_', 'G3_', 'G4_', 'G5_', 'BENCH_', 'DYLD_'))}
-                env.update(G1_GPU_HOOK='0', EXACT_INK_DEVICE='metal',
-                           G3_PAINTED_BIN=provenance['ink']['executable'],
-                           G4_EGUI_BIN=provenance['egui']['executable'])
-                command = [str(base / 'measure'), str(out), provenance['native']['executable'],
-                           provenance['gpui']['executable'], str(base / 'exact-wheel'),
-                           '1', str(round_number), 'cold-only']
-                with (out / f'driver-{round_number}.log').open('w') as log:
-                    child = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
-                    status = child.wait(timeout=300)
-                child = None
                 for arm in order:
-                    output = out / f'{arm}-{round_number}.json'
-                    schedule.append(dict(arm=arm, round=round_number, cohort='cold', trace=False,
-                                         output=str(output), accepted=output.exists()
-                                         and read(output).get('accepted') is True, exit=status))
-                write(out / 'schedule.json', schedule)
-                assert status == 0, f'measure exit {status}; retain all attempts'
-                assert all(r['accepted'] for r in schedule), 'failed original launch; no replacement table'
-                print('SCOREBOARD', round_number, flush=True)
+                    wait_for_lane(out)
+                    gate = quiet.launch_gate(monitor, args.gate_seconds)
+                    write(out / f'{arm}-{round_number}.gate.json', gate)
+                    assert gate['passed'], 'ten-second prelaunch quiet gate not met'
+                    env = {k: v for k, v in os.environ.items()
+                           if not k.startswith(('EXACT_', 'G1_', 'G3_', 'G4_', 'G5_', 'BENCH_', 'DYLD_'))}
+                    env.update(G1_GPU_HOOK='0', EXACT_INK_DEVICE='metal', G1_ONLY_ARM=arm,
+                               G3_PAINTED_BIN=provenance['ink']['executable'],
+                               G4_EGUI_BIN=provenance['egui']['executable'])
+                    command = [str(base / 'measure'), str(out), provenance['native']['executable'],
+                               provenance['gpui']['executable'], str(base / 'exact-wheel'),
+                               '1', str(round_number), 'cold-only']
+                    first_sample = len(monitor.rows)
+                    record = dict(arm=arm, round=round_number, cohort='cold', trace=False,
+                                  start=monitor.now(), gate=gate,
+                                  output=str(out / f'{arm}-{round_number}.json'))
+                    schedule.append(record)
+                    write(out / 'schedule.json', schedule)
+                    monitor.begin_launch()
+                    try:
+                        with (out / f'driver-{arm}-{round_number}.log').open('w') as log:
+                            child = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
+                            record['pid'] = child.pid
+                            record['exit'] = child.wait(timeout=300)
+                        child = None
+                        output = Path(record['output'])
+                        record['accepted'] = output.exists() and read(output).get('accepted') is True
+                        assert record['exit'] == 0 and record['accepted'], 'failed original launch; no replacement table'
+                    finally:
+                        record['end'] = monitor.now()
+                        monitor.end_launch()
+                        record['duringLoad'] = quiet.launch_load(monitor.rows[first_sample:])
+                        write(out / 'schedule.json', schedule)
+                    print('SCOREBOARD', arm, round_number, flush=True)
                 continue
             for arm in order:
                 for cohort in ['cold', 'warm']:
                     wait_for_lane(out)
                     assert subprocess.run(['pgrep', '-x', 'powermetrics'], capture_output=True).returncode == 1, 'power sampler started'
-                    assert monitor.error is None, monitor.error
-                    assert not monitor.rows[first_sample:] or quiet.quiet_series(monitor.rows[first_sample:]), 'loaded cohort retained; stop'
                     name = f'{arm}-{round_number}-{cohort}'
+                    gate = quiet.launch_gate(monitor, args.gate_seconds)
+                    write(out / f'{name}.gate.json', gate)
+                    assert gate['passed'], 'ten-second prelaunch quiet gate not met'
+                    first_sample = len(monitor.rows)
                     output = out / f'{name}.json'
                     env = {k: v for k, v in os.environ.items()
                            if not k.startswith(('EXACT_', 'G1_', 'G3_', 'G4_', 'G5_', 'BENCH_', 'DYLD_'))}
@@ -177,8 +180,9 @@ def run(args):
                     if not args.no_trace:
                         env['G1_TRACE'] = '1'
                     record = dict(arm=arm, round=round_number, cohort=cohort,
-                                  trace=not args.no_trace, start=monitor.now(), output=str(output))
+                                  trace=not args.no_trace, start=monitor.now(), output=str(output), gate=gate)
                     schedule.append(record)
+                    monitor.begin_launch()
                     with (out / f'{name}.log').open('w') as log:
                         child = subprocess.Popen([provenance[arm]['executable']], env=env,
                                                  stdout=log, stderr=subprocess.STDOUT)
@@ -226,6 +230,8 @@ def run(args):
                             raise
                         finally:
                             record['end'] = monitor.now()
+                            monitor.end_launch()
+                            record['duringLoad'] = quiet.launch_load(monitor.rows[first_sample:])
                             write(out / 'schedule.json', schedule)
                     child = None
                     print('LAUNCH', name, result['coldMs'], flush=True)
@@ -237,20 +243,14 @@ def run(args):
             except subprocess.TimeoutExpired:
                 child.kill()
                 child.wait()
-        # Complete the observation that contains the final launch.
-        time.sleep(5)
-        monitor.stop.set()
-        monitor.thread.join()
         write(out / 'run.json', dict(launches=len(schedule),
+              qualification='m10-cut1d-prelaunch',
               arms=arms, cohorts=['cold'] if args.scoreboard else ['cold', 'warm'],
               expectedLaunches=args.rounds * len(arms) * (1 if args.scoreboard else 2),
-              quiet=quiet.quiet_series(monitor.rows[first_sample:])
-                    and all(r['powerAbsent'] for r in monitor.rows[first_sample:]),
-              firstSeriesObservation=first_sample,
+              quiet=bool(schedule) and all(r['gate']['passed'] for r in schedule),
+              powerAbsent=all(r['powerAbsent'] for r in monitor.rows),
               monitorError=str(monitor.error) if monitor.error else None))
-    assert monitor.error is None, monitor.error
-    assert quiet.quiet_series(monitor.rows[first_sample:]), 'loaded observations; no qualified table'
-    assert all(r['powerAbsent'] for r in monitor.rows[first_sample:]), 'power sampler overlapped cohort'
+    assert all(r['powerAbsent'] for r in monitor.rows), 'power sampler overlapped cohort'
 
 
 def distribution(values):
@@ -362,7 +362,10 @@ def summarize(args):
                 for cohort in cohorts for r in range(1, len(schedule) // (len(arms) * len(cohorts)) + 1)}
     assert {(r['arm'], r['cohort'], r['round']) for r in schedule} == expected, 'unbalanced cohort'
     assert all(r.get('accepted') and r.get('exit') == 0 for r in schedule), 'failed attempts retained; incomplete cohort'
-    samples = [dict(sample(directory / Path(r['output']).name, r['trace']), arm=r['arm'], cohort=r['cohort'], round=r['round']) for r in schedule]
+    if run_record.get('qualification') == 'm10-cut1d-prelaunch':
+        assert run_record['powerAbsent'], 'power sampler overlapped cohort'
+        assert all(r['gate']['passed'] and r['gate']['seconds'] >= 10 and r['duringLoad']['observations'] for r in schedule)
+    samples = [dict(sample(directory / Path(r['output']).name, r['trace']), arm=r['arm'], cohort=r['cohort'], round=r['round'], duringLoad=r.get('duringLoad')) for r in schedule]
     tables = {}
     for arm in arms:
         for cohort in cohorts:
@@ -391,6 +394,9 @@ def summarize(args):
                                           and warm[r]['milestones'][name] is not None])
                        for name in cold[next(iter(cold))]['milestones']}
     write(directory / 'summary.json', dict(samples=samples, tables=tables, coldMinusWarm=paired))
+    for row in samples:
+        if row.get('duringLoad'):
+            print('During-launch load (cores):', row['arm'], row['round'], row['cohort'], json.dumps(row['duringLoad']))
     for name, table in tables.items():
         print('\n' + name + '\n\n| Process age, ms | p50 | min–max | n |\n| --- | ---: | ---: | ---: |')
         for phase, value in table['milestones'].items():

@@ -27,6 +27,34 @@ def quiet_series(rows):
         for row in rows)
 
 
+def launch_quiet(row):
+    """Cut 1d: gate before launch; launch-induced daemon work is reported only."""
+    return (row['nonBenchmarkBusyCores'] < BUSY_LIMIT
+            and all(p['cpuCores'] <= PROCESS_LIMIT for p in row['topUserProcesses'])
+            and not row['compilers'] and row.get('powerAbsent', True))
+
+
+def launch_gate(monitor, seconds=300):
+    start = len(monitor.rows)
+    deadline, quiet_seconds = time.monotonic() + seconds, 0
+    monitor.observe()
+    while time.monotonic() < deadline:
+        time.sleep(5)
+        row = monitor.observe()
+        quiet_seconds = quiet_seconds + row['intervalSeconds'] if launch_quiet(row) else 0
+        if quiet_seconds >= 10:
+            return dict(passed=True, seconds=quiet_seconds, observations=[start, len(monitor.rows)])
+    return dict(passed=False, seconds=quiet_seconds, observations=[start, len(monitor.rows)])
+
+
+def launch_load(rows):
+    """Keep maxima even when a launch itself crosses the prelaunch limits."""
+    return dict(observations=len(rows),
+                nonBenchmarkBusyCores=max((r['nonBenchmarkBusyCores'] for r in rows), default=None),
+                userProcessCores=max((p['cpuCores'] for r in rows for p in r['topUserProcesses']), default=0),
+                wholeMachineBusyCores=max((r['busyCores'] for r in rows), default=None))
+
+
 class QuietMonitor:
     def __init__(self, output, benchmark_paths):
         self.output = output
@@ -102,9 +130,21 @@ class QuietMonitor:
         return ([p for p in processes if p['pid'] in pids],
                 [p for p in processes if p['pid'] not in pids])
 
-    def monitor(self):
+    def begin_launch(self):
+        self.stop.clear()
+        self.thread = threading.Thread(target=self.monitor, args=(0.25,))
+        self.thread.start()
+
+    def end_launch(self):
+        self.stop.set()
+        self.thread.join()
+        if self.error:
+            raise self.error
+        self.observe()
+
+    def monitor(self, interval=5):
         try:
-            while not self.stop.wait(5):
+            while not self.stop.wait(interval):
                 self.observe()
         except BaseException as error:
             self.error = error
