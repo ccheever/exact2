@@ -79,10 +79,14 @@ inputs remain byte-identical. The 6,921 desktop tests, 114 mobile cross-consumer
 tests and 76 locked clone Rust tests pass, including 29 compiled desktop-plan
 cases. All six root checks pass with command-local `CARGO_INCREMENTAL=0` for
 build, tests, Clippy and workspace compilation. Strict desktop app TypeScript
-passes; fixture-only typechecking is limited by missing Node and Bun declarations.
+passes; standalone fixture strict typechecking still fails with pre-existing
+missing Node and Bun declarations.
 Production sources and both standard bundles remain byte-identical. Evidence is
-under `target/t3-poc-evidence/pr216-reader-prerequisite/`. Independent review and
-the pinned PR-base integration remain pending. This adds no native UI qualification.
+under `target/t3-poc-evidence/pr216-reader-prerequisite/`. Independent review
+finds no introduced P1 or P2 issue and passes all 547 output comparisons and
+235 focused tests. It corrects the inventory to 21,289 tracked paths and verifies
+the five previously omitted filenames unchanged. Its comment audit is clear.
+The pinned PR-base integration remains pending. This adds no native UI qualification.
 
 The desktop manifest's unused `t3-browser` native tag is removed in `859f7b8676`.
 Browser already uses an iframe and the separate `t3-browser-page` hatch.
