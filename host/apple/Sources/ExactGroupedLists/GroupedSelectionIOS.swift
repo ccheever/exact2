@@ -38,7 +38,8 @@ extension GroupedListView {
     /// (`SelectedItemInk`). While it is pressed it fades as far as UIKit
     /// fades its own label: a sidebar's held row keeps a clear ground and
     /// fades its content (to 30% on iOS 27), where a plain list's fills its
-    /// ground and fades nothing.
+    /// ground and fades nothing. A row with a context menu keeps its content
+    /// as it is: the owner chose the peek's lift alone to show its press.
     var stateFollower: UICollectionViewListCell.ConfigurationUpdateHandler? {
         #if os(iOS)
         return { cell, state in
@@ -56,7 +57,8 @@ extension GroupedListView {
                 (cell as? UICollectionViewListCell)?.defaultContentConfiguration().updated(for: state)
                     .textProperties.resolvedColor().resolvedColor(with: cell.traitCollection).cgColor.alpha ?? 1
             }
-            let pressed = state.isHighlighted && !state.isSelected
+            let peeks = cell.contentView.subviews.contains { $0.interactions.contains { $0 is UIContextMenuInteraction } }
+            let pressed = state.isHighlighted && !state.isSelected && !peeks
             let alpha = pressed ? min(1, label(state) / max(label(UICellConfigurationState(traitCollection: cell.traitCollection)), 0.01)) : 1
             if cell.contentView.alpha != alpha { cell.contentView.alpha = alpha }
         }

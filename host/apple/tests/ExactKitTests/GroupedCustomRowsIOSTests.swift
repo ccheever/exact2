@@ -204,12 +204,12 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         XCTAssertFalse(try cell(p, 21).isHighlighted)
     }
 
-    /// A held custom row fades as far as UIKit fades its own label in that
-    /// state: in a sidebar, whose held row keeps a clear ground, and not in
-    /// a plain list, whose held row fills its ground, nor once selected.
-    func testAHeldCustomRowFadesAsUIKitsOwnContentDoes() throws {
+    /// A held custom row in a sidebar fades as far as UIKit fades its own
+    /// label, unless it peeks: then the lift alone shows the press.
+    func testAHeldCustomRowFadesAsUIKitsOwnContentDoesUnlessItPeeks() throws {
         let follower = try XCTUnwrap(try list(presenter { self.model(custom: true) }).stateFollower)
-        func alpha(_ appearance: UICollectionLayoutListConfiguration.Appearance, highlighted: Bool, selected: Bool = false) throws -> (ours: CGFloat, label: CGFloat) {
+        let menu = NoMenu()
+        func alpha(_ appearance: UICollectionLayoutListConfiguration.Appearance, highlighted: Bool, selected: Bool = false, peeks: Bool = false) throws -> (ours: CGFloat, label: CGFloat) {
             let view = UICollectionView(frame: CGRect(x: 0, y: 0, width: 320, height: 400),
                                         collectionViewLayout: UICollectionViewCompositionalLayout.list(using: .init(appearance: appearance)))
             window.addSubview(view)
@@ -224,6 +224,11 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
             source.apply(snapshot, animatingDifferences: false)
             view.layoutIfNeeded()
             let cell = try XCTUnwrap(view.cellForItem(at: IndexPath(item: 0, section: 0)) as? UICollectionViewListCell)
+            if peeks {
+                let row = UIView()
+                row.addInteraction(UIContextMenuInteraction(delegate: menu))
+                cell.contentView.addSubview(row)
+            }
             var state = cell.configurationState
             state.isHighlighted = highlighted
             state.isSelected = selected
@@ -234,9 +239,14 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         let held = try alpha(.sidebarPlain, highlighted: true)
         XCTAssertLessThan(held.ours, 1, "a sidebar's held row fades")
         XCTAssertEqual(held.ours, held.label, accuracy: 0.01, "as far as UIKit's own label")
+        XCTAssertEqual(try alpha(.sidebarPlain, highlighted: true, peeks: true).ours, 1, "one that peeks keeps its content")
         XCTAssertEqual(try alpha(.sidebarPlain, highlighted: true, selected: true).ours, 1, "selected, on the accent")
         XCTAssertEqual(try alpha(.sidebarPlain, highlighted: false).ours, 1)
         XCTAssertEqual(try alpha(.plain, highlighted: true).ours, 1, "a plain list's held row fills its ground instead")
+    }
+
+    private final class NoMenu: NSObject, UIContextMenuInteractionDelegate {
+        func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? { nil }
     }
 
     private final class RowTouch: UITouch {
