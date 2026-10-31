@@ -706,8 +706,9 @@ S2 runs before S1 (Charlie, 2026-10-28: the prospect's platform, and the stronge
 ## 4. Measurement
 
 **M9, Windows text (2026-10-30, Stage 1w): no default admission.** The
-9,540-row unhinted audit from chunk A (`3168305a59`), recovered after the
-NucBox reboot, compares the shaper's font bytes in both rasterizers. Static
+9,540-row unhinted audit on `f3ff290579` reproduces every non-timing
+column from chunk A (`3168305a59`), recovered after the NucBox reboot. It
+compares the shaper's font bytes in both rasterizers. Static
 Inter and Segoe UI advances differ by at most 0.000002 device pixels at
 100/125/150%. Inter's mean coverage difference is **5.295/255**, missing the
 prediction below 4.589; Segoe UI's is **5.473/255**, meeting the prediction

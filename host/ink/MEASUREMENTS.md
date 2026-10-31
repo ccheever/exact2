@@ -4946,16 +4946,17 @@ The first wgpu `pinned paint` process exits with `-1073741819` (`0xc0000005`)
 while running `paint::coverage::every_island_blend_matches_cpu_over_translucent_destination`.
 The Windows application-error event names `amdihk64.dll_unloaded`, version
 2.0.0.1788, offset `0x648d`. This identifies the faulting module, not its cause.
-The full filter needs an unchanged rerun; the crash is not a passing suite.
+The crash is not a passing suite. The native collection below reserves
+one candidate-off rerun for last, with immediate fault capture.
 The log, exit code and event are retained locally under
 `target/stage-1w-fix-a/nucbox/wgpu-pinned-paint*`.
 
 The native sequence becomes unreachable at 01:40 UTC on 2026-10-31
 (18:40 PDT on October 30). Tailscale reports the NucBox offline. The remaining
-results, including the new field/embedded-provider fixtures, M9 rows and the
-single UIA attempt, cannot yet be retrieved or confirmed. No additional M9
-or UIA attempt is started. Native qualification remains open; the candidates
-stay disabled. All files in the mirror and its retained output directory remain.
+results cannot be retrieved during chunk A. The native collection below
+recovers the field/embedded-provider fixtures and M9 rows after the reboot,
+then checks the current source. Native qualification remains open; the
+candidates stay disabled. The mirror and its retained outputs remain.
 
 ### Fix chunk A — review dispositions
 
@@ -5051,12 +5052,10 @@ ssh: connect to host 100.103.120.64 port 22: Operation timed out
 retains the output. No retry or native launch follows. Both-device S2.8b
 suites, desktop and field journeys, the UIA attempt and tree, unhinted M9
 rows, and the wgpu pinned-paint rerun remain unrun on the rebased source.
-Chunk A's outstanding outputs remain uncollected. Its import prediction
-remains met on the recorded executable; the new M9 and UIA predictions
-remain unverified. The existing `amdihk64.dll_unloaded` fault event identifies
-a module, not a cause:
-whether it is an AMD overlay hook loaded into every process, and whether
-the crash reproduces with the candidate off, remain unverified.
+The native collection below recovers chunk A's outputs and records this
+revision's imports, M9 rows and qualification attempts. Its fault analysis
+also distinguishes the AMD-hook process crash from the later sleep/wake
+hang; the event alone does not establish their cause.
 
 ### Native collection — predictions before the runs
 
@@ -5181,15 +5180,21 @@ d3d11-surfaces: test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 162
 d3d11-windows: test result: ok. 39 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.28s
 ```
 
-### Native collection — recovered chunk A field and M9 results
+### Native collection — field fixtures and M9
 
-These outputs were written by chunk A on `3168305a59` before the NucBox
-became unreachable. They are now retrieved, not rerun on the rebased
-source. `target/stage-1w-native/recovered-chunk-a.tgz` retains the logs,
-9,540 CSV rows, font bytes and paired masks; the extracted directory has
-the same name without `.tgz`. The derived face rows are
-`target/stage-1w-native/recovered-a-summary.json`.
+Chunk A's field, AccessKit and M9 outputs on `3168305a59` are recovered in
+`target/stage-1w-native/recovered-chunk-a.tgz` (SHA-256
+`88926f33d14da34bcd7f46a255a770f051ea0a64de0a99793471c10623533797`).
+The current-source audit also runs once, on `f3ff290579`'s Rust, retaining
+9,540 rows, font bytes and paired masks in
+`target/stage-1w-native/nucbox/audit-unhinted/`. Every non-timing CSV field
+and each font's bytes exactly match the recovered audit. The table below
+uses the current run; `summary.json` and `audit-reproduction.json` under
+`target/stage-1w-native/` retain its derivation and comparison.
 
+The headless audit ran while the desktop journeys waited for a separate
+bakeoff to finish. Its timings are diagnostic single-call distributions,
+not a quiet performance series.
 Both outline rasters are unhinted. The advance prediction is **met** for
 Inter and Segoe UI. The coverage prediction is **missed for Inter**:
 5.295/255 exceeds the predicted 4.589/255 bound. It is **met for Segoe UI**:
@@ -5198,11 +5203,11 @@ uniformly reduce coverage differences.
 
 | Face | Rows | Maximum advance difference, device px | Mean raw coverage difference /255 | Median swash / DirectWrite raster, µs | Default admission |
 | --- | ---: | ---: | ---: | ---: | --- |
-| Inter Regular | 2,340 | 0.0000019074 | 5.295 | 1.00 / 0.80 | Refused pending appearance/motion audit |
+| Inter Regular | 2,340 | 0.0000019074 | 5.295 | 1.10 / 0.90 | Refused pending appearance/motion audit |
 | Segoe UI | 2,340 | 0 | 5.473 | 1.00 / 0.80 | Refused pending smoothing/native-reference audit |
 | Segoe UI Variable | 2,340 | 1.951172 | 34.506 | 1.50 / 0.80 | Refused: axes not mapped |
 | Roboto Flex | 2,340 | 1.265625 | 38.079 | 0.30 / 0.40 | Refused: axes not mapped |
-| Noto Color Emoji (CBDT) | 180 | 0 | Not comparable: colour versus mask | 162.35 / 0.40 | Refused: mask drops colour |
+| Noto Color Emoji (CBDT) | 180 | 0 | Not comparable: colour versus mask | 164.95 / 0.40 | Refused: mask drops colour |
 
 Coverage weights the union of paired glyph bounds. The timing column still
 includes DirectWrite cache hits from repeated static-face weight passes;
@@ -5216,7 +5221,8 @@ Narrator or Excord.
 accesskit: test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
 field-unit: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.14s
 field-lifetime: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.14s
-audit-unhinted: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1594 filtered out; finished in 0.54s
+audit-unhinted (chunk A): test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1594 filtered out; finished in 0.54s
+audit-unhinted (current): test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1629 filtered out; finished in 0.54s
 ```
 
 ### Native collection — the prior fault and hang
