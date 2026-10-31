@@ -47,6 +47,8 @@ export class DiffState {
   /** Default diff file state (General → Behavior), seeded by settings-appearance-look.ts. */
   defaultExpanded = false;
   truncated = false;
+  /** DiffPanel hasResolvedPatch: the answer carried a patch string (empty when nothing changed), not none at all. */
+  patchResolved = false;
   scopeKey = '';
   /** The tree's closed folders by scope (trailing slash), and the file it shows selected. */
   treeCollapsed: Record<string, string[]> = {};
@@ -198,17 +200,19 @@ export function adoptDiff(client: T3Client, request: { scope: string; source: st
   // Opened file contents are read again for a scope that shows later; only the shown scope's are kept.
   for (const key of Object.keys(state.contents)) if (!key.includes(`::${request.scope}::`)) delete state.contents[key];
   state.toolCall = null;
-  if (!request.source) { state.truncated = false; state.source = null; state.lazy = null; return str(result.diff); }
+  if (!request.source) { state.truncated = false; state.source = null; state.lazy = null; state.patchResolved = typeof result.diff === 'string'; return str(result.diff); }
   if (request.source === 'tool-call') {
     const item = obj(result.item);
     state.source = null; state.lazy = null;
     state.toolCall = item.type === 'file_change' ? toolCallDiff(item) : null;
     state.truncated = state.toolCall?.truncated === true;
+    state.patchResolved = typeof state.toolCall?.patch === 'string';
     if (!state.toolCall) throw new ClientError('That file change is no longer available.');
     return state.toolCall.patch ?? '';
   }
   const source = arr(result.sources).find(entry => entry.kind === request.source);
   state.truncated = source?.truncated === true;
+  state.patchResolved = typeof source?.diff === 'string';
   state.source = diffSource(result, request.source as 'working-tree' | 'branch-range');
   // useReviewFilePatches: a truncated source that lists its files is read file by file (diff-review.ts loads them).
   state.lazy = lazyPatches(state.source, state.ignoreWhitespace, state.lazy);
@@ -533,7 +537,8 @@ export function diffSnapshot(client: T3Client, now: number) {
     diffTruncated: (state.truncated && !lazy) || rows > (state.find.open ? 100_000 : ROW_LIMIT), diffEmpty: notGit || (!pending && (!client.diffError || client.diffError === NOT_GIT_REPO) && files.length === 0),
     // isLoadingSelectedPatch: loading with no answer for this selection yet; a refresh keeps the answer (or its empty state) on show.
     diffPending: pending,
-    diffEmptyLabel: notGit ? NOT_GIT_REPO : client.diffText.trim() || lazy ? 'No patch available for this selection.' : 'No net changes in this selection.',
+    // DiffPanel hasNoNetChanges: a patch that resolved and is blank; no patch at all (a tool call that recorded none) is the other text.
+    diffEmptyLabel: notGit ? NOT_GIT_REPO : client.diffState.patchResolved && !client.diffText.trim() && !lazy ? 'No net changes in this selection.' : 'No patch available for this selection.',
     // A tool call: the files its record names that the patch leaves out, and the content recorded without a diff.
     diffToolCallNote: toolCall && toolCall.recordedFiles > files.length && files.length > 0
       ? `This tool call changed ${toolCall.recordedFiles} files. The recorded patch omits ${toolCall.recordedFiles - files.length} of them.` : '',

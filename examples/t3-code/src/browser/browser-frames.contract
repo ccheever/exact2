@@ -65,7 +65,9 @@ component BrowserFrame
   derive layoutW = fixed ? f.pageWidth * f.zoom : width
   derive layoutH = fixed ? f.pageHeight * f.zoom : height
   view
-    box position="absolute" left=left top=top width=width height=height opacity=(behind ? 0 : 1) pointer-events=(behind ? "none" : "auto")
+    // A tab neither shown nor held takes no room either: its box, empty and transparent, would still be hit, and over
+    // the window it would take every press, hover and double-click meant for the page under it.
+    box position="absolute" left=left top=top width=width height=height opacity=(behind ? 0 : 1) pointer-events=(behind ? "none" : "auto") display=(shown or behind ? "block" : "none")
       box position="absolute" left=0 top=0 right=0 bottom=0 border-radius=radius overflow=(radius > 0 ? "hidden" : "visible")
         iframe id=f.frameId src=f.src partition=f.partition zoom=f.zoom color-scheme=(f.colorScheme == "dark" ? "dark" : f.colorScheme == "light" ? "light" : scheme == "dark" ? "dark" : "light") hatch="t3-browser-page" data-browser-frame=f.frameId data-browser-environment=f.environment data-browser-profile=f.profile navigate=record("navigate") currententrychange=record("currententrychange") navigatesuccess=record("navigatesuccess") navigateerror=record("navigateerror") newwindow=opened download=downloaded userpromptopened=prompted aria-label=label testId=testId position="absolute" left=0 top=0 width=layoutW height=layoutH scale=(fixed and layoutW > 0 ? width / layoutW : 1) transform-origin="0 0" border-width=0 display=(shown or behind ? "block" : "none")
       if shown and f.promptType != ""
