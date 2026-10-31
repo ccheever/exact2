@@ -21,6 +21,7 @@ import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolv
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transformSync, parseSync } from 'rolldown/utils';
 import { copyGpuCache } from './gpu-cache.mjs';
+import { analyze } from './page-style.mjs';
 import { localImports, stageHostGlue } from './glue.mjs';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withInspectHooks, withoutDev, withRuntimeStamp } from './module.mjs';
 import { developmentStore } from '../../scripts/agent-launch.mjs';
@@ -466,7 +467,13 @@ writeFileSync(resolve(gen, 'main.js'), [
   // What armed itself at module load (sounds' output, a native page module's connection) reads `clock.agent` in a
   // callback that a font wait lets run before the first render, where `mount` sets it: set it now.
   "if (fonts) clock.agent = agentMode();",
-  "const go = f => fonts ? fonts.then(f) : f();",
+  // A rendered page's sheet holds only what its document can match (LLP 1048.007 D4): the whole sheet comes first,
+  // then the page's goes, before the first render (one that fails to load leaves the page's, and the render goes on).
+  "const page = typeof document === 'object' && document.querySelector('style[data-exact-page]');",
+  "const sheet = page && new Promise(r => { const l = Object.assign(document.createElement('link'), { rel: 'stylesheet', href: './style.css' }); l.onload = () => { page.remove(); r(); }; l.onerror = r; page.before(l); });",
+  "const waits = [fonts, sheet].filter(Boolean);",
+  "if (sheet && !fonts) { (globalThis.exact ??= {}).ready = new Promise(r => { booted = r; }); clock.agent = agentMode(); }",
+  "const go = f => waits.length ? Promise.all(waits).then(f) : f();",
   // Under the agent, an animation the first renders start (an indeterminate progress's turn) is held at the clock it
   // began at after each commit, before a frame shows it, until agent.js, which loads after the first render, takes it
   // (its `register`): never left on the browser's clock, nor turned on the compositor first (LLP 1069.001: a spinner
@@ -688,6 +695,10 @@ const statics = ['app.js', ...new Set([...readFileSync(resolve(out, 'app.js'), '
 // Declared fonts: a preload each, from the head (LLP 1019; the faces are in app.css).
 const fonts = existsSync(resolve(gen, 'preloads.html')) ? readFileSync(resolve(gen, 'preloads.html'), 'utf8') : '';
 const preloads = fonts + (args.includes('--inline') ? '' : statics.map(f => `<link rel="modulepreload" href="./${f}">\n`).join(''));
+// A rendered page carries only the rules its document can match (page-style.mjs, LLP 1048.007 D4); the runtime adds
+// the whole sheet before its first render (main.js), from style.css.
+writeFileSync(resolve(out, 'style.css'), base + css);
+writeFileSync(resolve(gen, 'page-style.json'), JSON.stringify(analyze(base + css)));
 writeFileSync(resolve(out, 'index.html'), `<!doctype html>
 <html lang="${attr(webManifest.lang)}">
 <meta charset="utf-8">

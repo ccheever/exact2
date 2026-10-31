@@ -858,6 +858,46 @@ component App
   }
 }, 240000);
 
+// LLP 1048.007 D4: a rendered page carries only the rules its document can match, and the runtime puts the whole sheet
+// back before its first render, so what it then shows is styled as on the shell.
+test('both document renderers give a page its own rules, and the runtime restores the whole sheet', async () => {
+  for (const how of ['js', 'rust']) await renderedPages(`routes nav
+  home "/" render=build
+
+component Page
+  state shown = false
+  state pick = "a"
+  action show
+    shown = true
+  action choose(v: string)
+    pick = v
+  view
+    main
+      button "Show" press=show testId="show"
+      if shown
+        select value=pick change=choose aria-label="Pick" testId="pick"
+          option "A" value="a"
+          option "B" value="b"
+`, async (_, html, dist) => {
+    const page = html(''), full = readFileSync(resolve(dist, 'style.css'), 'utf8');
+    const own = /<style data-exact-page>([\s\S]*?)<\/style>/.exec(page)?.[1];
+    expect([how, own?.length < full.length / 2, page.match(/<style[ >]/g)?.length, own?.includes('select:not([multiple])')]).toEqual([how, true, 1, false]);
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    const browser = await suiteBrowser();
+    try {
+      const tab = await browser.newPage({ viewport: { width: 390, height: 844 } });
+      await tab.goto(server.url.href);
+      await tab.click('[data-testid="show"]');
+      await tab.waitForSelector('[data-testid="pick"]');
+      expect([how, await tab.evaluate(() => [!!document.querySelector('style[data-exact-page]'), !!document.querySelector('link[rel=stylesheet][href="./style.css"]'),
+        getComputedStyle(document.querySelector('[data-testid="pick"]')).appearance])]).toEqual([how, [false, true, 'none']]);
+    } finally { await browser.close(); server.stop(true); }
+  }, {}, {}, how);
+}, 240000);
+
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {
   const doc = createDocument(), root = doc.getElementById('exact-root');

@@ -17,6 +17,7 @@ import { brotliCompressSync, createBrotliCompress, constants } from 'node:zlib';
 import { createDocument } from './dom.js';
 import { cachingFetch } from './http-cache.mjs';
 import { canonical, matchPattern } from './route-pattern.js';
+import { select, tokens } from './page-style.mjs';
 
 const DEADLINE = 3000;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -68,9 +69,13 @@ export function renderer(dist) {
   const viewport = esc(/<meta name="viewport" content="([^"]*)"/.exec(shell)?.[1] ?? 'width=device-width, initial-scale=1');
   // The document's language is the shell's, which the build wrote from the manifest's `lang` (LLP 1115.000 D4.6).
   const language = /<html[^>]* lang="([^"]*)"/.exec(shell)?.[1] || 'en-US';
+  // The shell's sheet as rules, when the build analyzed it: a page then carries only those its document can match, after
+  // its render, and the head sent before the render carries none (page-style.mjs, LLP 1048.007 D4).
+  const rules = existsSync(resolve(dist, '.gen/page-style.json')) ? JSON.parse(readFileSync(resolve(dist, '.gen/page-style.json'), 'utf8')) : null;
+  const sheet = rules ? /<style>[\s\S]*?<\/style>\n?/ : /(?!)/;
   // A rendered page paints without the runtime, which only adopts it, so its preloads are low priority (page.rs `push_low`).
   const headOf = preload => shell.slice(0, title).replace(/<html[^>]*>/, `<html lang="${language}" dir="ltr">`) + `<script>${capture}</script>\n`
-    + shell.slice(stop, root).replace(/(<link rel="modulepreload" href="[^"]*")>\n/g, preload ? '$1 fetchpriority="low">\n' : '');
+    + shell.slice(stop, root).replace(sheet, '').replace(/(<link rel="modulepreload" href="[^"]*")>\n/g, preload ? '$1 fetchpriority="low">\n' : '');
   const preloads = (shell.slice(stop, root).match(/<link rel="modulepreload" href="[^"]*">\n/g) ?? []).map(l => l.replace('>', ' fetchpriority="low">')).join('');
   /** A render begun: its route's policy and the page's head, known before
    * any data is asked; `finish` settles it and composes the rest. */
@@ -108,7 +113,8 @@ export function renderer(dist) {
       const fields = `<title>${esc(out.title || name)}</title><meta name="viewport" content="${viewport}">${out.description ? `<meta name="description" content="${esc(out.description)}">` : ''}`;
       const checkpoint = `{"location":${JSON.stringify(url.pathname + url.search)},"time":${JSON.stringify(out.time)},"logic":null,"answers":${out.answers},"pending":${JSON.stringify(out.pending)}}`;
       const digest = createHash('sha256').update(out.root).digest('hex').slice(0, 16);
-      const body = late => `${fields}\n${late}<div id="exact-root"${rootAttrs}>${out.root}</div>${shell.slice(root + ROOT[0].length, entry)}`
+      const style = rules ? `<style data-exact-page>${select(rules, tokens(out.root + shell.slice(root)))}</style>\n` : '';
+      const body = late => `${fields}\n${late}${style}<div id="exact-root"${rootAttrs}>${out.root}</div>${shell.slice(root + ROOT[0].length, entry)}`
         + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${activate}"${wake}>${checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entry + ENTRY.length)}`;
       // A complete page marks html and names the preloads in its head; a streamed head has gone already, so the rest
       // marks it before the body and names them after the head's fields, as page.rs does.
