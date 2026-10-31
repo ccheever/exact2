@@ -442,6 +442,7 @@ impl Device for Metal {
                 },
             );
             self.textures.get_mut(&id).unwrap().last = self.submitted;
+            super::apple::trace_mark(c"texture upload submission", || self.submitted.0 as f64);
             return Ok(self.submitted);
         }
         self.wait(self.last_use(id)?)?;

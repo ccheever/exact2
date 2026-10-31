@@ -166,6 +166,7 @@ impl Upload {
                 return Err(Error::DeviceLost("image upload failed".into()));
             }
         }
+        let _encode = Trace::new(c"upload copy encode");
         let stride = self.row.div_ceil(256) * 256;
         let length = stride * self.size[1] as usize;
         trace_mark(c"staging bytes", || length as f64);

@@ -147,6 +147,8 @@ impl Glyphs {
         #[cfg(not(windows))]
         let image: Option<swash::scale::image::Image> = None;
         let image = image.or_else(|| {
+            #[cfg(target_os = "macos")]
+            let _trace = crate::device::apple::Trace::new(c"glyph swash");
             let mut scaler = self
                 .scale
                 .builder_with_id(face, font.id)
