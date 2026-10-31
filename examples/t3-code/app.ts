@@ -142,8 +142,8 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     transport.observe(Number(args[0]) || 0); // the tick's clock, until its first tick
     noteServerUpdateClock(client, String(args[1] ?? ''), String(args[2] ?? '')); // server-update-notices.ts: the 2 s and 20 s timers
     noteTranscriptFacts(client, args); // the transcript's viewport (transcript-facts.ts)
-    noteComposerTyping(client, args[9] === true); // the composer's typing clock (composer-typing-guard.ts)
-    noteLayoutFrames(client, args[10]); // the boxes app.contract measured (layout-frames.ts)
+    noteComposerTyping(client, args[8] === true); // the composer's typing clock (composer-typing-guard.ts)
+    noteLayoutFrames(client, args[9]); // the boxes app.contract measured (layout-frames.ts)
     await client.refresh(native, storage);
     await prepareTimeline(client, native); // Mermaid layouts and the worktree setup stream (timeline-prepare.ts).
     await autoBalancePrepare(client, native); // auto-balance.ts
@@ -152,7 +152,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     await activationPrepare(client, native); // desktop-activation.ts: `t3 app` waits until the primary is connected and loaded
     // The views that paint code answer through highlightView (highlights.ts): each reports whether a text it painted
     // waits for its tokens, so the root's highlight pump refreshes it when they land (app.contract highlightStoredThen).
-    return highlightView('data', () => ({ ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? ''), String(args[11] ?? '')), chatgptPlan: chatGptPlanSnapshot(client), // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
+    return highlightView('data', () => ({ ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? ''), String(args[10] ?? '')), chatgptPlan: chatGptPlanSnapshot(client), // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
       linkMenu: chatLinkMenuView(client, native, storage), // a Markdown web link's menu rows (external-link-menu.ts)
       externalOpen: externalOpenRequest(), // the latest link to open outside the app (external-open.ts)
       ...codexReceivingSlots(client, native) })); // the ChatGPT sign-ins waiting on their loopback callbacks (app.contract codexLoopback)

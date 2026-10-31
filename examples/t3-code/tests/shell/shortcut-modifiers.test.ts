@@ -88,7 +88,7 @@ describe('the window tracks held modifiers from its key events', () => {
     expect(fns.speedModifiers(state.speedModifierState as State)).toBe(false);
   });
   test('the composer\'s own focus is a field\'s, as at a launch that seats the focus there', () => {
-    const state = { ...rootState(), composerComposing: false, restResting: false };
+    const state = { ...rootState(), composerComposing: false };
     state.speedModifierState = { ...emptyState(), shiftKey: true };
     root.call('composerFocus', state, { ...scope(), richComposer: { mode: 'rich' }, modifierEditableFocus: () => root.call('modifierEditableFocus', state, scope(), []) }, []);
     expect(state.speedModifierState).toEqual(emptyState());

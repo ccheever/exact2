@@ -468,7 +468,6 @@ shape Snapshot
   modelShortLabel: string
   modelUnavailable: bool
   planModeEnabled: bool
-  composerResting: bool
   transcriptAway: bool
   // composer-overlay.ts: the transcript's end reservation under the composer overlay, the Scroll to end pill's rise,
   // and the composer height the column keeps (the terminal drawer's cap, the empty timeline's centring).

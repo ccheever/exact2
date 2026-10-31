@@ -86,7 +86,7 @@ export function environmentIndicator(input: { isPrimary: boolean; available: num
 type LineageView = ReturnType<typeof lineageView>;
 const noLineage: LineageView = { lineageTitle: 'Lineage', lineage: [], showLineage: false, previousCount: 0, previousFailed: 0, mergeRunId: '', mergeTargetId: '', mergeSourceId: '', mergeLabel: '', mergeHint: '' };
 // A function, not a constant: the Servers and Usage modules sit in an import cycle with this one.
-const empty = () => ({ versionClient: '', versionServer: '', versionLabel: '', ready: false, inline: false, error: '', folderName: '', folderLabel: '', cwd: '', editorId: '', editorLabel: '', editors: [] as { id: string; label: string; selected: boolean }[], editorShortcut: '', editorShow: false, editorHint: '', editorUnavailable: '', editorEmpty: false,
+const empty = () => ({ versionClient: '', versionServer: '', versionLabel: '', ready: false, inline: false, error: '', folderName: '', folderLabel: '', cwd: '', workspacePath: '', editorId: '', editorLabel: '', editors: [] as { id: string; label: string; selected: boolean }[], editorShortcut: '', editorShow: false, editorHint: '', editorUnavailable: '', editorEmpty: false,
   isGit: false, branch: '', actionLabel: 'Commit', actionKind: 'show_hint', actionDisabled: true, actionHint: '', insertions: 0, deletions: 0,
   envModeSelect: false, envMode: 'local', envIcon: 'folder', previousLabel: '', actionIcon: 'git-commit', changesEnabled: false, diffScheme: 'red-green',
   envShow: false, envLabel: '', envKind: 'server', automations: NO_AUTOMATIONS, git: EMPTY_GIT, prRows: emptyPrRows(), ...NO_SCRIPTS, ...noLineage,
@@ -160,6 +160,8 @@ export async function shellDetails(client: T3Client, native: Native | null | und
     ready: true, inline, error, folderName: creating ? 'New worktree' : cwd.replace(/\/+$/, '').split('/').pop() ?? '',
     // The panel names the workspace kind only when it is not the project folder.
     folderLabel: creating ? 'Create' : worktree ? 'Worktree' : '', cwd,
+    // RunContextSelector's workspacePath: none for a worktree not made yet (forced, or New worktree before its first turn).
+    workspacePath: envMode === 'worktree' && !worktree ? '' : cwd,
     envModeSelect: !thread || override, envMode, envIcon: envMode === 'worktree' && !worktree ? 'folder-git-2' : worktree ? 'folder-git' : 'folder',
     previousLabel: previous?.branch ?? '', actionIcon: quickActionIcon(action, status),
     // ChatView passes onOpenChanges only for a server thread in a Git repository.

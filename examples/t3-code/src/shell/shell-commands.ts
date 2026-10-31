@@ -25,6 +25,7 @@ import { openHome } from '../pages/home-landing';
 import { addMachineLocal } from './add-project-dialog';
 import { announce } from './announce';
 import { editorLabel } from '../shared/editors';
+import { formatFilePathForClipboard } from '../timeline/workspace-file-lookup';
 
 function threadOf(client: T3Client, threadId: string) {
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
@@ -186,6 +187,14 @@ export async function shellLocal(client: T3Client, native: Native, op: string, i
   if (op === 'details-inline') { toggleInline(client, detailsKey(client)); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // panel-surfaces.ts
   if (op.startsWith('add-machine-')) return addMachineLocal(client, native, op.slice(12), id, value); // Add to another machine (add-project-dialog.ts)
+  // The thread details card's Workspace row menu (BranchToolbar showWorkspaceContextMenu): the path in its host's form.
+  if (op === 'details-copy-path') {
+    const text = formatFilePathForClipboard(value);
+    if (!text) return '';
+    try { await copy(text); } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy path', description: messageOf(error), stacked: true }); return ''; }
+    pushToast(client, { kind: 'success', title: 'Path copied', description: text });
+    return '';
+  }
   const thread = client.shell.threads.find(candidate => candidate.id === id);
   if (op === 'copy-path') {
     const project = client.shell.projects.find(candidate => candidate.id === (thread?.projectId ?? client.projectId));

@@ -165,6 +165,8 @@ shape ShellDetails
   folderName: string
   folderLabel: string
   cwd: string
+  // The Workspace row's Copy full path (BranchToolbar's workspacePath): "" while a new worktree is still to be made.
+  workspacePath: string
   editorId: string
   editorLabel: string
   editors: ShellEditor[]

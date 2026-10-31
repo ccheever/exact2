@@ -977,13 +977,13 @@ test('badge initials stay readable on light accent colors', () => {
 test('timeline presentation belongs to one connection/project/thread', () => {
   const client = new T3Client();
   client.origin = 'http://localhost:1'; client.projectId = 'p'; client.threadId = 't';
-  // The snapshot's arguments 4-7: the transcript's owner, resting, at its end, pulls (transcript-facts.ts).
-  noteTranscriptFacts(client, [0, '', '', '', 'http://localhost:1:p:t', true, false, 0]);
-  expect(snapshot(client)).toMatchObject({composerResting:true,transcriptAway:true});
+  // The snapshot's arguments 4-6: the transcript's owner, at its end, pulls (transcript-facts.ts).
+  noteTranscriptFacts(client, [0, '', '', '', 'http://localhost:1:p:t', false, 0]);
+  expect(snapshot(client)).toMatchObject({transcriptAway:true});
   client.threadId = 'other';
-  expect(snapshot(client)).toMatchObject({composerResting:false,transcriptAway:false});
-  // The Collapse composer on scroll setting is gone (T3 Code v0.1.5 #25869).
-  expect('composerCollapseOnScroll' in snapshot(client)).toBe(false);
+  expect(snapshot(client)).toMatchObject({transcriptAway:false});
+  // The Collapse composer on scroll setting is gone, and with it the composer's resting state (T3 Code v0.1.5 #25869).
+  expect(['composerCollapseOnScroll', 'composerResting'].filter(key => key in snapshot(client))).toEqual([]);
 });
 
 

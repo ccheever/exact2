@@ -25,16 +25,11 @@ component ReqIcon
         path d="M18 6 6 18M6 6l12 12"
 
 // The banner sits behind the composer's top edge (calc(1rem + 1px) overlap).
-// Native SVG glyphs resolve light-dark() when they are created, so a scheme
-// change rebuilds the stack (the same workaround the shell uses).
 component RequestBanner
   props
     data: Snapshot
     command: action
-    busy: bool
-    compact: bool
     maximumHeight: number
-    scheme: string
   view
     RequestStack(data=data, command=command, maximumHeight=maximumHeight)
 

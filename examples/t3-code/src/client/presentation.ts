@@ -173,7 +173,6 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     modelShortLabel: currentModel ? triggerModelName({ ...currentModel, shortName: resolveModelShortName(currentModel, str(selectedProvider?.driver)) ?? '' }) : selectedModel || 'Choose model',
     modelUnavailable: currentModel?.isUnavailable === true,
     planModeEnabled: client.local.deviceSettings.planModeEnabled,
-    composerResting: transcriptFacts(client).owner === `${client.origin}:${client.projectId}:${client.threadId}` && transcriptFacts(client).resting,
     transcriptAway: transcriptFacts(client).owner === `${client.origin}:${client.projectId}:${client.threadId}` && !transcriptFacts(client).atEnd,
     ...composerOverlaySnapshot(client, transcript), // the composer over the transcript (composer-overlay.ts)
     ...composerVideoSnapshot(client), // the shelf's videos and their preview (composer-attachments.ts)

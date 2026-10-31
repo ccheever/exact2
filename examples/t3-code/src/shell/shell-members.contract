@@ -352,6 +352,18 @@ members T3Code
     workspaceArea = area
     if e.target != ""
       workspaceTargets = workspaceTargets.filter((entry) => entry.area != area).concat([WorkspaceTarget(area=area, target=e.target)])
+  // A sidebar rename closed by Enter or Escape (sidebar-row.contract SidebarRenameField): once its field has gone, the
+  // row takes the focus back, as the reference's tree refocuses its stop when the focused field unmounts to the body
+  // (sidebarTree.ts refresh), so F6 and the arrow keys keep their place. A blur elsewhere leaves the focus where it went.
+  state renameReturn = ""
+  action sidebarRenameClosed(id: string)
+    renameReturn = id
+  task renameReturnDue when renameReturn != "" and data.sidebar.renameId != renameReturn key=renameReturn
+    after(1, sidebarRenameReturned)
+  action sidebarRenameReturned
+    let id = renameReturn
+    renameReturn = ""
+    focus(`thread-${id}`)
   // F6 typed in a terminal page arrives as its op's answer (app.contract terminalCompleted), which cannot itself send
   // the terminal's mutation that a move into the terminal sends: the move runs on the next turn.
   state terminalWorkspaceMove = 0
@@ -388,7 +400,7 @@ members T3Code
     else if usable
       focus(remembered)
     else if area == "sidebar"
-      focus(data.threadId != "" and frame(`row-${data.threadId}`).width > 0 ? `row-${data.threadId}` : "search-threads")
+      focus(data.sidebar.treeCurrent != "" and frame(data.sidebar.treeCurrent).width > 0 ? data.sidebar.treeCurrent : "search-threads")
     else if area == "composer"
       focus("composer")
     else if area == "settings-nav"

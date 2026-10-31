@@ -510,18 +510,22 @@ component SidebarStatusSlot
         text t.age font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #8f8f8f)" font-variant-numeric="tabular-nums"
 
 // In-place rename (Sidebar.tsx row title input, aria-label "Thread title"):
-// focused and selected on open; Enter commits, Escape cancels, blur commits. Its direction follows what is typed
+// focused and selected on open; Enter commits, Escape cancels, blur commits; after Enter or Escape the blur of the closing
+// field commits nothing more (ThreadRenameInput's settledRef). Its direction follows what is typed
 // (`dir="auto"`: each edit hands the text to the data module, which reads its first strong character).
 // React's `autoFocus` focuses the input as it mounts whatever holds the focus (a double-click from the prompt), and
 // its onFocus selects the title; `autofocus` yields to a focus held elsewhere, so FieldOpenSelect does both.
 component SidebarRenameField
   inject
     releaseUndoClaim: action
+    // Enter or Escape closed the field: the row takes the focus back once it has gone (shell-members.contract).
+    sidebarRenameClosed: action
   props
     t: Thread
     local: action
     run: action
   state title = t.title
+  state settled = false
   action edit(value: string)
     title = value
     releaseUndoClaim() // a field's edit hands ⌘Z back to the fields (ThreadUndoShortcut's input listener)
@@ -529,10 +533,20 @@ component SidebarRenameField
   // SidebarThreadRow's rename field ignores a key that confirms an input method's candidate.
   action renameKey(k: string, e: KeyboardEvent)
     if not e.isComposing
+      if k == "Escape"
+        settled = true
+        sidebarRenameClosed(t.id)
       local("rename-key", t.id, k)
+  action commit
+    settled = true
+    run("rename", t.id, title)
+    sidebarRenameClosed(t.id)
+  action blurred
+    if not settled
+      run("rename", t.id, title)
   view
     FieldOpenSelect(target=`sidebar-rename-${t.id}`, length=t.title.length)
-    input id=`sidebar-rename-${t.id}` value=title input=edit submit=run("rename", t.id, title) blur=run("rename", t.id, title) key=renameKey autofocus=true aria-label="Thread title" testId=`rename-${t.id}` text-align="start" direction=t.renameDir flex=1 min-width=0 height="1.375rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#18181b, #f3f3f3)" background-color="light-dark(#ffffff, #000000)" font-size="0.875rem" font-weight=500 color="light-dark(#18181b, #f3f3f3)" autocorrect="off" data-editable="yes"
+    input id=`sidebar-rename-${t.id}` value=title input=edit submit=commit blur=blurred key=renameKey autofocus=true aria-label="Thread title" testId=`rename-${t.id}` text-align="start" direction=t.renameDir flex=1 min-width=0 height="1.375rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#18181b, #f3f3f3)" background-color="light-dark(#ffffff, #000000)" font-size="0.875rem" font-weight=500 color="light-dark(#18181b, #f3f3f3)" autocorrect="off" data-editable="yes"
 
 // A thread search result: title row with a faded age, and for a message match
 // the speaker label plus the excerpt with every hit in semibold ink. The
