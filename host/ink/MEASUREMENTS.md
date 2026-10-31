@@ -4172,3 +4172,134 @@ passing test count. Shelf uses `gpu-dev`; the Linux test crate alone uses
 show correctly scaled text; Settings returns to 100%. Native logs and captures
 are under `target/m2b-fix/nucbox/native/`. `target/m2b-fix/CHECKS.txt` retains
 all result lines; `FULL-OUTPUT.txt` retains complete verbatim check output.
+
+
+## Stage 0b: G4q quiet boot cohorts, 2026-10-30
+
+The silver Mac retake uses source `d5429830d2`, with the hook and power sampling
+off. Retained cohorts alternate ten direct-Metal and ten wgpu launches,
+reversing their order each pair. Miss cohorts remove only the recorded Metal
+archive before each of ten launches, preserving a copy and each rebuilt
+archive. The boot-only probe records per-painter complete scenes, passive
+presented timestamps and the startup span union. Every launch, including first
+launches and tails, is retained. No background process is stopped.
+
+The predictions were committed before collection in G4q: 30/30 complete Ink
+screens; retained Metal phase p50 ≤8 ms and within 2 ms of 6.581 ms; complete
+Ink p50 no more than wgpu +5 ms; archive misses with zero boot-thread
+compilation, CPU first-pixel p50 ≤300 ms and complete Ink p50 ≤450 ms. No
+100 ms application-budget pass was predicted.
+
+Each cohort starts after a full passing minute of five-second observations:
+≤2 busy cores, ≤0.25 core for the largest non-benchmark process, no compilers
+and all load averages below 30. The continuous monitor covers collection and
+a terminal observation. Any failure excludes the whole cohort; its single
+retry needs a fresh passing minute. Passing per-launch endpoints alone do not
+qualify a cohort. Tables show all launches; milliseconds are p50 (min–max).
+
+### boot-retained-1 — excluded
+
+The gate waited **131.507 s**. Of the qualifying minute and
+collection's **16 observations, 1 fail**.
+Whole-machine CPU is **0.623–1.966 cores**;
+the largest non-benchmark process is `ScreensharingAgent` (PID 9846) at
+**0.283 core**. The whole cohort is excluded from quiet claims.
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | metal | wgpu |
+|---|---:|---:|
+| Launches | 10 | 10 |
+| Displayed | 10 | 10 |
+| Complete Ink screens | 10 | 10 |
+| Device/layer phase, ms | 5.969 (5.599–7.855) | 6.290 (6.024–232.594) |
+| First pixel, ms | 223.733 (182.126–253.811) | 263.722 (249.341–458.228) |
+| First CPU pixel, ms | — | — |
+| Complete CPU screen, ms | — | — |
+| Complete Ink screen, ms | 223.733 (182.126–253.811) | 263.722 (249.341–458.228) |
+| Worker compilation/serialization, ms | 0.000 (0.000–0.000) | 0.000 (0.000–0.000) |
+| Active or key windows | 0 | 0 |
+
+
+The disjoint durations below sum per launch before taking a median. The
+remaining duration is a residual, not a causal attribution. Displayed ordinal
+counts displayed drawables; endpoint quiet is weaker than the whole-cohort rule.
+
+| Launch | Pre-main, ms | Device/layer, ms | Remaining boot/presentation, ms | Complete Ink, ms | Ink displayed ordinal | First CPU / complete CPU, ms | Quiet endpoints |
+|---|---:|---:|---:|---:|---:|---:|---|
+| metal-1 | 5.375 | 6.271 | 170.480 | 182.126 | 1 | — | True |
+| metal-10 | 9.391 | 6.480 | 201.031 | 216.902 | 1 | — | True |
+| metal-2 | 17.494 | 5.786 | 201.403 | 224.683 | 1 | — | True |
+| metal-3 | 17.460 | 5.740 | 230.611 | 253.811 | 1 | — | True |
+| metal-4 | 16.079 | 5.599 | 211.265 | 232.944 | 1 | — | False |
+| metal-5 | 17.183 | 6.153 | 215.326 | 238.663 | 1 | — | False |
+| metal-6 | 15.732 | 5.746 | 185.575 | 207.053 | 1 | — | False |
+| metal-7 | 17.228 | 5.604 | 220.666 | 243.498 | 1 | — | False |
+| metal-8 | 18.628 | 7.855 | 196.300 | 222.783 | 1 | — | False |
+| metal-9 | 15.578 | 6.697 | 183.020 | 205.295 | 1 | — | False |
+| wgpu-1 | 16.715 | 232.594 | 208.919 | 458.228 | 1 | — | True |
+| wgpu-10 | 13.724 | 6.096 | 230.189 | 250.010 | 1 | — | False |
+| wgpu-2 | 17.724 | 6.024 | 243.861 | 267.609 | 1 | — | True |
+| wgpu-3 | 16.568 | 6.248 | 251.012 | 273.829 | 1 | — | True |
+| wgpu-4 | 14.039 | 6.334 | 228.967 | 249.341 | 1 | — | False |
+| wgpu-5 | 17.885 | 6.347 | 249.038 | 273.269 | 1 | — | False |
+| wgpu-6 | 18.340 | 6.216 | 228.576 | 253.132 | 1 | — | False |
+| wgpu-7 | 17.257 | 6.331 | 242.979 | 266.567 | 1 | — | False |
+| wgpu-8 | 14.730 | 6.776 | 230.743 | 252.250 | 1 | — | False |
+| wgpu-9 | 16.458 | 6.206 | 238.214 | 260.878 | 1 | — | False |
+
+20 exits, complete scenes, span sums, archive hashes, hook flags and passive windows verified; whole-cohort quiet = False.
+
+
+### boot-retained-2 — excluded
+
+The gate waited **60.742 s**. Of the qualifying minute and
+collection's **16 observations, 3 fail**.
+Whole-machine CPU is **0.484–2.144 cores**;
+the largest non-benchmark process is `(Heavy list)` (PID 35938) at
+**0.514 core**. The whole cohort is excluded from quiet claims.
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | metal | wgpu |
+|---|---:|---:|
+| Launches | 10 | 10 |
+| Displayed | 10 | 10 |
+| Complete Ink screens | 10 | 10 |
+| Device/layer phase, ms | 6.540 (5.318–6.756) | 6.407 (6.119–7.022) |
+| First pixel, ms | 224.022 (191.142–247.024) | 259.248 (237.942–283.799) |
+| First CPU pixel, ms | — | — |
+| Complete CPU screen, ms | — | — |
+| Complete Ink screen, ms | 224.022 (191.142–247.024) | 259.248 (237.942–283.799) |
+| Worker compilation/serialization, ms | 0.000 (0.000–0.000) | 0.000 (0.000–0.000) |
+| Active or key windows | 0 | 0 |
+
+
+The disjoint durations below sum per launch before taking a median. The
+remaining duration is a residual, not a causal attribution. Displayed ordinal
+counts displayed drawables; endpoint quiet is weaker than the whole-cohort rule.
+
+| Launch | Pre-main, ms | Device/layer, ms | Remaining boot/presentation, ms | Complete Ink, ms | Ink displayed ordinal | First CPU / complete CPU, ms | Quiet endpoints |
+|---|---:|---:|---:|---:|---:|---:|---|
+| metal-1 | 9.740 | 6.149 | 175.252 | 191.142 | 1 | — | False |
+| metal-10 | 17.722 | 5.318 | 223.984 | 247.024 | 1 | — | False |
+| metal-2 | 16.848 | 6.590 | 211.540 | 234.979 | 1 | — | False |
+| metal-3 | 13.280 | 6.536 | 215.004 | 234.820 | 1 | — | False |
+| metal-4 | 13.389 | 6.756 | 203.668 | 223.813 | 1 | — | False |
+| metal-5 | 17.610 | 6.698 | 200.029 | 224.338 | 1 | — | False |
+| metal-6 | 17.913 | 6.464 | 199.223 | 223.600 | 1 | — | False |
+| metal-7 | 16.717 | 6.732 | 200.782 | 224.231 | 1 | — | False |
+| metal-8 | 16.673 | 6.482 | 197.308 | 220.464 | 1 | — | False |
+| metal-9 | 16.317 | 6.544 | 184.620 | 207.481 | 1 | — | False |
+| wgpu-1 | 17.515 | 6.652 | 232.527 | 256.694 | 1 | — | False |
+| wgpu-10 | 12.482 | 6.411 | 242.908 | 261.802 | 1 | — | False |
+| wgpu-2 | 19.537 | 6.119 | 238.690 | 264.346 | 1 | — | False |
+| wgpu-3 | 18.545 | 6.193 | 240.593 | 265.331 | 1 | — | False |
+| wgpu-4 | 16.462 | 6.192 | 230.133 | 252.786 | 1 | — | False |
+| wgpu-5 | 16.723 | 6.811 | 260.265 | 283.799 | 1 | — | False |
+| wgpu-6 | 14.024 | 6.385 | 217.533 | 237.942 | 1 | — | False |
+| wgpu-7 | 13.258 | 7.022 | 232.890 | 253.170 | 1 | — | False |
+| wgpu-8 | 16.420 | 6.583 | 224.658 | 247.661 | 1 | — | False |
+| wgpu-9 | 16.984 | 6.403 | 242.990 | 266.377 | 1 | — | False |
+
+20 exits, complete scenes, span sums, archive hashes, hook flags and passive windows verified; whole-cohort quiet = False.
