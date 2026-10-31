@@ -13,6 +13,12 @@ static AT_MOUNT: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::var("EXACT_PICTURES_AT_MOUNT").is_ok_and(|v| v != "0"));
 
 impl<D: DataSource> Presenter<D> {
+    /// A landed picture needs the next display tick, without waiting for a
+    /// window-system redraw. Painting consumes this demand.
+    pub fn pictures_need_paint(&self) -> bool {
+        self.image_paint_pending
+    }
+
     /// Loads that arrived since the last call: their sizes reach the kernel.
     /// Whether anything changed.
     pub fn poll_images(&mut self) -> bool {
@@ -96,6 +102,7 @@ impl<D: DataSource> Presenter<D> {
         }
         if any {
             self.dirty = true;
+            self.image_paint_pending = true;
             self.clamp_scroll();
             self.queue_collections();
             if let Some(error) = self.refresh_transform_geometry() {
@@ -223,6 +230,7 @@ impl<D: DataSource> Presenter<D> {
         let mut reports = reports;
         reports.extend(self.pictures_out());
         self.dirty |= !reports.is_empty();
+        self.image_paint_pending |= !reports.is_empty();
         self.images.settled = self.images.settled_at(epoch, reports.is_empty());
         if reports.is_empty() {
             return None;

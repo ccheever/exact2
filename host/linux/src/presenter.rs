@@ -261,6 +261,7 @@ pub struct Presenter<D: DataSource> {
     /// The fields `rangeFrame` reads, as painted beside `boxes`.
     ranges: std::rc::Rc<range_frame::Painted>,
     pub(crate) dirty: bool,
+    pub(crate) image_paint_pending: bool,
     /// The app's `setScheme` (`None`: follow the system) and the appearance
     /// its shell or an agent says (LLP 1061 D5); light until either does.
     pub(crate) scheme: (Option<bool>, bool),
@@ -534,6 +535,7 @@ impl<D: DataSource> Presenter<D> {
             boxes_serial: 0,
             ranges: Default::default(),
             dirty: true,
+            image_paint_pending: false,
             deferred_collections: None,
             live_clock: None,
             native_timers: false,

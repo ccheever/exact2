@@ -235,6 +235,19 @@ impl<D: DataSource + Default + 'static> App<D> {
         }
     }
     fn draw(&mut self) -> Result<(), String> {
+        self.draw_once()?;
+        if self.awaiting_first_present() && !self.hidden {
+            let p = self.presenter.as_mut().unwrap();
+            // A first walk can outlast a decode. Consume its slot now, before
+            // returning to AppKit; a later arrival remains for the next tick.
+            p.poll_images();
+            if p.pictures_need_paint() {
+                self.draw_once()?;
+            }
+        }
+        Ok(())
+    }
+    fn draw_once(&mut self) -> Result<(), String> {
         let _trace = Trace::new(c"carrier draw");
         if self.hidden {
             return Ok(());
@@ -400,6 +413,14 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             self.layer = Some(layer);
             self.presenter = Some(p);
             self.window = Some(window.clone());
+            // about_to_wait follows AppKit's first redraw transaction. Start
+            // boot ticks here so a landed picture does not wait for that turn.
+            self.display_active.store(true, Ordering::Release);
+            self.display
+                .as_mut()
+                .unwrap()
+                .set_running(true)
+                .map_err(|e| e.to_string())?;
             self.draw()?;
             window.request_redraw();
             if self.config.agent {
@@ -427,7 +448,12 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 if !unshown {
                     self.first_frame = None;
                 }
-                if self.first_frame.is_some() {
+                if self.first_frame.is_some()
+                    || self
+                        .presenter
+                        .as_ref()
+                        .is_some_and(|p| p.pictures_need_paint())
+                {
                     let before = self.frames;
                     if let Err(e) = self.draw() {
                         self.fail(events, e);
