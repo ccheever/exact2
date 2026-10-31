@@ -3350,6 +3350,27 @@ bun bench/heavy-list/gpui/aggregate.mjs target/g0/silver-run-42d5066572/boot-mis
 
 ### Instrument and retained samples
 
+**Hook provenance correction, 2026-10-30.** The startup cohorts in this Stage 0b
+record used the pre-switch probe with its queue hook on: the development-Mac
+`warm-final/`, `miss-final/` and `retained-loaded/` cohorts, the silver Mac's
+`run-42d5066572/{retained,miss}/`, and chunk 4's
+`s0b4-trace/baseline/` and `s0b4-fixed/{retained,miss}/`, including their failed
+launches and diagnostic traces. That probe creates the system Metal device and
+a command queue in its constructor, before `main`. The 0.064 ms
+`MTLCreateSystemDefaultDevice` row below therefore reads an already-created
+device. Complete-screen times include that pre-main work, but device-phase
+comparisons do not represent uninstrumented device creation. C4–C6's separate
+headless harness is not this probe. Future boot cohorts must state hook state;
+both driver and probe now default off. G4m's native cold rows also used hook-on,
+loading Metal that the native app would never load, and are not comparable to
+future hook-off (a) cold rows.
+
+The silver cohorts' “quiet” qualification used load averages and compiler names.
+G4m/G5m and the later hook comparison's tasks plists expose sustained fleet/Claude
+and PerfPowerServices activity on that machine; these startup cohorts have no
+per-process quiet monitor to establish its absence. Preserve their measured
+results and the hook/background limits when comparing a later cohort.
+
 Apple M5 Max, 128 GiB, macOS 27.0.1 (26A434), Bun 1.4.2 and Cargo 1.97.0.
 `environment.json` retains the environment and base commit. The first carrier
 build in this worktree was cold; its build log is `checks/baseline-build.log`. The

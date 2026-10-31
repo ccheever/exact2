@@ -1114,18 +1114,26 @@ probe and power sampling changed, so this does not isolate hardware.
 [G4m's original tables and power](../bench/heavy-list/gpui/RESULTS.md#g4m-the-four-arms-on-the-measurement-mac).
 
 **G4m, the instrument's share, 2026-10-30:** five interleaved rounds each
-with hook/power off/off, on/off and on/on do not resolve a positive hook
-cost: every arm's paired CPU range crosses zero. Power sampling lowers
-measured app CPU by 5.78–11.02 ms/s at the paired medians, missing the
-predicted positive cost. LLP 1149.001 §4 now takes scoreboard CPU from
-hook-off, power-off runs, GPU from hook-on runs and power separately.
-That CPU baseline is **174.87/156.13/128.00/119.76 ms/s**; disabling the hook
-does not restore G4's levels. The driver and three control arms' application
-code are unchanged; the carrier includes Stage 0b chunk 4.
-[Configurations, paired differences and retained evidence](../bench/heavy-list/gpui/RESULTS.md#g4m-the-instruments-share).
+with hook/power off/off, on/off and on/on do not resolve a positive hook cost:
+every arm's paired CPU range crosses zero, with about 10 ms/s still compatible.
+Configuration (c) measured lower app CPU by 5.78–11.02 ms/s at the paired
+medians, missing the predicted positive cost. Most of the difference is on the
+main thread with cadence/input unchanged; the sampler keeping a cluster at a
+higher clock is a hypothesis, and the order is not fully counterbalanced.
+LLP 1149.001 §4 takes CPU from hook-off, power-off runs, GPU from hook-on,
+power-off runs, and power separately. The complete (a) baseline is
+**174.87/156.13/128.00/119.76 ms/s**; it was taken under 5–6 busy cores of
+standing background work and must be re-taken when quiet. The G4→G4m rise is
+unattributed; the queue hook is excluded as its explanation. The driver and
+three control arms' application code are unchanged from original G4m; Ink is
+`c22ef19622` on `f069d37722`, including Stage 0b chunk 4.
+[Original (c), complete (a), background, paired differences and reproduction](../bench/heavy-list/gpui/RESULTS.md#g4m-the-instruments-share).
 
-**G5:** three quiet rounds each of fling, bar and caret complete, **36/36**
-samples, **114/114** quiet observations, no focus losses. Native bar main-thread
+**G5:** three rounds each of fling, bar and caret complete, **36/36**
+samples, **114/114** observations passing the old load/compiler rule, no focus
+losses, under the same standing background as G4m. Bar/caret CPU is (c) and
+GPU is power-on; both stand until hook-off and power-off static series replace
+them respectively. Native bar main-thread
 CPU is **84.487 ms/s**, missing the below-10 prediction. Ink and GPUI present
 bar at **119.76 frames/s**; egui at **119.59**. GPUI and egui present caret
 exactly twice per second; Ink stays at **119.74 frames/s** and **154.320 process

@@ -137,12 +137,37 @@ worktrees alone. Every Cargo invocation uses this worktree's `target/`,
 including `--target-dir target` for the separate benchmark workspaces.
 Nothing else may build there; no other work may run during a series.
 
-Scoreboard CPU uses `G1_GPU_HOOK=0` with `powermetrics` off. The probe reads
-the switch once at load and records `gpuHookEnabled`; it leaves the drawable
-hook enabled. The driver defaults to off for flings and on for static workloads.
-For G5's GPU series, set `G1_GPU_HOOK=1` explicitly for every workload, including
-its fling control. GPU rows come from that series or a hook-on, power-off run.
-Power is measured separately and never joined to a scoreboard CPU row.
+Scoreboard CPU rows use `G1_GPU_HOOK=0` with `powermetrics` off; GPU rows
+use `G1_GPU_HOOK=1` with power sampling off. Power is measured in its own
+run and never joined to a CPU row. G5m's bar/caret CPU rows remain hook-on,
+power-on (c), and its GPU rows remain power-on, until a hook-off static series
+and a power-off static series replace them respectively.
+
+Both driver and probe default to hook-off for every workload, including bar,
+caret and cold-only. Set `G1_GPU_HOOK=1` explicitly to reproduce the old
+hook-on instrument or to measure GPU work. Hook-on creates the system Metal
+device and a queue before `main`, even in native, which otherwise creates
+neither; its cold row cannot be compared to a hook-off launch. Empty and invalid
+values are driver errors before launching. Rejections record requested hook
+state; successful probes record observed state too. The drawable hook stays on.
+`aggregate.mjs` prints the hook state, refuses mixed tables and prints GPU rows
+as `—` when off. Missing hook metadata means on for pre-switch probes.
+
+The retained G4m, G5m and hook comparison passed a load/compiler rule while
+carrying 5–6 busy cores, a spinning PerfPowerServices and fleet/Claude work.
+Their “quiet” label means that old rule only. The complete (a) CPU baseline was
+taken under that background; re-take it when the machine is quiet. The owner
+must stop the fleet/Claude session and its polling loops, simulators and
+DeviceHub, and PerfPowerServices if it is spinning, before the next series.
+The proposed bounds are ≤2 whole-machine busy cores and ≤0.25 core for the
+largest non-benchmark process at every five-second observation, besides all
+load averages below 30 and no compiler. `gpui/run-hook.py` records CPU-tick
+deltas (including exited tasks), the five largest non-benchmark processes,
+and `pmset -g` / `pmset -g batt` per series. Its `--single` mode retains one
+instrument sample even if loaded and produces no scoreboard table. See
+[the predictions, background and reproduction](gpui/RESULTS.md#g4m-the-instruments-share).
+The probe's instructions and cycles accompany phase CPU; historical samples
+without those counters cannot establish a clock-versus-work attribution.
 
 The G4 driver and its four signed bundles are prepared under `target/g0/`.
 `build.sh`, `bundle.py` and the build logs retain the commands; the data must pass
@@ -174,7 +199,9 @@ This opens Ink with `G1_COLD_ONLY=1`, checks the probe's ready and focus
 reports, captures its window with `screencapture -l`, then exits without
 gestures. Inspect the new capture; the qualified original is
 `target/g0/run-42d5066572/qualification/ink.png`.
-For another series, use a fresh result directory. In the same command,
+The following retained wrapper reproduces the historical power-on instrument;
+it does not implement the current CPU/GPU separation or busy-core bounds.
+For historical reproduction, use a fresh result directory. In the same command,
 replace `qualify target/g0/run-42d5066572/qualification-repeat` with
 `series target/g0/run-42d5066572/g4m-repeat` to run
 five rotating fling/rest rounds and five further cold-only rounds, with
@@ -186,7 +213,8 @@ and then `run-boot.py miss <fresh-directory>`, from the refreshed directory.
 G4m's first qualification passed activation, key-window, readiness and capture.
 
 On this dedicated measurement Mac there is **no GO file** (Charlie,
-2026-10-30): nothing else runs there, and its session stays unlocked and awake.
+2026-10-30): its session stays unlocked and awake. Dedicated use is an ownership
+rule, not evidence that background processes have stopped.
 The development Mac's display-ownership rule does not apply here. The
 wrapper in `target/g0/run-42d5066572/run-series.py` runs without a GO wait.
 Its `qualify`, `series` and `static` modes use the refreshed signed arms beside
@@ -197,7 +225,8 @@ programs. Power collection needs passwordless sudo for `/usr/bin/powermetrics`:
 `--samplers cpu_power,gpu_power,tasks --show-process-energy --show-process-gpu
 -i 1000`. Do not work around a missing TCC grant.
 
-The rebuilt arms use `origin/main` `42d5066572`; G4m's quiet series completed.
+The rebuilt arms use `origin/main` `42d5066572`; G4m completed under the
+background recorded above.
 The wrapper reads Core Animation time for phase joins, since this Mac's Python
 3.9 monotonic clock uses a different epoch. It stops its recorded sampler PID
 through privileged `launchctl asuser`; an unprivileged SIGINT did not stop G4m's
