@@ -10,9 +10,11 @@
 //   library sits beside the executable, which loads it by its run path alone; with the cache's copy removed, a drive
 //   bound to the implementation shows the library's number.
 // - The web: the package's declared asset, captured with the package app.ts imports, is in the build at
-//   /assets/<package>/<path> with the package's bytes, and serve.mjs serves it there.
+//   /assets/<package>/<path> with the package's bytes, and serve.mjs serves it there; delivery's wasm-target bake of
+//   the same app links no library and succeeds.
 // - The macOS app (a Mac only): the framework is in the bundle's Frameworks, signed, loaded by the executable through
-//   `@rpath` and a run path inside the bundle; launched with the cache's copy removed, dyld loads it from there.
+//   `@rpath` and a run path inside the bundle; launched with the cache's copy removed, dyld loads it from there. Its
+//   `--embed` output carries the framework and names it in capabilities.json.
 // - The iOS app on a simulator of the test's own (a Mac only): the same, from the installed app's container.
 import { afterAll, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
@@ -140,6 +142,10 @@ test('the Linux host links the library, carries it beside its executable, and an
 test('the web build serves the package\'s declared asset at /assets/<package>/<path>', async () => {
   const { app } = fixture();
   run('bun', ['exact.mjs', 'web-build', '--out', 'dist'], app);
+  // Delivery's bake of the web crate (scripts/deploy.mjs `bake`) links no native library, whatever the package declares.
+  const baked = join(scratch, 'web-bake');
+  run('bun', [resolve(root, 'host/web/build.mjs'), 'vaultfixture-web', '--bake'], root, { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: baked });
+  expect(existsSync(join(baked, 'exact.json'))).toBe(true);
   expect(readFileSync(join(app, 'dist/assets/@fixture/tally/web/device.wasm'))).toEqual(WASM);
   const port = 20000 + Math.floor(Math.random() * 20000);
   const server = spawn('bun', [resolve(root, 'host/web/serve.mjs'), join(app, 'dist'), '--port', String(port), '--loopback'], { stdio: 'ignore' });
@@ -182,6 +188,12 @@ test.skipIf(!mac)('the macOS app embeds the framework, signed, and dyld loads it
   });
   child.kill();
   expect(loaded?.split(' ').at(-1)).toBe(join(realpathSync(framework), 'Versions/A/vault'));
+  // What an embedding app links (`--embed`) carries the framework and says how to link it.
+  const embedded = run('bun', [resolve(root, 'host/apple/build.mjs'), 'vaultfixture-apple', '--embed'], root, { ...process.env, EXACT_APP_DIR: app });
+  const embed = /^host\/apple: (\S+) — /m.exec(embedded)?.[1];
+  const at = embed.startsWith('/') ? embed : resolve(root, embed);
+  expect(existsSync(join(at, 'Frameworks/vault.framework/Versions/A/vault'))).toBe(true);
+  expect(JSON.parse(readFileSync(join(at, 'capabilities.json'), 'utf8')).frameworks).toEqual([{ path: 'Frameworks/vault.framework', package: '@fixture/tally', sha256: library[target].sha256, linkerFlags: ['-F', 'Frameworks', '-framework', 'vault'], embed: true }]);
 }, 3_600_000);
 
 test.skipIf(!mac)('the iOS app on a simulator embeds the framework, signed, and dyld loads it from the bundle', async () => {
