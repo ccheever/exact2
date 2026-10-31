@@ -144,12 +144,19 @@ export function install(exact) {
     }
     return n;
   };
-  // `inactive` (the runner's tree): under a route or tab its navigation root has not selected (shop F16);
+  // `inactive` (the runner's tree): under a route or tab its navigation root has not selected (shop F16), and `hidden`
+  // too where the projection hides it (all but a route a sheet covers, navigation.js; LLP 1153 D8);
   // `unopened`: a tab panel whose tab has never been selected, empty until it is (LLP 1075.003 §3.7).
   const all = () => {
     const out = [], root = document.getElementById('exact-root'), off = new Set([...root.querySelectorAll('[navigationBack]')].flatMap(nav => unselected(nav)));
-    const walk = (el, d, dead) => { const n = record(el, d); out.push(n); if ((dead ||= off.has(el))) n.inactive = true; if (unopened(el)) n.unopened = true; n.children = kids(el).map(c => walk(c, d + 1, dead).id); return n; };
-    kids(root).forEach(el => walk(el, 0, false));
+    const walk = (el, d, dead, unseen) => {
+      const n = record(el, d); out.push(n);
+      if ((dead ||= off.has(el))) n.inactive = true;
+      if ((unseen ||= off.has(el) && el.style.visibility === 'hidden')) n.hidden = true;
+      if (unopened(el)) n.unopened = true;
+      n.children = kids(el).map(c => walk(c, d + 1, dead, unseen).id); return n;
+    };
+    kids(root).forEach(el => walk(el, 0, false, false));
     return out;
   };
   // The runner's tags (LLP 1035.002 D3): a commit is an epoch; a JS page

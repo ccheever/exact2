@@ -411,7 +411,8 @@ pub(crate) fn target<D: DataSource>(
 
 /// The tree: every live node in preorder — id, parent, depth, type, props by
 /// their schema names, the events it handles, `inactive` when it is under a
-/// route its navigation root has not selected, `unopened` on a tab panel not
+/// route its navigation root has not selected, and `hidden` too when that
+/// route is not shown (any but one a sheet covers), `unopened` on a tab panel not
 /// yet built (LLP 1075.003 §9.14), its children — plus the kernel's epoch
 /// and incarnation (the consistency token: nothing moves between two calls
 /// unless the agent moved it).

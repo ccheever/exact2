@@ -2371,9 +2371,9 @@ root or of a `role="tabpanel"` in it — through `for` and `if`, never another
 element: the compiler refuses one behind a wrapper (`lower-route-place`). Make each
 route `position="absolute" inset=0`: the hosts hide a covered route, as
 `visibility: hidden` does, so an in-flow route still takes its room. A covered
-route stays mounted (its nodes are in `tree`, marked `inactive`), so a `testId`
-two screens share names two nodes: give each screen its own (`list-error`,
-`detail-error`).
+route stays mounted (its nodes are in `tree`, marked `[hidden]`, or `[inactive]`
+beneath a sheet, which still shows it), so a `testId` two screens share names
+two nodes: give each screen its own (`list-error`, `detail-error`).
 
 Content taller than a native route is unreachable without an explicit scroll
 container. The exception is an unpresented iOS route under native chrome with

@@ -40,9 +40,10 @@ test('a second navigation root keeps its split list live while its detail suppli
       await browser.clock('settle');
       const wide = width >= 900, copies = (await browser.tree()).nodes.filter(n => n.props.testId === 'list-commit');
       expect(copies).toHaveLength(2);
+      // A covered route is hidden too (LLP 1153 D8), and so is the split's list where the detail covers it.
       const [covered, list] = copies, observed = await browser.op({ op: 'check' });
-      expect({ covered: !!covered.inactive, list: !!list.inactive, checked: observed.items.some(item => item.id === list.id && item.control === 'button') })
-        .toEqual({ covered: true, list: !wide, checked: wide });
+      expect({ covered: [!!covered.inactive, !!covered.hidden], list: [!!list.inactive, !!list.hidden], checked: observed.items.some(item => item.id === list.id && item.control === 'button') })
+        .toEqual({ covered: [true, true], list: [!wide, !wide], checked: wide });
       if (wide) {
         expect((await browser.tree('list-commit', { shallow: true })).nodes[0].id).toBe(list.id);
         await browser.tap('list-commit');
