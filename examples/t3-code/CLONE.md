@@ -31,11 +31,10 @@ complete phone or iPad parity. Historical notes below about the older POC build
 refer to `20261029015732` unless another build is named.
 
 Continue on `t3/t3-clone-pr216-poc`, which pushes to PR216's remote branch
-`feat(example)/t3-code-ios`. Keep PR216 draft and unmerged. The local integration
+`feat(example)/t3-code-ios`. Keep PR216 draft and unmerged. The integration
 commit is `85d466e2e3c5ff0c4e94b7b6065c6a91b3584609`, a normal merge of
 `9db6b0d68ccf7d5780b46022ae16dbe2f4132d36` into
-`fe242e5a8dfb557510fbe6bac09d4074c2ceeeb3`. It is not pushed; independent review
-and publication belong to the root agent.
+`fe242e5a8dfb557510fbe6bac09d4074c2ceeeb3`.
 
 Desktop now follows reference `6d450a4284852af137b2f3407fddd89eb76e7644`
 and the official stable `0.1.5` server. Mobile remains independently pinned to
@@ -91,7 +90,12 @@ viewer/Copy/disposal and upload ownership flows, Browser A→B/Back/Forward/Relo
 Markdown and retention, provider flows, and phone/iPad parity. Ordinary Mac mouse
 input, physical dragging and normal-app Keychain restart also remain unqualified.
 Evidence and the complete local receipt are under
-`target/t3-poc-evidence/pr216-base-9db6-integration/`. Independent review is pending.
+`target/t3-poc-evidence/pr216-base-9db6-integration/`. Independent review finds
+no introduced P1 or P2 issue. Its focused desktop/mobile checks, 115 locked Rust
+tests, generator and type checks pass. It verifies all conflict resolutions,
+mobile preservation, signed artifacts, bundled runtime and raw native evidence.
+Three redundant fixture comments are removed; 17 palette and nested-action tests
+pass again. Unit 3 live qualification remains pending.
 
 ## Earlier checkpoints
 
