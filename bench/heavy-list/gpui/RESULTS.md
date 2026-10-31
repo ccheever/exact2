@@ -10340,3 +10340,37 @@ comparison uses the repository's PNG reader and removes only the native
 title bar. D7, D11 and D15, including the dated device and 100 ms application
 obligations, are unchanged. This is one implementation and measurement
 round, with no second renderer configuration after the timing miss.
+
+## M10, cut 6: the boot ticks reach the carrier when they fire
+
+**Predictions, before the candidate run (2026-10-31).** On the silver Mac,
+using cut 5's linked probe and startup driver, hook and power sampling off:
+first delivered tick within one 8.33 ms period of its callback (about
+156 ms); final upload by about 170 ms; complete-frame commit by about
+175 ms; warm complete display 190–200 ms; cold complete display 195–205 ms,
+below the contemporaneous GPUI and egui medians. Fling, rest and bar should
+remain unchanged. Matching-backend first-screen pixels should remain
+identical; CPU-first handoff, live Metal and live wgpu should pass.
+
+The cut-5 diagnostic identifies a boundary before AppKit's first display
+cycle. Two ordinary launches finish their first paint and immediate
+successor at 170.003 and 167.961 ms, enter the run loop at 171.041 and
+168.922 ms, and deliver their first winit tick at 208.345 and 214.251 ms.
+The corresponding main-queue checkpoints arrive at 206.452 and 191.123 ms.
+Winit's proxy source has a no-op callback; user events drain at its
+last-priority `BeforeWaiting` observer. Its source runs, but neither that
+source nor dispatch to the main queue preempts AppKit's entry observers.
+The sampled stack names UpdateCycle, CATransaction's flush, native window
+layout and SwiftUI layout within the window chrome. A run-loop observer
+before those phases can consume an already pending boot tick. It cannot
+preempt the first paint, so the one-period prediction is at risk.
+
+The single candidate will consume pending ticks at that early boundary,
+with a checked presenter borrow, until a complete frame is displayed.
+Afterward the observer retires and ordinary winit delivery and idle stopping
+remain. D7's off-main acquisition, D11's encode/submit division and
+retirement, and D15's obligations remain. Diagnostic injection and sampling
+are excluded from performance cohorts. Raw diagnosis is retained under
+`target/m10-c6/diagnosis/`; all failed attempts remain there. The requested
+six broad checks are deferred to the Mac mini; affected suites and caps run
+in this worktree. No push.
