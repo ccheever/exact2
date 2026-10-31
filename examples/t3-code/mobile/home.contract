@@ -10,6 +10,7 @@ use HomeSwipeControls, HomeSwipeMenu, homeSwipeField, homeSwipeNumber, homeSwipe
 
 fn homeMeasuredHeight(geometry: ContentGeometry, fallback: number): number = geometry.state == "ready" and geometry.bounds.height > 0 ? geometry.bounds.height : fallback
 fn homeMeasuredSafeTop(geometry: ContentGeometry, fallback: number): number = geometry.state == "ready" ? geometry.safeArea.top : fallback
+fn homeTrailingReservation(geometry: ContentGeometry): number = geometry.state != "ready" ? 0 : match first(geometry.reservedRegions.filter(region => region.kind == "occlusion" and region.x > geometry.bounds.x + geometry.bounds.width * 0.5)) { case some(region) => max(0, geometry.bounds.x + geometry.bounds.width - region.x), case none => 0 }
 
 shape HomeColors
   foreground: string
@@ -149,6 +150,7 @@ component Home
   derive fullPageFrame = fullPageEmpty and liquidGlass
   derive measuredHeight = homeMeasuredHeight(contentGeometry, windowHeight)
   derive measuredSafeTop = homeMeasuredSafeTop(contentGeometry, safeTop)
+  derive trailingReservation = homeTrailingReservation(contentGeometry)
   state stateOwner = ""
   state openToken = ""
   state dragToken = ""
@@ -318,7 +320,7 @@ component Home
     else
       list id=listId flex=1 min-height=0 hatch="mobile-home-swipe-list" data-mobile-swipe-owner=swipeOwner
         padding-left=(listId == "sidebar-list" ? 8 : 0)
-        padding-right=(listId == "sidebar-list" ? 8 : 0)
+        padding-right=(listId == "sidebar-list" ? 8 : trailingReservation)
         padding-top=(listId == "sidebar-list" ? 6 : 0)
         virtualized=true
         estimated-item-height=72
