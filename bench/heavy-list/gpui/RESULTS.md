@@ -5155,6 +5155,7 @@ remain in `target/g4m-hook-review/checks/`. The final source is not qualified
 by a passing quiet test run. The quiet silver CPU baseline, power-off static
 GPU series and interleaved two-Mac comparison also remain unrun, as required
 by this chunk's one-sample limit.
+
 ## G5m, after M2b
 
 ### Attribution and prediction, before the change
@@ -5367,3 +5368,76 @@ both lanes' QUEUE items survived the rebase. No retained raw file was deleted.
 No silver-Mac series was run in this fix chunk. Android's physical carrier
 was not run; the clock fragments used by both Android loops are covered by
 the headless tests. The timer-workload CPU attribution remains queued.
+
+
+## G4q, the quiet baselines
+
+**Predictions recorded before any series, 2026-10-30.** Measure source
+`d5429830d2` on the silver Mac, using the landed probe and driver. Native,
+GPUI and egui retain their `42d5066572` application binaries; Ink and the
+probe are rebuilt. The control binaries must match before their signatures.
+CPU uses hook-off and power-off; GPU uses hook-on and power-off; power runs
+separately. Every series requires sixty seconds of five-second observations
+passing ≤2 busy cores and ≤0.25 core for the largest non-benchmark process,
+plus the monitor's load/compiler conditions. Retain every failed observation
+and every rejected attempt. No background process is stopped by this lane.
+
+The fling prediction tests whether removing the recorded background returns
+the silver Mac to G4's development-Mac ranges. Values below are predicted
+medians, measured by the same ten-second process-CPU endpoints. They are
+hypotheses, not acceptance bounds for selecting samples.
+
+| Arm | Predicted quiet fling CPU, ms/s | Under-background (a), ms/s | G4, ms/s |
+|---|---:|---:|---:|
+| Native | 112.39–143.12 | 174.87 | 131.91 |
+| GPUI | 82.05–89.05 | 156.13 | 84.92 |
+| Ink | 84.98–87.07 | 128.00 | 86.41 |
+| egui | 64.93–71.54 | 119.76 | 66.84 |
+
+**Instructions:** Ink's median instructions over the full fling phase are
+predicted within **2% of 5,330,508,726**, the single hook-off sample above,
+using `ri_instructions` endpoint differences. Only Ink has that earlier
+counter sample; no cross-series instruction prediction is testable for the
+other arms. Report cycles and CPU beside instructions without predicting a
+fixed clock. Stage 0's integrated counters are an instrument change, so a
+miss cannot be attributed solely to background work.
+
+**Cold:** ten cold-only launches per arm, retained application and driver
+caches, with the hook off. The native snapshot and painted drawable retain
+their different endpoints. Predicted p50 milliseconds are below G4m's
+hook-on/power-on cold medians, with background and hook state both changed;
+this does not isolate the hook's startup cost.
+
+| Arm | Predicted hook-off cold p50, ms | G4m hook-on cold p50, ms |
+|---|---:|---:|
+| Native | 200–250 | 277.67 |
+| GPUI | 180–220 | 219.07 |
+| Ink | 180–230 | 249.78 |
+| egui | 180–220 | 234.43 |
+
+**Static:** five interleaved rounds each of bar and caret, read from the
+probe's ten-second CPU endpoints. Predictions retain main's continuous Ink
+caret rendering; M2b is excluded from the measured source. Cadence comes
+from presented drawables for painted arms and the display link for native.
+
+| Arm | Predicted bar process CPU, ms/s | Predicted caret process CPU, ms/s | Predicted bar / caret cadence, Hz |
+|---|---:|---:|---:|
+| Native | 60–95 | 6–15 | 118–121 / 118–121; display link only |
+| GPUI | 100–160 | 10–22 | 118–121 / 1.9–2.1 |
+| Ink | 100–170 | 100–170 | 118–121 / 118–121 |
+| egui | 110–180 | 8–20 | 118–121 / 1.9–2.1 |
+
+For the separate hook-on static runs, predicted Ink GPU time is **1.25–2.5
+ms per presented frame** in both workloads, above 15% of an 8.33 ms period;
+GPUI and egui are predicted below **0.417 ms/frame** (5%). The instrument
+sums command-buffer spans at the clock the load earns, not device occupancy.
+Native's GPU work remains unavailable. These are before-M3 rows and cannot
+earn M8. One fling round and one bar round with power sampling report power
+separately; no numerical power saving is predicted.
+
+**Stage 0b:** the same boot-only probe and trace as chunk 4, hook off,
+predict 30/30 complete Ink screens across ten retained Metal, ten interleaved
+wgpu controls and ten archive misses. Predict retained Metal's phase p50
+≤8 ms and within 2 ms of 6.581 ms; complete Ink p50 ≤wgpu +5 ms. Misses
+predict zero boot-thread compilation, CPU first pixel p50 ≤300 ms and
+complete Ink p50 ≤450 ms. No 100 ms application-budget pass is predicted.
