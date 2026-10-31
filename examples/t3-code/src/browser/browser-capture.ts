@@ -23,6 +23,7 @@ import { composerNow } from '../composer/composer-controls';
 import { parseScopedThreadKey, scopedThreadKey, type ScopedThreadRef } from '../terminal/terminal-ui-state';
 import { activeRef } from '../terminal/terminal-drawer-view';
 import { serverStreamUrl, serverStreamFrame } from './server-browser-runtime';
+import { closeServerPictureInPicture, openServerPictureInPicture, serverPictureInPictureKey, serverPictureInPictureKeyOf } from './server-browser-pip';
 import { previewRuntimeTabId } from './browser-state';
 import { readWindowZoom } from './browser-viewport';
 import { DEFAULT_CODE_FONT } from '../appearance/settings-appearance';
@@ -531,19 +532,24 @@ export function browserMiniView(client: T3Client, sessions: (ref: ScopedThreadRe
   captureHost(client).miniSize = { key, ...size };
   return { show: true, key, sourceKey: key, tabId, runtimeId, server: session.server === true, streamUrl: session.server ? serverStreamUrl(client, runtimeId) : '',
     pdfUrl: session.server ? previewPdfAssetUrl(session.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', pdfViewer: emptyViewerFrame(), url: session.url, profileId: session.profileId, environment: ref.environmentId,
-    hasWebContents: session.server === true || frameEntry(client, runtimeId) !== null, recording: recordingOf(client, ref, tabId, runtimeId), separateWindow: tab.pip === true, ...size,
+    hasWebContents: session.server === true || frameEntry(client, runtimeId) !== null, recording: recordingOf(client, ref, tabId, runtimeId),
+    separateWindow: session.server ? serverPictureInPictureKeyOf(client) === serverPictureInPictureKey(ref.threadId, tabId) : tab.pip === true, ...size,
     windowZoom: readWindowZoom(client.presentation) };
 }
 
-/** `surface-browser-mini-*` (id = the floating tab's runtime id): Open in right panel, Pop into separate window, Close. */
-export async function browserMiniLocal(client: T3Client, native: Native, op: string, runtimeId: string, reopen: (tabId: string) => void): Promise<string> {
-  const tabId = floatingTabOf(client), key = playerThreadKey(client);
+/** `surface-browser-mini-*` (id = the floating tab's runtime id): Open in right panel, Pop into separate window, Close.
+ *  A server tab's window is the platform's picture in picture (`value` "server", server-browser-pip.ts). */
+export async function browserMiniLocal(client: T3Client, native: Native, op: string, runtimeId: string, value: string, reopen: (tabId: string) => void): Promise<string> {
+  const tabId = floatingTabOf(client), key = playerThreadKey(client), ref = activeRef(client);
   if (!tabId || !key) return '';
   const host = captureHost(client);
   host.native = native;
   if (op === 'close') miniStoreOf(client).close(key);
   else if (op === 'restore') { miniStoreOf(client).close(key); reopen(tabId); }
-  else if (op === 'window' && runtimeId) await toggleSeparateWindow(client, host, { runtimeId });
+  else if (op === 'window' && runtimeId && value === 'server' && ref) {
+    if (serverPictureInPictureKeyOf(client) === serverPictureInPictureKey(ref.threadId, tabId)) closeServerPictureInPicture(client);
+    else openServerPictureInPicture(client, { threadId: ref.threadId, tabId, runtimeId });
+  } else if (op === 'window' && runtimeId) await toggleSeparateWindow(client, host, { runtimeId });
   return '';
 }
 

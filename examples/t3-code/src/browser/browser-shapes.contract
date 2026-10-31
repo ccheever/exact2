@@ -59,6 +59,16 @@ shape BrowserFrames
   // Blank frames that name a partition no tab used yet, so it can be cleared (browser-frames.ts namers).
   namers: BrowserFrameView[]
   command: BrowserFrameCommand
+  pip: BrowserPip
+
+// A server tab's picture-in-picture window (server-browser-pip.ts `BrowserPipView`): its stream, the picture it floats
+// with until the stream's first, and the request that floats it.
+shape BrowserPip
+  show: bool
+  runtimeId: string
+  streamUrl: string
+  seed: string
+  request: number
 
 shape BrowserPresetChoice
   id: string

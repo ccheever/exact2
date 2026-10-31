@@ -321,7 +321,9 @@ The app has no desktop self-update feed, so its own download/restart step is abs
 - Browser surface: a right-panel Browser tab is a partitioned `iframe` (LLP 1020.002; `browser-frames.*`,
   `browser-*.ts`; T3 Code embeds Chromium, which exact2 does not offer, #100): tabs and the chrome row, history and local servers, the address bar's search
   engine, zoom, appearance, the device toolbar, Annotate, screenshots, recording, downloads, a separate window and the
-  floating player, profiles, and an agent's `previewAutomation` requests.
+  floating player, profiles, and an agent's `previewAutomation` requests. A server-rendered tab's floating player pops
+  it into the platform's picture-in-picture window (`server-browser-pip.ts`): a stream of its own paints a hidden image
+  that Exact's `requestPictureInPicture` floats, as the reference floats its canvas stream.
 - Command palette (threads, projects, actions, files, content search, New thread in…,
   Link pull request), toasts, the Nightly mobile-app notice, macOS notifications (after
   the user grants them).
@@ -778,9 +780,6 @@ above.
   open, so several items can be turned on or off in one visit.
 - The Browser tab's ⋮ menu has no "Open DevTools": macOS has no public API that opens Web Inspector
   from code. A development build's page is inspectable from Safari › Develop.
-- A server-rendered Browser tab has no picture-in-picture window: Exact has no source that turns its
-  JPEG frames into a video, which the reference's `canvas.captureStream()` does. Its in-app
-  floating preview works.
 - No development web view inspection on Android: the clone does not run on Android yet.
 - A composer reference's pill is the platform's token (LLP 1045.000 D4, §10 Q2): its kind's
   colours, with the platform's padding and radius and no border; its glyph is the nearest SF
