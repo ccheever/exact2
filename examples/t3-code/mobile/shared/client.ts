@@ -107,6 +107,7 @@ export class T3Client {
   private commandEpoch = 0;
   // Mobile history ownership begin: no native handle, promise or transcript graph.
   historyEpoch = 0;
+  historyRevision = 0;
   private historyRequest: { identity: string; visit: string; visitCurrent: () => boolean } | null = null;
   private historyIdentity(): string {
     return JSON.stringify([this.origin, this.environmentId, this.generation, this.threadId, this.threadEpoch, this.thread?.historyCursor]);
@@ -964,6 +965,7 @@ export class T3Client {
       if (next.hasMore && !next.historyCursor) throw new ClientError('Earlier activity returned an invalid page boundary.', 'protocol');
       const added = arr(next.projection.visibleTurnItems).length - arr(this.thread.projection.visibleTurnItems).length;
       this.thread = next;
+      this.historyRevision++;
       return arr(next.projection.visibleTurnItems).slice(0, added).map(row => JSON.stringify([row.sourceThreadId, row.sourceItemId]));
     } catch (error) {
       if (letGo(error)) throw error;

@@ -77,6 +77,7 @@ component MobileRouteContent
     workingControl: WorkingControlData
     threadHeaderConfiguration: string
     threadHeaderAction: action
+    threadHistoryScroll: action
     terminalMountReady: bool
     queueData: MobileQueueSnapshot
     gitLook: GitColors
@@ -398,7 +399,7 @@ component MobileRouteContent
           column id=`thread-flow-${routeId}` flex=1 min-height=0 width="100%" position="relative" pointer-events="none"
             view id=`thread-flow-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)
             column position="absolute" top=0 left=0 right=0 bottom=(-threadCoveredBottom) pointer-events="auto"
-              ThreadFeed(data=threadData, active=focused, workWidth=(workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2), horizontalPadding=workspace.chatHorizontalPadding, userBubbleMaxWidth=workspace.userBubbleMaxWidth, bottomClearance=threadDockClearance, action=threadAction, openMedia=openMedia, openSendingThread=openSendingThread(routeId), colors=threadLook)
+              ThreadFeed(data=threadData, active=focused, workWidth=(workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2), horizontalPadding=workspace.chatHorizontalPadding, userBubbleMaxWidth=workspace.userBubbleMaxWidth, bottomClearance=threadDockClearance, action=threadAction, openMedia=openMedia, openSendingThread=openSendingThread(routeId), historyScroll=threadHistoryScroll, colors=threadLook)
           if threadData.queuedFailed
             column id=`thread-dock-${routeId}` position="absolute" left=0 right=0 bottom=0 padding-left=14 padding-right=14 padding-bottom=threadBottomInset pointer-events="none"
               view id=`thread-dock-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)

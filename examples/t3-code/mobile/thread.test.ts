@@ -17,6 +17,7 @@ import { timelineView } from './shared/timeline-presentation';
 import type { Files } from './shared/protocol';
 import { mobileOutboxRead, mobileOutboxEnqueue } from './mobile-outbox';
 import type { MobileOutboxRecord } from './mobile-outbox-model';
+import { appText } from '../tests/support/app-files';
 
 const now = Date.parse('2026-10-07T12:00:00Z');
 const at = (seconds: number) => new Date(now + seconds * 1000).toISOString();
@@ -40,6 +41,12 @@ function fixture(items: Obj[] = [], projection: Obj = {}): T3Client {
 }
 
 describe('bounded transcript Markdown reuse', () => {
+  test('thread Markdown keeps prose and code selectable like the reference reader', () => {
+    const source = appText('mobile/thread-markdown.contract');
+    expect(source).toContain('text token.text user-select="text"');
+    expect(source).toContain('text block.text markup="markdown" user-select="text"');
+  });
+
   test('completed Duo table response presents cells and alignment without changing Copy or adjacent code', () => {
     const code = '"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx"';
     const body = ['T3-CONVERSATION-QA-04', '', '| Plant | Count | Note |', '|---|---:|---|',
