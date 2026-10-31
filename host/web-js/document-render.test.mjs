@@ -895,6 +895,9 @@ component App
           await page.goto(new URL('/wide', server.url).href);
           await page.waitForTimeout(500);
           expect([how, width, await page.evaluate(() => !!globalThis.exact?.ready)]).toEqual([how, width, woken]);
+          // Woken, the runtime lays the page out for the reader's viewport, not the render's (D2).
+          if (woken) await page.waitForFunction(() => globalThis.exact?.ready && document.querySelector('main')?.textContent === 'wide', null, { timeout: 5000 }).catch(() => {});
+          expect([how, width, await page.evaluate(() => document.querySelector('main')?.textContent)]).toEqual([how, width, woken ? 'wide' : 'narrow']);
         }
         const page = await browser.newPage({ viewport: { width: 390, height: 800 } });
         await page.goto(new URL('/seen', server.url).href);
