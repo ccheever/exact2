@@ -8022,3 +8022,8 @@ The committed aggregator independently checks all 22 selected source samples'
 phase deltas and hook state; `aggregate-selected.log` retains its output.
 No trace or power sample enters these CPU rows, and no other startup cut is
 included. The earlier cold-row and observer-control limitations still stand.
+Cut 7's [Windows qualification](../../../host/ink/MEASUREMENTS.md#m10-cut-7-on-windows)
+passes Ink, pinned, text, image and five desktop journeys on both D3D11 and
+wgpu, including D3D11's atlas byte comparison. No startup saving is qualified:
+two S2 before/after collections violate the quiet rule and the third attempt
+expires in preflight. Windows upload spans remain unmeasured.
