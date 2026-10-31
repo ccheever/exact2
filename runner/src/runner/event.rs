@@ -1325,6 +1325,7 @@ impl<D: DataSource> Runner<D> {
                     }
                     EventKind::Error => Some(Value::str(value)),
                     EventKind::Fullscreenchange => Some(Value::Bool(value == "true")),
+                    EventKind::Pictureinpictureerror => Some(Value::str(value)),
                     _ => None,
                 },
                 kind.name(),

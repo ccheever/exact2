@@ -387,7 +387,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 79] = [
+pub const HANDLERS: [&str; 82] = [
     "press",
     "change",
     "input",
@@ -461,6 +461,9 @@ pub const HANDLERS: [&str; 79] = [
     "loadedmetadata",
     "durationchange",
     "fullscreenchange",
+    "enterpictureinpicture",
+    "leavepictureinpicture",
+    "pictureinpictureerror",
     "timeupdate",
     "play",
     "playing",
@@ -526,9 +529,15 @@ pub fn is_handler(name: &str, value: &Expr) -> bool {
 /// may then offer its record ([`contract_types::event_record`]).
 pub fn handler_payload(attr: &str) -> Option<&'static str> {
     match attr {
-        "change" | "input" | "key" | "keycapture" | "keyup" | "message" | "navigate" | "error" => {
-            Some("string")
-        }
+        "change"
+        | "input"
+        | "key"
+        | "keycapture"
+        | "keyup"
+        | "message"
+        | "navigate"
+        | "error"
+        | "pictureinpictureerror" => Some("string"),
         "timeupdate" | "durationchange" => Some("number"),
         "hover" | "fullscreenchange" => Some("bool"),
         "select" => Some("MarkdownSelection"),

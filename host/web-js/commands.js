@@ -89,6 +89,9 @@ export const commands = (say, agentMode = () => false) => ({
   // queues them for the web host's media glue (media-glue.js `run`).
   fastSeek: (id, seconds) => media(say, id, "fastSeek", seconds),
   load: id => media(say, id, "load"),
+  // An image's pictures in the browser's floating window (picture-in-picture.js, LLP 1042 §9).
+  requestPictureInPicture: id => { const e = liveById(String(id ?? "")); import("./picture-in-picture.js").then(m => m.float(e, id, say)); },
+  exitPictureInPicture: () => import("./picture-in-picture.js").then(m => m.exit(say)),
 });
 function frame(say, name, args) {
   import("./frame-navigation.js").then(m => m.command(name, args, say));

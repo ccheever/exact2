@@ -905,7 +905,7 @@ export function on(e, kind, f, bind) {
   if (e.exactNative) { l("exact-native", ev => { if (ev.detail.kind === kind) f(...(ev.detail.value == null ? [] : [ev.detail.value])); }); if (kind === "message") return; }
   if (e.localName === "img" && (kind === "load" || kind === "error")) return imageEvent(e, kind, f);
   if (e.localName === "iframe" && kind === "error") return l(kind, ev => f(ev.detail ?? "iframe did not load"));
-  return bind ? bind(e, kind, f, l) : l(kind, () => f());
+  return bind ? bind(e, kind, f, l) : l(kind, kind === "pictureinpictureerror" ? ev => f(ev.detail) : () => f()); // picture-in-picture.js: the failure's reason
 }
 // Each event family's binder, passed to `on` by the generated module only where its plan binds that family
 // (emit.rs `binder`), so a plan carries only the families it hears; any other event is a plain listener.
