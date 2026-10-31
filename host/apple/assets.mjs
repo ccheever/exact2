@@ -124,7 +124,7 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
       // What the compile itself writes: a cache from before `--accent-color` named no accent,
       // one from before `ExactLaunchImageSource` no launch image's source or digest,
       // one from before `digest` launch assets under fixed names
-      'accent-color', 'launch-image-source', 'launch-image-digest', 'launch-names-digest'])).digest('hex').slice(0, 16);
+      'accent-color', 'launch-image-source', 'launch-image-digest', 'launch-names-digest', 'alternate-app-icons'])).digest('hex').slice(0, 16);
     const made = resolve(kept.dir, `assets-${platform}-${key}`);
     if (!existsSync(resolve(made, 'keys.json'))) {
       const making = `${made}.${process.pid}.tmp`;
@@ -159,10 +159,15 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
       picture = { path: resolve(work, 'launch.png'), width: launchImage.width, sha256: launchImage.sha256 };
       writeFileSync(picture.path, bytes);
     }
-    const keys = platform === 'ios' ? { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets, launch, picture) } : {};
+    const alternateIcons = platform === 'ios' ? [...new Set(catalogs.flatMap(entry => entry.files
+      .map(file => /(?:^|\/)([^/]+)\.appiconset\/Contents\.json$/.exec(file.name)?.[1])
+      .filter(name => name && name !== 'AppIcon' && name !== (selected && basename(selected.path, '.icon')))))].sort() : [];
+    // Alternate icons need a compiled primary in development too; actool emits their shared plist dictionary.
+    const keys = platform === 'ios' ? { ...appIcon(app, dir, 'ios', { catalog: catalog || alternateIcons.length ? assets : false }), ...launchScreen(app, assets, launch, picture) } : {};
     const hasIcon = existsSync(resolve(assets, 'AppIcon.appiconset'));
     const iconName = selected ? basename(selected.path, '.icon') : hasIcon ? 'AppIcon' : null;
     if (catalog && platform === 'ios' && !iconName) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare host.ios.icon or a square icon of at least 512 px`);
+    if (alternateIcons.length && !iconName) throw new Error(`host/apple: ${app.name}'s alternate icons require a primary; declare host.ios.icon or a square icon of at least 512 px`);
     if (hasIcon || keys.UILaunchScreen) {
       writeFileSync(resolve(assets, 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
       sources.push(assets);
@@ -179,6 +184,7 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
         '--minimum-deployment-target', app.manifest.host?.[sourcePlatform]?.minimumOS ?? (platform === 'macos' ? '14.0' : '17.0'),
         ...(platform === 'macos' ? [] : ['--target-device', ...(platform === 'tvos' ? ['tv'] : ['iphone', '--target-device', 'ipad'])]),
         ...(iconName ? ['--app-icon', iconName] : []),
+        ...alternateIcons.flatMap(name => ['--alternate-app-icon', name]),
         ...(accent ? ['--accent-color', 'AccentColor'] : []),
         '--output-partial-info-plist', partial, '--output-format', 'human-readable-text'], { stdio: 'ignore' });
       Object.assign(keys, JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', partial], { encoding: 'utf8', stdio: 'pipe' }).stdout));
