@@ -325,6 +325,15 @@ impl Backend for Ink {
         self.device.attach_layer(layer).map_err(|e| e.to_string())?;
         Ok(self.info().clone())
     }
+    #[cfg(target_os = "macos")]
+    fn repeat_apple_frame(&mut self) -> std::result::Result<(), String> {
+        let target = self.target.ok_or("no retained compose target")?;
+        let result = self.device.present(target);
+        self.last_ms.1 = self
+            .accept(result)
+            .ok_or_else(|| self.error.clone().unwrap())?;
+        Ok(())
+    }
     #[cfg(windows)]
     fn displayed_process_ms(&self) -> std::result::Result<Option<f64>, String> {
         if let Selected::D3d11(device) = &self.device {

@@ -40,6 +40,7 @@ struct App<D: DataSource> {
     layer: Option<Layer>,
     display: Option<DisplayLink>,
     presenter: Option<Presenter<D>>,
+    first_frame: Option<exact_linux::presenter::SubmittedAppleFrame>,
     agent: Option<super::agent::Agent>,
     started: Instant,
     tick_pending: Arc<AtomicBool>,
@@ -143,6 +144,7 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         layer: None,
         display: None,
         presenter: None,
+        first_frame: None,
         agent: None,
         started,
         tick_pending: Default::default(),
@@ -199,9 +201,17 @@ impl<D: DataSource + Default + 'static> App<D> {
             return;
         };
         let size = window.inner_size();
+        let old_scale = self.scale;
         self.scale = window.scale_factor();
         if size.width == 0 || size.height == 0 {
             return;
+        }
+        let viewport = (
+            size.width as f32 / self.scale as f32,
+            size.height as f32 / self.scale as f32,
+        );
+        if old_scale != self.scale || p.host().viewport() != viewport {
+            self.first_frame = None;
         }
         layer.resize([size.width, size.height], self.scale);
         if let Some(e) = p.resize_scaled(
@@ -227,6 +237,12 @@ impl<D: DataSource + Default + 'static> App<D> {
     fn draw(&mut self) -> Result<(), String> {
         let _trace = Trace::new(c"carrier draw");
         if self.hidden {
+            return Ok(());
+        }
+        if !self.awaiting_first_present() {
+            self.first_frame = None;
+        }
+        if self.first_frame.is_some() {
             return Ok(());
         }
         let Some(p) = &mut self.presenter else {
@@ -255,10 +271,17 @@ impl<D: DataSource + Default + 'static> App<D> {
                     .map_or(0., |node| p.scroll_of(node.id).1);
                 exact_ink::device::apple::benchmark_frame(self.benchmark_complete, offset);
             }
-            p.apple_window_frame()?;
+            let frame = p.apple_window_frame()?;
             self.paint_ms += started.elapsed().as_secs_f64() * 1000.;
             let submitted = p.last_frame_succeeded();
             self.frames += u64::from(submitted);
+            if self
+                .layer
+                .as_ref()
+                .is_some_and(|layer| layer.presented_painter().is_none())
+            {
+                self.first_frame = frame;
+            }
             if submitted && self.frames == 1 {
                 eprintln!("exact-apple-painted: first submission {:.3} ms; device {:.3}, shaders {:.3} ms; {}x{} at {}x (not a displayed timestamp)", self.started.elapsed().as_secs_f64() * 1000., p.painter.device_ms, p.painter.shaders_ms, p.viewport().0, p.viewport().1, self.scale);
             }
@@ -398,6 +421,26 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                     return;
                 }
                 let unshown = self.awaiting_first_present();
+                if !unshown {
+                    self.first_frame = None;
+                }
+                if let Some(frame) = &self.first_frame {
+                    if self
+                        .layer
+                        .as_ref()
+                        .is_some_and(Layer::first_present_dropped)
+                    {
+                        // A redraw waits for AppKit's transaction. The tick can
+                        // copy the retained frame immediately on the present worker.
+                        let _trace = Trace::new(c"first frame repeat");
+                        match self.presenter.as_mut().unwrap().repeat_apple_frame(frame) {
+                            Ok(true) => {}
+                            Ok(false) => self.first_frame = None,
+                            Err(e) => self.fail(events, e),
+                        }
+                    }
+                    return;
+                }
                 let dirty = self
                     .presenter
                     .as_ref()
@@ -437,6 +480,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 if let Some(p) = &mut self.presenter {
                     let request: serde_json::Value =
                         serde_json::from_str(&line).unwrap_or_default();
+                    if !matches!(request["op"].as_str(), Some("state" | "tree" | "logs")) {
+                        self.first_frame = None;
+                    }
                     if request["op"] == "state" && request["counters"] == true {
                         let _ = reply.send(exact_linux::ink::counter_state().to_string());
                         return;
@@ -666,8 +712,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             0
         };
         service(p, now, self.live, D::default, causes);
-        if p.apple_painter_retry_deadline()
-            .is_some_and(|due| Instant::now() >= due)
+        if self.first_frame.is_none()
+            && p.apple_painter_retry_deadline()
+                .is_some_and(|due| Instant::now() >= due)
         {
             if let Err(e) = p.poll_apple_painter() {
                 self.fail(events, e);

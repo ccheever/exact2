@@ -193,6 +193,12 @@ impl Layer {
         self.0.presentation.painter()
     }
 
+    /// A zero callback before this generation's first displayed frame.
+    pub fn first_present_dropped(&self) -> bool {
+        let shown = self.0.presentation.0.lock().unwrap();
+        shown.dropped && shown.painter.is_none()
+    }
+
     pub fn live_resize(&self) -> bool {
         self.0.view.inLiveResize()
     }
@@ -300,6 +306,7 @@ struct Shown {
     generation: u64,
     time: f64,
     painter: Option<&'static str>,
+    dropped: bool,
 }
 impl Presentation {
     fn painter(&self) -> Option<&'static str> {
@@ -317,6 +324,7 @@ impl Presentation {
         if shown.generation != generation {
             return false;
         }
+        shown.dropped |= time == 0.;
         // Completion callbacks can arrive in a different order from display.
         if time > shown.time {
             shown.time = time;
@@ -662,8 +670,10 @@ mod tests {
     fn painter_identity_follows_display_and_rejects_a_lost_generations_callbacks() {
         let presented = Presentation::default();
         assert_eq!(presented.painter(), None);
+        assert!(!presented.0.lock().unwrap().dropped);
         presented.record(0, 0., true);
         assert_eq!(presented.painter(), None);
+        assert!(presented.0.lock().unwrap().dropped);
         presented.record(0, 1., false);
         assert_eq!(presented.painter(), Some("cpu"));
         presented.record(0, 0., true);
@@ -674,6 +684,8 @@ mod tests {
         assert_eq!(presented.painter(), Some("ink"));
         presented.invalidate();
         assert!(!presented.record(0, 3., true));
+        assert!(!presented.record(0, 0., true));
+        assert!(!presented.0.lock().unwrap().dropped);
         assert_eq!(presented.painter(), None);
         presented.record(1, 4., false);
         assert_eq!(presented.painter(), Some("cpu"));
