@@ -917,8 +917,8 @@ component Page
 }, 240000);
 
 // LLP 1048.007 D5: an image a `for` repeats loads as its row comes into view, as a platform list's cells load theirs.
-test('JavaScript-rendered images a for repeats load lazily, and a lone one at once', async () => {
-  await renderedPages(`routes nav
+test('both document renderers lazy-load the images a for repeats, and load a lone one at once', async () => {
+  for (const how of ['js', 'rust']) await renderedPages(`routes nav
   home "/" render=build
 
 component Page
@@ -932,9 +932,9 @@ component Page
             image \`https://example.com/\${id}.png\` width=96 alt=id
 `, (_, html) => {
     // A page's own image, though a stack's `for` and a page-keying `for [e]` hold it, is no row.
-    expect(html('').match(/<img [^>]*>/g)?.map(img => /loading="([^"]*)"/.exec(img)?.[1] ?? null)).toEqual([null, 'lazy', 'lazy']);
-  });
-}, 30000);
+    expect([how, html('').match(/<img [^>]*>/g)?.map(img => /loading="([^"]*)"/.exec(img)?.[1] ?? null)]).toEqual([how, [null, 'lazy', 'lazy']]);
+  }, {}, {}, how);
+}, 180000);
 
 // A render's realm made ahead, while the server was idle, renders the page a fresh one does (LLP 1048.000 D10).
 test('a realm made ahead renders the page a fresh one does', async () => {
