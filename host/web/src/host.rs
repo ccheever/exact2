@@ -34,6 +34,9 @@ use fonts::{font_catalog, font_faces, font_names, font_names_for_runner};
 pub mod document;
 #[path = "element.rs"]
 mod element;
+#[path = "roles.rs"]
+mod roles;
+pub use roles::implicit_role;
 #[path = "template.rs"]
 pub mod template;
 use element::{css_style, host_css, in_button, props_for, svg_props, tag_for};

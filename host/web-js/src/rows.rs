@@ -977,6 +977,16 @@ pub(super) fn attributes(
     }
     // Off the page's thread, so an arrival does not hold a frame (LLP 1145 D3).
     attrs.extend((element == "img").then(|| ("decoding".into(), "async".into())));
+    // A role the element has natively is not restated, as the live host leaves it off.
+    let implicit = exact_web::host::implicit_role(element, |name| {
+        attrs
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
+    });
+    if implicit.is_some() {
+        attrs.retain(|(k, v)| !(k == "role" && Some(v.as_str()) == implicit));
+    }
     (attrs, content, css)
 }
 

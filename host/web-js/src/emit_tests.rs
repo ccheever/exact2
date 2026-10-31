@@ -1112,3 +1112,20 @@ fn a_canvas_inside_a_canvas_reads_the_other_name() {
         out.css
     );
 }
+
+/// A role an element has natively is left off the page, as the live host
+/// leaves it off (host/web/src/element.rs `implicit_role`): a single `select`
+/// is a combobox already. A role an element lacks stays.
+#[test]
+fn a_native_elements_own_role_is_not_restated() {
+    let plan = contract::compile(
+        "component App\n  state v = \"a\"\n  action pick(s: string)\n    v = s\n  view\n    column\n      select value=v change=pick\n        option value=\"a\"\n          text \"A\"\n      button press=pick(\"b\") role=\"radio\" aria-checked=true\n        text \"B\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(!js.contains("combobox"), "{js}");
+    assert!(
+        js.contains("\"role\":\"radio\"") || js.contains("role:\"radio\""),
+        "{js}"
+    );
+}

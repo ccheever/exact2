@@ -1325,22 +1325,14 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         }
     }
     // A role the element already has natively is left off (ARIA in HTML:
-    // authors should not restate it): a button's `button`, a checkbox's
-    // `checkbox`, a link's `link`. Its accessibility is the element's own.
-    let implicit = match (element(node), out.get("type").map(String::as_str)) {
-        ("button", _) => Some("button"),
-        ("input", Some("checkbox")) => Some("checkbox"),
-        ("input", Some("radio")) => Some("radio"),
-        ("a", _) if out.contains_key("href") => Some("link"),
-        ("progress", _) => Some("progressbar"),
-        _ => None,
-    };
+    // authors should not restate it). Its accessibility is the element's own.
+    let implicit =
+        super::roles::implicit_role(element(node), |name| out.get(name).map(String::as_str));
     if implicit.is_some() && out.get("role").map(String::as_str) == implicit {
         out.remove("role");
     }
     out
 }
-
 #[cfg(test)]
 #[path = "element_name_tests.rs"]
 mod name_tests;
