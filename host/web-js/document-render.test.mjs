@@ -1002,6 +1002,30 @@ export const answer: Answer = async (_source, [name]): Promise<Result<'note'>> =
   } finally { api.stop(true); }
 }, 60000);
 
+// A page's head status is its HTTP status under Bun, as under the render host (LLP 1048.000 D11): a found route whose
+// data names no item says 404 itself.
+test('a JavaScript-rendered page answers with its head status', async () => {
+  await renderedPages(`routes nav
+  home "/" render=request
+  item "/items/:id" render=request
+  notfound
+
+component App
+  view
+    main
+      if top(nav).name == "item" and top(nav).params.id == "gone"
+        head title="Not found" status=404
+        text "No such item"
+      else
+        head title="Item"
+        text "An item"
+`, async (_, html, dist) => {
+    const { renderer } = await import('./render.mjs');
+    const render = renderer(dist);
+    expect([(await render('/items/gone')).status, (await render('/items/kept')).status, (await render('/no/such/page')).status]).toEqual([404, 200, 404]);
+  });
+}, 60000);
+
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {
   const doc = createDocument(), root = doc.getElementById('exact-root');

@@ -150,12 +150,15 @@ export function renderer(dist) {
       const markedHead = out.scrollDocument ? whole.replace('<html ', '<html data-scrolldocument ') : whole;
       const mark = out.scrollDocument ? '<script>document.documentElement.setAttribute("data-scrolldocument","")</script>\n' : '';
       makeAhead();
+      // The HTTP status, as the render host gives it (lib.rs `Rendered::status`, LLP 1048.000 D11): a location the router
+      // sends to its notfound route is 404, or 410 if its head says so; a render at its deadline 503; else the head's own.
+      const status = info.notfound ? (out.status === 410 ? 410 : 404) : out.pending.length ? 503 : out.status ?? 200;
       // A page made only of answers any reader may still be given (one at least), by a render that drew nothing at
       // random and read no clock or reader's device (the plan's `kept`), from TypeScript sources alone, is the page
       // another render would make until the first of those answers goes stale: it may be given again until then, for
       // at most 60 s (LLP 1048.007 D8).
-      const keep = !info.notfound && !out.pending.length && out.activation?.kept === false && !out.rust && !read.random && read.fresh > 0 && read.fresh < Infinity ? Math.min(read.fresh, 60000) : 0;
-      return { html: markedHead + body(''), rest: mark + body(late), status: info.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location, policy: info.policy, activate, keep };
+      const keep = status === 200 && !out.pending.length && out.activation?.kept === false && !out.rust && !read.random && read.fresh > 0 && read.fresh < Infinity ? Math.min(read.fresh, 60000) : 0;
+      return { html: markedHead + body(''), rest: mark + body(late), status, settled: !out.pending.length, render: out.render, location, policy: info.policy, activate, keep };
     } };
   }
   const render = async (location, deadline = DEADLINE) => (await begin(location)).finish(deadline);
