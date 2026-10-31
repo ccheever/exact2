@@ -6,10 +6,10 @@
 
 #[path = "button_css.rs"]
 mod button_css;
-#[path = "sized_css.rs"]
-mod sized;
 #[path = "element_semantic.rs"]
 mod semantic;
+#[path = "sized_css.rs"]
+mod sized;
 #[path = "element_symbol.rs"]
 mod symbol;
 use exact_kernel::svg::Paint;

@@ -878,8 +878,7 @@ impl<D: DataSource> Runner<D> {
                     let args = p.args.clone();
                     self.upload_sent(target, &args, ticket);
                 }
-                // The newer arguments' causes join the request's (LLP
-                // 1133.035 D16 item 6).
+                // The newer arguments' causes join the request's (LLP 1133.035 D16 item 6).
                 self.note_kept(target, ticket);
                 // A source that parks calls hears the kept ticket's newer
                 // arguments and drops the call parked under the old ones.
