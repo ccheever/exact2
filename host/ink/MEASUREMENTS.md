@@ -600,7 +600,17 @@ complete S2 replacement qualification.
 
 C6 runs on the physical NucBox: AMD Ryzen AI Max+ 395, Radeon 8060S,
 Windows 11 Pro 10.0.26200, display driver 32.0.23033.1002. The attached
-5120×1440 display runs at 60 Hz and 1× scaling. C: had 305,256,144,896
+5120×1440 display ran at 60 Hz and 1× scaling for C6 and every Windows
+row before G7. On 2026-10-31, after the DisplayPort connection and reboot,
+the console-session mode query at 11:20:32 PDT reports **5120×1440,
+120 Hz, 96 DPI (100%)**, 32-bit colour. The maximum enumerated refresh is
+**120 Hz**, including at 5120×1440. The GPU driver remains
+**32.0.23033.1002**. The display is Samsung C49RG9x; its 48 Hz adaptive
+lower bound is Charlie's hardware report, not measured by this mode query.
+Raw mode enumeration is `target/g7/mode.json` in the NucBox mirror; the
+local console-query copy is `target/g7/mode-ssh.log`. PresentMon verification
+of actual compositor cadence is pending the G7 diagnostic.
+C: had 305,256,144,896
 bytes free before building. Rust is the repository's pinned 1.97.0 MSVC
 toolchain; Bun is 1.4.2. DXBC was compiled by Windows SDK 10.0.26100.0
 `fxc` during the build. No Direct3D shader source is compiled by the app.
