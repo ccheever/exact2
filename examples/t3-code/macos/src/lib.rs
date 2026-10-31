@@ -23,7 +23,7 @@ mod title_snooze_tests;
 mod composer_accessibility_tests;
 
 #[cfg(test)]
-mod legacy_sidebar_tests;
+mod sidebar_command_tests;
 
 #[cfg(test)]
 mod connections_settings_tests;

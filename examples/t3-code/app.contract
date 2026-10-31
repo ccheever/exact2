@@ -47,7 +47,6 @@ use ChatCanvasView from "./src/shell/chat-canvas.contract"
 use TerminalDrawerView from "./src/terminal/terminal.contract"
 use HoverTip, noHoverTip, hoverDelay, hoverOpenDelay from "./src/shell/hover-layer.contract"
 use TransportTable, TransportSlot, TransportUpdateSlot, TransportConnect, TransportUpdateStep, TransportSocket, TransportInbox from "./src/transport/transport.contract"
-use legacyTipOwner from "./src/sidebar/legacy-sidebar.contract"
 use ShortcutModifierState, emptyShortcutModifierState, areShortcutModifierStatesEqual, shortcutModifierStateAfterKeyboardEvent, anyShortcutModifier, speedModifiers from "./src/shell/shortcut-modifiers.contract"
 use heldModifiers from "./src/shared/press-modifiers.contract"
 use QuitHoldState, quitHoldIdle, quitKeyDown, quitKeyUp, quitWatchFired, quitTypesLatin from "./src/shell/quit-hold.contract"
@@ -225,11 +224,9 @@ component T3Code
   state hoverEnd = 0
   task hoverTick when hoverWait < hoverEnd key=hoverEnd
     every(10, hoverTicked)
-  task hoverSurface key=`${settingsOpen}|${settingsRoute}|${utilityPage}|${modal}|${prSelected}|${data.threadId}|${hoverOwnerValid}` // also close a legacy tip whose row vanished without leave
+  task hoverSurface key=`${settingsOpen}|${settingsRoute}|${utilityPage}|${modal}|${prSelected}|${data.threadId}`
     after(1, hoverTicked)
   action hoverTicked
-    if not hoverOwnerValid
-      hoverTipAt(noHoverTip(), "", true)
     hoverWait = hoverWait + 10
   action hoverHold(end: number)
     hoverEnd = end
@@ -237,8 +234,7 @@ component T3Code
   state hoverOn = ""
   state hoverOpen = 0
   state hoverUntil = 0
-  derive hoverOwnerValid = hoverTip.key != "legacy-tip" or (data.legacy.enabled and data.sidebarOpen and legacyTipOwner(hoverTip.testId, data.legacy.projects))
-  derive hoverShown = hoverOwnerValid and hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)
+  derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)
   action hoverTipAt(tip: HoverTip, part: string, inside: bool)
     if inside
       let at = tip.key == hoverTip.key and hoverShown ? hoverWait : hoverWait + hoverOpenDelay(tip.kind)
@@ -530,8 +526,8 @@ component T3Code
   mutation pickerAnnounced as shape Change queue refreshes shell // the model picker's shortcut announcements (pickerAnnounce)
   // A pull request surface's remembered tab (prSetTab); queued, so quick tab presses land in order.
   mutation prTabSaved as shape Change queue
-  // A drop on the chat column or a legacy row, a paste into the composer, or Attach files' picks (composer-controls-attach.ts
-  // attachIncoming, legacy-sidebar-drop.ts queueRowDrop). Queued: a second drop waits for the first.
+  // A drop on the chat column or a sidebar row, a paste into the composer, or Attach files' picks (composer-controls-attach.ts
+  // attachIncoming, row-drop.ts queueRowDrop). Queued: a second drop waits for the first.
   mutation filesAdded as shape Change queue refreshes data then filesAddedDone
   mutation prHandoffChanged as shape Change refreshes data // a checkout hand-off's second half, its own send
   // A new thread opened while the draft's launch is in flight: its own send, so the launch's reply is not let go (draft-launch.ts).
@@ -841,7 +837,7 @@ component T3Code
   // sidebar's view lists those modifiers, none while the terminal has the focus or a search is open).
   // useShortcutModifierState's ⌘ or Control: Send shows the follow-up alternate (queue or steer) while one is held.
   derive composerSendHeld = shortcutModifiers.metaKey or shortcutModifiers.ctrlKey
-  derive threadJumpsHeld = (data.legacy.enabled ? data.legacy.jumpModifiers : data.sidebar.jumpModifiers).includes(heldModifiers(shortcutModifiers.metaKey, shortcutModifiers.ctrlKey, shortcutModifiers.altKey, shortcutModifiers.shiftKey))
+  derive threadJumpsHeld = data.sidebar.jumpModifiers.includes(heldModifiers(shortcutModifiers.metaKey, shortcutModifiers.ctrlKey, shortcutModifiers.altKey, shortcutModifiers.shiftKey))
   state threadJumpHintsShown = false
   derive threadJumpHints = threadJumpHintsShown and threadJumpsHeld
   task threadJumpHintDelay when threadJumpsHeld and not threadJumpHintsShown
@@ -916,13 +912,13 @@ component T3Code
       jumpRequest = jumpRequest + 1
       utilityPage = ""
   action sidebarLocal(op: string, id: string, value: string)
-    if (op == "rename-start" or op == "legacy-rename-start") and commandPending
+    if op == "rename-start" and commandPending
       renameAfterOp = op
       renameAfterId = id
     else
       send localChanged = command(`sidebarlocal:${op}`, id, value, 0)
   action sidebarRun(op: string, id: string, value: string)
-    if composerFocused and (op == "menu-choice" or op == "draft-choice" or op == "legacy-thread-menu")
+    if composerFocused and (op == "menu-choice" or op == "draft-choice")
       blur()
     if not commandPending
       commandPending = true

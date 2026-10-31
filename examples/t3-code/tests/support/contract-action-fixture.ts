@@ -6,8 +6,8 @@
 // `refresh <resource>` (the scope's `refresh(name)`), and a call (an action prop such as ThreadSection's `hoverCard`, an
 // injected action, a host command such as `preventDefault()`, a mutation's `send`, whose command the scope records and
 // whose mutation a `sent(mutation, command)` in the scope is told), made with the reads as they stand at its line.
-// `drawn` says whether a view line is drawn: the `if` / `else if` / `else` arms around it hold (legacy-sidebar-full.test.ts
-// runs the legacy rows' hover and focus through it, as the host delivers them).
+// `drawn` says whether a view line is drawn: the `if` / `else if` / `else` arms around it hold (sidebar-chrome.test.ts
+// asks it which footer buttons a page draws).
 import { readFileSync } from 'node:fs';
 import { appPath, appText } from './app-files';
 
@@ -144,7 +144,7 @@ function run(nodes: Node[], outer: Env, slots: Set<string>, writes: Env, owner: 
       writes[m[1]!] = value(m[2]!, env);
     } else if (/^\w+\(.*\)$/.test(line)) {
       // A call: an action prop (`hoverCard`, the window's hover), an
-      // injected action or a host command (legacy-sidebar-full.test.ts).
+      // injected action (sidebar-hover-archive-and-glyph.test.ts injects the root's `sidebarHoverRoot`) or a host command.
       value(line, env);
     } else {
       throw new Error(`unsupported statement: ${line}`);

@@ -26,7 +26,7 @@ import type { ScopedThreadRef } from '../terminal/terminal-ui-state';
 import { surfaceStore } from '../panel/panel-surfaces';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
 import { prLinksOpenInApp } from '../panel/pr-surface';
-import { pullRequestPageSelection } from '../sidebar/legacy-sidebar-links';
+import { pullRequestPageSelection } from '../sidebar/row-thread';
 import { readPairingAppLink, resolveRemotePairingTarget } from '../connections/remote';
 import { runConnectionOp } from '../connections/connections';
 

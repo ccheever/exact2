@@ -28,8 +28,7 @@ const attribute = (text: string, name: string): string => {
 };
 
 describe('the footer under a page', () => {
-  test.each([['sidebar.contract', 'Sidebar', { sidebar: { revealPending: '', revealRow: '', tree: [], treeCurrent: '' } }],
-    ['legacy-sidebar.contract', 'LegacySidebar', { legacy: { revealPending: '', revealRow: '' } }]] as const)(
+  test.each([['sidebar.contract', 'Sidebar', { sidebar: { revealPending: '', revealRow: '', tree: [], treeCurrent: '' } }]] as const)(
     '%s keeps Settings, Pull requests and Usage under Usage; the pull requests page draws Back instead', (file, name, data) => {
       const sidebar = contractComponent(file, name), state = sidebar.state();
       for (const button of ['testId="connection-settings"', 'testId="open-pull-requests"', 'testId="open-usage"']) {
@@ -56,7 +55,7 @@ test('a row\'s status label is no live region; Woke keeps one', () => {
 });
 
 test('the jump badges are pills, as `rounded-full` on their 1.25rem height', () => {
-  for (const [file, marker] of [['sidebar-row.contract', 'top=(t.card ? "1.9375rem" : "0.5rem") height="1.25rem"'], ['legacy-sidebar.contract', 'testId=`thread-jump-']] as const) {
+  for (const [file, marker] of [['sidebar-row.contract', 'top=(t.card ? "1.9375rem" : "0.5rem") height="1.25rem"']] as const) {
     const badge = line(file, marker);
     const radius = Number(/border-radius="([\d.]+)rem"/.exec(badge)?.[1]);
     expect(radius).toBeGreaterThanOrEqual(1.25 / 2);
@@ -66,7 +65,6 @@ test('the jump badges are pills, as `rounded-full` on their 1.25rem height', () 
 test('the undo notice is a footer item, not a live region: the shell\'s announcer speaks it', () => {
   expect(line('undo-notice.contract', 'testId="sidebar-undo-notice"')).toContain('role="listitem"');
   expect(line('undo-notice.contract', 'testId="sidebar-undo-notice"')).not.toContain('aria-live');
-  expect(line('undo-notice.contract', 'testId="legacy-undo-notice"')).toContain('role="group"');
 });
 
 test('the drag ghost\'s count is a pill', () => {

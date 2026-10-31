@@ -2,9 +2,10 @@ import type { T3Client } from '../client/client';
 import { obj, str } from '../client/domain';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { retryWorkspacePreparation } from '../timeline/workspace-retry';
-import { legacyEnabled } from './legacy-sidebar-view';
 import { park, settle } from './sidebar-commands';
-import { adoptCommandTime } from './sidebar-state';
+import { adoptCommandTime, wall } from './sidebar-state';
+import { pickSnoozePreset, snoozePresetSettings } from './sidebar-presentation';
+import { pushToast } from '../shell/toast';
 
 /**
  * Sidebar row actions (SidebarThreadRow's Settle and Un-settle). Each targets
@@ -12,10 +13,8 @@ import { adoptCommandTime } from './sidebar-state';
  * left the shell or the server cannot settle threads. Settle is useThreadActions'
  * settleThread, as ⇧⌘S (ChatView thread.settle) and the title menu call it: the
  * sidebar's settle, whose "Settled 1 thread" notice ⌘Z undoes. ⇧⌘S sends
- * `settle-advance` (ChatView thread.settle → settleAndAdvance.ts): with the
- * flat sidebar in the window it settles as the row's Settle button does and
- * opens the next thread; the legacy sidebar does not register that path, so
- * there it settles in place.
+ * `settle-advance` (ChatView thread.settle → settleAndAdvance.ts): it settles
+ * as the row's Settle button does and opens the next thread.
  */
 export async function chatCommand(client: T3Client, native: Native, storage: Files, op: string, threadId: string, value = '', at = 0): Promise<string> {
   if (op === 'retry-preparation') return retryWorkspacePreparation(client, native, storage, value); // upstream 737993303d
@@ -26,8 +25,8 @@ export async function chatCommand(client: T3Client, native: Native, storage: Fil
     throw new ClientError(op.endsWith('snooze') ? 'This server does not support snoozing threads.' : 'This server does not support settling threads.');
   }
   // The window's instant first, as sidebarCommand adopts it: the notice's five seconds are on the window's clock.
-  if (op === 'settle-advance' && !legacyEnabled(client)) { adoptCommandTime(client, at); await park(client, native, threadId, 'settle', '', new Set()); return ''; }
-  if (op === 'settle' || op === 'settle-advance') { adoptCommandTime(client, at); await settle(client, native, threadId); return ''; }
+  if (op === 'settle-advance') { adoptCommandTime(client, at); await park(client, native, threadId, 'settle', '', new Set()); return ''; }
+  if (op === 'settle') { adoptCommandTime(client, at); await settle(client, native, threadId); return ''; }
   const access = client.restAccess(native);
   const [commandId] = await access.ids(1);
   if (op === 'unsettle') {
@@ -35,8 +34,17 @@ export async function chatCommand(client: T3Client, native: Native, storage: Fil
     return '';
   }
   if (op === 'snooze') {
-    if (!Number.isFinite(Date.parse(value))) throw new ClientError('Choose when to bring this thread back.');
-    await access.dispatch(storage, { type: 'thread.snooze', commandId, threadId, snoozedUntil: new Date(value).toISOString() }, `Snooze ${str(thread.title, 'thread')}`);
+    // A title menu choice, `<preset id>|<the wake it showed>`: picked as the sidebar's are (Sidebar.snooze.ts pickSnoozePreset).
+    let until = value;
+    if (value.includes('|')) {
+      adoptCommandTime(client, at); // the window's instant of the pick: `wall` is otherwise 0 or the last sidebar command's
+      const [presetId = '', shown = ''] = value.split('|'), format = client.local.deviceSettings.timestampFormat;
+      const preset = pickSnoozePreset([{ id: presetId, label: '', wakeLabel: '', until: shown }], presetId, wall(client), format, snoozePresetSettings(client.config));
+      if (!preset) { pushToast(client, { kind: 'warning', title: 'Could not snooze thread', description: 'That snooze time has passed. Choose another time.' }); return ''; }
+      until = preset.until;
+    }
+    if (!Number.isFinite(Date.parse(until))) throw new ClientError('Choose when to bring this thread back.');
+    await access.dispatch(storage, { type: 'thread.snooze', commandId, threadId, snoozedUntil: new Date(until).toISOString() }, `Snooze ${str(thread.title, 'thread')}`);
     return '';
   }
   if (op === 'unsnooze') {

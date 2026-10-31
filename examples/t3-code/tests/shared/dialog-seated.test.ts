@@ -12,7 +12,7 @@ const source = (file: string) => Bun.file(appPath(file)).text();
 describe('a modal dialog is modal once the focus is in it', () => {
   test('the window seats a dialog at its first focusin and unseats it as it closes', async () => {
     const window = contractComponent('app-window.contract', 'T3Window');
-    const live = new Set<string>(['legacy-rename-project']);
+    const live = new Set<string>(['rename-dialog']);
     const scope = {
       none: null,
       querySelectorAll: (selector: string) => selector.includes('dialog-return') ? [] : [...live],
@@ -26,19 +26,19 @@ describe('a modal dialog is modal once the focus is in it', () => {
     const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [], dialogSeated: [], documentPermissionReturnKey: '', documentPermissionReturnSource: '' };
     window.call('windowFocused', state, scope, [{ target: 'composer' }]);
     // Mounted (DialogFinalFocus's dialogOpened) with the focus still outside: not yet modal.
-    window.call('dialogOpened', state, scope, ['legacy-rename-project']);
+    window.call('dialogOpened', state, scope, ['rename-dialog']);
     expect(state.dialogSeated).toEqual([]);
-    window.call('dialogEntered', state, scope, ['legacy-rename-project', { target: 'legacy-project-title' }]);
-    expect(state.dialogSeated).toEqual(['legacy-rename-project']);
+    window.call('dialogEntered', state, scope, ['rename-dialog', { target: 'rename-dialog-title' }]);
+    expect(state.dialogSeated).toEqual(['rename-dialog']);
     // A confirmation over it seats itself and keeps its parent modal; closing it leaves the parent seated.
-    live.add('legacy-remove-project');
-    window.call('dialogEntered', state, scope, ['legacy-remove-project', { target: 'legacy-remove-project-cancel' }]);
-    expect(state.dialogSeated).toEqual(['legacy-rename-project', 'legacy-remove-project']);
-    live.delete('legacy-remove-project');
-    window.call('dialogClosed', state, scope, ['legacy-remove-project']);
-    expect(state.dialogSeated).toEqual(['legacy-rename-project']);
-    live.delete('legacy-rename-project');
-    window.call('dialogClosed', state, scope, ['legacy-rename-project']);
+    live.add('remove-dialog');
+    window.call('dialogEntered', state, scope, ['remove-dialog', { target: 'remove-dialog-cancel' }]);
+    expect(state.dialogSeated).toEqual(['rename-dialog', 'remove-dialog']);
+    live.delete('remove-dialog');
+    window.call('dialogClosed', state, scope, ['remove-dialog']);
+    expect(state.dialogSeated).toEqual(['rename-dialog']);
+    live.delete('rename-dialog');
+    window.call('dialogClosed', state, scope, ['rename-dialog']);
     expect(state.dialogSeated).toEqual([]);
     expect(await source('app-window.contract')).toMatch(/\n  provide\n(?:.*\n)*?    dialogSeated\n/);
   });

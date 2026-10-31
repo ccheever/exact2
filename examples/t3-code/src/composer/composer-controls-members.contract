@@ -195,9 +195,12 @@ members T3Code
           openSettings() // a project link replaces the whole scope (retainSettingsScope)
           settingsProjectId = result.message.slice(25)
           settingsRoute = "projects"
-        if result.message.startsWith("sidebar:settings:") // a settings page by its route (Custom snooze's Edit snooze options)
+        if result.message.startsWith("sidebar:settings:") // a settings page by its route, then a row to land on (Custom snooze's Edit snooze options)
           openSettings()
-          settingsRoute = result.message.slice(17)
+          let settingsPageLink = result.message.slice(17)
+          settingsRoute = settingsPageLink.includes(":") ? settingsPageLink.slice(0, settingsPageLink.indexOf(":")) : settingsPageLink
+          settingsFocusTarget = settingsPageLink.includes(":") ? settingsPageLink.slice(settingsPageLink.indexOf(":") + 1) : ""
+          settingsJumpOpened = ""
       case none
     pendingModal = ""
     commandPending = false
@@ -207,7 +210,7 @@ members T3Code
       renameAfterOp = ""
   action attachFiles(origin: string, files: string[], picked: Picked[], asText: bool, target: string)
     send filesAdded = composerAttach(origin, files, picked, asText, target)
-  // ChatComposer's drop and Attach files focus the prompt; a legacy row's drop opens its thread (handleThreadFileDrop).
+  // ChatComposer's drop and Attach files focus the prompt; a sidebar row's drop opens its thread (handleThreadFileDrop).
   action filesAddedDone
     match filesAdded
       case some(result)

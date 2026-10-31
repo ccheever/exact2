@@ -174,7 +174,7 @@ export async function releaseStaged(client: T3Client, native: Native, files: Obj
 }
 
 /**
- * addComposerFiles over staged files (a drop, a paste, Attach files, or the sidebar row drop's, legacy-sidebar-drop.ts):
+ * addComposerFiles over staged files (a drop, a paste, Attach files, or the sidebar row drop's, row-drop.ts):
  * images join the shelf (a question's has no image chips: its answer carries them beside it); other files become chips;
  * what cannot be attached is named in one error. `owner`: the composer
  * the chips go into at its caret (`editorInsert` refuses another thread's editor; then they join the end of the stored

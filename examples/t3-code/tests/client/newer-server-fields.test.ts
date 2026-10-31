@@ -141,8 +141,10 @@ describe('what a 0.1.5 server adds', () => {
 
   test('the new client settings, and the removed ones a saved file may hold, decode', () => {
     const prefs = decodeClientPrefs({ effortDisplay: 'bars', threadDetailsItems: { usage: true }, composerCollapseOnScroll: false, sidebarThreadPreviewCount: 9,
-      dismissedProviderUpdateNotificationKeys: ['codex:0.42.0'], chatWidth: 'wide' });
+      legacySidebarEnabled: true, dismissedProviderUpdateNotificationKeys: ['codex:0.42.0'], chatWidth: 'wide' });
     expect(prefs.chatWidth).toBe('wide');
+    // The legacy sidebar's opt-in and its Visible threads are read as nothing: the default sidebar shows.
+    expect(['legacySidebarEnabled' in prefs, 'sidebarThreadPreviewCount' in prefs]).toEqual([false, false]);
   });
 
   // BackgroundActivityOverrides has no idleClientTtl at 6d450a4284: the presets and an Advanced write carry none, and a

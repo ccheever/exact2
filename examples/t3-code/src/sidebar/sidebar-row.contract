@@ -60,7 +60,7 @@ component TerminalStatusButton
       button cursor="pointer" press=run("terminal-reveal", id, "") hover=setOver aria-label=terminalButtonLabel(count) testId=`sidebar-terminal-status-${id}` padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" opacity=(over ? 0.8 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
         TerminalPulse(size=size, reduced=reduced)
 
-// The indicator's glyph alone, for a row that wraps it in its own tooltip (legacy-sidebar.contract's LegacyRowTip).
+// The indicator's glyph, inside TerminalProcessIndicator's tooltip.
 component TerminalGlyph
   props
     label: string
@@ -86,7 +86,7 @@ component ThreadRow
     sidebarTreeStop: string
     treeFocused: action
     treeKey: action
-    // A file drop on the row (app.contract attachFiles, legacy-sidebar-drop.ts queueRowDrop).
+    // A file drop on the row (app.contract attachFiles, row-drop.ts queueRowDrop).
     attachFiles: action
   props
     t: Thread
@@ -666,7 +666,7 @@ style SidebarMenuItem
 // it at the pointer; ContextMenu at the focused row is the host's default (exact2 #314): it runs
 // the row's `contextmenu` and opens this popover at the row's centre, as Chromium's keyboard
 // contextmenu does. Shift+F10 opens nothing on a thread row (Chromium on macOS). A draft row
-// (DraftCard) and a legacy row prevent that default and open their own menus.
+// (DraftCard) prevents that default and opens its own menu.
 // Placement: the menu keeps `position-try-fallbacks="none"`, as it opens at the pointer with no invoker and the
 // reference's is the system's context menu; a painted submenu sits beside its row and flips to the row's start side.
 component ThreadMenu

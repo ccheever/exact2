@@ -1,6 +1,6 @@
 // Mark unread is fire and forget everywhere (useThreadActions.ts useMarkThreadUnread: useAtomCommand(threadEnvironment.markUnread,
 // { reportFailure: false })), so the server's refusal of a thread with no completed run shows no toast and no banner, from
-// the flat row menu, the multi-selection menu, the legacy menus, the thread's More actions menu and a background environment's row.
+// the row menu, the multi-selection menu, the thread's More actions menu and a background environment's row.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import { obj, initialShell, type Obj } from '../../src/client/domain';
@@ -66,15 +66,6 @@ describe('Mark unread refused by the server', () => {
     expect(sidebarSession(client).selection).toEqual([]);
     expect(toasts(client)).toEqual([]);
     expect(client.error).toBe('');
-  });
-
-  test('the legacy menus stay silent', async () => {
-    const { client, native, sent } = refusing([row('a'), row('b')]);
-    await sidebarCommand(client, native, files, 'legacy-thread-choice', 'a', 'mark-unread');
-    sidebarSession(client).selection = ['a', 'b'];
-    await sidebarCommand(client, native, files, 'legacy-thread-choice', 'a', 'mark-unread');
-    expect(sent).toEqual(['env-a:a', 'env-a:a', 'env-a:b']);
-    expect(toasts(client)).toEqual([]);
   });
 
   test('a background environment\'s row stays silent', async () => {

@@ -1,21 +1,15 @@
-// The legacy sidebar row's links (T3 Code 9c161462c9; MIT, see LICENSE-T3): the pull request glyph
-// (LegacySidebar.tsx handlePrClick over lib/openPullRequestLink.ts useOpenPrLink and
-// useOpenChangeRequestLink) and "New thread on <branch>" (handleThreadContextMenu over
-// hooks/useHandleNewThread.ts with the thread's branch, worktree and mode); the discovered-port
-// button is legacy-sidebar-ports.ts. Each targets its row's thread, wherever it lives.
+// A sidebar row's thread and its links (T3 Code 6d450a4284; MIT, see LICENSE-T3): the row's thread on its own
+// environment, navigateToThread, the running-terminal button (ThreadStatusIndicators.tsx
+// ThreadTerminalStatusButton), useOpenChangeRequestLink's Pull Requests page selection, and "New thread on <branch>"
+// (hooks/useHandleNewThread.ts with the thread's branch, worktree and mode).
 import { obj, str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
 import { pushToast } from '../shell/toast';
-import { scopedThreadKey, selectThreadTerminalUiState, terminalUiStore, type ScopedThreadRef } from '../terminal/terminal-ui-state';
-import { surfaceStore, type PanelState } from '../panel/panel-surfaces';
-import { openPullRequestIn } from '../panel/pr-attachment-surfaces';
-import { prLinksOpenInApp, prTarget } from '../panel/pr-surface';
-import { currentPullRequestLink } from '../panel/shell-pr';
-import { branchPullRequest } from './sidebar-branch-pr';
+import { selectThreadTerminalUiState, terminalUiStore, type ScopedThreadRef } from '../terminal/terminal-ui-state';
+import { prTarget } from '../panel/pr-surface';
 import { findProjectForChangeRequest, parseChangeRequestUrl } from '../palette/palette-linkpr';
-import { openInSystemBrowser, openLink } from '../browser/browser-links';
 import { patchDraftContext } from '../composer/composer-controls-branch';
 import { fleet, focusFleetThread, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { sidebarSession } from './sidebar-state';
@@ -44,13 +38,6 @@ export function rowIdNow(client: T3Client, id: string): string {
   return fleetRef && fleetRef.environmentId === client.environmentId ? fleetRef.threadId : id;
 }
 
-/** rightPanelStore for a thread that may not be the shown one (its panel, by the thread's key). */
-function panelOf(client: T3Client, ref: ScopedThreadRef): PanelState {
-  const store = surfaceStore(client), key = scopedThreadKey(ref);
-  let state = store.panels.get(key);
-  if (!state) { state = { surfaces: [], active: '', visible: false, userRevision: 0 }; store.panels.set(key, state); }
-  return state;
-}
 /** ChatView's effect on every thread change: the composer takes the focus (a frame later), unless that thread's terminal drawer is open. */
 export function composerTakesFocus(client: T3Client, ref: ScopedThreadRef): boolean {
   return !selectThreadTerminalUiState(terminalUiStore(client).getState().terminalUiStateByThreadKey, ref).terminalOpen;
@@ -71,40 +58,6 @@ export async function goTo(client: T3Client, native: Native, id: string, ref: Sc
   return composerTakesFocus(client, ref) ? 'sidebar:opened:focus' : 'sidebar:opened';
 }
 
-/**
- * handlePrClick (openPullRequestsInRightPanel = a thread's route): ⌘ or Ctrl leaves the link to the system
- * browser; beside a thread, a pull request a project of the thread's environment reads opens in that thread's right
- * panel and the thread opens; on another page, one an environment reads opens on the Pull Requests page; otherwise it
- * is an ordinary link, which follows "Open links in" ("Unable to open pull request link" if that fails).
- */
-export async function openRowPullRequest(client: T3Client, native: Native, id: string, pressed: string): Promise<string> {
-  // `mod:<page>`: the click held ⌘ or Ctrl (legacy-sidebar.contract `prPress`, the press's own MouseEvent).
-  const held = pressed.startsWith('mod:'), page = held ? pressed.slice('mod:'.length) : pressed;
-  const row = rowThread(client, id);
-  // `prStatus?.url ?? currentLinkedPr?.url`: the link's, else the branch's pull request.
-  const url = row ? str(currentPullRequestLink(row.thread.pullRequests)?.url) || str(branchPullRequest(client, { ...row.thread, id })?.url) : '';
-  if (!row || !url) return '';
-  const linkFailed = (error: unknown) => {
-    if (letGo(error)) throw error;
-    pushToast(client, { kind: 'error', title: 'Unable to open pull request link', description: failure(error, 'An error occurred.'), stacked: true });
-  };
-  if (held) { try { await openInSystemBrowser(url); } catch (error) { linkFailed(error); } return ''; }
-  // routeThreadRef (resolveActiveThreadRouteRef): a server thread's route, or a draft once it was sent; an unsent draft is none.
-  const besideThread = page === '' && client.threadId !== '';
-  if (besideThread) {
-    const target = prLinksOpenInApp(client) ? prTarget(row.reads as unknown as T3Client, url) : null;
-    if (target) {
-      if (row.focused && client.threadId === row.ref.threadId) client.diffOpen = false;
-      openPullRequestIn(panelOf(client, row.ref), target);
-      return goTo(client, native, id, row.ref);
-    }
-  } else {
-    const selection = prLinksOpenInApp(client) ? pullRequestPageSelection(client, url) : '';
-    if (selection) return `sidebar:pr-page:${selection}`;
-  }
-  try { await openLink(client, native, url, { threadRef: besideThread ? row.ref : null }); } catch (error) { linkFailed(error); }
-  return '';
-}
 /**
  * useOpenChangeRequestLink with no thread: the Pull Requests page's selection for the exact project across the environments
  * that read pull requests, the focused first; '' when none can read it (the caller opens the link).

@@ -32,7 +32,7 @@ function focusedOn(threads: Obj[]) {
 }
 
 describe('the rename a double-click starts lands on the row the open left', () => {
-  for (const op of ['rename-start', 'legacy-rename-start']) {
+  for (const op of ['rename-start']) {
     test(`${op}: a fleet id naming the focused environment renames that environment's own row`, async () => {
       const { client, native } = focusedOn([row('a'), row('b')]);
       await sidebarLocal(client, native, op, 'fleet:env-a:a', '');
@@ -56,8 +56,8 @@ describe('the window holds a double-click\'s rename until its first click\'s ope
     root.call('sidebarLocal', state, { ...scope, commandPending: true }, ['rename-start', 'fleet:env-b:t1', '']);
     expect(state).toEqual({ renameAfterOp: 'rename-start', renameAfterId: 'fleet:env-b:t1' });
     expect(calls).toEqual([]);
-    root.call('sidebarLocal', state, { ...scope, commandPending: false }, ['legacy-rename-start', 'fleet:env-b:t2', '']);
-    expect(calls).toEqual(['command:sidebarlocal:legacy-rename-start,fleet:env-b:t2,,0']);
+    root.call('sidebarLocal', state, { ...scope, commandPending: false }, ['rename-start', 'fleet:env-b:t2', '']);
+    expect(calls).toEqual(['command:sidebarlocal:rename-start,fleet:env-b:t2,,0']);
     // Other sidebar ops never wait.
     root.call('sidebarLocal', state, { ...scope, commandPending: true }, ['shelf', 'settled', '']);
     expect(calls.at(-1)).toBe('command:sidebarlocal:shelf,settled,,0');
@@ -91,7 +91,7 @@ describe('a double-click\'s rename waits for its row\'s environment to come in',
   }
   const arrive = (client: T3Client, threads: Obj[]) => Object.assign(client, { shell: { ...client.shell, threads }, shellLoaded: true });
 
-  for (const op of ['rename-start', 'legacy-rename-start']) {
+  for (const op of ['rename-start']) {
     test(`${op}: held while the shell is out, started by the refresh that brings the row`, async () => {
       const { client, native } = moving();
       await sidebarLocal(client, native, op, 'fleet:env-b:t1', '');
@@ -167,10 +167,10 @@ describe('no composer focus the open causes lands while its double-click\'s rena
   test('the slow order: the open lands, the rename waits for the shell, a later open result asks for the composer', () => {
     const calls: string[] = [], scope = scopeOf(calls), state = fresh();
     // The double-click's rename comes while the first click's open runs, and is held.
-    root.call('sidebarLocal', state, { ...scope, commandPending: true }, ['legacy-rename-start', 'fleet:env-b:t1', '']);
+    root.call('sidebarLocal', state, { ...scope, commandPending: true }, ['rename-start', 'fleet:env-b:t1', '']);
     // The open lands: its result asks for the composer; the held rename goes out instead.
     root.call('commandCompleted', state, { ...scope, changed: focusResult, data: { sidebar: { renameId: '', renameHeld: false } } }, []);
-    expect(calls).toEqual(['command:sidebarlocal:legacy-rename-start,fleet:env-b:t1,,0']);
+    expect(calls).toEqual(['command:sidebarlocal:rename-start,fleet:env-b:t1,,0']);
     // The environment's shell is not in yet (sidebar-rename-wait.ts holds the rename); another open result lands.
     root.call('commandCompleted', { ...state, commandPending: true }, { ...scope, changed: focusResult, data: { sidebar: { renameId: '', renameHeld: true } } }, []);
     // The rename has started: its field holds the focus.

@@ -9,7 +9,6 @@ import { bulkMenuItems, menuRows, nativeTemplate, threadMenuItems, threadMenuSta
 import { projectScopes } from '../../src/sidebar/sidebar-view';
 const sidebarSnapshotMenuState = (client: T3Client, now: number) => threadMenuState(client, client.shell.threads[0]!, false, projectScopes(client), now);
 import { sidebarSnapshot, terminalProcessCount } from '../../src/sidebar/sidebar-view';
-import { legacySidebarSnapshot } from '../../src/sidebar/legacy-sidebar-view';
 import { threadItems } from '../../src/palette/palette';
 import { terminalMetadataEvent } from '../../src/terminal/terminal-drawer-view';
 import { contractComponent } from '../support/contract-action-fixture';
@@ -423,7 +422,7 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
     await sidebarCommand(client, native, files, 'pin', 'a', '');
     expect(strip(dispatched)).toEqual([{ type: 'thread.pin', threadId: 'a', orderKey: 'h' }]);
     await sidebarCommand(client, native, files, 'unpin', 'p', '');
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoText).toBe('Unpinned 1 thread,');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoShort).toBe('Unpinned,');
     await undoLatest(client, native);
     expect(strip(dispatched).slice(1)).toEqual([{ type: 'thread.unpin', threadId: 'p' }, { type: 'thread.pin', threadId: 'p', orderKey: 'n' }]);
   });
@@ -433,20 +432,20 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
     await sidebarCommand(client, native, files, 'settle', 'a', '');
     expect(opened).toEqual(['b']);
     await sidebarCommand(client, native, files, 'settle', 'c', '');
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoText).toBe('Settled 2 threads,');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoShort).toBe('Settled 2,');
     await sidebarCommand(client, native, files, 'undo', '', '');
     expect(strip(dispatched).map(payload => `${payload.type}:${payload.threadId}`)).toEqual(['thread.settle:a', 'thread.settle:c', 'thread.unsettle:c', 'thread.unsettle:a']);
   });
 
-  test("the footer's undo notice reads the short summary; the full sentence stays for the announcement and the legacy footer", async () => {
+  test("the footer's undo notice reads the short summary; the full sentence stays for the announcement", async () => {
     const { client } = fake([shell('a', { createdAt: iso(-1) }), shell('b', { createdAt: iso(-2) }), shell('z', { snoozedUntil: iso(3_600_000) })], { threadId: 'a' });
     await sidebarCommand(client, native, files, 'settle', 'a', '');
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ undoShort: 'Settled,', undoText: 'Settled 1 thread,' });
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ undoShort: 'Settled,' });
     (client as unknown as { query: string }).query = 'Thread';
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoShort).toBe('Settled,');
     (client as unknown as { query: string }).query = '';
     await sidebarCommand(client, native, files, 'settle', 'b', '');
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ undoShort: 'Settled 2,', undoText: 'Settled 2 threads,' });
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ undoShort: 'Settled 2,' });
     // It is drawn in the footer's utility row, never over the list.
     const view = appPath('src/sidebar/sidebar.contract');
     const source = require('node:fs').readFileSync(view, 'utf8') as string;
@@ -581,7 +580,7 @@ describe('sidebar navigation, drafts and the hover card', () => {
     await sidebarCommand(client, native, files, 'discard-project-draft', 'p1', '');
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.drafts).toEqual([]);
     // Upstream 95edeb753b: the discard waits behind the undo notice; its uploads go when Undo can no longer bring them back.
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoText).toBe('Discarded 1 draft,');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoShort).toBe('Discarded,');
     expect((client.local as unknown as { snapshotReleases: string[] }).snapshotReleases).toEqual([]);
   });
 
@@ -659,7 +658,7 @@ describe('sidebar navigation, drafts and the hover card', () => {
     (client.config as Obj).settings = { snoozePresets: [] };
     expect(threadMenuItems(sidebarSnapshotMenuState(client, now)).find(item => item.id === 'snooze')!.children).toEqual([{ id: 'snooze:custom', label: 'Custom…', separatorBefore: false }]);
     await sidebarCommand(client, native, files, 'snooze:custom', 'b', '');
-    expect(await sidebarCommand(client, native, files, 'snooze-settings', '', '')).toBe('sidebar:settings:threads');
+    expect(await sidebarCommand(client, native, files, 'snooze-settings', '', '')).toBe('sidebar:settings:threads:snooze-options');
     expect(sidebarSnapshot(client, now, helpers).sidebar.dialog).toBe('');
   });
 });
@@ -705,7 +704,7 @@ describe('Custom snooze from the thread title menu', () => {
     await sidebarLocal(client, native, 'dialog-field', 'time', localTime(wake));
     await sidebarCommand(client, native, files, 'dialog-confirm', '', '', NOW);
     expect(strip(dispatched)).toEqual([{ type: 'thread.snooze', threadId: 'a', snoozedUntil: new Date(`${localDate(wake)}T${localTime(wake)}:00`).toISOString() }]);
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: '', dialogReturn: '', undoText: 'Snoozed 1 thread,' });
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: '', dialogReturn: '', undoShort: 'Snoozed,' });
     expect([navigated, drafts, client.threadId]).toEqual([[], [], 'a']);
     await sidebarCommand(client, native, files, 'snooze:custom', 'b', 'title', NOW);
     await sidebarLocal(client, native, 'dialog-field', 'mode', 'duration');
@@ -746,34 +745,32 @@ describe('Custom snooze from the thread title menu', () => {
 });
 
 describe('terminal activity in thread lists', () => {
-  test('only subprocesses count, updates clear the indicator across sidebar, legacy and palette', () => {
-    const { client } = fake([shell('a'), shell('b')], { settings: { legacySidebarEnabled: true } });
+  test('only subprocesses count, updates clear the indicator across sidebar and palette', () => {
+    const { client } = fake([shell('a'), shell('b')]);
     const summary = (threadId: string, terminalId: string, busy: boolean) => ({ threadId, terminalId, cwd: '/fixture', worktreePath: null,
       status: 'running', pid: 1, exitCode: null, exitSignal: null, hasRunningSubprocess: busy, label: 'sh', updatedAt: iso(0) });
     const update = (terminals: Obj[]) => terminalMetadataEvent(client, { subscriptionId: '1-1', value: { type: 'snapshot', terminals } });
     update([summary('a', 'term-1', true), summary('a', 'term-2', true), summary('a', 'term-3', false), summary('b', 'term-1', false)]);
     expect(sidebarSnapshot(client, NOW, helpers).threads.find(row => row.id === 'a')).toMatchObject({ terminalCount: 2, terminalLabel: '2 terminal processes running' });
     expect(sidebarSnapshot(client, NOW, helpers).threads.find(row => row.id === 'b')).toMatchObject({ terminalCount: 0, terminalLabel: '' });
-    expect(legacySidebarSnapshot(client, NOW, helpers).projects.flatMap(project => project.threads).find(row => row.id === 'a')?.terminalCount).toBe(2);
     expect(threadItems(client, NOW, '').find(item => item.row.key === 'a')?.row.terminalCount).toBe(2);
     expect(terminalProcessCount(client, 'fleet:other:a')).toBe(0);
     update([summary('a', 'term-1', true)]);
     expect(sidebarSnapshot(client, NOW, helpers).threads.find(row => row.id === 'a')?.terminalLabel).toBe('1 terminal process running');
     update([]);
     expect(sidebarSnapshot(client, NOW, helpers).threads.every(row => row.terminalCount === 0)).toBe(true);
-    expect(legacySidebarSnapshot(client, NOW, helpers).projects.flatMap(project => project.threads).every(row => row.terminalCount === 0)).toBe(true);
     expect(threadItems(client, NOW, '').every(item => item.row.terminalCount === 0)).toBe(true);
   });
   test('Command-hold jump hints disappear while the terminal owns focus and return on blur', () => {
-    const { client } = fake([shell('a')], { threadId: 'a', settings: { legacySidebarEnabled: true } });
+    const { client } = fake([shell('a')], { threadId: 'a' });
     client.config.keybindings = [{ command: 'thread.jump.1', shortcut: { key: '1', modKey: true } }];
-    const jumps = () => [sidebarSnapshot(client, NOW, helpers).sidebar.jumpModifiers, legacySidebarSnapshot(client, NOW, helpers).jumpModifiers];
+    const jumps = () => sidebarSnapshot(client, NOW, helpers).sidebar.jumpModifiers;
     const held = ['meta'];
-    expect(jumps()).toEqual([held, held]);
+    expect(jumps()).toEqual(held);
     recordTerminalFocus(client, { environmentId: 'env', threadId: 'a', terminalId: 'term-1', focused: true });
-    expect(jumps()).toEqual([[], []]);
+    expect(jumps()).toEqual([]);
     recordTerminalFocus(client, { environmentId: 'env', threadId: 'a', terminalId: 'term-1', focused: false });
-    expect(jumps()).toEqual([held, held]);
+    expect(jumps()).toEqual(held);
   });
 });
 
@@ -788,8 +785,8 @@ describe('a row press carries its own click modifiers', () => {
     contractComponent(file, name).call(actionName, {}, { open: record('open'), run: record('run'), ...scope }, [mouse(mods)]);
     return calls;
   };
-  test('⌘-click toggles and ⇧-click extends, in the default and the legacy sidebar; ⌘ wins over ⇧', () => {
-    for (const [file, name] of [['sidebar-row.contract', 'ThreadRow'], ['legacy-sidebar.contract', 'LegacyThread']] as const) {
+  test('⌘-click toggles and ⇧-click extends; ⌘ wins over ⇧', () => {
+    for (const [file, name] of [['sidebar-row.contract', 'ThreadRow']] as const) {
       const scope = { t: { id: 'a' }, page: '' };
       expect(pressed(file, name, 'openPress', scope, '')).toEqual([['open', 'a', 'click']]);
       expect(pressed(file, name, 'openPress', scope, 'meta')).toEqual([['open', 'a', 'click:meta']]);
@@ -797,12 +794,5 @@ describe('a row press carries its own click modifiers', () => {
       expect(pressed(file, name, 'openPress', scope, 'meta shift')).toEqual([['open', 'a', 'click:meta']]);
       expect(pressed(file, name, 'openPress', scope, 'ctrl alt')).toEqual([['open', 'a', 'click']]);
     }
-  });
-  test('the legacy row\'s pull request glyph: ⌘ or Ctrl leaves it to the system browser (handlePrClick)', () => {
-    const scope = { t: { id: 'a' }, page: 'pull-requests' };
-    expect(pressed('legacy-sidebar.contract', 'LegacyThread', 'prPress', scope, '')).toEqual([['run', 'legacy-pr', 'a', 'pull-requests']]);
-    expect(pressed('legacy-sidebar.contract', 'LegacyThread', 'prPress', scope, 'meta')).toEqual([['run', 'legacy-pr', 'a', 'mod:pull-requests']]);
-    expect(pressed('legacy-sidebar.contract', 'LegacyThread', 'prPress', { ...scope, page: '' }, 'ctrl')).toEqual([['run', 'legacy-pr', 'a', 'mod:']]);
-    expect(pressed('legacy-sidebar.contract', 'LegacyThread', 'prPress', scope, 'shift alt')).toEqual([['run', 'legacy-pr', 'a', 'pull-requests']]);
   });
 });

@@ -239,7 +239,6 @@ shape SidebarView
   renameTitle: string
   renameHeld: bool // a double-click's rename waits for its row's environment (sidebar-rename-wait.ts)
   selectionCount: number
-  undoText: string
   undoShort: string // the footer's summary: "Settled," or "Settled 2,"
   undoLabel: string
   undoUntil: number

@@ -15,7 +15,7 @@ import { adoptStash } from '../composer/composer-editor-stash';
 import { adoptComposerFiles } from '../composer/composer-editor-files';
 import { startOnFallback } from '../composer/composer-provider-selection';
 import { sidebarOpened, sidebarRefreshed } from '../sidebar/sidebar-commands';
-import { takeRowDrops } from '../sidebar/legacy-sidebar-drop';
+import { takeRowDrops } from '../sidebar/row-drop';
 import { IMAGE_ATTACHMENT_MAX_EDGE } from '../composer/image-attachment-size';
 import { draftUpload } from '../snapshot/snapshot-upload';
 import { reconnectOnLaunch, launchFocus, primaryTakesFocus } from '../connections/relaunch-reconnect';
@@ -52,7 +52,7 @@ import { adoptBrowserPrefs } from '../browser/browser-defaults';
 import { PR_REFRESH_KEY, prRefreshEvent, adoptPrSnapshots } from '../pull-requests/pages-pr-refresh';
 import { DEVICE_STATE_KEY, deviceStateEvent } from '../device/device-surface';
 import { LIVE_KEYS, liveEvent } from './live-streams';
-import { discoveredServersEvent, isDiscoveredServersKey } from '../browser/browser-targets'; // the Browser and the legacy sidebar's ports: the live local servers
+import { discoveredServersEvent, isDiscoveredServersKey } from '../browser/browser-targets'; // the Browser's and the details card's live local servers
 import { adoptBrowserHistory } from '../browser/browser-history';
 import { PREVIEW_AUTOMATION_KEY, PREVIEW_EVENTS_KEY, previewStreamEvent } from '../browser/browser-automation';
 import { WORKTREE_SETUP_KEY, worktreeSetupEvent } from '../timeline/timeline-worktree';
@@ -432,7 +432,7 @@ export class T3Client {
       if (await settleHome(this, native)) this.changed(); // the launch's landing, once a shell that is in holds a project
       if (this.reconcilePending()) await this.save(storage);
       await sidebarRefreshed(this, native); // sidebar-commands.ts: a timed provider pill's repaint, new projects' favicons
-      if (await takeRowDrops(this, native)) await this.save(storage); // legacy-sidebar-drop.ts: files dropped on the open thread's sidebar row
+      if (await takeRowDrops(this, native)) await this.save(storage); // row-drop.ts: files dropped on the open thread's sidebar row
       await this.flushSnapshotReleases(native, storage);
       if (this.local.deviceSettings.snapShotEnabled) await this.adoptSnapshots(native, storage);
     } catch (error) {

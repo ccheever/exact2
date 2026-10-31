@@ -53,7 +53,6 @@ shape Look
   richText: bool
   skillsInSlash: bool
   followUp: string
-  legacySidebar: bool
   confirmUnpin: bool
   confirmArchive: bool
   confirmDelete: bool

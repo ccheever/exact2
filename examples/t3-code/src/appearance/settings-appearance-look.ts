@@ -25,7 +25,7 @@ export type Look = {
   diffAdd: string; diffDel: string; diffAddSurface: string; diffDelSurface: string; diffAddLine: string; diffDelLine: string;
   terminalLight: string; terminalDark: string; terminalFont: string; terminalSize: number; terminalFace: string;
   fontSans: string; fontSize: number; promptSize: number; promptFont: string; codeFont: string; codeSize: number; wordWrap: boolean; math: boolean; smoothing: boolean; panelMs: number;
-  contextStrip: boolean; contextMeter: boolean; richText: boolean; skillsInSlash: boolean; followUp: string; legacySidebar: boolean;
+  contextStrip: boolean; contextMeter: boolean; richText: boolean; skillsInSlash: boolean; followUp: string;
   confirmUnpin: boolean; confirmArchive: boolean; confirmDelete: boolean;
 };
 
@@ -82,7 +82,7 @@ export function look(client: T3Client): Look {
     fontSans: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', fontSize: rootFontSize, promptSize: clampPromptFontSize(prefs.fontSizePrompt), promptFont: fontStack(prefs.fontFamilyComposer.trim() ? prefs.fontFamilyComposer : prefs.fontFamilySans, false), codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace',
     codeSize: prefs.fontSizeCode, wordWrap: prefs.wordWrap, math: prefs.mathRenderingEnabled, smoothing: prefs.fontSmoothing, panelMs: prefs.panelAnimationDurationMs,
     contextStrip: prefs.persistComposerContextStrip, contextMeter: prefs.contextWindowMeterEnabled, richText: prefs.composerRichTextEnabled,
-    skillsInSlash: prefs.showSkillsInSlashMenu, followUp: prefs.followUpBehavior, legacySidebar: prefs.legacySidebarEnabled,
+    skillsInSlash: prefs.showSkillsInSlashMenu, followUp: prefs.followUpBehavior,
     confirmUnpin: prefs.confirmThreadUnpin, confirmArchive: prefs.confirmThreadArchive, confirmDelete: prefs.confirmThreadDelete,
   };
 }
