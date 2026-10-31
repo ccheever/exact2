@@ -762,19 +762,27 @@ test('a gate step that refuses rolls back the commit and its timers', async () =
 });
 
 test('a key handler stops and prevents its event while a view transition holds the tree update', async () => {
+  const page = globalThis.document, raf = globalThis.requestAnimationFrame, root = {};
   globalThis.requestAnimationFrame = f => setTimeout(f, 0);
-  globalThis.document = { getElementById: () => ({}) };
+  globalThis.document = { documentElement: new EventTarget(), getElementById: () => root };
   try {
     const { on, onKey, act, C, pr, pieces } = await import(resolve(dir, 'rt.js'));
     pr({}); await pieces();
     const listeners = [];
     const el = { addEventListener: (type, f) => listeners.push([type, f]) };
+    root.firstElementChild = el;
     on(el, 'key', act(() => { C('preventDefault', []); C('stopPropagation', []); }), onKey);
     const ev = { key: 'Enter', defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
     for (const [type, f] of listeners) if (type === 'keydown') f(ev);
     expect(typeof globalThis.heldTail).toBe('function'); // the tree update waits for the transition
     expect([ev.defaultPrevented, ev.$stopped]).toEqual([true, true]);
-  } finally { delete globalThis.document; delete globalThis.requestAnimationFrame; }
+    const rootEvent = Object.assign(new Event('keydown', { cancelable: true }), { key: 'Enter' });
+    document.documentElement.dispatchEvent(rootEvent);
+    expect([rootEvent.defaultPrevented, rootEvent.$stopped]).toEqual([true, true]);
+  } finally {
+    if (page === undefined) delete globalThis.document; else globalThis.document = page;
+    if (raf === undefined) delete globalThis.requestAnimationFrame; else globalThis.requestAnimationFrame = raf;
+  }
 });
 
 test('a key handler hears isComposing last in its KeyboardEvent record', async () => {
@@ -790,10 +798,12 @@ test('a key handler hears isComposing last in its KeyboardEvent record', async (
 });
 
 test('capture stop ends Exact key handlers but leaves Enter submission and the browser default available', async () => {
-  const { on, onKey, onSubmit, Hosts } = await import(resolve(dir, 'rt.js'));
-  const saved = globalThis.addEventListener, windowListeners = [];
+  const page = globalThis.document, saved = globalThis.addEventListener, windowListeners = [];
+  globalThis.document = { documentElement: new EventTarget() };
   globalThis.addEventListener = (type, f) => windowListeners.push([type, f]);
   try {
+    // Root listeners install once per runtime; this document must not reuse the previous test's listeners.
+    const { on, onKey, onSubmit, Hosts } = await import(`${resolve(dir, 'rt.js')}?capture-key-events`);
     const listeners = [];
     const el = { localName: 'input', addEventListener: (type, f, capture) => listeners.push([type, f, capture]),
       removeEventListener: (type, f) => { const at = listeners.findIndex(x => x[0] === type && x[1] === f); if (at >= 0) listeners.splice(at, 1); } };
@@ -816,7 +826,10 @@ test('capture stop ends Exact key handlers but leaves Enter submission and the b
     send(prevented);
     await new Promise(resolve => setTimeout(resolve, 0));
     expect([prevented.$stopped, prevented.browserStopped, prevented.defaultPrevented, heard]).toEqual([undefined, false, true, ['capture', 'submit', 'capture', 'key']]);
-  } finally { globalThis.addEventListener = saved; }
+  } finally {
+    if (page === undefined) delete globalThis.document; else globalThis.document = page;
+    if (saved === undefined) delete globalThis.addEventListener; else globalThis.addEventListener = saved;
+  }
 });
 
 // LLP 1088 D2: the roster's string entries are JavaScript's, made well formed, and `replaceAll` is bounded by the
@@ -1428,35 +1441,39 @@ test('a submit runs before the field\'s next key or edit applies; the edit lands
 
 
 test('clipboard handlers preserve the default unless prevented and restore the enclosing event', async () => {
-  const { on, onClipboard, Hosts } = await import(resolve(dir, 'rt.js'));
-  const event = () => ({ defaultPrevented: false, stopped: false,
-    clipboardData: { getData: () => 'clipboard text' },
-    preventDefault() { this.defaultPrevented = true; },
-    stopPropagation() { this.stopped = true; } });
-  for (const kind of ['copy', 'cut', 'paste']) {
-    for (const prevent of [false, true]) {
-      let listener;
-      const el = { addEventListener: (_, f) => { listener = f; } };
-      on(el, kind, value => {
-        expect(value).toEqual(['clipboard text', []]);
-        if (prevent) Hosts.preventDefault();
-      }, onClipboard);
-      const ev = event();
-      listener(ev);
-      expect([ev.stopped, ev.defaultPrevented]).toEqual([true, prevent]);
-      Hosts.preventDefault();
-      expect(ev.defaultPrevented).toBe(prevent);
+  const page = globalThis.document;
+  globalThis.document = { documentElement: new EventTarget() };
+  try {
+    const { on, onClipboard, Hosts } = await import(`${resolve(dir, 'rt.js')}?clipboard-events`);
+    const event = () => ({ defaultPrevented: false, stopped: false,
+      clipboardData: { getData: () => 'clipboard text' },
+      preventDefault() { this.defaultPrevented = true; },
+      stopPropagation() { this.stopped = true; } });
+    for (const kind of ['copy', 'cut', 'paste']) {
+      for (const prevent of [false, true]) {
+        let listener;
+        const el = { addEventListener: (_, f) => { listener = f; } };
+        on(el, kind, value => {
+          expect(value).toEqual(['clipboard text', []]);
+          if (prevent) Hosts.preventDefault();
+        }, onClipboard);
+        const ev = event();
+        listener(ev);
+        expect([ev.stopped, ev.defaultPrevented]).toEqual([true, prevent]);
+        Hosts.preventDefault();
+        expect(ev.defaultPrevented).toBe(prevent);
+      }
     }
-  }
-  let outerListener, innerListener;
-  on({ addEventListener: (_, f) => { innerListener = f; } }, 'copy', () => { throw new Error('clipboard failure'); }, onClipboard);
-  on({ addEventListener: (_, f) => { outerListener = f; } }, 'paste', () => {
-    expect(() => innerListener(event())).toThrow('clipboard failure');
-    Hosts.preventDefault();
-  }, onClipboard);
-  const outer = event();
-  outerListener(outer);
-  expect(outer.defaultPrevented).toBe(true);
+    let outerListener, innerListener;
+    on({ addEventListener: (_, f) => { innerListener = f; } }, 'copy', () => { throw new Error('clipboard failure'); }, onClipboard);
+    on({ addEventListener: (_, f) => { outerListener = f; } }, 'paste', () => {
+      expect(() => innerListener(event())).toThrow('clipboard failure');
+      Hosts.preventDefault();
+    }, onClipboard);
+    const outer = event();
+    outerListener(outer);
+    expect(outer.defaultPrevented).toBe(true);
+  } finally { if (page === undefined) delete globalThis.document; else globalThis.document = page; }
 });
 
 test('focus handlers stop bubbling while a view transition holds their commit', async () => {
