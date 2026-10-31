@@ -382,6 +382,26 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
         controller.obscuresBackgroundDuringPresentation = false
         controller.hidesNavigationBarDuringPresentation = true
     }
+    #if os(iOS)
+    /// A swipe down the field puts the keys away and keeps the query, as a
+    /// swipe down a composer does; UIKit's own search field has none. UIKit
+    /// drops a recognizer added before the field is in its bar, so editing
+    /// adds it (`searchBarTextDidBeginEditing`).
+    lazy var swipeDown: UISwipeGestureRecognizer = {
+        let swipe = UISwipeGestureRecognizer(target: self, action: #selector(swipedDown))
+        swipe.direction = .down
+        swipe.delegate = beside
+        return swipe
+    }()
+    @objc func swipedDown() { controller.searchBar.searchTextField.resignFirstResponder() }
+    /// The swipe's own delegate, as the search forwards what it does not
+    /// answer to the field's first delegate: it recognizes beside every
+    /// other gesture, the field's caret and loupe among them.
+    private final class Beside: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+    }
+    private let beside = Beside()
+    #endif
     /// The navigation item the controller is on.
     weak var item: UINavigationItem?
     /// The field scrolls away with the content only while it is empty
@@ -447,6 +467,9 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
         textDelegate?.responds(to: selector) == true ? textDelegate : nil
     }
     func searchBarTextDidBeginEditing(_ bar: UISearchBar) {
+        #if os(iOS)
+        if swipeDown.view !== bar.searchTextField { bar.searchTextField.addGestureRecognizer(swipeDown) }
+        #endif
         guard let field else { return }
         host?.presenter.fieldSelections.focused(field)
         host?.presenter.focus(field.id)

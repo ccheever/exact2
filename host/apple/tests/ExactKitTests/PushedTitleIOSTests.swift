@@ -558,6 +558,27 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertNil(Presenter.bar(riding: keys, around: field(in: CGRect(x: 20, y: 60, width: 360, height: 50)), in: window, stops: stops), "a search bar at the top")
     }
 
+    /// A swipe down a bar's search field puts the keys away and keeps the query and the open search, as a swipe down
+    /// a composer does; UIKit's own search field has no such swipe.
+    func testASwipeDownABarSearchPutsTheKeysAwayAndKeepsTheQuery() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "native search editing needs the hosted app responder lifecycle")
+        }
+        let (_, _, nav) = try fixture()
+        try tap("home-open-seek", in: nav, depth: 2)
+        let search = try XCTUnwrap(nav.topViewController?.navigationItem.searchController)
+        let field = search.searchBar.searchTextField
+        until("the bar's search field takes the autofocus") { field.isFirstResponder }
+        field.insertText("fern")
+        let header = try XCTUnwrap((nav.topViewController as? RouteController)?.search)
+        let swipe = field.gestureRecognizers?.compactMap { $0 as? UISwipeGestureRecognizer }.first { $0.direction == .down }
+        XCTAssertTrue(swipe === header.swipeDown, "the field takes the search's swipe down")
+        header.swipedDown()
+        until("the keys go away") { !field.isFirstResponder }
+        XCTAssertEqual(search.searchBar.text, "fern", "the query stays")
+        XCTAssertTrue(search.isActive, "the search stays open")
+    }
+
     private func assertBarSearchKeys(policy: String) throws {
         let (session, _, nav) = try fixture()
         let p = session.presenter
