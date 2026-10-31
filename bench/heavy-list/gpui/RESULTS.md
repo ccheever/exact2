@@ -5088,8 +5088,10 @@ GPU hook: off (gpuHookEnabled=false). Instrument check only; not a scoreboard ta
 All **six quiet observations fail** the proposed bounds: **4.23–5.90 busy
 cores** and **1.08–2.81 cores** in the largest non-benchmark process. Power
 metadata records **AC Power**, battery 100%, and `powermode 0`. No process was
-stopped and no performance table uses this sample. The identical probe, driver
-and monitor source hashes are retained in `single-provenance.json`.
+stopped and no performance table uses this sample. The probe, driver and monitor source hashes used for this sample are retained
+in `single-provenance.json`. The sample predates the integration of Stage 0 at
+`942b409559`; that integration preserves the instruction/cycle fields alongside
+Stage 0's counters and trace diagnostics. No second silver sample was run.
 Raw sample, process logs, schedule, five-second observations and power mode/source
 remain on the silver Mac at
 `target/g0/hook-review-20261030/single/`, and here at
@@ -5100,3 +5102,56 @@ Reproduce the sample's columns without a launch:
 ```sh
 bun bench/heavy-list/gpui/aggregate.mjs target/g4m-hook-review/single/sample/ink-1.json --sample
 ```
+
+**Integrated verification.** Rebased onto Stage 0 at `origin/main`
+`942b409559`. Its record precedes this one; its probe counters, trace diagnostics
+and endpoint samples remain alongside the hook switch and instruction/cycle
+fields. The integrated probe and driver compile with `-Wall -Wextra -Werror`.
+Off, on, unset, invalid and empty checks pass again; the driver rejects invalid
+and empty settings before launch. Output is retained in
+`target/g4m-hook-review/probe-integrated/verification.json`.
+Both the complete hook report and the original G4m tables reproduce after
+integration (`report-integrated-verify.log`, `original-g4m-integrated.verify.txt`).
+
+| Check on the integrated source | Exit | Qualification |
+|---|---:|---|
+| `bun install --frozen-lockfile` | 0 | Pinned Bun 1.4.2 |
+| `cargo build --all-targets --keep-going` | 0 | Worktree's own `target/` |
+| `cargo test --tests --no-fail-fast` | 101 | One underlying assertion and its suite wrapper fail; quiet condition unmet |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | Includes a formatting-only correction to the inherited Linux focus test |
+| `bun scripts/caps.mjs` | 0 | Staged; all ten categories within cap |
+| `bun scripts/boot.mjs` | 0 | |
+| `cargo check --workspace --all-targets --keep-going` | 0 | Pinned Bun on PATH |
+
+The two completed pre-integration test runs exit zero. Other lanes compiled
+during each, so neither qualifies as quiet. A third start was interrupted to
+integrate Stage 0; the final integrated run is the third completed attempt,
+with `RUST_TEST_THREADS=2`. Its preflight passes, but other lanes compile during
+the run. No further retry is made. Across its 113 result summaries, including
+the nested executor suite, it reports **7,382 passed, two failures and 83
+ignored**. The two failures are the same underlying quit assertion and the
+wrapper that checks its child suite. The assertion passes on the ordinary
+core and fails on the asynchronous core. Those test sources are unchanged by
+this branch and the Stage 0 integration; background compilation was observed,
+but its causal role in the failure is not established. Verbatim excerpts:
+
+```text
+thread 'executor::core::process::real::tests::a_quit_ends_every_group' (356547277) panicked at host/apple/src/executor_process_real_tests.rs:306:5:
+the quit waited out the grace
+test result: FAILED. 168 passed; 1 failed; 15 ignored; 0 measured; 398 filtered out; finished in 5.36s
+thread 'executor::core::async_tests::the_suite_passes_on_the_asynchronous_core' (356545811) panicked at host/apple/src/executor_async_tests.rs:415:5:
+the executor's suite failed on the asynchronous core
+test result: FAILED. 563 passed; 1 failed; 18 ignored; 0 measured; 0 filtered out; finished in 15.94s
+error: 1 target failed:
+    `-p exact-apple --lib`
+```
+
+Complete command output, exits, five-second quiet observations and all suite
+result lines verbatim remain in `target/g4m-hook-review/checks-integrated/`
+(`final-results.json`, `test-3.log`, `test-3-quiet.jsonl`, `suite-results.txt`).
+Earlier attempts, the interrupted start and the initial formatting failure
+remain in `target/g4m-hook-review/checks/`. The final source is not qualified
+by a passing quiet test run. The quiet silver CPU baseline, power-off static
+GPU series and interleaved two-Mac comparison also remain unrun, as required
+by this chunk's one-sample limit.
