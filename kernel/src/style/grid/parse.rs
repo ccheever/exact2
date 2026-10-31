@@ -1,6 +1,7 @@
 //! Extend Taffy's track grammar with the kernel's length calculations.
 
 use super::*;
+use cssparser::Token;
 use taffy::{CssParseResult, FromCss};
 
 // Carry the wire's calculation limits through Taffy's generic parser.
@@ -88,18 +89,26 @@ impl<const CANONICAL: bool> FromCss for Parsed<GridTrack, CANONICAL> {
     }
 }
 
+const MATH: [&str; 4] = ["calc", "min", "max", "clamp"];
+
 fn calculation<'i, const CANONICAL: bool>(
     p: &mut Parser<'i, '_>,
 ) -> CssParseResult<'i, Comparison> {
     let start = p.position();
-    let name = p.expect_function()?.to_ascii_lowercase();
-    if !matches!(name.as_str(), "calc" | "min" | "max" | "clamp") {
-        return Err(p.new_custom_error("expected a length calculation"));
-    }
-    p.parse_nested_block(|p| {
-        while p.next_including_whitespace_and_comments().is_ok() {}
-        Ok(())
-    })?;
-    super::super::calc::grid(p.slice_from(start), CANONICAL)
-        .ok_or_else(|| p.new_custom_error("expected a px or % calculation"))
+    let text = match p.next()?.clone() {
+        // A `rem` length resolves with the root font size, as a calculation does
+        Token::Dimension { unit, .. } if unit.eq_ignore_ascii_case("rem") => {
+            format!("calc({})", p.slice_from(start).trim())
+        }
+        Token::Function(name) if MATH.iter().any(|m| name.eq_ignore_ascii_case(m)) => {
+            p.parse_nested_block(|p| {
+                while p.next_including_whitespace_and_comments().is_ok() {}
+                Ok(())
+            })?;
+            p.slice_from(start).to_string()
+        }
+        _ => return Err(p.new_custom_error("expected a length calculation")),
+    };
+    super::super::calc::grid(&text, CANONICAL)
+        .ok_or_else(|| p.new_custom_error("expected a px, rem or % calculation"))
 }

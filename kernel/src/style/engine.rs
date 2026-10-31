@@ -2,11 +2,11 @@
 use super::StyleProps;
 use crate::generated::{GridAutoFlow, Overflow};
 
-pub(super) fn rare(style: &StyleProps) -> taffy::style::Rare {
+pub(super) fn rare(style: &StyleProps, env: &crate::Env) -> taffy::style::Rare {
     taffy::style::RareStyle {
-        grid_template_columns: style.rare.grid_template_columns.taffy_components(),
+        grid_template_columns: style.rare.grid_template_columns.taffy_components(env),
         grid_template_column_names: style.rare.grid_template_columns.line_names(),
-        grid_template_rows: style.rare.grid_template_rows.taffy_components(),
+        grid_template_rows: style.rare.grid_template_rows.taffy_components(env),
         grid_template_row_names: style.rare.grid_template_rows.line_names(),
         grid_column: style.rare.grid_column.taffy(),
         grid_row: style.rare.grid_row.taffy(),

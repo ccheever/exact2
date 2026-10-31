@@ -167,7 +167,7 @@ fn the_content_model_and_the_cell_attributes_are_held() {
         (
             "    dl\n      text \"a\"\n",
             "lower-dl-content",
-            "a `dl` holds `dt` and `dd`, not `text`",
+            "a `dl` holds groups of `dt` then `dd`, or a `view`, `column` or `row` around each group, not `text`",
         ),
         (
             "    dl\n      dd\n        text \"a\"\n",
@@ -188,6 +188,26 @@ fn the_content_model_and_the_cell_attributes_are_held() {
             "    dl\n      for x in xs key=x\n        dt\n          text \"t\"\n        dd\n          text \"d\"\n      dt\n        text \"last\"\n",
             "lower-dl-content",
             "a `dt` is followed by its `dd`",
+        ),
+        (
+            "    dl\n      column\n        dt\n          text \"t\"\n        dd\n          text \"d\"\n      dt\n        text \"bare\"\n",
+            "lower-dl-content",
+            "a `dl` whose groups are each in a `view`, `column` or `row` holds no bare `dt`",
+        ),
+        (
+            "    dl\n      row\n        dt\n          text \"t\"\n        text \"d\"\n",
+            "lower-dl-content",
+            "a `row` in a `dl` holds one group, `dt` then `dd`, not `text`",
+        ),
+        (
+            "    dl\n      column\n        dd\n          text \"d\"\n",
+            "lower-dl-content",
+            "a `dl`'s first group starts with its `dt`",
+        ),
+        (
+            "    column\n      column\n        dt\n          text \"a\"\n",
+            "lower-dl-content",
+            "`dt` belongs in a `dl`",
         ),
         (
             "    table\n      tr\n        td colspan=0\n          text \"a\"\n",
@@ -232,6 +252,16 @@ fn the_content_model_and_the_cell_attributes_are_held() {
 fn rows_may_repeat_and_a_cell_may_come_and_go() {
     contract::compile(
         "component App\n  state xs = [1, 2]\n  state on = true\n  view\n    column\n      table\n        for x in xs key=x\n          tr\n            td\n              text \"a\"\n            if on\n              td\n                text \"b\"\n      dl\n        for x in xs key=x\n          dt\n            text \"t\"\n          dd\n            text \"d\"\n      dl\n        dt\n          text \"one\"\n        dt\n          text \"two\"\n        dd\n          text \"both\"\n",
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// A `dl` may hold each group in a `div` (HTML §4.4.9): a `view`, `column`
+/// or `row`, written or from a `for`.
+#[test]
+fn a_dl_may_wrap_each_group_in_a_div() {
+    contract::compile(
+        "component App\n  state xs = [1, 2]\n  view\n    column\n      dl\n        row gap=8\n          dt\n            text \"Type\"\n          dd\n            text \"Electric\"\n        for x in xs key=x\n          column\n            dt\n              text \"t\"\n            dt\n              text \"u\"\n            dd\n              text \"d\"\n",
     )
     .unwrap_or_else(|e| panic!("{e}"));
 }

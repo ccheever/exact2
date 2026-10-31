@@ -331,6 +331,10 @@ pub struct Env {
     /// is hidden (a window in full screen, or one whose toolbar fills the
     /// title bar).
     pub titlebar_area: Option<Rect>,
+    /// The root font size a `rem` in a calculation multiplies: the kernel's
+    /// own ([`crate::Kernel::set_root_font_size`]), which the next commit
+    /// writes here; [`crate::Kernel::set_env`] keeps it.
+    pub root_font_size: f32,
 }
 
 impl Default for Env {
@@ -360,6 +364,7 @@ impl Env {
             screen: None,
             regions: None,
             titlebar_area: None,
+            root_font_size: crate::style::relative::MEDIUM,
         }
     }
 
@@ -786,6 +791,26 @@ pub fn uses_env(style: &crate::StyleProps) -> bool {
             )
         )
     })
+}
+
+/// The rows of `style` whose engine value a root font size can change: a
+/// calculation or a grid template that holds a `rem`.
+pub(crate) fn root_font_readers(style: &crate::StyleProps) -> crate::StyleMask {
+    let mut rows = crate::StyleMask::EMPTY;
+    for id in style.mask.iter() {
+        let reads = match style.get(id) {
+            crate::RowValue::Dimension(Dimension::Compare(c)) => c.reads_rem(),
+            _ => match id {
+                crate::StyleId::GridTemplateColumns => style.rare.grid_template_columns.reads_rem(),
+                crate::StyleId::GridTemplateRows => style.rare.grid_template_rows.reads_rem(),
+                _ => false,
+            },
+        };
+        if reads {
+            rows.set(id);
+        }
+    }
+    rows
 }
 
 impl Env {

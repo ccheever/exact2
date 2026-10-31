@@ -176,7 +176,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadTransformOrigin { .. } => "`transform-origin` is one or two of left, center, right, top, bottom, a length or a percentage".into(),
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
-        StyleValueError::BadGridTracks { .. } => "expected at most 10,000 CSS grid tracks the kernel can lay out: px, %, fr, auto, min-content, max-content, calc()/min()/max()/clamp() over px and %, fit-content(px or %), minmax(), repeat() (including auto-fill/auto-fit), and named lines; a design token (`var(--name)`, or its name) and env() are not tracks".into(),
+        StyleValueError::BadGridTracks { .. } => "expected at most 10,000 CSS grid tracks the kernel can lay out: px, rem, %, fr, auto, min-content, max-content, calc()/min()/max()/clamp() over px, rem and %, fit-content(px or %), minmax(), repeat() (including auto-fill/auto-fit), and named lines; a design token (`var(--name)`, or its name) and env() are not tracks".into(),
         StyleValueError::BadGridPlacement { .. } => "expected `auto`, a nonzero or named line through 10,000, or `span N` through 10,000, optionally followed by `/` and a second line".into(),
         StyleValueError::BadTextStroke { reason, .. } => (*reason).into(),
         StyleValueError::BadSymbolPalette { .. } => "expected none, or one to three colours".into(),

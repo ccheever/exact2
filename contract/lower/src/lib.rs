@@ -277,6 +277,8 @@ pub(crate) struct Lowerer<'a> {
     /// How many `svg` elements enclose the node being lowered: `text`
     /// inside one is SVG text, outside a box (LLP 1055.000 D11).
     pub(crate) svg_depth: u32,
+    /// The node's parent is a `div` (`view`, `column`, `row`) in a `dl`: one of its groups.
+    pub(crate) in_dl_group: bool,
     /// The element whose attributes are lowered has element children, which
     /// inherit its text rows (stage 6 C: no type token that varies there).
     pub(crate) element_children: bool,
@@ -429,6 +431,7 @@ fn lower_with_sites(
             .collect(),
         fn_depth: 0,
         svg_depth: 0,
+        in_dl_group: false,
         element_children: false,
         row_depth: 0,
         parent_positioned: true,
@@ -1028,6 +1031,8 @@ impl<'a> Lowerer<'a> {
                 };
                 let row_depth = std::mem::replace(&mut self.row_depth, below);
                 let site_parent = self.site_parent.replace(step.id.0);
+                let group = parent_tag == Some("dl") && tables::is_div(step.tag);
+                let in_dl_group = std::mem::replace(&mut self.in_dl_group, group);
                 let lowered = self.nodes(
                     step.children.as_ref(),
                     Some(step.id),
@@ -1037,6 +1042,7 @@ impl<'a> Lowerer<'a> {
                     Some(step.tag),
                 );
                 self.site_parent = site_parent;
+                self.in_dl_group = in_dl_group;
                 self.parent_horizontal_flex = parent_axis;
                 self.nav_place = nav_place;
                 self.row_depth = row_depth;

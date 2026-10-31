@@ -5,9 +5,13 @@
 //! parent's resolved one, as CSS computes it. A hairline row (LLP 1115.000
 //! D10.3) is resolved with them, against the display's scale as the host
 //! last set it. Hosts that snap borders resolve their used widths against
-//! that scale before layout too, without changing the authored rows.
+//! that scale before layout too, without changing the authored rows. A
+//! `rem` inside a calculation or a grid track is no row of its own: it
+//! resolves at layout against the environment's root font size, which a
+//! change here writes, restyling the nodes that hold one.
 use super::*;
 use crate::generated::StyleProps;
+use crate::style::env::root_font_readers;
 use crate::style::relative::MEDIUM;
 use crate::StyleId;
 
@@ -46,6 +50,28 @@ pub(crate) fn resolve(
                     inherited_changed(arena, layout, slot, rows, receipt);
                     touched.push(arena.key(slot));
                 }
+            }
+            // A `rem` in a calculation or a grid track resolves under the
+            // environment, by the handle it was given: a replayed layout
+            // would keep what the handle resolved to before
+            let mut env = arena.env().clone();
+            env.root_font_size = px;
+            arena.set_env(env);
+            let readers: Vec<(u32, StyleMask)> = (arena.iter_live())
+                .map(|slot| (slot, root_font_readers(arena.style(slot))))
+                .filter(|(_, rows)| !rows.is_empty())
+                .collect();
+            if !readers.is_empty() {
+                if let Some(tree) = layout.tree() {
+                    tree.forget_memo();
+                }
+            }
+            for (slot, rows) in readers {
+                style_changed(arena, layout, slot, rows, receipt);
+                if let Some(node) = arena.taffy(slot) {
+                    layout.mark_dirty(node);
+                }
+                touched.push(arena.key(slot));
             }
         }
     }
