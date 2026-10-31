@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { mobileDraftRecoveryHydrated } from './mobile-draft-recovery';
 import { mobileNewTaskEditorAction as action, mobileNewTaskEditorRefresh as refresh, mobileNewTaskEditorView as view } from './new-task-editor';
 import { mobileNewTaskDraftChoicesUpdate, mobileNewTaskDraftLookup, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
@@ -11,6 +12,16 @@ import { contextLink } from './shared/composer-editor-menu';
 import type { PickerIntakeFile } from './composer-picker-intake-io';
 import { CountingClient, receiptId, deferred, mounted, event, receipt, fixture, operationId, frozenSource, picker, config,
   pickedId, oldId, pickedFile, pickedImage, intakeReply, heldReply, continuation, intakeCalls, savedRecord } from './new-task-editor-test-support';
+
+test.skipIf(!process.env.T3_NATIVE_PREFERENCE_DOCUMENT)('first native preference document admits a writable new-task editor without restarting', async () => {
+  const document = readFileSync(process.env.T3_NATIVE_PREFERENCE_DOCUMENT!, 'utf8');
+  const f = await fixture(undefined, document);
+  expect(mobileDraftRecoveryHydrated(f.client)).toBe(true);
+  const text = 'Café 日本語';
+  const next = view(f.client, f.route, event(f.identity, text, 2, 'text'));
+  expect(next.kind).toBe('editing'); expect(next.editable).toBe(true);
+  expect(f.client.local.drafts[f.key]).toBe(text);
+});
 
 test('Root watches before exactly one real refresh, then saves detached source across transport generations', async () => {
   const f = await fixture(), before = f.client.refreshes;
