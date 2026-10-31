@@ -548,7 +548,7 @@ export async function browserMiniLocal(client: T3Client, native: Native, op: str
   else if (op === 'restore') { miniStoreOf(client).close(key); reopen(tabId); }
   else if (op === 'window' && runtimeId && value === 'server' && ref) {
     if (serverPictureInPictureKeyOf(client) === serverPictureInPictureKey(ref.threadId, tabId)) closeServerPictureInPicture(client);
-    else openServerPictureInPicture(client, { threadId: ref.threadId, tabId, runtimeId });
+    else openServerPictureInPicture(client, { environmentId: ref.environmentId, threadId: ref.threadId, tabId, runtimeId });
   } else if (op === 'window' && runtimeId) await toggleSeparateWindow(client, host, { runtimeId });
   return '';
 }

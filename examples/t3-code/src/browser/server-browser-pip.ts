@@ -6,7 +6,7 @@
 import type { T3Client } from '../client/client';
 import { serverStreamFrame, serverStreamUrl } from './server-browser-runtime';
 
-type ServerPip = { key: string; runtimeId: string; threadId: string; tabId: string; seed: string; request: number };
+type ServerPip = { key: string; runtimeId: string; environmentId: string; threadId: string; tabId: string; seed: string; request: number };
 const pips = new WeakMap<T3Client, ServerPip>();
 let requests = 0;
 
@@ -23,20 +23,21 @@ export const serverPipOf = (client: T3Client): Readonly<ServerPip> | null => pip
 export function closeServerPictureInPicture(client: T3Client): void { pips.delete(client); }
 
 /** openServerPictureInPicture, seeded with the picture the floating player shows now. */
-export function openServerPictureInPicture(client: T3Client, input: { threadId: string; tabId: string; runtimeId: string }): void {
+export function openServerPictureInPicture(client: T3Client, input: { environmentId: string; threadId: string; tabId: string; runtimeId: string }): void {
   closeServerPictureInPicture(client);
   pips.set(client, { key: serverPictureInPictureKey(input.threadId, input.tabId), runtimeId: serverPipRuntimeId(input.runtimeId),
-    threadId: input.threadId, tabId: input.tabId, seed: serverStreamFrame(client, input.runtimeId).image, request: ++requests });
+    environmentId: input.environmentId, threadId: input.threadId, tabId: input.tabId, seed: serverStreamFrame(client, input.runtimeId).image, request: ++requests });
 }
 
 /** The reference's `onLeave` causes beside the window's close: a refused stream after its retries, a session the server
- *  ended, and a PDF, which renders in the client and never reaches the server's stream. */
-export function settleServerPictureInPicture(client: T3Client, tab: { threadId: string; tabId: string; pdf: boolean } | null): void {
+ *  ended, and a PDF, which renders in the client and never reaches the server's stream. `tab` is the floating tab's own
+ *  state, read in its thread whichever thread the window shows (the reference watches that thread's preview atom). */
+export function settleServerPictureInPicture(client: T3Client, tab: { pdf: boolean } | null): void {
   const pip = pips.get(client);
   if (!pip) return;
   const frame = serverStreamFrame(client, pip.runtimeId);
   if (frame.refused || frame.gone || frame.setupNeed) closeServerPictureInPicture(client);
-  else if (tab?.pdf && tab.threadId === pip.threadId && tab.tabId === pip.tabId) closeServerPictureInPicture(client);
+  else if (tab?.pdf) closeServerPictureInPicture(client);
 }
 
 /** The hidden image the window floats (browser-shapes.contract `BrowserPip`): the seed until its stream's first picture. */

@@ -467,11 +467,11 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
     const floatingId = floatingTabOf(client), floating = ref && floatingId && floatingId !== shown?.snapshot?.tabId ? effectiveNav(client, ref, floatingId) : null;
     const slots = (read ? [shown, floating] : []).filter((slot): slot is NonNullable<typeof shown> => !!slot && slot.snapshot?.runtime === 'server');
     // The picture-in-picture window's stream lives while it floats, whichever thread shows (server-browser-pip.ts).
-    const pipTab = serverPipOf(client), pipNav = pipTab && ref?.threadId === pipTab.threadId ? effectiveNav(client, ref, pipTab.tabId).nav : null;
-    settleServerPictureInPicture(client, pipTab && { threadId: pipTab.threadId, tabId: pipTab.tabId, pdf: pipNav?._tag === 'Success' && previewPdfAssetUrl(pipNav.url, pipNav.url) !== null });
+    const pipTab = serverPipOf(client), pipNav = pipTab ? effectiveNav(client, { environmentId: pipTab.environmentId, threadId: pipTab.threadId }, pipTab.tabId).nav : null;
+    settleServerPictureInPicture(client, pipNav && { pdf: pipNav._tag === 'Success' && previewPdfAssetUrl(pipNav.url, pipNav.url) !== null });
     const pip = read ? serverPipOf(client) : null;
     await retainServerStreams(client, [...slots.map(slot => slot.runtimeId), ...(pip ? [pip.runtimeId] : [])]);
-    if (pip) await prepareServerStream(client, native, pip.runtimeId, pip.threadId, pip.tabId);
+    if (pip) await prepareServerStream(client, native, pip.runtimeId, pip.threadId, pip.tabId, true);
     for (const slot of slots) {
       await drainServerNotices(client, native, slot.runtimeId, tabId => {
         if (!ref) return; host.listed.delete(scopedThreadKey(ref));
