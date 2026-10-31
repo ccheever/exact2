@@ -24,7 +24,8 @@ import { followUpBehavior } from './shared/composer-controls';
 import { queueState } from './shared/composer-controls-queue';
 import { requestPresentation } from './shared/requests';
 import { emptyPendingInput, type PendingInputView } from './pending-input';
-import { mobileMarkdownBlocks, type MarkdownBlock } from './markdown-blocks';
+import type { MarkdownBlock } from './markdown-blocks';
+import { mobileThreadMarkdownCache } from './thread-markdown-cache';
 import { mobileForkLifecycleActivity, mobileThreadActivity } from './thread-work';
 import type { ThreadActivity } from './thread-work';
 import { mobileThreadOutbox, threadOutboxStatus, threadOutboxPreview, prepareThreadOutboxPreviews } from './thread-outbox';
@@ -62,6 +63,13 @@ function userIntentBadge(intent: unknown): { label: string; description: string;
 
 /** Adapts shared derived row types, preserving their ids and disclosure ownership. */
 export function mobileThreadRows(client: T3Client, now: number, dark = false, routeKey = '', html?: ThreadHtmlPresentation): ThreadRow[] {
+  const markdown = mobileThreadMarkdownCache(client, dark, routeKey);
+  const rows = threadRows(client, now, dark, routeKey, html, markdown);
+  markdown.commit(); return rows;
+}
+
+function threadRows(client: T3Client, now: number, dark = false, routeKey = '', html?: ThreadHtmlPresentation,
+  markdown?: ReturnType<typeof mobileThreadMarkdownCache>): ThreadRow[] {
   mobileThreadForkObserveProjection(client);
   const source = transcriptRows(client, true), projected = new Map(arr(client.projection.visibleTurnItems).map(row => [JSON.stringify([row.sourceThreadId, row.sourceItemId]), row]));
   const raw = new Map([...projected].map(([key, row]) => [key, obj(row.item)]));
@@ -84,7 +92,7 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false, ro
       : ['group', 'live', 'thinking'].includes(message.kind) && message.groupId ? 'chatlocal:group' : '';
     const showMeta = user || ['assistant', 'plan'].includes(message.kind) && message.meta !== false && message.completed === true && message.streaming !== true;
     const title = fork ? '' : message.kind === 'working' && message.startedMs ? `${message.title} ${elapsed(now - message.startedMs)}` : message.title;
-    rows.push({ id: message.id, kind: message.kind, title, body, blocks: mobileMarkdownBlocks(body, dark), user,
+    rows.push({ id: message.id, kind: message.kind, title, body, blocks: markdown?.blocks(`message:${message.id}`, body) ?? [], user,
       timestamp: mobileMessageTime(user ? item?.startedAt ?? message.createdAt : item?.updatedAt ?? message.createdAt), showMeta,
       streaming: message.streaming === true, attribution: automation ? 'Sent by automation' : agent ? 'Sent by another agent' : '', senderThreadId: agent ? message.targetId ?? '' : '',
       intent: intent?.label ?? '', intentDescription: intent?.description ?? '', intentTone: intent?.tone ?? '', copyConfiguration: item && ['user', 'assistant', 'plan'].includes(message.kind) ? JSON.stringify({ id: message.id,
@@ -98,19 +106,20 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false, ro
       activities: fork ? [mobileForkLifecycleActivity(fork, client, now, dark, routeKey)] : (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => {
         const shown = mobileThreadActivity(activity, projected.get(activity.id), client, now, dark, mobileMessageTime(activity.timestamp), routeKey);
         // Parse only visible reasoning; tools keep literal command/result output.
-        return { ...shown, reasoningBlocks: shown.reasoning && shown.expanded ? mobileMarkdownBlocks(shown.output, dark) : [] };
+        return { ...shown, reasoningBlocks: shown.reasoning && shown.expanded ? markdown?.blocks(`reasoning:${activity.id}`, shown.output) ?? [] : [] };
       }) });
   }
   for(const pending of mobileThreadOutbox(client,now)) {
     const record=pending.record;
     rows.push({id:`outbox:${record.messageId}`,kind:'pending',title:pending.reason,body:record.text,
-      blocks:mobileMarkdownBlocks(record.text,dark),user:true,timestamp:pending.acknowledged?mobileMessageTime(record.createdAt):'Pending',
+      blocks:markdown?.blocks(`pending:${record.messageId}`,record.text)??[],user:true,timestamp:pending.acknowledged?mobileMessageTime(record.createdAt):'Pending',
       showMeta:true,streaming:false,attribution:'',senderThreadId:'',intent:threadOutboxStatus(pending.status),intentDescription:'',intentTone:'',copyConfiguration:'',expanded:false,
       toggleOp:pending.canRetry?'outbox:retry':'',toggleId:pending.owner,failed:pending.status==='recovery-required',live:false,activities:[],
       canFork:false,forkKey:'',forkBusy:false,htmlRender:emptyHtmlRender,media:record.attachments.map(file=>({id:file.id,name:file.name,kind:file.kind==='image'?'image':'file',
         url:threadOutboxPreview(client,record,file,now)})),first:false,last:false});
   }
-  rows.forEach((row, index) => { row.first = index === 0; row.last = index === rows.length - 1; }); return rows;
+  rows.forEach((row, index) => { row.first = index === 0; row.last = index === rows.length - 1; });
+  return rows;
 }
 function elapsed(ms: number): string {
   const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -190,6 +199,6 @@ function visibleAnswerFiles(rows: ThreadRow[]): string[] {
 export async function mobileThreadAnswerFilesPrepare(owner: string, request: string, now: number,
   nativeInput: Native | null | undefined, client: T3Client = mobileClient) {
   const native = nativeInput?.available ? letGoAware(mobileNative(nativeInput)) : nativeInput;
-  await mobilePrepareAnswerFiles(client, native, now, owner, request, visibleAnswerFiles(mobileThreadRows(client, now)));
+  await mobilePrepareAnswerFiles(client, native, now, owner, request, visibleAnswerFiles(threadRows(client, now)));
   return { revision: client.revision };
 }
