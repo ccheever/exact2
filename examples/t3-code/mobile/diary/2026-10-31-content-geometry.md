@@ -67,6 +67,15 @@ row or status entering the rail. Screenshots are retained in the local
 ordinary outer-panel reachability sample only. Fold angles, rotation, and
 transition animation remain open.
 
+The same session received an `open` fold request. Hinge readback returned no
+sample, so the pose is unverified, but the subsequent capture was the native
+951x669 inner panel. The clone still showed one full-width Home list there;
+the signed reference's inner panel has a persistent thread sidebar and a
+separate content pane. This confirms the remaining GAP007 presentation
+difference without attributing it to an angle or rotation result. The current
+one-stack route architecture must be extended as a separate sidebar unit before
+that layout is changed.
+
 Exact receipts and raw logs are under
 `target/t3-mini-coordinator/evidence/content-geometry/`. Home and conversation
 layout consumers, selection, rotation, and performance remain unqualified.
