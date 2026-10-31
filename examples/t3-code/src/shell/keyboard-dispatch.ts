@@ -285,7 +285,7 @@ function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
   if (context.fileSurface && context.fileOpenPath) add('editor.openFavorite', 'command', 'chatlocal:surface-files-open-editor', 'Open in Editor', context.fileOpenPath);
   else if (project && favoriteEditor(client.config) && openFavoriteEnabled(client, str(project.title)) && (!context.fileSurface || remoteOpenFor(client).state.mode === 'local-exec')) add('editor.openFavorite', 'flow', 'open-favorite', 'Open in Editor', str(thread?.worktreePath, str(project.workspaceRoot)));
 }
-/** The right panel: close, toggle, thread details, Diff, and Copy Thread ID. */
+/** The right panel: close, toggle, thread details, Diff, and Copy Link or Thread. */
 function panelRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // rightPanel.close: an open panel closes before ⌘W reaches the window, a draft's panel too.
   const closing = closeChordTarget(client, context.diffOpen, context.prNumber ?? ''); // the active surface tab first
@@ -296,7 +296,7 @@ function panelRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePro
   if (!context.page && (client.threadId || client.projectId)) add('threadPanel.toggle', 'details', '', 'Toggle Thread Details');
   if (!context.draftThreadRoute) {
     add('diff.toggle', diffShown(client) ? 'diff' : 'diff-open', '', 'Toggle Diff');
-    add('thread.copyReference', 'copy-thread', '', 'Copy Thread ID');
+    add('thread.copyReference', 'copy-thread', '', 'Copy Link or Thread');
   }
 }
 /** Stop, and the composer's context strip. */

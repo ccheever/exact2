@@ -505,7 +505,7 @@ describe('navigation and search', () => {
     expect(titles('theme')).toEqual(['Themes / Appearance']);
     expect(titles('model')).toEqual(['Default model / Threads', 'Text generation model / Threads', 'Source control writer model / Source control', 'Review guide model / Source control',
       'Project defaults and overrides / Threads', 'Providers / Providers', 'Health check interval / Providers']);
-    expect(titles('token')).toEqual(['GitHub accounts and token / Source control', 'Compact idle threads / Providers', 'Response streaming / Threads', 'Context window indicator (legacy) / Labs', 'Cursor account usage / Providers',
+    expect(titles('token')).toEqual(['GitHub accounts and token / Source control', 'Thread details / Appearance', 'Compact idle threads / Providers', 'Response streaming / Threads', 'Context window indicator (legacy) / Labs', 'Cursor account usage / Providers',
       'GitCafe credentials / Source control', 'Bitbucket credentials / Source control']);
     expect(titles('mcp')).toEqual([]);
     expect(titles('sidebar')).toEqual(['Sidebar (legacy) / Labs', 'Project grouping / General', 'Project order / General', 'Working section / General', 'Auto-settle inactive threads / Threads',
@@ -567,32 +567,33 @@ describe('appearance', () => {
     const cards = themeCards(prefs);
     expect(cards.map(card => card.label)).toEqual(['T3 Code', 'T3 Chat', 'Grove', 'Ocean', 'Ember', 'Iris']);
     expect(cards.find(card => card.id === 'iris')!.orbs.every(orb => orb.picked)).toBe(true);
-    const sections = appearanceSections(decodeClientPrefs({ glassOpacity: 60 }), true), rows = sections.flatMap(section => section.rows);
+    const sections = appearanceSections(decodeClientPrefs({ glassOpacity: 60 })), rows = sections.flatMap(section => section.rows);
     // AppearanceSettingsPanel at 6d450a4284: Interface, then Typography, each ending with its Advanced fold.
     expect(sections.map(section => [section.id, section.rows.map(row => row.title), (section.advanced ?? []).map(row => row.title)])).toEqual([
-      ['appearance-interface', ['Contrast', 'Glass opacity', 'Chat width', 'Effort display', 'Render math'], ['Panel animations', 'Environment identification', 'Composer context']],
+      ['appearance-interface', ['Contrast', 'Glass opacity', 'Chat width', 'Thread details', 'Effort display', 'Render math'], ['Panel animations', 'Composer context']],
       ['typography', ['Interface font', 'Monospace font', 'Word wrap'], ['Separate fonts', 'Font smoothing']]]);
-    expect(appearanceSections(decodeClientPrefs({}), false)[0]!.advanced!.map(row => row.id)).toEqual(['panel-animations', 'composer-context']);
+    // Environment identification is not offered: this stable app has no Dev or Nightly stage to identify.
+    expect(appearanceSections(decodeClientPrefs({}))[0]!.advanced!.map(row => row.id)).toEqual(['panel-animations', 'composer-context']);
     // Separate fonts is a switch on typographyAdvanced with no reset, as SeparateFontsRow.
     expect(sections[1]!.advanced![0]).toMatchObject({ id: 'separate-fonts', kind: 'switch', checked: false, resettable: false, target: 'typographyAdvanced',
       description: 'Set the prompt, code, and terminal fonts separately instead of one monospace font.' });
     expect(rows.find(row => row.id === 'setting-glass-opacity')!.label).toBe('60%');
     expect(rows.filter(row => row.kind === 'font').map(row => [row.info, row.amount])).toEqual([['preview-prompt', 16], ['preview-code-terminal', 13]]);
     // PromptFontPreview is the composer at the Prompt font size, whatever the Interface font size.
-    expect(appearanceSections(decodeClientPrefs({ fontSizeInterface: 12 }), true).flatMap(section => section.rows).filter(row => row.kind === 'font').map(row => [row.amount, row.previewSize])).toEqual([[12, 14], [13, 13]]);
-    const advanced = appearanceSections(decodeClientPrefs({ typographyAdvanced: true, fontSizeTerminal: 14 }), true).at(-1)!.rows;
+    expect(appearanceSections(decodeClientPrefs({ fontSizeInterface: 12 })).flatMap(section => section.rows).filter(row => row.kind === 'font').map(row => [row.amount, row.previewSize])).toEqual([[12, 14], [13, 13]]);
+    const advanced = appearanceSections(decodeClientPrefs({ typographyAdvanced: true, fontSizeTerminal: 14 })).at(-1)!.rows;
     expect(advanced.map(row => [row.title, row.info])).toEqual([['Interface font', ''], ['Prompt font', 'preview-prompt'], ['Code font', 'preview-code'], ['Terminal font', 'preview-terminal'], ['Word wrap', '']]);
     expect(advanced.find(row => row.id === 'terminal-font')!.amount).toBe(14);
     // WordWrapRow's reset reads "word wrapping" (SettingResetButton label), not the row's title.
     expect(advanced.find(row => row.id === 'word-wrap')).toMatchObject({ resetLabel: 'word wrapping', resettable: false });
-    expect(appearanceSections(decodeClientPrefs({ wordWrap: false }), true).at(-1)!.rows.find(row => row.id === 'word-wrap')).toMatchObject({ resetLabel: 'word wrapping', resettable: true });
+    expect(appearanceSections(decodeClientPrefs({ wordWrap: false })).at(-1)!.rows.find(row => row.id === 'word-wrap')).toMatchObject({ resetLabel: 'word wrapping', resettable: true });
     // A jump to a separate font row draws the separate rows with Separate fonts on (TypographySection showAdvanced).
     for (const target of ['prompt-font', 'terminal-font']) {
-      const typography = appearanceSections(decodeClientPrefs({}), true, [], target).at(-1)!;
+      const typography = appearanceSections(decodeClientPrefs({}), [], target).at(-1)!;
       expect(typography.rows.map(row => row.id)).toEqual(['interface-font', 'prompt-font', 'code-font', 'terminal-font', 'word-wrap']);
       expect(typography.advanced![0]!.checked).toBe(true);
     }
-    expect(appearanceSections(decodeClientPrefs({}), true, [], 'font-smoothing').at(-1)!.rows.map(row => row.id)).toEqual(['interface-font', 'code-font', 'word-wrap']);
+    expect(appearanceSections(decodeClientPrefs({}), [], 'font-smoothing').at(-1)!.rows.map(row => row.id)).toEqual(['interface-font', 'code-font', 'word-wrap']);
   });
 });
 
@@ -822,9 +823,9 @@ describe('code font', () => {
     expect([fontStack('', true), fontStack('', false)]).toEqual(['Menlo, Consolas, "Liberation Mono", monospace', 'system-ui']);
     expect([defaultCodeFamily([]), defaultCodeFamily([{ family: 'Consolas', monospace: true }]), defaultCodeFamily([{ family: 'SF Mono', monospace: true }, { family: 'Menlo', monospace: true }])])
       .toEqual(['Menlo', 'Consolas', 'Menlo']);
-    const rows = appearanceSections(decodeClientPrefs({ typographyAdvanced: true }), true).at(-1)!.rows.filter(row => row.id === 'code-font' || row.id === 'terminal-font');
+    const rows = appearanceSections(decodeClientPrefs({ typographyAdvanced: true })).at(-1)!.rows.filter(row => row.id === 'code-font' || row.id === 'terminal-font');
     expect(rows.map(row => [row.label, row.options[0]!.label, row.driver])).toEqual([['Menlo', 'Menlo', 'Menlo, Consolas, "Liberation Mono", monospace'], ['Menlo', 'Menlo', 'Menlo, Consolas, "Liberation Mono", monospace']]);
-    const single = appearanceSections(decodeClientPrefs({}), true).at(-1)!.rows.find(row => row.id === 'code-font')!;
+    const single = appearanceSections(decodeClientPrefs({})).at(-1)!.rows.find(row => row.id === 'code-font')!;
     expect([single.title, single.label, single.options[0]!.label]).toEqual(['Monospace font', 'Menlo', 'Menlo']);
     // Every code view reads the look's codeFont: chat Markdown, diffs, file previews and inline documents.
     expect(appText('settings-appearance-look.ts')).toContain('codeFont: fontStack(prefs.fontFamilyCode, true)');

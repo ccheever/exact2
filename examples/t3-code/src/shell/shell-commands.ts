@@ -297,17 +297,14 @@ export function settingsFailure(client: T3Client, op: string, id: string, value:
 }
 
 /**
- * Successes the reference announces (⇧⌘C copy-thread: "Thread ID copied";
- * ⌥⇧⌘A appearance.cycle, the only device-setting write of appearanceMode:
- * an untyped 1.5 s "Appearance: <mode>" that replaces the previous one).
+ * Successes the reference announces (⌥⇧⌘A appearance.cycle, the only device-setting write of appearanceMode:
+ * an untyped 1.5 s "Appearance: <mode>" that replaces the previous one; the trace ID's copy). ⇧⌘C announces its
+ * own copy (thread-reference.ts copyThreadTarget).
  */
 export function shellSuccess(client: T3Client, op: string, value: string, message: string, id = ''): void {
   if (op === 'device-setting' && id === 'appearanceMode' && !message) {
     const label = value === 'light' ? 'Light' : value === 'dark' ? 'Dark' : 'System';
     pushToast(client, { kind: 'info', title: `Appearance: ${label}`, timeoutMs: 1500, leading: 'none', key: 'appearance-cycle' });
-  }
-  if (op === 'restlocal:copy-thread' && message === 'Copied thread ID') {
-    pushToast(client, { kind: 'success', title: 'Thread ID copied', description: client.threadId });
   }
   if (op === 'copy-diagnostic' && message === 'Copied trace ID') pushToast(client, { kind: 'success', title: 'Trace ID copied', description: value });
 }

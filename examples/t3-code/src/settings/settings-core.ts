@@ -38,6 +38,7 @@ import { IDLE_COMPACTION_MODES, globalIdleCompaction, persistScopedSettingsPatch
 import { postScopedNotice, scopeEnvironments, scopeMemberFiles, scopeProjectGroups, scopedWriter, type ScopeEnvironment } from './settings-scope-sources';
 import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { changedBrowserSettingLabels, restoreBrowserTabDefaults } from '../browser/browser-defaults'; // Restore defaults' browser rows
+import { threadDetailsItemsLocal } from '../details/thread-details-items';
 import { BROWSER_CUSTOM_SEARCH_URL_MAX_LENGTH, BROWSER_SEARCH_ENGINES } from '../browser/browser-url';
 
 export type CoreOption = { id: string; value: string; label: string; detail: string; icon: string; selected: boolean; disabled: boolean };
@@ -73,7 +74,7 @@ export function coreRow(id: string, title: string, description: string, kind: st
 export const CLIENT_DEFAULTS = {
   notificationMode: 'off', inAppNotificationsEnabled: false, diffColorScheme: 'red-green', chatWidth: 'comfortable',
   appearanceContrast: 100, panelAnimationDurationMs: 0, confirmThreadArchive: false, confirmThreadDelete: true, confirmThreadUnpin: false,
-  diffFilesCollapsed: true, diffIgnoreWhitespace: true, diffLayout: 'stacked', environmentIdentificationMode: 'artwork', glassOpacity: 80,
+  diffFilesCollapsed: true, diffIgnoreWhitespace: true, diffLayout: 'stacked', glassOpacity: 80,
   fontSizeInterface: 16, fontSizePrompt: 14, fontSizeCode: 13, fontSizeTerminal: 12, fontFamilyCode: '', fontFamilyComposer: '', fontFamilySans: '',
   fontFamilyTerminal: '', fontSmoothing: true, persistComposerContextStrip: false, contextWindowMeterEnabled: false, composerRichTextEnabled: true,
   followUpBehavior: 'steer', proactivePanelsEnabled: false, showSkillsInSlashMenu: true, legacySidebarEnabled: false, sidebarWorkingShelfEnabled: true,
@@ -100,7 +101,7 @@ export type ClientPrefs = { -readonly [K in keyof typeof CLIENT_DEFAULTS]: (type
 const CHOICES: Record<string, readonly string[]> = {
   browserLinkTarget: ['system', 'app'], browserSearchEngine: BROWSER_SEARCH_ENGINES,
   notificationMode: ['off', 'notifications', 'sound', 'notifications-and-sound'], diffColorScheme: ['red-green', 'blue-orange'],
-  chatWidth: ['comfortable', 'wide', 'full'], effortDisplay: ['label', 'bars'], diffLayout: ['stacked', 'split'], environmentIdentificationMode: ['artwork', 'pill', 'none'],
+  chatWidth: ['comfortable', 'wide', 'full'], effortDisplay: ['label', 'bars'], diffLayout: ['stacked', 'split'],
   followUpBehavior: ['queue', 'steer'], confirmQuit: ['direct', 'hold', 'double-click'], sidebarProjectSortOrder: ['updated_at', 'created_at', 'manual'],
   sidebarThreadSortOrder: ['updated_at', 'created_at'],
 };
@@ -813,7 +814,7 @@ const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser',
   ['Glass opacity', 'device', ['glassOpacity']],
   ['Diff colors', 'device', ['diffColorScheme']], ['Chat width', 'device', ['chatWidth']], ['Effort display', 'device', ['effortDisplay']], ['Render math', 'device', ['mathRenderingEnabled']],
   ['Panel animations', 'device', ['panelAnimationDurationMs']],
-  ['Environment identification', 'device', ['environmentIdentificationMode']], ['Time format', 'device', ['timestampFormat']], ['Thread notifications', 'device', ['notificationMode']],
+  ['Time format', 'device', ['timestampFormat']], ['Thread notifications', 'device', ['notificationMode']],
   ['In-app notifications', 'device', ['inAppNotificationsEnabled']], ['Visible threads', 'device', ['sidebarThreadPreviewCount']], ['Project Grouping', 'device', ['projectGrouping']],
   ['Project order', 'device', ['sidebarProjectSortOrder']], ['Working section', 'device', ['sidebarWorkingShelfEnabled']],
   ['Auto-settle inactive threads', 'server', ['sidebarAutoSettleAfterDays']], ['Keep threads with a PR', 'server', ['sidebarAutoSettleKeepPullRequests']], ['Auto-settle merged threads', 'server', ['sidebarAutoSettleOnMerge']],
@@ -866,6 +867,8 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
   }
   if (target.row === 'version' || target.row === 'update') return updateCommand(client, target.row, target.part);
   if (target.row === 'update-track') return updateTrackCommand(client, native, value);
+  // Appearance › Thread details: an item's `part` is its id and `value` "true" or "false"; reset clears every choice.
+  if (target.row === 'thread-details-items') return threadDetailsItemsLocal(client, target.part === 'reset' ? 'reset' : 'item', target.part, value);
   if (target.row !== 'restore-device-defaults' && !key) {
     // Device rows: saved in this app's preferences, never sent to a server.
     if (target.part === 'reset') {

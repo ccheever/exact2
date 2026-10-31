@@ -19,7 +19,7 @@ import { EDITOR_DEFINITIONS } from '../shared/editors';
 import { lastEditor } from '../details/shell-details';
 import { linkPullRequest } from './palette-linkpr';
 import { linkFromPicker } from '../pull-requests/pages-pr-links';
-import { openScratchProject } from '../composer/scratch-project';
+import { openPrimaryScratch } from '../composer/scratch-project';
 import { startTriage } from './palette-triage';
 import { startTrackedClone } from '../shell/project-clones-live';
 import { cloneTracking } from '../client/live-streams';
@@ -27,7 +27,7 @@ import { letGo } from '../client/let-go';
 import { composerNow } from '../composer/composer-controls';
 import { claimThreadOpen, pickedQuery } from './palette-search';
 import { addTarget, chooseNewProjectEnvironment, newProjectEnvironments, targetRequest, type AddEnvironment } from './palette-environments';
-import { fleet, fleetThreadId, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { fleet, fleetThreadId, focusFleetProject, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { environmentCall } from '../pull-requests/pages-pr-environments';
 import { findWhenShown } from '../sidebar/sidebar-search';
 import { shownMessageMatch } from './palette-view';
@@ -126,7 +126,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
     if (op === 'open-file') { await openFileSurface(client, native, id, Number(value) || 0); client.revision++; return done(client); }
     if (op === 'thread-pull-requests') { await openSurface(client, native, 'pull-requests'); client.revision++; return done(client); }
     if (op === 'open-favorite') return await openInEditor(client, native, op, id, value);
-    if (op === 'scratch') return await startScratch(client, native);
+    if (op === 'scratch') return await startScratch(client, native, storage, source);
     if (op === 'triage') return done(client, await startTriage(client, native));
     if (op === 'link-pr') return (await linkPullRequest(client, access, storage, id)) ? done(client) : stay(client, false);
     if (op === 'pr-link-thread') return (await linkFromPicker(client, native, storage, id)) ? done(client) : stay(client, false); // the thread picker
@@ -303,10 +303,18 @@ async function openInEditor(client: T3Client, native: Native, op: string, id: st
   await client.restAccess(native).request('shell.openInEditor', { cwd: line ? `${path}:${line}` : path, editor });
   return done(client);
 }
-/** chat.newWithoutProject: the environment's scratch project, created on first use. */
-async function startScratch(client: T3Client, native: Native): Promise<PaletteResult> {
+/**
+ * chat.newWithoutProject: startScratchThread on scratchEnvironmentId's machine, the primary first, its scratch project
+ * created on first use; on another machine the window moves to that project's new thread (handleNewThread).
+ */
+async function startScratch(client: T3Client, native: Native, storage: Files, source: EnvironmentFleet): Promise<PaletteResult> {
   try {
-    return done(client, await openScratchProject(client, native)); // upstream 845ddd9354: the shared opener
+    const opened = await openPrimaryScratch(client, native, source);
+    if (!opened || opened.environmentId === client.environmentId) return done(client, opened?.projectId ?? '');
+    const focused = await focusFleetProject(client, native, opened.environmentId, opened.projectId, source);
+    client.adoptStatus(focused.value, focused.generation);
+    await client.refresh(native, storage);
+    return done(client);
   } catch (error) {
     if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Could not start without a project', description: message(error) });

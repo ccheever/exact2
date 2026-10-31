@@ -352,6 +352,21 @@ members T3Code
     workspaceArea = area
     if e.target != ""
       workspaceTargets = workspaceTargets.filter((entry) => entry.area != area).concat([WorkspaceTarget(area=area, target=e.target)])
+  // F6 typed in a terminal page arrives as its op's answer (app.contract terminalCompleted), which cannot itself send
+  // the terminal's mutation that a move into the terminal sends: the move runs on the next turn.
+  state terminalWorkspaceMove = 0
+  state terminalWorkspaceFrom = ""
+  state terminalWorkspaceSerial = 0
+  task terminalWorkspaceMoved when terminalWorkspaceMove != 0 key=terminalWorkspaceSerial
+    after(1, terminalWorkspaceRun)
+  action terminalWorkspaceQueue(direction: number, from: string)
+    terminalWorkspaceMove = direction
+    terminalWorkspaceFrom = from
+    terminalWorkspaceSerial = terminalWorkspaceSerial + 1
+  action terminalWorkspaceRun
+    let direction = terminalWorkspaceMove
+    terminalWorkspaceMove = 0
+    workspaceMove(direction, terminalWorkspaceFrom)
   // `from` names the area the key came from when the focus is in a page the window cannot see into (the terminal's).
   action workspaceMove(direction: number, from: string)
     let order = settingsOpen ? ["settings-nav", "settings"] : ["sidebar", "conversation", "composer", "details", "panel", "terminal"]

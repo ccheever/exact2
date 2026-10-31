@@ -8,7 +8,7 @@ import { appearanceSections } from '../../src/appearance/settings-appearance';
 import manifest from '../../app.json';
 import { appPath } from '../support/app-files';
 
-const rows = (prefs: Record<string, unknown>) => appearanceSections(decodeClientPrefs(prefs), true).flatMap(section => section.rows);
+const rows = (prefs: Record<string, unknown>) => appearanceSections(decodeClientPrefs(prefs)).flatMap(section => section.rows);
 const row = (prefs: Record<string, unknown>, id: string) => rows(prefs).find(entry => entry.id === id)!;
 
 describe('prompt sample family', () => {

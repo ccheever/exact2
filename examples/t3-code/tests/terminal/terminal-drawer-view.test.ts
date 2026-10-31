@@ -15,6 +15,7 @@ import { focusedTerminal, recordTerminalFocus } from '../../src/terminal/termina
 import { adoptTerminalPrefs, terminalUiStore } from '../../src/terminal/terminal-ui-state';
 import { contractComponent } from '../support/contract-action-fixture';
 import { terminalFrameId } from '../../src/terminal/terminal-frames';
+import { terminalPanelOps } from '../../src/terminal/terminal-panel';
 
 type Call = { method: string; payload: Obj };
 function fixture(options: { fail?: string[]; connected?: boolean } = {}) {
@@ -348,6 +349,27 @@ test('native toggle preserves composer-focus result and rejects obsolete scope',
   expect(terminalOpen(client)).toBe(false);
 });
 
+
+test('F6 and Shift-F6 in a terminal page hand the window the move out of its area (drawer: terminal, right panel: panel)', async () => {
+  const { client } = fixture(), ref = { environmentId: 'env-a', threadId: 'thread-1' };
+  // The 0.1.5 server's default bindings: the page forwards both chords, as they are bound whatever has the focus.
+  client.config.keybindings = [{ command: 'workspace.focusNext', shortcut: { key: 'f6' } }, { command: 'workspace.focusPrevious', shortcut: { key: 'f6', shiftKey: true } }];
+  expect(JSON.parse(terminalKeybindings(client))).toEqual(expect.arrayContaining([{ chord: 'F6', command: 'workspace.focusNext' }, { chord: 'Shift+F6', command: 'workspace.focusPrevious' }]));
+  terminalUiStore(client).getState().ensureTerminal(ref, 'term-1', { open: true });
+  const press = async (op: string, command: string, terminalId: string, surface: string) => {
+    const result = out();
+    await (op === 'terminallocal:message' ? terminalOps : terminalPanelOps).call(client, op, `env-a:thread-1|${terminalId}`, JSON.stringify({ type: 'command', command, ...ref, terminalId, surface }), 0, {} as Native, {} as Files, result);
+    return result.message;
+  };
+  expect(await press('terminallocal:message', 'workspace.focusNext', 'term-1', 'drawer')).toBe('terminal:workspace-focus:next:terminal');
+  expect(await press('terminallocal:message', 'workspace.focusPrevious', 'term-1', 'drawer')).toBe('terminal:workspace-focus:previous:terminal');
+  surfaceStore(client).panels.set('env-a:thread-1', { surfaces: [{ id: 'terminal:1', kind: 'terminal', path: '', line: 0, reveal: 0,
+    terminal: { terminalIds: ['term-9'], activeTerminalId: 'term-9', splitDirection: 'horizontal' } }], active: 'terminal:1', visible: true, userRevision: 1 });
+  expect(await press('terminalpanellocal:message', 'workspace.focusNext', 'term-9', 'terminal:1')).toBe('terminal:workspace-focus:next:panel');
+  // The drawer stays open, and a page of another thread moves nothing.
+  expect(terminalOpen(client)).toBe(true);
+  expect(await press('terminallocal:message', 'workspace.focusNext', 'term-1', 'drawer').then(() => press('terminallocal:message', 'workspace.focusNext', 'term-7', 'drawer'))).toBe('');
+});
 
 test('the page\'s focus reports update pane context without dispatching a terminal command', async () => {
   const { client, calls } = fixture(), ref = { environmentId: 'env-a', threadId: 'thread-1' };

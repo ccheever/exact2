@@ -5,6 +5,7 @@
 // reference OKLCH tokens to sRGB hex (scratch gen-palette.ts); T3 Code keeps the stock index.css tokens.
 import { coreRow, CLIENT_DEFAULTS, type ClientPrefs, type CoreRow, type CoreSection } from '../settings/settings-core';
 import type { InstalledFont } from './appearance-fonts';
+import { isDefaultThreadDetailsVisibility, resolveThreadDetailsVisibility, shownItemCount, THREAD_DETAILS_ITEMS, type ThreadDetailsVisibility } from '../details/thread-details-items';
 import type { CustomTheme } from './settings-themes';
 
 const ROLES = ['canvas', 'surface', 'text', 'textMuted', 'border', 'input', 'accent', 'accentForeground', 'muted', 'mutedForeground', 'sidebar',
@@ -198,7 +199,7 @@ export const SEPARATE_FONT_TARGETS: readonly string[] = ['prompt-font', 'termina
  * to a separate font row (`target`) draws the separate rows at once, as TypographySection's `showAdvanced` does; the
  * pick turns the setting on (app-settings.contract corePick).
  */
-export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, installed: InstalledFont[] = [], target = ''): CoreSection[] {
+export function appearanceSections(prefs: ClientPrefs, installed: InstalledFont[] = [], target = '', details: ThreadDetailsVisibility = resolveThreadDetailsVisibility({})): CoreSection[] {
   const row = (key: keyof ClientPrefs, id: string, title: string, description: string, kind: string, extra: Partial<CoreRow> = {}) =>
     coreRow(id, title, description, kind, { checked: prefs[key] === true, value: String(prefs[key]), resettable: prefs[key] !== CLIENT_DEFAULTS[key], target: key, ...extra });
   const slider = (key: 'appearanceContrast' | 'glassOpacity' | 'panelAnimationDurationMs', min: number, max: number, step: number, suffix: string) =>
@@ -211,6 +212,7 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, 
     row('glassOpacity', 'setting-glass-opacity', 'Glass opacity', 'Higher values make menus, dialogs, and the composer more solid.', 'slider', slider('glassOpacity', 40, 100, 5, '%')),
     row('chatWidth', 'chat-width', 'Chat width', 'Set how wide messages and the composer can grow on large screens.', 'select',
       select('chatWidth', [['comfortable', 'Comfortable (default)'], ['wide', 'Wide'], ['full', 'Full']], { comfortable: 'Comfortable', wide: 'Wide', full: 'Full' }[prefs.chatWidth])),
+    threadDetailsRow(details),
     row('effortDisplay', 'effort-display', 'Effort display', 'Show reasoning effort in the composer as its name, such as High, or as bars.', 'select',
       select('effortDisplay', [['label', 'Word (default)'], ['bars', 'Bars']], prefs.effortDisplay === 'bars' ? 'Bars' : 'Word')),
     row('mathRenderingEnabled', 'math-rendering', 'Render math', 'Typeset LaTeX math, such as $x^2$ or \\[x^2\\], in messages and Markdown previews. The composer keeps TeX source editable.', 'switch',
@@ -218,8 +220,6 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, 
   ];
   const interfaceAdvanced: CoreRow[] = [
     row('panelAnimationDurationMs', 'panel-animations', 'Panel animations', 'Set how fast panels open and close.', 'slider', { ...slider('panelAnimationDurationMs', 0, 400, 25, ' ms'), info: 'preview' }),
-    ...(artworkVisible ? [row('environmentIdentificationMode', 'environment-identification', 'Environment identification', 'Choose how Dev and Nightly environments are identified.', 'select',
-      select('environmentIdentificationMode', [['artwork', 'Artwork'], ['pill', 'Version pill'], ['none', 'None']]))] : []),
     row('persistComposerContextStrip', 'composer-context', 'Composer context', 'Keep branch and worktree controls below the composer after a thread starts.', 'switch'),
   ];
   const separate = prefs.typographyAdvanced || SEPARATE_FONT_TARGETS.includes(target);
@@ -248,4 +248,15 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, 
   ];
   return [{ id: 'appearance-interface', title: 'Interface', collapsible: false, rows: interfaceRows, toggle: false, advanced: interfaceAdvanced },
     { id: 'typography', title: 'Typography', collapsible: false, rows: typography, toggle: false, advanced: typographyAdvanced }];
+}
+/**
+ * ThreadDetailsItemsRow: "N of 10 on", whose menu (ThreadDetailsItemsMenuItems) shows or hides each item of the
+ * thread details card, then Reset to default. Its options are the items, `selected` when shown; the choices are this
+ * app's (thread-details-items.ts), so the row is the same in every scope.
+ */
+function threadDetailsRow(details: ThreadDetailsVisibility): CoreRow {
+  const shown = shownItemCount(details), atDefault = isDefaultThreadDetailsVisibility(details);
+  return coreRow('thread-details-items', 'Thread details', 'Choose what the thread details card shows. You can also right-click the card.', 'items-menu', {
+    label: `${shown} of ${THREAD_DETAILS_ITEMS.length} on`, width: 160, resettable: !atDefault, resetLabel: 'thread details', target: 'threadDetailsItems',
+    options: THREAD_DETAILS_ITEMS.map(item => option(item.id, item.label, details[item.id])) });
 }

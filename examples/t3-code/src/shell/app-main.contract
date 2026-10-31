@@ -548,7 +548,7 @@ component PagesCover
           PagesLanding(controlsLeft=data.controlsLeft, home=home, scheme=scheme, sidebarOpen=data.sidebarOpen, busy=commandPending, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
     // The main sidebar trigger is drawn here, whatever the page: after the chat and the page in paint and Tab order,
     // under the dialogs below, which cover the whole window as the reference's portaled dialogs cover SidebarControl.
-    SidebarToggle(open=data.sidebarOpen, controlsLeft=data.controlsLeft, keySidebar=settings.keySidebar, artwork=data.look.artwork, inert=(toggleInert or (pageCover and utilityPage == "usage") or prDetail.actions.stack.dialogOpen), toggle=toggleSidebar)
+    SidebarToggle(open=data.sidebarOpen, controlsLeft=data.controlsLeft, keySidebar=settings.keySidebar, inert=(toggleInert or (pageCover and utilityPage == "usage") or prDetail.actions.stack.dialogOpen), toggle=toggleSidebar)
     // Usage opens as the large modal over the page that opened it (AppRouteModal label "Usage", 3faeb9e6f9 #24847).
     if pageCover and utilityPage == "usage"
       AppRouteModal(label="Usage", modalId="usage-modal", viewportWidth=viewport.width, canvas="light-dark(#fcfcfc, #000000)", border="light-dark(#e4e4e7, #ffffff14)", backdrop="light-dark(#fcfcfc99, #000000a3)", inert=modal, first="usage-environment", last="close-usage", close=pageBack)

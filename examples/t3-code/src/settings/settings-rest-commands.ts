@@ -23,7 +23,7 @@ import { deviceScopedCommand } from '../device/settings-integrations-scope';
 import { planProjectOverridesClear, persistScopedSettingsPatch, scopedPlanNotice } from './scoped-settings-plan';
 import { postScopedNotice, scopeEnvironments, scopedWriter } from './settings-scope-sources';
 import { PROJECT_SCOPED, applyCoreSetting, applyDeviceSetting } from './settings-core'; // "Open links in"; the storage panel's core rows
-import { copyThreadReference } from '../sidebar/thread-reference'; // ⇧⌘C copies the PR link or the thread ID
+import { copyThreadReference } from '../sidebar/thread-reference'; // ⇧⌘C copies the PR link or the thread's chip
 import { byEnvironment, environmentClient, groupOfMember } from './projects-fleet';
 import { scopedStorageCommand } from './storage-scope';
 import { databaseCommand } from './storage-maintenance';
@@ -263,7 +263,7 @@ export async function restLocal(client: T3Client, native: Native, storage: Files
   if (op.startsWith('diag-')) return telemetryLocal(client, op, value); // settings-a-telemetry.ts
   // The collection removal dialog's checkboxes: device-local, never gated on a pending write.
   if (op === 'theme-pick') { const bar = value.lastIndexOf('|'); toggleRemovalPick(client, value.slice(0, bar), value.slice(bar + 1)); return ''; }
-  // thread.copyReference: the PR link, else the thread ID, with the reference's toasts (thread-reference.ts).
+  // thread.copyReference: the PR link, else the thread's chip, with the reference's toasts (thread-reference.ts).
   if (op === 'copy-thread') return copyThreadReference(client, native);
   if (op.startsWith('browser-')) return browserProfilesLocal(client, native, storage, op, value); // Browser profiles and the browser defaults
   if (op === 'eas-check') return easAccountCheck(client, native, params(value)); // the EAS host editor's account check

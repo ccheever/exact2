@@ -727,6 +727,10 @@ Differences that belong to the app:
 - An image inside a link's text has no tooltip and no keyboard menu key.
 - In the composer, a review comment's popover shows its comment and diff as plain text (the
   reference renders Markdown and a highlighted diff); a sent pull request chip has no hover card.
+- Appearance has no Environment identification row. The clone is the stable app only, and it does
+  not draw the Nightly or Dev artwork. At v0.1.5 the stable app's default also shows no art, but the
+  row lets a user opt into Nightly or Dev artwork ("Show Dev or Nightly artwork in the sidebar
+  header.") or a version pill.
 
 Some checks need a person: physical modifier chords, right-click menus, real pointer drags
 and hovers, macOS notification and screen-capture grants, provider installs and logins, and

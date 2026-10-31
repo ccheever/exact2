@@ -195,12 +195,12 @@ describe('device tools, refs, archive menu, look', () => {
     panel.call('menuFor', state, {}, ['env1:p1:t9']);
     expect(state.menuOf).toBe('env1:p1:t9');
   });
-  test('look follows chat width, diff colours, identification and themes', () => {
+  test('look follows chat width, diff colours and themes, and draws no environment identification', () => {
     const client = Object.assign(fakeClient(), { preferencesLoaded: true });
-    Object.assign(client.local.clientSettings as Obj, { chatWidth: 'wide', diffColorScheme: 'blue-orange', environmentIdentificationMode: 'pill', themeLight: 'grove', themeDark: 'grove' });
+    Object.assign(client.local.clientSettings as Obj, { chatWidth: 'wide', diffColorScheme: 'blue-orange', themeLight: 'grove', themeDark: 'grove' });
     const value = look(as(client));
-    // The pill names the stage; this stable client has none (environment-identification.test.ts).
-    expect([value.chatMax, value.diff, value.artwork, value.pill, value.themed]).toEqual([1152, 'blue-orange', false, '', true]);
+    expect([value.chatMax, value.diff, value.themed]).toEqual([1152, 'blue-orange', true]);
+    expect(Object.keys(value).filter(key => key === 'artwork' || key === 'pill')).toEqual([]);
     expect(value.sidebar).toContain('light-dark(');
     expect(look(as(fakeClient())).themed).toBe(false);
   });

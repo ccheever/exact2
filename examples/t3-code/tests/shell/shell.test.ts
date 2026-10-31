@@ -445,9 +445,6 @@ describe('shell commands and routed failures', () => {
     expect(toasts(value).map(toast => [toast.kind, toast.title, toast.description])).toEqual([
       ['error', 'Failed to settle thread', 'denied'], ['error', 'Failed to pin thread', 'denied'], ['warning', 'Choose a project first', 'This draft no longer points to an available project.']]);
     expect(toasts(offline.value)[0]).toMatchObject({ kind: 'warning', title: 'Not connected: message not sent' });
-    const copy = client({ threadId: 't1' });
-    shellSuccess(copy.value, 'restlocal:copy-thread', '', 'Copied thread ID');
-    expect(toasts(copy.value)[0]).toMatchObject({ kind: 'success', title: 'Thread ID copied', description: 't1' });
   });
 
   test('settings failures toast with the reference titles', () => {

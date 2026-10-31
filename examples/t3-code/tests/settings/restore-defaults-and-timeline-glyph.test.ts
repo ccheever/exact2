@@ -47,13 +47,15 @@ const REFERENCE_PATCH_CLIENT_KEYS = [
 /** useTheme's keys the restore also resets: setTheme("system"), clearThemeHalves(), setFollowSystem(true). */
 const REFERENCE_THEME_KEYS = ['theme', 'themeLight', 'themeDark', 'appearanceMode'];
 /** Where the clone keeps a reference key outside CLIENT_DEFAULTS / DEVICE_DEFAULTS. */
+/** A reference key this stable app does not keep: environment identification only names a Dev or Nightly stage. */
+const DROPPED = new Set(['environmentIdentificationMode']);
 const ELSEWHERE: Record<string, string> = { sidebarProjectGroupingMode: 'groupingMode', browserDefaultViewport: 'local root', browserDefaultZoomFactor: 'local root', browserDefaultAppearance: 'local root' };
 
 /** One valid value apart from the default for every key this app keeps in clientSettings. */
 const CHANGED: Record<keyof typeof CLIENT_DEFAULTS, string | number | boolean> = {
   notificationMode: 'sound', inAppNotificationsEnabled: true, diffColorScheme: 'blue-orange', chatWidth: 'wide', effortDisplay: 'bars', appearanceContrast: 150, panelAnimationDurationMs: 200,
   confirmThreadArchive: true, confirmThreadDelete: false, confirmThreadUnpin: true, diffFilesCollapsed: false, diffIgnoreWhitespace: false, diffLayout: 'split',
-  environmentIdentificationMode: 'pill', glassOpacity: 60, fontSizeInterface: 14, fontSizePrompt: 16, fontSizeCode: 14, fontSizeTerminal: 14, fontFamilyCode: 'Menlo',
+  glassOpacity: 60, fontSizeInterface: 14, fontSizePrompt: 16, fontSizeCode: 14, fontSizeTerminal: 14, fontFamilyCode: 'Menlo',
   fontFamilyComposer: 'Menlo', fontFamilySans: 'Avenir', fontFamilyTerminal: 'Menlo', fontSmoothing: false, persistComposerContextStrip: true, contextWindowMeterEnabled: true,
   composerRichTextEnabled: false, followUpBehavior: 'steer', proactivePanelsEnabled: true, showSkillsInSlashMenu: false, legacySidebarEnabled: true,
   sidebarWorkingShelfEnabled: true, wordWrap: false, browserLinkTarget: 'app', theme: 'grove', themeLight: 'ocean', themeDark: 'ember', typographyAdvanced: true,
@@ -71,7 +73,8 @@ describe('Restore defaults resets what the reference resets', () => {
     // composerCollapseOnScroll is a setting v0.1.5 removed (the composer no longer folds); a restore still resets it.
     for (const key of own.filter(name => name !== 'composerCollapseOnScroll')) expect([key, reset.has(key) !== kept.has(key)]).toEqual([key, true]);
     // Every client-side key of the reference's patch is one this app keeps (or keeps elsewhere).
-    for (const key of REFERENCE_PATCH_CLIENT_KEYS) expect([key, own.includes(key) || key in ELSEWHERE]).toEqual([key, true]);
+    for (const key of REFERENCE_PATCH_CLIENT_KEYS) expect([key, own.includes(key) || key in ELSEWHERE || DROPPED.has(key)]).toEqual([key, true]);
+    for (const key of DROPPED) expect(own).not.toContain(key);
     expect([...kept].sort()).toEqual(['fontSmoothing', 'legacySidebarEnabled', 'planModeEnabled', 'sidebarThreadSortOrder', 'typographyAdvanced']);
   });
 

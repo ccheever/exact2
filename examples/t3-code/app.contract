@@ -546,6 +546,9 @@ component T3Code
       case some(result)
         if result.message == "terminal:focus-composer"
           focus("composer")
+        // F6 or ⇧F6 in a terminal page (terminal-drawer-view.ts terminalCommandAction): "<next|previous>:<area>".
+        if result.message.startsWith("terminal:workspace-focus:")
+          terminalWorkspaceQueue(result.message.slice(25).startsWith("next") ? 1 : -1, result.message.endsWith(":panel") ? "panel" : "terminal")
       case none
   // A fragment link's press and the prompt links' sends, each in turn: a prompt link's switch to another machine's Scratch
   // project waits on its own timers (scratch-machine.ts), and a queued send is never let go.

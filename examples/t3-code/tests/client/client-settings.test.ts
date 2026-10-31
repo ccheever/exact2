@@ -1,5 +1,5 @@
 import { keyboardSettings, validShortcut, validWhen } from '../../src/settings/keybinding-settings';
-import { scheduledSettings, taskDraft, taskFromArguments, validateTaskInput } from '../../src/settings/scheduled-settings';
+import { taskFromArguments, validateTaskInput } from '../../src/settings/scheduled-settings';
 import { scopedSettingPatch, scopedControls, scopedSearchControls } from '../../src/settings/scoped-settings';
 import { beforeAll, describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
@@ -310,10 +310,7 @@ test('device access action cannot bypass disabled hub or stale project capabilit
   expect(native.calls.filter(call => call.method === 'server.updateSettings')).toEqual([]);
 });
 
-test('scheduled defaults and edit conversion match reference daily and origin semantics', () => {
-  const fresh = taskDraft(); expect(fresh.runtimeMode).toBe('full-access'); expect([fresh.monday, fresh.friday, fresh.sunday]).toEqual([true, true, false]);
-  const existing = taskDraft({ id: 's1', schedule: { type: 'fixed_time', timeOfDay: '10:00' }, workspaceStrategy: { type: 'worktree', baseRef: 'release' } });
-  expect([existing.sunday, existing.saturday, existing.startFromOrigin, existing.baseRef]).toEqual([true, true, false, 'release']);
+test('scheduled edit conversion matches reference daily and origin semantics', () => {
   const args = ['env:', '', 'Fixture', 'Safe fixture prompt', false, 'fixed_time', '15', '', false, false, false, false, false, false, false, 'p1', '', 'worktree', '', true, '', 'fixture', 'luna', 'approval-required', 'default'];
   const payload = taskFromArguments(args);
   expect(payload.schedule).toEqual({ type: 'fixed_time', timeOfDay: '09:00' });
@@ -343,15 +340,6 @@ test('scheduled edit rechecks membership, forces requireExisting and preserves p
   expect(writes.length).toBe(1);
   expect((await client.command('task-delete', 'env1:deleted-project', JSON.stringify({ id: 's1' }), 0, native, storage().files)).message).toContain('no longer available');
 });
-
-test('the scheduled list reads the live list and preserves readonly/offline scope state', async () => {
-  const { client, native } = await connected();
-  liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: 's-1', value: { tasks: [] } });
-  expect((await scheduledSettings(client, native, 'env1', '', '', true)).available).toBe(true);
-  expect((await scheduledSettings(client, native, 'env1', '', 'missing-task', true)).error).toContain('no longer exists');
-  expect((await scheduledSettings(client, native, 'env1', 'deleted-project', '', true)).available).toBe(false);
-});
-
 
 test('keybinding precedence is global across commands and physical mod/meta aliases', () => {
   const rules = [

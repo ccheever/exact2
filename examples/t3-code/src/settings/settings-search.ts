@@ -38,7 +38,7 @@ export const FOLDED_TARGETS: Readonly<Record<string, string>> = {
   'worktree-submodules': 'worktree-creation', 'storage-worktrees': 'storage-worktrees', 'storage-worktree-keep-when': 'storage-worktrees',
   'follow-change-request-templates': 'source-control-text-generation', 'source-control-writer-model': 'source-control-text-generation',
   'browser-default-viewport': 'browser', 'browser-default-zoom': 'browser', 'browser-default-appearance': 'browser',
-  'panel-animations': 'appearance-interface', 'environment-identification': 'appearance-interface', 'appearance-interface': 'appearance-interface',
+  'panel-animations': 'appearance-interface',
   'composer-context': 'appearance-interface', 'separate-fonts': 'typography', 'font-smoothing': 'typography',
 };
 /** The reveal stop of the fold a jump target sits under, '' for one under none. */

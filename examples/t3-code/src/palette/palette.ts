@@ -17,6 +17,8 @@ import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { chordWinners, type DispatchContext } from '../shell/keyboard-dispatch';
 import { linkMode } from './palette-linkpr';
 import { scratchRoot, isScratchProject } from '../pages/pages-home';
+import { scratchEnvironmentId, scratchEnvironments } from '../composer/scratch-project';
+import { primaryEnvironmentId } from '../connections/local-primary';
 import { triageEnvironment } from './palette-triage';
 import { pickerProjects } from './palette-projects'; // Project order
 import { openPanelPullRequestUrl, threadReferenceTarget } from '../sidebar/thread-reference';
@@ -320,6 +322,8 @@ export function projectItems(client: T3Client, projects: Obj[], prefix: string, 
 }
 
 // ── Root ───────────────────────────────────────────────────────────────────
+/** CommandPalette's scratchTargetEnvironmentId: where a thread without a project starts, the primary first (useScratchProject). */
+const scratchTarget = (client: T3Client) => scratchEnvironmentId(scratchEnvironments(client), primaryEnvironmentId(), client.environmentId || null);
 function capabilities(client: T3Client): Obj { return obj(obj(client.config.environment).capabilities); }
 export function rootActions(client: T3Client): Item[] {
   const items: Item[] = [];
@@ -331,7 +335,7 @@ export function rootActions(client: T3Client): Item[] {
     if (current) action('new-thread', ['new thread', 'chat', 'create', 'draft'], { op: 'new-thread', arg: str(current.id), icon: 'square-pen', prefix: 'New thread in ', bold: str(current.title), title: `New thread in ${str(current.title)}`, shortcut: commandShortcut(client, 'chat.newLocal'), jump: fieldChords(client, 'chat.newLocal') });
     action('new-thread-in', ['new thread', 'project', 'pick', 'choose', 'select'], { kind: 'submenu', op: 'page', arg: 'new-thread-in', icon: 'square-pen', title: 'New thread in...' });
   }
-  if (str(client.config.scratchWorkspaceRoot)) action('new-thread-without-project', ['new thread', 'no project', 'without project', 'none', 'chat'],
+  if (scratchTarget(client) !== null) action('new-thread-without-project', ['new thread', 'no project', 'without project', 'none', 'chat'],
     { op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'New thread without a project', shortcut: commandShortcut(client, 'chat.newWithoutProject'), jump: fieldChords(client, 'chat.newWithoutProject') });
   if (triageEnvironment(client)) action('triage', ['triage', 'bug', 'issue', 'report', 'broken', 'debug', 'help', 'support'],
     { op: 'flow', arg: 'triage', icon: 'bug', title: 'Triage an issue', description: 'An agent investigates a T3 Code problem and helps file an issue' });
@@ -390,7 +394,7 @@ export function newThreadInItems(client: T3Client): Item[] {
   const root = scratchRoot(client.config), picked = pickerProjects(client);
   const ordered = picked.filter(project => !isScratchProject(project, root));
   const items = enumerateJumps(client, projectItems(client, ordered, 'new-thread-in', 'new-thread'));
-  if (!root) return items;
+  if (scratchTarget(client) === null) return items;
   const at = picked[0] !== undefined && isScratchProject(picked[0], root) ? 0 : 1;
   items.splice(at, 0, { terms: ['No project', 'no project', 'without project', 'none'],
     row: row({ key: 'new-thread-in:no-project', op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'No project', shortcut: commandShortcut(client, 'chat.newWithoutProject'), jump: fieldChords(client, 'chat.newWithoutProject') }) });

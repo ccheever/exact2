@@ -54,7 +54,7 @@ describe('F6 between workspace areas', () => {
   const root = contractComponent('app.contract', 'T3Code');
   /** The root's workspace state over a window whose shown areas have the frames `shown` gives. */
   function window(shown: string[], over: Env = {}) {
-    const state: Env = { workspaceArea: '', workspaceTargets: [] };
+    const state: Env = { workspaceArea: '', workspaceTargets: [], terminalWorkspaceMove: 0, terminalWorkspaceFrom: '', terminalWorkspaceSerial: 0 };
     const focused: string[] = [], sent: unknown[][] = [];
     const container = (area: string) => area === 'composer' ? 'frame-overlay' : `workspace-${area}`;
     const scope: Env = {
@@ -67,7 +67,8 @@ describe('F6 between workspace areas', () => {
       WorkspaceTarget: (entry: Env) => entry, ...contractFns('src/shell/shell-shapes.contract'), ...over,
     };
     for (const name of ['workspaceFocusArea']) scope[name] = (...args: unknown[]) => root.call(name, state, scope, args);
-    return { state, focused, sent, move: (direction: number, from = '') => root.call('workspaceMove', state, scope, [direction, from]),
+    for (const name of ['workspaceMove', 'terminalWorkspaceQueue']) scope[name] = (...args: unknown[]) => root.call(name, state, scope, args);
+    return { state, focused, sent, scopeOf: () => scope, move: (direction: number, from = '') => root.call('workspaceMove', state, scope, [direction, from]),
       enter: (area: string, target: string) => root.call('workspaceEntered', state, scope, [area, { target }]) };
   }
 
@@ -87,6 +88,23 @@ describe('F6 between workspace areas', () => {
     // A move from inside the terminal names it, as its page holds the key.
     w.move(-1, 'terminal');
     expect(w.state.workspaceArea).toBe('panel');
+  });
+
+  test('F6 and ⇧F6 typed in a terminal page move on from its area: the drawer\'s is the terminal, the right panel\'s the panel', () => {
+    const w = window(['sidebar', 'conversation', 'composer', 'panel', 'terminal']);
+    // The answer queues the move (it cannot send the terminal's own mutation); the task runs it on the next turn.
+    const completed = (message: string) => {
+      root.call('terminalCompleted', w.state, { ...w.scopeOf(), terminalChanged: { message } }, []);
+      if (w.state.terminalWorkspaceMove !== 0) root.call('terminalWorkspaceRun', w.state, w.scopeOf(), []);
+    };
+    completed('terminal:workspace-focus:next:terminal');
+    expect([w.state.workspaceArea, w.focused.at(-1)]).toEqual(['sidebar', 'row-t1']);
+    completed('terminal:workspace-focus:previous:terminal');
+    expect([w.state.workspaceArea, w.focused.at(-1)]).toEqual(['panel', 'workspace-panel']);
+    completed('terminal:workspace-focus:next:panel');
+    expect(w.state.workspaceArea).toBe('terminal');
+    completed('terminal:focus-composer');
+    expect(w.focused.at(-1)).toBe('composer');
   });
 
   test('an area takes back the control it last held while that control is still shown, and only shown areas count', () => {

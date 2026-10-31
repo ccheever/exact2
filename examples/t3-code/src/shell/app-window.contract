@@ -389,7 +389,6 @@ component T3Window
     dialogForget
     dialogFallback
     rem = data.look.fontSize
-    chatLaneWidth = 0 // TimelineRow provides its lane's width to the transcript's tables
     renderMath = data.look.math
     mathFrames = data.mathFrames
     wizardSteps = data.look.wizardSteps // the setup wizards' step list and panel follow the theme (ui/wizard.tsx)

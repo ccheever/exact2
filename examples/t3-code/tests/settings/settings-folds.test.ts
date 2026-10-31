@@ -42,7 +42,7 @@ describe('Advanced fold', () => {
     expect(folded('storage-worktrees')).toEqual(['storage-worktrees', 'settings-advanced-storage-worktrees-reveal']);
     expect(folded('browser-default-zoom')).toEqual(['browser-default-zoom', 'settings-advanced-browser-reveal']);
     expect(folded('source-control-writer-model')).toEqual(['source-control-writer-model', 'settings-advanced-source-control-text-generation-reveal']);
-    expect(folded('environment-identification')).toEqual(['appearance-interface', 'settings-advanced-appearance-interface-reveal']);
+    expect(folded('panel-animations')).toEqual(['panel-animations', 'settings-advanced-appearance-interface-reveal']);
     // A row outside any fold has no stop; a host's settings open its row's details (DiscoveryItemRow).
     expect(folded('send-shortcut')).toEqual(['send-shortcut', '']);
     expect(folded('source-control-host-github')).toEqual(['source-control-host-github', 'source-control-host-github-reveal']);
