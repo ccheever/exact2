@@ -4507,6 +4507,18 @@
       "codec": "enum:FontSmoothing",
       "inherited": true,
       "_comment": "@ref LLP 1019 D12: `-webkit-font-smoothing`, a property WebKit and Chromium define and no CSS specification does: `auto` or `antialiased`. AppKit draws an `antialiased` paragraph with Core Graphics font smoothing off, as Chrome and Safari do on macOS: grayscale coverage without the stem darkening smoothing adds; UIKit sets the same flag, expected to change nothing on iOS (not measured), as in iOS Safari. The web writes it with Firefox's `-moz-osx-font-smoothing`. Linux, Windows, a terminal and the widget and watch drivers admit it and draw as before. Paint only: a change neither measures nor lays out. Inherited, as in WebKit."
+    },
+    {
+      "bit": 223,
+      "field": "border_spacing",
+      "rare": true,
+      "snapshot": "admit",
+      "watch": "admit",
+      "terminal": "cell",
+      "codec": "f32",
+      "layout": true,
+      "default": 0,
+      "_comment": "CSS 2.1 \u00a717.6.1 `border-spacing` as one length, both axes: the space between a table's neighbouring cells, and between its outer cells and its padding edge. Only a `table` reads it, where the kernel lays tables out (style/table.rs); a table that says none has HTML's UA 2px, which the UA sheet sets on every table, so not inheriting it changes nothing. Two lengths, one per axis, are refused by the compiler; `border-collapse` is not implemented."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 font-weight, 26 font-stretch, 27 font-variation-settings — LLP 1019 §13 D10; 28 is CSS's `border-color` shorthand; 29 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

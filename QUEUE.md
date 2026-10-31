@@ -1,7 +1,8 @@
 # Queue
 
+- **The render host keeps a waiting page's answers inline** (2026-10-31, LLP 1048.007 D10): the JavaScript render server names a waiting request page's answers past 1 KB (`/.exact/checkpoint/<hash>.json`) and keeps them; `host/render` (`page.rs`) still writes them into the page. Mirror it there, its server answering the path, with the document-render test run for both renderers.
 - **A short page under `scroll document` shows the canvas, not the app's background, below its content** (2026-10-31, the Pokédex agent runs): with `<html data-scrolldocument>`, `#exact-root` is as tall as its content, so a root `view background-color=…` stops at the content's end and the canvas (white, or dark) shows below; `min-height="100%"` resolves against an auto height. The agent tried `100%`, then `100vh`, and searched the docs for a page background. CSS carries `body`'s background to the canvas (CSS Backgrounds 3 §2.11.2); the app's first root is `body`'s analogue, so both renderers and the runtime could carry its background to `<html>` while the page is the document's scroller.
-- **A `table` takes no `border-collapse` or `border-spacing`** (2026-10-31, the Pokédex agent runs): `contract vocab border-spacing` calls it no attribute, so an agent matching a design's ruled table writes it, is refused, and searches exact2's source. HTML's default is `separate` with 2 px; resets (Tailwind's preflight) make it `collapse`. On the web both pass through; natively the kernel's table grid (LLP 1153 D7) would take the spacing as its gaps and the table's padding, and collapse would merge neighbouring cells' borders.
+- **A `table` takes no `border-collapse`** (2026-10-31, the Pokédex agent runs): `border-spacing` is a row since (one length; HTML's 2px unsaid; `border-spacing=0` with cells' `border-bottom` rules a table flush), but `border-collapse: collapse`, which merges neighbouring cells' borders by CSS 2.1 §17.6.2's conflict rules, is not: the web would take it as written, and the kernel's table grid would need the merge.
 - **`host/web-js/sheet-leave.test.mjs` fails to compile since 05c258c192** (2026-10-31): both sources put `navigationPresentation` on a column with no `navigationKey`, which `lower-route-place` now refuses. Make each a route of a navigation root, or decide that the runtime's sheet-leave path need not serve a routeless column and test it through a route.
 - **The render host does not write `decoding="async"` on an image** (2026-10-31), which the JS build writes on every `img` (LLP 1145 D3); its pages adopt, decoding on the page's thread.
 - **The fragment after LLP 1153 D5: five edges the last review left** (2026-10-30, from the delta review of ca3c18eecf). (1) The JS target's settlement (`host/web-js/router.js`) counts held.js's `Counting`, which keeps an ordinary asynchronous ticket after its resource replaced or forgot it (rt.js changes `r.ticket`; held.js drops the count only when the request finishes), so a navigation to settled content can wait on an obsolete request where the runner removes forgotten tickets from `pending`: count only current, owned tickets, or retire a count when the replacing commit lands. (2) A new navigation does not end a native hold: Linux (`host/linux/src/presenter.rs`) arms the new activation without clearing `fragment_anchor`, and `hold_fragment()` checks only the person-scroll count and the node; iOS (`Fragment.swift`) can add a second `ElementScrolls` request without dropping the first, and replacing `fragmentHeld` loses the first request's name: retire the previous hold when navigation supersedes it, a navigation that asks no fragment scroll included. (3) The deferred traversal restoration in `host/web/fragment.js` (two frames after Back, around Chrome's own scroll) checks only `personScrolls`: neither `cancel()` nor a later `arm()` invalidates it and it does not check the current history entry, so an app's `scrollIntoView` before it runs is overwritten; bind it to a cancellable activation and history entry. (4) Activation numbers restart with each `RouterContext`, but Linux's reload path and Apple's presenter resets keep `fragment_seen`/`fragmentSeen`, so after a runner replacement activations below the old watermark are not armed and run without the person-scroll check: reset the watermark with the runner, or put a runner generation in the activation's identity. (5) The JS target's `scrollBy` calls `cancel()` with its default `pending = true`, marking an armed fragment superseded, where Linux clears only the existing hold and the runner cancels a pending activation only for `scrollIntoView`: `cancel(false)` for the held-only meaning, with a pending-data test.
@@ -1693,16 +1694,33 @@ and the Linux headless CPU renderer without claiming display frame timing.
 
 - **macOS live trackpad replay (LLP 1079.000, 2026-10-28).** Add a reliable completion acknowledgement for synthetic phased wheels before admitting them under platform timing. Immediate layout reads exposed zero or partial motion; posting the later phases first did not resolve it. The carrier currently refuses with `platform-trackpad-replay-unqualified`; ordinary wheels and frozen-clock functional replay remain available.
 
-- **NucBox: disable AMD Software's In-Game Overlay and qualify the change**
+- **NucBox: qualify an AMD overlay diagnostic if the paint crash recurs**
   (LLP 1149.001 Stage 1w). The retained wgpu paint crash is an execution
   access violation in `amdihk64.dll_unloaded` 2.0.0.1788 at `0x648d`;
   a post-reboot module inventory finds the hook in many desktop processes.
-  Disable the overlay through [AMD Software's Preferences](https://www.amd.com/en/resources/support-articles/faqs/DH3-001.html), verify whether
+  G7's single isolated rerun passes 56 tests with the hook loaded in the arm
+  and pinned process, and captures no new fault. If it recurs, test disabling
+  the overlay through [AMD Software's Preferences](https://www.amd.com/en/resources/support-articles/faqs/DH3-001.html), verify whether
   the hook leaves newly launched arms, then requalify paint. This is a
   proposed machine remedy, not a demonstrated fix. Keep the later
   sleep/wake hang separate: chunk A reached `shelf_sleep_wake` at 18:39:46,
   after the 18:32 paint crash, and the next boot's Kernel-Power 41 reports
   `SleepInProgress=5`, `BugcheckCode=0`. Retain both investigations.
+- **G7 Windows cadence needs foreground qualification** (2026-10-31,
+  LLP 1149.001). The display is 5120×1440 at 120 Hz, verified by PresentMon,
+  but two egui diagnostics each record 683 focus losses after the native DPI
+  journeys. Minimizing Settings and the native field driver's input-attachment
+  fallback do not grant foreground ownership; the third diagnostic stops
+  before its timed fling. The three-round repair limit is reached. Resolve
+  foreground acquisition, then collect all three arms' five quiet rounds;
+  do not promote the unfocused diagnostics into 120 Hz cadence or CPU rows.
+- **NucBox sleep/wake needs a verified wake-timer design** (2026-10-31,
+  LLP 1149.001 G7). The unattended October 30 sleep journey never woke;
+  G7 skips sleep/wake on both devices. Before another unattended attempt,
+  verify a resume-capable timer is armed and permitted by the active power
+  plan, retain its due time and wake-source evidence, and provide an
+  independent recovery path. A timer handle alone does not prove the machine
+  or physical display will wake. Keep this separate from the AMD-hook crash.
 - **Stage 1w chunk B: native-field pointer delivery** (Claude review 3,
   `target/review-claude-s1w.md`, `98cff0bdfa`). RichEdit's handled mouse messages
   make winit skip dispatch, so field and ancestor clicks never reach the page.

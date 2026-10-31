@@ -74,20 +74,8 @@ private final class AXClient: @unchecked Sendable {
         }
         return snapshot()
     }
-    func settleDialogNames(in presenter: Presenter) throws {
-        let deadline = Date().addingTimeInterval(10)
-        while presenter.landing.scheduled || presenter.landing.pendingNames > 0, Date() < deadline {
-            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
-        }
-        XCTAssertFalse(presenter.landing.scheduled)
-        XCTAssertEqual(presenter.landing.pendingNames, 0, "all deferred dialog naming finished")
-        // This post follows any naming post through AX delivery before a
-        // caller asserts that no announcement occurred.
-        try checkReady()
-    }
-    /// What was heard once the main run loop has turned for `seconds`:
-    /// by default, until a dialog drawn in the page has been named.
-    func notifications(after seconds: TimeInterval = Presenter.dialogNameDelay + 0.2) -> [(name: String, info: [String: Any], element: AXUIElement)] {
+    /// What was heard once the main run loop has turned for `seconds`.
+    func notifications(after seconds: TimeInterval = 0.5) -> [(name: String, info: [String: Any], element: AXUIElement)] {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: seconds))
         lock.lock(); defer { lock.unlock() }
         return heard
@@ -121,6 +109,34 @@ private final class AXClient: @unchecked Sendable {
             var out: [String: String] = [:]
             for name in names { if let v = Self.value(element, name) { out[name] = "\(v)" } }
             return out
+        }
+    }
+    /// Its ancestors as a client walks `AXParent` up to the window, each its
+    /// role, subrole and name, and a web area the identifiers of its children.
+    func ancestry(of identifier: String, matching attribute: String = "AXIdentifier") -> [String] {
+        let app = app
+        return onClient {
+            var out: [String] = []
+            var next = Self.find(identifier, in: app, attribute: attribute).flatMap { Self.value($0, "AXParent") }.map { $0 as! AXUIElement }
+            while let element = next, out.count < 20 {
+                let role = Self.value(element, "AXRole") as? String ?? "?"
+                if role == "AXWindow" { break }
+                let children = role == "AXWebArea" ? (Self.value(element, "AXChildren") as? [AXUIElement] ?? []).map { Self.value($0, "AXIdentifier") as? String ?? "?" } : nil
+                out.append(([role, Self.value(element, "AXSubrole") as? String ?? "", Self.value(element, "AXDescription") as? String ?? ""]
+                    + (children.map { ["\($0)"] } ?? [])).filter { !$0.isEmpty }.joined(separator: " "))
+                next = Self.value(element, "AXParent").map { $0 as! AXUIElement }
+            }
+            return out
+        }
+    }
+    /// The roles of the page scroll view's children, as a client is served them.
+    func scrollAreaChildRoles() -> [String] {
+        let app = app
+        return onClient {
+            func role(_ e: AXUIElement) -> String { Self.value(e, "AXRole") as? String ?? "?" }
+            let window = (Self.value(app, "AXChildren") as? [AXUIElement])?.first { role($0) == "AXWindow" }
+            let scroll = (window.flatMap { Self.value($0, "AXChildren") as? [AXUIElement] } ?? []).first { role($0) == "AXScrollArea" }
+            return (scroll.flatMap { Self.value($0, "AXChildren") as? [AXUIElement] } ?? []).map(role)
         }
     }
     /// Its attribute, read on the client's thread.
@@ -328,10 +344,9 @@ final class AccessibilityClientMacTests: XCTestCase {
 
     /// VoiceOver lands on the element the opening commit's `focus()`
     /// chose, once the commit's commands have run, not on the alertdialog
-    /// the batch left with no focus in it; then the dialog's title and
-    /// message are queued after the button's words, at low priority, so
-    /// neither cuts the other off, as an `NSAlert` is read by its title and
-    /// message.
+    /// the batch left with no focus in it. The dialog is served in a web
+    /// area of its own (`DialogWebArea`), so VoiceOver reads it as Chrome's:
+    /// the button, then the dialog's title, role and message.
     func testAnAlertDialogLandsVoiceOverOnTheButtonItsCommitFocused() throws {
         let p = try fixture([])
         let client = AXClient()
@@ -353,10 +368,8 @@ final class AccessibilityClientMacTests: XCTestCase {
         XCTAssertTrue(p.focusedNode === p.views[12], "focus() took the focus")
         let heard = client.notifications().map { "\($0.name) \(client.value(of: $0.element, "AXIdentifier") ?? "")"
             + ((($0.info["AXUIElementsKey"] as? [AXUIElement])?.compactMap { AXClient.value($0, "AXIdentifier") as? String }).map { " \($0)" } ?? "") }
-        XCTAssertEqual(heard, ["AXLayoutChanged confirm [\"cancel\"]", "AXFocusedUIElementChanged cancel", "AXAnnouncementRequested confirm"])
-        let named = try XCTUnwrap(client.notifications(after: 0).last)
-        XCTAssertEqual(named.info["AXAnnouncementKey"] as? String, "Remove Lane Third from this device?, dialog, This forgets its pairing.")
-        XCTAssertEqual(named.info["AXPriorityKey"] as? Int, NSAccessibilityPriorityLevel.low.rawValue)
+        XCTAssertEqual(heard, ["AXLayoutChanged confirm [\"cancel\"]", "AXFocusedUIElementChanged cancel"], "the host announces nothing")
+        XCTAssertEqual(client.ancestry(of: "cancel"), ["AXGroup AXApplicationAlertDialog Remove Lane Third from this device?", "AXWebArea [\"confirm\"]", "AXScrollArea"])
         let dialog = try XCTUnwrap(client.attributes(of: "confirm", ["AXRole", "AXSubrole", "AXRoleDescription", "AXDescription", "AXHelp"]))
         XCTAssertEqual(dialog, ["AXRole": "AXGroup", "AXSubrole": "AXApplicationAlertDialog", "AXRoleDescription": "dialog",
                                 "AXDescription": "Remove Lane Third from this device?", "AXHelp": "This forgets its pairing."])
@@ -366,9 +379,8 @@ final class AccessibilityClientMacTests: XCTestCase {
     /// drawn in the page) sends VoiceOver to the focus its closing commit
     /// gave back, in the modal now in front, as AppKit's sheet over a sheet
     /// ends with the focus change of the first responder under it
-    /// (measured), and the sheet, named as it opened, is not named again.
-    /// Chosen before that `focus()` ran, VoiceOver went to the page behind
-    /// the sheet.
+    /// (measured). Chosen before that `focus()` ran, VoiceOver went to the
+    /// page behind the sheet.
     func testADialogClosedOverAModalSendsVoiceOverToTheFocusGivenBack() throws {
         let p = try fixture([
             ["op": "create", "id": 20, "kind": "view", "props": ["accessibilityRole": "dialog", "accessibilityModal": "true", "accessibilityLabel": "Right panel", "testId": "sheet"]],
@@ -659,15 +671,14 @@ final class AccessibilityClientMacTests: XCTestCase {
     }
 
     /// A dialog drawn in the page whose field takes the focus sends
-    /// VoiceOver to the field, then is named, queued after the field's
-    /// words: AppKit tells a sheet by its creation, then the focus in it
-    /// (measured here), and the sheet's title is read from its window,
-    /// which a group in the page does not have. Announced before the focus,
-    /// at high priority, the dialog's name cut the field's off.
-    func testADialogIsNamedAfterTheFocusInIt() throws {
+    /// VoiceOver to the field, and VoiceOver names the dialog first, as it
+    /// does Chrome's: the dialog's parent is a web area of its own
+    /// (`DialogWebArea`), which the scroll view does not serve as a child.
+    /// The host announces nothing.
+    func testADialogDrawnInThePageIsServedInAWebAreaOfItsOwn() throws {
         let p = try fixture([])
         let client = AXClient()
-        try client.listen(["AXAnnouncementRequested", "AXLayoutChanged", "AXFocusedUIElementChanged", "AXSheetCreated"])
+        try client.listen(["AXAnnouncementRequested", "AXLayoutChanged", "AXFocusedUIElementChanged"])
         func heard(_ expected: [String]) -> [String] {
             defer { client.clear() }
             return client.notifications(until: expected).map { note in
@@ -676,27 +687,6 @@ final class AccessibilityClientMacTests: XCTestCase {
                     .filter { !$0.isEmpty }.joined(separator: " ")
             }
         }
-        // AppKit's own: a sheet whose field is its first responder.
-        let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
-        let field = NSTextField(frame: NSRect(x: 10, y: 10, width: 150, height: 24))
-        field.setAccessibilityLabel("Sheet field")
-        sheet.contentView?.addSubview(field)
-        sheet.initialFirstResponder = field
-        client.clear()
-        var ended = false
-        window.beginSheet(sheet) { _ in ended = true }
-        let appKit = heard(["AXSheetCreated", "AXFocusedUIElementChanged"])
-        window.endSheet(sheet)
-        let deadline = Date().addingTimeInterval(10)
-        while !ended, Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
-        XCTAssertTrue(ended, "AppKit finished dismissing the native sheet")
-        let created = try XCTUnwrap(appKit.firstIndex { $0.hasPrefix("AXSheetCreated") }, "\(appKit)")
-        let fieldFocus = try XCTUnwrap(appKit.lastIndex { $0 == "AXFocusedUIElementChanged AXTextField Sheet field" }, "\(appKit)")
-        XCTAssertLessThan(created, fieldFocus, "AppKit says the sheet, then the focus in it: \(appKit)")
-        XCTAssertFalse(appKit.contains { $0.hasPrefix("AXAnnouncementRequested") }, "\(appKit)")
-        try client.checkReady()
-        client.clear()
-
         p.apply(wireBatch([
             ["op": "create", "id": 10, "kind": "view",
              "props": ["accessibilityRole": "dialog", "accessibilityModal": "true", "accessibilityLabel": "Rename project", "testId": "rename"]],
@@ -708,16 +698,19 @@ final class AccessibilityClientMacTests: XCTestCase {
         ]))
         p.syncAccessibility()
         XCTAssertTrue(p.focusedNode === p.views[11], "the field took the focus")
-        let opened = client.notifications(until: ["AXLayoutChanged", "AXFocusedUIElementChanged", "AXAnnouncementRequested"])
-        XCTAssertEqual(heard([]), ["AXLayoutChanged AXGroup Rename project Project title", "AXFocusedUIElementChanged AXTextField Project title",
-                                 "AXAnnouncementRequested AXGroup Rename project"])
-        XCTAssertEqual(opened.last?.info["AXAnnouncementKey"] as? String, "Rename project, dialog")
-        XCTAssertEqual(opened.last?.info["AXPriorityKey"] as? Int, NSAccessibilityPriorityLevel.low.rawValue)
+        _ = client.notifications(until: ["AXLayoutChanged", "AXFocusedUIElementChanged"])
+        try client.checkReady()
+        XCTAssertEqual(heard([]), ["AXLayoutChanged AXGroup Rename project Project title", "AXFocusedUIElementChanged AXTextField Project title"])
+        XCTAssertEqual(client.ancestry(of: "Project title", matching: "AXDescription"), ["AXGroup AXApplicationDialog Rename project", "AXWebArea [\"rename\"]", "AXScrollArea"])
+        XCTAssertEqual(client.scrollAreaChildRoles(), ["AXGroup"], "the web area is no element's child")
+        let area = try XCTUnwrap(p.views[10]?.accessibilityParent() as? DialogWebArea)
+        XCTAssertTrue(area.accessibilityParent() as? NSView === p.viewport)
+        XCTAssertTrue(p.views[10]?.accessibilityAttributeValue(.parent) as AnyObject === area, "legacy AXParent agrees")
+        XCTAssertTrue(p.views[10]?.accessibilityParent() as AnyObject === area, "one web area while the dialog stays one")
 
         // An alert dialog over it with no focus in it is read where VoiceOver
-        // lands, on it, and not named again; closed, the field is told
-        // again as the modal it is in comes back, and that dialog, still
-        // up, is not named again.
+        // lands, on it; closed, the field is told again as the modal it is
+        // in comes back.
         p.apply(wireBatch([
             ["op": "create", "id": 30, "kind": "view",
              "props": ["accessibilityRole": "alertdialog", "accessibilityModal": "true", "accessibilityLabel": "Discard this environment?"]],
@@ -728,47 +721,13 @@ final class AccessibilityClientMacTests: XCTestCase {
         XCTAssertEqual(heard(["AXLayoutChanged"]), ["AXLayoutChanged AXScrollArea Discard this environment?"], "no focus in it: VoiceOver goes to the dialog")
         p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 10]]]))
         _ = client.notifications(until: ["AXLayoutChanged", "AXFocusedUIElementChanged"])
-        try client.settleDialogNames(in: p)
+        try client.checkReady()
         XCTAssertEqual(heard([]), ["AXLayoutChanged AXGroup Rename project Project title", "AXFocusedUIElementChanged AXTextField Project title"])
-    }
 
-    func testANotificationWaitIncludesDeferredDialogNaming() throws {
-        let p = try fixture([])
-        let client = AXClient()
-        try client.listen(["AXAnnouncementRequested", "AXLayoutChanged", "AXFocusedUIElementChanged"])
-        client.clear()
-        p.apply(wireBatch([
-            ["op": "create", "id": 10, "kind": "view",
-             "props": ["accessibilityRole": "dialog", "accessibilityModal": "true", "accessibilityLabel": "Rename project"]],
-            ["op": "create", "id": 11, "kind": "input", "handlers": ["input"],
-             "props": ["value": "", "accessibilityLabel": "Project title", "autofocus": "true"]],
-            ["op": "children", "id": 10, "ids": [11]],
-            ["op": "children", "id": 1, "ids": [2, 10]],
-            ["op": "frame", "id": 10, "x": 50.0, "y": 50.0, "w": 300.0, "h": 150.0],
-            ["op": "frame", "id": 11, "x": 10.0, "y": 10.0, "w": 280.0, "h": 24.0],
-        ]))
-        p.syncAccessibility()
-        _ = client.notifications(until: ["AXLayoutChanged", "AXFocusedUIElementChanged"])
-        try client.settleDialogNames(in: p)
-        let names = client.notifications(until: []).filter { $0.name == "AXAnnouncementRequested" }
-        XCTAssertEqual(names.map { $0.info["AXAnnouncementKey"] as? String }, ["Rename project, dialog"],
-                       "the wait includes naming work scheduled after the focus notification")
-
-        client.clear()
-        p.apply(wireBatch([
-            ["op": "create", "id": 30, "kind": "view",
-             "props": ["accessibilityRole": "alertdialog", "accessibilityModal": "true", "accessibilityLabel": "Discard changes?"]],
-            ["op": "children", "id": 1, "ids": [2, 10, 30]],
-            ["op": "frame", "id": 30, "x": 80.0, "y": 80.0, "w": 200.0, "h": 80.0],
-        ]))
-        _ = client.notifications(until: ["AXLayoutChanged"])
-        try client.settleDialogNames(in: p)
-        client.clear()
-        p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 10]]]))
-        _ = client.notifications(until: ["AXLayoutChanged", "AXFocusedUIElementChanged"])
-        try client.settleDialogNames(in: p)
-        XCTAssertTrue(client.notifications(until: []).allSatisfy { $0.name != "AXAnnouncementRequested" },
-                      "the parent dialog is not named again after its child closes")
+        // No longer a dialog, it has no web area; nor has a group.
+        p.apply(wireBatch([["op": "props", "id": 10, "set": ["accessibilityRole": "group"]]]))
+        p.syncAccessibility(changed: [10])
+        XCTAssertFalse(p.views[10]?.accessibilityParent() is DialogWebArea)
     }
 
     /// AppKit posts the focus change itself as a view becomes the first
@@ -808,7 +767,7 @@ final class AccessibilityClientMacTests: XCTestCase {
         p.syncAccessibility()
         XCTAssertFalse(NSApp.isActive)
         XCTAssertTrue(p.focusedNode === p.views[11], "the field took the focus")
-        XCTAssertEqual(heard().filter { !$0.hasPrefix("AXAnnouncement") },
+        XCTAssertEqual(heard(),
                        ["AXLayoutChanged AXGroup Rename project Project title", "AXFocusedUIElementChanged AXTextField Project title"])
         // Closed, its commit's `focus()` gives the trigger the focus back.
         p.apply(wireBatch([["op": "children", "id": 1, "ids": [2]]]))
@@ -817,14 +776,14 @@ final class AccessibilityClientMacTests: XCTestCase {
     }
 
     /// A dialog in a popover whose field autofocuses (the font picker),
-    /// opened by VO-Space on its trigger, sends VoiceOver to the field and
-    /// names the dialog after it. The layout change is posted on the dialog:
+    /// opened by VO-Space on its trigger, sends VoiceOver to the field, and
+    /// VoiceOver names the dialog by its web area. The layout change is posted on the dialog:
     /// posted on the page's scroll view, VoiceOver went to the scroll view's
     /// child that holds the field, the dialog, said "Interface font family,
     /// dialog" and stayed there (realinput-1016i H-10; measured beside
     /// AppKit's `NSPopover`, which VoiceOver reads as "Search fonts, search
-    /// text field", then "In …, popover"). AppKit's popover names itself as
-    /// the focus enters it, so the host names only one painted in the page.
+    /// text field", then "In …, popover"). VoiceOver names AppKit's popover
+    /// by its window, so only one painted in the page has a web area.
     func testAPopoverDialogSendsVoiceOverToTheFieldItFocused() throws {
         let p = try fixture([
             ["op": "create", "id": 20, "kind": "view",
@@ -855,25 +814,19 @@ final class AccessibilityClientMacTests: XCTestCase {
         p.menus.show(picker, from: trigger)
         XCTAssertTrue(p.focusedNode === p.views[22], "the field took the focus")
         XCTAssertTrue(p.macAccessibilityModal === picker, "the picker is the modal")
-        let low = NSAccessibilityPriorityLevel.low.rawValue
-        XCTAssertEqual(heard(), ["AXLayoutChanged AXGroup Interface font family Search fonts", "AXFocusedUIElementChanged AXTextField Search fonts",
-                                 "AXAnnouncementRequested AXGroup Interface font family \"Interface font family, dialog\" priority \(low)"])
+        XCTAssertEqual(heard(), ["AXLayoutChanged AXGroup Interface font family Search fonts", "AXFocusedUIElementChanged AXTextField Search fonts"])
+        XCTAssertEqual(client.ancestry(of: "Search fonts", matching: "AXDescription"), ["AXGroup Search", "AXGroup AXApplicationDialog Interface font family", "AXWebArea [\"picker\"]", "AXScrollArea"])
         // Closed with the focus given back: VoiceOver goes to the trigger, from the page.
         p.menus.close(picker)
         XCTAssertEqual(heard(), ["AXLayoutChanged AXScrollArea More actions", "AXFocusedUIElementChanged AXButton More actions"])
 
-        // Closed before it is named: it is not named.
-        p.menus.show(picker, from: trigger)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        p.menus.close(picker)
-        XCTAssertFalse(heard().contains { $0.hasPrefix("AXAnnouncementRequested") }, "a dialog gone is not named")
-
-        // AppKit's popover: VoiceOver names it as the focus enters it, so the host does not.
+        // AppKit's popover: VoiceOver names it by its window, so it has no web area.
         p.menus.painted = false
         p.menus.show(picker, from: trigger)
         XCTAssertTrue(p.focusedNode === p.views[22], "the field took the focus")
         XCTAssertTrue(picker.window.map(p.menus.hosts) ?? false, "the picker is in AppKit's popover")
         XCTAssertEqual(heard(), ["AXLayoutChanged AXGroup Interface font family Search fonts", "AXFocusedUIElementChanged AXTextField Search fonts"])
+        XCTAssertFalse(picker.accessibilityParent() is DialogWebArea)
         p.menus.close(picker)
     }
 

@@ -878,6 +878,12 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
   // The raw target is refused as serveStatic refuses it (an encoded dot
   // segment); a parsed URL would resolve one into another route.
   const target = webRequestURL(req.url);
+  // A waiting page's answers, kept by the renderer that made it (render.mjs `deferredAnswers`, LLP 1048.007 D10).
+  const answers = target && pages?.answers?.(target.pathname);
+  if (answers) {
+    sendStaticBody(req, res, answers.body, { 'content-type': answers.status === 200 ? 'application/json' : 'text/plain; charset=utf-8', 'cache-control': answers.status === 200 ? 'private, max-age=3600, immutable' : 'no-store' }, answers.status);
+    return;
+  }
   const r = target ? await servedFile(dist, target.pathname, req.headers.accept, { pinned }) : { status: 404 };
   if (r.status === 410) { res.writeHead(410, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`build generation ${r.id} is no longer kept here: load the page again\n`); return; }
   if (pages && [200, 404].includes(r.status) && r.route === '/shell.html' && ['request', 'cached'].includes(r.render) && ['GET', 'HEAD'].includes(req.method)) {
@@ -930,7 +936,7 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
  * rendered again from where the build was kept when another replaced it during the render. Whole, not streamed, so
  * its head is sent only when all of it is known to be that build's. Null for a build with no server bundle (`--render
  * none`), whose `render=request` and `cached` routes are then served their shell. */
-function sitePages(dist, pageServer) {
+function sitePages(dist, { pageServer, deferredAnswers, deferredPath }) {
   const servers = new Map(); // `${id} ${tree}` -> its page server, a `cached` route's pages kept in it
   const serverOf = (id, tree) => {
     const key = `${id} ${tree}`;
@@ -940,7 +946,7 @@ function sitePages(dist, pageServer) {
     }
     return servers.get(key);
   };
-  return async (id, location, header) => {
+  const pages = async (id, location, header) => {
     // The page whole (no `sec-fetch-dest`) and uncompressed (no `accept-encoding`), as every file here is sent; laid
     // out for the viewport the request tells (render.mjs `viewportOf`, LLP 1048.006).
     const asked = (name) => (name === 'cache-control' || name === 'user-agent' || name.startsWith('sec-ch-') || name === 'viewport-width' ? header(name) : undefined);
@@ -955,6 +961,14 @@ function sitePages(dist, pageServer) {
     }
     return null;
   };
+  // `/.exact/checkpoint/<hash>.json`: the answers a waiting page named (render.mjs `deferAnswers`), else null.
+  pages.answers = (path) => {
+    const hash = deferredPath(path);
+    if (!hash) return null;
+    const body = deferredAnswers(hash);
+    return body === undefined ? { status: 404, body: "These answers are no longer kept; the page builds itself afresh.\n" } : { status: 200, body };
+  };
+  return pages;
 }
 
 const assetTrees = (rust) => ['assets', 'deck', 'shaders', 'plans', 'activities', ...(rust ? ['rust'] : [])];
@@ -1263,7 +1277,7 @@ async function main() {
   const host = loopback ? '127.0.0.1' : '0.0.0.0';
   const compression = compressionCache();
   const warming = warmCompression(dist, compression, js);
-  const pages = js ? sitePages(dist, (await import('../web-js/render.mjs')).pageServer) : null;
+  const pages = js ? sitePages(dist, await import('../web-js/render.mjs')) : null;
   const rebuild = rebuildOnChange(dist);
   const server = createServer(async (req, res) => {
     if (rebuild && acceptsHTML(req.headers.accept)) {

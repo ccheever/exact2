@@ -27,6 +27,15 @@ use taffy::prelude::{auto, length, zero, Rect};
 /// the outer cells and the table's padding edge (CSS 2.1 §17.6.1).
 pub(crate) const SPACING: f32 = 2.0;
 
+/// A table's `border-spacing`: its own, else the UA sheet's.
+pub(crate) fn spacing(style: &crate::StyleProps) -> f32 {
+    if style.mask.has(StyleId::BorderSpacing) {
+        style.rare.border_spacing.max(0.0)
+    } else {
+        SPACING
+    }
+}
+
 /// HTML's UA padding of a `th` and a `td`, on each side where none is said.
 const CELL_PADDING: f32 = 1.0;
 
@@ -149,15 +158,16 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
             if !style.mask.has(StyleId::BoxSizing) {
                 s.box_sizing = taffy::style::BoxSizing::BorderBox;
             }
+            let spacing = spacing(style);
             s.padding = Rect {
-                left: style.padding_left.floor_lp(env, SPACING),
-                right: style.padding_right.floor_lp(env, SPACING),
-                top: style.padding_top.floor_lp(env, SPACING),
-                bottom: style.padding_bottom.floor_lp(env, SPACING),
+                left: style.padding_left.floor_lp(env, spacing),
+                right: style.padding_right.floor_lp(env, spacing),
+                top: style.padding_top.floor_lp(env, spacing),
+                bottom: style.padding_bottom.floor_lp(env, spacing),
             };
             s.gap = taffy::geometry::Size {
-                width: length(SPACING),
-                height: length(SPACING),
+                width: length(spacing),
+                height: length(spacing),
             };
             // A height is the table's least: its rows grow to fill it, and
             // content taller than it makes it taller (CSS 2.2 §17.5.3).
@@ -176,9 +186,10 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
             // another box, has no padding of its own.
             let t = arena.style(table);
             let padded = lays_out(arena, table);
+            let spacing = spacing(t);
             let inset = |d: Dimension| match d.resolve(env) {
-                Dimension::Points(v) if padded => v.max(0.0) + SPACING,
-                _ => SPACING,
+                Dimension::Points(v) if padded => v.max(0.0) + spacing,
+                _ => spacing,
             };
             let (left, right) = (inset(t.padding_left), inset(t.padding_right));
             // A margin as a percentage and points. CSS takes the percentage

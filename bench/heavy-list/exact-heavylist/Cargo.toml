@@ -15,6 +15,7 @@ license = "MIT"
 # exact2's vendored patches: the kernel must build against the same crates
 # (scripts/app.mjs refuses an outside workspace whose patches differ).
 [patch.crates-io]
+accesskit_windows = { path = "../../../vendor/accesskit-windows" }
 taffy = { path = "../../../vendor/taffy" }
 parley = { path = "../../../vendor/parley" }
 fontique = { path = "../../../vendor/fontique" }

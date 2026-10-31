@@ -1110,6 +1110,21 @@ Eframe exposes no DXGI swap chain, so its readiness is a DWM proxy plus
 next-dispatch delay. These whole-app paths retain unequal scroll work,
 geometry, images and readiness. See [G6e's comparison, trace and qualification](../bench/heavy-list/gpui/RESULTS.md#g6e-the-full-period-reservation-wait-restored).
 
+**G7, Windows, 2026-10-31:** the NucBox now runs 5120×1440 at 120 Hz,
+100% scale, driver 32.0.23033.1002; every earlier Windows row is at 60 Hz.
+PresentMon's egui diagnostic confirms 8.3374 ms median display intervals.
+Ten quiet fresh processes per arm give **161.18 ms DWM / 167.03 ms DXGI**
+for D3D11, **723.48 ms DWM** for Ink/wgpu and **239.05 ms DWM** for egui,
+all within the predicted 10% bands. Five-round cadence, CPU and memory
+remain uncollected: three foreground attempts fail, so the unfocused
+120 Hz diagnostic is excluded. Source and refresh both differ from G6e/G6.
+Both devices pass five allowed desktop journeys; sleep/wake is skipped.
+The native field journeys pass at 100/150%; the single UIA discovery attempt
+fails before its pattern assertions. The final isolated wgpu paint suite
+passes 56 tests with the AMD hook loaded; the prior fault does not recur.
+See [G7's predictions, rows and retained
+evidence](../bench/heavy-list/gpui/RESULTS.md#g7-windows-at-120-hz).
+
 **G6d, Windows, 2026-10-30**: reservation errors retry without terminating;
 visibility, focus, resize and DPI events clear presentation backoff; successful
 presents retry transient Mica refusal, bounded to three attempts. Clean redraws

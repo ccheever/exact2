@@ -1,11 +1,17 @@
 """Summarize G6's retained JSON and PresentMon CSV; never alter raw observations."""
+import argparse
 import csv
 import json
 from pathlib import Path
 import statistics as S
-import sys
-
-root=Path(sys.argv[1])
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('root',type=Path)
+parser.add_argument('--refresh-hz',type=float,default=60.)
+args=parser.parse_args()
+if args.refresh_hz <= 0:
+    parser.error('--refresh-hz must be positive')
+root=args.root
+late_ms=1500/args.refresh_hz
 
 def metric(values):
     values=[v for v in values if v is not None]
@@ -22,7 +28,7 @@ def input_metrics(sample):
         ticks=[r['qpc'] for r in sample['posts'] if r['gesture']==gesture]
         gaps.extend((b-a)*1000/sample['qpcFrequency'] for a,b in zip(ticks,ticks[1:]))
     return dict(posts=len(sample['posts']),maxPostGapMs=max(gaps),
-                latePostGaps=sum(gap>25 for gap in gaps))
+                latePostGaps=sum(gap>late_ms for gap in gaps))
 
 
 def frames(sample,path):
@@ -47,7 +53,7 @@ def frames(sample,path):
     return dict(p50=intervals[min(int(.5*len(intervals)),len(intervals)-1)],
                 p95=intervals[min(int(.95*len(intervals)),len(intervals)-1)],
                 p99=intervals[min(int(.99*len(intervals)),len(intervals)-1)],
-                latePerSecond=sum(x>25 for x in intervals)/seconds,
+                latePerSecond=sum(x>late_ms for x in intervals)/seconds,
                 gestureFps=count/seconds,phaseFps=sum(start<=v<=end for v in times)*frequency/(end-start),
                 restPresents=sum(end<v<=sample['restEnd']['qpc'] for v in times),
                 displayedFrames=len(times),csvRows=len(rows),

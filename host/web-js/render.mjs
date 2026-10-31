@@ -56,6 +56,27 @@ function infer(out) {
 }
 
 /** The renderer for one built dist: its server bundle compiled once. */
+/** The answers a waiting page names rather than holds (LLP 1048.007 D10), by their hash: kept for the reader's first
+ * act, most recently made or asked last, within 512 checkpoints and 64 MB. A checkpoint no longer kept is a 404, and
+ * the runtime then builds the page afresh. One store for the process, whichever build made them. */
+const Deferred = new Map();
+let deferredBytes = 0;
+const deferAnswers = checkpoint => {
+  const hash = createHash('sha256').update(checkpoint).digest('hex').slice(0, 32);
+  if (Deferred.has(hash)) Deferred.delete(hash); else deferredBytes += checkpoint.length;
+  Deferred.set(hash, checkpoint);
+  while (Deferred.size > 512 || deferredBytes > 64 << 20) { const [k, v] = Deferred.entries().next().value; Deferred.delete(k); deferredBytes -= v.length; }
+  return hash;
+};
+/** The checkpoint a page named by `hash`, or undefined. */
+export function deferredAnswers(hash) {
+  const checkpoint = Deferred.get(hash);
+  if (checkpoint !== undefined) { Deferred.delete(hash); Deferred.set(hash, checkpoint); }
+  return checkpoint;
+}
+/** `/.exact/checkpoint/<hash>.json`'s hash, or null. */
+export const deferredPath = path => /^\/\.exact\/checkpoint\/([0-9a-f]{32})\.json$/.exec(path)?.[1] ?? null;
+
 export function renderer(dist) {
   const script = new vm.Script(readFileSync(resolve(dist, '.gen/server.js'), 'utf8'), { filename: 'server.js' });
   const shell = readFileSync(resolve(dist, existsSync(resolve(dist, 'shell.html')) ? 'shell.html' : 'index.html'), 'utf8');
@@ -167,8 +188,12 @@ export function renderer(dist) {
       const checkpoint = `{"location":${JSON.stringify(url.pathname + url.search)},"time":${JSON.stringify(out.time)},"logic":null,"answers":${out.answers},"pending":${JSON.stringify(out.pending)}}`;
       const digest = createHash('sha256').update(out.root).digest('hex').slice(0, 16);
       const style = rules ? `<style data-exact-page>${select(rules, tokens(out.root + shell.slice(root)))}</style>\n` : '';
+      // A page made per request that waits for the reader names its answers past 1 KB rather than holding them: they
+      // are needed only once the reader acts, and the capture script fetches them with the runtime (LLP 1048.007 D10).
+      const deferred = activate === 'interaction' && (info.policy === 'request' || info.policy === 'cached') && checkpoint.length > 1024;
+      const src = deferred ? ` data-src="/.exact/checkpoint/${deferAnswers(checkpoint)}.json"` : '';
       const body = late => `${fields}\n${late}${style}<div id="exact-root"${rootAttrs}>${out.root}</div>${shell.slice(root + ROOT[0].length, entry)}`
-        + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${activate}"${wake}>${checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entry + ENTRY.length)}`;
+        + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${activate}"${wake}${src}>${deferred ? '' : checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entry + ENTRY.length)}`;
       // A complete page marks html and names the preloads in its head; a streamed head has gone already, so the rest
       // marks it before the body and names them after the head's fields, as page.rs does.
       const whole = late ? headOf(true) : head;
@@ -293,6 +318,8 @@ if (import.meta.main) {
       }
       // A route drawn in the browser (`render=client`) gets the shell and one rendered at build its page, as
       // `serve` gives them (LLP 1153.001 D1); the rest are rendered here.
+      const answers = deferredPath(url.pathname);
+      if (answers) { const checkpoint = deferredAnswers(answers); return new Response(checkpoint ?? 'These answers are no longer kept; the page builds itself afresh.\n', { status: checkpoint ? 200 : 404, headers: checkpoint ? { 'content-type': 'application/json', 'cache-control': 'private, max-age=3600, immutable' } : { 'content-type': 'text/plain', 'cache-control': 'no-store' } }); }
       const at = matchPattern(routes, canonical(url.pathname)), built = resolve(file, 'index.html');
       const html = { 'content-type': 'text/html', 'cache-control': 'no-cache' };
       if (at >= 0 && routes[at].render === 'build' && built.startsWith(dist + '/') && existsSync(built)) return new Response(Bun.file(built), { headers: html });

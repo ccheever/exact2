@@ -191,14 +191,6 @@ extension NodeView {
     /// (Core-AAM): a `menu` is `AXMenu`, as WebKit serves one, so VoiceOver
     /// says "menu" as it does for AppKit's.
     static let containerRoles: [String: NSAccessibility.Role] = ["group": .group, "radiogroup": .radioGroup, "menu": .menu, "menubar": .menuBar]
-    /// What a dialog says as it opens: its name, its role ("dialog") and its
-    /// description, in VoiceOver's order for an element; nil with neither a
-    /// name nor a description.
-    var dialogWords: String? {
-        let name = authoredLabel, description = accessibleDescription
-        guard name != nil || description != nil else { return nil }
-        return [name, accessibilityRoleDescription(), description].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
-    }
     /// A pressable's AppKit role when it is no toggle: a link, a menu item, else a button.
     var buttonRole: NSAccessibility.Role { props["accessibilityRole"] == "link" ? .link : isMenuItem ? .menuItem : .button }
     var isMenu: Bool { ["menu", "menubar"].contains(props["accessibilityRole"] ?? "") }
@@ -454,6 +446,61 @@ extension NodeView {
             if accessibilityValueDescription() != nil { setAccessibilityValueDescription(nil) }
         }
     }
+}
+
+/// The web area a dialog drawn in the page is served in, as its parent.
+/// VoiceOver names a dialog as the keyboard focus enters it, before the
+/// focused control ("<name>, dialog, with <n> items, <control>"), only
+/// when an `AXWebArea` is among the dialog's ancestors, as one is above
+/// every dialog in Chrome (measured on macOS 27.2: the same dialog under
+/// no web area read the control alone). An announcement cannot put the
+/// dialog first: VoiceOver spoke one after the focused control's words at
+/// each priority, whether posted before the focus moved or after
+/// (measured). An alert dialog is read as Chrome's is: the control, then
+/// the dialog's name, role and description (measured).
+///
+/// It is the dialog's parent and no element's child: the tree from the
+/// window down does not hold it, so VoiceOver moves, interacts and stops
+/// interacting in the dialog as in a group (measured: the same steps and
+/// words), where a web area served as a child was a stop VoiceOver's
+/// cursor did not move on from. A dialog in a sheet or in AppKit's popover
+/// has none: VoiceOver reads it by its window ("In dialog", "In popover").
+final class DialogWebArea: NSAccessibilityElement, AgentOwned {
+    weak var dialog: NodeView?
+    init(_ dialog: NodeView) {
+        self.dialog = dialog
+        super.init()
+    }
+    var agentViewId: UInt32? { dialog?.id }
+    override func accessibilityRole() -> NSAccessibility.Role? { .init(rawValue: "AXWebArea") }
+    override func accessibilityParent() -> Any? { dialog?.pageAccessibilityParent }
+    override func accessibilityChildren() -> [Any]? { dialog.map { [$0] } }
+    override func accessibilityFrame() -> NSRect { dialog?.accessibilityFrame() ?? .zero }
+    override func accessibilityWindow() -> Any? { dialog?.window }
+    override func accessibilityTopLevelUIElement() -> Any? { dialog?.window }
+}
+
+extension NodeView {
+    /// The web area above this node while it is a dialog drawn in the page
+    /// (`DialogWebArea`). It reads the host's own state, as
+    /// `accessibilityRoleDescription` does, since it serves AppKit's requests.
+    var dialogWebArea: DialogWebArea? {
+        guard !Self.servingPageParent, ["AXApplicationDialog", "AXApplicationAlertDialog"].contains(groupSubrole ?? ""), let window, !window.isSheet,
+              let presenter, !presenter.menus.hosts(window) else { return nil }
+        if let webArea { return webArea }
+        let area = DialogWebArea(self)
+        webArea = area
+        return area
+    }
+    /// AppKit's parent for the view, read with no web area served: NSView's
+    /// `accessibilityParent()` asks the legacy `accessibilityAttributeValue(.parent)`,
+    /// which would serve the web area as the web area's own parent.
+    func withoutWebArea(_ parent: () -> Any?) -> Any? {
+        Self.servingPageParent = true
+        defer { Self.servingPageParent = false }
+        return parent()
+    }
+    nonisolated(unsafe) private static var servingPageParent = false
 }
 
 extension NodeView {
@@ -828,8 +875,8 @@ extension Presenter {
     /// while the focus stays put. The focus change is the host's only when AppKit did not post
     /// it: AppKit posts one as a view becomes the first responder of the
     /// active application's key window (measured), and a second for the
-    /// same element is not AppKit's. A dialog drawn in the page is then
-    /// named (`nameDialog`).
+    /// same element is not AppKit's. VoiceOver names a dialog drawn in the
+    /// page as the focus enters it (`DialogWebArea`).
     func tellLanding() {
         landing.scheduled = false
         let modal = macAccessibilityModal
@@ -864,46 +911,8 @@ extension Presenter {
                 .flatMap { $0.isAccessibilityElement() ? $0 : nil } ?? viewport
             NSAccessibility.post(element: changed, notification: .layoutChanged, userInfo: target.map { [.uiElements: [$0]] })
             if let focus, target === focus, !toldByAppKit { NSAccessibility.post(element: focus, notification: .focusedUIElementChanged) }
-            nameDialog(modal, landedOn: target)
         } else if focusReturns, let focus, !toldByAppKit {
             NSAccessibility.post(element: focus, notification: .focusedUIElementChanged)
-        }
-    }
-    /// How long after the landing a dialog drawn in the page is named.
-    static let dialogNameDelay: TimeInterval = 0.5
-    /// A dialog drawn in the page that became the modal is named after the
-    /// focus in it is told: VoiceOver reads a sheet's or a panel's title as
-    /// it appears and an `NSAlert`'s title and message, but a group in the
-    /// page has no window to be read by. The words are queued at low
-    /// priority, as a polite live region's are, so they follow the focused
-    /// control's and do not cut it off, a moment after the landing:
-    /// VoiceOver drops words that arrive before it has moved to a text
-    /// field it was sent to from a trigger the modal hid (VO-Space on the
-    /// font picker's trigger, measured: none of five read at once, the
-    /// field and then the name read 0.3 s later). One that is no longer the
-    /// modal by then is not named. A dialog VoiceOver landed on itself
-    /// is read there; a sheet is AppKit's to read, and so is AppKit's
-    /// popover: VoiceOver says "In <name>, dialog" as the focus enters one
-    /// (measured), where a popover painted in the page is named here. It is
-    /// named once while it stays up:
-    /// one handed the modal back by a dialog closed over it is not named
-    /// again, as an AppKit sheet is not when its child sheet ends.
-    private func nameDialog(_ modal: NodeView?, landedOn target: NSView?) {
-        landing.namedDialogs.removeAll { dialog in
-            dialog.window == nil || dialog.isHiddenOrHasHiddenAncestor || leaving[dialog.id] != nil
-                || (dialog.props["accessibilityModal"] != "true" && dialogs.active !== dialog)
-        }
-        guard let modal, ["AXApplicationDialog", "AXApplicationAlertDialog"].contains(modal.groupSubrole ?? ""),
-              modal.window?.isSheet != true, !(modal.window.map(menus.hosts) ?? false), !landing.namedDialogs.contains(where: { $0 === modal }) else { return }
-        landing.namedDialogs.append(modal)
-        guard target !== modal, let words = modal.dialogWords else { return }
-        landing.pendingNames += 1
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.dialogNameDelay) { [weak self, weak modal] in
-            guard let self else { return }
-            defer { landing.pendingNames -= 1 }
-            guard let modal, macAccessibilityModal === modal else { return }
-            NSAccessibility.post(element: modal, notification: .announcementRequested,
-                userInfo: [.announcement: words, .priority: NSAccessibilityPriorityLevel.low.rawValue])
         }
     }
     /// Where VoiceOver goes as a modal arrives: the keyboard focus when it
@@ -1163,9 +1172,5 @@ struct VoiceOverLanding {
     weak var invokerFocus: NSView?
     /// The focus at the last landing: one changed since was told by AppKit.
     weak var toldFocus: NSView?
-    /// The dialogs drawn in the page named as they opened that are still up.
-    var namedDialogs: [NodeView] = []
-    /// Deferred naming operations, including those whose dialog has closed.
-    var pendingNames = 0
 }
 #endif

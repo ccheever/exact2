@@ -7356,3 +7356,153 @@ The post-conflict release build passes on that base in 6m 04s
 repeated after it. Final formatting and structural caps pass on that tree
 (`checks/final-rebase-fmt.log`, `final-rebase-caps.log`). Windows compilation
 and the prohibited local suites remain for the orchestrator.
+
+## G7, Windows at 120 Hz
+
+**Predictions before collection, 2026-10-31.** Source `6d501215b7`,
+`lane/1149-001-win120`. The NucBox now uses DisplayPort at 5120×1440,
+120 Hz; every earlier Windows row in this file was collected at 60 Hz.
+The three arms use G6's release profiles, five rotating fling/rest rounds
+and ten rotating fresh-process launches, with application, OS and driver
+caches retained. Each entire series must satisfy G6's five-second quiet
+rule: no compiler and total CPU below 10%. No build overlaps measurement.
+The historical comparison changes both refresh rate and source revision;
+it does not isolate a refresh-only effect.
+
+| Prediction | Instrument and criterion |
+| --- | --- |
+| D3D11 and egui reach 116–120 displays per gesture second; Ink/wgpu still has no app-owned present records. | PresentMon 2.6.0, G6's four one-second gesture windows, five rounds. |
+| D3D11 and egui have at most 1 late interval/s and p99 at most 12.5 ms. | Display timestamps; late means strictly over 12.5 ms, 1.5 periods at 120 Hz. |
+| Fling process/main CPU roughly doubles: D3D11 168/125, Ink/wgpu 243/224, egui 50/50 ms/s, each within 25% of that estimate. | G6's process and HWND-owner-thread CPU endpoints over ten seconds. Windows accounting remains quantized in 15.625 ms ticks. |
+| Peak working set stays within 10% of 153/325/182 MiB for D3D11/Ink-wgpu/egui. | G6's lifetime peak working set at the end of rest. |
+| Cold first screen stays within 10% of G6e/G6 medians: D3D11 161 ms DWM / 178 ms DXGI, Ink/wgpu 716 ms DWM, egui 249 ms DWM. | Ten fresh processes per arm; G6's DWM proxy and D3D11's DXGI endpoint. The other arms expose no DXGI startup endpoint. |
+| Painter snapshots equal successful D3D11 frames. | Existing exit counters, including startup. |
+
+The carrier's reservation uses DirectComposition's reported refresh rational
+and rounds one period up to milliseconds: 9 ms at 120 Hz. A missing or invalid
+rate falls back to 60 Hz, but a signalled waitable releases the reservation
+earlier. Its lifecycle does not impose a 60 Hz cap. No carrier change is planned. `windows-summary.py --refresh-hz 120`
+uses the correct 12.5 ms late threshold for displayed and posted intervals;
+its default remains 60 Hz for reproducing G6. This analysis change predicts
+no change to cadence, CPU, memory or startup observations.
+
+The first two mode diagnostics each recorded 683 focus losses: Settings
+retained foreground ownership after the DPI journeys, and minimizing it did
+not grant the driver foreground permission. Both are excluded from the
+scoreboard. Before the third diagnostic, the driver adopts the native field
+journey's `AttachThreadInput` fallback and asserts foreground ownership before
+its timed endpoints. Prediction: zero focus losses and 116–120 displays/s
+on egui, with no change to the carrier or the startup endpoint. The first two
+captures remain under `target/g7/mode-presentmon{,-2}/` on the NucBox.
+
+
+The third focus diagnostic also fails, at the new foreground assertion
+before any timed fling endpoint. The zero-focus-loss prediction is a miss.
+The three-round repair limit ends this problem; the fallback is removed
+from the committed driver and retained as `target/g7/failed-focus-driver.py`.
+No five-round fling series is claimed. Fresh-process startup uses its
+existing readiness endpoints and does not depend on the fling focus check.
+The first diagnostic's 8.3374 ms median displayed interval establishes that
+the compositor presents egui at 120 Hz; its 683 focus losses exclude its
+117.88 displays/s, CPU and memory observations from the scoreboard.
+
+
+### G7 results beside the 60 Hz rows
+
+All 30 fresh-process launches pass: 34 five-second quiet observations,
+maximum total CPU 8.5%, no compiler, no failed launch. All four cold-first-screen
+predictions are **met**. Application, OS and driver caches are retained;
+“cold” here means a fresh process, not evicted caches. Values are medians
+[min–max], milliseconds, ten processes per arm.
+
+| Endpoint | 60 Hz, G6e / G6 | 120 Hz, G7 | Prediction |
+| --- | ---: | ---: | --- |
+| D3D11 DWM proxy | 160.78 [151.81–171.37] | 161.18 [146.55–175.67] | 161 ±10%: met |
+| D3D11 DXGI display | 177.66 [170.41–182.54] | 167.03 [153.72–181.89] | 178 ±10%: met |
+| Ink/wgpu DWM proxy | 716.21 [706.02–736.88] | 723.48 [687.45–834.75] | 716 ±10%: met |
+| egui DWM proxy | 248.76 [240.70–255.15] | 239.05 [229.51–263.04] | 249 ±10%: met |
+
+Ink/wgpu and egui still expose no DXGI first-display endpoint. D3D11's ten
+startup processes total **38 painter snapshots / 38 successful frames**;
+the invariant holds for these launches, and remains untested for five flings.
+A higher refresh rate shortens a display period, but source also changed;
+these historical distributions do not isolate the cause of endpoint changes.
+
+No five-round 120 Hz fling cohort passed focus qualification. The rows below
+preserve the historical comparison and show the missing measurements instead
+of filling them with unfocused diagnostic values. “Uncollected” applies to
+both the five-round median and range; all fling CPU, memory, late-interval
+and cadence predictions remain **untested**, not passing or numeric misses.
+
+| Arm / refresh | Displays / gesture s | Late intervals / s | p99 interval, ms | Process / main CPU, ms/s | Peak working set, MiB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| D3D11, 60 Hz (G6e) | 58.15 | 0 | 16.85 | 84.08 / 62.31 | 153.18 |
+| D3D11, 120 Hz (G7) | Uncollected | Uncollected | Uncollected | Uncollected | Uncollected |
+| Ink/wgpu, 60 Hz (G6) | No app-owned presents | Unavailable | Unavailable | 121.41 / 112.02 | 324.75 |
+| Ink/wgpu, 120 Hz (G7) | Uncollected | Uncollected | Uncollected | Uncollected | Uncollected |
+| egui, 60 Hz (G6) | 57.86 | 0 | 16.88 | 24.91 / 24.91 | 181.74 |
+| egui, 120 Hz (G7) | Uncollected | Uncollected | Uncollected | Uncollected | Uncollected |
+
+The 60 Hz late threshold was 25 ms; G7's is 12.5 ms. The carrier is unchanged.
+Its reservation reads the composition refresh rate, with 60 Hz only as an
+invalid-rate fallback; it is not hard-coded to a 60 Hz reservation. This
+collection does not establish D3D11's actual 120 Hz reservation cadence.
+Foreground acquisition is the collection blocker, and QUEUE retains it.
+
+### G7 reproduction and qualification
+
+Measured source: `6d501215b72929ea24620614691dee7f86192735`.
+The source archive and `target/g7/preparation.patch` reproduce the build:
+the only build adjustment adds the root's existing `accesskit_windows`
+patch to the standalone heavy-list workspace. No Rust or carrier source
+changes. The 120 Hz summary change is analytical only; the retained synthetic
+16.6667 ms interval is late at 120 Hz and on time at the default 60 Hz.
+The original and updated default summaries agree on all 30 startup samples;
+the local 120 Hz summary equals the NucBox summary.
+
+The own mirror is
+`C:\Users\Charlie Cheever\projects\exact2-1149-001-win120`.
+Its `target/g7/` retains the exact build scripts, logs, binary hashes,
+mode enumerations, driver snapshots, three diagnostic captures and CSVs,
+startup JSON/quiet logs, native test outputs, DPI captures and UIA tree.
+The first two diagnostics are excluded for 683 focus losses each; the third
+fails foreground acquisition before the timed endpoints. They are not quiet
+series and cannot supply the missing CPU or memory rows.
+
+The pre-paint evidence is retained locally as `target/g7/pre-paint-evidence.zip`
+(SHA-256 `c3b929d7c54b06d22b17c4e7375c3bb20fdc29db5207ff07d731004434fae901`)
+and extracted at `target/g7/nucbox/`. The source archive remains separate;
+no cited raw file is deleted. Reproduce the qualified table without an app:
+
+```sh
+python3 bench/heavy-list/egui/windows-summary.py \
+  target/g7/nucbox/series-1 --refresh-hz 120
+```
+
+To recollect after foreground qualification, use the existing console-session
+launch chain, `target/g7/series.ps1` with a new output name, and the same five
+rotating fling rounds plus ten rotating startup rounds. The 800×800 outer
+windows run at 100% scale. The G7 build uses G6's release profiles and
+PresentMon 2.6.0; the native qualification uses separate `gpu-dev` executables.
+[Stage 1w's desktop results](../../../host/ink/MEASUREMENTS.md#stage-1w-desktop-qualification-at-120-hz--results)
+include both devices' five allowed journeys, RichEdit at both scales,
+wgpu surfaces, composition and startup fixtures. Sleep/wake is deliberately
+skipped, and UIA discovery fails once with its full rejected tree retained.
+
+
+The last, isolated wgpu paint attempt passes **56 tests, zero failures,
+one opt-in measurement ignored**, with `amdihk64.dll` loaded in both the
+preflight Shelf arm and the pinned process. The prior crash does not recur;
+no new application fault event is captured, and no AMD setting changes.
+The complete final archive is `target/g7/final-evidence.zip`, SHA-256
+`f7609d5a6b970047f5085a2f79e583d40dc358aeb5f0dc00c0450c1caf96289c`.
+The summary's standalone reproduction checks are in
+`target/g7/summary-check/verification.txt` and `target/g7/summary-reproduction.txt`.
+
+Structural caps pass with `EXACT_CAPS_WASM=0` (the prohibited implicit Mac
+wasm build is skipped), and `git diff --check` passes. The NucBox release
+and native builds pass; no Mac six-check gate is claimed.
+
+The clean rebase onto `c83a5c1d97` brings in kernel table layout/style/schema
+changes. These rows and native results remain attached to measured source
+`6d501215b7`; no post-rebase performance or native qualification is claimed.
