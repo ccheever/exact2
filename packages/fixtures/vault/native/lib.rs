@@ -6,7 +6,7 @@
 //! `{op: "answer"}` answers the library's number, which nothing else knows.
 //! `{op: "open", path}` asks the host for `path`, says whether the file was
 //! there before, and has the library open it with its own SQLite, write a
-//! row and hold it, until `{op: "close"}`.
+//! row and hold it, until `{op: "close"}` or the module drops.
 
 use exact_js::{json, Json, NativeModule, NativeStorage, SqliteFile};
 use std::ffi::{c_char, CString};
@@ -31,6 +31,17 @@ impl Vault {
             app: app.to_owned(),
             storage: None,
             open: None,
+        }
+    }
+}
+
+/// The host drops the module on unload and reload, maybe with the vault
+/// open: the library closes it here, before the fields, and so the
+/// reservation, drop.
+impl Drop for Vault {
+    fn drop(&mut self) {
+        if self.open.is_some() {
+            unsafe { vault_close() };
         }
     }
 }

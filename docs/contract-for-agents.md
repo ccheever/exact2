@@ -2315,15 +2315,16 @@ implements `exact_js::NativeModule` and has `fn new(app: &str) -> Self`; the shi
 its own `Cargo.toml` writes `.with_native(exact_native)` in `embedded_data`). Its
 `configure_storage` gets the app's roots and `sqlite(path)`, which admits `sqlite.open` under
 the app's grants and answers a `SqliteFile` guard: while the module holds it, the app's own
-`storage.sqlite` is refused the file, so the module closes its own SQLite before dropping it.
+`storage.sqlite` is refused the file, so a shim closes its own SQLite before dropping the guard,
+on its close operation and in `Drop` (the host drops the module on reload).
 `library` pins one `{url, sha256}` per Rust target of a dynamic library named `link`: for
 Linux a shared object whose SONAME is `lib<link>.so`, for Apple a zip of one `.xcframework`
 whose slice is `<link>.framework`, installed as `@rpath/<link>.framework/…`. The build
 fetches it by its hash before Cargo, links it from the shim's `#[link(name = "<link>")]`, and
 carries it beside a Linux executable or, signed, in an Apple bundle's `Frameworks`.
 `web.assets` are served at `/assets/<package>/<path>`, captured with the package's code when
-`app.ts` imports it. A wrong hash, a target `library` does not name and two dependencies
-declaring `native` (`bake-native-twice`) each fail the build by name.
+`app.ts` imports it. Each of these fails the build by name: a wrong hash; a target `library`
+does not list; two dependencies declaring `native` (`bake-native-twice`).
 `packages/fixtures/vault` is a whole one, its library built by `test/library.mjs`.
 
 ## Routes and web documents
