@@ -2,7 +2,7 @@
 // LLP 1071): the app's generated module runs against a small DOM
 // (`dom.js`), in a fresh VM context per render, with the app's own data
 // source (TypeScript, or the Rust module's wasm), until nothing is in flight
-// or the deadline passes. Its document, head and checkpoint are composed
+// or the deadline passes. Its fetches share an HTTP cache (`http-cache.mjs`). Its document, head and checkpoint are composed
 // over the built shell as the Rust render host composes them
 // (`host/render/src/page.rs` `page_js`), so the page adopts the same way.
 //
@@ -15,6 +15,7 @@ import { resolve, dirname, extname } from 'node:path';
 import vm from 'node:vm';
 import { brotliCompressSync, createBrotliCompress, constants } from 'node:zlib';
 import { createDocument } from './dom.js';
+import { cachingFetch } from './http-cache.mjs';
 
 const DEADLINE = 3000;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -35,6 +36,8 @@ export function renderer(dist) {
   // A dist file once; a wasm compiled once, instantiated per render.
   const cache = new Map();
   const files = p => { let v = cache.get(p); if (!v) { v = readFileSync(resolve(dist, p.replace(/^\.?\//, ''))); if (p.endsWith('.wasm')) v = new WebAssembly.Module(v); cache.set(p, v); } return v; };
+  // Every render's fetches share one HTTP cache, for as long as each answer's headers allow (http-cache.mjs).
+  const fetched = cachingFetch(fetch);
   const name = /<title>([^<]*)<\/title>/.exec(shell)?.[1] ?? '';
   // The shell's places, as page.rs `head_js`/`body_js` compose them: what
   // comes before anything the render decides (the head a server flushes as
@@ -65,7 +68,7 @@ export function renderer(dist) {
       // No reader's device facts: use runner/src/viewport.rs's default size and media bits.
       innerWidth: 390, innerHeight: 844,
       matchMedia: media => ({ media, matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
-      setTimeout, clearTimeout, queueMicrotask, performance, console, fetch, Request, Response, Headers, URL, URLSearchParams, TextEncoder, TextDecoder,
+      setTimeout, clearTimeout, queueMicrotask, performance, console, fetch: fetched, Request, Response, Headers, URL, URLSearchParams, TextEncoder, TextDecoder,
       WebAssembly, atob, btoa, Event: class {}, CustomEvent: class {}, crypto, __exactRender: true, __files: files,
     });
     ctx.globalThis = ctx; ctx.self = ctx;
