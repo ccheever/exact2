@@ -40,6 +40,7 @@ struct App<D: DataSource> {
     layer: Option<Layer>,
     display: Option<DisplayLink>,
     presenter: Option<Presenter<D>>,
+    prepared: Option<exact_linux::presenter::PreparedAppleFrame>,
     agent: Option<super::agent::Agent>,
     started: Instant,
     tick_pending: Arc<AtomicBool>,
@@ -143,6 +144,7 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         layer: None,
         display: None,
         presenter: None,
+        prepared: None,
         agent: None,
         started,
         tick_pending: Default::default(),
@@ -199,9 +201,17 @@ impl<D: DataSource + Default + 'static> App<D> {
             return;
         };
         let size = window.inner_size();
+        let old_scale = self.scale;
         self.scale = window.scale_factor();
         if size.width == 0 || size.height == 0 {
             return;
+        }
+        let viewport = (
+            size.width as f32 / self.scale as f32,
+            size.height as f32 / self.scale as f32,
+        );
+        if old_scale != self.scale || p.host().viewport() != viewport {
+            self.prepared = None;
         }
         layer.resize([size.width, size.height], self.scale);
         if let Some(e) = p.resize_scaled(
@@ -235,6 +245,12 @@ impl<D: DataSource + Default + 'static> App<D> {
         let Some(p) = &mut self.presenter else {
             return Ok(None);
         };
+        if !prepare {
+            if let Some(frame) = self.prepared.take() {
+                p.present_prepared_apple_frame(frame)?;
+                return Ok(None);
+            }
+        }
         let now = if !self.live {
             p.host().now()
         } else {
@@ -382,12 +398,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             let prepared = self.draw(true)?;
             window.set_visible(true);
             trace_mark(c"boot window shown", || 0.);
-            if let Some(frame) = prepared {
-                self.presenter
-                    .as_mut()
-                    .unwrap()
-                    .present_prepared_apple_frame(frame)?;
-            }
+            // The first redraw follows AppKit's show work. A drawable acquired
+            // immediately after set_visible can still be dropped.
+            self.prepared = prepared;
             window.request_redraw();
             if self.config.agent {
                 let ready = serde_json::json!({"ready":true,"boot":self.started.elapsed().as_secs_f64()*1000.,"views":self.presenter.as_ref().unwrap().node_count(),"error":null,"benchmarkCarrier":true}).to_string();
@@ -407,6 +420,12 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 }
                 trace_mark(c"display wake", || 0.);
                 self.tick_pending.store(false, Ordering::Release);
+                if self.prepared.is_some() {
+                    if let Err(e) = self.draw(false) {
+                        self.fail(events, e);
+                    }
+                    return;
+                }
                 let unshown = self.awaiting_first_present();
                 let dirty = self
                     .presenter

@@ -8372,3 +8372,22 @@ worker and retains the main-thread drawable-present request separately. The
 probe's thread-local preceding-commit marker can name the earlier compose
 pass on main; it remains the join for GPUI's same-thread transaction path.
 Presentation-to-display intervals below start at the actual present request.
+
+**First live attempt; prediction before the second, 2026-10-30.** Immediate
+post-show presentation still drops. The retained passive launch shows at
+133.227 ms, requests presentation on main at 137.649 ms and receives the zero
+callback at 137.723 ms, before the first layer transaction completes at
+152.681 ms. Its complete screen is 177.600 ms. The ordinary active diagnostic
+in `paired/ink-after-1-cold.json` similarly shows at 145.080 ms, presents at
+151.768 ms, drops at 151.829 ms and completes at 204.282 ms: 59.202 ms after
+show, not the predicted 30. The cohort is excluded for load.
+
+The second attempt keeps the same prepared scene until the first redraw
+request, or the first display-link callback if that arrives sooner. It
+acquires, copies and presents on main's current transaction then, without a
+second paint. A resize invalidates the prepared scene. Prediction: the first
+submission now gets a positive timestamp; the same active trace's schedule
+predicts about 185 + 20 = **205 ms**, so the original 146–160 ms prediction
+may still miss. The first-composite interval is measured from the actual
+present request on the same retained trace instrument. No timing from this
+excluded diagnostic replaces a scoreboard row.
