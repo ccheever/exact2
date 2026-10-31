@@ -16,7 +16,8 @@ export const projection = (id: string, extra: Obj = {}): Obj => ({ thread: threa
   visibleTurnItems: [], updatedAt: at, ...extra });
 
 export class Fake implements Native {
-  available = true; branch = 'main'; extraRefs: Obj[] = []; copied: string[] = []; generation = 1; serial = 0; seq = 0; events: Obj[] = []; subs: Record<string, string> = {}; committed: Obj[] = [];
+  available = true; branch = 'main'; extraRefs: Obj[] = []; copied: string[] = []; generation = 1; serial = 0; seq = 0; events: Obj[] = []; subs: Record<string, string> = {}; committed: Obj[] = []; archived: Obj[] = [];
+  scopes = ['orchestration:read', 'orchestration:operate'];
   shell: Obj = { snapshotSequence: 1, projects: [{ id: 'p1', title: 'Example', workspaceRoot: '/repo' }], threads: [thread('t1'), thread('t2')] };
   details: Record<string, Obj> = { t1: { snapshotSequence: 1, historyCursor: null, hasMoreHistory: false, latestLocalTurnOrdinal: 0, projection: projection('t1') },
     t2: { snapshotSequence: 1, historyCursor: null, hasMoreHistory: false, latestLocalTurnOrdinal: 0, projection: projection('t2') } };
@@ -33,8 +34,10 @@ export class Fake implements Native {
     if (op === 'localBackendStatus') return this.ok({ state: 'ready', enabled: true, httpBaseUrl: 'http://127.0.0.1:3773', wsBaseUrl: 'ws://127.0.0.1:3773', bearerReady: true, environmentId: 'env1', label: 'This Mac' });
     if (op === 'ids') return this.ok(Array.from({ length: Number(request.count) }, () => `id-${++this.serial}`));
     if (op === 'copyText') { this.copied.push(str(request.text)); return this.ok({ copied: true }); }
+    // The transport reads the session's grants on its own and files them in the inbox (transport-session.ts readSession).
+    if (op === 'readSession') { this.emit('session-state', { _reply: { authenticated: true, scopes: this.scopes } }); return this.ok({ id: `session-${++this.serial}` }); }
     if (op === 'http') {
-      if (request.path === '/api/auth/session') return this.ok({ authenticated: true, scopes: ['orchestration:read', 'orchestration:operate'] });
+      if (request.path === '/api/auth/session') return this.ok({ authenticated: true, scopes: this.scopes });
       if (request.path === '/api/orchestration/shell') return this.ok(this.shell);
       const found = str(request.path).match(/\/threads\/([^/]+)\/bounded/);
       return found ? this.ok(this.details[found[1]!]) : { ok: false, generation: this.generation, error: { kind: 'transport', message: 'nf', uncertain: false } };
@@ -48,6 +51,8 @@ export class Fake implements Native {
     if (op === 'ack') { this.events = this.events.filter(event => Number(event.seq) > Number(request.through)); return this.ok({ latest: this.seq }); }
     if (op === 'request') {
       if (request.method === 'server.getConfig') return this.ok(this.config);
+      // The archive's own shell (orchestration.getArchivedShellSnapshot): its threads are this.archived.
+      if (request.method === 'orchestration.getArchivedShellSnapshot') return this.ok({ snapshotSequence: 1, projects: obj(this.shell).projects ?? [], threads: this.archived });
       if (request.method === 'projects.readFile') return this.ok({ contents: '{}', truncated: false });
       if (request.method === 'vcs.refreshStatus') return this.ok({ isRepo: true, refName: this.branch });
       if (request.method === 'vcs.listRefs') return this.ok({ isRepo: true, hasPrimaryRemote: true, nextCursor: null, totalCount: 3,

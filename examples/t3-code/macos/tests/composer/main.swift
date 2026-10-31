@@ -139,23 +139,6 @@ final class ComposerTests: XCTestCase {
         controller.destroy()
     }
 
-    func testTitlebarKeepsNativeButtonsCenteredAndContentFullSize() {
-        let fixture = ComposerFixture()
-        fixture.window.styleMask.formUnion([.closable, .miniaturizable, .resizable, .fullSizeContentView])
-        let chrome = T3WindowChrome()
-        chrome.install(fixture.composer)
-        fixture.window.contentView?.superview?.layoutSubtreeIfNeeded()
-        let close = fixture.window.standardWindowButton(.closeButton)!
-        let bounds = close.convert(close.bounds, to: nil)
-        XCTAssertEqual(fixture.window.frame.height - bounds.midY, 26, accuracy: 1)
-        XCTAssertEqual(fixture.window.contentView!.frame.height, fixture.window.frame.height, accuracy: 1)
-        XCTAssertTrue(fixture.window.titlebarAppearsTransparent)
-        XCTAssertEqual(fixture.window.titleVisibility, .hidden)
-        XCTAssertNotNil(fixture.window.toolbar)
-        chrome.destroy()
-        XCTAssertNil(fixture.window.toolbar)
-    }
-
     func testNativeMonitorLeavesReturnToTheTextSystem() {
         let fixture = ComposerFixture()
         fixture.editor.string = "Prompt"
@@ -242,7 +225,7 @@ private func runComposerTests() {
         guard let run = suite.testRun, run.executionCount == suite.testCaseCount else { exit(1) }
         executed += run.executionCount; failures += run.totalFailureCount; succeeded = succeeded && run.hasSucceeded
     }
-    guard executed >= 14 else { exit(1) }
+    guard executed >= 13 else { exit(1) }
     print("Composer: \(executed) tests, \(failures) failures")
     exit(succeeded ? 0 : 1)
 }

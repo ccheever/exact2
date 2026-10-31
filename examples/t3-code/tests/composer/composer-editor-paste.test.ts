@@ -12,8 +12,9 @@ import { obj, str, type Obj } from '../../src/client/domain';
 import { acceptComposerEdit, observeComposer } from '../support/composer-field-fixture';
 import { fileChipLink } from '../../src/composer/composer-editor-files';
 import { toasts } from '../../src/shell/toast';
-import { addAttachedFiles, attachIncoming } from '../../src/composer/composer-controls-attach';
-import { DRAFTS, STAGED, classifyAttachment, handleName, mimeTypeOfName } from '../../src/composer/composer-attach-stage';
+import { addAttachedFiles, attachIncoming, cancelPreparingImage, preparingImages } from '../../src/composer/composer-controls-attach';
+import { DRAFTS, STAGED, classifyAttachment, fileAttachmentMimeType, handleName, mimeTypeOfName, previewSource } from '../../src/composer/composer-attach-stage';
+import { contractComponent } from '../support/contract-action-fixture';
 import { composerFieldOwner } from '../../src/composer/auto-balance-owner';
 import { composerFieldAcknowledged, composerFieldNative, composerFieldResource } from '../../src/composer/composer-field-bridge';
 import { primary, type PrimaryTarget } from '../../src/connections/local-primary';
@@ -55,6 +56,8 @@ async function opened() {
 }
 const ops = (native: EditorBackend, op: string) => native.calls.filter(call => call.op === op);
 const under = (store: Map<string, Uint8Array>, folder: string) => [...store.keys()].filter(path => path.startsWith(`${folder}/`));
+/** The staging's own compressions, without a preparing tile's thumbnail (composer-attach-stage.ts previewSource). */
+const staging = (compressed: Record<string, unknown>[]) => compressed.filter(call => !String(call.to).includes('/composer-stage/preview-'));
 const incoming = (files: string[], extra: Partial<{ picked: Obj[]; asText: boolean }> = {}) => ({ files, picked: [], asText: false, target: '', ...extra });
 afterEach(() => { primary.target = null; });
 
@@ -66,7 +69,12 @@ describe('what a dropped or pasted file is (classifyComposerAttachmentFile)', ()
     expect(classifyAttachment('photo.jpg', mimeTypeOfName('photo.jpg'))).toBe('image');
     expect(classifyAttachment('shot.heic', '')).toBe('image');
     expect(classifyAttachment('picture', 'image/png')).toBe('image');
-    expect(classifyAttachment('scan.tiff', mimeTypeOfName('scan.tiff'))).toBe('unsupported-image');
+    // An image the viewer shows but providers refuse (TIFF), a raw DNG and an SVG attach as files.
+    expect(classifyAttachment('scan.tiff', mimeTypeOfName('scan.tiff'))).toBe('file');
+    expect(classifyAttachment('raw.dng', '')).toBe('file');
+    expect(classifyAttachment('vector.svg', 'application/octet-stream')).toBe('file');
+    expect(fileAttachmentMimeType('raw.dng', '')).toBe('image/x-adobe-dng');
+    expect(classifyAttachment('layers.psd', mimeTypeOfName('layers.psd'))).toBe('unsupported-image');
     expect(classifyAttachment('notes.txt', 'text/plain')).toBe('file');
   });
 });
@@ -87,7 +95,7 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     const [image] = client.local.snapshotDrafts[client.draftKey] ?? [];
     expect(image).toMatchObject({ name: 'small.png', mimeType: 'image/png', sizeBytes: shot.byteLength });
     expect(store.get(`${DRAFTS}/${str(image!.id)}.png`)).toEqual(shot);
-    expect(compressed).toEqual([]);
+    expect(staging(compressed)).toEqual([]);
     expect(client.error).toBe('');
   });
 
@@ -95,13 +103,13 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     const { client, native } = await opened();
     const photo = jpeg(400, 300), anim = gif(30, 20);
     const { store, compressed } = memoryFiles({ 'doc:/1/wide.png': png(3000, 10), 'app:/tmp/picked/1/photo.jpg': photo, 'doc:/3/anim.gif': anim,
-      'doc:/4/big.jpg': jpeg(4000, 3000), 'doc:/5/huge.gif': gif(30, 20, 11 * 1024 * 1024), 'doc:/6/shot.heic': text('....ftypheic'),
-      'doc:/7/photo.webp': webp(3000, 2000, false, 11 * 1024 * 1024) });
+      'doc:/4/big.jpg': jpeg(4000, 3000), 'doc:/5/huge.gif': gif(30, 20, 10.5 * 1024 * 1024), 'doc:/6/shot.heic': text('....ftypheic'),
+      'doc:/7/photo.webp': webp(3000, 2000, false, 10.5 * 1024 * 1024) });
     await attachIncoming(client, native, 'drop', incoming(['doc:/1/wide.png', 'doc:/3/anim.gif']));
     await attachIncoming(client, native, 'pick', incoming([], { picked: [{ path: 'app:/tmp/picked/1/photo.jpg', name: 'photo.jpg', type: 'image/jpeg', size: photo.byteLength }] }));
     await attachIncoming(client, native, 'drop', incoming(['doc:/4/big.jpg', 'doc:/5/huge.gif', 'doc:/6/shot.heic', 'doc:/7/photo.webp']));
     // compressImage reads app files: a dropped image is copied to the scratch folder first.
-    expect(compressed.map(call => [String(call.from).replace(/[0-9a-f-]{36}/, 'id'), call.maxDimension, call.maxBytes, call.type])).toEqual([
+    expect(staging(compressed).map(call => [String(call.from).replace(/[0-9a-f-]{36}/, 'id'), call.maxDimension, call.maxBytes, call.type])).toEqual([
       ['app:/tmp/composer-stage/id/wide.png', 2000, 10 * 1024 * 1024, 'image/png'],
       ['app:/tmp/composer-stage/id/big.jpg', 2000, 10 * 1024 * 1024, 'image/jpeg'],
       // Every re-encoding is within 2000 px, as reencodeWithinBudget caps it; an opaque WebP becomes a JPEG.
@@ -118,6 +126,24 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     expect(store.get(`${DRAFTS}/${str(drafts[2]!.id)}.png`)).toEqual(photo);
   });
 
+  test('a large dropped or picked file is copied by the host up to the server\'s limit; a large image is re-encoded from its file', async () => {
+    const { client, native } = await opened();
+    const big = new Uint8Array(13 * 1024 * 1024), huge = png(5000, 4000, 12 * 1024 * 1024);
+    const { store, compressed } = memoryFiles({ 'doc:/1/big.bin': big, 'app:/tmp/picked/1/big.bin': big, 'doc:/2/huge.png': huge, 'app:/tmp/picked/2/huge.png': huge });
+    await attachIncoming(client, native, 'drop', incoming(['doc:/1/big.bin', 'doc:/2/huge.png']));
+    await attachIncoming(client, native, 'pick', incoming([], { picked: [
+      { path: 'app:/tmp/picked/1/big.bin', name: 'big.bin', type: 'application/octet-stream', size: big.byteLength },
+      { path: 'app:/tmp/picked/2/huge.png', name: 'huge.png', type: 'image/png', size: huge.byteLength }] }));
+    expect(draftFiles(client.local)).toMatchObject([{ name: 'big.bin', sizeBytes: big.byteLength, status: 'staged' }, { name: 'big.bin', sizeBytes: big.byteLength, status: 'staged' }]);
+    expect(under(store, STAGED).map(path => store.get(path)!.byteLength)).toEqual([big.byteLength, big.byteLength]);
+    // Their headers are never read: the dropped image is re-encoded from its scratch copy, the picked one from its own file.
+    expect(staging(compressed).map(call => [String(call.from).replace(/[0-9a-f-]{36}/, 'id'), call.maxDimension, call.type])).toEqual([
+      ['app:/tmp/composer-stage/id/huge.png', 2000, 'image/png'], ['app:/tmp/picked/2/huge.png', 2000, 'image/png']]);
+    expect(under(store, 'app:/tmp/composer-stage')).toEqual([]);
+    expect(client.local.snapshotDrafts[client.draftKey]).toMatchObject([{ name: 'huge.png', mimeType: 'image/png' }, { name: 'huge.png', mimeType: 'image/png' }]);
+    expect(client.error).toBe('');
+  });
+
   test('a file past the 100-file limit is not staged and is named', async () => {
     const { client, native } = await opened();
     const entries: Record<string, Uint8Array> = {};
@@ -128,11 +154,68 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     expect(client.error).toBe('You can attach up to 100 files per message.');
   });
 
+  test('a pasted image shows its tile at once, under the id its draft takes; removing it while it prepares lets it go', async () => {
+    const { client, native } = await opened();
+    const { fs, store } = memoryFiles({ 'doc:/1/shot.png': png(4, 3, 64), 'doc:/2/second.png': png(4, 3, 64) });
+    let release: () => void = () => {};
+    const readFile = fs.readFile;
+    fs.readFile = async (path: string) => { if (path.startsWith('doc:')) await new Promise<void>(resolve => { release = resolve; }); return readFile(path); };
+    const first = attachIncoming(client, native, 'paste', incoming(['doc:/1/shot.png']));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const [tile] = preparingImages(client);
+    expect(tile).toMatchObject({ name: 'shot.png' });
+    release();
+    await first;
+    expect(preparingImages(client)).toEqual([]);
+    expect((client.local.snapshotDrafts[client.draftKey] ?? []).map(image => image.id)).toEqual([tile!.id]);
+    const second = attachIncoming(client, native, 'paste', incoming(['doc:/2/second.png']));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const [cancelled] = preparingImages(client);
+    cancelPreparingImage(client, cancelled!.id);
+    expect(preparingImages(client)).toEqual([]);
+    release();
+    await second;
+    expect((client.local.snapshotDrafts[client.draftKey] ?? []).map(image => image.id)).toEqual([tile!.id]);
+    expect(client.local.snapshotReleases).toContain(cancelled!.id);
+    void store;
+  });
+  test('a preparing tile shows a 256 px thumbnail of the image it takes, removed once the image is in', async () => {
+    const { client, native } = await opened();
+    const { fs, store, compressed } = memoryFiles({ 'doc:/1/shot.png': png(4, 3, 64) });
+    let release: () => void = () => {};
+    const readFile = fs.readFile;
+    fs.readFile = async (path: string) => { if (path.startsWith('doc:')) await new Promise<void>(resolve => { release = resolve; }); return readFile(path); };
+    const taking = attachIncoming(client, native, 'paste', incoming(['doc:/1/shot.png']));
+    for (let turn = 0; turn < 8; turn++) await new Promise(resolve => setTimeout(resolve, 0));
+    const [tile] = preparingImages(client);
+    const folder = `app:/tmp/composer-stage/preview-${tile!.id}`;
+    expect(tile!.source).toBe(`${folder}/thumbnail.png`);
+    // ComposerImageThumbnail: 256 px; compressImage reads an app copy of the pasted file, which goes once it is made.
+    expect(compressed.find(entry => entry.to === tile!.source)).toMatchObject({ from: `${folder}/shot.png`, maxDimension: 256, type: 'image/png' });
+    expect(store.has(`${folder}/shot.png`)).toBe(false);
+    expect(store.has(tile!.source)).toBe(true);
+    release();
+    await taking;
+    expect(preparingImages(client)).toEqual([]);
+    expect(store.has(tile!.source)).toBe(false);
+  });
+  test('a source past 50 MB gets no thumbnail; a tile draws its thumbnail or, without one, the name (ComposerImageThumbnail)', async () => {
+    const { fs, compressed } = memoryFiles({ 'doc:/1/huge.png': png(4, 3, 64) });
+    const stat = fs.stat;
+    fs.stat = async (path: string) => ({ ...(await stat(path)), size: 51 * 1024 * 1024 });
+    expect(await previewSource({ path: 'doc:/1/huge.png', name: 'huge.png', type: 'image/png' }, 'big')).toBe('');
+    expect(compressed).toEqual([]);
+    const tile = contractComponent('src/composer/composer-editor.contract', 'PreparingImageTile');
+    for (const source of ['', 'app:/tmp/composer-stage/preview-a/thumbnail.png']) {
+      const scope = { id: 'a', name: 'shot.png', source, command: () => {} };
+      expect([tile.drawn('testId=`preparing-thumbnail-', {}, scope), tile.drawn('text name ', {}, scope)]).toEqual([source !== '', source === '']);
+    }
+  });
   test('what cannot be attached is named, as addComposerAttachments reports it', async () => {
     const { client, native } = await opened();
-    memoryFiles({ 'doc:/1/scan.tiff': text('II*'), 'doc:/2/broken.png': text('X'), 'doc:/3/empty.txt': new Uint8Array() });
-    await attachIncoming(client, native, 'drop', incoming(['doc:/1/scan.tiff']));
-    expect(client.error).toBe("'scan.tiff' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
+    memoryFiles({ 'doc:/1/layers.psd': text('8BPS'), 'doc:/2/broken.png': text('X'), 'doc:/3/empty.txt': new Uint8Array() });
+    await attachIncoming(client, native, 'drop', incoming(['doc:/1/layers.psd']));
+    expect(client.error).toBe("'layers.psd' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
     await attachIncoming(client, native, 'drop', incoming(['doc:/2/broken.png']));
     expect(client.error).toBe("'broken.png' could not be read as an image.");
     await attachIncoming(client, native, 'paste', incoming(['doc:/3/empty.txt']));

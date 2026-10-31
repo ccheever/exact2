@@ -4,6 +4,8 @@ import { traitsDisplay } from '../../src/composer/composer-controls-model';
 import { scoreModel } from '../../src/composer/model-catalog';
 import { resolveTextGenerationSelection } from '../../src/settings/text-generation-model';
 import { sourceControlRows, scopedPatch } from '../../src/settings/source-control-view';
+// Writing & review's rows, its Advanced ones after them (source-control-view.ts sourceControlRows).
+const writingRows = (rows: ReturnType<typeof sourceControlRows>) => [...rows.writing, ...rows.writingAdvanced];
 import { subagent } from '../../src/timeline/timeline-events';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
 import { keybindingCommands, keybindingDefaults } from '../../src/settings/keybinding-settings';
@@ -76,7 +78,7 @@ describe('effort keys', () => {
 describe('traits and text model settings', () => {
   test('speed follows reasoning in text, including labels around it', () => {
     const context = { id: 'context', type: 'select', options: [{ id: '1m', label: '1M', isDefault: true }] };
-    expect(traitsDisplay('codex', [context, effort, tier], [{ id: 'serviceTier', value: 'flex' }])).toEqual({ label: '1M · Medium Ultrafast' });
+    expect(traitsDisplay('codex', [context, effort, tier], [{ id: 'serviceTier', value: 'flex' }])).toEqual({ label: '1M · Medium Ultrafast', speedLabel: 'Ultrafast', otherLabels: ['1M'] });
   });
   test('unlisted text models choose the cheap provider default before its flagship', () => {
     const p = { ...provider('claude', 'claudeAgent'), models: [{ slug: 'opus', isDefault: true }, { slug: 'claude-haiku-5-5', name: 'Haiku' }] };
@@ -88,7 +90,7 @@ describe('traits and text model settings', () => {
     const p = { ...provider('codex'), models };
     const selection = { instanceId: 'codex', model: 'a', options: [{ id: 'serviceTier', value: 'priority' }] };
     const settings = { reviewGuidesEnabled: true, sourceControlWriterModelSelection: selection, reviewGuideModelSelection: selection };
-    const rows = sourceControlRows(settings, '', 'Local', [p], true).text;
+    const rows = writingRows(sourceControlRows(settings, '', 'Local', [p], true));
     for (const key of ['sourceControlWriterModelSelection', 'reviewGuideModelSelection']) {
       expect(rows.find(row => row.key === key)).toMatchObject({ checked: true, traitsLabel: 'Medium Fast' });
       expect(scopedPatch(settings, '', key, 'codex:a#reasoningEffort=high')[key]).toMatchObject({ options: [{ id: 'serviceTier', value: 'priority' }, { id: 'reasoningEffort', value: 'high' }] });
@@ -96,17 +98,17 @@ describe('traits and text model settings', () => {
     }
   });
   test('review guides default off and can only be enabled for the environment', () => {
-    const rows = sourceControlRows({}, '', 'Local', [], true).text;
+    const rows = writingRows(sourceControlRows({}, '', 'Local', [], true));
     expect(rows.find(row => row.key === 'reviewGuidesEnabled')).toMatchObject({ checked: false, disabled: false });
-    expect(sourceControlRows({ reviewGuidesEnabled: false }, '', 'Local', [], true).text.find(row => row.key === 'reviewGuidesEnabled')?.state).toBe('default');
+    expect(writingRows(sourceControlRows({ reviewGuidesEnabled: false }, '', 'Local', [], true)).find(row => row.key === 'reviewGuidesEnabled')?.state).toBe('default');
     expect(rows.some(row => row.key === 'reviewGuideModelSelection')).toBe(false);
     expect(scopedPatch({}, '', 'reviewGuidesEnabled', '__default__')).toEqual({ reviewGuidesEnabled: false });
     expect(() => scopedPatch({}, 'p', 'reviewGuidesEnabled', 'true')).toThrow('environment-wide');
     const settings = { reviewGuidesEnabled: true, projectSettingsOverrides: { p: { reviewGuidesEnabled: false } } };
-    const projectRows = sourceControlRows(settings, 'p', 'Local', [], true).text;
+    const projectRows = writingRows(sourceControlRows(settings, 'p', 'Local', [], true));
     expect(projectRows.find(row => row.key === 'reviewGuidesEnabled')).toMatchObject({ checked: true, disabled: true, layers: [expect.objectContaining({ key: 'environment' }), expect.objectContaining({ key: 'built-in' })] });
     expect(projectRows.some(row => row.key === 'reviewGuideModelSelection')).toBe(true);
-    expect(sourceControlRows({ ...settings, reviewGuidesEnabled: false, projectSettingsOverrides: { p: { reviewGuidesEnabled: true } } }, 'p', 'Local', [], true).text.some(row => row.key === 'reviewGuideModelSelection')).toBe(false);
+    expect(writingRows(sourceControlRows({ ...settings, reviewGuidesEnabled: false, projectSettingsOverrides: { p: { reviewGuidesEnabled: true } } }, 'p', 'Local', [], true)).some(row => row.key === 'reviewGuideModelSelection')).toBe(false);
   });
   test('the timeline hover card receives only matching subagent model traits', () => {
     const selection = { instanceId: 'codex', model: 'a', options: [{ id: 'reasoningEffort', value: 'high' }, { id: 'serviceTier', value: 'flex' }] };

@@ -6,8 +6,9 @@ import { arr, obj, str } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { fileIconToken } from './timeline-files';
 import { markdownLinks } from '../timeline/message-chips';
-import { markdownLinkHref } from '../media/media-views';
+import { chatFileLink } from '../timeline/markdown-file-links';
 import { letGo } from '../client/let-go';
+import { isNetworkPath } from '../media/media-reference';
 
 export type FileMetadata = { kind: 'file' | 'directory' | 'other'; byteLength?: number; mimeType?: string };
 type Entry = { value: FileMetadata | null; expires: number; failed?: true };
@@ -44,10 +45,13 @@ export function metadataPath(path: string, cwd = ''): string | null {
 function cwdOf(client: T3Client): string {
   return str(obj(obj(client.projection).thread).worktreePath) || str(client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot);
 }
-/** Shared by prompt mentions and Markdown file chips; context records carry their original paths. */
+/**
+ * Shared by prompt mentions and Markdown file chips; context records carry their original paths. A link is asked for
+ * when it is a file link (ChatMarkdown's markdownFileLinkMetaByHref, T3 Code 7c3b3b3605ef): no web link or network path.
+ */
 export function textFilePaths(text: string): string[] {
-  return [...markdownLinks(text).filter(link => !link.image && markdownLinkHref(link.href).startsWith('t3-file:')).map(link => link.href),
-    ...[...text.matchAll(/(?:^|\s)@([^\s\[\]<>"'`]+)/g)].map(match => match[1]!)];
+  return [...markdownLinks(text).filter(link => !link.image && chatFileLink(link.href)).map(link => link.href),
+    ...(text.includes('@') ? [...text.matchAll(/(?:^|\s)@([^\s\[\]<>"'`]+)/g)].map(match => match[1]!) : [])];
 }
 export function visibleFilePaths(client: T3Client): string[] {
   const cwd = cwdOf(client), paths = [...textFilePaths(str(client.draft)), ...store(client).composerPaths];
@@ -55,7 +59,9 @@ export function visibleFilePaths(client: T3Client): string[] {
     paths.push(...textFilePaths(str(message.text)));
     for (const record of arr(obj(message.context).records)) if (record.kind === 'mention') paths.push(str(record.path));
   }
-  return [...new Set(paths.map(path => metadataPath(path, cwd)).filter((path): path is string => path !== null))];
+  // Servers stat what they are asked about, and a network path (two leading separators, or a file URL naming a host)
+  // leaks the Windows user's NTLM credentials to its host before any chip is pressed.
+  return [...new Set(paths.filter(path => !isNetworkPath(path.trim()) && !/^file:\/\/[^/]/i.test(path.trim())).map(path => metadataPath(path, cwd)).filter((path): path is string => path !== null))];
 }
 function known(client: T3Client, path: string, now: number): Entry | undefined {
   const value = store(client), entry = value.retained.get(path) ?? value.cache.get(path);

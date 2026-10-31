@@ -1,5 +1,5 @@
 // Keeping the pull request surfaces current (MIT reference, see LICENSE-T3, T3 Code
-// 1e2ecbd975):
+// 7c3b3b3605ef):
 // - packages/client-runtime/src/state/pullRequests.ts createPullRequestRefreshAtomFamily: one
 //   `pullRequests.subscribeRefreshes` stream (payload `{}`) per environment, held while any pull
 //   request surface reads; each value is a server-announced change (a mutation, a turn, another
@@ -11,14 +11,15 @@
 //   view reopened later is an arrival, not a first read), and the reader's last interaction (the
 //   window's, app.contract `interacted`, to the second); the first after six idle minutes resumes
 //   the views as an arrival (`watchInteraction`).
-// - pullRequestDetail.logic.ts read/writePullRequestDetailSnapshot (74541bab17): the snapshots live in
-//   the app's versioned preference file (t3-code.json, `prDetailSnapshots`), bounded to the 20 most
-//   recently written.
+// - pullRequestDetail.logic.ts read/writePullRequestDetailSnapshot: the snapshots live in the app's versioned
+//   preference file (t3-code.json, `prDetailSnapshots`), bounded to the 20 most recently written, and
+//   state/pullRequests.ts rememberPullRequestListAnswer and restorePullRequestList keep the list's first-page
+//   answers there (`prListAnswers`).
 // The stream rides T3Client's transport (one dispatch line in client.ts drain, as shell-vcs.ts);
 // the newest subscription since the latest subscribe is the one counted (shell-vcs.ts explains
 // the request-id order). A new connection carries no streams, so the next read subscribes again.
 import type { T3Client } from '../client/client';
-import { obj, str, type Obj } from '../client/domain';
+import { arr, num, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { subscriptionSerial } from '../details/shell-vcs';
 import { LIVE_REFRESH_IDLE_AFTER_MS, LIVE_REFRESH_INTERVAL_MS, shouldRefreshOnArrival, shouldRefreshOnInterval, type SnapshotStorage } from './pages-pr-logic';
@@ -107,6 +108,8 @@ export function noteInteraction(client: object, at: number, resumed: boolean): v
   if (resumed) entry.resumes += 1;
   interactions.set(client, entry);
 }
+/** Whether the reader has been idle for six minutes, when useLiveRefresh's intervals stop. */
+export function readerIdle(client: object, now: number): boolean { return now - lastInteraction(client, now) >= LIVE_REFRESH_IDLE_AFTER_MS; }
 /** How many times the reader came back from six idle minutes: a view that sees it change has an arrival. */
 export function interactionResumes(client: object): number { return interactions.get(client)?.resumes ?? 0; }
 /** When the reader last pointed, typed or scrolled; before any, the first view's ask, as the hook's first watcher notes it. */
@@ -158,8 +161,59 @@ export function snapshotStorage(owner: { local: object }): SnapshotStorage & { c
     } };
   return store;
 }
-/** load(): carry the saved snapshots into a fresh preference record (strings only, the 20 most recent). */
+/** load(): carry the saved snapshots and list answers into a fresh preference record (the detail snapshots strings only, the 20 most recent). */
 export function adoptPrSnapshots(next: object, saved: Obj): void {
   const held = Object.entries(obj(saved.prDetailSnapshots)).filter((entry): entry is [string, string] => entry[0].startsWith('t3.pullRequests.detail:') && typeof entry[1] === 'string' && entry[1].length <= 200_000);
   (next as { prDetailSnapshots?: Record<string, string> }).prDetailSnapshots = Object.fromEntries(held.slice(-SNAPSHOT_LIMIT));
+  const answers = obj(saved.prListAnswers), scopes = obj(answers.scopes);
+  const index = (Array.isArray(answers.index) ? answers.index : []).filter((key): key is string => typeof key === 'string' && obj(scopes[key]) === scopes[key]).slice(0, LIST_SCOPE_MAX_KEPT);
+  if (index.length) (next as LocalAnswers).prListAnswers = { index, scopes: Object.fromEntries(index.map(key => [key, Object.fromEntries(Object.entries(obj(scopes[key])).filter(([, answer]) => Array.isArray(obj(answer).entries)).map(([id, answer]) => [id, obj(answer)]))])) };
+}
+
+// ── The list's answers (state/pullRequests.ts rememberPullRequestListAnswer, restorePullRequestList) ──
+
+/**
+ * A scope holds a page of rows per server, so only the scopes visited most recently are kept. Eviction drops a whole
+ * scope, never one server's answer, so a restored list is never missing servers that did answer.
+ */
+const LIST_SCOPE_MAX_KEPT = 8;
+const LIST_ANSWER_MAX_ENTRIES = 99;
+/** `prListAnswers` on the preference record: the scopes, most recent first, and each one's answers by server. */
+type LocalAnswers = { prListAnswers?: { index: string[]; scopes: Record<string, Record<string, Obj>> } };
+/**
+ * The project assignment is left out: a cold start asks before the project shells load, when every server is asked for
+ * all of its projects, while the answers were remembered after overlapping projects were split between servers. Each
+ * server's answer covers only its assigned projects, so the scope's answers together still cover the whole scope.
+ */
+const listScopeKey = (input: Obj) => { const { projectIds: _projectIds, ...scope } = input; return JSON.stringify(scope); };
+/**
+ * Keeps what a cold start can show before the host answers again. Searches, continuation pages and grown pages are never
+ * shown that way, so only first-page reads are kept. Failures and cursors are dropped: they describe the moment of the
+ * read, and a restored list must not continue from it.
+ */
+export function rememberListAnswer(owner: { local: object }, target: { environmentId: string; input: Obj }, answer: Obj): boolean {
+  const { input } = target;
+  if (input.query !== undefined || input.cursors !== undefined || num(input.limit, LIST_ANSWER_MAX_ENTRIES) > LIST_ANSWER_MAX_ENTRIES || !Array.isArray(answer.entries)) return false;
+  const local = owner.local as LocalAnswers, held = local.prListAnswers ?? { index: [], scopes: {} };
+  const key = listScopeKey(input), scope = held.scopes[key] ?? {};
+  // An answer for some projects replaces only their rows. A repository this server no longer owns stays covered until
+  // the server that took it over answers; the next answer for all of the server's projects, which every cold start asks for, drops them.
+  const assigned = Array.isArray(input.projectIds) ? new Set(input.projectIds.map(String)) : undefined;
+  const retained = assigned === undefined ? [] : arr(scope[target.environmentId]?.entries).filter(entry => !assigned.has(str(entry.projectId)));
+  // The fresh rows come first, so retained rows only fill what is left of the page.
+  const entries = [...arr(answer.entries), ...retained].slice(0, LIST_ANSWER_MAX_ENTRIES);
+  const index = [key, ...held.index.filter(other => other !== key)];
+  const scopes = Object.fromEntries(index.slice(0, LIST_SCOPE_MAX_KEPT).map(other => [other, other === key ? { ...scope, [target.environmentId]: { ...answer, entries, errors: [], nextCursors: {} } } : held.scopes[other] ?? {}]));
+  local.prListAnswers = { index: index.slice(0, LIST_SCOPE_MAX_KEPT), scopes };
+  return true;
+}
+/**
+ * The kept answers for these reads, by server. A server without a kept answer is left out rather than failing the
+ * restore: one whose projects were all assigned to another server was never asked, and its pull requests are in that
+ * server's answer.
+ */
+export function restoreListAnswers(owner: { local: object }, targets: readonly { environmentId: string; input: Obj }[]): [string, Obj][] {
+  const held = (owner.local as LocalAnswers).prListAnswers;
+  if (!held) return [];
+  return targets.flatMap(target => { const answer = held.scopes[listScopeKey(target.input)]?.[target.environmentId]; return answer ? [[target.environmentId, answer] as [string, Obj]] : []; });
 }

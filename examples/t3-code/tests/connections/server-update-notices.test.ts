@@ -85,7 +85,7 @@ describe('offline banner', () => {
     expect(ENVIRONMENT_DISCONNECT_DELAY_MS).toBe(20_000);
     noteServerUpdateClock(client, '', serverClock(client).unavailable);
     expect(systemComposerNotices(client)[0]).toMatchObject({ action2: 'su:disconnect', action2Label: 'Disconnect server',
-      action2Tip: "Hide this server's threads. Switch it on again in Connections." });
+      action2Tip: "Hide this server's threads. Switch it on again in Environments." });
     primaryAt('http://127.0.0.1:3773', environmentId); // this Mac's embedded server cannot be disconnected from here
     const local = harness({}, 'http://127.0.0.1:3773').client;
     local.connection = 'disconnected';
@@ -101,7 +101,8 @@ describe('offline banner', () => {
     noteServerUpdateClock(client, serverClock(client).reconnecting, '');
     const items = systemComposerNotices(client);
     expect(items.map(item => item.id)).toEqual([`server-version:${environmentId}`]);
-    expect(items[0]).toMatchObject({ title: 'Updating server', description: 'Restarting…', icon: 'spinner', priority: 1 });
+    // A static icon: the title says the update runs (ComposerServerUpdateIcon).
+    expect(items[0]).toMatchObject({ title: 'Updating server', description: 'Restarting…', icon: 'download', priority: 1 });
     // A plain title and description: the details come from a clipped description, not a tooltip on the title.
     expect(items[0]!.tip).toBeUndefined();
     expect(serverUpdateView(client).attention).toBe(true);
@@ -118,26 +119,20 @@ describe('offline banner', () => {
 });
 
 describe('server update notice', () => {
-  it('offers Update with the reference copy and tooltip when the server is behind', () => {
+  it('shows no notice for an available update: the sidebar\'s update pill offers it', () => {
     const { client } = harness();
-    const notice = systemComposerNotices(client).find(item => item.id === `server-version:${environmentId}`)!;
-    expect(notice).toMatchObject({ title: 'Server update available', description: 'Update to stay in sync', icon: 'download', action: 'su:update', actionLabel: 'Update',
-      dismiss: 'su:dismiss', dismissLabel: 'Dismiss update notice', tip: `server 0.0.45 → ${CLIENT_VERSION}` });
-    fleet.saved = [{ origin: 'http://10.0.0.2:3773', environmentId, label: 'Studio' }, { origin: 'http://10.0.0.3:3773', environmentId: 'other', label: 'Box' }];
-    expect(systemComposerNotices(client).at(-1)!.tip).toBe(`Studio server 0.0.45 → ${CLIENT_VERSION}`);
+    expect(systemComposerNotices(client).some(item => item.id.startsWith('server-version'))).toBe(false);
+    expect(versionCard(client)).toMatchObject({ versionServer: '0.0.45', versionClient: CLIENT_VERSION });
   });
 
-  it('names the manual and desktop paths as ServerUpdateAction does', () => {
-    expect(systemComposerNotices(harness({ serverInstallation: { kind: 'npm-global', prefix: '/opt/node' } }).client).at(-1))
-      .toMatchObject({ actionLabel: 'Copy update command' });
-    expect(systemComposerNotices(harness({}).client).at(-1)).toMatchObject({ actionLabel: 'Copy relaunch command' });
-    expect(systemComposerNotices(harness({}).client).at(-1)!.description).toBeUndefined();
-    const desktop = systemComposerNotices(harness({ serverSelfUpdate: 'desktop-managed' }).client).at(-1)!;
-    expect(desktop).toMatchObject({ description: 'Update the desktop app' });
+  it('names the manual and desktop paths of Retry as ServerUpdateAction does', () => {
+    const failed = (capabilities: Obj) => { const { client } = harness(capabilities); setJobs({ [key]: job({ status: 'failed', message: 'Nope.', attempt: 'f1' }) }); return systemComposerNotices(client).at(-1)!; };
+    expect(failed({ serverInstallation: { kind: 'npm-global', prefix: '/opt/node' } })).toMatchObject({ actionLabel: 'Copy update command', dismiss: 'su:dismiss' });
+    expect(failed({})).toMatchObject({ actionLabel: 'Copy relaunch command' });
+    const desktop = failed({ serverSelfUpdate: 'desktop-managed' });
     expect(desktop.action).toBeUndefined();
-    const remote = systemComposerNotices(harness({ serverSelfUpdate: 'desktop-managed', desktopAppUpdate: true }).client).at(-1)!;
-    expect(remote).toMatchObject({ action: 'su:update', actionLabel: 'Update' });
-    expect(remote.description).toBeUndefined();
+    expect(desktop).toMatchObject({ dismiss: 'su:dismiss', description: 'Nope.' });
+    expect(failed({ serverSelfUpdate: 'desktop-managed', desktopAppUpdate: true })).toMatchObject({ action: 'su:update', actionLabel: 'Retry' });
   });
 
   it('shows the failure with Retry, dismisses that attempt only, and persists the version dismissal', async () => {

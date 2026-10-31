@@ -22,7 +22,7 @@ shape StripPrTip
   depth: number
   stack: string
 
-fn stripMuted(): string = "light-dark(#71717b, #818181)"
+fn stripMuted(): string = "light-dark(#71717b, #a1a1a1)"
 // pages-pr-detail.contract prdTone, kept here: shapes.contract reaches this file, and the panel now reaches shapes.contract.
 fn stripPrTone(lifecycle: string): string = lifecycle == "draft" ? "light-dark(#71717b, #9f9fa9cc)" : lifecycle == "closed" ? "light-dark(#e7000b, #ffa2a2e6)" : lifecycle == "merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : "light-dark(#009966, #5ee9b5e6)"
 fn stripTone(lifecycle: string): string = lifecycle == "" ? stripMuted() : stripPrTone(lifecycle)
@@ -89,7 +89,7 @@ component StripPrTipCard
     testId: string
     command: action
   view
-    column width="20rem" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffeb, #121212eb)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" role="tooltip" testId=testId
+    column width="20rem" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffeb, #121212eb)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" role="tooltip" testId=testId
       column width="100%" gap="0.25rem" max-height=`${max(0, maxHeight - 0.5 * rem - 2)}px` overflow-y="auto" overscroll-behavior="contain" testId="composer-pr-tip-list"
         for tip in tips key=tip.key
           StripPrTipRow(tip=tip, command=command)
@@ -108,7 +108,7 @@ component StripPrTipRow
   view
     button press=open hover=hover role="link" aria-label=`${tip.number} ${tip.title}` testId=`composer-pr-tip-${tip.number}` width="100%" min-width=0 flex-shrink=0 gap="0.5rem" align-items="center" display="flex" flex-direction="row" padding-left=((4 + tip.depth * 12) * rem / 16) padding-right="0.25rem" padding-top="0.25rem" padding-bottom="0.25rem" border-width=0 border-radius="0.25rem" height="1.53125rem" box-sizing="border-box" background-color=(over ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") cursor="pointer" title=""
       PgIcon(name=tip.icon, size=12, color=stripTone(tip.state))
-      text tip.number flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
-      text tip.title flex=1 min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color="light-dark(#27272abf, #f5f5f5bf)"
+      text tip.number flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)"
+      text tip.title flex=1 min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color="light-dark(#18181bbf, #f5f5f5bf)"
       if tip.stack != ""
-        text tip.stack flex-shrink=0 padding-left="0.25rem" font-size="0.625rem" line-height="0.875rem" color="light-dark(#27272a, #f5f5f5)"
+        text tip.stack flex-shrink=0 padding-left="0.25rem" font-size="0.625rem" line-height="0.875rem" color="light-dark(#18181b, #f5f5f5)"

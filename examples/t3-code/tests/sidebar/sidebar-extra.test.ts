@@ -51,18 +51,29 @@ describe('provider update pill (getProviderUpdateSidebarPillView)', () => {
     primaryAt('http://127.0.0.1:16437', 'env-local');
     const client = { config: { providers }, ready: true, environmentId: 'env-local' } as unknown as T3Client;
     const delays: number[] = [];
-    expect(sidebarProviderPill(client, 1_000)).toBeNull();
+    const at = (iso: string, ms = 0) => Date.parse(iso) + ms;
+    expect(sidebarProviderPill(client, at('2026-10-04T10:00:30.000Z'))).toBeNull();
     (client.config as Obj).providers = [provider('codex', { status: 'succeeded', finishedAt: '2026-10-04T10:01:00.000Z' })];
-    expect(sidebarProviderPill(client, 2_000)?.tone).toBe('success');
-    scheduleProviderPill(client, 2_500, delay => delays.push(delay));
-    scheduleProviderPill(client, 2_600, delay => delays.push(delay));
+    const success = sidebarProviderPill(client, at('2026-10-04T10:01:00.000Z', 2_000));
+    // Its three seconds run from when it showed, in window time: the window's clock retires it there.
+    expect(success).toMatchObject({ tone: 'success', until: at('2026-10-04T10:01:00.000Z', 2_000 + SUCCESS_VISIBLE_MS) });
+    scheduleProviderPill(client, at('2026-10-04T10:01:00.000Z', 2_500), delay => delays.push(delay));
+    scheduleProviderPill(client, at('2026-10-04T10:01:00.000Z', 2_600), delay => delays.push(delay));
     expect(delays).toEqual([SUCCESS_VISIBLE_MS - 500 + 50]);
-    expect(sidebarProviderPill(client, 2_000 + SUCCESS_VISIBLE_MS)).toBeNull();
+    expect(sidebarProviderPill(client, at('2026-10-04T10:01:00.000Z', 2_000 + SUCCESS_VISIBLE_MS))).toBeNull();
     (client.config as Obj).providers = [provider('codex', { status: 'failed', finishedAt: '2026-10-04T10:02:00.000Z' })];
-    const failed = sidebarProviderPill(client, 9_000);
+    const failed = sidebarProviderPill(client, at('2026-10-04T10:02:00.000Z', 9_000));
     expect(failed?.tone).toBe('error');
+    expect(failed?.until).toBeUndefined();
     dismissProviderPill(client, failed!.key);
-    expect(sidebarProviderPill(client, 9_000)).toBeNull();
+    expect(sidebarProviderPill(client, at('2026-10-04T10:02:00.000Z', 9_000))).toBeNull();
+  });
+  test('a success seen on a lagging snapshot clock still counts its three seconds from its finish, not before', () => {
+    primaryAt('http://127.0.0.1:16437', 'env-local');
+    const client = { config: { providers: [provider('codex', null)] }, ready: true, environmentId: 'env-local' } as unknown as T3Client;
+    sidebarProviderPill(client, Date.parse('2026-10-04T10:00:00.000Z'));
+    (client.config as Obj).providers = [provider('codex', { status: 'succeeded', finishedAt: '2026-10-04T10:01:00.000Z' })];
+    expect(sidebarProviderPill(client, Date.parse('2026-10-04T10:00:20.000Z'))?.until).toBe(Date.parse('2026-10-04T10:01:03.000Z'));
   });
   test('the pill reads the primary\'s providers only (primaryServerProvidersAtom): a focused remote or no primary shows none', () => {
     const running = [provider('codex', { status: 'running' })];
@@ -171,7 +182,7 @@ describe('thread undo (showThreadUndoNotice)', () => {
       restAccess: () => ({ ids: async () => ['c'], request: async (_method: string, payload: Obj) => { dispatched.push(payload); return {}; }, call: async () => ({}) }),
     } as unknown as T3Client;
     const before = Date.now();
-    await sidebarCommand(client, { available: true, watch() {}, later: async () => ({}) } as unknown as Native, {} as never, 'snooze:hour', 'a', '');
+    await sidebarCommand(client, { available: true, watch() {}, later: async () => ({}) } as unknown as Native, {} as never, 'snooze:after:60', 'a', '');
     const until = Date.parse(String(dispatched[0]?.snoozedUntil));
     expect(dispatched[0]?.type).toBe('thread.snooze');
     expect(until - before).toBeGreaterThanOrEqual(3_600_000);
@@ -224,26 +235,12 @@ describe('sidebar wall time', () => {
 describe('remembered shelves (useLocalStorage t3code:sidebar:*-expanded)', () => {
   test('shelf expansion and the project scope survive the preferences file; junk decodes to the defaults', async () => {
     const { adoptSidebarPrefs, defaultSidebarPrefs, sidebarPrefs } = await import('../../src/sidebar/sidebar-state');
-    const saved = JSON.parse(JSON.stringify({ sidebar: { ...defaultSidebarPrefs(), settledExpanded: true, workingExpanded: true, scope: 'g2', visited: { a: '2026-10-04T10:00:00.000Z', b: 'nope' } } }));
+    const saved = JSON.parse(JSON.stringify({ sidebar: { ...defaultSidebarPrefs(), settledExpanded: true, workingExpanded: true, scopes: ['g2'], visited: { a: '2026-10-04T10:00:00.000Z', b: 'nope' } } }));
     const local = {};
     adoptSidebarPrefs(local, saved);
-    expect(sidebarPrefs({ local } as unknown as T3Client)).toEqual({ settledExpanded: true, snoozedExpanded: false, workingExpanded: true, scope: 'g2', visited: { a: '2026-10-04T10:00:00.000Z' }, projectExpanded: {}, projectOrder: [] });
+    expect(sidebarPrefs({ local } as unknown as T3Client)).toEqual({ settledExpanded: true, snoozedExpanded: false, workingExpanded: true, scopes: ['g2'], visited: { a: '2026-10-04T10:00:00.000Z' }, projectExpanded: {}, projectOrder: [] });
     const fresh = {};
     adoptSidebarPrefs(fresh, { sidebar: 'garbage' });
     expect(sidebarPrefs({ local: fresh } as unknown as T3Client)).toEqual(defaultSidebarPrefs());
-  });
-});
-
-describe('thread search pointer (onHighlight)', () => {
-  test('the result under the pointer becomes the highlighted one Enter opens', async () => {
-    const { sidebarLocal } = await import('../../src/sidebar/sidebar-commands');
-    const threads = ['a', 'b', 'c'].map(id => ({ id, projectId: 'p1', title: `fixture ${id}`, status: 'idle', createdAt: '2026-10-04T10:00:00.000Z', updatedAt: '2026-10-04T10:00:00.000Z', lineage: {}, archivedAt: null }));
-    const client = { shell: { projects: [{ id: 'p1', title: 'P' }], threads }, config: { environment: { capabilities: {} } }, query: 'fixture', threadId: '',
-      local: { clientSettings: {}, drafts: {} }, projectGroups: () => [{ key: 'g', name: 'P', members: [{ id: 'p1' }] }] } as unknown as T3Client;
-    const native = { available: true, watch() {}, later: async () => ({}) } as unknown as Native;
-    await sidebarLocal(client, native, 'search-hover', 'c', '');
-    expect(sidebarSession(client).searchIndex).toBe(2);
-    await sidebarLocal(client, native, 'search-hover', 'zzz', '');
-    expect(sidebarSession(client).searchIndex).toBe(2);
   });
 });

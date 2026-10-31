@@ -2,9 +2,11 @@ use clearSiteData, ClearedSiteData from "@exact/browser"
 use handleUserPrompt, EmptyResult from "@exact/browser-automation"
 use Page from "./app-shapes.contract"
 use TranscriptMarkdown from "../timeline/markdown.contract"
-use ShellView, ShellDetails from "./shell-shapes.contract"
+use ShellView, ShellDetails, WorkspaceTarget, workspaceContainer, workspaceShown from "./shell-shapes.contract"
 use ChatCanvasView from "./chat-canvas.contract"
 use TerminalDrawerView from "../terminal/terminal.contract"
+use navActiveRoute from "../settings/settings-core.contract"
+use Change from "../shared/shapes.contract"
 
 members T3Code
   state shellClock = 0
@@ -12,12 +14,21 @@ members T3Code
   state toastHover = false
   state shellOpenHandled = ""
   resource page = exactPage() as shape Page // the window's focus and visibility (document.hasFocus(), exact2 #219): thread notifications and activity reports
-  resource shell = shellView(data.revision, wallTime.epochAtZero + shellClock, toastDismissed, toastHover, viewport.width <= 980, page.hasFocus, page.visibilityState, not settingsOpen and not pageCover and not welcome.show) as shape ShellView // the last: the chat view is shown (proactive panels)
+  resource shell = shellView(data.revision, wallTime.epochAtZero + shellClock, toastDismissed, toastHover, viewport.width <= 980, page.hasFocus, page.visibilityState, not settingsOpen and not pageCover and not welcome.show, notificationPermission.state) as shape ShellView // then: the chat view is shown (proactive panels); the notification permission (app.contract notificationPermission)
   resource filesMarkdown = renderFileMarkdown(shell.panel.files.markdownSource.concat(shell.panel.attachment.markdownSource).concat(shell.composerFile.file.markdownSource), data.look.math) as shape TranscriptMarkdown
   state rightPanelAt = ""
   derive rightPanel = (rightPanelAt != "" and rightPanelAt == shell.panel.key) or shell.panel.launcher
   state detailsOpen = false
-  resource details = shellDetails(detailsShown, data.threadId, data.revision, conversationWidth >= 1012, wallTime.epochAtZero + shellClock, floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible", lineageWorkflows, lineagePhasesOpen, lineagePhasesClosed) as shape ShellDetails
+  // The card's pull request row reads its checks on a timer of its own (usePullRequestChecksRefresh): every 45 s while runs
+  // are pending and 60 s once they settle (details.prRows.checksPoll), again from the start for another pull request.
+  state prRowChecksNow = 0
+  action prRowChecksTick
+    prRowChecksNow = performanceNow()
+  task prRowChecksPending when details.prRows.checksPoll == "pending" key=details.prRows.checksKey
+    every(45000, prRowChecksTick)
+  task prRowChecksSettled when details.prRows.checksPoll == "settled" key=details.prRows.checksKey
+    every(60000, prRowChecksTick)
+  resource details = shellDetails(detailsShown, data.threadId, data.revision, conversationWidth >= 1012, wallTime.epochAtZero + max(shellClock, prRowChecksNow), floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible", lineageWorkflows, lineagePhasesOpen, lineagePhasesClosed, page.visibilityState == "visible") as shape ShellDetails
   state canvasGestureValue = ""
   action canvasGesture(value: string)
     canvasGestureValue = value
@@ -55,6 +66,24 @@ members T3Code
   action returnTitleFocus
     titleDialog = false
     focus("thread-title")
+  // revealSettingsSearchTarget, from Settings search and from TypographySection's effect alike: a jump to a row that
+  // exists only with Separate fonts on (Prompt font, Terminal font; settings-core-view.ts) turns the setting on, and the
+  // terminal reads it too. The jump waits until the page reads it on. The write has its own mutation, so a command in
+  // flight cannot drop it, and only one is out until the page reads the setting on.
+  state separateFontsSaving = false
+  mutation separateFontsSaved as shape Change queue refreshes data then separateFontsLanded
+  task separateFontsJump when settingsOpen and settingsCore.separateFontsWanted and not separateFontsSaving
+    after(1, separateFontsOn)
+  action separateFontsOn
+    if settingsOpen and settingsCore.separateFontsWanted and not separateFontsSaving
+      separateFontsSaving = true
+      send separateFontsSaved = command("device-setting", "typographyAdvanced", "true", 0)
+  action separateFontsLanded
+    settingsRefresh = settingsRefresh + 1
+  task separateFontsRead when separateFontsSaving and not settingsCore.separateFontsWanted
+    after(1, separateFontsDone)
+  action separateFontsDone
+    separateFontsSaving = false
   state annotationSendHandled = 0
   task annotationSend when shell.panel.annotationSend > annotationSendHandled key=shell.panel.annotationSend
     after(1, annotationSendNow)
@@ -157,6 +186,7 @@ members T3Code
       settingsMenu = ""
       settingsQuery = ""
       settingsFocusTarget = value
+      settingsJumpOpened = "" // a new jump starts with its first pass (settings-members.contract focusSettingsTarget)
       modalError = ""
     if op.startsWith("upkeep:")
       send providerUpdateRun = providerChange(op, target, "", value, "", "") // a toast's update: the launch prompt's own environments, never the page's
@@ -195,11 +225,14 @@ members T3Code
         focus("surface-chooser")
     if what == "terminal" // the layout controls' toggle (toggleTerminalVisibility); closing returns to the composer
       send terminalChanged = command("terminallocal:toggle", "", "", 0)
-    if what == "reopen"
+    // ⇧⌘T waits for the command in flight, as the panel's other sends on `changed` do: a newer send there would let go
+    // an answer that holds state across a wait.
+    if what == "reopen" and not commandPending
       settingsOpen = false
       utilityPage = ""
       draftOwner = "__unset__"
       jumpRequest = jumpRequest + 1
+      commandPending = true
       send changed = command("shell:surface-reopen", "", "", 0)
     else if (what == "choose" or (what == "key" and (id == "b" or id == "B" or id == "d" or id == "D" or id == "f" or id == "F" or id == "m" or id == "M" or id == "l" or id == "L" or id == "p" or id == "P" or id == "t" or id == "T"))) and (data.threadId != "" or id == "browser" or id == "b" or id == "B" or id == "files" or id == "f" or id == "F" or (shell.terminalAvailable and (id == "terminal" or id == "t" or id == "T")) or (data.projectId != "" and (id == "device" or id == "m" or id == "M"))) and not commandPending
       commandPending = true
@@ -230,6 +263,8 @@ members T3Code
       settingsProjectId = ""
       settingsRoute = "scheduled-tasks"
       settingsOpen = true
+      settingsFocusTarget = "" // a jump left open when Settings closed is no longer this visit's (openSettings)
+      settingsJumpOpened = ""
       restEditor = target == "" ? "" : "task"
       restSubject = target == "" ? "" : `link|${value}|${target}`
       modalError = ""
@@ -304,3 +339,61 @@ members T3Code
       send terminalChanged = command(confirmOp == "terminallocal:close" ? "terminallocal:focus" : "terminalpanellocal:focus", confirmTarget, "", 0)
     else if not accept and confirmOp == "shelllocal:surface-close-confirmed" and shell.panel.terminal.open
       send terminalChanged = command("terminalpanellocal:focus", `${shell.panel.terminal.threadKey}|${shell.panel.terminal.terminalId}`, "", 0)
+  // Workspace areas (lib/workspaceFocus.ts): F6 and ⇧F6 move the focus to the next or previous shown area, in the
+  // order sidebar, conversation, composer, thread details, right panel and terminal; in Settings, its sections and its
+  // page. An area takes back the control it last held while that control is still shown (the conversation's only while
+  // it is in view, so the timeline keeps following a running turn), else its own stop: the open thread's row or the
+  // sidebar's search, the conversation itself, the composer, the card's first control, the panel itself, the terminal's
+  // page. A modal keeps the key, as only its own shortcut buttons hear chords while it shows.
+  state workspaceArea = ""
+  state workspaceTargets: WorkspaceTarget[] = []
+  action workspaceEntered(area: string, e: FocusEvent)
+    workspaceArea = area
+    if e.target != ""
+      workspaceTargets = workspaceTargets.filter((entry) => entry.area != area).concat([WorkspaceTarget(area=area, target=e.target)])
+  // `from` names the area the key came from when the focus is in a page the window cannot see into (the terminal's).
+  action workspaceMove(direction: number, from: string)
+    let order = settingsOpen ? ["settings-nav", "settings"] : ["sidebar", "conversation", "composer", "details", "panel", "terminal"]
+    let shown = order.filter((area) => workspaceShown(area, frame(workspaceContainer(area)).width, frame(workspaceContainer(area)).height, frame(workspaceContainer(area)).unavailable, details.inline and canvas.cardShown and not settingsOpen, terminalDrawer.open))
+    let at = shown.indexOf(from != "" ? from : workspaceArea)
+    let index = at < 0 ? (direction > 0 ? 0 : shown.length - 1) : (at + direction + shown.length) % shown.length
+    match shown.at(index)
+      case some(area)
+        workspaceFocusArea(area)
+      case none
+  action workspaceFocusArea(area: string)
+    let remembered = workspaceTargets.filter((entry) => entry.area == area).map((entry) => entry.target).join("")
+    let held = frame(remembered)
+    let lane = frame(workspaceContainer(area))
+    let usable = remembered != "" and not held.unavailable and held.width > 0 and (area != "conversation" or (held.y + held.height > lane.y and held.y < lane.y + lane.height))
+    workspaceArea = area
+    if area == "terminal"
+      send terminalChanged = command("terminallocal:focus", "", "", 0)
+    else if usable
+      focus(remembered)
+    else if area == "sidebar"
+      focus(data.threadId != "" and frame(`row-${data.threadId}`).width > 0 ? `row-${data.threadId}` : "search-threads")
+    else if area == "composer"
+      focus("composer")
+    else if area == "settings-nav"
+      focus(`settings-${navActiveRoute(settingsRoute)}`)
+    else if area == "details"
+      // The card's first enabled control in tree order: its holder is placed out of flow and has no height.
+      let editorOff = details.cwd == "" or details.editorId == "" or details.editorUnavailable != ""
+      let first = ["details-workspace", editorOff ? "" : "details-open-editor", "details-choose-editor", "details-run-script", "details-script-actions", "details-add-script"].filter((id) => id != "" and frame(id).width > 0)
+      match first.at(0)
+        case some(id)
+          focus(id)
+        case none
+          focus(workspaceContainer(area))
+    else
+      focus(workspaceContainer(area))
+  // TriageDraftHero's "or run npx t3 triage": the command is copied and the button reads "Copied" for 1.5 s.
+  state triageCopied = 0
+  task triageCopiedShown when triageCopied > 0 key=triageCopied
+    after(1500, triageCopyDone)
+  action triageCopy
+    triageCopied = triageCopied + 1
+    send localChanged = command("pageslocal:copy", "", "npx t3 triage", 0)
+  action triageCopyDone
+    triageCopied = 0

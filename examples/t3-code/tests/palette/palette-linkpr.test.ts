@@ -2,7 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { obj, str, type Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
-import { parseChangeRequestUrl, parsePullRequestReference, resolveLinkInput, threadPullRequestKey, linkMode, linkPullRequestView, LINK_DESCRIPTION } from '../../src/palette/palette-linkpr';
+import { changeRequestTermsForUrl, parseChangeRequestUrl, parsePullRequestReference, resolveLinkInput, threadPullRequestKey, linkMode, linkPullRequestView, LINK_DESCRIPTION } from '../../src/palette/palette-linkpr';
 import { paletteCommand } from '../../src/palette/palette-commands';
 import { paletteView } from '../../src/palette/palette-view';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
@@ -51,6 +51,33 @@ describe('change request references', () => {
     expect(resolveLinkInput('nope', [github], 'p1', 'multiple')).toBeNull();
     expect(threadPullRequestKey({ host: 'codeberg.org', repository: 'O/R', number: 4, authority: 'codeberg.org:8443' })).toEqual({ host: 'codeberg.org:8443', repository: 'o/r', number: 4 });
   });
+  test('GitCafe: both routes on its own hosts, stored at the canonical /pulls/<n> (changeRequestUrl.test.ts, pullRequestLinkInput.test.ts)', () => {
+    for (const path of ['pull', 'pulls']) expect(parseChangeRequestUrl(`https://git.cafe/PingDotGG/T3Code/${path}/23897`)).toEqual({ host: 'git.cafe', repository: 'pingdotgg/t3code', number: 23897 });
+    expect(parseChangeRequestUrl('https://staging.git.cafe/team/repo/pull/7/files')).toEqual({ host: 'staging.git.cafe', repository: 'team/repo', number: 7 });
+    for (const link of ['https://git.cafe/pingdotgg/t3code/issues/23897', 'https://git.cafe/pingdotgg/t3code/pull/abc', 'https://git.cafe/pingdotgg/t3code']) expect(parseChangeRequestUrl(link)).toBeNull();
+    const gitcafe = { id: 'p1', repositoryIdentity: { provider: 'gitcafe', canonicalKey: 'git.cafe/acme/web', owner: 'acme', name: 'web', locator: { remoteUrl: 'git@git.cafe:acme/web.git' } } };
+    for (const host of ['git.cafe', 'staging.git.cafe']) {
+      for (const [repository, route] of [['web', 'pull'], ['web', 'pulls'], ['pull', 'pull'], ['pulls', 'pulls']]) {
+        const url = `https://${host}/acme/${repository}/${route}/42`;
+        expect(parsePullRequestReference(url)).toBe(url);
+        expect(resolveLinkInput(url, [gitcafe], 'p1', 'multiple')).toEqual({ link: { host, repository: `acme/${repository}`, number: 42, url: `https://${host}/acme/${repository}/pulls/42` } });
+      }
+    }
+    // GitHub Enterprise Server runs on any hostname: the route alone names a GitHub pull request.
+    expect(parseChangeRequestUrl('https://code.acme.dev/Team/Repo/pull/5')).toEqual({ host: 'code.acme.dev', repository: 'team/repo', number: 5 });
+  });
+  test("a number names the project host's own term when the host has no URL for it", () => {
+    const gitlab = { id: 'p1', repositoryIdentity: { provider: 'gitlab', canonicalKey: 'gitlab.com/web', displayName: 'web', locator: { remoteUrl: 'git@gitlab.com:web.git' } } };
+    expect(resolveLinkInput('#42', [gitlab], 'p1', 'multiple')).toEqual({ error: "Paste a full URL; this project's host has no known merge request URL." });
+    const unknown = { id: 'p1', repositoryIdentity: { canonicalKey: 'git.example/acme/web', owner: 'acme', name: 'web', locator: { remoteUrl: 'git@git.example:acme/web.git' } } };
+    expect(resolveLinkInput('42', [unknown], 'p1', 'multiple')).toEqual({ error: "Paste a full URL; this project's host has no known change request URL." });
+    // A project that names its browser URL resolves below it.
+    const mounted = { id: 'p1', repositoryIdentity: { provider: 'gitlab', canonicalKey: 'git.example/group/web', displayName: 'group/web', webUrl: 'https://git.example/code/group/web/', locator: { remoteUrl: 'git@git.example:group/web.git' } } };
+    expect(resolveLinkInput('#7', [mounted], 'p1', 'multiple')).toMatchObject({ link: { url: 'https://git.example/code/group/web/-/merge_requests/7', number: 7 } });
+    // A link's own host names it; a URL no host claims reads as GitHub's.
+    expect(changeRequestTermsForUrl('https://gitlab.example.com/group/web/-/merge_requests/3')).toMatchObject({ shortLabel: 'MR', plural: 'merge requests' });
+    expect(changeRequestTermsForUrl('https://example.com/nothing')).toMatchObject({ shortLabel: 'PR', singular: 'pull request' });
+  });
   test('link mode follows the environment capabilities', () => {
     expect(linkMode({ environment: { capabilities: { threadPullRequests: true } } })).toBe('multiple');
     expect(linkMode({ environment: { capabilities: { threadPullRequestLinking: true } } })).toBe('single');
@@ -77,6 +104,15 @@ describe('Link pull request dialog', () => {
     const dispatched = native.calls.map(call => obj(obj(call.payload).command)).find(command => command.type === 'thread.pull-request.link')
       ?? native.calls.map(call => obj(call.payload)).find(payload => payload.type === 'thread.pull-request.link');
     expect(dispatched).toMatchObject({ threadId: 't1', host: 'github.com', repository: 'acme/widgets', number: 42, url: 'https://github.com/acme/widgets/pull/42', source: 'manual' });
+  });
+  test('a GitCafe /pull/<n> link is stored at its canonical /pulls/<n>', async () => {
+    const gitcafe = { id: 'p1', title: 'Web', workspaceRoot: '/repo', repositoryIdentity: { provider: 'gitcafe', canonicalKey: 'git.cafe/acme/web', owner: 'acme', name: 'web', locator: { remoteUrl: 'git@git.cafe:acme/web.git' } } };
+    const c = client({ threadPullRequests: true }, gitcafe), native = new Fake();
+    expect(linkPullRequestView(c, 'https://git.cafe/Acme/Web/pull/12').contextTitle).toBe('git.cafe/acme/web #12');
+    expect((await paletteCommand(c, native, files(), 'link-pr', 'https://git.cafe/Acme/Web/pull/12', 'link-pr')).close).toBe(true);
+    const dispatched = native.calls.map(call => obj(obj(call.payload).command)).find(command => command.type === 'thread.pull-request.link')
+      ?? native.calls.map(call => obj(call.payload)).find(payload => payload.type === 'thread.pull-request.link');
+    expect(dispatched).toMatchObject({ host: 'git.cafe', repository: 'acme/web', number: 12, url: 'https://git.cafe/acme/web/pulls/12' });
   });
   test('an invalid submit stays open and shows the validation', async () => {
     const c = client(), native = new Fake();

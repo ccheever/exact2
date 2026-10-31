@@ -3,7 +3,7 @@ import type { T3Client } from '../../src/client/client';
 import type { Message, Obj } from '../../src/client/domain';
 import { chatLocal, transcriptRows } from '../../src/timeline/timeline-presentation';
 import { dynamicToolTitle, claudeSkillInvocation, projectedWorkEntry, summarizeToolGroup, summaryIcon, summaryKind } from '../../src/timeline/timeline-worklog';
-import { summarizeT3ToolCalls, t3ToolDefinition, t3ToolPresentation, t3ActionPriority } from '../../src/timeline/timeline-t3tools';
+import { summarizeT3ToolCalls, t3SummaryAction, t3ToolDefinition, t3ToolPresentation, t3ActionPriority } from '../../src/timeline/timeline-t3tools';
 import type { Native } from '../../src/client/protocol';
 
 const base = Date.parse('2026-10-03T00:00:00.000Z');
@@ -155,12 +155,52 @@ describe('T3 pull request tools (18b2132)', () => {
     const running = work(item('w', 'dynamic_tool', 1, { status: 'running', toolName: 'mcp__t3-code__watch_pull_request', input: { url: 'https://github.com/a/b/pull/12' }, output: null }));
     const value = live([user('u', 0, 'go'), running.item]);
     expect(rows(value).find(row => row.kind === 'live')).toMatchObject({ title: 'Watching PR #12', icon: 'pull-request' });
+    // A linked change request is named in its host's term (#23999).
+    const link = (url: string) => t3ToolPresentation(t3ToolDefinition('t3-code.link_pull_request'), 'completed', { arguments: { url } })?.displayName;
+    expect(link('https://github.com/acme/web/pull/7')).toMatch(/ PR #7$/);
+    expect(link('https://gitlab.com/acme/web/-/merge_requests/7')).toMatch(/ MR #7$/);
+    expect(t3ToolPresentation(t3ToolDefinition('t3-code.link_pull_request'), 'completed', { arguments: { number: 7 } })?.displayName).toMatch(/ PR #7$/);
     const failed = work(item('f', 'dynamic_tool', 1, { toolName: 'mcp__t3-code__unwatch_pull_request', input: { number: 7 }, output: { isError: true } }));
     expect(rows(client([user('u', 0, 'go'), failed.item, answer('a', 2, 'ok')])).length).toBeGreaterThan(0);
     const entries = [1, 2].map(n => work(item(`w${n}`, 'dynamic_tool', n, { toolName: 'mcp__t3-code__watch_pull_request', input: { number: n }, output: '{"ok":true}' })));
     expect(summarizeToolGroup(entries).summary).toBe('Watching 2 pull requests');
     expect(summaryIcon(summaryKind(entries))).toBe('pull-request');
     expect(summarizeT3ToolCalls('unwatch-pr', [{ input: {}, output: null, outcome: 'unfinished' }]).label).toBe('Tried to stop watching 1 pull request');
+  });
+});
+
+describe('T3 action tools (#25423) and background waits (#24610)', () => {
+  test('an action tool call is labelled as the action it ran', () => {
+    expect(t3ToolDefinition('mcp__t3-code__preview_act', { action: 'type' })?.labels).toEqual(t3ToolDefinition('preview_type')?.labels);
+    expect(t3ToolDefinition('t3_thread_transfer', { action: 'fork' })?.displayName).toBe(t3ToolDefinition('t3_thread_fork')?.displayName);
+    expect(t3ToolDefinition('preview_act', { action: 'unknown' })?.labels[2]).toBe('Used');
+    expect(t3ToolDefinition('preview_act', { action: 'hover' })?.labels[2]).toBe('Hovered');
+    const running = work(item('w', 'dynamic_tool', 1, { status: 'running', toolName: 'mcp__t3-code__preview_act', input: { action: 'click', locator: 'Save' }, output: null }));
+    expect(rows(live([user('u', 0, 'go'), running.item])).find(row => row.kind === 'live')).toMatchObject({ title: 'Clicking in the preview browser' });
+  });
+  test('an action tool counts under the action each call ran', () => {
+    expect(t3SummaryAction('mcp__t3-code__t3_queue', { action: 'list' })).toBe('queue-list');
+    expect(t3SummaryAction('t3_queue', { action: 'edit' })).toBe('queue-edit');
+    expect(t3SummaryAction('t3_thread_transfer', { action: 'status' })).toBe('thread-transfers');
+    expect(t3SummaryAction('t3_thread_configure', {})).toBe('thread-configuration');
+    expect(t3SummaryAction('schedule_task', { scheduledTaskId: 'task-1' })).toBe('schedule-update');
+    expect(t3SummaryAction('delegate_task', { task: 'x' })).toBe('delegate');
+    const lists = [1, 2].map(n => work(item(`q${n}`, 'dynamic_tool', n, { toolName: 'mcp__t3-code__t3_queue', input: { action: 'list' }, output: '{"ok":true}' })));
+    expect(summarizeToolGroup(lists).summary).toBe('Listed queued messages 2 times');
+  });
+  test('an action tool without its action, and the preview tools it reaches, read their own labels', () => {
+    const name = (tool: string) => t3ToolPresentation(t3ToolDefinition(`t3-code.${tool}`), 'completed')?.displayName;
+    expect(['t3_queue', 't3_pending_request', 't3_thread_transfer', 't3_thread_configure', 'preview_act'].map(name)).toEqual([
+      'Managed queued messages', 'Handled pending questions', 'Used thread transfers', 'Used thread model settings', 'Used the preview browser']);
+    expect(['preview_select', 'preview_drag', 'preview_upload', 'preview_dialog', 'preview_hover'].map(name)).toEqual([
+      'Chose an option in the preview browser', 'Dragged in the preview browser', 'Uploaded files to the preview browser',
+      'Responded to a preview browser dialog', 'Hovered in the preview browser']);
+  });
+  test('a background wait reads "Updated background waits" and leads the group as an effect', () => {
+    const call = { input: { taskIds: ['b1'] }, output: { matched: ['b1'], unmatched: [] }, outcome: 'completed' as const };
+    expect(summarizeT3ToolCalls('background-wait', [call]).label).toBe('Updated background waits 1 time');
+    expect(t3ToolPresentation(t3ToolDefinition('mcp__t3-code__t3_background_wait'), 'completed')?.displayName).toBe('Updated background waits');
+    expect(t3ActionPriority('background-wait')).toBe(0);
   });
 });
 

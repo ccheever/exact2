@@ -3,9 +3,10 @@
 // integrity values the reference T3 Code locks; installed on first use) and from committed inputs,
 // and examples/t3-code/.gitignore keeps it out of git:
 //
-//   gen-grammar.mjs    src/highlight/grammar.ts and grammar-<n>.ts: Shiki's grammars, the pierre themes
 //   gen-mobile-grammar.mjs mobile/shared/r12-render-grammar.ts and -more.ts: the iOS app's grammar groups
-//   gen-css-words.mjs  src/highlight/css-words.ts and mobile/shared/r7-polish-css-words.ts: the CSS grammar's word lists
+//   gen-css-words.mjs  mobile/shared/r7-polish-css-words.ts: the mobile CSS grammar word lists
+//   gen-highlights.mjs data/highlights.wasm and its licence: @pierre/highlights' lexers; src/highlight/
+//                      highlights-tables.ts and syntax-ink.contract: its languages and its colour classes
 //   gen-icons.mjs      src/settings/settings-b-lucide.ts (and mobile/shared/'s copy), src/shared/pages-icons.contract (Lucide);
 //                      src/shared/timeline-files.contract and timeline-files-tables.ts, data/pierre-icons.tsv,
 //                      the icon tables of icon-tables.mjs and
@@ -19,6 +20,8 @@
 //   gen-minimap-text.mjs src/timeline/minimap-text.js and .d.ts: the minimap preview's Markdown as plain text
 //   gen-page-scripts.mjs src/browser/page-scripts.ts: the page scripts a Browser tab's frame runs (Annotate's overlay,
 //                      Playwright's injected script), from the committed assets
+//   gen-file-preview.mjs assets/file-preview/: the document viewers' page, bundled from file-preview-host/src/ and the
+//                      pinned viewer packages, with their wasm, fonts and licences
 //
 // The app build runs it before it bakes (data/build.rs). Run it by hand before anything else reads
 // them: `bun test examples/t3-code`, the strict tsc, `contract build`, the AppKit tests.
@@ -36,16 +39,18 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inputs as filePreviewInputs } from './gen-file-preview.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const example = join(here, '..', '..');
-const GENERATORS = ['gen-grammar.mjs', 'gen-mobile-grammar.mjs', 'gen-css-words.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-codex-directives.mjs', 'gen-minimap-text.mjs', 'gen-shell-parser.mjs', 'gen-page-scripts.mjs'];
+const GENERATORS = ['gen-mobile-grammar.mjs', 'gen-css-words.mjs', 'gen-highlights.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-codex-directives.mjs', 'gen-minimap-text.mjs', 'gen-shell-parser.mjs', 'gen-page-scripts.mjs', 'gen-file-preview.mjs'];
 
-/** Every input: this directory's scripts, package.json and bun.lock, and the two assets gen-page-scripts.mjs copies (no
- *  generator reads another app source). */
+/** Every input: this directory's scripts, package.json and bun.lock, the assets gen-page-scripts.mjs copies, and the
+ *  viewer page's sources gen-file-preview.mjs bundles (no other generator reads an app source). */
 export function inputs() {
   return [...readdirSync(here).filter(name => /\.mjs$/.test(name) || name === 'package.json' || name === 'bun.lock').map(name => join(here, name)),
-    join(example, 'assets/browser-annotate.js'), join(example, 'assets/vendor/playwright/injected-script.js')];
+    ...['browser-annotate.js', 'browser-annotate.css', 'vendor/playwright/injected-script.js'].map(asset => join(example, 'assets', asset)),
+    ...filePreviewInputs()];
 }
 
 /** The pinned packages: a frozen install with nothing to do takes milliseconds; a missing package is fetched once.

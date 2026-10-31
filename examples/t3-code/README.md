@@ -17,8 +17,8 @@ The app carries the official T3 server release (the CLI archive of the release b
 reference pin, unmodified; `server-runtime/runtime-pin.json`) and runs it as its own local
 server, "This machine". It does not modify T3 Code.
 
-The reference is T3 Code `74541bab17` (`referencePin` in `server-runtime/runtime-pin.json`;
-the client mirrors Nightly `0.1.2-nightly.20261021.3457`, `version-skew.ts`). Ported files name
+The reference is T3 Code `6d450a4284` (`referencePin` in `server-runtime/runtime-pin.json`;
+the client mirrors the stable release `0.1.5`, `version-skew.ts`). Ported files name
 the reference files they follow, and T3 Code's MIT notice is kept in `LICENSE-T3`.
 
 macOS is the only target: there is no web, iOS or Linux build of this app.
@@ -44,18 +44,22 @@ stays blank and the host logs that `assets/terminal/index.html` is not an app as
 
 Generated sources are built, not committed. `tools/generate/generate.mjs` makes them from the
 packages pinned beside it (`tools/generate/package.json` and `bun.lock`, the versions the
-reference locks; network once) and from committed inputs: the Shiki grammar tables
-(`src/highlight/grammar*.ts`), the CSS word lists (`src/highlight/css-words.ts`), the Lucide and
+reference locks; network once) and from committed inputs: the code colours' lexers and tables
+(`data/highlights.wasm`, `src/highlight/highlights-tables.ts`, `syntax-ink.contract`), the Lucide and
 Pierre icon data (`src/settings/settings-b-lucide.ts`, `src/shared/pages-icons.contract`,
 `src/shared/timeline-files.contract`, `timeline-files-tables.ts` and `data/pierre-icons.tsv`),
 the ten icon tables (`icons`, `shell-icons`, `sidebar-icons`,
 `timeline-icons`, `panel-icons`, `settings-icons`, `provider-icons`, `diff-glyphs`, `editor-icons`
 and `settings-brands`, each a `.contract` in its feature's folder under `src/`, from the Lucide names
 in `tools/generate/icon-tables.mjs` and the marks in `icon-marks.mjs`; their hand-written
-components are in the `*-kit.contract` files), the morph plans (`src/shell/shell-morph.contract`)
-and the terminal buffer vectors
+components are in the `*-kit.contract` files), the morph plans (`src/shell/shell-morph.contract`),
+the terminal buffer vectors
 (`tests/terminal/vectors.json`, whose expectations are test data committed in
-`gen-vectors.mjs`). The app build runs it before it bakes (`data/build.rs`);
+`gen-vectors.mjs`), and the document viewers' page (`assets/file-preview/`: the reference's PDF.js,
+large-text, Office, OpenDocument, notebook, archive and SQLite viewers, bundled from
+`file-preview-host/src/` with their wasm, fonts and licences by `gen-file-preview.mjs`; 25 MB, the
+wasm, fonts and CMaps gzipped, so the bake's 64 MiB capture of the app's sources and assets holds it).
+The app build runs it before it bakes (`data/build.rs`);
 run it yourself before the tests and checks below:
 
 ```sh
@@ -76,7 +80,7 @@ reuses the cache in `.runtime-cache/`). The bundle carries that folder as
 unpacks it into `<T3 home>/runtime/versions/<version>` and starts `t3 --bootstrap-fd 0` with the
 desktop envelope; it restarts the server with T3 Code's backoff, keeps its failure log in
 `<T3 home>/userdata/logs/server-child.log`, and stops it when the app quits. Closing the window
-(⌘W, File › Close Window, the red button) does not quit: `app.json` sets
+(File › Close Window, the red button) does not quit: `app.json` sets
 `host.macos.window.keepRunning`, so the window hides and the app, its session and the server keep
 running, as the reference's (`DesktopLifecycle.ts`: `window-all-closed` quits only off macOS). The
 reopen event (a Dock click, `open -a`) and a `t3 app` request show the window again; with it
@@ -100,12 +104,9 @@ and both variables set) runs the development binary, which carries no bundle res
 no server: build the bundle, then point `EXACT_MAC_BIN` at its `Contents/MacOS/T3 Code (Exact)`
 (the driver then skips its stale-build check, so rebuild after every source change).
 
-Safari's Web Inspector (exact2 #101): in a development build the rendered-HTML preview's web view is
-`isInspectable`, so Safari's Develop menu lists it, and a Browser tab's frame follows main's rule for
-Exact's own `iframe` web views. A release build's are not: the packaged
-build (that metadata), a legacy packaged marker retained for inspection compatibility, a production-trust bake or a distributed bundle (`--distribution`, what
-`exact release` signs), as main #309 decides for Exact's own `iframe` web views
-(`T3WebInspection.swift`; each web view writes a `t3.inspection:` line to stderr). There is no
+Safari's Web Inspector (exact2 #101): every web view the clone shows is an Exact `iframe` (a Browser tab, a
+rendered HTML preview, the terminal, a Mermaid diagram), which main #309 makes `isInspectable` in a development
+build, so Safari's Develop menu lists it, and never in a production-trust bake or a distributed bundle. There is no
 View › Toggle Developer Tools: an inspector for the app's own UI stays out of exact2 (#101).
 
 ## Desktop command
@@ -129,9 +130,10 @@ or use the embedded server ("This machine"). Configure and authenticate at least
 T3 Code. This client implements orchestration protocol 2 and requires the server's
 `serverResolvedCommandContext` capability for writes. A server on another protocol is listed as
 outdated or newer; one that can update itself offers **Update** in Settings › Connections. A
-connected server older than this client shows "Server update available" above the composer (and
-a warning in the thread details card); its Update streams the update's progress, waits for the
-server to come back on the new version and shares that state with Settings › Connections
+connected server older than this client shows a warning in the thread details card, and the
+sidebar's update pill offers its update; a notice above the composer appears only while the update
+runs or after it failed. Update streams the update's progress, waits for the server to come back
+on the new version and shares that state with Settings › Connections
 (`server-update.ts`). The sidebar's Update button combines one-click provider and remote server
 updates in one confirmation, with per-machine progress and Retry. Provider installers finish
 before servers restart; a slow server keeps its own progress without holding up the other
@@ -182,25 +184,33 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   the reference's KaTeX in the math page (`assets/math/`, an `iframe` per formula); inline math
   stays TeX source until Markdown text has an inline atom (draft PR #888). A failed workspace
   preparation offers Retry (`prepared-run.retry`), and the failure row hides once a retry
-  supersedes it (`workspace-retry.ts`, 737993303d). Code colouring follows Shiki for
-  every declarator of a `const`/`let`/`var` list, object keys versus type annotations,
-  import lines and keyword-named members (`ts-statements.ts`).
-- Composer: send, stop, queue and steer while running (queued rows reorder by drag),
+  supersedes it (`workspace-retry.ts`, 737993303d). Code is coloured by the reference's lexers,
+  @pierre/highlights 0.2.0, which the data crate runs (`data/src/highlights.rs`, `highlights.ts`).
+- Composer: send, stop, queue and steer while running (queued messages wait at the end of the
+  timeline, with Send now, edit and remove; with no turn running, Send now starts one),
   model picker with search and favourites, reasoning and runtime options, Plan/Build,
   slash and @ menus, file and image attachments (videos as first-frame tiles that play in
   an expanded preview; removing an image the prompt references asks first and removes
   every reference), stash, multi-model drafts that start one worktree thread per model,
-  the resume-with-less-context banner, `/usage-limits` (each account's windows as bars with
+  the Compact chip for a stale Claude session, `/usage-limits` (each account's windows as bars with
   pace and countdown, Manage usage, banked reset credits with "Use reset" behind a confirm;
   `usage-limits.ts`, `usage-bars.contract`) and Codex `/feedback [reason]` (uploads the
   thread with a banner, Copy ID and two local rows; `composer-feedback.ts`). Both long
   writes are detached requests whose reply joins the inbox (`composer-replies.ts`). The composer overlays the transcript, which keeps a
   measured reservation at its end (`composer-overlay.ts`); with Chat width Wide or Full
   the context strip's workspace control is the desktop Select. PNG, JPEG and HEIC images over
-  2000 pixels on their long edge are scaled to that edge before upload; PNGs already within it keep their bytes.
+  2000 pixels on their long edge are scaled to that edge before upload; PNGs already within it keep their bytes. An
+  image uploads as it is attached, three at once, its percentage on its tile while the prompt is typed, and the
+  uploads go on in other threads (`composer-uploads.ts`). Send and Return wait for them; a send that goes anyway (the
+  Browser's annotate and send) waits for them itself. Their attachments last the session, so a relaunch uploads the
+  draft's images again; other files upload at send. With Markdown formatting on, each line of the prompt reads in the
+  direction of most of its block's words (`composer-text-direction.ts`); with it off, each line by its first strong
+  letter, as Apple's plain fields read.
 - Requests: approvals, single/multiple-choice and free-text questions. While an approval is pending the
   composer stays usable: Send declines the approvals it shows, then steers the turn with the message
-  (`declineForRedirect` in `client-ops-composer.ts`); a draft edited meanwhile stays unsent. A typed answer
+  (`declineForRedirect` in `client-ops-composer.ts`), or, for an agent that reads feedback, declines the
+  approval with the message as its feedback; a draft edited meanwhile stays unsent. An approval that full access
+  still asked for says why. A typed answer
   stays with its thread until the question resolves. While the composer answers a question the server lets
   carry attachments, its shelf is that question's (`question-attachments.ts`): a dropped, pasted or picked image
   joins it without a chip, as does a SnapShot taken while the question is open (pinned when the capture is
@@ -230,13 +240,12 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   from Go to file, content search and file chips: a chip written from the workspace root as a bare name, or
   with a subfolder project's own folders repeated, opens the file the workspace search finds, and a `~/` link
   opens as a host file the server expands, `workspace-file-lookup.ts`; its explorer and rendered/source
-  choices persist; an `.html` file opens rendered in the sandboxed WebKit body (its sibling stylesheets, scripts and
+  choices persist; an `.html` file opens rendered in a sandboxed `iframe` (its sibling stylesheets, scripts and
   images load through the signed asset URL's token directory, and the page may load stylesheets, scripts,
   images, fonts and fetches from other hosts as the reference's sandboxed frame does (https, and `http` to an IP
-  address or a named host: `app.json` allows arbitrary loads in web content, #106), `T3MediaPreview.swift`)
+  address or a named host: `app.json` allows arbitrary loads in web content, #106), `media-frame.*`)
   from a signed asset URL, with the reference's Show HTML source / Show rendered page toggle,
-  `files-rendered-html.ts`; regex literals in its scripts are coloured as Shiki does,
-  `html-script-regex.ts`; every right-panel tab (Files, files, the
+  `files-rendered-html.ts`; every right-panel tab (Files, files, the
   pull request list, the Diff, the Device surface with its device, pull request details and
   attachments) is kept per thread across launches, `saved-panel.ts`, `saved-surfaces.ts`;
   diffs keep the project's requested cwd, including projects outside the server's launch directory), Linked pull requests (rows, Copy link, Open, Watch for changes / Stop
@@ -258,9 +267,10 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   previews (Markdown, table or numbered source, images, Copy contents and Save file;
   opened from a sent file chip; the text is fetched from the signed asset URL, and Save file
   hands the bytes to the window's Save panel, `attachment-files.ts`, `save-file.ts`;
-  `attachment-media*`, `T3MediaPreview.swift`: PDFs in PDFKit, HTML rendered in a sandboxed
-  WebKit view that loads its token directory and external hosts as the reference's frame does, or as source coloured by Shiki's html grammar under the
-  Pierre themes (`html-syntax.ts`), audio and video in the platform's players, "Unable to
+  `attachment-media*`, `media-frame.*`: PDFs in the viewer page's PDF.js (`file-preview-host/`), a draft past 16 MiB
+  given to it as a copy in app:/cache (LLP 1020.001 D7), HTML in a sandboxed `iframe` that loads its token directory
+  and external hosts as the reference's frame does, or as source coloured by the reference's html lexer
+  (`highlights.ts`), audio and video in the platform's players, "Unable to
   load audio/video." with Try again) and Device (the "Set up devices" wizard over
   `device.configure` / `subscribeDeviceState`; Escape closes it; after onboarding a row
   opens its simulator with `device.open`, then the workspace shows the hub's H.264 screen
@@ -318,8 +328,10 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   Link pull request), toasts, the Nightly mobile-app notice, macOS notifications (after
   the user grants them).
 - Settings: the reference's routes with project/environment scope, search, theme editor and
-  VS Code theme import, keybindings, providers (sign-in and runtime install), connections
-  (pairing, SSH, outdated-host update), scheduled tasks, SnapShots, diagnostics and licenses.
+  VS Code theme import, keybindings, providers (sign-in and runtime install; a ChatGPT sign-in's
+  callback comes back to `openAuthSession`'s loopback receiver on the port T3's server chose, LLP
+  1133.005 D9, `codex-setup-ops.ts` `receiveCallback`), connections (pairing, SSH, outdated-host
+  update), scheduled tasks, SnapShots, diagnostics and licenses.
 
 Return sends; Shift-Return inserts a newline, continues a Markdown list (renumbering the numbered
 items below) or leaves an empty item or quote line, with rich text on or off; IME marked text stays an
@@ -351,9 +363,11 @@ item (`-exact-menu="none"`) but one that stands in for a host item (⌘Z, ⌘,),
 per chord (⌘N and ⇧⌘O both start a thread with no text field focused). While the sidebar's undo
 notice claims ⌘Z, thread.undo stands in for Edit › Undo. ⌘W closes the active right-panel surface
 tab (its neighbour becomes active; the last tab closes the panel; on the Pull Requests page the open
-pull request) before it closes the window: the window root's capture handler hears it ahead of the
-menu (`app-window.contract` `modifierDown`), so File › Close Window keeps ⌘W; a held ⌘W's repeats
-are dropped.
+pull request) or the focused terminal, and never the window: File › Close Window has no key
+equivalent, as in the reference, and AppKit's Close All goes with it (the window root's
+`-exact-menu-keys` and `-exact-menu-remove`, LLP 1021 §5.3.3). The root's capture handler hears ⌘W
+ahead of the menu (`app-window.contract` `modifierDown`) and prevents one that closes nothing, which
+AppKit would answer with a beep; a held ⌘W's repeats are dropped.
 The Quit shortcut setting's hold (Hold ⌘Q or press twice) is the window root's `key` handler, ahead
 of the menu's Quit (`quit-hold.contract`). Edit's Paste as Text (⇧⌘V) stays the module's
 (`T3Menus.swift`): it is the responder chain's `pasteAsPlainText:`, which a button's press is not. The surface launcher takes the focus when it mounts (`autofocus`), and
@@ -367,8 +381,11 @@ picker's Copy branch name (on its trigger and on each ref in the open picker, wh
 web and file link menus (`link-menus.contract`; their rows are computed before the right-click,
 `external-link-menu.ts` and `file-link-menu.ts`). A draft
 row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. A mailto, irc,
-xmpp or fragment link has no menu of its own, so its right-click is the desktop shell's. The media menu and
-the legacy sidebar's choice of project members stay the module's (`T3ContextMenu.swift` and `T3Sidebar.swift` say why). A global hotkey of another
+xmpp or fragment link has no menu of its own, so its right-click and its ContextMenu key get the desktop shell's
+(`T3TextContextMenu.swift`). The media menu stays the module's (`T3ContextMenu.swift` says why). The legacy
+sidebar's New thread shows a project's members, and a file link on the pull request page its menu, where the press
+was (LLP 1021 D2: the press's `clientX` and `clientY` as the popover's `left` and `top`; a key's press is at 0, 0,
+the window's corner, as the reference's `Menu.popup` puts it). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
 Saved environments and their credentials are one kept secret, `t3-catalog` (granted by `secret.keep
@@ -462,15 +479,22 @@ filed were moved there or closed). The gaps someone using this app runs into:
   ([`issues/20261009-popover-css-flip-fallbacks.md`](../../issues/20261009-popover-css-flip-fallbacks.md),
   #112). The clone's popovers, hover cards and colour picker use its `position-try-fallbacks`;
   the record stays open for the rest of the placement work.
-- Data modules have no timers ([`issues/closed/20261009-typescript-failure-parity.md`](../../issues/closed/20261009-typescript-failure-parity.md),
-  #124; closed with timers still deferred). Time is an argument, and debounces and cooldowns are
-  Contract tasks.
-- The ContextMenu key and VoiceOver's show menu on a reply's mailto, irc, xmpp or fragment link open nothing,
-  where the reference opens the desktop shell's menu: those links write no `contextmenu`, and on macOS a
-  keyboard or VoiceOver menu request that no node answers ends (`MouseEventsMac.swift` `contextTarget`),
-  while a right-click goes on to the shell's menu. Chrome sends the request on to the default menu.
-- On the pull request page a file link's press opens its menu below the link (a popover invoker), where the
-  reference opens it at the click.
+- A data module's timer lives inside the answer that armed it (LLP 1027.000 D1), so the waits in the
+  middle of a flow (View source's and Edit from here's polls, the Browser's paint and capture
+  timeouts, the debounces) are the flow's own, on the app's clock. Natively a timer raced against a
+  host call its answer awaits runs only once that call lands (main's `QUEUE.md`), so Annotate's 5 s
+  crop deadline and a recording's capture timeout wait out a capture that hangs, where the
+  reference gives up. A flow whose answer is let go while it waits on a timer stops there, its
+  `finally` unrun, so each flow that holds state across a wait has a send no other flow replaces
+  (`app.contract`): View source, a transcript chip's or the composer's (`citationShown`); the
+  Browser's Capture, whose Record start waits for two frames (`capturePressed`, queued); the
+  checkout dialog's edits, whose next edit takes the debounce over (`prCheckoutTyped`); and the
+  prompt links, whose switch to another machine's Scratch project polls (`fragmentChanged`, queued).
+  Time is still an argument, and work outside an answer (the transport's tick, the sidebar's
+  graces) is Contract tasks.
+- Text a platform view draws keeps AppKit's font smoothing (LLP 1019 D12): with Font smoothing on,
+  the composer's and the fields' typed text is a shade heavier than the reference's, which draws
+  all of its text `antialiased`.
 - View's zoom scales the root font size, so every `rem` and inherited text size, but not `px` lengths or
   the module's native views, where Electron's page zoom scales the whole page.
 - A completed ⌘Q hold leaves the window as it is until the keys go quiet: the reference leaves full
@@ -484,6 +508,12 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
   main keeps the limit), so the composer is opaque where the reference's glass shows the
   transcript through it.
+- A ChatGPT sign-in's browser page, once the callback is in, reads "Return to T3 Code (Exact)" and "You can close
+  this tab." (the host's page, LLP 1133.005 D9), where the reference's adds "Your sign-in response has been received.
+  T3 Code is finishing the connection."
+- Two ChatGPT sign-ins wait at once, each on its port, as the reference's do; a third waits for one of them to end
+  (the window's two receivers, `codex-setup-host.ts` `LOOPBACK_SLOTS`), where the reference receives any number.
+- The notification sounds are WAV copies of the reference's two MP3s, since `playSound` reads WAV.
 
 Main has closed records the clone was written around. The clone now uses these: a process
 relaunch for the Local environment switch, Network access and Tailscale HTTPS (`relaunch()`,
@@ -494,7 +524,26 @@ and capture-phase key handlers for the keybinding recorder and the reply's Markd
 (`keycapture`, [`issues/closed/20261009-capture-phase-key-events.md`](../../issues/closed/20261009-capture-phase-key-events.md)),
 and `repeating-linear-gradient()` with length stops for the usage bars and the diff's deletion bars
 ([`issues/closed/20261011-repeating-hatch-across-list-rows.md`](../../issues/closed/20261011-repeating-hatch-across-list-rows.md)),
-and `-exact-menu` for View › Reload and Force Reload ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
+and `-exact-menu` for View › Reload and Force Reload ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)),
+and the notification click ([`issues/closed/20261009-notification-default-click-design.md`](../../issues/closed/20261009-notification-default-click-design.md)):
+`@exact/notifications` (LLP 1133.004) posts the thread and review guide notifications from the data module
+without a sound, its click's `navigate` location opens the thread (`app.contract` `notificationOpen`), and it
+holds the Dock badge and the permission's fact and request (`shell-notify.ts`); their sounds are the reference's
+two, played with `playSound`.
+It also uses an atom face's `ariaLabel`, which names each composer chip with the reference's `aria-label` while an
+image chip's drawn label follows its upload
+([`issues/closed/20261030-an-atom-is-named-only-by-its-drawn-label.md`](../../issues/closed/20261030-an-atom-is-named-only-by-its-drawn-label.md);
+`composer-chip-presentation.ts` `chipAccessibleName`); a change to the opacity a view was mounted with, which is
+now drawn, so a freshly saved EAS host's Edit and Remove draw `disabled:opacity-64` and then 1
+([`issues/closed/20261030-a-node-mounted-at-one-opacity.md`](../../issues/closed/20261030-a-node-mounted-at-one-opacity.md));
+`resize="vertical"` on each textarea Tailwind's preflight gives a grip
+([`issues/closed/20261030-textarea-resize-refused.md`](../../issues/closed/20261030-textarea-resize-refused.md));
+loopback sign-ins side by side, where a callback with no `code` or `error` is answered 400 and the receiver keeps
+listening (#1169, LLP 1133.005 D9); and a prop or style binding that traps is unset while the runner goes on
+([`issues/closed/20261030-binding-trap-poisons-the-runner.md`](../../issues/closed/20261030-binding-trap-poisons-the-runner.md)).
+A code block's tokens and a find line's parts still carry their offset `at`, counted once by their producers: summed
+per row, as the compiler's `lower-row-own-list` warns, a long highlighted block's later rows would pass the runner's
+list-step bound and lose their find and citation marks.
 These it does not use, because on macOS they do not do what the reference does:
 
 - `showModal(id)` / `close(id)` ([`issues/closed/20261009-gui-dialog-action-commands.md`](../../issues/closed/20261009-gui-dialog-action-commands.md), #282).
@@ -509,43 +558,39 @@ These it does not use, because on macOS they do not do what the reference does:
   things stay the module's: the "Updates unavailable" box, which has no parent window where a Contract
   `alertdialog` is a sheet, and Paste as Text (`T3Menus.swift`). Settings… is the host's: it files the ⌘,
   dispatch button there.
-- The notification click ([`issues/closed/20261009-notification-default-click-design.md`](../../issues/closed/20261009-notification-default-click-design.md)).
-  Main's click needs a Contract `showNotification(navigate=)`, which always plays the system
-  sound (`Notify.swift` posts with `.default` and presents with `.sound`; the reference's notification is
-  `silent: true`, ThreadNotificationCoordinator.tsx:203-207), cannot be posted from the data module, and
-  is delivered to a navigation root the app does not have. Badges and a permission fact stay refused
-  (`rules/DEFERRED.md`). So the post, its click, the sounds, the Dock badge and the permission request stay
-  in `T3Notifications.swift`.
 - An inline link run as a Tab stop on macOS
   ([`issues/closed/20261012-macos-inline-link-run-tab-stop.md`](../../issues/closed/20261012-macos-inline-link-run-tab-stop.md)). This fix is the host's, so the
   clone gets it on main with no change of its own. No drive has tabbed to a link in a Markdown
   table cell since.
 
-App Swift this clone keeps, where moving it onto what main offers would change what someone using
-the app sees, or where main has nothing to move it onto (each is a framework capability to add):
+App Swift this clone keeps (`modules/apple/`) does what main has no call for, or what moving onto main's
+call would change for someone using the app. It is not work left while it works. A piece of it moves into
+exact2 only when a library many apps can reuse needs it.
 
 - `T3BrowserPage.swift`, `T3BrowserRecorder.swift`, `T3BrowserAgentCursor.swift` and `T3BrowserCapture.swift`: what a
   Browser tab's frame hands its `t3-browser-page` hatch (LLP 1020.002 tier 3). The recording (the frame as a capture
-  source, LLP 1020.002 D8, waits on B10), the agent's cursor drawn on the page's view and the separate preview window's
+  source, LLP 1020.002 D8), the agent's cursor drawn on the page's view and the separate preview window's
   snapshots need the page's web view; the artifact directory is the local server's own folder, outside the app's
-  files, where a capture moves in and Reveal in Finder and Copy image act, which have no framework call; a saved
-  recording's bytes go to the environment from there, since the data module reads only the app's files.
-- `T3MediaPreview.swift`: a PDF in PDFKit on Chromium's viewer surface, fitted to the width and
-  top-aligned; an `iframe` would show WebKit's own PDF viewer. A rendered HTML attachment opens a
-  `target="_blank"` link in the default browser and shows `alert` and `confirm` as sheets; an
-  `iframe` refuses popups (LLP 1020 §5) and has no dialogs.
-- `T3MediaActions.swift`: the media menu, Copy image and Save. Save opens in Downloads first and then
+  files, where a capture moves in and Reveal in Finder acts, which has no framework call; a saved recording's bytes
+  go to the environment from there, since the data module reads only the app's files.
+- `T3BrowserPage.swift`'s `stage`: Copy image of a Browser artifact needs its pixels, and data code reads only the
+  app's own files, where the artifact directory is the local server's. The module copies the artifact into
+  `app:/tmp/copy-image`; data code draws it into a PNG and writes it through `@exact/clipboard` (`browser-capture.ts`).
+- `T3MediaActions.swift`: the media menu, Save, and Copy image of an SVG. Save opens in Downloads first and then
   in the session's last folder, as Electron's download dialog does, where `saveFile` names no
-  folder; Copy image needs an image clipboard write (`ClipboardItem`), which main does not have;
-  the menu's Menu-key form opens at the media's bottom-left corner, where a `contextPopover` opens
-  at the focused node's centre.
+  folder; the menu's Menu-key form opens at the media's bottom-left corner, where a `contextPopover` opens
+  at the focused node's centre. Copy image of any other image is `@exact/clipboard`'s `write`
+  (`media-copy-image.ts`, LLP 1133.006); the data module's image codec draws no SVG yet.
+- `T3ShellMenu.swift`'s Copy Image, in the window's own context menu over any image: it copies the bitmap ExactKit
+  decoded, which data code never sees, and the package's `write` is data code's alone (LLP 1133.006 §11 Q3).
+- `T3Module+Sidebar.swift`'s `sidebarNotify`: the sidebar's undo notice, provider pill, search results and Update
+  everything ask for the snapshot again after the answer that started them returned. A data module's timer ends with
+  its answer (LLP 1027.000 D1), and data code has no other way to ask Exact to read a resource again.
 - `T3RemoteEditors.swift` (probing installed editors needs a process and file checks; the client's
   opens are Contract's `openURL`, with the editors' schemes in `app.json` `open_url`),
   `T3InstalledFonts.swift` (no `queryLocalFonts`), `T3WindowChrome.swift` (the traffic lights at the
   reference's x = 16: the host's tall title row, `display_override`, leaves them where AppKit puts
-  them, LLP 1039 D8), `T3RootFont.swift` (the native views' rem), and the data module's sleep
-  (`timelineSleep`: data modules have no timers, and an answer that awaits a promise another
-  answer settles is refused as pending on nothing when no fetch or storage step is in flight).
+  them, LLP 1039 D8) and `T3RootFont.swift` (the native views' rem).
 - The composer's OS adapter (`T3Composer`) keeps type-to-focus. The send chords, the queued edit's ⌥↑ and
   the open menus' keys are the composer's own `key` action (`app.contract` `composerKeyEvent`); the
   layouts' window-space boxes are `frame` reads on `resize` (`layoutFrames`, `src/shell/layout-frames.ts`),
@@ -593,14 +638,16 @@ Differences that belong to the app:
 - The server connections are the data module's (`src/transport/`). Each environment's socket is a
   stream resource, admitted by `net.websocket ws:` and `wss:` since servers are named at run time
   (#703), whose mapper answers Pings and acknowledges chunks in the frame's own commit (#705, LLP
-  1016.000 D7); HTTP goes through `fetch` (`net.fetch http:` and `https:`). The answer or command
+  1016.000 D7); HTTP goes through `fetch` (`net.fetch http:` and `https:`). `app.json`'s
+  `host.macos.appTransportSecurity.allowsArbitraryLoads` turns App Transport Security off, so an
+  environment at a plain `http:` host name pairs, as in the reference's Chromium. The answer or command
   that asks for a request sends it on that socket itself and awaits the reply (#736, D7's amendment
   of 2026-10-18); a frame no turn may send yet (the socket is not open) waits in the outbox, which
-  the mapper sends when the socket opens and after each frame. A data module has no timers, so a
-  mutation the window runs, the tick, keeps the deadlines, Pings, probes and reconnect ladder: every
-  250 ms while something is near, every second while connected, and once to publish the socket
-  table each time an answer that may wait on the server starts or ends or the delivering answer
-  reports a table the tick has not published. Nothing polls while an answer waits. A request's
+  the mapper sends when the socket opens and after each frame. A data module's timer lives only
+  inside an answer, which the sessions outlive, so a mutation the window runs, the tick, keeps the
+  deadlines, Pings, probes and reconnect ladder: every 250 ms while something is near, every second
+  while connected, and once to publish the socket table each time an answer that may wait on the
+  server starts or ends or the delivering answer reports a table the tick has not published. Nothing polls while an answer waits. A request's
   deadline counts from the tick's last reading of the clock, which can be up to a second old, so
   its timeout can come up to a second early. A connect replies once the socket's URL is in, not
   once the socket opens, since an answer may await only what this module's fetch, storage or open
@@ -645,13 +692,23 @@ Differences that belong to the app:
   store, so a site that keeps its sign-in there asks again once. A hidden tab is not displayed, so WebKit throttles its
   timers; one that is recorded or shown in its separate window stays laid out, transparent, and keeps drawing. With
   the page focused, ⌘R reloads it and the zoom chords zoom it (the page is asked `document.hasFocus()`, since a frame
-  reports no focus); ⇧⌘R reloads the window, as the reference's menu does, and ⌘L does nothing. A page's dialog while
+  reports no focus) and ⌘L puts the focus in the address bar, selecting the address; ⇧⌘R reloads the window, as the
+  reference's menu does. A page's dialog while
   an agent request runs on its tab is answered at once (OK for `alert`, Cancel for `confirm` and `prompt`); one left
   from an agent's run shows over the page as Chromium's tab-modal dialog and takes the person's answer. The console,
   network log and media scripts go in as each document commits, so what a page logs before that is not kept
   (clone/issues/browser-preload-without-taking-the-frame.md); the console, network log and audible state are read
   from the page every few seconds
   rather than pushed. The tab's icon is the page's first declared icon, loaded by URL, where the module redrew it.
+- A server Browser tab's PDF is the viewer page's PDF.js reading its signed URL (`server-pdf-viewer.ts`), where the
+  reference embeds the URL in Chromium's viewer, which would run an HTML answer as a page. Its toolbar is T3 Code's
+  PdfViewer (pages, previous and next, zoom, Fit width, full screen, Find in PDF), not Chromium's (thumbnails and
+  outline, a page field, rotate, two-page view, download, print, properties, and the browser's own ⌘F), and it stays
+  in the floating player, where Chromium's hides at that size. A PDF from another origin loads only when its server
+  lets the page fetch it (CORS), as the T3 server does. A rendered HTML preview is a sandboxed `iframe` (LLP 1020.002):
+  a right-click shows WebKit's menu, not the desktop shell's, and a `window.open` with features opens the platform's
+  popup window, where the reference opens every new window in the default browser (a `target="_blank"` link or ⌘-click
+  still does).
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
 - The launch's landing (`home-landing.ts`) waits for a background environment while it connects, but
@@ -660,10 +717,11 @@ Differences that belong to the app:
   third attempt has failed (`state/shell.ts` `allEnvironmentShellsBootstrappedAtom`). So a relaunch can
   open the draft in another environment's project when the most recent one is This machine's or a
   retrying one's.
-- Code colours: eight languages are left out because of their licences (ada, gnuplot, nginx
-  and racket are GPL-3.0; dax, dream-maker, glsl and tcl have no licence upstream), so they
-  paint as plain text. Every other grammar is loaded at launch, so a fresh window colours
-  an embedded language straight away, where the reference does so only after its first use.
+- Code colours: a code text paints plain until the data crate's lexers answer for it, a few frames
+  through the root's pump (`app.contract` highlightStep), where the reference's loaded highlighter
+  colours it in the render that shows it. The lexers share the data crate's thread with the chat
+  Markdown, so each round lexes about 17 ms of code: a file of 1M characters takes about 30 rounds,
+  where the reference's worker pool lexes it whole beside the page.
 - An ⌥-click on a reply's `#fragment` link opens nothing. Chromium downloads the page instead.
 - Split view's empty side stripes every 10 pt, where the reference stripes every 8 px: each row
   of the virtualized list paints its own gradient, and main keeps `background-attachment: local`
@@ -927,7 +985,7 @@ activity of any environment, as the reference's IndexDraftLanding does (3 of 3).
 it is, the copy opens with Lane Second's projects and no toast (3 of 3), as does the development bundle
 itself paired the same way (2 of 2, on a build with the pump change alone). On the bundle of `c067957ad`
 each relaunch opened with no projects and "native executor admission limit reached" (2 of 2). While the
-first snapshot answer reported a code text waiting for its Shiki tokens, the root's highlight pump refreshed
+first snapshot answer reported a code text waiting for its tokens, the root's highlight pump refreshed
 `data` and `shell` every 16 ms. A refresh replaces the answer in flight, so the launch's snapshot answer,
 which waits seconds on its connections, never landed, and the replaced answers' native calls filled the
 executor's admission limit about 4 s after launch (`host/apple/src/executor_core.rs:491`). A fresh bundle id
@@ -1021,29 +1079,74 @@ Inspect and the inspector each counts as an outside press, as the window's other
 window's count went 8 to 13, one per press). Escape in a new binding's recorder after a real
 click into it keeps the field focused and the row up (F-2, 1 of 1; #688's placeholder fix).
 
+**Checked with real input (2026-10-30)** (bundle of `2f29f2074d`, a lane copy on its own home, `second`
+seeded with `--turns --pull-request`, pointer and keys through `orca computer`, VoiceOver read from its
+caption panel):
+
+- Context added at the selection keeps a selected chip (2 of 2): with the `README.md` mention selected,
+  a review comment from the diff went in before it; with that review comment selected, an image from
+  Attach files went in before it. Neither chip was replaced.
+- A chip's details popover, the parts that hold: Escape closes it and the prompt keeps the focus with
+  the chip selected (3 of 3, a review comment), and a press outside it closes it and leaves the focus
+  where the press put it (Search threads, 1 of 1).
+- Mark unread on "Background thread (no run)" from the thread's actions menu: the server refused it
+  ("has no completed run to mark unread", in its trace) and the app showed no toast or banner (1 of 1).
+- The context popover under VoiceOver: the meter reads "Context window 6.2% used, dialog pop up,
+  button", and VO-Space opens the popover, which reads "Context Window", "6.2% · 12k/200k" and
+  "Context window usage, 6%, progress indicator" (1 of 1). The Usage page's bars were not checked.
+- VoiceOver reads a composer image chip as "Image attachment, sunset.png, 13 KB", in the prompt's
+  value and as the chip itself when VoiceOver interacts with the prompt (1 of 1).
+- A freshly saved EAS host ("Realinput EAS", saved by a pointer press) draws Edit and Remove at full
+  opacity, as the older host beside it does (1 of 1).
+
+**Checked with real input and VoiceOver (2026-10-31)** (a lane copy on its own home, `second` seeded with
+`--turns --pull-request`, pointer and keys through `orca computer`, VoiceOver read from its caption panel;
+first the bundle of `1caaa582f5`, then that branch with exact2 #1180, the macOS host change that lets
+VoiceOver reach the chips, which the clone now has from main):
+
+- A chip's details popover takes the focus as it opens, as the reference's PopoverPopup does
+  (`initialFocus`). Before, the focus stayed on the prompt: the shared field's press makes the prompt
+  the first responder, and the popover's `autofocus` yields to a focused field. The root now moves the
+  focus with `focus(id)` as the details open (`chipOpenFocus`, composer-members.contract). Driven
+  targets: the popup ("Review comment, outline.ts L3, dialog" after a pointer press on a review comment
+  chip, 6 of 6; "Skill Frontend Design, dialog" on the Settings prompt sample's skill chip, 7 of 7; an
+  accessibility press (AXPress) on a review comment chip, 2 of 2) and a skill's View instructions ("View
+  instructions, button" after a pointer press on a composer skill chip, 2 of 2). The terminal output
+  target is not checked with real input: the fixture has no terminal excerpt. The app tests cover all
+  three targets.
+- VO-Right from Message reads each chip in text order and then 'Default, collapsed, button' (6 of 6:
+  two review comments and an image chip, or a review comment and two skill chips), and VO-Left goes
+  back the same way (2 of 2). On the Settings sample it reads the skill chip, both file chips and then
+  the Monospace font heading (2 of 2). Before #1180, VO-Right went from Message straight to 'Default'
+  and skipped every chip.
+- VO-Space on a chip opens it with the focus inside: a review comment reads "Review comment, outline.ts
+  L7, dialog" (5 of 5), the Settings sample's skill chip "Skill Frontend Design, dialog" (5 of 5), a
+  composer skill chip "View instructions, button" (1 of 1), and an image chip opens "Expanded image
+  preview, dialog" with Close image preview focused, as the reference's ExpandedImageDialog does (5 of
+  5). Before #1180 VO-Space on a chip opened nothing.
+- Escape gives the prompt the focus back with the chip selected: "Message …, edit text …, is selected
+  Review comment, outline.ts L3. Show details" (27 of 27, after every popup and image preview above).
+  On the Settings sample the chip's finish had never given the sample its focus back: it counted
+  Settings itself, a route dialog, as a dialog over the sample.
+- An outside press gives the prompt the focus back with the chip selected unless the press focused
+  another element, as the reference's PopoverPopup does (`finalFocus`, true by default, which
+  FloatingFocusManager applies when the press left the focus on the body or in the closed popup). A
+  press on empty timeline ground returns it (3 of 3); the press focused the window's root, which counts
+  as the body. A press on Search settings (2 of 2) or on the Typography heading (2 of 2) leaves the
+  focus there, and on empty ground in Settings the Settings dialog keeps it (2 of 2). Before, the
+  timeline's own pointerdown op replaced the details' close on their shared send, and the focus went
+  nowhere; chip ops now have a send of their own (`chipChanged`).
+
 **Fixed, not checked with real input or VoiceOver:**
 
-- Context another panel adds to the composer (a review comment, a terminal excerpt, a thread
-  dropped from the sidebar, a citation, a Browser annotation, an attached file or image) goes in
-  at the start of the selection and deletes nothing, as the reference's `insertComposerText` at
-  "cursor" (ChatComposer.tsx:6041-6120): a chip left selected after its preview closes stays in
-  the draft. It replaced the selected chip before (session L, 3 of 3).
-- A chip's details popover (a skill, a review comment, a preview annotation, a terminal excerpt)
-  takes the focus as it opens, by pointer or VO-Space: its first tabbable (View instructions, the
-  terminal output) or the popup, so VoiceOver reads '<label>, dialog'. Escape gives the prompt
-  back the focus with the chip selected, and an outside press leaves the focus where the press
-  put it. Measured on T3 Code (an isolated copy, VoiceOver, the Settings prompt sample): VO-Space
-  or a click on 'Skill Frontend Design. Show details' reads 'Skill Frontend Design, dialog,
-  Skill Frontend Design, and 2 more items, group' with the popup focused; Escape returns to the
-  chip; a press on the Typography heading leaves the focus on the page. Before, VoiceOver kept
-  reading the prompt (N11, N25).
-- Mark unread shows nothing when the server refuses it, from every menu and environment, as the
-  reference's `useMarkThreadUnread` (`reportFailure: false`): the flat row, multi-selection and
-  More actions menus showed 'Failed to mark thread unread' before (`sidebar-mark-unread.test.ts`).
 - Pairing a saved environment again reconnects it with the new credential, as the reference's
   `EnvironmentRegistry.register` restarts its connection: a background environment that failed for
   want of a credential connects and its row stops saying 'Connection failed'. Before, it kept the
-  failure (`connections-repair.test.ts`).
+  failure (`connections-repair.test.ts`). Checked by that test only: no fixture makes the failed
+  credential cheap.
+- The Thread title instructions textarea's grip (`resize: vertical`). Not checked: `orca computer
+  drag` delivered nothing in this app (the grip twice, a drag-select in the prompt twice), and its
+  scroll did not move a page either.
 
 **Checked with real keys** (2026-10-16):
 
@@ -1093,24 +1196,23 @@ Real-input sessions should type IME rows with held keys: orca's zero-dwell press
 input method commit a jamo at once. They should switch input sources with the system shortcut or
 menu, not TISSelectInputSource, before they judge IME rows.
 
-**Not checked yet:** the context popover and progress bars under VoiceOver (the ACP stand-in's
-threads now have a context meter), and an italic font face (no fixture has italic text). Also:
+**Not checked yet:** the Usage page's progress bars under VoiceOver (the 2026-10-30 session had no
+`--limits` seed), and an italic font face (no fixture has italic text). Also:
 
-- Escape on the Merge confirmation over the thread-details popover in a narrow window.
-- VO-Space on the chip kinds session K did not press (sample.py, an image, a video, doc.pdf, the
-  citation and the thread chip pass).
-- Once, in session L, VO-Right from Message skipped every composer chip; after the caret moved it
-  read them in text order, every later time. Not isolated.
+- Escape on the Merge confirmation over the thread-details popover in a narrow window. Not checked on
+  2026-10-30: `orca computer` cannot resize the window, and its drags deliver nothing here.
+- VO-Space on the chip kinds the 2026-10-31 session did not press (sample.py, a video, doc.pdf, the
+  citation and the thread chip), and the terminal output as a chip's focus target.
 
 **Out of scope** (decided 2026-10-17): the device player and the device menus, a tailnet, Screen
 Recording and other OS grants (FN24, the permission helper's real grant), provider installs and
 sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and GitHub writes.
 
-**Next real-input session:** the fixes under "Fixed, not checked" (in the composer, a selected
-file, image or review comment chip kept when a review comment, an image or an annotation is added;
-VO-Space and a click on a review comment, annotation and the Settings sample's skill chip reading
-the dialog, then Escape back to the prompt with the chip selected), and the rows under "Not
-checked yet".
+**Next real-input session:** VO-Space on the chip kinds not yet pressed and a terminal excerpt's
+details; the textarea grip and the narrow-window Merge row, which need a tool whose drags reach the
+app; and the Usage page's bars under VoiceOver. Drive it with `orca computer`. While VoiceOver runs,
+its caption panel covers the composer of a window 840 pt tall, and `orca computer` refuses a click
+there (`window_not_focused`): make the window shorter first.
 
 **Fixtures.** `tools/second-environment`, `tools/machines` and `tools/acp-standin` (each has its
 README) give This machine plus two lane environments, a machines list, and an ACP agent stand-in.
@@ -1149,7 +1251,13 @@ reads a source by its file name through `tests/support/app-files.ts`, so a file 
 
 `app.contract` keeps the window's resources, mutations and tasks, the state they read and
 the actions that write it or send (a child component may not own resources or assign root
-state); its view is `T3Window` in `src/shell/app-window.contract`, which owns the window's view-only
+state). Most of those members are written in members files beside their features
+(`src/<feature>/*-members.contract`, LLP 1091.002): each `members "./src/…"` line in `T3Code`
+stands for that file's `members T3Code` block, so the root stays under the line cap and compiles to
+the one-file plan. Members files load after the files the root's `use` lines name, so those lines
+still name what only the members read, which keeps the files' load order the one-file root's. A
+test that reads the root's text reads it spliced through `appText` (`tests/support/app-files.ts`).
+Its view is `T3Window` in `src/shell/app-window.contract`, which owns the window's view-only
 state (the sidebar's hover and drag, the title menu, the settings editors' menus, Add
 environment's fields) and lays out the components of `app-main.contract`,
 `app-settings.contract` and `app-overlays.contract` beside it; each takes the root names it reads as
@@ -1166,8 +1274,8 @@ Rust data source (`t3-code-data`): the chat Markdown that `app.ts` leaves to Rus
 no I/O when it runs, so any host can link it, and its build script runs the generator below. `macos/`
 is the macOS host crate (`t3-code-macos`: the bake and the Apple host's entry), its tests of the baked
 plan, and the AppKit tests. `tools/` holds the lanes (`github-lane/`, `network-lane/`), the generator
-of the generated sources (`generate/`), the embedded server's staging (`stage-runtime/`) and the
-Shiki comparison. T3's MIT notice is retained in `LICENSE-T3`.
+of the generated sources (`generate/`) and the embedded server's staging (`stage-runtime/`). T3's MIT
+notice is retained in `LICENSE-T3`.
 
 Exact asks an answer again when a topic it watches changes. Since exact2 #183 a change
 that arrives while the snapshot read is in flight lets that read's reply land and then asks
@@ -1203,7 +1311,7 @@ build above for an integrated check.
 
 The module AppKit/XCTest binaries under `macos/tests/<name>/` build with Exact's
 module facade, the app's generated data keys, every file in `modules/apple/` (the
-`composer`, `menus` and `panels-native` tests define their own `exactModule`, so they leave
+`composer` and `menus` tests define their own `exactModule`, so they leave
 out `T3Module.swift` and its `T3Module+<area>.swift` op files; an `extension T3Module` goes in one
 of those op files, never beside other code, or these three binaries do not compile) and the test
 directory's sources, and every one the rest of Exact's module seam
@@ -1221,7 +1329,7 @@ T3_DK="$R" bun -e 'import { composedModule } from "./host/apple/compose.mjs"; aw
 for d in examples/t3-code/macos/tests/*/; do
   n=$(basename "$d"); O="$R/$n"; mkdir -p "$O"
   [ "$n" = timeline-keyboard ] && continue # Actual host regression; separate recipe below.
-  M=$(ls examples/t3-code/modules/apple/*.swift); case $n in composer|menus|panels-native) M=$(echo "$M" | grep -v /T3Module);; esac
+  M=$(ls examples/t3-code/modules/apple/*.swift); case $n in composer|menus) M=$(echo "$M" | grep -v /T3Module);; esac
   T="host/apple/modules/ExactNativeViews.swift host/apple/modules/ExactTamber.swift host/apple/modules/ExactExtensions.swift $R/ExactComposed.swift"
   xcrun swiftc -swift-version 5 -module-name "T3$(echo $n | tr -d -)Tests" -F "$F" -I "$L" -L "$L" \
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
@@ -1254,7 +1362,8 @@ target/t3-tests/timeline-keyboard-tests
 ```
 
 The terminal page's tests are Bun's (`terminal-host/src/*.test.ts`, the vendored surface's among
-them); `bun examples/t3-code/terminal-host/verify-vendor.mjs` checks the vendored binaries.
+them); `bun examples/t3-code/terminal-host/verify-vendor.mjs` checks the vendored binaries. The viewer
+page's are too (`file-preview-host/src/**/*.test.ts`, the reference's PDF layout and find tests).
 The SSH tests read
 a temporary home, never `~/.ssh`; the live tunnel test skips unless `T3_SSH_COMMAND`
 names an ssh test double, and agent runs of the app read hosts only from `T3_SSH_HOME`.

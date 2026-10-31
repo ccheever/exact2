@@ -116,7 +116,7 @@ export function statusDot(status: string | null): string {
   if (status === 'running' || status === 'in_progress' || status === 'pending' || status === 'waiting') return 'light-dark(#2b7fff, #51a2ff)';
   if (status === 'failed' || status === 'error') return 'light-dark(#fb2c36, #fb414a)';
   if (status === 'completed') return '#00bc7d';
-  return 'light-dark(#71717b73, #81818173)';
+  return 'light-dark(#71717b73, #a1a1a173)';
 }
 
 /** resolveMergeBackTargetThreadId. */

@@ -6,11 +6,11 @@
 // comparison and a missing `projectSettingsOverrides` reads as `{}`; a model override's
 // provider guard applies only when the settings name that provider (the clone's settings
 // may come from older servers without `providerInstances`).
-import { effectiveWorktreeRules, obj, type Json, type Obj } from '../client/domain';
+import { effectiveWorktreeRules, obj, str, type Json, type Obj } from '../client/domain';
 import type { ResolvedSettingsScope, ScopeMember } from './settings-scope';
 
 export const PROJECT_SCOPED_SERVER_SETTING_KEYS = ['worktreeCleanup', 'defaultModelSelection', 'defaultRuntimeMode', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin',
-  'worktreeSubmodules', 'defaultAutoPull', 'defaultProjectScripts', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'textGenerationModelSelection',
+  'worktreeSubmodules', 'defaultAutoPull', 'defaultProjectScripts', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'textGenerationModelSelection', 'threadTitleInstructions',
   'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'reviewGuideInstructions', 'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod',
   'sidebarAutoSettleOnMerge', 'sidebarAutoSettleAfterDays', 'sidebarAutoSettleKeepPullRequests', 'continueThreadsAfterServerUpdate', 'responseStreamingMode'] as const;
 const NULLABLE_PROJECT_SETTINGS_OVERRIDES = new Set(['defaultModelSelection', 'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'pullRequestMergeMethod', 'sidebarAutoSettleAfterDays']);
@@ -18,19 +18,38 @@ export const PROJECT_FILE_BACKED_SETTINGS: Record<string, { field: string; built
   defaultThreadEnvMode: { field: 'defaultThreadEnvMode', builtIn: 'local' }, worktreeSubmodules: { field: 'worktreeSubmodules', builtIn: 'recursive' } };
 const SERVER_KEYS = new Set(['worktreesDirectory', 'favorites', 'providerModelPreferences', 'worktreeCleanup', 'storageCleanup', 'responseStreamingMode', 'enableProviderUpdateChecks', 'continueThreadsAfterServerUpdate', 'enableAgentBrowserAccess',
   'projectAgentBrowserAccessOverrides', 'defaultAutoPull', 'defaultProjectScripts', 'projectScriptOverrides', 'projectAutoPullOverrides', 'defaultModelSelection', 'defaultRuntimeMode',
-  'projectSettingsOverrides', 'projectSettingsFolded', 'enableAgentDeviceAccess', 'enableDeviceSupport', 'deviceOnboardingCompleted', 'deviceHosts', 'easDeviceHosts', 'sidebarAutoSettleAfterDays',
-  'snoozeLimitedThreads', 'compactIdleThreads', 'autoResumeLimitedThreads', 'sidebarAutoSettleOnMerge', 'sidebarAutoSettleKeepPullRequests', 'backgroundActivity', 'automaticGitFetchInterval', 'providerHealthRefreshInterval',
+  'fallbackModelSelection', 'projectSettingsOverrides', 'projectSettingsFolded', 'enableAgentDeviceAccess', 'enableDeviceSupport', 'deviceOnboardingCompleted', 'deviceHosts', 'easDeviceHosts', 'sidebarAutoSettleAfterDays',
+  'snoozeLimitedThreads', 'snoozePresets', 'compactIdleThreads', 'idleCompaction', 'autoResumeLimitedThreads', 'sidebarAutoSettleOnMerge', 'sidebarAutoSettleKeepPullRequests', 'backgroundActivity', 'automaticGitFetchInterval', 'providerHealthRefreshInterval',
   'backgroundActivityProfile', 'defaultTheme', 'defaultThemeSetAt', 'environmentIcon', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin', 'worktreeSubmodules',
-  'addProjectBaseDirectory', 'textGenerationModelSelection', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'sourceControlWritingStyle',
+  'addProjectBaseDirectory', 'textGenerationModelSelection', 'threadTitleInstructions', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'sourceControlWritingStyle',
   'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'reviewGuideInstructions', 'reviewGuidesEnabled', 'pullRequestMergeMethod', 'providers', 'providerInstances', 'observability', 'bitbucket', 'sourceControlHosts', 'usageLimitSources',
   'cursorKeychainUsageEnabled', 'usagePriceOverrides', 'usageModelAliases']);
 const CLIENT_KEYS = new Set(['notificationMode', 'inAppNotificationsEnabled', 'diffColorScheme', 'chatWidth', 'loadBalancingEnabled', 'loadBalancingWeights', 'appearanceContrast',
   'panelAnimationDurationMs', 'confirmQuit', 'confirmThreadArchive', 'confirmThreadDelete', 'confirmThreadUnpin', 'diffFilesCollapsed', 'diffIgnoreWhitespace', 'diffLayout',
   'environmentIdentificationMode', 'glassOpacity', 'fontSizeInterface', 'fontSizePrompt', 'fontSizeCode', 'fontSizeTerminal', 'fontFamilyCode', 'fontFamilyComposer',
-  'fontFamilySans', 'fontFamilyTerminal', 'fontSmoothing', 'persistComposerContextStrip', 'planModeEnabled', 'contextWindowMeterEnabled', 'composerCollapseOnScroll',
+  'fontFamilySans', 'fontFamilyTerminal', 'fontSmoothing', 'persistComposerContextStrip', 'planModeEnabled', 'contextWindowMeterEnabled', 'effortDisplay', 'threadDetailsItems',
   'composerRichTextEnabled', 'sendShortcut', 'followUpBehavior', 'proactivePanelsEnabled', 'showSkillsInSlashMenu', 'legacySidebarEnabled', 'sidebarWorkingShelfEnabled',
   'wordWrap', 'theme', 'themeLight', 'themeDark', 'typographyAdvanced', 'sidebarProjectSortOrder', 'mathRenderingEnabled']);
 const PROJECT_SCOPED_KEYS = new Set<string>(PROJECT_SCOPED_SERVER_SETTING_KEYS);
+
+// ── Idle compaction (contracts settings.ts) ─────────────────────────────────
+// A server before modes keeps only the boolean `compactIdleThreads`; a later one kept the mode there; a current one
+// keeps it in `idleCompaction` (and the boolean beside it, which shipped clients still read).
+export const IDLE_COMPACTION_MODES = [['onReturn', 'When you return'], ['beforeCacheExpires', 'Before the cache expires (beta)'], ['off', 'Never']] as const;
+/** globalIdleCompaction: the environment-wide mode, from whichever field the settings carry. */
+export const globalIdleCompaction = (settings: Obj): string => str(settings.idleCompaction ?? (typeof settings.compactIdleThreads === 'string' ? settings.compactIdleThreads
+  : settings.compactIdleThreads ? 'beforeCacheExpires' : 'onReturn'));
+/** readsIdleCompactionModes: whether a server reads modes, rather than only the boolean switch from before them. */
+export const readsIdleCompactionModes = (settings: Obj) => settings.idleCompaction !== undefined || typeof settings.compactIdleThreads === 'string';
+/** idleCompactionPatch: the patch that sets `mode` in the form the server's settings show it reads. */
+export const idleCompactionPatch = (settings: Obj, mode: string): Obj => settings.idleCompaction !== undefined ? { idleCompaction: mode }
+  : readsIdleCompactionModes(settings) ? { compactIdleThreads: mode } : { compactIdleThreads: mode === 'beforeCacheExpires' };
+/** scopedSettings.ts forDestination: an idle compaction mode in the form each destination server reads. */
+function forDestination(previous: Obj, patch: Obj): Obj {
+  if (patch.idleCompaction === undefined) return patch;
+  const { idleCompaction, compactIdleThreads: _legacy, ...rest } = patch;
+  return { ...rest, ...idleCompactionPatch(previous, str(idleCompaction)) };
+}
 
 export const isProjectScopedSettingKey = (key: string) => PROJECT_SCOPED_KEYS.has(key);
 export const isNullableProjectSettingsOverride = (key: string) => NULLABLE_PROJECT_SETTINGS_OVERRIDES.has(key);
@@ -216,10 +235,10 @@ export function planScopedSettingsPatch(scope: ResolvedSettingsScope, environmen
       const previous = environment.serverConfig?.settings;
       if (!previous) return [];
       return [{ environmentId: environment.environmentId, label: environment.label, previous,
-        patch: previous.worktreeCleanup != null && serverPatch.storageCleanup && Object.keys(storage).some(key => key.startsWith('worktree'))
+        patch: forDestination(previous, previous.worktreeCleanup != null && serverPatch.storageCleanup && Object.keys(storage).some(key => key.startsWith('worktree'))
           ? { ...serverPatch, worktreeCleanup: { mode: 'custom', rules: { ...resolveWorktreeCleanup(previous, null),
             ...Object.fromEntries(Object.entries(storage).filter(([key]) => key.startsWith('worktree'))) } } }
-          : serverPatch }];
+          : serverPatch) }];
     })
     : [];
   const hasClientWrite = Object.keys(clientPatch).length > 0;

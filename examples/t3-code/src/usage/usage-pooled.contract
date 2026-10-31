@@ -127,7 +127,7 @@ component UsagePooled
   view
     column width="100%" gap="2rem" testId="usage-pooled"
       if view.empty
-        text "No provider on the selected environments reports subscription limits." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" testId="usage-limits-empty"
+        text "No provider on the selected environments reports subscription limits." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" testId="usage-limits-empty"
       for pool in view.pools key=pool.key
         if pool.cursorBefore
           CursorEnableLimits(cursor=view.cursor, op=op)
@@ -159,10 +159,10 @@ component PoolSection
       row align-items="center" gap="0.5rem"
         box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
           if pool.driver == "codex"
-            ProviderMark(driver="codex", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+            ProviderMark(driver="codex", size=16, color="light-dark(#18181bcc, #f5f5f5cc)")
           else
             DriverMark(driver=pool.driver, size=16, initials="", icon=pool.icon)
-        text pool.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+        text pool.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
       for window in pool.windows key=window.key
         PoolWindowCard(pool=pool, window=window, view=view, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=pinned, enterSeg=enterSeg, pin=pin, pinLegend=pinLegend)
 
@@ -184,18 +184,18 @@ component PoolWindowCard
     // A legend row's press, which anchors the popover to that row.
     pinLegend: action
   view
-    box width="100%" display="grid" grid-template-columns=(md ? `${11 * rem}px minmax(0, 1fr)` : "minmax(0, 1fr)") column-gap="1.5rem" row-gap="0.75rem" align-items="center" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" position="relative" z-index=(shown.startsWith(window.prefix) ? 1 : 0) testId=`usage-window-${pool.key}-${window.key}`
+    box width="100%" display="grid" grid-template-columns=(md ? `${11 * rem}px minmax(0, 1fr)` : "minmax(0, 1fr)") column-gap="1.5rem" row-gap="0.75rem" align-items="center" padding="1rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" position="relative" z-index=(shown.startsWith(window.prefix) ? 1 : 0) testId=`usage-window-${pool.key}-${window.key}`
       column gap="0.25rem" min-width=0
-        text window.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+        text window.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
         row align-items="baseline" gap="0.5rem"
-          text `${window.remaining}%` font-size="1.875rem" line-height="2.25rem" font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)" testId=`usage-window-left-${pool.key}-${window.key}`
+          text `${window.remaining}%` font-size="1.875rem" line-height="2.25rem" font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)" testId=`usage-window-left-${pool.key}-${window.key}`
           // "left" and the pace icon centred on each other, the pair on the percentage's baseline.
           row align-items="center" gap="0.5rem"
-            text "left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+            text "left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
             if window.pace != ""
               PaceIcon(pace=window.pace, label=window.paceLabel)
         if window.refill != ""
-          text window.refill font-size="0.75rem" line-height="1rem" font-weight=500 font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)" testId=`usage-window-refill-${pool.key}-${window.key}`
+          text window.refill font-size="0.75rem" line-height="1rem" font-weight=500 font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)" testId=`usage-window-refill-${pool.key}-${window.key}`
       // PoolBar: equal-width segments, one per account; narrow, a legend under the strip.
       box min-width=0 display="grid" grid-template-columns=`repeat(${window.count}, minmax(0, 1fr))` column-gap="0.25rem" row-gap="0.25rem"
         for seg in window.segments key=seg.id
@@ -206,9 +206,9 @@ component PoolWindowCard
         for line in window.statuses key=line.key
           row grid-column="1 / -1" grid-row=line.row min-width=0 align-items="center" gap="0.25rem" role="status" testId=`usage-seg-status-${line.key}`
             AccountName(name=line.name, chip=line.chip, chipBg=line.chipBg, chipFg=line.chipFg, size="0.75rem")
-            text line.text font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" min-width=0
+            text line.text font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" min-width=0
       if window.description != ""
-        text window.description grid-column=(md ? "1 / -1" : "auto") font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+        text window.description grid-column=(md ? "1 / -1" : "auto") font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
 
 // AccountChip: two letters on a stable hue per address; AccountName: the instance name, else the chip.
 component AccountChip
@@ -228,7 +228,7 @@ component AccountName
     size: string
   view
     if name != ""
-      text name min-width=0 font-size=size line-height="1rem" font-weight=500 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)"
+      text name min-width=0 font-size=size line-height="1rem" font-weight=500 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#18181b, #f5f5f5)"
     else
       row min-width=0 align-items="center"
         AccountChip(chip=chip, chipBg=chipBg, chipFg=chipFg)
@@ -236,7 +236,7 @@ component AccountName
 // lucide TicketIcon at 12 pt.
 component TicketGlyph
   view
-    svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+    svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
       path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"
       path d="M13 5v2"
       path d="M13 17v2"
@@ -275,31 +275,32 @@ component PoolSegment
   derive at = paceAt(width, seg.timeLeft)
   view
     box grid-row=1 grid-column=seg.column position="relative" min-width=0 z-index=(open ? 1 : 0)
-      button id=`usage-seg-${seg.id}` press=pin(seg.id) hover=enterSeg(seg.id) resize=sized aria-label=seg.label aria-expanded=open aria-haspopup="dialog" testId=`usage-seg-${seg.id}` width="100%" height=(wide ? "2rem" : "1.25rem") min-width=0 padding=0 border-width=0 border-radius="0.375rem" overflow="hidden" position="relative" cursor="pointer" display="block" background-color="#00000000" box-shadow=(open ? "0 0 0 1px light-dark(#e4e4e7, #ffffff1a)" : "none") title=""
+      button id=`usage-seg-${seg.id}` press=pin(seg.id) hover=enterSeg(seg.id) resize=sized data-focus-stop="enabled page" aria-label=seg.label aria-expanded=open aria-haspopup="dialog" testId=`usage-seg-${seg.id}` width="100%" height=(wide ? "2rem" : "1.25rem") min-width=0 padding=0 border-width=0 border-radius="0.25rem" overflow="hidden" position="relative" cursor="pointer" display="block" background-color="#00000000" box-shadow=(open ? "0 0 0 1px light-dark(#e4e4e7, #ffffff1a)" : "none") title=""
         box position="absolute" left=0 top=0 right=0 bottom=0 clip-path=(mark ? segGapClip(width, height, at) : "none") aria-hidden=true testId=`usage-seg-layers-${seg.id}`
-          box position="absolute" left=0 top=0 right=0 bottom=0 border-radius="0.375rem" background-color="light-dark(#f4f4f5, #ffffff0a)"
-          box position="absolute" left=0 top=0 bottom=0 width=`${seg.remaining}%` border-radius="0.375rem" opacity=0.35 background-color=`light-dark(${light}, ${dark})` testId=`usage-seg-fill-${seg.id}`
+          box position="absolute" left=0 top=0 right=0 bottom=0 border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0a)"
+          box position="absolute" left=0 top=0 bottom=0 width=`${seg.remaining}%` border-radius="0.25rem" opacity=0.35 background-color=`light-dark(${light}, ${dark})` testId=`usage-seg-fill-${seg.id}`
           if seg.hatch > 0
             box position="absolute" right=0 top=0 bottom=0 width=`${seg.hatch}%` opacity=0.2 background-image=`repeating-linear-gradient(135deg, light-dark(${light}, ${dark}) 0 1px, transparent 1px 5px)` testId=`usage-seg-hatch-${seg.id}`
         if mark
-          box position="absolute" top="0.125rem" bottom="0.125rem" left=at width=2 margin-left=-1 border-radius="9999px" background-color="light-dark(#27272a, #f5f5f5)" aria-hidden=true testId=`usage-seg-pace-${seg.id}`
+          box position="absolute" top="0.125rem" bottom="0.125rem" left=at width=2 margin-left=-1 border-radius="9999px" background-color="light-dark(#18181b, #f5f5f5)" aria-hidden=true testId=`usage-seg-pace-${seg.id}`
         if wide
           row position="relative" height="100%" min-width=0 align-items="center" gap="0.375rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" overflow="hidden" aria-hidden=true
+            // A single-account bar would repeat the headline percentage.
             if seg.showName
               AccountName(name=seg.name, chip=seg.chip, chipBg=seg.chipBg, chipFg=seg.chipFg, size="0.75rem")
-            text `${seg.remaining}%` flex-shrink=0 font-size="0.75rem" line-height="1rem" font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
+              text `${seg.remaining}%` flex-shrink=0 font-size="0.75rem" line-height="1rem" font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)"
             if seg.resets != "" or seg.credits > 0
-              row margin-left="auto" min-width=0 overflow="hidden" align-items="center" gap="0.375rem" border-radius="0.25rem" padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" white-space="nowrap" background-color="light-dark(#fcfcfcd9, #0a0a0ad9)" color="light-dark(#27272a, #f5f5f5)" testId=`usage-seg-plate-${seg.id}`
+              row margin-left="auto" min-width=0 overflow="hidden" align-items="center" gap="0.375rem" border-radius="0.25rem" padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" white-space="nowrap" background-color="light-dark(#fcfcfcd9, #000000d9)" color="light-dark(#18181b, #f5f5f5)" testId=`usage-seg-plate-${seg.id}`
                 text seg.resets font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap"
                 if seg.credits > 0
                   if seg.resets != ""
-                    text "·" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+                    text "·" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
                   row align-items="center" gap="0.125rem"
                     TicketGlyph()
                     text `${seg.credits}` font-size="0.6875rem" line-height="1rem" font-weight=600 font-variant-numeric="tabular-nums"
         else
           row position="absolute" left=0 top=0 right=0 bottom=0 align-items="center" justify-content="center" aria-hidden=true
-            text `${seg.column}` font-size="0.625rem" line-height=1 font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#27272acc, #f5f5f5cc)"
+            text `${seg.column}` font-size="0.625rem" line-height=1 font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#18181bcc, #f5f5f5cc)"
 
 // SegmentPopover (PopoverPopup side="top", sideOffset 6, w-72): who the account is, its plan and
 // where it is signed in, what is left and when it resets, and the banked credits with "Use reset".
@@ -330,23 +331,23 @@ component SegmentPopup
   view
     column position="absolute" left=(align == "start" ? x : (align == "end" ? x + w - 18 * rem : x + w / 2 - 9 * rem)) width="18rem" top=(side == "bottom" ? y + h : 0) height=(side == "bottom" ? "auto" : y) justify-content=(side == "bottom" ? "flex-start" : "flex-end") pointer-events="none" z-index=50
       column hover=enterPop(seg.id) padding-top=(side == "bottom" ? "0.375rem" : 0) padding-bottom=(side == "bottom" ? 0 : "0.375rem") pointer-events=(open ? "auto" : "none") inert=(not open) aria-hidden=(not open)
-        column width="18rem" padding="1rem" box-sizing="border-box" gap="0.625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #111111)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") opacity=(open ? 1 : 0) transition=(reduced ? "opacity 0ms" : "opacity 150ms ease") animation=(open and not pinned and not reduced ? "usagePopIn 150ms ease both" : "none") role="dialog" aria-label=seg.title id=`usage-seg-pop-${seg.id}` testId=`usage-seg-pop-${seg.id}`
+        column width="18rem" padding="1rem" box-sizing="border-box" gap="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffff, #111111)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") opacity=(open ? 1 : 0) transition=(reduced ? "opacity 0ms" : "opacity 150ms ease") animation=(open and not pinned and not reduced ? "usagePopIn 150ms ease both" : "none") role="dialog" aria-label=seg.title id=`usage-seg-pop-${seg.id}` testId=`usage-seg-pop-${seg.id}`
           column min-width=0 gap="0.125rem"
             row min-width=0 align-items="center" gap="0.5rem"
               if seg.avatar == "instance"
                 box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
-                  ProviderInstanceMark(driver=seg.driver, size=16, color="light-dark(#27272acc, #f5f5f5cc)", badge=seg.badge, accent=seg.accent)
+                  ProviderInstanceMark(driver=seg.driver, size=16, color="light-dark(#18181bcc, #f5f5f5cc)", badge=seg.badge, accent=seg.accent)
               if seg.avatar == "chip"
                 AccountChip(chip=seg.chip, chipBg=seg.chipBg, chipFg=seg.chipFg)
-              text seg.title min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)"
+              text seg.title min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#18181b, #f5f5f5)"
             if seg.email != ""
               PoolEmail(value=seg.email, placeholder=seg.emailMask, testId=`usage-seg-email-${seg.id}`, keep=enterMail(seg.id))
-          column gap="0.25rem" padding-top="0.625rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
+          column gap="0.25rem" padding-top="0.625rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)"
             if seg.plan != ""
               PopRow(label="Plan", value=seg.plan)
             if seg.whereLabel != ""
               PopRow(label=seg.whereLabel, value=seg.where)
-          column gap="0.25rem" padding-top="0.625rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
+          column gap="0.25rem" padding-top="0.625rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)"
             PopRow(label="Left", value=seg.left)
             if seg.resetsAt != ""
               PopRow(label="Resets", value=seg.resetsAt)
@@ -355,10 +356,10 @@ component SegmentPopup
             if seg.restores != ""
               PopRow(label="Restores", value=seg.restores)
           if seg.redeemable
-            row align-items="center" gap="0.75rem" padding-top="0.625rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
-              text seg.creditsText font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" testId=`usage-seg-credits-${seg.id}`
-              button press=redeem(seg.id) disabled=seg.busy testId=`usage-seg-reset-${seg.id}` margin-left="auto" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(seg.busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
-                text (seg.busy ? "Using…" : "Use reset") font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+            row align-items="center" gap="0.75rem" padding-top="0.625rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)"
+              text seg.creditsText font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" testId=`usage-seg-credits-${seg.id}`
+              button press=redeem(seg.id) disabled=seg.busy testId=`usage-seg-reset-${seg.id}` margin-left="auto" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(seg.busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+                text (seg.busy ? "Using…" : "Use reset") font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
 
 // A hover-opened popover drawn afresh (another segment) fades in, as one already mounted does by its transition;
 // Base UI's 300 ms delay before it is the window hover state's (hoverOpenDelay), so nothing waits drawn.
@@ -399,8 +400,8 @@ component PopRow
     value: string
   view
     box width="100%" display="grid" grid-template-columns=`${4.5 * rem}px minmax(0, 1fr)` column-gap="0.75rem"
-      text label font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-      text value min-width=0 font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
+      text label font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+      text value min-width=0 font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)"
 
 // RedactedSensitiveText for the popover's email (mono 11 px, blurred until pressed). Its hover also
 // keeps the popover open, which the pointer has not left.
@@ -420,7 +421,7 @@ component PoolEmail
   view
     box position="relative" align-self="flex-start" min-width=0 max-width="100%" hover=hover
       button press=toggle aria-label="Toggle account email visibility" testId=testId cursor="pointer" min-width=0 max-width="100%" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="baseline"
-        text (revealed ? value : placeholder) font-family="ui-monospace" font-size="0.6875rem" line-height="1.03125rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 user-select=(revealed ? "auto" : "none") filter=(revealed ? "none" : "blur(4px)") color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") testId=`${testId}-text`
+        text (revealed ? value : placeholder) font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1.03125rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 user-select=(revealed ? "auto" : "none") filter=(revealed ? "none" : "blur(4px)") color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)") testId=`${testId}-text`
       if over
         CnTooltip(tip=(revealed ? "Click to hide email" : "Click to reveal email"), tipId=`${testId}-tip`, above=20)
 
@@ -435,18 +436,18 @@ component LegendRow
   action hover(inside: bool)
     over = inside
   view
-    button grid-column="1 / -1" grid-row=(seg.column + 1) press=pin(seg.id) hover=hover aria-label=`Segment ${seg.column}: ${seg.label}` id=`usage-legend-${seg.id}` testId=`usage-legend-${seg.id}` min-width=0 height="1.75rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button grid-column="1 / -1" data-focus-stop="enabled page" grid-row=(seg.column + 1) press=pin(seg.id) hover=hover aria-label=`Segment ${seg.column}: ${seg.label}` id=`usage-legend-${seg.id}` testId=`usage-legend-${seg.id}` min-width=0 height="1.75rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.25rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       box position="relative" width="1rem" height="1rem" flex-shrink=0 border-radius="0.25rem" display="flex" align-items="center" justify-content="center"
         box position="absolute" left=0 top=0 right=0 bottom=0 border-radius="0.25rem" opacity=0.35 background-color=`light-dark(${light}, ${dark})` aria-hidden=true
-        text `${seg.column}` position="relative" font-size="0.625rem" line-height=1 font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#27272acc, #f5f5f5cc)"
+        text `${seg.column}` position="relative" font-size="0.625rem" line-height=1 font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#18181bcc, #f5f5f5cc)"
       AccountName(name=seg.name, chip=seg.chip, chipBg=seg.chipBg, chipFg=seg.chipFg, size="0.75rem")
-      text `${seg.remaining}%` flex-shrink=0 font-size="0.75rem" line-height="1rem" font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
-      row margin-left="auto" flex-shrink=0 align-items="center" gap="0.375rem" color="light-dark(#71717b, #818181)"
+      text `${seg.remaining}%` flex-shrink=0 font-size="0.75rem" line-height="1rem" font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)"
+      row margin-left="auto" flex-shrink=0 align-items="center" gap="0.375rem" color="light-dark(#71717b, #a1a1a1)"
         text seg.resets font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap"
         if seg.credits > 0
           if seg.resets != ""
             text "·" font-size="0.6875rem" line-height="1rem"
-          row align-items="center" gap="0.125rem" color="light-dark(#27272a, #f5f5f5)"
+          row align-items="center" gap="0.125rem" color="light-dark(#18181b, #f5f5f5)"
             TicketGlyph()
             text `${seg.credits}` font-size="0.6875rem" line-height="1rem" font-weight=600 font-variant-numeric="tabular-nums"
 
@@ -460,13 +461,13 @@ component CursorEnableLimits
       row align-items="center" gap="0.5rem"
         box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
           DriverMark(driver="cursor", size=16, initials="", icon="")
-        text "Cursor" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-      column width="100%" align-items="flex-start" gap="0.75rem" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
-        text "Requires access to your Cursor login in macOS Keychain." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+        text "Cursor" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
+      column width="100%" align-items="flex-start" gap="0.75rem" padding="1rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)"
+        text "Requires access to your Cursor login in macOS Keychain." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
         row flex-wrap="wrap" gap="0.5rem"
           for env in cursor key=env.key
-            button press=op("usage-pool-cursor", env.key, "") disabled=env.busy aria-busy=env.busy aria-label=`Enable Cursor usage from ${env.label}` testId=`usage-cursor-enable-${env.key}` height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(env.busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
-              text env.button font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+            button id=`usage-pool-cursor-${env.key}` press=op("usage-pool-cursor", env.key, "") disabled=env.busy data-focus-stop=(env.busy ? "" : "enabled page") aria-busy=env.busy aria-label=`Enable Cursor usage from ${env.label}` testId=`usage-cursor-enable-${env.key}` height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(env.busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+              text env.button font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
 
 // An external usage page (ChatGPT's when the plan is shared), with "Manage usage" (shell.openExternal).
 component ExternalUsage
@@ -477,17 +478,17 @@ component ExternalUsage
   action hover(inside: bool)
     over = inside
   view
-    row width="100%" flex-wrap="wrap" align-items="center" justify-content="space-between" gap="0.75rem" padding="1rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" testId="usage-external-link"
+    row width="100%" flex-wrap="wrap" align-items="center" justify-content="space-between" gap="0.75rem" padding="1rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" testId="usage-external-link"
       row flex=1 min-width=0 align-items="center" gap="0.75rem"
         if link.chatgpt
-          ProviderMark(driver="codex", size=20, color="light-dark(#27272a, #f5f5f5)")
+          ProviderMark(driver="codex", size=20, color="light-dark(#18181b, #f5f5f5)")
         column min-width=0 gap="0.25rem"
-          text link.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text link.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
           if link.message != ""
-            text link.message max-width="36rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-      button press=op("usage-pool-open", link.url, "") hover=hover testId="usage-external-manage" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
-        text "Manage usage" font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
-        PgIcon(name="external-link", size=14, color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+            text link.message max-width="36rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+      button id=`usage-external-manage-${link.key}` press=op("usage-pool-open", link.url, "") hover=hover data-focus-stop="enabled page" testId="usage-external-manage" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+        text "Manage usage" font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
+        PgIcon(name="external-link", size=14, color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"))
 
 // LimitNotices: a warning alert (first-line aligned glyph) with one title per source or provider that could not be read.
 component LimitNotices

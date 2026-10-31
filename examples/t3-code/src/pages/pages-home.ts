@@ -15,6 +15,9 @@ import { cachedDisplayNames, heroGroups } from '../sidebar/project-groups';
 import { openScratchProject } from '../composer/scratch-project';
 import { primary, withoutPrimaryDuplicates } from '../connections/local-primary'; // "This machine": the primary counts as an environment
 import { homeWaiting } from './home-landing';
+import { effectiveShortcut } from '../shell/shortcut-labels';
+import { shortcutInput } from '../settings/keybinding-settings';
+import { shortcutLabel } from '../settings/keybinding-view';
 
 const timestamp = (value: unknown): number | null => {
   const parsed = typeof value === 'string' ? Date.parse(value) : NaN;
@@ -56,6 +59,11 @@ export function mostRecentProjectId(shell: Shell): string {
   return str(projectsByActivity(shell)[0]?.id);
 }
 
+/** useStartTriage's TRIAGE_CLI_COMMAND: triage from a terminal, which the triage hero and a failed start offer. */
+export const TRIAGE_CLI_COMMAND = 'npx t3 triage';
+/** A draft is a triage draft while its message still links the playbook (contracts server.ts TRIAGE_PROMPT_FILE_NAME). */
+export const isTriagePrompt = (prompt: string) => prompt.includes('[triage-playbook.md](');
+
 /** ServerConfig.scratchWorkspaceRoot, the folder behind "No project" threads, when offered. */
 export function scratchRoot(config: Obj): string {
   return str(config.scratchWorkspaceRoot).trim();
@@ -71,6 +79,10 @@ export type PagesHome = {
   scratchStart: boolean; savedEnvironments: number; firstRunPending: boolean; pullRequests: boolean;
   /** HostedStaticOnboardingState's description: the Local environment is switched off (local-primary.ts). */
   noEnvironmentDescription: string;
+  /** chat.newWithoutProject's shortcut, the tip under "or start without a project" ("" without one). */
+  scratchShortcut: string;
+  /** TriageDraftHero: a No project draft whose prompt still links the triage playbook, and its machine's name and server version. */
+  triageDraft: boolean; triageMachine: string; triageVersion: string;
 };
 /** HostedStaticOnboardingState: the second paragraph, the switched-off wording first (T3 Connect is not offered). */
 export const noEnvironmentDescription = (localEnvironmentOff: boolean) => localEnvironmentOff
@@ -151,7 +163,15 @@ export async function pagesHome(client: T3Client, native: Native | null | undefi
     savedEnvironments: saved, firstRunPending,
     pullRequests: obj(obj(client.config.environment).capabilities).pullRequests === true,
     noEnvironmentDescription: noEnvironmentDescription(primary.disabled),
+    scratchShortcut: scratchShortcutLabel(client.config),
+    triageDraft: scratchDraft && !client.threadId && isTriagePrompt(client.draft),
+    triageMachine: str(obj(client.config.environment).label, 'This machine'), triageVersion: str(obj(client.config.environment).serverVersion),
   };
+}
+/** DraftHeroHeadline's noProjectShortcut: shortcutLabelForCommand(keybindings, "chat.newWithoutProject"). */
+function scratchShortcutLabel(config: Obj): string {
+  const shortcut = effectiveShortcut(config, 'chat.newWithoutProject');
+  return shortcut ? shortcutLabel(shortcutInput(shortcut)) : '';
 }
 
 // ── Hero retargeting (pages:hero-*) ─────────────────────────────────────────

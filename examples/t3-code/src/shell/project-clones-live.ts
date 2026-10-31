@@ -4,7 +4,7 @@
 // components/ProjectCloneToastCoordinator.tsx and state/projectClones.ts useProjectClone and its
 // silenced toasts). The clone list of every environment comes from live-streams.ts; this module
 // runs the toast coordinator and the ignored-file copies owed to a cloned project
-// (add-project-machine.ts) from the shell's view build (as providerUpdates does), answers the
+// (add-project-machine.ts) from the shell's view build, answers the
 // toast and banner buttons (`shell:clone-*`), and starts a tracked clone from the palette.
 import type { T3Client } from '../client/client';
 import { applyShell, initialShell, str, type Obj } from '../client/domain';

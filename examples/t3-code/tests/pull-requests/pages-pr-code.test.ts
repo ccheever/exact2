@@ -15,6 +15,8 @@ import { renderablePatch } from '../../src/pull-requests/pages-pr-code-logic';
 import { composerReplyEvent } from '../../src/composer/composer-replies';
 import { presentTimeline } from '../../src/pull-requests/pages-pr-timeline';
 import { codeRows, type RowsInput } from '../../src/pull-requests/pages-pr-code-rows';
+import { ROW_LIMIT } from '../../src/diff/diff';
+import { highlightDeferrals, resetHighlights } from '../../src/highlight/highlights';
 import { PR_REFRESH_KEY, prRefreshEvent } from '../../src/pull-requests/pages-pr-refresh';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
@@ -133,8 +135,9 @@ describe('the Code tab and its slices (PullRequestCodeTab, POST /api/pull-reques
     // Files arrive folded (General → Diff files collapsed), each with its Viewed tick; the binary file and the rename say what they are.
     const headers = view.codeTab.items.filter(item => item.kind === 'pr-file');
     expect(headers).toHaveLength(310);
-    // orderDiffFiles within a slice: one tier here (no tests, nothing generated), so path order.
-    expect([headers[0]!.path, headers[1]!.path, headers.at(-2)!.path, headers.at(-1)!.path]).toEqual(['assets/logo.png', 'data/item-001.txt', 'src/catalog.js', 'src/strings.js'].slice(0, 2).concat(['data/item-306.txt', 'data/item-307.txt']));
+    // orderDiffFiles within a slice (one tier here, so path order), then the file tree's order (orderDiffFilesLikeTree):
+    // data/ keeps the later slices' files beside its first one, so src/ comes last.
+    expect([headers[0]!.path, headers[1]!.path, headers.at(-3)!.path, headers.at(-2)!.path, headers.at(-1)!.path]).toEqual(['assets/logo.png', 'data/item-001.txt', 'data/item-307.txt', 'src/catalog.js', 'src/strings.js']);
     const header = (path: string) => headers.find(item => item.path === path)!;
     expect(['src/catalog.js', 'src/strings.js', 'assets/logo.png'].map(path => [header(path).status, header(path).expanded, header(path).label, header(path).entry])).toEqual([
       ['modified', false, 'unviewed', ''], ['renamed', false, 'unviewed', 'src/text.js'], ['added', false, 'unviewed', '']]);
@@ -269,6 +272,24 @@ describe('Viewed ticks (usePullRequestFilesViewed)', () => {
     view = await f.settle();
     expect([view.codeTab.viewedCount, f.of('pullRequests.filesViewed').length]).toEqual(['3 / 310', 2]); // read again after the write
   });
+  test('a Shift-press ticks every file shown from the last pressed one, in the list\'s order, either way (getFileViewedRange)', async () => {
+    const f = fixture();
+    await walk(f);
+    await f.press('fold-all');
+    await f.press('viewed', 'data/item-002.txt|true|');
+    await f.press('viewed', 'data/item-005.txt|true|shift');
+    let view = await f.settle();
+    const viewed = () => view.codeTab.items.filter(item => item.kind === 'pr-file' && item.label === 'viewed').map(item => item.path);
+    expect(viewed()).toEqual(['data/item-002.txt', 'data/item-003.txt', 'data/item-004.txt', 'data/item-005.txt']);
+    // The anchor moved to item-005: a Shift-press back up clears item-004 and item-005 only.
+    await f.press('viewed', 'data/item-004.txt|false|shift');
+    view = await f.settle();
+    expect(viewed()).toEqual(['data/item-002.txt', 'data/item-003.txt']);
+    // Without Shift only the pressed file changes.
+    await f.press('viewed', 'data/item-009.txt|true|');
+    view = await f.settle();
+    expect(viewed()).toEqual(['data/item-002.txt', 'data/item-003.txt', 'data/item-009.txt']);
+  });
   test('a failed write takes the ticks back and says "Could not update viewed files"', async () => {
     const f = fixture({ 'pullRequests.setFilesViewed': () => { throw new ClientError('Resource not accessible by integration', 'PullRequestOperationError'); } });
     await walk(f);
@@ -379,6 +400,23 @@ describe('the gutter\'s drags (onLineSelectionEnd and onGutterUtilityClick are b
       true, 'src/catalog.js:2', ['additions:1', 'deletions:2*', 'additions:2', 'additions:3', 'additions:4']]);
     await f.press('add', 'Was zero on purpose?');
     expect(pullRequestReviewStore(f.client).pending(pullRequestReviewKey(reference)).map(entry => entry.position)).toEqual([{ kind: 'deleted', oldLine: 2 }]);
+  });
+  test('a host with ranged comments gets one comment on the lines dragged within a hunk; another host gets the last line', async () => {
+    for (const ranged of [true, false]) {
+      const review = { inlineComment: true, ...(ranged ? { rangeComment: true } : {}), reply: true, resolve: true, verdicts: ['comment', 'approve', 'request-changes'] };
+      const f = fixture({ 'pullRequests.detail': () => detail({ capabilities: { ...(detail().capabilities as Obj), review } }), 'pullRequests.submitReview': () => ({}) });
+      await walk(f);
+      await f.press('fold', 'src/catalog.js');
+      await f.press('drag', row('gutter:additions', 2, 'src/catalog.js'));
+      await f.press('drag', row('to', 0, 'dl:additions:4:src/catalog.js'));
+      await f.press('drag', row('end', 2, 'src/catalog.js'));
+      const view = await f.settle();
+      expect(view.codeTab.items.find(item => item.kind === 'pr-draft')?.label).toBe('src/catalog.js:4');
+      await f.press('add', 'These three lines.');
+      expect(await f.act('review', 'comment|')).toBe('');
+      expect((f.of('pullRequests.submitReview')[0]!.payload.comments as Obj[])).toEqual([{ path: 'src/catalog.js',
+        ...(ranged ? { startPosition: { kind: 'added', newLine: 2 } } : {}), position: { kind: 'context', oldLine: 4, newLine: 4, side: 'right' }, body: 'These three lines.' }]);
+    }
   });
   test('a drag from the "+" comments on the range it ends on; under a commit scope the gutter is off', async () => {
     const f = fixture();
@@ -525,6 +563,18 @@ describe('hidden lines (createPullRequestDiffFileContentsLoader)', () => {
       expect(rows().some(item => item.kind === 'gap')).toBe(false);
     }
   });
+  test('hunks past the row limit only count: their sides ask the lexers for nothing', () => {
+    const hunk = (k: number) => [`@@ -${k * 10 + 1},7 +${k * 10 + 1},7 @@`, ` a${k}`, ` b${k}`, ` c${k}`, `-let old${k} = ${k};`, `+let new${k} = ${k};`, ` d${k}`, ` e${k}`, ` f${k}`].join('\n');
+    const parsed = renderablePatch(`diff --git a/rows.ts b/rows.ts\n--- a/rows.ts\n+++ b/rows.ts\n${Array.from({ length: 600 }, (_, k) => hunk(k)).join('\n')}\n`, false);
+    if (parsed?.kind !== 'files') throw new Error('Expected a parsed patch.');
+    const input: RowsInput = { files: parsed.files, layout: 'stacked', foldOverride: 'expanded', toggled: new Set(), viewedMark: () => '', omitted: new Map(),
+      annotations: () => ({ threads: [], pending: [], draft: null }), selection: null, contents: {}, contentsKey: path => path, expansions: {} };
+    const deferrals = highlightDeferrals;
+    expect(codeRows(input).truncated).toBe(true);
+    // Eight rows a hunk: the first 500 fill the 4,000 rows, and only their two sides ask for tokens.
+    expect(highlightDeferrals - deferrals).toBe(2 * ROW_LIMIT / 8);
+    resetHighlights();
+  });
   test('keeps concurrent diff file reads on different hosts separate', () => {
     const parsed = renderablePatch(sourcePatch, false), file = parsed?.kind === 'files' ? parsed.files.find(entry => entry.path === 'src/strings.js')! : null;
     const one = diffFileContentsInput({ ...reference, host: 'github.com' }, null, file!), other = diffFileContentsInput({ ...reference, host: 'github.example.com' }, null, file!);
@@ -600,5 +650,37 @@ describe('"Add to agent" (PullRequestCodeTab finishSelection)', () => {
     expect(comment).toMatchObject({ id: 'pull-request-selection:src/catalog.js:2:2', sectionId: 'pull-request:114', sectionTitle: 'PR #114 review', filePath: 'src/catalog.js', rangeLabel: '+2', text: 'Why one?' });
     expect(comment!.diff.split('\n')).toEqual(['@@ -0,0 +2,1 @@', '+export const size = 1;']);
     expect((await f.settle()).codeTab.draftOpen).toBe(false);
+  });
+});
+
+describe('Hide test files (PullRequestCodeTab)', () => {
+  const testsPatch = [
+    'diff --git a/web/settings.ts b/web/settings.ts', '--- a/web/settings.ts', '+++ b/web/settings.ts', '@@ -1 +1 @@', '-a', '+b',
+    'diff --git a/server/ws.ts b/server/ws.ts', '--- a/server/ws.ts', '+++ b/server/ws.ts', '@@ -1 +1 @@', '-a', '+b',
+    'diff --git a/web/settings.test.ts b/web/settings.test.ts', '--- a/web/settings.test.ts', '+++ b/web/settings.test.ts', '@@ -1 +1 @@', '-a', '+b',
+  ].join('\n');
+  test('the list follows the tree; Hide test files leaves the tests out, says how many, and the link brings them back', async () => {
+    const f = fixture({}, () => ({ patch: `${testsPatch}\n`, truncated: false, nextCursor: null, omittedFileStats: [] }));
+    let view = await f.settle();
+    const files = () => view.codeTab.items.filter(item => item.kind === 'pr-file').map(item => item.path);
+    expect([files(), view.codeTab.testFiles, view.codeTab.hiddenTests]).toEqual([['server/ws.ts', 'web/settings.ts', 'web/settings.test.ts'], 1, '']);
+    await f.press('hide-tests');
+    view = await f.settle();
+    expect([files(), view.codeTab.filesLabel, view.codeTab.hiddenTests, view.codeTab.hideTests]).toEqual([['server/ws.ts', 'web/settings.ts'], '2 files', '1 test file hidden', true]);
+    expect(view.codeTab.treeRows.some(row => row.path === 'web/settings.test.ts')).toBe(false);
+    await f.press('hide-tests', 'false');
+    view = await f.settle();
+    expect([files().length, view.codeTab.hiddenTests]).toEqual([3, '']);
+  });
+});
+
+describe('a commit the pull request dropped (2083a22919)', () => {
+  test('a commit no longer in the change reads as All commits, and its diff is never asked for', async () => {
+    const f = fixture();
+    await f.settle();
+    await f.press('scope', 'gone'.padEnd(40, '0'));
+    const view = await f.settle();
+    expect(view.codeTab.scopeLabel).toBe('All commits');
+    expect(f.of('prDiff').map(call => call.payload.commit)).not.toContain('gone'.padEnd(40, '0'));
   });
 });

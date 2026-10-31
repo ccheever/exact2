@@ -1,24 +1,27 @@
 // Sidebar state that is not the server's: persisted UI preferences (the
 // reference keeps them in localStorage and its persisted UI store) and the
 // window's transient sidebar session (rename, selection, paging, dialogs,
-// undo), held beside the client the way sidebar-presentation keeps searches.
-import { obj, str } from '../client/domain';
+// undo), held beside the client the way sidebar-search keeps searches.
+import { obj, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
+import type { RouteReveal } from './route-reveal';
+import type { ShownOrder } from '../palette/palette-search';
 
 export const SETTLED_TAIL_INITIAL_COUNT = 10;
 export const SETTLED_TAIL_PAGE_COUNT = 25;
 
 /**
- * Shelf expansion (t3code:sidebar:*-expanded), project scope (sidebarProjectScopeKey) and local visits;
+ * Shelf expansion (t3code:sidebar:*-expanded), project scope (sidebarProjectScopeKeys) and local visits;
  * for the legacy sidebar, the persisted UI store's projectExpandedById and projectOrder (uiStateStore.ts).
  */
 export interface SidebarPrefs {
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean;
-  scope: string; visited: Record<string, string>;
+  /** The projects the list shows, none for all. A key whose project is not loaded stays, so its scope returns with it. */
+  scopes: string[]; visited: Record<string, string>;
   projectExpanded: Record<string, boolean>; projectOrder: string[];
 }
 export function defaultSidebarPrefs(): SidebarPrefs {
-  return { settledExpanded: false, snoozedExpanded: false, workingExpanded: false, scope: '', visited: {}, projectExpanded: {}, projectOrder: [] };
+  return { settledExpanded: false, snoozedExpanded: false, workingExpanded: false, scopes: [], visited: {}, projectExpanded: {}, projectOrder: [] };
 }
 export function decodeSidebarPrefs(value: unknown): SidebarPrefs {
   const saved = obj(value), visited: Record<string, string> = {};
@@ -27,9 +30,12 @@ export function decodeSidebarPrefs(value: unknown): SidebarPrefs {
   }
   const projectExpanded: Record<string, boolean> = {};
   for (const [key, value] of Object.entries(obj(saved.projectExpanded)).slice(-1000)) if (key && typeof value === 'boolean') projectExpanded[key] = value;
-  const projectOrder = [...new Set((Array.isArray(saved.projectOrder) ? saved.projectOrder : []).filter((key): key is string => typeof key === 'string' && key.length > 0))].slice(0, 1000);
+  const keys = (list: unknown) => [...new Set((Array.isArray(list) ? list : []).filter((key): key is string => typeof key === 'string' && key.length > 0))];
+  const projectOrder = keys(saved.projectOrder).slice(0, 1000);
+  // A file from before several projects keeps its one key (uiStateStore's sidebarProjectScopeKey).
+  const scopes = keys(Array.isArray(saved.scopes) ? saved.scopes : [saved.scope]).filter(key => key.length <= 2000).slice(0, 1000);
   return { settledExpanded: saved.settledExpanded === true, snoozedExpanded: saved.snoozedExpanded === true,
-    workingExpanded: saved.workingExpanded === true, scope: str(saved.scope).slice(0, 2000), visited, projectExpanded, projectOrder };
+    workingExpanded: saved.workingExpanded === true, scopes, visited, projectExpanded, projectOrder };
 }
 /** The client's preferences carry the sidebar block; older files decode to the defaults. */
 export function sidebarPrefs(client: T3Client): SidebarPrefs {
@@ -44,7 +50,12 @@ export interface UndoEntry { action: UndoAction; threadIds: string[]; at: number
 export interface SidebarDialog { kind: '' | 'archive' | 'delete' | 'delete-many' | 'snooze' | 'unpin' | 'delete-worktree'; threadIds: string[]; title: string; from?: 'title' }
 export interface SidebarSession {
   settledVisible: number; settledScope: string;
-  searchIndex: number; searchQuery: string; searchPending: boolean;
+  /**
+   * The search's highlighted row ('' for the first): it follows its thread, so rows that land late do not move it under
+   * Enter, and a new query starts at the top. `searchShown` is the list as painted with each row's message match, for
+   * the arrow keys and Enter; `messageOrder` keeps the message rows' places for the query they were found for.
+   */
+  searchKey: string; searchQuery: string; searchShown: { id: string; match?: Obj }[]; searchFoundFor: string; messageOrder: ShownOrder | null;
   renameId: string; renameTitle: string;
   selection: string[]; anchor: string;
   dialog: SidebarDialog;
@@ -60,15 +71,17 @@ export interface SidebarSession {
   calendarMonth: string; calendarFocus: string; calendarFocusSeq: number;
   /** 1826fb55cc: bumped when a row-action sweep is released, which ends the view's sweep. */
   sweepEpoch: number;
+  /** The route the sidebar last saw and the reveal it owes (route-reveal.ts), kept across the sidebar's remounts. */
+  reveal: RouteReveal;
 }
 const sessions = new WeakMap<T3Client, SidebarSession>();
 export function sidebarSession(client: T3Client): SidebarSession {
   let session = sessions.get(client);
   if (!session) {
-    session = { settledVisible: SETTLED_TAIL_INITIAL_COUNT, settledScope: '', searchIndex: 0, searchQuery: '', searchPending: false,
+    session = { settledVisible: SETTLED_TAIL_INITIAL_COUNT, settledScope: '', searchKey: '', searchQuery: '', searchShown: [], searchFoundFor: '', messageOrder: null,
       renameId: '', renameTitle: '', selection: [], anchor: '', dialog: { kind: '', threadIds: [], title: '' },
       undo: null, regenerating: new Set(), busy: new Set(), jumpHints: false, dismissedPill: '', scopeOpen: false, scopeQuery: '', dialogMode: 'date', dialogDate: '', dialogTime: '', dialogAmount: '2', dialogUnit: 'hours', dialogError: '',
-      calendarMonth: '', calendarFocus: '', calendarFocusSeq: 0, sweepEpoch: 0 };
+      calendarMonth: '', calendarFocus: '', calendarFocusSeq: 0, sweepEpoch: 0, reveal: { observedKey: '', pendingKey: '' } };
     sessions.set(client, session);
   }
   return session;
@@ -137,6 +150,27 @@ export function adoptCommandTime(client: T3Client, at: number): void {
  * (snoozePresets then returns nothing), so no 1970 value is written (persisted-instants.test.ts).
  */
 export function wall(client: T3Client): number { return clock() + (offsets.get(client) ?? 0); }
+/**
+ * The latest window time a sidebar snapshot was taken at (the root's minute clock, also read when the window comes
+ * back). Opening a thread adopts no command time, so the open it records stamps the later of this and `wall`.
+ */
+const snapshotTimes = new WeakMap<T3Client, number>();
+export function noteSnapshotTime(client: T3Client, now: number): void {
+  if (Number.isFinite(now) && now > 1e12 && now > (snapshotTimes.get(client) ?? 0)) snapshotTimes.set(client, now);
+}
+export function latestWall(client: T3Client): number { return Math.max(wall(client), snapshotTimes.get(client) ?? 0); }
+/** The time the menus now painted were resolved at: the latest snapshot's, else `wall`. */
+export function shownWall(client: T3Client): number { return snapshotTimes.get(client) ?? wall(client); }
+/** threadUndoNoticeSummary: "Settled 2 threads", "Discarded 1 draft". */
+export function undoSummary(undo: UndoEntry): string {
+  const count = undo.threadIds.length;
+  return `${undo.action} ${count} ${undo.action === 'Discarded' ? 'draft' : 'thread'}${count === 1 ? '' : 's'}`;
+}
+/** SidebarThreadUndoNotice's summary, short enough to sit beside the footer's icons: "Settled", "Settled 2". */
+export function undoShortSummary(undo: UndoEntry): string {
+  const count = undo.threadIds.length;
+  return count === 1 ? undo.action : `${undo.action} ${count}`;
+}
 /** showThreadUndoNotice: the notice lives five seconds. */
 export function undoLive(client: T3Client): boolean {
   const undo = sidebarSession(client).undo;

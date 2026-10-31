@@ -6,7 +6,7 @@ import { requestComposerField } from './composer-field-request';
 // images upload) and binds it as a `file` attachment plus its
 // FileContextRecord. The upload's id persists with the device's drafts; the
 // staged bytes live in memory until then.
-import { readStaged, removeStaged } from './composer-staged-copies';
+import { FOLD_UPLOADS, foldUpload, removeFoldUpload, removeStaged, stagedUpload } from './composer-staged-copies';
 import type { T3Client } from '../client/client';
 import { ClientError, bridgeReply, type Native } from '../client/protocol';
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -24,6 +24,12 @@ import { composerFieldOwner } from './auto-balance-owner';
 
 export const PASTED_TEXT_THRESHOLD_BYTES = 32 * 1024;
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
+/**
+ * The largest attachment staging reads through JavaScript (an image's header, a video's display size):
+ * `storage.fs.readFile` answers base64 within the runner's 16 MiB host work limit (runner/src/request.rs
+ * MAX_HOST_WORK_BYTES), so a read past about 12 MiB fails. The host copies and uploads the file itself at any size.
+ */
+export const HOST_READ_BYTES = 11 * 1024 * 1024;
 export const MAX_ATTACHMENTS = 100;
 export const PASTED_TEXT_MIME = 'text/plain;charset=utf-8';
 
@@ -105,6 +111,13 @@ export function stageFold(local: object, draftKey: string, environmentId: string
 
 /** The chip a staged file shows in the prompt. */
 export function fileChipLink(file: DraftFile): string { return contextLink('file', file.contextId, file.name); }
+
+const GENERIC_MIME_TYPES = new Set(['application/octet-stream', 'binary/octet-stream', 'application/unknown']);
+/** isSvgAttachment (shared image.ts): an SVG by its type, or by its name when the type says nothing. */
+export function isSvgAttachment(name: string, mimeType: string): boolean {
+  const type = mimeType.split(';', 1)[0]!.trim().toLowerCase();
+  return type === 'image/svg+xml' || ((type === '' || GENERIC_MIME_TYPES.has(type)) && /\.svg$/i.test(name));
+}
 
 /** The draft's files its prompt references, in prompt order. */
 export function referencedFiles(local: object, draftKey: string, text: string): DraftFile[] {
@@ -327,14 +340,17 @@ async function insertFold(client: T3Client, native: Native, fact: ComposerOSReco
   return result.queued;
 }
 
-/** attachmentUploadQueue at send time: mint an upload URL, send the bytes (base64), keep the id. */
-async function upload(client: T3Client, native: Native, file: DraftFile, base64: string, assertOwner?: () => void): Promise<void> {
+/** What an upload sends: a folded paste's text as base64, or a staged file from its path. */
+type UploadBody = { base64: string } | { bodyFrom: string; sizeBytes: number };
+
+/** attachmentUploadQueue at send time: mint an upload URL, send the bytes, keep the id. */
+async function upload(client: T3Client, native: Native, file: DraftFile, body: UploadBody, assertOwner?: () => void): Promise<void> {
   assertOwner?.();
   const minted = await client.rpc(native, 'attachments.createUploadUrl', { type: 'file', name: file.name, mimeType: file.mimeType, sizeBytes: file.sizeBytes });
   assertOwner?.();
   const attachmentId = str(minted.attachmentId);
   if (!attachmentId || !str(minted.relativeUrl).startsWith('/api/attachments/upload/')) throw new ClientError('The server returned an invalid attachment upload.');
-  await nativeCall(native, { op: 'uploadAttachment', path: str(minted.relativeUrl), base64, contentType: file.source === 'pasted-text' ? PASTED_TEXT_MIME : file.mimeType, generation: client.generation });
+  await nativeCall(native, { op: 'uploadAttachment', path: str(minted.relativeUrl), ...body, contentType: file.source === 'pasted-text' ? PASTED_TEXT_MIME : file.mimeType, generation: client.generation });
   assertOwner?.();
   file.attachmentId = attachmentId;
   file.status = 'ready';
@@ -345,11 +361,16 @@ async function upload(client: T3Client, native: Native, file: DraftFile, base64:
   assertOwner?.();
 }
 
-/** The staged bytes of a draft file, or null when they were lost (a folded paste across a restart, a staged copy removed). */
-async function stagedBytes(client: T3Client, native: Native, file: DraftFile): Promise<string | null> {
-  if (file.source === 'attached') return readStaged(file);
+/** A folded paste above this goes up from an app file (composer-staged-copies.ts foldUpload). */
+const INLINE_FOLD_BYTES = 2 * 1024 * 1024;
+
+/** What a draft file uploads, or null when its bytes were lost (a folded paste across a restart, a staged copy removed). */
+async function stagedBody(client: T3Client, file: DraftFile): Promise<UploadBody | null> {
+  if (file.source === 'attached') return stagedUpload(file);
   const text = mapFor(texts, client).get(file.id);
-  return text === undefined ? null : base64Utf8(text);
+  if (text === undefined) return null;
+  const bytes = new TextEncoder().encode(text);
+  return bytes.byteLength <= INLINE_FOLD_BYTES ? { base64: base64Utf8(text) } : foldUpload(bytes);
 }
 
 /** The send's file attachments for the prompt's file chips, uploading the staged ones (as SnapShots upload at send). */
@@ -359,10 +380,14 @@ export async function composerFileAttachments(client: T3Client, native: Native, 
   for (const file of files) {
     assertOwner?.();
     if (file.status === 'ready' && file.attachmentId) continue;
-    const bytes = await stagedBytes(client, native, file);
+    const body = await stagedBody(client, file);
     assertOwner?.();
-    if (bytes === null) throw new ClientError(`${file.name} was not saved with this draft. Attach it again to send it.`);
-    await upload(client, native, file, bytes, assertOwner);
+    if (body === null) throw new ClientError(`${file.name} was not saved with this draft. Attach it again to send it.`);
+    try {
+      await upload(client, native, file, body, assertOwner);
+    } finally {
+      if ('bodyFrom' in body && body.bodyFrom.startsWith(`${FOLD_UPLOADS}/`)) await removeFoldUpload(body.bodyFrom);
+    }
     assertOwner?.();
   }
   const block = fileSendBlock(files);
@@ -383,7 +408,11 @@ export function composerFileRecords(client: T3Client, text: string): Obj[] {
 export function fileChipContexts(client: T3Client, text: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const file of referencedFiles(client.local, client.draftKey, text)) {
-    if (file.status === 'ready' || file.source === 'attached' || mapFor(texts, client).has(file.id)) out[`file/${file.contextId}`] = `${videoMimeType(file) ? 'video' : 'file'}\t${formatAttachmentSize(file.sizeBytes)}`; // a video's chip (FilmIcon, kind video)
+    // A video's chip is kind video (FilmIcon). An SVG's stays kind file, so its press opens the file, and draws as an
+    // image chip (FileChip's SvgFileChip): the record's third field names the glyph.
+    if (file.status === 'ready' || file.source === 'attached' || mapFor(texts, client).has(file.id)) {
+      out[`file/${file.contextId}`] = `${videoMimeType(file) ? 'video' : 'file'}\t${formatAttachmentSize(file.sizeBytes)}${isSvgAttachment(file.name, file.mimeType) ? '\timage' : ''}`;
+    }
   }
   return out;
 }

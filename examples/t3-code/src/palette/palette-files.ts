@@ -7,7 +7,7 @@ import { arr, num, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { closedView, flatten, row, type PalettePart, type PaletteRow, type PaletteView } from './palette';
 import { highlight } from '../highlight/timeline-highlight';
-import { fileLanguage } from '../highlight/shiki-highlight';
+import { fileLanguage } from '../highlight/highlights';
 import { letGo } from '../client/let-go';
 
 export const FILE_RESULT_LIMIT = 200;
@@ -83,7 +83,7 @@ export async function filePickerView(client: T3Client, native: Native | null | u
   if (!can(client, 'filesystem:read')) return { ...base, empty: 'This connection requires filesystem:read.', accessoryEnabled: false };
   const trimmed = query.trim().slice(0, 256);
   const result = await cached(fileCache, client, native, `${client.generation}:${target.cwd}:${trimmed}`, 'projects.searchEntries', { cwd: target.cwd, query: trimmed, limit: FILE_RESULT_LIMIT });
-  const rows = flatten([{ value: 'project-files', label: target.projectName, items: fileRows(arr(result.value.entries), result.error ? '' : trimmed).map(entry => ({ row: entry, terms: [] })) }]);
+  const rows = flatten([{ value: 'project-files', label: target.projectName, items: fileRows(arr(result.value.entries), result.error ? '' : trimmed).map(entry => ({ row: entry, terms: [] })) }], false);
   const empty = result.error ? result.error : trimmed ? 'No matching files.' : 'No files found.';
   return { ...base, rows, count: rows.length, empty: rows.length ? '' : empty };
 }
@@ -94,7 +94,7 @@ export function lineParts(line: string, ranges: Obj[], path = ''): PalettePart[]
   const hit = (at: number) => marks.some(([start, end]) => at >= start && at < end);
   // HighlightedSearchLine: getFiletypeFromFileName(path) picks the language (a root Dockerfile too).
   const language = path ? fileLanguage(path) : '';
-  const tokens = language ? highlight(line, language) : [{ text: line, cls: '' }];
+  const tokens = language ? highlight(line, language, 0, 'palette') : [{ text: line, cls: '' }];
   const parts: PalettePart[] = [];
   let offset = 0;
   for (const token of tokens.length ? tokens : [{ text: line, cls: '' }]) {

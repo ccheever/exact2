@@ -47,13 +47,17 @@ export class FakeServer {
   tokens = new Set<string>();
   tickets = new Set<string>();
   up = true;
-  requests: Array<{ method: string; path: string; headers: Record<string, string>; body: string }> = [];
+  requests: Array<{ method: string; path: string; headers: Record<string, string>; body: string; timeoutMs?: number }> = [];
+  /** How long a path takes to answer (ms): a request whose deadline is shorter fails as exact2's fetch does, kind `Timeout`. */
+  delays: Record<string, number> = {};
   rpcs: Array<{ method: string; payload: Obj; id: string }> = [];
   methods: Record<string, RpcHandler> = {};
   /** Frames the server pushes on a stream (by request id), sent at the next turn. */
   outgoing: Array<{ socket: FakeSocket; frame: Obj }> = [];
   sockets: FakeSocket[] = [];
   routes: Record<string, (request: { method: string; body: string; headers: Record<string, string> }) => { status: number; body: unknown }> = {};
+  /** Tickets minted for a route (`/api/auth/websocket-ticket/rpc`, `/media`); a server before 0.1.4 has only the bare path. */
+  ticketRoutes = true;
   private serial = 0;
   constructor(readonly origin: string, environmentId = 'env-1', extra: Obj = {}) {
     this.descriptor = { environmentId, label: `Server ${environmentId}`, serverVersion: '0.0.46', orchestrationProtocolVersion: 2,
@@ -65,8 +69,8 @@ export class FakeServer {
 
   http(method: string, target: string, init: HttpInit): { status: number; body: unknown } {
     const headers = init.headers ?? {};
-    const body = typeof init.body === 'string' ? init.body : init.body ? `<${init.body.length} bytes>` : '';
-    this.requests.push({ method, path: target, headers, body });
+    const body = init.bodyFrom ? `<file ${init.bodyFrom}>` : typeof init.body === 'string' ? init.body : init.body ? `<${init.body.length} bytes>` : '';
+    this.requests.push({ method, path: target, headers, body, timeoutMs: init.timeoutMs });
     const custom = this.routes[target];
     if (custom) return custom({ method, body, headers });
     const bearer = (headers.Authorization ?? '').replace(/^Bearer /, '');
@@ -81,7 +85,8 @@ export class FakeServer {
     }
     if (!this.tokens.has(bearer) && !target.startsWith('/api/attachments/upload/')) return { status: 401, body: { message: 'Unauthorized' } };
     if (target === '/api/auth/session') return { status: 200, body: { authenticated: true, scopes: ['orchestration:read', 'orchestration:operate'] } };
-    if (target === '/api/auth/websocket-ticket') { const ticket = `ticket-${++this.serial}`; this.tickets.add(ticket); return { status: 200, body: { ticket } }; }
+    const routed = this.ticketRoutes && ['/api/auth/websocket-ticket/rpc', '/api/auth/websocket-ticket/media'].includes(target);
+    if (target === '/api/auth/websocket-ticket' || routed) { const ticket = `ticket-${++this.serial}`; this.tickets.add(ticket); return { status: 200, body: { ticket } }; }
     return { status: 404, body: { message: `No route ${target}` } };
   }
 
@@ -148,6 +153,11 @@ export class Drive {
       const server = this.servers.get(parsed.origin);
       if (!server || !server.up) throw new Error(`Could not connect to ${parsed.origin}`);
       await this.holds[parsed.pathname];
+      const delay = server.delays[parsed.pathname] ?? 0;
+      if (delay > init.timeoutMs) {
+        server.requests.push({ method: init.method ?? 'GET', path: parsed.pathname + parsed.search, headers: init.headers ?? {}, body: '', timeoutMs: init.timeoutMs });
+        throw Object.assign(new Error(`the request timed out after ${init.timeoutMs} ms`), { name: 'FetchError', kind: 'Timeout' });
+      }
       const reply = server.http(init.method ?? 'GET', parsed.pathname + parsed.search, init);
       return { status: reply.status, text: reply.body === undefined ? '' : JSON.stringify(reply.body) };
     };

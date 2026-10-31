@@ -50,5 +50,5 @@ component MermaidFrameView
     row width="100%" justify-content="center"
       box resize=sized width=(width > 0 ? width : "100%") max-width="100%" height=(rendered ? (height > 0 ? height : drawnHeight) : "auto") flex-shrink=1 position="relative" overflow="hidden"
         if not rendered
-          text placeholder margin-top="0.65rem" margin-bottom="0.65rem" font-family="ui-monospace" font-size="0.875rem" line-height=1.625 white-space="pre" opacity=0 aria-hidden=true
+          text placeholder margin-top="0.65rem" margin-bottom="0.65rem" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.875rem" line-height=1.625 white-space="pre" opacity=0 aria-hidden=true
         iframe src=src message=reported aria-hidden=true tabindex=-1 pointer-events="none" position="absolute" left=0 top=0 width="100%" height="100%" border-width=0 opacity=(rendered ? 1 : 0) testId=testId

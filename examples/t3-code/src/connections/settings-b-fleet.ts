@@ -9,7 +9,7 @@
 // is one of them whenever it is not the focus: it connects with `primary: true`
 // (its bearer is the embedded server's, in memory) and is never saved.
 import { pendingSubagentRequestsByThread } from '../sidebar/subagent-requests';
-import { obj, str, num, arr, initialShell, applyShell, type Obj, type Shell } from '../client/domain';
+import { obj, str, num, arr, initialShell, applyShell, decodeDeviceState, type Obj, type Shell } from '../client/domain';
 import { bridgeReply, applyConfig, type Native } from '../client/protocol';
 import { announceJobs } from './settings-b-outdated';
 import { announceServerUpdates } from './server-update';
@@ -27,6 +27,7 @@ import { providerSetupEvent } from '../providers/provider-setup';
 import { fleetSetupHost } from '../providers/codex-fleet-host'; // a background computer's Codex setup streams
 import { fleetPortsEvent, fleetPortsPass } from '../sidebar/legacy-sidebar-ports'; // a background environment's discovered ports
 import { sessionHasLegacyPermissions, sessionPermissions } from './remote-scopes';
+import { SESSION_STATE_KEY } from '../transport/transport-session';
 import { accessFleetPass } from './auth-access';
 import { syncProjectFavicons } from '../sidebar/sidebar-glyph';
 import { announceHostFreezes, type FreezeSource } from './host-freeze';
@@ -43,6 +44,9 @@ export interface FleetEntry {
   primary?: boolean;
   terminalMetadata?: ReadonlyArray<TerminalSummary> | null;
   terminalAttempted?: boolean;
+  /** Its device hub's latest state (`subscribeDeviceState`): an agent in any of its threads can open a device. */
+  deviceState?: Obj | null;
+  deviceAttempted?: boolean;
 }
 export interface FocusedHost { origin: string; environmentId: string; connection: string }
 
@@ -185,12 +189,14 @@ export class EnvironmentFleet {
     }
     if (status.generation !== entry.generation) {
       entry.generation = status.generation; entry.synchronized = -1; entry.lastEvent = 0; entry.subscriptions = {}; entry.terminalMetadata = null; entry.terminalAttempted = false;
+      entry.deviceState = null; entry.deviceAttempted = false;
       this.retries.delete(entry);
     }
     if (entry.phase !== 'connected') return;
     if (entry.synchronized !== entry.generation) await this.bootstrap(remote, entry);
     await this.drain(remote, entry);
     await this.watchTerminals(remote, entry);
+    await this.watchDevices(remote, entry);
     await liveFleetPass(request => this.call(remote, entry, request), entry); // live-streams.ts: scheduled tasks and clones
     await keepAliveFleetPass(request => this.call(remote, entry, request), entry); // keep-alive.ts: running threads' detail streams, the primary's lifecycle
     await fleetPortsPass(request => this.call(remote, entry, request), entry); // legacy-sidebar-ports.ts: the legacy rows' discovered ports
@@ -214,8 +220,11 @@ export class EnvironmentFleet {
 
   private async bootstrap(remote: Native, entry: FleetEntry): Promise<void> {
     const generation = entry.generation;
-    const auth = await this.call(remote, entry, { op: 'http', path: '/api/auth/session' });
-    entry.scopes = sessionPermissions(auth); entry.legacyPermissions = sessionHasLegacyPermissions(auth);
+    // The grants come in on their own (readSession files them under `session-state`: a first 6 s wait, then 12, 24, 48
+    // and 60 s on a timeout), as the reference's per-environment session atom reads them: the config and the shell do not
+    // wait. A new connection keeps the last grants until its own land (the atom's stale-while-revalidate), so a
+    // reconnect does not leave the environment read-only meanwhile.
+    entry.subscriptions[SESSION_STATE_KEY] = str((await this.call(remote, entry, { op: 'readSession' })).id);
     entry.config = await this.call(remote, entry, { op: 'request', method: 'server.getConfig', payload: {} });
     entry.subscriptions.config = str((await this.call(remote, entry, { op: 'subscribe', key: 'config', method: 'subscribeServerConfig', payload: { usageLimitSources: true } })).id); // hub sources, as the focused client asks
     entry.shell = applyShell(initialShell(), await this.call(remote, entry, { op: 'http', path: '/api/orchestration/shell' }));
@@ -230,6 +239,18 @@ export class EnvironmentFleet {
     try {
       entry.subscriptions['terminal-metadata'] = str((await this.call(remote, entry, { op: 'subscribe', key: 'terminal-metadata', method: 'subscribeTerminalMetadata', payload: {} })).id);
     } catch { entry.terminalAttempted = false; }
+  }
+
+  /**
+   * startAgentOpenedPreviews' watchEnvironmentDevices: every connected environment's device sessions, so a device an
+   * agent opens in one of its threads can float over that thread (device/floating-player.ts reads fleetDeviceStates).
+   */
+  private async watchDevices(remote: Native, entry: FleetEntry): Promise<void> {
+    if (!entry.scopes.includes('orchestration:read') || entry.deviceAttempted || entry.subscriptions['device-state']) return;
+    entry.deviceAttempted = true;
+    try {
+      entry.subscriptions['device-state'] = str((await this.call(remote, entry, { op: 'subscribe', key: 'device-state', method: 'subscribeDeviceState', payload: {} })).id);
+    } catch { entry.deviceAttempted = false; }
   }
 
   private async drain(remote: Native, entry: FleetEntry): Promise<void> {
@@ -251,6 +272,19 @@ export class EnvironmentFleet {
         if (num(event.generation, -1) === entry.generation && (codexHandoffEvent(event) || providerSetupEvent(fleetSetupHost(entry), event))) { this.revision++; continue; } // codex-handoff-events.ts, codex-fleet-host.ts
         const key = str(event.key), item = obj(event.value);
         if (num(event.generation, -1) !== entry.generation || str(event.subscriptionId) !== entry.subscriptions[key]) continue;
+        if (key === SESSION_STATE_KEY) {
+          // The session read's grants; a failed read grants nothing (sessionHasScope reads a failure as no scope).
+          const auth = item._replyError === undefined ? obj(item._reply) : {};
+          entry.scopes = sessionPermissions(auth); entry.legacyPermissions = sessionHasLegacyPermissions(auth); this.revision++;
+          continue;
+        }
+        if (key === 'device-state') {
+          // A failed stream keeps its last state; one due again subscribes on the next pass.
+          if (item._retryDue) { entry.subscriptions[key] = ''; entry.deviceAttempted = false; continue; }
+          if (item._transportError || item._streamEnded) continue;
+          if (Array.isArray(item.hosts)) { entry.deviceState = decodeDeviceState(item); this.revision++; }
+          continue;
+        }
         if (key === 'terminal-metadata') {
           // Keep terminal failures isolated from shell/config. Authorization waits for a new
           // generation; other failures wait for the transport's bounded retry notification.
@@ -357,6 +391,12 @@ export function fleetRunningTerminalIds(environmentId: string, threadId: string,
   const entry = [...source.entries.values()].find(candidate => candidate.environmentId === environmentId);
   if (!entry || entry.phase !== 'connected' || entry.synchronized !== entry.generation) return [];
   return (entry.terminalMetadata ?? []).filter(terminal => terminal.threadId === threadId && terminal.hasRunningSubprocess).map(terminal => terminal.terminalId);
+}
+
+/** Every connected background environment's device hub state, for the devices its agents open (device/floating-player.ts). */
+export function fleetDeviceStates(source: EnvironmentFleet = fleet): { environmentId: string; state: Obj }[] {
+  return [...source.entries.values()].flatMap(entry => entry.phase === 'connected' && entry.synchronized === entry.generation && entry.deviceState
+    ? [{ environmentId: entry.environmentId, state: entry.deviceState }] : []);
 }
 
 /** The app's one fleet: background environments outlive any single answer. */

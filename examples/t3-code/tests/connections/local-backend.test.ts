@@ -7,7 +7,7 @@ import { appPath } from '../support/app-files';
 describe('local backend status', () => {
   test('reads a ready server', () => {
     const status = parseLocalBackendStatus({ state: 'ready', port: 16437, httpBaseUrl: 'http://127.0.0.1:16437', wsBaseUrl: 'ws://127.0.0.1:16437',
-      bearerReady: true, restartAttempt: 0, nextRestartMs: null, lastExit: null, version: '0.1.2-nightly.20261021.3457', pid: 4242 });
+      bearerReady: true, restartAttempt: 0, nextRestartMs: null, lastExit: null, version: '0.1.4-nightly.20261027.3770', pid: 4242 });
     expect(status).toMatchObject({ state: 'ready', port: 16437, bearerReady: true, restartAttempt: 0, nextRestartMs: null, lastExit: '', pid: 4242, install: null });
   });
 
@@ -53,9 +53,9 @@ describe('desktop-settings.json (T3DesktopSettings.swift)', () => {
   test('the status carries the four keys; anything missing is the default', () => {
     expect(parseLocalBackendStatus({ desktopSettings: { localEnvironmentEnabled: false, serverExposureMode: 'network-accessible', tailscaleServeEnabled: true, tailscaleServePort: 8443, updateChannel: 'latest' } }).settings)
       .toEqual({ localEnvironmentEnabled: false, serverExposureMode: 'network-accessible', tailscaleServeEnabled: true, tailscaleServePort: 8443, updateChannel: 'latest' });
-    // No channel, or an unknown one: resolveDefaultDesktopUpdateChannel of this Nightly client's version.
-    expect(parseLocalBackendStatus({}).settings).toEqual({ localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443, updateChannel: 'nightly' });
-    expect(parseLocalBackendStatus({ desktopSettings: { updateChannel: 'beta' } }).settings.updateChannel).toBe('nightly');
+    // No channel, or an unknown one: desktopUpdateChannelOf this stable client's version.
+    expect(parseLocalBackendStatus({}).settings).toEqual({ localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443, updateChannel: 'latest' });
+    expect(parseLocalBackendStatus({ desktopSettings: { updateChannel: 'beta' } }).settings.updateChannel).toBe('latest');
     expect([defaultUpdateChannel('0.0.17-nightly.20260415.1'), defaultUpdateChannel('0.0.45'), defaultUpdateChannel('0.0.46-preview.20261004.1')]).toEqual(['nightly', 'latest', 'latest']);
   });
 });

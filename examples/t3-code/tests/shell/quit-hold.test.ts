@@ -324,7 +324,7 @@ describe('the window root takes ⌘Q ahead of the menu', () => {
   });
 });
 
-describe('the window takes rightPanel.close\'s ⌘W ahead of File › Close Window', () => {
+describe('the window takes ⌘W, which File › Close Window does not hold', () => {
   const window = contractComponent('src/shell/app-window.contract', 'T3Window');
   const latin = contractFns('src/shell/quit-hold.contract', ['QuitHoldState']).quitTypesLatin;
   const keys = contractFns('src/composer/composer-keys.contract');
@@ -340,14 +340,15 @@ describe('the window takes rightPanel.close\'s ⌘W ahead of File › Close Wind
     window.call('modifierDown', { focusEditable: false }, scope, [event(input).key, event(input)]);
     return calls;
   };
-  test('⌘W closes the active surface, a pull request or the panel, and keeps it from the menu', () => {
+  test('⌘W closes the active surface, a pull request or the panel', () => {
     expect(run('Meta+W', 'close-surface', { key: 'w' })).toEqual(['preventDefault', 'panel tab-close files']);
     expect(run('Meta+W', 'pr-close', { key: 'w' })).toEqual(['preventDefault', 'pr close']);
     expect(run('Meta+W', 'close-diff', { key: 'w' })).toEqual(['preventDefault', 'panel close ']);
   });
-  test('no open panel, a repeat, or another layout\'s letter on W\'s key leaves ⌘W to the menu', () => {
-    expect(run('', '', { key: 'w' })).toEqual([]);
-    expect(run('Meta+W', 'close-surface', { key: 'w', isAutoRepeat: true })).toEqual([]);
+  test('with nothing to close, or held, ⌘W closes nothing, and AppKit does not beep for it (#25860)', () => {
+    expect(run('', '', { key: 'w' })).toEqual(['preventDefault']);
+    expect(run('Meta+W', 'close-surface', { key: 'w', isAutoRepeat: true })).toEqual(['preventDefault']);
+    // Another layout's letter on W's key (AZERTY's Z) is not ⌘W.
     expect(run('Meta+W', 'close-surface', { key: 'z', code: 'KeyW' })).toEqual([]);
     // Korean 2-Set types ㅈ on W's key: its physical key is the chord's.
     expect(run('Meta+W', 'close-surface', { key: 'ㅈ', code: 'KeyW' })).toEqual(['preventDefault', 'panel tab-close files']);

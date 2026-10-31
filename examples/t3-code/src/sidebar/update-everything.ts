@@ -1,6 +1,7 @@
-// useUpdateEverything.ts and updateEverythingRun.tsx, T3 Code 9c161462c9 (MIT; see
+// useUpdateEverything.ts, updateEverythingRun.tsx and UpdateEverythingDialog.tsx, T3 Code 6d450a4284 (MIT; see
 // LICENSE-T3). Per-window state replaces React atoms; existing transport jobs keep
-// server updates alive across focus changes. This app has no desktop update feed.
+// server updates alive across focus changes. This app has no desktop update feed, so its target is the bundled
+// server's version and its release archives never count as published.
 import { obj, str } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
@@ -19,11 +20,12 @@ import { closeFinishedUpdateRun, collectRestartingMachines, collectServerUpdateT
   type UpdateEverythingMachine, type UpdateEverythingRun, type UpdateRunMachine } from './update-everything-logic';
 
 type Plan = ReturnType<typeof updateEverythingPlan>;
-type State = { now: number; dialog: Plan | null; run: UpdateEverythingRun | null; details: boolean };
+type State = { now: number; dialog: Plan | null; run: UpdateEverythingRun | null; details: boolean; skippedOpen: boolean };
+const APP_LABELS = { 'this-app': 'This app', server: 'Server', 'desktop-app': 'Desktop app' } as const;
 const states = new WeakMap<object, State>();
 export function updateEverythingState(client: object): State {
   let state = states.get(client);
-  if (!state) states.set(client, state = { now: 0, dialog: null, run: null, details: false });
+  if (!state) states.set(client, state = { now: 0, dialog: null, run: null, details: false, skippedOpen: false });
   return state;
 }
 export function updateEverythingMachines(client: T3Client): UpdateEverythingMachine[] {
@@ -35,21 +37,22 @@ export function updateEverythingMachines(client: T3Client): UpdateEverythingMach
   }));
 }
 export function updateEverythingPlan(client: T3Client, native: Native | null = null, published = false) {
-  const machines = updateEverythingMachines(client), collected = collectServerUpdateTargets(machines, CLIENT_VERSION);
-  const servers = collected.targets.filter(server => published || server.selfUpdate === 'desktop-managed');
+  const machines = updateEverythingMachines(client), collected = collectServerUpdateTargets(machines, CLIENT_VERSION, false);
+  const servers = published ? collected.targets : collected.targets.filter(server => !collected.waitForNpm.includes(server));
   const skipped = [...collected.skipped, ...collected.targets.filter(server => !servers.includes(server))
     .map(server => ({ environmentId: server.environmentId, label: server.serverLabel, reason: `t3@${CLIENT_VERSION} is not on npm yet` }))];
   const providers = providerUpdateMachines(updateTargets(client, native));
   return { servers, providers, skipped, restarts: collectRestartingMachines(machines, servers, false),
-    ...describeUpdateEverything({ localVersion: null, servers, providerMachines: providers.map(machine => ({
-      environmentId: machine.environmentId, label: machine.label, providers: machine.candidates.map(provider => providerDisplayName(str(provider.driver))),
-    })) }), hasUpdates: servers.length > 0 || providers.length > 0 };
+    ...describeUpdateEverything({ localVersion: null, localMachines: machines.filter(machine => machine.hostedByThisApp), servers, skipped,
+      providerMachines: providers.map(machine => ({
+        environmentId: machine.environmentId, label: machine.label, providers: machine.candidates.map(provider => providerDisplayName(str(provider.driver))),
+      })) }), hasUpdates: servers.length > 0 || providers.length > 0 };
 }
 const notify = (native: Native) => { void native.later({ op: 'sidebarNotify' }).catch(() => {}); };
 /** Probes only when a remote npm-managed server is behind; the app remains usable while npm responds. */
 export function updateEverythingPass(client: T3Client, native: Native, now: number): void {
   updateEverythingState(client).now = now;
-  if (collectServerUpdateTargets(updateEverythingMachines(client), CLIENT_VERSION).targets.some(server => server.selfUpdate !== 'desktop-managed')) {
+  if (collectServerUpdateTargets(updateEverythingMachines(client), CLIENT_VERSION, false).waitForNpm.length > 0) {
     releasePublished(CLIENT_VERSION, now, () => notify(native));
   }
 }
@@ -121,22 +124,10 @@ export function updateEverythingView(client: T3Client, now: number) {
   const published = cachedReleasePublished(CLIENT_VERSION), plan = state.dialog ?? updateEverythingPlan(client, null, published);
   const views = state.run?.machines.map(machine => ({ machine, status: resolveUpdateRunMachineStatus(machine, state.run!.phase, machineState(client, machine)) })) ?? [];
   const capsule = state.run ? describeUpdateCapsule(state.run, views, null, now) : null;
-  const sources = environmentSources(client, fleet.saved, fleet.entries);
-  let stopped = 0, continuing = 0;
-  for (const restart of plan.restarts) {
-    const source = sources.find(source => source.environmentId === restart.environmentId);
-    const threads = source?.focused ? client.shell.threads : fleet.entries.get(source?.key ?? '')?.shell.threads ?? [];
-    const running = threads.filter(thread => ['preparing', 'starting', 'running'].includes(str(thread.status))).length;
-    if (restart.continuesThreads) continuing += running; else stopped += running;
-  }
-  const running = stopped + continuing, threads = `${running} running ${running === 1 ? 'thread' : 'threads'}`;
-  const warning = !running ? '' : stopped === 0 ? `${threads} will be interrupted and can resume after the restart.`
-    : continuing === 0 ? `${threads} will be interrupted.` : `${threads} will be interrupted. ${continuing} can resume after the restart.`;
   return { available: plan.hasUpdates, running: state.run !== null, details: state.details,
     label: capsule?.label ?? 'Update', tone: capsule?.tone ?? 'default', elapsed: capsule?.slow?.elapsed ?? '',
     action: capsule?.action ?? '', confirm: state.dialog !== null, title: `${plan.summary}?`,
-    body: [...plan.lines, warning, ...plan.skipped.map(machine => `Skips ${machine.label}: ${machine.reason}`)].filter(Boolean).join('\n'),
-    summary: plan.summary, ticking: views.some(view => !['done', 'failed', 'waiting'].includes(view.status)),
+    body: '', summary: plan.summary, ticking: views.some(view => !['done', 'failed', 'waiting'].includes(view.status)),
     machines: views.map(({ machine, status }) => ({ id: machine.environmentId, label: machine.label, status: RUN_STATUS_LABELS[status], failure: machine.failure ?? '',
       elapsed: ['done', 'failed', 'waiting'].includes(status) ? '' : formatUpdateElapsed(now - machine.startedAt), failed: status === 'failed' })),
   };
@@ -147,8 +138,9 @@ export async function updateEverythingOp(client: T3Client, op: string, native: N
   const state = updateEverythingState(client), deps = nativeRunDeps(client, native);
   if (now > 0) state.now = now;
   if (op === 'ue:open' && !state.run) {
-    const plan = updateEverythingPlan(client, native, cachedReleasePublished(CLIENT_VERSION)); if (plan.hasUpdates) state.dialog = plan;
+    const plan = updateEverythingPlan(client, native, cachedReleasePublished(CLIENT_VERSION)); if (plan.hasUpdates) { state.dialog = plan; state.skippedOpen = false; }
   } else if (op === 'ue:cancel') state.dialog = null;
+  else if (op === 'ue:skipped') state.skippedOpen = !state.skippedOpen;
   else if (op === 'ue:confirm' && state.dialog && !state.run) {
     const plan = state.dialog; state.dialog = null;
     void runEverything(state, plan, deps).catch(error => { state.run = null; pushToast(client, { kind: 'error', title: 'Update failed', description: String(error), stacked: true }); notify(native); });
@@ -156,4 +148,34 @@ export async function updateEverythingOp(client: T3Client, op: string, native: N
   else if (op === 'ue:retry') retryEverythingServers(state, deps);
   else if (op === 'ue:dismiss' && state.run) state.run = closeFinishedUpdateRun({ ...state.run, machines: state.run.machines.filter(machine => machine.result === null) });
   return true;
+}
+
+/** UpdateEverythingDialog: one row per machine that updates, the skipped ones behind a disclosure, and the running threads a restart interrupts. */
+export function updateEverythingDialog(client: T3Client) {
+  const state = updateEverythingState(client), plan = state.dialog;
+  if (!plan) return { open: false, title: '', version: '', providers: '', rows: [], skippedRows: [], skippedOpen: false, warning: '' };
+  const sources = environmentSources(client, fleet.saved, fleet.entries);
+  const runningOn = (environmentId: string) => {
+    const source = sources.find(source => source.environmentId === environmentId);
+    const threads = source?.focused ? client.shell.threads : fleet.entries.get(source?.key ?? '')?.shell.threads ?? [];
+    return threads.filter(thread => ['preparing', 'starting', 'running'].includes(str(thread.status))).length;
+  };
+  let stopped = 0, continuing = 0;
+  for (const restart of plan.restarts) {
+    const running = runningOn(restart.environmentId);
+    if (restart.continuesThreads) continuing += running; else stopped += running;
+  }
+  const running = stopped + continuing, threads = `${running} running ${running === 1 ? 'thread' : 'threads'}`;
+  const warning = !running ? '' : stopped === 0 ? `${threads} will be interrupted and can resume after the restart.`
+    : continuing === 0 ? `${threads} will be interrupted.` : `${threads} will be interrupted. ${continuing} can resume after the restart.`;
+  const updating = plan.rows.filter(row => row.app !== null || row.providers.length > 0), skipped = plan.rows.filter(row => row.skipped !== null);
+  const restarting = new Set(plan.restarts.map(machine => machine.environmentId));
+  return { open: true, title: `Update ${updating.length} ${updating.length === 1 ? 'machine' : 'machines'}?`,
+    // "T3 Code <version> · N provider updates"; the version is drawn in the monospace face.
+    version: plan.version ?? '', providers: plan.providerCount > 0 ? `${plan.providerCount} provider ${plan.providerCount === 1 ? 'update' : 'updates'}` : '',
+    rows: updating.map(row => ({ id: row.environmentId ?? 'this-app', label: row.label, app: row.app === null ? '' : APP_LABELS[row.app],
+      skipped: row.app === null && row.skipped !== null, restartsLast: row.app === 'this-app', providers: row.providers.join(', '),
+      running: row.environmentId !== null && restarting.has(row.environmentId) && runningOn(row.environmentId) > 0 ? `${runningOn(row.environmentId)} running` : '' })),
+    skippedRows: skipped.map(row => ({ id: row.environmentId ?? 'this-app', label: row.label, reason: row.skipped ?? '' })),
+    skippedOpen: state.skippedOpen, warning };
 }

@@ -62,7 +62,7 @@ describe('the EAS hosts row and editor', () => {
       restAccess: () => ({ request: async (method: string, payload: Obj) => {
         requests.push([method, payload]);
         if (replies[method]) return replies[method]!(payload);
-        if (method === 'server.getSettings') return settings;
+        if (method === 'server.getConfig') return { settings };
         if (method === 'server.updateSettings') return { ...settings, ...(payload.patch as Obj) };
         return {};
       } }) } as unknown as T3Client;
@@ -78,6 +78,14 @@ describe('the EAS hosts row and editor', () => {
     expect(easHostsView(client, settings, { supportsEasHosts: true }, true, true, true).disabled).toBe(true);
     expect(easHostsView(client, settings, { supportsEasHosts: true }, false, false, true).disabled).toBe(true);
     expect(easHostsView(client, settings, { supportsEasHosts: true }, false, true, false).disabled).toBe(true);
+  });
+
+  test('a host saved while the save ran draws its Edit and Remove at disabled:opacity-64, then at 1 once it ends', () => {
+    const row = contractComponent('src/device/settings-eas-hosts.contract', 'EasDeviceHostsRow');
+    const button = contractComponent('src/device/settings-eas-hosts.contract', 'EasGhostButton');
+    const opacity = (label: string, busy: boolean) => button.attribute('button id=buttonId', 'opacity', { over: false },
+      { destructive: label === 'Remove', disabled: row.attribute(`EasGhostButton(label="${label}"`, 'disabled', {}, { busy, view: { disabled: false } }) });
+    expect([opacity('Edit', true), opacity('Remove', true), opacity('Edit', false), opacity('Remove', false)]).toEqual([0.64, 0.64, 1, 1]);
   });
 
   test('Add opens a new host with the defaults and checks the account; a token edit or a later check makes an answer stale', async () => {

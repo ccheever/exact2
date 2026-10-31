@@ -24,18 +24,25 @@ describe('app.contract', () => {
 
   test('every answer that may wait on a server reply has the tick publish the table as it starts and ends; nothing polls', () => {
     // The platform's facts, the Rust Markdown renderer, the highlight pump and the transport's own sources ask no server.
-    const exempt = new Set(['promptLinkPage', 'promptLinksReady', 'wallTime', 'viewport', 'page', 'delivery', 'markdown', 'questionMarkdown', 'traceMarkdown', 'prMarkdown', 'filesMarkdown', 'highlightSliced', 'transportInbox', 'transportPumped', 'serverBrowserLive', 'serverBrowserMiniLive', 'serverBrowserChanged', 'serverBrowserMaintained', 'serverBrowserMiniMaintained']);
+    const exempt = new Set(['promptLinkPage', 'promptLinksReady', 'wallTime', 'viewport', 'page', 'delivery', 'notificationPermission', 'markdown', 'questionMarkdown', 'traceMarkdown', 'prMarkdown', 'filesMarkdown', 'highlightAsked', 'highlightCoded', 'highlightStored', 'transportInbox', 'transportPumped', 'serverBrowserLive', 'serverBrowserMiniLive', 'serverBrowserChanged', 'serverBrowserMaintained', 'serverBrowserMiniMaintained']);
     // Shared field delivery can wait on an app edit, never a server reply;
     // source projection, intent and accepted-input ACKs are local too.
     // A pull request surface's remembered tab (prTabSaved) is the panel model's, as local as these.
     // The window's last interaction is noted in the module (app.ts), as local as these.
-    for (const name of ['composerFieldNext', 'richComposer', 'richPromptPreview', 'composerEdited', 'composerFieldChanged', 'composerFieldAck', 'chipObserved', 'chipPressed', 'prTabSaved', 'interactionNoted', 'interactionResumed']) exempt.add(name);
+    // The model picker's shortcut announcements (pickerAnnounced) are a `cclocal:` op the module answers itself.
+    for (const name of ['composerFieldNext', 'richComposer', 'richPromptPreview', 'composerEdited', 'composerFieldChanged', 'composerFieldAck', 'chipObserved', 'chipPressed', 'prTabSaved', 'interactionNoted', 'interactionResumed', 'pickerAnnounced']) exempt.add(name);
     // A Browser frame's package calls, which the root names but data code makes (app.contract frameCommand), ask no server.
     for (const name of ['siteCleared', 'promptAnswered']) exempt.add(name);
+    // A draft image's upload is a stream over HTTP that no socket reply ends (composer-uploads.ts).
+    for (let slot = 0; slot < 6; slot++) exempt.add(`composerUpload${slot}`);
     expect(contract).toMatch(/task transportAnswered key=transportAnswering\n    after\(1, transportPump\)/);
     expect(contract).toMatch(/task transportRepublish when transportInbox\.table > transportTable\.rev key=transportInbox\.table\n    after\(1, transportPump\)/);
     expect(contract).not.toMatch(/every\(16, transportPump\)/);
-    const waiting = new Set([...(/derive transportAnswering = (.*)/.exec(contract)?.[1] ?? '').matchAll(/pending\(([A-Za-z0-9]+)\)/g)].map(match => match[1]!));
+    // An area may tell the tick about its own answers in a task of its own, keyed on their pending
+    // (app.contract composerUploadsAnswered).
+    const own = [...contract.matchAll(/task [A-Za-z0-9]+ key=`((?:\$\{pending\([A-Za-z0-9]+\)\})+)`\n    after\(1, transportPump\)/g)].map(match => match[1]!);
+    expect(own.length).toBeGreaterThan(0);
+    const waiting = new Set([/derive transportAnswering = (.*)/.exec(contract)?.[1] ?? '', ...own].flatMap(key => [...key.matchAll(/pending\(([A-Za-z0-9]+)\)/g)].map(match => match[1]!)));
     const answers = [...declared('resource'), ...declared('mutation')].filter(name => !exempt.has(name) && !/^transport(Connect|Socket|UpdateStep|UpdateSocket)\d$/.test(name));
     expect(answers.filter(name => !waiting.has(name))).toEqual([]);
     expect([...waiting].filter(name => !answers.includes(name))).toEqual([]);

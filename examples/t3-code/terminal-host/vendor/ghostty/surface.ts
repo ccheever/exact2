@@ -1,7 +1,9 @@
 // Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.ts),
 // with 9c161462c9's history keys (Shift+PageUp/PageDown, Cmd+Shift+Home/End), `selectAll`, the PTY
-// resize on a pointer release and the selection autoscroll at the window edge, and 74541bab17's
-// synchronized output, Kitty releases for encoded presses only and the single paste per shortcut.
+// resize on a pointer release and the selection autoscroll at the window edge, 74541bab17's
+// synchronized output, Kitty releases for encoded presses only and the single paste per shortcut, and
+// 7c3b3b3605ef's autoscroll that speeds up the farther the pointer is past the edge, and 6d450a4284's shared PTY
+// grid (`setSharedGrid`).
 // 9c161462c9's touch scrolling, link gating (`canActivateLink`, `resendSize`) and shared resize observer
 // are not here.
 // This part holds `GhosttyTerminalSurface`: its creation, public API and DOM event handlers.
@@ -38,6 +40,7 @@ import {
   isTerminalPasteShortcut,
   primeTerminalCopyInput,
   shouldReportTerminalMouse,
+  terminalSelectionAutoscrollRows,
   terminalWheelArrowData,
   terminalWheelDeltaRows,
   TERMINAL_LINK_DRAG_THRESHOLD_PX,
@@ -75,6 +78,7 @@ export {
   resolveTerminalMouseData,
   resolveTerminalMouseTrackingState,
   shouldReportTerminalMouse,
+  terminalSelectionAutoscrollRows,
   terminalWheelArrowData,
   terminalWheelDeltaRows,
   type TerminalSelectionClickSequence,
@@ -336,19 +340,45 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     this.mountHeight = height;
     // onResize is the only PTY resize channel, so the first successful fit must
     // notify even when the measured grid equals the 1x1 construction sentinel.
-    if (grid.cols !== this.cols || grid.rows !== this.rows || !this.resizeNotified) {
-      this.cols = grid.cols;
-      this.rows = grid.rows;
-      this.core.resize(grid.cols, grid.rows, this.metrics.width, this.metrics.height);
+    if (
+      grid.cols !== this.measuredCols ||
+      grid.rows !== this.measuredRows ||
+      !this.resizeNotified
+    ) {
+      this.measuredCols = grid.cols;
+      this.measuredRows = grid.rows;
       this.notifyResize();
-      this.forceFullRender = true;
-      this.scrollbarDirty = true;
-      shouldRender = true;
     }
+    if (this.applyGrid()) shouldRender = true;
     // Rendering synchronously keeps the repaint inside the same frame as the
     // layout change: ResizeObserver fires before paint, so the browser never
     // composites the old backing store stretched into the new element box.
     if (shouldRender || this.forceFullRender) this.renderFrame();
+    return true;
+  }
+
+  /**
+   * Other clients can share this PTY, so the server owns its grid. Drawing that grid
+   * keeps wrapping and cursor positions in step with the PTY. Each axis is clamped to
+   * this surface's own fit: the server's grid lags a local resize, and read-only
+   * observers never constrain it.
+   */
+  setSharedGrid(grid: { readonly cols: number; readonly rows: number } | null): void {
+    if (this.disposed) return;
+    if (this.sharedGrid?.cols === grid?.cols && this.sharedGrid?.rows === grid?.rows) return;
+    this.sharedGrid = grid;
+    if (this.hasSize && this.applyGrid()) this.requestRender();
+  }
+
+  private applyGrid(): boolean {
+    const cols = Math.min(this.sharedGrid?.cols ?? this.measuredCols, this.measuredCols);
+    const rows = Math.min(this.sharedGrid?.rows ?? this.measuredRows, this.measuredRows);
+    if (cols === this.cols && rows === this.rows) return false;
+    this.cols = cols;
+    this.rows = rows;
+    this.core.resize(cols, rows, this.metrics.width, this.metrics.height);
+    this.forceFullRender = true;
+    this.scrollbarDirty = true;
     return true;
   }
 
@@ -362,7 +392,7 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     if (this.resizeNotifyTimer !== null) window.clearTimeout(this.resizeNotifyTimer);
     this.resizeNotifyTimer = window.setTimeout(() => {
       this.resizeNotifyTimer = null;
-      if (!this.disposed) this.options.onResize(this.cols, this.rows);
+      if (!this.disposed) this.options.onResize(this.measuredCols, this.measuredRows);
     }, 150);
   }
 
@@ -379,7 +409,7 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     if (this.resizeNotifyTimer === null) return;
     window.clearTimeout(this.resizeNotifyTimer);
     this.resizeNotifyTimer = null;
-    this.options.onResize(this.cols, this.rows);
+    this.options.onResize(this.measuredCols, this.measuredRows);
   };
 
   focus(): void {
@@ -518,7 +548,7 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
       this.resizeNotifyTimer = null;
       // Flush the settled dimensions so the PTY keeps the final size even when
       // the surface unmounts inside the debounce window.
-      this.options.onResize(this.cols, this.rows);
+      this.options.onResize(this.measuredCols, this.measuredRows);
     }
     this.cancelRender();
     if (this.compositionSuppressionTimer !== null) {
@@ -911,7 +941,7 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     const bounds = this.canvas.getBoundingClientRect();
     const top = Math.max(bounds.top, 0) + CONTENT_PADDING;
     const bottom = Math.min(bounds.bottom, window.innerHeight) - CONTENT_PADDING;
-    this.setSelectionAutoscroll(event.clientY < top ? -1 : event.clientY > bottom ? 1 : 0);
+    this.setSelectionAutoscroll(terminalSelectionAutoscrollRows(event.clientY, top, bottom));
     const cell = this.cellAt(event.clientX, event.clientY);
     if (cell.x === this.selectionEnd?.x && cell.y === this.selectionEnd.y) return;
     this.extendSelectionTo(event.clientX, event.clientY);

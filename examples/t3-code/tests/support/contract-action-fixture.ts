@@ -4,10 +4,10 @@
 // (LLP 1116.003 D6) finds an action reading a slot its start branch has just reset; sidebar-sweep.test.ts and
 // queued-drag.test.ts run the bodies that had it. Statements: `let`, a slot write, `if` / `else if` / `else`,
 // `refresh <resource>` (the scope's `refresh(name)`), and a call (an action prop such as ThreadSection's `hoverCard`, an
-// injected action, a host command such as `preventDefault()`, a mutation's `send`, whose command the scope records),
-// made with the reads as they stand at its line. `drawn` says whether a view line is drawn: the `if` / `else if` /
-// `else` arms around it hold (legacy-sidebar-full.test.ts runs the legacy rows' hover and focus through it, as the host
-// delivers them).
+// injected action, a host command such as `preventDefault()`, a mutation's `send`, whose command the scope records and
+// whose mutation a `sent(mutation, command)` in the scope is told), made with the reads as they stand at its line.
+// `drawn` says whether a view line is drawn: the `if` / `else if` / `else` arms around it hold (legacy-sidebar-full.test.ts
+// runs the legacy rows' hover and focus through it, as the host delivers them).
 import { readFileSync } from 'node:fs';
 import { appPath, appText } from './app-files';
 
@@ -132,8 +132,10 @@ function run(nodes: Node[], outer: Env, slots: Set<string>, writes: Env, owner: 
     } else if ((m = /^let (\w+) = (.+)$/.exec(line))) {
       if (m[1]! in env) throw new Error(`a local cannot shadow ${m[1]}`);
       env[m[1]!] = value(m[2]!, env);
-    } else if ((m = /^send \w+ = (.+)$/.exec(line))) {
-      value(m[1]!, env); // a mutation's send: its command, a call the scope records
+    } else if ((m = /^send (\w+) = (.+)$/.exec(line))) {
+      // A mutation's send: its command, a call the scope records, and the mutation it goes on, told to the scope's `sent`.
+      const command = value(m[2]!, env);
+      if (typeof env.sent === 'function') env.sent(m[1]!, command);
     } else if ((m = /^refresh (\w+)$/.exec(line))) {
       if (typeof env.refresh !== 'function') throw new Error(`refresh ${m[1]} needs a refresh(name) in the scope`);
       env.refresh(m[1]!);
@@ -165,7 +167,8 @@ function uncommented(line: string): string {
 /** `component name` of `file`: its assembled state, actions and derives. */
 export function contractComponent(file: string, name: string) {
   const source = appText(file).split('\n');
-  const from = source.indexOf(`component ${name}`);
+  // A component, or a members file of one (`members T3Code`), whose members read as the component's.
+  const from = source.includes(`component ${name}`) ? source.indexOf(`component ${name}`) : source.indexOf(`members ${name}`);
   if (from < 0) throw new Error(`${file}: no component ${name}`);
   const to = source.findIndex((line, i) => i > from && line.startsWith('component '));
   const lines = source.slice(from, to < 0 ? undefined : to);
@@ -195,6 +198,13 @@ export function contractComponent(file: string, name: string) {
     return { params, body: tree(0, 4)[0] };
   };
 
+  /** The first line of the view containing `marker`. */
+  const viewLine = (marker: string): string => {
+    const line = lines.slice(lines.indexOf('  view') + 1).find(entry => entry.includes(marker));
+    if (!line) throw new Error(`${file}: no view line of ${name} has ${marker}`);
+    return line;
+  };
+
   const derives = (state: Env, scope: Env): Env => {
     const env: Env = { ...scope, ...state }, out: Env = {};
     for (const line of lines) {
@@ -214,11 +224,27 @@ export function contractComponent(file: string, name: string) {
       }
       return state;
     },
-    /** Runs `action` over `state` with `scope` (props, helpers) and `args`; its writes land on `state` as it ends. */
+    /**
+     * Runs `action` over `state` with `scope` (props, helpers) and `args`; its writes land on `state` as it ends. It reads
+     * the derives as the starting state gives them. An action of the component it calls runs in the same commit: it reads
+     * the starting state too, and its writes land with these. A function of the same name in `scope` stands in for it.
+     */
     call(actionName: string, state: Env, scope: Env, args: unknown[]) {
-      const { params, body } = action(actionName);
-      const writes: Env = {};
-      run(body, { ...scope, ...state, ...Object.fromEntries(params.map((p, i) => [p, args[i]])) }, new Set(Object.keys(state)), writes, name);
+      const writes: Env = {}, slots = new Set(Object.keys(state));
+      const own: Env = {};
+      // Each derive the scope can give (a test's scope may leave out what an unrelated derive reads).
+      const derived: Env = {}, env: Env = { ...scope, ...state };
+      for (const line of lines) {
+        const m = /^  derive (\w+) = (.+)$/.exec(line);
+        if (!m) continue;
+        try { env[m[1]!] = derived[m[1]!] = value(m[2]!, env); } catch { /* left unread */ }
+      }
+      const invoke = (target: string, values: unknown[]) => {
+        const { params, body } = action(target);
+        run(body, { ...own, ...derived, ...scope, ...state, ...Object.fromEntries(params.map((p, i) => [p, values[i]])) }, slots, writes, name);
+      };
+      for (const line of lines) { const m = /^  action (\w+)/.exec(line); if (m && !(m[1]! in scope)) own[m[1]!] = (...values: unknown[]) => invoke(m[1]!, values); }
+      invoke(actionName, args);
       Object.assign(state, writes);
     },
     /**
@@ -250,6 +276,33 @@ export function contractComponent(file: string, name: string) {
     },
     /** Every `derive x = …` in declaration order, each seeing the state, `scope` and the derives before it. */
     derives,
+    /**
+     * The value of attribute `attr` on the first view line containing `marker` (`attr=(…)`, a call `attr=name(…)`, a
+     * quoted or backquoted string, or one token), read over `state`, `scope` and the derives.
+     */
+    attribute(marker: string, attr: string, state: Env, scope: Env): unknown {
+      const line = viewLine(marker), at = line.indexOf(` ${attr}=`);
+      if (at < 0) throw new Error(`${file}: the line of ${name} with ${marker} has no ${attr}`);
+      const start = at + attr.length + 2, call = /^\w+\(/.exec(line.slice(start))?.[0].length ?? 0, open = call ? '(' : line[start];
+      let end = start + Math.max(0, call - 1);
+      if (open === '(') {
+        for (let depth = 0; end < line.length; end++) {
+          const c = line[end]!;
+          if (c === '"' || c === '`') { end = line.indexOf(c, end + 1); continue; }
+          if (c === '(') depth++;
+          if (c === ')' && --depth === 0) break;
+        }
+        end++;
+      } else if (open === '"' || open === '`') end = line.indexOf(open, start + 1) + 1;
+      else end = start + /^\S+/.exec(line.slice(start))![0].length;
+      return value(line.slice(start, end), { ...scope, ...state, ...derives(state, scope) });
+    },
+    /** The named arguments of the component call that opens the first view line containing `marker` (`Tip(label=…)`). */
+    callArguments(marker: string, state: Env, scope: Env): Env {
+      const line = viewLine(marker).trim(), callee = /^(\w+)\(/.exec(line)?.[1];
+      if (!callee) throw new Error(`${file}: the line of ${name} with ${marker} is no component call`);
+      return value(line, { ...scope, ...state, ...derives(state, scope), [callee]: (args: Env) => args }) as Env;
+    },
   };
 }
 

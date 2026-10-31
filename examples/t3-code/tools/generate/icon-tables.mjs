@@ -16,7 +16,9 @@ const DRAWN = {
   cursor: 'M12 2.5l8.5 4.9v9.2L12 21.5l-8.5-4.9V7.4ZM3.5 7.4 12 12l8.5-4.6M12 12v9.5',
   'folder-git-2': 'M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v5M11 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M18 19c-2.8 0-5-2.2-5-5v8M18 19a2 2 0 1 0 4 0a2 2 0 1 0 -4 0',
   'git-branch': 'M6 3L6 15M15 6a3 3 0 1 0 6 0a3 3 0 1 0 -6 0M3 18a3 3 0 1 0 6 0a3 3 0 1 0 -6 0M18 9a9 9 0 0 1-9 9',
-  'mac-mini': 'M4 8h16a2 2 0 0 1 2 2v4a2 2 0 0 1 -2 2h-16a2 2 0 0 1 -2 -2v-4a2 2 0 0 1 2 -2ZM6 12h.01',
+  // EnvironmentMachineIcon's MacMiniIcon: an 18x12 body (rx 2.5) and a filled dot of radius 1, the dot drawn as a
+  // radius-0.125 circle the 1.75 stroke fills out.
+  'mac-mini': 'M5.5 6h13a2.5 2.5 0 0 1 2.5 2.5v7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 15.5v-7A2.5 2.5 0 0 1 5.5 6ZM7.5 11.875a.125.125 0 1 1 0 .25a.125.125 0 1 1 0-.25',
   'mac-studio': 'M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10a2 2 0 0 1 2 -2ZM7 15h.01M11 15h.01M15 15h.01',
   // Its circle (an arc from (9, 9) to 0.01 above it) is centred on (11, 9); Lucide's image centres it on (9, 9).
   image: 'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM9 9a2 2 0 1 0 0-.01M21 15l-3.086-3.086a2 2 0 0 0-2.828 0L6 21',
@@ -76,13 +78,14 @@ export const TIMELINE_ICON = [
   'download', 'quote', 'message-square', 'triangle-alert', ['list-collapse', 'list-chevrons-down-up'],
   ['device', 'smartphone'], 'loader-circle', 'minus', 'circle', 'chevron-down', 'chevron-right', 'code',
   'workflow', 'external-link', 'arrow-up-right', 'arrow-right', 'alarm-clock', 'circle-check', 'shield-check',
+  'calendar-clock', 'circle-stop', 'list-todo', 'pause', 'play', 'circle-alert', 'terminal', 'shield',
 ];
 
 /** panel-icons.contract PanelIcon: the right panel's surfaces. */
 export const PANEL_ICON = [
   'earth', 'chevrons-up-down', 'chevrons-down-up', 'wrap-text', 'folder-tree', ['code', 'code-xml'],
   ['table', 'table-2'], 'eye', 'eye-off', 'ellipsis', 'arrow-up-right', 'link', 'link-2', 'unlink-2', 'plus',
-  'refresh-cw', 'loader', 'smartphone', 'check', 'circle-alert', 'layers', 'x', 'arrow-left',
+  'refresh-cw', 'loader', 'smartphone', 'check', 'circle-alert', 'layers', 'x', 'arrow-left', 'minus', 'scan', 'maximize',
 ];
 
 /** provider-icons.contract PvIcon: the Providers and Connections settings routes. */
@@ -108,12 +111,12 @@ export const SETTINGS_ICONS = [
   'trash-2', 'triangle-alert', 'undo-2', 'x', 'ellipsis', 'circle-x', 'laptop', 'cloud',
 ];
 
-/** diff-glyphs.contract DiffGlyph's 24-grid glyphs: the panel's controls, DiffFileStatus (RotateCw, Info),
+/** diff-glyphs.contract DiffGlyph's 24-grid glyphs: the panel's controls (Hide test files: FlaskConicalOff), DiffFileStatus (RotateCw, Info),
  *  the gutter's "+", DiffCommentAnnotation (MessageCircle, Trash2) and Cite (Quote). A glyph's rects keep
  *  their own elements and its other elements join into one path, but for those `apart` names (by index). */
 export const DIFF_GLYPHS = [
   ['file-diff', 'file-diff', { apart: [0] }], ['stacked', 'rows-3'], ['split', 'columns-2'], 'panel-right',
   ['fold', 'chevrons-down-up'], ['unfold', 'chevrons-up-down'], ['wrap', 'text-wrap'], 'pilcrow',
-  ['tree', 'folder-tree', { apart: [0, 1] }], 'copy', ['refresh', 'refresh-cw'], 'rotate-cw', 'info', 'plus', own('trash'),
+  ['tree', 'folder-tree', { apart: [0, 1] }], ['hide-tests', 'flask-conical-off'], 'copy', ['refresh', 'refresh-cw'], 'rotate-cw', 'info', 'plus', own('trash'),
   own('message-circle'), 'quote',
 ];

@@ -18,6 +18,7 @@ import { SIDEBAR_DISCOVERED_SERVERS_KEY, discoveredServersEvent } from '../../sr
 import { draftContext } from '../../src/composer/composer-controls-branch';
 import { draftFiles } from '../../src/composer/composer-editor-files';
 import { browserHistory } from '../../src/browser/browser-history';
+import { threadHistoryProjectKey } from '../../src/browser/browser-history-record';
 import { legacyGroups, legacySession, legacySidebarSnapshot } from '../../src/sidebar/legacy-sidebar-view';
 import { fleetPortsEvent, fleetPortsPass, openPendingPort, portLabels, rowPorts, watchRowPorts } from '../../src/sidebar/legacy-sidebar-ports';
 import { clearRowDrops, queueRowDrop, rowDropKeys, takeRowDrops } from '../../src/sidebar/legacy-sidebar-drop';
@@ -197,9 +198,10 @@ describe('the discovered-port button (useThreadDiscoveredPorts, openDiscoveredPo
     expect(opened).toEqual(['thread-2']);
     expect(rpcs.find(call => call.method === 'preview.open')?.payload).toMatchObject({ threadId: 'thread-2', url: 'http://localhost:5173/' });
     expect(surfaceStore(client).panels.get('local:thread-2')).toMatchObject({ visible: true, active: 'browser:tab-1' });
-    // recordVisitForThread: a thread with no registered project keeps the visit pending (browser-history.ts), as the reference does.
-    const pending = (browserHistory(client.local) as unknown as { state: { pendingVisitsByThreadKey: Record<string, { url: string }[]> } }).state.pendingVisitsByThreadKey['local:thread-2'];
-    expect(pending?.map(visit => visit.url)).toEqual(['http://localhost:5173/']);
+    // recordVisit registers the thread under its project first, so the visit lands in that project's history
+    // (browser-history-record.ts), as the reference's browser records it.
+    const projectKey = threadHistoryProjectKey(client, { environmentId: 'local', threadId: 'thread-2' });
+    expect(browserHistory(client.local).projectHistory(projectKey, 5).map(entry => entry.url)).toEqual(['http://localhost:5173/']);
   });
   test('a preview that cannot open says so', async () => {
     const { client, native } = rig({ failOpen: true, threadId: 'thread-2' });
@@ -341,15 +343,15 @@ describe('files dropped on a row (consumePendingFileDrop, addDroppedFiles)', () 
   test('once the dropped-on thread is open, its queued files join its composer: images to the shelf, files as chips', async () => {
     const { client, native, ops } = rig({ threadId: 'thread-2', editorApplies: true });
     observeComposer(client, '');
-    memoryFiles({ 'doc:/1/notes.txt': text('notes'), 'doc:/2/shot.png': png(4, 3), 'doc:/3/raw.tiff': text('II*') });
+    memoryFiles({ 'doc:/1/notes.txt': text('notes'), 'doc:/2/shot.png': png(4, 3), 'doc:/3/layers.psd': text('8BPS') });
     await dropOn(client, 'fleet:local:thread-9', ['doc:/1/notes.txt']);
-    await dropOn(client, 'fleet:local:thread-2', ['doc:/1/notes.txt', 'doc:/2/shot.png', 'doc:/3/raw.tiff']);
+    await dropOn(client, 'fleet:local:thread-2', ['doc:/1/notes.txt', 'doc:/2/shot.png', 'doc:/3/layers.psd']);
     expect(await takeRowDrops(client, native)).toBe(true);
     expect(draftFiles(client.local).map(file => [file.name, file.draftKey])).toEqual([['notes.txt', 'local:thread-2']]);
     expect(client.local.snapshotDrafts['local:thread-2']?.map(image => image.name)).toEqual(['shot.png']);
     expect(opsOf(ops, 'editorInsert')[0]).toMatchObject({ owner: client.snapshotOwner });
     expect(client.local.drafts['local:thread-2']).toContain('notes.txt');
-    expect(client.error).toBe("'raw.tiff' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
+    expect(client.error).toBe("'layers.psd' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
     expect(rowDropKeys(client)).toEqual(['fleet:local:thread-9']);
   });
   test('a pending question that takes no attachments refuses a row drop, as any attachment (addDroppedFiles)', async () => {

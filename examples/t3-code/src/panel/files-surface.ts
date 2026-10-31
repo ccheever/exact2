@@ -2,7 +2,7 @@ import { invalidateFileMetadata } from '../shared/file-metadata';
 // The Files surface (MIT reference, see LICENSE-T3:
 // components/files/FilePreviewPanel.tsx, FileBrowserPanel.tsx, useDirectoryEntries.ts,
 // FileBreadcrumbs.tsx, fileSaveCoordinator.ts, filePreviewMode.ts and @pierre/trees'
-// compact tree; T3 Code 74541bab17): the workspace tree over `projects.listEntries` (one folder
+// compact tree; T3 Code 7c3b3b3605ef): the workspace tree over `projects.listEntries` (one folder
 // at a time, collapsed folders keep their children), path search over `projects.searchEntries`,
 // the preview over `projects.readFile` with syntax colour, and edits written back with
 // `projects.writeFile` (latest contents win; a save in flight is followed by the newest). A
@@ -12,12 +12,14 @@ import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
+import { announce } from '../shell/announce'; // "Opened in <editor>"
+import { editorLabel } from '../shared/editors';
 import { fileIconToken } from '../shared/timeline-files';
 import { lineTokens } from '../highlight/timeline-diff-syntax';
+import type { HighlightView } from '../highlight/highlights';
 import { EDITORS, lastEditor, preferredEditor, rememberEditor } from '../details/shell-details';
 import { workspaceOf, panelKey, panelState, navigateFolderIn, type Surface, type PanelState } from './panel-surfaces';
 import { breadcrumbPathOf, fileBreadcrumbs, isHostPath, isListableHostFolder, isWindowsAbsolutePath, joinHostPath, retainedBreadcrumbTrail, trailChildOf } from './files-path';
-import { tableRows } from './rendered-previews';
 import { markdownEnv, messageChips, type MarkdownEnv } from '../timeline/message-chips'; // the chat renderer's chips and settings
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
 import { filesMermaid, type MermaidDiagramView } from '../timeline/timeline-mermaid';
@@ -25,7 +27,13 @@ import { timelineView } from '../timeline/timeline-presentation';
 import { filesPrefs, type FilesPrefs } from './files-prefs';
 import { crumbsMask } from './files-crumbs-scroll'; // the trail scrolled to its end
 import { crumbsOffset, noteFirstRead, settleCrumbs, settleMounted, sourceGutter } from './files-crumbs-settle'; // where the trail settles
-import { contentRevision, htmlPage, htmlToggleLabel, isBrowserPreviewFile, isHtmlPath, isPdfPath } from './files-rendered-html'; // rendered HTML
+import { audioPage, forgetAudioPage, htmlPage, htmlToggleLabel, isBrowserPreviewFile, isHtmlPath, isPdfPath } from './files-rendered-html'; // rendered HTML, PDFs and audio
+import { isMarkdownPreviewFile, isMermaidPreviewFile, isWorkspaceAudioPreviewPath, isWorkspaceDocumentPath, maskMarkdownFrontmatter } from './file-preview-kind';
+import { attachmentOp, attachmentView, emptyAttachment, forgetPreview, type AttachmentMeta, type AttachmentView, type PreviewSource } from './attachment-surface'; // a document's or a binary file's body
+import { closedFullFile, filesViewer, filesViewerHidden, filesViewerOp, refreshFilesViewer, type FullFileView } from './files-viewer'; // a PDF, a table or a full file in the viewer page
+import { emptyViewerFrame, type ViewerFrameView } from './viewer-frames';
+import { mermaidFile } from './mermaid-file'; // a Mermaid file's diagram
+import { openInlineDocumentImage } from '../timeline/timeline-attachments'; // the expanded image dialog
 import { openFileInPreview } from '../browser/browser-links'; // "Open file in preview browser"
 import { activeRef } from '../terminal/terminal-drawer-view';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
@@ -41,6 +49,7 @@ import { availableEditorIds } from '../shared/context-menus';
 import { isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath } from '../media/media-source';
 import { openMarkdownMediaPreview } from '../timeline/timeline-attachments';
 import { fileLinkCopyPaths, fileLinkEditorTarget, resolveFileLinkHostPath, splitPosition } from '../timeline/workspace-file-lookup'; // the file a chat link means
+import { mediaFrameSource } from '../media/media-frame'; // a rendered page's frame source
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; loading: boolean; guides: { id: string; left: number }[] };
 /** A crumb: `navigable` moves the browser to its folder (FolderBreadcrumb), `descendant` is below the current one (kept
@@ -50,7 +59,9 @@ export type CodeRun = { id: string; text: string; syntax: string };
 export type CodeLine = { id: string; number: string; runs: CodeRun[] };
 export type EditorChoice = { id: string; label: string; selected: boolean };
 export type CrumbEntry = { id: string; path: string; label: string; directory: boolean; token: string; current: boolean; ignored: boolean };
-export type CrumbMenu = { open: boolean; root: string; back: string; backPath: string; status: string; entries: CrumbEntry[] };
+/** `status` stands for the entries (loading, empty, or a failed first listing, which `statusRetry` makes a retry row);
+ *  `retry` follows the entries when their refresh failed (FileBreadcrumbs "Refresh failed. Retry"). */
+export type CrumbMenu = { open: boolean; root: string; back: string; backPath: string; dir: string; status: string; statusRetry: boolean; retry: string; entries: CrumbEntry[] };
 export type FilesView = {
   cwd: string; project: string; ready: boolean; loading: boolean; searching: boolean; error: string; query: string; truncated: boolean;
   /** A search that matched nothing hides the tree (`noMatches`) and, once settled, says so (`emptySearch`); "Loading files…"
@@ -70,8 +81,19 @@ export type FilesView = {
   // settings, `code` its fences' colours, `diagrams` its Mermaid fences, `mdUrls` its host-path media and `codeCopied` /
   // `codeCopyNonce` Copy code's check.
   markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[]; mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[];
-  codeCopied: string; codeCopyNonce: number; table: { id: string; header: boolean; cells: CodeRun[] }[]; editing: boolean; editorText: string; editPress: string; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
+  codeCopied: string; codeCopyNonce: number; editing: boolean; editorText: string; editPress: string; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
+  /** A rendered page's frame source, or an audio file's signed URL. */
   url: string; media: MediaView;
+  /** A Mermaid file the reference will not lay out names why (MermaidViewer); `diagrams` holds the file's diagram otherwise. */
+  mermaidNote: string;
+  /** Bumped when a change from outside replaced the editor's text. */
+  editorRevision: number;
+  /** The file shown, by environment, thread and path, as FilePreviewPanel keys its audio player. */
+  fileKey: string;
+  /** A document, or a file read as binary: AttachmentFilePreview under "File" (`preview == "attachment"`). */
+  attachment: AttachmentView;
+  /** A PDF, a rendered table or a text file past 1 MB in the viewer page (`preview == "viewer"`, files-viewer.ts). */
+  viewer: ViewerFrameView; fullFile: FullFileView;
 };
 export type MarkdownSource = { id: string; kind: string; title: string; body: string };
 type Entry = { path: string; kind: 'file' | 'directory'; ignored: boolean };
@@ -87,6 +109,23 @@ type FilesState = {
   // The mounted explorer the query belongs to: its thread and tab (FileBrowserPanel's `query` is component state).
   queryOwner: string;
   reads: Map<string, Read>; edits: Map<string, Edit>; loading: number; editing: string; editorText: string; crumb: { root: string; dir: string } | null;
+  /** The workspace mutation the last view saw (ChatView's workspaceMutationId); undefined before the first view. */
+  mutation: string | null | undefined;
+  /** The workspace mutation each path was last read under (revisionedQuery's readRevisions): a file shown after a change
+   *  reads again, the open tab's and every other tab's. */
+  readRevisions: Map<string, string | null>;
+  /** Counts the times a change from outside replaced the editor's text (files-surface.contract keys the editor on it). */
+  editorRevision: number;
+  /** Audio URLs whose player reported an error (WorkspaceAudioPreview's failedUrl). */
+  audioFailed: Set<string>;
+  /** The document or binary file shown in the attachment body, whose controls its `att-*` ops reach. */
+  attachment: { meta: AttachmentMeta; source: PreviewSource } | null;
+  /** Counts the explorer's Refresh presses (FilePreviewPanel's fileRefreshRevision): the attachment body is keyed on it. */
+  refreshRevision: number;
+  /** FilePreviewPanel's `handledReveal`: the line request the rendered toggle answered, after which it renders. */
+  handledReveal: { path: string; requestId: number } | null;
+  /** Each file's own word wrap (FilePreviewPanel's wordWrapOverride); a file with none follows Settings' word wrap. */
+  wraps: Map<string, boolean>;
 };
 // Preferences the reference keeps in localStorage (t3code.fileExplorerOpen, t3code.renderMarkdown, t3code.renderTable),
 // persisted in the client's preference file (files-prefs.ts).
@@ -102,15 +141,18 @@ export function filesState(client: T3Client): FilesState {
   const { cwd } = workspaceOf(client), key = `${client.environmentId}|${cwd}`;
   let state = states.get(client);
   if (!state || state.key !== key) {
-    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, loadingDirs: new Set(), hosts: new Map(), searching: false, query: '', search: null, queryOwner: '', reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null };
+    // Another environment or workspace: the body shown in the last one unmounts.
+    if (state?.attachment) forgetPreview(client, state.attachment.source.key);
+    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, loadingDirs: new Set(), hosts: new Map(), searching: false, query: '', search: null, queryOwner: '', reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null, mutation: undefined, readRevisions: new Map(), editorRevision: 0, audioFailed: new Set(), attachment: null, refreshRevision: 0, handledReveal: null, wraps: new Map() };
     states.set(client, state);
   }
   return state;
 }
+const wrapOf = (client: T3Client, state: FilesState, path: string): boolean => state.wraps.get(path) ?? client.local.clientSettings.wordWrap !== false;
 const parentOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 const message = (error: unknown) => error instanceof Error && error.message ? error.message : 'Unable to load folder.';
-export const isMarkdownPath = (path: string) => /\.(?:md|mdx)$/i.test(path);
+export const isMarkdownPath = isMarkdownPreviewFile;
 /** filePreviewReadErrorMessage: a read failure described by its code without the platform's cause; an older server's own message. */
 export function filePreviewReadErrorMessage(context: Readonly<Record<string, string>>, fallback: string): string {
   switch (context.failure) {
@@ -169,13 +211,21 @@ async function readFile(client: T3Client, native: Native, path: string): Promise
   const state = filesState(client), { cwd } = workspaceOf(client);
   if (!cwd) return;
   if (!state.reads.has(path)) noteFirstRead(state, path); // an uncached read settles the crumbs short
+  // Even a failed read counts as read under this revision: the next change, not the next view, asks again.
+  state.readRevisions.set(path, workspaceMutationId(client));
   loadBegin(state, `read:${path}`);
   try {
     // A missing t3.json is not a failed read (getProjectFileQueryAtom's allowMissing); it reads as absent.
     const result = await client.restAccess(native).request('projects.readFile', { cwd, relativePath: path, ...(path === 't3.json' ? { allowMissing: true } : {}) });
     if (filesState(client) !== state) return;
+    // An edit made while this read was out is saved next, and its text is what the file holds then.
+    if (pendingPaths(client).has(path)) return;
     if (result.exists === false) { state.reads.set(path, { contents: '', byteLength: 0, truncated: false, error: `'${path}' does not exist.`, notFile: false, attempted: '', errorCwd: '' }); return; }
-    state.reads.set(path, { contents: str(result.contents), byteLength: num(result.byteLength), truncated: result.truncated === true, error: '', notFile: false, attempted: '', errorCwd: '' });
+    const previous = state.reads.get(path), contents = str(result.contents);
+    state.reads.set(path, { contents, byteLength: num(result.byteLength), truncated: result.truncated === true, error: '', notFile: false, attempted: '', errorCwd: '' });
+    // EditableFileSurface: contents changed from outside (the agent's edit) replace the editor's text, whose edits are
+    // all saved; the editor mounts again on them.
+    if (state.editing === path && previous && !previous.error && previous.contents !== contents) { state.editorText = contents; state.editorRevision++; }
   } catch (error) {
     if (filesState(client) !== state || letGo(error)) return;
     // projectFilesQueryState: the decoded ProjectReadFileError (its failure, and the path it tried), else the message.
@@ -184,7 +234,12 @@ async function readFile(client: T3Client, native: Native, path: string): Promise
     // A failed refresh keeps the contents last read (useProjectFileQuery's retained value), so the preview and its
     // Open in (`isFile`) stay as they were; only "not a file" replaces them.
     const previous = state.reads.get(path);
-    if (!notFile && previous && !previous.error) return;
+    if (!notFile && previous && !previous.error) {
+      // It still exposes the error (projectFilesQueryState's readError): a file now read as binary is the attachment
+      // body's, whose branch comes before the text's.
+      if (context.failure === 'binary_file') state.reads.set(path, { ...previous, binary: true });
+      return;
+    }
     state.reads.set(path, { contents: '', byteLength: 0, truncated: false, error: text, notFile, attempted: context.resolvedPath || context.operationPath || '', errorCwd: context.cwd || cwd, binary: context.failure === 'binary_file' });
   } finally { loadEnd(state, `read:${path}`); }
 }
@@ -310,6 +365,17 @@ function placeOf(client: T3Client, state: FilesState, active: Surface): Place {
   return { path, folder, hostFolder: folder && isHost(path) ? path : '', crumbPath, trail: crumbPath === null ? null : retainedBreadcrumbTrail(trail, crumbPath) };
 }
 const activeSurface = (client: T3Client) => { const panel = panelState(client); return panel.surfaces.find(entry => entry.id === panel.active); };
+/**
+ * FilePreviewPanel's renderMarkdown / renderMermaid / renderTable / renderBrowserFile: the preference, once a request to
+ * open the file at a line is answered (`revealHandled`); until then the source shows, where the line is.
+ */
+function renderedShown(client: T3Client, state: FilesState, path: string, active: Surface | undefined): boolean {
+  const preferences = prefsOf(client);
+  const preferred = (isMarkdownPath(path) && preferences.renderMarkdown) || (isMermaidPreviewFile(path) && preferences.renderMermaid !== false)
+    || (isTablePath(path) && preferences.renderTable) || (isHtmlPath(path) && preferences.renderBrowserFile !== false);
+  const revealHandled = !active || !(active.line > 0) || (state.handledReveal?.path === path && state.handledReveal.requestId === active.reveal);
+  return !!preferred && revealHandled;
+}
 /** The host folder the active surface lists, or ''. */
 function activeHostFolder(client: T3Client): string {
   const active = activeSurface(client);
@@ -361,7 +427,10 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
     for (let index = 0; index < visited.length; index += 4) await Promise.all(visited.slice(index, index + 4).map(path => loadDirectory(client, native, path, true, host)));
     if (!host && state.query.trim()) await search(client, native, state.query);
     const active = panelState(client).surfaces.find(entry => entry.id === panelState(client).active);
-    if (active?.kind === 'file' && !state.edits.get(active.path)?.saving) await readFile(client, native, active.path);
+    // FilePreviewPanel's Refresh: the body mounts afresh (fileRefreshRevision); a document is not read as text.
+    state.refreshRevision++;
+    refreshFilesViewer(client);
+    if (active?.kind === 'file' && !isWorkspaceDocumentPath(active.path) && !state.edits.get(active.path)?.saving) await readFile(client, native, active.path);
     return '';
   }
   if (op === 'expand-all') {
@@ -373,13 +442,27 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
   }
   if (op === 'explorer') { preferences.explorer = !preferences.explorer; return ''; }
   if (op === 'render') {
-    if (isMarkdownPath(id)) preferences.renderMarkdown = !preferences.renderMarkdown;
-    else if (isHtmlPath(id)) preferences.renderBrowserFile = preferences.renderBrowserFile === false;
-    else preferences.renderTable = !preferences.renderTable;
+    // FilePreviewPanel's toggle: it flips what shows, and turning rendering on answers a pending line request.
+    const active = activeSurface(client), pressed = !renderedShown(client, state, id, active);
+    if (isMermaidPreviewFile(id)) preferences.renderMermaid = pressed;
+    else if (isMarkdownPath(id)) preferences.renderMarkdown = pressed;
+    else if (isHtmlPath(id)) preferences.renderBrowserFile = pressed;
+    else preferences.renderTable = pressed;
+    state.handledReveal = pressed && active ? { path: id, requestId: active.reveal } : null;
     return '';
   }
+  // PreviewImageContent's press: the expanded image dialog over the picture (`id` its URL, `value` its name).
+  if (op === 'image-open') { if (/^https?:/i.test(id)) openInlineDocumentImage(client, id, value, 'file-image-zoom'); return ''; }
+  // The attachment body's controls (Save file, Try again, a font's failure) on the document shown.
+  if (op.startsWith('att-')) { if (state.attachment) await attachmentOp(client, native, state.attachment.meta, state.attachment.source, op.slice(4), 0); return ''; }
+  // The viewer page's messages and the Full file subheader (files-viewer.ts).
+  if (op.startsWith('viewer') || op.startsWith('full-')) { await filesViewerOp(client, native, op, 0); return ''; }
+  // WorkspaceAudioPreview: the player's error for this URL, and Try again, which signs the file afresh.
+  if (op === 'audio-error') { if (id) state.audioFailed.add(id); return ''; }
+  if (op === 'audio-retry') { state.audioFailed.clear(); forgetAudioPage(client, workspaceOf(client).cwd, id); return ''; }
   if (op === 'open-browser') { await openInPreviewBrowser(client, native, id); return ''; }
-  if (op === 'wrap') { client.local.clientSettings.wordWrap = client.local.clientSettings.wordWrap === false; return ''; }
+  // The wrap button changes this file's preview only, not Settings' word wrap.
+  if (op === 'wrap') { const state = filesState(client); state.wraps.set(id, !wrapOf(client, state, id)); return ''; }
   if (op === 'edit') { await editFile(client, native, id, value); return ''; }
   if (op === 'task') { await toggleTask(client, native, value); return ''; }
   // DirectoryBreadcrumb: a folder crumb opens its listing; folders navigate inside it, Back climbs toward the crumb.
@@ -387,6 +470,8 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
   // first one's closing, which then leaves the new listing alone.
   if (op === 'crumb') { const root = id === '.' ? '' : id; state.crumb = { root, dir: root }; await loadDirectory(client, native, root); return ''; }
   if (op === 'crumb-dir') { if (state.crumb) { state.crumb.dir = id; await loadDirectory(client, native, id); } return ''; }
+  // The menu's "Refresh failed. Retry": its folder listed again.
+  if (op === 'crumb-refresh') { if (state.crumb?.dir === id) await loadDirectory(client, native, id, true); return ''; }
   if (op === 'crumb-close') { if (!id || state.crumb?.root === (id === '.' ? '' : id)) state.crumb = null; return ''; }
   if (op === 'open-editor') {
     const choices = await editorFor(client, native);
@@ -394,7 +479,9 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
     if (choices.editorUnavailable) { pushToast(client, { kind: 'error', title: 'Unable to open in editor', description: choices.editorUnavailable }); return ''; }
     const editor = value || choices.editorId;
     if (!editor || !choices.editors.some(choice => choice.id === editor)) { pushToast(client, { kind: 'error', title: 'Unable to open in editor', description: `No available editor can open ${id}.` }); return ''; }
-    if (await openInEditorHere(client, native, id, editor, openTarget(client, state))) rememberEditor(client, editor); // remote Open as the details card does (remote-open.ts)
+    // Remote Open as the details card does (remote-open.ts). OpenInPicker announces the primary press's open
+    // ("Opened in <editor>"), as the ⌘O shortcut's, which names no editor either; a choice from its menu (`value`) says nothing.
+    if (await openInEditorHere(client, native, id, editor, openTarget(client, state))) { rememberEditor(client, editor); if (!value) announce(client, `Opened in ${editorLabel(editor)}`); }
     return '';
   }
   return '';
@@ -532,7 +619,7 @@ export function searchRows(entries: Entry[], selected: string): TreeRow[] {
   const expanded = new Set([...all.values()].filter(entry => entry.kind === 'directory').map(entry => entry.path));
   return treeRows(dirs, expanded, selected).map(row => row.directory ? { ...row, expanded: true } : row);
 }
-export const closedCrumbs = (): CrumbMenu => ({ open: false, root: '', back: '', backPath: '', status: '', entries: [] });
+export const closedCrumbs = (): CrumbMenu => ({ open: false, root: '', back: '', backPath: '', dir: '', status: '', statusRetry: false, retry: '', entries: [] });
 /** The open folder menu: its folder's entries (folders first), Back while inside a subfolder, under the crumb's chevron. */
 function crumbMenu(state: FilesState, project: string, current: string, trail: string): CrumbMenu {
   const menu = state.crumb;
@@ -541,9 +628,10 @@ function crumbMenu(state: FilesState, project: string, current: string, trail: s
   if (index < 0) return closedCrumbs();
   const parent = menu.dir ? menu.dir.slice(0, Math.max(0, menu.dir.lastIndexOf('/'))) : null;
   const canBack = menu.dir !== menu.root && parent !== null && (menu.root === '' || parent === menu.root || parent.startsWith(`${menu.root}/`));
-  const entries = state.dirs.get(menu.dir);
-  return { open: true, root: list[index]!.id, back: canBack ? `Back to ${parent ? baseName(parent) : project}` : '', backPath: canBack ? parent! : '',
-    status: entries === undefined ? (state.errors.has(menu.dir) ? 'Retry loading folder' : 'Loading folder…') : entries.length ? '' : 'This folder is empty.',
+  const entries = state.dirs.get(menu.dir), failed = state.errors.has(menu.dir);
+  return { open: true, root: list[index]!.id, back: canBack ? `Back to ${parent ? baseName(parent) : project}` : '', backPath: canBack ? parent! : '', dir: menu.dir,
+    status: entries === undefined ? (failed ? 'Retry loading folder' : 'Loading folder…') : entries.length ? '' : 'This folder is empty.',
+    statusRetry: entries === undefined && failed, retry: entries !== undefined && failed ? 'Refresh failed. Retry' : '',
     entries: (entries ?? []).map(entry => ({ id: entry.path, path: entry.path, label: baseName(entry.path), directory: entry.kind === 'directory', token: entry.kind === 'directory' ? '' : fileIconToken(entry.path), current: entry.kind === 'file' && entry.path === current, ignored: entry.ignored })) };
 }
 /**
@@ -567,10 +655,10 @@ function runsKey(tokens: readonly { text: string; cls: string }[] | undefined, l
   for (let at = 0; at < text.length; at++) hash = (hash * 31 + text.charCodeAt(at)) | 0;
   return `${text.length}:${(hash >>> 0).toString(36)}`;
 }
-/** Pierre's File: numbered lines with Shiki-class runs (the diff panel's highlighter). */
-export function codeLines(path: string, contents: string): CodeLine[] {
+/** Pierre's File: numbered lines with colour-class runs (the diff panel's highlighter, highlights.ts). */
+export function codeLines(path: string, contents: string, view: HighlightView | null): CodeLine[] {
   const lines = contents.split(/\r\n|\r|\n/);
-  const tokens = lineTokens(lines, path);
+  const tokens = lineTokens(lines, path, view);
   // A line is keyed by its runs too, so a line whose text or colours change (another file, a
   // retokenized one) remounts: a text flow repainted in place kept spans of the file shown before it.
   return lines.map((line, index) => ({ id: `${index + 1}:${runsKey(tokens[index], line)}`, number: String(index + 1),
@@ -611,7 +699,9 @@ export function workspaceMutationId(client: T3Client): string | null {
   const itemId = settled ? str(settled.id) : null, capturedAt = checkpoint ? str(checkpoint.capturedAt) || null : null;
   return itemId === null && capturedAt === null ? null : JSON.stringify([itemId, capturedAt]);
 }
-async function renderedMarkdown(client: T3Client, native: Native, path: string, absolute: string, text: string, editable: boolean, now: number) {
+async function renderedMarkdown(client: T3Client, native: Native, path: string, absolute: string, source: string, editable: boolean, now: number) {
+  // A leading YAML frontmatter block is blanked, not drawn as a rule and a heading; the task offsets still name the file.
+  const text = maskMarkdownFrontmatter(source);
   const folder = absolute.slice(0, Math.max(0, absolute.lastIndexOf('/'))) || '/', scope = { cwd: workspaceOf(client).cwd };
   const copy = timelineView(client).codeCopy, copied = copy.threadId === client.threadId;
   const signs = markdownMediaChips(text, folder, scope).some(chip => chip.icon === 'environment');
@@ -621,7 +711,7 @@ async function renderedMarkdown(client: T3Client, native: Native, path: string, 
   return {
     markdownSource: [{ id: `file:${path}`, kind: editable ? 'file' : 'assistant', title: '', body: text }],
     md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text }, folder, [], `files:${absolute}`, scope, client)) }, // the owner names the document
-    code: messageCodeBlocks(text), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
+    code: messageCodeBlocks(text, 'shell', `file:${path}`), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };
 }
@@ -630,8 +720,8 @@ function codePreviewLines(client: T3Client, path: string): number {
   const state = states.get(client), { cwd } = workspaceOf(client);
   if (!state || state.key !== `${client.environmentId}|${cwd}` || !path || state.editing === path) return 0;
   const read = state.reads.get(path), preferences = prefsOf(client), local = !isHost(path);
-  if (!read || read.error || (read.notFile && local) || isWorkspaceVideoPreviewPath(path) || isWorkspaceImagePreviewPath(path) || (local && isPdfPath(path))) return 0;
-  if ((isMarkdownPath(path) && preferences.renderMarkdown) || (isTablePath(path) && preferences.renderTable) || (local && isHtmlPath(path) && preferences.renderBrowserFile !== false)) return 0;
+  if (!read || read.error || (read.notFile && local) || isWorkspaceVideoPreviewPath(path) || isWorkspaceImagePreviewPath(path) || isWorkspaceAudioPreviewPath(path) || isPdfPath(path)) return 0;
+  if (renderedShown(client, state, path, activeSurface(client))) return 0;
   return read.contents.split(/\r\n|\r|\n/).length;
 }
 /**
@@ -651,7 +741,8 @@ export const emptyFiles = (): FilesView => ({
   cwd: '', project: '', ready: false, loading: false, searching: false, error: '', query: '', truncated: false, noMatches: false, emptySearch: false, loadingQuiet: false, rows: [], hasDirectories: false, allExpanded: false, treeMenu: [],
   explorer: true, showExplorer: true, subheader: false, explorerToggle: false, path: '', preview: '', previewError: '', errorPath: '', errorCwd: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
-  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, table: [], editing: false, editorText: '', editPress: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
+  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, editing: false, editorText: '', editPress: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
+  mermaidNote: '', editorRevision: 0, fileKey: '', attachment: emptyAttachment(), viewer: emptyViewerFrame(), fullFile: closedFullFile(),
 });
 
 /** FileBrowserPanel's `useState("")`: each file tab mounts its own explorer, so its search starts empty and ends with it. */
@@ -663,6 +754,8 @@ function clearSearch(state: FilesState): void {
 export function filesHidden(client: T3Client): void {
   const state = states.get(client);
   if (state && state.queryOwner) { clearSearch(state); state.queryOwner = ''; }
+  // Only the active surface is mounted: the attachment body goes with it, and mounts afresh when Files shows again.
+  if (state?.attachment) { forgetPreview(client, state.attachment.source.key); state.attachment = null; }
 }
 export async function filesView(client: T3Client, native: Native, active: Surface, now = 0): Promise<FilesView> {
   const state = filesState(client), preferences = prefsOf(client), { cwd, projectName } = workspaceOf(client);
@@ -670,11 +763,16 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   // A search typed before this explorer's first view (no owner yet) is its own; another tab's is not.
   if (state.queryOwner !== owner) { if (state.queryOwner) clearSearch(state); state.queryOwner = owner; }
   if (!state.dirs.has('') && !state.errors.has('')) await ensureTree(client, native);
-  const path = placeOf(client, state, active).path;
+  // A command or a file change settled since the last view: what Files shows is read again.
+  const mutation = workspaceMutationId(client), changed = state.mutation !== undefined && mutation !== state.mutation;
+  state.mutation = mutation;
+  if (changed) await readAfterMutation(client, native, active);
+  const shownPlace = placeOf(client, state, active), path = shownPlace.path;
   if (crumbsMounting(client, client.threadId)) settleMounted(state, path);
   const cold = settleCrumbs(state, path); // where the crumbs settle
   if (path && !state.reads.has(path)) await ensureFile(client, native, path, true);
   else if (path && revealStale(state, path, now)) await ensureFile(client, native, path, true); // a reveal whose answer was abandoned asks again
+  else if (path && readStale(client, state, path, mutation, shownPlace.folder)) await readFile(client, native, path);
   noteReveal(client, !!path && missingFolders(state, path).length > 0);
   const read = path ? state.reads.get(path) : undefined;
   const { folder, hostFolder, crumbPath, trail } = placeOf(client, state, active);
@@ -683,34 +781,64 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   const tree = hostFolder ? hostTree(state, hostFolder) : null, selected = hostFolder ? trailChildOf(hostFolder, trail ?? hostFolder) ?? '' : path;
   if (tree && !tree.dirs.has('') && !tree.errors.has('')) await loadDirectory(client, native, '', false, hostFolder);
   if (tree && selected && tree.revealed !== trail) { tree.revealed = trail ?? ''; tree.expanded.add(selected); await loadDirectory(client, native, selected, false, hostFolder); }
-  const markdown = isMarkdownPath(previewPath), table = isTablePath(previewPath), html = !isHost(previewPath) && isHtmlPath(previewPath);
-  const rendered = (markdown && preferences.renderMarkdown) || (table && preferences.renderTable) || (html && preferences.renderBrowserFile !== false);
-  // FilePreviewPanel renderBrowserFile: a PDF always shows as its document (BrowserDocumentFrame; here the module's PDFView, issues/closed/20261009-app-file-iframe-loading.md), a page when rendered.
-  const pdf = !isHost(previewPath) && isPdfPath(previewPath), frame = (html && rendered) || pdf;
+  const markdown = isMarkdownPath(previewPath), mermaid = isMermaidPreviewFile(previewPath), table = isTablePath(previewPath), html = isHtmlPath(previewPath);
+  const rendered = renderedShown(client, state, previewPath, active);
+  // FilePreviewPanel renderBrowserFile: a PDF always shows as its document (BrowserDocumentFrame's PdfViewer, in the
+  // viewer page), a page when rendered; one outside the workspace is signed as a `media-file` (workspaceAssetResource).
+  const pdf = isPdfPath(previewPath), frame = (html && rendered) || pdf;
   // The explorer the crumbs walked up to opens the workspace folder in an editor.
   const absolute = path ? (isHost(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`) : crumbPath === '' ? cwd : '';
-  // A rendered page waits for its signed URL, not for the read.
-  const page = frame ? await htmlPage(client, native, cwd, absolute, read && !read.error ? contentRevision(read.contents) : '', now) : { url: '', error: '' };
-  // An image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo).
-  const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, '', now) : NO_MEDIA;
+  // A rendered page waits for its signed URL, not for the read. Its URL carries the workspace revision, so a change
+  // reloads it (WorkspaceBrowserPreview's revisionSuffix and documentKey).
+  const revision = mutation ?? '';
+  const minted = frame ? await htmlPage(client, native, cwd, absolute, revision, now) : { url: '', error: '' };
+  const source = frame && minted.url ? (pdf ? { src: minted.url, error: '' } : await mediaFrameSource(minted.url)) : null;
+  const page = { url: source?.src ?? '', error: minted.error || source?.error || '' };
+  // An image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo). An image's
+  // URL carries the workspace revision, so a change loads it again (WorkspaceImagePreview's revisionSuffix); a video is
+  // signed again after a change and loads again only for a new revision of its file, when the server reports one
+  // (WorkspaceVideoPreview's fileRevision, media-views.ts), since the workspace's would reload it after every command.
+  const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, revision, now) : NO_MEDIA;
+  // WorkspaceAudioPreview: an audio file plays from its `media-file` URL; a refused URL or the player's error is a failure.
+  const audio = !!previewPath && !media.kind && !isWorkspaceVideoPreviewPath(previewPath) && isWorkspaceAudioPreviewPath(previewPath);
+  const sound = audio ? await audioPage(client, native, cwd, absolute, revision, now) : null;
+  const soundFailed = !!sound && (!!sound.error || (!!sound.url && state.audioFailed.has(sound.url)));
+  // A document (an Office file, an archive, a database, a font), or a file read as binary, is AttachmentFilePreview's.
+  const document = !!previewPath && !media.kind && !audio && !frame && (isWorkspaceDocumentPath(previewPath) || read?.binary === true);
+  const attachment = document ? await filesAttachment(client, native, state, previewPath, absolute, isWorkspaceDocumentPath(previewPath), mutation, now) : null;
+  if (!document && state.attachment) { forgetPreview(client, state.attachment.source.key); state.attachment = null; } // its body unmounts
   const text = read?.contents ?? '';
-  const lines = previewPath && read && !read.error ? codeLines(previewPath, text) : [];
-  const editable = !!previewPath && !media.kind && !pdf && !!read && !read.error && !read.truncated && !isHost(previewPath);
+  // WorkspaceLargeTextPreview: text past 1 MB streams whole as "Full file", but in a draft and for the kinds whose
+  // rendering reads the first megabyte (Markdown, Mermaid, a page), which keep the 1 MB notice.
+  const draft = !client.threadId;
+  const fullFile = !!previewPath && !media.kind && !audio && !frame && !document && !!read && !read.error && read.truncated && !draft && !markdown && !mermaid && !html;
+  const tableShown = !!previewPath && table && rendered && !fullFile && !!read && !read.error;
+  const viewing = (pdf && !!page.url) || fullFile || tableShown;
+  const lines = previewPath && !document && !viewing && read && !read.error ? codeLines(previewPath, text, 'shell') : [];
+  const editable = !!previewPath && !media.kind && !audio && !pdf && !document && !!read && !read.error && !read.truncated && !isHost(previewPath);
   const rows = tree ? hostRows(tree, hostFolder, selected)
     : state.query.trim() && state.search ? searchRows(searchMatches(state.search.entries, state.query), path) : treeRows(state.dirs, state.expanded, path, state.loadingDirs);
   const shown = tree ?? state;
   const reachable = new Set(['', ...[...shown.dirs.values()].flat().filter(entry => entry.kind === 'directory').map(entry => entry.path)]);
   const error = [...shown.errors].find(([folderPath]) => reachable.has(folderPath))?.[1] ?? (tree ? '' : state.search?.error ?? '');
   const editors = await editorFor(client, native);
-  const parsedTable = previewPath && table && rendered && read && !read.error ? tableRows(previewPath, text) : null;
   // shouldShowFileExplorer: never beside a host file; a folder is the explorer alone.
   const showExplorer = !isHost(previewPath) && (preferences.explorer || !previewPath);
   // FileBrowserPanel hasNoSearchMatches: a workspace search counts once the server answered it; a host folder's filters what is loaded.
   const query = tree ? tree.query : state.query, searching = !tree && state.searching, ready = shown.dirs.has('');
   const noMatches = !!query.trim() && rows.length === 0 && (!!tree || !!state.search);
-  const preview = !previewPath ? '' : media.kind ? 'media' : frame ? (page.error ? 'error' : page.url ? (pdf ? 'pdf' : 'html') : 'loading') : read === undefined ? 'loading' : read.error ? 'error' : rendered ? (markdown ? 'markdown' : 'table') : 'code';
+  const viewer = viewing ? await filesViewer(client, native, {
+    kind: pdf ? 'pdf' : fullFile ? 'full' : 'table', path: previewPath, absolute, name: previewPath.split(/[\\/]/).pop() || previewPath, revision, url: page.url, text,
+    delimiter: table && rendered ? (/\.tsv$/i.test(previewPath) ? '\t' : ',') : null, revealLine: active.line > 0 ? active.line : null, revealRequestId: active.reveal,
+    wrap: wrapOf(client, state, previewPath),
+  }, now) : null;
+  const preview = !previewPath ? '' : media.kind ? 'media' : audio ? (soundFailed ? 'audio-error' : sound?.url ? 'audio' : 'loading')
+    : frame ? (page.error ? 'error' : page.url ? (pdf ? 'viewer' : 'html') : 'loading') : viewer ? (viewer.error ? (fullFile ? 'full-error' : 'error') : 'viewer') : document ? 'attachment' : read === undefined ? 'loading' : read.error ? 'error'
+      : rendered ? (markdown ? 'markdown' : 'mermaid') : 'code';
+  if (preview !== 'viewer') filesViewerHidden(client);
   const rich = preview === 'markdown' ? await renderedMarkdown(client, native, previewPath, absolute, text, editable, now) : null;
-  const readError = !frame && !media.kind && !!read?.error;
+  const diagram = preview === 'mermaid' ? mermaidFile(client, text) : null;
+  const readError = !frame && !media.kind && !audio && !document && !!read?.error;
   return {
     cwd, project: hostFolder || projectName, ready, loading: state.loading > 0, searching, error, query,
     truncated: !tree && !!state.query.trim() && !!state.search?.truncated, rows,
@@ -720,23 +848,68 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     allExpanded: state.expandAll || allExpanded(state), explorer: preferences.explorer, showExplorer, treeMenu: filesTreeMenuRows(client),
     subheader: crumbPath !== null, explorerToggle: !!previewPath && !isHost(previewPath),
     path, preview,
-    previewError: frame ? page.error : read?.error && !folder ? read.error : '',
+    previewError: frame ? page.error : viewer?.error ? viewer.error : read?.error && !folder && !document ? read.error : '',
     errorPath: readError ? read!.attempted : '', errorCwd: readError && !isHost(path) ? read!.errorCwd : '',
     crumbs: crumbPath !== null && trail !== null ? crumbs(projectName, crumbPath, trail) : [], lines: fileCommentLines(client, previewPath, text, lines, editable && state.editing === path), commentOpen: fileCommentOpen(client), text, textKey: `${path}:${active.reveal}`,
-    gutter: sourceGutter(lines.length), wrap: client.local.clientSettings.wordWrap !== false,
-    // FilePreviewPanel: word wrap reaches only the text bodies (`showsRawText`); a page or a PDF opens in the Browser (`canOpenInBrowser`).
-    rawText: preview === 'code', openInBrowser: !!previewPath && client.available === true && media.kind !== 'video' && isBrowserPreviewFile(previewPath),
-    truncatedNote: previewPath && !frame && read?.truncated ? `Preview limited to the first 1 MB of a ${read.byteLength.toLocaleString('en-US')} byte file.`
-      : parsedTable?.truncated ? 'Table limited to the first 100 rows and 30 columns. Switch to source for the rest.' : '',
-    canRender: markdown || table || html, rendered, renderLabel: markdown ? (rendered ? 'Show markdown source' : 'Show rendered markdown') : table ? (rendered ? 'Show source' : 'Show table') : html ? htmlToggleLabel(rendered) : '',
+    gutter: sourceGutter(lines.length), wrap: wrapOf(client, state, previewPath),
+    // FilePreviewPanel: word wrap reaches only the text bodies (`showsRawText`), a full file's source among them; a page or
+    // a PDF opens in the Browser (`canOpenInBrowser`).
+    rawText: preview === 'code' || (fullFile && !(table && rendered)), openInBrowser: !!previewPath && client.available === true && media.kind !== 'video' && isBrowserPreviewFile(previewPath),
+    truncatedNote: previewPath && !frame && !document && !media.kind && read?.truncated && (draft || markdown || mermaid || html) ? `Preview limited to the first 1 MB of a ${read.byteLength.toLocaleString('en-US')} byte file.` : '',
+    canRender: markdown || mermaid || table || html, rendered,
+    renderLabel: mermaid ? (rendered ? 'Show Mermaid source' : 'Show rendered diagram') : markdown ? (rendered ? 'Show markdown source' : 'Show rendered markdown') : table ? (rendered ? 'Show source' : 'Show table') : html ? htmlToggleLabel(rendered) : '',
     renderIcon: rendered ? 'code' : table ? 'table' : 'eye', editable, pending: pendingPaths(client).has(path),
     ...editors, absolutePath: absolute,
-    ...(rich ?? { markdownSource: [], md: emptyFiles().md, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0 }), table: parsedTable?.rows ?? [],
-    editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '', editPress: editPresses.get(client) ?? '',
+    // A notebook shown under "File" parses its markdown cells in the same answer.
+    ...(rich ?? { markdownSource: attachment?.markdownSource ?? [], md: attachment?.notebook.open ? attachment.md : emptyFiles().md, code: attachment?.notebook.open ? attachment.code : [], diagrams: diagram?.diagrams ?? (attachment?.notebook.open ? attachment.diagrams : []), mdUrls: [], codeCopied: '', codeCopyNonce: 0 }),
+    editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '', editPress: editPresses.get(client) ?? '', editorRevision: state.editorRevision,
     crumbMenu: crumbPath !== null && trail !== null ? crumbMenu(state, projectName, crumbPath, trail) : closedCrumbs(), crumbsMask: crumbPath !== null ? crumbsMask(client.presentation) : 'none',
-    crumbsOffset: path !== '' && previewPath !== '' && !!read && !read.error && !rendered && !pdf ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,
-    url: frame ? page.url : '', media,
+    crumbsOffset: path !== '' && previewPath !== '' && !document && !viewing && !!read && !read.error && !rendered && !pdf ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,
+    url: frame ? page.url : sound?.url ?? '', media, mermaidNote: diagram?.note ?? '', fileKey: previewPath ? `${panelKey(client)}:${absolute}` : '',
+    attachment: attachment ?? emptyAttachment(),
+    viewer: preview === 'viewer' && viewer ? viewer.viewer : emptyViewerFrame(), fullFile: preview === 'viewer' && viewer ? viewer.full : closedFullFile(),
   };
+}
+
+/**
+ * After a workspace change, the tree's listed folders and the search read again (FileBrowserPanel's
+ * useWorkspaceMutationRefresh); the file shown reads again through readStale.
+ */
+async function readAfterMutation(client: T3Client, native: Native, active: Surface): Promise<void> {
+  const state = filesState(client), place = placeOf(client, state, active), host = place.hostFolder;
+  const visited = [...(host ? hostTree(state, host) : state).requested];
+  for (let index = 0; index < visited.length; index += 4) await Promise.all(visited.slice(index, index + 4).map(path => loadDirectory(client, native, path, true, host)));
+  if (!host && state.query.trim()) await search(client, native, state.query);
+}
+
+/**
+ * Whether the path shown was read before the latest workspace change (revisionedQuery's `stale`), so it reads again: a
+ * file in any tab, one open in the editor included, and a folder, so it notices if the path becomes a file. A file with
+ * a save pending keeps its text (`selectedFilePending`); media, PDFs and documents never show their text, and a
+ * document's body mounts afresh on the change instead.
+ */
+function readStale(client: T3Client, state: FilesState, path: string, mutation: string | null, folder: boolean): boolean {
+  if (!state.readRevisions.has(path) || state.readRevisions.get(path) === mutation || pendingPaths(client).has(path)) return false;
+  return folder || (!isWorkspaceImagePreviewPath(path) && !isWorkspaceVideoPreviewPath(path) && !isWorkspaceAudioPreviewPath(path) && !isPdfPath(path) && !isWorkspaceDocumentPath(path));
+}
+
+/**
+ * FilePreviewPanel's AttachmentFilePreview for a document, or a file read as binary (origin "File"): signed as a
+ * `media-file`, a binary one as an attachment, and a draft's document as its `draft-workspace-file`. Keyed on the
+ * workspace revision and the explorer's Refresh, as the reference's is, so either mounts it afresh and the one before goes.
+ */
+async function filesAttachment(client: T3Client, native: Native, state: FilesState, path: string, absolute: string, isDocument: boolean, mutation: string | null, now: number): Promise<AttachmentView> {
+  const meta: AttachmentMeta = { id: absolute, name: path.split(/[\\/]/).pop() || path, mimeType: 'application/octet-stream', sizeBytes: 0 };
+  const draft = !client.threadId;
+  // A draft signs a binary file under its own thread id (threadRef.threadId), which the server needs non-empty.
+  if (draft && !isDocument && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native).catch(error => { if (letGo(error)) throw error; });
+  const resource = draft && isDocument ? { _tag: 'draft-workspace-file', cwd: workspaceOf(client).cwd, path: absolute }
+    : { _tag: 'media-file', threadId: client.threadId || activeRef(client)?.threadId || '', path: absolute, ...(isDocument ? {} : { disposition: 'attachment' }) };
+  const key = `files:${panelKey(client)}:${absolute}:${mutation ?? ''}:${state.refreshRevision}`;
+  if (state.attachment && state.attachment.source.key !== key) forgetPreview(client, state.attachment.source.key);
+  const source: PreviewSource = { id: `file:${path}`, key, origin: 'File', dialog: false, local: null, resource };
+  state.attachment = { meta, source };
+  return attachmentView(client, native, meta, now, source);
 }
 
 /** A host folder's rows: its tree, or while searching the loaded entries that match, each named by its host path. */

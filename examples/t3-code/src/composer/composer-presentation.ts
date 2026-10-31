@@ -4,14 +4,18 @@
 import { arr, obj, str, type Obj } from '../client/domain';
 import { requestPresentation } from './requests';
 import type { T3Client } from '../client/client';
-import { footerLayout, traitsDisplay, primaryAction, composerNotices, noticeRank, syncStatus, tasksProgress, providerControl, contextMeter, compactChip } from './composer-controls-view';
+import { effortBlockWidth, footerLayout, traitsDisplay, primaryAction, composerNotices, providerControl, contextMeter, compactChip } from './composer-controls-view';
+import { resolveComposerControlsOwnership } from './composer-controls-ownership';
+import { effortBars, resolveEffortGlyph } from './effort-glyph';
 import { planFollowUp, noteNow } from './composer-controls';
-import { queuedView } from './composer-controls-queue';
+import { queuedEditView, settleQueuedEdits } from './composer-controls-queue';
+import { endSummary, threadNowProbes } from './thread-end';
 import { subagentBar } from './composer-controls-subagent';
-import { attachOffered } from './composer-controls-attach';
+import { attachOffered, preparingImages } from './composer-controls-attach';
+import { readySend, uploadBlock, uploadTable } from './composer-uploads';
 import { fanoutSelections, fanoutView } from './composer-controls-fanout';
 import { composerSelection } from './composer-provider-selection';
-import { chordGlyphs, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './composer-controls-model';
+import { chordGlyphs, displayModelName, optionValue, REASONING_SELECT_DESCRIPTOR_IDS, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './composer-controls-model';
 import { composerRequiresModifier, sendChords, sendCommandChords } from './composer-editor-intent';
 import { layoutFrames } from '../shell/layout-frames';
 import { draftHoldsCommandEnter } from '../diff/diff';
@@ -25,17 +29,19 @@ import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { environmentView } from '../details/git-env';
 import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state';
 import { ultrathinkFrame } from './composer-ultrathink';
+import { acpInstanceIcon } from './acp-instance-icon'; // the trigger's ACP agent mark
 import { overflowMenu } from './composer-overflow';
-import { usageConfirm } from './composer-controls-usage'; // the reset credit confirm
+import { usageConfirm, usageResetClock } from './composer-controls-usage'; // the reset credit confirm and the reset's clock
 import { stripLabelsCompact, stripLabelTexts } from './context-strip'; // the context strip's labels or icons
 import type { ComposerNotice, FooterSteps } from './composer-controls-view';
 
-/** runtimeModeConfig.ts: label, description and lucide icon per mode. */
+/** runtimeModeConfig.ts (v0.1.5): label, description and lucide icon per mode; full access is a crossed shield, since an
+ *  open lock reads like a closed one at small sizes. */
 export const runtimeModes = [
   { mode: 'approval-required', label: 'Supervised', description: 'Ask before commands and file changes.', icon: 'lock' },
   { mode: 'auto-accept-edits', label: 'Auto-accept edits', description: 'Auto-approve edits, ask before other actions.', icon: 'pen-line' },
   { mode: 'auto', label: 'Auto', description: 'Supported providers approve routine actions; others still ask.', icon: 'sparkles' },
-  { mode: 'full-access', label: 'Full access', description: 'Allow commands and edits without prompts.', icon: 'lock-open' },
+  { mode: 'full-access', label: 'Full access', description: 'Allow commands and edits without prompts.', icon: 'shield-off' },
 ];
 const SAVED_OPTION_LABELS: Record<string, string> = { agent: 'Agent', effort: 'Effort', reasoningEffort: 'Reasoning effort', variant: 'Reasoning' };
 
@@ -45,8 +51,8 @@ type ComposerSource = {
   local: { drafts: Record<string, string>; deviceSettings: { planModeEnabled: boolean } };
   /** The composer's draft (T3Client.draft); the ultrathink flow reads it. */
   draft?: string;
-  /** composer-provider-selection.ts: the project defaults and whether the catalog arrived. */
-  shell?: { projects: Obj[] }; configLive?: boolean;
+  /** composer-provider-selection.ts: the project defaults and whether the catalog arrived; the field's name: the thread rows' titles. */
+  shell?: { projects: Obj[]; threads?: Obj[] }; configLive?: boolean;
 };
 
 /**
@@ -73,17 +79,25 @@ export function threadPhase(projection: Obj): string {
   return 'ready';
 }
 
-/** ChatComposer.tsx placeholder chain (74541bab17). */
+const UNAVAILABLE_BADGE = 'Unavailable';
+const stringOrNull = (value: unknown) => typeof value === 'string' ? value : null;
+
+/** resolveProjectSettings(settings, projectId).settings.defaultRuntimeMode: the project's override, else the server's. */
+function defaultRuntimeModeOf(client: ComposerSource): string {
+  const settings = obj(client.config.settings), overrides = obj(obj(settings.projectSettingsOverrides)[client.projectId]);
+  return str(overrides.defaultRuntimeMode || settings.defaultRuntimeMode);
+}
+
+/** ChatComposer.tsx placeholder chain (74541bab17; one default line since 3816296021, composerPlaceholder.ts). */
 export function composerPlaceholder(input: { connected: boolean; approval: boolean; question: boolean; choiceOnly: boolean;
-  projectRequired: boolean; providerUnavailable: boolean; phase: string; planReady?: boolean }): string {
-  if (input.approval) return 'Send a message to decline and redirect the agent';
+  projectRequired: boolean; providerUnavailable: boolean; phase: string; planReady?: boolean; feedback?: boolean }): string {
+  if (input.approval) return input.feedback ? 'Send feedback to decline this request' : 'Send a message to decline and redirect the agent';
   if (input.question) return input.choiceOnly ? 'Choose an option above' : 'Type your own answer, or leave this blank to use the selected option';
   if (input.planReady) return 'Add feedback to refine the plan, or leave this blank to implement it';
   if (!input.connected) return 'Connect to your T3 server to send a message';
   if (input.projectRequired) return 'Choose a project above to start a thread';
   if (input.providerUnavailable) return 'Enable a provider in Settings to send a message';
-  return input.phase === 'disconnected' ? 'Ask for changes, send follow-ups, or attach images'
-    : 'Ask anything, @tag files/folders, $use skills, or / for commands';
+  return 'Ask anything. @ files, $ skills, / commands';
 }
 
 /** getProviderOptionDescriptors + TraitsMenuContent: one flat menu of headers, dividers and radio rows. */
@@ -155,7 +169,16 @@ export function controlsWidth(presentation: Obj): number {
 
 // The last footer layout per client, for resolveRestingComposerControlsLayout's promotion slack.
 const footerSteps = new WeakMap<object, FooterSteps>();
-export function composerView(client: ComposerSource, requests: { approval: boolean; question: boolean; choiceOnly: boolean; planReady?: boolean; terminalOpen?: boolean }) {
+/**
+ * ChatComposer's ariaLabel: "Message <title>" by the title the shell carries (ChatView's serverThread; the detail's until
+ * the shell lists it), "Message New thread" on a draft (buildLocalDraftThread), "Message" with neither.
+ */
+function fieldLabel(client: ComposerSource): string {
+  const shellTitle = client.threadId ? str(client.shell?.threads?.find(thread => thread.id === client.threadId)?.title) : '';
+  const title = client.threadId ? shellTitle || str(obj(client.projection.thread).title) : 'New thread';
+  return title ? `Message ${title}` : 'Message';
+}
+export function composerView(client: ComposerSource, requests: { approval: boolean; feedback?: boolean; question: boolean; choiceOnly: boolean; planReady?: boolean; terminalOpen?: boolean }) {
   const keyContext = { terminalOpen: requests.terminalOpen === true }; // ChatComposer: the real terminalOpen, terminalFocus false
   const providers = arr(client.config.providers);
   // resolveComposerProviderSelection + deriveEffectiveComposerModelState: the instance and model the turn runs on.
@@ -176,31 +199,70 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   const runtime = runtimes.find(option => option.mode === client.runtimeMode) ?? runtimes[0] ?? runtimeModes[0]!;
   const planVisible = client.local.deviceSettings.planModeEnabled && !!provider && provider.showInteractionModeToggle !== false;
   const display = traitsDisplay(str(provider?.driver), descriptors, shown, selection, reported, ultra);
-  // getTriggerDisplayModelName; the tooltip adds the picker's shortcut (ProviderModelPicker triggerTooltipContent).
-  const modelTitle = model ? triggerModelName(model) : modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, keyContext).split(' ')[0] ?? '');
-  const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: display.label !== '',
-    runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: controlsWidth(client.presentation),
-    measure: measuredLabels(client.presentation), previous: footerSteps.get(client) });
+  // getTriggerDisplayModelName (the spoken name) for the footer's layout; the tooltip is the full name with the picker's
+  // shortcut (ProviderModelPicker triggerTooltipContent). The trigger's text and accessible name are the snapshot's.
+  const modelTitle = model ? triggerModelName(model, str(provider?.driver)) : modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, keyContext).split(' ')[0] ?? '');
+  const modelLabel = model ? `${displayModelName(model)}${model.isUnavailable === true ? ' (Unavailable)' : ''}` : modelTitle;
+  // ProviderModelPicker's Unavailable Badge (outline, sm): its text with 3pt padding and the 1pt border each side.
+  const badge = model?.isUnavailable === true && !fanoutSelections(client as unknown as T3Client) ? measured(client.presentation, UNAVAILABLE_BADGE, 10, 500) + 8 : 0;
+  // TraitsPicker in the composer (v0.1.5): the primary reasoning select as a word ("High", Settings › Appearance ›
+  // Effort display "label", the default) or rising bars ("bars"); Max, Ultracode and Ultrathink keep their names, and
+  // traits the bars cannot show (an agent mode) read as their label. The gauge shows only in an icon-only footer.
+  const primary = descriptors.find(descriptor => descriptor.type === 'select' && descriptor.id === ultra.primaryId);
+  const glyph = primary && REASONING_SELECT_DESCRIPTOR_IDS.has(str(primary.id))
+    ? resolveEffortGlyph(primary, ultra.controlled ? 'ultrathink' : stringOrNull(optionValue(primary, resolvedCurrent(primary, shown), selection, reported))) : null;
+  const effortDisplay = (client.local as { clientSettings?: { effortDisplay?: unknown } }).clientSettings?.effortDisplay === 'bars' ? 'bars' : 'label';
+  const effortWord = glyph ? (glyph.special ?? (effortDisplay === 'label' ? glyph.label : '')) : display.label;
+  const effort = { shown: display.label !== '', word: effortWord, bars: glyph && !effortWord ? glyph.count : 0,
+    speed: glyph ? display.speedLabel ?? '' : '', other: glyph ? display.otherLabels.join(' · ') : '' };
+  // ComposerControlsBar: Permissions hide while the thread's mode is the project's default, or while the new thread's
+  // strip names them (permissionsShownInStrip: a draft of a project, whose strip always shows).
+  const defaultRuntimeMode = defaultRuntimeModeOf(client);
+  const permissionsInStrip = !client.threadId && !!client.projectId;
+  const accessMatchesDefault = runtime.mode === defaultRuntimeMode;
+  const planUi = planVisible;
+  const firstOwnership = resolveComposerControlsOwnership({ matchesDefault: accessMatchesDefault || permissionsInStrip, hasTraits: effort.shown,
+    planModeUiEnabled: planUi, collapsed: false, measuredHiddenBlockCount: 0 });
+  const { steps, measuredHidden, ...layout } = footerLayout({ model: modelTitle, traits: effortBlockWidth(effort, measuredLabels(client.presentation)),
+    runtime: firstOwnership.accessDisplay === 'label' ? runtime.label : '', runtimeShown: firstOwnership.accessDisplay !== 'hidden', mode: firstOwnership.showModeBlock,
+    plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: controlsWidth(client.presentation),
+    measure: measuredLabels(client.presentation), previous: footerSteps.get(client), badge });
   footerSteps.set(client, steps);
-  // The "More composer controls" rows for the expanded and the resting footer.
-  const runtimeRows = runtimes.map(option => ({ mode: option.mode, label: option.label, selected: option === runtime }));
-  const more = overflowMenu({ traits: traits.items, traitsHidden: layout.traitsOverflow, modeHidden: layout.modeOverflow, planVisible, interactionMode: client.interactionMode, runtimes: runtimeRows });
-  const restingMore = overflowMenu({ traits: traits.items, traitsHidden: layout.restingTraitsOverflow, modeHidden: layout.restingModeOverflow, planVisible, interactionMode: client.interactionMode, runtimes: runtimeRows });
+  const ownership = resolveComposerControlsOwnership({ matchesDefault: accessMatchesDefault || permissionsInStrip, hasTraits: effort.shown,
+    planModeUiEnabled: planUi, collapsed: false, measuredHiddenBlockCount: measuredHidden });
+  const keyEffort = commandChords(client.config, 'composer.effort', 'Meta+Shift+E', false, keyContext), keyMode = commandChords(client.config, 'composer.mode', 'Meta+Shift+A', false, keyContext);
+  // The effort chip's name and tooltip: "Effort: High · Fast", and while it holds Permissions, "Permissions: Supervised · ⇧⌘A".
+  const permissionsHint = ownership.accessDisplay === 'hidden' || accessMatchesDefault || permissionsInStrip
+    ? [`Permissions: ${runtime.label}`, chordGlyphs(keyMode.split(' ')[0] ?? '')].filter(Boolean).join(' · ') : '';
+  const traitsTip = [`Effort: ${display.label}`, effort.speed, permissionsHint].filter(Boolean).join(' · ');
+  // The "More composer controls" rows; Permissions join them only while their home is in the menu.
+  const more = overflowMenu({ traits: traits.items, traitsHidden: ownership.traitsHidden, modeHidden: ownership.modeHidden, planVisible, interactionMode: client.interactionMode,
+    showPermissions: ownership.overflowShowsPermissions });
   return {
     placeholder: composerPlaceholder({ connected: client.connection === 'connected', ...requests, planReady: !!requests.planReady,
       projectRequired: !client.projectId, providerUnavailable: chosen.showProviderUnavailable,
       phase: client.threadId ? threadPhase(client.projection) : 'disconnected' }),
-    modelTip: modelShortcut ? `${modelTitle}${model?.isUnavailable === true ? ' (Unavailable)' : ''} · ${modelShortcut}` : `${modelTitle}${model?.isUnavailable === true ? ' (Unavailable)' : ''}`,
-    traitsLabel: display.label,
-    ...layout, traitsCount: traits.count, traitsSelected: traits.selected, traits: traits.items,
+    modelTip: modelShortcut ? `${modelLabel} · ${modelShortcut}` : modelLabel, fieldLabel: fieldLabel(client),
+    traitsLabel: display.label, traitsTip,
+    effortShown: effort.shown, effortWord: effort.word, effortBars: glyph && !effort.word ? effortBars(glyph) : [], effortBarsWidth: glyph ? 4 * glyph.count - 2 : 0,
+    effortSpeed: effort.speed, effortOther: effort.other,
+    providerIcon: acpInstanceIcon(client.config, provider),
+    ...layout, traitsOverflow: ownership.traitsHidden, modeOverflow: ownership.modeHidden, traitsCount: traits.count, traitsSelected: traits.selected, traits: traits.items,
+    // Where Permissions live (resolveComposerControlsOwnership): the chip shows its label, its icon or nothing; the
+    // effort chip or the overflow menu answers composer.mode while it does not. Without an effort chip, upstream's
+    // Permissions chip keeps its data-composer-shortcut="composer.mode", so it answers whatever ownership says.
+    accessDisplay: ownership.accessDisplay, accessEmphasized: !accessMatchesDefault, showModeBlock: ownership.showModeBlock,
+    effortOwnsMode: effort.shown && ownership.effortOwnsModeShortcut, overflowPermissions: ownership.overflowShowsPermissions, permissionsInStrip,
+    permissionsTip: `Permissions: ${runtime.label}. ${runtime.description}`,
+    stripPermissionsTip: ['Permissions', chordGlyphs(keyMode.split(' ')[0] ?? '')].filter(Boolean).join(' · '),
     runtimeMode: runtime.mode, runtimeLabel: runtime.label, runtimeIcon: runtime.icon, runtimeDescription: runtime.description,
     runtimeSelected: Math.max(0, runtimes.indexOf(runtime)), runtimeCount: runtimes.length,
     runtimes: runtimes.map((option, index) => ({ ...option, selected: option === runtime, index })),
     planVisible, planActive: planVisible && client.interactionMode === 'plan',
     ultrathink: ultrathinkFrame(client, prompt),
-    more: more.items, moreCount: more.count, restingMore: restingMore.items, restingMoreCount: restingMore.count,
-    moreMenuWidth: effortMenuWidth(client.presentation, more.items), restingMoreMenuWidth: effortMenuWidth(client.presentation, restingMore.items), moreMenuHeight: traitsMenuHeight(more.items), restingMoreMenuHeight: traitsMenuHeight(restingMore.items), // the spectrum ring and the model icon's chroma
-    keyEffort: commandChords(client.config, 'composer.effort', 'Meta+Shift+E', false, keyContext), keyMode: commandChords(client.config, 'composer.mode', 'Meta+Shift+A', false, keyContext),
+    more: more.items, moreCount: more.count,
+    moreMenuWidth: effortMenuWidth(client.presentation, more.items), moreMenuHeight: traitsMenuHeight(more.items),
+    keyEffort, keyMode,
   };
 }
 
@@ -243,23 +305,17 @@ export function withNoticeDetails<T extends ComposerNotice>(client: T3Client, no
 /** The snapshot's `composer` row: request state comes from the requests projection. */
 export function composerSnapshot(client: T3Client, now = 0) {
   noteNow(client, now);
+  settleQueuedEdits(client);
   const requests = requestPresentation(client);
   const question = requests.questions[0];
   const phase = client.threadId ? threadPhase(client.projection) : 'disconnected';
-  const view = composerView(client, { approval: requests.approvals.length > 0, question: !!question,
+  const view = composerView(client, { approval: requests.approvals.length > 0, feedback: requests.approvals[0]?.feedback === true, question: !!question,
     choiceOnly: !!question && !question.customAllowed, planReady: !!planFollowUp(client) && !question, terminalOpen: terminalOpen(client) });
-  const tasks = tasksProgress(client), sync = syncStatus(client);
-  // The activity row (sync, else the running turn's tasks unless a request blocks the drawer) is the stack's
-  // first activity item (ChatComposer bannerStackItems): urgent, warning and error notices go before it.
-  const activity = sync ? 'sync' : tasks.tasksTotal > 0 && !requests.approvals.length && !question ? 'tasks' : '';
-  const ranked = composerNotices(client, now), after = ranked.findIndex(notice => noticeRank(notice) > 0);
-  const activityAt = !activity ? -1 : after < 0 ? ranked.length : after, activityFront = activityAt === 0;
-  // `activityBefore`: the stacked activity strip floats just before this notice; `activityLast`: after every notice.
+  // ComposerBannerStack: each notice an attached card; consecutive cards join edge to edge (`stacked`).
   const rootFontSize = clampInterfaceFontSize((client.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface);
-  const notices = withNoticeDetails(client, ranked, rootFontSize).map((notice, index) => ({ ...notice, front: !activityFront && index === 0, activityBefore: !activityFront && index === activityAt,
+  const notices = withNoticeDetails(client, composerNotices(client, now), rootFontSize).map((notice, index) => ({ ...notice, stacked: index > 0,
     titleDetails: noticeTitleDetails(client.presentation, notice, rootFontSize) }));
-  const activityLast = !!activity && !activityFront && activityAt === ranked.length;
-  const queue = queuedView(client), action = primaryAction(client, phase);
+  const queue = queuedEditView(client), action = primaryAction(client, phase);
   if (queue.queueEditing) Object.assign(action, { sendLabel: 'Update queued message', sendIcon: 'check', sendTooltip: 'Update queued message', sendRunning: true });
   // A send that compacts first says so (ComposerPrimaryActions submitLabel, submitTooltip).
   const compact = compactChip(client, now, !!queue.queueEditing);
@@ -267,13 +323,13 @@ export function composerSnapshot(client: T3Client, now = 0) {
   const chosen = composerSelection(client, !!fanoutSelections(client));
   const modelId = chosen.entry ? chosen.model : client.modelId;
   const model = arr((chosen.provider ?? arr(client.config.providers).find(entry => entry.instanceId === client.providerId))?.models).find(entry => entry.slug === modelId);
-  // A provider-native subagent thread mounts no composer: the bar stands alone, without its dock.
-  const bar = subagentBar(client, now);
+  // A provider-native subagent thread mounts no composer: the bar stands alone, without notices.
+  const subagentFrame = layoutFrames(client).subagent, bar = subagentBar(client, now, Array.isArray(subagentFrame) ? Number(subagentFrame[2]) || 0 : 0);
   // Several models for a new thread: the trigger names them (allModelNames), with the picker's shortcut.
   const fan = fanoutView(client), shortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, { terminalOpen: terminalOpen(client) }).split(' ')[0] ?? '');
   if (fan.fanout) view.modelTip = shortcut ? `${fan.fanoutAria} · ${shortcut}` : fan.fanoutAria;
-  if (bar.subagent) { notices.length = 0; queue.queued = []; }
-  return atRootFontSize({ ...view, ...action, ...compact, ...fan, attach: !bar.subagent && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, modelId)), ...frameTops(layoutFrames(client)),
+  if (bar.subagent) notices.length = 0;
+  return atRootFontSize({ ...view, ...action, ...compact, ...fan, attach: !bar.subagent && attachOffered(client, question), ...providerControl(client), ...queue, ...bar, ...contextMeter(client, str(model?.name, modelId)), ...frameTops(layoutFrames(client)),
     // composer-editor-intent.ts; the focused composer's key action takes these (app.contract composerKeyEvent). A focused
     // Diff (or Files preview) comment draft keeps ⌘↩ (DiffCommentAnnotation's isCommentSubmitShortcut), and Annotate's
     // editor too (browser-annotation.ts): the set is empty, or without ⌘↩, then.
@@ -281,11 +337,22 @@ export function composerSnapshot(client: T3Client, now = 0) {
     sendCommandChords: sendCommandChords(client.config, phase === 'running', !client.threadId, terminalOpen(client), composerRequiresModifier(client.local.deviceSettings.sendShortcut, client.draft)),
     // TooltipPopup: 12pt text inset 8pt plus its 1pt border, for the window-edge shift.
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
-    // Menu widths from measured texts (composer-menus.ts); Run on's labels join the probes.
+    // Menu widths from measured texts (composer-menus.ts); Run on's labels join the probes, and the texts the notices
+    // and the timeline's end lines measure by.
     ...composerMenus(client.presentation, view, runOnLabels(environmentView(client)),
-      [probe(action.sendTooltip, 12, 400), ...notices.filter(measurable).flatMap(notice => descriptionTexts(notice).map(([text, weight]) => probe(text, 12, weight))), ...stripLabelTexts(client).map(text => probe(text, 12, 400)), ...notices.map(notice => probe(notice.title, 12, 500))]),
+      [probe(action.sendTooltip, 12, 400), probe(UNAVAILABLE_BADGE, 10, 500), ...notices.filter(measurable).flatMap(notice => descriptionTexts(notice).map(([text, weight]) => probe(text, 12, weight))), ...stripLabelTexts(client).map(text => probe(text, 12, 400)), ...notices.map(notice => probe(notice.title, 12, 500)), ...threadNowProbes(client)]),
     stripCompact: stripLabelsCompact(client, rootFontSize),
-    syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, activityFront: !bar.subagent && activityFront, activityLast: !bar.subagent && activityLast, notices, resetConfirm: bar.subagent ? '' : usageConfirm(client) }, rootFontSize);
+    // ScrollToEndButton's summary: what waits at the end of the timeline while it is out of view.
+    endSummary: endSummary(client),
+    // Images taken into the draft and still being prepared: their tiles show at once, disabled (preparingComposerImages).
+    preparingImages: preparingImages(client),
+    // The draft images' uploads, which start as each joins the draft (composer-uploads.ts). Send and Return wait for them
+    // (attachmentUploadBlockReason); a send that goes anyway, an annotation's, is kept until they land, and the root sends
+    // the first kept one that can go (`sendResume`).
+    uploads: uploadTable(client), uploadBlock: uploadBlock(client), sendResume: readySend(client),
+    // The shown approval's reason and why full access still asked (ComposerPendingApprovalPanel).
+    approvalReason: requests.approvals[0]?.reason ?? '', approvalWhy: requests.approvals[0]?.whyAsked ?? '',
+    notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), ...usageResetClock(client, now) }, rootFontSize);
 }
 
 /**

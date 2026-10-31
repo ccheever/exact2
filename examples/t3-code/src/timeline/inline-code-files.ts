@@ -1,4 +1,4 @@
-// T3 Code 9c161462c9 (MIT; see LICENSE-T3), shared markdownLinks.ts inlineCodeFilePathCandidate.
+// T3 Code 7c3b3b3605ef (MIT; see LICENSE-T3), shared markdownLinks.ts inlineCodeFilePathCandidate.
 import { isWindowsAbsolutePath } from '../media/media-reference';
 const RELATIVE_PATH_PREFIX_PATTERN = /^(~\/|\.{1,2}\/)/;
 const POSITION_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
@@ -100,6 +100,9 @@ export function inlineCodeFilePathCandidate(codeText: string): string | null {
     isWindowsAbsolutePath(candidate);
   if (!hasExplicitPathShape) {
     const withoutPosition = candidate.replace(POSITION_SUFFIX_PATTERN, "");
+    // Markdown destinations accept `patches/`. Inline code still needs a
+    // file-shaped final segment, so a trailing slash stays plain code.
+    if (withoutPosition.endsWith("/")) return null;
     const firstSegment = withoutPosition.split("/")[0] ?? withoutPosition;
     if (looksLikeHostname(firstSegment, hasPosition)) return null;
     const basename =

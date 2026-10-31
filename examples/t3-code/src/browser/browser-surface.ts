@@ -27,15 +27,16 @@ import {
   type DesktopPreviewOverlay, type PreviewNavStatus, type PreviewSessionSnapshot, type PreviewViewportSetting,
 } from './browser-state';
 import { describePreviewError, previewErrorLabel, previewHost, previewPdfAssetUrl, resolveAddressBarInput } from './browser-url';
+import { emptyViewerFrame, type ViewerFrameView } from '../panel/viewer-frames';
 // Annotate, Capture, Float preview, the separate window and the floating player.
 import { adoptAgentDownload, adoptCaptureNative, browserAutoShowFloatingPreview, floatingTabOf, toggleFloat, artifactLocal, browserCaptureView, browserMiniLocal, cancelHiddenPicks, captureLocal, emptyCaptureView, type BrowserCaptureView } from './browser-capture';
 import { annotationAttachedToDraft } from './browser-annotation';
 import { DEFAULT_BROWSER_PROFILE_ID, browserProfileChoices, tabProfile, type BrowserDefaults } from './browser-profiles';
 import { addressBarSearchTemplate, resolveBrowserOpenDefaults } from './browser-defaults';
 // History, discovery, zoom, appearance, the viewport and the preview keys (browser-navigation.ts).
-import { browserKey, emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, showPreview, type BrowserNavigationView } from './browser-navigation';
-import { browserHistory } from './browser-history';
-import { environmentHostname, preparedConnection, resolveDiscoveredServerUrl } from './browser-targets';
+import { browserKey, focusUrlTaken, emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, showPreview, type BrowserNavigationView } from './browser-navigation';
+import { recordVisit } from './browser-history-record';
+import { preparedConnection, resolveDiscoveredServerUrl } from './browser-targets';
 import { fleet } from '../connections/settings-b-fleet';
 import { pushToast } from '../shell/toast';
 import { miniStoreOf, deviceThreadId } from '../device/device-session';
@@ -383,6 +384,8 @@ export type BrowserView = {
   tabId: string; runtimeId: string; server: boolean; streamUrl: string; environment: string; profileId: string; profileName: string; showProfile: boolean;
   /** A server tab on one of the environment's PDF assets: the PDF this client shows over the stream (browser-url.ts previewPdfAssetUrl). */
   pdfUrl: string;
+  /** The viewer page that shows it (server-pdf-viewer.ts; panel-surfaces.ts sets it). */
+  pdfViewer: ViewerFrameView;
   url: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; refreshDisabled: boolean; hasWebContents: boolean;
   empty: boolean; failed: boolean; failHost: string; failMessage: string; failLabel: string; live: boolean;
   /** The "+" menu's profile submenu (RightPanelTabs MenuSubPopup). */
@@ -394,7 +397,7 @@ export type BrowserView = {
 } & BrowserNavigationView;
 /** Part 4: the profile lists are the client's (Default, Incognito and the named ones); without a client, the built-ins. */
 export const emptyBrowserView = (client?: T3Client): BrowserView => ({
-  tabId: '', runtimeId: '', server: false, streamUrl: '', pdfUrl: '', environment: '', profileId: DEFAULT_BROWSER_PROFILE_ID, profileName: 'Default', showProfile: false, url: '', loading: false, canGoBack: false, canGoForward: false,
+  tabId: '', runtimeId: '', server: false, streamUrl: '', pdfUrl: '', pdfViewer: emptyViewerFrame(), environment: '', profileId: DEFAULT_BROWSER_PROFILE_ID, profileName: 'Default', showProfile: false, url: '', loading: false, canGoBack: false, canGoForward: false,
   refreshDisabled: true, hasWebContents: false, empty: true, failed: false, failHost: '', failMessage: '', failLabel: '', live: false,
   profiles: browserProfileChoices(client), capture: emptyCaptureView(), moveTarget: '', moveLabel: '', ...emptyNavigationView(),
 });
@@ -407,7 +410,7 @@ export function browserView(client: T3Client, surface: Surface | null, now = 0):
   const empty = shouldShowPreviewEmptyState(snapshot ? { navStatus: nav } : null), failed = nav._tag === 'LoadFailed';
   return {
     tabId: surface.browser.tabId, runtimeId, server: snapshot?.runtime === 'server', streamUrl: serverStreamUrl(client, runtimeId), environment: ref.environmentId,
-    pdfUrl: snapshot?.runtime === 'server' && nav._tag === 'Success' ? previewPdfAssetUrl(nav.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', ...tabProfile(client, snapshot?.profileId), // the badge shows a profile other than the configured default
+    pdfUrl: snapshot?.runtime === 'server' && nav._tag === 'Success' ? previewPdfAssetUrl(nav.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', pdfViewer: emptyViewerFrame(), ...tabProfile(client, snapshot?.profileId), // the badge shows a profile other than the configured default
     url: nav._tag === 'Idle' ? '' : nav.url, loading: nav._tag === 'Loading', canGoBack: snapshot?.runtime === 'server' && !serverStreamFrame(client, runtimeId).controlled ? false : tab?.canGoBack ?? snapshot?.canGoBack ?? false,
     canGoForward: snapshot?.runtime === 'server' && !serverStreamFrame(client, runtimeId).controlled ? false : tab?.canGoForward ?? snapshot?.canGoForward ?? false, refreshDisabled: nav._tag === 'Idle' || (snapshot?.runtime === 'server' && !serverStreamFrame(client, runtimeId).controlled), hasWebContents: !!tab || snapshot?.runtime === 'server',
     empty, failed, failHost: failed ? previewHost(nav.url) : '', failMessage: failed ? describePreviewError(nav.description).replace(/\.+$/, '') : '',
@@ -487,6 +490,7 @@ export async function frameLocal(client: T3Client, native: Native, op: string, i
     case 'frame-prompt': adoptFramePrompt(client, id, value); break;
     case 'frame-answer': await answerFramePrompt(client, id, value); break;
     case 'frame-key': await browserKey(client, id, value); break;
+    case 'frame-url-focused': focusUrlTaken(client, id, Number(value) || 0); break;
     // A person's download asks where with the platform's save sheet; an agent's goes to setDownloadBehavior's folder and
     // then into the artifact directory. The app shows nothing about either, as the reference's handler shows nothing.
     case 'frame-download': await adoptAgentDownload(client, native, value); break;
@@ -514,7 +518,7 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
     if (op === 'navigate' || op === 'open-url') {
       let url: string; try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch { return ''; }
       if (sendServerCommand(client, runtimeId, { type: 'navigate', url })) {
-        host.store.rememberUrl(ref, url); browserHistory(client.local).recordVisitForThread(ref, url, navigationNow(client), environmentHostname(client));
+        host.store.rememberUrl(ref, url); recordVisit(client, ref, url, navigationNow(client));
       }
       return '';
     }
@@ -533,7 +537,7 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
       try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch { return ''; }
       frameOp(client); navigateFrame(client, runtimeId, url);
       host.store.rememberUrl(ref, url);
-      browserHistory(client.local).recordVisitForThread(ref, url, navigationNow(client), environmentHostname(client));
+      recordVisit(client, ref, url, navigationNow(client));
       return '';
     }
     case 'toggle-mute': { // the tab menu's Mute / Unmute and the tab's audio button (previewBridge.setAudioMuted)

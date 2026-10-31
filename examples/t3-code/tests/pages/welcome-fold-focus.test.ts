@@ -5,11 +5,11 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
-import { appPath } from '../support/app-files';
+import { appPath, appText } from '../support/app-files';
 
 const root = contractComponent('app.contract', 'T3Code');
 const lineOf = (file: string, pattern: RegExp) => {
-  const match = readFileSync(appPath(file), 'utf8').split('\n').map(line => pattern.exec(line)).find(Boolean);
+  const match = appText(file).split('\n').map(line => pattern.exec(line)).find(Boolean);
   if (!match) throw new Error(`${file}: no line matches ${pattern}`);
   return match[1]!;
 };

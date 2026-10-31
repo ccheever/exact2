@@ -1,13 +1,11 @@
 // The Files surface's rendered HTML (FilePreviewPanel's eye toggle and
-// WorkspaceBrowserPreview), the Duo / fold stand tooltips' text, and regular expression literals and
-// ternaries in HTML scripts against runs recorded from Shiki 4.2 (pierre-light) on the HEAD source.
+// WorkspaceBrowserPreview), and the Duo / fold stand tooltips' text.
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { filesLocal, filesView, workspaceMutationId } from '../../src/panel/files-surface';
 import { adoptFilesPrefs, filesPrefs } from '../../src/panel/files-prefs';
-import { contentRevision, htmlPage, htmlResource, htmlToggleLabel, isHtmlPath, revisedUrl } from '../../src/panel/files-rendered-html';
-import { highlight, type Token } from '../../src/highlight/timeline-highlight';
+import { htmlPage, htmlResource, htmlToggleLabel, isHtmlPath, revisedUrl } from '../../src/panel/files-rendered-html';
 import { deviceFolding } from '../../src/device/device-duo';
 
 const native = { available: true } as unknown as Native;
@@ -42,7 +40,8 @@ describe('Files: rendered HTML (FilePreviewPanel renderBrowserFile)', () => {
     expect(view.canRender).toBe(true);
     expect(view.renderLabel).toBe('Show HTML source');
     expect(view.renderIcon).toBe('code');
-    expect(view.url).toBe(`http://127.0.0.1:9/api/assets/signed/abc?sig=1&workspace-revision=${contentRevision('<h1>Hi</h1>')}`);
+    // No workspace change yet: no revision in the URL (WorkspaceBrowserPreview's revisionSuffix for a null mutation).
+    expect(view.url).toBe('http://127.0.0.1:9/api/assets/signed/abc?sig=1');
     expect(view.crumbsOffset).toBe(-1);
     const mint = calls.find(call => call.method === 'assets.createUrl');
     expect(mint?.payload).toEqual({ resource: { _tag: 'workspace-file', threadId: 't1', path: '/repo/site/index.html' } });
@@ -105,7 +104,6 @@ describe('Files: rendered HTML (FilePreviewPanel renderBrowserFile)', () => {
     expect(htmlToggleLabel(false)).toBe('Show rendered page');
     expect(revisedUrl('http://h/a?s=1', 'r1')).toBe('http://h/a?s=1&workspace-revision=r1');
     expect(revisedUrl('http://h/a', 'r 1')).toBe('http://h/a?workspace-revision=r%201');
-    expect(contentRevision('a')).not.toBe(contentRevision('b'));
   });
 });
 
@@ -168,51 +166,6 @@ describe('Duo and fold tooltips (DeviceDuoControls / DeviceAndroidFoldControls T
     expect(landscape.groups[0]!.stands.map(stand => stand.tip)).toEqual(['Closed', 'Laptop', 'Open']);
     const fold = deviceFolding({ status: 'streaming', fold: { supported: true, posture: 'opened' } }, 'android', false, true);
     expect(fold.groups[0]!.stands.map(stand => stand.tip)).toEqual(['Fold device', 'Unfold device']);
-  });
-});
-
-// Shiki 4.2 (html grammar, pierre-light) runs, as `text:colour`, mapped to the app's classes.
-const COLOR: Record<string, string> = { str: '#199f43', regex: '#17a5af', punct: '#636363', flag: '#d5a910', tag: '#d5512f', kw: '#d32a61', esc: '#16a994', var: '#d47628', op: '#08c0ef', fn: '#693acf', decl: '#a631be', num: '#1ca1c7', '': '#0a0a0a' };
-function colours(tokens: Token[]): string {
-  const out: string[] = [];
-  for (const token of tokens) for (const character of token.text) if (!/\s/.test(character)) out.push(`${character}${COLOR[token.cls] ?? token.cls}`);
-  return out.join(' ');
-}
-function shiki(runs: [string, string][]): string {
-  const out: string[] = [];
-  for (const [text, colour] of runs) for (const character of text) if (!/\s/.test(character)) out.push(`${character}${colour.toLowerCase()}`);
-  return out.join(' ');
-}
-
-describe('HTML scripts: regular expression literals and ternaries as Shiki colours them', () => {
-  test('a literal and its parts; division is not a literal', () => {
-    const code = '<script>var re = /a[b/]+c\\/d/gi; x = a / b / c;</script>';
-    expect(colours(highlight(code, 'html'))).toBe(shiki([
-      ['<', '#636363'], ['script', '#D5512F'], ['>', '#636363'], ['var', '#A631BE'], ['re', '#D47628'], ['=', '#08C0EF'], ['/', '#199F43'], ['a', '#17A5AF'], ['[', '#636363'], ['b/', '#D5A910'], [']', '#636363'], ['+', '#D5A910'], ['c', '#17A5AF'], ['\\/', '#16A994'], ['d', '#17A5AF'], ['/', '#199F43'], ['gi', '#D32A61'], [';', '#636363'],
-      ['x', '#D47628'], ['=', '#08C0EF'], ['a', '#D47628'], ['/', '#08C0EF'], ['b', '#D47628'], ['/', '#08C0EF'], ['c', '#D47628'], [';', '#636363'], ['</', '#636363'], ['script', '#D5512F'], ['>', '#636363'],
-    ]));
-  });
-  test('groups, classes, anchors, escapes and backreferences', () => {
-    const code = '<script>y = /(x|y)?\\d{2,3}[^a-z]$\\.\\b/m.test(s)</script>';
-    expect(colours(highlight(code, 'html'))).toBe(shiki([
-      ['<', '#636363'], ['script', '#D5512F'], ['>', '#636363'], ['y', '#D47628'], ['=', '#08C0EF'], ['/', '#199F43'], ['(', '#636363'], ['x', '#17A5AF'], ['|', '#636363'], ['y', '#17A5AF'], [')', '#636363'], ['?', '#D5A910'], ['\\d', '#D5512F'], ['{2,3}', '#D5A910'], ['[^', '#636363'], ['a-z', '#D5A910'], [']', '#636363'], ['$', '#D32A61'], ['\\.', '#16A994'], ['\\b', '#D32A61'], ['/', '#199F43'], ['m', '#D32A61'], ['.', '#636363'], ['test', '#693ACF'], ['(', '#636363'], ['s', '#D47628'], [')</', '#636363'], ['script', '#D5512F'], ['>', '#636363'],
-    ]));
-    const named = '<script>a = /(?<n>q)\\1\\k<n>.*?[\\d\\]]+?/u</script>';
-    expect(colours(highlight(named, 'html'))).toBe(shiki([
-      ['<', '#636363'], ['script', '#D5512F'], ['>', '#636363'], ['a', '#D47628'], ['=', '#08C0EF'], ['/', '#199F43'], ['(?<', '#636363'], ['n', '#D47628'], ['>', '#636363'], ['q', '#17A5AF'], [')', '#636363'], ['\\1\\k<', '#D32A61'], ['n', '#D47628'], ['>', '#D32A61'], ['.', '#D5512F'], ['*?', '#D5A910'], ['[', '#636363'], ['\\d', '#D5512F'], ['\\]', '#16A994'], [']', '#636363'], ['+?', '#D5A910'], ['/', '#199F43'], ['u', '#D32A61'], ['</', '#636363'], ['script', '#D5512F'], ['>', '#636363'],
-    ]));
-  });
-  test('a closing tag inside a literal stays in it; a JSX-looking group does not start JSX', () => {
-    const tokens = highlight('<script>var r = /</script>/</script><p>x</p>', 'html');
-    expect(colours(tokens)).toBe(shiki([
-      ['<', '#636363'], ['script', '#D5512F'], ['>', '#636363'], ['var', '#A631BE'], ['r', '#D47628'], ['=', '#08C0EF'], ['/<', '#08C0EF'], ['/', '#199F43'], ['script>', '#17A5AF'], ['/', '#199F43'], ['</', '#08C0EF'], ['script', '#D47628'], ['>', '#08C0EF'], ['<', '#636363'], ['p', '#D5512F'], ['>x</', '#636363'], ['p', '#D5512F'], ['>', '#636363'],
-    ]));
-    expect(colours(highlight('<script>m = s.match(/(?<year>\\d{4})/u);</script>', 'html'))).toContain('y#d47628 e#d47628 a#d47628 r#d47628 >#636363 \\#d5512f');
-  });
-  test("a ternary's colon is a keyword, also around a literal; an object key's is punctuation", () => {
-    const tokens = highlight('<script>const z = c ? /yes/ : {a: 1};</script>', 'html');
-    expect(tokens.find(token => token.text.trim() === ':' && token.cls === 'kw')).toBeTruthy();
-    expect(colours(highlight('x = c ? {b: 1} : 2', 'typescript'))).toBe('x#d47628 =#08c0ef c#d47628 ?#d32a61 {#636363 b#d47628 :#636363 1#1ca1c7 }#636363 :#d32a61 2#1ca1c7');
   });
 });
 

@@ -1,34 +1,13 @@
-// Lane composer-controls: the queued-messages grip's keyboard reorder (QueuedRunsControl onKeyDown).
+// Lane composer-controls: composer commands take the snapshot clock.
 import { describe, expect, test } from 'bun:test';
 import { arr } from '../../src/client/domain';
 import { opened, running } from '../support/composer-controls-fixture';
 import { snapshot } from '../../src/client/presentation';
 
-describe('queued messages reorder', () => {
-  test('↑ moves before the previous row, ↓ after the next one; the ends and other keys do nothing', async () => {
-    const { client, native, command } = await opened();
-    running(client, { activeAttemptId: 'a1' });
-    client.thread!.projection.runs = [...arr(client.thread!.projection.runs),
-      { id: 'q1', ordinal: 2, status: 'queued', queuePosition: 1, userMessageId: 'm1' },
-      { id: 'q2', ordinal: 3, status: 'queued', queuePosition: 2, userMessageId: 'm2' },
-      { id: 'q3', ordinal: 4, status: 'queued', queuePosition: 3, userMessageId: 'm3' }];
-    client.thread!.projection.messages = [{ id: 'm1', text: 'one' }, { id: 'm2', text: 'two' }, { id: 'm3', text: 'three' }];
-    const before = native.committed.length;
-    await command('cc:queued-key', 'q2', 'ArrowUp');
-    expect(native.committed.at(-1)).toMatchObject({ type: 'queued-run.reorder', runId: 'q2', beforeRunId: 'q1' });
-    await command('cc:queued-key', 'q1', 'ArrowDown');
-    expect(native.committed.at(-1)).toMatchObject({ type: 'queued-run.reorder', runId: 'q1', beforeRunId: 'q3' });
-    await command('cc:queued-key', 'q2', 'ArrowDown');
-    expect(native.committed.at(-1)).toMatchObject({ type: 'queued-run.reorder', runId: 'q2', beforeRunId: null });
-    const after = native.committed.length;
-    expect(after - before).toBe(3);
-    await command('cc:queued-key', 'q1', 'ArrowUp');
-    await command('cc:queued-key', 'q3', 'ArrowDown');
-    await command('cc:queued-key', 'q2', 'Tab');
-    expect(native.committed.length).toBe(after);
-  });
+describe('composer commands', () => {
   test('composer commands run without Date.now() (data sources have none): the snapshot clock stands in', async () => {
     const { client, native, command } = await opened();
+    client.local.clientSettings.followUpBehavior = 'queue'; // follow-ups steer by default
     snapshot(client, Date.parse('2026-10-03T02:00:00.000Z'));
     running(client);
     const real = Date.now;

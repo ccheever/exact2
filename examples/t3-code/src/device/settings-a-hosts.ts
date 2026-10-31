@@ -179,7 +179,7 @@ async function singleDeviceHostsCommand(client: T3Client, native: Native, op: st
   if (op === 'hosts-close') { state.editor = null; return ''; }
   if (op === 'hosts-open' || op === 'hosts-edit') {
     if (projectScope) throw new ClientError('Device hosts belong to the environment. Choose All projects to manage them.');
-    const settings = await access.request('server.getSettings');
+    const settings = obj((await access.request('server.getConfig')).settings);
     const host = op === 'hosts-edit' ? hostsOf(settings).find(entry => entry.id === input.id) : { id: randomId(), label: '', target: '' };
     if (!host) throw new ClientError('That device host is no longer configured.');
     state.serial++;
@@ -187,7 +187,7 @@ async function singleDeviceHostsCommand(client: T3Client, native: Native, op: st
     return '';
   }
   if (op === 'hosts-test' || op === 'hosts-test-row') {
-    const parsed = op === 'hosts-test-row' ? hostsOf(await access.request('server.getSettings')).find(entry => entry.id === input.id) ?? 'That device host is no longer configured.'
+    const parsed = op === 'hosts-test-row' ? hostsOf(obj((await access.request('server.getConfig')).settings)).find(entry => entry.id === input.id) ?? 'That device host is no longer configured.'
       : parseHost({ ...fields(input), label: input.label?.trim() || str(input.target) });
     if (typeof parsed === 'string') throw new ClientError(parsed);
     const check = await test(client, native, parsed);
@@ -205,7 +205,7 @@ async function singleDeviceHostsCommand(client: T3Client, native: Native, op: st
   }
   if (op === 'hosts-save' || op === 'hosts-remove') {
     if (projectScope) throw new ClientError('Device hosts belong to the environment. Choose All projects to manage them.');
-    const settings = await access.request('server.getSettings'), hosts = hostsOf(settings);
+    const settings = obj((await access.request('server.getConfig')).settings), hosts = hostsOf(settings);
     let next: HostConfig[];
     if (op === 'hosts-remove') {
       const host = hosts.find(entry => entry.id === input.id);

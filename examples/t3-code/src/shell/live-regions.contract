@@ -1,0 +1,15 @@
+// The window's polite live regions (announce.ts; T3 Code 7c3b3b3605ef, MIT, see LICENSE-T3: lib/announce.ts,
+// hooks/useLiveRegion.ts, chat/ThreadActivityAnnouncer.tsx, BackgroundThreadAnnouncer.tsx): visually hidden texts the
+// host speaks as they change. The data module writes, settles and clears them on the shell's clock. No role="status",
+// as the reference's regions have none.
+use AnnounceView from "./shell-shapes.contract"
+
+component LiveRegions
+  props
+    view: AnnounceView
+  view
+    box position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" pointer-events="none" testId="live-regions"
+      text view.thread aria-live="polite" position="absolute" width=1 height=1 overflow="hidden" testId="live-thread"
+      text view.background aria-live="polite" position="absolute" width=1 height=1 overflow="hidden" testId="live-background"
+      text view.first aria-live="polite" aria-atomic=true position="absolute" width=1 height=1 overflow="hidden" testId="live-announce-1"
+      text view.second aria-live="polite" aria-atomic=true position="absolute" width=1 height=1 overflow="hidden" testId="live-announce-2"

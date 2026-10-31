@@ -1,6 +1,6 @@
 // Version skew between this client and a connected server (T3 Code MIT, see LICENSE-T3;
-// reference 9c161462c9: apps/web/src/versionSkew.ts, packages/shared/src/semver.ts).
-// Port changes: APP_VERSION is CLIENT_VERSION (the Nightly this client mirrors) and
+// reference 6d450a4284: apps/web/src/versionSkew.ts, packages/shared/src/semver.ts).
+// Port changes: APP_VERSION is CLIENT_VERSION (the release this client mirrors) and
 // every resolver takes the client version as an optional argument; the dismissal
 // document lives in the client's preference file (shell-prefs.ts
 // `versionMismatchDismissals`) instead of localStorage, so a store is passed in
@@ -9,8 +9,8 @@
 import { obj, str } from '../client/domain';
 import { manualServerUpdateCommand, type ServerInstallation } from './server-installation';
 
-/** This client's T3 Code release: the Nightly it mirrors (e64766c56a, 0.1.2-nightly.20261021.3457). */
-export const CLIENT_VERSION = '0.1.2-nightly.20261021.3457';
+/** This client's T3 Code release: the stable release it mirrors (v0.1.5, 6d450a4284). */
+export const CLIENT_VERSION = '0.1.5';
 
 export { manualServerUpdateCommand };
 export type { ServerInstallation };
@@ -78,12 +78,6 @@ export function resolveServerSelfUpdateCapability(config: unknown): string | nul
 }
 /** The desktop app supervising this server can be told to update itself over RPC. */
 export function supportsDesktopAppUpdate(config: unknown): boolean { return capabilitiesOf(config).desktopAppUpdate === true; }
-/** The server can recover opted-in running turns after its self-update restart. */
-export function supportsServerUpdateThreadContinuation(config: unknown): boolean { return capabilitiesOf(config).serverUpdateThreadContinuation === true; }
-
-export function serverUpdateGuidance(capability: string): string {
-  return capability === 'desktop-managed' ? 'Update the desktop app' : 'Update to stay in sync';
-}
 
 export function buildVersionMismatchDismissalKey(environmentId: string, mismatch: Pick<VersionMismatch, 'clientVersion' | 'serverVersion'>): string {
   return `${environmentId}:${mismatch.clientVersion}:${mismatch.serverVersion}`;
@@ -112,10 +106,4 @@ export function isServerUpdateFailureDismissed(state: UpdateAttemptState): boole
 }
 export function dismissServerUpdateFailure(state: UpdateAttemptState): void {
   if (state.status === 'failed' && attemptOf(state)) dismissedServerUpdateFailures.add(attemptOf(state));
-}
-
-export function appendVersionMismatchHint(message: string | null | undefined, mismatch: VersionMismatch | null | undefined): string | null {
-  const normalized = normalizeVersion(message);
-  if (!normalized) return mismatch?.hint ?? null;
-  return mismatch ? `${normalized} Hint: ${mismatch.hint}` : normalized;
 }

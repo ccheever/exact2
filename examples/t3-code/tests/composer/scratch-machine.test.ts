@@ -9,12 +9,14 @@ import { environmentOptions, runOnEnvironment } from '../../src/details/git-env'
 import { awaitScratchProject, machineChanging, scratchChoices, SCRATCH_NOT_LOADED } from '../../src/composer/scratch-machine';
 import { activityRun, setupTurnStarted } from '../../src/timeline/worktree-card-run';
 import { adoptWorktreeSetup, threadWorktreeSetup } from '../../src/timeline/timeline-worktree';
-import { autoShowDevices, resetLaunch, visibleMini } from '../../src/device/floating-player';
+import { applyDeviceSnapshot, resetLaunch, visibleMini } from '../../src/device/floating-player';
+import { EnvironmentFleet } from '../../src/connections/settings-b-fleet';
 import { chatCanvasView } from '../../src/shell/chat-canvas-view';
 import { resolvePreviewMiniPlayerFrame, resolveDeviceMiniPlayerSourceSize } from '../../src/device/previewMiniPlayerLayout';
 import { deviceMini, floatMiniDevice } from '../../src/device/device-session';
 import { toasts } from '../../src/shell/toast';
 import { setLayoutFrames } from '../support/layout-frames';
+import { withTimers } from '../support/timers';
 
 const scratchRoot = (machine: string) => `/Users/${machine}/.t3/scratch`;
 const entry = (id: string, extra: Partial<FleetEntry> = {}): FleetEntry => ({
@@ -71,24 +73,29 @@ describe('No project drafts switch machine (c47f4263f9, 845ddd9354)', () => {
       const call = request as Obj;
       if (call.op === 'request') return { ok: true, value: { projectId: 'sc' }, generation: 1 };
       if (call.op === 'http') return { ok: true, value: { snapshotSequence: 1, projects: [], threads: [] }, generation: 1 };
-      return { ok: true, value: {}, generation: 1 }; // timelineSleep: no wall-clock wait in the test
+      return { ok: true, value: {}, generation: 1 };
     } } as Native;
     const client = scratchDraft();
-    expect(await runOnEnvironment(client, native, 'c', source)).toEqual({ status: null, generation: -1 });
+    expect(await withTimers(() => runOnEnvironment(client, native, 'c', source))).toEqual({ status: null, generation: -1 });
     expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Could not switch machine', SCRATCH_NOT_LOADED]]);
     expect(client.local.drafts).toEqual({ 'a:new:sa': 'no project text' });
   });
 
   test('openScratch waits up to 10 s: rereads every half second, then fails', async () => {
-    const slept: number[] = [];
-    const native = { available: true, watch() {}, later: async (request: unknown) => { slept.push(Number((request as Obj).ms)); return { ok: true, value: {}, generation: 0 }; } } as Native;
     let reads = 0;
-    await awaitScratchProject(native, () => reads >= 3, async () => { reads++; });
-    expect(slept).toEqual([500, 500, 500]);
-    slept.length = 0;
-    await expect(awaitScratchProject(native, () => false, async () => {})).rejects.toThrow(SCRATCH_NOT_LOADED);
-    expect(slept.length).toBe(20);
-    expect(slept.reduce((sum, ms) => sum + ms, 0)).toBe(10_000);
+    const found = await withTimers(async () => {
+      const start = Date.now();
+      await awaitScratchProject(() => reads >= 3, async () => { reads++; });
+      return Date.now() - start;
+    });
+    expect([reads, found]).toEqual([3, 1_500]);
+    reads = 0;
+    const [error, waited] = await withTimers(async () => {
+      const start = Date.now();
+      return [await awaitScratchProject(() => false, async () => { reads++; }).catch((failure: unknown) => failure), Date.now() - start] as const;
+    });
+    expect((error as Error).message).toBe(SCRATCH_NOT_LOADED);
+    expect([reads, waited]).toEqual([20, 10_000]);
   });
 });
 
@@ -119,29 +126,28 @@ describe('a thread\'s device session floats (ChatView autoShowFloatingPreview)',
   const state = (sessions: Obj[]) => ({ hosts: [], devices: [iphone], sessions });
   const open = { threadId: 't1', hostId: 'local', deviceId: 'IPHONE' };
   const thread = (threadId = 't1') => ({ environmentId: 'env', threadId, generation: 1, presentation: {} }) as unknown as T3Client;
-  test('the thread open before the first device state floats its session; a later visit takes a baseline', () => {
+  const apply = (client: T3Client, snapshot: Obj, sheet = false) => applyDeviceSnapshot(client, 'env', snapshot, { sheet, autoShowFloatingPreview: true }, new EnvironmentFleet());
+  test('the environment\'s first device state is a baseline; a session opened after it floats over its thread', () => {
     resetLaunch();
     const first = thread();
-    autoShowDevices(first, null, false); // before the first chunk: EMPTY_DEVICE_STATE, an empty baseline
-    autoShowDevices(first, state([open]), false);
+    apply(first, state([open]));
+    expect(deviceMini(first, state([open])).show).toBe(false);
+    apply(first, state([]));
+    apply(first, state([open]));
     expect(deviceMini(first, state([open]))).toMatchObject({ show: true, name: 'iPhone 18 Pro', deviceId: 'IPHONE' });
-    const later = thread('t2');
-    autoShowDevices(later, state([]), false); // the launch thread is elsewhere
-    (later as unknown as { threadId: string }).threadId = 't1';
-    autoShowDevices(later, state([open]), false);
-    expect(deviceMini(later, state([open])).show).toBe(false);
   });
   test('a new session floats, a closed one takes the player with it, a sheet layout floats nothing', () => {
     resetLaunch();
     const client = thread();
-    autoShowDevices(client, state([]), false);
-    autoShowDevices(client, state([open]), false);
+    apply(client, state([]));
+    apply(client, state([open]));
     expect(deviceMini(client, state([open])).show).toBe(true);
-    autoShowDevices(client, state([]), false);
+    apply(client, state([]));
     expect(deviceMini(client, state([])).show).toBe(false);
     resetLaunch();
     const narrow = thread();
-    autoShowDevices(narrow, state([open]), true);
+    apply(narrow, state([]), true);
+    apply(narrow, state([open]), true);
     expect(deviceMini(narrow, state([open])).show).toBe(false);
   });
   test('the player hides while the panel shows the same device (shouldRenderPreviewMiniPlayer)', () => {

@@ -1,0 +1,24 @@
+// ProviderInstanceIcon in the composer's model trigger and the picker's rail: an ACP Registry instance draws its
+// agent's icon (`icon`, acp-instance-icon.ts) as the sidebar's rows do (icons-kit.contract SidebarProviderMark); every
+// other driver is ProviderInstanceMark. The account badge is ProviderInstanceMark's.
+use ProviderInstanceMark from "../shared/icons-kit.contract"
+use AcpRegistryAgentIcon from "../providers/provider-icons-kit.contract"
+use providerAccentInk from "../shared/accent-ink.contract"
+
+component ComposerInstanceMark
+  props
+    driver: string
+    icon: string
+    size: number
+    color: string
+    badge: string
+    accent: string
+  view
+    box width=`${size / 16}rem` height=`${size / 16}rem` position="relative" flex-shrink=0
+      if driver == "acpRegistry"
+        AcpRegistryAgentIcon(icon=icon, size=size, color=color)
+        if badge != ""
+          box position="absolute" right="-0.1875rem" bottom="-0.1875rem" min-width=(size <= 16 ? "0.75rem" : "0.875rem") height=(size <= 16 ? "0.75rem" : "0.875rem") padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="1.25rem" border-width=1 border-style="solid" border-color=(accent != "" ? accent : "light-dark(#d4d4d8, #ffffff1c)") background-color=(accent != "" ? accent : "light-dark(#ffffff, #111111)") box-shadow="0 1px 3px #0000001a, 0 1px 2px -1px #0000001a" display="flex" flex-direction="row" align-items="center" justify-content="center"
+            text badge font-size=(size <= 16 ? "0.4375rem" : "0.5rem") font-weight=600 line-height=1 color=(accent != "" ? providerAccentInk(accent) : "light-dark(#71717b, #a1a1a1)")
+      else
+        ProviderInstanceMark(driver=driver, size=size, color=color, badge=badge, accent=accent)

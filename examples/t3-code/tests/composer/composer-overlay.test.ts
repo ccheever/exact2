@@ -6,7 +6,7 @@ import { setLayoutFrames } from '../support/layout-frames';
 
 // Window-space frames [x, top, width, height] as app.contract measures them (layout-frames.ts).
 const frames = (height: number, card = 118, extra: Obj = {}): Obj => ({ overlay: [276, 840 - height, 736, height], card: [276, 840 - height, 736, card], ...extra });
-const input = (over: Partial<{ owner: string; frames: Obj; atEnd: boolean; pulls: number; content: string; rem: number }>) =>
+const input = (over: Partial<{ owner: string; frames: Obj; atEnd: boolean; pulls: number; content: string }>) =>
   ({ owner: 'o:p:t', frames: frames(170), atEnd: true, pulls: 0, content: '3:m3:10:0', ...over });
 
 describe('composer overlay reservation (resolveComposerTimelineInset, TimelineListFooter)', () => {
@@ -34,12 +34,10 @@ describe('composer overlay reservation (resolveComposerTimelineInset, TimelineLi
     composerOverlay(hold, input({ frames: frames(290, 238) }));
     expect(composerOverlay(hold, input({ frames: frames(290, 238), pulls: 1 })).transcriptTail).toBe(302);
   });
-  test('the reserved composer height follows the overlay and holds while the card rests', () => {
+  test('the reserved composer height follows the overlay', () => {
     const hold = newOverlayHold();
     expect(composerOverlay(hold, input({ frames: {} })).composerReserved).toBe(UNMEASURED_INSET);
     expect(composerOverlay(hold, input({ frames: frames(290, 238), atEnd: false })).composerReserved).toBe(290);
-    // A resting card (48pt row) keeps the expanded height, so the terminal drawer's cap does not move.
-    expect(composerOverlay(hold, input({ frames: frames(96, 48) })).composerReserved).toBe(290);
     expect(composerOverlay(hold, input({ frames: frames(170) })).composerReserved).toBe(170);
   });
   test('a shorter composer releases the reservation at once', () => {
@@ -47,24 +45,14 @@ describe('composer overlay reservation (resolveComposerTimelineInset, TimelineLi
     composerOverlay(hold, input({ frames: frames(290, 238) }));
     expect(composerOverlay(hold, input({ frames: frames(170) })).transcriptTail).toBe(182);
   });
-  test('a resting card keeps the expanded reservation; expanding again moves nothing', () => {
+  // The notices above the composer are all attached cards, so the reservation takes them in. The composer no longer
+  // rests (T3 Code v0.1.5 #25869): a short card is reserved as it is.
+  test('notices above the composer grow the reservation; a short card shrinks it', () => {
     const hold = newOverlayHold();
-    composerOverlay(hold, input({ atEnd: false }));
-    expect(composerOverlay(hold, input({ frames: frames(100, 48), atEnd: false })).transcriptTail).toBe(182);
-    expect(composerOverlay(hold, input({ frames: frames(170), atEnd: false })).transcriptTail).toBe(182);
-  });
-  // resolveComposerTimelineInset's expandedNoticesHeight (T3 Code 74541bab17, #20086): opened notices cover the transcript.
-  test('opening and closing the stacked notices keeps the reservation, working or resting', () => {
-    const hold = newOverlayHold();
-    const stack = (height: number, notices: number, card = 118) => ({ ...frames(height, card), notices: [276, 840 - height, 736, notices] });
-    // A working thread: every snapshot has new content, so a growth would apply at once.
-    expect(composerOverlay(hold, input({ frames: stack(172, 12), content: '1' })).transcriptTail).toBe(172 + 12);
-    expect(composerOverlay(hold, input({ frames: stack(532, 372), content: '2' })).transcriptTail).toBe(172 + 12);
-    expect(composerOverlay(hold, input({ frames: stack(470, 372, 48), content: '3' })).transcriptTail).toBe(172 + 12);
-    expect(composerOverlay(hold, input({ frames: stack(110, 12, 48), content: '4' })).transcriptTail).toBe(172 + 12);
-    // A larger interface font: the collapsed peek is 0.75rem of it.
-    const large = newOverlayHold();
-    expect(composerOverlay(large, input({ frames: stack(531.6, 375.2), content: '1', rem: 20 })).transcriptTail).toBe(Math.ceil(531.6 - 360.2) + 12);
+    // A working thread: every snapshot has new content, so a growth applies at once.
+    expect(composerOverlay(hold, input({ frames: frames(172), content: '1' })).transcriptTail).toBe(172 + 12);
+    expect(composerOverlay(hold, input({ frames: frames(244), content: '2' })).transcriptTail).toBe(244 + 12);
+    expect(composerOverlay(hold, input({ frames: frames(174, 48), content: '3' })).transcriptTail).toBe(174 + 12);
   });
   test('another thread rebuilds the reservation from its own composer', () => {
     const hold = newOverlayHold();

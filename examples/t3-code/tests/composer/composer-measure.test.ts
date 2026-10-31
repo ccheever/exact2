@@ -1,37 +1,50 @@
 // Measured composer labels and menus, ref paging.
 import { describe, expect, test } from 'bun:test';
-import { footerLayout } from '../../src/composer/composer-controls-view';
+import { effortBlockWidth, footerLayout } from '../../src/composer/composer-controls-view';
 import { measuredLabels } from '../../src/composer/composer-measure';
 import { effortMenuWidth, menuProbes, probeKey, runOnMenuWidth, runtimeMenuWidth, uniqueProbes } from '../../src/composer/composer-menus';
 import { refsPageWanted } from '../../src/composer/ref-loading';
 import { firstPage, mergePage, morePages, noteRefScrollEnd, pageWanted, refsStatus, scrollEnds } from '../../src/composer/ref-paging';
 
-// The served reference's measurements (Chrome, f90b77d809) at 1280×840: GPT-5.6-Luna 93.22, "Medium" 52.89,
-// "Full access" 73.05 in the 14pt medium toolbar; the native probes report the same widths.
-const anchors = { 'm-model-sm': [0, 93.22], 'm-traits-sm': [0, 52.89], 'm-runtime-sm': [0, 73.05], 'm-model-xs': [0, 80], 'm-traits-xs': [0, 45.13], 'm-runtime-xs': [0, 62.67] };
-const base = { model: 'GPT-5.6-Luna', traits: 'Medium', traitsIcon: false, runtime: 'Full access', plan: '', measure: measuredLabels({ anchors }) };
+// Measured labels at 1280×840: GPT-5.6-Luna 93.22, "Medium" 52.89, "Full access" 73.05 in the 14pt toolbar.
+const anchors = { 'm-model-sm': [0, 93.22], 'm-traits-sm': [0, 52.89], 'm-runtime-sm': [0, 73.05] };
+const measure = measuredLabels({ anchors });
+const traits = effortBlockWidth({ shown: true, word: 'Medium', bars: 0, speed: '', other: '' }, measure);
+const base = { model: 'GPT-5.6-Luna', traits, runtime: 'Full access', runtimeShown: true, mode: true, plan: '', measure };
 
-describe('composer labels compact at the reference widths (resolveRestingComposerControlsLayout)', () => {
-  test('blocks: picker 143.22 at -10, traits 99.89, mode 142.05 / icon-only 63, gaps 4', () => {
-    // natural 143.22 + 4 + 99.89 + 4 + 142.05 = 393.16; mode icon-only 314.11; both icon-only 277.22.
-    // The reference's host is this footer's controls row plus the 8pt gap before the actions.
-    expect(footerLayout({ ...base, host: 393.16 - 8 })).toMatchObject({ runtimeIconOnly: false, traitsIconOnly: false });
-    expect(footerLayout({ ...base, host: 393.1 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
-    expect(footerLayout({ ...base, host: 314.11 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
-    expect(footerLayout({ ...base, host: 314 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: true });
+describe('composer labels compact at their widths (resolveRestingComposerControlsLayout, v0.1.5 geometry)', () => {
+  test('blocks: picker 129.22 (pe-1, no chevron), effort 54.89 (-ms-1), Permissions 111.05 / icon 32, 2pt apart', () => {
+    expect(traits).toBeCloseTo(54.89, 2);
+    // Natural 129.22 + 54.89 + 111.05 + 2 × 2 = 299.16; the chip as its icon 220.11; the effort as its gauge too 185.22.
+    expect(footerLayout({ ...base, host: 299.16 })).toMatchObject({ runtimeIconOnly: false, traitsIconOnly: false, measuredHidden: 0 });
+    expect(footerLayout({ ...base, host: 299.1 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
+    expect(footerLayout({ ...base, host: 220.11 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
+    expect(footerLayout({ ...base, host: 220 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: true, measuredHidden: 0 });
+    // Below that the chip alone in "…" (34pt) would take 187.22, wider than both icons, so both move into it (165.22).
+    expect(footerLayout({ ...base, host: 185 })).toMatchObject({ measuredHidden: 2, controlsHidden: false });
   });
-  test('the Files panel at 1280: the reference keeps "Medium" with "Full access" as its icon (host 336)', () => {
-    expect(footerLayout({ ...base, host: 336 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
+  test("an unavailable model's badge widens the picker by itself and the trigger's gap", () => {
+    expect(footerLayout({ ...base, badge: 52, host: 299.16 + 58 })).toMatchObject({ runtimeIconOnly: false });
+    expect(footerLayout({ ...base, badge: 52, host: 299.16 + 57 })).toMatchObject({ runtimeIconOnly: true });
+  });
+  test('at the default the mode block is gone, so only the effort can compact', () => {
+    const atDefault = { ...base, runtimeShown: false, mode: false };
+    expect(footerLayout({ ...atDefault, host: 129.22 + 54.89 + 2 })).toMatchObject({ runtimeIconOnly: false, traitsIconOnly: false });
+    expect(footerLayout({ ...atDefault, host: 129.22 + 54.89 + 1 })).toMatchObject({ traitsIconOnly: true });
   });
   test('a promotion back to labels needs a point of slack over the last layout', () => {
-    const host = 393.16 - 8 + 0.5;
+    const host = 299.16 + 0.5;
     expect(footerLayout({ ...base, host })).toMatchObject({ runtimeIconOnly: false });
-    expect(footerLayout({ ...base, host, previous: { sm: 1, xs: 0 } })).toMatchObject({ runtimeIconOnly: true });
-    expect(footerLayout({ ...base, host: host + 1, previous: { sm: 1, xs: 0 } })).toMatchObject({ runtimeIconOnly: false });
+    expect(footerLayout({ ...base, host, previous: { sm: 1 } })).toMatchObject({ runtimeIconOnly: true });
+    expect(footerLayout({ ...base, host: host + 1, previous: { sm: 1 } })).toMatchObject({ runtimeIconOnly: false });
   });
   test('unmeasured labels fall back to the estimate; an unmeasured host never compacts', () => {
-    expect(footerLayout({ ...base, measure: measuredLabels({}), host: 0 })).toMatchObject({ runtimeIconOnly: false, traitsIconOnly: false });
+    expect(footerLayout({ ...base, measure: measuredLabels({}), host: 0 })).toMatchObject({ runtimeIconOnly: false, traitsIconOnly: false, measuredHidden: 0 });
     expect(measuredLabels({ anchors: { 'm-model-sm': [3, 0] } })('model', false)).toBeNull();
+  });
+  test('bars, a bolt and other traits widen the effort chip', () => {
+    expect(effortBlockWidth({ shown: true, word: '', bars: 4, speed: 'Fast', other: '', }, measure)).toBe(3 + 1 + 14 + 6 + 12);
+    expect(effortBlockWidth({ shown: false, word: 'High', bars: 0, speed: '', other: '' }, measure)).toBe(0);
   });
 });
 

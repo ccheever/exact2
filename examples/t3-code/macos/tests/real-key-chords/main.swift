@@ -24,7 +24,7 @@ import XCTest
 /// The reference's ⌘ chords (packages/shared/src/keybindings.ts DEFAULT_KEYBINDINGS; keybindingDefaults) whose
 /// `when` holds in an open thread with nothing focused or the composer focused, the composer's own send chords
 /// (`composerFocus && …`) aside. search-key-and-timeline-commit-title.test.ts checks this list against them.
-let referenceChords = ["mod+b", "mod+[", "mod+]", "mod+j", "mod+alt+b", "mod+shift+b", "mod+w", "mod+d", "mod+shift+j", "mod+k", "mod+p",
+let referenceChords = ["mod+b", "mod+f6", "mod+shift+f6", "mod+[", "mod+]", "mod+j", "mod+alt+b", "mod+shift+b", "mod+w", "mod+d", "mod+shift+j", "mod+k", "mod+p",
                        "mod+shift+f", "mod+u", "mod+alt+a", "mod+alt+shift+a", "mod+alt+shift+t", "mod+s", "mod+shift+enter",
                        "mod+n", "mod+shift+o", "mod+shift+n", "mod+alt+n", "mod+shift+m", "mod+shift+h", "mod+shift+e",
                        "mod+shift+a", "mod+shift+x", "mod+shift+g", "mod+shift+l", "mod+shift+k", "mod+o", "mod+shift+[",
@@ -37,7 +37,8 @@ let editMenuChords: Set<String> = ["mod+z"]
 private let keyCodes: [String: UInt16] = ["a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11,
                                           "q": 12, "w": 13, "e": 14, "r": 15, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21, "6": 22,
                                           "5": 23, "=": 24, "9": 25, "7": 26, "-": 27, "8": 28, "0": 29, "]": 30, "o": 31, "u": 32,
-                                          "[": 33, "i": 34, "p": 35, "enter": 36, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46]
+                                          "[": 33, "i": 34, "p": 35, "enter": 36, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46,
+                                          "f6": 97]
 
 struct Chord {
     let key: String

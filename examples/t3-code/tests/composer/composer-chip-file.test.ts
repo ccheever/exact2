@@ -13,6 +13,7 @@ import { observeComposer, acceptComposerEdit } from '../support/composer-field-f
 import { setDraftFiles, foldPaste, type DraftFile } from '../../src/composer/composer-editor-files';
 import { attachmentView } from '../../src/panel/attachment-surface';
 import { lastSave, memoryAppFiles, serveAssets } from '../support/asset-server';
+import { forgetMediaFrames } from '../../src/media/media-frame';
 
 let server: ReturnType<typeof serveAssets> | null = null;
 afterEach(() => { server?.restore(); server = null; });
@@ -64,13 +65,37 @@ describe('a file chip\'s press opens AttachmentFilePreview over the draft\'s byt
     expect((await composerFileView(client, native, 1)).open).toBe(false);
   });
 
-  test('a PDF names its staged copy to the media body; another type is "No preview" with its actions', async () => {
-    const { native, client } = harness([file({ name: 'spec.pdf', mimeType: 'application/pdf' })]);
+  test('a PDF opens in the viewer page, its staged copy posted to it; another type is "No preview" with its actions', async () => {
+    forgetMediaFrames(); // another file's test may have shown this staged name
+    const { native, client, appFiles } = harness([file({ name: 'spec.pdf', mimeType: 'application/pdf' })]);
     await performChipAct(client, native, { act: 'file', context: `file_${ID}` });
-    expect((await composerFileView(client, native, 1)).file).toMatchObject({ preview: 'pdf', url: `t3-staged:${ID}`, canSave: true, canCopy: false, canRemove: true });
+    const view = (await composerFileView(client, native, 1)).file;
+    expect(view).toMatchObject({ preview: 'viewer', canSave: true, canCopy: false, canRemove: true });
+    expect(JSON.parse(view.viewer.config)).toMatchObject({ view: 'pdf', src: '' });
+    // Once the page has booted, the staged copy's bytes go to it by message (the reference's Blob URL).
+    await composerFileLocal(client, native, 'surface-linked-att-viewer:{"type":"boot"}', ID);
+    const posted = JSON.parse((await composerFileView(client, native, 1)).file.viewer.posts[0]!.text) as Obj;
+    expect([posted.type, posted.done, Buffer.from(String(posted.data), 'base64')]).toEqual(['bytes', true, Buffer.from(appFiles.get(`app:/data/composer-files/${ID}`)!)]);
+    // Nothing is uploaded or fetched to preview it.
+    expect(server!.calls).toEqual([]);
     const other = harness([file({ name: 'build.bin', mimeType: 'application/octet-stream' })]);
     await performChipAct(other.client, other.native, { act: 'file', context: `file_${ID}` });
     expect((await composerFileView(other.client, other.native, 1)).file).toMatchObject({ preview: 'none', noPreview: 'Save it to open in an app that supports bin files.', canSave: true });
+  });
+
+  test('a PDF past 16 MiB is a copy in app:/cache while its preview is open, and Close removes the copy', async () => {
+    forgetMediaFrames();
+    const { native, client, appFiles } = harness([file({ name: 'large.pdf', mimeType: 'application/pdf', sizeBytes: 17 * 1024 * 1024 })]);
+    const fs = (await import('../../src/media/save-file')).appFiles().fs as unknown as { stat?: (path: string) => Promise<{ size: number }> };
+    fs.stat = async () => ({ size: 17 * 1024 * 1024 });
+    await performChipAct(client, native, { act: 'file', context: `file_${ID}` });
+    const src = (await composerFileView(client, native, 1)).file.viewer.src;
+    const copy = decodeURIComponent(new URL(src, 'exact-app://app/').searchParams.get('file') ?? '');
+    expect([copy.startsWith('app:/cache/media-preview/'), appFiles.has(copy)]).toEqual([true, true]);
+    await composerFileLocal(client, native, 'close', ID);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect([appFiles.has(copy), appFiles.has(`app:/data/composer-files/${ID}`)]).toEqual([false, true]);
+    delete fs.stat;
   });
 
   test('a folded paste is read from memory; a file the send uploaded is the server\'s', async () => {

@@ -10,7 +10,7 @@ import { ClientError } from '../client/protocol';
 export const BACKGROUND_PROFILES = ['balanced', 'performance', 'battery-saver'] as const;
 type Profile = (typeof BACKGROUND_PROFILES)[number];
 export const PROFILE_LABELS: Record<Profile, string> = { balanced: 'Balanced', performance: 'Performance', 'battery-saver': 'Battery saver' };
-const INTERVALS = ['automaticGitFetchInterval', 'providerHealthRefreshInterval', 'hostPowerMonitorActiveInterval', 'hostPowerMonitorIdleInterval', 'idleClientTtl'] as const;
+const INTERVALS = ['automaticGitFetchInterval', 'providerHealthRefreshInterval', 'hostPowerMonitorActiveInterval', 'hostPowerMonitorIdleInterval'] as const;
 const SWITCHES = ['pauseWhenHostLocked', 'pauseWhenHostLowPower', 'pauseWhenClientLowPower', 'pauseWhenOnBattery'] as const;
 type Interval = (typeof INTERVALS)[number];
 type Switch = (typeof SWITCHES)[number];
@@ -19,11 +19,11 @@ export type Resolved = { profile: Profile } & Record<Interval, number> & Record<
 // Seconds; the reference presets in Duration units.
 const PRESETS: Record<Profile, Resolved> = {
   performance: { profile: 'performance', automaticGitFetchInterval: 15, providerHealthRefreshInterval: 60, hostPowerMonitorActiveInterval: 30, hostPowerMonitorIdleInterval: 120,
-    idleClientTtl: 45, pauseWhenHostLocked: true, pauseWhenHostLowPower: false, pauseWhenClientLowPower: false, pauseWhenOnBattery: false },
+    pauseWhenHostLocked: true, pauseWhenHostLowPower: false, pauseWhenClientLowPower: false, pauseWhenOnBattery: false },
   balanced: { profile: 'balanced', automaticGitFetchInterval: 30, providerHealthRefreshInterval: 300, hostPowerMonitorActiveInterval: 30, hostPowerMonitorIdleInterval: 300,
-    idleClientTtl: 45, pauseWhenHostLocked: true, pauseWhenHostLowPower: true, pauseWhenClientLowPower: true, pauseWhenOnBattery: false },
+    pauseWhenHostLocked: true, pauseWhenHostLowPower: true, pauseWhenClientLowPower: true, pauseWhenOnBattery: false },
   'battery-saver': { profile: 'battery-saver', automaticGitFetchInterval: 0, providerHealthRefreshInterval: 900, hostPowerMonitorActiveInterval: 60, hostPowerMonitorIdleInterval: 600,
-    idleClientTtl: 45, pauseWhenHostLocked: true, pauseWhenHostLowPower: true, pauseWhenClientLowPower: true, pauseWhenOnBattery: true },
+    pauseWhenHostLocked: true, pauseWhenHostLowPower: true, pauseWhenClientLowPower: true, pauseWhenOnBattery: true },
 };
 export const DEFAULT_BACKGROUND_ACTIVITY = { schemaVersion: 1, profile: 'balanced', overrides: {} };
 const isProfile = (value: unknown): value is Profile => typeof value === 'string' && (BACKGROUND_PROFILES as readonly string[]).includes(value);

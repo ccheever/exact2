@@ -168,6 +168,13 @@ fn snooze_host() -> exact_apple::Host<Replies> {
             ])
         })
         .collect();
+    set(
+        &plan,
+        thread_type,
+        &mut thread,
+        &["snoozePresets"],
+        Value::list(presets),
+    );
     let mut replies = Replies::default();
     replies.fixture(
         &plan,
@@ -177,7 +184,6 @@ fn snooze_host() -> exact_apple::Host<Replies> {
             (&["connected"], Value::Bool(true)),
             (&["sidebarOpen"], Value::Bool(true)),
             (&["threads"], Value::list(vec![thread])),
-            (&["snoozePresets"], Value::list(presets)),
         ],
     );
     replies.fixture(&plan, "welcome", &[(&["show"], Value::Bool(false))]);

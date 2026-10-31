@@ -3,8 +3,8 @@
 // `server.reportClientActivity` to each connected environment. `visible` and `focused` are the
 // page's (`exactPage()` visibilityState and hasFocus), handed over when they change
 // (`activityFacts`); when the reader last pointed, typed or scrolled is the window's
-// (app.contract `interacted`, the reference's window listeners), to the second. A data module has
-// no timers: the transport's tick runs the debounce and the 25 s cadence on its clock.
+// (app.contract `interacted`, the reference's window listeners), to the second. A data module's timer
+// lives only inside an answer: the transport's tick runs the debounce and the 25 s cadence on its clock.
 
 export const REPORT_INTERVAL_MS = 25_000;
 export const LEASE_TTL_MS = 45_000;

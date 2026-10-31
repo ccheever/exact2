@@ -1,14 +1,48 @@
 // An assistant citation's "View source" (T3 Code, MIT; see LICENSE-T3:
 // components/chat/AssistantCitationChip.tsx assistantCitationNavigation, ChatView's
-// citationRequest, AssistantCitationSource.tsx and, at 74541bab17,
-// chat/useAssistantCitationTarget.ts). The cited thread opens, a folded turn hiding the
-// answer opens, and the answer scrolls to min(120pt, a third of the viewport) under the
-// transcript's top: this names the row, and the chat column places it (app-main.contract citePlace).
+// citationRequest, AssistantCitationSource.tsx, and at 7c3b3b3605ef
+// chat/useAssistantCitationTarget.ts and citationProcedure.ts). The cited thread opens, its
+// history pages toward an answer not yet loaded, a folded turn hiding the answer opens, and the
+// answer scrolls to min(120pt, a third of the viewport) under the transcript's top: this names
+// the row, and the chat column places it (app-main.contract citePlace).
 import type { T3Client } from '../client/client';
+import { arr, obj, str } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import type { MinimapRow } from './timeline-minimap';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
+import { sleep } from '../client/command-waits';
+
+type CitedHistoryOutcome = 'found' | 'aborted' | { title: string; description: string };
+const MAX_CITATION_PAGES = 20;
+const COULD_NOT_LOAD = { title: 'Could not load the cited response', description: 'Load earlier turns, then click the citation to try again. Your saved quote is unchanged.' };
+const UNAVAILABLE = { title: 'The cited response is unavailable', description: 'It may have been removed. The selected text is still saved in your citation.' };
+const NOT_AN_ANSWER = { title: 'The citation does not refer to an assistant response', description: 'The selected text is still saved in your citation.' };
+const bare = (id: string) => id.replace(/^(?:turn-item|message):/, '');
+
+/**
+ * loadCitedHistory: pages the open thread's history toward the cited message until it is loaded, the thread runs
+ * out of history, or loading fails. Each read waits for the thread's detail to settle (loaded, no page in flight).
+ */
+export async function loadCitedHistory(client: T3Client, native: Native, threadId: string, messageId: string, pause: () => Promise<unknown>): Promise<CitedHistoryOutcome> {
+  const wanted = bare(messageId);
+  for (let pages = 0; ; pages++) {
+    for (let wait = 0; client.threadId === threadId && (!client.thread || client.historyLoading) && wait < 40; wait++) await pause();
+    if (client.threadId !== threadId) return 'aborted';
+    if (!client.thread || client.historyLoading) return COULD_NOT_LOAD;
+    // Older pages merge into the visible turn items.
+    const item = arr(client.projection.visibleTurnItems).map(row => obj(row.item))
+      .find(entry => (entry.type === 'assistant_message' || entry.type === 'user_message') && !!wanted && (bare(str(entry.messageId)) === wanted || bare(str(entry.id)) === wanted));
+    if (item) return item.type === 'assistant_message' ? 'found' : NOT_AN_ANSWER;
+    if (!client.thread.hasMore) return UNAVAILABLE;
+    if (pages >= MAX_CITATION_PAGES) return COULD_NOT_LOAD;
+    const cursor = client.thread.historyCursor;
+    try { await client.history(native, messageId); } catch (error) { if (letGo(error)) throw error; return COULD_NOT_LOAD; }
+    if (client.threadId !== threadId) return 'aborted';
+    // A page that moved nothing (no cursor, or the thread is gone): there is nothing older to load.
+    if (client.thread?.hasMore && client.thread.historyCursor === cursor) return UNAVAILABLE;
+  }
+}
 
 /**
  * The assistant row a citation names. The served client cites a message by its
@@ -39,8 +73,10 @@ export function citationJump(rows: readonly MinimapRow[], index: number): string
 export async function revealCitation(client: T3Client, native: Native, threadId: string, messageId: string, rows: () => readonly MinimapRow[], place: (key: string) => void,
   unfold: (messageId: string) => boolean = () => false): Promise<string> {
   if (!threadId || !client.shell.threads.some(thread => thread.id === threadId)) throw new ClientError('Thread no longer available');
-  const access = client.restAccess(native);
   if (threadId !== client.threadId) await client.openSelected(native, threadId);
+  const outcome = await loadCitedHistory(client, native, threadId, messageId, () => sleep(180));
+  if (outcome === 'aborted') return '';
+  if (outcome !== 'found') { pushToast(client, { kind: 'warning', ...outcome }); return ''; }
   for (let attempt = 0; attempt < 12; attempt++) {
     if (client.threadId !== threadId) return '';
     const current = rows(), index = citedRow(current, messageId);
@@ -54,7 +90,7 @@ export async function revealCitation(client: T3Client, native: Native, threadId:
       if (quoteChanged(current, index, messageId)) pushToast(client, { kind: 'warning', title: 'The quoted text has changed', description: 'Showing the source response. The saved quote is unchanged.' });
       return '';
     }
-    await access.call({ op: 'timelineSleep', ms: 180 }).catch(() => undefined);
+    await sleep(180);
   }
   return '';
 }

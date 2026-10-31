@@ -1,5 +1,5 @@
 // One environment, several routes (T3 Code 9c161462c9, hasSavedBearerRoute at 74541bab17: packages/client-runtime/src/connection/
-// routes.ts and githubRoutingPermissions.ts gitHubRoutingConnectionKey; MIT, see LICENSE-T3). A
+// routes.ts and pullRequestRoutingPermissions.ts pullRequestRoutingConnectionKey; MIT, see LICENSE-T3). A
 // saved environment keeps an ordered list of routes: direct URLs (loopback, LAN, tailnet, other
 // VPNs, public) and SSH tunnels. The client connects over the first route
 // that answers as the same environment (transport-routes.ts walks them) and moves back to a better one
@@ -13,7 +13,7 @@
 // `kind`, never from the address. `allowInsecure` is always true here (a native app is not an
 // HTTPS page), so a learned plain-HTTP LAN or tailnet address (the server reports only numeric
 // private IPv4s, DirectEndpoints.ts) is walked and connects with the token it borrows, as the
-// reference desktop does (App Transport Security exempts IP literals), unless that token was paired
+// reference desktop does (app.json turns App Transport Security off), unless that token was paired
 // over HTTPS, loopback or the tailnet (sendsTokenInClear).
 // The relay kind stays for test parity and is never created (this client has no T3 Connect).
 import { isLocalLoopbackHost, isPrivateNetworkHost, isSharedAddressSpaceHost, isTailnetHost } from './host-classification';
@@ -270,7 +270,7 @@ export function removedWithRelay(entry: RouteEntry): boolean { return routesAfte
 /** One SSH target, as desktop keys its tunnels: alias, host, user, and port. */
 export function sshTargetKey(target: RouteSshTarget): string { return JSON.stringify([target.alias, target.hostname, target.username, target.port]); }
 
-// ── GitHub sharing trust (githubRoutingPermissions.ts gitHubRoutingConnectionKey) ──
+// ── Pull request sharing trust (pullRequestRoutingPermissions.ts pullRequestRoutingConnectionKey) ──
 /** The clone's single-endpoint key (connections.ts routingKey), kept so existing trust survives. */
 export const singleRouteKey = (origin: string, environmentId: string) => JSON.stringify([environmentId, `${trimSlash(origin.trim())}/`]);
 /**
@@ -289,7 +289,7 @@ export function gitHubRoutingConnectionKey(entry: RouteEntry): string | null {
   return keys.every(key => key !== null) ? JSON.stringify([...keys].sort()) : null;
 }
 /**
- * The environment a stored GitHub sharing key belongs to (the reference stores `environmentId` beside
+ * The environment a stored pull request sharing key belongs to (the reference stores `environmentId` beside
  * each key, githubRoutingPermissions.ts; the clone's keys carry it inside): a single route's
  * `[environmentId, origin]`, a tagged route's `[tag, environmentId, …]`, or several routes' sorted keys.
  */
@@ -357,4 +357,15 @@ export function savedRoutes(entry: Record<string, unknown>): ConnectionRoute[] {
 export function storedRoute(route: ConnectionRoute): Record<string, unknown> {
   return { id: route.id, origin: route.origin, kind: route.kind ?? '', learned: route.learned === true, credential: credentialConnectionId(route.id),
     ...(route.authorization ? { authorization: route.authorization } : {}), ...(route.network ? { network: route.network } : {}), ...(route.ssh ? { ssh: route.ssh } : {}) };
+}
+/**
+ * assertKnownAddress (registry.ts): a pairing that names no saved environment may not add an
+ * address to one, because the server reports its own environment id. The refusal, or null when
+ * `origin` is new or already one of the saved environment's addresses. Checked before the code is spent.
+ */
+export function knownAddressRefusal(saved: Record<string, unknown> | null | undefined, origin: string): string | null {
+  if (!saved) return null;
+  const route: ConnectionRoute = { id: trimSlash(origin), origin: trimSlash(origin), kind: '' };
+  if (findRouteToSameAddress(savedRoutes(saved), route) !== undefined) return null;
+  return `That address claims to be ${asString(saved.label)}, which is already saved. Add it as a route from that environment's settings instead.`;
 }

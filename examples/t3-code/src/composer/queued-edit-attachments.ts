@@ -1,12 +1,11 @@
 // Editing a queued message together with its attachments,
-// adapted from T3 Code 1e2ecbd975 (MIT); see
-// LICENSE-T3. Sources: apps/web/src/components/chat/queuedMessageEdit.ts
-// (prepareQueuedEditAttachments, recoverQueuedMessageEdit), ChatView.tsx
-// (beginEditingQueuedRun, removeEditingQueuedAttachment, the queued-edit save
-// path and its lost-run toasts) and packages/client-runtime/src/operations/
-// commands.ts (editQueuedRun: `queued-run.edit` with the full attachment list
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 7c3b3b3605ef:
+// apps/web/src/components/chat/queuedMessageEdit.ts (prepareQueuedEditAttachments,
+// recoverQueuedMessageEdit), chat/useQueuedRunEdit.ts (beginEdit, removeEditingAttachment,
+// submitQueuedRunEdit, the run-left-queue toasts) and packages/client-runtime/src/
+// operations/commands.ts (editQueuedRun: `queued-run.edit` with the full attachment list
 // and the merged context).
-// Changes: the edit borrows the thread's composer, so the thread's own text and
+// Changes: the edit borrows its thread's composer, so the thread's own text and
 // SnapShot images wait in a stash (no second draft target); new images upload
 // through the client's SnapShot uploader and new files through the composer's
 // file uploads (composer-editor-files.ts), which already return stored
@@ -62,73 +61,76 @@ export function recoverQueuedMessageEdit(input: { prompt: string; images: number
 
 // ── The edit session (the composer borrowed from the thread) ───────────────
 
-export type QueuedEditing = { key: string; runId: string; messageId: string; originalText: string; stash: string; stashImages: Obj[]; existing: Obj[]; context: Obj | undefined; saving: boolean };
+/** An open edit: `key` is its thread's draft key, and `paused` while a save it started is in flight. */
+export type QueuedEditing = { key: string; environmentId: string; threadId: string; runId: string; messageId: string; originalText: string;
+  stash: string; stashImages: Obj[]; existing: Obj[]; context: Obj | undefined; paused: boolean };
 
-/** beginEditingQueuedRun: the message's text and attachments load; the thread's draft waits. */
-export function startEdit(client: T3Client, key: string, run: Obj, text: string, previous: QueuedEditing | undefined): QueuedEditing {
+/** beginEdit: the message's text and attachments load; the thread's draft waits (a previous edit's stash carries over). */
+export function startEdit(client: T3Client, run: Obj, text: string, previous: QueuedEditing | undefined): QueuedEditing {
   const message = arr(client.projection.messages).find(candidate => candidate.id === run.userMessageId);
   const draftKey = client.draftKey;
   const stash = previous ? previous.stash : client.local.drafts[draftKey] ?? '';
   const stashImages = previous ? previous.stashImages : client.local.snapshotDrafts[draftKey] ?? [];
   client.local.drafts[draftKey] = text;
   client.local.snapshotDrafts[draftKey] = [];
-  return { key, runId: str(run.id), messageId: str(run.userMessageId), originalText: text, stash, stashImages,
-    existing: arr(message?.attachments).map(attachment => ({ ...attachment })), context: message?.context ? obj(message.context) : undefined, saving: false };
+  return { key: draftKey, environmentId: client.environmentId, threadId: client.threadId, runId: str(run.id), messageId: str(run.userMessageId), originalText: text,
+    stash, stashImages, existing: arr(message?.attachments).map(attachment => ({ ...attachment })), context: message?.context ? obj(message.context) : undefined, paused: false };
 }
-/** The thread's own draft comes back (cancel, a save, or a discarded edit). */
+/** The thread's own draft comes back (cancel, a save, or a discarded edit), wherever the user is. */
 export function restoreThreadDraft(client: T3Client, editing: QueuedEditing): void {
-  client.local.drafts[client.draftKey] = editing.stash;
-  client.local.snapshotDrafts[client.draftKey] = editing.stashImages;
+  client.local.drafts[editing.key] = editing.stash;
+  client.local.snapshotDrafts[editing.key] = editing.stashImages;
 }
 /** removeEditingQueuedAttachment. */
 export function removeExisting(editing: QueuedEditing | undefined, attachmentId: string): void {
   if (editing) editing.existing = editing.existing.filter(attachment => str(attachment.id) !== attachmentId);
 }
 
-/** The edit's run left the queue: keep a dirty edit in an empty thread draft, else drop it, with the reference's toasts. */
+/**
+ * The edit's run left the queue (it started or was removed): a changed edit stays as the thread's draft when that draft
+ * is empty, else it is dropped. Edits outlive navigation, so the toast names the thread: the user may be anywhere by now.
+ */
 export function endLostEdit(client: T3Client, editing: QueuedEditing): void {
-  const prompt = client.local.drafts[client.draftKey] ?? '';
-  const outcome = recoverQueuedMessageEdit({ prompt, images: (client.local.snapshotDrafts[client.draftKey] ?? []).length,
-    files: referencedFiles(client.local, client.draftKey, prompt).length, originalText: editing.originalText,
+  const prompt = client.local.drafts[editing.key] ?? '';
+  const outcome = recoverQueuedMessageEdit({ prompt, images: (client.local.snapshotDrafts[editing.key] ?? []).length,
+    files: referencedFiles(client.local, editing.key, prompt).length, originalText: editing.originalText,
     threadHasContent: editing.stash.trim() !== '' || editing.stashImages.length > 0 });
-  if (outcome === 'kept') { pushToast(client, { kind: 'info', title: 'Queued message is no longer queued', description: 'Your unsaved edit was kept in the composer.' }); return; }
-  restoreThreadDraft(client, editing);
-  if (outcome === 'discarded') pushToast(client, { kind: 'warning', title: 'Queued message is no longer queued', description: 'Your unsaved edit was discarded.' });
+  if (outcome !== 'kept') restoreThreadDraft(client, editing);
+  if (outcome === 'clean') return;
+  const title = client.environmentId === editing.environmentId ? client.shell.threads.find(thread => thread.id === editing.threadId)?.title : undefined;
+  const where = typeof title === 'string' ? ` in “${title}”` : '';
+  pushToast(client, { kind: outcome === 'kept' ? 'info' : 'warning', title: 'Queued message is no longer queued',
+    description: outcome === 'kept' ? `Your unsaved edit${where} was kept in the composer.` : `Your unsaved edit${where} was discarded.` });
 }
 
 /**
- * The send button saves the edit: at most 100 attachments in all; an empty
- * text with attachments sends the attachment-only prompt; nothing at all is a
- * no-op. `queued-run.edit` carries the full attachment list and the context.
+ * submitQueuedRunEdit: at most 100 attachments in all; an empty text with attachments sends the attachment-only prompt;
+ * nothing at all is a no-op (false). `queued-run.edit` carries the full attachment list and the context; the save's
+ * result decides the edit's fate, even when the run starts meanwhile.
  */
 export async function saveEdit(client: T3Client, native: Native, storage: Files, editing: QueuedEditing, value: string,
-  uploadImages: () => Promise<Obj[]>, stillQueued: () => boolean): Promise<boolean> {
-  if (editing.saving) return false;
-  const text = (value || client.local.drafts[client.draftKey] || '').trim();
-  const images = client.local.snapshotDrafts[client.draftKey] ?? [], files = referencedFiles(client.local, client.draftKey, text);
+  uploadImages: () => Promise<Obj[]>): Promise<boolean> {
+  const text = (value || client.local.drafts[editing.key] || '').trim();
+  const images = client.local.snapshotDrafts[editing.key] ?? [], files = referencedFiles(client.local, editing.key, text);
   if (editing.existing.length + images.length + files.length > MAX_ATTACHMENTS) throw new ClientError(`A message can have at most ${MAX_ATTACHMENTS} attachments.`);
   if (!text && !editing.existing.length && !images.length && !files.length) return false;
-  if (!stillQueued()) throw new ClientError('That queued message already started or was removed.');
-  editing.saving = true;
+  const attachments = await prepareQueuedEditAttachments({ existing: editing.existing, images, files,
+    uploadImages: async () => uploadImages(), uploadFiles: async () => composerFileAttachments(client, native, text) });
+  const context = mergedEditContext(editing.context, editing.existing, messageContext(client, text));
+  const access = client.restAccess(native);
+  const [commandId] = await access.ids(1);
   try {
-    const attachments = await prepareQueuedEditAttachments({ existing: editing.existing, images, files,
-      uploadImages: async () => uploadImages(), uploadFiles: async () => composerFileAttachments(client, native, text) });
-    const context = mergedEditContext(editing.context, editing.existing, messageContext(client, text));
-    const access = client.restAccess(native);
-    const [commandId] = await access.ids(1);
-    try {
-      await access.dispatch(storage, { type: 'queued-run.edit', commandId, threadId: client.threadId, runId: editing.runId,
-        text: text || ATTACHMENT_ONLY_PROMPT, attachments, ...(arr(context.records).length ? { context } : {}) }, 'Update queued message');
-    } catch (error) {
-      if (error instanceof ClientError && error.kind === 'superseded') throw error;
-      throw new ClientError(SAVE_FAILED);
-    }
-  } finally { editing.saving = false; }
+    await access.dispatch(storage, { type: 'queued-run.edit', commandId, threadId: editing.threadId, runId: editing.runId,
+      text: text || ATTACHMENT_ONLY_PROMPT, attachments, ...(arr(context.records).length ? { context } : {}) }, 'Update queued message');
+  } catch (error) {
+    if (error instanceof ClientError && error.kind === 'superseded') throw error;
+    throw new ClientError(SAVE_FAILED);
+  }
   return true;
 }
 
-/** The composer's view of the edit: its kept attachments (removable) and whether a save is in flight. */
-export function editView(editing: QueuedEditing | undefined) {
+/** The composer's view of the edit: its kept attachments (removable) and whether its save is in flight. */
+export function editView(editing: QueuedEditing | undefined, saving: boolean) {
   return { queueEditAttachments: (editing?.existing ?? []).map(attachment => ({ id: str(attachment.id), name: str(attachment.name, 'Attachment'), image: attachment.type === 'image' })),
-    queueEditSaving: !!editing?.saving };
+    queueEditSaving: saving };
 }

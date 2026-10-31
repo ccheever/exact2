@@ -8,6 +8,7 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { queuedEdit } from './composer-controls-queue';
+import { uploadBlock } from './composer-uploads';
 import { promptRewriteKey } from './composer-ultrathink';
 import { heldRequestIds } from './composer-typing-guard';
 import { markdownEnv, messageChips } from '../timeline/message-chips';
@@ -20,7 +21,8 @@ import { answerSubmitting, attachmentsStaging, questionDraftKey, questionDraftPr
 /** One draft per question (`request::question`) and one per request (its question index). */
 export type RequestDraft = { selected: string[]; custom: string; index: number };
 type Question = { initialAnswer?: string; id: string; header: string; question: string; multiSelect: boolean; allowCustom: boolean; options: { label: string; value: string; description: string }[] };
-type PendingApproval = { requestId: string; kind: string; createdAt: string; detail: string; appName: string; options: Obj[]; live: boolean };
+type PendingApproval = { requestId: string; kind: string; createdAt: string; detail: string; reason: string; fullAccessOverride: string; appName: string;
+  options: Obj[]; live: boolean; supportsFeedback: boolean };
 type PendingInput = { requestId: string; createdAt: string; questions: Question[]; resumable: boolean; dismissible: boolean };
 
 export const DEFAULT_APPROVAL_OPTIONS = [
@@ -29,7 +31,14 @@ export const DEFAULT_APPROVAL_OPTIONS = [
   { decision: 'acceptForSession', label: 'Always allow this session' },
   { decision: 'accept', label: 'Approve' },
 ];
-const NOT_RESUMABLE = 'Provider process is gone — interrupt or restart the run to respond.';
+const NOT_RESUMABLE = 'Provider process is gone. Interrupt or restart the run to respond.';
+
+/** fullAccessOverrideExplanation: why an approval reached the user although the thread runs with full access. */
+export function fullAccessOverrideExplanation(override: string): string {
+  return override === 'ask_rule'
+    ? "Full access skips approvals, but an ask rule in the agent's own settings matches this action, so it still asks. Remove or narrow that rule to stop these prompts."
+    : "Full access skips approvals, but the agent still stops for a few safety checks of its own that no setting can skip, such as a delete whose path it can't verify. T3 Code can't turn these off, so check the request and approve it if it's what you expect.";
+}
 
 function approvalLabel(kind: string): string {
   return kind === 'mcp-elicitation' ? 'App access approval' : kind === 'command' ? 'Command approval'
@@ -47,7 +56,7 @@ export function pendingRequests(projection: Obj): { approvals: PendingApproval[]
   const items = arr(projection.turnItems);
   for (const request of arr(projection.runtimeRequests)) {
     if (request.status !== 'pending') continue;
-    const id = str(request.id), capability = str(obj(request.responseCapability).type);
+    const id = str(request.id), response = obj(request.responseCapability), capability = str(response.type);
     const item = items.slice().reverse().find(candidate => candidate.requestId === id);
     const kind = str(request.kind) || (item?.type === 'user_input_request' ? 'user_input' : 'approval');
     if (kind === 'user_input') {
@@ -58,8 +67,10 @@ export function pendingRequests(projection: Obj): { approvals: PendingApproval[]
     }
     if (kind === 'auth_refresh' || kind === 'dynamic_tool_call') continue;
     const approval = item?.type === 'approval_request' ? item : {};
-    approvals.push({ requestId: id, kind, createdAt: str(request.createdAt), detail: str(approval.prompt), appName: str(approval.appName),
-      options: Array.isArray(approval.options) ? arr(approval.options) : DEFAULT_APPROVAL_OPTIONS, live: capability === 'live' });
+    approvals.push({ requestId: id, kind, createdAt: str(request.createdAt), detail: str(approval.prompt), reason: str(approval.reason),
+      fullAccessOverride: str(approval.fullAccessOverride), appName: str(approval.appName),
+      options: Array.isArray(approval.options) ? arr(approval.options) : DEFAULT_APPROVAL_OPTIONS, live: capability === 'live',
+      supportsFeedback: capability === 'live' && response.supportsFeedback === true });
   }
   const byTime = (a: { createdAt: string }, b: { createdAt: string }) => a.createdAt.localeCompare(b.createdAt);
   return { approvals: approvals.sort(byTime), inputs: inputs.sort(byTime) };
@@ -197,7 +208,8 @@ export function requestPresentation(client: T3Client) {
       primary: option.decision === 'accept' || option.decision === 'decline' }));
     return { id: approval.requestId, label: approvalLabel(approval.kind), appName: approval.appName,
       count: pendingApprovals.length > 1 ? `1/${pendingApprovals.length}` : '', mono: approval.kind !== 'mcp-elicitation',
-      detail: approval.live ? approval.detail || approvalLabel(approval.kind) : NOT_RESUMABLE,
+      detail: approval.live ? approval.detail || approvalLabel(approval.kind) : NOT_RESUMABLE, reason: approval.reason,
+      whyAsked: approval.fullAccessOverride ? fullAccessOverrideExplanation(approval.fullAccessOverride) : '', feedback: approval.supportsFeedback,
       canRespond: !reason, operable: operable(client), live: approval.live, responding: responding(approval.requestId), responseReason: reason,
       options: options.filter(option => option.primary), more: options.filter(option => !option.primary) };
   });
@@ -212,7 +224,7 @@ export function requestPresentation(client: T3Client) {
       multiSelect: entry.multiSelect, customAllowed: entry.allowCustom, canRespond: !reason, operable: operable(client), live: input.resumable, responseReason: reason,
       responding: responding(input.requestId), dismissible: input.dismissible, answer: active.custom,
       position: input.questions.length > 1 ? `${index + 1}/${input.questions.length}` : '', index, last: active.last,
-      canAdvance: active.canAdvance, complete: active.complete,
+      canAdvance: active.canAdvance, complete: active.complete, uploading: uploadBlock(client) !== '',
       action: responding(input.requestId) ? 'Submitting...' : active.last ? 'Submit' : 'Next', md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text }, root, client.shell.threads)), threadGlyphs: markdownThreadGlyphs(client, text) },
       options: entry.options.map((option, position) => ({ id: option.value, label: option.label,
         description: option.description !== option.label ? option.description : '',

@@ -12,7 +12,7 @@ import { initialShell, obj, arr, str, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { scopeMachine } from '../../src/providers/settings-b-scope';
 import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
-import { resetHighlightSlicing } from '../../src/highlight/shiki-highlight';
+import { resetHighlights } from '../../src/highlight/highlights';
 
 const ORIGIN = 'http://192.168.1.225:16261', KEY = environmentKey(ORIGIN, 'env2'), FOCUS_GENERATION = nextAppGeneration();
 const codex = (auth: Obj): Obj => ({ instanceId: 'codex', driver: 'codex', displayName: 'Codex', enabled: true, installed: true, status: 'ready', version: '0.151.0',
@@ -58,7 +58,7 @@ const page = async (native: Native, files: Parameters<typeof answer>[3], machine
 const statuses = (view: Obj) => arr(view.rows).map(row => `${str(row.name)}: ${str(row.status)}`);
 
 // answer() starts a highlight turn (app.ts): later files' highlighter tests expect it unsliced.
-afterEach(() => { fleet.entries.delete(KEY); resetPrimary(); resetHighlightSlicing(); });
+afterEach(() => { fleet.entries.delete(KEY); resetPrimary(); resetHighlights(); });
 
 describe('Settings › Providers follows the scope selector', () => {
   test('choosing a second environment shows its providers and sends the page reads there; choosing back shows this Mac again', async () => {
@@ -106,6 +106,16 @@ describe('Settings › Providers follows the scope selector', () => {
     await answer('providerAdd', ['claudeAgent', 'Work', '', '', [], 'env2', []], null, files, native);
     expect(Object.keys(obj(obj(second.config.settings).providerInstances))).toContain('claudeAgent_work');
     expect(native.calls.filter(call => obj(call).method === 'server.updateSettings').map(call => call.fleet ?? 'focused')).toEqual([KEY, KEY]);
+  });
+
+  // Add provider's variables reach the instance through the app's own providerAdd source (app.ts passes args[7]).
+  test("a local command's variables go with the instance Add provider writes", async () => {
+    const { second, native, files } = servers();
+    await answer('snapshot', [], null, files, native);
+    background(second);
+    await answer('providerAdd', ['acpRegistry', 'Local ACP', '', '', ['local', '', 'dsh', '', ''], 'env2', ['--acp'], ['1API_KEY=k', '0BASE_URL=http://x']], null, files, native);
+    expect(obj(obj(obj(second.config.settings).providerInstances).acpRegistry_local_acp).environment).toEqual([{ name: 'API_KEY', value: 'k', sensitive: true },
+      { name: 'BASE_URL', value: 'http://x', sensitive: false }]);
   });
 
   test("an environment's unsaved variable rows stay on that environment", async () => {

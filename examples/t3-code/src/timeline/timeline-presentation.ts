@@ -26,16 +26,16 @@ import { latestUnheldRun } from './worktree-card-run';
 import { availableRevertTurnCounts, deriveRows, findRevertCheckpoint, rowKey, runTurnEnded, turnFoldRunIds, type Row, type RowInput } from './timeline-rows';
 import { displayFailed, entryDisplayLabel, entryIcon, inspectorDetail, isToolLike, liveThoughtLine, thoughtText, threadReadLabel, workspaceRelativePath, type WorkEntry } from './timeline-worklog';
 import { eventRow } from './timeline-events';
-import { messageCodeBlocks } from '../highlight/timeline-highlight';
+import { codeTokens, messageCodeBlocks } from '../highlight/timeline-highlight';
 import { planAction, planBody, planCollapsible, planSaveView, proposedPlanTitle } from './timeline-plan';
 import { treeRows } from './timeline-tree';
-import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, messageAttachments } from './timeline-attachments';
+import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, isSentSvg, messageAttachments, noteChipPreviewFailed, svgPreviewFailed, withoutSoundReferences } from './timeline-attachments';
 import { revealCitation } from './citation-source';
 import { minimapItems, type MinimapRow } from './timeline-minimap';
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, noteMermaidFrame, retryMermaid } from './timeline-mermaid';
 import { mathFrames, noteMathFrame } from './markdown-math';
-import { setupView, threadWorktreeSetup, worktreeDetailsOpen, worktreeSetupAction } from './timeline-worktree';
-import { chippedAttachmentIds, markdownEnv, messageChips, shouldCollapseUserMessage } from './message-chips';
+import { agentStarted, setupView, threadWorktreeSetup, worktreeDetailsOpen, worktreeSetupAction } from './timeline-worktree';
+import { asFileChip, chippedAttachmentIds, markdownEnv, messageChips, shouldCollapseUserMessage } from './message-chips';
 import { hasQuestionAnswer, notificationChildThreadId, notificationSubagent, plainOutput, questionAnswerPreview, questionHistory, questionTextPreview, runlessWorkStartedAt, type InspectorCode } from './timeline-inspect';
 import { gitChatLocal } from '../details/git-route';
 import { openFileSurface, surfaceLocal } from '../panel/panel-surfaces';
@@ -47,6 +47,9 @@ import { workflowOpening, workflowOpeningMessage, type WorkflowOpening } from '.
 import { preparationFailureRunId, retryableActivities } from './workspace-retry'; // Retry a failed workspace preparation
 import { numericDateFormatter, timestampFormatter } from '../shared/timestamp-format'; // the host's locale
 import { letGo } from '../client/let-go';
+import { pushToast } from '../shell/toast';
+import { CHATGPT_WORKSPACE_ADMIN_REQUEST } from './timeline-errors';
+import { autoDirection } from '../sidebar/title-direction';
 import { pullRequestLinkPick } from '../panel/context-menu-actions';
 import { prGuideLocalFor, prCodeLocalFor, prLocalWrite, prUiLocal } from '../pull-requests/pages-pr-detail';
 import { stackLayerTarget } from '../pull-requests/pages-pr-stack';
@@ -57,7 +60,11 @@ import { assistantCanFork, inspectorExtras, NO_INSPECTOR_EXTRAS } from './timeli
 import { completeSave } from '../media/save-file';
 import { inlineDocumentKey, inlineDocumentView, inlineDocumentEvent } from './inline-documents';
 import { keptThread } from '../client/keep-alive';
-import { userMessagePresentation } from './user-message';
+import { foldedMessageSummary, plainContextReferences, userMessagePresentation } from './user-message';
+import { liveEnvironment } from '../client/live-streams';
+import { noteAudioPlaying } from './timeline-kept-rows';
+import { sleep } from '../client/command-waits';
+import { timelinePendingApprovals, type TimelineApprovalView } from './timeline-approvals';
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
 export function shortTime(value: unknown, format: string): string {
@@ -91,17 +98,27 @@ export function messageTime(value: unknown, now: number, format: string): string
 interface ViewState { open: Set<string>; copies: Map<string, { nonce: number; ok: boolean }>; nonce: number; codeCopy: { threadId: string; text: string; nonce: number };
   historyError: Map<string, string>; revert: { threadId: string; messageId: string; turnCount: number } | null;
   treeAll: Set<string>; treeDirs: Map<string, boolean>; lastRows: { threadId: string; rows: MinimapRow[] };
-  /** A citation's View source is placing its answer (citation-source.ts): ChatColumn restores no remembered position meanwhile. */
-  citing: number;
+  /** The View source placing its answer (citation-source.ts), else 0: ChatColumn restores no remembered position meanwhile. A
+   *  newer View source lets the older one go where it waits, on its own timer, so each one clears only its own. */
+  citing: number; citeFlows: number;
   /** The answer row the last View source asked ChatColumn to place, on its thread; each request a new nonce. */
-  citeJump: { threadId: string; key: string; nonce: number } }
+  citeJump: { threadId: string; key: string; nonce: number };
+  /** The thread whose folded messages `open` holds: another thread's start closed, as their rows' state is. */
+  foldsThread: string;
+  /** The chat header's rename field's text on its thread, while it is edited (headerRenameDir). */
+  renameDraft: { threadId: string; text: string } | null }
 const views = new WeakMap<T3Client, ViewState>();
 export function timelineView(client: T3Client): ViewState {
   let view = views.get(client);
-  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0, citeJump: { threadId: '', key: '', nonce: 0 } }; views.set(client, view); }
+  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0, citeFlows: 0, citeJump: { threadId: '', key: '', nonce: 0 }, foldsThread: '', renameDraft: null }; views.set(client, view); }
   return view;
 }
 const scoped = (client: T3Client, kind: string, id: string) => `${client.threadId}\u0000${kind}\u0000${id}`;
+/** ChatHeader's rename field is `dir="auto"`: the direction of the text being typed, else of the title it starts from. */
+export function headerRenameDir(client: T3Client, title: string): string {
+  const draft = timelineView(client).renameDraft;
+  return autoDirection(draft && draft.threadId === client.threadId ? draft.text : title) ?? 'ltr';
+}
 
 /**
  * Local timeline actions: T3 keeps fold, attempt and work-group disclosure in
@@ -142,12 +159,15 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   }
   if (op.startsWith('plan-')) return planAction(client, native, op, id, value);
   if (op === 'tree-all' || op === 'tree-dir') return toggleTree(client, view, op, id, value);
+  if (op === 'image-open' && isSentSvg(client, id)) return surfaceLocal(client, native, 'linked-attachment', id, value); // SvgFileChip's onOpen
+  if (op === 'chip-preview-failed') { noteChipPreviewFailed(client, id, value); return ''; } // a chip's thumbnail at `value` reported an error
   if (op.startsWith('image-')) return imagePreviewAction(client, op, id, value);
   if (op === 'revert') return askRevert(client, view, id, Number(value));
   if (op === 'revert-answer') return answerRevert(client, native, view, value, storage);
   if (op === 'diagram-retry') return retryMermaid(value, id); // id: the theme whose page failed
   if (op === 'diagram-frame') return noteMermaidFrame(value); // a Mermaid page's report (assets/mermaid/render.js)
   if (op === 'math-frame') return noteMathFrame(value); // a math page's report (assets/math/render.js)
+  if (op === 'audio-playing') { noteAudioPlaying(client, id, value); return ''; } // a sound started or stopped in a row (timeline-kept-rows.ts)
   if (op === 'setup-details' || op === 'setup-cancel' || op === 'setup-terminal') return worktreeSetupAction(client, native, op);
   if (op === 'diagram-open' || op === 'diagram-close') return diagramPreviewAction(client, op, value);
   // A table's Copy as Markdown / CSV (the check morph, no toast) and a thread chip's open.
@@ -160,11 +180,11 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   }
   // View source opens the cited thread and has the chat column place its answer (citation-source.ts).
   if (op === 'chip-citation') {
-    view.citing++;
+    const flow = view.citing = ++view.citeFlows;
     try {
       return await revealCitation(client, native, id, value, () => view.lastRows.threadId === client.threadId ? view.lastRows.rows : [],
         key => { view.citeJump = { threadId: client.threadId, key, nonce: view.citeJump.nonce + 1 }; }, messageId => openCitedFold(client, messageId));
-    } finally { view.citing--; }
+    } finally { if (view.citing === flow) view.citing = 0; }
   }
   if (op === 'chip-pr') { if (!id) throw new ClientError('That pull request is no longer available.'); await openPullRequest(client, native, id); return ''; } // a sent pull request chip (pr-chip-open.ts)
   if (op === 'chip-thread' && value === 'link') { await openThreadLinkTarget(client, native, id); return 'focus:composer'; } // a thread link's chip (message-chips.ts)
@@ -174,6 +194,15 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     return '';
   }
   if (op === 'copy-prompt-link') { await copyPromptLink(client, native, promptLinkFor(copyText(client, id))); return ''; }
+  // The header's rename field: its text as typed (`id` its thread; none once the field closes), for its direction.
+  if (op === 'rename-input') { view.renameDraft = id ? { threadId: id, text: value } : null; return ''; }
+  // ThreadErrorBanner's Copy request for admin, for a ChatGPT Business workspace limit.
+  if (op === 'admin-request') {
+    try { await client.restAccess(native).call({ op: 'copyText', text: CHATGPT_WORKSPACE_ADMIN_REQUEST }); }
+    catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Could not copy the request' }); return ''; }
+    pushToast(client, { kind: 'success', title: 'Request copied', description: 'Send it to your workspace admin.' });
+    return '';
+  }
   if (op === 'copy-code' || op === 'copy') {
     const text = op === 'copy-code' ? value : copyText(client, id);
     if (!text || text.length > 1_000_000) throw new ClientError(op === 'copy-code' ? 'That code block is unavailable.' : 'That message is no longer available.');
@@ -184,7 +213,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     if (op === 'copy-code') view.codeCopy = { threadId: client.threadId, text, nonce: view.nonce };
     return op === 'copy' ? 'Copied message' : 'Copied code';
   }
-  if (!['fold', 'group', 'attempt'].includes(op)) throw new ClientError(`Unknown timeline action: ${op}`);
+  if (!['fold', 'group', 'attempt', 'message'].includes(op)) throw new ClientError(`Unknown timeline action: ${op}`);
   const key = scoped(client, op, id);
   if (view.open.has(key)) view.open.delete(key); else view.open.add(key);
   return '';
@@ -192,8 +221,9 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
 function copyText(client: T3Client, id: string): string {
   const row = arr(client.projection.visibleTurnItems).find(row => JSON.stringify([row.sourceThreadId, row.sourceItemId]) === id);
   const item = obj(row?.item);
-  const text = item.type === 'proposed_plan' ? str(item.markdown) : ['user_message', 'assistant_message'].includes(str(item.type)) ? str(item.text) : '';
-  return relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(text), client.shell.threads);
+  // A user message copies what it shows: an older automation prompt without its schedule prefix (MessageCopyButton's `text`).
+  const text = item.type === 'proposed_plan' ? str(item.markdown) : item.type === 'user_message' ? userMessagePresentation(item).text : item.type === 'assistant_message' ? str(item.text) : '';
+  return relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(text), client.shell.threads, client.environmentId);
 }
 
 /**
@@ -289,7 +319,7 @@ export async function settleRollback(client: T3Client, native: Native, storage: 
     const failure = obj(obj(client.projection.thread).rollbackFailure);
     if (str(failure.requestId) === commandId) throw new ClientError(str(failure.message, 'Failed to revert thread state.'));
     if (rollbackLanded(client.projection, witness, turnCount)) return;
-    await client.restAccess(native).call({ op: 'timelineSleep', ms: 200 });
+    await sleep(200);
   }
   throw new ClientError('Timed out waiting for the thread to rewind.');
 }
@@ -303,6 +333,12 @@ export function timelineSnapshot(client: T3Client) {
     minimap: minimapItems(rows), citing: view.citing > 0,
     citeJump: view.citeJump.threadId === client.threadId ? { key: view.citeJump.key, nonce: view.citeJump.nonce } : { key: '', nonce: 0 },
     ...imagePreviewView(client), ...diagramPreviewView(client), mathFrames: mathFrames() };
+}
+
+/** The automation's task title from the environment's live task list (scheduledTasksLive), '' until it arrives. */
+export function scheduledTaskTitle(client: T3Client, taskId: string): string {
+  if (!taskId) return '';
+  return str(liveEnvironment(client, null, client.environmentId)?.tasks.value?.find(task => task.id === taskId)?.title);
 }
 
 /** The working root that path labels are made relative to (filePathDisplay). */
@@ -350,30 +386,51 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
 }
 
 /** The selected thread's row input (deriveRows, turnFoldRunIds). */
-function rowInput(client: T3Client, setup = threadWorktreeSetup(client)): RowInput {
+function rowInput(client: T3Client, setup = threadWorktreeSetup(client), approvals = timelinePendingApprovals(client)): RowInput {
   const projection = client.projection, view = timelineView(client), root = workspaceRoot(client);
   const runs = arr(projection.runs), running = activeRun(projection), runless = runlessWorkStartedAt(projection);
   const open = (kind: string) => new Set([...view.open].filter(key => key.startsWith(`${client.threadId}\u0000${kind}\u0000`)).map(key => key.split('\u0000')[2]!));
   const provider = arr(client.config.providers).find(provider => provider.instanceId === obj(obj(projection.thread).modelSelection).instanceId);
-  return { rows: client.thread ? arr(projection.visibleTurnItems) : [], runs, attempts: arr(projection.attempts), nodes: arr(projection.nodes),
+  const finding = threadFindExpanded(client);
+  const input: RowInput = { rows: client.thread ? arr(projection.visibleTurnItems) : [], runs, attempts: arr(projection.attempts), nodes: arr(projection.nodes),
     checkpoints: arr(projection.checkpoints), isWorking: !!running || runless !== '', runningRunId: str(running?.id), latestRun: runs[runs.length - 1] ?? null,
     latestRunTurnEnded: runTurnEnded(projection, latestUnheldRun(projection)), // deriveLatestThreadRun's run, without the usage-limit presentation
     // orchestrationV2RunWorkStartedAt: a wake run keeps the start of the work it continues.
     activeStartedAt: running ? str(running.workStartedAt ?? running.startedAt ?? running.requestedAt) : runless, runlessWorkActive: runless !== '', worktreeSetup: setup.snapshot,
-    expandedRuns: threadFindExpanded(client) ? new Set(runs.map(run => str(run.id))) : open('fold'), expandedAttempts: threadFindExpanded(client) ? new Set(arr(projection.attempts).map(attempt => str(attempt.id))) : open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false,
+    expandedRuns: finding ? new Set(runs.map(run => str(run.id))) : open('fold'), expandedAttempts: finding ? new Set(arr(projection.attempts).map(attempt => str(attempt.id))) : open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false,
     threadStartCheckpointReady: !client.thread?.hasMore && findRevertCheckpoint(arr(projection.checkpoints), 0) !== undefined,
-    availableRevertTurnCounts: availableRevertTurnCounts(projection) };
+    availableRevertTurnCounts: availableRevertTurnCounts(projection), pendingApprovalRequestIds: new Set(approvals.keys()) };
+  // Find opens every fold, the synthetic keys of runless turns and steer segments too.
+  if (finding) input.expandedRuns = new Set([...input.expandedRuns, ...turnFoldRunIds(input).values()]);
+  return input;
 }
 
 /** T3's timeline rows for the selected thread (MessagesTimeline.logic deriveMessagesTimelineRows). */
 export function transcriptRows(client: T3Client): Message[] {
   const projection = client.projection, view = timelineView(client), root = workspaceRoot(client);
-  const setup = threadWorktreeSetup(client);
-  const rows = deriveRows(rowInput(client, setup));
+  const setup = threadWorktreeSetup(client), approvals = timelinePendingApprovals(client), input = rowInput(client, setup, approvals);
+  const rows = deriveRows(input);
+  resetFolds(client, view);
+  // MessagesTimeline backgroundWorktreeSetup: a setup still running after the agent's turn started.
+  const background = setup.snapshot?.phase === 'running' && agentStarted(setup.snapshot) && input.latestRun?.startedAt != null ? setup.snapshot : null;
   const context: PresentContext = { client, root, view, subagents: arr(projection.subagents), providers: arr(client.config.providers), format: client.local.deviceSettings.timestampFormat,
-    preparing: setup.preparing, compacting: isCompacting(client) && !rows.some(row => row.kind === 'compaction' && row.active), detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads,
-    workflow: workflowOpening(client) };
-  return rows.map(row => present(row, context));
+    preparing: setup.preparing, compacting: isCompacting(client) && !rows.some(row => row.kind === 'compaction' && row.active || row.kind === 'working' && row.compacting === true), detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads,
+    workflow: workflowOpening(client), background, findEntry: threadFindExpanded(client) ? threadFindView(client).entry : '', approvals };
+  const messages = rows.map(row => present(row, context));
+  // An approval whose item is not among the rows (not loaded yet) still answers, after them.
+  const drawn = new Set(messages.flatMap(message => message.approval?.map(approval => approval.id) ?? []));
+  for (const approval of approvals.values()) if (!drawn.has(approval.id)) messages.push({ id: `pending-approval:${approval.id}`, kind: 'entry', title: '', body: '', activities: [], approval: [approval] });
+  return messages;
+}
+
+/**
+ * A folded message's `expanded` is its row's own state in the reference (AutomationMessageRow, UserTimelineRow), which a
+ * thread opened again starts afresh: switching threads closes every fold.
+ */
+function resetFolds(client: T3Client, view: ViewState): void {
+  if (view.foldsThread === client.threadId) return;
+  view.foldsThread = client.threadId;
+  for (const key of [...view.open]) if (key.split('\u0000')[1] === 'message') view.open.delete(key);
 }
 
 /**
@@ -404,15 +461,21 @@ function forkable(client: T3Client, row: Obj, item: Obj): boolean {
 
 interface PresentContext { client: T3Client; root: string; view: ViewState; subagents: Obj[]; providers: Obj[]; format: string; preparing: boolean; compacting: boolean; detailsOpen: boolean; threads: Obj[];
   /** A workflow coordinator's opening, drawn in place of its script's message (timeline-workflow-opening.ts). */
-  workflow: WorkflowOpening | null }
+  workflow: WorkflowOpening | null;
+  /** A worktree setup still running after the agent started: the Working row's Background setup chip. */
+  background: Obj | null;
+  /** The row holding find's active match, while find shows matches. */
+  findEntry: string;
+  /** The approvals answerable on their rows, by request id. */
+  approvals: Map<string, TimelineApprovalView> }
 /** A changing one-line label keyed by its text, so the row redraws it instead of reusing the old string. */
 const keyedLabel = (row: Row, label: string): Activity => ({ id: `${row.id}\u0000${label}`, label, body: '', icon: '', output: '', result: '', failed: false, timestamp: '' });
 const entryCode = (entries: WorkEntry[], client: T3Client): InspectorCode[] => entries.flatMap(entry => {
   if (entry.questionAnswer) return [questionHistory(entry.id, entry.questionAnswer)];
   if (entry.itemType === 'command_execution' && turnItemIsOpen(client, entry.id)) return [{ id: entry.id, code: '', icon: 'shell',
-    tokens: shellCommand(str(entry.item.input)).map((token, index) => ({ id: String(index), ...token })) }];
+    tokens: codeTokens(shellCommand(str(entry.item.input), 'data')) }];
   // An open thought's trace is ChatMarkdown, whose fences are highlighted as a message's are.
-  if (entry.itemType === 'reasoning' && turnItemIsOpen(client, entry.id)) return messageCodeBlocks(str(entry.detail)).map(block => ({ ...block, id: `${entry.id}:${block.id}` }));
+  if (entry.itemType === 'reasoning' && turnItemIsOpen(client, entry.id)) return messageCodeBlocks(str(entry.detail), 'data', `reasoning:${entry.id}`).map(block => ({ ...block, id: `${entry.id}:${block.id}` }));
   return [];
 });
 
@@ -422,11 +485,17 @@ function present(row: Row, context: PresentContext): Message {
   switch (row.kind) {
     case 'fold': return { ...base, kind: 'work', title: row.label, runId: row.runId, groupId: row.runId, expanded: row.expanded };
     // While a worktree is prepared the header reads "Setting up worktree…" and the activity row keeps its height empty.
-    // A compaction with no row of its own yet reads "Compacting…" (WorkingTimelineRow's CompactingLabel).
-    case 'working': return { ...base, kind: 'working', title: context.preparing ? 'Setting up worktree…' : context.compacting ? 'Compacting…' : 'Working for',
-      live: context.preparing || context.compacting, icon: !context.preparing && context.compacting ? 'minimize' : '', startedMs: Date.parse(row.createdAt) || 0 };
+    // A compaction reads "Compacting for 12s", timed from the row's start, or "Compacting…" without one
+    // (WorkingTimelineRow's CompactingLabel).
+    case 'working': {
+      const compacting = row.compacting === true || context.compacting, startedMs = Date.parse(row.createdAt) || 0;
+      return { ...base, kind: 'working', title: context.preparing ? 'Setting up worktree…' : compacting ? startedMs > 0 ? 'Compacting for' : 'Compacting…' : 'Working for',
+        live: context.preparing || compacting, icon: !context.preparing && compacting ? 'minimize' : '', startedMs,
+        ...(context.background ? { setup: [setupView(context.background, true, context.detailsOpen)], detail: str(obj(context.background.setupScript).name, 'Setup script') } : {}) };
+    }
     case 'setup': return { ...base, kind: 'worktree-setup', title: 'Worktree setup', setup: [setupView(row.snapshot, row.embedded, context.detailsOpen)] };
-    case 'thinking': return { ...base, kind: 'thinking', title: context.preparing || context.compacting ? '' : 'Thinking', icon: 'brain', live: true, continues: row.continues === true,
+    // A failed group keeps this disclosure while an approval waits, but nothing is thinking then.
+    case 'thinking': return { ...base, kind: 'thinking', title: context.preparing || context.compacting ? '' : 'Thinking', icon: 'brain', live: context.approvals.size === 0, continues: row.continues === true,
       groupId: row.groupId ?? '', expanded: row.expanded === true };
     case 'live': {
       // The latest thought's first sentence sits above the status line (the open group lists it already);
@@ -448,21 +517,29 @@ function present(row: Row, context: PresentContext): Message {
       const single = row.entries.length === 1 ? row.entries[0]! : null;
       const card = single?.itemType === 'notification' ? notificationSubagent(single.item, context.subagents, single.createdAt, shortTime(single.createdAt, context.format), context.providers) : null;
       if (card) return { ...base, kind: 'subagent', title: card.label, activities: [card], runId: single!.runId };
+      const approval = single?.item.type === 'approval_request' ? context.approvals.get(str(single.item.requestId)) : undefined;
+      if (approval) return { ...base, kind: 'entry', activities: [], approval: [approval], continues: row.continues === true, runId: single!.runId };
       const activities = row.entries.map(entry => activity(entry, root, context.client, row.entries.length === 1 ? row.label : undefined));
       return { ...base, kind: 'entry', activities, continues: row.continues === true, runId: row.entries[0]?.runId ?? '', code: entryCode(row.entries, context.client) };
     }
     case 'attempt': return { ...base, kind: 'attempt', title: 'Superseded attempt', detail: 'Cut off by a steer', expanded: row.expanded, groupId: row.attemptId, runId: row.runId };
-    case 'compaction': return { ...base, kind: 'compaction', title: row.label, live: row.active, icon: 'minimize',
-      activities: [{ ...keyedLabel(row, row.label), ...(row.tokenCounts ? { detail: row.tokenCounts.before, result: row.tokenCounts.after } : {}) }] };
+    // ContextCompactionTimelineRow: T3 Code's own compaction's title leads in place of "Context compacted"; a failed one
+    // reads in the destructive colour with its reason after a middle dot (`output`).
+    case 'compaction': {
+      const label = row.title && row.label.startsWith('Context compacted') ? row.title + row.label.slice('Context compacted'.length) : row.label;
+      return { ...base, kind: 'compaction', title: row.failure ? `${label}: ${row.failure}` : label, live: row.active, icon: 'minimize', failed: row.failed === true,
+        activities: [{ ...keyedLabel(row, label), output: row.failure ?? '',
+          ...(row.tokenCounts ? { body: row.title ?? 'Context compacted', detail: row.tokenCounts.before, result: row.tokenCounts.after } : {}) }] };
+    }
     case 'document': {
       const entry = row.entry, ref = entry.document;
       const key = inlineDocumentKey(context.client, str(entry.row.sourceThreadId), str(entry.item.id), ref);
       return { ...base, kind: 'inline-document', runId: str(entry.item.runId), inlineDocuments: [inlineDocumentView(context.client, key, ref)] };
     }
     case 'plan': {
-      const markdown = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(row.entry.item.markdown)), context.threads);
+      const markdown = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(row.entry.item.markdown)), context.threads, context.client.environmentId);
       return { ...base, kind: 'plan', title: proposedPlanTitle(markdown) ?? 'Proposed plan', body: planBody(markdown), runId: str(row.entry.item.runId),
-        completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown), chips: withFileLinkMenus(context.client, messageChips({ ...row.entry.item, text: markdown }, context.root, context.threads, row.id)),
+        completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown, 'data', `plan:${row.id}`), chips: withFileLinkMenus(context.client, messageChips({ ...row.entry.item, text: markdown }, context.root, context.threads, row.id)),
         diagrams: messageDiagrams(markdown),
         copied: view.copies.get(row.id)?.nonce ?? 0 };
     }
@@ -484,24 +561,36 @@ function present(row: Row, context: PresentContext): Message {
       const common = { ...base, runId: str(item.runId), sourceThreadId: str(row.entry.row.sourceThreadId), completed: item.status === 'completed',
         copied: copy?.nonce ?? 0, copyFailed: copy?.ok === false };
       if (row.entry.role === 'assistant') {
-        const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(item.text)), context.threads);
-        return { ...common, kind: 'assistant', title: 'Assistant', canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)),
-          meta: row.meta, streaming: item.streaming === true || row.inProgress, code: messageCodeBlocks(text),
+        const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(item.text)), context.threads, context.client.environmentId);
+        return { ...common, kind: 'assistant', title: 'Assistant', rawText: str(item.text), canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)),
+          meta: row.meta, streaming: item.streaming === true || row.inProgress, code: messageCodeBlocks(text, 'data', `message:${row.id}`),
           diagrams: messageDiagrams(text) };
       }
       if (context.workflow && context.workflow.messageId === str(item.messageId)) {
         const opening = workflowOpeningMessage(context.workflow, { agents: [], providers: context.providers, threads: context.threads }, threadFindView(context.client).highlight);
-        return { ...common, ...opening, code: messageCodeBlocks(opening.body) };
+        return { ...common, ...opening, code: messageCodeBlocks(opening.body, 'data', `opening:${row.id}`) };
       }
       const intent = str(item.inputIntent), sender = userMessagePresentation(item);
-      const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads), chips = withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
-      // A file with a chip in the prose needs no standalone row (images always show).
-      return { ...common, kind: 'user', title: 'You', body: text, revert: row.revert, images: attached.images, attachFiles: attached.attachFiles.filter(file => !chipped.has(file.id)), chips, code: messageCodeBlocks(text), diagrams: messageDiagrams(text),
-        collapsible: shouldCollapseUserMessage(text),
+      // An automation's prompt reads its context references as their labels (AutomationMessageRow's UserMessageBody).
+      const relabeled = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads, context.client.environmentId);
+      const text = sender.attribution === 'automation' ? plainContextReferences(relabeled) : withoutSoundReferences(relabeled, item), chips = withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client))
+        .map(chip => chip.kind === 'image' && svgPreviewFailed(context.client, chip.target) ? asFileChip(chip) : chip), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips, item);
+      // Automation and other agents' messages fold to one line, their author (the sending thread's title) as the heading.
+      const automation = sender.attribution === 'automation', agent = sender.attribution === 'agent';
+      const senderTitle = agent ? str(context.threads.find(thread => thread.id === item.senderThreadId)?.title).trim() || 'Agent' : '';
+      const summary = automation || agent ? foldedMessageSummary(sender.attribution, automation ? sender.text : text, automation ? scheduledTaskTitle(context.client, sender.scheduledTaskId) : '') : '';
+      // findRevealRef: find's painter reveals the fold on every paint while its active match is inside (revealFolded), so
+      // the chevron cannot close it then; it stays open after the match moves on.
+      const foldKey = scoped(context.client, 'message', row.id);
+      if ((automation || agent) && context.findEntry === row.id) view.open.add(foldKey);
+      // A file with a chip in the prose needs no standalone row (images always show); an automation's prompt shows none.
+      return { ...common, kind: 'user', title: automation ? 'Automation' : agent ? senderTitle : 'You', summary, body: text, revert: row.revert,
+        images: automation ? [] : attached.images, attachFiles: automation ? [] : attached.attachFiles.filter(file => !chipped.has(file.id)), audio: automation ? [] : attached.audio, chips, code: messageCodeBlocks(text, 'data', `message:${row.id}`), diagrams: messageDiagrams(text),
+        collapsible: !automation && !agent && shouldCollapseUserMessage(text),
         // A queued message that was sent reads as any other; only a steer keeps its marker.
         intent: intent === 'steer' || intent === 'promoted_queued_to_steer' ? 'Steer' : '',
         intentTip: intent === 'promoted_queued_to_steer' ? 'Originally queued, then promoted to steer the active turn' : intent === 'steer' ? 'Steered the active turn' : '',
-        attribution: sender.attribution, targetId: str(item.senderThreadId), detail: sender.scheduledTaskId,
+        attribution: sender.attribution, targetId: str(item.senderThreadId), detail: sender.scheduledTaskId, expanded: view.open.has(foldKey),
         status: ['completed', 'pending', 'waiting'].includes(str(item.status)) ? '' : str(item.status) };
     }
   }
@@ -528,7 +617,10 @@ const blankActivity = (activity: Activity): RowActivity => ({
 export function timelineMessages(client: T3Client, transcript: Message[], now: number) {
   const format = client.local.deviceSettings.timestampFormat, md = markdownEnv(client);
   const copy = timelineView(client).codeCopy, codeCopy = copy.threadId === client.threadId ? { codeCopied: copy.text, codeCopyNonce: copy.nonce } : { codeCopied: '', codeCopyNonce: 0 };
-  const rows = transcript.filter(message => message.kind !== 'checkpoint' || !message.sourceThreadId || message.sourceThreadId === client.threadId).map(message => {
+  // A checkpoint that changed no files draws nothing, so it is no row, as upstream derives none for it. A zero-height
+  // row would also never settle in the virtualized transcript: each row state write puts it
+  // back at the list's estimate, and once measured it leaves the window again, rebuilding the row at the window's edge.
+  const rows = transcript.filter(message => message.kind !== 'checkpoint' || (message.files?.length ?? 0) > 0 && (!message.sourceThreadId || message.sourceThreadId === client.threadId)).map(message => {
     const checkpoint = arr(client.projection.checkpoints).find(checkpoint => checkpoint.id === message.checkpointId);
     const files = message.files ?? [], tree = treeState(client, message.runId || message.checkpointId || '');
     return { id: message.id, kind: message.kind, title: message.title, body: message.body,
@@ -545,12 +637,13 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       icon: message.icon ?? '', tone: message.tone ?? '', failed: message.failed === true, live: message.live === true,
       startedMs: message.startedMs ?? 0, elapsed: message.elapsed ?? '', detail: message.detail ?? '', status: message.status ?? '', groupId: message.groupId ?? '',
       continues: message.continues === true, revert: message.revert ?? -1, intent: message.intent ?? '', intentTip: message.intentTip ?? '',
-      attribution: message.attribution ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
+      attribution: message.attribution ?? '', summary: message.summary ?? '', sender: message.sender ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
       copied: message.copied ?? 0, copyFailed: message.copyFailed === true, meta: message.meta !== false,
       collapsible: message.collapsible === true, code: message.code ?? [], diagrams: message.diagrams ?? [], inlineDocuments: message.inlineDocuments ?? [], setup: message.setup ?? [], fileCount: message.kind === 'checkpoint' ? files.length : 0,
-      secret: message.secret ?? [], findLines: message.findLines ?? [], images: message.images ?? [], attachFiles: message.attachFiles ?? [], md: { ...md, chips: message.chips ?? [], threadGlyphs: markdownThreadGlyphs(client, str(message.body), message.chips ?? []), runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
+      secret: message.secret ?? [], approval: message.approval ?? [], findLines: message.findLines ?? [], images: message.images ?? [], attachFiles: message.attachFiles ?? [], audio: message.audio ?? [], md: { ...md, chips: message.chips ?? [], threadGlyphs: markdownThreadGlyphs(client, str(message.body), message.chips ?? []), runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
   });
-  timelineView(client).lastRows = { threadId: client.threadId, rows: rows.map(row => ({ id: row.id, kind: row.kind, body: row.body })) };
+  const rawText = new Map(transcript.map(message => [message.id, message.rawText]));
+  timelineView(client).lastRows = { threadId: client.threadId, rows: rows.map(row => ({ id: row.id, kind: row.kind, body: row.body, text: rawText.get(row.id) })) };
   rows.forEach((row, index) => {
     row.first = index === 0;
     row.last = index === rows.length - 1;

@@ -53,6 +53,7 @@ const GUARDED: Record<string, string> = {
   'pr-row.contract "pr-merge-dialog"': 'pr-merge',
   'pr-checkout.contract "pr-checkout-dialog"': 'pr-checkout',
   'add-project-machine.contract "add-machine-dialog"': 'add-machine',
+  'app-route-modal.contract modalId': 'route-modal',
   'settings-a-collections.contract "theme-remove-collection"': 'theme-remove-collection',
   'settings-a-dialogs.contract dialogId': 'sa-dialog',
   'settings-a-hosts.contract "device-host-dialog"': 'device-host',
@@ -90,6 +91,7 @@ const KEYED: Record<string, { component: string; wraps: string[] }> = {
   'settings-rest-dialogs.contract dialogId': { component: 'SettingsConfirm', wraps: ['focus(busy ? dialogId : `${dialogId}-confirm`)', 'focus(busy ? dialogId : `${dialogId}-cancel`)'] },
   'shell-panels.contract "app-confirm"': { component: 'AppConfirm', wraps: ['focus(busy ? confirmId : `${confirmId}-confirm`)', 'focus(busy ? confirmId : `${confirmId}-cancel`)'] },
   'sidebar-overlays.contract "sidebar-snooze"': { component: 'SidebarSnoozeDialog', wraps: ['focus("snooze-close")', 'focus(toggleId)'] },
+  'update-everything.contract "update-everything-confirm"': { component: 'UpdateEverythingDialog', wraps: ['focus(d.skippedRows.length > 0 ? "update-everything-skipped" : "update-everything-confirm-cancel")', 'focus("update-everything-confirm-confirm")'] },
   'this-machine.contract "local-environment-dialog"': { component: 'LocalEnvironmentDialog', wraps: ['focus("local-environment-confirm")', 'focus("local-environment-cancel")'] },
   'usage-bars.contract "reset-credit-dialog"': { component: 'ResetCreditDialog', wraps: ['focus(busy ? "reset-credit-dialog" : "reset-credit-confirm")', 'focus(busy ? "reset-credit-dialog" : "reset-credit-cancel")'] },
 };
@@ -98,12 +100,17 @@ const NOT_MODAL: Record<string, string> = {
   'browser-frames.contract "browser-page-dialog"': 'Chromium\'s tab-modal JavaScript dialog: modal to its page only',
   'auto-balance.contract `notice-machines-${notice.id}`': 'Popover',
   'composer-controls.contract `notice-details-card-${id}`': 'Popover (NoticeDescription, openOnHover)',
+  'thread-end.contract `thread-now-details-card-${message.id}`': 'Popover (ThreadNow NoticeText, openOnHover)',
+  'requests.contract `approval-why-card-${id}`': 'Popover (ComposerPendingApprovalPanel, openOnHover)',
+  'timeline-approval.contract `timeline-approval-why-card-${id}`': 'Popover (TimelinePendingApprovalRow, openOnHover)',
   'composer-chip-popover.contract "chip-popover"': 'Popover',
   'citation-comment.contract "citation-comment"': 'Popover (AssistantCitationChip\'s comment)',
   'diff.contract "diff-base-picker"': 'Popover',
   'markdown.contract `Terminal excerpt, ${chip.label}`': 'Popover',
   'markdown.contract `Quoted assistant text: ${chip.label}`': 'Popover (AssistantCitationChip)',
   'markdown.contract "context-chip-details"': 'Popover',
+  'skill-chip.contract `Skill ${label}`': 'Popover (SkillChipPopover)',
+  'timeline-worktree.contract "Worktree setup"': 'Popover (BackgroundWorktreeSetupChip)',
   'model-picker.contract "model-dialog"': 'ProviderModelPicker PopoverPopup',
   'pages-pr-actions.contract testId': 'Popover (the freshness card)',
   'pages-pr-compose.contract "pull-request-composer"': 'PullRequestComposer PopoverPopup',
@@ -242,7 +249,7 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
 
   test.each([
     ['git-publish.contract', 'PublishStep', 'git.contract', 'DialogFrame', 'git-publish-step-0', 'git-publish-dialog', { index: 0, current: 0 }, { index: 0, current: 2 }],
-    ['settings-rows.contract', 'CoreSelect', 'settings-a-dialogs.contract', 'SaDialog', 'setting-background-policy', 'background-activity-dialog', { rowId: 'background-policy', disabled: false }, { rowId: 'background-policy', disabled: true }],
+    ['settings-rows.contract', 'CoreSelect', 'settings-a-dialogs.contract', 'SaDialog', 'setting-background-policy', 'background-activity-dialog', { rowId: 'background-policy', disabled: false, stop: 'enabled' }, { rowId: 'background-policy', disabled: true, stop: 'enabled' }],
     ['pages-usage-prices.contract', 'UsageGhostIcon', 'pages-usage-dialogs.contract', 'UsageDialogShell', 'usage-prices-add', 'usage-prices-dialog', { elementId: 'usage-prices-add', disabled: false }, { elementId: 'usage-prices-add', disabled: true }],
   ] as const)('%s %s exposes its actual eligibility to the shared dialog guards', (file, component, frameFile, frameComponent, first, popup, on, off) => {
     const lines = source(file).split('\n'), body = block(lines, lines.indexOf(`component ${component}`));
@@ -251,7 +258,7 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
     const id = /\bid=(`[^`]+`|[A-Za-z]+)/.exec(control)![1]!;
     for (const [env, eligible] of [[on, true], [off, false]] as const) {
       expect(value(id, env)).toBe(first);
-      const enabled = marker && value(marker, env) === 'enabled' ? [first, `${popup}-close`] : [`${popup}-close`];
+      const enabled = marker && String(value(marker, env)).split(' ').includes('enabled') ? [first, `${popup}-close`] : [`${popup}-close`]; // `~=`: one of its words
       const targets = contractComponent(frameFile, frameComponent).derives({}, { first, testId: popup, dialogId: popup }).dialogTargets;
       const focused: string[] = [];
       guard.call('enter', {}, { start: false, targets, popup, querySelectorAll: (q: string) => q.includes('dialog-focus') ? [popup] : enabled, stopPropagation() {}, focus: (id: string) => focused.push(id) }, []);
@@ -266,9 +273,11 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
       const children = block(lines, dialog.index).filter(line => line.trim() !== '' && !line.trimStart().startsWith('//'));
       const depth = indent(children[0]!);
       const direct = children.filter(line => indent(line) === depth);
-      // ControlGuard is the pair of a dialog whose stops are all buttons (dialog-trap.contract).
+      // ControlGuard is the pair of a dialog whose stops are all buttons; Settings' and Usage's modal starts with
+      // RouteFocusGuard, which wraps back to the page's last control (dialog-trap.contract).
       const kind = direct[0]!.trim().startsWith('ControlGuard(') ? 'ControlGuard' : 'FocusGuard';
-      expect(direct[0]!.trim()).toStartWith(`${kind}(guardId="${base}-guard-start", targets=`);
+      const start = direct[0]!.trim().startsWith('RouteFocusGuard(') ? 'RouteFocusGuard' : kind;
+      expect(direct[0]!.trim()).toStartWith(`${start}(guardId="${base}-guard-start", targets=`);
       expect(direct.at(-1)!.trim()).toStartWith(`${kind}(guardId="${base}-guard-end", targets=`);
       expect(children.filter(line => line.includes('FocusGuard(') || line.includes('ControlGuard(')).length).toBe(2);
       // Every name a target can take is an element of the app (or a prop the shell's callers fill: `first`).
@@ -529,8 +538,11 @@ describe('every modal dialog gives focus back through a surviving observer or it
     'connections-network-dialogs.contract "pairing-reveal-dialog"': ['connections-network-dialogs.contract', ['pairing-reveal-dialog']],
     'pages-pr-stack.contract "pr-stack-dialog"': ['pages-pr-actions.contract', ['pr-stack-dialog']],
     'usage-bars.contract "reset-credit-dialog"': ['app-overlays.contract', ['reset-credit-dialog']],
+    'update-everything.contract "update-everything-confirm"': ['sidebar-overlays.contract', ['update-everything-confirm']],
   };
   const own: Record<string, [string, string]> = {
+    // AppRouteModal's finalFocus={false}: closing leaves the focus where it is, blurred first (the close button's leave).
+    'app-route-modal.contract modalId': ['app-route-modal.contract', 'action leave\n    blur()\n    dismiss()'],
     'browser-profiles.contract "browser-profile-remove-dialog"': ['app.contract', 'focus(`browser-profile-options-${removalAt}`)'],
     'palette.contract view.testId': ['app.contract', 'focus("pull-request-more")'],
     'palette.contract "pull-request-thread-picker"': ['app.contract', 'focus("pull-request-more")'],
@@ -547,7 +559,8 @@ describe('every modal dialog gives focus back through a surviving observer or it
   const shared: Record<string, string[]> = {
     'app-settings.contract': ['project-remove', 'project-remove-member', 'archive-delete', 'signal-kill', 'archive-context-delete', 'theme-remove', 'update-install'],
     'legacy-sidebar.contract': ['legacy-remove-project', 'legacy-archive-many'],
-    'app-overlays.contract': ['server-update-confirm', 'update-everything-confirm', 'app-confirm'],
+    'app-overlays.contract': ['server-update-confirm', 'app-confirm'],
+    'prompt-links.contract': ['pairing-link-confirm'],
     'providers-wizard.contract': ['wizard-sign-out-confirm'],
     'settings-appearance-import.contract': ['theme-update'],
   };

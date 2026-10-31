@@ -1,8 +1,8 @@
 // The chat canvas: where chat, the composer lane, the workspace card and the floating player sit
 // (T3 Code 9c161462c9, MIT, see LICENSE-T3: apps/web/src/components/chat/chatCanvasLayout.ts and
-// ChatCanvas.tsx's width probe for the lane metrics). Ported as is; chatLaneMetrics is the one place
-// the lane's constants come from (the probe's `sm:ps-12`, `--chat-content-max-width` and `min-w-[40rem]`),
-// so the Interface font size's rem conversion changes them here only.
+// ChatCanvas.tsx's width probe for the lane metrics; the centring beside the card is 96fc7b9551's).
+// Ported as is; chatLaneMetrics is the one place the lane's constants come from (the probe's `sm:ps-12`,
+// `--chat-content-max-width` and `min-w-[40rem]`), so the Interface font size's rem conversion changes them here only.
 import { clampPreviewMiniPlayerPosition, resolvePreviewMiniPlayerFrame, type PreviewMiniPlayerFrame, type PreviewMiniPlayerObstacles } from '../device/previewMiniPlayerLayout';
 import type { PreviewMiniPlayerPosition, PreviewMiniPlayerSize, PreviewMiniPlayerState } from '../device/previewMiniPlayerStore';
 
@@ -45,12 +45,18 @@ export function resolveChatCanvasLayout({
   detailsCard?: PreviewMiniPlayerObstacles['detailsCard'];
 }) {
   const centeredWidth = Math.max(0, Math.min(maxChatWidth, container.width - padding * 2));
-  // A workspace card that does not fit beside the centered chat first moves
-  // chat left, only as far as it needs. Chat narrows only after it reaches the
-  // left padding.
+  // Chat narrows only after it reaches the left padding.
   const laneRight = detailsCard ? detailsCard.left - DETAILS_CARD_CLEARANCE : container.width - padding;
   const normalWidth = Math.max(0, Math.min(centeredWidth, laneRight - padding));
-  const normalLeft = Math.max(padding, Math.min((container.width - normalWidth) / 2, laneRight - normalWidth));
+  const canvasCenterLeft = (container.width - normalWidth) / 2;
+  // Beside a card it would crowd, the chat centers between the card and the canvas edge. The shift
+  // eases to zero as clearance grows, so very wide windows keep the chat still and a resize
+  // never jumps it.
+  const besideShift = detailsCard
+    ? Math.min((container.width - detailsCard.left) / 2,
+      Math.max(0, (container.width - detailsCard.left) / 2 - (laneRight - canvasCenterLeft - normalWidth)))
+    : 0;
+  const normalLeft = Math.max(padding, Math.min(canvasCenterLeft - besideShift, laneRight - normalWidth));
   let chat = { left: normalLeft, width: normalWidth, insetStart: 0, insetEnd: Math.max(0, container.width - normalLeft * 2 - normalWidth) };
   let frame: PreviewMiniPlayerFrame | null = null;
   let overlapsChat = false;

@@ -1,7 +1,7 @@
 // The device's copies of attached files (composer-attach-stage.ts writes them): an image's draft beside SnapShot's,
 // and a plain file's copy for its chip, read once at send and removed.
 import { appFiles } from '../media/save-file';
-import { toBase64 } from '../shared/base64';
+import { forgetStagedCopies } from '../media/media-frame';
 import { videoMimeType } from './composer-video';
 
 export const DRAFTS = 'app:/data/snapshots/drafts';
@@ -10,7 +10,9 @@ export const STAGED = 'app:/data/composer-files';
 const MAX_STAGED_BYTES = 50 * 1024 * 1024;
 
 interface CopyFiles {
-  readFile(path: string): Promise<ArrayBuffer>;
+  stat(path: string): Promise<{ size: number }>;
+  mkdir(path: string, options: { recursive: boolean }): Promise<unknown>;
+  writeFile(path: string, bytes: Uint8Array): Promise<unknown>;
   readdir(path: string): Promise<string[]>;
   rm(path: string): Promise<unknown>;
 }
@@ -28,19 +30,43 @@ export function stagedName(file: { id: string; name: string; mimeType: string })
   return media && ext ? `${id}.${ext}` : id;
 }
 
-/** A staged file's bytes as base64 for the upload (`uploadAttachment`), or null when the copy is gone or empty. */
-export async function readStaged(file: { id: string; name: string; mimeType: string }): Promise<string | null> {
+/** A staged file for the upload (`uploadAttachment` sends it from its path), or null when the copy is gone or empty. */
+export async function stagedUpload(file: { id: string; name: string; mimeType: string }): Promise<{ bodyFrom: string; sizeBytes: number } | null> {
   if (!valid(file.id)) return null;
+  const path = `${STAGED}/${stagedName(file)}`;
   try {
-    const bytes = new Uint8Array(await files().readFile(`${STAGED}/${stagedName(file)}`));
-    return bytes.byteLength > 0 && bytes.byteLength <= MAX_STAGED_BYTES ? toBase64(bytes) : null;
+    const { size } = await files().stat(path);
+    return size > 0 && size <= MAX_STAGED_BYTES ? { bodyFrom: path, sizeBytes: size } : null;
   } catch { return null; }
 }
 
-/** A staged file's copy, under either name (an older build also left a typed link and a video poster, `drafts/<id>.png`). */
+/** Where a folded paste's text waits for its upload, removed once it is sent (`foldUpload`). */
+export const FOLD_UPLOADS = 'app:/tmp/composer-stage/folds';
+let foldUploads = 0;
+
+/**
+ * A folded paste's UTF-8 bytes written to an app file for the upload to send from its path: a body inline in the
+ * request is refused above 4 MiB on Apple (host/apple/src/executor_core.rs MAX_REQUEST), and base64 grows it by a third.
+ */
+export async function foldUpload(bytes: Uint8Array): Promise<{ bodyFrom: string; sizeBytes: number }> {
+  const fs = files(), path = `${FOLD_UPLOADS}/${++foldUploads}.txt`;
+  await fs.mkdir(FOLD_UPLOADS, { recursive: true });
+  await fs.writeFile(path, bytes);
+  return { bodyFrom: path, sizeBytes: bytes.byteLength };
+}
+
+export async function removeFoldUpload(path: string): Promise<void> {
+  await files().rm(path).catch(() => undefined);
+}
+
+/**
+ * A staged file's copy, under either name (an older build also left a typed link and a video poster, `drafts/<id>.png`),
+ * and the copies its preview made in app:/cache (media-frame.ts).
+ */
 export async function removeStaged(id: string): Promise<void> {
   if (!valid(id)) return;
   const name = id.toLowerCase();
+  forgetStagedCopies(name);
   let fs: CopyFiles;
   try { fs = files(); } catch { return; }
   const links = await fs.readdir(STAGED).catch(() => [] as string[]);

@@ -21,11 +21,11 @@ import {
   canOneClickUpdateProviderCandidate, collectProviderUpdateCandidates, failure, getProviderUpdateRunToastView, isProviderSettingsUpdateCandidate,
   isProviderUpdateActive, providerDisplayName, providersOf, success, type ProviderUpdateRun,
 } from './provider-updates';
-import { fleetTarget, focusedTarget, primaryTarget, runLaunchUpdates, UPDATE_TIMEOUT_SECONDS, type UpdateTarget } from './provider-update-notify';
+import { fleetTarget, focusedTarget, UPDATE_TIMEOUT_SECONDS, type UpdateTarget } from './provider-update-notify';
 import { acpOp, acpSectionView, urlAuthView, type AcpHost } from './acp-sessions';
 import { customModelEditorOp, customModelEditorView, readCustomModelEntries, storedCustomModels } from './custom-model-editor';
 import { wakeShell } from '../client/command-waits';
-import { upsertInstance, type ProviderHost, type providerPage } from './providers';
+import { refreshAcpRegistry, upsertInstance, type ProviderHost, type providerPage } from './providers';
 import { FleetSetupHost, hostClient } from './codex-fleet-host'; // Settings › Providers on a background environment (providers-scope.ts)
 
 export interface UpkeepHost extends AcpHost, ProviderHost {
@@ -76,7 +76,7 @@ export function advisoryView(host: UpkeepHost, instanceId: string, provider: Obj
   const problem = !updating && (update.status === 'failed' || update.status === 'unchanged') ? str(update.message) : '';
   return {
     show: presentation !== null || updating || problem !== '', mode, popId: `provider-advisory-${mode}-${instanceId}`, instanceId,
-    label: `${updating ? 'Updating' : presentation?.title || 'Update status'} — view details`, title: presentation?.title ?? '', detail: presentation?.detail ?? '',
+    label: `${updating ? 'Updating' : presentation?.title || 'Update status'}, view details`, title: presentation?.title ?? '', detail: presentation?.detail ?? '',
     strong: presentation?.emphasis === 'strong', warning: hasCompatibilityWarning,
     action: !hasAction ? '' : updating ? 'Updating' : presentation!.targetVersion ? `Install ${versionLabel(presentation!.targetVersion)}` : 'Update now',
     target: presentation?.targetVersion ?? '', updating, progress, problem, command, divider: hasAction && command !== '',
@@ -124,7 +124,7 @@ export async function updateAllProviders(host: UpkeepHost, machines: readonly Pr
     return { environmentId, machineLabel: label, driver: str(candidate.driver), instanceId: str(candidate.instanceId), result };
   })));
   const view = quiet ? null : getProviderUpdateRunToastView(runs);
-  if (view) pushToast(hostClient(host), { kind: view.type === 'success' ? 'success' : view.type === 'error' ? 'error' : view.type === 'loading' ? 'loading' : 'warning', title: view.title, description: view.description, stacked: true });
+  if (view) pushToast(hostClient(host), { kind: view.type, title: view.title, description: view.description, stacked: true });
   return runs;
 }
 
@@ -218,8 +218,8 @@ async function saveCustomModel(host: UpkeepHost, native: Native, instanceId: str
 }
 
 /**
- * One `upkeep:<what>` op from the Providers page or a toast. `id` is the instance (or the launch
- * prompt's key), `field` and `value` as each op names them.
+ * One `upkeep:<what>` op from the Providers page or Add provider. `id` is the instance (or the
+ * registry search's query), `field` and `value` as each op names them.
  */
 export async function providerUpkeepOp(host: UpkeepHost, native: Native, op: string, id: string, field: string, value: string): Promise<void> {
   const what = op.slice('upkeep:'.length);
@@ -227,7 +227,7 @@ export async function providerUpkeepOp(host: UpkeepHost, native: Native, op: str
   try {
     if (what === 'update') await runProviderUpdate(host, host instanceof FleetSetupHost ? fleetTarget(host.entry, native) : focusedTarget(host as unknown as T3Client, native), id, value);
     else if (what === 'update-all') await runUpdateAll(host, updateTargets(host, native));
-    else if (what === 'update-launch') await runLaunchUpdates(host as unknown as T3Client, id, primaryTarget(host as unknown as T3Client, native));
+    else if (what === 'registry-refresh') refreshAcpRegistry(host, id);
     else if (what === 'copy-command') await copyCommand(host, native, id);
     else if (what.startsWith('acp-')) await acpOp(host, native, what.slice(4), id, field, value, toast);
     else if (what.startsWith('cm-')) {

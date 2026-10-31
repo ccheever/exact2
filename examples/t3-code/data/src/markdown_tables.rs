@@ -1,8 +1,8 @@
 // Chat Markdown tables and image chips, included by markdown.rs.
 // T3's MarkdownTable (ChatMarkdown.tsx, MIT, see LICENSE-T3) draws one table:
 // cells of 12pt text padded 7.2/12 (8.8 in the header), a column as wide as its
-// widest cell up to 24rem, and a footer with the expand toggle and the Copy as
-// Markdown / CSV menu (markdown-clipboard.ts serializeTable / ToCsv). The parser
+// widest cell up to 24rem, and a footer with the Copy as Markdown / CSV menu
+// (markdown-clipboard.ts serializeTable / ToCsv). The parser
 // emits one block per row; here a table's rows become one `table` block whose
 // `columns` name, per column, the cell that sizes it (drawn invisibly in every
 // row so the host's own text metrics set the width) and its share of any room.
@@ -169,7 +169,6 @@ fn table_block(first: usize, gap: f64, rows: &[&markdown_parse::Block], align: &
             }
         }
         let (width, runs, header) = best.unwrap_or((24.0, &[], false));
-        let capped = width > CELL_CAP;
         let sizer = chat_runs(&Value::list(
             runs.iter()
                 .enumerate()
@@ -179,10 +178,9 @@ fn table_block(first: usize, gap: f64, rows: &[&markdown_parse::Block], align: &
         sizers.push(Value::record(vec![
             Value::str(&column.to_string()),
             sizer,
-            Value::Bool(capped),
             Value::Bool(header),
             Value::Number(width.min(CELL_CAP)),
-            Value::str(align.get(column).copied().unwrap_or("left")),
+            Value::str(align.get(column).copied().unwrap_or("start")),
         ]));
     }
     let row_values = rows
@@ -257,18 +255,52 @@ fn image_chip_links(text: &str) -> std::borrow::Cow<'_, str> {
         return std::borrow::Cow::Borrowed(text);
     }
     let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(at) = rest.find("![") {
-        let after = &rest[at + 2..];
-        let is_chip = after.find(']').is_some_and(|close| {
-            !after[..close].contains('\n') && after[close..].starts_with("](t3-context://")
-        });
-        out.push_str(&rest[..at]);
+    let mut copied = 0;
+    for (at, close) in image_label_ends(text) {
+        let is_chip = close.is_some_and(|close| text[close..].starts_with("](t3-context://"));
+        out.push_str(&text[copied..at]);
         out.push_str(if is_chip { "[" } else { "![" });
-        rest = after;
+        copied = at + 2;
     }
-    out.push_str(rest);
+    out.push_str(&text[copied..]);
     std::borrow::Cow::Owned(out)
+}
+
+/// Each `![` in `text`, with the `]` that ends its alt text when one comes before the line does: the first after it.
+/// Every `]` and line break is found once, so a text of many unclosed `![` reads in linear time.
+fn image_label_ends(text: &str) -> Vec<(usize, Option<usize>)> {
+    let closes: Vec<usize> = text.match_indices(']').map(|(at, _)| at).collect();
+    let breaks: Vec<usize> = text.match_indices('\n').map(|(at, _)| at).collect();
+    let (mut close, mut line_break) = (0, 0);
+    text.match_indices("![")
+        .map(|(at, _)| {
+            while closes.get(close).is_some_and(|&next| next < at + 2) {
+                close += 1;
+            }
+            while breaks.get(line_break).is_some_and(|&next| next < at + 2) {
+                line_break += 1;
+            }
+            let end = closes
+                .get(close)
+                .copied()
+                .filter(|&end| breaks.get(line_break).is_none_or(|&next| next > end));
+            (at, end)
+        })
+        .collect()
+}
+
+/// The destinations of the image references image_chip_links rewrites into links: an `img` has no words, so
+/// block_directions leaves their alt text out.
+fn context_image_hrefs(text: &str) -> Vec<String> {
+    let parens: Vec<usize> = text.match_indices(')').map(|(at, _)| at).collect();
+    image_label_ends(text)
+        .into_iter()
+        .filter_map(|(_, close)| {
+            let close = close.filter(|&close| text[close..].starts_with("](t3-context://"))?;
+            let end = *parens.get(parens.partition_point(|&paren| paren < close + 2))?;
+            Some(text[close + 2..end].to_string())
+        })
+        .collect()
 }
 
 /// A line of pipes is a table row only beside the `| --- |` rule that makes
@@ -299,4 +331,76 @@ fn table_lines(lines: &[&str]) -> Vec<bool> {
         }
     }
     table
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::*;
+
+    #[test]
+    fn tables_are_one_block_with_sizing_columns_and_copy_text() {
+        let Value::Record(doc) = document(
+            Value::str("t"),
+            &line_breaks(
+                "Intro\n\n| Name | Note |\n|:-|:-|\n| **a** | x, \"y\" |\n| `b` | a long one |\n\n| not | a table\nafter ![shot.png](t3-context://v1/image/image_1)",
+            ),
+        ) else {
+            panic!("document")
+        };
+        let Value::List(blocks) = &doc[1] else {
+            panic!("blocks")
+        };
+        let kinds: Vec<String> = blocks
+            .iter()
+            .map(|block| {
+                let Value::Record(fields) = block else {
+                    panic!("block")
+                };
+                assert_eq!(fields.len(), 20);
+                fields[1].as_str().unwrap_or("").to_string()
+            })
+            .collect();
+        assert_eq!(kinds, vec!["paragraph", "table", "paragraph", "paragraph"]);
+        let Value::Record(table) = &blocks[1] else {
+            panic!("table")
+        };
+        let Value::List(rows) = &table[11] else {
+            panic!("rows")
+        };
+        assert_eq!(rows.len(), 3);
+        let Value::List(columns) = &table[12] else {
+            panic!("columns")
+        };
+        assert_eq!(columns.len(), 2);
+        assert_eq!(
+            table[13].as_str(),
+            Some("| Name | Note |\n| --- | --- |\n| **a** | x, \"y\" |\n| `b` | a long one |")
+        );
+        assert_eq!(
+            table[14].as_str(),
+            Some("Name,Note\na,\"x, \"\"y\"\"\"\nb,a long one")
+        );
+        // The pipe line that is no table keeps its break; the image reference is a chip.
+        let Value::Record(last) = &blocks[3] else {
+            panic!("line")
+        };
+        let Value::List(runs) = &last[7] else {
+            panic!("runs")
+        };
+        let chip = runs.iter().find_map(|run| {
+            let Value::Record(fields) = run else {
+                return None;
+            };
+            (fields[6].as_str() == Some("context-image")).then(|| {
+                (
+                    fields[1].as_str().unwrap_or("").to_string(),
+                    fields[5].as_str().unwrap_or("").to_string(),
+                )
+            })
+        });
+        assert_eq!(
+            chip,
+            Some(("shot.png".into(), "t3-context://v1/image/image_1".into()))
+        );
+    }
 }

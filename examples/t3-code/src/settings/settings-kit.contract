@@ -17,46 +17,47 @@ shape SelectOption
   selected: bool
 
 style SkTitle
-  font-size="0.875rem" font-weight=400 line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)"
+  font-size="1rem" font-weight=600 line-height="1.5rem" color="light-dark(#18181b, #f5f5f5)"
 style SkCard
   display="flex" flex-direction="column" width="100%" box-sizing="border-box"
-  border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)"
+  border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff0c)"
   background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d"
 style SkRowTitle
-  font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+  font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
 style SkRowText
-  font-size="0.75rem" font-weight=400 line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
+  font-size="0.75rem" font-weight=400 line-height="1.125rem" color="light-dark(#71717b, #a1a1a1)"
 style SkMuted
-  font-size="0.75rem" font-weight=400 line-height="1rem" color="light-dark(#71717b, #818181)"
+  font-size="0.75rem" font-weight=400 line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
 style SkInk
-  color="light-dark(#27272a, #f5f5f5)"
+  color="light-dark(#18181b, #f5f5f5)"
 style SkDivider
-  border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)"
+  border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff0a)"
 style SkOutline
   display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem"
   box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem"
-  border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)"
-  background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0
+  border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)"
+  background-color="light-dark(#ffffff, #ffffff09)" box-shadow="0 1px 2px #0000000d" flex-shrink=0
 style SkGhost
   display="flex" flex-direction="row" align-items="center" justify-content="center"
   box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color="#00000000" flex-shrink=0
 style SkField
-  box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.625rem"
-  border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)"
-  background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" line-height="1.25rem"
-  color="light-dark(#27272a, #f5f5f5)" min-width=0
+  box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem"
+  border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)"
+  background-color="light-dark(#fcfcfc, #ffffff09)" font-size="0.875rem" line-height="1.25rem"
+  color="light-dark(#18181b, #f5f5f5)" min-width=0
 style SkError
-  font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)"
+  font-size="0.75rem" line-height="1.125rem" color="light-dark(#fb2c36, #fb414a)"
 
-// SettingsSection: a muted 14px heading over a grouped card (space-y-2.5).
+// SettingsSection: a muted 14px heading over a grouped card (space-y-2.5). Its id is a search target, focused by the
+// jump alone (tabindex -1).
 component SettingsSection
   props
     title: string
     sectionId: string
   slot
   view
-    column width="100%" gap="0.625rem" testId=sectionId
-      row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" gap="0.5rem" box-sizing="border-box"
+    column width="100%" gap="0.625rem" id=sectionId tabindex=-1 testId=sectionId
+      row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" gap="0.5rem" box-sizing="border-box" id=`${sectionId}-scroll-target`
         text title class=SkTitle role="heading" aria-level=2
       column class=SkCard
         children
@@ -76,12 +77,14 @@ component SettingsRow
         row min-height="1.25rem" align-items="center" gap="0.375rem"
           text title class=SkRowTitle role="heading" aria-level=3
         if description != ""
-          text description class=SkRowText max-width="36rem"
+          text description class=SkRowText max-width="42rem" text-wrap="balance"
       // grid-cols-[minmax(0,1fr)_minmax(10rem,auto)]: the control column is at least 160pt.
       row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem"
         children
 
-// ui/switch.tsx: 30x18 track, 14px thumb, primary when checked.
+// A Settings page draws SettingsPageSwitch and SettingsPageSelect: their stops also carry `page`, the word the route
+// modal's guard reads to wrap Shift+Tab to the page's last control (dialog-trap.contract RouteFocusGuard). Controls
+// elsewhere, behind the modal or in a dialog, use SettingsSwitch and SettingsSelect.
 component SettingsSwitch
   props
     checked: bool
@@ -90,11 +93,62 @@ component SettingsSwitch
     switchId: string
     toggle: action
   view
-    button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled id=switchId testId=switchId display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") width="1.875rem" height="1.125rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5625rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
-      box width="0.875rem" height="0.875rem" border-radius="0.4375rem" flex-shrink=0 background-color=(checked ? "light-dark(#fcfcfc, #0a0a0a)" : "light-dark(#fcfcfc, #818181)") box-shadow="0 1px 3px #0000000d"
+    SwitchControl(checked=checked, label=label, disabled=disabled, switchId=switchId, stop="enabled", toggle=toggle)
 
-// ui/select.tsx size="sm" trigger; the popup is the platform's menu.
+component SettingsPageSwitch
+  props
+    checked: bool
+    label: string
+    disabled: bool
+    switchId: string
+    toggle: action
+  view
+    SwitchControl(checked=checked, label=label, disabled=disabled, switchId=switchId, stop="enabled page", toggle=toggle)
+
+// ui/switch.tsx: 30x18 track, 14px thumb, primary when checked.
+component SwitchControl
+  props
+    checked: bool
+    label: string
+    disabled: bool
+    switchId: string
+    stop: string
+    toggle: action
+  view
+    button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled id=switchId testId=switchId display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") width="1.875rem" height="1.125rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5625rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff1c)") title="" data-focus-stop=(disabled ? "" : stop)
+      box width="0.875rem" height="0.875rem" border-radius="0.4375rem" flex-shrink=0 background-color=(checked ? "light-dark(#fcfcfc, #000000)" : "light-dark(#fcfcfc, #a1a1a1)") box-shadow="0 1px 3px #0000000d"
+
 component SettingsSelect
+  props
+    selectId: string
+    label: string
+    valueLabel: string
+    empty: bool
+    value: string
+    width: number
+    disabled: bool
+    options: SelectOption[]
+    choose: action
+  view
+    SelectControl(selectId=selectId, label=label, valueLabel=valueLabel, empty=empty, value=value, width=width, disabled=disabled, options=options, choose=choose, stop="enabled")
+
+component SettingsPageSelect
+  props
+    selectId: string
+    label: string
+    valueLabel: string
+    empty: bool
+    value: string
+    width: number
+    disabled: bool
+    options: SelectOption[]
+    choose: action
+  view
+    SelectControl(selectId=selectId, label=label, valueLabel=valueLabel, empty=empty, value=value, width=width, disabled=disabled, options=options, choose=choose, stop="enabled page")
+
+// ui/select.tsx size="sm" trigger; the popup is the platform's menu. A `width` of 0 fills the row, as a stacked
+// SettingsRow's control does (`w-full`).
+component SelectControl
   props
     selectId: string
     label: string
@@ -107,23 +161,30 @@ component SettingsSelect
     disabled: bool
     options: SelectOption[]
     choose: action
+    stop: string
   derive menuItems = options.map((option) => KmItem(id=`${selectId}-option-${option.value}`, label=option.label))
+  // SelectPopup's min-w-(--anchor-width): a select that fills its row measures its trigger as it is focused, pressed or
+  // opened from the keyboard, and its popup is at least as wide (160pt until then).
+  state anchorWidth = 0
+  action measure
+    anchorWidth = frame(selectId).width
   action triggerKey(k: string, e: KeyboardEvent)
     if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
       preventDefault()
       stopPropagation()
       if not e.repeat
+        anchorWidth = frame(selectId).width
         showPopover(`${selectId}-menu`, source=selectId)
         let target = kmTriggerTarget(menuItems, k)
         if target != ""
           focus(target)
   view
-    box position="relative" width=width
-      button popovertarget=`${selectId}-menu` key=triggerKey role="combobox" aria-label=label disabled=disabled id=selectId testId=selectId class=SkField display="flex" flex-direction="row" align-items="center" gap="0.375rem" width=width opacity=(disabled ? 0.64 : 1) title=""
+    box position="relative" width=(width > 0 ? width : "100%")
+      button popovertarget=`${selectId}-menu` press=measure focus=measure key=triggerKey role="combobox" aria-label=label disabled=disabled id=selectId testId=selectId class=SkField display="flex" flex-direction="row" align-items="center" gap="0.375rem" width=(width > 0 ? width : "100%") opacity=(disabled ? 0.64 : 1) title="" data-focus-stop=(disabled ? "" : stop)
         // SelectTrigger is text-left: a button centres its text by default.
-        text valueLabel font-size="0.875rem" line-height="1.25rem" class=SkInk color=(empty ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)") flex=1 min-width=0 line-clamp=1 text-align="left"
-        LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
-      SkPopup(menuId=`${selectId}-menu`, invoker=selectId, label=label, width=width, list=true, endAlign=0, items=menuItems, keyed=0)
+        text valueLabel font-size="0.875rem" line-height="1.25rem" class=SkInk color=(empty ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181b, #f5f5f5)") flex=1 min-width=0 line-clamp=1 text-align="left"
+        LucideChevronDown(size=14, color="light-dark(#71717b, #a1a1a1)")
+      SkPopup(menuId=`${selectId}-menu`, invoker=selectId, label=label, width=(width > 0 ? width : (anchorWidth > 0 ? anchorWidth : 160)), list=true, endAlign=0, items=menuItems, keyed=0)
         for option in options key=option.value
           SkMenuItem(keysId=`${selectId}-menu-keys`, label=option.label, menuId=`${selectId}-menu`, itemId=`${selectId}-option-${option.value}`, selected=(value == "" ? option.selected : option.value == value), check=true, destructive=false, disabled=false, choose=choose(option.value))
 
@@ -149,7 +210,7 @@ component SkPopup
   slot
   view
     column id=menuId data-dialog-return="menu" focusin=dialogMenuEntered(menuId, invoker) popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" position-area=(endAlign > 0 ? "bottom span-left" : "bottom span-right") margin-top="0.25rem" min-width=(width > 0 ? width : 160) width=(endAlign > 0 ? width : "auto")
-      scroll width="100%" max-height="22.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727271a, #ffffff1a)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role=(list ? "listbox" : "menu") aria-label=label testId=menuId
+      scroll width="100%" max-height="22.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727271a, #ffffff1a)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role=(list ? "listbox" : "menu") aria-label=label testId=menuId
         column width="100%" padding="0.25rem" box-sizing="border-box"
           KeyMenu(menuId=`${menuId}-keys`, items=items, keyed=keyed, gap="0px", modal=true)
             children
@@ -177,8 +238,8 @@ component SkMenuItem
   // check: a SelectItem (ui/select.tsx), an option whose selected row keeps the
   // foreground/8% wash (data-selected) and no indicator; else a MenuItem.
   view
-    button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role=(check ? "option" : "menuitem") aria-selected=(check and selected) testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(check and selected ? "light-dark(#27272a14, #f5f5f514)" : lit ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000") opacity=(disabled ? 0.64 : 1)
-      text label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" text-align="left" color=(destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+    button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role=(check ? "option" : "menuitem") aria-selected=(check and selected) testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color=(check and selected ? "light-dark(#18181b14, #f5f5f514)" : lit ? "light-dark(#18181b14, #f5f5f50f)" : "#00000000") opacity=(disabled ? 0.64 : 1)
+      text label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" text-align="left" color=(destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#18181b, #f5f5f5)")
 
 // A heading VoiceOver reads and nothing draws, as Tailwind's `sr-only` (1px, clipped, out of
 // flow): SettingsSection's `hideTitle` `<h2 className="sr-only">` (Appearance's "Colors & themes", the Project page's
@@ -210,7 +271,7 @@ component SettingsNotice
           LucideTriangleAlert(size=14, color="#fe9a00")
         else
           LucideInfo(size=14, color="#fe9a00")
-      text message font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #818181)" flex=1 min-width=0
+      text message font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #a1a1a1)" flex=1 min-width=0
 
 // settingsLayout PolicyTooltip: the icon-micro ghost-muted "Background policy details" button whose TooltipPopup
 // (side="top", delay 200) says how a setting meets the shared Background activity policy: General's Background
@@ -237,5 +298,5 @@ component PolicyTip
     focused = on
     show(on)
   view
-    button id=tipId hover=hover focus=focusTip(true) blur=focusTip(false) aria-label="Background policy details" aria-description=tip testId=tipId display="flex" flex-direction="row" align-items="center" justify-content="center" width="1.25rem" height="1.25rem" flex-shrink=0 padding=0 box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color=(hovered or focused ? "light-dark(#27272a0f, #f5f5f50f)" : "#00000000") title=""
+    button id=tipId hover=hover focus=focusTip(true) blur=focusTip(false) aria-label="Background policy details" aria-description=tip testId=tipId display="flex" flex-direction="row" align-items="center" justify-content="center" width="1.25rem" height="1.25rem" flex-shrink=0 padding=0 box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color=(hovered or focused ? "light-dark(#18181b0f, #f5f5f50f)" : "#00000000") title="" data-focus-stop="enabled page"
       children

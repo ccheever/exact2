@@ -23,10 +23,10 @@ import { obj, str, num, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { parsePullRequestReference } from '../palette/palette-linkpr';
 import { providerMark, terminology } from '../details/git-logic';
-import { OFF_HEAD_CHECKOUT_TOAST } from '../details/pr-row-logic';
+import { offHeadCheckoutToast } from '../details/pr-row-logic';
 import { pushToast } from '../shell/toast';
 import { ensureDraftThreadId } from './draft-thread-id';
-import { settle, wakeShell } from '../client/command-waits'; // the 450 ms debounce
+import { sleep, wakeShell } from '../client/command-waits'; // the 450 ms debounce
 
 export type CheckoutItem = { reference: string; title: string; mark: string };
 type Resolution = { pullRequest: Obj } | { error: string };
@@ -150,7 +150,7 @@ export async function checkoutLocal(client: T3Client, native: Native, op: string
     state.waiting = true; state.memo = memoFor(state, parsed);
     await wakeShell(native); // the field's own render: "Resolving pull request..." while the wait runs
     const lookup = resolve(client, native, state, parsed); // started now, as the reference's cache read starts it
-    await settle(native, 450);
+    await sleep(450);
     // A later edit (its own command) or another opening owns the dialog now.
     if (edit !== state.edits || serial !== state.serial || !state.open) return '';
     state.waiting = false; state.debounced = parsed;
@@ -182,8 +182,8 @@ export async function checkoutConfirm(client: T3Client, native: Native, mode: st
     const branch = str(prepared.branch), worktreePath = str(prepared.worktreePath);
     // onPrepared: the draft takes the checkout (envMode follows the worktree), then the dialog closes.
     (client.local.composerControls.contexts ??= {})[state.draftKey] = { envMode: worktreePath ? 'worktree' : 'local', branch, worktreePath };
-    // A checkout that local work kept off the pull request's head says so (OFF_HEAD_PULL_REQUEST_CHECKOUT_TOAST).
-    if (prepared.isOnPullRequestHead === false) pushToast(client, OFF_HEAD_CHECKOUT_TOAST);
+    // A checkout that local work kept off the pull request's head says so.
+    if (prepared.isOnPullRequestHead === false) pushToast(client, offHeadCheckoutToast(terminology(state.provider ? { sourceControlProvider: state.provider } : null)));
     state.open = false;
   } catch (error) {
     // A server failure is a tagged error, not an Error, in the reference: the dialog shows its generic line.

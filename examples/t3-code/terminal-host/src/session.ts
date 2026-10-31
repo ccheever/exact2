@@ -11,10 +11,11 @@
 //   no retained copy (the reference keeps one so a remounted viewport can replay it; a remounted page gets the
 //   history back from the attach snapshot instead). Status, error and version fold as applyTerminalAttachStreamEvent
 //   folds them.
+// - The PTY grid the server shares (terminalSession.ts `grid`) goes to the surface as it changes.
 // - Provider sign-in input (ProviderAuthTerminal.tsx) goes over the same socket, one `provider.auth.respond` at a
 //   time in 4,096-unit slices, as T3 Code's serial queue sends it.
 import { decode, encode, failure, identifier, request, type Frame } from "../../src/transport/transport-wire";
-import type { TerminalAttachStreamEvent, TerminalBufferState } from "../../src/terminal/terminal-session";
+import { nextGrid, type TerminalAttachStreamEvent, type TerminalBufferState, type TerminalGrid } from "../../src/terminal/terminal-session";
 import { shouldHandleTerminalExit } from "../../src/terminal/terminal-drawer";
 
 /** What a terminal session's `terminal.attach` names (TerminalAttachInput). */
@@ -49,6 +50,8 @@ export interface SessionSink {
   received(units: number): void;
   /** The attach stream answered (its first chunk since the socket opened). */
   answered(): void;
+  /** The shared PTY grid changed (snapshots and activity carry it): the surface draws it (setSharedGrid). */
+  grid(grid: TerminalGrid | null): void;
 }
 
 /** TerminalWriteInput's bound (contracts terminal.ts `isMaxLength(65_536)`, UTF-16 units). */
@@ -98,6 +101,9 @@ export class TerminalSocket {
   private handledExit = false;
   private shownError: string | null = null;
   private readonly pending = new Map<string, (failed: string | null) => void>();
+  /** The server's PTY grid (snapshots and activity), and the one the surface was last given. */
+  private grid: TerminalGrid | null = null;
+  private shownGrid: TerminalGrid | null = null;
   private size: { cols: number; rows: number } | null = null;
   private sent: { cols: number; rows: number } | null = null;
   private resizing = false;
@@ -301,8 +307,10 @@ export class TerminalSocket {
         if (this.shown || history !== "") { this.sink.resetAndWrite(history); this.sink.received(history.length); }
         this.shown = true;
         this.status = event.snapshot?.status ?? "running"; this.error = null; this.version += 1;
+        this.grid = nextGrid(this.grid, event.snapshot ?? {});
         return;
       }
+      case "activity": this.grid = nextGrid(this.grid, event); return;
       case "output": {
         this.output += String(event.data ?? "");
         if (this.status === "closed") this.status = "running";
@@ -330,6 +338,8 @@ export class TerminalSocket {
       setTimeout(() => { if (this.handledExit && !this.disposed) this.sink.exited(); }, 0);
     }
     if (version > 0) this.synchronized = status;
+    // TerminalSessionViewport: every renderer of a shared terminal draws the server's grid.
+    if (this.grid !== this.shownGrid) { this.shownGrid = this.grid; this.sink.grid(this.grid); }
     // A fit before the snapshot could not resize; the grid goes again once the session runs.
     this.sendSize();
   }

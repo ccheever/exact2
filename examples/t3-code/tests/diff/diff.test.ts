@@ -1,18 +1,20 @@
 import { describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { snapshot } from '../../src/client/presentation';
-import { parsePatch, wordMarks, diffSnapshot, turnSummaries, hunkRows } from '../../src/diff/diff';
+import { parsePatch, wordMarks, diffSnapshot, turnSummaries, hunkRows, ROW_LIMIT } from '../../src/diff/diff';
+import { highlightDeferrals, resetHighlights } from '../../src/highlight/highlights';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
+import { settleHighlights } from '../support/highlights-fixture';
 
 const turnPatch = 'diff --git a/fixture-result.md b/fixture-result.md\nindex 1..2 100644\n--- a/fixture-result.md\n+++ b/fixture-result.md\n@@ -1,3 +1,3 @@\n # Exact T3 fixture\n \n-Completed run 35c7a0ce.\n+Completed run 151596fd.\n';
 const treePatch = 'diff --git a/README.md b/README.md\ndeleted file mode 100644\n--- a/README.md\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-# T3\n-Isolated\ndiff --git a/src/new.ts b/src/new.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/new.ts\n@@ -0,0 +1 @@\n+export {}\ndiff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n one\n-two\n+TWO\n@@ -40,2 +40,3 @@\n forty\n+fortyone\n end\n';
 
-function harness() {
+function harness(turn = turnPatch) {
   const calls: Obj[] = [];
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request);
-    if (request.op === 'request' && request.method === 'orchestration.getTurnDiff') return { ok: true, generation: 1, value: { diff: turnPatch } };
+    if (request.op === 'request' && request.method === 'orchestration.getTurnDiff') return { ok: true, generation: 1, value: { diff: turn } };
     if (request.op === 'request' && request.method === 'review.getDiffPreview') return { ok: true, generation: 1, value: { cwd: '/repo', sources: [
       { kind: 'working-tree', diff: '', truncated: true }, { kind: 'branch-range', diff: treePatch, truncated: false }] } };
     return { ok: true, generation: 1, value: {} };
@@ -70,7 +72,10 @@ describe('diff panel', () => {
     // The served panel marks changed words with Pierre's "word-alt" despite DiffPanel's `lineDiffType: "none"` (9c161462c9 oracle).
     expect(opened.diffItems[3]!.segments.map((segment: Obj) => segment.mark)).toEqual([false, true, false]);
     expect(opened.diffItems[1]!.gutter).toBe(33.3);
-    expect(opened.diffItems[1]!.segments.map((segment: Obj) => segment.syntax)).toEqual(['tag']); // Shiki's heading ink
+    // The lines paint plain until the lexers answer (highlights.ts); then the heading is `title` (bold, synWeight).
+    expect(opened.diffItems[1]!.segments.map((segment: Obj) => segment.syntax)).toEqual(['']);
+    settleHighlights();
+    expect(snapshot(client).diffItems[1]!.segments.map((segment: Obj) => segment.syntax)).toEqual(['title']);
   });
   test('a file change’s Open diff (turn-diff) opens the panel on that run’s turn and file (onOpenTurnDiff)', async () => {
     const { client, command, calls } = harness();
@@ -84,6 +89,18 @@ describe('diff panel', () => {
     await command('turn-diff', 'fixture-result.md', '', 0);
     expect(requests(calls).length).toBe(count);
     expect(snapshot(client)).toMatchObject({ diffOpen: true, diffError: 'That turn is no longer available.' });
+  });
+  // Open diff names its tool call (#26304); the panel opens that call's run at its file.
+  test('a file change\'s Open diff (tool-diff) opens the panel at the change its tool call made', async () => {
+    const { client, command, calls } = harness();
+    const change = { id: 'fc', type: 'file_change', runId: 'r1', fileName: 'fixture-result.md', status: 'completed', updatedAt: '2026-10-03T14:14:00Z' };
+    client.thread!.projection.visibleTurnItems = [{ position: 0, visibility: 'local', sourceThreadId: 't1', sourceItemId: 'fc', item: change }];
+    await command('tool-diff', JSON.stringify(['t1', 'fc']), '', 0);
+    expect(requests(calls).at(-1)).toMatchObject({ method: 'orchestration.getTurnDiff', payload: { threadId: 't1', fromTurnCount: 0, toTurnCount: 1 } });
+    expect(client.diffState.selections['env:t1']).toEqual({ kind: 'turn', runId: 'r1', filePath: 'fixture-result.md', baseRef: null, reveal: 1 });
+    const { toolCallDiffTarget } = await import('../../src/timeline/timeline-inspect');
+    expect(toolCallDiffTarget(client.projection, JSON.stringify(['t1', 'fc']))).toEqual({ threadId: 't1', itemId: 'fc', revision: '2026-10-03T14:14:00Z', runId: 'r1', filePath: 'fixture-result.md' });
+    expect(toolCallDiffTarget(client.projection, JSON.stringify(['t1', 'gone']))).toBeNull();
   });
   test('scope, whitespace, layout, wrap, tree and collapse are real and stateful', async () => {
     const { client, command, calls } = harness();
@@ -110,6 +127,16 @@ describe('diff panel', () => {
     await command('diff-scope', '', 'turn:gone');
     expect(snapshot(client).diffError).toBe('That turn is no longer available.');
   });
+  test('hunks past the row limit only count: their sides ask the lexers for nothing', async () => {
+    const hunk = (k: number) => [`@@ -${k * 10 + 1},7 +${k * 10 + 1},7 @@`, ` a${k}`, ` b${k}`, ` c${k}`, `-let old${k} = ${k};`, `+let new${k} = ${k};`, ` d${k}`, ` e${k}`, ` f${k}`].join('\n');
+    const { client, command } = harness(`diff --git a/rows.ts b/rows.ts\n--- a/rows.ts\n+++ b/rows.ts\n${Array.from({ length: 600 }, (_, k) => hunk(k)).join('\n')}\n`);
+    await command('checkpoint-diff', 'rows.ts', '', 1);
+    const deferrals = highlightDeferrals;
+    expect(snapshot(client).diffTruncated).toBe(true);
+    // Eight rows a hunk: the first 500 fill the 4,000 rows, and only their two sides ask for tokens.
+    expect(highlightDeferrals - deferrals).toBe(2 * ROW_LIMIT / 8);
+    resetHighlights();
+  });
   test('the hidden range before a later hunk is labeled, and turns sort newest first', async () => {
     const { client, command } = harness();
     await command('diff'); await command('diff-view', 'reveal', 'a.ts');
@@ -134,4 +161,35 @@ test('a replaced line pair projects word-alt segments on both sides, stacked and
   expect(hunkRows(long!.hunks[0]!, long!.path, true).stacked.map(row => marked(row.segments))).toEqual(['', '']);
   // Without `marks` (the pull request Code tab) the rows keep no marks.
   expect(hunkRows(file!.hunks[0]!, file!.path).stacked.map(row => marked(row.segments))).toEqual(['', '', '', '']);
+});
+
+test('a Markdown list marker paints punctuation grey; the heading keeps its ink, bold', () => {
+  // @pierre/highlights' markdown lexer: a heading is `title` (weight 700, synWeight), a list marker punctuation.
+  const rowsOf = (patch: string[]) => {
+    const [file] = parsePatch(patch.join('\n'));
+    hunkRows(file!.hunks[0]!, file!.path);
+    settleHighlights();
+    return hunkRows(file!.hunks[0]!, file!.path).stacked.map(row => row.segments.filter(segment => segment.text.trim() !== '').map(segment => [segment.text, segment.syntax]));
+  };
+  expect(rowsOf(['diff --git a/notes/plan.md b/notes/plan.md', '--- a/notes/plan.md', '+++ b/notes/plan.md', '@@ -0,0 +1,5 @@',
+    '+# Plan', '+1. Write the outline.', '+  - Who reviews', '+3 is a number.', '+#hashtag', ''])).toEqual([[['# Plan', 'title']], [['1. ', 'punct'], ['Write the outline.', '']],
+    [['- ', 'punct'], ['Who reviews', '']], [['3 is a number.', '']], [['#hashtag', '']]]);
+  // Outside Markdown a `#` line is code; inside a fenced block it is the fence language's comment, not a heading.
+  expect(rowsOf(['diff --git a/run.sh b/run.sh', '--- a/run.sh', '+++ b/run.sh', '@@ -0,0 +1,1 @@', '+# comment', ''])).toEqual([[['# comment', 'com']]]);
+  expect(rowsOf(['diff --git a/README.md b/README.md', '--- a/README.md', '+++ b/README.md', '@@ -0,0 +1,3 @@', '+```sh', '+# install the tools', '+```', ''])[1])
+    .toEqual([['# install the tools', 'com']]);
+});
+
+test('Hide test files leaves the tests out of the list, the tree and Collapse all, and is offered only when the diff has tests (DiffPanel)', async () => {
+  const withTests = `${treePatch}diff --git a/src/a.test.ts b/src/a.test.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/a.test.ts\n@@ -0,0 +1 @@\n+test()\n`;
+  const { client, command } = harness(withTests);
+  await command('diff'); await command('diff-scope', '', 'latest');
+  let view = diffSnapshot(client, 0);
+  expect([view.diffTestFiles, view.diffHideTests, view.diffItems.some(item => item.path === 'src/a.test.ts')]).toEqual([1, false, true]);
+  await command('diff-view', 'hide-tests');
+  view = diffSnapshot(client, 0);
+  expect([view.diffHideTests, view.diffItems.some(item => item.path === 'src/a.test.ts'), view.diffTreeRows.some(row => row.path === 'src/a.test.ts'), view.diffFiles.length]).toEqual([true, false, false, 4]);
+  await command('diff-view', 'expand-all');
+  expect(Object.keys(client.diffState.expanded).some(key => key.endsWith('src/a.test.ts'))).toBe(false);
+  expect((client.local as { diffHideTestFiles?: boolean }).diffHideTestFiles).toBe(true);
 });

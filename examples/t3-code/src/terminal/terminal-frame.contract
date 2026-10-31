@@ -31,7 +31,7 @@ component TerminalFrame
   props
     frame: TerminalFrameView
     theme: string // terminalTheme JSON (settings-appearance-look.ts)
-    font: string // {family, size} JSON
+    font: string // {family, size, smoothing} JSON (terminalFace)
     visible: bool
     keybindings: string // JSON winning chord/command pairs for terminalFocus
     closePending: bool
@@ -66,9 +66,9 @@ component TerminalFrame
       for request in (focusRequest > 0 ? [focusRequest] : []) key=request
         TerminalFrameFocus(target=frame.id)
       box id=anchorId position="absolute" left=frame.menu.x top=frame.menu.y width=1 height=1 pointer-events="none" aria-hidden=true
-      column id=menuId popover="auto" position-try-fallbacks="none" role="menu" aria-label="Terminal" min-width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" testId=`${testId}-menu`
+      column id=menuId popover="auto" position-try-fallbacks="none" role="menu" aria-label="Terminal" min-width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" testId=`${testId}-menu`
         for row in frame.menu.rows key=row.id
-          button press=pick(`${frame.menu.serial}|${row.id}`) popovertarget=menuId popovertargetaction="hide" role="menuitem" disabled=row.disabled testId=`${testId}-menu-${row.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+          button press=pick(`${frame.menu.serial}|${row.id}`) popovertarget=menuId popovertargetaction="hide" role="menuitem" disabled=row.disabled testId=`${testId}-menu-${row.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
             text row.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem"
       for serial in (frame.menu.rows.length > 0 ? [frame.menu.serial] : []) key=serial
         TerminalFrameMenuOpen(menuId=menuId, anchorId=anchorId)

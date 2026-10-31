@@ -19,9 +19,10 @@ import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { obj, str, type Obj } from '../client/domain';
 import { letGo } from '../client/let-go';
+import { sleep } from '../client/command-waits';
 import { appFiles } from '../media/save-file';
 import { automationCalls } from './browser-automation-run';
-import { ANNOTATE_OVERLAY } from './page-scripts';
+import { ANNOTATE_OVERLAY, ANNOTATE_STYLES } from './page-scripts';
 import { frameEntry } from './browser-frames';
 import { queueSlotWork } from './browser-automation-recording';
 
@@ -53,8 +54,6 @@ export const activePicks = (owner: object): string[] => [...(all.get(owner)?.ent
  *  person's pick arrives, so it targets the composer the window showed then, not one shown after the crop. */
 export type ApplyPick = (result: Obj, native: Native) => Promise<string>;
 export type PrepareApply = () => ApplyPick;
-/** The module's sleep, through a given native (the data module has no timers). */
-const sleep = (native: Native, ms: number): Promise<void> => native.later({ op: 'timelineSleep', ms: Math.max(0, Math.round(ms)) }).then(() => undefined, () => undefined);
 const settle = (pick: Pick, id: number): boolean => {
   if (pick.pick !== id || !pick.active) return false;
   pick.active = false; pick.serial++;
@@ -72,7 +71,7 @@ export async function startAnnotate(client: T3Client, runtimeId: string, theme: 
   try {
     // The overlay installs itself once per document (it keeps `globalThis.__t3codeAnnotate`), then starts.
     const started = await automationCalls().callFunction({ id: frame, sandbox: SANDBOX, arguments: [theme],
-      functionDeclaration: `function (theme) {\nif (!globalThis.__t3codeAnnotate) {\n${ANNOTATE_OVERLAY}\n}\nreturn globalThis.__t3codeAnnotate.start(theme) === true;\n}` });
+      functionDeclaration: `function (theme) {\nif (!globalThis.__t3codeAnnotate) {\nconst STYLES = ${JSON.stringify(ANNOTATE_STYLES)};\n${ANNOTATE_OVERLAY}\n}\nreturn globalThis.__t3codeAnnotate.start(theme) === true;\n}` });
     if (obj(started).result !== true) { settle(pick, id); return; }
   } catch (error) { if (letGo(error)) throw error; settle(pick, id); return; }
   queueSlotWork(client, `annotate:${frame}:${id}`, native => awaitPick(frame, pick, id, prepare, native));
@@ -101,7 +100,7 @@ async function awaitPick(frame: string, pick: Pick, id: number, prepare: Prepare
   annotation.screenshot = null; // the page never supplies the crop (isPreviewAnnotationPayload)
   const submission = message.submission === 'send' ? 'send' : 'attach';
   const enriched = await enrich(frame, annotation);
-  const screenshot = await Promise.race([crop(frame, normalizeCaptureRect(message.rect), targetRects(enriched), str(enriched.id, 'annotation')), sleep(native, SCREENSHOT_TIMEOUT_MS).then(() => null)]);
+  const screenshot = await Promise.race([crop(frame, normalizeCaptureRect(message.rect), targetRects(enriched), str(enriched.id, 'annotation')), sleep(SCREENSHOT_TIMEOUT_MS).then(() => null)]);
   // claimSettle: a crop outliving its pick is not attached.
   if (!settle(pick, id)) return;
   // ANNOTATION_CAPTURED_CHANNEL: the overlay tears down once its marks are in the crop.

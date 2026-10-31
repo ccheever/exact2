@@ -68,7 +68,7 @@ async function manageScheduledTask(this: T3Client, native: Native, scope: string
   if (extra !== undefined || environmentId !== this.environmentId) throw new ClientError('That environment is no longer selected.');
   const shell = applyShell(initialShell(), await this.http(native, '/api/orchestration/shell'));
   if (projectScope && !shell.projects.some(project => project.id === projectScope)) throw new ClientError('That checkout is no longer available.');
-  const input = obj(JSON.parse(text)), tasks = await currentTasks(liveEnvironment(this, native, this.environmentId)!); // live-streams.ts: the stream's list
+  const input = obj(JSON.parse(text)), tasks = currentTasks(liveEnvironment(this, native, this.environmentId)!); // live-streams.ts: the stream's list
   const task = tasks.find(task => task.id === input.id);
   if ((op !== 'task-save' || input.id) && (!task || (projectScope && task.projectId !== projectScope))) throw new ClientError('This scheduled task no longer exists in the selected scope.');
   let payload: Obj, method: string;
@@ -98,7 +98,7 @@ async function setScopedSetting(this: T3Client, native: Native, scope: string, t
   const config = await this.request(native, 'server.getConfig', {});
   const capabilities = obj(obj(config.environment).capabilities);
   if (projectId && capabilities.projectSettingsOverrides !== true) throw new ClientError('Update the selected environment to configure project overrides.');
-  const settings = await this.request(native, 'server.getSettings', {});
+  const settings = obj(config.settings);
   const root = str(input.key).split('.')[0];
   if (!(root in settings)) throw new ClientError('Update the selected environment to configure this setting.');
   if (root === 'continueThreadsAfterServerUpdate' && capabilities.threadRestartContinuation !== true) throw new ClientError('Update the selected environment to configure restart continuation.');
@@ -112,7 +112,7 @@ async function setStorageSettings(this: T3Client, native: Native, scope: string,
   if (extra !== undefined || environmentId !== this.environmentId) throw new ClientError('That environment is no longer selected.');
   const shell = applyShell(initialShell(), await this.http(native, '/api/orchestration/shell'));
   if (projectId && !shell.projects.some(project => project.id === projectId)) throw new ClientError('That checkout is no longer available.');
-  const capabilities = obj(obj((await this.request(native, 'server.getConfig', {})).environment).capabilities);
+  const config = await this.request(native, 'server.getConfig', {}), capabilities = obj(obj(config.environment).capabilities);
   if (capabilities.storageCleanup !== true || (projectId && capabilities.projectWorktreeCleanup !== true)) throw new ClientError('Update the selected environment to configure storage cleanup.');
   const input = obj(JSON.parse(text)), key = str(input.key), value = input.value;
   const booleans = ['worktreeOnDelete', 'worktreeOnMerge', 'worktreeUnchanged'];
@@ -129,7 +129,7 @@ async function setStorageSettings(this: T3Client, native: Native, scope: string,
     if (value !== null && (typeof value !== 'number' || !Number.isInteger(value) || value < (key === 'worktreeSettledAfterDays' ? 0 : 1) || value > 3650)) throw new ClientError('Retention must be between 1 and 3650 days.');
   } else throw new ClientError('Unsupported storage rule.');
   if (projectId && !['mode', ...booleans, 'worktreeKeepWhen', 'worktreeSettledAfterDays', 'worktreeAfterDays'].includes(key)) throw new ClientError('Artifact and log retention belongs to the environment.');
-  const settings = await this.request(native, 'server.getSettings', {});
+  const settings = obj(config.settings);
   let patch: Obj;
   if (projectId) {
     const current = { ...obj(obj(settings.projectSettingsOverrides)[projectId]) };
@@ -158,7 +158,7 @@ async function setModelDefault(this: T3Client, native: Native, scope: string, va
   const config = await this.request(native, 'server.getConfig', {});
   const provider = arr(config.providers).find(provider => provider.instanceId === this.providerId && providerAvailable(provider));
   if (value === 'current' && (!provider || !arr(provider.models).some(model => model.slug === this.modelId))) throw new ClientError('The selected model is no longer available.');
-  const settings = await this.request(native, 'server.getSettings', {});
+  const settings = obj(config.settings);
   const selection = { instanceId: this.providerId, model: this.modelId, options: this.modelOptions };
   let patch: Obj = { defaultModelSelection: value === 'automatic' ? null : selection };
   if (projectId) {

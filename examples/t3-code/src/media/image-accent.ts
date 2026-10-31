@@ -1,7 +1,7 @@
 // An image chip's accent, adapted from T3 Code 74541bab17 (MIT; see LICENSE-T3): contextChipParts.tsx averageImageColor,
 // the picture drawn at 16×16 and averaged with each pixel weighted by its alpha, so transparent pixels do not darken it.
-// The data module has no canvas: the server's image is fetched into app:/tmp, `storage.fs.compressImage` scales it to a
-// PNG, and png-decode.ts reads the pixels. The mean of an area does not depend on the size or aspect it is drawn at, so
+// The data module has no canvas: the server's image is downloaded into app:/tmp (the host writes the body, `fetch`'s
+// `exactBodyTo`), `storage.fs.compressImage` scales it to a PNG, and png-decode.ts reads the pixels. The mean of an area does not depend on the size or aspect it is drawn at, so
 // the PNG is 128 px on its longer side: at 16 px, compressImage's two scalings (ImageIO's thumbnail, then the bitmap)
 // move an accent by up to 7 units per channel from the whole picture's; at 128 px it is within one.
 import { appFiles } from './save-file';
@@ -14,7 +14,6 @@ const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const ACCENT_SIDE = 128;
 
 interface AccentFiles {
-  writeFile(path: string, bytes: Uint8Array): Promise<unknown>;
   readFile(path: string): Promise<ArrayBuffer>;
   mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>;
   rm(path: string): Promise<unknown>;
@@ -52,11 +51,9 @@ export async function imageAccent(url: string, isLetGo: (error: unknown) => bool
   if (!/^https?:\/\//i.test(url)) return '';
   const fs = files(), base = `${ACCENT_SCRATCH}/${++serial}`, from = `${base}.image`, to = `${base}.png`;
   try {
-    const response = await fetch(url, { exactTimeout: 5000, exactIndependentHttp: { maxResponseBytes: MAX_IMAGE_BYTES } } as RequestInit);
-    if (!response.ok) return '';
-    const bytes = new Uint8Array(await response.arrayBuffer());
     await fs.mkdir(ACCENT_SCRATCH, { recursive: true }).catch(() => undefined);
-    await fs.writeFile(from, bytes);
+    const response = await fetch(url, { exactTimeout: 5000, exactBodyTo: from, exactIndependentHttp: { maxResponseBytes: MAX_IMAGE_BYTES } } as RequestInit);
+    if (!response.ok) return '';
     let scaled: { path: string };
     try { scaled = await fs.compressImage(from, to, { maxDimension: ACCENT_SIDE, maxBytes: 1024 * 1024, type: 'image/png' }); }
     catch (error) { if (LASTING.has(String((error as { code?: unknown } | null)?.code ?? ''))) return ''; throw error; }

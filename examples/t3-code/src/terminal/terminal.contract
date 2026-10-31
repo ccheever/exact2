@@ -123,7 +123,7 @@ component TerminalDrawer
     for key in (view.available ? [view.threadKey] : []) key=key
       column flex-shrink=0 height=(view.open ? height : 0) min-height=0 min-width=0 overflow="hidden" transition=(motion ? `height ${look.panelMs}ms ease-out` : "none") testId="terminal-drawer" aria-label="Terminal drawer"
         // The clipping parent animates; the terminal keeps its full grid through opening and closing.
-        column height=height flex-shrink=0 min-width=0 position="relative" box-sizing="border-box" border-width=0 border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff0c)" background-color="light-dark(#fcfcfc, #0a0a0a)" inert=(not view.open) testId="terminal-drawer-inner"
+        column height=height flex-shrink=0 min-width=0 position="relative" box-sizing="border-box" border-width=0 border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff10)" background-color="light-dark(#fcfcfc, #000000)" inert=(not view.open) testId="terminal-drawer-inner"
           box position="absolute" left=0 right=0 top=0 height="0.375rem" z-index=20 cursor="row-resize" touch-action="none" pan=resize panrelease=release role="separator" aria-orientation="horizontal" aria-label="Resize terminal drawer" testId="terminal-drawer-resize"
           TerminalContent(view=view, look=look, dark=dark, closePending=closePending, command=command, confirm=confirm)
 
@@ -160,8 +160,8 @@ component TerminalContent
     row flex=1 min-width=0 min-height=0 overflow="hidden" position="relative" testId=(view.surface == "drawer" ? "terminal-drawer-content" : "terminal-panel-content")
       if view.panes.length == 0
         column flex=1 min-height=0 align-items="center" justify-content="center" gap="0.75rem" padding-left="1rem" padding-right="1rem" padding-top="1.5rem" padding-bottom="1.5rem" testId="terminal-drawer-empty"
-          text "No terminal sessions for this thread yet." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" text-align="center"
-          button press=command(`${view.commandPrefix}:new`, view.threadKey, "", 0) aria-label=view.newLabel testId="terminal-drawer-new" disabled=view.readOnly height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff1a)" background-color="light-dark(#ffffff, #ffffff05)"
+          text "No terminal sessions for this thread yet." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" text-align="center"
+          button press=command(`${view.commandPrefix}:new`, view.threadKey, "", 0) aria-label=view.newLabel testId="terminal-drawer-new" disabled=view.readOnly height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff1a)" background-color="light-dark(#ffffff, #ffffff05)"
             text view.newLabel font-size="0.75rem" line-height="1rem"
       else
         box flex=1 min-height=0 min-width=0 display="flex" flex-direction=view.direction testId="terminal-drawer-surface"
@@ -181,17 +181,17 @@ component TerminalContent
               for tab in view.tabs key=tab.id
                 if tab.heading != ""
                   button press=command(`${view.commandPrefix}:activate`, tab.groupTarget, "", 0) display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.375rem" padding-left="0.375rem" padding-right="0.375rem" border-width=0 border-radius="0.25rem" background-color=(tab.groupActive ? "light-dark(#f4f4f580, #ffffff0a)" : (hovered == `group-${tab.id}` ? "light-dark(#f4f4f566, #ffffff08)" : "#00000000")) hover=hover(`group-${tab.id}`) aria-label=`${tab.heading}, ${tab.count} terminals` testId=`terminal-group-${tab.id}`
-                    svg width="0.75rem" height="0.75rem" flex-shrink=0 viewBox="0 0 24 24" fill="none" stroke=(tab.groupActive ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") stroke-width=2 stroke-linecap="round" stroke-linejoin="round"
+                    svg width="0.75rem" height="0.75rem" flex-shrink=0 viewBox="0 0 24 24" fill="none" stroke=(tab.groupActive ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)") stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round"
                       path d=(tab.groupIcon == "split-horizontal" ? "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM12 3v18" : (tab.groupIcon == "split-vertical" ? "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM3 12h18" : "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"))
-                    text tab.heading flex=1 min-width=0 text-align="left" font-size="0.625rem" line-height="0.875rem" color=(tab.groupActive ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") text-overflow="ellipsis" white-space="nowrap"
-                    text `${tab.count}` font-size="0.5625rem" line-height="0.75rem" color="light-dark(#71717bb3, #818181b3)"
-                row align-items="center" gap="0.125rem" height="1.5rem" padding-left="0.375rem" padding-right="0.5rem" border-radius="0.375rem" background-color=(tab.active ? "light-dark(#f4f4f5, #ffffff14)" : (hovered == tab.id ? "light-dark(#f4f4f599, #ffffff0f)" : "#00000000")) hover=hover(tab.id) testId=`terminal-tab-${tab.id}`
+                    text tab.heading flex=1 min-width=0 text-align="left" font-size="0.625rem" line-height="0.875rem" color=(tab.groupActive ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)") text-overflow="ellipsis" white-space="nowrap"
+                    text `${tab.count}` font-size="0.5625rem" line-height="0.75rem" color="light-dark(#71717bb3, #a1a1a1b3)"
+                row align-items="center" gap="0.125rem" height="1.5rem" padding-left="0.375rem" padding-right="0.5rem" border-radius="0.25rem" background-color=(tab.active ? "light-dark(#f4f4f5, #ffffff14)" : (hovered == tab.id ? "light-dark(#f4f4f599, #ffffff0f)" : "#00000000")) hover=hover(tab.id) testId=`terminal-tab-${tab.id}`
                   box position="relative" flex-shrink=0
                     button id=`terminal-tab-close-${view.surface}-${tab.id}` press=askClose(tab.target, tab.closeTitle, tab.closeBody, `terminal-tab-close-${view.surface}-${tab.id}`) hover=hoverClose(tab.id) disabled=view.readOnly aria-label=tab.closeLabel testId=`terminal-tab-close-${tab.id}` width="1rem" height="1rem" padding="0.125rem" border-width=0 border-radius="0.125rem" background-color=(closeHovered == tab.id ? "light-dark(#f4f4f5, #ffffff14)" : "#00000000") title=""
-                      ShellIcon(name=(hovered == tab.id ? "x" : "square-terminal"), size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+                      ShellIcon(name=(hovered == tab.id ? "x" : "square-terminal"), size=12, color=(tab.active ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"))
                     TipBubble(label=tab.closeLabel, side="top", align="start", offset=22, inset=0, shown=(closeHovered == tab.id))
                   button press=command(`${view.commandPrefix}:activate`, tab.target, "", 0) aria-label=tab.label aria-pressed=tab.active testId=`terminal-tab-select-${tab.id}` flex=1 min-width=0 height="1.5rem" padding=0 border-width=0 background-color="#00000000" text-align="left"
-                    text tab.label width="100%" text-align="left" font-size="0.75rem" line-height="1rem" color=(tab.active or hovered == tab.id ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") text-overflow="ellipsis" white-space="nowrap"
+                    text tab.label width="100%" text-align="left" font-size="0.75rem" line-height="1rem" color=(tab.active or hovered == tab.id ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)") text-overflow="ellipsis" white-space="nowrap"
 
 // ThreadTerminalDrawer.tsx:1440-1490 (floating, one divider between each action) and :1590-1630 (strip:
 // the tab list's edge-to-edge buttons separated by a left border).
@@ -205,7 +205,7 @@ component TerminalToolbar
     confirm(`ui:confirm:terminal-close-${view.surface}`, `${view.threadKey}|${view.terminalId}`, `${view.commandPrefix}:close`, view.closeTitle, view.closeBody, true)
     focus("app-confirm-cancel")
   view
-    row align-items=(strip ? "stretch" : "center") align-self=(strip ? "stretch" : "auto") border-radius=(strip ? "0px" : "0.375rem") border-width=(strip ? 0 : 1) border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff0c)" background-color=(strip ? "#00000000" : "light-dark(#fcfcfc, #0a0a0a)") box-shadow=(strip ? "none" : "0 1px 2px #0000000d") testId="terminal-drawer-toolbar"
+    row align-items=(strip ? "stretch" : "center") align-self=(strip ? "stretch" : "auto") border-radius=(strip ? "0px" : "0.375rem") border-width=(strip ? 0 : 1) border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff10)" background-color=(strip ? "#00000000" : "light-dark(#fcfcfc, #000000)") box-shadow=(strip ? "none" : "0 1px 2px #0000000d") testId="terminal-drawer-toolbar"
       TerminalAction(icon="split-horizontal", label=view.splitLabel, disabled=view.splitDisabled, id="terminal-split", elementId="", strip=strip, edge=false, press=command(`${view.commandPrefix}:split`, `${view.threadKey}|${view.terminalId}`, "", 0))
       if not strip
         box width=1 height="1rem" background-color="light-dark(#e4e4e7, #ffffff1a)"
@@ -241,8 +241,8 @@ component TerminalAction
     box position="relative" display="flex"
       button id=elementId press=activate hover=hover focus=hover(true) blur=blurred aria-label=label testId=id padding-top=(strip ? "0px" : "0.25rem") padding-bottom=(strip ? "0px" : "0.25rem") padding-left="0.25rem" padding-right="0.25rem" border-width=0 border-left-width=(strip and edge ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)" border-radius=(strip ? "0px" : "0.3125rem") display="flex" align-items="center" justify-content="center" opacity=(disabled ? 0.64 : 1) background-color=(hovered and not disabled ? "light-dark(#f4f4f5, #ffffff14)" : "#00000000") title=""
         if icon == "split-horizontal" or icon == "split-vertical"
-          svg width="0.8125rem" height="0.8125rem" viewBox="0 0 24 24" fill="none" stroke="light-dark(#27272ae6, #f5f5f5e6)" stroke-width=2 stroke-linecap="round" stroke-linejoin="round"
+          svg width="0.8125rem" height="0.8125rem" viewBox="0 0 24 24" fill="none" stroke="light-dark(#18181be6, #f5f5f5e6)" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round"
             path d=(icon == "split-horizontal" ? "M3 3h18v18H3zM12 3v18" : "M3 3h18v18H3zM3 12h18")
         else
-          ShellIcon(name=icon, size=13, color="light-dark(#27272ae6, #f5f5f5e6)")
+          ShellIcon(name=icon, size=13, color="light-dark(#18181be6, #f5f5f5e6)")
       TipBubble(label=label, side="bottom", align="end", offset=27, inset=0, shown=(hovered or clicked))

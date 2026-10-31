@@ -157,3 +157,14 @@ test('Include app text: turning it on while capture is on requests Accessibility
   expect(calls.find(call => call.op === 'snapshotRequestPermissions')).toMatchObject({ includeAccessibility: true });
   expect(client.local.deviceSettings.snapShotIncludeAccessibility).toBe(true);
 });
+
+// The SnapShots page as settingsLayout.tsx draws it (7c3b3b3605ef): the section title is SettingsSection's `<h2>`
+// (text-base font-semibold text-foreground), and a keyboard focus rings the switch as switch.tsx does
+// (focus-visible:ring-2 ring-inset ring-ring ring-offset-1 ring-offset-background).
+test('the section title and the switch focus ring follow the reference', async () => {
+  const { appText } = await import('../support/app-files');
+  const source = appText('snapshot.contract');
+  expect(source).toContain('style SnapSectionTitle\n  font-size="1rem" font-weight=600 line-height="1.5rem" color="light-dark(#18181b, #f5f5f5)"');
+  const snapSwitch = source.slice(source.indexOf('component SnapSwitch'), source.indexOf('component SnapRow'));
+  expect(snapSwitch).toContain(':focus-visible\n        box-shadow="inset 0 0 0 1px light-dark(#fcfcfc, #0a0a0a), inset 0 0 0 3px light-dark(#1b4ed8, #346bf1)"');
+});

@@ -7,7 +7,7 @@ import type { Native } from '../../src/client/protocol';
 import { initialShell, obj, type Obj } from '../../src/client/domain';
 import { liveFleetEvent, liveFleetPass, PROJECT_CLONES_KEY } from '../../src/client/live-streams';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
-import { addProjectTargets, cloneUrlForProtocol, cloneUrlProtocol, defaultSelection, fileCopyPass, isDefaultCopiedFile, isProjectCloneToastSilenced, projectFileCopy,
+import { addProjectTargets, cloneUrlForProtocol, cloneUrlProtocol, defaultSelection, fileCopyPass, isDefaultCopiedFile, isProjectCloneToastSilenced, projectFileCopy, projectRemoteUrl,
   projectSubdirectory } from '../../src/shell/add-project-machine';
 import { addMachineLocal, addMachineView, splitForMiddleTruncate, submitAddMachine } from '../../src/shell/add-project-dialog';
 import { projectCloneBanner, projectCloneSendBlockReason, syncCloneToasts, type CloneToast, type ToastPort, type TrackedToast } from '../../src/shell/project-clones';
@@ -184,7 +184,7 @@ describe('the dialog (AddProjectToMachineDialog)', () => {
 
   test('paths truncate in the middle, keeping the last folder (MiddleTruncate)', () => {
     expect(splitForMiddleTruncate('/Users/Shared/fixtures/envs/second/repos/empty-project')).toEqual({ head: '/Users/Shared/fixtures/envs/second/repos/', tail: 'empty-project' });
-    expect(splitForMiddleTruncate('/repo/a-very-long-folder-name-indeed')).toEqual({ head: '/repo/a-very-long-folder-n', tail: 'ame-indeed' });
+    expect(splitForMiddleTruncate('/repo/a-very-long-folder-name-indeed')).toEqual({ head: '/repo/a-very-long-folder-name-', tail: 'indeed' });
     expect(splitForMiddleTruncate('~/widgets')).toBeNull();
   });
 
@@ -352,4 +352,12 @@ describe('silenced clone toasts (ProjectCloneToastCoordinator)', () => {
     syncCloneToasts(tracked, [clone({ phase: 'failed', error: 'boom' })], 'env', '', port, silenced);
     expect(log).toEqual(['add error Failed to clone pr-demo']);
   });
+});
+
+// AddProjectToMachineDialog.tsx at 7c3b3b3605ef (#22492): a fork's own remote is what the target clones.
+test('the target clones a fork\'s own remote, not the upstream it resolved to', () => {
+  const fork = { repositoryIdentity: { locator: { remoteUrl: 'https://github.com/upstream/app.git' }, origin: { canonicalKey: 'github.com/me/app', remoteUrl: 'git@github.com:me/app.git' } } };
+  expect(projectRemoteUrl(fork)).toBe('git@github.com:me/app.git');
+  // An older server sends no origin remote.
+  expect(projectRemoteUrl({ repositoryIdentity: { locator: { remoteUrl: 'https://github.com/upstream/app.git' }, origin: { canonicalKey: 'github.com/upstream/app' } } })).toBe('https://github.com/upstream/app.git');
 });

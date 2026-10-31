@@ -23,6 +23,8 @@ import { visiblePullRequests } from '../panel/shell-pr';
 import { replaceLinkedPrompt } from '../prompt-links/linked-prompt';
 import { openHome } from '../pages/home-landing';
 import { addMachineLocal } from './add-project-dialog';
+import { announce } from './announce';
+import { editorLabel } from '../shared/editors';
 
 function threadOf(client: T3Client, threadId: string) {
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
@@ -47,7 +49,8 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   if (op === 'open-editor') {
     if (!id) throw new ClientError('This thread does not have a workspace path to open.');
     // OpenInPicker: remotely a deep link to this Mac's editor, never an editor run on the other machine (remote-open.ts).
-    if (await openInEditorHere(client, native, id, value)) rememberEditor(client, value);
+    // OpenInPicker's primary press: a screen reader hears where the workspace went.
+    if (await openInEditorHere(client, native, id, value)) { rememberEditor(client, value); announce(client, `Opened in ${editorLabel(value)}`); }
     return '';
   }
   // The card's branch picker, Git actions and dialogs (git-route.ts).
@@ -285,6 +288,7 @@ export function settingsFailure(client: T3Client, op: string, id: string, value:
   else if (op === 'settings-core' && id.startsWith('textGenerationModelSelection:')) title = 'Text generation model not saved';
   // General's model picks (ProjectDefaultsSettings setModel, SettingsPanels onInstanceModelChange).
   else if (op === 'settings-core' && id.startsWith('default-model:|')) title = 'Default model not saved';
+  else if (op === 'settings-core' && id.startsWith('fallback-model:|')) title = 'Fallback model not saved';
   else if (op === 'settings-core' && id.startsWith('text-generation-model:|')) title = 'Text generation model not saved';
   else if (op === 'settings-core' && id.startsWith('sourceControlWriterModelSelection:')) title = 'Source control writer model not saved';
   if (!title) return '';

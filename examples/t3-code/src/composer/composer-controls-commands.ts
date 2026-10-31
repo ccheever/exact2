@@ -10,21 +10,24 @@ import { visiblePullRequests } from '../panel/shell-pr';
 import { ClientError, activeRun, launchPayload, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { wokeAt as sidebarWokeAt } from '../sidebar/sidebar-model';
-import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState, removeQueuedEditAttachment } from './composer-controls-queue';
+import { beginQueuedEdit, cancelQueuedEdit, queueState, removeQueuedEditAttachment, toggleQueueShownInFull } from './composer-controls-queue';
 import { copyBranchName, dismissBranchMismatch, restoreThreadBranch, selectBranch, setEnvMode } from './composer-controls-branch';
-import { attachIncoming, type IncomingFiles } from './composer-controls-attach';
+import { attachIncoming, cancelPreparingImage, type IncomingFiles } from './composer-controls-attach';
+import { retryDraftUpload, runDraftUploads } from './composer-uploads';
 import { foldPaste, heldPaste } from './composer-editor-files';
 import { uuid } from '../transport/transport-wire';
 import { queueRowDrop } from '../sidebar/legacy-sidebar-drop';
-import { openUsageLimits, closeUsageLimits, changeLimitRecovery, usageLocal } from './composer-controls-usage';
+import { openUsageLimits, closeUsageLimits, changeLimitRecovery, dismissFallbackNotice, usageLocal } from './composer-controls-usage';
 import { feedbackLocal } from './composer-feedback';
 import type { T3Client } from '../client/client';
-import { dismissResumeCompaction, keepsFullHistory, setKeepFullHistory } from './composer-controls-resume';
+import { keepsFullHistory, setKeepFullHistory } from './composer-controls-resume';
 import { dispatchSelection } from './composer-ultrathink'; // modelOptionsForDispatch
 import { composerSelection } from './composer-provider-selection';
 import { composerNow, clearStaged, nextTurnCommands, planFollowUp, proposedPlanTitle, requireProvider, resumeState, stagedFor,
   PLAN_IMPLEMENTATION_PROMPT_PREFIX, type ComposerControlsPrefs } from './composer-controls';
 import { loadHostResources } from './auto-balance';
+import { isProviderSubagent } from './composer-controls-subagent';
+import { announce } from '../shell/announce';
 
 /** A select row picks one of its options; a boolean row is On or Off (buildProviderOptionSelectionsFromDescriptors). */
 export function applyOptionChoice(descriptors: Obj[], current: Obj[], id: string, value: string): Obj[] {
@@ -180,7 +183,9 @@ export async function composerCommand(client: T3Client, native: Native, storage:
   if (op === 'compact' || op === 'goal-resume' || op === 'goal-clear') {
     // Native commands run as separate turns; the draft and its attachments stay local.
     const projection = requireThread(client), threadId = client.threadId;
-    if (op === 'compact' ? !!activeRun(projection) : providerGoalWorking(client)) throw new ClientError(op === 'compact' ? 'Compacting is unavailable right now' : 'Wait for the current turn to finish.');
+    if (op === 'compact' ? !!activeRun(projection) : op === 'goal-resume' && providerGoalWorking(client)) throw new ClientError(op === 'compact' ? 'Compacting is unavailable right now' : 'Wait for the current turn to finish.');
+    // A provider's subagent has no composer to send from (its bar replaces it), so its goal line's Clear does nothing.
+    if (op !== 'compact' && isProviderSubagent(obj(projection.thread))) return '';
     if (op !== 'compact') {
       const goal = providerGoal(client.shell.threads.find(thread => thread.id === threadId)?.goal);
       if (!goal || op === 'goal-resume' && !presentProviderGoal(goal, false).canResume) throw new ClientError('That goal action is no longer available.');
@@ -226,37 +231,43 @@ export async function composerCommand(client: T3Client, native: Native, storage:
     await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId, runId: str(run.id), holdQueue: true }, 'Stop background work');
     return '';
   }
-  if (op === 'queued-key') {
-    // The grip's ↑/↓: move before the previous row, or after the next one (QueuedRunsControl onKeyDown).
-    if (value !== 'ArrowUp' && value !== 'ArrowDown') return '';
-    const queued = queueState(requireThread(client)).queued.map(entry => str(entry.run.id)), index = queued.indexOf(id);
-    if (index < 0 || (value === 'ArrowUp' ? index === 0 : index === queued.length - 1)) return '';
-    return composerCommand(client, native, storage, 'queued-reorder', id, value === 'ArrowUp' ? queued[index - 1]! : queued[index + 2] ?? '');
-  }
-  if (op === 'queued-drop') {
-    // The grip's drag (QueuedRunsControl onDrop): a move to the insertion line, unless that is where it already is.
-    const move = queuedDrop(client, id);
-    return move ? composerCommand(client, native, storage, 'queued-reorder', move.runId, move.before) : '';
-  }
-  if (op === 'queued-remove' || op === 'queued-steer' || op === 'queued-reorder') {
+  if (op === 'queued-remove' || op === 'queued-steer') {
     const projection = requireThread(client), threadId = client.threadId;
     const run = arr(projection.runs).find(entry => entry.id === id && entry.status === 'queued');
     if (!run) throw new ClientError('That queued message already started or was removed.');
     const [commandId] = await access.ids(1);
     if (op === 'queued-remove') await access.dispatch(storage, { type: 'queued-run.cancel', commandId, threadId, runId: id }, 'Remove queued message');
-    else if (op === 'queued-steer') {
-      const target = activeRun(projection);
-      if (!target) throw new ClientError('There is no active run to steer');
-      await access.dispatch(storage, { type: 'queued-message.promote-to-steer', commandId, threadId, queuedRunId: id, targetRunId: str(target.id) }, 'Steer queued message');
-    } else await access.dispatch(storage, { type: 'queued-run.reorder', commandId, threadId, runId: id, beforeRunId: value || null }, 'Reorder queued message');
+    else {
+      // sendQueuedMessage: with no active run the message starts a turn; otherwise it steers the active one (or stops
+      // its compaction).
+      const state = queueState(projection), target = activeRun(projection);
+      if (state.canSendNow) await access.dispatch(storage, { type: 'queued-run.start', commandId, threadId, runId: id }, 'Send queued message');
+      else if (!target || !state.canSteer) throw new ClientError('There is no active run to steer');
+      else await access.dispatch(storage, { type: 'queued-message.promote-to-steer', commandId, threadId, queuedRunId: id, targetRunId: str(target.id) }, 'Steer queued message');
+    }
     return '';
   }
   throw new ClientError(`Unknown composer action: ${op}`);
 }
 
+/**
+ * ModelPickerContent onWindowKeyDown: a tab or a model its shortcut picked is announced, since the focus stays in the
+ * search field. ⇧⌘↑/⇧⌘↓ say "Favorites" or the provider's name, ⌘1–9 "Model: <name>"; each replaces the picker's
+ * message not yet spoken. `kind` is the shortcut's ("provider" or "model"), `id` what it picked, `value` its provider.
+ */
+export function announcePickerShortcut(client: T3Client, kind: string, id: string, value: string): void {
+  const provider = (instanceId: string) => arr(client.config.providers).find(entry => entry.instanceId === instanceId);
+  if (kind === 'provider') announce(client, id === 'favorites' ? 'Favorites' : str(provider(id)?.displayName) || id, 'model-picker');
+  if (kind === 'model') announce(client, `Model: ${str(arr(provider(value)?.models).find(model => model.slug === id)?.name) || id}`, 'model-picker');
+}
+
 /** Local composer state (op names follow `cclocal:`). */
 export async function composerLocal(client: T3Client, _native: Native, _storage: Files, op: string, id: string, value: string): Promise<string> {
   if (op === 'queued-edit') { beginQueuedEdit(client, id); return ''; }
+  if (op === 'picker-provider-key' || op === 'picker-model-key') { announcePickerShortcut(client, op === 'picker-provider-key' ? 'provider' : 'model', id, value); return ''; }
+  // The root's upload pump (composer-uploads.ts): `value` names the upload resources that failed with no answer.
+  if (op === 'uploads') { await runDraftUploads(client, _native, value.split(' ').filter(Boolean).map(Number)); return ''; }
+  if (op === 'upload-retry') { retryDraftUpload(client, id); return ''; }
   if (op === 'env-mode') { setEnvMode(client, value); return ''; }
   if (op === 'previous-worktree') { setEnvMode(client, 'previous'); return ''; }
   if (op === 'attach-files') { // a drop, a paste, Attach files or a sidebar row's drop (app.contract attachFiles)
@@ -272,14 +283,16 @@ export async function composerLocal(client: T3Client, _native: Native, _storage:
   if (op === 'balance-load') return loadHostResources(client, _native, id, Number(value) || 0); // the machines' host resources
   if (op === 'usage-limits') { openUsageLimits(client, composerNow(client)); return ''; }
   if (op === 'usage-limits-dismiss') { closeUsageLimits(client); return ''; }
+  if (op === 'fallback-dismiss') { dismissFallbackNotice(client, id); return ''; } // the fallback model notice, for this window
   // Manage usage and the reset credit confirm (composer-controls-usage.ts), the /feedback banner's
   // Copy ID and dismiss (composer-feedback.ts).
   if (op.startsWith('usage-')) return usageLocal(client, _native, op, id);
   if (op.startsWith('feedback-')) return feedbackLocal(client, _native, op, id);
   if (op === 'queued-cancel') { cancelQueuedEdit(client); return ''; }
+  if (op === 'queued-show-all') { toggleQueueShownInFull(client); return ''; } // "Show all N queued" / "Show fewer"
+  if (op === 'preparing-image-cancel') { cancelPreparingImage(client, id); return ''; } // a preparing tile's Remove
   if (op === 'queued-attachment-remove') { removeQueuedEditAttachment(client, id); return ''; }
   if (op === 'compact-full') { setKeepFullHistory(client, !keepsFullHistory(client)); return ''; } // the Compact chip's toggle
-  if (op === 'resume-compaction-dismiss') { dismissResumeCompaction(client, id); return ''; }
   if (op === 'dismiss-woke') { await acknowledgeWoke(client, id || client.threadId, _native, value); return ''; }
   throw new ClientError(`Unknown composer action: ${op}`);
 }

@@ -29,7 +29,7 @@ import { EnvironmentFleet, fleet, type FleetEntry } from '../connections/setting
 import { focusedOnPrimary, primary, type LocalPrimary } from '../connections/local-primary';
 import { findProjectByPath, inferProjectTitleFromPath } from '../shared/project-paths';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
-import { settle } from '../client/command-waits';
+import { sleep } from '../client/command-waits';
 import { letGo } from '../client/let-go';
 import { randomBytes } from '../transport/transport-wire'; // drawn ahead: code resumed by a server reply may not draw
 
@@ -164,7 +164,7 @@ export async function activationPrepare(client: T3Client, native: Native | null 
 }
 
 /**
- * The shell view's open request: a clicked notification's thread (T3Notifications `opened`) or a
+ * The shell view's open request: a clicked notification's thread (shell-notify.ts `notification-open`) or a
  * request the native side handed this window, whichever came last, as `open:<n>` with its target.
  */
 export async function activationOpen(client: object, native: Native | null | undefined, status: { opened: string; openedThread: string }): Promise<{ openRequest: string; openThreadId: string }> {
@@ -220,7 +220,7 @@ export function activationDependencies(client: T3Client, native: Native, source:
       const has = () => projects().some(project => project.id === projectId);
       for (let waited = 0; !has(); waited += PROJECT_POLL_MS) {
         if (waited >= PROJECT_WAIT_MS) throw new Error('The project did not appear in the desktop app.');
-        if (waited > 0) await settle(native, PROJECT_POLL_MS);
+        if (waited > 0) await sleep(PROJECT_POLL_MS);
         await reread().catch(error => { if (letGo(error)) throw error; });
       }
     },

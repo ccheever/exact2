@@ -1,4 +1,5 @@
 import { composerInput } from './requests';
+import { contextLinks, replaceLinks } from './context-links';
 import { removeStaged } from './composer-staged-copies';
 import { rememberCopiedChips, stagedInUse } from './composer-copied-chips';
 import { noteComposerFilePaths, refreshFileMetadata } from '../shared/file-metadata';
@@ -37,6 +38,7 @@ import { composerSourceSession } from './composer-rich-state';
 import { composerHistoryComplete, composerHistoryRecall } from './composer-prompt-history';
 import { importDroppedThread } from './composer-thread-import';
 import { parseFleetThreadId } from '../connections/settings-b-fleet';
+import { checkMissingEditThreads } from './composer-controls-queue';
 
 export type ComposerMenuRow = Omit<MenuRow, 'insert'>;
 export type ComposerMenu = { open: boolean; kind: string; listLabel: string; searchKey: string; loading: boolean; emptyText: string; count: number; rows: ComposerMenuRow[] };
@@ -108,15 +110,22 @@ export function threadContextRecords(client: T3Client, text: string): Obj[] {
   });
 }
 /** The message `context` for a send, including shelf images without inline references. */
-export function messageContext(client: T3Client, text: string): Obj | undefined {
-  const images = imageContextRecords(client);
-  const records = [...threadContextRecords(client, text), ...pullRequestRecords(client, text), ...images, ...composerFileRecords(client, text), ...terminalMessageRecords(client, text),
-    ...annotationMessageRecords(client, text, new Set(images.map(image => str(image.contextId).replace(/^image_/, ''))))];
-  return records.length ? { version: 1, records } : undefined;
+export function messageContext(client: T3Client, text: string): Obj | undefined { return pressContext(client, text)(client.snapshotDrafts); }
+/**
+ * messageContext as a send's press reads it, from the draft shown then; the records of its images come from the images
+ * it sends, `sent`, which may land after the press.
+ */
+export function pressContext(client: T3Client, text: string): (sent: Obj[]) => Obj | undefined {
+  const leading = [...threadContextRecords(client, text), ...pullRequestRecords(client, text)], trailing = [...composerFileRecords(client, text), ...terminalMessageRecords(client, text)];
+  return sent => {
+    const images = imageContextRecords(client, sent);
+    const records = [...leading, ...images, ...trailing, ...annotationMessageRecords(client, text, new Set(images.map(image => str(image.contextId).replace(/^image_/, ''))))];
+    return records.length ? { version: 1, records } : undefined;
+  };
 }
 /** Attach the prompt's context records to a dispatch or launch payload. */
-export function withMessageContext(client: T3Client, payload: Obj, text: string): Obj {
-  const context = messageContext(client, text);
+export function withMessageContext(client: T3Client, payload: Obj, text: string): Obj { return withContext(payload, messageContext(client, text)); }
+export function withContext(payload: Obj, context: Obj | undefined): Obj {
   if (!context) return payload;
   if (obj(payload.initialMessage).text !== undefined) return { ...payload, initialMessage: { ...obj(payload.initialMessage), context } };
   return { ...payload, context };
@@ -227,6 +236,8 @@ export const localId = (): string => uuid();
 /** The `composerEditor` resource: the menu for the trigger at the caret, the prompt-length line, and where the drawers go. */
 export async function composerEditorView(client: T3Client, native: Native | null | undefined, now = 0): Promise<ComposerEditorView> {
   preserveCitationDraft(client);
+  // A queued edit whose thread left the active shell: archived or deleted (composer-controls-queue.ts).
+  if (native?.available) void checkMissingEditThreads(client, native, now).catch(() => undefined);
   const view = await editorView(client, native, now);
   return { ...view, foldLimit: client.ready ? foldLimit(client) : 0, drawer: { ...composerDrawer(layoutFrames(client)), hold: composerStackHold(holds(client), client.snapshotOwner, layoutFrames(client)) } }; // composer-editor-drawer.ts
 }
@@ -246,6 +257,15 @@ export async function refreshComposerWorkspace(client: T3Client, native: Native 
   const { wake } = composerWorkspaceView(client); // Recheck the current environment/provider before dispatch.
   if (!native?.available || !client.ready) return { key, retry: false, wake };
   return cache(client).discovery.refresh(key, (method, payload) => client.restAccess(native).request(method, payload, true));
+}
+// useComposerMenuItems' `now`: thread mentions rank by recency as of when the composer mounted, here the clock when
+// the draft's @ menu first listed threads.
+const mentionClocks = new WeakMap<T3Client, Map<string, number>>();
+function mentionClock(client: T3Client, now: number): number {
+  const clocks = mentionClocks.get(client) ?? new Map<string, number>();
+  mentionClocks.set(client, clocks);
+  if (!clocks.has(client.draftKey)) clocks.set(client.draftKey, now);
+  return clocks.get(client.draftKey)!;
 }
 async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer' | 'foldLimit'>> {
   const entry = cache(client);
@@ -302,7 +322,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     if (search === 'loading') loading = true;
     else { rows = pullRequestRows(search.entries, client.projectId, repository, trigger.query, search.providers ?? [], arr(obj(client.projection.thread).pullRequests ?? client.shell.threads.find(thread => thread.id === client.threadId)?.pullRequests)); prFailed = search.failed; }
   } else if (trigger.kind === 'path') {
-    const threads = threadRows(client.shell.threads, client.threadId, trigger.query);
+    const threads = threadRows(client.shell.threads, client.threadId, trigger.query, mentionClock(client, now), client.environmentId);
     const query = trigger.query.trim();
     let entries: Obj[] = [];
     if (query && cwd && native?.available) {
@@ -441,13 +461,15 @@ export function rememberReviewCommentRecord(client: T3Client, record: Obj): void
 export async function replaceComposerPrompt(client: T3Client, native: Native, text: string, effects: ComposerFieldCompletion = {}, expect?: string): Promise<void> { await replaceAll(client, native, text, effects, expect); }
 /** removeReviewComment: the chip leaves the prompt as one undoable edit, and its record goes. */
 export async function removeReviewCommentChip(client: T3Client, native: Native, contextId: string, effects: ComposerFieldCompletion = {}): Promise<void> {
-  const link = new RegExp(`\\[[^\\]\\n]{0,512}\\]\\(t3-context://v1/review-comment/${contextId.replace(/[^a-z0-9_-]/gi, '')}\\) ?`, 'g');
+  const href = `t3-context://v1/review-comment/${contextId.replace(/[^a-z0-9_-]/gi, '')}`;
+  // Each link to it goes, with the space after it.
+  const withoutChip = (value: string) => replaceLinks(value, contextLinks(value).filter(link => link.href === href).map(link => ({ ...link, end: value[link.end] === ' ' ? link.end + 1 : link.end })), () => '');
   const field = composerFieldCurrent(client, composerFieldOwner(client));
   if (!field) throw new ClientError('The composer is not ready.');
-  const next = field.value.replace(link, '');
+  const next = withoutChip(field.value);
   const applied = async (current: Native) => {
     const latest = composerFieldCurrent(client, composerFieldOwner(client));
-    if (!latest || latest.value.replace(link, '') !== latest.value) throw new ClientError('The review comment is still referenced by the prompt.');
+    if (!latest || withoutChip(latest.value) !== latest.value) throw new ClientError('The review comment is still referenced by the prompt.');
     delete reviewCommentRecords(client)[contextId]; await effects.applied?.(current);
   };
   if (next !== field.value) await replaceAll(client, native, next, { ...effects, applied }, field.value);

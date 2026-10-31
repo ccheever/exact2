@@ -1,14 +1,14 @@
 {
-  "comment": "The embedded T3 server: the official T3 Code CLI release archive (Node single executable), the release nearest the reference pin 74541bab17 whose version is not older than CLIENT_VERSION (version-skew.ts). Its commit precedes the pin by 71 commits, six of them server changes. stage-runtime.mjs downloads it, checks it against SHA256SUMS and this hash, and puts it beside this file; the app unpacks it into <T3 home>/runtime/versions/<version> at first launch. T3 Code is MIT (LICENSE-T3).",
-  "version": "0.1.2-nightly.20261021.3457",
-  "tag": "v0.1.2-nightly.20261021.3457",
-  "commit": "e64766c56ac6fc1678e6107052feb0047a35337f",
-  "referencePin": "74541bab17",
-  "commitsBeforeReferencePin": 71,
+  "comment": "The embedded T3 server: the official T3 Code CLI release archive (Node single executable) of the stable release v0.1.5, cut at the reference pin 6d450a4284 itself, whose version is CLIENT_VERSION (version-skew.ts). stage-runtime.mjs downloads it, checks it against SHA256SUMS and this hash, and puts it beside this file; the app unpacks it into <T3 home>/runtime/versions/<version> at first launch. T3 Code is MIT (LICENSE-T3).",
+  "version": "0.1.5",
+  "tag": "v0.1.5",
+  "commit": "6d450a4284852af137b2f3407fddd89eb76e7644",
+  "referencePin": "6d450a4284",
+  "commitsBeforeReferencePin": 0,
   "repository": "pingdotgg/t3code",
-  "asset": "t3-0.1.2-nightly.20261021.3457-darwin-arm64.tar.gz",
-  "size": 81251357,
-  "sha256": "975f5e8e538127f6ab2338589cca1e34f8bd8aefe2a30abeefafd76255d0bc93",
-  "url": "https://github.com/pingdotgg/t3code/releases/download/v0.1.2-nightly.20261021.3457/t3-0.1.2-nightly.20261021.3457-darwin-arm64.tar.gz",
-  "checksumsUrl": "https://github.com/pingdotgg/t3code/releases/download/v0.1.2-nightly.20261021.3457/SHA256SUMS"
+  "asset": "t3-0.1.5-darwin-arm64.tar.gz",
+  "size": 109704126,
+  "sha256": "68dc9d73930c62665810cd4fa66f6b0a23f896c8a9a4e693a3794fa090d546aa",
+  "url": "https://github.com/pingdotgg/t3code/releases/download/v0.1.5/t3-0.1.5-darwin-arm64.tar.gz",
+  "checksumsUrl": "https://github.com/pingdotgg/t3code/releases/download/v0.1.5/SHA256SUMS"
 }

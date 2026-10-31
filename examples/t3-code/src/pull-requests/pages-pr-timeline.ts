@@ -3,9 +3,10 @@
 // 74541bab17, and PullRequestDetailPanel.tsx's tab bar): buildPullRequestTimeline's events in the reader's order,
 // folded by groupPullRequestTimelineConversations (consecutive plain remarks are one "N comments"
 // section; commits, lifecycle, verdict rows and review threads, a finding with its replies, stand alone), and the bar's comment, commit and
-// approval counts ("—" when the read failed, "…" while it runs). Commit rows are plain here: the
+// approval counts ("-" when the read failed, "…" while it runs). Commit rows are plain here: the
 // Code tab they open is pages-pr-code.ts.
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { capitalizeTerm, terminologyOf } from '../details/git-logic';
 import { relativeLabel } from './pages-prs';
 import { moreRepliesText, noRemarkWrites, type PrReactionPill, type RemarkWrites } from './pages-pr-summary';
 import {
@@ -41,7 +42,7 @@ const blank = (key: string, kind: string): PrTimelineRow => ({ key, kind, id: ''
   location: '', resolved: false, dismissed: false, outdated: false, replyCount: '', moreReplies: '', expanded: false });
 
 type RemarkOf = (event: PullRequestTimelineEvent) => Writes;
-function rows(events: PullRequestTimelineEvent[], newestCommitAt: string | null, scope: string, now: number, remarkOf: RemarkOf): PrTimelineRow[] {
+function rows(events: PullRequestTimelineEvent[], newestCommitAt: string | null, scope: string, now: number, remarkOf: RemarkOf, term: string): PrTimelineRow[] {
   // ConversationCard; `showPath` false inside a review thread, whose header names the line.
   const cardOf = (event: PullRequestTimelineEvent, showPath = true): PrTimelineCard => ({ key: `${scope}:${event.id}`, id: event.id, author: str(event.actor?.login, 'ghost'), title: event.title,
     stateLabel: event.reviewState ? friendly(event.reviewState) : '', age: relativeLabel(event.at, now), path: showPath ? event.path ?? '' : '', url: event.url ?? '',
@@ -75,7 +76,8 @@ function rows(events: PullRequestTimelineEvent[], newestCommitAt: string | null,
       return { ...base, kind: 'verdict', id: event.id, ...who(event.actor), path: event.path ?? '', url: event.url ?? '', bodyId: bodyIdOf(event), outcome,
         outcomeLabel: pullRequestReviewOutcomeLabel(outcome), stale, staleLabel: pullRequestReviewOutcomeStaleLabel(outcome), reactions: writes.reactions, reacted: writes.reacted, canReact: writes.canReact };
     }
-    const label = event.kind === 'opened' ? 'Pull request opened' : event.kind === 'merged' ? 'Pull request merged' : 'Pull request closed';
+    // LifecycleEvent: the host's term ("Merge request merged").
+    const label = `${capitalizeTerm(term)} ${event.kind === 'opened' ? 'opened' : event.kind === 'merged' ? 'merged' : 'closed'}`;
     return { ...base, kind: event.kind, ...who(event.actor), label };
   });
 }
@@ -84,18 +86,19 @@ export type TimelineInput = { detail: Obj; activity: Obj | null; activityPending
 export function presentTimeline(input: TimelineInput): PrTimelineView {
   const view = emptyTimeline(), activity = input.activity, detail = input.detail;
   const comments = arr(activity?.comments), commits = arr(activity?.commits);
-  const events = buildPullRequestTimeline({ createdAt: detail.createdAt, author: activity?.author ?? detail.author, commits, comments, reviewThreads: arr(activity?.reviewThreads), mergedAt: detail.mergedAt, closedAt: detail.closedAt });
+  const events = buildPullRequestTimeline({ provider: detail.provider, createdAt: detail.createdAt, author: activity?.author ?? detail.author, commits, comments, reviewThreads: arr(activity?.reviewThreads), mergedAt: detail.mergedAt, closedAt: detail.closedAt });
+  const term = terminologyOf(str(detail.provider) || undefined).singular;
   const newestCommitAt = newestPullRequestCommitAt(commits), scope = `${str(detail.projectId)}#${num(detail.number)}`;
   // An event carries the remark behind it (a thread-only reply's normalised copy included) for its pencil and reactions.
   const remark = input.remark ?? noRemarkWrites, canReact = obj(detail.capabilities).reactions === true;
   const remarkOf: RemarkOf = event => writesOf(remark(event.comment ?? { id: event.id }), canReact);
-  view.newest = rows(events, newestCommitAt, scope, input.now, remarkOf);
-  view.oldest = rows([...events].reverse(), newestCommitAt, scope, input.now, remarkOf);
+  view.newest = rows(events, newestCommitAt, scope, input.now, remarkOf, term);
+  view.oldest = rows([...events].reverse(), newestCommitAt, scope, input.now, remarkOf, term);
   view.empty = events.length === 0;
   const count = pullRequestCommentCount(activity);
-  view.comments = input.activityError ? '—' : input.activityPending ? '…' : count.toLocaleString('en-US');
+  view.comments = input.activityError ? '-' : input.activityPending ? '…' : count.toLocaleString('en-US');
   view.commentsAria = input.activityError ? 'Comments unavailable' : plural(count, 'comment', 'comments');
-  view.commits = input.activityError ? '—' : input.activityPending ? '…' : commits.length.toLocaleString('en-US');
+  view.commits = input.activityError ? '-' : input.activityPending ? '…' : commits.length.toLocaleString('en-US');
   view.commitsAria = input.activityError ? 'Commits unavailable' : plural(commits.length, 'commit', 'commits');
   // Approvals that still stand, and none from a conversation this page holds only the recent end of.
   view.approvals = activity && activity.commentsTruncated !== true

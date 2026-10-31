@@ -1,7 +1,8 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { pushToast, toasts } from '../../src/shell/toast';
 import { applyDismissals, advanceToasts, toastViews, commandShortcut, surfaces, titleMenu, withOffsets, TOAST_LIMIT } from '../../src/shell/shell';
-import { threadTransitions, transitionToast, threadNotifications, nativeNotifyStatus, reportWindowFacts, notifyEnvironments } from '../../src/shell/shell-notify';
+import { threadTransitions, transitionToast, threadNotifications, notifyStatus, reportWindowFacts, notifyEnvironments, notificationOps, notificationPermission, notificationPermissionMessage,
+  notificationSounds, useNotificationCalls, PERMISSION_DENIED, type NotificationCalls } from '../../src/shell/shell-notify';
 import { EnvironmentFleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { threadOps } from '../../src/client/client-ops-threads';
 import { shellCommand, shellLocal, shellFailure, shellSuccess, resolveRenameCommit, settingsFailure } from '../../src/shell/shell-commands';
@@ -144,13 +145,28 @@ describe('header and panels', () => {
   });
 });
 
+/** @exact/notifications, faked: what the window posted, closed, badged and asked; a request answers `state`. */
+function notifier(state = 'granted') {
+  const calls: Obj[] = [];
+  const fake: NotificationCalls = {
+    showNotification: async options => { calls.push({ call: 'show', ...options }); },
+    closeNotification: async options => { calls.push({ call: 'close', ...options }); },
+    setAppBadge: async options => { calls.push({ call: 'badge', ...options }); },
+    clearAppBadge: async () => { calls.push({ call: 'clear' }); },
+    requestNotificationPermission: async () => { calls.push({ call: 'request' }); return { available: true, state, badge: true }; },
+  };
+  useNotificationCalls(fake);
+  return { calls, fake, posts: () => calls.filter(call => call.call === 'show').map(({ call: _call, ...post }) => post) };
+}
+
 describe('thread notifications', () => {
+  afterEach(() => useNotificationCalls(null));
   const thread = (id: string, extra: Obj = {}) => ({ id, title: `T ${id}`, status: 'running', latestRunId: 'r1', activeRunId: 'r1', activityRunStatus: 'running', pendingRuntimeRequest: null, updatedAt: '2026-10-04T10:00:00.000Z', archivedAt: null, lineage: {}, ...extra });
   test('completion and attention transitions; the first shell only records', () => {
     const client = fakeClient({ shell: { threads: [thread('a'), thread('b')], projects: [] } });
     const first = threadTransitions(client, null);
     expect(first.transitions).toEqual([]);
-    client.shell.threads = [thread('a', { status: 'idle', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: '2026-10-04T10:01:00.000Z' }),
+    client.shell.threads = [thread('a', { status: 'completed', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: '2026-10-04T10:01:00.000Z' }),
       thread('b', { pendingRuntimeRequest: { kind: 'approval' } })];
     const second = threadTransitions(client, first.next);
     expect(second.transitions.map(entry => [entry.threadId, entry.kind, entry.title])).toEqual([['a', 'completion', 'Thread completed'], ['b', 'input', 'Approval needed']]);
@@ -161,40 +177,63 @@ describe('thread notifications', () => {
     expect(transitionToast({ threadId: 'a', kind: 'input', status: 'input', title: '' }).leading).toBe('message-circle-question:info-foreground');
   });
 
-  test('focused: an in-app toast for another thread only; unfocused: a system notification; sound either way', async () => {
-    const requests: Obj[] = [];
-    const native = { available: true, watch() {}, later: async (request: unknown) => { requests.push(request as Obj); return { ok: true, generation: 0, value: {} }; } } as Native;
+  test('focused: an in-app toast for another thread only; unfocused: a silent system notification and the badge; sound either way', async () => {
+    const notified = notifier();
     const client = fakeClient({ threadId: 'open', shell: { threads: [thread('a'), thread('open')], projects: [] } });
     client.local.clientSettings = prefs({ notificationMode: 'notifications-and-sound', inAppNotificationsEnabled: true }) as never;
-    const none = new EnvironmentFleet();
-    await threadNotifications(client, native, { active: true, authorization: 'authorized', agent: false, opened: '', openedThread: '' }, none);
+    const none = new EnvironmentFleet(), focused = { active: true, authorization: 'granted', opened: '', openedThread: '' };
+    await threadNotifications(client, focused, none);
     client.shell.threads = [thread('a', { pendingRuntimeRequest: { kind: 'user_input' } }), thread('open', { pendingRuntimeRequest: { kind: 'user_input' } })];
-    await threadNotifications(client, native, { active: true, authorization: 'authorized', agent: false, opened: '', openedThread: '' }, none);
+    await threadNotifications(client, focused, none);
     // "Open thread" names the thread with its environment (the reference's /$environmentId/$threadId).
     expect(toasts(client).map(toast => [toast.title, toast.description, toast.action?.label, toast.action?.id])).toEqual([['Input needed', 'T a', 'Open thread', 'fleet:env:a']]);
-    expect(requests.filter(request => request.op === 'notifySound').map(request => request.kind)).toEqual(['input', 'input']);
+    expect(notificationSounds(client)).toEqual({ completion: 0, input: 2 });
     // The open thread gets neither a toast nor, while focused, a system notification.
-    expect(requests.filter(request => request.op === 'notifyPost')).toEqual([]);
-    client.shell.threads = [thread('a', { status: 'idle', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: '2026-10-04T10:05:00.000Z' }), thread('open')];
-    await threadNotifications(client, native, { active: false, authorization: 'authorized', agent: false, opened: '', openedThread: '' }, none);
-    expect(requests.filter(request => request.op === 'notifyPost').map(request => [request.title, request.body, request.tag, request.threadId])).toEqual([['Thread completed', 'T a', 'env:a', 'fleet:env:a']]);
+    expect(notified.posts()).toEqual([]);
+    client.shell.threads = [thread('a', { status: 'completed', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: '2026-10-04T10:05:00.000Z' }), thread('open')];
+    await threadNotifications(client, { ...focused, active: false }, none);
+    // new Notification(title, {body, tag, silent: true}); its click opens the thread (app.contract notificationOpen).
+    expect(notified.posts()).toEqual([{ title: 'Thread completed', body: 'T a', tag: 'env:a', silent: true, navigate: '/notification?t=fleet%3Aenv%3Aa' }]);
+    expect(notified.calls.at(-1)).toEqual({ call: 'badge', contents: 1 });
+    expect(notificationSounds(client).completion).toBe(1);
+    // The window has the focus again (clearPending): the pending notification closes and the badge clears, once.
+    await threadNotifications(client, focused, none);
+    await threadNotifications(client, focused, none);
+    expect(notified.calls.slice(-2)).toEqual([{ call: 'close', tag: 'env:a' }, { call: 'clear' }]);
+  });
+
+  test('a notification posts only while permission is granted; asking is the Settings mode change\'s', async () => {
+    const notified = notifier('prompt');
+    const client = fakeClient({ shell: { threads: [thread('a')], projects: [] } });
+    client.local.clientSettings = prefs({ notificationMode: 'notifications' }) as never;
+    const away = { active: false, authorization: 'prompt', opened: '', openedThread: '' };
+    await threadNotifications(client, away, new EnvironmentFleet());
+    client.shell.threads = [thread('a', { pendingRuntimeRequest: { kind: 'approval' } })];
+    await threadNotifications(client, away, new EnvironmentFleet());
+    expect(notified.posts()).toEqual([]);
+    // NotificationSettings: the request's answer decides; a refusal keeps the mode and says why.
+    expect(await notificationPermission(client, 'notifications')).toBe(false);
+    expect(notificationPermissionMessage(client)).toBe(PERMISSION_DENIED);
+    notifier('granted');
+    expect(await notificationPermission(client, 'notifications-and-sound')).toBe(true);
+    expect(await notificationPermission(client, 'sound')).toBe(true);
+    expect(notificationPermissionMessage(client)).toBe('');
   });
 
   // ThreadNotificationCoordinator mounts EnvironmentNotifications for every
   // environment, so a turn that ends in a background environment notifies while another one is focused.
   describe('every connected environment (ThreadNotificationCoordinator)', () => {
-    const active = { active: true, authorization: 'authorized', agent: false, opened: '', openedThread: '' };
-    const done = (id: string, at: string, extra: Obj = {}) => thread(id, { status: 'idle', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: at, ...extra });
+    const active = { active: true, authorization: 'granted', opened: '', openedThread: '' };
+    const done = (id: string, at: string, extra: Obj = {}) => thread(id, { status: 'completed', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: at, ...extra });
     function setup(clientExtra: Obj = {}) {
-      const requests: Obj[] = [];
-      const native = { available: true, watch() {}, later: async (request: unknown) => { requests.push(request as Obj); return { ok: true, generation: 0, value: {} }; } } as Native;
+      const notified = notifier();
       const client = fakeClient({ environmentId: 'env-a', threadId: 'a1', shell: { threads: [thread('a1')], projects: [], sequence: 1 }, ...clientExtra });
       client.local.clientSettings = prefs({ notificationMode: 'notifications-and-sound', inAppNotificationsEnabled: true }) as never;
       const source = new EnvironmentFleet();
       const entry = { key: 'http://b\nenv-b', origin: 'http://b', environmentId: 'env-b', phase: 'connected', generation: 3, synchronized: 3,
         shell: { threads: [thread('b1', { title: 'Build B' }), thread('a1', { title: 'Same id in B' })], projects: [], sequence: 1 } } as unknown as FleetEntry;
       source.entries.set(entry.key, entry);
-      return { requests, native, client, source, entry };
+      return { notified, client, source, entry };
     }
 
     test('the focused environment and each background one are watched; a background shell is live once synchronized', () => {
@@ -208,88 +247,90 @@ describe('thread notifications', () => {
     });
 
     test('a completion in a background environment toasts "Thread completed" with Open thread on that environment\'s thread', async () => {
-      const { requests, native, client, source, entry } = setup();
-      await threadNotifications(client, native, active, source);
+      const { notified, client, source, entry } = setup();
+      await threadNotifications(client, active, source);
       expect(toasts(client)).toEqual([]);
       // B's thread b1 completes, and B's own a1 (the id the focused thread has in A) asks for approval.
       entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z', { title: 'Build B' }), thread('a1', { title: 'Same id in B', pendingRuntimeRequest: { kind: 'approval' } })] };
-      await threadNotifications(client, native, active, source);
+      await threadNotifications(client, active, source);
       expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description, toast.action?.label, toast.action?.op, toast.action?.id])).toEqual([
         ['success', 'Thread completed', 'Build B', 'Open thread', 'select-thread', 'fleet:env-b:b1'],
         // Only the open thread of the focused environment is quiet: B's a1 is another thread.
         ['warning', 'Approval needed', 'Same id in B', 'Open thread', 'select-thread', 'fleet:env-b:a1'],
       ]);
-      expect(requests.filter(request => request.op === 'notifySound').map(request => request.kind)).toEqual(['completion', 'input']);
-      expect(requests.filter(request => request.op === 'notifyPost')).toEqual([]);
+      expect(notificationSounds(client)).toEqual({ completion: 1, input: 1 });
+      expect(notified.posts()).toEqual([]);
       // Nothing changed since: nothing more.
-      await threadNotifications(client, native, active, source);
+      await threadNotifications(client, active, source);
       expect(toasts(client)).toHaveLength(2);
     });
 
     test('unfocused: the system notification is tagged with B and opens B\'s thread', async () => {
-      const { requests, native, client, source, entry } = setup();
+      const { notified, client, source, entry } = setup();
       const inactive = { ...active, active: false };
-      await threadNotifications(client, native, inactive, source);
+      await threadNotifications(client, inactive, source);
       entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z', { title: 'Build B' })] };
-      await threadNotifications(client, native, inactive, source);
+      await threadNotifications(client, inactive, source);
       expect(toasts(client)).toEqual([]);
-      expect(requests.filter(request => request.op === 'notifyPost').map(request => [request.title, request.body, request.tag, request.threadId])).toEqual([['Thread completed', 'Build B', 'env-b:b1', 'fleet:env-b:b1']]);
+      expect(notified.posts().map(post => [post.title, post.body, post.tag, post.navigate])).toEqual([['Thread completed', 'Build B', 'env-b:b1', '/notification?t=fleet%3Aenv-b%3Ab1']]);
     });
 
     test('a background shell that is not live forgets, so its first live shell after a reconnect only records', async () => {
-      const { native, client, source, entry } = setup();
-      await threadNotifications(client, native, active, source);
+      const { client, source, entry } = setup();
+      await threadNotifications(client, active, source);
       entry.synchronized = -1; entry.generation = 4;
       entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z')] };
-      await threadNotifications(client, native, active, source);
+      await threadNotifications(client, active, source);
       entry.synchronized = 4;
-      await threadNotifications(client, native, active, source);
+      await threadNotifications(client, active, source);
       expect(toasts(client)).toEqual([]);
       entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:02:00.000Z')] };
-      await threadNotifications(client, native, active, source);
+      await threadNotifications(client, active, source);
       expect(toasts(client).map(toast => toast.title)).toEqual(['Thread completed']);
     });
 
     test('an environment that leaves is forgotten; one the focus moved to keeps notifying its own threads', async () => {
-      const { native, client, source, entry } = setup();
-      await threadNotifications(client, native, active, source);
+      const { client, source, entry } = setup();
+      await threadNotifications(client, active, source);
       source.entries.delete(entry.key);
-      await threadNotifications(client, native, active, source);
+      await threadNotifications(client, active, source);
       source.entries.set(entry.key, entry);
       entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z')] };
-      await threadNotifications(client, native, active, source);
+      await threadNotifications(client, active, source);
       expect(toasts(client)).toEqual([]);
       // A not-ready focused client does not hold back a background environment's notifications.
       (client as unknown as { ready: boolean }).ready = false;
       entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:03:00.000Z')] };
-      await threadNotifications(client, native, active, source);
+      await threadNotifications(client, active, source);
       expect(toasts(client).map(toast => toast.action?.id)).toEqual(['fleet:env-b:b1']);
     });
 
     test('a call that runs while an earlier one awaits its notifications never rewinds an environment\'s memory', async () => {
-      const { requests, native, client, source, entry } = setup();
+      const { notified, client, source, entry } = setup();
+      const inactive = { ...active, active: false };
       client.shell = { threads: [thread('a1'), thread('a2', { title: 'Build A' })], projects: [], sequence: 1 } as never;
-      await threadNotifications(client, native, active, source);
-      // A's a2 and B's b1 complete; the first call is held at A's sound, before it reaches B.
-      let holding = true, release = () => {};
-      const held = new Promise<void>(resolve => { release = resolve; });
-      const reply = native.later.bind(native);
-      native.later = async (request: unknown) => { if (holding && (request as Obj).op === 'notifySound') await held; return reply(request); };
+      await threadNotifications(client, inactive, source);
+      // A's a2 and B's b1 complete; the first call is held at A's post, before it reaches B.
+      let posts = 0, release = () => {}, entered = () => {};
+      const held = new Promise<void>(resolve => { release = resolve; }), reached = new Promise<void>(resolve => { entered = resolve; });
+      const show = notified.fake.showNotification;
+      notified.fake.showNotification = async options => { if (posts++ === 0) { entered(); await held; } return show(options); };
       client.shell = { ...client.shell, threads: [thread('a1'), done('a2', '2026-10-09T10:01:00.000Z', { title: 'Build A' })] };
       entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z', { title: 'Build B' })] };
-      const first = threadNotifications(client, native, active, source);
+      const first = threadNotifications(client, inactive, source);
+      await reached;
       // Meanwhile B's shell is fetched again (a newer object: b1's next turn completed) and a second call runs to the end.
-      holding = false;
       entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:02:00.000Z', { title: 'Build B' })] };
-      await threadNotifications(client, native, active, source);
+      await threadNotifications(client, inactive, source);
       release();
       await first;
-      const settled = toasts(client).map(toast => [toast.title, toast.description, toast.action?.id]);
-      expect(settled).toEqual([['Thread completed', 'Build B', 'fleet:env-b:b1'], ['Thread completed', 'Build A', 'fleet:env-a:a2'], ['Thread completed', 'Build B', 'fleet:env-b:b1']]);
+      const settled = notified.posts().map(post => [post.title, post.body, post.navigate]);
+      expect(settled).toEqual([['Thread completed', 'Build B', '/notification?t=fleet%3Aenv-b%3Ab1'], ['Thread completed', 'Build A', '/notification?t=fleet%3Aenv-a%3Aa2'],
+        ['Thread completed', 'Build B', '/notification?t=fleet%3Aenv-b%3Ab1']]);
       // Each completion notified once: a pass over the same shells adds nothing (no older shell's memory left behind).
-      await threadNotifications(client, native, active, source);
-      expect(toasts(client)).toHaveLength(settled.length);
-      expect(requests.filter(request => request.op === 'notifySound')).toHaveLength(settled.length);
+      await threadNotifications(client, inactive, source);
+      expect(notified.posts()).toHaveLength(settled.length);
+      expect(notificationSounds(client).completion).toBe(settled.length);
     });
 
     test('Open thread: a thread of the focused environment opens in place; another environment\'s is focused there', async () => {
@@ -306,13 +347,19 @@ describe('thread notifications', () => {
 
   test('the window facts are the page\'s (exactPage, exact2 #219): focus for notifications, each change once to the activity reporter', async () => {
     const requests: Obj[] = [];
-    const native = { available: true, watch() {}, later: async (request: unknown) => { requests.push(request as Obj);
-      return { ok: true, generation: 0, value: { active: true, authorization: 'authorized', agent: false, opened: '1:a', openedThread: 'a' } }; } } as Native;
-    const previous = { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' };
-    // A module's own focus reading is not the window's: the page's hasFocus is.
-    expect(await nativeNotifyStatus(native, previous, false)).toEqual({ active: false, authorization: 'authorized', agent: false, opened: '1:a', openedThread: 'a' });
-    const failing = { available: true, watch() {}, later: async () => { throw new Error('gone'); } } as unknown as Native;
-    expect((await nativeNotifyStatus(failing, previous, false)).active).toBe(false);
+    const native = { available: true, watch() {}, later: async (request: unknown) => { requests.push(request as Obj); return { ok: true, generation: 0, value: {} }; } } as Native;
+    const client = fakeClient(), previous = { active: true, authorization: 'unknown', opened: '', openedThread: '' };
+    // The root's live permission state, and the page's hasFocus; a clicked notification's destination (its `navigate`
+    // route's `notification-open`) is the shell's open request.
+    expect(await notificationOps.call(client, 'notification-open', 'fleet:env:a', '', 0, native, {} as Files, {} as never)).toBe(true);
+    expect(notifyStatus(client, previous, false, 'granted')).toEqual({ active: false, authorization: 'granted', opened: '1:fleet:env:a', openedThread: 'fleet:env:a' });
+    expect(await notificationOps.call(client, 'select-thread', 'a', '', 0, native, {} as Files, {} as never)).toBe(false);
+    // Only a target the window's own posts name opens: a thread on an environment, or a review guide.
+    const guide = `guide:${encodeURIComponent(JSON.stringify({ projectId: 'p', repository: 'o/r', number: 7, environmentId: 'env' }))}`;
+    for (const target of ['a', 'fleet:env', '/etc/passwd', 'guide:%7B%7D', guide]) await notificationOps.call(client, 'notification-open', target, '', 0, native, {} as Files, {} as never);
+    expect(notifyStatus(client, previous, false, 'granted')).toMatchObject({ opened: `2:${guide}`, openedThread: guide });
+    // Before the root's first read: the state it last had stays.
+    expect(notifyStatus(client, { ...previous, authorization: 'denied' }, true, '')).toMatchObject({ active: true, authorization: 'denied' });
     const owner = {};
     await reportWindowFacts(owner, native, true, true);
     await reportWindowFacts(owner, native, true, true);
@@ -322,15 +369,16 @@ describe('thread notifications', () => {
   });
 
   test('off and in-app off: nothing tracked or raised', async () => {
-    const requests: Obj[] = [];
-    const native = { available: true, watch() {}, later: async (request: unknown) => { requests.push(request as Obj); return { ok: true, generation: 0, value: {} }; } } as Native;
+    const notified = notifier();
     const client = fakeClient({ shell: { threads: [thread('a')], projects: [] } });
-    const none = new EnvironmentFleet();
-    await threadNotifications(client, native, { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' }, none);
+    const none = new EnvironmentFleet(), focused = { active: true, authorization: 'unknown', opened: '', openedThread: '' };
+    await threadNotifications(client, focused, none);
     client.shell.threads = [thread('a', { pendingRuntimeRequest: { kind: 'user_input' } })];
-    await threadNotifications(client, native, { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' }, none);
+    await threadNotifications(client, focused, none);
     expect(toasts(client)).toHaveLength(0);
-    expect(requests.filter(request => request.op !== 'notifyClear')).toEqual([]);
+    // The first pass applies the mode, which clears the badge (applyMode's clearPending); nothing else.
+    expect(notified.calls).toEqual([{ call: 'clear' }]);
+    expect(notificationSounds(client)).toEqual({ completion: 0, input: 0 });
   });
 });
 

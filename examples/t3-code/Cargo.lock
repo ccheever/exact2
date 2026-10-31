@@ -1725,6 +1725,7 @@ dependencies = [
  "exact-runner",
  "markdown-parse",
  "unicode-general-category",
+ "wasmi",
 ]
 
 [[package]]
@@ -1744,6 +1745,7 @@ dependencies = [
  "exact-apple",
  "exact-js",
  "exact-js-bake",
+ "exact-kernel",
  "exact-logic",
  "exact-plan",
  "exact-runner",

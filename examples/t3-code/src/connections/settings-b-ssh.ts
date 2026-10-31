@@ -1,7 +1,8 @@
 // Add Environment → SSH (ConnectionsSettings.tsx renderSshFields,
 // parseManualDesktopSshTarget, handleSelectSshHostSuggestion, connectSavedBackendSshTarget;
 // state/desktopSshHosts.ts filterDiscoveredSshHosts, at 74541bab17; EnvironmentRow.tsx
-// formatDesktopSshTarget). Discovery, `ssh -G` and the tunnel are T3Ssh.swift.
+// formatDesktopSshTarget; connection/platform.ts provisionDesktopSshEnvironment's pairing
+// failure, at 7c3b3b3605ef). Discovery, `ssh -G` and the tunnel are T3Ssh.swift.
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, bridgeReply, type Native } from '../client/protocol';
 import { commandShortcut } from '../palette/palette';
@@ -10,6 +11,7 @@ import type { T3Client } from '../client/client';
 import { rememberSshAlias } from './remote-open';
 import { withStandardScope } from './remote-scopes';
 import { placeRoute, savedEntry, savedList } from './connection-routes-ops';
+import { CLIENT_VERSION } from './version-skew';
 
 export type SshTarget = { alias: string; hostname: string; username: string | null; port: number | null };
 export type SshHost = SshTarget & { source: string };
@@ -113,8 +115,25 @@ export async function sshHostsView(client: T3Client, native: Native | null | und
 type Result = { status: Obj | null; generation: number };
 async function call(native: Native, request: Obj) {
   const reply = await bridgeReply(native, request);
-  if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
+  if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind, false, { reason: reply.error!.reason, context: reply.error!.context });
   return reply;
+}
+
+/**
+ * A reused remote server on another build can fail to decode the grant this desktop just minted, and answers 500 on
+ * every retry: the add then names both versions (provisionDesktopSshEnvironment). The transport ends such a pairing
+ * with reason `exchange_http_500` and the server's descriptor label and version as its context. Any other failure,
+ * or a server on this build, stays as it was.
+ */
+export function sshPairingVersionFailure(failure: unknown, clientVersion = CLIENT_VERSION): ClientError | null {
+  if (!(failure instanceof ClientError) || failure.reason !== 'exchange_http_500') return null;
+  const label = failure.context.label ?? '', serverVersion = failure.context.serverVersion ?? '';
+  if (!label || !serverVersion || serverVersion === clientVersion) return null;
+  return new ClientError(`${label} runs T3 Code ${serverVersion}, but this desktop is ${clientVersion}, and that server could not accept its pairing. Restart the T3 server on ${label} so it runs ${clientVersion}, then retry.`, 'configuration');
+}
+/** One pairing call; a version-skewed server's 500 reads as sshPairingVersionFailure. */
+async function pair(native: Native, request: Obj) {
+  try { return await call(native, request); } catch (error) { throw sshPairingVersionFailure(error) ?? error; }
 }
 
 /**
@@ -137,14 +156,16 @@ export async function runSshOp(native: Native, op: string, id: string, value: st
     // "Add a route to <label>" over SSH joins that machine's routes, or is refused before the code is spent.
     const expected = str(fields.expectedEnvironmentId);
     if (expected) {
-      await call(native, { op: 'pairEnvironment', ...withStandardScope({ origin, credential }), expectedEnvironmentId: expected, ssh: true });
+      await pair(native, { op: 'pairEnvironment', ...withStandardScope({ origin, credential }), expectedEnvironmentId: expected, ssh: true });
       await placeRoute(native, expected, origin, target);
       const label = str(savedEntry(await savedList(native), expected)?.label, target.alias);
       if (client) pushToast(client, { kind: 'success', title: 'Route added', description: `${label} can now be reached over SSH ${target.alias}.` });
       return result;
     }
-    if (connected) await call(native, { op: 'pairEnvironment', ...withStandardScope({ origin, credential }) });
-    else { const reply = await call(native, { op: 'connect', ...withStandardScope({ origin, credential }) }); result = { status: obj(reply.value), generation: reply.generation }; }
+    // `ssh`: the pairing comes from an SSH host's bootstrap (ssh.provision, prepare), so a server on another build that
+    // refuses it answers with the version sentence.
+    if (connected) await pair(native, { op: 'pairEnvironment', ...withStandardScope({ origin, credential }), ssh: true });
+    else { const reply = await pair(native, { op: 'connect', ...withStandardScope({ origin, credential }), ssh: true }); result = { status: obj(reply.value), generation: reply.generation }; }
     if (client) pushToast(client, { kind: 'success', title: 'Environment connected', description: `${target.alias} is ready over an SSH-managed tunnel.` });
     return result;
   } catch (error) {

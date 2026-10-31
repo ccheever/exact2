@@ -101,7 +101,7 @@ export function commandOutputView(client: T3Client, row: string, item: Obj): { v
 
 export function commandSpans(text: string) {
   const light = terminalOutputSpans(text, TERMINAL_PALETTES.light), dark = terminalOutputSpans(text, TERMINAL_PALETTES.dark);
-  return light.map((span, index) => ({ id: String(index), text: span.text, light: span.style?.color ?? '#71717b', dark: dark[index]?.style?.color ?? '#818181',
+  return light.map((span, index) => ({ id: String(index), text: span.text, light: span.style?.color ?? '#71717b', dark: dark[index]?.style?.color ?? '#a1a1a1',
     bgLight: span.style?.backgroundColor ?? '#00000000', bgDark: dark[index]?.style?.backgroundColor ?? '#00000000',
     bold: span.style?.fontWeight === '600', dim: span.style?.opacity !== undefined, italic: span.style?.fontStyle === 'italic',
     underline: span.style?.textDecorationLine?.includes('underline') === true, strike: span.style?.textDecorationLine?.includes('line-through') === true }));

@@ -18,7 +18,7 @@ shape PrBreakdown
   height: number
 
 // Appearance → Diff colors (PullRequestDiffStat's text-diff-addition-foreground / text-diff-deletion).
-fn breakdownAdd(diff: string): string = diff == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)"
+fn breakdownAdd(diff: string): string = diff == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#007a55, #00d492)"
 fn breakdownDel(diff: string): string = diff == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)"
 
 // PullRequestChangeBreakdownStat: the +/- (the slot) with a hover that splits it into its kinds and the Total.
@@ -53,11 +53,11 @@ component PrBreakdownCard
     testId: string
   view
     if breakdown.rows.length > 0 or breakdown.loading
-      column padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=testId
+      column padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=testId
         if breakdown.rows.length > 0
-          PrBreakdownGrid(rows=breakdown.rows, total=breakdown.total, diff=diff, ink="light-dark(#27272a, #f5f5f5)")
+          PrBreakdownGrid(rows=breakdown.rows, total=breakdown.total, diff=diff, ink="light-dark(#18181b, #f5f5f5)")
         else
-          text "Loading breakdown" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+          text "Loading breakdown" font-size="0.75rem" line-height="1rem" color="light-dark(#18181b, #f5f5f5)"
 
 // ChangeBreakdownGrid: label, +additions and -deletions in three auto columns (16pt apart, 4pt between lines),
 // each kind that changed, then a rule and the Total when the hover carries one.
@@ -71,7 +71,7 @@ component PrBreakdownGrid
     box display="grid" grid-template-columns="auto auto auto" justify-content="start" column-gap="1rem" row-gap="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" testId="pr-breakdown-grid"
       for item in rows.concat(total) key=item.key
         if item.key == "total"
-          box grid-row=(item.row - 1) grid-column="1 / -1" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
+          box grid-row=(item.row - 1) grid-column="1 / -1" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)"
         text item.label grid-row=item.row grid-column=1 font-size="0.75rem" line-height="1rem" white-space="nowrap" color=ink
-        text item.additions grid-row=item.row grid-column=2 text-align="right" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color=breakdownAdd(diff)
-        text item.deletions grid-row=item.row grid-column=3 text-align="right" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color=breakdownDel(diff)
+        text item.additions grid-row=item.row grid-column=2 text-align="right" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color=breakdownAdd(diff)
+        text item.deletions grid-row=item.row grid-column=3 text-align="right" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color=breakdownDel(diff)

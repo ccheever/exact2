@@ -15,7 +15,7 @@ import { requestComposerField } from '../composer/composer-field-request';
 // answer that started it, and a stop sent while the start runs must not wait on a native that was let go.
 import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
-import { obj, str, type Obj } from '../client/domain';
+import { arr, obj, str, type Obj } from '../client/domain';
 import { letGo } from '../client/let-go';
 import { pushToast, toasts, updateToast, type ToastAction } from '../shell/toast';
 import { markActionCopied } from '../shell/shell';
@@ -25,6 +25,7 @@ import { activeRef } from '../terminal/terminal-drawer-view';
 import { serverStreamUrl, serverStreamFrame } from './server-browser-runtime';
 import { previewRuntimeTabId } from './browser-state';
 import { readWindowZoom } from './browser-viewport';
+import { DEFAULT_CODE_FONT } from '../appearance/settings-appearance';
 import { BrowserRecordings, PreviewCaptureFailure, type PreviewCaptureFailureStage, type RecordingArtifact, type RecordingBlob, type RecordingHost, type RecordingRecorder, type RecordingStream } from './browser-recording';
 import { isPreviewAnnotationPayload, previewAnnotationLink, savePreviewAnnotation, type PreviewAnnotationPayload } from './browser-annotation';
 import { composerFieldOwner } from '../composer/auto-balance-owner';
@@ -40,8 +41,13 @@ import { MAX_ATTACHMENTS } from '../composer/composer-editor-files';
 import { reservedAttachments } from '../composer/composer-editor-attach';
 import type { PanelState } from '../panel/panel-surfaces';
 import { previewPdfAssetUrl } from './browser-url';
+import { emptyViewerFrame, type ViewerFrameView } from '../panel/viewer-frames';
 import { appFiles } from '../media/save-file';
+import { copyImageFile } from '../media/media-copy-image';
 import { frameEntry, frameIdOf } from './browser-frames';
+import { agentDriving } from './browser-automation-run';
+import { fleet } from '../connections/settings-b-fleet';
+import { shellRuntime, sidebarStatus } from '../sidebar/sidebar-model';
 import { activePicks, annotateState, cancelAnnotate, startAnnotate, type ApplyPick } from './browser-annotate';
 import { automationCalls } from './browser-automation-run';
 
@@ -50,11 +56,11 @@ import { automationCalls } from './browser-automation-run';
 export function annotationTheme(scheme: string): Record<string, string> {
   const dark = scheme === 'dark';
   return {
-    colorScheme: dark ? 'dark' : 'light', radius: '0.625rem', background: dark ? '#0a0a0a' : '#ffffff', foreground: dark ? '#f5f5f5' : '#27272a',
-    popover: dark ? '#171717' : '#ffffff', popoverForeground: dark ? '#f5f5f5' : '#27272a', primary: dark ? '#346bf1' : '#1b4ed8', primaryForeground: '#ffffff',
+    colorScheme: dark ? 'dark' : 'light', radius: '0.5rem', background: dark ? '#000000' : '#ffffff', foreground: dark ? '#f5f5f5' : '#18181b',
+    popover: dark ? '#171717' : '#ffffff', popoverForeground: dark ? '#f5f5f5' : '#18181b', primary: dark ? '#346bf1' : '#1b4ed8', primaryForeground: '#ffffff',
     muted: dark ? 'rgb(255 255 255 / 4%)' : 'rgb(0 0 0 / 4%)', mutedForeground: dark ? '#a1a1aa' : '#71717b', accent: dark ? 'rgb(255 255 255 / 4%)' : 'rgb(0 0 0 / 4%)',
-    accentForeground: dark ? '#f5f5f5' : '#27272a', border: dark ? 'rgb(255 255 255 / 8%)' : 'rgb(0 0 0 / 8%)', input: dark ? 'rgb(255 255 255 / 10%)' : 'rgb(0 0 0 / 10%)',
-    ring: dark ? '#346bf1' : '#1b4ed8', fontSans: 'system-ui, sans-serif', fontMono: 'ui-monospace, monospace',
+    accentForeground: dark ? '#f5f5f5' : '#18181b', border: dark ? 'rgb(255 255 255 / 8%)' : 'rgb(0 0 0 / 8%)', input: dark ? 'rgb(255 255 255 / 10%)' : 'rgb(0 0 0 / 10%)',
+    ring: dark ? '#346bf1' : '#1b4ed8', fontSans: 'system-ui, sans-serif', fontMono: DEFAULT_CODE_FONT,
   };
 }
 
@@ -115,15 +121,6 @@ export function captureFailure(kind: string, stage: PreviewCaptureFailureStage):
   if (kind === 'CapturePage') return new PreviewCaptureFailure('capture-failed', 'capture-page');
   return new PreviewCaptureFailure('capture-failed', stage);
 }
-/** The module's sleep (timelineSleep): the data module has no timers. A sleep whose answer was let go sleeps on through the newest native. */
-async function sleep(host: Host, ms: number): Promise<void> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const native = host.native;
-    if (!native?.available) return;
-    try { await native.later({ op: 'timelineSleep', ms: Math.max(0, Math.round(ms)) }); return; }
-    catch (error) { if (!letGo(error) || host.native === native) return; }
-  }
-}
 const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 /** The H.264 MP4 forms the module's encoder writes (T3BrowserRecording.supports). */
 export const NATIVE_RECORDING_TYPES = new Set(['video/mp4;codecs=avc1', 'video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1.42e01e', 'video/mp4']);
@@ -163,7 +160,6 @@ const recordingSettings = browserRecordingSettings;
 
 function nativeRecordingHost(client: T3Client, host: Host): RecordingHost {
   const record = (tabId: string, action: string, extra: Obj = {}) => nativeCall(host, { op: 'browserRecord', tab: tabId, action, ...extra });
-  let frames = 0;
   return {
     bridge: {
       startScreencast: async tabId => {
@@ -200,10 +196,11 @@ function nativeRecordingHost(client: T3Client, host: Host): RecordingHost {
     acquireSurfaceActivity: () => () => undefined,
     // The panel reads the recordings at its next projection.
     publish: () => undefined,
-    requestAnimationFrame: callback => { const id = ++frames; void sleep(host, 16).then(() => callback(0)); return id; },
-    cancelAnimationFrame: () => undefined,
-    setTimeout: (fn, ms) => { const handle = { cancelled: false }; void sleep(host, ms).then(() => { if (!handle.cancelled) fn(); }); return handle; },
-    clearTimeout: handle => { if (handle && typeof handle === 'object') (handle as { cancelled: boolean }).cancelled = true; },
+    // The recorder's answer's own timers (LLP 1027.000 D1). A data module has no frame callbacks: a frame is 16 ms.
+    requestAnimationFrame: callback => setTimeout(() => callback(0), 16) as unknown as number,
+    cancelAnimationFrame: id => clearTimeout(id),
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
     now: () => new Date(composerNow(client) || 0).toISOString(),
   };
 }
@@ -230,12 +227,29 @@ export function floatingTabOf(client: T3Client): string | null {
 }
 
 /** A hidden tab's page that must keep drawing (browser-frames.ts FrameHold): the hatch records it or shows it in its
- *  separate window, or an agent's recording holds it. */
+ *  separate window, an agent's recording holds it, or the agent drives it in its turn. */
 export function heldFrame(client: T3Client, runtimeId: string): { width: number; height: number } | null {
   const tab = report(client, runtimeId), recording = obj(tab.recording);
   const held = tab.pip === true || recording.armed === true || recording.capturing === true || recording.recording === true
-    || captureHost(client).recordings.readActiveBrowserRecordingTabIds().has(runtimeId);
+    || captureHost(client).recordings.readActiveBrowserRecordingTabIds().has(runtimeId)
+    || agentDriving(client, runtimeId, (environmentId, threadId) => threadTurnRunning(client, environmentId, threadId));
   return held ? browserMiniSourceSize(client, runtimeId) : null;
+}
+
+/**
+ * The thread's agent turn runs (the reference's PreviewAgentActivity, ended by RunExecutionService's agentTurnsSettled):
+ * the root turn works, waits on the person or on another thread (t3_thread_wait), or its run is parked on subagents, the
+ * child turns agentTurnsSettled waits for. A parked monitor or background task is no turn: it can be a dev server's
+ * watchdog.
+ */
+export function threadTurnRunning(client: T3Client, environmentId: string, threadId: string): boolean {
+  const shell = environmentId === client.environmentId ? client.shell : [...fleet.entries.values()].find(entry => entry.environmentId === environmentId)?.shell;
+  const thread = shell?.threads.find(entry => entry.id === threadId);
+  if (!thread) return false;
+  const status = sidebarStatus(thread);
+  if (status === 'working' || status === 'approval' || status === 'input') return true;
+  if (status !== 'waiting') return false;
+  return shellRuntime(thread)?.status === 'running' || arr(thread.pendingBackgroundTasks).some(task => str(task.kind) === 'subagent');
 }
 
 export function recordingOf(client: T3Client, ref: ScopedThreadRef, tabId: string, runtimeId: string): boolean {
@@ -248,7 +262,7 @@ export function browserCaptureView(client: T3Client, ref: ScopedThreadRef, tabId
   return {
     pickActive, pickDisabled: !tabId || failed,
     // PreviewChromeRow: the disabled reason, else Cancel while annotating.
-    pickTip: failed ? 'Page didn’t load — pick unavailable until the page renders' : pickActive ? 'Cancel annotation (Esc)' : 'Annotate elements, regions, and drawings',
+    pickTip: failed ? 'Page didn\'t load. Pick is unavailable until the page renders' : pickActive ? 'Cancel annotation (Esc)' : 'Annotate elements, regions, and drawings',
     captureDisabled: !hasWebContents || failed, recording: recordingOf(client, ref, tabId, runtimeId),
     floating: floatingTabOf(client) === tabId, floatDisabled: !hasWebContents || failed,
     separateWindow: tab.pip === true,
@@ -380,7 +394,11 @@ export async function artifactLocal(client: T3Client, native: Native, action: st
   host.native = native;
   const toastId = Number(toastValue) || 0;
   try {
-    await nativeCall(host, { op: 'browserArtifact', action, path });
+    // copyArtifactToClipboard: any artifact by its path, as a PNG through @exact/clipboard (media-copy-image.ts). Data
+    // code reads only the app's own files and the artifact directory is the local server's, so the module copies the
+    // artifact into them first (`stage`).
+    if (action === 'copy-image') await copyImageFile(str((await nativeCall(host, { op: 'browserArtifact', action: 'stage', path })).path));
+    else await nativeCall(host, { op: 'browserArtifact', action, path });
     if (action !== 'reveal' && toastId > 0) markActionCopied(client, toastId, `shelllocal:surface-browser-artifact-${action}`);
   } catch (error) {
     if (letGo(error)) throw error;
@@ -485,11 +503,13 @@ async function insertAnnotationChip(client: T3Client, native: Native, origin: An
 // ── The floating player's browser source (ThreadPreviewMiniPlayer BrowserMiniPlayer) ─────────────
 export type BrowserMiniView = {
   show: boolean; key: string; sourceKey: string; tabId: string; runtimeId: string; server: boolean; streamUrl: string; pdfUrl: string; url: string; profileId: string; environment: string;
+  /** The viewer page that shows `pdfUrl` (server-pdf-viewer.ts; panel-surfaces.ts sets it). */
+  pdfViewer: ViewerFrameView;
   hasWebContents: boolean; recording: boolean; separateWindow: boolean; width: number; height: number;
   /** The main window's zoom. */
   windowZoom: number;
 };
-export const emptyBrowserMini = (): BrowserMiniView => ({ show: false, key: '', sourceKey: '', tabId: '', runtimeId: '', server: false, streamUrl: '', pdfUrl: '', url: '', profileId: 'default', environment: '',
+export const emptyBrowserMini = (): BrowserMiniView => ({ show: false, key: '', sourceKey: '', tabId: '', runtimeId: '', server: false, streamUrl: '', pdfUrl: '', pdfViewer: emptyViewerFrame(), url: '', profileId: 'default', environment: '',
   hasWebContents: false, recording: false, separateWindow: false, width: 1280, height: 800, windowZoom: 1 });
 
 /** The page's last laid-out size (resolveFittedBrowserViewport with the fill viewport): its box, else 1280×800. */
@@ -510,7 +530,7 @@ export function browserMiniView(client: T3Client, sessions: (ref: ScopedThreadRe
   if (session.server) { const frame = serverStreamFrame(client, runtimeId); if (frame.width > 0 && frame.height > 0) { size.width = frame.width; size.height = frame.height; } }
   captureHost(client).miniSize = { key, ...size };
   return { show: true, key, sourceKey: key, tabId, runtimeId, server: session.server === true, streamUrl: session.server ? serverStreamUrl(client, runtimeId) : '',
-    pdfUrl: session.server ? previewPdfAssetUrl(session.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', url: session.url, profileId: session.profileId, environment: ref.environmentId,
+    pdfUrl: session.server ? previewPdfAssetUrl(session.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', pdfViewer: emptyViewerFrame(), url: session.url, profileId: session.profileId, environment: ref.environmentId,
     hasWebContents: session.server === true || frameEntry(client, runtimeId) !== null, recording: recordingOf(client, ref, tabId, runtimeId), separateWindow: tab.pip === true, ...size,
     windowZoom: readWindowZoom(client.presentation) };
 }

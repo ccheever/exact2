@@ -3,11 +3,11 @@ import { T3Client } from '../../src/client/client';
 import { snapshot, transcriptPresentation } from '../../src/client/presentation';
 import { noteComposerTyping, releaseHeldRequests } from '../../src/composer/composer-typing-guard';
 import { pendingRequests, requestPresentation, requestActivity, resolveAnswer } from '../../src/composer/requests';
-import { obj, str, type Obj } from '../../src/client/domain';
+import { arr, obj, str, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
 import { readFileSync } from 'node:fs';
 import { appPath } from '../support/app-files';
-import { value } from '../support/contract-action-fixture';
+import { contractComponent, value } from '../support/contract-action-fixture';
 
 /** The `disabled=(…)` of the requests.contract view line holding `marker`, read over `env`. */
 function viewDisabled(marker: string, env: Record<string, unknown>): boolean {
@@ -70,11 +70,26 @@ describe('approvals', () => {
     expect(labels[0]!.options.map(option => option.id)).toEqual(['accept', 'decline']);
     expect(labels[0]!.more).toEqual([{ id: 'acceptAlways', label: 'Always', warning: 'Risky', primary: false }]);
   });
+  test('full access that still asks says why, the reason follows the request, and an agent that reads feedback asks for it', () => {
+    const { client } = harness({
+      runtimeRequests: [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'live', supportsFeedback: true } }],
+      turnItems: [{ id: 'x', type: 'approval_request', requestId: 'a', prompt: 'rm -rf build', reason: 'Clean the build folder', fullAccessOverride: 'ask_rule' }] });
+    expect(requestPresentation(client).approvals[0]).toMatchObject({ reason: 'Clean the build folder', feedback: true,
+      whyAsked: "Full access skips approvals, but an ask rule in the agent's own settings matches this action, so it still asks. Remove or narrow that rule to stop these prompts." });
+    expect(snapshot(client).composer).toMatchObject({ placeholder: 'Send feedback to decline this request', approvalReason: 'Clean the build folder',
+      approvalWhy: expect.stringContaining('an ask rule in the agent') });
+    Object.assign(arr(client.projection.turnItems)[0]!, { fullAccessOverride: 'provider_check', reason: undefined });
+    arr(client.projection.runtimeRequests)[0]!.responseCapability = { type: 'live' };
+    expect(requestPresentation(client).approvals[0]).toMatchObject({ reason: '', feedback: false, whyAsked: expect.stringContaining("T3 Code can't turn these off") });
+    expect(snapshot(client).composer.placeholder).toBe('Send a message to decline and redirect the agent');
+    arr(client.projection.turnItems)[0]!.fullAccessOverride = undefined;
+    expect(requestPresentation(client).approvals[0]!.whyAsked).toBe('');
+  });
   test('a provider process that is gone replaces the detail and disables decisions', async () => {
     const { client, command, committed } = harness({
       runtimeRequests: [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'not_resumable' } }],
       turnItems: [{ id: 'x', type: 'approval_request', requestId: 'a', prompt: 'run ls' }] });
-    expect(requestPresentation(client).approvals[0]).toMatchObject({ canRespond: false, detail: 'Provider process is gone — interrupt or restart the run to respond.' });
+    expect(requestPresentation(client).approvals[0]).toMatchObject({ canRespond: false, detail: 'Provider process is gone. Interrupt or restart the run to respond.' });
     expect((await command('approval', 'a', 'accept')).message).toBe('This approval is no longer live.');
     expect(committed).toHaveLength(0);
   });
@@ -225,16 +240,18 @@ describe('connection and thread errors', () => {
 });
 
 describe('request rows in the work log', () => {
-  test("a pending approval is the running turn's live activity, after its earlier tools", () => {
+  // TimelinePendingApprovalRow (#26255): the approval answers on its own row; the work before it stops reading as live.
+  test('a pending approval is its own row after the running turn\'s earlier tools', () => {
     const row = (id: string, item: Obj) => ({ sourceThreadId: 't1', sourceItemId: id, ordinal: 0, item: { id, runId: 'r1', status: 'completed', startedAt: '2026-10-03T00:00:00Z', ...item } });
     const { client } = harness({ runs: [{ id: 'r1', status: 'running', startedAt: '2026-10-03T00:00:00Z' }],
       runtimeRequests: [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'live' } }] });
     const items = [row('u', { type: 'user_message', text: 'fixture approval' }), row('c', { type: 'command_execution', input: 'ls', output: '' }),
       row('q', { type: 'approval_request', requestId: 'a', prompt: 'Allow the fixture?' })];
     Object.assign(client.thread!.projection, { turnItems: items.map(entry => entry.item), visibleTurnItems: items });
-    const live = transcriptPresentation(client).filter(message => message.kind === 'live');
-    expect(live).toHaveLength(1);
-    expect(live[0]).toMatchObject({ title: 'Allow the fixture?', icon: 'message-circle', live: true });
+    const rows = transcriptPresentation(client);
+    expect(rows.flatMap(message => message.approval ?? [])).toMatchObject([{ id: 'a', label: 'Command approval', detail: 'Allow the fixture?', live: true }]);
+    expect(rows.findIndex(message => (message.approval ?? []).length > 0)).toBeGreaterThan(rows.findIndex(message => message.title === 'Ran ls'));
+    expect(rows.some(message => message.live && (message.kind === 'live' || message.kind === 'thinking'))).toBe(false);
   });
 });
 
@@ -300,5 +317,51 @@ describe('Pi editor initial answers', () => {
     g.client.answers['r1::scope'] = { selected: ['Workspace'], custom: '', index: 0 };
     expect(requestPresentation(g.client).draft).toBe('');
     expect(g.client.answers['r1::scope']?.selected).toEqual(['Workspace']);
+  });
+});
+
+// ComposerPendingUserInputPanel at 7c3b3b3605ef (d414cb5103), as requests.contract draws it.
+describe('the question card', () => {
+  const file = 'src/composer/requests.contract';
+  const banner = contractComponent(file, 'QuestionBanner'), choice = contractComponent(file, 'QuestionChoice');
+  const q = { id: 'q', requestId: 'r', header: 'Window', question: 'Which window shows the problem?', position: '1/2', dismissible: true, responding: false,
+    live: true, operable: true, multiSelect: false, options: [], md: {} };
+  /** The `name=` value of the first view line holding `marker`, read over `env` (a quoted value as it stands). */
+  const attribute = (marker: string, name: string, env: Record<string, unknown>) => {
+    const line = readFileSync(appPath(file), 'utf8').split('\n').find(text => text.includes(marker))!;
+    const at = line.indexOf(` ${name}=`) + name.length + 2;
+    if (line[at] === '"') return line.slice(at + 1, line.indexOf('"', at + 1));
+    let depth = 0, end = at;
+    do { if (line[end] === '(') depth++; else if (line[end] === ')') depth--; end++; } while (depth > 0);
+    return value(line.slice(at, end), env);
+  };
+  test('the header row starts with the header, no icon before it; collapsed, it adds "·" and the question', () => {
+    const lines = readFileSync(appPath(file), 'utf8').split('\n');
+    const row = lines.findIndex(line => line.includes('row flex=1 min-width=0 gap="0.25rem" align-items="center"'));
+    expect(lines[row + 1]!.trim().startsWith('text q.header ')).toBe(true);
+    expect(attribute('row width="100%" min-height="1.5rem"', 'padding-left', {})).toBe('1rem');
+    for (const collapsed of ['', 'q']) {
+      expect(banner.drawn('text "·"', { collapsed }, { q })).toBe(collapsed === 'q');
+      expect(banner.drawn('text q.question', { collapsed }, { q })).toBe(collapsed === 'q');
+      expect(banner.drawn('testId=`question-body-', { collapsed }, { q })).toBe(collapsed === '');
+    }
+  });
+  test('an option has a radio, or a checkbox when several can be chosen; unselected labels at 70%; its key cap in a 1.5rem column', () => {
+    const option = { id: 'o', label: 'Main', description: '', shortcut: '1', selected: false };
+    for (const multi of [false, true]) {
+      const scope = { option, questionId: 'q', multi, disabled: false };
+      expect(choice.drawn('testId=`choice-radio-', { hovering: false }, scope)).toBe(!multi);
+      expect(choice.drawn('testId=`choice-checkbox-', { hovering: false }, scope)).toBe(multi);
+    }
+    const color = (selected: boolean) => attribute('testId=`choice-label-', 'color', { option: { ...option, selected } });
+    expect(color(false)).toBe('light-dark(#18181bb3, #f5f5f5b3)');
+    expect(color(true)).toBe('light-dark(#18181b, #f5f5f5)');
+    const scope = { option, questionId: 'q', multi: false, disabled: false };
+    expect(choice.drawn('testId=`choice-key-', { hovering: false }, scope)).toBe(true);
+    expect(attribute('testId=`choice-key-', 'width', {})).toBe('1.5rem');
+    expect(choice.drawn('testId=`choice-key-', { hovering: false }, { ...scope, option: { ...option, shortcut: '' } })).toBe(false);
+    // A description that repeats the label is not drawn twice.
+    expect(choice.drawn('text option.description', { hovering: false }, { ...scope, option: { ...option, description: 'Main' } })).toBe(false);
+    expect(choice.drawn('text option.description', { hovering: false }, { ...scope, option: { ...option, description: 'The main window' } })).toBe(true);
   });
 });

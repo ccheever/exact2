@@ -1,7 +1,7 @@
 // Settings shell + General route data.
-// Reference: T3 Code 74541bab17 apps/web/src/components/settings/{SettingsPanels,ProjectDefaultsSettings,
-// settingsLayout,SettingsScopeSentence,settingsScope,scopedSettings}.tsx, apps/web/src/modelSelection.ts
-// and packages/shared/src/projectSettings.ts. Server rows read and write the connected
+// Reference: T3 Code 6d450a4284 apps/web/src/components/settings/{SettingsPanels,ProjectDefaultsSettings,
+// WorktreesSettings,AdvancedSettings,settingsLayout,SettingsScopeSentence,settingsScope,scopedSettings}.tsx,
+// apps/web/src/modelSelection.ts and packages/shared/src/projectSettings.ts. Server rows read and write the connected
 // environment's ServerSettings (server.updateSettings); device rows are the
 // reference ClientSettings, saved in this app's own preferences file.
 import { changeCliCommand } from './cli-command';
@@ -11,6 +11,7 @@ import { arr, num, obj, str, type Json, type Obj } from '../client/domain';
 import { ClientError, providerAvailable, type Native } from '../client/protocol';
 import { projectIdentity, providerBadge } from '../client/presentation';
 import { traitsDisplay } from '../composer/composer-controls-model';
+import { acpInstanceIcon } from '../composer/acp-instance-icon';
 import { resolveTextGenerationSelection } from './text-generation-model';
 import { providerEntries, resolveAppModelSelectionForInstance, resolveSelectableProviderInstanceEntry } from '../composer/composer-provider-selection';
 import type { T3Client } from '../client/client';
@@ -25,12 +26,15 @@ import { removeThemes, useCollectionDefaults } from '../appearance/settings-a-co
 import type { DiffState } from '../diff/diff';
 import { notificationPermission, notificationPermissionMessage } from '../shell/shell-notify';
 import { type QrMark } from './settings-mobile-beta';
+import { DEFAULT_SNOOZE_PRESETS, snoozeEditor, snoozePresetsChanged, snoozePresetsEdit, snoozePresetsOf, type SnoozeEditor } from './settings-snooze';
+import { latestWall } from '../sidebar/sidebar-state';
 import { CLIENT_VERSION } from '../connections/connections';
-import { primaryEnvironmentId } from '../connections/local-primary';
+import { isPrimaryEnvironment, primaryEnvironmentId } from '../connections/local-primary';
 import { ALL_ENVIRONMENTS_VALUE, environmentAxisValue, projectScopeMenuGroups, resolveSettingsScope, scopeSearch, settingsScopeEnvironmentAddress, settingsScopeEnvironmentLabel, settingsScopeEnvironmentLabels,
   settingsScopeProjectMachines, type ResolvedSettingsScope, type ScopeGroup } from './settings-scope';
-import { persistScopedSettingsPatch, planProjectOverridesClear, planScopedSettingsClear, planScopedSettingsPatch, resolveScopedSettingsTargets, scopedPlanNotice, scopedSettingsSource,
-  selectScopedSettingsEnvironments, type ScopedSettingsEnvironment, type ScopedSettingsPlan, type ScopedSettingsTarget } from './scoped-settings-plan';
+import { IDLE_COMPACTION_MODES, globalIdleCompaction, persistScopedSettingsPatch, planProjectOverridesClear, planScopedSettingsClear, planScopedSettingsPatch, readsIdleCompactionModes,
+  resolveScopedSettingsTargets, scopedPlanNotice, scopedSettingsSource, selectScopedSettingsEnvironments, type ScopedSettingsEnvironment, type ScopedSettingsPlan,
+  type ScopedSettingsTarget } from './scoped-settings-plan';
 import { postScopedNotice, scopeEnvironments, scopeMemberFiles, scopeProjectGroups, scopedWriter, type ScopeEnvironment } from './settings-scope-sources';
 import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { changedBrowserSettingLabels, restoreBrowserTabDefaults } from '../browser/browser-defaults'; // Restore defaults' browser rows
@@ -39,7 +43,7 @@ import { BROWSER_CUSTOM_SEARCH_URL_MAX_LENGTH, BROWSER_SEARCH_ENGINES } from '..
 export type CoreOption = { id: string; value: string; label: string; detail: string; icon: string; selected: boolean; disabled: boolean };
 export type CoreRow = {
   id: string; title: string; description: string; status: string; kind: string; checked: boolean; value: string; label: string;
-  icon: string; width: number; options: CoreOption[]; value2: string; label2: string; options2: CoreOption[]; driver: string; badge: string; badgeColor: string;
+  icon: string; width: number; options: CoreOption[]; value2: string; label2: string; options2: CoreOption[]; driver: string; badge: string; badgeColor: string; markIcon: string;
   inheritance: string; inheritanceSummary: string; resettable: boolean; resetLabel: string; disabled: boolean; inert: boolean;
   /** ScopedSwitch: the selected targets disagree; the switch draws its thumb centred and a press turns it on everywhere. */
   mixed: boolean;
@@ -47,8 +51,11 @@ export type CoreRow = {
   layers: CoreOption[]; layerTitle: string; layerGroups: InheritanceGroup[]; amount: number; previewSize: number; menuWidth: number;
   /** About → Mobile app's QR codes (settings-mobile-beta.ts); empty on every other row. */
   qr: QrMark[];
+  /** Threads › Snooze options' editor (settings-snooze.ts); empty on every other row. */
+  snooze: SnoozeEditor[];
 };
-export type CoreSection = { id: string; title: string; collapsible: boolean; rows: CoreRow[]; toggle: boolean };
+/** A section's rows, and the power-user rows its Advanced fold holds (AdvancedSettings; empty draws no fold). */
+export type CoreSection = { id: string; title: string; collapsible: boolean; rows: CoreRow[]; toggle: boolean; advanced?: CoreRow[] };
 /** A scope menu option (SettingsScopeSentence ScopeOption): its name, the line under it that tells it apart, its mark and Offline. */
 export type ScopeChoice = { id: string; label: string; secondary: string; mark: string; ink: string; surface: string; member: string; selected: boolean; offline: boolean };
 
@@ -56,8 +63,8 @@ const option = (value: string, label: string, selected: boolean, extra: Partial<
   ({ id: value || 'none', value, label, detail: '', icon: '', selected, disabled: false, ...extra });
 export function coreRow(id: string, title: string, description: string, kind: string, extra: Partial<CoreRow> = {}): CoreRow {
   return { id, title, description, status: '', kind, checked: false, value: '', label: '', icon: '', width: 160, options: [], value2: '', label2: '',
-    options2: [], driver: '', badge: '', badgeColor: '', inheritance: '', inheritanceSummary: '', resettable: false, resetLabel: title.toLowerCase(), disabled: false, inert: false, mixed: false,
-    note: '', min: 0, max: 0, step: 1, target: '', placeholder: '', suffix: '', info: '', divider: false, layers: [], layerTitle: '', layerGroups: [], amount: 0, previewSize: 0, menuWidth: 0, qr: [], ...extra };
+    options2: [], driver: '', badge: '', badgeColor: '', markIcon: '', inheritance: '', inheritanceSummary: '', resettable: false, resetLabel: title.toLowerCase(), disabled: false, inert: false, mixed: false,
+    note: '', min: 0, max: 0, step: 1, target: '', placeholder: '', suffix: '', info: '', divider: false, layers: [], layerTitle: '', layerGroups: [], amount: 0, previewSize: 0, menuWidth: 0, qr: [], snooze: [], ...extra };
 }
 
 // ── Device (client) settings ───────────────────────────────────────────────
@@ -69,7 +76,9 @@ export const CLIENT_DEFAULTS = {
   diffFilesCollapsed: true, diffIgnoreWhitespace: true, diffLayout: 'stacked', environmentIdentificationMode: 'artwork', glassOpacity: 80,
   fontSizeInterface: 16, fontSizePrompt: 14, fontSizeCode: 13, fontSizeTerminal: 12, fontFamilyCode: '', fontFamilyComposer: '', fontFamilySans: '',
   fontFamilyTerminal: '', fontSmoothing: true, persistComposerContextStrip: false, contextWindowMeterEnabled: false, composerRichTextEnabled: true,
-  followUpBehavior: 'queue', proactivePanelsEnabled: false, showSkillsInSlashMenu: true, legacySidebarEnabled: false, sidebarWorkingShelfEnabled: false,
+  followUpBehavior: 'steer', proactivePanelsEnabled: false, showSkillsInSlashMenu: true, legacySidebarEnabled: false, sidebarWorkingShelfEnabled: true,
+  // How the composer shows reasoning effort: its word, or bars (contracts settings.ts EffortDisplay, default label).
+  effortDisplay: 'label',
   wordWrap: true, browserLinkTarget: 'system', theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code', typographyAdvanced: false, confirmQuit: 'hold',
   sidebarProjectSortOrder: 'updated_at',
   // The legacy sidebar's Sidebar options (contracts settings.ts: sort orders, preview count 1-15, default 6).
@@ -91,7 +100,7 @@ export type ClientPrefs = { -readonly [K in keyof typeof CLIENT_DEFAULTS]: (type
 const CHOICES: Record<string, readonly string[]> = {
   browserLinkTarget: ['system', 'app'], browserSearchEngine: BROWSER_SEARCH_ENGINES,
   notificationMode: ['off', 'notifications', 'sound', 'notifications-and-sound'], diffColorScheme: ['red-green', 'blue-orange'],
-  chatWidth: ['comfortable', 'wide', 'full'], diffLayout: ['stacked', 'split'], environmentIdentificationMode: ['artwork', 'pill', 'none'],
+  chatWidth: ['comfortable', 'wide', 'full'], effortDisplay: ['label', 'bars'], diffLayout: ['stacked', 'split'], environmentIdentificationMode: ['artwork', 'pill', 'none'],
   followUpBehavior: ['queue', 'steer'], confirmQuit: ['direct', 'hold', 'double-click'], sidebarProjectSortOrder: ['updated_at', 'created_at', 'manual'],
   sidebarThreadSortOrder: ['updated_at', 'created_at'],
 };
@@ -128,14 +137,14 @@ export function decodeClientPrefs(saved: unknown): ClientPrefs {
   return next;
 }
 
-type Device = { composerCollapseOnScroll: boolean; planModeEnabled: boolean; timestampFormat: string; appearanceMode: string; sendShortcut: string };
-export const DEVICE_DEFAULTS: Device = { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' };
+type Device = { planModeEnabled: boolean; timestampFormat: string; appearanceMode: string; sendShortcut: string };
+export const DEVICE_DEFAULTS: Device = { planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' };
 const DEVICE_CHOICES: Record<string, readonly string[]> = { timestampFormat: ['locale', '12-hour', '24-hour'], appearanceMode: ['system', 'light', 'dark'], sendShortcut: ['enter', 'mod-enter-multiline', 'mod-enter'] };
 type LocalPrefs = { deviceSettings: Device; clientSettings?: ClientPrefs; groupingMode: string; lastGroupingMode?: string; customThemes?: CustomTheme[] };
 /** Apply one device-local change in place. Returns false when the key is not a device setting. */
 export function applyDeviceSetting(local: LocalPrefs, key: string, value: string): boolean {
   const device = local.deviceSettings as Record<string, unknown>;
-  if (key in DEVICE_CHOICES || key === 'composerCollapseOnScroll' || key === 'planModeEnabled') {
+  if (key in DEVICE_CHOICES || key === 'planModeEnabled') {
     if (key in DEVICE_CHOICES ? !DEVICE_CHOICES[key]!.includes(value) : !['true', 'false'].includes(value)) throw new ClientError('Unsupported device setting.');
     device[key] = key in DEVICE_CHOICES ? value : value === 'true';
     return true;
@@ -228,21 +237,26 @@ export function resolveScope(client: T3Client, machine: string, projectKey: stri
     connective: machine || resolved.kind === 'checkout' ? 'on' : 'across', connected: connectedEnvironments.length > 0, environmentChoices, projectChoices,
     resolved, environments, selected, environmentIcon: current?.kind ?? '', groups };
 }
+/** SettingsScopeContext's `environment`: the scope's connected environment, the primary first (its setup links and Providers name it). */
+export function scopeRepresentative(scope: CoreScope) {
+  const connected = scope.selected.filter(environment => environment.connection.phase === 'connected' && environment.serverConfig !== null);
+  return connected.find(candidate => isPrimaryEnvironment(candidate.environmentId)) ?? connected[0];
+}
 /** ProjectFavicon draws the group's representative project, so its monogram is that project's title, not the group label. */
 const groupMarkName = (group: ScopeGroup) => str((group.memberProjects[0] as Obj | undefined)?.title) || group.displayName;
 function markOf(name: string) { const identity = projectIdentity(name); return { mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface }; }
 
 // ── Server rows ───────────────────────────────────────────────────────────
 export const PROJECT_SCOPED = new Set(['worktreeCleanup', 'defaultModelSelection', 'defaultRuntimeMode', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin', 'worktreeSubmodules',
-  'defaultAutoPull', 'defaultProjectScripts', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'textGenerationModelSelection', 'sourceControlWriterModelSelection',
+  'defaultAutoPull', 'defaultProjectScripts', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'textGenerationModelSelection', 'threadTitleInstructions', 'sourceControlWriterModelSelection',
   'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod', 'sidebarAutoSettleOnMerge',
   'sidebarAutoSettleAfterDays', 'sidebarAutoSettleKeepPullRequests', 'continueThreadsAfterServerUpdate', 'responseStreamingMode']);
 export const SERVER_DEFAULTS: Record<string, Json> = {
   defaultModelSelection: null, defaultRuntimeMode: 'full-access', defaultThreadEnvMode: null, worktreeSubmodules: null, autoResumeLimitedThreads: false,
   snoozeLimitedThreads: false, compactIdleThreads: false, sidebarAutoSettleOnMerge: true, sidebarAutoSettleAfterDays: 3, sidebarAutoSettleKeepPullRequests: false, responseStreamingMode: 'paragraph', enableProviderUpdateChecks: true,
   continueThreadsAfterServerUpdate: true, backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, newWorktreesStartFromOrigin: true,
-  addProjectBaseDirectory: '', textGenerationModelSelection: { instanceId: 'codex', model: 'gpt-6-luna', options: [{ id: 'reasoningEffort', value: 'low' }] },
-  enableAgentBrowserAccess: true,
+  addProjectBaseDirectory: '', textGenerationModelSelection: { instanceId: 'codex', model: 'gpt-6-luna', options: [{ id: 'reasoningEffort', value: 'low' }] }, threadTitleInstructions: '',
+  enableAgentBrowserAccess: true, fallbackModelSelection: null, snoozePresets: DEFAULT_SNOOZE_PRESETS as unknown as Json,
 };
 const FILE_BACKED: Record<string, [string, string]> = { defaultThreadEnvMode: ['defaultThreadEnvMode', 'local'], worktreeSubmodules: ['worktreeSubmodules', 'recursive'] };
 // Effect's Equal.equals on decoded settings: structural, independent of key order.
@@ -282,6 +296,8 @@ export type ServerContext = { settings: Obj; scope: CoreScope; files: Map<string
   local?: object };
 /** A target's value for a key: its effective value, a file-backed key's built-in when nothing set it (effectiveSetting). */
 function targetValue(target: ScopedSettingsTarget, key: string): Json {
+  // scopedIdleCompaction: targets compare by the mode each resolves to, whichever field its server keeps it in.
+  if (key === 'idleCompaction') return globalIdleCompaction(target.settings);
   const value = (key in target.settings ? target.settings[key] : SERVER_DEFAULTS[key]) as Json;
   return (value === null || value === undefined) && FILE_BACKED[key] ? FILE_BACKED[key]![1] : value ?? null;
 }
@@ -295,7 +311,9 @@ function serverState(context: ServerContext, key: string) {
   const scoped = PROJECT_SCOPED.has(key);
   const environmentWide = project && !scoped;
   const source = project ? scopedSettingsSource(targets, [key]) : 'environment';
-  const customized = !same(settings[key], SERVER_DEFAULTS[key]) && key in SERVER_DEFAULTS;
+  // The idle compaction row reads both of its keys (settingKeys idleCompaction, compactIdleThreads).
+  const customized = key === 'idleCompaction' ? settings.idleCompaction !== undefined || !same(settings.compactIdleThreads ?? false, false)
+    : !same(settings[key], SERVER_DEFAULTS[key]) && key in SERVER_DEFAULTS;
   const inheritance = mixed ? ['mixed', 'Mixed across selected targets'] : project && source === 'project' ? ['overridden', 'Overridden for this project']
     : project && source === 't3.json' ? ['inherited', "Inherited from the repository's t3.json"]
     : project && scoped ? ['inherited', `Inherited from ${context.environmentLabel}`]
@@ -404,8 +422,20 @@ function modelControl(context: ServerContext, selection: Obj | null, textGenerat
   const model = entry.models.find(candidate => candidate.slug === effective) ?? (effective ? { slug: effective, name: effective } : undefined);
   return traitsControl(context, entry.snapshot, model, stored ? arr(selection!.options) : []);
 }
+/**
+ * ProjectDefaultsSettings' Fallback model: a ProviderModelPicker with no TraitsPicker, over the saved fallback or else the
+ * default model; "None" while no fallback is saved and "Mixed" when the targets differ, with no provider mark.
+ */
+function fallbackControl(context: ServerContext, defaultSelection: Json): Partial<CoreRow> {
+  const state = serverState(context, 'fallbackModelSelection');
+  const saved = state.value === null || state.value === undefined ? null : obj(state.value);
+  const control = modelControl(context, saved ?? (defaultSelection === null ? null : obj(defaultSelection)), false);
+  if (control.kind === 'text-only') return control;
+  const shown = state.mixed ? 'Mixed' : saved === null ? 'None' : '';
+  return { ...control, label2: '', options2: [], ...(shown ? { label: shown, driver: '', badge: '' } : {}) };
+}
 /** The model trigger and its TraitsPicker for one resolved instance, model and saved options. */
-export function traitsControl(context: { providers: Obj[] }, provider: Obj, model: Obj | undefined, selections: Obj[]): Partial<CoreRow> {
+export function traitsControl(context: { providers: Obj[]; settings?: Obj }, provider: Obj, model: Obj | undefined, selections: Obj[]): Partial<CoreRow> {
   // TraitsPicker: every select trait in its own section (Reasoning, Service Tier), radio rows with a Default badge.
   const descriptors = arr(obj(model?.capabilities).optionDescriptors).filter(descriptor => descriptor.type === 'boolean' || descriptor.type === 'select' && arr(descriptor.options).length > 0);
   const choices = (descriptor: Obj) => descriptor.type === 'boolean' ? [{ id: 'true', label: 'On' }, { id: 'false', label: 'Off' }]
@@ -424,13 +454,18 @@ export function traitsControl(context: { providers: Obj[] }, provider: Obj, mode
   return {
     value: `${str(provider.instanceId)}|${str(model?.slug)}`, label: str(model?.name, str(model?.slug)), driver: str(provider.driver),
     badge: providerBadge(provider, context.providers).providerBadge, badgeColor: providerBadge(provider, context.providers).providerBadgeColor,
+    markIcon: acpInstanceIcon({ settings: context.settings ?? {} }, provider),
     value2: effortValue, label2: display.label,
     options2: traits,
   };
 }
 
-/** Every General row of the served reference, in order, with its live value. */
-export function generalSections(client: T3Client, context: ServerContext): CoreSection[] {
+/**
+ * The rows the reference's General page held before 9db433f4ba #25651 split it, with their live values, as the
+ * sections of `route`: General, Chat, Diffs & pull requests, Threads, Worktrees, Maintenance, About or Labs
+ * (SettingsPanels.tsx and WorktreesSettings.tsx at 96fc7b9551); every page's, in nav order, without one.
+ */
+export function generalSections(client: T3Client, context: ServerContext, route = ''): CoreSection[] {
   const { scope, settings, capabilities } = context;
   const local = client.local as unknown as LocalPrefs;
   const prefs = local.clientSettings || decodeClientPrefs({});
@@ -461,10 +496,13 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
   const mod = '⌘';
   const textState = value('textGenerationModelSelection'), textSelection = obj(textState.value);
   const textControl = modelControl(context, textSelection, true); // a Mixed text generation model keeps its Traits picker
+  const titleInstructions = value('threadTitleInstructions');
   const newThreads: CoreRow[] = [
-    serverRow(context, 'defaultModelSelection', 'default-model', 'Model', project ? 'Model for new threads in this project.' : 'Default model for new threads. Projects can override it.', 'model',
-      { status: !scope.connected || modelState.mixed || modelState.source === 'project' ? '' : modelState.value === null ? 'Automatic' : '', resetLabel: 'default model',
+    serverRow(context, 'defaultModelSelection', 'default-model', 'Model', project ? 'Model for new threads in this project.' : scope.connected && !modelState.mixed && modelState.source !== 'project' && modelState.value === null ? 'Default model for new threads, selected automatically. Projects can override it.' : 'Default model for new threads. Projects can override it.', 'model',
+      { status: '', resetLabel: 'default model',
         ...modelRow, ...(modelState.mixed && modelRow.kind !== 'text-only' ? { label: 'Mixed', mixed: true, label2: '' } : {}) }, modelState.value !== null),
+    ...(project ? [] : [serverRow(context, 'fallbackModelSelection', 'fallback-model', 'Fallback model', "Used for new threads when the default model's provider is out of usage.", 'model',
+      { resetLabel: 'fallback model', ...fallbackControl(context, modelState.value) }, value('fallbackModelSelection').mixed || value('fallbackModelSelection').value !== null)]),
     serverRow(context, 'defaultRuntimeMode', 'default-permissions', 'Permissions', project ? 'Permissions for new threads in this project.' : 'Default permissions for new threads. Projects can override them.', 'select',
       { value: str(runtime.value), label: runtime.mixed ? 'Mixed' : runtimeEntry[1], icon: runtime.mixed ? '' : runtimeEntry[3], resetLabel: 'default permissions', menuWidth: 372,
         options: RUNTIME.map(([id, label, detail, icon]) => option(id, label, id === runtime.value, { detail, icon })) }),
@@ -475,15 +513,19 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
       { ...select(str(submodules.value), [['recursive', 'Recursive'], ['top-level', 'Top level only'], ['none', 'Skip']]), ...(submodules.mixed ? { label: 'Mixed' } : {}), resetLabel: 'worktree submodules' },
       !project && settings.worktreeSubmodules !== null && settings.worktreeSubmodules !== undefined),
   ];
+  // SnoozePresetsRow: the environment's own list (environment scope only), soonest first.
+  const snooze = value('snoozePresets');
+  const snoozeRows: CoreRow[] = project ? [] : [serverRow(context, 'snoozePresets', 'snooze-options', 'Snooze options', 'Choices in every snooze menu, listed soonest first. Weekdays mean the next one after today.', 'snooze',
+    { resetLabel: 'snooze options', snooze: [snoozeEditor(snoozePresetsOf({ snoozePresets: snooze.value }), new Date(latestWall(client)), device.timestampFormat)] },
+    snooze.mixed || snoozePresetsChanged(snooze.value))];
   const organization: CoreRow[] = [
     coreRow('project-grouping', 'Project grouping', 'Combine matching repositories across environments.', 'switch', { checked: local.groupingMode !== 'separate', resettable: local.groupingMode !== 'repository', target: 'projectGrouping' }),
     // c5a929e1: Project order (client setting sidebarProjectSortOrder), w-full sm:w-44.
     deviceRow('sidebarProjectSortOrder', 'project-order', 'Project order', 'Order of projects in the sidebar project picker and command palette.', 'select',
       { ...select(prefs.sidebarProjectSortOrder, [['updated_at', 'Last user message'], ['created_at', 'Created at'], ['manual', 'Manual']]), width: 176, resetLabel: 'project order' }),
-    serverRow(context, 'autoResumeLimitedThreads', 'auto-resume-limited-threads', 'Auto-resume limited threads', 'Resume usage-limit stops at the reported reset time. Each thread can cancel its scheduled continuation.', 'switch', {}, false),
-    serverRow(context, 'snoozeLimitedThreads', 'snooze-limited-threads', 'Snooze limited threads', 'Snooze usage-limit stops until the reported reset time. Combine with auto-resume to continue when they wake.', 'switch', {}, false),
-    deviceRow('sidebarWorkingShelfEnabled', 'working-shelf', 'Working section (beta)', 'Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you.', 'switch'),
-    serverRow(context, 'compactIdleThreads', 'compact-idle-threads', 'Compact idle Claude threads (beta)', 'Compact long idle Claude threads just before their prompt cache expires, so coming back costs less.', 'switch', { resetLabel: 'compact idle Claude threads' }, false),
+    serverRow(context, 'autoResumeLimitedThreads', 'auto-resume-limited-threads', 'Resume after usage limits', 'Resume usage-limit stops at the reported reset time. Each thread can cancel its scheduled continuation.', 'switch', {}, false),
+    serverRow(context, 'snoozeLimitedThreads', 'snooze-limited-threads', 'Snooze until limits reset', 'Snooze usage-limit stops until reset. Pair with resume to continue on wake.', 'switch', {}, false),
+    deviceRow('sidebarWorkingShelfEnabled', 'working-shelf', 'Working section', 'Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you.', 'switch'),
     ...(autoSettle ? [
       serverRow(context, 'sidebarAutoSettleOnMerge', 'auto-settle-merged-threads', 'Auto-settle merged threads', 'Settle a thread when its pull request merges. Closed pull requests still settle automatically.', 'switch', { resetLabel: 'auto-settle on merge' }),
       serverRow(context, 'sidebarAutoSettleAfterDays', 'auto-settle-inactive-threads', 'Auto-settle inactive threads', 'Sidebar threads with no activity for this long settle automatically.', 'switch', { checked: days.value !== null, resetLabel: 'auto-settle' }),
@@ -503,10 +545,15 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
     deviceRow('diffFilesCollapsed', 'default-diff-file-state', 'Default diff file state', "Start with files expanded or collapsed when opening diffs or a pull request's Code tab.", 'select',
       { value: prefs.diffFilesCollapsed ? 'collapsed' : 'expanded', label: prefs.diffFilesCollapsed ? 'Collapsed' : 'Expanded', options: [option('expanded', 'Expanded', !prefs.diffFilesCollapsed), option('collapsed', 'Collapsed', prefs.diffFilesCollapsed)] }),
     deviceRow('diffLayout', 'diff-layout', 'Diff layout', 'Show diffs stacked or side by side. The toggle in the diff toolbar changes this too.', 'select', { ...select(prefs.diffLayout, [['stacked', 'Stacked'], ['split', 'Split']]) }),
+    // DiffColorsSettingsRow: the trigger's two dots, deletion then addition (reversed for blue and orange).
+    deviceRow('diffColorScheme', 'diff-color-scheme', 'Diff colors', 'Choose colors for additions and deletions, including change counts.', 'select',
+      { ...select(prefs.diffColorScheme, [['red-green', 'Red & green (default)'], ['blue-orange', 'Blue & orange']]), label: prefs.diffColorScheme === 'blue-orange' ? 'Blue & orange' : 'Red & green',
+        icon: prefs.diffColorScheme === 'blue-orange' ? 'dots-blue-orange' : 'dots-red-green', resetLabel: 'diff colors' }),
     deviceRow('proactivePanelsEnabled', 'proactive-panels', 'Proactive panels', 'Open linked pull requests first. Otherwise, open Changes for edits to at least 3 files or 50 lines.', 'switch'),
+    deviceRow('pullRequestLinksOpenInApp', 'pull-request-links-open-in-app', 'Open pull requests in T3 Code', 'Clicking a pull request link opens it in T3 Code. Turn off to open pull request links like any other link, on your git host.', 'switch',
+      { resetLabel: 'open pull requests in T3 Code' }),
     deviceRow('showSkillsInSlashMenu', 'skills-in-slash-menu', 'Show skills in slash menu', 'Also include skills in the / command menu. Skills always appear when you type $.', 'switch'),
     deviceRow('composerRichTextEnabled', 'composer-rich-text', 'Rich text composer', 'Show formatted Markdown as you type.', 'switch'),
-    deviceRow('composerCollapseOnScroll', 'composer-collapse', 'Collapse composer on scroll', 'Rest the composer of an existing thread into a single line when you scroll the conversation. Focus the composer or start typing to expand it again.', 'switch'),
     deviceRow('sendShortcut', 'send-shortcut', 'Send shortcut', 'Choose when Enter sends a prompt or inserts a new line', 'select',
       { ...select(device.sendShortcut, [['enter', 'Enter'], ['mod-enter-multiline', `${mod} + Enter for multiline prompts`], ['mod-enter', `${mod} + Enter always`]]), width: 0, icon: 'checks' }),
     deviceRow('followUpBehavior', 'follow-up-behavior', 'Follow-up behavior', 'Queue follow-ups while the agent runs or steer the current run. ' + (device.sendShortcut === 'mod-enter-multiline'
@@ -534,11 +581,16 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
   ];
   const textGeneration: CoreRow[] = [serverRow(context, 'textGenerationModelSelection', 'text-generation-model', 'Text generation model',
     'Used for thread titles and other generated text on connected devices with this provider. Source control can override it.', 'model',
-    scope.connected ? { ...textControl, ...(textState.mixed && textControl.kind !== 'text-only' ? { label: 'Mixed', mixed: true } : {}) } : { kind: 'text-only', label: 'Connect an environment to choose its text generation model.' })];
+    scope.connected ? { ...textControl, ...(textState.mixed && textControl.kind !== 'text-only' ? { label: 'Mixed', mixed: true } : {}) } : { kind: 'text-only', label: 'Connect an environment to choose its text generation model.' }),
+    // ThreadTitleInstructionsSettings: a 4-row textarea saved when the field is left (CoreTextArea).
+    serverRow(context, 'threadTitleInstructions', 'thread-title-instructions', 'Thread title instructions', 'Appended to the prompt for new and regenerated thread titles.', 'textarea',
+      { value: titleInstructions.mixed ? '' : str(titleInstructions.value), mixed: titleInstructions.mixed, resetLabel: 'thread title instructions',
+        placeholder: titleInstructions.mixed ? 'Mixed. Enter instructions to apply to all selected targets.' : 'Keep titles to a few words. Lead with the main subject.' },
+      titleInstructions.mixed || str(titleInstructions.value) !== '')];
   // AboutVersionTitle: this app's own release (APP_VERSION), not the connected server's.
   const about = aboutRows(client, CLIENT_VERSION); // settings-a-about.ts: the update button and Update track
   const diagnostics = [
-    coreRow('diagnostics', 'Diagnostics', envScope ? 'Inspect processes, resource use, and logs on this environment.' : 'Inspect processes, resource use, and logs on one environment at a time.', 'link', { label: 'View diagnostics', target: 'diagnostics', width: 0 }),
+    diagnosticsRow(envScope),
     coreRow('open-source-licenses', 'Open source licenses', 'Notices for dependencies, assets, and optional tools used by T3 Code.', 'link', { label: 'View licenses', target: 'open-source-licenses', width: 0 }),
   ];
   const legacy = [
@@ -546,10 +598,50 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
     deviceRow('contextWindowMeterEnabled', 'legacy-context-window-indicator', 'Context window indicator (legacy)', 'Shows context window usage as a circular indicator in the composer.', 'switch', { resettable: false }),
     deviceRow('legacySidebarEnabled', 'legacy-sidebar', 'Sidebar (legacy)', 'Restore per-project thread trees instead of the default flat sidebar.', 'switch', { resettable: false }),
   ];
-  const section = (id: string, title: string, rows: CoreRow[], collapsible = false): CoreSection => ({ id, title, collapsible, rows, toggle: false });
-  return [section('project-defaults', 'New threads', newThreads), section('organization', 'Organization', organization), section('behavior', 'Behavior', behavior),
-    section('projects-and-threads', 'Projects & threads', projects), section('confirmations', 'Confirmations', confirmations), section('text-generation', 'Text generation', textGeneration),
-    section('about', 'About', about), section('diagnostics-section', 'Diagnostics', diagnostics), section('legacy-features', 'Legacy features', legacy, true)];
+  const rows = new Map([...newThreads, ...snoozeRows, ...organization, ...behavior, ...projects, ...confirmations, ...textGeneration, ...about, ...diagnostics, ...legacy].map(row => [row.id, row]));
+  const pick = (id: string, title: string, ids: string[], advanced: string[] = []): CoreSection =>
+    ({ id, title, collapsible: false, toggle: false, rows: ids.flatMap(rowId => rows.get(rowId) ?? []), advanced: advanced.flatMap(rowId => rows.get(rowId) ?? []) });
+  // Worktrees' Creation and Maintenance's Diagnostics are drawn by the storage panel between its own sections
+  // (settings-data.ts worktreeRows); Providers' Compact idle threads by the Providers page (idleCompactionRow).
+  const pages: Record<string, CoreSection[]> = {
+    general: [pick('notifications', 'Notifications', ['thread-notifications', 'in-app-notifications']), pick('sidebar', 'Sidebar', ['project-grouping', 'project-order', 'working-shelf']),
+      pick('confirmations', 'Confirmations', ['unpin-confirmation', 'archive-confirmation', 'delete-confirmation', 'quit-confirmation']), pick('display', 'Display', ['time-format'])],
+    chat: [pick('composer', 'Composer', ['composer-rich-text', 'send-shortcut'], ['skills-in-slash-menu']), pick('follow-ups', 'Follow-ups', ['follow-up-behavior'])],
+    diffs: [pick('diffs', 'Diffs', ['diff-layout', 'hide-whitespace-changes', 'default-diff-file-state', 'diff-color-scheme']),
+      pick('pull-requests', 'Pull requests', ['proactive-panels', 'pull-request-links-open-in-app'])],
+    threads: [pick('new-projects', 'New projects', ['add-project-starts-in']), pick('project-defaults', 'New threads', ['default-model', 'fallback-model', 'default-permissions', 'new-threads']),
+      pick('snooze', 'Snooze', ['snooze-options']),
+      pick('usage-limits', 'Usage limits', ['auto-resume-limited-threads', 'snooze-limited-threads']),
+      pick('auto-settle', 'Auto-settle', ['auto-settle-merged-threads', 'auto-settle-inactive-threads', 'days-before-auto-settle', 'keep-threads-with-pr']),
+      pick('text-generation', 'Text generation', ['text-generation-model'], ['thread-title-instructions', 'response-streaming'])],
+    worktrees: [pick('worktree-creation', 'Creation', ['start-from-origin'], ['worktree-submodules'])],
+    maintenance: [pick('updates', 'Updates', ['provider-update-checks', 'continue-threads-after-server-update']), pick('background', 'Background activity', ['background-activity'])],
+    about: [pick('about', 'App', about.map(row => row.id)), pick('legal', 'Legal', ['open-source-licenses'])],
+    labs: [pick('legacy-features', 'Legacy', ['legacy-plan-mode', 'legacy-context-window-indicator', 'legacy-sidebar'])],
+  };
+  return (route ? pages[route] ?? [] : Object.values(pages).flat()).filter(entry => entry.rows.length > 0 || (entry.advanced ?? []).length > 0);
+}
+/** SettingsGroup's dividers: every row after a section's first, and every Advanced row after the fold's first (the fold
+ *  draws its own top border, AdvancedSettings' `border-t`). */
+export const dividedSection = (section: CoreSection): CoreSection => ({ ...section,
+  rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 })), advanced: (section.advanced ?? []).map((row, index) => ({ ...row, divider: index > 0 })) });
+/**
+ * CompactIdleThreadsRow (SettingsPanels.tsx), last under Providers › Advanced: the mode the scope's targets resolve
+ * (scopedIdleCompaction). "Never" needs every target to store modes; a server with only the switch cannot.
+ */
+export function idleCompactionRow(context: ServerContext): CoreRow {
+  const modes = context.targets.map(target => globalIdleCompaction(target.settings));
+  const mode = modes[0] ?? globalIdleCompaction(context.settings), mixed = modes.some(entry => entry !== mode);
+  const neverAvailable = context.targets.every(target => readsIdleCompactionModes(target.settings));
+  return serverRow(context, 'idleCompaction', 'compact-idle-threads', 'Compact idle threads',
+    'When to compact an idle Claude thread over 200,000 tokens: after you return, just before its prompt cache expires, or never. Each Claude provider can override this.', 'select',
+    { value: mode, label: mixed ? 'Mixed' : IDLE_COMPACTION_MODES.find(([id]) => id === mode)?.[1] ?? mode, width: 224, resetLabel: 'compact idle threads',
+      options: IDLE_COMPACTION_MODES.map(([id, label]) => option(id, label, !mixed && id === mode, { disabled: id === 'off' && !neverAvailable })) },
+    globalIdleCompaction(context.settings) !== 'onReturn');
+}
+/** Maintenance's Diagnostics row: its own page for one environment at a time (isEnvironmentScope). */
+export function diagnosticsRow(envScope: boolean): CoreRow {
+  return coreRow('diagnostics', 'Diagnostics', envScope ? 'Inspect processes, resource use, and logs on this environment.' : 'Inspect processes, resource use, and logs on one environment at a time.', 'link', { label: 'View diagnostics', target: 'diagnostics', width: 0 });
 }
 
 // ── Reading and writing ───────────────────────────────────────────────────
@@ -602,13 +694,14 @@ export function scopedModelReason(context: ServerContext, instanceId: string, mo
 export function settingsModelTarget(client: T3Client, id: string) {
   const target = parseCoreTarget(id);
   const key = SERVER_ROW_KEYS[target.row];
-  if (target.part || (key !== 'defaultModelSelection' && key !== 'textGenerationModelSelection')) return null;
+  if (target.part || (key !== 'defaultModelSelection' && key !== 'textGenerationModelSelection' && key !== 'fallbackModelSelection')) return null;
   const scope = resolveScope(client, target.machine, target.projectKey, target.checkout);
   if (scope.kind === 'unavailable') return null;
   const context = serverContext(client, scope, new Map());
   const state = serverState(context, key);
   const textGeneration = key === 'textGenerationModelSelection';
-  const control = modelControl(context, state.value === null ? null : obj(state.value), textGeneration);
+  const control = key === 'fallbackModelSelection' ? fallbackControl(context, serverState(context, 'defaultModelSelection').value)
+    : modelControl(context, state.value === null ? null : obj(state.value), textGeneration);
   if (control.kind === 'text-only') return null;
   const [instanceId = '', model = ''] = str(control.value).split('|');
   // Text generation offers only the providers that support it (textGenerationProviders).
@@ -625,14 +718,17 @@ export function settingPlan(client: T3Client, scope: CoreScope, key: string, val
   const environments = connectedOf(client, scope, settings);
   const project = scope.kind === 'project' || scope.kind === 'checkout';
   if (clear && project) return planScopedSettingsClear(scope.resolved, environments, [key]);
-  return planScopedSettingsPatch(scope.resolved, environments, { [key]: clear ? SERVER_DEFAULTS[key] ?? null : value as Json });
+  // An idle compaction reset writes the default's mode (globalIdleCompaction of the defaults), in each target's form.
+  const fallback = key === 'idleCompaction' ? 'onReturn' : SERVER_DEFAULTS[key] ?? null;
+  return planScopedSettingsPatch(scope.resolved, environments, { [key]: clear ? fallback : value as Json });
 }
 const SERVER_ROW_KEYS: Record<string, string> = {
-  'default-model': 'defaultModelSelection', 'default-permissions': 'defaultRuntimeMode', 'new-threads': 'defaultThreadEnvMode', 'worktree-submodules': 'worktreeSubmodules',
-  'auto-resume-limited-threads': 'autoResumeLimitedThreads', 'snooze-limited-threads': 'snoozeLimitedThreads', 'compact-idle-threads': 'compactIdleThreads', 'auto-settle-merged-threads': 'sidebarAutoSettleOnMerge',
+  'default-model': 'defaultModelSelection', 'fallback-model': 'fallbackModelSelection', 'default-permissions': 'defaultRuntimeMode', 'new-threads': 'defaultThreadEnvMode', 'worktree-submodules': 'worktreeSubmodules',
+  'auto-resume-limited-threads': 'autoResumeLimitedThreads', 'snooze-limited-threads': 'snoozeLimitedThreads', 'compact-idle-threads': 'idleCompaction', 'auto-settle-merged-threads': 'sidebarAutoSettleOnMerge',
   'keep-threads-with-pr': 'sidebarAutoSettleKeepPullRequests', 'auto-settle-inactive-threads': 'sidebarAutoSettleAfterDays', 'days-before-auto-settle': 'sidebarAutoSettleAfterDays', 'response-streaming': 'responseStreamingMode',
   'provider-update-checks': 'enableProviderUpdateChecks', 'continue-threads-after-server-update': 'continueThreadsAfterServerUpdate', 'background-activity': 'backgroundActivity',
   'background-advanced': 'backgroundActivity', 'start-from-origin': 'newWorktreesStartFromOrigin', 'add-project-starts-in': 'addProjectBaseDirectory', 'text-generation-model': 'textGenerationModelSelection',
+  'thread-title-instructions': 'threadTitleInstructions', 'snooze-options': 'snoozePresets',
 };
 /** Decode one control's string payload into the schema value, refusing anything the reference would not write. */
 export function serverValue(key: string, raw: string, context: ServerContext, part = ''): Json {
@@ -652,7 +748,11 @@ export function serverValue(key: string, raw: string, context: ServerContext, pa
       if (!(raw in BACKGROUND)) throw new ClientError('Advanced background activity needs one environment.');
       return { schemaVersion: 1, profile: raw, overrides: {} };
     case 'addProjectBaseDirectory': if (raw.length > 4096) throw new ClientError('Use a shorter directory.'); return raw.trim();
-    case 'defaultModelSelection': case 'textGenerationModelSelection': return modelValue(raw, part, key, context);
+    // TrimmedString, of any length: the field saves its text without surrounding whitespace.
+    case 'threadTitleInstructions': return raw.trim();
+    case 'idleCompaction': if (!IDLE_COMPACTION_MODES.some(([mode]) => mode === raw)) throw new ClientError('Choose a supported idle compaction mode.'); return raw;
+    case 'defaultModelSelection': case 'textGenerationModelSelection': case 'fallbackModelSelection': return modelValue(raw, part, key, context);
+    case 'snoozePresets': return snoozePresetsEdit(snoozePresetsOf({ snoozePresets: serverState(context, key).value }), part, raw);
     default: return bool();
   }
 }
@@ -689,10 +789,11 @@ export function parseCoreTarget(id: string) {
   return { row: colon < 0 ? head : head.slice(0, colon), part: colon < 0 ? '' : head.slice(colon + 1), machine: rest.slice(0, second), projectKey: rest.slice(second + 1), checkout: id.slice(last + 1) };
 }
 const SERVER_LABELS: Record<string, string> = {
-  autoResumeLimitedThreads: 'Auto-resume limited threads', snoozeLimitedThreads: 'Snooze limited threads', sidebarAutoSettleOnMerge: 'Auto-settle merged threads',
-  sidebarAutoSettleKeepPullRequests: 'Keep threads with a PR', sidebarAutoSettleAfterDays: 'Auto-settle inactive threads', responseStreamingMode: 'Response streaming', enableProviderUpdateChecks: 'Provider update checks',
+  autoResumeLimitedThreads: 'Resume after usage limits', snoozeLimitedThreads: 'Snooze until limits reset', sidebarAutoSettleOnMerge: 'Auto-settle merged threads',
+  sidebarAutoSettleKeepPullRequests: 'Keep threads with a PR', sidebarAutoSettleAfterDays: 'Auto-settle inactive threads', snoozePresets: 'Snooze options', responseStreamingMode: 'Response streaming', enableProviderUpdateChecks: 'Provider update checks',
   continueThreadsAfterServerUpdate: 'Continue threads after restarts', backgroundActivity: 'Background activity', defaultThreadEnvMode: 'New thread mode',
   newWorktreesStartFromOrigin: 'New worktrees start from remote', addProjectBaseDirectory: 'Add project base directory', textGenerationModelSelection: 'Text generation model',
+  threadTitleInstructions: 'Thread title instructions',
 };
 /** useSettingsRestore lists and re-grants Agent browser access after the browser rows (SettingsPanels.tsx: "the confirmation dialog
  *  lists it by name, so a user restoring defaults is told the agent regains access"). An environment setting, written like the rest. */
@@ -710,26 +811,26 @@ const THEME_MIX = 'themeMix';
 const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser', readonly string[]])[] = [
   ['Theme', 'device', ['theme']], ['Follow system', 'device', ['appearanceMode']], ['Theme mix', 'device', [THEME_MIX]], ['Contrast', 'device', ['appearanceContrast']],
   ['Glass opacity', 'device', ['glassOpacity']],
-  ['Diff colors', 'device', ['diffColorScheme']], ['Chat width', 'device', ['chatWidth']], ['Render math', 'device', ['mathRenderingEnabled']],
+  ['Diff colors', 'device', ['diffColorScheme']], ['Chat width', 'device', ['chatWidth']], ['Effort display', 'device', ['effortDisplay']], ['Render math', 'device', ['mathRenderingEnabled']],
   ['Panel animations', 'device', ['panelAnimationDurationMs']],
   ['Environment identification', 'device', ['environmentIdentificationMode']], ['Time format', 'device', ['timestampFormat']], ['Thread notifications', 'device', ['notificationMode']],
   ['In-app notifications', 'device', ['inAppNotificationsEnabled']], ['Visible threads', 'device', ['sidebarThreadPreviewCount']], ['Project Grouping', 'device', ['projectGrouping']],
   ['Project order', 'device', ['sidebarProjectSortOrder']], ['Working section', 'device', ['sidebarWorkingShelfEnabled']],
   ['Auto-settle inactive threads', 'server', ['sidebarAutoSettleAfterDays']], ['Keep threads with a PR', 'server', ['sidebarAutoSettleKeepPullRequests']], ['Auto-settle merged threads', 'server', ['sidebarAutoSettleOnMerge']],
-  ['Auto-resume limited threads', 'server', ['autoResumeLimitedThreads']], ['Snooze limited threads', 'server', ['snoozeLimitedThreads']],
+  ['Resume after usage limits', 'server', ['autoResumeLimitedThreads']], ['Snooze until limits reset', 'server', ['snoozeLimitedThreads']], ['Snooze options', 'server', ['snoozePresets']],
   ['Word wrap', 'device', ['wordWrap']], ['Composer context', 'device', ['persistComposerContextStrip']],
   ['Interface font', 'device', ['fontFamilySans', 'fontSizeInterface']], ['Prompt font', 'device', ['fontFamilyComposer', 'fontSizePrompt']],
   ['Code font', 'device', ['fontFamilyCode', 'fontSizeCode']], ['Terminal font', 'device', ['fontFamilyTerminal', 'fontSizeTerminal']],
   ['Default diff file state', 'device', ['diffFilesCollapsed']], ['Diff whitespace changes', 'device', ['diffIgnoreWhitespace']], ['Diff layout', 'device', ['diffLayout']],
   ['Proactive panels', 'device', ['proactivePanelsEnabled']], ['Show skills in slash menu', 'device', ['showSkillsInSlashMenu']],
-  ['Collapse composer on scroll', 'device', ['composerCollapseOnScroll']], ['Rich text composer', 'device', ['composerRichTextEnabled']], ['Send shortcut', 'device', ['sendShortcut']],
+  ['Rich text composer', 'device', ['composerRichTextEnabled']], ['Send shortcut', 'device', ['sendShortcut']],
   ['Follow-up behavior', 'device', ['followUpBehavior']], ['Context window indicator', 'device', ['contextWindowMeterEnabled']],
   ['Response streaming', 'server', ['responseStreamingMode']], ['Provider update checks', 'server', ['enableProviderUpdateChecks']],
   ['Continue threads after restarts', 'server', ['continueThreadsAfterServerUpdate']], ['Background activity', 'server', ['backgroundActivity']],
   ['New thread mode', 'server', ['defaultThreadEnvMode']], ['New worktrees start from remote', 'server', ['newWorktreesStartFromOrigin']],
   ['Add project base directory', 'server', ['addProjectBaseDirectory']], ['Unpin confirmation', 'device', ['confirmThreadUnpin']],
   ['Archive confirmation', 'device', ['confirmThreadArchive']], ['Delete confirmation', 'device', ['confirmThreadDelete']], ['Quit shortcut', 'device', ['confirmQuit']],
-  ['Text generation model', 'server', ['textGenerationModelSelection']], ['', 'browser', []], ['Agent browser access', 'server', ['enableAgentBrowserAccess']],
+  ['Text generation model', 'server', ['textGenerationModelSelection']], ['Thread title instructions', 'server', ['threadTitleInstructions']], ['', 'browser', []], ['Agent browser access', 'server', ['enableAgentBrowserAccess']],
 ];
 /**
  * useSettingsRestore: the labels its confirmation lists. Its environment values are useScopedSettings', the scope's representative
@@ -774,7 +875,7 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
       applyDeviceSetting(local, value, String(fallback));
       const size = FONT_SIZE_KEYS[value];
       if (size) applyDeviceSetting(local, size, String(CLIENT_DEFAULTS[size as keyof typeof CLIENT_DEFAULTS]));
-    } else if (target.part === 'notificationMode' && !(await notificationPermission(client, native, value))) { // shell-notify.ts permission gate
+    } else if (target.part === 'notificationMode' && !(await notificationPermission(client, value))) { // shell-notify.ts permission gate
       return '';
     } else if ((target.part === 'fontFamilyCode' || target.part === 'fontFamilyTerminal') && value.trim() &&
       (await installedFonts(client, native)).some(font => font.family.toLowerCase() === value.trim().toLowerCase() && !font.monospace)) {
@@ -790,7 +891,7 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
   const scope = resolveScope(client, target.machine, target.projectKey, target.checkout);
   const project = scope.kind === 'project' || scope.kind === 'checkout';
   const focusedSelected = client.ready && scope.selected.some(environment => environment.environmentId === client.environmentId && !environment.fleetKey);
-  const settings = focusedSelected ? await bridge(client).settingsCoreRequest(native, 'server.getSettings', {}) : undefined;
+  const settings = focusedSelected ? obj((await bridge(client).settingsCoreRequest(native, 'server.getConfig', {})).settings) : undefined;
   const restore = target.row === 'restore-device-defaults';
   let plan: ScopedSettingsPlan;
   if (restore) {
@@ -812,8 +913,14 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
     if (target.part === 'clear-overrides') {
       const entries = arr(JSON.parse(value)).map(entry => ({ environmentId: str(entry.environmentId), projectId: str(entry.projectId) })).filter(entry => scope.selected.some(environment => environment.environmentId === entry.environmentId));
       plan = planProjectOverridesClear(connectedOf(client, scope, settings), entries, [key!]);
-    } else plan = target.row === 'background-advanced' ? settingPlan(client, scope, key!, advancedBackgroundValue(context.settings, target.part, value), false, settings)
-      : settingPlan(client, scope, key!, clear ? undefined : serverValue(key!, value, context, target.part), clear, settings);
+    } else if (target.row === 'background-advanced') plan = settingPlan(client, scope, key!, advancedBackgroundValue(context.settings, target.part, value), false, settings);
+    else {
+      const next = clear ? undefined : serverValue(key!, value, context, target.part);
+      // SnoozePresetsRow's save(): an edit that leaves the list as it was writes nothing, unless the environments disagree.
+      const current = serverState(context, key!);
+      if (key === 'snoozePresets' && next !== undefined && !current.mixed && same(next, snoozePresetsOf({ snoozePresets: current.value as Json }))) return '';
+      plan = settingPlan(client, scope, key!, next, clear, settings);
+    }
   }
   // useRunScopedPlan: a refused plan warns; every write is awaited and the failures are named.
   const refused = scopedPlanNotice(plan);

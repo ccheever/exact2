@@ -1,4 +1,4 @@
-// The "Sidebar (legacy)" projection (LegacySidebar.tsx, T3 Code 74541bab17; MIT,
+// The "Sidebar (legacy)" projection (LegacySidebar.tsx, T3 Code 7c3b3b3605ef; MIT,
 // see LICENSE-T3): projects grouped across this environment and the fleet's
 // background environments (sidebarProjectGrouping.ts), sorted by Sort projects
 // (Manual keeps the persisted project order), each with its threads sorted by
@@ -16,14 +16,15 @@ import type { ProjectGlyph } from './sidebar-glyph';
 import { canArchive, menuRows, type MenuRow } from './sidebar-menu';
 import { lastVisited, sidebarVisible } from './sidebar-model';
 import { sidebarPrefs, sidebarSession } from './sidebar-state';
-import { terminalProcessCount, shortcutLabel, threadJumpModifiers, type SidebarHelpers } from './sidebar-view';
+import { terminalProcessCount, scopedRowKey, shortcutLabel, threadJumpModifiers, type SidebarHelpers } from './sidebar-view';
+import { pendingRouteReveal } from './route-reveal';
 import { currentPullRequestLink } from '../panel/shell-pr';
 import { lifecycle, lifecycleIcon, shortName, providerOfUrl } from '../panel/pr-surface';
 import { branchPrTooltip, branchPullRequest } from './sidebar-branch-pr';
 import { portLabels, rowPorts } from './legacy-sidebar-ports';
 import { formatWorktreePathForDisplay } from './worktree-cleanup';
 import { rowThread } from './legacy-sidebar-links';
-import { DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT, buildMultiSelectThreadContextMenuItems, legacyProjectMenuItems, legacyThreadMenuItems, orderItemsByPreferredIds,
+import { DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT, buildMultiSelectThreadContextMenuItems, legacyProjectMenuItems, legacyThreadMenuItems, memberActionLabel, orderItemsByPreferredIds,
   relativeTimeLabel, resolveProjectExpanded, resolveProjectStatusIndicator, resolveAdjacentThreadId, resolveThreadStatusPill, sortProjectsForSidebar, sortThreads,
   type LegacyMember, type ProjectSortOrder, type StatusPill, type ThreadSortOrder } from './legacy-sidebar-model';
 
@@ -46,12 +47,16 @@ export interface LegacyProjectRow {
   hiddenLabel: string; hiddenDot: string; hiddenColor: string; hiddenPulse: boolean; newThreadLabel: string; enter: boolean;
   /** The header's context popover (legacy-sidebar.contract LegacyProjectMenu): handleProjectButtonContextMenu's items. */
   menu: MenuRow[];
+  /** New thread's choice of members (LegacyMembersMenu, handleCreateThreadClick); none for a project of one. */
+  members: MenuRow[];
 }
 export interface LegacySidebarView {
   enabled: boolean; projects: LegacyProjectRow[]; manual: boolean; projectSort: string; threadSort: string; previewCount: number;
   newThreadTip: string; searchShortcut: string; confirmArchive: boolean; noProjects: boolean; jumpModifiers: string[];
   dialog: string; dialogTitle: string; dialogDescription: string; dialogField: string; dialogDetail: string; dialogGrouping: string; dialogGroupingLabel: string;
   dialogGroupingDescription: string; dialogConfirmLabel: string; dialogTarget: string;
+  /** The open row while it is listed, and again while a route change owes its scroll (route-reveal.ts); its project's key. */
+  revealRow: string; revealPending: string; revealProject: string;
 }
 
 // ── Session state (React state in the reference): Show more per project and the open dialog.
@@ -156,14 +161,18 @@ export function sortedGroups(client: T3Client): { group: LegacyGroup; threads: O
 export const expansionKeys = (group: LegacyGroup): string[] => [group.key, ...group.members.map(member => member.physicalKey)];
 const statusOf = (client: T3Client, thread: Obj) => resolveThreadStatusPill(thread, lastVisited(thread, sidebarPrefs(client).visited[str(thread.id)]));
 
-/** One project's rendered threads (pinnedCollapsedThread, the preview slice) and what it hides. */
+/**
+ * One project's rendered threads (useProjectThreadPanel: pinnedCollapsedThread, the preview slice) and what it hides.
+ * The open thread stays listed past the preview cut, as it does in a collapsed project, so it alone does not overflow.
+ */
 export function projectThreads(client: T3Client, group: LegacyGroup, threads: Obj[]) {
   const expanded = resolveProjectExpanded(sidebarPrefs(client).projectExpanded, expansionKeys(group));
-  const pinned = !expanded && client.threadId ? threads.find(thread => thread.id === client.threadId) ?? null : null;
+  const active = client.threadId ? threads.find(thread => thread.id === client.threadId) ?? null : null;
+  const pinned = expanded ? null : active;
   const listExpanded = legacySession(client).expandedLists.has(group.key), count = previewCount(client);
-  const overflowing = threads.length > count;
+  const overflowing = threads.some((thread, index) => index >= count && thread !== active);
   const preview = listExpanded || !overflowing ? threads : threads.slice(0, count);
-  const visible = new Set([...preview, ...(pinned ? [pinned] : [])].map(thread => str(thread.id)));
+  const visible = new Set([...preview, ...(active ? [active] : [])].map(thread => str(thread.id)));
   const rendered = pinned ? [pinned] : threads.filter(thread => visible.has(str(thread.id)));
   const hidden = threads.filter(thread => !visible.has(str(thread.id)));
   return { expanded, listExpanded, overflowing, rendered: expanded || pinned ? rendered : [], hidden };
@@ -287,7 +296,7 @@ export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pi
   const base = { enabled, manual: projectSortOrder(client) === 'manual', projectSort: projectSortOrder(client), threadSort: threadSortOrder(client), previewCount: previewCount(client),
     newThreadTip: newThread ? `New thread (${newThread})` : 'New thread', searchShortcut: shortcutLabel(client, 'commandPalette.toggle'),
     confirmArchive: client.local.clientSettings?.confirmThreadArchive === true, noProjects: enabled && entries.length === 0,
-    jumpModifiers: terminalFocused(client) ? [] : threadJumpModifiers(client), ...dialogView(client) };
+    jumpModifiers: terminalFocused(client) ? [] : threadJumpModifiers(client), ...dialogView(client), revealRow: '', revealPending: '', revealProject: '' };
   if (!enabled) { forgetArrivals(client); return { ...base, projects: [] }; }
   const views = entries.map(({ group, threads }) => projectThreads(client, group, threads));
   const entering = arrivalsOf(client, now, [...entries.map(entry => `project:${entry.group.key}`), ...views.flatMap(view => view.rendered.map(thread => `thread:${str(thread.id)}`))]);
@@ -311,9 +320,15 @@ export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pi
       showEmpty: view.expanded && threads.length === 0, showMore: view.expanded && view.overflowing && !view.listExpanded, showLess: view.expanded && view.overflowing && view.listExpanded,
       hiddenLabel: hidden.label, hiddenDot: hidden.dot, hiddenColor: hidden.color, hiddenPulse: hidden.pulse,
       newThreadLabel: `Create new thread in ${group.name}`, enter: entering(`project:${group.key}`), menu: menuRows(legacyProjectMenuItems(group.members)),
+      members: group.members.length > 1 ? menuRows(group.members.map(member => ({ id: member.physicalKey, label: memberActionLabel(member, group.members.length) }))) : [],
     };
   });
-  return { ...base, projects };
+  // useActiveRowReveal: the route is recorded on each frame; the row scrolls once it is listed (legacy-sidebar.contract).
+  const route = client.threadId, reveal = sidebarSession(client).reveal;
+  pendingRouteReveal(reveal, route ? scopedRowKey(client, route) : '');
+  const at = route ? views.findIndex(view => view.rendered.some(thread => thread.id === route)) : -1, revealRow = at >= 0 ? route : '';
+  return { ...base, projects, revealRow, revealProject: at >= 0 ? entries[at]!.group.key : '',
+    revealPending: revealRow && reveal.pendingKey === scopedRowKey(client, revealRow) ? revealRow : '' };
 }
 
 /** LegacySidebar's window keydown: traversal without wrapping (resolveAdjacentThreadId) and jumps over the visible order. Null when the switch is off. */

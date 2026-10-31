@@ -10,11 +10,12 @@
 // CDP: scripts run with `callFunction` in the host's sandbox (browser-automation-scripts.ts), `preview_evaluate` in the
 // page's world; a click is `performActions`' pointer input, a key its key input (trusted on macOS); the screenshot is
 // `captureScreenshot`; locators and the ARIA snapshot come from Playwright's injected script. The data module has no
-// clock: a request's deadline counts the module's sleeps and the snapshot's wall time, whichever ran further.
+// clock: a request's deadline counts the run's sleeps and the snapshot's wall time, whichever ran further.
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { obj, str, type Json, type Obj } from '../client/domain';
 import { letGo } from '../client/let-go';
+import { sleep as timer } from '../client/command-waits';
 // @ts-ignore: the bake types the package from its exact.json (`__exact_modules`); a bare tsc sees no module.
 import * as packageCalls from '@exact/browser-automation';
 import { composerNow } from '../composer/composer-controls';
@@ -66,6 +67,10 @@ type Tab = {
   polled: number; polling: boolean;
   /** Agent requests running on the tab now: while one does, its page's dialogs are answered at once. */
   runs: number;
+  /** The agent drove the tab since its thread's turn began; the turn's end lets it go (`agentDriving`). */
+  agentTurn: boolean;
+  /** Until when (the shell's clock) the tab stays held after the agent's last request or the end of its turn. */
+  idleUntil: number;
 };
 type Host = { tabs: Map<string, Tab>; pointerSequence: number; actionSequence: number; shots: number };
 const hosts = new WeakMap<object, Host>();
@@ -78,7 +83,7 @@ function tabOf(client: object, runtimeId: string): Tab {
   const tabs = host(client).tabs;
   let tab = tabs.get(runtimeId);
   if (!tab) {
-    tab = { console: [], network: [], actions: [], muted: false, audible: false, agentEver: false, lastNavigation: 0, installed: false, installing: false, downloads: false, polled: 0, polling: false, runs: 0 };
+    tab = { console: [], network: [], actions: [], muted: false, audible: false, agentEver: false, lastNavigation: 0, installed: false, installing: false, downloads: false, polled: 0, polling: false, runs: 0, agentTurn: false, idleUntil: 0 };
     tabs.set(runtimeId, tab);
   }
   return tab;
@@ -95,6 +100,50 @@ export function automationControllerOf(client: object, runtimeId: string): Brows
 export function automationAudio(client: object, runtimeId: string): { audioMuted: boolean; audible: boolean } | null {
   const tab = host(client).tabs.get(runtimeId);
   return tab ? { audioMuted: tab.muted, audible: tab.audible } : null;
+}
+
+/** DesktopBrowserHost's FOCUS_IDLE: how long a tab the agent used stays held after its last request or its turn. */
+export const AGENT_FOCUS_IDLE_MS = 5_000;
+/**
+ * DesktopBrowserHost's focus hold (T3 Code 7c3b3b3605ef, apps/desktop/src/preview/DesktopBrowserHost.ts): a hidden tab
+ * keeps running while an agent request runs on it, for FOCUS_IDLE after the last one, and while the agent that drove it
+ * is still in its thread's turn, model thinking between steps included; FOCUS_IDLE after the turn ends it may throttle
+ * again. The turn is read from the thread as the sidebar shows it (`turnRunning`): it ends when the root turn and its
+ * subagents finish (RunExecutionService's agentTurnsSettled); commands left running in the background are no turn.
+ */
+export function agentDriving(client: object, runtimeId: string, turnRunning: (environmentId: string, threadId: string) => boolean,
+  now = composerNow(client)): boolean {
+  const tab = host(client).tabs.get(runtimeId);
+  if (!tab) return false;
+  if (tab.runs > 0) return true;
+  if (tab.agentTurn) {
+    let ref: unknown;
+    try { ref = JSON.parse(runtimeId); } catch { ref = null; }
+    const [environmentId, threadId] = Array.isArray(ref) ? ref.map(part => str(part)) : ['', ''];
+    if (environmentId && threadId && turnRunning(environmentId, threadId)) return true;
+    tab.agentTurn = false;
+    tab.idleUntil = Math.max(tab.idleUntil, now + AGENT_FOCUS_IDLE_MS);
+  }
+  return now < tab.idleUntil;
+}
+/** Whether a hold ends on the clock (a request to finish, an idle wait to run out): the shell's clock must keep running.
+ *  A turn's end needs no clock: it comes as a shell change, which `settleAgentHolds` reads. */
+export function agentHoldWaiting(client: object, now: number): boolean {
+  for (const tab of host(client).tabs.values()) if (tab.runs > 0 || now < tab.idleUntil) return true;
+  return false;
+}
+/**
+ * Each shell answer, before the clock is decided: a tab whose frame is gone (its tab, thread or environment went) is
+ * forgotten, and a tab whose thread's turn ended starts its FOCUS_IDLE wait, shown or hidden alike.
+ */
+export function settleAgentHolds(client: object, now: number, live: (runtimeId: string) => boolean,
+  turnRunning: (environmentId: string, threadId: string) => boolean): void {
+  const tabs = host(client).tabs;
+  for (const [runtimeId, tab] of tabs) {
+    if (tab.runs > 0) continue;
+    if (!live(runtimeId)) { tabs.delete(runtimeId); continue; }
+    if (tab.agentTurn) agentDriving(client, runtimeId, turnRunning, now);
+  }
 }
 
 // ── The page's scripts, media and diagnostics (before the agent needs them) ─────────────────────
@@ -220,7 +269,7 @@ export function hostErrorJson(failure: Failure, context: Context): HostErrorJson
 export type Context = {
   plan: Obj; requestId: string; connectionId: string; clientId: string; operation: PreviewAutomationOperation; environmentId: string; threadId: string;
   tabId: string | null; runtimeId: string | null; input: Obj; timeoutMs: number; generation: number; budgetMs: number; fleet: string;
-  /** The module's sleeps so far, and the snapshot's wall time when the run started. */
+  /** The run's sleeps so far, and the snapshot's wall time when the run started. */
   slept: number; startedAt: number;
 };
 export function readContext(plan: Obj, now: number): Context {
@@ -231,8 +280,8 @@ export function readContext(plan: Obj, now: number): Context {
     timeoutMs, generation: Number(plan.generation) || 0, budgetMs: typeof plan.budgetMs === 'number' ? plan.budgetMs : timeoutMs, fleet: str(plan.fleet), slept: 0, startedAt: now,
   };
 }
-/** What the run needs from its slot: the send's native (its sleep), an RPC on the request's connection, and the host's
- *  adoption of a tab it opened (into the thread's store, shown or suppressed, with a frame). */
+/** What the run needs from its slot: the send's native, an RPC on the request's connection, and the host's adoption of a
+ *  tab it opened (into the thread's store, shown or suppressed, with a frame). */
 export type RunDeps = {
   native: Native;
   rpc: (method: string, payload: Obj) => Promise<Obj>;
@@ -246,7 +295,7 @@ const remaining = (run: Run): number => run.context.budgetMs - elapsed(run);
 async function sleep(run: Run, ms: number): Promise<void> {
   const wait = Math.max(0, Math.round(ms));
   run.context.slept += wait;
-  try { await run.deps.native.later({ op: 'timelineSleep', ms: wait }); } catch (error) { if (letGo(error)) throw error; }
+  await timer(wait);
 }
 const iso = (run: Run): string => new Date((run.context.startedAt || 0) + elapsed(run)).toISOString();
 
@@ -256,12 +305,18 @@ export async function runAutomation(client: T3Client, plan: Obj, deps: RunDeps):
   const tab = run.context.runtimeId ? tabOf(client, run.context.runtimeId) : null;
   let outcome: { ok: boolean; result?: unknown; error?: HostErrorJson };
   if (tab) tab.runs++;
+  // A recording streams the page itself, which holds it drawing (heldFrame); any other request drives it.
+  const driving = run.context.operation !== 'recordingStart' && run.context.operation !== 'recordingStop';
+  if (tab && driving) tab.agentTurn = true;
   try { outcome = await execute(run); }
   catch (error) {
     if (letGo(error)) throw error;
     outcome = { ok: false, error: hostErrorJson(error instanceof HostError ? error.failure : { kind: 'operation', cause: String(error) }, run.context) };
   }
-  finally { if (tab) tab.runs--; }
+  finally {
+    if (tab) tab.runs--;
+    if (tab && driving) tab.idleUntil = Math.max(tab.idleUntil, composerNow(client) + AGENT_FOCUS_IDLE_MS);
+  }
   const payload: Obj = { clientId: run.context.clientId, connectionId: run.context.connectionId, requestId: run.context.requestId, ok: outcome.ok };
   if (outcome.ok && outcome.result !== undefined) payload.result = outcome.result as Json;
   if (!outcome.ok) payload.error = outcome.error as unknown as Json;

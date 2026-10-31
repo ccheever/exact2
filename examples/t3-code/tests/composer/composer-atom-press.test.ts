@@ -129,18 +129,40 @@ describe('ordinary code-language control retains the current source owner', () =
 });
 
 describe('a chip\'s face is its pill', () => {
-  const fns = contractFns('src/composer/composer-rich.contract', {AtomFace: (face: Env) => face}) as {
-    composerAtomFace: (chip: Env) => Env; composerAtomSymbol: (icon: string) => string;
+  const fns = contractFns('src/composer/composer-rich.contract', {AtomFace: (face: Env) => face, ...contractFns('src/timeline/markdown-chip-inks.contract')}) as {
+    composerAtomFace: (chip: Env, upload: string) => Env; composerAtomSymbol: (icon: string) => string;
   };
+  const atomFace = (chip: Env, upload = '') => fns.composerAtomFace(chip, upload);
   const face = (patch: Env) => ({kind: 'mention', label: 'README.md', suffix: '', icon: 'at-sign', fileToken: '', imageId: '', available: true,
-    interactive: true, comment: false, tip: 'README.md', glyph: {kind: ''}, ...patch});
+    interactive: true, comment: false, tip: 'README.md', glyph: {kind: ''}, ariaLabel: 'Preview README.md', ink: '', ...patch});
   test('label and suffix, the kind\'s SF Symbol, and the tooltip', () => {
-    expect(fns.composerAtomFace({source: '@README.md', face: face({})})).toEqual({source: '@README.md', label: 'README.md', icon: 'symbol:sf/doc', title: 'README.md', color: '', backgroundColor: '', direction: '', ariaLabel: ''});
-    expect(fns.composerAtomFace({source: '[x](t3-context://v1/terminal/a)', face: face({kind: 'terminal', label: 'Terminal', suffix: 'lines 1-4', icon: 'square-terminal', tip: ''})}))
-      .toMatchObject({label: 'Terminal lines 1-4', icon: 'symbol:sf/apple.terminal', title: '', color: '', backgroundColor: '', direction: ''});
+    expect(atomFace({kind: 'mention', source: '@README.md', path: 'README.md', face: face({})})).toEqual({source: '@README.md', label: 'README.md', icon: 'symbol:sf/doc',
+      title: 'README.md', color: '', backgroundColor: '', direction: 'ltr', ariaLabel: 'Preview README.md'});
+    expect(atomFace({source: '[x](t3-context://v1/terminal/a)', face: face({kind: 'terminal', label: 'Terminal', suffix: 'lines 1-4', icon: 'square-terminal', tip: ''})}))
+      .toMatchObject({label: 'Terminal lines 1-4', icon: 'symbol:sf/apple.terminal', title: ''});
     // A citation's tooltip says how its comment opens; the preview's citation has no comment.
-    expect(fns.composerAtomFace({source: '[q](t3-citation://v1/e/t/m)', face: face({kind: 'citation', label: 'the quote', icon: 'quote', tip: 'the quote', comment: true})}))
-      .toMatchObject({icon: 'symbol:sf/quote.opening', title: 'the quote\n⌥-click to comment', color: '', backgroundColor: '', direction: ''});
+    expect(atomFace({source: '[q](t3-citation://v1/e/t/m)', face: face({kind: 'citation', label: 'the quote', icon: 'quote', tip: 'the quote', comment: true})}))
+      .toMatchObject({icon: 'symbol:sf/quote.opening', title: 'the quote\n⌥-click to comment'});
+  });
+  test('an image\'s chip follows its size with its upload\'s state (ImageContextChip)', () => {
+    const image = {kind: 'context', contextKind: 'image', source: '[sunset.png](t3-context://v1/image/i1)', label: 'sunset.png',
+      face: face({kind: 'image', label: 'sunset.png', suffix: '8.0 MB', icon: 'image', imageId: 'img-0', tip: ''})};
+    expect([atomFace(image).label, atomFace(image, '25%').label, atomFace(image, 'upload failed').label])
+      .toEqual(['sunset.png 8.0 MB', 'sunset.png 8.0 MB 25%', 'sunset.png 8.0 MB upload failed']);
+    // Its accessible name stays ImageChipButton's aria-label while the drawn label follows the upload.
+    image.face.ariaLabel = 'Image attachment, sunset.png, 8.0 MB';
+    expect(atomFace(image, '25%').ariaLabel).toBe('Image attachment, sunset.png, 8.0 MB');
+  });
+  test('a file mention keeps its icon before its path in a right-to-left line; the other chips follow their line', () => {
+    expect(atomFace({kind: 'mention', source: '[plan.md](docs/plan.md)', path: 'docs/plan.md', face: face({label: 'plan.md'})}).direction).toBe('ltr');
+    for (const kind of ['skill', 'context', 'citation']) expect(atomFace({kind, source: 'x', face: face({kind})}).direction).toBe('');
+  });
+  test('a chip has no pill: its face paints its ink and no fill (ContextChip at v0.1.5)', () => {
+    const paint = (chip: Env) => { const {color, backgroundColor} = atomFace(chip); return [color, backgroundColor]; };
+    expect(paint({kind: 'mention', source: '@docs/Report.PDF', path: 'docs/Report.PDF', face: face({label: 'Report.PDF', ink: 'light-dark(#b0223a, #ff8f86)'})}))
+      .toEqual(['light-dark(#b0223a, #ff8f86)', '']);
+    // An unresolved chip has no ink: it takes the field's text.
+    expect(paint({kind: 'context', source: '[a](t3-context://v1/file/f1)', face: face({kind: 'neutral', available: false})})).toEqual(['', '']);
   });
   test('each glyph the faces use has an SF Symbol, and an unknown one the dashed circle', () => {
     const symbols = Object.fromEntries(['at-sign', 'file', 'folder', 'sparkles', 'film', 'quote', 'image', 'messages-square', 'square-terminal',
@@ -159,10 +181,18 @@ describe('a chip\'s face is its pill', () => {
   });
 });
 
+describe('focus coming into the composer expands a resting one (ChatComposer onFocusCapture)', () => {
+  test('a focus ends the rest', () => {
+    const state: Env = {composerFocused: false, composerComposing: false, composerHeldMode: '', restResting: true};
+    root.call('composerFocus', state, {richComposer: {mode: 'rich'}, modifierEditableFocus: () => {}}, []);
+    expect([state.composerFocused, state.restResting]).toEqual([true, false]);
+  });
+});
+
 describe('a change of mode remounts the composer and keeps its focus', () => {
   const run = (focused: boolean) => {
     const calls: unknown[][] = [];
-    const state: Env = {composerFocused: false, composerComposing: false, composerHeldMode: '', composerTyping: false, composerShift: false, composerCommand: false};
+    const state: Env = {composerFocused: false, composerComposing: false, composerHeldMode: '', composerTyping: false, composerShift: false, composerCommand: false, restResting: false};
     const scope = (mode: string): Env => ({richComposer: {mode}, composerText: 'Look at @README.md later', composerSelectionStart: 12, composerSelectionEnd: 12, min: Math.min,
       modifierEditableFocus: () => {}, focus: (id: string) => calls.push(['focus', id]), setSelectionRange: (...args: unknown[]) => calls.push(['select', ...args])});
     if (focused) root.call('composerFocus', state, scope('rich'), []);
@@ -177,7 +207,7 @@ describe('a change of mode remounts the composer and keeps its focus', () => {
   });
   test('a blur before the change ends the hold', () => {
     const calls: unknown[][] = [];
-    const state: Env = {composerFocused: false, composerComposing: false, composerHeldMode: '', composerTyping: false, composerShift: false, composerCommand: false};
+    const state: Env = {composerFocused: false, composerComposing: false, composerHeldMode: '', composerTyping: false, composerShift: false, composerCommand: false, restResting: false};
     const scope = (mode: string): Env => ({richComposer: {mode}, composerText: 'x', composerSelectionStart: 1, composerSelectionEnd: 1, min: Math.min, modifierEditableFocus: () => {},
       focus: (id: string) => calls.push(['focus', id]), setSelectionRange: (...args: unknown[]) => calls.push(['select', ...args])});
     root.call('composerFocus', state, scope('rich'), []);

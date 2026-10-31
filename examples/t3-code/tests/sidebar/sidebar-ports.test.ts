@@ -47,7 +47,7 @@ const native = { available: true, watch() {}, later: async (request: Obj) => { n
 const strip = (payloads: Obj[]) => payloads.map(({ commandId: _id, ...rest }) => rest);
 
 describe('f68e24fb41: commands left running do not hold the thread', () => {
-  test('a commands-only roster reads ready and shows the unseen completion; subagents, monitors and unknown work still wait', () => {
+  test('a commands-only roster reads ready and shows the unseen completion; subagents, background tasks, unknown work and awaited work wait', () => {
     const base = { latestRunId: 'r', status: 'completed', latestRunCompletedAt: iso(-60_000) };
     const devServer = shell('a', { ...base, pendingBackgroundTasks: [{ id: 't', kind: 'command' }] });
     expect(shellRuntime(devServer)?.status).toBe('completed');
@@ -55,12 +55,15 @@ describe('f68e24fb41: commands left running do not hold the thread', () => {
     expect(isWorkingThread(devServer)).toBe(false);
     const visited = lastVisited(devServer, iso(-120_000));
     expect(unseenCompletion(devServer, visited)).toBe(true);
-    expect(topStatus(sidebarStatus(devServer), false, true)).toMatchObject({ label: 'Done', icon: 'circle-check', color: '#00bc7d' });
-    for (const kind of ['subagent', 'monitor', 'background_task', 'something-new']) {
-      const held = shell('b', { ...base, pendingBackgroundTasks: [{ id: 't', kind: 'command' }, { id: 'u', kind }] });
+    expect(topStatus(sidebarStatus(devServer), false, true)).toMatchObject({ label: 'Done', icon: 'circle-check', color: 'light-dark(#007a55, #00d492)' });
+    // A command or monitor holds only when the agent awaits it; a kind this build does not know holds, as the reference
+    // decodes it as a background task.
+    for (const task of [{ kind: 'subagent' }, { kind: 'background_task' }, { kind: 'something-new' }, { kind: 'monitor', awaited: true }, { kind: 'command', awaited: true }]) {
+      const held = shell('b', { ...base, pendingBackgroundTasks: [{ id: 't', kind: 'command' }, { id: 'u', ...task }] });
       expect(sidebarStatus(held)).toBe('waiting');
       expect(isWorkingThread(held)).toBe(true);
     }
+    expect(sidebarStatus(shell('b', { ...base, pendingBackgroundTasks: [{ id: 'u', kind: 'monitor' }] }))).toBe('ready');
     // A failed run outranks the roster either way.
     expect(sidebarStatus(shell('c', { latestRunId: 'r', status: 'failed', pendingBackgroundTasks: [{ id: 'u', kind: 'subagent' }] }))).toBe('failed');
   });
@@ -139,12 +142,12 @@ describe('integration: hover keys, utility pages and the settled tail', () => {
     expect(sidebarSnapshot(client, NOW, helpers).threads.map(row => row.hoverKey)).toEqual(['a', 'b']);
   });
 
-  test('the open settled row keeps secondary/70 ink at rest; idle styling paints the open row as any other', () => {
+  test('the open settled row keeps full ink (the settled recession skips the open row); idle styling paints the open row as any other', () => {
     const { client } = fake([shell('a', { latestRunId: 'r', status: 'completed', latestRunCompletedAt: iso(-60_000) }), shell('b', { settledOverride: 'settled' })], { threadId: 'b' });
     const [active, settled] = sidebarSnapshot(client, NOW, helpers).threads;
-    expect(settled).toMatchObject({ selected: true, section: 'settled', titleColor: 'light-dark(#71717bb3, #818181b3)', titleWeight: 500 });
+    expect(settled).toMatchObject({ selected: true, section: 'settled', titleColor: 'light-dark(#18181b, #f3f3f3)', titleWeight: 500 });
     const open = sidebarSnapshot(fake([shell('a', { latestRunId: 'r', status: 'completed', latestRunCompletedAt: iso(-60_000) })], { threadId: 'a' }).client, NOW, helpers).threads[0]!;
-    expect(open).toMatchObject({ selected: true, recede: false, titleWeight: 500, idleRecede: true, idleTitleColor: 'light-dark(#71717b, #818181)', idleTitleWeight: 400 });
+    expect(open).toMatchObject({ selected: true, recede: false, titleWeight: 500, idleRecede: true, idleTitleColor: 'light-dark(#18181bbf, #f3f3f3bf)', idleTitleWeight: 400 });
     expect(active!.recede).toBe(active!.idleRecede);
   });
 });

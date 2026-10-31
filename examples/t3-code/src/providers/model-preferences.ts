@@ -29,7 +29,7 @@ export function modelPreferencesMigrationPatch(settings: Obj, local: Host['local
 }
 const environment = (host: Host) => str(obj(host.config.environment).environmentId);
 export async function saveModelPreferences(host: Host, native: Native, patch: Obj): Promise<void> {
-  const id = environment(host), settings = await host.rpc(native, 'server.getSettings', {});
+  const id = environment(host), settings = obj((await host.rpc(native, 'server.getConfig', {})).settings);
   if (environment(host) !== id) throw new ClientError('The environment changed before model preferences were saved.');
   await host.rpc(native, 'server.updateSettings', { patch: { ...modelPreferencesMigrationPatch(settings, host.local), ...patch } }, true);
   if (environment(host) !== id) return;

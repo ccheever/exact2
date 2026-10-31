@@ -1,4 +1,6 @@
 use Control, Primary, Muted from "../shared/shapes.contract"
+use AppConfirm from "../shell/shell-panels.contract"
+use DialogFinalFocus from "../shared/dialog-trap.contract"
 
 shape PromptLinkView
   show: bool
@@ -9,6 +11,8 @@ shape PromptLinkView
   cloneLabel: string
   withoutProject: bool
   checkout: bool
+  pairing: string // a `t3code://pair` link's confirmation title, while it waits
+  pairingBusy: bool
 
 component PromptLinkPage
   props
@@ -34,3 +38,7 @@ component PromptLinkPage
               if link.checkout
                 button class=Primary press=run("checkout") disabled=link.busy testId="prompt-link-checkout"
                   text (link.busy ? "Checking out..." : "Check out")
+    // DesktopWebLinkCoordinator's pairFromLink: the host is confirmed before the link's one-time token is spent.
+    DialogFinalFocus(open=(link.pairing != ""), owner="pairing-link-confirm")
+    if link.pairing != ""
+      AppConfirm(title=link.pairing, body="", destructive=false, busy=link.pairingBusy, confirmId="pairing-link-confirm", confirmLabel="Confirm", cancel=run("pair-cancel"), confirm=run("pair-confirm"))

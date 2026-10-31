@@ -15,6 +15,7 @@ import { attachmentOp, attachmentView, emptyAttachment, forgetPreview, previewKi
 import { stagedMediaSrc, videoOp } from './composer-attachments';
 import { saveStaged, saveText, stagedText } from '../panel/attachment-files'; // a draft's staged copy, read and saved
 import { stagedName } from './composer-staged-copies';
+import { forgetStagedCopies } from '../media/media-frame'; // the copies a closed preview made
 
 /** FILE_TEXT_PREVIEW_MAX_BYTES. */
 const PREVIEW_BYTES = 1024 * 1024;
@@ -31,7 +32,7 @@ function openFile(client: T3Client): DraftFile | null {
 }
 function close(client: T3Client): void {
   const open = opened.get(client);
-  if (open) forgetPreview(client, `draft:${open.id}`);
+  if (open) { forgetPreview(client, `draft:${open.id}`); forgetStagedCopies(open.id.toLowerCase()); }
   opened.delete(client);
 }
 
@@ -55,7 +56,7 @@ export function draftSource(client: T3Client, native: Native, file: DraftFile): 
   const pasted = file.source !== 'attached';
   return { meta, source: { id: file.id, key, origin: 'Draft', dialog: true, local: {
     // AudioPreview plays the staged copy (a Contract `audio`); a PDF or a page is the media body's, by the copy's name
-    // (T3MediaPreview.swift reads it from composer-files/).
+    // (media-frame.ts copies it from composer-files/ into app:/cache).
     url: previewKind(file) === 'audio' && !pasted ? stagedMediaSrc(file) : `t3-staged:${stagedName(file)}`,
     text: async () => {
       if (!pasted) return stagedText(stagedName(file));

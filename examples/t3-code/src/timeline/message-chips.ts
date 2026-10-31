@@ -1,4 +1,5 @@
 import { workspaceFileIcon } from '../shared/file-metadata';
+import { contextLinks, contextTarget } from '../composer/context-links';
 // Context chips in sent messages, adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // MessagesTimeline.tsx userMessageContextPresentationRegistry (each
 // `[label](t3-context://v1/<kind>/<id>)` resolved against the message's
@@ -9,6 +10,10 @@ import { workspaceFileIcon } from '../shared/file-metadata';
 import { isWindowsAbsolutePath } from '../media/media-reference';
 import { inlineCodeFilePathCandidate } from './inline-code-files';
 import { workspaceLookupPath } from './workspace-file-lookup';
+import { chatFileLink } from './markdown-file-links';
+import { isSentAudio, isSvgAttachment } from './timeline-attachments';
+import { workspaceValues } from '../composer/composer-workspace-snapshots';
+import { selectedProvider, workspaceCwd } from '../composer/composer-editor';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { fileIconToken } from '../shared/timeline-files';
 import type { T3Client } from '../client/client';
@@ -18,7 +23,7 @@ import { assistantCitationLabel, parseAssistantCitationHref } from './diff-citat
 import { COMPOSER_CITATION } from '../composer/composer-source-chips';
 import { markdownLinkHref, markdownMediaChips, noteMarkdownDocument, type MediaScope } from '../media/media-views'; // a message's images and their actions
 import type { ThreadLinkGlyph } from './markdown-thread-glyphs';
-import { parseThreadLinkHref, percentDecodedThreadLinkId, resolveThreadLink } from './thread-links';
+import { parseThreadLinkHref, percentDecodedThreadLinkId, resolveThreadLink, threadLinksIn, unknownThreadLinkLabel } from './thread-links';
 import { notePullRequestLinks } from './pull-link-registry';
 
 export interface ChipView {
@@ -29,7 +34,6 @@ export interface ChipView {
 }
 export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[]; runCommands: string[]; threadGlyphs: ThreadLinkGlyph[] }
 
-const CONTEXT_LINK = /(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/([a-z][a-z0-9-]{0,39})\/([a-z0-9_-]{1,128}))\)/gi;
 
 // extractMarkdownLinkHrefs (packages/shared/src/markdownLinks.ts at 9c161462c9): a forward scan
 // with cached delimiter searches, linear where the old link pattern backtracked quadratically.
@@ -132,15 +136,51 @@ export function fileLinkTarget(href: string, root: string): string {
   return parts.join('/') || '/';
 }
 
-const MARKDOWN_LINK = /!?\[([^\]\n]*)\]\((?:<[^>\n]*>|[^\s)]*)\)/g;
+/**
+ * `text` with each Markdown link or image read as its label, as MessagesTimeline.logic.ts reads it by replacing
+ * `/!?\[([^\]\n]*)\]\((?:<[^>\n]*>|[^\s)]*)\)/g` with `$1`: a `[` or `![`, a label to the first `]` on its line, then
+ * `(`, an `<…>` target or one with no space, and `)`. Where each part ends is found once for the whole text, so a line of
+ * many unclosed `[` or `![` reads in linear time, where the expression read on to the line's end from each.
+ */
+export function markdownLinkLabels(text: string): string {
+  if (!text.includes('](')) return text;
+  const ends = (pattern: RegExp) => Array.from(text.matchAll(pattern), match => match.index);
+  const labelEnds = ends(/[\]\n]/g), angleEnds = ends(/[>\n]/g), plainEnds = ends(/[\s)]/g);
+  // The first of `at` that is `from` or after, or -1.
+  const next = (at: number[], from: number) => {
+    let low = 0, high = at.length;
+    while (low < high) { const middle = (low + high) >> 1; if (at[middle]! < from) low = middle + 1; else high = middle; }
+    return low < at.length ? at[low]! : -1;
+  };
+  let out = '', copied = 0;
+  for (let at = text.indexOf('['); at >= 0;) {
+    const close = next(labelEnds, at + 1);
+    let end = -1;
+    if (close >= 0 && text[close] === ']' && text[close + 1] === '(') {
+      if (text[close + 2] === '<') {
+        const angle = next(angleEnds, close + 3);
+        if (angle >= 0 && text[angle] === '>' && text[angle + 1] === ')') end = angle + 2;
+      }
+      if (end < 0) {
+        const plain = next(plainEnds, close + 2);
+        if (plain >= 0 && text[plain] === ')') end = plain + 1;
+      }
+    }
+    if (end < 0) { at = text.indexOf('[', at + 1); continue; }
+    out += text.slice(copied, at > copied && text[at - 1] === '!' ? at - 1 : at) + text.slice(at + 1, close);
+    copied = end;
+    at = text.indexOf('[', end);
+  }
+  return out + text.slice(copied);
+}
 /**
  * shouldCollapseUserMessage (MessagesTimeline.logic.ts): past 600 characters or 8 lines of what
  * the reader sees, where a link counts as its label and a quote as its chip's label.
  */
 export function shouldCollapseUserMessage(text: string): boolean {
-  const linkLabels = (segment: string) => segment.replace(MARKDOWN_LINK, '$1');
+  const linkLabels = markdownLinkLabels;
   let visible = '', cursor = 0;
-  for (const match of text.matchAll(COMPOSER_CITATION)) {
+  if (text.includes('](t3-citation:')) for (const match of text.matchAll(COMPOSER_CITATION)) {
     const citation = parseAssistantCitationHref(match[1]!);
     if (!citation) continue;
     visible += linkLabels(text.slice(cursor, match.index)) + assistantCitationLabel(citation);
@@ -157,22 +197,32 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
   const attachments = new Map(arr(item.attachments).map(attachment => [str(attachment.id), attachment]));
   const seen = new Set<string>();
   const add = (chip: Omit<ChipView, 'id' | 'owner' | 'menu'>) => { if (seen.has(chip.href)) return; seen.add(chip.href); chips.push({ id: `chip-${chips.length}`, ...chip, owner, menu: [] }); };
-  if (text.includes('](t3-context:')) for (const match of text.matchAll(CONTEXT_LINK)) {
-    const href = match[3]!, kind = match[4]!.toLowerCase(), label = match[2]!.trim() || kind;
-    const record = records.get(match[5]!);
-    add(contextChip(href, kind, label, record && str(record.kind) === kind ? record : undefined, attachments, threads));
+  // The thread's provider skills for its workspace, as the composer's `$` menu reads them (a sketch of a client has none).
+  const skills = client?.config && client.projection ? workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills') : [];
+  for (const link of contextLinks(text)) {
+    const target = contextTarget(link.href);
+    if (!target) continue;
+    const href = link.href, kind = target.kind, label = link.label.trim() || kind;
+    const record = records.get(target.id);
+    add(contextChip(href, kind, label, record && str(record.kind) === kind ? record : undefined, attachments, threads, skills));
+  }
+  // A known `$skill` in the prose is its skill's chip (markdown.rs skill_runs): its details popover (SkillChipPopover).
+  if (skills.length && text.includes('$')) for (const match of text.matchAll(SKILL_TOKEN_REGEX)) {
+    const skill = skills.find(candidate => str(candidate.name) === match[2]);
+    if (skill) add({ href: `t3-skill:$${match[2]}`, kind: 'skill', ...skillDetails(skill, formatProviderSkillDisplayName({ name: str(skill.name), displayName: str(skill.displayName) || undefined })) });
   }
   // A citation by its destination, whatever its label reads, as the composer sends it (COMPOSER_CITATION).
   if (text.includes('](t3-citation:')) for (const match of text.matchAll(COMPOSER_CITATION)) if (parseAssistantCitationHref(match[1]!)) add(citationChip(match[1]!));
+  // A thread link, an autolink too, is its thread's chip (MarkdownThreadLink → ThreadContextChip).
+  for (const link of threadLinksIn(text)) { const chip = threadLinkChip(link.href, link.label, threads, client); if (chip) add(chip); }
   if (text.includes('](')) for (const link of markdownLinks(text)) {
-    // A thread link is its thread's chip (MarkdownThreadLink → ThreadContextChip, T3 Code 74541bab17).
-    if (!link.image && link.href.startsWith('t3-thread://v1/')) { const chip = threadLinkChip(link.href, link.label, threads, client); if (chip) add(chip); continue; }
-    // Exactly the destinations markdown.rs draws as file chips.
-    if (link.image || !markdownLinkHref(link.href).startsWith('t3-file:')) continue;
+    if (!link.image && link.href.startsWith('t3-thread://')) continue;
+    // Exactly the destinations markdown.rs draws as file chips: kept by the URL transform, and file-shaped.
+    if (link.image || !markdownLinkHref(link.href).startsWith('t3-file:') || !chatFileLink(link.href)) continue;
     // A link chip's `target` is what the link wrote from the workspace root, which the workspace search can resolve.
     add({ href: `t3-file:${link.href}`, kind: 'link', label: link.label, size: '', tip: fileLinkTarget(link.href, root), detail: '', icon: fileIconToken(link.href), target: workspaceLookupPath(link.href, root, media.cwd || root) });
   }
-  if (root) for (const match of text.matchAll(/(`+)([^`]+)\1/g)) {
+  if (root && text.includes('`')) for (const match of text.matchAll(/(`+)([^`]+)\1/g)) {
     const code = match[2]!.trim(), candidate = inlineCodeFilePathCandidate(code);
     if (candidate === null) continue;
     const cwd = media.cwd || root;
@@ -201,26 +251,38 @@ function citationChip(href: string): Omit<ChipView, 'id' | 'owner' | 'menu'> {
     detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '' };
 }
 /**
- * A `t3-thread://v1/<id>` link's chip: the thread's live title (the link's label until it resolves), "Open thread" or
- * "Thread no longer available", and what a press opens (`target`; `detail` "link" routes it through openThreadLink, so an
- * archived thread's transcript still opens and another environment's thread focuses that environment).
+ * A thread link's chip (MarkdownThreadLink): the thread's current title, never a title written into the link, which only
+ * stands in for an empty one; "Open thread"; and what a press opens (`target`; `detail` "link" routes it through
+ * openThreadLink, so another environment's thread focuses that environment). A link that resolves to nothing is the
+ * unresolved chip, named by its written label or by why: "Thread on another machine" or "Thread no longer available".
  */
-function threadLinkChip(href: string, label: string, threads: Obj[], client?: T3Client): Omit<ChipView, 'id' | 'owner' | 'menu'> | null {
-  const written = parseThreadLinkHref(href);
-  if (!written) return null;
-  const local = threads.find(thread => thread.id === written) ?? threads.find(thread => thread.id === percentDecodedThreadLinkId(written));
-  const target = client ? resolveThreadLink(client, written) : local ? { id: str(local.id), thread: local } : null;
-  return { href, kind: 'thread', label: str(target?.thread.title).trim() || label.trim() || written, size: '', tip: target ? 'Open thread' : 'Thread no longer available',
-    detail: 'link', icon: '', target: target?.id ?? written };
+function threadLinkChip(href: string, label: string | null, threads: Obj[], client?: T3Client): Omit<ChipView, 'id' | 'owner' | 'menu'> | null {
+  const link = parseThreadLinkHref(href);
+  if (!link) return null;
+  const local = () => {
+    const thread = link.environmentId !== null && link.environmentId !== client?.environmentId ? undefined
+      : threads.find(thread => thread.id === link.threadId) ?? threads.find(thread => thread.id === percentDecodedThreadLinkId(link.threadId));
+    return thread ? { id: str(thread.id), thread } : null;
+  };
+  const target = client ? resolveThreadLink(client, link) : local();
+  if (!target) {
+    const unknown = unknownThreadLinkLabel(link, client?.environmentId ?? '');
+    return { href, kind: 'unresolved', label: label ?? unknown, size: '', tip: unknown, detail: '', icon: '', target: '' };
+  }
+  return { href, kind: 'thread', label: str(target.thread.title).trim() || label || 'Untitled thread', size: '', tip: 'Open thread', detail: 'link', icon: '', target: target.id };
+}
+/** skillPopoverDescription and skillInstructionsOpener's path: a skill chip's `detail` and `target`. */
+function skillDetails(skill: Obj | undefined, label: string): Pick<ChipView, 'label' | 'size' | 'tip' | 'detail' | 'icon' | 'target'> {
+  return { label, size: '', tip: `$${str(skill?.name)}`, detail: str(skill?.description).trim() || str(skill?.shortDescription).trim(), icon: '', target: str(skill?.path) };
 }
 const UNAVAILABLE = 'This context is no longer available.';
-function contextChip(href: string, kind: string, label: string, record: Obj | undefined, attachments: Map<string, Obj>, threads: Obj[]): Omit<ChipView, 'id' | 'owner' | 'menu'> {
+function contextChip(href: string, kind: string, label: string, record: Obj | undefined, attachments: Map<string, Obj>, threads: Obj[], skills: Obj[] = []): Omit<ChipView, 'id' | 'owner' | 'menu'> {
   const base = { href, label, size: '', tip: '', detail: '', icon: '', target: '' };
   const unresolved = { ...base, kind: 'unresolved', tip: UNAVAILABLE };
   if (!record) return unresolved;
   switch (kind) {
     case 'mention': return { ...base, kind: 'mention', label: str(record.label, label), tip: str(record.path), icon: fileIconToken(str(record.path)) };
-    case 'skill': return { ...base, kind: 'skill', label: str(record.label) || str(record.name, label), tip: `$${str(record.name)}` };
+    case 'skill': return { ...base, kind: 'skill', ...skillDetails(skills.find(skill => str(skill.name) === str(record.name)), str(record.label) || str(record.name, label)), tip: `$${str(record.name)}` };
     case 'thread': {
       const threadId = str(record.threadId), shell = threads.find(thread => str(thread.id) === threadId);
       return { ...base, kind: 'thread', label: str(shell?.title).trim() || str(record.title, label), tip: shell ? 'Open thread' : 'Thread no longer available', target: shell ? threadId : '' };
@@ -230,8 +292,15 @@ function contextChip(href: string, kind: string, label: string, record: Obj | un
       if (!attachment || (kind === 'image' ? attachment.type !== 'image' : attachment.type !== 'file')) return unresolved;
       const name = str(record.name, str(attachment.name)), size = attachmentSize(Number(record.sizeBytes) || 0);
       if (kind === 'image') return { ...base, kind: 'image', label: middleTruncate(name), size, tip: `Image attachment, ${name}, ${size}`, target: str(attachment.id) };
+      // A sent sound plays in its audio chip above the text, so its reference draws nothing here.
+      if (isSentAudio(attachment)) return { ...base, kind: 'audio', label: middleTruncate(name), target: str(attachment.id) };
+      // FileChip's `disabled`: a file the server does not hand out is no button (no `target`).
+      const target = attachment.downloadable === false ? '' : str(attachment.id);
+      // SvgFileChip: an SVG draws as an image chip with the picture as its thumbnail, named and tipped as the file it
+      // opens as (`detail` is its tooltip); `icon` is the file's glyph for when the picture does not load.
+      if (isSvgAttachment(attachment)) return { ...base, kind: 'image', label: middleTruncate(name), size, tip: `File attachment, ${name}, ${size}`, detail: `${name}\n${size}`, icon: fileIconToken(name), target };
       const video = isVideo(attachment);
-      return { ...base, kind: video ? 'video' : 'file', label: middleTruncate(name), size, tip: `${name}\n${size}`, icon: video ? '' : fileIconToken(name), target: str(attachment.id) };
+      return { ...base, kind: video ? 'video' : 'file', label: middleTruncate(name), size, tip: `${name}\n${size}`, icon: video ? '' : fileIconToken(name), target };
     }
     case 'terminal': return { ...base, kind: 'terminal', label: str(record.label, label), size: num(record.lineStart) === num(record.lineEnd) ? `Line ${num(record.lineStart)}` : `Lines ${num(record.lineStart)}–${num(record.lineEnd)}`,
       tip: str(record.terminalLabel), detail: str(record.text) };
@@ -257,9 +326,15 @@ function contextChip(href: string, kind: string, label: string, record: Obj | un
 }
 const num = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : 0;
 
-/** Attachment ids a chip in the prose already shows: their standalone file rows are left out. */
-export function chippedAttachmentIds(chips: ChipView[]): Set<string> {
-  return new Set(chips.filter(chip => chip.kind === 'file' || chip.kind === 'video').map(chip => chip.target));
+/** Attachment ids a chip in the prose already shows, a disabled one's too: their standalone file rows are left out. */
+export function chippedAttachmentIds(chips: ChipView[], item: Obj = {}): Set<string> {
+  const records = new Map(arr(obj(item.context).records).map(record => [str(record.contextId), str(record.attachmentId)]));
+  return new Set(chips.filter(chip => chip.kind === 'file' || chip.kind === 'video' || chip.kind === 'image')
+    .map(chip => chip.target || records.get(chip.href.split('/').pop() ?? '') || '').filter(Boolean));
+}
+/** SvgFileChip's fallback: an SVG whose picture did not load is the plain file chip, as FileChip draws it. */
+export function asFileChip(chip: ChipView): ChipView {
+  return { ...chip, kind: 'file', tip: chip.detail, detail: '' };
 }
 
 /** appearanceFonts.ts: the code family and clamped size (10–18, default 13) and the word-wrap default chat Markdown reads. */
@@ -299,7 +374,7 @@ export function imageChipInks(accent: string): { fill: string; hover: string; bo
   const rgb = accent.trim().split(/\s+/).map(Number);
   if (rgb.length !== 3 || rgb.some(value => !Number.isFinite(value) || value < 0 || value > 255)) return null;
   const hex = hexOf(oklab(rgb));
-  return { fill: `${hex}1c`, hover: `${hex}2b`, border: `light-dark(${mix(rgb, '#e4e4e7', 0.34)}, ${hex}61)`, ink: `light-dark(${mix(rgb, '#27272a', 0.22)}, ${mix(rgb, '#f5f5f5', 0.22)})` };
+  return { fill: `${hex}1c`, hover: `${hex}2b`, border: `light-dark(${mix(rgb, '#e4e4e7', 0.34)}, ${hex}61)`, ink: `light-dark(${mix(rgb, '#18181b', 0.22)}, ${mix(rgb, '#f5f5f5', 0.22)})` };
 }
 
 // Ported from T3 Code 1e2ecbd975 SkillInlineText.tsx and providerSkills.ts (MIT).

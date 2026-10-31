@@ -2,13 +2,15 @@ import { describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { obj, str, type Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
-import { commandView, filterGroups, flatten, row, relativeLabel, shortcutText, commandShortcut, contentParts, type Group } from '../../src/palette/palette';
+import { commandView, filterGroups, flatten, row, relativeLabel, shortcutText, commandShortcut, messageItems, threadItems, type Group } from '../../src/palette/palette';
 import { addProjectView, browseParent, cloneDirectoryName, cloneDestination, normalizeCloneUrl, readiness, resolvePath, appendSegment, browseDirectory, flowOf } from '../../src/palette/palette-add';
 import { fileRows, lineParts, contentRows, matchIndices, filePickerView, contentSearchView, parseFlags } from '../../src/palette/palette-files';
 import { paletteCommand } from '../../src/palette/palette-commands';
 import { paletteView } from '../../src/palette/palette-view';
 import { keyboardDispatch, visit, favoriteEditor } from '../../src/shell/keyboard-dispatch';
 import { toasts } from '../../src/shell/toast';
+import { contractComponent } from '../support/contract-action-fixture';
+import { settleHighlights } from '../support/highlights-fixture';
 
 const NOW = Date.parse('2026-10-03T12:00:00.000Z');
 const binding = (key: string, command: string, extra: Obj = {}): Obj => ({ command, shortcut: { key, modKey: true, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...extra } });
@@ -54,7 +56,7 @@ describe('command palette root', () => {
   test('actions follow the reference order with shortcut labels, then recent threads', () => {
     const view = commandView(client(), { page: '', query: '', now: NOW, scheme: 'dark', matches: new Map(), matchQuery: '', searching: false });
     const titles = view.rows.map(entry => entry.title);
-    expect(titles.slice(0, 8)).toEqual(['New thread in Parity fixture', 'New thread in...', 'Copy thread ID', 'Link pull request to thread', 'Show linked pull requests', 'Restart agent session', 'Go to file', 'Search project contents']);
+    expect(titles.slice(0, 8)).toEqual(['New thread in Parity fixture', 'New thread in...', 'Copy thread', 'Link pull request to thread', 'Show linked pull requests', 'Restart agent session', 'Go to file', 'Search project contents']);
     expect(titles).toContain('Open settings');
     expect(view.rows[0]!.header).toBe('Actions');
     expect(view.rows[0]!.shortcut).toBe('⇧⌘N');
@@ -62,12 +64,12 @@ describe('command palette root', () => {
     expect(view.rows.find(entry => entry.title === 'Show linked pull requests')!.kind).toBe('disabled');
     expect(view.rows.find(entry => entry.title === 'Change theme')!.shortcut).toBe('⌥⌘A');
     expect(view.rows.find(entry => entry.title === 'Change appearance')!.shortcut).toBe('⌥⇧⌘A');
+    // Recent means used last; the open thread (t2) would always lead, so it is left out.
     const recent = view.rows.filter(entry => entry.op === 'thread');
-    expect(recent.map(entry => entry.title)).toEqual(['fixture complete fork', 'fixture complete']);
+    expect(recent.map(entry => entry.title)).toEqual(['fixture complete']);
     expect(recent[0]!.header).toBe('Recent Threads');
-    expect(recent[0]!.current).toBe(true);
-    expect(recent[0]!.timestamp).toBe('10h ago');
-    expect(recent[0]!.branch).toBe('feature/x');
+    expect(recent[0]!.current).toBe(false);
+    expect(recent[0]!.timestamp).toBe('11h ago');
     expect(view.placeholder).toBe('Search commands, projects, and threads...');
     expect(view.enterLabel).toBe('Select');
   });
@@ -78,24 +80,27 @@ describe('command palette root', () => {
     expect(view.rows[0]!.top).toBe(8 + 28);
     expect(view.rows[0]!.height).toBe(32);
     expect(view.rows[1]!.top).toBe(8 + 28 + 32);
-    const copy = view.rows.find(entry => entry.title === 'Copy thread ID')!;
+    const copy = view.rows.find(entry => entry.title === 'Copy thread')!;
     expect(copy.height).toBe(48);
     expect(copy.top).toBe(8 + 28 + 64);
     const recent = view.rows.find(entry => entry.op === 'thread')!;
     expect(recent.height).toBe(50);
   });
-  test('a query searches actions, projects, settings and threads with message matches', () => {
+  test('a query searches actions, threads, projects and settings; message-only matches follow In messages', () => {
     const c = client();
-    const view = commandView(c, { page: '', query: 'fixture', now: NOW, scheme: 'dark', matches: new Map([['t1', { source: 'user', snippet: 'please run fixture complete' }]]), matchQuery: 'fixture', searching: false });
-    const headers = view.rows.filter(entry => entry.header).map(entry => entry.header);
-    expect(headers).toContain('Projects');
-    expect(headers).toContain('Threads');
+    c.shell.threads.push({ id: 't4', projectId: 'p2', title: 'Release notes', updatedAt: '2026-10-03T05:00:00.000Z' });
+    const matches = new Map([['t1', { threadId: 't1', source: 'user', snippet: 'fixture complete' }], ['t4', { threadId: 't4', source: 'assistant', snippet: 'Ran the  fixture\n twice', messageCreatedAt: '2026-10-03T11:00:00.000Z' }]]);
+    const view = commandView(c, { page: '', query: 'fixture', now: NOW, scheme: 'dark', matches, matchQuery: 'fixture', searching: false });
+    // Equal match classes keep the order commands, threads, projects; next to matching threads others show three rows.
+    expect(view.rows.filter(entry => entry.header).map(entry => entry.header)).toEqual(['Actions', 'Threads', 'Projects', 'In messages']);
     const project = view.rows.find(entry => entry.op === 'open-project')!;
     expect(project.title).toBe('Parity fixture');
     expect(project.description).toBe('/repo');
-    const thread = view.rows.find(entry => entry.arg === 't1' && entry.op === 'thread')!;
-    expect(thread.matchLabel).toBe('You:');
-    expect(thread.matchParts.filter(part => part.hit).map(part => part.text)).toEqual(['fixture']);
+    // The open thread is listed last among the threads; a thread whose title matches is no message result.
+    expect(view.rows.filter(entry => entry.key.startsWith('threads-search:')).map(entry => entry.arg)).toEqual(['t1', 't2']);
+    const message = view.rows.find(entry => entry.key.startsWith('threads-messages:'))!;
+    expect(message).toMatchObject({ arg: 't4', matchLabel: 'Agent:', context: 'Second', timestamp: '1h ago', height: 48 });
+    expect(message.matchParts.map(part => [part.text, part.hit])).toEqual([['Ran the ', false], ['fixture', true], [' twice', false]]);
     const none = commandView(c, { page: '', query: 'zzzz', now: NOW, scheme: 'dark', matches: new Map(), matchQuery: '', searching: false });
     expect(none.rows).toEqual([]);
     expect(none.empty).toBe('No matching commands, projects, or threads.');
@@ -131,7 +136,11 @@ describe('command palette root', () => {
     expect(relativeLabel('2026-10-03T11:59:30.000Z', NOW)).toBe('just now');
     expect(relativeLabel('2026-10-01T11:00:00.000Z', NOW)).toBe('2d ago');
     expect(commandShortcut(client(), 'usage.open')).toBe('⌘U');
-    expect(contentParts('A fixture and Fixture', 'fixture').filter(part => part.hit).length).toBe(2);
+    // ThreadSearchMatchExcerpt marks the query's words ignoring case; a three-letter one only where it starts a word.
+    const unmatched = threadItems(client(), NOW, '').filter(item => item.row.arg === 't1').map(item => ({ ...item, thread: { ...item.thread!, title: 'other', projectTitle: null } }));
+    const hits = (snippet: string, query: string) => messageItems(unmatched, new Map([['t1', { threadId: 't1', source: 'user', snippet }]]), query, NOW)[0]!.row.matchParts.filter(part => part.hit).map(part => part.text);
+    expect(hits('A fixture and Fixture', 'FIXTURE')).toEqual(['fixture', 'Fixture']);
+    expect(hits('drafts and enableFTS', 'fts')).toEqual(['FTS']);
   });
 });
 
@@ -218,6 +227,20 @@ describe('add project', () => {
     const highlighted = await addProjectView(c, native, { page: 'new-project', query: 'My App', highlighted: true });
     expect(highlighted).toMatchObject({ enterLabel: 'Select', accessoryKey: '⌘ Enter', accessoryOp: 'flow', accessoryArg: 'new-project', accessoryArg2: 'My App' });
   });
+  test('the footer\'s Enter reads Toggle on the publish option, Select on another row and Create on none (footerActionLabel)', async () => {
+    const c = client(), native = new Fake();
+    native.replies['server.discoverSourceControl'] = { sourceControlProviders: [{ kind: 'github', status: 'available', auth: { status: 'authenticated', account: 'fixture' } }] };
+    const body = contractComponent('palette.contract', 'CommandPaletteBody');
+    const enter = async (highlight: number) => {
+      const view = await addProjectView(c, native, { page: 'new-project', query: 'App', highlighted: highlight >= 0 });
+      const row = view.rows.find(entry => entry.index === highlight);
+      const scope = { view, highlight, scroll: 0, scheme: 'dark', rem: 16, viewport: { width: 1280, height: 840 }, min: Math.min, max: Math.max, floor: Math.floor };
+      return [row?.title ?? '', body.derives({}, scope).enterText];
+    };
+    expect(await enter(0)).toEqual(['Create private repository on GitHub', 'Toggle']);
+    expect(await enter(1)).toEqual(['Add existing project', 'Select']);
+    expect(await enter(-1)).toEqual(['', 'Create']);
+  });
   test('adding a path creates the project and opens a new thread in it', async () => {
     const c = client(), native = new Fake();
     native.replies['http'] = { snapshotSequence: 2, projects: [...c.shell.projects, { id: 'id-1', title: 'app', workspaceRoot: '/home/me/app' }], threads: [] };
@@ -274,7 +297,9 @@ describe('file picker and content search', () => {
   });
   test('content results group by file with line numbers and marks', async () => {
     expect(lineParts('# Exact T3 fixture', [{ start: 11, end: 18 }]).map(part => [part.text, part.hit])).toEqual([['# Exact T3 ', false], ['fixture', true]]);
-    expect(lineParts('# Exact T3 fixture', [{ start: 11, end: 18 }], 'fixture-result.md').map(part => [part.text, part.hit, part.cls])).toEqual([['# Exact T3 ', false, 'tag'], ['fixture', true, 'tag']]); // Shiki's heading ink
+    lineParts('# Exact T3 fixture', [], 'fixture-result.md');
+    settleHighlights(); // the line waits for the lexers (highlights.ts); a heading is `title`
+    expect(lineParts('# Exact T3 fixture', [{ start: 11, end: 18 }], 'fixture-result.md').map(part => [part.text, part.hit, part.cls])).toEqual([['# Exact T3 ', false, 'title'], ['fixture', true, 'title']]);
     expect(fileRows([{ kind: 'file', path: 'docs/a.md' }, { kind: 'file', path: 'src/b.ts' }], '').map(entry => entry.icon)).toEqual(['file-md', 'file']);
     const rows = contentRows([{ path: 'fixture-result.md', lineNumber: 1, lineContent: '# Exact T3 fixture', matchRanges: [{ start: 11, end: 18 }] }]);
     expect(rows.map(entry => entry.kind)).toEqual(['file-header', 'line']);
@@ -288,6 +313,22 @@ describe('file picker and content search', () => {
     expect(view.summary).toBe('1 results in 1 files');
     expect(native.calls.find(call => call.method === 'projects.searchContents')!.payload).toMatchObject({ caseSensitive: true, wholeWord: false, useRegex: true, limit: 500 });
     expect(parseFlags('word').wholeWord).toBe(true);
+  });
+  test('messages are searched once the query holds a word of three letters or two CJK characters, by its first 200', async () => {
+    const c = client(), native = new Fake();
+    native.replies['orchestration.searchThreads'] = { matches: [] };
+    // useThreadSearch: the trimmed query cut to THREAD_SEARCH_QUERY_MAX_LENGTH, asked with no limit.
+    const asked = async (query: string) => {
+      native.calls = [];
+      await paletteView(c, native, [true, 'command', '', query, '', false, NOW, 'dark']);
+      return native.calls.filter(call => call.method === 'orchestration.searchThreads').map(call => call.payload);
+    };
+    for (const query of ['ab', 'ab cd', '日', '>fixture']) expect(await asked(query), query).toEqual([]);
+    expect(await asked('  fix ')).toEqual([{ query: 'fix' }]);
+    expect(await asked('日本')).toEqual([{ query: '日本' }]);
+    const long = `${'word '.repeat(39)}wording and more`;
+    expect(long.length).toBeGreaterThan(200);
+    expect(await asked(long)).toEqual([{ query: long.slice(0, 200).trim() }]);
   });
   test('the resource routes modes and closes', async () => {
     const c = client(), native = new Fake();

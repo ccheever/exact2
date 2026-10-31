@@ -12,7 +12,8 @@ import { openPullRequestIn } from '../../src/panel/pr-attachment-surfaces';
 import { syncRightPanels } from '../../src/panel/saved-panel';
 import { filesLocal } from '../../src/panel/files-surface';
 import { prRowsView, prTarget, rowAction, checksRollup, statusTooltip, providerOfUrl, prSurfaceId, threadPrTarget, forgetRowDetail, sidebarPrBadge } from '../../src/panel/pr-surface';
-import { previewKind, previewDelimiter, findAttachment } from '../../src/panel/attachment-surface';
+import { previewKind, findAttachment } from '../../src/panel/attachment-surface';
+import { filePreviewDelimiter as previewDelimiter } from '../../src/panel/file-preview-kind';
 import { adoptFilesPrefs, filesPrefs } from '../../src/panel/files-prefs';
 import { surfaces } from '../../src/shell/shell';
 import { diagramPreviewAction, diagramPreviewView, noteMermaidFrame } from '../../src/timeline/timeline-mermaid';
@@ -250,6 +251,14 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     expect(assets.calls.at(-1)).toEqual({ url: 'http://127.0.0.1:14861/api/assets/attachment/sig', range: null });
     expect(lastSave(client, files)).toMatchObject({ name: 'notes.md', nonce: 1, text: '# Notes\n\n- one\n' });
   });
+  test("a sent SVG's chip opens its file beside the thread, as a file chip does (SvgFileChip's onOpen)", async () => {
+    const { client, replies } = fakeClient();
+    ((client.projection.visibleTurnItems as { item: { attachments: unknown[] } }[])[0]!.item.attachments).push({ type: 'file', id: 'att-svg', name: 'badge.svg', mimeType: 'image/svg+xml', sizeBytes: 120 });
+    replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
+    const { chatLocal } = await import('../../src/timeline/timeline-presentation');
+    await chatLocal(client, native, 'image-open', 'att-svg', 'owner');
+    expect(panelState(client).surfaces.map(entry => entry.id)).toEqual(['attachment:att-svg']);
+  });
   // AttachmentFilePreview's rendered Markdown is ChatMarkdown (cwd undefined), as Files' is.
   test('a rendered attachment is the chat renderer: code colours, Mermaid diagrams and their expand', async () => {
     const { client, replies } = fakeClient();
@@ -268,14 +277,15 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     diagramPreviewAction(client, 'diagram-open', flow);
     expect(diagramPreviewView(client).diagramPreview.map(diagram => diagram.code)).toEqual([flow]);
   });
-  test('a CSV renders as a table; a file with no preview offers Save; an unknown id fails plainly', async () => {
+  test('a CSV renders as a table in the viewer page; a file with no preview offers Save; an unknown id fails plainly', async () => {
     const { client, replies } = fakeClient();
     replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
     serveText('a,b\n1,2\n');
     await surfaceLocal(client, native, 'linked-attachment', 'att-csv', '');
     let view = await panelView(client, native, 1);
-    expect(view.attachment).toMatchObject({ preview: 'table', renderLabel: 'Show source', renderIcon: 'code' });
-    expect(view.attachment.table[0]!.cells.map(cell => cell.text)).toEqual(['a', 'b']);
+    // DelimitedTablePreview: the large-text viewer over the text read, every row and a count line (the page's).
+    expect(view.attachment).toMatchObject({ preview: 'viewer', renderLabel: 'Show source', renderIcon: 'code', canCopy: true });
+    expect(JSON.parse(view.attachment.viewer.config)).toMatchObject({ view: 'text', text: 'a,b\n1,2\n', delimiter: ',', src: '', sizeBytes: -1 });
     await surfaceLocal(client, native, 'linked-attachment', 'att-bin', '');
     view = await panelView(client, native, 1);
     expect(view.attachment).toMatchObject({ preview: 'none', canCopy: false, canSave: true, noPreview: 'Save it to open in an app that supports bin files.' });
@@ -298,6 +308,18 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
   });
 });
 
+describe('a preview\'s wrap button changes only that preview (48a292364a)', () => {
+  test('one file unwraps; another file, and an attachment, still follow Settings', async () => {
+    const { client } = fakeClient();
+    await filesLocal(client, native, 'wrap', 'src/a.ts', '');
+    const { filesState } = await import('../../src/panel/files-surface');
+    expect([...filesState(client).wraps]).toEqual([['src/a.ts', false]]);
+    expect((client.local as { clientSettings: { wordWrap: boolean } }).clientSettings.wordWrap).toBe(true);
+    await filesLocal(client, native, 'wrap', 'src/a.ts', '');
+    expect([...filesState(client).wraps]).toEqual([['src/a.ts', true]]);
+  });
+});
+
 describe('Files preferences persist (FilePreviewPanel localStorage keys)', () => {
   test('defaults: explorer open, Markdown as source, tables rendered; toggles land in the saved record', async () => {
     const { client } = fakeClient();
@@ -305,10 +327,11 @@ describe('Files preferences persist (FilePreviewPanel localStorage keys)', () =>
     await filesLocal(client, native, 'explorer', '', '');
     await filesLocal(client, native, 'render', 'README.md', '');
     await filesLocal(client, native, 'render', 'data.csv', '');
-    await filesLocal(client, native, 'wrap', '', '');
+    await filesLocal(client, native, 'wrap', 'README.md', '');
     const saved = JSON.parse(JSON.stringify({ version: 1, ...(client.local as object) }));
     expect(saved.files).toEqual({ explorer: false, renderMarkdown: true, renderTable: false });
-    expect(saved.clientSettings.wordWrap).toBe(false);
+    // A preview's wrap button is its own (48a292364a): Settings' word wrap stays on.
+    expect(saved.clientSettings.wordWrap).toBe(true);
     const next = {};
     adoptFilesPrefs(next, saved);
     expect(next).toEqual({ files: { explorer: false, renderMarkdown: true, renderTable: false } });

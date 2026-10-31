@@ -31,9 +31,9 @@ test('every role="heading" says its aria-level', () => {
 
 // Main `a6a49a015` (LLP 1116 D7) gives a `text role="heading"` its text style's emphasized weight,
 // bold (700) for a title (levels 1-3), where until now an unwritten weight was the title's own regular (400); a written
-// `font-weight` still wins. The reference's headings say their weight (settingsLayout.tsx's SettingsSection title and
-// ThemeSettings.tsx's "Color scheme" / "Themes" are `font-normal`), so every drawn clone heading writes one, on its
-// line or in its `style` class; the visually hidden ones (`opacity=0`) draw nothing.
+// `font-weight` still wins. The reference's headings say their weight (settingsLayout.tsx's SettingsSection title is
+// `font-normal`, ThemeSettings.tsx's "Color scheme" / "Themes" `font-semibold`), so every drawn clone heading writes
+// one, on its line or in its `style` class; the visually hidden ones (`opacity=0`) draw nothing.
 test('every drawn text heading writes its font-weight (main\'s D7 bolds an unsaid one)', () => {
   const all = views();
   const weighted = new Set<string>();
@@ -53,15 +53,15 @@ test('every drawn text heading writes its font-weight (main\'s D7 bolds an unsai
   });
   expect(texts).toBeGreaterThan(100);
   expect(unweighted).toEqual([]);
-  // The seven that relied on the old regular weight now say it, as the reference's `font-normal`.
+  // The seven that relied on the old regular weight now say it: the reference's `font-normal`, or the new design's `font-semibold` section titles.
   for (const [file, needle] of [
-    ['providers.contract', 'text editor.title font-size="0.875rem" font-weight=400'],
-    ['settings-appearance.contract', 'text "Color scheme" font-size="0.875rem" font-weight=400'],
-    ['settings-appearance.contract', 'text "Themes" font-size="0.875rem" font-weight=400'],
-    ['settings-archive.contract', 'text group.title font-size="0.875rem" font-weight=400'],
-    ['settings-rows.contract', 'text section.title font-size="0.875rem" font-weight=400'],
-    ['settings-scheduled.contract', 'text "Scheduled tasks" font-size="0.875rem" font-weight=400'],
-    ['settings-licenses.contract', 'text "Third-party notices" font-size="0.875rem" font-weight=400'],
+    ['providers.contract', 'text editor.title font-size="1rem" font-weight=600'],
+    ['settings-appearance.contract', 'text "Color scheme" font-size="1rem" font-weight=600'],
+    ['settings-appearance.contract', 'text "Themes" font-size="1rem" font-weight=600'],
+    ['settings-archive.contract', 'text group.title font-size="1rem" font-weight=600'],
+    ['settings-rows.contract', 'text section.title font-size="1rem" font-weight=600'],
+    ['settings-scheduled.contract', 'text "Scheduled tasks" font-size="1rem" font-weight=600'],
+    ['settings-licenses.contract', 'text "Third-party notices" font-size="1rem" font-weight=600'],
   ] as const) {
     // settings-rows.contract draws two: a section's title and, inside its trigger, Legacy features'.
     const found = all.find(v => v.name === file)!.lines.filter(l => l.includes(needle));

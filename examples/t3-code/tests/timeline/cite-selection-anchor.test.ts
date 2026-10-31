@@ -226,7 +226,7 @@ describe('a plain Tab focuses Cite (AssistantSelectionToolbar.tsx:87-107)', () =
     button.call('focusChanged', state, {}, [false]);
     expect(state.focused).toBe(false);
     expect(source('diff-cite.contract')).toContain('focus=focusChanged(true) blur=focusChanged(false) disabled=tooLong');
-    expect(source('diff-cite.contract')).toContain('box-shadow=(focused ? "0 0 0 1px light-dark(#fcfcfc, #0a0a0a), 0 0 0 3px light-dark(#1b4ed8, #346bf1), 0 8px 24px -12px #00000059" : "0 8px 24px -12px #00000059")');
+    expect(source('diff-cite.contract')).toContain('box-shadow=(focused ? "0 0 0 1px light-dark(#fcfcfc, #000000), 0 0 0 3px light-dark(#1b4ed8, #346bf1), 0 8px 24px -12px #00000059" : "0 8px 24px -12px #00000059")');
   });
 });
 
@@ -395,6 +395,20 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
     expect(calls).toEqual([['command', 'diffreview', 'cite:["t","a"]', `12-152|280,${351.42 + 23.83},221.2,21|Cite check.\nA closing …`, 0], ['removeAllRanges']]);
     expect(state.citeFor).toBe('');
   });
+
+  test('the press holds the last line to the answer as it reads it (popupAnchor): a line in a code block\'s hidden overflow sits on its edge', () => {
+    const calls: unknown[][] = [];
+    // The offer keeps the line as the host reported it, 900 pt into the end text (a code block scrolled sideways).
+    const state: Env = { citeOffer: { ...offer, lx: 900, lw: 80 }, citeFor: '["t","a"]', citeParked: '', citeThread: 't' };
+    const frames: Record<string, unknown> = { 'cite-["t","a"]-2': geometry(280, 351.42, 2000, 45.5), 'cite-["t","a"]': geometry(260, 300, 700, 400) };
+    window.call('citePress', state, { ...cite, frame: (id: string) => frames[id], command: (...args: unknown[]) => calls.push(['command', ...args]),
+      removeAllRanges: () => calls.push(['removeAllRanges']) }, []);
+    const [ranges, frame] = String(calls[0]![3]).split('|');
+    expect(ranges).toBe('12-152');
+    const [x, y, width, height] = frame!.split(',').map(Number);
+    expect([x, width, height]).toEqual([960, 0, 21]);
+    expect(y).toBeCloseTo(351.42 + 23.83, 5);
+  });
 });
 
 describe('the pencil\'s comment above its chip (no change: the clone already places it as the reference)', () => {
@@ -410,5 +424,23 @@ describe('the pencil\'s comment above its chip (no change: the clone already pla
     expect(left(clone, 320, 1280)).toBe(71);
     expect(below(clone, 114, 840)).toBe(false);
     expect(clone.ay - 4 - 114).toBe(536.5);
+  });
+});
+
+// AssistantCitationChip's popupAnchor (#22149): a quote ending in a code block's hidden overflow anchors its comment
+// at the answer's edge, so the comment stays on screen.
+describe('the cited line is held to the answer\'s width', () => {
+  const answer = geometry(300, 100, 700, 400);
+  const offer = (lx: number, lw: number) => ({ source: 'm', ranges: '0-4', stream: 'text', size: 4, x: 0, y: 0, end: 'cite-m-0-code', lx, ly: 10, lw, lh: 16 });
+  const held = (lx: number, lw: number, box = geometry(320, 200, 2000, 300)) => cite.citeHeldOffer!(offer(lx, lw) as never, box as never, answer as never) as { lx: number; ly: number; lw: number; lh: number };
+  test('a line past the answer\'s right edge collapses onto it', () => {
+    expect(held(1500, 80)).toMatchObject({ lx: 680, lw: 0, ly: 10, lh: 16 });
+  });
+  test('a line crossing it is cut there; one inside is kept', () => {
+    expect(held(600, 200)).toMatchObject({ lx: 600, lw: 80 });
+    expect(held(10, 40)).toMatchObject({ lx: 10, lw: 40 });
+  });
+  test('the end text\'s own frame (no line reported) is held the same way', () => {
+    expect(held(0, -1)).toMatchObject({ lx: 0, ly: 0, lw: 680, lh: 300 });
   });
 });

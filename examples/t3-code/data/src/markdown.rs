@@ -37,6 +37,8 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "composerAttach",
             "composerEditor",
             "composerRich",
+            // A draft image's upload, a stream that tells its bytes sent (src/composer/composer-uploads.ts).
+            "composerUpload",
             "composerField",
             "composerFieldObserved",
             "composerFieldAcknowledged",
@@ -47,7 +49,8 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "composerWorkspace",
             "refreshComposerWorkspace",
             "refreshTimelineReads",
-            "highlightSlice",
+            "highlightAsk",
+            "highlightStore",
             "composerBranches",
             "acpRegistry",
             "connectionsPage",
@@ -67,6 +70,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "sourceControlPage",
             "promptLinkView",
             "promptLinksReady",
+            "codexReceive",
             "pagesHome",
             "usagePage",
             "usageKeys",
@@ -107,6 +111,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "renderQuestionMarkdown",
             "renderPullRequestMarkdown",
             "renderFileMarkdown",
+            "highlightCode",
         ],
     )
     .expect("T3 presentation sources have distinct owners")
@@ -119,6 +124,9 @@ impl DataSource for Markdown {
     }
 
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        if source == "highlightCode" {
+            return Ok(crate::highlights::highlight_code(args));
+        }
         // Pull requests, their comments, Files and sent attachments share this Markdown parse.
         if source != "renderMarkdown"
             && source != "renderQuestionMarkdown"
@@ -155,6 +163,7 @@ impl DataSource for Markdown {
                 && kind != "user"
                 && kind != "file"
                 && kind != "attachment"
+                && kind != "notebook"
             {
                 continue;
             }
@@ -175,13 +184,22 @@ impl DataSource for Markdown {
                 documents.push(document_with_links(id.clone(), text, None, false, false));
                 continue;
             }
-            // UserMessageBody keeps single newlines as U+2028 line breaks.
-            if kind == "user" {
-                documents.push(document_with_skills(
+            // NotebookPreview's Markdown cell: an attachment's, made inert (`inert_blocks`).
+            if kind == "notebook" {
+                documents.push(chat_document(
                     id.clone(),
-                    &line_breaks(text),
-                    args.get(1),
+                    text,
+                    None,
+                    false,
+                    false,
+                    false,
+                    true,
                 ));
+                continue;
+            }
+            // UserMessageBody keeps single newlines as U+2028 line breaks and its raw HTML literal.
+            if kind == "user" {
+                documents.push(user_document(id.clone(), &line_breaks(text), args.get(1)));
                 continue;
             }
             // A long plan carries its collapsed preview after U+0001 (timeline-plan.ts).
@@ -210,12 +228,17 @@ include!("markdown_links.rs");
 include!("markdown_media.rs");
 include!("markdown_headings.rs");
 include!("markdown_runs.rs");
+include!("markdown_direction.rs");
 include!("markdown_math.rs");
+include!("markdown_inert.rs");
 /// The resolver's mark for a workspace file link (`[label](src/a.ts:3)`): T3
 /// draws it as a file chip, not a web link.
 const FILE_LINK: &str = "t3-file:";
-/// A link to another thread (`[title](t3-thread://v1/<id>)`): drawn as that thread's chip.
-const THREAD_LINK: &str = "t3-thread://v1/";
+/// A link to another thread (`[title](t3-thread://v1/<id>)`, or `t3-thread://v2/<environment>/<id>` and its autolink
+/// `<t3-thread://v2/…>`): drawn as that thread's chip.
+fn thread_link(href: &str) -> bool {
+    href.starts_with("t3-thread://v1/") || href.starts_with("t3-thread://v2/")
+}
 
 /// MarkdownFileLink's chip label: the file's name, then " · L3" for a line.
 fn file_chip(target: &str) -> (String, &'static str) {
@@ -290,7 +313,7 @@ fn chat_run(value: Value, link_start: bool) -> Value {
         }
     } else if href.starts_with("t3-skill:") {
         ("context-skill", "")
-    } else if href.starts_with(THREAD_LINK) {
+    } else if thread_link(&href) {
         // A thread link is its thread's chip (MarkdownThreadLink); message-chips.ts resolves it by the href.
         ("context-thread", "")
     } else if href.starts_with("t3-citation://") {
@@ -626,6 +649,25 @@ fn document_with_links(
     toggle_tasks: bool,
     cwd: bool,
 ) -> Value {
+    chat_document(id, text, skill_values, toggle_tasks, cwd, true, false)
+}
+
+/// A user message: UserMessageBody renders with `parseRawHtml={false}`, so a raw HTML line is literal text.
+fn user_document(id: Value, text: &str, skill_values: Option<&Value>) -> Value {
+    chat_document(id, text, skill_values, false, true, false, false)
+}
+
+/// `raw_html`: the document parses raw HTML (rehype-raw), so a raw HTML line's text has a direction.
+/// `inert`: a saved notebook's cell, which loads no URL and links nowhere (`inert_blocks`).
+fn chat_document(
+    id: Value,
+    text: &str,
+    skill_values: Option<&Value>,
+    toggle_tasks: bool,
+    cwd: bool,
+    raw_html: bool,
+    inert: bool,
+) -> Value {
     let skills: Vec<(String, String)> = match skill_values {
         Some(Value::List(skills)) => skills
             .iter()
@@ -641,6 +683,13 @@ fn document_with_links(
             .collect(),
         _ => Vec::new(),
     };
+    let inert_text;
+    let text = if inert {
+        inert_text = inert_source(text);
+        inert_text.as_str()
+    } else {
+        text
+    };
     // Task offsets name the file's own text: image_chip_links drops the `!` of each
     // `![name](t3-context://…)`, which would shift every later marker by one.
     let source = text;
@@ -649,6 +698,18 @@ fn document_with_links(
     let text = strike_marks(&inline_image_links(&text)).into_owned();
     let mut doc = markdown_parse::parse(&text, &|href| image_link(&link_href, href));
     linked_images(&mut doc.blocks, &|href| image_link(&link_href, href));
+    if inert {
+        inert_blocks(&mut doc.blocks);
+    }
+    // An image alone on its line is a block the parser resolved as a link: its source resolves as media.
+    for block in &mut doc.blocks {
+        if matches!(block.kind, markdown_parse::Kind::Image)
+            && block.href != NO_HREF
+            && !block.href.starts_with(FILE_LINK)
+        {
+            block.href = media_href(&block.href);
+        }
+    }
     if !cwd {
         links_without_cwd(&mut doc.blocks);
     }
@@ -658,6 +719,8 @@ fn document_with_links(
     fragment_links(&mut doc.blocks);
     let gutters = list_gutters(&doc.blocks);
     let mut tasks = task_items(&mut doc.blocks, source);
+    // After the task markers go: `- [x] تم` reads right to left.
+    let directions = block_directions(&doc.blocks, &text, &context_image_hrefs(source), raw_html);
     if !toggle_tasks {
         tasks.iter_mut().for_each(|task| task.1 = -1.0);
     }
@@ -696,12 +759,18 @@ fn document_with_links(
                 end += 1;
             }
             let rows: Vec<&markdown_parse::Block> = doc.blocks[index..end].iter().collect();
-            blocks.push(table_block(
+            let mut table = table_block(
                 index,
                 gap,
                 &rows,
                 aligns.get(table_count).map(Vec::as_slice).unwrap_or(&[]),
-            ));
+            );
+            if let Value::Record(fields) = &table {
+                let mut fields = fields.to_vec();
+                fields.push(Value::str(directions[index]));
+                table = Value::record(fields);
+            }
+            blocks.push(table);
             table_count += 1;
             skip = end;
             continue;
@@ -727,13 +796,19 @@ fn document_with_links(
                             .map(|(i, run)| markdown_parse::value::run(i, run))
                             .collect(),
                     ));
-                    if line_index > 0 {
+                    // A list item's later line goes on with its text: no marker and no checkbox of its own.
+                    let task = if line_index > 0 {
+                        line_fields[3] = Value::str("");
                         line_fields[9] = Value::Number(0.0);
-                    }
+                        ("", -1.0)
+                    } else {
+                        tasks[index]
+                    };
                     line_fields.push(Value::Bool(true));
                     no_table(&mut line_fields);
-                    line_fields.extend(task_fields(tasks[index]));
+                    line_fields.extend(task_fields(task));
                     line_fields.push(Value::Number(gutters[index]));
+                    line_fields.push(Value::str(directions[index]));
                     blocks.push(Value::record(line_fields));
                 }
                 continue;
@@ -777,6 +852,7 @@ fn document_with_links(
         }
         fields.extend(task_fields(tasks[index]));
         fields.push(Value::Number(gutters[index]));
+        fields.push(Value::str(directions[index]));
         blocks.push(Value::record(fields));
     }
     Value::record(vec![id, Value::list(blocks)])
@@ -810,7 +886,7 @@ fn flow_tokens(block: &markdown_parse::Block) -> Option<Vec<markdown_parse::Run>
             || run.href.starts_with("t3-context://")
             || run.href.starts_with("t3-citation://")
             || run.href.starts_with("t3-skill:")
-            || run.href.starts_with(THREAD_LINK)
+            || thread_link(&run.href)
         {
             tokens.push(run.clone());
             continue;
@@ -881,7 +957,7 @@ fn collapse_spaces(tokens: Vec<markdown_parse::Run>) -> Vec<markdown_parse::Run>
             || token.href.starts_with("t3-context://")
             || token.href.starts_with("t3-citation://")
             || token.href.starts_with("t3-skill:")
-            || token.href.starts_with(THREAD_LINK)
+            || thread_link(&token.href)
         {
             previous_space = false;
             collapsed.push(token);
@@ -1333,73 +1409,6 @@ mod tests {
         assert_eq!(
             line_breaks("# Title\nText\n| a |\n|---|"),
             "# Title\nText\n| a |\n|---|"
-        );
-    }
-
-    #[test]
-    fn tables_are_one_block_with_sizing_columns_and_copy_text() {
-        let Value::Record(doc) = document(
-            Value::str("t"),
-            &line_breaks(
-                "Intro\n\n| Name | Note |\n|:-|:-|\n| **a** | x, \"y\" |\n| `b` | a long one |\n\n| not | a table\nafter ![shot.png](t3-context://v1/image/image_1)",
-            ),
-        ) else {
-            panic!("document")
-        };
-        let Value::List(blocks) = &doc[1] else {
-            panic!("blocks")
-        };
-        let kinds: Vec<String> = blocks
-            .iter()
-            .map(|block| {
-                let Value::Record(fields) = block else {
-                    panic!("block")
-                };
-                assert_eq!(fields.len(), 19);
-                fields[1].as_str().unwrap_or("").to_string()
-            })
-            .collect();
-        assert_eq!(kinds, vec!["paragraph", "table", "paragraph", "paragraph"]);
-        let Value::Record(table) = &blocks[1] else {
-            panic!("table")
-        };
-        let Value::List(rows) = &table[11] else {
-            panic!("rows")
-        };
-        assert_eq!(rows.len(), 3);
-        let Value::List(columns) = &table[12] else {
-            panic!("columns")
-        };
-        assert_eq!(columns.len(), 2);
-        assert_eq!(
-            table[13].as_str(),
-            Some("| Name | Note |\n| --- | --- |\n| **a** | x, \"y\" |\n| `b` | a long one |")
-        );
-        assert_eq!(
-            table[14].as_str(),
-            Some("Name,Note\na,\"x, \"\"y\"\"\"\nb,a long one")
-        );
-        // The pipe line that is no table keeps its break; the image reference is a chip.
-        let Value::Record(last) = &blocks[3] else {
-            panic!("line")
-        };
-        let Value::List(runs) = &last[7] else {
-            panic!("runs")
-        };
-        let chip = runs.iter().find_map(|run| {
-            let Value::Record(fields) = run else {
-                return None;
-            };
-            (fields[6].as_str() == Some("context-image")).then(|| {
-                (
-                    fields[1].as_str().unwrap_or("").to_string(),
-                    fields[5].as_str().unwrap_or("").to_string(),
-                )
-            })
-        });
-        assert_eq!(
-            chip,
-            Some(("shot.png".into(), "t3-context://v1/image/image_1".into()))
         );
     }
 

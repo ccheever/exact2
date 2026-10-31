@@ -42,7 +42,7 @@ if (import.meta.main) {
   const flag = (name, fallback) => { const at = argv.indexOf(name); return at >= 0 ? argv[at + 1] : fallback; };
   const listen = Number(argv[0]), upstream = Number(argv[1]);
   if (!Number.isInteger(listen) || !Number.isInteger(upstream)) throw new Error("usage: bun older-server.mjs <listen port> <server port> [--version V] [--target V] [--download ms] [--install ms] [--restart ms]");
-  const options = { older: flag("--version", "0.0.46-nightly.20261001.1"), target: flag("--target", "0.1.2-nightly.20261021.3457"),
+  const options = { older: flag("--version", "0.0.46-nightly.20261001.1"), target: flag("--target", "0.1.5"),
     download: Number(flag("--download", 6000)), install: Number(flag("--install", 3000)), restart: Number(flag("--restart", 10000)) };
   let updated = false;
   const version = () => (updated ? options.target : options.older);

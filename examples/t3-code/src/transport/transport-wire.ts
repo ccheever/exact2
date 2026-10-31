@@ -1,9 +1,9 @@
 // The Effect RPC wire T3's server speaks over its socket, and the HTTP pieces every
-// connection shares (T3 Code 74541bab17, MIT, see LICENSE-T3: packages/client-runtime/src/rpc/
+// connection shares (T3 Code 7c3b3b3605ef, MIT, see LICENSE-T3: packages/client-runtime/src/rpc/
 // protocol.ts and session.ts frame JSON with effect's RpcSerialization.layerJson;
 // connection/compatibility.ts, supervisor.ts retryDelayMs, rpc/client.ts's expected-failure
 // retry; authorization/remote.ts bootstrapRemoteBearerSession; connection/errors.ts
-// mapRemoteEnvironmentError). Effect itself is not imported: a data module has no timers.
+// mapRemoteEnvironmentError). Effect itself is not imported: its runtime reads the clock, which a data module refuses.
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Frame = Record<string, unknown>;
@@ -24,6 +24,8 @@ export class TransportFailure extends Error {
    * place here). A read that fails so is asked again once the connection is back, so it shows no failure.
    */
   unavailable = false;
+  /** A refused HTTP request's status; 0 for anything else. */
+  status = 0;
   constructor(readonly kind: string, message: string, readonly uncertain = false, readonly reason = '', readonly detail = '', readonly context: Record<string, string> = {}) {
     super(message);
   }
@@ -33,7 +35,7 @@ export class TransportFailure extends Error {
   }
   with(fields: { message?: string; uncertain?: boolean; unavailable?: boolean }) {
     const next = new TransportFailure(this.kind, fields.message ?? this.message, fields.uncertain ?? this.uncertain, this.reason, this.detail, this.context);
-    next.unavailable = fields.unavailable ?? this.unavailable;
+    next.unavailable = fields.unavailable ?? this.unavailable; next.status = this.status;
     return next;
   }
 }
@@ -95,28 +97,38 @@ export function identifier(value: unknown): string | null {
   return null;
 }
 
+/**
+ * Where a WebSocket ticket is minted (reference 7c3b3b3605ef, client-runtime authorization/remote.ts
+ * `webSocketTicketPath`): `rpc` for an RPC socket, `media` for the device hub and the preview stream, which share one
+ * ticket across many requests; none, the bare path every server has, whose tickets open either.
+ */
+export const ticketPath = (use?: 'rpc' | 'media') => use ? `/api/auth/websocket-ticket/${use}` : '/api/auth/websocket-ticket';
+
+/**
+ * issueWebSocketTicketWithFallback: an RPC ticket from a server that predates ticket routes (it answers 404) comes
+ * from the bare path. A media ticket has no fallback, so such a server opens no device or preview stream.
+ */
+export async function mintTicket<T>(use: 'rpc' | 'media', issue: (path: string) => Promise<T>): Promise<T> {
+  try { return await issue(ticketPath(use)); }
+  catch (error) {
+    if (use !== 'rpc' || !(error instanceof TransportFailure) || error.status !== 404) throw error;
+    return issue(ticketPath());
+  }
+}
+
 /** A request carrying the orchestration protocol header. */
 export function request(id: string, method: string, payload: unknown): Frame {
   return { _tag: 'Request', id, tag: method, payload, headers: [['x-t3-orchestration-protocol', String(PROTOCOL_VERSION)]] };
 }
 
-/** PullRequestUnavailableError's message is a getter, not a wire field: a stable sentence from its reason and host. */
-const requirement: Record<string, { missing: string; unauthenticated: string }> = {
-  github: { missing: 'GitHub CLI (`gh`) is required to browse change requests on this host. Install it from https://cli.github.com/ and reload.',
-    unauthenticated: 'GitHub CLI is not authenticated. Run `gh auth login` and retry.' },
-  forgejo: { missing: 'Install Forgejo CLI (`fj` 0.6 or later) from https://codeberg.org/forgejo-contrib/forgejo-cli or Gitea CLI (`tea` 0.16 or later) from https://gitea.com/gitea/tea to browse Forgejo pull requests.',
-    unauthenticated: 'Authenticate your Forgejo or Gitea server with `fj --host <server-url> auth add-token` on the T3 Code server. If fj is missing or unconfigured for that server, use `tea login add`. A configured fj account must be repaired with fj.' },
-  gitlab: { missing: 'GitLab CLI (`glab`) is required to browse change requests on this host. Install it from https://gitlab.com/gitlab-org/cli and reload.',
-    unauthenticated: 'GitLab CLI is not authenticated. Run `glab auth login` and retry.' },
-  'azure-devops': { missing: 'Azure CLI (`az`) with the Azure DevOps extension is required. Install `az`, then run `az extension add --name azure-devops`.',
-    unauthenticated: 'Azure CLI is not signed in. Run `az login` and retry.' },
-  bitbucket: { missing: 'Bitbucket needs API credentials on the server. Add them in Settings → Source Control.',
-    unauthenticated: 'Bitbucket rejected the configured credentials. Check them in Settings → Source Control.' },
-};
-export function pullRequestUnavailable(reason: string, provider: string): string {
-  const known = requirement[provider];
-  if (reason === 'cli-missing') return known?.missing ?? 'The tool this host is read through is not installed or set up.';
-  if (reason === 'cli-unauthenticated') return known?.unauthenticated ?? 'This host has no working credentials.';
+/**
+ * PullRequestUnavailableError's message, a getter rather than a wire field (reference 7c3b3b3605ef, contracts
+ * pullRequest.ts): what the host needs on the server in its own words (`requirement`, which an older server does not
+ * send), else a generic sentence for the reason.
+ */
+export function pullRequestUnavailable(reason: string, requirement = ''): string {
+  if (reason === 'cli-missing') return requirement || 'The tool this host is read through is not installed or set up.';
+  if (reason === 'cli-unauthenticated') return requirement || 'This host has no working credentials.';
   if (reason === 'provider-unsupported') return "Change requests cannot be browsed for this project's host yet.";
   return '';
 }
@@ -154,7 +166,7 @@ export function failure(value: unknown): TransportFailure {
   return typed(value);
 }
 
-// packages/contracts/src/secretRequest.ts at 9c161462c9 (MIT, LICENSE-T3).
+// packages/contracts/src/secretRequest.ts at 7c3b3b3605ef (MIT, LICENSE-T3).
 const SECRET_REQUEST_FAILURE_MESSAGES: Record<string, string> = {
   load_failed: "Could not load the secret request.",
   not_found: "This secret request no longer exists.",
@@ -168,11 +180,21 @@ const SECRET_REQUEST_FAILURE_MESSAGES: Record<string, string> = {
     "That secretRef was already used or does not exist. Ask the user again with request_secret.",
   ref_expired: "That secretRef expired. Ask the user again with request_secret.",
   consume_failed: "Could not use that secretRef. Try again.",
+  not_a_file_request:
+    'The user did not save this secret for shell use. Ask again with request_secret and delivery: "file".',
+};
+
+// PreviewStopLocalServerError's message, a getter by reason (contracts preview.ts at 6d450a4284).
+const STOP_LOCAL_SERVER_FAILURE_MESSAGES: Record<string, string> = {
+  'not-found': "This server is no longer running.",
+  'shared-group': "This server shares a process group with T3 Code, an agent, or a terminal shell, so it can't be stopped on its own.",
+  unsupported: "Stopping servers is not supported on this environment's platform.",
+  'signal-failed': "The server's processes could not be signaled.",
 };
 
 /** GitCommandFailureReason (contracts git.ts): a reason this build does not know decodes as absent. */
 const GIT_FAILURE_REASONS = ['authentication_failed', 'branch_already_exists', 'branch_checked_out_in_worktree', 'host_key_unverified', 'not_a_repository',
-  'path_already_exists', 'ref_not_found', 'remote_unreachable', 'tag_would_be_clobbered'];
+  'path_already_exists', 'push_rejected_by_remote', 'push_rejected_non_fast_forward', 'ref_not_found', 'remote_unreachable', 'tag_would_be_clobbered'];
 
 /** AssetWorkspaceAssetNotFoundError's resource and, from a server that sends it, the host path it checked. */
 function assetNotFoundContext(value: Record<string, unknown>): Record<string, string> {
@@ -194,14 +216,19 @@ function typed(value: unknown): TransportFailure {
   let message = field('message');
   // PullRequestOperationError's and PullRequestUnavailableError's messages are getters, not wire fields.
   if (!message && tag === 'PullRequestOperationError' && field('detail')) message = `Pull request operation ${field('operation')} failed: ${field('detail')}`;
-  if (!message && tag === 'PullRequestUnavailableError') message = pullRequestUnavailable(field('reason'), field('provider'));
+  if (!message && tag === 'PullRequestUnavailableError') message = pullRequestUnavailable(field('reason'), field('requirement'));
   // AssetWorkspaceAssetNotFoundError's message is a getter too (contracts assets.ts).
   if (!message && tag === 'AssetWorkspaceAssetNotFoundError') {
     const kind = isObject(value.resource) ? text(value.resource._tag) : '';
     message = kind === 'media-file' ? 'Media file was not found.' : kind === 'tool-output-image' ? 'Tool output image was not found.' : 'Workspace asset was not found.';
   }
+  // The tag predates its rename to AssetSourceControlMediaUrlValidationError, whose message is a getter (contracts assets.ts).
+  if (!message && tag === 'AssetGitHubMediaUrlValidationError') message = 'Only media a source control host keeps behind a credential can be fetched with one.';
   // DeviceEasAccountError's message is its reason, through a getter (contracts device.ts).
   if (!message && tag === 'DeviceEasAccountError') message = field('reason');
+  // PreviewStopLocalServerError's and ServerPrepareTriageError's messages are getters (contracts preview.ts, server.ts).
+  if (!message && tag === 'PreviewStopLocalServerError') message = STOP_LOCAL_SERVER_FAILURE_MESSAGES[field('reason')] ?? '';
+  if (!message && tag === 'ServerPrepareTriageError') message = 'Could not write the triage session files.';
   if (!message && field('detail')) message = field('detail');
   if (!message && 'cause' in value) message = failure(value.cause).message;
   if (!message || message === 'The server request failed.') message = `The server refused the request (${tag}).`;
@@ -298,7 +325,7 @@ export function failureMessage(decoded: unknown, status: number): string {
   if (reason === 'invalid_credential') return 'The environment credential is invalid.';
   if (reason === 'scope_not_granted' || reason === 'invalid_scope') return 'The environment rejected the authentication request.';
   if (field('_tag') === 'PullRequestUnavailableError') {
-    const sentence = pullRequestUnavailable(reason, field('provider'));
+    const sentence = pullRequestUnavailable(reason, field('requirement'));
     if (sentence) return sentence;
   }
   if (field('_tag') === 'PullRequestOperationError' && field('detail')) return `Pull request operation ${field('operation')} failed: ${field('detail')}`;

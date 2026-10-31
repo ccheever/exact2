@@ -3,12 +3,14 @@
 // over CDP and has no host tests for them), with four of previewAutomationRequestConsumer.test.ts's serialization rows:
 // a viewport that never renders, a target that is not editable, an operation failure whose cause stays out of the
 // answer, and an error a plan carried.
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 import { adoptFramePrompt, answerFramePrompt, automationAudio, automationControllerOf, keyActions, runAutomation, toggleFrameMute, useAutomationCalls, type AutomationCalls, type RunDeps } from '../../src/browser/browser-automation-run';
 import { adoptFrameEvent, frameByElement, frameCommandView, frameIdOf, syncFrames } from '../../src/browser/browser-frames';
 import { browserHost } from '../../src/browser/browser-surface';
 import { previewRuntimeTabId, type PreviewSessionSnapshot } from '../../src/browser/browser-state';
-import { adoptCaptureNative } from '../../src/browser/browser-capture';
+import { adoptCaptureNative, heldFrame, threadTurnRunning } from '../../src/browser/browser-capture';
+import { AGENT_FOCUS_IDLE_MS, agentHoldWaiting, settleAgentHolds } from '../../src/browser/browser-automation-run';
+import { noteNow } from '../../src/composer/composer-controls';
 import { obj, type Obj } from '../../src/client/domain';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
@@ -37,13 +39,13 @@ function fakePage(answer: (name: string, options: Obj) => unknown = () => null) 
 const scripted = (value: unknown) => ({ result: { text: JSON.stringify(value) } });
 const failure = (code: string) => Object.assign(new Error(code), { code });
 
-function setup(onSleep: (client: T3Client) => void = () => {}) {
+function setup() {
   const client = { environmentId: 'env-1', threadId: 'thread-1', projectId: 'p1', generation: 3, connection: 'connected', ready: true, draftKey: 'env-1:thread-1',
     presentation: {}, revision: 0, local: {}, shell: { threads: [], projects: [] }, scopes: ['preview:operate'] } as unknown as T3Client & { revision: number };
   browserHost(client).store.reconcileServerSessions(ref, { sessions: [loaded], serverEpoch: 'epoch-1', revision: 1 });
   syncFrames(client, [{ runtimeId: RUNTIME, url: 'http://127.0.0.1:16751/', environment: 'env-1', profile: 'default', zoom: 1, colorScheme: 'system' }]);
   adoptFrameEvent(client, FRAME, record('navigatesuccess'), 0);
-  const native = { available: true, watch() {}, later: async (request: Obj) => { if (request.op === 'timelineSleep') onSleep(client); natives.push(request); return { ok: true, generation: 3, value: {} }; } } as unknown as Native;
+  const native = { available: true, watch() {}, later: async (request: Obj) => { natives.push(request); return { ok: true, generation: 3, value: {} }; } } as unknown as Native;
   const natives: Obj[] = [];
   adoptCaptureNative(client, native);
   const responded: Obj[] = [], rpcs: Array<{ method: string; payload: Obj }> = [];
@@ -54,11 +56,14 @@ const plan = (operation: string, input: Obj = {}, extra: Obj = {}): Obj => ({
   requestId: `r-${operation}`, connectionId: 'c-1', clientId: 'preview-1', operation, input, environmentId: 'env-1', threadId: 'thread-1', timeoutMs: 15_000,
   generation: 3, budgetMs: 13_500, tabId: 'tab-1', runtimeId: RUNTIME, viewportSetting: { _tag: 'fill' }, ...extra,
 });
+/** `onSleep`: the page moves on at each of the run's sleeps (command-waits.ts `sleep`, a timer of the run's answer). */
 async function run(operation: string, input: Obj, page: ReturnType<typeof fakePage>, extra: Obj = {}, onSleep?: (client: T3Client) => void) {
-  const fixture = setup(onSleep);
+  const fixture = setup();
   useAutomationCalls(page.calls);
+  const timer = globalThis.setTimeout;
+  const sleeps = onSleep ? spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => { onSleep(fixture.client); return timer(fn, ms); }) as unknown as typeof setTimeout) : null;
   try { await runAutomation(fixture.client, plan(operation, input, extra), fixture.deps); }
-  finally { useAutomationCalls(null); }
+  finally { useAutomationCalls(null); sleeps?.mockRestore(); }
   return { ...fixture, answer: fixture.responded[0] ?? {} };
 }
 
@@ -226,5 +231,84 @@ describe('the executor', () => {
     expect(automationControllerOf(client, RUNTIME)).toBe('none');
     adoptFrameEvent(client, FRAME, record('currententrychange', { controller: 'agent' }), 0);
     expect(automationControllerOf(client, RUNTIME)).toBe('agent');
+  });
+});
+
+// DesktopBrowserHost.ts at 7c3b3b3605ef: a hidden tab throttles unless the agent drives it in its thread's turn.
+describe('a hidden tab the agent drives', () => {
+  // DesktopBrowserHost.ts at 7c3b3b3605ef: the turn's end (agentTurnsSettled: the root turn and its subagents) and
+  // FOCUS_IDLE after it, or after the last request, let the tab throttle.
+  it('keeps drawing through its thread\'s turn, waiting included, and lets go FOCUS_IDLE after the turn ends', async () => {
+    const { client } = await run('status', {}, fakePage());
+    const thread: Obj = { id: 'thread-1', latestRunId: 'run-1', status: 'running' };
+    (client.shell as { threads: Obj[] }).threads = [thread];
+    noteNow(client, 60_000); // long past the request's own idle wait
+    expect(heldFrame(client, RUNTIME)).not.toBeNull();
+    // Blocked on another thread (t3_thread_wait), then parked on its subagents: the turn still runs, each for longer
+    // than FOCUS_IDLE, which a turn's end seen at its start would have run out.
+    thread.blockedOnThreadWait = true;
+    noteNow(client, 70_000);
+    expect(heldFrame(client, RUNTIME)).not.toBeNull();
+    noteNow(client, 70_000 + AGENT_FOCUS_IDLE_MS + 1_000);
+    expect(heldFrame(client, RUNTIME)).not.toBeNull();
+    delete thread.blockedOnThreadWait;
+    thread.status = 'completed'; thread.pendingBackgroundTasks = [{ kind: 'subagent' }];
+    noteNow(client, 80_000);
+    expect(heldFrame(client, RUNTIME)).not.toBeNull();
+    noteNow(client, 80_000 + AGENT_FOCUS_IDLE_MS + 1_000);
+    expect(heldFrame(client, RUNTIME)).not.toBeNull();
+    // The turn ends; a dev server it left running is no turn. The tab stays held FOCUS_IDLE longer.
+    thread.pendingBackgroundTasks = [{ kind: 'command' }];
+    noteNow(client, 90_000);
+    expect(heldFrame(client, RUNTIME)).not.toBeNull();
+    noteNow(client, 90_000 + AGENT_FOCUS_IDLE_MS - 1);
+    expect(heldFrame(client, RUNTIME)).not.toBeNull();
+    noteNow(client, 90_000 + AGENT_FOCUS_IDLE_MS);
+    expect(heldFrame(client, RUNTIME)).toBeNull();
+    // The next turn has not driven the tab yet.
+    thread.status = 'running'; thread.latestRunId = 'run-2'; thread.pendingBackgroundTasks = [];
+    expect(heldFrame(client, RUNTIME)).toBeNull();
+  });
+  // backgroundWorkHoldsCompletion parks a run on a monitor too, but agentTurnsSettled waits only for child turns.
+  it('lets go FOCUS_IDLE after the turn when the run is parked only on a monitor or a background task', async () => {
+    for (const kind of ['monitor', 'background_task']) {
+      const { client } = await run('status', {}, fakePage());
+      (client.shell as { threads: Obj[] }).threads = [{ id: 'thread-1', latestRunId: 'run-1', status: 'completed', pendingBackgroundTasks: [{ kind }] }];
+      noteNow(client, 60_000);
+      expect(heldFrame(client, RUNTIME)).not.toBeNull();
+      noteNow(client, 60_000 + AGENT_FOCUS_IDLE_MS);
+      expect(heldFrame(client, RUNTIME)).toBeNull();
+    }
+  });
+  it('holds FOCUS_IDLE after the last request of a turn that already ended', async () => {
+    const { client } = await run('status', {}, fakePage());
+    (client.shell as { threads: Obj[] }).threads = [{ id: 'thread-1', latestRunId: 'run-1', status: 'completed' }];
+    expect(heldFrame(client, RUNTIME)).not.toBeNull();
+    noteNow(client, AGENT_FOCUS_IDLE_MS);
+    expect(heldFrame(client, RUNTIME)).toBeNull();
+    expect(agentHoldWaiting(client, AGENT_FOCUS_IDLE_MS)).toBe(false);
+  });
+  it('runs the clock only for a request or an idle wait, and forgets a tab whose thread or frame goes', async () => {
+    const { client } = await run('status', {}, fakePage());
+    const shell = client.shell as { threads: Obj[] };
+    shell.threads = [{ id: 'thread-1', latestRunId: 'run-1', status: 'running' }];
+    const turn = (environmentId: string, threadId: string) => threadTurnRunning(client, environmentId, threadId);
+    // A shown tab in a running turn needs no clock: the turn's end comes as a shell change.
+    settleAgentHolds(client, 60_000, () => true, turn);
+    expect(agentHoldWaiting(client, 60_000)).toBe(false);
+    // Its thread goes: the hold ends after FOCUS_IDLE, and then the clock may stop.
+    shell.threads = [];
+    settleAgentHolds(client, 61_000, () => true, turn);
+    expect(agentHoldWaiting(client, 61_000)).toBe(true);
+    expect(agentHoldWaiting(client, 61_000 + AGENT_FOCUS_IDLE_MS)).toBe(false);
+    // Its frame goes (the tab closed, or its environment went): the tab is forgotten.
+    expect(automationAudio(client, RUNTIME)).not.toBeNull();
+    settleAgentHolds(client, 70_000, () => false, turn);
+    expect(automationAudio(client, RUNTIME)).toBeNull();
+  });
+  it('is not held for a tab the agent never drove', () => {
+    const { client } = setup();
+    (client.shell as { threads: Obj[] }).threads = [{ id: 'thread-1', latestRunId: 'run-1', status: 'running' }];
+    expect(heldFrame(client, RUNTIME)).toBeNull();
   });
 });

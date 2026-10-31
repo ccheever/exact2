@@ -131,7 +131,7 @@ export function resolveThreadStatusPill(thread: Obj, lastVisitedAt: string | und
   const status = shellRuntime(thread)?.status ?? '', threadWait = status === 'running' && thread.blockedOnThreadWait === true;
   if (status === 'running' && !threadWait || status === 'waiting') return SKY;
   if (status === 'preparing' || status === 'starting' || status === 'queued') return { ...SKY, label: 'Connecting' };
-  if (threadWait || backgroundHolds(thread)) return pill('Waiting', 'light-dark(#71717b, #818181)', 'light-dark(#71717b, #818181)');
+  if (threadWait || backgroundHolds(thread)) return pill('Waiting', 'light-dark(#71717b, #a3a3a3)', 'light-dark(#71717b, #a3a3a3)');
   if (unseenFailure(thread, lastVisitedAt)) return pill('Failed', 'light-dark(#e7000b, #ffa2a2e6)', 'light-dark(#fb2c36, #ffa2a2e6)');
   if (thread.interactionMode === 'plan' && latestRunSettled(thread) && thread.hasActionableProposedPlan === true)
     return pill('Plan Ready', 'light-dark(#7f22fe, #c4b4ffe6)', 'light-dark(#8e51ff, #c4b4ffe6)');
@@ -168,7 +168,7 @@ export interface LegacyMember { id: string; physicalKey: string; title: string; 
 /** formatProjectMemberActionLabel: a single project reads its title, a group's members their place. */
 export function memberActionLabel(member: LegacyMember, groupedCount: number): string {
   if (groupedCount <= 1) return member.title;
-  return member.environmentLabel ? `${member.environmentLabel} — ${member.workspaceRoot}` : member.workspaceRoot;
+  return member.environmentLabel ? `${member.environmentLabel}: ${member.workspaceRoot}` : member.workspaceRoot;
 }
 /**
  * The project header's menu (handleProjectButtonContextMenu): Rename, Group into…, Copy Path,

@@ -1,9 +1,11 @@
+import { threadDetailsItemsLocal } from '../details/thread-details-items';
+import { threadServerLocal } from '../details/thread-servers';
 import { captureClosedView, rememberClosedView, reopenClosedView, rememberPagePullRequest } from './closed-views';
 import { can } from '../connections/command-permissions';
 import { parseScopedThreadKey } from '../terminal/terminal-ui-state';
 import { addTerminalSurface, focusPanelTerminal, isTerminalChoice, terminalPanelLocal, terminalPanelView, panelTerminalLabel, terminalSurfaceCloseCopy, installTerminalPanelCleanup, type PanelTerminal } from '../terminal/terminal-panel';
 import { activeRef, terminalAvailable, terminalDrawerView, emptyTerminalDrawerView, type TerminalDrawerView } from '../terminal/terminal-drawer-view';
-// The right panel's tabbed surfaces (MIT reference 9c161462c9, see LICENSE-T3:
+// The right panel's tabbed surfaces (MIT reference 7c3b3b3605ef, see LICENSE-T3:
 // apps/web/src/rightPanelStore.ts, components/RightPanelTabs.tsx, ChatView.tsx
 // addFilesSurface / addDeviceSurface / openFileSurface): an ordered set of surface
 // tabs per thread with one active, opened from the launcher, the "+" menu, the
@@ -14,7 +16,7 @@ import { activeRef, terminalAvailable, terminalDrawerView, emptyTerminalDrawerVi
 import { closeSurface, moveSurface, closePanelSurfaces, openDeviceSurface, editTabName, tabRename, copyTabPath, tabMenuRows, type TabMenuRow } from './right-panel-tabs';
 import { selectDeviceTarget } from '../device/device-session';
 import type { T3Client } from '../client/client';
-import { obj, str, type Obj } from '../client/domain';
+import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { diffRequest, adoptDiff, diffNotGit, selectScope } from '../diff/diff';
 import { loadDiffFiles } from '../diff/diff-review';
@@ -47,7 +49,9 @@ import { emptyFramesView, frameLayerView, type BrowserFramesView } from '../brow
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
 import { addBrowserSurface, browserLocal, frameLocal, browserMiniSessions, browserSurfaceId, moveBrowserTab, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from '../browser/browser-surface';
 import { browserTabAudio, browserTabMute } from '../browser/browser-automation-tabs'; // Mute / Unmute and the audible indicator
-import { claimWorkspaceBasenameLookup, findWorkspaceFileMatch, needsWorkspaceBasenameLookup, stripRepeatedWorkspacePrefix } from '../timeline/workspace-file-lookup'; // a chat link's file
+import { claimWorkspaceBasenameLookup, findWorkspaceFileMatch, needsWorkspaceBasenameLookup, stripRepeatedWorkspacePrefix, workspaceRelativeFilePath } from '../timeline/workspace-file-lookup'; // a chat link's file
+import { serverPdfLocal, serverPdfViewer, type PdfPlace } from '../browser/server-pdf-viewer'; // a server tab's PDF in the viewer page
+import type { ViewerFrameView } from './viewer-frames';
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
 export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number;
@@ -58,7 +62,9 @@ export type Surface = { id: string; kind: SurfaceKind; path: string; line: numbe
   attachment?: AttachmentMeta; device?: DeviceTarget; title?: string; terminal?: PanelTerminal; browser?: { tabId: string; threadKey: string } };
 export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number; maximized?: boolean;
   /** The turn whose diff was last offered proactively, kept across relaunches (rightPanelStore `proactiveDiffTurnId`). */
-  proactiveDiffTurnId?: string };
+  proactiveDiffTurnId?: string;
+  /** The device tabs the person closed, which an agent's opening skips, kept across relaunches (`dismissedDeviceSurfaceIds`). */
+  dismissedDevices?: string[] };
 export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string; closeTitle: string; closeBody: string; closeTarget: string; menu: TabMenuRow[]; favicon: string; faviconFallback: string; audio: string };
 export type PanelView = {
   /** The thread (or draft) this panel belongs to (panelKey), and whether it is open on the launcher alone (rightPanelStore
@@ -249,7 +255,8 @@ export function workspacePath(target: string, cwd: string, line = 0): { path: st
   const suffix = /^(.*?):(\d+)(?::\d+)?$/.exec(path);
   if (suffix && !/^[A-Za-z]$/.test(suffix[1]!)) { path = suffix[1]!; at = at || Number(suffix[2]); }
   const root = cwd.replace(/\/+$/, '');
-  if (root && (path === root || path.startsWith(`${root}/`))) path = path.slice(root.length + 1) || '.';
+  // `/root/../x` starts with the root but leaves it: a host file (ChatMarkdown's panelPath).
+  if (root && (path === root || path.startsWith(`${root}/`)) && workspaceRelativeFilePath(path, root) !== null) path = path.slice(root.length + 1) || '.';
   return { path, line: at };
 }
 /** openFileSurface (palette file picker, content search, file links): needs a project workspace. */
@@ -281,9 +288,14 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   // panel: they run before its state, its userRevision and its cleanups (review of 2026-10-12: an agent's request before
   // the panel was restored made restoreRightPanel skip the saved one).
   if (op === 'remember-pr') { rememberPagePullRequest(client, id); return ''; }
+  // The thread details card's items menu and its Servers rows (thread-details-items.ts, thread-servers.ts).
+  if (op === 'details-items') return threadDetailsItemsLocal(client, 'item', id, value);
+  if (op === 'details-items-reset') return threadDetailsItemsLocal(client, 'reset', id, value);
+  if (op === 'details-server') return threadServerLocal(client, native, value, id);
   if (op === 'pr-breakdown') return requestChangeBreakdown(client, value, id === 'card' ? 'card' : 'linked'); // a linked row's +/- or the details card hovered
   if (op === 'browser-automation-recording') { await serveRecordingRequests(client, native, Number(id) || 0); return ''; }
   if (op.startsWith('browser-frame')) return frameLocal(client, native, op.slice(8), id, value); // a page's own records (browser-surface.ts)
+  if (op.startsWith('server-pdf-')) return serverPdfLocal(client, op.slice(11), id, value); // its viewer page (id = the runtime, value = the place)
   const targetSplit = op === 'close-confirmed' ? id.lastIndexOf('|') : -1;
   const targetKey = targetSplit >= 0 ? id.slice(0, targetSplit) : panelKey(client);
   if (targetSplit >= 0) id = id.slice(targetSplit + 1);
@@ -355,7 +367,10 @@ async function surfaceOp(client: T3Client, native: Native, state: PanelState, ta
     // closePreviewPanel (ChatView.tsx): closing the whole panel on a live device floats it instead of dropping it.
     const active = state.visible ? state.surfaces.find(entry => entry.id === state.active) : undefined, target = active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
     const thread = deviceThreadId(client);
-    if (target && thread) floatMiniDevice(client, thread, target);
+    // floatDeviceSurface: a tab whose session already ended has nothing to stream; before the first device state it floats.
+    const devices = deviceStateOf(client);
+    const live = !devices || arr(devices.sessions).some(session => str(session.threadId) === thread && str(session.hostId) === target?.hostId && str(session.deviceId) === target?.deviceId);
+    if (target && thread && live) floatMiniDevice(client, thread, target);
     // A live Browser tab floats too (closePreviewPanel's browser half).
     if (active?.kind === 'browser' && active.browser && thread && floatingTabOf(client) !== active.browser.tabId) miniStoreOf(client).open(thread, browserMiniPlayerSource(active.browser.tabId));
     state.visible = false; state.maximized = false; client.diffOpen = false; client.diffLoading = false; return '';
@@ -466,11 +481,15 @@ export async function panelView(client: T3Client, native: Native | null | undefi
     tabs: state.surfaces.map(surface => tabOf(client, surface, state.active, pendingPaths(client))), files, prs, device, deviceSetup, ...linked,
     deviceMini: visibleMini(deviceMini(client, deviceStateOf(client)), shownDevice(client)), // shouldRenderPreviewMiniPlayer (its frame: chat-canvas-view.ts)
     tabStrip: tabStrip(obj(client.presentation), state.surfaces.map(surface => surface.id), active?.id ?? '', activeSerial(client, panelKey(client), active?.id ?? '')),
-    ...browserFramesOf(client, open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client), // The client's profiles for the "+" menu and the launcher
-      browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client))), // shouldRenderPreviewMiniPlayer's browser half
+    ...browserFramesOf(client, withPdfViewer(client, 'tab', open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client)), // The client's profiles for the "+" menu and the launcher
+      withPdfViewer(client, 'mini', browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client)))), // shouldRenderPreviewMiniPlayer's browser half
     ...annotationDispatchView(client), annotationSend: annotationSendSerial(client), // After browserPrepare applied the picks
     automationRecording: automationRecordingView(client), // the agent's recording tools (browser-automation-recording.ts)
   };
+}
+/** A server tab's PDF in the viewer page (server-pdf-viewer.ts), as the tab or the floating player shows it. */
+function withPdfViewer<View extends { runtimeId: string; pdfUrl: string; pdfViewer: ViewerFrameView }>(client: T3Client, place: PdfPlace, view: View): View {
+  return { ...view, pdfViewer: serverPdfViewer(client, place, view.runtimeId, view.pdfUrl) };
 }
 /** The panel's Browser tab, the floating player's, and every tab's frame: the panel's sits in its stage's slot while its
  *  page shows (not the empty state or the load-failed page), and the player's at the player's frame. */

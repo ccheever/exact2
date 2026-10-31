@@ -18,13 +18,13 @@ describe('about: updates over the delivery facts', () => {
     const client = fakeClient();
     rememberDelivery(as(client), 'embedded', false);
     const [version, track] = aboutRows(client);
-    expect(version).toMatchObject({ id: 'version', value: '0.1.2-nightly.20261021.3457', label: 'Check for Updates', value2: 'check', disabled: true, description: 'Current version of the application.' });
-    // resolveDefaultDesktopUpdateChannel: this client is a Nightly, so with nothing saved the track is Nightly.
-    expect(track).toMatchObject({ id: 'update-track', title: 'Update track', description: 'Use stable releases or nightly builds. Switch back anytime.', label: 'Nightly', value: 'nightly', disabled: false });
-    expect(track!.options.map(option => [option.label, option.selected])).toEqual([['Stable', false], ['Nightly', true]]);
+    expect(version).toMatchObject({ id: 'version', value: '0.1.5', label: 'Check for Updates', value2: 'check', disabled: true, description: 'Current version of the application.' });
+    // desktopUpdateChannelOf: this client is a stable release, so with nothing saved the track is Stable.
+    expect(track).toMatchObject({ id: 'update-track', title: 'Update track', description: 'Use stable releases or nightly builds. Switch back anytime.', label: 'Stable', value: 'latest', disabled: false });
+    expect(track!.options.map(option => [option.label, option.selected])).toEqual([['Stable', true], ['Nightly', false]]);
     // desktop-settings.json's saved choice.
-    Object.assign(client, { localBackend: parseLocalBackendStatus({ desktopSettings: { updateChannel: 'latest' } }) });
-    expect(aboutRows(client)[1]).toMatchObject({ label: 'Stable', value: 'latest', disabled: false });
+    Object.assign(client, { localBackend: parseLocalBackendStatus({ desktopSettings: { updateChannel: 'nightly' } }) });
+    expect(aboutRows(client)[1]).toMatchObject({ label: 'Nightly', value: 'nightly', disabled: false });
   });
   test('a linked stream can check; its channel names the track; a staged entry is an install', () => {
     const client = fakeClient();

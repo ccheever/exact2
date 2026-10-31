@@ -58,7 +58,7 @@ component InlineDocumentFrame
       if document.shortcut != ""
         for serial in [document.shortcutSerial] key=serial
           InlineDocumentShortcutDelivery(name=document.shortcut)
-      box id=`inline-box-${document.key}` popover=(document.fullscreen ? some("manual") : none) position=(document.fullscreen ? "absolute" : "relative") width=(document.fullscreen ? inlineDocumentViewportWidth : "100%") height=(document.fullscreen ? inlineDocumentViewportHeight : document.height) margin=0 padding=0 border-width=0 background-color="light-dark(#fcfcfc, #0a0a0a)" resize=laidOut
+      box id=`inline-box-${document.key}` popover=(document.fullscreen ? some("manual") : none) position=(document.fullscreen ? "absolute" : "relative") width=(document.fullscreen ? inlineDocumentViewportWidth : "100%") height=(document.fullscreen ? inlineDocumentViewportHeight : document.height) margin=0 padding=0 border-width=0 background-color="light-dark(#fcfcfc, #000000)" resize=laidOut
         if document.fullscreen and document.kind == "mcp"
           row width="100%" height=40 box-sizing="border-box" padding-left="0.75rem" padding-right="0.75rem" border-bottom-width=1 border-bottom-style="solid" border-bottom-color="light-dark(#e4e4e7, #ffffff14)" align-items="center" justify-content="space-between" testId="inline-doc-mcp-toolbar"
             text document.server min-width=0 text-overflow="ellipsis" white-space="nowrap" overflow="hidden" font-size="0.875rem" line-height="1.25rem"
@@ -85,7 +85,7 @@ component InlineDocumentFrame
               Icon(name=(document.fullscreen ? "x" : "maximize"), size=14, color="-exact-label")
 
         if document.fullscreen and document.kind == "html"
-          row position="absolute" left=0 right=0 bottom=0 height=48 justify-content="center" align-items="center" gap="0.5rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
+          row position="absolute" left=0 right=0 bottom=0 height=48 justify-content="center" align-items="center" gap="0.5rem" background-color="light-dark(#fcfcfc, #000000)"
             text document.title max-width="40%" text-overflow="ellipsis" white-space="nowrap" overflow="hidden"
             button press=zoomOut disabled=(zoom <= 0.5) aria-label="Zoom out" title="" testId="inline-doc-zoom-out"
               Icon(name="minus", size=14, color="-exact-label")

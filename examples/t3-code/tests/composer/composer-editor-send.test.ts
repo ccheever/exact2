@@ -94,7 +94,7 @@ describe('submission text (ChatView onSend, 9c161462c9)', () => {
       });
       expect(sent.attachments).toEqual([...(withImage ? [expect.objectContaining({ id: 'image-upload', type: 'image' })] : []),
         { type: 'file', id: 'file-upload', name: 'notes.txt', mimeType: 'text/plain', sizeBytes: 5 }]);
-      expect(uploaded).toMatchObject([{ base64: 'aGVsbG8=', contentType: 'text/plain', path: '/api/attachments/upload/file-upload' }]);
+      expect(uploaded).toMatchObject([{ bodyFrom: `${STAGED}/${file.id}`, sizeBytes: 5, contentType: 'text/plain', path: '/api/attachments/upload/file-upload' }]);
       expect(released()).toEqual([file.id]);
       expect(client.draft).toBe('');
     });
@@ -113,6 +113,7 @@ describe('send gestures through the server keybindings', () => {
   });
   test('⌥⌘↩ while the thread runs follows the follow-up behaviour (queue), then opens the fresh composer', async () => {
     const { client, native, command } = await opened();
+    client.local.clientSettings.followUpBehavior = 'queue'; // follow-ups steer by default
     running(client);
     await command('send', 'key:meta+alt', 'After this');
     expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', threadId: 't1', dispatchMode: { type: 'queue_after_active' } });
@@ -172,6 +173,7 @@ describe('a Send press carries its own pointer modifiers', () => {
   });
   test('the client takes a ⌘-click from the press', async () => {
     const { client, native, command } = await opened();
+    client.local.clientSettings.followUpBehavior = 'queue'; // a ⌘-click does the opposite of the setting, which steers by default
     running(client);
     await command('send', 'pointer:meta', 'Steer by click');
     expect(native.committed.at(-1)).toMatchObject({ deliveryIntent: 'steer', dispatchMode: { type: 'start_immediately' } });
@@ -180,7 +182,7 @@ describe('a Send press carries its own pointer modifiers', () => {
   test('each Send button presses `sendPress`, which hands `send` its MouseEvent\'s modifiers', async () => {
     const fns = contractFns('press-modifiers.contract');
     const mouse = (mods: string) => ({ metaKey: mods.includes('meta'), ctrlKey: mods.includes('ctrl'), altKey: mods.includes('alt'), shiftKey: mods.includes('shift') });
-    for (const name of ['PrimaryActions', 'ComposerFooter']) {
+    for (const name of ['PrimaryActions']) {
       const component = contractComponent('composer-controls.contract', name);
       for (const [mods, held] of [['', ''], ['meta', 'meta'], ['meta alt', 'meta+alt'], ['ctrl shift', 'control+shift'], ['meta ctrl alt shift', 'meta+control+alt+shift']]) {
         const sent: string[] = [];
@@ -189,7 +191,7 @@ describe('a Send press carries its own pointer modifiers', () => {
       }
     }
     const controls = await Bun.file(appPath('composer-controls.contract')).text();
-    expect(controls.split('button press=sendPress ').length - 1).toBe(3); // plan refine, Send, the resting Send
+    expect(controls.split('button press=sendPress ').length - 1).toBe(2); // plan refine and Send
     expect(controls).not.toContain('button press=send ');
     // The reference resolves its send chords only in the composer's editor (composerSubmissionIntentForKey): with the
     // composer unfocused ⌘↩ sends nothing, so Send declares no chord (the composer's key action takes them).

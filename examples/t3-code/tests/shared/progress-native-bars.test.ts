@@ -80,6 +80,7 @@ describe('the markup', () => {
     'pages-usage.contract:${model.bar}': 'UsagePage.tsx model breakdown: aria-hidden',
     'settings-a-telemetry.contract:${head.width}': 'a table column width, not a bar',
     'settings-a-telemetry.contract:${part.width}': 'a table column width, not a bar',
+    'timeline-audio.contract:${duration > 0 ? min(100, elapsed / duration * 100) : 0}': 'AudioPreview.tsx AudioChip: the elapsed fill, aria-hidden',
   };
 
   test('every drawn track and fill is classified against the reference', async () => {

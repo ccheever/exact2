@@ -11,6 +11,7 @@ import { usageFleetEvent } from '../../src/usage/usage-replies';
 import { composerReplyEvent } from '../../src/composer/composer-replies';
 import { noteBalancePrefs } from '../../src/composer/auto-balance';
 import { singleRouteKey } from '../../src/connections/connection-routes';
+import { withTimers } from '../support/timers';
 
 // Under real input, a lane copy ran its embedded server (focused, "This machine", no GitHub project) and was paired with
 // the GitHub lane's server, where #168 was listed. The detail came from the lane server; the diff and the Viewed reads
@@ -61,8 +62,9 @@ function setup() {
     // A detached request (a `deliver` key) is only taken here; its reply is filed in the inbox for the fleet's drain.
     return { ok: true, generation: 4, value: request.deliver ? { id: 'sent' } : answer(String(request.op), String(request.method ?? '')) };
   } } as unknown as Native;
-  /** The panel's resource asked again until it has nothing left to do (each wake is shown, then asked again). */
-  const settle = async () => { let view = await pullRequestDetail(client, native, { selected, refresh: 0, now: NOW, tab: 'code' }); for (let i = 0; i < 12; i++) view = await pullRequestDetail(client, native, { selected, refresh: 0, now: NOW, tab: 'code' }); return view; };
+  /** The panel's resource asked again until it has nothing left to do (each wake is shown, then asked again); its
+   *  Viewed flush waits on its own timer, here on fake timers. */
+  const settle = () => withTimers(async () => { let view = await pullRequestDetail(client, native, { selected, refresh: 0, now: NOW, tab: 'code' }); for (let i = 0; i < 12; i++) view = await pullRequestDetail(client, native, { selected, refresh: 0, now: NOW, tab: 'code' }); return view; });
   const press = (op: string, value: string) => prCodeLocalFor(client, native, op, selected, value);
   /** The fleet's drain: the paired server's reply to a detached write lands (usage-replies.ts usageFleetEvent). */
   const land = (deliver: string) => usageFleetEvent({ key: KEY_B, generation: 4 }, { key: deliver, value: { _reply: {} } });

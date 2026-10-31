@@ -12,9 +12,9 @@ const url = `https://github.com/${pr.owner}/${pr.name}/pull/${pr.number}`;
 const ours = (v) => v.owner === pr.owner && v.name === pr.name && Number(v.number) === pr.number;
 const actor = (login, name = null) => ({ __typename: "User", login, avatarUrl: "https://avatars.githubusercontent.com/u/1", name, id: `U_${login}` });
 
-/** What the session's writes changed: the comments posted, and whether the pull request is closed. */
-const live = { comments: [], closedAt: null };
-export const resetDetail = () => { live.comments = []; live.closedAt = null; };
+/** What the session's writes changed: the comments posted, the review comments submitted, and whether the pull request is closed. */
+const live = { comments: [], reviewThreads: [], closedAt: null };
+export const resetDetail = () => { live.comments = []; live.reviewThreads = []; live.closedAt = null; };
 
 /**
  * Checks of every kind the checks popover draws: passed and skipped (each with its run), running and failed, and a
@@ -64,9 +64,9 @@ const activity = (v) => {
 /** One unresolved thread on README.md line 3: the reviewer's finding and the author's reply under it. */
 const threadComment = (id, login, body, createdAt) => ({ id, author: { __typename: "User", login, avatarUrl: "https://avatars.githubusercontent.com/u/1" }, body, createdAt, lastEditedAt: null, url: `${url}#discussion_${id}`, reactionGroups: [] });
 const reviewThreads = (v) => ({ viewer: { login: pr.author }, repository: ours(v) ? { pullRequest: {
-  reviewThreads: { totalCount: 1, ...page([{ id: "PRRT_1", isResolved: false, isOutdated: false, path: "README.md", line: 3, diffSide: "RIGHT", comments: { totalCount: 2, ...page([
-    threadComment("PRRC_1", "lane-reviewer", "Should this line link to notes/plan.md?", "2026-10-02T10:00:00Z"),
-    threadComment("PRRC_2", pr.author, "Yes, it links to it now.", "2026-10-02T10:20:00Z")]) } }]) },
+  reviewThreads: { totalCount: 1 + live.reviewThreads.length, ...page([{ id: "PRRT_1", isResolved: false, isOutdated: false, path: "README.md", line: 3, diffSide: "RIGHT", comments: { totalCount: 2, ...page([
+    threadComment("PRRC_1", "lane-reviewer", "Should this line link to [notes/plan.md](notes/plan.md)?", "2026-10-02T10:00:00Z"),
+    threadComment("PRRC_2", pr.author, "Yes, it links to it now.", "2026-10-02T10:20:00Z")]) } }, ...live.reviewThreads]) },
   viewerCanUpdate: true, viewerDidAuthor: false, author: { __typename: "User", login: pr.author, avatarUrl: "https://avatars.githubusercontent.com/u/1" }, reactionGroups: [],
   comments: { nodes: [{ id: "IC_1", lastEditedAt: null, author: { __typename: "User", login: "lane-reviewer", avatarUrl: "https://avatars.githubusercontent.com/u/1" }, reactionGroups: [] },
     ...live.comments.map((comment) => ({ id: comment.id, lastEditedAt: null, author: { __typename: "User", login: comment.author.login, avatarUrl: comment.author.avatarUrl }, reactionGroups: [] }))] },
@@ -99,6 +99,24 @@ export const DETAIL_OPERATIONS = {
   ClosePullRequest: (v) => { if (v.pullRequestId !== "PR_7") return null; live.closedAt = new Date().toISOString(); return { closePullRequest: { clientMutationId: null } }; },
   ReopenPullRequest: (v) => { if (v.pullRequestId !== "PR_7") return null; live.closedAt = null; return { reopenPullRequest: { clientMutationId: null } }; },
 };
+
+/**
+ * POST repos/<owner>/<name>/pulls/<n>/reviews (the server's submitReview): each inline comment becomes a thread on its
+ * line, a ranged one (`start_line`) on its last line as GitHub keeps it. The answer's name says the lines each comment
+ * covers, so the log shows what the host was sent; null for any other write.
+ */
+export function detailWrite(method, pathname, body) {
+  if (method !== "POST" || pathname !== `/repos/${pr.owner}/${pr.name}/pulls/${pr.number}/reviews`) return null;
+  const review = JSON.parse(body || "{}"), comments = Array.isArray(review.comments) ? review.comments : [];
+  for (const comment of comments) {
+    const n = live.reviewThreads.length + 2;
+    live.reviewThreads.push({ id: `PRRT_${n}`, isResolved: false, isOutdated: false, path: String(comment.path), line: Number(comment.line), diffSide: comment.side === "LEFT" ? "LEFT" : "RIGHT",
+      ...(comment.start_line === undefined ? {} : { startLine: Number(comment.start_line), startDiffSide: comment.start_side === "LEFT" ? "LEFT" : "RIGHT" }),
+      comments: { totalCount: 1, ...page([threadComment(`PRRC_${n}1`, pr.author, String(comment.body ?? ""), new Date().toISOString())]) } });
+  }
+  const lines = comments.map((comment) => `${comment.path}:${comment.start_line === undefined ? "" : `${comment.start_line}-`}${comment.line}`).join(",");
+  return { value: { id: live.reviewThreads.length + 1, state: String(review.event ?? "COMMENT") }, name: `submitReview ${review.event ?? ""} [${lines}]` };
+}
 
 /** GET repos/<owner>/<name>/pulls/<n> asked as a diff: the patch; anything else there is not answered. */
 export function detailRest(method, pathname, accept) {

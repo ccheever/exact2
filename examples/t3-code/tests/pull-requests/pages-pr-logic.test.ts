@@ -155,6 +155,12 @@ describe('pull request timeline', () => {
     expect(events[0]?.id).toBe('merged');
     expect(events.some(event => event.id === 'closed')).toBe(false);
   });
+  it("names the change request in its host's own term", () => {
+    const titles = (provider: string) => buildPullRequestTimeline({ ...TIMELINE_SOURCE, provider, closedAt: '2026-07-04T00:00:00Z' })
+      .filter(event => event.kind === 'opened' || event.kind === 'closed').map(event => event.title);
+    expect(titles('github')).toEqual(['Pull request closed', 'opened this pull request']);
+    expect(titles('gitlab')).toEqual(['Merge request closed', 'opened this merge request']);
+  });
   it('groups conversation sections without crossing commits or PR updates', () => {
     const events = buildPullRequestTimeline({ ...TIMELINE_SOURCE, comments: [
       { ...first, id: 'new-comment-1', createdAt: '2026-07-04T00:00:00Z' }, { ...first, id: 'new-comment-2', createdAt: '2026-07-03T00:00:00Z' },
@@ -221,11 +227,23 @@ describe('review thread conversations', () => {
     expect(filterPullRequestConversationItems(resolved, { bots: true, resolved: false }).map(item => item.id)).toEqual(['c1']);
     expect(filterPullRequestConversationItems(resolved, { bots: false, resolved: true })).toEqual(resolved);
   });
+  it('keeps bot review verdicts when bot comments are hidden', () => {
+    const review = (id: string, reviewState: string) => ({ ...comment(id, 9), author: bot, kind: 'review', reviewState });
+    const items = pullRequestConversationItems([review('approved', 'APPROVED'), review('changes', 'CHANGES_REQUESTED'), review('commented', 'COMMENTED')], []);
+    expect(filterPullRequestConversationItems(items, { bots: false, resolved: false }).map(item => item.id)).toEqual(['approved', 'changes']);
+  });
   it('distinguishes unloaded replies from complete threads, even when the host only supplies a cursor', () => {
     const timeline = (reviewThread: Obj) => buildPullRequestTimeline({ ...TIMELINE_SOURCE, comments, reviewThreads: [reviewThread] }).find(event => event.id === 'finding')?.thread;
     expect(timeline({ ...thread, commentCount: 5 })).toMatchObject({ moreReplies: 2, hasMoreReplies: true, url: finding.url });
     expect(timeline({ ...thread, nextCommentsCursor: 'next' })).toMatchObject({ moreReplies: 0, hasMoreReplies: true, url: finding.url });
     expect(timeline(thread)).toMatchObject({ moreReplies: 0, hasMoreReplies: false });
+  });
+});
+
+describe('readableFailure', () => {
+  it("replaces a host tool's bare failure with the hint, for every host", () => {
+    for (const message of ['GitHub CLI failed.', 'Azure DevOps API failed', 'Forgejo command failed']) expect(readableFailure(new Error(message), 'Try again.')).toBe('Try again.');
+    expect(readableFailure(new Error('Branch is protected.'), 'Try again.')).toBe('Branch is protected.');
   });
 });
 

@@ -10,8 +10,7 @@ import { triggerModelName } from '../composer/composer-controls-model';
 
 import { resolveProviderInstanceAcpRegistryIconUrl } from '../providers/acp-icons';
 import { instanceDisplayName } from '../sidebar/subagent-card';
-import { instanceInitials } from '../usage/usage-pooled-view';
-import { providerBadge } from '../client/presentation';
+import { providerBadge, providerInstanceInitials } from '../client/presentation';
 import { formatElapsedSeconds, subagentElapsedMs, workActive } from './timeline-work-rows';
 
 const STATUS: Record<string, string> = {
@@ -70,8 +69,9 @@ const PROVIDER_TEXT_COLOR: Record<string, [string, string]> = {
 };
 
 /**
- * HandoffEndpoint: the provider's icon (`detail` the driver, `initials`, `driverIcon`) and the model's trigger name, else the
- * reported model, else the instance's name, in the provider's colour (`iconLight`, `iconDark`); `result` is its tooltip.
+ * HandoffEndpoint: the provider's icon (`detail` the driver, `initials`, `driverIcon`) and a catalog model's trigger name
+ * (its spoken short name under the driver, getTriggerDisplayModelName at 7c3b3b3605ef), else the reported model as
+ * reported, else the instance's name, in the provider's colour (`iconLight`, `iconDark`); `result` is its tooltip.
  * Between two accounts of one provider, the icon carries the instance's badge (`badge`, `badgeColor`; 74541bab17).
  */
 export function handoffEndpoint(endpoint: HandoffEndpoint, providers: Obj[], index: number): Activity {
@@ -79,11 +79,11 @@ export function handoffEndpoint(endpoint: HandoffEndpoint, providers: Obj[], ind
   const model = endpoint.model?.trim();
   const providerModel = model ? arr(entry?.models).find(candidate => candidate.slug === model) : undefined;
   const displayName = entry ? instanceDisplayName(entry) : endpoint.instanceId;
-  const label = providerModel !== undefined ? triggerModelName(providerModel) : model ? model : displayName;
+  const label = providerModel !== undefined ? triggerModelName(providerModel, str(entry?.driver)) : model ? model : displayName;
   const driver = str(entry?.driver) || endpoint.instanceId;
   const [light, dark] = PROVIDER_TEXT_COLOR[driver] ?? ['', ''];
   return { id: `${index}:${endpoint.instanceId}:${endpoint.model ?? ''}`, label, body: '', icon: '', output: '', result: `${displayName} · ${label}`,
-    failed: false, timestamp: '', detail: driver, iconLight: light, iconDark: dark, initials: instanceInitials(displayName),
+    failed: false, timestamp: '', detail: driver, iconLight: light, iconDark: dark, initials: providerInstanceInitials(displayName),
     ...(entry ? { badge: providerBadge(entry, providers).providerBadge, badgeColor: providerBadge(entry, providers).providerBadgeColor } : {}),
     driverIcon: resolveProviderInstanceAcpRegistryIconUrl({ driverKind: driver, iconUrl: str(entry?.iconUrl) || undefined }) ?? '' };
 }
@@ -112,7 +112,7 @@ export function subagent(item: Obj, context: SubagentContext = NO_CONTEXT): Acti
     result: STATUS[status] ?? status, failed: status === 'failed', timestamp: str(item.startedAt ?? item.updatedAt),
     tone: status === 'failed' ? 'error' : status === 'completed' ? 'success' : settled || status === 'idle' ? 'muted' : 'info',
     ok: true, reasoning: false, expandable: false, detail: driver, status, targetId: str(item.childThreadId), answer: '',
-    startedMs: Number.isFinite(startedMs) ? startedMs : 0, initials: instanceInitials(str(provider?.displayName, driver)),
+    startedMs: Number.isFinite(startedMs) ? startedMs : 0, initials: providerInstanceInitials(str(provider?.displayName, driver)),
     driverIcon: resolveProviderInstanceAcpRegistryIconUrl({ driverKind: driver, iconUrl: str(provider?.iconUrl) || undefined }) ?? '' };
 }
 
@@ -152,7 +152,8 @@ export function subagentGroupTiming(agents: ReadonlyArray<{ status: string; star
 export function eventRow(item: Obj, group: Obj[], row: Obj, context: SubagentContext = NO_CONTEXT): Partial<Message> & { kind: string } {
   const type = str(item.type);
   switch (type) {
-    case 'run_interrupt_result': return { kind: 'event', title: 'Run interrupted', detail: str(item.message), tone: 'danger', icon: 'x', runId: str(item.runId) };
+    // A stopped run is no error: a neutral divider with CircleStop.
+    case 'run_interrupt_result': return { kind: 'event', title: 'Run interrupted', detail: str(item.message), tone: 'neutral', icon: 'circle-stop', runId: str(item.runId) };
     // HandoffRow: the endpoints (from…, then to) draw beside the label; `detail` is their text for the row's accessible name.
     case 'handoff': {
       const { from, to } = handoffEndpoints(item, context.runs ?? []);

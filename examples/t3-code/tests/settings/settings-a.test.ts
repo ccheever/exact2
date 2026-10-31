@@ -10,12 +10,12 @@ import { appPath } from '../support/app-files';
 type Fake = { local: Obj; ready: boolean; environmentId: string; config: Obj; writes: Obj[]; projectGroups(): { key: string; name: string; members: Obj[] }[]; settingsCoreRequest(native: Native, method: string, payload: Obj): Promise<Obj> };
 export function fakeClient(settings: Obj = {}, ready = true): Fake {
   const client: Fake = {
-    local: { deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' }, clientSettings: decodeClientPrefs({}), groupingMode: 'repository' },
+    local: { deviceSettings: { planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' }, clientSettings: decodeClientPrefs({}), groupingMode: 'repository' },
     ready, environmentId: 'env1', writes: [],
     config: { environment: { environmentId: 'env1', label: 'Studio', serverVersion: '0.0.46', capabilities: { projectSettingsOverrides: true } }, providers: [], settings: { projectSettingsOverrides: {}, ...settings } },
     projectGroups: () => [{ key: 'repo', name: 'Parity fixture', members: [{ id: 'p1', title: 'Parity fixture', workspaceRoot: '/a' }] }],
     async settingsCoreRequest(_native, method, payload) {
-      if (method === 'server.getSettings') return client.config.settings as Obj;
+      if (method === 'server.getConfig') return client.config as Obj;
       if (method === 'projects.readFile') throw new Error('missing');
       client.writes.push(payload);
       client.config.settings = { ...(client.config.settings as Obj), ...(payload.patch as Obj) };
@@ -196,12 +196,19 @@ describe('device tools, refs, archive menu, look', () => {
     expect(state.menuOf).toBe('env1:p1:t9');
   });
   test('look follows chat width, diff colours, identification and themes', () => {
-    const client = fakeClient();
+    const client = Object.assign(fakeClient(), { preferencesLoaded: true });
     Object.assign(client.local.clientSettings as Obj, { chatWidth: 'wide', diffColorScheme: 'blue-orange', environmentIdentificationMode: 'pill', themeLight: 'grove', themeDark: 'grove' });
     const value = look(as(client));
-    expect([value.chatMax, value.diff, value.artwork, value.pill, value.themed]).toEqual([1152, 'blue-orange', false, 'Nightly', true]);
+    // The pill names the stage; this stable client has none (environment-identification.test.ts).
+    expect([value.chatMax, value.diff, value.artwork, value.pill, value.themed]).toEqual([1152, 'blue-orange', false, '', true]);
     expect(value.sidebar).toContain('light-dark(');
     expect(look(as(fakeClient())).themed).toBe(false);
+  });
+  test('the user message surface is index.css --message-surface on the stock theme, the theme role otherwise', () => {
+    const client = fakeClient();
+    expect(look(as(client)).message).toMatch(/#ebebed.*#1e1e1e|^#1e1e1e$|^#ebebed$/);
+    Object.assign(client.local.clientSettings as Obj, { themeLight: 'grove', themeDark: 'iris' });
+    expect(look(as(client)).message).toMatch(/#cce1d7.*#4b3d72|^#4b3d72$|^#cce1d7$/);
   });
 });
 

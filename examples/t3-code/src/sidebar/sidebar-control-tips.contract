@@ -23,9 +23,9 @@ component TipCard2
     shown: bool
   view
     column max-width="20rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" opacity=(shown ? 1 : 0) transition=(shown ? "opacity 150ms ease 600ms" : "opacity 0ms") pointer-events="none" role="tooltip" aria-hidden=(not shown) testId="tooltip"
-      text label font-size="0.75rem" line-height="1.03125rem" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+      text label font-size="0.75rem" line-height="1.03125rem" white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
       if detail != ""
-        text detail font-size="0.75rem" line-height="1.03125rem" white-space="nowrap" color="light-dark(#71717b, #818181)"
+        text detail font-size="0.75rem" line-height="1.03125rem" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)"
 
 // The resize rail itself is sidebar-rail.contract's SidebarWindowRail; its tooltip is SidebarEdgeTips'.
 
@@ -38,7 +38,7 @@ component TipCard2
 // - Search row (SidebarHeaderIconButton): side top, 4pt above the 28pt buttons
 //   (62pt down), centred 78/50/22pt in from the sidebar's edge.
 // - Footer (SidebarUtilityItem): side top, 4pt above the 32pt buttons (36pt
-//   up from the bottom); Settings aligns to its start at 8pt, Pull Requests and
+//   up from the bottom); Settings aligns to its start at 8pt, Pull requests and
 //   Usage are centred at 60 and 60 or 96pt; SidebarUpdatePill's "Check for
 //   updates" is centred on the pill, 24pt in from the sidebar's edge.
 component SidebarEdgeTips
@@ -62,19 +62,28 @@ component SidebarEdgeTips
     row position="absolute" left="0.5rem" bottom="2.5rem" pointer-events="none" z-index=140
       TipCard(label="Settings", shown=(hoverId == "sidebar-settings"))
     row position="absolute" left="-8.75rem" width="25rem" bottom="2.5rem" justify-content="center" pointer-events="none" z-index=140
-      TipCard(label="Pull Requests", shown=(hoverId == "sidebar-pull-requests"))
+      TipCard(label="Pull requests", shown=(hoverId == "sidebar-pull-requests"))
     row position="absolute" left=(pullRequests ? "-6.5rem" : "-8.75rem") width="25rem" bottom="2.5rem" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Usage", shown=(hoverId == "sidebar-usage"))
     row position="absolute" left=(width - 14 * rem) width="25rem" bottom="2.5rem" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Check for updates", shown=(hoverId == "sidebar-update"))
 
-// SidebarProviderUpdatePill: an update in flight or its outcome; the body opens Settings › Providers.
+// SidebarProviderUpdatePill: an update in flight or its outcome; the body opens Settings › Providers. It leaves in
+// 180 ms (6 px down, fading), and a timed success draws its countdown: a bar across the pill that runs out in 3 s.
+keyframes providerPillOut
+  from opacity=1 translate="0px 0px"
+  to opacity=0 translate="0px 6px"
+keyframes providerPillCountdown
+  from translate="0% 0px"
+  to translate="-100% 0px"
 component ProviderPill
   props
     tone: string
     title: string
     description: string
     dismissible: bool
+    // A timed success (SidebarProviderUpdatePill's dismissAfterVisibleMs): the bar counts it down.
+    countdown: bool
     open: action
     dismiss: action
   state overBody = false
@@ -83,10 +92,13 @@ component ProviderPill
     overBody = value
   action setClose(value: bool)
     overClose = value
-  derive ink = tone == "warning" ? "#fe9a00" : tone == "error" ? "light-dark(#e7000b, #fb2c36)" : "light-dark(#27272a, #f1f3f7)"
+  derive ink = tone == "warning" ? "#fe9a00" : tone == "error" ? "light-dark(#e7000b, #fb2c36)" : "light-dark(#18181b, #f1f3f7)"
   view
-    column position="relative" margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" flex-shrink=0
-      row width="100%" min-height="1.75rem" box-sizing="border-box" border-radius="0.625rem" overflow="hidden" align-items="center" background-color=(tone == "warning" ? "#fe9a001f" : tone == "error" ? "light-dark(#e7000b1f, #fb2c361f)" : "light-dark(#f4f4f5, #0a0a0a)") testId="sidebar-provider-pill"
+    column position="relative" margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" flex-shrink=0 -exact-exit-animation="providerPillOut 180ms cubic-bezier(0.32, 0.72, 0, 1)"
+      row width="100%" min-height="1.75rem" box-sizing="border-box" border-radius="0.5rem" overflow="hidden" align-items="center" position="relative" background-color=(tone == "warning" ? "#fe9a001f" : tone == "error" ? "light-dark(#e7000b1f, #fb2c361f)" : "light-dark(#f4f4f5, #0a0a0a)") testId="sidebar-provider-pill"
+        // The bar slides out of the clipped pill, as the reference's scale-x runs from 1 to 0 at its left edge.
+        if countdown and tone != "loading"
+          box position="absolute" left=0 top=0 bottom=0 width="100%" box-sizing="border-box" border-right-width=1 border-right-style="solid" border-color=(tone == "warning" ? "#fe9a0026" : tone == "error" ? "light-dark(#e7000b26, #fb2c3626)" : "light-dark(#18181b26, #f1f3f726)") background-color=(tone == "warning" ? "#fe9a0024" : tone == "error" ? "light-dark(#e7000b24, #fb2c3624)" : "light-dark(#18181b14, #f1f3f714)") pointer-events="none" animation="providerPillCountdown 3000ms linear forwards" aria-hidden=true testId="sidebar-provider-pill-countdown"
         button press=open hover=setBody aria-label=description testId="sidebar-provider-pill-open" flex=1 min-width=0 padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" gap="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
           SidebarIcon(name=(tone == "loading" ? "loader" : tone == "success" ? "circle-check" : tone == "error" ? "triangle-alert" : "download"), size=14, color=ink)
           text title flex=1 min-width=0 font-size="0.6875rem" line-height="1rem" font-weight=500 text-align="left" color=ink

@@ -1,7 +1,7 @@
 // Clone-authored coverage for T3 Code itemDetail.ts (the reference has no direct tests).
 import { noteNow } from '../../src/composer/composer-controls';
 import { describe, expect, test } from 'bun:test';
-import { toolCallLines, turnItemDetailRevision, turnItemHasDetail, turnItemNeedsDetailFetch, turnItemOutputText } from '../../src/timeline/timeline-item-detail';
+import { toolCallLines, turnItemDetailRevision, turnItemHasDetail, turnItemNeedsDetailFetch, turnItemOutputImages, turnItemOutputText } from '../../src/timeline/timeline-item-detail';
 import { refreshNextOpenTurnItemDetail, setTurnItemOpen, turnItemDetailView, turnItemIsOpen, turnItemDetailsNeeded } from '../../src/timeline/timeline-item-fetch';
 import { inspectorDetail, projectedWorkEntry } from '../../src/timeline/timeline-worklog';
 import { chatLocal } from '../../src/timeline/timeline-presentation';
@@ -205,4 +205,22 @@ describe('on-demand turn item cache', () => {
     await openAndRefresh(client, native, 'a', true, now + 61_000);
     expect(calls).toBe(2);
   });
+});
+
+describe('tool image output parsing (#23595)', () => {
+  for (const shape of ['array', 'content'] as const) {
+    test(`keeps markers for images beyond the served positions in ${shape} output`, () => {
+      // Detail responses keep image metadata after the server strips the bytes.
+      const image = { type: 'image', mimeType: 'image/png' };
+      const blocks = Array.from({ length: 8 }, () => ({ ...image }));
+      const wrap = (content: unknown[]) => (shape === 'array' ? content : { content });
+      const tool = (output: unknown): Obj => ({ id: 'images', threadId: 'thread', type: 'dynamic_tool', toolName: 'screenshots', input: {}, output, status: 'completed' });
+      expect(turnItemOutputText(tool(wrap(blocks)))).toBeNull();
+      expect(turnItemOutputImages(tool(wrap(blocks)))).toHaveLength(8);
+      const overflow = tool(wrap([...blocks, { type: 'text', text: 'Two additional screenshots:' }, { ...image, sizeBytes: 100 },
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg' } }]));
+      expect(turnItemOutputImages(overflow)).toHaveLength(8);
+      expect(turnItemOutputText(overflow)).toBe('Two additional screenshots:\n[image]\n[image]');
+    });
+  }
 });

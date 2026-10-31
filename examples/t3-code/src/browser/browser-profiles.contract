@@ -39,10 +39,10 @@ fn bpAddItems(view: BrowserProfilesView): KmItem[] = view.hydrated and not view.
 
 style BpOverlay
   position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box"
-  background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)"
+  background-color="light-dark(#fcfcfc99, #000000a3)" backdrop-filter="blur(4px)"
 style BpPopup
-  width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)"
-  background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" position="relative"
+  width="100%" max-width="32rem" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)"
+  background-color="light-dark(#fcfcfc, #000000)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" position="relative"
 
 // SettingsRow with the profile list under it: "Browser profiles", its description, and Add profile (a keyboard menu,
 // end-aligned under its trigger: Blank profile, or the limit row in its place once 24 profiles exist).
@@ -67,18 +67,18 @@ component BrowserProfilesSetting
     column width="100%" testId="browser-profiles-setting"
       row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center"
         column flex=1 min-width=0 gap="0.25rem"
-          text "Browser profiles" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-          text "Profiles separate cookies and logins. Incognito data is cleared when the app closes." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
+          text "Browser profiles" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
+          text "Profiles separate cookies and logins. Incognito data is cleared when the app closes." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)" max-width="36rem"
         box position="relative" flex-shrink=0
-          button id="browser-profiles-add" popovertarget="browser-profiles-add-menu" key=triggerKey hover=addHover disabled=view.writesDisabled aria-label="Add profile" aria-haspopup="menu" testId="browser-profiles-add" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(addOver and not view.writesDisabled ? "light-dark(#f4f4f5, #ffffff0f)" : "light-dark(#ffffff, #ffffff07)") opacity=(view.writesDisabled ? 0.64 : 1) data-focus-stop=(view.writesDisabled ? "" : "enabled")
-            LucidePlus(size=16, color="light-dark(#27272a, #f5f5f5)")
-            text "Add profile" font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+          button id="browser-profiles-add" popovertarget="browser-profiles-add-menu" key=triggerKey hover=addHover disabled=view.writesDisabled aria-label="Add profile" aria-haspopup="menu" testId="browser-profiles-add" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color=(addOver and not view.writesDisabled ? "light-dark(#f4f4f5, #ffffff0f)" : "light-dark(#ffffff, #ffffff09)") opacity=(view.writesDisabled ? 0.64 : 1) data-focus-stop=(view.writesDisabled ? "" : "enabled page")
+            LucidePlus(size=16, color="light-dark(#18181b, #f5f5f5)")
+            text "Add profile" font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
           SkPopup(menuId="browser-profiles-add-menu", invoker="browser-profiles-add", label="Add profile", width=216, list=false, endAlign=116, items=menuItems, keyed=0)
             SkMenuItem(keysId="browser-profiles-add-menu-keys", label="Blank profile", menuId="browser-profiles-add-menu", itemId="browser-profiles-blank", selected=false, check=false, destructive=false, disabled=(not view.hydrated or view.atLimit), choose=local("browser-profiles-create", ""))
             if view.atLimit
               SkMenuItem(keysId="browser-profiles-add-menu-keys", label="You’ve reached the profile limit", menuId="browser-profiles-add-menu", itemId="browser-profiles-limit", selected=false, check=false, destructive=false, disabled=true, choose=local("browser-profiles-noop", ""))
       // The bordered list groups rows at any width; Incognito is not a row (it holds nothing to manage).
-      column margin-top="0.5rem" margin-bottom="0.5rem" margin-left="1rem" margin-right="1rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e899, #ffffff09)" testId="browser-profiles-list"
+      column margin-top="0.5rem" margin-bottom="0.5rem" margin-left="1rem" margin-right="1rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e899, #ffffff09)" testId="browser-profiles-list"
         // Keyed by the name too, so a rename made elsewhere resets the field.
         for row in view.rows key=`${row.id}:${row.name}`
           BrowserProfileRow(row=row, view=view, local=local)
@@ -113,14 +113,14 @@ component BrowserProfileRow
     row width="100%" box-sizing="border-box" min-height="2.625rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" gap="0.75rem" align-items="center" border-top-style="solid" border-top-width=(row.first ? 0 : 1) border-color="light-dark(#e4e4e899, #ffffff09)" testId=`browser-profile-row-${row.id}`
       row flex=1 min-width=0 gap="0.5rem" align-items="center"
         if row.builtIn
-          text row.name font-size="0.875rem" line-height="1.25rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)" opacity=(view.writesDisabled ? 0.64 : 1)
+          text row.name font-size="0.875rem" line-height="1.25rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#18181b, #f5f5f5)" opacity=(view.writesDisabled ? 0.64 : 1)
         else
-          input value=draft input=edit change=commit disabled=view.writesDisabled aria-label=`Rename ${row.name}` maxlength=48 autocorrect="off" spellcheck="false" testId=`browser-profile-name-${row.id}` width="100%" max-width="14rem" min-width=0 height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" opacity=(view.writesDisabled ? 0.64 : 1) id=`field-browser-profile-name-${row.id}` data-editable="yes"
+          input data-focus-stop=(view.writesDisabled ? "" : "enabled page") value=draft input=edit change=commit disabled=view.writesDisabled aria-label=`Rename ${row.name}` maxlength=48 autocorrect="off" spellcheck="false" testId=`browser-profile-name-${row.id}` width="100%" max-width="14rem" min-width=0 height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" opacity=(view.writesDisabled ? 0.64 : 1) id=`field-browser-profile-name-${row.id}` data-editable="yes"
         if row.isDefault
-          text "Default" flex-shrink=0 font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.375rem" background-color="light-dark(#1b4ed8, #346bf1)" color="#ffffff" opacity=(view.writesDisabled ? 0.64 : 1) testId=`browser-profile-default-${row.id}`
+          text "Default" flex-shrink=0 font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.25rem" background-color="light-dark(#1b4ed8, #346bf1)" color="#ffffff" opacity=(view.writesDisabled ? 0.64 : 1) testId=`browser-profile-default-${row.id}`
       box position="relative" flex-shrink=0
-        button id=`browser-profile-options-${row.id}` popovertarget=`browser-profile-menu-${row.id}` key=triggerKey hover=menuHover disabled=view.writesDisabled aria-label=`${row.name} options` aria-haspopup="menu" testId=`browser-profile-options-${row.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(menuOver and not view.writesDisabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(view.writesDisabled ? 0.64 : 1) title="" data-focus-stop=(view.writesDisabled ? "" : "enabled")
-          LucideEllipsisVertical(size=14, color="light-dark(#71717b, #818181)")
+        button id=`browser-profile-options-${row.id}` popovertarget=`browser-profile-menu-${row.id}` key=triggerKey hover=menuHover disabled=view.writesDisabled aria-label=`${row.name} options` aria-haspopup="menu" testId=`browser-profile-options-${row.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(menuOver and not view.writesDisabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(view.writesDisabled ? 0.64 : 1) title="" data-focus-stop=(view.writesDisabled ? "" : "enabled page")
+          LucideEllipsisVertical(size=14, color="light-dark(#71717b, #a1a1a1)")
         SkPopup(menuId=`browser-profile-menu-${row.id}`, invoker=`browser-profile-options-${row.id}`, label=`${row.name} options`, width=272, list=false, endAlign=24, items=menuItems, keyed=0)
           SkMenuItem(keysId=`browser-profile-menu-${row.id}-keys`, label="Set as default", menuId=`browser-profile-menu-${row.id}`, itemId=`browser-profile-set-default-${row.id}`, selected=false, check=false, destructive=false, disabled=(not view.hydrated or row.isDefault), choose=local("browser-profiles-default", `id=${encodeURIComponent(row.id)}`))
           SkMenuItem(keysId=`browser-profile-menu-${row.id}-keys`, label="Clear cookies and cache", menuId=`browser-profile-menu-${row.id}`, itemId=`browser-profile-clear-${row.id}`, selected=false, check=false, destructive=false, disabled=(not view.hydrated or not view.removalAvailable), choose=local("browser-profiles-clear", `id=${encodeURIComponent(row.id)}`))
@@ -154,13 +154,13 @@ component BrowserProfileDialogs
           // The focus trap (dialog-trap.contract): Remove profile is the last stop while it is enabled.
           FocusGuard(guardId="browser-profile-remove-guard-start", targets=dialogTargets, popup="browser-profile-remove-dialog")
           column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
-            text `Remove “${view.removalName}”?` font-size="1.25rem" font-weight=600 line-height="1.5rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+            text `Remove “${view.removalName}”?` font-size="1.25rem" font-weight=600 line-height="1.5rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
             text "Its cookies and logins are deleted. Tabs already open in this profile stay open until you close them." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)" id="browser-profile-remove-description"
             if view.removalError != ""
               text view.removalError font-size="0.875rem" line-height="1.25rem" color="light-dark(#e7000b, #ff6467)" aria-live="polite" testId="browser-profile-remove-error"
             if not view.removalAvailable
               text "Connect to an environment to remove this profile and its data." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
-          row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
+          row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#fafafab8, #ffffff06)"
             BpButton(buttonId="browser-profile-remove-cancel", label="Cancel", tone="outline", disabled=view.removalBusy, keys="Escape", press=cancelRemoval)
             BpButton(buttonId="browser-profile-remove-confirm", label=(view.removalBusy ? "Removing…" : "Remove profile"), tone="destructive", disabled=(view.removalBusy or not view.hydrated or not view.removalAvailable), keys="", press=local("browser-profiles-remove", ""))
           FocusGuard(guardId="browser-profile-remove-guard-end", targets=dialogTargets, popup="browser-profile-remove-dialog")
@@ -175,5 +175,5 @@ component BpButton
     keys: string
     press: action
   view
-    button -exact-menu="none" id=buttonId press=press disabled=disabled aria-keyshortcuts=keys testId=buttonId display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) border-color=(tone == "outline" ? "light-dark(#d4d4d8, #ffffff14)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") background-color=(tone == "outline" ? "light-dark(#ffffff, #ffffff07)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") data-focus-stop=(disabled ? "" : "enabled")
-      text label font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" color=(tone == "outline" ? "light-dark(#27272a, #f5f5f5)" : "#ffffff")
+    button -exact-menu="none" id=buttonId press=press disabled=disabled aria-keyshortcuts=keys testId=buttonId display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) border-color=(tone == "outline" ? "light-dark(#d4d4d8, #ffffff1c)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") background-color=(tone == "outline" ? "light-dark(#ffffff, #ffffff09)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") data-focus-stop=(disabled ? "" : "enabled")
+      text label font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" color=(tone == "outline" ? "light-dark(#18181b, #f5f5f5)" : "#ffffff")

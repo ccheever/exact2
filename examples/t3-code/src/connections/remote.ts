@@ -1,10 +1,20 @@
-// packages/shared/src/remote.ts at T3 Code 1e2ecbd975: the pairingUrl branch of
+// packages/shared/src/remote.ts at T3 Code 6d450a4284: readPairingAppLink and the pairingUrl branch of
 // resolveRemotePairingTarget. Exact uses ClientError instead of Effect's tagged
 // errors and returns the native bridge's origin/credential pair. Settings keeps
 // its separate host-plus-code parser in protocol.ts.
 import { ClientError } from '../client/protocol';
 
 const supportedProtocols = new Set(['http:', 'https:', 'ws:', 'wss:']);
+const APP_LINK_PROTOCOL = /^t3code(?:-[a-z]+)?:$/;
+
+/** The pairing URL a `t3code://pair?pairingUrl=…` link carries, on any app channel scheme; null for any other link. */
+export function readPairingAppLink(value: string): string | null {
+  let url: URL;
+  try { url = new URL(value); } catch { return null; }
+  if (!APP_LINK_PROTOCOL.test(url.protocol) || url.host !== 'pair') return null;
+  if (url.pathname !== '' && url.pathname !== '/') return null;
+  return url.searchParams.get('pairingUrl')?.trim() || null;
+}
 
 export function resolveRemotePairingTarget(input: { pairingUrl: string }): { origin: string; credential: string } {
   let url: URL;

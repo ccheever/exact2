@@ -17,6 +17,10 @@ shape KeyDispatch
   label: string
 
 component ShortcutDispatch
+  inject
+    pickerAnnounce: action
+    modelPickTaken: bool
+    workspaceMove: action // workspace.focusNext / focusPrevious (shell-members.contract)
   props
     items: KeyDispatch[]
     selectThread: action
@@ -41,6 +45,16 @@ component ShortcutDispatch
     settings: action
     copy: action
     confirm: action
+  // ModelPickerContent onWindowKeyDown: a tab or model picked by its shortcut is announced, as the focus stays in the
+  // search field (composer-controls-commands.ts announcePickerShortcut), through the root's pickerAnnounce, which
+  // waits for no other command. A model is announced only when the pick is taken (handleModelSelect returned a slug).
+  action providerByKey(target: string)
+    selectProvider(target)
+    pickerAnnounce("cclocal:picker-provider-key", target, "")
+  action modelByKey(target: string, provider: string)
+    selectModel(target, provider, false)
+    if modelPickTaken and target != ""
+      pickerAnnounce("cclocal:picker-model-key", target, provider)
   // A terminal's close asks first; the confirm takes the focus, as Base UI's AlertDialog does (its Cancel
   // gives it back to the terminal: app.contract confirmUi).
   action closeTerminal(target: string, extra: string, label: string)
@@ -80,9 +94,9 @@ component ShortcutDispatch
         if item.kind == "options"
           ShortcutButton(item=item, press=openOptions(item.target))
         if item.kind == "provider"
-          ShortcutButton(item=item, press=selectProvider(item.target))
+          ShortcutButton(item=item, press=providerByKey(item.target))
         if item.kind == "model"
-          ShortcutButton(item=item, press=selectModel(item.target, item.extra, false))
+          ShortcutButton(item=item, press=modelByKey(item.target, item.extra))
         if item.kind == "back"
           ShortcutButton(item=item, press=back)
         if item.kind == "copy-thread"
@@ -110,6 +124,10 @@ component ShortcutDispatch
         // A command whose argument is its value (composer.cycleHost → environment-run-on).
         if item.kind == "command-value"
           ShortcutButton(item=item, press=command(item.target, "", item.extra, 0))
+        // F6 and ⇧F6 (AppSidebarLayout's capture listener): an aria-keyshortcuts button hears its chord before the focused
+        // element, so the key leaves a field or a list as it does a control.
+        if item.kind == "workspace-focus"
+          ShortcutButton(item=item, press=workspaceMove(item.target == "next" ? 1 : -1, ""))
         // ⌥↑ (thread.editQueuedMessage, kind "composer-key") is no menu chord: the composer takes it only with the caret
         // at the very start (app.contract composerKeyEvent), so elsewhere the key moves the caret.
 
@@ -175,8 +193,10 @@ component ShortcutEventButton
 // validates an item that acts on the key window. The reference renderer sees a key before Electron's menu, so a
 // keybinding the person gave ⌘R or ⇧⌘R (`items`, the dispatch buttons) keeps the chord and the item shows none.
 // While the panel shows a Browser page (`page`, its frame), ⌘R asks the data module first: a page holding the focus
-// reloads instead of the window (browser-navigation.ts browserKey), as the reference's guest takes ⌘R.
-// Hidden from assistive technology: the menu item is how they are reached.
+// reloads instead of the window (browser-navigation.ts browserKey), as the reference's guest takes ⌘R. ⌘L, which the
+// reference's guest forwards as Preview: Focus URL, is a hidden key equivalent while a page shows (`-exact-menu="none"`,
+// LLP 1021 §5.3.1): a key the page leaves unhandled reaches only the menus, so this item hears it there, and a page
+// holding the focus gives it to the address bar. Hidden from assistive technology: the menu item is how they are reached.
 component ViewReload
   props
     items: KeyDispatch[]
@@ -190,12 +210,17 @@ component ViewReload
       local("surface-browser-frame-key", page, "chord=meta+r")
     else
       reload()
+  action focusUrlKey
+    local("surface-browser-frame-key", page, "chord=meta+l")
   view
     box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="view-reload-commands"
       button -exact-menu="view" press=reloadKey aria-keyshortcuts=(taken.includes("meta+r") ? "" : "Meta+R") tabindex=-1 aria-hidden=true aria-label="Reload" testId="view-reload" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
         text "Reload" font-size=1
       button -exact-menu="view" press=reloadWindow aria-keyshortcuts=(taken.includes("meta+shift+r") ? "" : "Meta+Shift+R") tabindex=-1 aria-hidden=true aria-label="Force Reload" testId="view-force-reload" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
         text "Force Reload" font-size=1
+      if page != ""
+        button -exact-menu="none" press=focusUrlKey aria-keyshortcuts=(taken.includes("meta+l") ? "" : "Meta+L") tabindex=-1 aria-hidden=true aria-label="Focus URL" testId="view-focus-url" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+          text "Focus URL" font-size=1
 
 // View › Actual Size, Zoom In and Zoom Out (DesktopApplicationMenu.ts zoomClick, DesktopWindow.ts zoomWindow): half a
 // Chromium zoom level a step (1.2^0.5, 109.5%), from 25% to 500%, applied as the root font size (app.contract

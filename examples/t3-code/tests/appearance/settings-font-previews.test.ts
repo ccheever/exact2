@@ -7,6 +7,7 @@
 import { describe, expect, test } from 'bun:test';
 import { diffWordsWithSpace, fontDiffPreview, wordAltMarks } from '../../src/appearance/settings-font-previews';
 import { appFiles, appPath } from '../support/app-files';
+import { settleHighlights } from '../support/highlights-fixture';
 
 const changes = (before: string, after: string) => diffWordsWithSpace(before, after).map(change => [change.added ? '+' : change.removed ? '-' : '=', change.value]);
 const spans = (before: string, after: string) => wordAltMarks(before, after).map(side => side.map(segment => [segment.mark ? 1 : 0, segment.text]));
@@ -37,6 +38,9 @@ describe('word-alt emphasis (pushOrJoinSpan)', () => {
 });
 
 describe('CodeFontPreview content', () => {
+  // The sample paints plain until the root's pump has the lexers answer for it (highlights.ts).
+  fontDiffPreview('red-green');
+  settleHighlights();
   const preview = fontDiffPreview('red-green');
   test('the header: modified src/formatUser.ts, -1 +1', () => {
     expect([preview.path, preview.status, preview.deletions, preview.additions, preview.scheme]).toEqual(['src/formatUser.ts', 'modified', 1, 1, 'red-green']);
@@ -49,7 +53,7 @@ describe('CodeFontPreview content', () => {
   });
   test('TypeScript classes and the emphasis sit where the reference draws them', () => {
     const marked = (index: number) => preview.lines[index]!.segments.filter(segment => segment.mark).map(segment => segment.text).join('|');
-    expect(preview.lines[0]!.segments.filter(segment => segment.syntax).map(segment => [segment.text, segment.syntax]).slice(0, 3)).toEqual([['export', 'kw'], ['function', 'decl'], ['formatUser', 'fn']]);
+    expect(preview.lines[0]!.segments.filter(segment => segment.syntax).map(segment => [segment.text, segment.syntax]).slice(0, 3)).toEqual([['export function ', 'kw'], ['formatUser', 'fn'], ['(', 'punct']]);
     expect(marked(1)).toBe('toUpperCase|();');
     expect(marked(2).replace(/\|/g, '')).toBe('`${} <${user.email}>`; // 0O 1lI');
     expect(preview.lines[2]!.segments.find(segment => segment.text === '// 0O 1lI')).toMatchObject({ syntax: 'com', mark: true });

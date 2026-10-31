@@ -94,8 +94,8 @@ describe('formatDayAwareTimestamp', () => {
   test('snooze times follow the host locale; the weekday stays the runtime default', () => {
     adoptHostLocale('de-DE');
     const presets = snoozePresets(new Date(2026, 9, 6, 10, 0).getTime(), 'locale');
-    expect(presets.find(preset => preset.id === 'tomorrow')?.wakeLabel).toBe('9:00');
-    expect(presets.find(preset => preset.id === 'next-week')?.wakeLabel).toBe('Mon 9:00');
+    expect(presets.find(preset => preset.id === 'at:tomorrow:09:00')?.wakeLabel).toBe('9:00');
+    expect(presets.find(preset => preset.id === 'at:monday:09:00')?.wakeLabel).toBe('Mon 9:00');
   });
 });
 
@@ -124,7 +124,7 @@ describe('theme import size guard', () => {
     if (result.kind !== 'batch') return;
     expect(result.themes.map(theme => theme.label)).toEqual(['Night Owl']);
     expect(result.failures).toEqual(['big.json: too large', 'locked.json: Theme files must contain a JSON object.']);
-    expect(result.failures.join(' — ')).toBe('big.json: too large — locked.json: Theme files must contain a JSON object.');
+    expect(result.failures.join('; ')).toBe('big.json: too large; locked.json: Theme files must contain a JSON object.');
   });
 });
 

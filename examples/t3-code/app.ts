@@ -20,6 +20,7 @@ import { archivedSettings, licenseSettings, storageSettings } from './src/settin
 import { T3Client } from './src/client/client';
 import { composerEditorView, composerWorkspaceView, refreshComposerWorkspace } from './src/composer/composer-editor';
 import { composerRichSource } from './src/composer/composer-rich-source';
+import { uploadSource } from './src/composer/composer-uploads'; // a draft image's upload, a stream that tells its bytes sent
 import { composerFieldOwner } from './src/composer/auto-balance-owner';
 import { composerFieldAcknowledged, composerFieldNative, composerFieldObserved, composerFieldResource } from './src/composer/composer-field-bridge';
 import { composerIntentAnswer } from './src/composer/composer-intent-source';
@@ -55,11 +56,11 @@ import { shellView } from './src/shell/shell';
 import { shellDetails } from './src/details/shell-details';
 import { chatCanvasView } from './src/shell/chat-canvas-view';
 import { sidebarLaunchWidth } from './src/sidebar/sidebar-width';
-import { highlightSlice, startHighlightTurn } from './src/highlight/shiki-highlight';
+import { highlightAsk, highlightStore, highlightView } from './src/highlight/highlights';
 import { noteServerUpdateClock } from './src/connections/server-update-notices';
 import { terminalDrawerView, terminalOpen } from './src/terminal/terminal-drawer-view';
 import { terminalFocused } from './src/terminal/terminal-focus';
-import { codexContext, codexPrepare, codexTarget } from './src/providers/codex-setup-host'; // ManagedCodexSetup's commands and effects
+import { codexContext, codexPrepare, codexReceive, codexReceivingSlots, codexTarget } from './src/providers/codex-setup-host'; // ManagedCodexSetup's commands, effects and loopback callback
 import { codexSetupOp } from './src/providers/codex-setup-ops';
 import { chatGptPlanSnapshot } from './src/providers/chatgpt-plan-view';
 import { autoBalancePrepare } from './src/composer/auto-balance'; // Settings › Load balancing, read for the composer
@@ -84,8 +85,10 @@ export const appId = 'com.exact.t3code.macos';
 // file is t3-code.json (protocol.ts preferenceFiles). `browser.automation` lets data code drive a Browser tab's frame for
 // the agent's preview automation and Annotate (browser-automation.ts, browser-annotation.ts); a capture of a tab is written
 // under app:/tmp/browser-shots and an agent-driven tab's downloads under app:/tmp/browser-downloads before they move to the
-// artifact folder.
-export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/data/t3-code.json\nfs.write app:/data/t3-code.json\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.write app:/data/composer-files\nfs.write app:/data/snapshots/drafts\nfs.read doc:/\nfs.read app:/tmp/picked\nfs.read app:/tmp/composer-stage\nfs.write app:/tmp/composer-stage\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames\nfs.read app:/tmp/browser-shots\nfs.write app:/tmp/browser-shots\nfs.read app:/tmp/browser-downloads\nfs.write app:/tmp/browser-downloads\nbrowser.automation\nfs.read app:/tmp/image-accent\nfs.write app:/tmp/image-accent\ndevice.local-network purpose.local-network\ndevice.camera purpose.camera\ndevice.microphone purpose.microphone';
+// artifact folder. Copy image writes the media's bytes and their PNG under app:/tmp/copy-image (media-copy-image.ts).
+// Thread and review guide notifications post, badge and ask through @exact/notifications (shell-notify.ts); the ChatGPT
+// sign-in opens on auth.openai.com and comes back to a loopback port T3's server chose (codex-setup-ops.ts receiveCallback).
+export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/data/t3-code.json\nfs.write app:/data/t3-code.json\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.write app:/data/composer-files\nfs.read app:/data/snapshots/drafts\nfs.write app:/data/snapshots/drafts\nfs.read doc:/\nfs.read app:/tmp/picked\nfs.read app:/tmp/composer-stage\nfs.write app:/tmp/composer-stage\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames\nfs.read app:/tmp/browser-shots\nfs.write app:/tmp/browser-shots\nfs.read app:/tmp/browser-downloads\nfs.write app:/tmp/browser-downloads\nbrowser.automation\nfs.read app:/tmp/image-accent\nfs.write app:/tmp/image-accent\nfs.read app:/cache/media-preview\nfs.write app:/cache/media-preview\nfs.read app:/tmp/copy-image\nfs.write app:/tmp/copy-image\ndevice.local-network purpose.local-network\ndevice.camera purpose.camera\ndevice.microphone purpose.microphone\ndevice.notifications purpose.notifications\nauth.session https://auth.openai.com\nauth.callback http://127.0.0.1/auth/callback';
 const client = new T3Client();
 const transport = new Transport();
 
@@ -113,6 +116,7 @@ export function answer(source: string, args: unknown[], store: unknown, storage:
       : { ...event, x: event.offsetX, y: event.offsetY, phase: args[2], width: args[3], height: args[4] };
     return serverStreamInput(client, String(args[0] ?? ''), kind === 'control' ? String(args[1] ?? '') : kind, value);
   }
+  if (source === 'composerUpload') return uploadSource(client, Number(args[0]) || 0, String(args[1] ?? ''), String(args[2] ?? ''));
   if (source === 'transportSocket') return transport.socket(Number(args[0]) || 0, String(args[1] ?? ''));
   if (source === 'transportConnect') return transport.connect(Number(args[0]) || 0, String(args[1] ?? ''), Number(args[2]) || 0, Number(args[3]) || 0, native);
   if (source === 'transportUpdateStep') return transport.updateStep(Number(args[0]) || 0, String(args[1] ?? ''), Number(args[2]) || 0);
@@ -129,10 +133,11 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (native?.available) native = composerFieldNative(client, letGoAware(native), () => composerFieldOwner(client));
   adoptAppFiles(_storage); // the app's own files: Save's bytes, a draft's staged copy (save-file.ts)
   const storage = preferenceFiles(_storage);
-  if (source === 'highlightSlice') return highlightSlice(); // a background highlight turn
+  if (source === 'highlightAsk') return highlightAsk(); // the texts waiting for their tokens (app.contract highlightStep)
+  if (source === 'highlightStore') return highlightStore(args[0] as { id: number; line: number; records: number[] }[]); // the lexers' answer
   if (source === 'promptLinkView') return promptLinkView(client);
+  if (source === 'codexReceive') return codexReceive(client, native, String(args[0] ?? '')); // the sign-in's loopback callback (codex-setup-ops.ts)
   if (source === 'promptLinksReady') return promptLinksReady(client);
-  startHighlightTurn(); // any other answer tokenizes code within one turn's budget
   if (source === 'snapshot') {
     noteNow(client, Number(args[0]) || 0);
     transport.observe(Number(args[0]) || 0); // the tick's clock, until its first tick
@@ -146,9 +151,12 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     await keepAlivePrepare(client, native); migrationToast(client); // keep-alive.ts, local-lifecycle.ts: running threads stay live; "Restoring your threads…"
     await codexPrepare(client, native); // codex-setup-host.ts: the managed Codex setups' effects and loopback callbacks
     await activationPrepare(client, native); // desktop-activation.ts: `t3 app` waits until the primary is connected and loaded
-    return { ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? ''), String(args[11] ?? '')), chatgptPlan: chatGptPlanSnapshot(client), // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
+    // The views that paint code answer through highlightView (highlights.ts): each reports whether a text it painted
+    // waits for its tokens, so the root's highlight pump refreshes it when they land (app.contract highlightStoredThen).
+    return highlightView('data', () => ({ ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? ''), String(args[11] ?? '')), chatgptPlan: chatGptPlanSnapshot(client), // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
       linkMenu: chatLinkMenuView(client, native, storage), // a Markdown web link's menu rows (external-link-menu.ts)
-      externalOpen: externalOpenRequest() }; // the latest link to open outside the app (external-open.ts)
+      externalOpen: externalOpenRequest(), // the latest link to open outside the app (external-open.ts)
+      ...codexReceivingSlots(client, native) })); // the ChatGPT sign-ins waiting on their loopback callbacks (app.contract codexLoopback)
   }
   if (source === 'threadFind') return native?.available ? threadFindTick(client, native, Number(args[1]) || 0, arr(args[2]).map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) })), String(args[3] || '')) : threadFindView(client);
   if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));
@@ -179,7 +187,8 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'usagePage') return usagePage(client, native, storage, { open: args[0] === true, metric: String(args[1] || ''), windowDays: Number(args[2]) || 0, breakdown: String(args[3] || 'model'), refresh: Number(args[4]) || 0, width: plotWidth(Number(args[5]) || 1280, Number(args[6]) || 0), now: Number(args[7]) || 0, viewport: Number(args[5]) || 1280, sidebar: Number(args[6]) || 0 });
   if (source === 'usageKeys') return usageKeys(client.config, ariaChord);
   if (source === 'timelineAttachments') return { ...await attachmentUrls(client, native, Number(args[1]) || 0, String(args[3] || '')), posted: inlineDocumentsPosted(client) }; // timeline-attachments.ts
-  if (source === 'prList' || source === 'prDetail' || source === 'welcome') return pagesSource(client, native, source, args, storage);
+  if (source === 'prDetail') return highlightView('prDetail', () => pagesSource(client, native, source, args, storage) as Promise<object>); // its Code tab's rows
+  if (source === 'prList' || source === 'welcome') return pagesSource(client, native, source, args, storage);
   if (source === 'connectionsPage') return connectionsPage(client, native, args[0] === true, Number(args[5]) || 0); // args[5]: the clock, each second while Authorized clients show
   if (source === 'pairingFields') return pairingFields(String(args[0] ?? '')); // pairing-fields.ts
   if (source === 'sshPrompt') return sshPromptSource(native, Number(args[0]) || 0); // ssh-auth.ts: the password dialog's queue
@@ -188,14 +197,14 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'settingsBPicker') return iconPicker(client, native, String(args[0] || ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), String(args[4] || ''), String(args[5] || ''), Number(args[6]) || 0, String(args[7] ?? '')); // settings-b-icons.ts
   // Settings › Providers shows the environment its scope chose (providers-scope.ts): the page's reads and its actions' args[4] name it.
   if (source === 'providerPage') return scopedProviderPage(client, native, args); // args[4..7]: the settings scope
-  if (source === 'providerWizard') return scopedProviderWizard(client, native, args); // args[8..9]: the dialog and its target (the ChatGPT dialogs); args[10]: the page's environment
+  if (source === 'providerWizard') return scopedProviderWizard(client, native, args); // args[8..9]: the dialog and its target (the ChatGPT dialogs); args[10]: the page's environment; args[11]: the agent epoch
   if (source === 'acpRegistry') return scopedAcpRegistry(client, native, args);
   // Updates, Update all, ACP management, the custom model editor (providers-upkeep.ts).
   if (source === 'providerChange' && String(args[0] || '').startsWith('upkeep:')) { if (native?.available) await scopedUpkeepOp(client, native, args); return { revision: ++client.revision, message: '', relaunch: false, routeReorder: 0 }; }
   if (source === 'providerChange' && /^setup:(codex|chatgpt)-/.test(String(args[0] || ''))) { const target = native?.available ? (String(args[0]).startsWith('setup:chatgpt-') ? codexContext(client, native, '') : codexTarget(client, native, String(args[1] || ''))) : null; if (target) await codexSetupOp(target, String(args[0]), String(args[2] ?? ''), String(args[3] ?? ''), () => client.savePreferences(storage)); return { revision: ++client.revision, message: '', relaunch: false, routeReorder: 0 }; }
   if (source === 'providerChange' && String(args[0] || '').startsWith('setup:')) { if (native?.available) await scopedSetupOp(client, native, args); return { revision: ++client.revision, message: '', relaunch: false, routeReorder: 0 }; }
   if (source === 'providerChange') return client.command(String(args[0] || ''), String(args[1] || ''), args[0] === 'favorite-model' ? String(args[2] || '') : JSON.stringify({ key: String(args[2] ?? ''), value: String(args[3] ?? ''), projectIds: args[5] ? JSON.parse(String(args[5])) : [] }), 0, native, storage, providersRoute(client, String(args[4] ?? '')));
-  if (source === 'providerAdd') return client.command('provider-add', String(args[2] || ''), JSON.stringify({ driver: args[0], label: args[1], accentColor: args[3], fields: providerFieldValues(String(args[0] || ''), (Array.isArray(args[4]) ? args[4] : []).map(value => String(value ?? ''))), commandArgs: args[6] }), 0, native, storage, providersRoute(client, String(args[5] ?? '')));
+  if (source === 'providerAdd') return client.command('provider-add', String(args[2] || ''), JSON.stringify({ driver: args[0], label: args[1], accentColor: args[3], fields: providerFieldValues(String(args[0] || ''), (Array.isArray(args[4]) ? args[4] : []).map(value => String(value ?? ''))), commandArgs: args[6], environment: args[7] }), 0, native, storage, providersRoute(client, String(args[5] ?? '')));
   if (source === 'keybindingSettings') return keybindingSettings(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), String(args[6] || ''),
     Array.isArray(args[9]) ? args[9].map(item => obj(item)).map(item => ({ row: str(item.row), command: str(item.command), key: str(item.key), when: str(item.when) })) : []);
   if (source === 'saveKeybinding') return client.command('keybinding-save', String(args[0]), JSON.stringify({ previous: args[1], command: args[2], key: args[3], when: args[4] }), 0, native, storage);
@@ -207,7 +216,10 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'integrationsPage') return { ...(await integrationsPage(pageClient, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[5] || ''), String(args[6] || ''), String(args[7] || ''))),
     browserProfiles: args[2] === true ? await browserProfilesView(client, native) : emptyBrowserProfilesView() }; // Browser profiles and the browser defaults
   if (source === 'settingsNavigation') return settingsNavigation(String(args[0] || ''), searchContext(client.config, client.ready, String(args[1] || 'all')), Number(args[2]) || 0);
-  if (source === 'settingsCore') return settingsCore(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), args[6] === true, String(args[9] || ''), String(args[10] || ''), String(args[11] || 'embedded'), args[12] === true, String(args[13] || 'light'));
+  if (source === 'settingsCore') {
+    const view = () => settingsCore(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), args[6] === true, String(args[9] || ''), String(args[10] || ''), String(args[11] || 'embedded'), args[12] === true, String(args[13] || 'light'));
+    return highlightView('settingsCore', view); // its font preview (settings-font-previews.ts)
+  }
   if (source === 'settings') {
     const environmentId = String(args[0] || '');
     const projectId = String(args[1] || '');
@@ -215,18 +227,18 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     const override = obj(obj(settings.projectSettingsOverrides)[projectId]);
     const available = client.ready && (!environmentId || environmentId === client.environmentId) && (!projectId || client.shell.projects.some(project => project.id === projectId));
     const model = obj(override.defaultModelSelection || settings.defaultModelSelection);
-    return { defaultModelExplicit: available && typeof settings.defaultModelSelection === "object" && settings.defaultModelSelection !== null, defaultModel: available ? [str(model.instanceId), str(model.model)].filter(Boolean).join(" / ") : "", modelOverridden: available && typeof override.defaultModelSelection === "object" && override.defaultModelSelection !== null, environmentId: client.environmentId, available, permission: available ? str(override.defaultRuntimeMode || settings.defaultRuntimeMode, 'approval-required') : '', overridden: available && typeof override.defaultRuntimeMode === 'string', environmentPermission: available ? str(settings.defaultRuntimeMode, 'approval-required') : '', ...client.local.deviceSettings, ...claimBoldChord(keyboardSettings(client.config, args[3] === true, { terminalFocus: terminalFocused(client), terminalOpen: terminalOpen(client), modalOpen: args[4] === true, editableFocus: args[3] === true || args[4] === true, turnRunning: args[5] === true, draftThreadRoute: args[6] !== true, modelPickerOpen: args[7] === true }), args[3] === true, richTextComposer(client)) };
+    return { defaultModelExplicit: available && typeof settings.defaultModelSelection === "object" && settings.defaultModelSelection !== null, defaultModel: available ? [str(model.instanceId), str(model.model)].filter(Boolean).join(" / ") : "", modelOverridden: available && typeof override.defaultModelSelection === "object" && override.defaultModelSelection !== null, environmentId: client.environmentId, available, permission: available ? str(override.defaultRuntimeMode || settings.defaultRuntimeMode, 'approval-required') : '', overridden: available && typeof override.defaultRuntimeMode === 'string', environmentPermission: available ? str(settings.defaultRuntimeMode, 'approval-required') : '', ...client.local.deviceSettings, ...claimBoldChord(keyboardSettings(client.config, args[3] === true, { terminalFocus: terminalFocused(client), terminalOpen: terminalOpen(client), modalOpen: args[4] === true, editableFocus: args[3] === true || args[4] === true, turnRunning: args[5] === true, draftThreadRoute: args[6] !== true, modelPickerOpen: args[7] === true }), args[3] === true, richTextComposer(client), args[8] === true) };
   }
   if (source === 'modelCatalog') return modelCatalog(client, String(args[0] || ''), String(args[1] || ''), String(args[3] || '')); // args[3]: a Settings row's picker target
   if (source === 'createProvider') return client.command('provider-create', String(args[0] || ''), JSON.stringify({ driver: args[1], name: args[2], binaryPath: args[3], homePath: args[4] }), 0, native, storage);
-  if (source === 'paletteView') return paletteView(client, native, args);
+  if (source === 'paletteView') return highlightView('palette', () => paletteView(client, native, args)); // its content search lines
   if (source === 'paletteCommand') return paletteCommand(client, native, storage, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''));
-  if (source === 'shellDetails') return shellDetails(client, native, args[0] === true, String(args[1] || ''), args[3] === true, Number(args[4]) || 0, Number(args[5]) || 0, args[6] !== false, Array.isArray(args[7]) ? args[7].map(String) : [], Array.isArray(args[8]) ? args[8].map(String) : [], Array.isArray(args[9]) ? args[9].map(String) : []); // args[3]: the card docks inline; args[4]: wall time; args[5]: the window right of the canvas; args[6]: the window has the focus and is visible (exact2 #219)
+  if (source === 'shellDetails') return shellDetails(client, native, args[0] === true, String(args[1] || ''), args[3] === true, Number(args[4]) || 0, Number(args[5]) || 0, args[6] !== false, Array.isArray(args[7]) ? args[7].map(String) : [], Array.isArray(args[8]) ? args[8].map(String) : [], Array.isArray(args[9]) ? args[9].map(String) : [], args[10] !== false); // args[3]: the card docks inline; args[4]: wall time; args[5]: the window right of the canvas; args[6]: the window has the focus and is visible (exact2 #219); args[10]: the window is visible
   if (source === 'sidebarLaunchWidth') return sidebarLaunchWidth(client, Number(args[0]) || 0, !!native?.available); // the width fixed at load
   if (source === 'chatCanvas') noteLayoutFrames(client, args[11]);
   if (source === 'chatCanvas') return chatCanvasView(client, native, { width: Number(args[1]) || 0, viewportHeight: Number(args[2]) || 0, detailsInline: args[3] === true, chatMax: Number(args[4]) || 0, overlaid: args[5] === true, gesture: String(args[6] || ''), wide: args[9] === true, popoverOpen: args[10] === true }); // args[7..8] re-ask when the player changes
   if (source === 'terminalDrawer') return terminalDrawerView(client, native, Number(args[1]) || 0, Number(args[2]) || 0); // args[0] re-asks on each revision
-  if (source === 'shellView') { noteNow(client, Number(args[1]) || 0); return shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true, { focused: args[5] !== false, visible: args[6] !== 'hidden' }, args[7] !== false); } // args[5..6]: exactPage().hasFocus and visibilityState (exact2 #219); args[7]: the chat view is shown
+  if (source === 'shellView') { noteNow(client, Number(args[1]) || 0); return highlightView('shell', () => shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true, { focused: args[5] !== false, visible: args[6] !== 'hidden', notifications: String(args[8] ?? '') }, args[7] !== false)); } // args[5..6]: exactPage().hasFocus and visibilityState (exact2 #219); args[7]: the chat view is shown; args[8]: the notification permission
   // A drop, a paste, Attach files or a sidebar row's drop (app.contract attachFiles): composer-controls-attach.ts.
   if (source === 'composerAttach') return client.command('cclocal:attach-files', String(args[0] || ''), JSON.stringify({ files: (Array.isArray(args[1]) ? args[1] : []).map(String), picked: Array.isArray(args[2]) ? args[2] : [], asText: args[3] === true, target: String(args[4] ?? '') }), 0, native, storage);
   if (source === 'command') return client.command(String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, native, storage);

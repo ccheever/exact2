@@ -32,7 +32,7 @@ const closeRow = (c: T3Client, panelOpen: boolean, prNumber = '') =>
   keyboardDispatch(c, [], '', '', { ...context, diffOpen: panelOpen, prNumber }).find(item => item.command === 'rightPanel.close');
 
 describe('⌘W: rightPanel.close → closeRightPanelSurface(activeRightPanelSurface)', () => {
-  test('no open panel: no row, so Close Window keeps the chord', () => {
+  test('no open panel: no row, so ⌘W closes nothing', () => {
     const c = client();
     expect(closeRow(c, false)).toBeUndefined();
     expect(closeChordTarget(c, false, '')).toBeNull();

@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { childThreadInputs, childThreadInputsTitle, noteSubagentRequests, pendingSubagentRequestsByThread } from '../../src/sidebar/subagent-requests';
 import { canSnooze, raisedHand, sidebarStatus } from '../../src/sidebar/sidebar-model';
-import { composerNotices, contextSnapshot, formatTokens } from '../../src/composer/composer-controls-view';
+import { contextSnapshot, formatTokens } from '../../src/composer/composer-controls-view';
+import { endSummary, threadNowRows } from '../../src/composer/thread-end';
 import { pendingHandoff, threadFooterRows } from '../../src/timeline/thread-status-line';
 import { opened } from '../support/composer-controls-fixture';
 import type { Obj } from '../../src/client/domain';
@@ -14,17 +15,36 @@ test('a hidden child raises its visible ancestors, approval wins, and completed 
   const parent = client.shell.threads[0]!, branch = child('branch', 't1', 'user_input'), leaf = child('leaf', 'branch', 'command');
   client.shell.threads = [parent, branch, leaf];
   noteSubagentRequests(client.shell.threads);
-  expect([...pendingSubagentRequestsByThread(client.shell.threads)]).toEqual([['t1', 'approval'], ['branch', 'approval']]);
+  expect([...pendingSubagentRequestsByThread(client.shell.threads)]).toEqual([['branch', 'approval'], ['t1', 'approval']]);
   expect(sidebarStatus(parent)).toBe('approval');
   expect(canSnooze(parent, 0)).toBe(false);
   expect(raisedHand(parent)).toBe(true);
   expect(childThreadInputsTitle(childThreadInputs(client.shell.threads, 't1'))).toBe('2 subagents need you');
-  expect(composerNotices(client, 0)[0]).toMatchObject({ title: '2 subagents need you', action: 'select-thread', actionId: 'branch' });
+  // childInputNowItem: the only line at the end of the timeline that needs you, announced, its action opening the first child.
+  const line = threadNowRows(client)[0]!;
+  expect(line).toMatchObject({ id: 'child-input:branch', title: '2 subagents need you', icon: 'message-circle', tone: 'info', status: 'alert' });
+  expect(line.activities!.filter(entry => entry.status === 'action')).toEqual([expect.objectContaining({ label: 'Open question', detail: 'select-thread', targetId: 'branch' })]);
+  expect(endSummary(client)).toBe('Subagent waiting');
   branch.activityRunStatus = null; leaf.activityRunStatus = null;
   client.shell.threads = [...client.shell.threads];
   noteSubagentRequests(client.shell.threads);
   expect(sidebarStatus(parent)).not.toBe('approval');
-  expect(composerNotices(client, 0).some(notice => notice.id.startsWith('child-input:'))).toBe(false);
+  expect(threadNowRows(client).some(row => row.id.startsWith('child-input:'))).toBe(false);
+});
+
+test('a live subagent question stays inside its parent: no flag up the chain, while an approval still flags it', async () => {
+  const { client } = await opened();
+  const parent = client.shell.threads[0]!, branch = child('branch', 't1', 'user_input'), leaf = child('leaf', 'branch', 'user_input');
+  client.shell.threads = [parent, branch, leaf];
+  noteSubagentRequests(client.shell.threads);
+  expect(pendingSubagentRequestsByThread(client.shell.threads).size).toBe(0);
+  expect(sidebarStatus(parent)).not.toBe('approval');
+  expect(raisedHand(parent)).toBe(false);
+  expect(childThreadInputs(client.shell.threads, 't1').map(entry => entry.id)).toEqual(['branch', 'leaf']);
+  client.shell.threads = [parent, branch, { ...leaf, pendingRuntimeRequest: { kind: 'command' } }];
+  noteSubagentRequests(client.shell.threads);
+  expect([...pendingSubagentRequestsByThread(client.shell.threads)]).toEqual([['branch', 'approval'], ['t1', 'approval']]);
+  expect(sidebarStatus(parent)).toBe('approval');
 });
 
 test('a parent request takes precedence and an auth refresh never raises attention', async () => {
@@ -32,7 +52,7 @@ test('a parent request takes precedence and an auth refresh never raises attenti
   client.shell.threads = [...client.shell.threads, child('q', 't1', 'user_input'), child('auth', 't1', 'auth_refresh')];
   expect(childThreadInputs(client.shell.threads, 't1').map(entry => entry.id)).toEqual(['q']);
   client.thread!.projection.runtimeRequests = [{ id: 'a', status: 'pending', kind: 'command', responseCapability: { type: 'live' } }];
-  expect(composerNotices(client, 0).some(notice => notice.id.startsWith('child-input:'))).toBe(false);
+  expect(threadNowRows(client).some(row => row.id.startsWith('child-input:'))).toBe(false);
 });
 
 /** A thread whose provider session hands context to another provider instead of locking the composer to its own. */

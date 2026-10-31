@@ -53,5 +53,5 @@ ${chunked(value)}
   + ')$', 'i');
 `;
   // The iOS app's bake captures only mobile/, so its html syntax reads its own copy of the same words.
-  return [{ file: join(example, 'src', 'highlight', 'css-words.ts'), text }, { file: join(example, 'mobile', 'shared', 'r7-polish-css-words.ts'), text }];
+  return [{ file: join(example, 'mobile', 'shared', 'r7-polish-css-words.ts'), text }];
 }

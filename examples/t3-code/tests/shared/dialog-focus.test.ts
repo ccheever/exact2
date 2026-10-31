@@ -419,9 +419,29 @@ describe('post-created provider traversal follows the Sign in content', () => {
       expect(targets.filter(id => enabled.includes(id))[0]).toBe(discovering ? 'wizard-finish' : 'wizard-provider-auth-docs-example');
     }
     const setup = await source('providers-setup.contract');
-    expect(setup).toContain('ProviderCredentialsForm(account=account, off=off, op=op, idPrefix=idPrefix)');
+    expect(setup).toContain('ProviderCredentialsForm(stop=stop, account=account, off=off, op=op, idPrefix=idPrefix)');
     expect(setup).toContain('id=`${idPrefix}provider-auth-credential-${account.instanceId}-${field.name}`');
     expect(setup).toContain('id=`${idPrefix}provider-callback-${account.instanceId}`');
-    expect(setup).toContain('button id=testId data-focus-stop=(disabled ? "" : "enabled")');
+    expect(setup).toContain('button id=testId data-focus-stop=(disabled ? "" : stop)'); // the wizard's SetupButtons pass "enabled"
+  });
+});
+
+// _chat.settings.tsx at 7c3b3b3605ef: Base UI's trap wraps Shift+Tab from the modal's first stop to its last tabbable in
+// tree order, the page's last control, not the header's close button.
+describe('Settings\' and Usage\'s modal wraps Shift+Tab to the page\'s last control', () => {
+  const guard = contractComponent('dialog-trap.contract', 'RouteFocusGuard');
+  const enter = (page: string[]) => {
+    const focused: string[] = [], scrolled: unknown[][] = [];
+    guard.call('enter', {}, { targets: ['settings-search', 'close-settings'], popup: 'settings-dialog', stopPropagation() {},
+      querySelectorAll: (selector: string) => selector.includes('dialog-focus') ? ['settings-dialog'] : selector.includes('"page"') ? page : ['settings-search', 'close-settings', ...page],
+      focus: (id: string) => focused.push(id), scrollIntoView: (...args: unknown[]) => scrolled.push(args) }, []);
+    return { focused, scrolled };
+  };
+  // The web's focus() scrolls what it focuses into view; the Mac host's does not, so the guard scrolls it.
+  test('the last page control, in tree order, scrolled into view', () => {
+    expect(enter(['setting-theme', 'setting-font-size'])).toEqual({ focused: ['setting-font-size'], scrolled: [['setting-font-size', { block: 'nearest' }]] });
+  });
+  test('the close button when the page has no controls', () => {
+    expect(enter([])).toEqual({ focused: ['close-settings'], scrolled: [['close-settings', { block: 'nearest' }]] });
   });
 });

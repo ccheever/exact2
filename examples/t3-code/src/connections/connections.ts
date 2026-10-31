@@ -1,8 +1,8 @@
 // Settings → Connections (ConnectionsSettings.tsx, EnvironmentRow.tsx,
-// EnvironmentIconPicker.tsx, LoadBalancingSettings.tsx, GitHubRoutingSettings.tsx).
+// EnvironmentIconPicker.tsx, LoadBalancingSettings.tsx, PullRequestRoutingSettings.tsx).
 // The primary environment is the embedded server ("This machine", local-primary.ts,
-// this-machine.ts): it has its own section and no row under Environments, and it
-// leads Load balancing and GitHub sharing. Every server this client pairs with is a
+// this-machine.ts): it has its own section under Sharing & access and no row under
+// Environments, and it leads Load balancing and Pull request sharing. Every server this client pairs with is a
 // saved environment, listed under Environments with its own switch and row menu.
 // Several stay connected at once: the focused one is T3Client's
 // connection, the rest are background sessions (settings-b-fleet.ts, transport.ts).
@@ -102,11 +102,11 @@ export function loadPreference(weight: number | undefined): number {
 const preferenceLabel = (value: number) => PREFERENCES.find(([weight]) => weight === value)![1];
 /** Trust belongs to the saved endpoint, not to an environment id alone (one route; several: gitHubRoutingConnectionKey). */
 export const routingKey = singleRouteKey;
-/** The GitHub sharing key of a saved environment: its routes' endpoints. */
+/** The pull request sharing key of a saved environment: its routes' endpoints. */
 const sharingKey = (source: { origin: string; environmentId: string; routes?: ConnectionRoute[] }) =>
   source.routes?.length ? gitHubRoutingConnectionKey({ environmentId: source.environmentId, label: '', routes: source.routes }) ?? routingKey(source.origin, source.environmentId) : routingKey(source.origin, source.environmentId);
 /**
- * githubRoutingPermissions.ts get: each environment's GitHub sharing as the
+ * pullRequestRoutingPermissions.ts get: each environment's pull request sharing as the
  * pull request routing reads it, over the key of its current saved endpoints (a changed address or SSH
  * profile no longer matches the stored key, so it reads "off"), with whether it is local (the primary, or a
  * loopback origin: pullRequestRouting.ts isLocal) and switched on.
@@ -255,7 +255,7 @@ export function connectionsProjection(host: ConnectionHost, saved: Obj[], entrie
     machines: machines.length >= 2 ? machines : [],
     loadBalancing: prefs.loadBalancingEnabled,
     loadSummary: prefs.loadBalancingEnabled ? summarizeLoad(machines, prefs.loadBalancingWeights) : 'Off',
-    githubSummary: summarizeRouting(machines.map(machine => ({ label: machine.label, permission: machine.routing }))) || 'Off',
+    routingSummary: summarizeRouting(machines.map(machine => ({ label: machine.label, permission: machine.routing }))) || 'Off',
   };
 }
 
@@ -371,7 +371,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
             throw new ClientError(outdated instanceof Error ? outdated.message : String(outdated), 'Protocol');
           }
         });
-        // Pairing a saved machine at another address adds a route, placed by kind.
+        // Pairing a saved machine again, at an address it already has, refreshes its credential.
         const added = obj(paired?.value);
         if (str(added.environmentId) && added.primary !== true) {
           await placeRoute(native, str(added.environmentId), str(added.origin)).catch(() => {});
@@ -571,10 +571,10 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
     await writePrefs(native, prefs => { prefs.loadBalancingWeights = { ...prefs.loadBalancingWeights, [id]: weight }; });
     return { status: null, generation: -1 };
   }
-  if (op === 'github-routing') {
+  if (op === 'pull-request-routing') {
     const [origin, environmentId] = splitKey(id);
     try {
-      if (!['off', 'read', 'read-write'].includes(value) || !environmentId) throw new ClientError('Choose a GitHub routing permission.');
+      if (!['off', 'read', 'read-write'].includes(value) || !environmentId) throw new ClientError('Choose a pull request routing permission.');
       const entry = savedEntry(await savedList(native), environmentId);
       const key = sharingKey({ origin: str(entry?.origin, origin), environmentId, routes: entry ? savedRoutes(entry) : [] });
       await writePrefs(native, prefs => {
@@ -582,13 +582,13 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
         if (value === 'off') delete next[key]; else next[key] = value;
         prefs.githubRouting = next;
       });
-    } catch (error) { if (client && !letGo(error)) pushToast(client, { kind: 'error', title: 'Could not save GitHub routing permission' }); throw error; }
+    } catch (error) { if (client && !letGo(error)) pushToast(client, { kind: 'error', title: 'Could not save pull request routing permission' }); throw error; }
     return { status: null, generation: -1 };
   }
   throw new ClientError(`Unknown action: ${op}`);
 }
 export const CONNECTION_OPS = ['environment-add', 'welcome-pair', 'environment-switch', 'environment-enabled', 'environment-forget', 'environment-trace', 'environment-icon',
-  'environment-update', 'environment-update-outdated', 'environment-update-all', 'environment-ssh-add', 'environment-ssh-pick', 'load-balancing', 'load-weight', 'github-routing', 'environment-run-on', 'add-machine-submit',
+  'environment-update', 'environment-update-outdated', 'environment-update-all', 'environment-ssh-add', 'environment-ssh-pick', 'load-balancing', 'load-weight', 'pull-request-routing', 'environment-run-on', 'add-machine-submit',
   'environment-route-add', 'environment-route-move', 'environment-route-remove', 'local-environment',
   // connections-network.ts NETWORK_OPS (spelled out: the two modules import each other)
   'network-access', 'tailscale-serve', 'endpoint-default', 'pairing-create', 'pairing-revoke', 'client-revoke', 'clients-revoke-others', 'pairing-copy', 'pairing-reveal-close'];

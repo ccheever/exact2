@@ -22,10 +22,10 @@ use LicenseSettings from "../shared/shapes.contract"
 use DiagnosticsPage from "../settings/settings-diagnostics.contract"
 use SettingsNav from "../settings/settings-core.contract"
 use SettingsTopBar from "../settings/settings-core.contract"
-use SettingsSidebarToggle from "../settings/settings-core.contract"
 use SettingsCore from "../settings/settings-core.contract"
+use AppRouteModal, routeModalWidth from "./app-route-modal.contract"
 use CoreNav from "../settings/settings-core.contract"
-use SettingsCoreBody from "../settings/settings-core-body.contract"
+use SettingsCoreBody, settingsCoreRoute from "../settings/settings-core-body.contract"
 use SettingsRestoreDialog from "../settings/settings-core-body.contract"
 use SettingsADialogs from "../settings/settings-a-dialogs.contract"
 use ProvidersPanel from "../providers/providers.contract"
@@ -59,9 +59,7 @@ use SbPicker from "../settings/settings-b-icons.contract"
 use SbSshHosts from "../connections/connections.contract"
 use Snapshot from "../shared/shapes.contract"
 use Viewport from "../shared/shapes.contract"
-use SidebarWindowRail from "../sidebar/sidebar-rail.contract"
 use DialogFinalFocus from "../shared/dialog-trap.contract"
-use TipCard from "./shell-tip.contract"
 
 // The T3Code window's Settings view and dialogs, moved out of app.contract, which keeps the state,
 // resources and actions: each component takes the root names it reads as props of the same names.
@@ -75,11 +73,15 @@ use TipCard from "./shell-tip.contract"
 // field counts only on the visit it was opened on.
 fn providerLinkVisit(visit: number, onPage: bool, machine: string, target: string, nextMachine: string, nextTarget: string): number = (onPage and machine == nextMachine and target == nextTarget) ? visit : visit + 1
 fn modelAddingOn(adding: string, openedOn: number, visit: number): string = openedOn == visit ? adding : ""
+// A field that takes Escape gains or loses the focus. A field that closes on its own Escape is gone before its
+// blur could say so, so its Escape clears it too.
+fn escapeFocusNext(current: string, field: string, focused: bool): string = focused ? field : (current == field ? "" : current)
 
 // Settings: the navigation, top bar and each route's panel, then the theme and restore dialogs.
 component SettingsWindow
   inject
     rem: number
+    workspaceEntered: action // Settings' page is a workspace area (shell-members.contract)
     routeKeyboard: RouteKeyboard
   props
     themeInspecting: bool
@@ -93,7 +95,6 @@ component SettingsWindow
     settingsNavigation: CoreNav
     settingsRoute: string
     settingsQuery: string
-    sidebarWidth: number
     viewport: Viewport
     scheme: string
     settingsMenu: string
@@ -106,9 +107,6 @@ component SettingsWindow
     corePickRoot: action
     coreClearSearch: action
     closeModal: action
-    toggleSidebar: action
-    navFocusWithin: action
-    keySidebar: string
     commandPending: bool
     settingsScrollTop: number
     settingsPage: string // route, scope and restore count (app.contract)
@@ -189,11 +187,6 @@ component SettingsWindow
     settingsThemeSubject: string
     coreThemeChange: action
     settingsCommand: action
-    // The app sidebar's width and its rail's drag (AppSidebarLayout: Settings renders inside
-    // the app Sidebar, whose SidebarRail resizes the one width both navs share).
-    resizeSidebar: action
-    finishResize: action
-    resetSidebarWidth: action
   // Settings' view-only state lives here, not in app.contract, so the root keeps its lines for what resources read:
   // the search's held Escape, the legacy rows, the restore dialog and the keybinding and licence searches. A
   // wrapper sets it, then calls the root's half (`…Root`), which keeps what a resource reads.
@@ -203,25 +196,22 @@ component SettingsWindow
   state licenseSearchOpen = false
   // The "Models" block whose "Add custom model" field is open (ProviderModelsSection
   // isAdding, by the block's key: a successful add gives the block a new one), the field whose onKeyDown would take
-  // Escape and that has the focus ("keybindings-filter", "license-search", "custom-model-slug"), and whether the
-  // pointer is over the sidebar rail ("Drag to resize sidebar"). T3Window mounts this view only while Settings is
-  // open, so all of it starts over each time, as the reference's settings route remounts.
+  // Escape and that has the focus ("keybindings-filter", "license-search", "custom-model-slug"). T3Window mounts this
+  // view only while Settings is open, so all of it starts over each time, as the reference's settings route remounts.
   state modelAdding = ""
   // The provider link visit the field was opened on (providerLinkVisit above).
   state modelAddingVisit = 0
   derive modelAddingLive = modelAddingOn(modelAdding, modelAddingVisit, providerVisit)
   state escapeFocus = ""
-  state railHover = false
-  state updateTipHover = false // the Settings nav's SidebarUpdatePill (its tooltip is drawn below, past the nav)
   derive modelAddingShown = modelAddingLive != "" and providerPage.editors.filter((shown) => shown.modelBlocks.map((models) => models.key).includes(modelAddingLive)).length > 0
-  // Escape belongs to the innermost thing that owns it (useEscapeToGoBack runs only for an
+  // Escape belongs to the innermost thing that owns it (the modal's close runs only for an
   // Escape nothing prevented): a popup or menu, an inline editor, a recording shortcut, or a field whose onKeyDown
   // takes it, which hears it only while it has the focus. The command palette opened over Settings is a Dialog whose
-  // Escape closes only itself. While one owns it, Back gives up its Escape shortcut; with
+  // Escape closes only itself. While one owns it, the close button gives up its Escape shortcut; with
   // none (a search left open with a query, the focus elsewhere), Escape leaves Settings. The When editor's and the
   // font list's popovers and the recorder are `aria-modal` too, and the dialogs make this view inert (below).
   derive escapeOwned = routeKeyboard.phase != "" or settingsMenu != "" or modelsOpen or paletteOpen or chipOpen or themeInspecting or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingRecording or escapeFocus == "keybindings-filter")) or (settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search") or (settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))
-  // A Settings dialog is modal (Base UI Dialog): the page behind it is inert, so Back's Escape is the dialog's.
+  // A Settings dialog is modal (Base UI Dialog): the page behind it is inert, so the close button's Escape is the dialog's.
   // "Remove from this device…" (EnvironmentRemoveDialog) counts here; Network access's confirmation does not, as it stays
   // asked for after its serial moves on, when no dialog shows. Both are `aria-modal` too.
   derive dialogShown = restEditor != "" or settingsCore.saOpen or settingsCore.archiveConfirm.id != "" or connectionsPage.environments.filter(environment => environment.key == connectionRemove).length > 0
@@ -246,9 +236,14 @@ component SettingsWindow
   // The Providers page's `ui`: "model-adding" opens (the block's key) or closes ("") an "Add custom model" field;
   // "slug-focus" is its slug field taking ("true") or losing ("") the focus. A provider chosen in the list unmounts
   // the open field, as the reference's section does. The rest is the root's.
+  // Each action call carries every value this view captures, so these two write the field's state in place (no
+  // nested call): a chain of three passed the 1024-statement limit of an expanded action (syntax-call-size).
   action providerUiWindow(what: string, value: string)
     if what == "model-adding" or what == "slug-focus"
-      modelAddingUi(what, value)
+      if what == "model-adding"
+        modelAdding = value
+        modelAddingVisit = providerVisit
+      escapeFocus = escapeFocusNext(escapeFocus, "custom-model-slug", what == "slug-focus" and value == "true")
     else
       if what == "select"
         modelAdding = ""
@@ -257,15 +252,13 @@ component SettingsWindow
     if what == "model-adding"
       modelAdding = value
       modelAddingVisit = providerVisit
-    escapeFocusSet("custom-model-slug", what == "slug-focus" and value == "true")
-  // A field that takes Escape gains or loses the focus. A field that closes on its own Escape is gone before its
-  // blur could say so, so its Escape clears it here too.
+    escapeFocus = escapeFocusNext(escapeFocus, "custom-model-slug", what == "slug-focus" and value == "true")
   action escapeFocusSet(field: string, focused: bool)
-    escapeFocus = focused ? field : (escapeFocus == field ? "" : escapeFocus)
-  action hoverRail(id: string, over: bool)
-    railHover = over
-  action hoverUpdateTip(id: string, over: bool)
-    updateTipHover = over
+    escapeFocus = escapeFocusNext(escapeFocus, field, focused)
+  // A press on the backdrop leaves Settings as the close button does, the focus blurred first.
+  action leaveSettings
+    blur()
+    closeModal()
   action coreLegacy
     settingsLegacyOpen = not settingsLegacyOpen
   action coreRestoreOpen
@@ -300,60 +293,52 @@ component SettingsWindow
       editLicenseQuery("")
   view
     if settingsOpen
-      // Settings is a route in the reference (its sidebar is navigation "Settings"), no dialog: the row writes no
-      // `role="dialog"`, which the Mac exposes as AXApplicationDialog since main #457.
-      row position="absolute" left=0 top=0 width="100%" height="100%" background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) inert=(connecting or dialogShown or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != "") testId="settings-dialog" id="settings-dialog" data-paint="canvas" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : "")
-        if data.sidebarOpen
-          SettingsNav(controlsLeft=data.controlsLeft, nav=settingsNavigation, route=settingsRoute, query=settingsQuery, width=sidebarWidth, pal=settingsCore.palette, active=0, artwork=data.look.artwork, menuOpen=escapeOwned, edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, back=closeModal, updateTip=hoverUpdateTip, focusWithin=navFocusWithin)
+      // AppRouteModal label "Settings" over the window: the nav column, then the header and each route's panel.
+      AppRouteModal(label="Settings", modalId="settings-dialog", viewportWidth=viewport.width, canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas), border=settingsCore.palette.border, backdrop=settingsCore.palette.backdrop, inert=(connecting or dialogShown or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != ""), first="settings-search", last="close-settings", close=leaveSettings)
+        SettingsNav(nav=settingsNavigation, route=settingsRoute, query=settingsQuery, pal=settingsCore.palette, active=0, edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch)
         column flex=1 min-width=0 height="100%" box-sizing="border-box"
-          SettingsTopBar(controlsLeft=data.controlsLeft, route=settingsRoute, crumb=settingsCore.breadcrumb, pal=settingsCore.palette, busy=commandPending, restorable=(settingsCore.restoreCount > 0), navOpen=data.sidebarOpen, restore=coreRestoreOpen)
+          SettingsTopBar(route=settingsRoute, crumb=settingsCore.breadcrumb, pal=settingsCore.palette, busy=commandPending, restorable=(settingsCore.restoreCount > 0), escapeFree=(not escapeOwned and settingsQuery == ""), restore=coreRestoreOpen, close=closeModal)
           // Each page owns its scroller (SettingsPageContainer's `data-settings-page-scroll`): a new page opens at its top.
           for page in [settingsPage] key=page
-            scroll flex=1 min-height=0 width="100%" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" id="settings-content-scroll" scrollTop=settingsScrollTop scroll-behavior="smooth" testId="settings-content-scroll"
+            scroll flex=1 min-height=0 width="100%" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" id="settings-content-scroll" tabindex=-1 role="region" aria-label="Settings content" focusin=workspaceEntered("settings") scrollTop=settingsScrollTop scroll-behavior="smooth" testId="settings-content-scroll"
               column gap="1.125rem" width="100%" max-width=(settingsRoute == "diagnostics" ? "72rem" : "56rem") min-width=0 margin-left="auto" margin-right="auto" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="3rem" box-sizing="border-box" position="relative" id="settings-content-column"
                 if settingsMenu != ""
                   button press=coreMenuClose position="absolute" left=0 top=0 width="100%" height="100%" z-index=40 background-color="#00000000" aria-label="Close menu" aria-keyshortcuts="Escape" testId="settings-menu-backdrop" title=""
-                if settingsCore.showScope or settingsRoute == "general" or settingsRoute == "appearance"
+                if settingsCore.showScope or settingsCoreRoute(settingsRoute) or settingsRoute == "appearance"
                   SettingsCoreBody(reduced=viewport.prefersReducedMotion, core=settingsCore, route=settingsRoute, busy=commandPending, menu=settingsMenu, legacyOpen=settingsLegacyOpen, toggleLegacy=coreLegacy, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate, choose=coreScope, noticeChoose=coreNoticeScope, dialog=coreThemeDialog)
                 if settingsRoute == "source-control"
                   SourceControlPanel(data=sourceControl, busy=commandPending, error=modalError, rest=rest, restInput=restInput, restLocal=restLocal)
-                if settingsRoute == "integrations"
-                  IntegrationsPanel(data=integrations, busy=commandPending, error=modalError, rest=rest, restInput=restInput, local=restLocal)
+                if settingsRoute == "browser" or settingsRoute == "devices"
+                  IntegrationsPanel(data=integrations, view=settingsRoute, busy=commandPending, error=modalError, rest=rest, restInput=restInput, local=restLocal)
                 if settingsRoute == "snap-shot"
                   SnapshotPanel(data=snapshotSettings, busy=commandPending, setupOpen=snapshotSetupOpen, toggle=toggleSnapshots, setup=showSnapshotSetup(true), change=changeSnapshot, preview=previewSnapshotSound, record=recordSnapshotShortcut, saveShortcut=saveSnapshotShortcut)
                 if settingsRoute == "keybindings"
                   KeybindingsPanel(data=bindings, query=keybindingQuery, adding=keybindingOpen, draftRow=keybindingPrevious, draftCommand=keybindingCommand, draftKey=keybindingKey, draftWhen=keybindingWhen, drafts=keybindingDrafts, recording=keybindingRecording, busy=commandPending, error=modalError, search=editKeybindingQuery, searchKey=keybindingSearchKey, searchFocus=escapeFocusSet("keybindings-filter", true), searchBlur=escapeFocusSet("keybindings-filter", false), add=newKeybinding, cancelAdd=cancelKeybinding, chooseCommand=chooseKeybindingCommand, edit=editKeybinding, setKey=editKeybindingKey, setWhen=editKeybindingWhen, record=recordKeybinding, capture=captureKeybinding, held=keybindingHeld, save=keybindingRest, openFile=rest("keybinding-open", ""))
                 if settingsRoute == "scheduled-tasks"
                   ScheduledPanel(data=scheduled, busy=commandPending, error=(restEditor == "" ? modalError : ""), open=restOpen, rest=rest)
-                if settingsRoute == "storage"
-                  StoragePanel(data=storageSettings, busy=commandPending, error=modalError, rest=rest, restInput=restInput)
+                if settingsRoute == "maintenance"
+                  StoragePanel(data=storageSettings, view="maintenance", busy=commandPending, error=modalError, rest=rest, restInput=restInput)
+                // Worktrees: the scope sentence, then the storage panel with Start from remote and Submodules in its Creation section.
+                if settingsRoute == "worktrees"
+                  StoragePanel(data=storageSettings, view="worktrees", busy=commandPending, error=modalError, rest=rest, restInput=restInput)
                 if settingsRoute == "archived"
                   ArchivedPanel(data=archives, busy=commandPending, error=(restEditor == "" ? modalError : ""), menu=restMenu, raw=restRaw, open=restOpen, showMenu=restMenuOpen, close=restClose)
                 if settingsRoute == "open-source-licenses"
                   NoticesPanel(data=licenses, query=licenseQuery, searchOpen=licenseSearchOpen, edit=editLicenseQuery, openSearch=openLicenseSearch, closeSearch=closeLicenseSearch, searchKey=licenseSearchKey, focusSearch=escapeFocusSet("license-search", true), toggle=toggleLicense, retry=retryLicenses)
                 if settingsRoute == "diagnostics"
                   DiagnosticsPanel(data=diagnostics, busy=commandPending, selectPeriod=selectDiagnosticPeriod, reload=refreshSettings, copy=copyDiagnostic, rest=rest, local=restLocal)
-                // Both panels get the content column's width: its 56rem cap less its 1.5rem sides (readable SettingsPageContainer).
-                if settingsRoute == "connections"
-                  ConnectionsPanel(page=connectionsPage, width=min(896, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
+                // Both panels get the content column's width: the sheet less its border, the 15rem nav and the scroller's sides,
+                // held to the 56rem cap less its 1.5rem sides (readable SettingsPageContainer).
+                if settingsRoute == "connections" or settingsRoute == "access"
+                  ConnectionsPanel(view=settingsRoute, page=connectionsPage, width=min(896, routeModalWidth(viewport.width) - 2 - 240 - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
                 if settingsRoute == "providers"
-                  ProvidersPanel(page=providerPage, scheme=scheme, width=min(896, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, addingUi=modelAddingUi, modelAdding=modelAddingLive)
+                  ProvidersPanel(page=providerPage, scheme=scheme, width=min(896, routeModalWidth(viewport.width) - 2 - 240 - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, addingUi=modelAddingUi, modelAdding=modelAddingLive)
                 if settingsRoute == "projects"
                   ProjectsPanel(data=projectsSettings, busy=commandPending, error=(restEditor == "" ? modalError : ""), choose=coreNoticeScope, rest=rest, restInput=restInput, raw=restRaw, open=restOpen)
                     for row in settingsCore.projectModel key=row.id
                       CoreRowView(reduced=viewport.prefersReducedMotion, row=row, section="project-defaults", pal=settingsCore.palette, codePreview=settingsCore.codePreview, busy=commandPending, menu=settingsMenu, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate)
-                if modalError != "" and settingsRoute != "projects" and settingsRoute != "scheduled-tasks" and settingsRoute != "source-control" and settingsRoute != "integrations" and settingsRoute != "keybindings" and settingsRoute != "storage" and settingsRoute != "archived" and not snapshotSetupOpen
+                if modalError != "" and settingsRoute != "projects" and settingsRoute != "scheduled-tasks" and settingsRoute != "source-control" and settingsRoute != "browser" and settingsRoute != "devices" and settingsRoute != "keybindings" and settingsRoute != "maintenance" and settingsRoute != "worktrees" and settingsRoute != "archived" and not snapshotSetupOpen
                   text modalError font-size="0.75rem" color="light-dark(#b91c1c, #fca5a5)" role="alert" testId="settings-error"
-        SettingsSidebarToggle(controlsLeft=data.controlsLeft, route=settingsRoute, pal=settingsCore.palette, artwork=data.look.artwork, open=data.sidebarOpen, keySidebar=keySidebar, toggle=toggleSidebar)
-        // The app Sidebar's SidebarRail over the settings nav's edge (sidebar-rail.contract), and
-        // its "Drag to resize sidebar" (side right, as SidebarEdgeTips draws the thread sidebar's).
-        if data.sidebarOpen
-          SidebarWindowRail(width=sidebarWidth, hovered=railHover, line=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #262626)"), fill=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #1d1d1d)"), resize=resizeSidebar, finishResize=finishResize, resetWidth=resetSidebarWidth, hoverCard=hoverRail)
-          row position="absolute" left=(sidebarWidth + 0.6875 * rem) top=0 bottom=0 align-items="center" pointer-events="none" z-index=140
-            TipCard(label="Drag to resize sidebar", shown=railHover)
-          // SidebarUpdatePill's "Check for updates" (side top), centred on the pill 24pt in from the nav's edge.
-          row position="absolute" left=(sidebarWidth - 14 * rem) width="25rem" bottom="2.5rem" justify-content="center" pointer-events="none" z-index=140
-            TipCard(label="Check for updates", shown=updateTipHover)
     // Each dialog gives the focus back to the control that opened it as it closes (dialog-trap.contract DialogFinalFocus).
     DialogFinalFocus(open=(settingsOpen and settingsThemeDialog == "background-activity"), owner="background-activity-dialog")
     DialogFinalFocus(open=(settingsOpen and settingsThemeDialog == "import"), owner="add-theme-dialog")
@@ -370,7 +355,7 @@ component SettingsWindow
     if settingsOpen and settingsRestoreOpen
       SettingsRestoreDialog(core=settingsCore, busy=commandPending, cancel=coreRestoreClose, confirm=coreRestoreConfirm)
     // "Remove “<name>”?" (browser-profiles.contract), over the window.
-    if settingsOpen and settingsRoute == "integrations"
+    if settingsOpen and settingsRoute == "browser"
       BrowserProfileDialogs(view=integrations.browserProfiles, local=restLocal)
 
 // Settings editors: the scheduled-task and project dialogs (settings-rest/settings-b).

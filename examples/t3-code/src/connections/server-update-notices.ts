@@ -5,9 +5,10 @@
 // hasEnvironmentReconnectWarningGraceElapsed; hooks/useEnvironmentDisconnectDelay.ts;
 // chat/ComposerServerUpdateStatus.tsx's icon; chat/ThreadDetailsPanel.tsx's version card;
 // chat/PanelLayoutControls.tsx threadPanelHasAttention; confirmDialog's
-// requestConfirmDialog for a desktop-managed update). The server-version notice's
-// title and description follow chat/useSystemComposerBanners.tsx at 74541bab17.
-// Port changes: data sources have no timers (exact2 #124), so the snapshot names
+// requestConfirmDialog for a desktop-managed update). The server-version notice
+// follows chat/useSystemComposerBanners.tsx at 7c3b3b3605ef: only a running or failed
+// update, since the sidebar's update pill offers an available one.
+// Port changes: a data module's timer lives only inside an answer, and an episode outlasts any, so the snapshot names
 // the current reconnecting and unavailable episodes (`serverUpdate.reconnecting` /
 // `.unavailable`, an environment id and a serial) and root tasks in app.contract wait
 // 2 s and 20 s on them with `after`, handing the elapsed episode back as the
@@ -20,7 +21,7 @@ import { fleet, environmentKey } from './settings-b-fleet';
 import { isPrimaryOrigin } from './local-primary';
 import { shellPrefs } from '../shell/shell-prefs';
 import { buildVersionMismatchDismissalKey, isServerUpdateFailureDismissed, isVersionMismatchDismissed,
-  resolveServerConfigVersionMismatch, serverUpdateGuidance, type DismissalStore } from './version-skew';
+  resolveServerConfigVersionMismatch, type DismissalStore } from './version-skew';
 import { confirmDialogCopy, desktopUpdateConfirmMessage, manualDesktopOnly, serverUpdateActionLabel, serverUpdateStageLabel, serverUpdateStateFor,
   updateTargetFromConfig, type ServerUpdateState, type ServerUpdateTarget } from './server-update';
 import { heldBatchCopy } from '../composer/auto-balance-banner';
@@ -92,9 +93,10 @@ export type SystemNotice = { id: string; title: string; variant: string; icon: s
 
 /**
  * systemComposerBannerItems: "<label> is reconnecting|offline" (after the 2 s grace, never while an
- * update runs; Disconnect server after 20 s for a non-primary environment), then the server-version
- * notice: idle "Server update available", running "Updating <server>" with its stage, failed
- * "Could not update <server>" with the failure.
+ * update runs; Disconnect server after 20 s for a non-primary environment), then the server update
+ * this thread's server runs: "Updating <server>" with its stage and a static download icon
+ * (ComposerServerUpdateIcon: the title says it runs), or "Could not update <server>" with the
+ * failure, Retry and a dismiss.
  */
 export function systemComposerNotices(client: T3Client, options: { automaticEnvironment?: boolean } = {}): SystemNotice[] {
   const items: SystemNotice[] = [];
@@ -105,7 +107,7 @@ export function systemComposerNotices(client: T3Client, options: { automaticEnvi
   const graceElapsed = hasEnvironmentReconnectWarningGraceElapsed(current.reconnecting || null, clock.graceElapsed || null);
   const delayElapsed = hasEnvironmentReconnectWarningGraceElapsed(current.unavailable || null, clock.delayElapsed || null);
   const disconnect = unavailable && delayElapsed && canDisconnectEnvironment(client.origin)
-    ? { op: 'su:disconnect', label: 'Disconnect server', tip: "Hide this server's threads. Switch it on again in Connections." } : null;
+    ? { op: 'su:disconnect', label: 'Disconnect server', tip: "Hide this server's threads. Switch it on again in Environments." } : null;
   const label = str(obj(client.config.environment).label).trim() || 'T3 server';
   if (unavailable && !(reconnecting && (running || !graceElapsed))) {
     items.push({ id: `environment-unavailable:${client.environmentId}`, variant: client.connection === 'error' ? 'error' : 'warning', icon: 'wifi-off', priority: 2,
@@ -113,22 +115,19 @@ export function systemComposerNotices(client: T3Client, options: { automaticEnvi
       ...(!reconnecting ? { action: 'su:reconnect', actionLabel: 'Reconnect' } : {}),
       ...(disconnect ? { action2: disconnect.op, action2Label: disconnect.label, action2Tip: disconnect.tip } : {}) });
   }
-  const version = versionNotice(client), failureDismissed = isServerUpdateFailureDismissed(state);
-  if (options.automaticEnvironment || !(state.status === 'idle' ? version.shown : !failureDismissed)) return items;
+  if (options.automaticEnvironment || state.status === 'idle' || isServerUpdateFailureDismissed(state)) return items;
   const serverLabel = serverUpdateLabel(client), failed = state.status === 'failed', target = updateTargetFromConfig(client.config, '', client.environmentId, serverLabel);
+  // A plain title and description; the notice offers its details only when the description is clipped
+  // (NoticeDescription, composer-presentation.ts).
   const notice: SystemNotice = { id: `server-version:${client.environmentId}`, variant: failed ? 'error' : 'default', priority: running ? 1 : 2,
-    icon: running ? 'spinner' : failed ? 'circle-alert' : 'download', iconTone: failed ? 'error' : '', title: 'Server update available' };
-  // A running or failed update is a plain title and description; the notice offers its details only when the
-  // description is clipped (NoticeDescription, composer-presentation.ts).
-  if (state.status !== 'idle') Object.assign(notice, { title: `${failed ? 'Could not update' : 'Updating'} ${serverLabel}`,
-    description: state.status === 'failed' ? state.message : serverUpdateStageLabel(state.stage) });
-  else if (version.mismatch) {
-    notice.tip = `${serverLabel} ${version.mismatch.serverVersion} → ${version.mismatch.clientVersion}`;
-    if (target.selfUpdate !== null && !(target.selfUpdate === 'desktop-managed' && target.desktopAppUpdate)) notice.description = serverUpdateGuidance(target.selfUpdate);
-  }
+    icon: failed ? 'circle-alert' : 'download', iconTone: failed ? 'error' : '', title: `${failed ? 'Could not update' : 'Updating'} ${serverLabel}`,
+    description: state.status === 'failed' ? state.message : serverUpdateStageLabel(state.stage) };
+  const mismatch = versionNotice(client).mismatch;
   if (running) { if (disconnect) Object.assign(notice, { action: disconnect.op, actionLabel: disconnect.label, actionTip: disconnect.tip }); }
-  else if (version.mismatch && !manualDesktopOnly(target)) Object.assign(notice, { action: 'su:update', actionLabel: serverUpdateActionLabel(target, failed ? 'Retry' : 'Update') });
-  if (!running && (failed || version.key)) Object.assign(notice, { dismiss: 'su:dismiss', dismissLabel: 'Dismiss update notice', dismissId: failed ? state.attempt ?? '' : '' });
+  else {
+    if (mismatch && !manualDesktopOnly(target)) Object.assign(notice, { action: 'su:update', actionLabel: serverUpdateActionLabel(target, 'Retry') });
+    Object.assign(notice, { dismiss: 'su:dismiss', dismissLabel: 'Dismiss update notice', dismissId: state.attempt ?? '' });
+  }
   items.push(notice);
   return items;
 }

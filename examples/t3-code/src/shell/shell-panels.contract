@@ -71,7 +71,7 @@ component SurfacePanel
     filesSearchAt = on ? shell.panel.active : (filesSearchAt == shell.panel.active ? "" : filesSearchAt)
   view
     // Maximized, the left edge meets the sidebar's own border or the window edge, so the panel draws none (PreviewPanelShell).
-    column height="100%" width="100%" min-width=0 position="relative" box-sizing="border-box" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "light-dark(#fcfcfc, #0a0a0a)") border-left-style="solid" border-left-width=(maximized ? 0 : 1) border-color="light-dark(#e4e4e7, #ffffff0f)" box-shadow=(sheet ? "0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" : "none") role=(sheet ? "dialog" : "region") aria-label="Right panel" testId="right-panel"
+    column height="100%" width="100%" min-width=0 position="relative" box-sizing="border-box" background-color=(sheet ? "light-dark(#ffffff, #000000)" : "light-dark(#fcfcfc, #000000)") border-left-style="solid" border-left-width=(maximized ? 0 : 1) border-color="light-dark(#e4e4e7, #ffffff14)" box-shadow=(sheet ? "0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" : "none") role=(sheet ? "dialog" : "region") aria-label="Right panel" testId="right-panel"
       // An open surface draws the tab bar and its body (panel.contract); otherwise the launcher.
       if shell.panel.open
         PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=still, ui=ui, details=details, local=local, scheme=scheme, searchFocused=(filesSearchAt != "" and filesSearchAt == shell.panel.active and shell.panel.files.showExplorer))
@@ -89,20 +89,20 @@ component SurfacePanel
           box flex=1 min-width=0
           if sheet
             box position="relative" flex-shrink=0
-              button press=details("toggle", "", "") hover=hover("details") aria-label="Toggle thread details panel" aria-expanded=detailsOpen testId="panel-toggle-details" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(detailsOpen or hovered == "details" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
-                ShellIcon(name="square-menu", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+              button press=details("toggle", "", "") hover=hover("details") aria-label="Toggle thread details panel" aria-expanded=detailsOpen testId="panel-toggle-details" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(detailsOpen or hovered == "details" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+                ShellIcon(name="square-menu", size=16, color="light-dark(#18181bcc, #f5f5f5cc)")
               TipBubble(label=(shell.keyThreadPanel == "" ? "Toggle thread details" : `Toggle thread details (${shell.keyThreadPanel})`), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "details"))
-          box position="relative" flex-shrink=0 display=(sheet ? "none" : "flex")
-            button press=ui("maximize", "") hover=hover("maximize") aria-label=(maximized ? "Restore panel size" : "Maximize panel") testId="maximize-right-panel" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(maximized or hovered == "maximize" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
-              MorphMaximize(on=maximized, size=16, color="light-dark(#27272acc, #f5f5f5cc)", weight=2, still=still)
+          box position="relative" flex-shrink=0
+            button press=ui("maximize", "") hover=hover("maximize") aria-label=(maximized ? "Restore panel size" : "Maximize panel") testId="maximize-right-panel" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(maximized or hovered == "maximize" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+              MorphMaximize(on=maximized, size=16, color="light-dark(#18181bcc, #f5f5f5cc)", weight=2, still=still)
             TipBubble(label=(maximized ? "Restore panel size" : "Maximize panel"), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "maximize"))
           box position="relative" flex-shrink=0 hover=hover("terminal")
-            button press=ui("terminal", "") disabled=(not shell.terminalAvailable) aria-label="Toggle terminal drawer" aria-pressed=shell.terminalOpen testId="panel-toggle-terminal" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 opacity=(shell.terminalAvailable ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(shell.terminalAvailable and (shell.terminalOpen or hovered == "terminal") ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
-              ShellIcon(name="panel-bottom", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+            button press=ui("terminal", "") disabled=(not shell.terminalAvailable) aria-label="Toggle terminal drawer" aria-pressed=shell.terminalOpen testId="panel-toggle-terminal" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 opacity=(shell.terminalAvailable ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(shell.terminalAvailable and (shell.terminalOpen or hovered == "terminal") ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+              ShellIcon(name="panel-bottom", size=16, color="light-dark(#18181bcc, #f5f5f5cc)")
             TipBubble(label=(shell.terminalAvailable ? (shell.keyTerminal == "" ? "Toggle terminal drawer" : `Toggle terminal drawer (${shell.keyTerminal})`) : "Terminal drawer is unavailable"), side="bottom", align="end", offset=32, inset=40, shown=(hovered == "terminal"))
           box position="relative" flex-shrink=0
-            button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=(renameHoldsKeys ? "" : ((sheet and not detailsOpen) ? "Escape" : "")) testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
-              ShellIcon(name="panel-right", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+            button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=(renameHoldsKeys ? "" : ((sheet and not detailsOpen) ? "Escape" : "")) testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
+              ShellIcon(name="panel-right", size=16, color="light-dark(#18181bcc, #f5f5f5cc)")
             TipBubble(label=(shell.keyRightPanel == "" ? "Toggle right panel" : `Toggle right panel (${shell.keyRightPanel})`), side="bottom", align="end", offset=32, inset=8, shown=(hovered == "toggle"))
         SurfaceLauncher(surfaces=shell.surfaces, ui=ui, profiles=shell.panel.browser.profiles, local=local)
 
@@ -164,7 +164,7 @@ component SurfaceLauncher
   view
     column flex=1 min-height=0 align-items="center" justify-content="center" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="3.25rem" box-sizing="border-box" id="surface-chooser" autofocus resize=laidOut key=keys hatch="t3-launcher" data-surface-launcher-keys=surfaces.filter((entry) => entry.available).map((entry) => entry.shortcut).join("") aria-label="Open a surface" testId="surface-chooser" data-dialog-return="menu" focusin=dialogMenuEntered("surface-chooser", "surface-chooser")
       column width="100%" max-width="20rem" padding-top="1.5rem" padding-bottom="1.5rem" box-sizing="border-box"
-        text "Open a surface" margin-bottom="0.75rem" text-align="center" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+        text "Open a surface" margin-bottom="0.75rem" text-align="center" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
         column width="100%" gap="0.125rem"
           for surface in surfaces key=surface.id
             SurfaceRow(surface=surface, highlighted=(surface.available and lit >= 0 and ids.indexOf(surface.id) == lit), tipped=(hovered == surface.id), hover=hover, choose=ui("choose"), profiles=profiles, local=local)
@@ -210,7 +210,7 @@ component SurfaceKey
     shortcut: string
   view
     row min-width="1.25rem" height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" align-items="center" justify-content="center" flex-shrink=0 background-color="light-dark(#fafafa, #ffffff08)" pointer-events="none"
-      text shortcut font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
+      text shortcut font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
 
 // The thread action menu as ContextMenu's DOM fallback draws it at the title
 // (left edge, 4pt below): dropdown glass, 4pt inset, 28pt rows (16pt muted
@@ -263,18 +263,18 @@ component TitleMenu
     box position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 testId="title-menu-layer"
       button press=ui("close", "") dblclick=ui("rename", "") aria-label="Close menu" aria-keyshortcuts="Escape" testId="title-menu-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
       row position="absolute" left=x top=y align-items="flex-start"
-        column min-width="8rem" max-width="24rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" role="menu" aria-label="Thread actions" testId="title-menu"
+        column min-width="8rem" max-width="24rem" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" role="menu" aria-label="Thread actions" testId="title-menu"
           KeyMenu(menuId="title-menu-keys", items=items.filter((entry) => not entry.disabled).map((entry) => KmItem(id=`title-menu-${entry.id}`, label=entry.label)), keyed=0, gap="0px", modal=false)
             for entry in items key=entry.id
               if entry.separated
-                box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
+                box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff14)"
               MenuRow(entry=entry, highlighted=(hoveredId == entry.id or open == entry.id), pick=pick, hover=hover, expand=expand)
         if open != ""
-          column min-width="8rem" max-width="24rem" margin-left=-1 margin-top=subTop padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" key=subBack role="menu" aria-label=open testId="title-submenu"
+          column min-width="8rem" max-width="24rem" margin-left=-1 margin-top=subTop padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" key=subBack role="menu" aria-label=open testId="title-submenu"
             KeyMenu(menuId="title-submenu-keys", items=children.filter((c) => c.submenu == open and not c.disabled).map((entry) => KmItem(id=`title-menu-${entry.id}`, label=entry.label)), keyed=subKeyed, gap="0px", modal=false)
               for entry in children.filter((c) => c.submenu == open) key=entry.id
                 if entry.separated
-                  box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
+                  box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff14)"
                 MenuRow(entry=entry, highlighted=(hoveredId == entry.id), pick=pick, hover=hover, expand=expand)
 
 component MenuRow
@@ -299,18 +299,18 @@ component MenuRow
     if not entry.disabled
       hover(entry.id, entry.op, entry.submenu, entry.offset, over)
   view
-    button id=`title-menu-${entry.id}` press=activate hover=point key=rowKey disabled=entry.disabled role=(entry.id == "auto-settle:enabled" or entry.id == "auto-settle:disabled" ? "menuitemradio" : "menuitem") aria-checked=entry.checked aria-expanded=(entry.op == "ui:submenu" and highlighted) testId=`title-menu-${entry.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" opacity=(entry.disabled ? 0.64 : 1) background-color=(highlighted ? (entry.destructive ? "light-dark(#fb2c3614, #fb414a1f)" : "light-dark(#f4f4f5, #ffffff0a)") : "#00000000")
+    button id=`title-menu-${entry.id}` press=activate hover=point key=rowKey disabled=entry.disabled role=(entry.id == "auto-settle:enabled" or entry.id == "auto-settle:disabled" ? "menuitemradio" : "menuitem") aria-checked=entry.checked aria-expanded=(entry.op == "ui:submenu" and highlighted) testId=`title-menu-${entry.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 display="flex" flex-direction="row" align-items="center" opacity=(entry.disabled ? 0.64 : 1) background-color=(highlighted ? (entry.destructive ? "light-dark(#fb2c3614, #fb414a1f)" : "light-dark(#f4f4f5, #ffffff0a)") : "#00000000")
       if entry.icon != ""
-        ShellIcon(name=entry.icon, size=16, color=(entry.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#71717b, #818181)"))
+        ShellIcon(name=entry.icon, size=16, color=(entry.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#71717b, #a1a1a1)"))
       if entry.checked
-        ShellIcon(name="check", size=16, color="light-dark(#27272a, #f5f5f5)")
+        ShellIcon(name="check", size=16, color="light-dark(#18181b, #f5f5f5)")
       if entry.icon == "" and not entry.checked and (entry.id == "auto-settle:enabled" or entry.id == "auto-settle:disabled")
         box width="1rem" height="1rem" flex-shrink=0
       // A button centers its text (text-align: center, as on the web); the fallback menu's rows are start-aligned.
-      text entry.label flex=1 min-width=0 line-clamp=1 white-space="nowrap" text-align="left" font-size="0.875rem" line-height="1.25rem" color=(entry.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+      text entry.label flex=1 min-width=0 line-clamp=1 white-space="nowrap" text-align="left" font-size="0.875rem" line-height="1.25rem" color=(entry.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#18181b, #f5f5f5)")
       if entry.op == "ui:submenu"
         box opacity=0.8 margin-right="-0.125rem" flex-shrink=0 display="flex"
-          ShellIcon(name="chevron-right", size=16, color="light-dark(#71717b, #818181)")
+          ShellIcon(name="chevron-right", size=16, color="light-dark(#71717b, #a1a1a1)")
 
 // ConfirmDialogHost (ui/alert-dialog.tsx), measured on the served reference:
 // a 4pt-blurred 60% canvas backdrop (64% dark), a 512pt dialog-glass popup
@@ -350,15 +350,15 @@ component AppConfirm
       focus(busy ? confirmId : `${confirmId}-cancel`)
   derive dialogTargets = [`${confirmId}-cancel`, `${confirmId}-confirm`]
   view
-    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="app-confirm-overlay"
-      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-describedby=`${confirmId}-description` aria-modal=dialogSeated.includes(confirmId) aria-label=title testId="app-confirm" id=confirmId tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(confirmId) key=dialogFallback(confirmId, dialogTargets)
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #000000a3)" backdrop-filter="blur(4px)" testId="app-confirm-overlay"
+      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #000000)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-describedby=`${confirmId}-description` aria-modal=dialogSeated.includes(confirmId) aria-label=title testId="app-confirm" id=confirmId tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(confirmId) key=dialogFallback(confirmId, dialogTargets)
         DialogOpenFocus(target=`${confirmId}-cancel`)
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
-          text title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
           if body != ""
             text body font-size="0.875rem" line-height="1.25rem" white-space="pre-line" color="light-dark(#71717b, #8f8f8f)" id=`${confirmId}-description`
-        row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
-          button id=`${confirmId}-cancel` press=cancel key=fromCancel autofocus=true disabled=busy aria-keyshortcuts="Escape" testId="app-confirm-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" data-focus-stop=(busy ? "" : "enabled")
-            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+        row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#fafafab8, #ffffff06)"
+          button id=`${confirmId}-cancel` press=cancel key=fromCancel autofocus=true disabled=busy aria-keyshortcuts="Escape" testId="app-confirm-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" box-shadow="0 1px 2px #0000000d" data-focus-stop=(busy ? "" : "enabled")
+            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
           button id=`${confirmId}-confirm` press=confirm key=fromConfirm disabled=busy testId="app-confirm-confirm" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 opacity=(busy ? 0.64 : 1) border-color=(destructive ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") background-color=(destructive ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") box-shadow="0 1px 2px #0000000d" data-focus-stop=(busy ? "" : "enabled")
             text confirmLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"

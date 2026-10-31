@@ -1,12 +1,13 @@
 // T3 Code 9c161462c9 (MIT, LICENSE-T3): useReviewGuideWriter, GuideTour and guideRunStore.
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
-import { bridgeReply, ClientError, type Native } from '../client/protocol';
+import { ClientError, type Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
 import { can, requirePermission } from '../connections/command-permissions';
 import { environmentClient } from '../settings/projects-fleet';
 import { pushToast } from '../shell/toast';
-import { hasDesktopNotifications, hasNotificationSound, type NotifyStatus } from '../shell/shell-notify';
+import { hasDesktopNotifications, hasNotificationSound, notificationSound, postNotification, type NotifyStatus } from '../shell/shell-notify';
+import { GUIDE_TARGET_PREFIX, decodeGuideOpenTarget } from './guide-target';
 import { environmentRequest, pullRequestServer } from './pages-pr-environments';
 import type { WriteReference } from './pages-pr-writes';
 import { createCodeState, filesOf, readCode, type CodeState } from './pages-pr-code';
@@ -87,7 +88,7 @@ export async function readGuide(ctx: GuideContext): Promise<'wake' | 'done'> {
 }
 export async function generateGuide(ctx: GuideContext): Promise<void> {
   const { client, native, reference, now } = ctx, entry = guideEntry(client, reference);
-  if (!guidesEnabled(client, reference)) throw new ClientError('Enable review guides in Settings → Source Control.');
+  if (!guidesEnabled(client, reference)) throw new ClientError('Enable review guides in Settings → Source control.');
   const owner = environmentClient(client, entry.environmentId, native);
   requirePermission(owner.scopes, 'orchestration:operate');
   if (!owner.ready) throw new ClientError('Reconnect before writing a review guide.');
@@ -99,7 +100,7 @@ export async function generateGuide(ctx: GuideContext): Promise<void> {
   } catch (error) {
     if (letGo(error)) throw error;
     guideReader(client).watches.delete(entry.key);
-    const message = error instanceof Error ? error.message : 'Check the review guide model in Settings → Source Control.';
+    const message = error instanceof Error ? error.message : 'Check the review guide model in Settings → Source control.';
     pushToast(client, { kind: 'error', title: 'Could not start a review guide', description: message });
     entry.error = message;
   } finally { entry.starting = false; }
@@ -138,12 +139,8 @@ export function presentGuide(client: T3Client, reference: GuideReference, detail
   }
   return { view, bodies };
 }
-export const GUIDE_TARGET_PREFIX = 'guide:';
+export { GUIDE_TARGET_PREFIX, decodeGuideOpenTarget };
 export function guideOpenTarget(entry: Pick<GuideEntry, 'environmentId' | 'reference'>): string { return GUIDE_TARGET_PREFIX + encodeURIComponent(JSON.stringify({ ...entry.reference, environmentId: entry.environmentId })); }
-export function decodeGuideOpenTarget(target: string): string | null {
-  if (!target.startsWith(GUIDE_TARGET_PREFIX)) return null;
-  try { const reference = obj(JSON.parse(decodeURIComponent(target.slice(GUIDE_TARGET_PREFIX.length)))); return typeof reference.projectId === 'string' && typeof reference.repository === 'string' && typeof reference.number === 'number' && reference.number > 0 && typeof reference.environmentId === 'string' ? JSON.stringify(reference) : null; } catch { return null; }
-}
 /** Runs from the shell even while its pull-request panel is closed. */
 export async function coordinateGuides(client: T3Client, native: Native, status: NotifyStatus, now: number): Promise<void> {
   const reader = guideReader(client), prefs = obj(client.local.clientSettings), mode = str(prefs.notificationMode, 'off');
@@ -156,9 +153,9 @@ export async function coordinateGuides(client: T3Client, native: Native, status:
     reader.watches.delete(key);
     if (settled === 'timeout' || (status.active && reader.shownKey === key)) continue;
     const failure = settled === 'failed', title = failure ? 'Review guide failed' : 'Review guide ready', body = watched.entry.title || `${watched.entry.reference.repository} #${watched.entry.reference.number}`;
-    if (hasNotificationSound(mode)) await bridgeReply(native, { op: 'notifySound', kind: failure ? 'input' : 'completion' }).catch(() => undefined);
+    if (hasNotificationSound(mode)) notificationSound(client, failure ? 'input' : 'completion', now);
     const target = guideOpenTarget(watched.entry);
     if (status.active && prefs.inAppNotificationsEnabled === true) pushToast(client, { kind: failure ? 'error' : 'success', title, description: failure && watched.entry.result.run?._tag === 'Failed' ? `${body}: ${watched.entry.result.run.detail}` : body, hideCopy: true, action: { label: 'Open guide', op: 'guide-open', id: JSON.stringify({ ...watched.entry.reference, environmentId: watched.entry.environmentId }) } });
-    else if (!status.active && hasDesktopNotifications(mode)) await bridgeReply(native, { op: 'notifyPost', title, body, tag: `guide:${key}`, threadId: target }).catch(() => undefined);
+    else if (!status.active && hasDesktopNotifications(mode)) await postNotification(client, status, title, body, `guide:${key}`, target);
   }
 }

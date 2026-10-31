@@ -206,8 +206,17 @@ export async function composerBranches(client: T3Client, native: Native | null |
   if (!card) noteStripLayout(client, view);
   return { ...view, balanceFetch: card ? '' : autoBalanceState(client).fetch };
 }
+/** The strip's branch picker was open at its last read (BranchToolbarBranchSelector's isBranchMenuOpen). */
+const stripPickerOpen = new WeakMap<T3Client, boolean>();
+
 /** shouldShowComposerContextStrip with Git controls. */
 async function stripView(client: T3Client, native: Native | null | undefined, open: boolean, query: string, card: boolean) {
+  // handleOpenChange: the strip's picker that opens asks the server to read the checkout's current branch again, without
+  // a remote fetch; the answer reaches it through the status stream, and a failure is not reported. The picker keeps
+  // its own open state, whatever folder or thread its reads find. The workspace card's picker asks as its popover
+  // opens (git-branch.ts `opened`).
+  const opened = !card && open && !stripPickerOpen.get(client);
+  if (!card) stripPickerOpen.set(client, open);
   const hidden = { show: false, envMode: 'local', forceWorktree: false, envLabel: 'Current checkout', envIcon: 'folder', envLocked: false, previous: false, previousBranch: '',
     branchLabel: '', branch: '', loading: false, refs: [] as Array<{ name: string; badge: string; selected: boolean; index: number }>, status: '', creatable: '', enterOp: '', enterValue: '', checkout: [] as CheckoutItem[], ...NO_RUN_ON, ...NO_STRIP_PR, gitless: false,
     // BranchToolbarEnvModeSelector and BranchToolbarEnvironmentSelector add these to their tooltips (shortcutLabelForCommand).
@@ -217,6 +226,7 @@ async function stripView(client: T3Client, native: Native | null | undefined, op
   if (client.threadId && !persist && !card) return hidden; // the workspace card's branch row (git-branch.ts) shows on threads too
   const cwd = cwdFor(client);
   if (!cwd) return hidden;
+  if (opened) void client.restAccess(native).request('vcs.refreshStatus', { cwd, localOnly: true }).catch(() => undefined);
   let entry: Repo;
   try { entry = await load(client, native, cwd, open, query, card); } catch { return hidden; }
   // shouldShowComposerContextStrip without Git controls: only the machine selector, when it shows.
@@ -421,7 +431,7 @@ export function branchMismatchNotice(client: T3Client) {
   const hasContent = !!client.draft.trim() || client.snapshotDrafts.length > 0 || draftFiles(client.local).some(file => file.draftKey === client.draftKey);
   if (!mismatch || state.dismissed.has(key) || (!hasContent && state.revealed !== key)) return null;
   state.revealed = key;
-  return { id: `branch-mismatch:${key}`, icon: 'git-branch', title: `Branch changed — was ${mismatch.threadBranch}`,
+  return { id: `branch-mismatch:${key}`, icon: 'git-branch', title: 'Branch changed from', code: mismatch.threadBranch,
     tip: `This thread last ran on ${mismatch.threadBranch}. Sending will continue on ${mismatch.currentBranch}.`,
     action: 'cc:branch-restore', actionLabel: 'Restore branch', dismiss: 'cclocal:branch-mismatch-dismiss',
     dismissId: key, dismissLabel: 'Dismiss branch change notice' };

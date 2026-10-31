@@ -2,7 +2,11 @@ import { test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
+import { memoryFiles, png } from '../support/app-files-fixture';
+import { contractComponent } from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const draft = `app:/data/snapshots/drafts/${id}.png`;
 function fixture() {
   const client = new T3Client();
   Object.assign(client, { generation: 1, environmentId: 'env', projectId: 'p', threadId: 't', connection: 'connected', configLive: true, shellLive: true, threadLive: true, providerId: 'fixture', modelId: 'fixture-model', scopes: ['orchestration:read', 'orchestration:operate'] });
@@ -10,6 +14,8 @@ function fixture() {
   client.shell = { sequence: 1, projects: [{ id: 'p' }], threads: [{ id: 't', projectId: 'p' }] };
   client.local.deviceSettings.snapShotEnabled = true; // the refresh adopts captures only while SnapShots are on
   const calls: Obj[] = [], events: string[] = [];
+  // The saved draft the upload sends from its file (snapshot-upload.ts).
+  const app = memoryFiles({ [draft]: png(4, 3, 35) });
   let failSave = false, persisted = '';
   const files: Files = { fs: { async mkdir() {}, async readFile() { return new TextEncoder().encode(persisted).buffer; }, async atomicWriteFile(_path, bytes) { events.push('persist'); if (failSave) throw new Error('disk full'); persisted = new TextDecoder().decode(bytes); } } };
   const native: Native = { available: true, watch() {}, async later(input) {
@@ -18,12 +24,11 @@ function fixture() {
     if (request.op === 'snapshotState') value = { captures: [{ id, owner: client.snapshotOwner }], pending: [id] };
     if (request.op === 'http' && request.path === '/api/orchestration/shell') value = { projects: client.shell.projects, threads: client.shell.threads };
     if (request.op === 'snapshotRead') value = { id, owner: request.owner, name: 'Capture.png', mimeType: 'image/png', sizeBytes: 68, source: { kind: 'snap-shot', appName: 'Fixture app', windowTitle: 'Fixture', capturedAt: '2026-10-03T00:00:00Z' } };
-    if (request.op === 'snapshotDraftRead') value = { base64: 'fixture-png' };
     if (request.op === 'ids') value = ['command', 'message', 'new-thread'];
     if (request.method === 'attachments.createUploadUrl') value = { attachmentId: 'uploaded-fixture.png', relativeUrl: '/api/attachments/upload/fixture.signed', expiresAt: 999999 };
     return { ok: true, generation: 1, value };
   } };
-  return { client, native, files, calls, events, failSave: () => { failSave = true; }, persisted: () => obj(JSON.parse(persisted || '{}')) };
+  return { client, native, files, app, calls, events, failSave: () => { failSave = true; }, persisted: () => obj(JSON.parse(persisted || '{}')) };
 }
 test('capture is durably associated with original draft before native acknowledgement; reread deduplicates', async () => {
   const f = fixture(); await f.client.adoptSnapshots(f.native, f.files);
@@ -41,25 +46,24 @@ test('the draft is saved within the attachment edge and keeps the saved size (de
   expect(f.calls.find(call => call.op === 'snapshotDraftSave')).toMatchObject({ id, imageMaxEdge: 2000 });
   expect(f.client.snapshotDrafts).toMatchObject([{ id, mimeType: 'image/png', sizeBytes: 41 }]);
 });
-test('an existing draft is bounded on read and its upload uses the resulting bytes and size', async () => {
+test('an existing draft uploads from its file, under the size of that file', async () => {
   const f = fixture();
   await f.client.adoptSnapshots(f.native, f.files);
-  const later = f.native.later.bind(f.native);
-  f.native.later = async request => obj(request).op === 'snapshotDraftRead'
-    ? (await later(request), { ok: true, generation: 1, value: { base64: 'bounded-png', sizeBytes: 41 } })
-    : later(request);
+  f.app.store.set(draft, png(4, 3, 8));
   await f.client.uploadSnapshots(f.native, f.files);
-  expect(f.calls.find(call => call.op === 'snapshotDraftRead')).toMatchObject({ id, imageMaxEdge: 2000 });
+  expect(f.calls.some(call => call.op === 'snapshotDraftRead')).toBe(false);
   expect(f.calls.find(call => call.method === 'attachments.createUploadUrl')?.payload).toMatchObject({ sizeBytes: 41 });
-  expect(f.calls.find(call => call.op === 'uploadAttachment')).toMatchObject({ base64: 'bounded-png' });
+  expect(f.calls.find(call => call.op === 'uploadAttachment')).toMatchObject({ bodyFrom: draft, sizeBytes: 41 });
+  expect(f.calls.find(call => call.op === 'uploadAttachment')?.base64).toBeUndefined();
   expect(f.client.snapshotDrafts).toMatchObject([{ id, sizeBytes: 41, uploadId: 'uploaded-fixture.png' }]);
 });
-test('a GIF or WebP staged as PNG keeps its source format exclusion on upload', async () => {
-  const f = fixture();
-  await f.client.adoptSnapshots(f.native, f.files);
-  f.client.snapshotDrafts[0]!.downscalable = false;
-  await f.client.uploadSnapshots(f.native, f.files);
-  expect(f.calls.find(call => call.op === 'snapshotDraftRead')).toMatchObject({ id, imageMaxEdge: 0 });
+test('a draft whose file is gone is named and uploads nothing', async () => {
+  const f = fixture(); await f.client.command('draft', '', 'original text', 0, f.native, f.files);
+  f.client.local.snapshotDrafts[f.client.draftKey] = [{ id, name: 'Capture.png', mimeType: 'image/png', sizeBytes: 68, source: {} }];
+  f.app.store.delete(draft);
+  const result = await f.client.command('send', '', 'original text', 0, f.native, f.files);
+  expect(result.message).toContain('Capture.png was not saved with this draft');
+  expect(f.calls.some(call => call.method === 'attachments.createUploadUrl')).toBe(false);
 });
 test('failed persistence retains native pending capture without an adopted attachment', async () => {
   const f = fixture(); f.failSave(); await f.client.adoptSnapshots(f.native, f.files);
@@ -90,8 +94,8 @@ test.each([false, true])('deferred IDs cannot send to newly selected draft (cach
 test('stale image read performs no server write', async () => {
   const f = fixture(); await f.client.command('draft', '', 'original text', 0, f.native, f.files);
   f.client.local.snapshotDrafts[f.client.draftKey] = [{ id, name: 'Capture.png', mimeType: 'image/png', sizeBytes: 68, source: {} }];
-  const later = f.native.later;
-  f.native.later = async request => { const result = await later(request); if (obj(request).op === 'snapshotDraftRead') f.client.threadId = 'other'; return result; };
+  const stat = f.app.fs.stat;
+  f.app.fs.stat = async path => { const result = await stat(path); if (path === draft) f.client.threadId = 'other'; return result; };
   const result = await f.client.command('send', '', 'original text', 0, f.native, f.files);
   expect(result.message).toContain('draft changed'); expect(f.calls.some(call => call.method === 'attachments.createUploadUrl')).toBe(false);
   expect(f.client.local.drafts['env:t']).toBe('original text');
@@ -354,4 +358,18 @@ test('SnapShots turned off leave captures pending and report no failure', async 
   await f.client.adoptSnapshots(f.native, f.files);
   expect(f.client.error).toBe('');
   expect(f.client.local.snapshotDrafts).toEqual({});
+});
+
+// ComposerAttachmentStrip at 7c3b3b3605ef (4dcc244fe1): a pasted or dropped image's tile shows at once, after the ready
+// images and before the videos, disabled while it is prepared; the strip shows for it alone.
+test('the shelf draws the images still being prepared after the ready ones', () => {
+  const shelf = contractComponent('src/snapshot/snapshot.contract', 'SnapshotDrafts');
+  const scope = (images: unknown[], preparing: unknown[]) => ({ images, preparing, videos: [], draftFocusAfter: () => '', videoFocusAfter: () => '' });
+  const tile = { id: 'p1', name: 'Shot.png', source: '' };
+  expect(shelf.drawn('PreparingImageTile(', {}, scope([], [tile]))).toBe(true);
+  expect(shelf.drawn('testId="snapshot-drafts"', {}, scope([], []))).toBe(false);
+  const source = appText('src/snapshot/snapshot.contract');
+  const ready = source.indexOf('ImageDraftTile(id=image.id'), preparing = source.indexOf('PreparingImageTile('), videos = source.indexOf('VideoDraftTile(video=video');
+  expect(ready < preparing && preparing < videos).toBe(true);
+  expect(appText('src/composer/composer.contract')).toContain('preparing=data.composer.preparingImages');
 });

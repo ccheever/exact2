@@ -150,7 +150,7 @@ export function formatResetsIn(window: Obj, now: number): string | null {
 
 /** UsageLimits.tsx barColor: the series colour the cost chart uses for this driver, as [light, dark]; the foreground for any other. */
 export function barColor(driver: string): [string, string] {
-  return Object.values(PROVIDERS).find(entry => entry.driver === driver)?.color ?? ['#27272a', '#f5f5f5'];
+  return Object.values(PROVIDERS).find(entry => entry.driver === driver)?.color ?? ['#18181b', '#f5f5f5'];
 }
 
 /** Limit commands are served by T3 from the same snapshots as Usage → Limits. */

@@ -8,6 +8,8 @@
 // uploaded as `image` attachments on send), or, while the composer answers a question, that
 // question's shelf (question-attachments.ts), uploaded with its answer; other files become
 // inline file chips (composer-editor-attach.ts), and what cannot be attached is named in the error.
+// An image's tile shows as soon as it is taken, disabled while it is prepared (preparingComposerImages.ts at
+// T3 Code 7c3b3b3605ef).
 import { obj, str, num, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
@@ -16,7 +18,9 @@ import { pushToast } from '../shell/toast';
 import { acceptAttachedFile, appendChipLinks, attachStagingLimit, imageChipLink, imagesGetChips, insertFileChips, releaseStagedFile, reservedAttachments, reservedAttachmentsIn } from './composer-editor-attach';
 import { fileChipLink, holdDraftFiles, pasteAsTextArmed, type DraftFile } from './composer-editor-files';
 import { rememberVideoFrame } from './composer-attachments';
-import { handleSource, stageAttachment, statSource, type AttachSource } from './composer-attach-stage';
+import { classifyAttachment, handleSource, previewSource, releasePreview, stageAttachment, statSource, type AttachSource } from './composer-attach-stage';
+import { wakeShell } from '../client/command-waits';
+import { uuid } from '../transport/transport-wire';
 import { requestPresentation } from './requests';
 import { composerFieldOwner } from './auto-balance-owner';
 import { holdStaging } from './question-attachments';
@@ -41,6 +45,28 @@ export function questionRefuses(client: T3Client): boolean {
   if (!question || (obj(obj(client.config.environment).capabilities).questionAttachments === true && question.customAllowed && !question.responding)) return false;
   pushToast(client, { kind: 'error', title: 'This question cannot accept attachments.' });
   return true;
+}
+
+// preparingComposerImages: images taken into a draft and still being prepared (a large screenshot takes a moment to
+// re-encode), by attachment key. The strip shows each at once, under the id its image will take, as a 256 px thumbnail
+// of its source (`source`; '' until it is made, or for none, when the tile shows the name); it holds its slot until the
+// image joins the draft, and removing its tile cancels it.
+type Preparing = { id: string; name: string; source: string };
+const preparing = new WeakMap<T3Client, Map<string, Preparing[]>>();
+function preparingIn(client: T3Client, key: string): Preparing[] { return preparing.get(client)?.get(key) ?? []; }
+function setPreparing(client: T3Client, key: string, images: Preparing[]): void {
+  const byKey = preparing.get(client) ?? new Map<string, Preparing[]>();
+  if (images.length) byKey.set(key, images); else byKey.delete(key);
+  preparing.set(client, byKey);
+}
+/** The composer's images still being prepared, for its strip; one that already joined the draft shows as itself. */
+export function preparingImages(client: T3Client): Preparing[] {
+  const ready = new Set((client.local.snapshotDrafts[client.attachmentKey] ?? []).map(image => str(image.id)));
+  return preparingIn(client, client.attachmentKey).filter(image => !ready.has(image.id));
+}
+/** A preparing tile's Remove: its image is let go once it is ready (op cclocal:preparing-image-cancel). */
+export function cancelPreparingImage(client: T3Client, id: string): void {
+  setPreparing(client, client.attachmentKey, preparingImages(client).filter(image => image.id !== id));
 }
 
 /** What the window hands over (app.contract attachFiles): its `doc:` handles, or Attach files' picked copies. */
@@ -74,14 +100,31 @@ export async function attachIncoming(client: T3Client, native: Native, origin: s
   const target = draftTarget(client);
   // Held from staging until the files join the draft, so an answer cannot leave between the two.
   const release = holdStaging(client, target.key);
+  const imageIds = sources.map(source => classifyAttachment(source.name, source.type) === 'image' ? uuid() : '');
+  setPreparing(client, target.key, [...preparingIn(client, target.key), ...sources.flatMap((source, at) => imageIds[at] ? [{ id: imageIds[at]!, name: source.name, source: '' }] : [])]);
+  // ComposerImageThumbnail: each tile shows its source once a copy the window can draw exists.
+  const previews = sources.map(async (source, at) => {
+    const id = imageIds[at];
+    if (!id) return '';
+    const path = await previewSource(source, id);
+    if (path && preparingIn(client, target.key).some(image => image.id === id)) {
+      setPreparing(client, target.key, preparingIn(client, target.key).map(image => image.id === id ? { ...image, source: path } : image));
+      await wakeShell(native);
+    }
+    return path;
+  });
   let folders: Obj[] = [];
   try {
-    const staged = await stageFiles(client, native, sources, target);
+    const staged = await stageFiles(client, native, sources, target, imageIds);
     // A dropped or pasted folder is a workspace reference (addComposerFolders); a picked one is the reference's empty File.
     folders = origin === 'drop' || origin === 'paste' ? staged.filter(file => file.kind === 'folder') : [];
     const others = staged.filter(file => !folders.includes(file)).map(file => file.kind === 'folder' ? { kind: 'unreadable', name: file.name, sizeBytes: 0 } : file);
     if (others.length) await addAttachedFiles(client, native, others, imageChips, '', target);
-  } finally { release(); }
+  } finally {
+    setPreparing(client, target.key, preparingIn(client, target.key).filter(image => !imageIds.includes(image.id)));
+    release();
+    for (const path of await Promise.all(previews)) await releasePreview(path);
+  }
   if (folders.length) {
     const remote = folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'remote';
     if (remote) pushToast(client, { kind: 'error', title: 'Folders can only be referenced in the local desktop environment' });
@@ -92,23 +135,28 @@ export async function attachIncoming(client: T3Client, native: Native, origin: s
 
 /**
  * Each file staged as addAttachedFiles takes it; a draft that changes meanwhile lets them go. The draft's free slots
- * (countReservedAttachments) are counted before each file is prepared: one past them is `over-limit`, never staged.
- * A folder is `folder`.
+ * (countReservedAttachments, with the images other takes still prepare) are counted before each file is prepared: one
+ * past them is `over-limit`, never staged. A folder is `folder`. `imageIds`: the id each image's preparing tile holds
+ * ('' for none); an image whose tile was removed meanwhile is let go.
  */
-export async function stageFiles(client: T3Client, native: Native, sources: AttachSource[], target?: DraftTarget): Promise<Obj[]> {
+export async function stageFiles(client: T3Client, native: Native, sources: AttachSource[], target?: DraftTarget, imageIds: string[] = []): Promise<Obj[]> {
   if (!client.projectId) throw new ClientError('Choose a project first.');
   const key = client.attachmentKey, generation = client.generation, limit = attachStagingLimit(client), staged: Obj[] = [];
-  let room = MAX_ATTACHMENTS - (target ? reservedAttachmentsIn(client, target.key, target.threadKey) : reservedAttachments(client));
+  const others = target ? preparingIn(client, target.key).filter(image => !imageIds.includes(image.id)).length : 0;
+  let room = MAX_ATTACHMENTS - others - (target ? reservedAttachmentsIn(client, target.key, target.threadKey) : reservedAttachments(client));
   const release = holdStaging(client, key);
   try {
-    for (const source of sources) {
+    for (const [at, source] of sources.entries()) {
+      const id = imageIds[at] ?? '';
+      if (id && target && !preparingIn(client, target.key).some(image => image.id === id)) continue;
       const stat = await statSource(source);
       if (!stat) staged.push({ kind: 'unreadable', name: source.name, sizeBytes: 0 });
       else if (stat.folder) staged.push({ kind: 'folder', name: source.name, path: source.path });
       else if (room <= 0) staged.push({ kind: 'over-limit', name: source.name });
       else {
-        const file = await stageAttachment(source, stat.size, limit);
+        const file = await stageAttachment(source, stat.size, limit, id);
         if (file.kind === 'image' || str(file.id)) room -= 1;
+        if (id && target && !preparingIn(client, target.key).some(image => image.id === id)) { await releaseStaged(client, native, [file]); continue; }
         staged.push(file);
       }
     }

@@ -9,9 +9,11 @@ import type { Native } from '../../src/client/protocol';
 import { providerPage, providerSetupStreams, providerWizard, runProviderOp, wizardSetupStreams, type ProviderHost } from '../../src/providers/providers';
 import { providerSetupEvent, watchProviderSetup } from '../../src/providers/provider-setup';
 import { codexFlow, codexSetupView, readCodexSetupMode } from '../../src/providers/codex-setup';
-import { codexSetupOp, codexSetupPrepare, RECEIVE_FAILED, type CodexContext } from '../../src/providers/codex-setup-ops';
+import { codexSetupOp, codexSetupPrepare, receiveCallback, RECEIVE_FAILED, RECEIVE_MS, type CodexContext } from '../../src/providers/codex-setup-ops';
 import { codexHandoffEvent } from '../../src/providers/codex-handoff-events';
-import { appText, appPath } from '../support/app-files';
+import { codexReceiving } from '../../src/providers/codex-setup-host';
+import type { T3Client } from '../../src/client/client';
+import { appPath, appText } from '../support/app-files';
 import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 const instanceId = 'codex_personal';
@@ -27,16 +29,24 @@ const install = (patch: Obj = {}): Obj => ({ driver: 'codex', operationId: null,
   executablePath: null, source: null, canRemove: false, message: null, ...patch });
 const installed = (patch: Obj = {}) => install({ phase: 'succeeded', installedVersion: '0.156.1', source: 'managed', executablePath: '/lane/t3/codex/0.156.1/codex', ...patch });
 
+/**
+ * openAuthSession's loopback redirect (LLP 1133.005 D9) as the receiver's answer sees it: each request, and what it
+ * answers (the callback URL, or the host's refusal).
+ */
+const sessions: Obj[] = [];
+let answerSession: () => Promise<string> = async () => callbackUrl;
+(globalThis as Record<string, unknown>).openAuthSession = async (url: string, options: Obj) => { sessions.push({ url, ...options }); return answerSession(); };
+const refusing = (status: number, message: string) => async () => { throw Object.assign(new Error(message), { status }); };
+
 /** One environment and the app's native module: every server call and native op, in order. */
 class Fake implements ProviderHost, Native {
   ready = true; writable = true; generation = 1; available = true; local = { favoriteModels: [] as string[] };
   origin = 'http://127.0.0.1:16240'; environmentId = 'env-lane'; ids?: (native: Native, count: number) => Promise<string[]>;
   config: Obj; log: string[] = []; calls: { method: string; payload: Obj }[] = []; ops: Obj[] = []; serial = 0;
   subs: Record<string, string> = {}; handlers: Record<string, (payload: Obj) => Obj | Promise<Obj>> = {};
-  /** What `codexAuthTake` answers next, and what the listener was asked. */
-  taken: Obj = { phase: 'waiting' }; startFailure = '';
   constructor(live: Obj[] = [provider()]) {
     resetExternalOpensForTests();
+    sessions.length = 0; answerSession = async () => callbackUrl;
     this.config = { environment: { label: 'This Mac' }, settings: { providers: {}, providerInstances: { [instanceId]: { driver: 'codex', displayName: 'ChatGPT - Personal', enabled: true, config: { enabled: true, setupMode: 'managed' } } } }, providers: live };
   }
   watch() {}
@@ -46,8 +56,6 @@ class Fake implements ProviderHost, Native {
     const ok = (value: Obj) => ({ ok: true, generation: this.generation, value });
     if (op === 'subscribe') { const id = `sub-${++this.serial}`; this.subs[str(request.key)] = id; return ok({ id }); }
     if (op === 'unsubscribe') { delete this.subs[str(request.key)]; return ok({}); }
-    if (op === 'codexAuthStart') return this.startFailure ? { ok: false, generation: this.generation, error: { kind: 'CodexAuth', message: this.startFailure, uncertain: false } } : ok({ listening: true });
-    if (op === 'codexAuthTake') { const value = this.taken; this.taken = { phase: 'none' }; return ok(value); }
     return ok({});
   }
   async rpc(_native: Native, method: string, payload: Obj): Promise<Obj> {
@@ -63,7 +71,10 @@ class Fake implements ProviderHost, Native {
   setup() { return providerPage(this, instanceId, 0).editors[0]!.setup.codex[0]!; }
   async show() { await watchProviderSetup(this, this, 'page', providerSetupStreams(this, instanceId)); }
   press(op: string, value = '', token = this.setup().token) { return codexSetupOp(this.context(), op, token, value, async () => { this.log.push('saved'); }); }
-  prepare(extra: Partial<CodexContext> = {}) { return codexSetupPrepare([this.context(extra)]); }
+  prepare(extra: Partial<CodexContext> = {}, now = 0) { return codexSetupPrepare([this.context(extra)], now); }
+  /** The window's loopback resource on the URL a flow waits for (app.contract codexLoopback). */
+  receiving() { return codexFlow(this, instanceId).receiving; }
+  receive() { return receiveCallback(this.context(), this.receiving()); }
   methods(name: string) { return this.calls.filter(call => call.method === name); }
   nativeOps(name: string) { return this.ops.filter(op => op.op === name); }
 }
@@ -115,14 +126,18 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     fake.emit('auth', auth({ phase: 'starting', flowId: 'flow-1' })); await fake.prepare();
     expect(fake.setup().control).toBe('waiting');
     fake.emit('auth', waiting()); await fake.prepare(); await fake.prepare();
-    expect(fake.nativeOps('codexAuthStart')).toEqual([{ op: 'codexAuthStart', authorizationUrl }]);
+    // The flow names its authorization URL for the loopback receiver, which opens the browser itself.
+    expect(fake.receiving()).toBe(authorizationUrl);
     expect(externalOpensForTests()).toEqual([]);
     expect(fake.setup().controlLabel).toBe('Open sign-in page');
-    // "Open sign-in page" again re-opens the browser on the listener the flow already holds.
+    // "Open sign-in page" again re-opens the browser on the receiver the flow already holds.
     await fake.press('setup:codex-open');
-    expect(fake.nativeOps('codexAuthStart')).toHaveLength(1);
+    expect(fake.receiving()).toBe(authorizationUrl);
     expect(externalOpensForTests()).toEqual([authorizationUrl]);
-    fake.taken = { phase: 'received', callbackUrl }; await fake.prepare();
+    // The receiver binds the redirect's port with the request's state; its callback completes the flow.
+    expect(await fake.receive()).toBe('received');
+    expect(sessions).toEqual([{ url: authorizationUrl, callback: `http://127.0.0.1:${port}/auth/callback`, state }]);
+    expect(fake.receiving()).toBe('');
     expect(fake.methods('provider.auth.complete')).toEqual([{ method: 'provider.auth.complete', payload: { instanceId, flowId: 'flow-1', callbackUrl } }]);
     fake.emit('auth', auth({ phase: 'verifying', flowId: 'flow-1' })); await fake.prepare();
     fake.emit('auth', auth({ phase: 'succeeded', flowId: 'flow-1' })); await fake.prepare(); await fake.prepare();
@@ -135,7 +150,7 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     const signedIn = fake.setup();
     expect([signedIn.control, signedIn.description, signedIn.email, signedIn.usage]).toEqual(['authenticated', '', 'person@example.com', true]);
     expect(signedIn.emailPlaceholder).not.toBe('person@example.com');
-    expect(fake.log.filter(entry => entry.startsWith('rpc:provider.') || entry === 'native:codexAuthStart')).toEqual(['rpc:provider.install.start', 'rpc:provider.auth.start', 'native:codexAuthStart', 'rpc:provider.auth.complete']);
+    expect(fake.log.filter(entry => entry.startsWith('rpc:provider.'))).toEqual(['rpc:provider.install.start', 'rpc:provider.auth.start', 'rpc:provider.auth.complete']);
   });
 
   test('saved profiles: Reconnect sends chatgpt-profile:<id>, Use a different account sends chatgpt-change-account', async () => {
@@ -169,25 +184,87 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     expect(externalOpensForTests()).toEqual([authorizationUrl]);
   });
 
-  test('cancel releases the listener and restores the start state; a failed listener shows the desktop message', async () => {
+  test('cancel releases the receiver and restores the start state; a failed receiver shows the desktop message', async () => {
     const fake = await rendered(auth(), installed());
     await fake.press('setup:codex-setup');
     fake.emit('auth', waiting()); await fake.prepare();
-    expect(fake.nativeOps('codexAuthStart')).toHaveLength(1);
+    expect(fake.receiving()).toBe(authorizationUrl);
     await fake.press('setup:codex-cancel');
     expect(fake.methods('provider.auth.cancel')).toEqual([{ method: 'provider.auth.cancel', payload: { instanceId, flowId: 'flow-1' } }]);
+    // The flow has no URL left: the window's resource lets its receiver go, and the port with it, and the receive
+    // that waited fails as the reference's rejected one does.
     fake.emit('auth', auth({ phase: 'cancelled', flowId: 'flow-1', message: 'Sign-in cancelled.' }));
-    fake.taken = { phase: 'failed', message: 'Sign-in cancelled on this computer.' };
     await fake.prepare();
-    expect(fake.nativeOps('codexAuthCancel')).toEqual([{ op: 'codexAuthCancel', authorizationUrl }]);
+    expect(fake.receiving()).toBe('');
     const view = fake.setup();
     expect([view.control, view.controlLabel, view.description, view.error]).toEqual(['connect', 'Continue with ChatGPT', 'Sign-in cancelled.', RECEIVE_FAILED]);
-    // A port in use (or any listener failure) is the reference's one message; the start state stays usable.
+    // A port in use (or any receiver failure) is the reference's one message; the start state stays usable.
     const busy = await rendered(auth(), installed());
-    busy.startFailure = 'The ChatGPT callback port is in use on this computer. Close the other sign-in and try again, or paste the redirect URL in T3 Code.';
     await busy.press('setup:codex-setup'); busy.emit('auth', waiting()); await busy.prepare();
-    expect(busy.setup().error).toBe('Could not finish sign-in on this computer. Try again or paste the redirect URL below.');
+    answerSession = refusing(502, 'port in use');
+    expect(await busy.receive()).toBe('failed');
+    expect([busy.receiving(), busy.setup().error]).toEqual(['', RECEIVE_FAILED]);
     expect(busy.setup().callback).toBe(true);
+    expect(busy.methods('provider.auth.complete')).toEqual([]);
+    // A callback that is not this sign-in's (codexCallbackUrl: no code) completes nothing either.
+    const stray = await rendered(auth(), installed());
+    await stray.press('setup:codex-setup'); stray.emit('auth', waiting()); await stray.prepare();
+    answerSession = async () => `http://127.0.0.1:${port}/auth/callback?state=${state}`;
+    expect(await stray.receive()).toBe('failed');
+    expect(stray.methods('provider.auth.complete')).toEqual([]);
+  });
+
+  test('the callback completes the flow before the receiver lets go, through the server moving the flow on', async () => {
+    const fake = await rendered(auth(), installed());
+    await fake.press('setup:codex-setup'); fake.emit('auth', waiting()); await fake.prepare();
+    // The server reports the flow verifying before the command answers, and a snapshot's effects run meanwhile: the
+    // window's resource must still name this receiver, or its answer, with the command in it, is let go.
+    const during: unknown[] = [];
+    fake.handlers['provider.auth.complete'] = async () => {
+      fake.emit('auth', auth({ phase: 'verifying', flowId: 'flow-1' })); await fake.prepare();
+      during.push(fake.receiving(), fake.setup().error);
+      return {};
+    };
+    expect(await fake.receive()).toBe('received');
+    expect(during).toEqual([authorizationUrl, '']);
+    expect(fake.methods('provider.auth.complete')).toHaveLength(1);
+    expect([fake.receiving(), fake.setup().error]).toEqual(['', '']);
+  });
+
+  test('a reconnect keeps the receiver listening (CodexSetupSection\'s receive depends on its URL alone)', async () => {
+    const fake = await rendered(auth(), installed());
+    await fake.press('setup:codex-setup'); fake.emit('auth', waiting()); await fake.prepare();
+    // The connection's streams start empty after a reconnect, until the server's state arrives again.
+    fake.generation++;
+    await fake.prepare();
+    expect([fake.receiving(), fake.setup().error]).toEqual([authorizationUrl, '']);
+    await fake.show(); fake.emit('auth', waiting()); await fake.prepare();
+    expect(fake.receiving()).toBe(authorizationUrl);
+    // While the focused connection is down, the window's resource still names the URL, so its receiver is not let go.
+    const client = { connection: 'reconnecting', environmentId: 'env-lane', origin: fake.origin, generation: 2 } as unknown as T3Client, module = { available: true } as unknown as Native;
+    codexFlow(client, instanceId).receiving = authorizationUrl;
+    expect(codexReceiving(client, module)).toEqual([authorizationUrl, '']);
+  });
+
+  test('two sign-ins wait at once, each keeping its receiver while the other ends (CodexAuthCallback.test.ts: two accounts)', () => {
+    const client = { connection: 'connected', environmentId: 'env-two', origin: 'http://two.test', generation: 1 } as unknown as T3Client, module = { available: true } as unknown as Native;
+    const first = codexFlow(client, 'codex-a'), second = codexFlow(client, 'codex-b'), third = codexFlow(client, 'codex-c');
+    first.receiving = 'https://auth.openai.com/a'; second.receiving = 'https://auth.openai.com/b';
+    expect(codexReceiving(client, module)).toEqual(['https://auth.openai.com/a', 'https://auth.openai.com/b']);
+    // The first completes: the second stays in its slot, so its receiver is not let go and bound again.
+    first.receiving = ''; third.receiving = 'https://auth.openai.com/c';
+    expect(codexReceiving(client, module)).toEqual(['https://auth.openai.com/c', 'https://auth.openai.com/b']);
+    second.receiving = ''; third.receiving = '';
+    expect(codexReceiving(client, module)).toEqual(['', '']);
+  });
+
+  test('a sign-in the browser has not called back in five minutes expires (receiveCodexAuthCallback)', async () => {
+    const fake = await rendered(auth(), installed()), start = Date.parse('2026-10-29T10:00:00.000Z');
+    await fake.press('setup:codex-setup'); fake.emit('auth', waiting());
+    await fake.prepare({}, start); await fake.prepare({}, start + 1_000);
+    expect(fake.receiving()).toBe(authorizationUrl);
+    await fake.prepare({}, start + 1_000 + RECEIVE_MS);
+    expect([fake.receiving(), fake.setup().error]).toEqual(['', RECEIVE_FAILED]);
   });
 
   test('Disconnect signs out once and shows the "Signed out locally." notice; a hidden setup lets its listener go', async () => {
@@ -199,12 +276,13 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     fake.config.providers = [provider({ installed: true })];
     fake.emit('auth', auth({ message: 'Signed out locally. ChatGPT could not be reached to revoke the session.' }));
     expect(fake.setup().logoutWarning).toBe('Signed out locally. ChatGPT could not be reached to revoke the session.');
-    // Unmounted: the listener goes, silently.
+    // Unmounted: the receiver goes, silently.
     const hidden = await rendered(auth(), installed());
     await hidden.press('setup:codex-setup'); hidden.emit('auth', waiting()); await hidden.prepare();
+    expect(hidden.receiving()).toBe(authorizationUrl);
     await watchProviderSetup(hidden, hidden, 'page', { auth: [], install: [] });
     await hidden.prepare();
-    expect(hidden.nativeOps('codexAuthCancel')).toEqual([{ op: 'codexAuthCancel', authorizationUrl }]);
+    expect(hidden.receiving()).toBe('');
     expect(codexFlow(hidden, instanceId).error).toBe('');
   });
 
@@ -221,7 +299,6 @@ describe('managed Codex setup (CodexSetupSection)', () => {
   test('the welcome card: Continue with ChatGPT switches to managed and starts on its own; Use existing CLI switches back', async () => {
     const fake = new Fake([provider({ installed: true, status: 'warning' })]);
     fake.config.settings = { providers: { codex: { enabled: true, binaryPath: 'codex' } }, providerInstances: {} };
-    fake.handlers['server.getSettings'] = () => obj(fake.config.settings);
     fake.handlers['server.getConfig'] = () => fake.config;
     const existing = codexSetupView(fake, instanceId, provider({ installed: true }), { presentation: 'onboarding', mode: 'existing', enabled: true, readOnly: false, allowExistingCli: true });
     expect([existing.kind, existing.control, existing.secondary]).toEqual(['existing', 'connect', 'existing']);
@@ -248,7 +325,6 @@ describe('managed Codex setup (CodexSetupSection)', () => {
   test('the Add ChatGPT account dialog carries the created account\'s setup, starts it, and reports when the plan is shared', async () => {
     const fake = new Fake([]);
     fake.ids = async (_native: Native, count: number) => ['8f9e', '0000'].slice(0, count);
-    fake.handlers['server.getSettings'] = () => obj(fake.config.settings);
     fake.handlers['server.getConfig'] = () => fake.config;
     providerWizard(fake, true, 3, 'codex', false, '', false, '', 'chatgpt');
     await runProviderOp(fake, fake, 'provider-chatgpt', '', JSON.stringify({ key: 'Work', value: '' }));
@@ -270,7 +346,6 @@ describe('managed Codex setup (CodexSetupSection)', () => {
   test('the Add ChatGPT account dialog and the Settings editor behind it name no element id alike', async () => {
     const fake = new Fake([provider({ installed: true, setup: { canInstall: true, canAuthenticate: true } })]);
     fake.ids = async (_native: Native, count: number) => ['7d1c', '0000'].slice(0, count);
-    fake.handlers['server.getSettings'] = () => obj(fake.config.settings);
     fake.handlers['server.getConfig'] = () => fake.config;
     providerWizard(fake, true, 5, 'codex', false, '', false, '', 'chatgpt');
     await runProviderOp(fake, fake, 'provider-chatgpt', '', JSON.stringify({ key: 'Work', value: '' }));
@@ -317,7 +392,7 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     codexHandoffEvent({ key: `chatgpt-handoff:${instanceId}`, subscriptionId: 'handoff-1', value: { phase: 'auth', state: waiting('primary-flow') } });
     await codexSetupPrepare([fake.context(remote)]);
     expect(externalOpensForTests()).toEqual([authorizationUrl]);
-    expect(fake.nativeOps('codexAuthStart')).toEqual([]);
+    expect(fake.receiving()).toBe('');
     expect(fake.setup().callback).toBe(false);
     const transferred = { registration: { clientId: 'oaiapp_one' }, credentials: { clientId: 'oaiapp_one' } };
     codexHandoffEvent({ key: `chatgpt-handoff:${instanceId}`, subscriptionId: 'handoff-1', value: { phase: 'finished', profile: transferred } });

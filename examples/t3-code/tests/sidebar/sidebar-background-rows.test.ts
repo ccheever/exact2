@@ -70,6 +70,18 @@ describe('a background environment\'s row menu', () => {
     expect(ids(home.menu)).toContain('regenerate-title');
   });
 
+  test('its snooze popover lists its own environment\'s options, which its pick resolves against', async () => {
+    const entry = background([row('tb', 'pb')]);
+    (entry.config as Obj).settings = { snoozePresets: [{ kind: 'after', minutes: 45 }] };
+    fleet.entries.set(KEY, entry);
+    const { client, native, there } = focused([row('a', 'p1')]);
+    const threads = sidebarSnapshot(client, NOW, helpers).threads;
+    expect(threads.find(thread => thread.id === 'fleet:env-b:tb')!.snoozePresets.map(preset => preset.label)).toEqual(['In 45 minutes']);
+    expect(threads.find(thread => thread.id === 'a')!.snoozePresets.map(preset => preset.id)).toContain('after:60');
+    await sidebarCommand(client, native, {} as Files, 'snooze:after:45', 'fleet:env-b:tb', '');
+    expect(strip(there).map(payload => [payload.type, payload.threadId])).toEqual([['thread.snooze', 'tb']]);
+  });
+
   test('its choices act on that environment with its own thread id', async () => {
     fleet.entries.set(KEY, background([row('tb', 'pb')]));
     const { client, native, here, there } = focused([row('a', 'p1')]);

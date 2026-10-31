@@ -5,6 +5,7 @@
 // message starts there (startThreadTurn's bootstrap.prepareWorktree).
 import { describe, expect, test } from 'bun:test';
 import { shellDetails } from '../../src/details/shell-details';
+import { contractComponent } from '../support/contract-action-fixture';
 import { setFanout } from '../../src/composer/composer-controls-fanout';
 import { canOverrideServerEnv, serverEnvMode } from '../../src/composer/composer-controls-branch';
 import { branchLocal, startFromOrigin } from '../../src/details/git-branch';
@@ -27,6 +28,21 @@ describe('the details Workspace row', () => {
     expect((await details()).envMode).toBe('worktree');
     setFanout(client, null);
     expect(await details()).toMatchObject({ envMode: 'local', folderName: 'repo', folderLabel: '' });
+  });
+
+  test('the run row\'s glyphs name the machine and the folder; a draft with nothing to commit, push or diff shows no Git action or Changes', async () => {
+    const { client, native, command } = await connected();
+    const details = () => shellDetails(client, native, true, '', false);
+    expect((await details()).git).toMatchObject({ runTip: 'This device', workspaceTip: '/repo', quiet: true });
+    // BranchToolbar's glyph tooltips: the machine's over its icon, the folder's over the workspace icon.
+    const label = contractComponent('shell-details.contract', 'RunContextLabel'), scope = { details: await details(), locked: false };
+    expect([label.callArguments('Tip(label=details.git.runTip', {}, scope), label.callArguments('Tip(label=details.git.workspaceTip', {}, scope)])
+      .toEqual([{ label: 'This device', side: 'top', align: 'center', offset: 20 }, { label: '/repo', side: 'top', align: 'center', offset: 20 }]);
+    setFanout(client, [{ instanceId: 'codex', model: 'model-a', options: [] }, { instanceId: 'claude', model: 'model-b', options: [] }]);
+    expect((await details()).git.workspaceTip).toBe('Each model starts in its own worktree.');
+    setFanout(client, null);
+    await command('cclocal:env-mode', '', 'worktree');
+    expect((await details()).git.workspaceTip).toBe('New worktree');
   });
 
   test('an unstarted server thread is a select; New worktree starts its first message in one', async () => {

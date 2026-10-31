@@ -2,9 +2,8 @@
 // client persists (app:/data/t3-code.json) under `shell`: the Nightly beta-app
 // notice's dismissal (NightlyMobileBeta.tsx NOTICE_DISMISSED_STORAGE_KEY) and
 // the threads whose inline workspace card was closed (rightPanelStore
-// threadPanelVisibilityByThreadKey, which persists only `inlineOpen: false`)
-// and the dismissed provider update prompts (ProviderUpdateLaunchNotification
-// `t3code:provider-update-dismissals:v1`), the dismissed version-skew notices
+// threadPanelVisibilityByThreadKey, which persists only `inlineOpen: false`),
+// the dismissed version-skew notices
 // (versionSkew.ts `t3code:version-mismatch-dismissals:v1`, keyed environment:client:server),
 // and the last editor an Open In menu used (editorPreferences.ts LAST_EDITOR_KEY
 // `t3code:last-editor`), and the ChatGPT plan dialogs already shown
@@ -13,11 +12,11 @@
 // The client writes the file after every command.
 import { obj, type Obj } from '../client/domain';
 
-export type ShellPrefs = { nightlyNoticeDismissed: boolean; inlineClosed: string[]; providerUpdateDismissals: string[]; versionMismatchDismissals: string[]; lastEditor: string; chatgptSharingWelcome: string[]; permissionUpdateDismissals: string[]; databaseStorageDismissals: string[] };
+export type ShellPrefs = { nightlyNoticeDismissed: boolean; inlineClosed: string[]; versionMismatchDismissals: string[]; lastEditor: string; chatgptSharingWelcome: string[]; permissionUpdateDismissals: string[]; databaseStorageDismissals: string[] };
 type Holder = { local: object };
 
 const MAX_CLOSED = 500;
-const emptyPrefs = (): ShellPrefs => ({ nightlyNoticeDismissed: false, inlineClosed: [], providerUpdateDismissals: [], versionMismatchDismissals: [], lastEditor: '', chatgptSharingWelcome: [], permissionUpdateDismissals: [], databaseStorageDismissals: [] });
+const emptyPrefs = (): ShellPrefs => ({ nightlyNoticeDismissed: false, inlineClosed: [], versionMismatchDismissals: [], lastEditor: '', chatgptSharingWelcome: [], permissionUpdateDismissals: [], databaseStorageDismissals: [] });
 
 /** The live prefs object on the client's preference record (created on first use). */
 export function shellPrefs(owner: Holder): ShellPrefs {
@@ -35,7 +34,6 @@ export function adoptShellPrefs(next: object, saved: Obj): void {
   const value = obj(saved.shell), prefs = emptyPrefs();
   prefs.nightlyNoticeDismissed = value.nightlyNoticeDismissed === true;
   if (Array.isArray(value.inlineClosed)) prefs.inlineClosed = value.inlineClosed.filter((key): key is string => typeof key === 'string' && key.length > 0 && key.length <= 512).slice(-MAX_CLOSED);
-  if (Array.isArray(value.providerUpdateDismissals)) prefs.providerUpdateDismissals = value.providerUpdateDismissals.filter((key): key is string => typeof key === 'string'); // no limit, as providerUpdateDismissal.ts
   if (Array.isArray(value.versionMismatchDismissals)) prefs.versionMismatchDismissals = value.versionMismatchDismissals.filter((key): key is string => typeof key === 'string' && key.length <= 512).slice(-200);
   if (Array.isArray(value.chatgptSharingWelcome)) prefs.chatgptSharingWelcome = value.chatgptSharingWelcome.filter((key): key is string => typeof key === 'string' && key.length <= 1024).slice(-200);
   if (Array.isArray(value.permissionUpdateDismissals)) prefs.permissionUpdateDismissals = value.permissionUpdateDismissals.filter((key): key is string => typeof key === 'string' && key.length <= 512).slice(-200);

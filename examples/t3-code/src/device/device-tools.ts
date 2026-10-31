@@ -61,7 +61,7 @@ export function workspaceOf(client: T3Client, key: string): Workspace {
 const options = (list: readonly (readonly [string, string])[], value: string): ToolsOption[] => list.map(([v, label]) => ({ value: v, label, selected: v === value }));
 const EMPTY_RAIL: ControlsRail = { view: 'flat', ax: '0', phone: false, streaming: false, phoneDisabled: true, phoneReason: '', keyboard: false, keyboardAttached: false, toolsOpen: false, waiting: '', rotateDisabled: true, controlsDisabled: true };
 export const emptyToolsDrawer = (): ToolsDrawerState => ({
-  open: false, overlay: true, pending: false, error: '', loading: false, diagnostics: '', ios: true, platformTitle: 'Simulator', foreground: '—', hasForeground: false, disabled: true,
+  open: false, overlay: true, pending: false, error: '', loading: false, diagnostics: '', ios: true, platformTitle: 'Simulator', foreground: '-', hasForeground: false, disabled: true,
   appearance: '', textSizeLabel: 'Unknown', textSizeKnown: false, textSizes: [], liquidGlass: '', liquidGlassDisabled: true, colorFilterLabel: 'Unknown', colorFilterKnown: false, colorFilters: [], orientations: [],
   switches: [], axOn: false, url: '', urlDisabled: true, launch: '', launchPlaceholder: 'Bundle ID to launch', launchDisabled: true, lat: '', lng: '', locationValid: false, presets: [],
   permApp: '', permPlaceholder: 'App ID', permDisabled: true, permissionLabel: 'Camera', permissions: [], push: '', pushDisabled: true, pushSendDisabled: true, log: false, logOpen: false, logDevice: '', logHost: '', eventsEmpty: true, events: [],
@@ -112,7 +112,7 @@ export function deviceControls(client: T3Client, input: DeviceControlsInput): De
   const tools: ToolsDrawerState = {
     open: ws.tools, overlay: !(area.length >= 4 && area[2]! >= 700), pending: input.acting, error: input.error, loading: !input.detail && !input.error,
     diagnostics: input.hostDiagnostics, ios, platformTitle: ios ? 'Simulator' : 'Emulator',
-    foreground: foreground || '—', hasForeground: foreground !== '', disabled,
+    foreground: foreground || '-', hasForeground: foreground !== '', disabled,
     appearance: str(settings.appearance), textSizeLabel: textLabel ?? 'Unknown', textSizeKnown: !!textLabel, textSizes: options(TEXT_SIZES, textSize),
     liquidGlass: str(settings.liquidGlass), liquidGlassDisabled: disabled || settings.liquidGlass === undefined,
     colorFilterLabel: filterLabel ?? 'Unknown', colorFilterKnown: !!filterLabel, colorFilters: options(COLOR_FILTERS, colorFilter), orientations: options(ORIENTATIONS, ''),

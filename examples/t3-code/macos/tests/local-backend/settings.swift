@@ -54,8 +54,8 @@ final class LocalDesktopSettingsTests: XCTestCase {
     func testDefaultsPackagedNightlyBuildsToTheNightlyUpdateChannel() {
         var expected = T3DesktopSettings(); expected.updateChannel = "nightly"
         XCTAssertEqual(T3DesktopSettings.defaults(appVersion: nightly), expected)
-        // This client mirrors a Nightly (version-skew.ts CLIENT_VERSION).
-        XCTAssertEqual(T3DesktopSettings.defaults().updateChannel, "nightly")
+        // This client mirrors a stable release (version-skew.ts CLIENT_VERSION).
+        XCTAssertEqual(T3DesktopSettings.defaults().updateChannel, "latest")
     }
 
     func testLoadsPersistedSettingsAndAppliesSemanticUpdates() throws {
@@ -239,7 +239,7 @@ final class LocalDesktopSettingsTests: XCTestCase {
         let status = backend.statusValue()
         XCTAssertEqual(status["enabled"] as? Bool, false, "read before attach returns: no default flash")
         XCTAssertEqual(NSDictionary(dictionary: status["desktopSettings"] as? [String: Any] ?? [:]),
-                       NSDictionary(dictionary: ["localEnvironmentEnabled": false, "serverExposureMode": "local-only", "tailscaleServeEnabled": false, "tailscaleServePort": 8443, "updateChannel": "nightly"]))
+                       NSDictionary(dictionary: ["localEnvironmentEnabled": false, "serverExposureMode": "local-only", "tailscaleServeEnabled": false, "tailscaleServePort": 8443, "updateChannel": "latest"]))
         // desktopSettingsSet: one setter at a time, persisted before it answers.
         let value = try backend.setDesktopSettings(["serverExposureMode": "network-accessible"])
         XCTAssertEqual(value["changed"] as? Bool, true)
@@ -249,12 +249,12 @@ final class LocalDesktopSettingsTests: XCTestCase {
         XCTAssertEqual((backend.statusValue()["desktopSettings"] as? [String: Any])?["tailscaleServePort"] as? Int, 443, "normalizeTailscaleServePort")
         XCTAssertThrowsError(try backend.setDesktopSettings(["serverExposureMode": "everywhere"]))
         // The Update track (General › About, no feed): the user's choice is saved and published; nothing checks.
-        XCTAssertEqual(try backend.setDesktopSettings(["updateChannel": "nightly"])["changed"] as? Bool, false, "this Nightly's default")
-        let track = try backend.setDesktopSettings(["updateChannel": "latest"])
+        XCTAssertEqual(try backend.setDesktopSettings(["updateChannel": "latest"])["changed"] as? Bool, false, "this stable release's default")
+        let track = try backend.setDesktopSettings(["updateChannel": "nightly"])
         XCTAssertEqual(track["changed"] as? Bool, true)
-        XCTAssertEqual((track["settings"] as? [String: Any])?["updateChannel"] as? String, "latest")
-        XCTAssertEqual((backend.statusValue()["desktopSettings"] as? [String: Any])?["updateChannel"] as? String, "latest")
-        XCTAssertTrue(read(T3DesktopSettings.path(home: home)).contains(#""updateChannel":"latest","updateChannelConfiguredByUser":true"#))
+        XCTAssertEqual((track["settings"] as? [String: Any])?["updateChannel"] as? String, "nightly")
+        XCTAssertEqual((backend.statusValue()["desktopSettings"] as? [String: Any])?["updateChannel"] as? String, "nightly")
+        XCTAssertTrue(read(T3DesktopSettings.path(home: home)).contains(#""updateChannel":"nightly","updateChannelConfiguredByUser":true"#))
         XCTAssertThrowsError(try backend.setDesktopSettings(["updateChannel": "beta"]))
         backend.detach(owner)
     }

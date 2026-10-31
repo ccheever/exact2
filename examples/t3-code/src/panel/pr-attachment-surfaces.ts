@@ -9,7 +9,7 @@ import { ClientError, type Files, type Native } from '../client/protocol';
 import type { PanelState, Surface } from './panel-surfaces';
 import { prLinksOpenInApp, prSurfaceId, prTabIcon, prTarget, prRowCommand, prRowLocal, prefetchPrTabs, selectionOf, threadPrTarget, togglePrRows, type PrTarget } from './pr-surface';
 import { openLink as openLinkByTarget } from '../browser/browser-links';
-import { attachmentLocal, attachmentToken, attachmentView, emptyAttachment, requireAttachment, type AttachmentMeta, type AttachmentView } from './attachment-surface';
+import { attachmentLocal, attachmentToken, attachmentView, emptyAttachment, previewHidden, requireAttachment, type AttachmentMeta, type AttachmentView } from './attachment-surface';
 import { openExternal } from '../client/external-open';
 
 export type LinkedSurface = Surface;
@@ -89,10 +89,18 @@ export function linkedTab(client: T3Client, surface: LinkedSurface): { title: st
 export async function linkedPrefetch(client: T3Client, native: Native | null, surfaces: LinkedSurface[], now: number): Promise<void> {
   if (native) await prefetchPrTabs(client, native, surfaces.flatMap(surface => (surface.kind === 'pull-request' && surface.pr ? [surface.pr] : [])), now);
 }
+/** The attachment each window showed last ('' for none). */
+const shownAttachment = new WeakMap<T3Client, string>();
 /** The active surface's body data: the pull request's selection for the window's `prDetail`, or the attachment preview. */
 export async function linkedViews(client: T3Client, native: Native | null | undefined, active: LinkedSurface | null, open: boolean, now: number): Promise<{ pr: PrSurfaceView; attachment: AttachmentView }> {
   const pr = open && active?.kind === 'pull-request' && active.pr ? { selected: selectionOf(active.pr), number: active.pr.number, label: `#${active.pr.number}`, surface: active.id, tab: active.detailTab ?? 'summary' } : emptyPrSurface();
-  const attachment = open && active?.kind === 'attachment' && active.attachment ? await attachmentView(client, native, active.attachment, now) : emptyAttachment();
+  const shown = open && active?.kind === 'attachment' && active.attachment ? active.attachment : null;
+  // ChatView renders only the active surface: a preview goes when another replaces it, and mounts afresh when shown.
+  const last = shownAttachment.get(client) ?? '';
+  if (last && last !== shown?.id) previewHidden(client, last);
+  if (shown && last !== shown.id) previewHidden(client, shown.id);
+  shownAttachment.set(client, shown?.id ?? '');
+  const attachment = shown ? await attachmentView(client, native, shown, now) : emptyAttachment();
   return { pr, attachment };
 }
 export { threadPrTarget };

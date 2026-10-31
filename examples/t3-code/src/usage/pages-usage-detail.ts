@@ -10,8 +10,8 @@ import {
 
 /** color-mix(in oklab, var(--foreground) P%, var(--background)), read from the served reference (light, dark). */
 const INK: Record<number, [string, string]> = {
-  100: ['#27272a', '#f5f5f5'], 72: ['#5c5c5f', '#aaaaaa'], 66: ['#68686b', '#9b9b9b'], 60: ['#747477', '#8c8c8c'],
-  44: ['#979799', '#656565'], 34: ['#adadae', '#4e4e4e'], 30: ['#b6b6b7', '#464646'],
+  100: ['#18181b', '#f5f5f5'], 72: ['#4f4f52', '#9e9e9e'], 66: ['#5c5c5e', '#8c8c8c'], 60: ['#69696c', '#7b7b7b'],
+  44: ['#8e8e90', '#4f4f4f'], 34: ['#a6a6a7', '#353535'], 30: ['#b0b0b1', '#2b2b2b'],
 };
 type Segment = { label: string; value: number; ink: number };
 export type ShareSegmentView = { key: string; label: string; value: string; grow: number; light: string; dark: string; tip: string; first: boolean; last: boolean };

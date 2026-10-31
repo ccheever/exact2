@@ -19,6 +19,7 @@ use HeroWidthProbe from "../pages/pages-hero.contract"
 use PagesLanding from "../pages/pages-hero.contract"
 use PagesHome from "../pages/pages-hero.contract"
 use UsagePage from "../usage/pages-usage.contract"
+use AppRouteModal, routeModalWidth from "./app-route-modal.contract"
 use UsageView from "../usage/pages-usage.contract"
 use UsageKey from "../usage/pages-usage.contract"
 use UsagePricesLayer from "../usage/pages-usage-dialogs.contract"
@@ -57,6 +58,7 @@ use DialogFinalFocus from "../shared/dialog-trap.contract"
 component ChatColumn
   inject
     frameMoved: action
+    workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
     threadFind: ThreadFindView
     rem: number
     // Ends a citation's placement (app.contract citePlace): the reader's wheel or a minimap jump moves the transcript.
@@ -102,7 +104,6 @@ component ChatColumn
     attachmentUrls: TimelineAttachmentUrls
     settingsCore: SettingsCore
     conversationWidth: number
-    resting: bool
     scrollToEnd: action
     editor: ComposerEditorView
     composerKey: action
@@ -297,7 +298,7 @@ component ChatColumn
       HeroWidthProbe(name=home.projectName)
       // z-index 20 here as on the header inside: z-index orders siblings only (LLP 1001), and the header's menus overhang the transcript.
       box width="100%" flex-shrink=0 position="relative" z-index=20 dragenter=headerDragged(true) dragleave=headerDragged(false)
-        ChatHeader(data=data, shell=shell, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panel=panelUi, details=detailsAct, title=titleUi, command=command)
+        ChatHeader(data=data, shell=shell, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, local=chatLocal, panel=panelUi, details=detailsAct, title=titleUi, command=command)
       if threadFind.open
         box position="absolute" top=64 right=12 width=min(280, max(0, conversationWidth - 24)) z-index=39
           for focus in [threadFind.focus] key=focus
@@ -313,27 +314,33 @@ component ChatColumn
         // loads the pane stays blank (hideEmptyPlaceholder: threadDetailLoading).
         column flex=1 min-height=0 width="100%" padding-right=laneInset padding-bottom=(overlaid ? data.composerReserved : 0) box-sizing="border-box" align-items="center" justify-content="center" testId="empty-timeline"
           if not data.threadLoading and not data.running
-            text "Send a message to start the conversation." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b4d, #8181814d)" testId="empty-timeline-hint"
+            text "Send a message to start the conversation." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" testId="empty-timeline-hint"
       if data.messages.length > 0
         // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
-        column flex=1 min-height=0 width="100%" position="relative"
+        // The conversation is a workspace area (ChatView workspaceAreaProps("conversation", 1, "Conversation")).
+        column flex=1 min-height=0 width="100%" position="relative" id="workspace-conversation" tabindex=-1 role="region" aria-label="Conversation" focusin=workspaceEntered("conversation")
           // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out).
-          list appearance="none" virtualized=true scrollFollowEnd=(not foldHold and not threadFind.open) reachend=releaseFold scroll=transcriptScrolled scrollend=citeSettled wheel=transcriptWheel keycapture=transcriptKeys scrollTop=listTop id="transcript" testId="transcript" flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
+          // `keep-mounted`: the rows the window keeps wherever it is (timeline-kept-rows.ts), so a screen reader wraps
+          // from the first message to the last.
+          list appearance="none" virtualized=true keep-mounted=data.transcriptKeep scrollFollowEnd=(not foldHold and not threadFind.open) reachend=releaseFold scroll=transcriptScrolled scrollend=citeSettled wheel=transcriptWheel keycapture=transcriptKeys scrollTop=listTop id="transcript" testId="transcript" flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
             for message in data.messages key=message.id
-              TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme, seen=turnSeen)
+              TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#18181b, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme, seen=turnSeen)
           if not ((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "")
-            TimelineFade(canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas))
+            TimelineFade(canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas))
           TimelineMinimap(items=data.minimap, current=turnCurrent, visible=turnsShown, wheel=minimapWheel, gutter=((conversationWidth - min(data.look.chatMax, conversationWidth - 6 * rem)) / 2), windowHeight=viewport.height, jump=turnJump)
-          for owner in [composerOwner] key=owner
+          // The spot comes back once the thread's rows are in (MessagesTimeline restoreReady: rows.length > 0): while its
+          // detail loads the list holds only the footer (the status line, "Loading messages..."), with no row to return to.
+          for owner in (data.threadLoading ? [] : [composerOwner]) key=owner
             box intersect=transcriptOpened(owner) position="absolute" top=0 left=0 width=0 height=0 pointer-events="none"
-          // composer-editor: over the transcript, so leaving the end (a fold opening there) moves nothing.
-          if data.transcriptAway
-            ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift)
+          // composer-editor: over the transcript, so leaving the end (a fold opening there) moves nothing. It hides while
+          // find is open, as the reference's does.
+          if data.transcriptAway and not threadFind.open
+            ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift, summary=data.composer.endSummary)
       // The composer overlays the transcript (ChatView's data-chat-composer-overlay; composer-overlay.ts
       // measures it for the transcript's end reservation): absolute at the chat's foot over the lane alone, so the
       // transcript beside it still takes the pointer and the wheel; an empty thread keeps it in flow under the hero.
       // The banners sit above the card; the drawer layer paints after both, over the banners, clipped at the card.
-      column position=(overlaid ? "absolute" : "relative") left=(overlaid ? stackLeft : 0) bottom=0 width=(overlaid ? stackWidth : "100%") padding-left=(overlaid ? "0px" : "3rem") padding-right=(overlaid ? 0 : 3 * rem + laneInset) flex-shrink=0 align-items="center" box-sizing="border-box" id="frame-overlay" resize=frameMoved testId="composer-overlay"
+      column position=(overlaid ? "absolute" : "relative") left=(overlaid ? stackLeft : 0) bottom=0 width=(overlaid ? stackWidth : "100%") padding-left=(overlaid ? "0px" : "3rem") padding-right=(overlaid ? 0 : 3 * rem + laneInset) flex-shrink=0 align-items="center" box-sizing="border-box" id="frame-overlay" resize=frameMoved role="region" aria-label="Message input" focusin=workspaceEntered("composer") testId="composer-overlay"
         column padding-top=(overlaid ? "0px" : "0.75rem") width="100%" max-width=data.look.chatMax position="relative" box-sizing="border-box"
           // The banners share a row with the stash's shoulder tab.
           row width="100%" align-items="flex-end" id="frame-shoulder" resize=frameMoved
@@ -343,18 +350,17 @@ component ChatColumn
             if editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) and not data.composer.subagent
               StashBadge(stash=editor.stash, op=editorOp)
           RequestBanner(data=data, command=command, busy=commandPending, scheme=scheme, compact=(min(data.look.chatMax, conversationWidth - 6 * rem) - 4.25 * rem <= 35 * rem), maximumHeight=min(384, viewport.height * 0.4))
-        // A resting card keeps the transcript's reservation instead of the stack's height (resolveComposerTimelineInset).
-        column padding-bottom=(resting ? "3.25rem" : "1.25rem") justify-content="flex-end" flex-shrink=0 align-items="center" width="100%" box-sizing="border-box" id="frame-stack" resize=frameMoved
+        column padding-bottom="1.25rem" justify-content="flex-end" flex-shrink=0 align-items="center" width="100%" box-sizing="border-box" id="frame-stack" resize=frameMoved
           column width="100%" max-width=data.look.chatMax position="relative"
             // A pending approval leaves the composer usable: a send declines it and redirects the agent.
             if data.composer.subagent
               SubagentBar(data=data, busy=commandPending, openParent=selectThread)
             else
               ComposerEditorDock(editor=editor, dark=(scheme == "dark"), op=editorOp)
-              ComposerCard(editor=editor, data=data, viewportWidth=((data.sidebarOpen ? sidebarWidth : 0) + conversationWidth), text=composerText, resting=resting, busy=commandPending, narrow=(conversationWidth < 620), keyModels=settings.keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=stop, onFocus=composerFocus, onBlur=composerBlur, openModels=openModels, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=askRemove, interaction=interaction, command=command, openProviders=openProviderSettings, contextOver=contextOver, urls=attachmentUrls.items)
-              if branches.show and not resting
-                ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 768), compact=data.composer.stripCompact)
-            if data.requestMode == "question" and not resting
+              ComposerCard(editor=editor, data=data, viewportWidth=((data.sidebarOpen ? sidebarWidth : 0) + conversationWidth), text=composerText, busy=commandPending, keyModels=settings.keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=stop, onFocus=composerFocus, onBlur=composerBlur, openModels=openModels, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=askRemove, interaction=interaction, command=command, openProviders=openProviderSettings, contextOver=contextOver, urls=attachmentUrls.items)
+              if branches.show
+                ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 768), compact=data.composer.stripCompact, composer=data.composer)
+            if data.requestMode == "question"
               RequestActions(data=data, command=command, busy=commandPending, scheme=scheme)
       ComposerDrawerLayer(editor=editor, dark=(scheme == "dark"), op=editorOp)
       // The header's thread details popover (app.contract detailsShown: chat is narrow, or the floating player left the
@@ -381,18 +387,23 @@ component ChatColumn
       // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and becomes the header's
       // popover when no readable height (160pt) is left; its rows fold to the canvas's density (ThreadDetailsCard).
       if details.inline and canvas.cardShown
-        ThreadDetailsInline(details=details, density=canvas.density, maxHeight=max(0, (canvas.ready ? canvas.cardHeight : viewport.height - 76) - (threadFind.open ? 48 : 0)), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion, busy=commandPending, stopping=lineageStopping)
+        // The card is a workspace area (ThreadDetailsCard workspaceAreaProps("details", 3, "Thread details")); it is placed
+        // out of this holder's flow.
+        box id="workspace-details" tabindex=-1 role="region" aria-label="Thread details" focusin=workspaceEntered("details")
+          ThreadDetailsInline(details=details, density=canvas.density, maxHeight=max(0, (canvas.ready ? canvas.cardHeight : viewport.height - 76) - (threadFind.open ? 48 : 0)), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion, busy=commandPending, stopping=lineageStopping)
       // data-chat-workspace-drop-overlay: inset 8pt in the area under the 52pt header, over the transcript and the composer
       // (z-40), border-2 border-dashed border-primary/60 bg-primary/[0.035], its pill bg-background/95 with border-primary/25.
       if fileDrag and not overHeader
         column position="absolute" top=60 left=8 right=8 bottom=8 z-index=40 pointer-events="none" border-radius="1rem" border-width=2 border-style="dashed" border-color="light-dark(#1b4ed899, #346bf199)" background-color="light-dark(#1b4ed809, #346bf109)" align-items="center" justify-content="center" box-sizing="border-box" testId="chat-drop-overlay"
-          row role="status" gap="0.5rem" align-items="center" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-radius="9999px" border-width=1 border-style="solid" border-color="light-dark(#1b4ed840, #346bf140)" background-color="light-dark(#fcfcfcf2, #0a0a0af2)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a"
-            svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#1b4ed8, #346bf1)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+          row role="status" gap="0.5rem" align-items="center" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-radius="9999px" border-width=1 border-style="solid" border-color="light-dark(#1b4ed840, #346bf140)" background-color="light-dark(#fcfcfcf2, #000000f2)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a"
+            svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#1b4ed8, #346bf1)" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
               path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"
-            text "Drop files to attach" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            text "Drop files to attach" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
 
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
 component RightPanels
+  inject
+    workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
   props
     data: Snapshot
     narrowDiff: bool
@@ -428,6 +439,7 @@ component RightPanels
   state shown = false
   action entered(e: FocusEvent)
     focused = true
+    workspaceEntered("panel", e)
   action left(e: FocusEvent)
     match e.relatedTarget
       case some(other)
@@ -444,10 +456,10 @@ component RightPanels
   view
     box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=((data.diffOpen or rightPanel) and not narrowDiff ? 2 : 1) height=1 opacity=0 pointer-events="none"
     if data.diffOpen and not narrowDiff
-      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left
+      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left id="workspace-panel" tabindex=-1 role="region" aria-label="Workspace panel"
         DiffPanel(data=data, shell=shell, command=command, close=panelUi("close", ""), ui=panelUi, maximized=rightMaximized, resize=resizeDiff, finishResize=finishDiffResize, scheme=scheme, sheet=false, detailsOpen=detailsOpen, details=detailsAct, local=chatLocal)
     if rightPanel and not data.diffOpen and not narrowDiff
-      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left
+      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left id="workspace-panel" tabindex=-1 role="region" aria-label="Workspace panel"
         SurfacePanel(shell=shell, sheet=false, maximized=rightMaximized, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=scheme, prDetail=prDetail, prDocuments=prDocuments, filesDocuments=filesDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, look=data.look, confirm=confirm, closePending=closePending, width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth))
 
 // The utility pages (Usage, Pull Requests) and the no-environment/no-projects landing over the main view.
@@ -518,9 +530,7 @@ component PagesCover
     command(op, id, value, n)
   view
     if pageCover
-      box position="absolute" left=(data.sidebarOpen ? sidebarWidth : 0) top=0 right=0 bottom=0 inert=modal testId="pages-cover"
-        if utilityPage == "usage"
-          UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme=scheme, wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=pageBack, command=usageCommand, confirmOpen=usageConfirmOpen, reduced=viewport.prefersReducedMotion, outside=outside)
+      box position="absolute" left=(data.sidebarOpen ? sidebarWidth : 0) top=0 right=0 bottom=0 inert=(modal or utilityPage == "usage") testId="pages-cover"
         if utilityPage == "pull-requests"
           row position="absolute" left=0 top=0 right=0 bottom=0
             PrGuideMaximize(opened=(prSelected != "" and prPanelOpen), ready=(prTab == "guide" and prDetail.guide.enabled and prDetail.guide.hasGuide), change=maximizePr)
@@ -529,15 +539,20 @@ component PagesCover
             if prSelected != "" and prPanelOpen
               PrPanel(detail=prDetail, documents=prMarkdown.documents, scheme=scheme, width=prPanelWidth, tab=prTab, setTab=prSetTab, close=prClose, reload=prReload, act=prAct, copy=prCopy, still=viewport.prefersReducedMotion, select=prSelect, compact=(prPanelWidth < 480), back=pageBack, local=chatLocal)
             if prSelected != "" and prPanelOpen
-              button press=maximizePr(not prMaximized) position="absolute" right="3rem" top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 background-color="#00000000" aria-label=(prMaximized ? "Restore panel" : "Maximize panel") title="" testId="pull-requests-maximize-panel"
-                PgIcon(name=(prMaximized ? "minimize-2" : "maximize-2"), size=16, color="light-dark(#71717b, #818181)")
-            button press=prTogglePanel disabled=(prSelected == "") position="absolute" right="0.8125rem" top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 background-color=(prSelected != "" and prPanelOpen ? "light-dark(#27272a0d, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle right panel" testId="pull-requests-toggle-panel" title=""
-              PgIcon(name="panel-right", size=16, color="light-dark(#71717b, #818181)")
-        if utilityPage == ""
+              button press=maximizePr(not prMaximized) position="absolute" right="3rem" top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" aria-label=(prMaximized ? "Restore panel" : "Maximize panel") title="" testId="pull-requests-maximize-panel"
+                PgIcon(name=(prMaximized ? "minimize-2" : "maximize-2"), size=16, color="light-dark(#71717b, #a1a1a1)")
+            button press=prTogglePanel disabled=(prSelected == "") position="absolute" right="0.8125rem" top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(prSelected != "" and prPanelOpen ? "light-dark(#27272a0d, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle right panel" testId="pull-requests-toggle-panel" title=""
+              PgIcon(name="panel-right", size=16, color="light-dark(#71717b, #a1a1a1)")
+        // A landing stays drawn under the Usage modal opened from it.
+        if utilityPage == "" or (utilityPage == "usage" and (home.landing == "no-environment" or home.landing == "no-projects" or home.landing == "start-error" or home.landing == "no-thread"))
           PagesLanding(controlsLeft=data.controlsLeft, home=home, scheme=scheme, sidebarOpen=data.sidebarOpen, busy=commandPending, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
     // The main sidebar trigger is drawn here, whatever the page: after the chat and the page in paint and Tab order,
     // under the dialogs below, which cover the whole window as the reference's portaled dialogs cover SidebarControl.
-    SidebarToggle(open=data.sidebarOpen, controlsLeft=data.controlsLeft, keySidebar=settings.keySidebar, artwork=data.look.artwork, inert=(toggleInert or (pageCover and utilityPage == "usage" and (usageConfirmOpen or usage.detail.open or usage.prices.open)) or prDetail.actions.stack.dialogOpen), toggle=toggleSidebar)
+    SidebarToggle(open=data.sidebarOpen, controlsLeft=data.controlsLeft, keySidebar=settings.keySidebar, artwork=data.look.artwork, inert=(toggleInert or (pageCover and utilityPage == "usage") or prDetail.actions.stack.dialogOpen), toggle=toggleSidebar)
+    // Usage opens as the large modal over the page that opened it (AppRouteModal label "Usage", 3faeb9e6f9 #24847).
+    if pageCover and utilityPage == "usage"
+      AppRouteModal(label="Usage", modalId="usage-modal", viewportWidth=viewport.width, canvas="light-dark(#fcfcfc, #000000)", border="light-dark(#e4e4e7, #ffffff14)", backdrop="light-dark(#fcfcfc99, #000000a3)", inert=modal, first="usage-environment", last="close-usage", close=pageBack)
+        UsagePage(page=usage, keys=usageShortcuts, scheme=scheme, wide=(routeModalWidth(viewport.width) - 30 >= 896), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=pageBack, command=usageCommand, confirmOpen=usageConfirmOpen, reduced=viewport.prefersReducedMotion, outside=outside)
     // Usage's model and Model prices dialogs cover the whole window, sidebar included (pages-usage-dialogs).
     // A pooled segment's reset credit confirm, outside its popover (UsageLimitsPooled RedeemableSegmentPopup).
     if pageCover and utilityPage == "usage" and usageConfirmOpen

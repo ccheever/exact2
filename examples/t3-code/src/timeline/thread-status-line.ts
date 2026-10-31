@@ -4,7 +4,8 @@
 // timeline footer, pendingHandoff and its usable selection at 74541bab17), chat/ThreadStatusLine.tsx,
 // chat/V2LifecycleRow.tsx (HandoffRow, HandoffEndpoint),
 // packages/client-runtime/src/handoff.ts (resolvePendingHandoff) and
-// timestampFormat.ts (formatRelativeTimeLabel, formatRelativeTimeUntilLabel).
+// timestampFormat.ts (formatRelativeTimeLabel). The snoozed label reads the sidebar's snoozeWakeLabel on
+// the minute (useThreadLifecycle.tsx since c3888da8b4), so both say the same hour.
 // Sending a message clears each state, so the line's action is only the explicit way out.
 import { arr, obj, str, type Message, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
@@ -13,21 +14,8 @@ import { composerSelection, instanceUsable } from '../composer/composer-provider
 import { fanoutSelections } from '../composer/composer-controls-fanout';
 import { handoffEndpoint } from './timeline-events';
 import { formatRelativeTimeLabel } from '../browser/browser-history';
-
-/** formatRelativeTimeUntilLabel: "Expired", "Soon", "42s left", "5m left", "3h left", "2d left". */
-export function untilLabel(iso: string, now: number): string {
-  const at = Date.parse(iso);
-  if (!Number.isFinite(at)) return '';
-  const diff = at - now;
-  if (diff <= 0) return 'Expired';
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 5) return 'Soon';
-  if (seconds < 60) return `${seconds}s left`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m left`;
-  const hours = Math.floor(minutes / 60);
-  return hours < 24 ? `${hours}h left` : `${Math.floor(hours / 24)}d left`;
-}
+import { snoozeWakeLabel } from '../sidebar/sidebar-model';
+import { threadEndRows } from '../composer/thread-end';
 
 /**
  * threadStatusLine: one quiet line for thread state that does not change what
@@ -48,8 +36,8 @@ export function threadStatusLine(client: T3Client, now: number): Message | null 
   const line = (icon: string, title: string, op: string, actionLabel: string): Message =>
     ({ id: `thread-status:${client.threadId}`, kind: 'status', title, body: '', icon, detail: op, targetId: client.threadId, actionLabel });
   if (snoozed) {
-    const left = untilLabel(str(shell.snoozedUntil), now);
-    return line('alarm-clock', left ? `Snoozed, ${left}` : 'Snoozed', 'cc:unsnooze', pendingType === 'thread.unsnooze' ? 'Waking...' : 'Wake now');
+    const wake = snoozeWakeLabel(shell.snoozedUntil, Math.floor(now / 60_000) * 60_000);
+    return line('alarm-clock', wake !== 'now' ? `Snoozed, ${wake} left` : 'Snoozed', 'cc:unsnooze', pendingType === 'thread.unsnooze' ? 'Waking...' : 'Wake now');
   }
   if (settled) {
     const at = Date.parse(str(shell.settledAt)), ago = Number.isFinite(at) ? formatRelativeTimeLabel(at, now) : '';
@@ -69,7 +57,10 @@ type Endpoint = { instanceId: string; model: string };
  * the same native thread.
  */
 export function pendingHandoff(projection: Obj, selection: Endpoint | null, providers: Obj[]): { from: Endpoint; to: Endpoint } | null {
-  const run = [...arr(projection.runs)].reverse().find(entry => entry.startedAt != null && entry.status !== 'rolled_back');
+  // The handoff row is committed before the provider starts: a starting handoff run is the source, so the
+  // footer does not repeat the committed handoff.
+  const run = [...arr(projection.runs)].reverse().find(entry => entry.status !== 'rolled_back'
+    && (entry.startedAt != null || entry.status === 'starting' && entry.contextHandoffId != null));
   const from = run ? obj(run.modelSelection) : null;
   if (!from || !str(from.instanceId) || !selection?.instanceId) return null;
   const source = providers.find(provider => provider.instanceId === from.instanceId);
@@ -81,9 +72,13 @@ export function pendingHandoff(projection: Obj, selection: Endpoint | null, prov
   return needsHandoff ? { from: { instanceId: str(from.instanceId), model: str(from.model) }, to: selection } : null;
 }
 
-/** The timeline's footer rows: the pending handoff ("Context handoff pending"), then the status line. */
+/** The timeline's footer rows: the pending handoff ("Context handoff pending"), then threadEndRows (what the thread is doing
+ *  now, the status line and the queued turns; ChatView timelineFooter). */
 export function threadFooterRows(client: T3Client, now: number): Message[] {
-  if (!client.threadId || !client.thread) return [];
+  if (!client.threadId) return [];
+  // Before the thread's detail arrives: ThreadNow's sync line ("Loading messages...") and the status line, which reads
+  // the shell.
+  if (!client.thread) return threadEndRows(client, [], threadStatusLine(client, now));
   const providers = arr(client.config.providers), chosen = composerSelection(client, !!fanoutSelections(client));
   const instanceId = chosen.instanceId || client.providerId, model = chosen.entry ? chosen.model : client.modelId;
   // A provider the next send would skip (disabled or unavailable) previews no handoff.
@@ -91,6 +86,5 @@ export function threadFooterRows(client: T3Client, now: number): Message[] {
   const endpoints = handoff ? [handoffEndpoint(handoff.from, providers, 0), handoffEndpoint(handoff.to, providers, 1)] : [];
   const rows: Message[] = handoff ? [{ id: `pending-handoff:${client.threadId}`, kind: 'handoff', title: 'Context handoff pending', body: '', tone: 'neutral',
     icon: 'arrow-right-left', detail: endpoints.map(endpoint => endpoint.label).join(' → '), activities: endpoints }] : [];
-  const status = threadStatusLine(client, now);
-  return status ? [...rows, status] : rows;
+  return threadEndRows(client, rows, threadStatusLine(client, now));
 }

@@ -3,7 +3,7 @@ import { sourceControlHostActions } from '../shared/source-control-hosts';
 // (PullRequestSpeedActions: Reopen, Close + Ready for review, Close + Merge, shown while Shift alone is
 // held), the checks popover (PullRequestChecksPopover on a listing row: the rollup's headline, then the
 // checks behind it read when it opens) and the stack popover (PullRequestStackPopover: "n/m", the
-// layers read when it opens). Sources: T3 Code 9c161462c9 (MIT, see LICENSE-T3)
+// layers read when it opens). Sources: T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3)
 // apps/web/src/components/pullRequest/{PullRequestSpeedActions,PullRequestChecksPopover,
 // PullRequestStackPopover,PullRequestStackLayers,PullRequestRow}.tsx, usePullRequestActions.ts
 // (usePullRequestActionRunner's toasts), routes/_chat.pull-requests.tsx (speedMode, onSpeedAction).
@@ -21,7 +21,8 @@ import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
 import { peekDetail, readDetail } from '../details/pr-row-actions';
-import { ACTION_FAILURE, ACTION_HINT, CHECKS_HEADLINE, actionPayload, allowedMergeMethods, checksList, readableFailure, resolvePullRequestMergeMethod, type MergeMethod } from '../details/pr-row-logic';
+import { CHECKS_HEADLINE, actionFailureHints, actionFailureLabels, actionPayload, actionSuccessLabels, allowedMergeMethods, checksList, readableFailure, resolvePullRequestMergeMethod, type MergeMethod } from '../details/pr-row-logic';
+import { terminologyOf } from '../details/git-logic';
 import { actionState, lastMergeMethod, noteActed, projectDefaultMergeMethod } from './pages-pr-actions';
 import { decodeStack, layerView, pullRequestStackView, savedPullRequestStack, type PullRequestStack, type StackLayerView } from './pages-pr-stack';
 
@@ -55,6 +56,8 @@ const ACTIONS: Record<string, { label: string; icon: string }> = {
   ready: { label: 'Ready for review', icon: 'git-pull-request-arrow' }, reopen: { label: 'Reopen', icon: 'git-pull-request-arrow' },
 };
 export type PrSpeedAction = { key: string; action: string; label: string; icon: string; destructive: boolean; disabled: boolean; tooltip: string; aria: string; value: string };
+/** A row's host words: its provider's (PullRequestRow getSourceControlPresentationForKind). */
+const entryTerm = (entry: Obj) => terminologyOf(str(entry.provider) || undefined).singular;
 /** State determines the candidates; the host definition limits which actions it supports. */
 export function speedActions(entry: Obj, pending: boolean): PrSpeedAction[] {
   if (entry.state === 'merged') return [];
@@ -64,7 +67,7 @@ export function speedActions(entry: Obj, pending: boolean): PrSpeedAction[] {
   return actions.filter(action => supported.includes(action)).map(action => {
     const { label, icon } = ACTIONS[action]!;
     return { key: action, action, label, icon, destructive: action === 'close', disabled: pending || (action === 'merge' && stacked),
-      tooltip: action === 'merge' && stacked ? 'Open this pull request to merge its stack' : `${label} immediately`, aria: `${label} #${num(entry.number)}`,
+      tooltip: action === 'merge' && stacked ? `Open this ${entryTerm(entry)} to merge its stack` : `${label} immediately`, aria: `${label} #${num(entry.number)}`,
       value: JSON.stringify({ ref: refOf(entry), action }) };
   });
 }
@@ -75,6 +78,8 @@ export function quickRow(client: object, entry: Obj) {
   const position = num(stack.position), size = num(stack.size), number = num(stack.number);
   return {
     speed: speedActions(entry, pending), speedPending: pending,
+    // SpeedModeGroup's label: "Quick actions for merge request #12".
+    quickLabel: `Quick actions for ${entryTerm(entry)} #${num(entry.number)}`,
     stackLabel: member ? `${position}/${size}` : '', stackAria: member ? `Stack ${number}, layer ${position} of ${size}` : '',
     stackTip: member ? `View stack #${number}, layer ${position} of ${size}` : '',
     // The checks popover's headline (pullRequestChecksStatePresentation's label).
@@ -100,8 +105,6 @@ async function resolveMergeMethod(client: T3Client, native: Native, entry: Obj):
   if (!allowed.length) throw new Error('No merge method is available for this repository.');
   return resolvePullRequestMergeMethod(allowed, null, projectDefaultMergeMethod(obj(client.config.settings), str(entry.projectId)), lastMergeMethod(client));
 }
-/** usePullRequestActionRunner's success words, which a quick action says (the panel's are its own). */
-const SPEED_SUCCESS: Record<string, string> = { merge: 'Merge requested', ready: 'Marked ready for review', close: 'Pull request closed', reopen: 'Pull request reopened' };
 
 /**
  * `pageslocal:pr-act-quick`: one quick action on one row, no confirmation (PullRequestSpeedActions
@@ -114,7 +117,7 @@ export async function runQuickAction(client: T3Client, native: Native, value: st
   const action = str(parsed.action), entry = listEntry(str(parsed.ref));
   if (!ACTIONS[action]) throw new ClientError(`Unknown quick action: ${action}`);
   if (!entry) throw new ClientError('That pull request is no longer in the list.');
-  const state = quickState(client), key = entryKey(entry);
+  const state = quickState(client), key = entryKey(entry), term = entryTerm(entry);
   if (state.pending.has(key)) return '';
   state.pending.add(key);
   try {
@@ -123,10 +126,11 @@ export async function runQuickAction(client: T3Client, native: Native, value: st
     await client.rpc(native, 'pullRequests.runAction', actionPayload(referenceOf(entry), action, method), true);
   } catch (error) {
     if (letGo(error)) throw error;
-    pushToast(client, { kind: 'error', title: ACTION_FAILURE[action]!, description: readableFailure(error, ACTION_HINT[action]!) });
+    pushToast(client, { kind: 'error', title: actionFailureLabels(term)[action]!, description: readableFailure(error, actionFailureHints(term)[action]!) });
     return '';
   } finally { state.pending.delete(key); }
-  pushToast(client, { kind: 'success', title: SPEED_SUCCESS[action]! });
+  // usePullRequestActionRunner's success words, which a quick action says (the panel's are its own).
+  pushToast(client, { kind: 'success', title: actionSuccessLabels(term)[action]! });
   // onSpeedAction: some hosts accept a merge before it completes, so the next read declares it merged.
   if (action !== 'merge') { noteActed(client, entry, action, 'sent'); noteActed(client, entry, action, 'done'); }
   actionState(client).relist++;
@@ -151,7 +155,7 @@ export async function queueQuickAction(client: T3Client, native: Native, value: 
   const action = str(parsed.action), entry = listEntry(str(parsed.ref));
   if (!ACTIONS[action]) throw new ClientError(`Unknown quick action: ${action}`);
   if (!entry) throw new ClientError('That pull request is no longer in the list.');
-  const state = quickState(client), key = entryKey(entry);
+  const state = quickState(client), key = entryKey(entry), term = entryTerm(entry);
   if (state.pending.has(key)) return '';
   state.pending.add(key);
   let origin = '';
@@ -159,14 +163,14 @@ export async function queueQuickAction(client: T3Client, native: Native, value: 
   const finish = (answer: DetachedReply) => {
     state.pending.delete(key);
     if (!answer.ok) {
-      const error = readableFailure(answer.error, ACTION_HINT[action]!);
+      const error = readableFailure(answer.error, actionFailureHints(term)[action]!);
       if (report) report(false, error);
-      else if (!answer.interrupted) pushToast(client, { kind: 'error', title: ACTION_FAILURE[action]!, description: error });
+      else if (!answer.interrupted) pushToast(client, { kind: 'error', title: actionFailureLabels(term)[action]!, description: error });
       return;
     }
     const accepted = acceptedQuickWrites.get(client) ?? [];
     accepted.push({ origin, payload }); acceptedQuickWrites.set(client, accepted);
-    if (report) report(true); else pushToast(client, { kind: 'success', title: SPEED_SUCCESS[action]! });
+    if (report) report(true); else pushToast(client, { kind: 'success', title: actionSuccessLabels(term)[action]! });
     if (action !== 'merge') { noteActed(client, entry, action, 'sent'); noteActed(client, entry, action, 'done'); }
     actionState(client).relist++;
     refreshPanels();
@@ -187,8 +191,8 @@ export async function queueQuickAction(client: T3Client, native: Native, value: 
   } catch (error) {
     state.pending.delete(key);
     if (letGo(error)) throw error;
-    const message = readableFailure(error, ACTION_HINT[action]!);
-    if (report) report(false, message); else pushToast(client, { kind: 'error', title: ACTION_FAILURE[action]!, description: message });
+    const message = readableFailure(error, actionFailureHints(term)[action]!);
+    if (report) report(false, message); else pushToast(client, { kind: 'error', title: actionFailureLabels(term)[action]!, description: message });
   }
   return '';
 }
@@ -207,7 +211,7 @@ export async function queueCloseBatch(client: T3Client, native: Native, refs: st
   const failures: string[] = [];
   for (const { ref, entry } of entries) await queueQuickAction(client, native, JSON.stringify({ ref, action: 'close' }), () => entry, refreshPanels, (ok, error) => {
     completed++;
-    if (ok) closed++; else failures.push(`#${num(entry.number)}: ${error || ACTION_HINT.close}`);
+    if (ok) closed++; else failures.push(`#${num(entry.number)}: ${error || actionFailureHints(entryTerm(entry)).close}`);
     if (completed === entries.length) pushToast(client, { kind: failures.length ? 'error' : 'success', title: failures.length ? `Closed ${closed} of ${entries.length} pull requests` : `Closed ${closed} pull request${closed === 1 ? '' : 's'}`, ...(failures.length ? { description: failures.slice(0, 3).join('\n') } : {}) });
   });
   return '';

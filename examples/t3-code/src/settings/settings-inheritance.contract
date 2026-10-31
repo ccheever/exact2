@@ -38,7 +38,7 @@ component InheritanceGroupView
   view
     column width="100%" gap="0.375rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box"
       if group.folded
-        button press=toggle aria-expanded=open testId=`inheritance-group-${rowId}-${group.id}` border-width=0 background-color="#00000000" width="100%" height="auto" padding="0.5rem" justify-content="flex-start" text-align="left"
+        button press=toggle aria-expanded=open testId=`inheritance-group-${rowId}-${group.id}` border-width=0 background-color="#00000000" width="100%" height="auto" padding="0.5rem" justify-content="flex-start" text-align="left" id=`inheritance-group-${rowId}-${group.id}` data-focus-stop="enabled page"
           column flex=1 min-width=0 gap="0.25rem"
             row width="100%" gap="0.5rem" align-items="center"
               text group.value flex=1 min-width=0 line-clamp=1 font-size="0.875rem" line-height="1.25rem" color=textColor font-variant-numeric="tabular-nums"
@@ -61,14 +61,14 @@ component InheritanceGroupView
         if group.sameEverywhere
           text "Same on all machines" padding-left="0.5rem" font-size="0.75rem" line-height="1rem" color=muted
       if group.overrides.length > 0
-        column width="100%" gap="0.25rem" padding-top="0.5rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e780, #ffffff08)"
+        column width="100%" gap="0.25rem" padding-top="0.5rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e780, #ffffff0a)"
           row width="100%" align-items="center" justify-content="space-between"
             if (group.folded or group.sameEverywhere) and group.overrides.length > 3
-              button press=toggleOverrides aria-expanded=overridesOpen testId=`inheritance-overrides-${rowId}-${group.id}` padding="0.25rem" border-width=0 background-color="#00000000"
+              button press=toggleOverrides aria-expanded=overridesOpen testId=`inheritance-overrides-${rowId}-${group.id}` padding="0.25rem" border-width=0 background-color="#00000000" id=`inheritance-overrides-${rowId}-${group.id}` data-focus-stop="enabled page"
                 text "Overridden by" font-size="0.75rem" color=muted
             else
               text "Overridden by" font-size="0.75rem" color=muted
-            button press=clear testId=`inheritance-clear-${rowId}-${group.id}` padding="0.25rem" border-width=0 background-color="#00000000"
+            button press=clear testId=`inheritance-clear-${rowId}-${group.id}` padding="0.25rem" border-width=0 background-color="#00000000" id=`inheritance-clear-${rowId}-${group.id}` data-focus-stop="enabled page"
               text (group.overrides.length == 1 ? "Reset it" : "Reset all") font-size="0.75rem" color=muted
           if not (group.folded or group.sameEverywhere) or group.overrides.length <= 3 or overridesOpen
             scroll width="100%" max-height="12rem"

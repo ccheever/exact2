@@ -266,6 +266,10 @@ describe('provider setup in the clone', () => {
     expect(fake.account()).toMatchObject({ description: 'Sign in on Remote Google device.', showStart: true, startLabel: 'Sign in', showCancel: false, url: '' });
     fake.emit('auth', authState({ phase: 'starting', authorizationUrl: null }));
     expect(fake.account()).toMatchObject({ description: 'Starting sign-in…', showCancel: true, showStart: false });
+    // A starting flow that names its trouble shows it (ProviderAuthenticationSection `auth.message ?? …`).
+    const slow = "Antigravity has not reached Google after 30 seconds. Check this machine's network connection. Broken IPv6 is a common cause.";
+    fake.emit('auth', authState({ phase: 'starting', authorizationUrl: null, message: slow }));
+    expect(fake.account()).toMatchObject({ description: slow, showCancel: true, showStart: false });
     fake.emit('auth', authState());
     expect(fake.account()).toMatchObject({ description: 'Finish signing in in your browser.', showCancel: true, callback: true, url: 'https://accounts.google.com/o/oauth2/v2/auth?state=test-only' });
     fake.emit('auth', authState({ phase: 'verifying', authorizationUrl: null }));
@@ -402,7 +406,6 @@ describe('provider setup in the clone', () => {
   test('the wizard follows its created ACP instance into the Sign in step', async () => {
     const id = 'acpRegistry_kilo';
     const fake = new Fake([], {});
-    fake.handlers['server.getSettings'] = () => obj(fake.config.settings);
     fake.handlers['server.updateSettings'] = payload => { const mutation = obj(payload.providerInstanceMutation); obj(fake.config.settings).providerInstances = { [str(mutation.instanceId)]: mutation.instance }; return {}; };
     fake.handlers['server.getConfig'] = () => ({ ...fake.config, providers: [{ ...provider(), instanceId: id, driver: 'acpRegistry', setup: { canAuthenticate: true, canInstall: false } }] });
     providerWizard(fake, true, 7, 'acpRegistry', true, 'Kilo', true, id);
@@ -424,7 +427,6 @@ describe('provider setup in the clone', () => {
     const methods = [{ id: 'oauth-personal', name: 'Log in with Google' }, { id: 'gemini-api-key', name: 'Gemini API key' }];
     const live = { ...provider(), instanceId: id, driver: 'acpRegistry', installed: true, setup: { canAuthenticate: true, canInstall: false } };
     const fake = new Fake([live], {});
-    fake.handlers['server.getSettings'] = () => obj(fake.config.settings);
     fake.handlers['server.updateSettings'] = payload => { const mutation = obj(payload.providerInstanceMutation); obj(fake.config.settings).providerInstances = { [str(mutation.instanceId)]: mutation.instance }; return {}; };
     fake.handlers['server.getConfig'] = () => fake.config;
     providerWizard(fake, true, 9, 'acpRegistry', true, 'Gemini CLI', true, id);

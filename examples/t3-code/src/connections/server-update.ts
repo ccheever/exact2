@@ -22,7 +22,7 @@ import { pushToast } from '../shell/toast';
 import type { T3Client } from '../client/client';
 import { allJobs, readJobs, startUpdateJob, type OutdatedJob } from './settings-b-outdated';
 import { manualUpdateCopy, configInstallation, type ServerInstallation } from './server-installation';
-import { CLIENT_VERSION, supportsDesktopAppUpdate, supportsServerUpdateThreadContinuation, resolveServerSelfUpdateCapability } from './version-skew';
+import { CLIENT_VERSION, supportsDesktopAppUpdate, resolveServerSelfUpdateCapability } from './version-skew';
 import { letGo } from '../client/let-go';
 
 export type ServerUpdateStage = 'downloading' | 'installing' | 'resuming';
@@ -132,10 +132,8 @@ export interface ServerUpdateTarget {
   readonly selfUpdate: string | null;
   readonly installation?: ServerInstallation | undefined;
   readonly desktopAppUpdate?: boolean;
-  readonly threadContinuation?: boolean;
   readonly targetVersion: string;
   readonly fromVersion: string;
-  readonly continueThreadsAfterServerUpdate?: boolean;
   /** The config's capabilities, for the native job (a connected server's descriptor may omit them). */
   readonly capabilities?: Obj;
 }
@@ -160,9 +158,8 @@ export function updateTargetFromConfig(config: unknown, environmentKey: string, 
   const environment = obj(obj(config).environment);
   return {
     environmentKey, environmentId, serverLabel, selfUpdate: resolveServerSelfUpdateCapability(config), installation: configInstallation(config),
-    desktopAppUpdate: supportsDesktopAppUpdate(config), threadContinuation: supportsServerUpdateThreadContinuation(config),
-    targetVersion: CLIENT_VERSION, fromVersion: str(environment.serverVersion),
-    continueThreadsAfterServerUpdate: obj(obj(config).settings).continueThreadsAfterServerUpdate === true, capabilities: obj(environment.capabilities),
+    desktopAppUpdate: supportsDesktopAppUpdate(config),
+    targetVersion: CLIENT_VERSION, fromVersion: str(environment.serverVersion), capabilities: obj(environment.capabilities),
   };
 }
 
@@ -210,8 +207,6 @@ export async function updateEnvironment(target: ServerUpdateTarget, deps: Update
     const reply = await deps.start(target.environmentKey, {
       mode: 'connected', label: target.serverLabel, fromVersion: target.fromVersion || target.targetVersion, targetVersion: target.targetVersion,
       capabilities: target.capabilities ?? {},
-      // continueRunningThreads only when the server supports it and its saved setting asks for it.
-      extras: target.threadContinuation && target.continueThreadsAfterServerUpdate ? { continueRunningThreads: true } : {},
     });
     if (reply.started !== true) return 'busy';
     if (!facts.outcome) attempts.set(str(reply.attempt), facts);

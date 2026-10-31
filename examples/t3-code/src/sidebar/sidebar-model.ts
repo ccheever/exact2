@@ -1,4 +1,4 @@
-// Adapted from T3 Code 74541bab17 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 7c3b3b3605ef (MIT); see LICENSE-T3.
 // The sidebar's thread model (Sidebar.tsx, Sidebar.logic.ts, client-runtime
 // models.ts/threadSettled.ts/threadSort.ts; MIT, see LICENSE-T3): status, the
 // shelf a thread lives on, the static sort, unread/woke/recede prominence and
@@ -31,10 +31,12 @@ export function capabilities(config: Obj): Caps {
 
 const terminal = (status: string) => ['completed', 'interrupted', 'failed', 'cancelled', 'rolled_back'].includes(status);
 /**
- * backgroundWorkHoldsCompletion: subagents, monitors and unknown work wake the
- * agent; commands it left running (a dev server) do not hold the thread.
+ * backgroundWorkHoldsCompletion: subagents and background tasks hold the thread, and so does a kind this build does not
+ * know, which the reference decodes as a background task. Commands and monitors are as often a dev server or its
+ * watchdog as a wait, so they hold only when the agent marks them `awaited`.
  */
-export const backgroundHolds = (thread: Obj): boolean => arr(thread.pendingBackgroundTasks).some(task => str(task.kind) !== 'command');
+export const backgroundHolds = (thread: Obj): boolean =>
+  arr(thread.pendingBackgroundTasks).some(task => task.awaited === true || (task.kind !== 'command' && task.kind !== 'monitor'));
 /** models.ts shellRuntime: idle parks only the roster that holds the run's completion. */
 export function shellRuntime(thread: Obj): Runtime | null {
   const park = backgroundHolds(thread) && thread.status !== 'failed';
@@ -168,12 +170,15 @@ export function isWorkingThread(thread: Obj): boolean {
     && runtime?.activeRunId !== str(thread.latestRunId);
   return !(thread.interactionMode === 'plan' && thread.hasActionableProposedPlan === true && settled);
 }
-/** resolveSidebarThreadSection: snooze wins until its wake, then settlement beats a stale pin. */
-export function sectionOf(thread: Obj, caps: Caps, now: number, workingShelf: boolean): SidebarSection {
+/**
+ * resolveSidebarThreadSection: snooze wins until its wake, then settlement beats a stale pin. `isWorking` is the
+ * Working shelf's observed placement (thread-inbox.ts: a thread that just stopped keeps its place for the grace).
+ */
+export function sectionOf(thread: Obj, caps: Caps, now: number, workingShelf: boolean, isWorking: (thread: Obj) => boolean = isWorkingThread): SidebarSection {
   if (caps.snooze && effectiveSnoozed(thread, now)) return 'snoozed';
   if (caps.settlement && thread.settledOverride === 'settled') return 'settled';
   if (thread.pinnedAt != null) return 'pinned';
-  return workingShelf && isWorkingThread(thread) ? 'working' : 'active';
+  return workingShelf && isWorking(thread) ? 'working' : 'active';
 }
 /** filterSidebarV2VisibleThreads: archived and subagent threads stay out of the list. */
 export function sidebarVisible(thread: Obj): boolean {
@@ -199,9 +204,14 @@ export function sortActive(threads: Obj[]): Obj[] {
     return order || byId(left, right);
   });
 }
+/** sortInboxThreadsByReturn's time for a thread before any observed return: creation, un-settling, the latest run. */
+export function inboxTime(thread: Obj): number {
+  const run = latestRun(thread);
+  return Math.max(anchor(thread), parse(run?.requestedAt) || 0, parse(run?.completedAt) || 0);
+}
 /** sortInboxThreadsByReturn (Working beta): newest return to the user first. */
 export function sortByReturn(threads: Obj[], observed?: (thread: Obj) => number | undefined): Obj[] {
-  const time = (thread: Obj) => { const run = latestRun(thread); return Math.max(anchor(thread), parse(run?.requestedAt) || 0, parse(run?.completedAt) || 0, observed?.(thread) ?? 0); };
+  const time = (thread: Obj) => Math.max(inboxTime(thread), observed?.(thread) ?? 0);
   return [...threads].sort((left, right) => time(right) - time(left) || byId(left, right));
 }
 /**
@@ -290,14 +300,15 @@ export function statusSince(thread: Obj, status: SidebarStatus): string | null {
 export interface TopStatus { label: string; icon: string; color: string }
 /** Sidebar.tsx topStatus: the pill that replaces the age at the card's top right. */
 export function topStatus(status: SidebarStatus, woke: boolean, unread: boolean, goalActive = false): TopStatus | null {
-  if (status === 'working') return { label: goalActive ? 'Goal' : 'Working', icon: 'circle-dashed', color: '#2b7fff' };
-  if (status === 'waiting') return { label: 'Waiting', icon: 'circle-dot-dashed', color: 'light-dark(#71717b, #818181)' };
+  // The status tones are the -foreground tokens (blue-, amber-, red-, emerald-700 in light; -400 in dark).
+  if (status === 'working') return { label: goalActive ? 'Goal' : 'Working', icon: 'circle-dashed', color: 'light-dark(#1447e6, #51a2ff)' };
+  if (status === 'waiting') return { label: 'Waiting', icon: 'circle-dot-dashed', color: 'light-dark(#71717b, #a3a3a3)' };
   if (status === 'approval') return { label: 'Approval', icon: 'shield-question', color: 'light-dark(#bb4d00, #ffb900)' };
   if (status === 'input') return { label: 'Input', icon: 'message-circle-question', color: 'light-dark(#4f39f6, #a3b3ff)' };
-  if (status === 'limited') return { label: 'Limited', icon: 'circle-alert', color: '#fe9a00' };
-  if (status === 'failed') return { label: 'Failed', icon: 'circle-alert', color: 'light-dark(#fb2c36, #fb414a)' };
-  if (woke) return { label: 'Woke', icon: 'alarm-clock', color: '#fe9a00' };
-  if (unread) return { label: 'Done', icon: 'circle-check', color: '#00bc7d' };
+  if (status === 'limited') return { label: 'Limited', icon: 'circle-alert', color: 'light-dark(#bb4d00, #ffb900)' };
+  if (status === 'failed') return { label: 'Failed', icon: 'circle-alert', color: 'light-dark(#c10007, #ff6467)' };
+  if (woke) return { label: 'Woke', icon: 'alarm-clock', color: 'light-dark(#bb4d00, #ffb900)' };
+  if (unread) return { label: 'Done', icon: 'circle-check', color: 'light-dark(#007a55, #00d492)' };
   return null;
 }
 

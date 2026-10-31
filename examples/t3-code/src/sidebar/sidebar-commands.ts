@@ -8,14 +8,19 @@ import type { T3Client } from '../client/client';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { canSnooze, capabilities, latestRun, orderKeyBetween, planReorder, wokeAt } from './sidebar-model';
-import { bulkMenuState, canArchive, threadMenuState } from './sidebar-menu';
-import { wall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
+import { bulkMenuState, canArchive, rowConfig, threadMenuState } from './sidebar-menu';
+import { wall, latestWall, shownWall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, undoSummary, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
 import { calendarLocal } from './snooze-calendar';
 export { clock, undoLive } from './sidebar-state';
-import { partition, projectScopes, renderedRows, searchRows } from './sidebar-view';
-import { snoozePresets } from './sidebar-presentation';
+import { partition, projectScopes, renderedRows, scopedRowKey, undoLabel, workingInbox } from './sidebar-view';
+import { pickSearchResult, showPendingFind } from './sidebar-search';
+import { announce, cancelAnnouncement } from '../shell/announce';
+import { completeRouteReveal } from './route-reveal';
+import { copyThreadTarget, threadChipCopyTarget } from './thread-reference';
+import { pickSnoozePreset, snoozePresets, snoozePresetSettings } from './sidebar-presentation';
 import { sidebarDrop } from './sidebar-drop';
 import { dismissProviderPill, scheduleProviderPill } from './sidebar-provider-pill';
+import { claimThreadOpen } from '../palette/palette-search';
 import { syncFavicons } from './sidebar-glyph';
 import { syncBranchPullRequests } from './sidebar-branch-pr';
 import { resetSidebarWidth } from './sidebar-width';
@@ -89,12 +94,27 @@ export function remember(client: T3Client, native: Native, action: UndoAction, t
   const group = [] as string[];
   for (let index = kept.length - 1; index >= 0 && kept[index]!.action === action; index--) group.push(kept[index]!.threadId);
   session.undo = { action, threadIds: group, at: now };
+  noticeChanged(client);
   void native.later({ op: 'sidebarNotify', delay: 5100 }).catch(() => undefined);
 }
 function forget(client: T3Client, threadId: string): void {
   const session = sidebarSession(client), list = (undos.get(client) ?? []).filter(entry => entry.threadId !== threadId);
   undos.set(client, list);
   if (session.undo) { session.undo.threadIds = session.undo.threadIds.filter(id => id !== threadId); if (!session.undo.threadIds.length) session.undo = null; }
+  noticeChanged(client);
+}
+const announcedNotices = new WeakMap<T3Client, string>();
+/**
+ * showThreadUndoNotice's setNotice: a changed notice is announced as "<summary>, ⌘Z to undo", and one that has not
+ * been spoken yet is dropped once the notice is gone. The line itself is no live region, since a region that mounts
+ * already holding its text is not spoken.
+ */
+function noticeChanged(client: T3Client): void {
+  const undo = sidebarSession(client).undo, summary = undo && undoLive(client) ? undoSummary(undo) : '';
+  if (summary === (announcedNotices.get(client) ?? '')) return;
+  announcedNotices.set(client, summary);
+  if (summary) announce(client, `${summary}, ${undoLabel(client)}`, 'thread-undo-notice');
+  else cancelAnnouncement(client, 'thread-undo-notice');
 }
 /** thread.undo / the inline Undo: reverts the displayed group once, with this command's module handle. */
 export async function undoLatest(client: T3Client, native: Native): Promise<boolean> {
@@ -105,6 +125,7 @@ export async function undoLatest(client: T3Client, native: Native): Promise<bool
   for (let index = list.length - 1; index >= 0 && list[index]!.action === action; index--) group.push(list[index]!);
   undos.set(client, list.filter(entry => !group.includes(entry)));
   session.undo = null;
+  noticeChanged(client);
   await Promise.all(group.map(async entry => { try { await entry.undo(native); } catch (error) { toast(client, entry.failureTitle, error); } }));
   return true;
 }
@@ -112,6 +133,7 @@ export async function undoLatest(client: T3Client, native: Native): Promise<bool
 /** showThreadUndoNotice's expiry: actions past their five seconds commit (a discarded draft's uploads are released). */
 export function commitExpiredUndos(client: T3Client): void {
   if (undoLive(client)) return;
+  noticeChanged(client);
   const list = undos.get(client) ?? [];
   if (!list.length) return;
   undos.set(client, []);
@@ -349,7 +371,11 @@ async function copy(client: T3Client, nativeHandle: Native, text: string, title:
   catch (error) { toast(client, 'Failed to copy', error); }
 }
 
-// ── Visits (ChatView visit effect): the open thread's watermark, deduped per updatedAt, throttled 10s mid-turn.
+// ── Visits (createThreadVisitTracker): showing a thread is its open, whether or not its shell has arrived. This client
+// records the open at once (claimThreadOpen, which recent threads and search ranking read), and the open rides on the
+// first visit the server hears, however late the shell arrives. A ⌘K query pick claims its open first
+// (palette-commands.ts claimPick), so the claim here is refused: sending that open, with the pick's query, is the
+// palette's. Then the watermark, deduped per updatedAt, throttled 10s mid-turn.
 // The effect runs whenever the open thread's shell changes, so it is asked after every refresh too: a thread
 // opened on a background environment arrives by the reconnect to that environment, not by openSelected, and
 // a turn completing on the open thread lands as a shell event.
@@ -360,17 +386,33 @@ async function copy(client: T3Client, nativeHandle: Native, text: string, title:
 // left the dedupe key on the thread visited before, so that thread, marked unread meanwhile, stayed unread when it
 // was opened again.
 const visits = new WeakMap<T3Client, { key: string; thread: string; at: number }>();
+const shownThreads = new WeakMap<T3Client, { route: string; openPending: boolean }>();
 export function visitOpenThread(client: T3Client, nativeHandle: Native): void {
+  // A view with no thread (a draft, ⌘N) ends the last thread's: showing it again is a new open, as the reference's
+  // tracker unmounts and mounts again.
+  if (!client.threadId) { shownThreads.delete(client); return; }
+  // routeThreadKey: the same thread id on another environment is another thread.
+  const route = `${client.environmentId}:${client.threadId}`;
+  let shown = shownThreads.get(client);
+  if (!shown || shown.route !== route) {
+    shown = { route, openPending: claimThreadOpen(client.environmentId, client.threadId, latestWall(client)) };
+    shownThreads.set(client, shown);
+  }
   const thread = threadOf(client, client.threadId);
   if (!thread || !client.ready) return;
   const updated = Date.parse(str(thread.updatedAt));
   if (!Number.isFinite(updated)) return;
   const prefs = sidebarPrefs(client), tracked = thread.lastVisitedAt !== undefined && capabilities(client.config).visitedTracking;
   const seen = Date.parse(str(tracked ? thread.lastVisitedAt : prefs.visited[str(thread.id)]));
+  if (!tracked) { if (!(Number.isFinite(seen) && seen >= updated)) prefs.visited[str(thread.id)] = str(thread.updatedAt); return; }
+  const key = `${route}:${str(thread.updatedAt)}`, last = visits.get(client) ?? { key: '', thread: '', at: 0 };
+  if (shown.openPending && client.writable) {
+    shown.openPending = false;
+    visits.set(client, { key, thread: route, at: wall(client) });
+    void dispatch(client, nativeHandle, { type: 'thread.visit', threadId: str(thread.id), visitedAt: str(thread.updatedAt), opened: true }).catch(() => undefined);
+    return;
+  }
   if (Number.isFinite(seen) && seen >= updated) return;
-  if (!tracked) { prefs.visited[str(thread.id)] = str(thread.updatedAt); return; }
-  // routeThreadKey: the same thread id on another environment is another thread.
-  const route = `${client.environmentId}:${str(thread.id)}`, key = `${route}:${str(thread.updatedAt)}`, last = visits.get(client) ?? { key: '', thread: '', at: 0 };
   if (last.key === key || !client.writable) return;
   const completed = Date.parse(str(latestRun(thread)?.completedAt));
   const unseen = Number.isFinite(completed) && (!Number.isFinite(seen) || completed > seen);
@@ -403,7 +445,7 @@ export async function sidebarSelecting(client: T3Client, _nativeHandle: Native, 
       return true;
     }
   }
-  if (value === 'search') { client.query = ''; session.searchIndex = 0; }
+  if (value === 'search') { pickSearchResult(client, id); client.query = ''; session.searchKey = ''; }
   // A double-click's own presses select the row it is renaming; another row drops the edit.
   session.selection = []; session.anchor = id;
   if (session.renameId !== id) { session.renameId = ''; session.renameTitle = ''; }
@@ -425,9 +467,10 @@ export async function sidebarRefreshed(client: T3Client, nativeHandle: Native): 
   await openPendingPort(client, nativeHandle); // a background row's port, once its thread is open here
   startHeldRename(client); // a double-click's rename, once its row's environment is in
   visitOpenThread(client, nativeHandle);
+  showPendingFind(client); // a message result's find, once its thread is the open one
 }
-/** After a thread opens: the server visit lands at once for an unseen completion. */
-export function sidebarOpened(client: T3Client, nativeHandle: Native): void { visitOpenThread(client, nativeHandle); }
+/** After a thread opens: the server visit lands at once for an unseen completion, and a message result finds its message. */
+export function sidebarOpened(client: T3Client, nativeHandle: Native): void { visitOpenThread(client, nativeHandle); showPendingFind(client); }
 
 const menuState = (client: T3Client, thread: Obj) => threadMenuState(client, thread, false, projectScopes(client), wall(client));
 
@@ -436,26 +479,41 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
   if (op.startsWith('legacy-')) return legacyLocal(client, op.slice(7), id, value);
   const prefs = sidebarPrefs(client), session = sidebarSession(client);
   if (op === 'pill-dismiss') { dismissProviderPill(client, value); return ''; }
+  // The window's clock (app.contract workingGraceClock): owed Working stamps are paid with it, and a grace past it ends.
+  if (op === 'working-grace') { workingInbox(client).advance(Number(value)); return ''; }
+  // The open row scrolled into view (sidebar.contract revealDue): the route's reveal is done.
+  if (op === 'reveal-done') { completeRouteReveal(session.reveal, scopedRowKey(client, id)); return ''; }
   if (op === 'shelf') {
     if (id === 'settled') prefs.settledExpanded = !prefs.settledExpanded;
     else if (id === 'snoozed') prefs.snoozedExpanded = !prefs.snoozedExpanded;
     else if (id === 'working') prefs.workingExpanded = !prefs.workingExpanded;
   } else if (op === 'more') session.settledVisible += SETTLED_TAIL_PAGE_COUNT;
-  else if (op === 'scope') { prefs.scope = projectScopes(client).some(group => group.key === value) ? value : ''; session.scopeOpen = false; session.scopeQuery = ''; }
+  // A pick shows that project alone ("All projects" every one); Shift+click or Shift+Enter adds or removes it, the menu
+  // open. A selection made under one scope can hold threads the next one hides.
+  else if (op === 'scope') {
+    prefs.scopes = projectScopes(client).some(group => group.key === value) ? [value] : [];
+    session.scopeOpen = false; session.scopeQuery = ''; session.selection = []; session.anchor = '';
+  } else if (op === 'scope-toggle') {
+    if (!projectScopes(client).some(group => group.key === value)) return '';
+    prefs.scopes = prefs.scopes.includes(value) ? prefs.scopes.filter(key => key !== value) : [...prefs.scopes, value];
+    session.selection = []; session.anchor = '';
+  }
   else if (op === 'scope-open') { session.scopeOpen = value === 'close' ? false : !session.scopeOpen; session.scopeQuery = ''; }
   else if (op === 'scope-query') session.scopeQuery = value;
   else if (op === 'scope-key') { if (value === 'Escape') { session.scopeOpen = false; session.scopeQuery = ''; } }
   else if (op === 'width-reset') resetSidebarWidth(client); // Forget the stored width
+  // The search's highlight moves over the rows as painted (sidebar-search.ts searchRows) and follows its thread.
   else if (op === 'search-hover') {
-    const at = client.query.trim() ? searchRows(client, partition(client, wall(client))).findIndex(entry => entry.thread.id === id) : -1;
-    if (at >= 0) session.searchIndex = at;
+    if (client.query.trim() && session.searchShown.some(row => row.id === id)) session.searchKey = id;
   } else if (op === 'search-key') {
-    const count = client.query.trim() ? searchRows(client, partition(client, wall(client))).length : 0;
-    if (value === 'Escape') { client.query = ''; session.searchIndex = 0; }
-    else if (count && value === 'ArrowDown') session.searchIndex = (session.searchIndex + 1) % count;
-    else if (count && value === 'ArrowUp') session.searchIndex = (session.searchIndex - 1 + count) % count;
+    const shown = client.query.trim() ? session.searchShown : [], count = shown.length;
+    const at = Math.max(0, session.searchKey ? shown.findIndex(row => row.id === session.searchKey) : 0);
+    if (value === 'Escape') { client.query = ''; session.searchKey = ''; }
+    else if (count && value === 'ArrowDown') session.searchKey = shown[(at + 1) % count]!.id;
+    else if (count && value === 'ArrowUp') session.searchKey = shown[(at - 1 + count) % count]!.id;
   } else if (op === 'rename-start') startRename(client, id); // after its first click's open has landed (app.contract)
   else if (op === 'rename-key') { if (value === 'Escape' && session.renameId === id) { session.renameId = ''; session.renameTitle = ''; } }
+  else if (op === 'rename-input') { if (session.renameId === id) session.renameTitle = value; } // the field's text, for its direction
   else if (op === 'dialog-close') closeDialog(session);
   else if (op.startsWith('calendar-')) calendarLocal(session, op, id, value, localDate(new Date(wall(client)))); // The date popover
   else if (op === 'dialog-field') {
@@ -486,6 +544,8 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
   if (op === 'undo') { await undoLatest(client, nativeHandle); return ''; }
   if (op === 'rename') { await rename(client, nativeHandle, id, value); return ''; }
   if (op === 'dialog-confirm') return confirmDialog(client, nativeHandle, storage, value);
+  // CustomSnoozeDialog's "Edit snooze options": the dialog closes on Settings › Threads (`sidebar:settings:<route>`).
+  if (op === 'snooze-settings') { if (session.dialog.kind === 'snooze') closeDialog(session); return 'sidebar:settings:threads'; }
   if (op === 'dialog-cancel') { if (session.dialog.kind === 'delete-worktree') await answerWorktree(client, nativeHandle, storage, false); else closeDialog(session); return ''; }
   if (op === 'drop' && id.startsWith('sweep|')) return sweepRelease(client, nativeHandle, storage, id); // upstream 1826fb55cc
   if (op === 'drop') return sidebarDrop(client, nativeHandle, id, value);
@@ -553,7 +613,7 @@ async function runChoice(client: T3Client, nativeHandle: Native, storage: Files,
   const id = str(thread.id), session = sidebarSession(client), prefs = sidebarPrefs(client), settings = client.local.clientSettings;
   if (choice.startsWith('snooze:')) {
     if (choice === 'snooze:custom') { openSnoozeDialog(session, [id], str(thread.title), wall(client)); return ''; }
-    const preset = snoozePresets(wall(client), client.local.deviceSettings.timestampFormat).find(entry => `snooze:${entry.id}` === choice);
+    const preset = pickPreset(client, choice, rowConfig(client, thread));
     if (preset) await park(client, nativeHandle, id, 'snooze', preset.until, new Set());
     return '';
   }
@@ -570,13 +630,32 @@ async function runChoice(client: T3Client, nativeHandle: Native, storage: Files,
     case 'rename': session.renameId = id; session.renameTitle = str(thread.title); return '';
     case 'regenerate-title': if (thread.titleRegeneration == null) await regenerate(client, nativeHandle, [id], false); return '';
     case 'mark-unread': await markUnread(client, nativeHandle, id); return '';
-    case 'filter-by-project': prefs.scope = prefs.scope === scopeKey ? '' : scopeKey; return '';
+    case 'turn-into-project': {
+      const target = targetOf(client, id);
+      try {
+        if (!target) throw new ClientError('That environment is no longer connected.');
+        if (!target.background) await client.createProjectFromThread(nativeHandle, target.threadId);
+        else {
+          const access = envAccess(client, nativeHandle, target.environmentId);
+          if (!access) throw new ClientError('That environment is no longer connected.');
+          await access.request('projects.createFromThread', { threadId: target.threadId });
+        }
+      } catch (error) {
+        if (letGo(error)) throw error;
+        pushToast(client, { kind: 'error', title: 'Could not turn thread into a project', description: error instanceof Error ? error.message : 'An error occurred.', stacked: true });
+        return '';
+      }
+      pushToast(client, { kind: 'success', title: 'Project created', description: str(thread.title) });
+      return '';
+    }
+    case 'filter-by-project': prefs.scopes = prefs.scopes.includes(scopeKey) ? [] : [scopeKey]; session.selection = []; session.anchor = ''; return '';
     case 'copy-path': {
       const path = isBackground(client, id) ? backgroundThreadPath(client, id) : str(thread.worktreePath) || str(client.shell.projects.find(project => project.id === thread.projectId)?.workspaceRoot);
       if (!path) { pushToast(client, { kind: 'error', title: 'Path unavailable', description: 'This thread does not have a workspace path to copy.' }); return ''; }
       await copy(client, nativeHandle, path, 'Path copied'); return '';
     }
     case 'copy-branch': if (thread.branch) await copy(client, nativeHandle, str(thread.branch), 'Branch copied'); return '';
+    case 'copy-thread': await copyThreadTarget(client, nativeHandle, threadChipCopyTarget(targetOf(client, id)?.threadId ?? id, str(thread.title))); return '';
     case 'copy-thread-id': await copy(client, nativeHandle, targetOf(client, id)?.threadId ?? id, 'Thread ID copied'); return '';
     case 'project-settings': return `sidebar:project-settings:${str(thread.projectId)}`;
     case 'new-thread-on-branch': {
@@ -601,15 +680,23 @@ function selectedRows(client: T3Client, now: number): Obj[] {
   const rendered = new Set(renderedRows(client, partition(client, now)).map(entry => str(entry.thread.id)));
   return sidebarSession(client).selection.filter(id => rendered.has(id)).map(id => targetOf(client, id)?.row).filter((thread): thread is Obj => !!thread);
 }
+/** Sidebar.snooze.ts pickSnoozePreset: the menu choice as picked now, or the warning that its time has passed. */
+function pickPreset(client: T3Client, choice: string, config: Obj) {
+  const format = client.local.deviceSettings.timestampFormat, settings = snoozePresetSettings(config);
+  const preset = pickSnoozePreset(snoozePresets(shownWall(client), format, settings), choice.slice('snooze:'.length), wall(client), format, settings);
+  if (!preset) pushToast(client, { kind: 'warning', title: 'Could not snooze thread', description: 'That snooze time has passed. Choose another time.' });
+  return preset;
+}
 async function bulkChoice(client: T3Client, nativeHandle: Native, storage: Files, choice: string): Promise<string> {
   const session = sidebarSession(client), threads = selectedRows(client, wall(client));
   if (!threads.length) return '';
-  const { presets, pinned, regeneratable, ids } = bulkMenuState(client, threads, wall(client)), batch = new Set(ids);
+  const { pinned, regeneratable, ids } = bulkMenuState(client, threads, wall(client)), batch = new Set(ids);
   if (choice.startsWith('snooze:')) {
     if (choice === 'snooze:custom') { openSnoozeDialog(session, ids, '', wall(client)); return ''; }
-    const preset = presets.find(entry => `snooze:${entry.id}` === choice);
+    const preset = pickPreset(client, choice, rowConfig(client, threads[0]!));
+    if (!preset) return '';
     session.selection = [];
-    if (preset) await snoozeMany(client, nativeHandle, ids, preset.until);
+    await snoozeMany(client, nativeHandle, ids, preset.until);
     return '';
   }
   if (choice === 'unpin') { session.selection = []; for (const thread of pinned) await attempt(client, 'Failed to unpin thread', () => unpin(client, nativeHandle, str(thread.id))); return ''; }

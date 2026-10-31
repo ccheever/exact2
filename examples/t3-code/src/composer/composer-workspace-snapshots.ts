@@ -1,4 +1,5 @@
-// providerSkills.ts and ChatComposer workspace refresh (T3 Code 9c161462c9).
+// providerSkills.ts and ChatComposer workspace refresh (T3 Code 9c161462c9), with
+// useProviderWorkspaceSnapshotRefresh's attempt limit (7c3b3b3605ef).
 // Root Contract actions own the 10-second completion-based retry clock; this
 // module owns snapshot completeness and stale-response/single-flight guards.
 // ChatComposer.tsx:2195-2268: only a pending snapshot (`slashCommandsPending`)
@@ -8,6 +9,8 @@
 import { arr, str, type Obj } from '../client/domain';
 
 export const PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS = 5 * 60_000;
+// A cwd that never scans, such as a deleted worktree, would otherwise retry forever.
+const WORKSPACE_SNAPSHOT_MAX_ATTEMPTS = 3;
 export function hasCurrentProviderWorkspaceSnapshot(provider: Obj | undefined, cwd: string, now: number): boolean {
   const snapshot = cwd && arr(provider?.workspaceSnapshots).find(entry => str(entry.cwd) === cwd);
   return !!snapshot && !snapshot.slashCommandsPending && now - Date.parse(str(snapshot.checkedAt)) < PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS;
@@ -26,9 +29,11 @@ export type WorkspaceRefresh = { key: string; retry: boolean; wake: number };
 /** What re-runs the reference's refresh effect: the prompt, and the provider list or settings (one object, replaced on change). */
 export type WorkspaceWake = { prompt: string; config: unknown };
 const pendingSnapshot = (provider: Obj, cwd: string) => arr(provider.workspaceSnapshots).some(entry => str(entry.cwd) === cwd && entry.slashCommandsPending === true);
-type Attempt = { key: string; instanceId: string; cwd: string; complete: boolean; observedComplete: boolean; requestedAt: number | undefined; flight: Promise<WorkspaceRefresh> | null };
+type Attempt = { key: string; base: string; instanceId: string; cwd: string; complete: boolean; observedComplete: boolean; requestedAt: number | undefined; flight: Promise<WorkspaceRefresh> | null };
 export class WorkspaceDiscovery {
   private attempts = new Map<string, Attempt>();
+  // Failed refreshes in a row, by environment, instance and cwd.
+  private failures = new Map<string, number>();
   private serial = 0;
   private selected: Attempt | undefined;
   private seen: WorkspaceWake | null = null;
@@ -45,24 +50,32 @@ export class WorkspaceDiscovery {
     this.now = now;
     if (this.seen && (this.seen.prompt !== wake.prompt || this.seen.config !== wake.config)) this.wake++;
     this.seen = wake;
-    if (shown && !this.shown) this.attempts.clear();
+    // Mounting again starts over, failures too: the reference drops a cwd's state with its last subscriber.
+    if (shown && !this.shown) { this.attempts.clear(); this.failures.clear(); }
     this.shown = shown;
     const instanceId = str(provider.instanceId);
-    if (!shown || !environment || !instanceId || !cwd) { this.selected = undefined; return { key: '', needed: false, timer: false, wake: this.wake }; }
-    const base = JSON.stringify([environment, generation, instanceId, cwd]);
+    const base = shown && environment && instanceId && cwd ? JSON.stringify([environment, generation, instanceId, cwd]) : '';
+    // Nothing watches the folder, provider or environment the composer moved from: its state goes with it
+    // (useProviderWorkspaceSnapshotRefresh's atom family drops a node with its last subscriber).
+    if (this.selected && this.selected.base !== base) { this.attempts.delete(this.selected.base); this.failures.delete(this.selected.base); }
+    if (!base) { this.selected = undefined; return { key: '', needed: false, timer: false, wake: this.wake }; }
     let attempt = this.attempts.get(base);
     const complete = now === undefined ? hasCompleteProviderWorkspaceSnapshot(provider, cwd) : hasCurrentProviderWorkspaceSnapshot(provider, cwd, now);
     const recent = attempt?.requestedAt !== undefined && now !== undefined && now - attempt.requestedAt < PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS;
     // A reset replaces the attempt, including its key: an older RPC's answer
     // cannot mark the replacement complete or postpone its retry.
     if (!attempt || (!recent && ((attempt.observedComplete && !complete) || (attempt.complete && !complete && now !== undefined)))) {
-      attempt = { key: JSON.stringify([base, ++this.serial]), instanceId, cwd, complete: false, observedComplete: false, requestedAt: undefined, flight: null };
+      attempt = { key: JSON.stringify([base, ++this.serial]), base, instanceId, cwd, complete: false, observedComplete: false, requestedAt: undefined, flight: null };
       this.attempts.set(base, attempt);
     }
     attempt.observedComplete = complete;
     if (complete) attempt.complete = true;
+    // Any complete snapshot ends the run of failures, a stale one too (planProviderWorkspaceSnapshotRefresh).
+    if (hasCompleteProviderWorkspaceSnapshot(provider, cwd)) this.failures.delete(base);
     this.selected = attempt;
-    return { key: attempt.key, needed: !attempt.complete, timer: pendingSnapshot(provider, cwd), wake: this.wake };
+    // After its last allowed failure a scan waits out the TTL from its request.
+    const exhausted = (this.failures.get(base) ?? 0) >= WORKSPACE_SNAPSHOT_MAX_ATTEMPTS && recent;
+    return { key: attempt.key, needed: !attempt.complete && !exhausted, timer: pendingSnapshot(provider, cwd), wake: this.wake };
   }
 
   async refresh(key: string, request: (method: string, payload: Obj) => Promise<Obj>): Promise<WorkspaceRefresh> {
@@ -72,6 +85,7 @@ export class WorkspaceDiscovery {
     if (!attempt || attempt.key !== key || attempt.complete) return { key, retry: false, wake: this.wake };
     if (attempt.flight) return attempt.flight;
     attempt.requestedAt = this.now;
+    const base = attempt.base;
     const flight = (async () => {
       let complete = false;
       try {
@@ -81,10 +95,17 @@ export class WorkspaceDiscovery {
       // A config subscription may have supplied a complete snapshot while this
       // call was pending. Never replace that knowledge with an older partial reply.
       attempt.complete = attempt.complete || complete;
-      if (!attempt.complete) attempt.requestedAt = undefined;
+      if (attempt.complete) { this.failures.delete(base); return { key, retry: false, wake: this.wake }; }
+      // A dropped folder's late failure is not counted: its state went with its last watcher.
+      if (!this.attempts.has(base)) return { key, retry: false, wake: this.wake };
+      const failed = (this.failures.get(base) ?? 0) + 1;
+      this.failures.set(base, failed);
+      // The last attempt keeps its request time, so the snapshot TTL holds off the next scan.
+      if (failed >= WORKSPACE_SNAPSHOT_MAX_ATTEMPTS) return { key, retry: false, wake: this.wake };
+      attempt.requestedAt = undefined;
       // Changes seen while the request was out do not wake a retry (the
       // reference's effect returns early while its key is claimed).
-      return { key, retry: !attempt.complete, wake: this.wake };
+      return { key, retry: true, wake: this.wake };
     })();
     attempt.flight = flight;
     try { return await flight; } finally { attempt.flight = null; }

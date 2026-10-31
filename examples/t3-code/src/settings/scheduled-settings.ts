@@ -1,6 +1,7 @@
 import { obj, arr, str, num, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import { providerAvailable, type Native } from '../client/protocol';
+import { currentTasks, liveEnvironment } from '../client/live-streams';
 export const taskDraft = (task: Obj = {}, client?: T3Client) => {
   const schedule = obj(task.schedule), workspace = obj(task.workspaceStrategy), model = obj(task.modelSelection);
   const weekdays = Array.isArray(schedule.weekdays) && schedule.weekdays.length ? schedule.weekdays : task.id ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5];
@@ -29,8 +30,7 @@ export async function scheduledSettings(client: T3Client, native: Native | null 
   if (!active) return empty;
   try {
     if (!native?.available || !client.ready || environmentId !== client.environmentId || (projectId && !client.shell.projects.some(project => project.id === projectId))) throw new Error('This scope is unavailable. Choose a connected environment and an existing checkout.');
-    const value = await client.readSettings(native, 'scheduledTasks.list');
-    const all = arr(value.tasks), task = editingId ? all.find(task => task.id === editingId) : undefined;
+    const all = currentTasks(liveEnvironment(client, native, environmentId)!), task = editingId ? all.find(task => task.id === editingId) : undefined;
     if (editingId && (!task || (projectId && task.projectId !== projectId))) throw new Error('This scheduled task no longer exists in the selected scope.');
     const settings = obj(client.config.settings), override = obj(obj(settings.projectSettingsOverrides)[projectId || client.projectId]);
     const providers = arr(client.config.providers).filter(providerAvailable);

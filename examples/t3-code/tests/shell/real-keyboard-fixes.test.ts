@@ -3,7 +3,7 @@ import { describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
-import { keyboardDispatch, keyboardDispatchSource } from '../../src/shell/keyboard-dispatch';
+import { chordWinners, keyboardDispatch, keyboardDispatchSource } from '../../src/shell/keyboard-dispatch';
 import { keyboardSettings } from '../../src/settings/keybinding-settings';
 import { claimBoldChord, isBoldChord, richTextComposer } from '../../src/shell/button-chords';
 import { placeTableMenu, tableMenuAction, tableMenuSnapshot, TABLE_MENU_HEIGHT } from '../../src/timeline/table-menu';
@@ -45,7 +45,7 @@ class Fake implements Native {
   async later(input: unknown): Promise<unknown> { this.calls.push(obj(input)); return { ok: true, generation: 1, value: {} }; }
 }
 
-describe('D1: ⌘B in the rich-text composer bolds', () => {
+describe('D1: ⌘B in the rich-text composer bolds a selection', () => {
   test('isRichTextBoldShortcut over chords', () => {
     expect(isBoldChord('Meta+b')).toBe(true);
     expect(isBoldChord('Control+B')).toBe(true);
@@ -53,18 +53,20 @@ describe('D1: ⌘B in the rich-text composer bolds', () => {
     expect(isBoldChord('Meta+Alt+b')).toBe(false);
     expect(isBoldChord('Meta+n')).toBe(false);
   });
-  test('the sidebar toggle gives up Meta+b only while the rich-text composer has the focus', () => {
+  test('the sidebar toggle gives up Meta+b only while the rich-text composer has the focus and text selected', () => {
     const c = client();
     expect(richTextComposer(c)).toBe(true);
-    const keys = (focus: boolean, rich = true) => claimBoldChord(keyboardSettings(c.config, focus), focus, rich).keySidebar;
+    const keys = (focus: boolean, rich = true, selected = true) => claimBoldChord(keyboardSettings(c.config, focus), focus, rich, selected).keySidebar;
     expect(keys(false)).toBe('Meta+b');
     expect(keys(true)).toBe('');
+    // Nothing selected: ⌘B toggles the sidebar from the composer too (#24063).
+    expect(keys(true, true, false)).toBe('Meta+b');
     expect(keys(true, false)).toBe('Meta+b');
     c.local.clientSettings = { ...obj(c.local.clientSettings as Obj | undefined), composerRichTextEnabled: false } as never;
     expect(richTextComposer(c)).toBe(false);
     // A rebinding to another chord keeps it.
     c.config = { ...c.config, keybindings: [...bindings, { command: 'sidebar.toggle', shortcut: { key: 'b', modKey: true, shiftKey: true } }] };
-    expect(claimBoldChord(keyboardSettings(c.config, true), true, true).keySidebar).toBe('Meta+Shift+b');
+    expect(claimBoldChord(keyboardSettings(c.config, true), true, true, true).keySidebar).toBe('Meta+Shift+b');
   });
 });
 
@@ -173,5 +175,25 @@ describe('D6: the table Copy menu is a window-level popup', () => {
     // The popup is placed from the frame Contract reports: frame() is the trigger as drawn, scroll offsets applied.
     tableMenuAction(c, 'table-menu', 'tbl-1', value.replace('900|200|', '900|150|'));
     expect(tableMenuSnapshot(c).tableMenu[0]).toMatchObject({ triggerY: 150, y: 178 });
+  });
+});
+
+describe('⌘U and ⌘B over Usage and Settings', () => {
+  // keybindings.ts at 7c3b3b3605ef (#22905): `usagePageOpen` is true on the Usage page, so a toggle bound with it goes back.
+  test('a Usage toggle bound with usagePageOpen goes back from Usage', () => {
+    const toggle = [
+      { command: 'usage.open', shortcut: { key: 'u', modKey: true }, whenAst: { type: 'not', node: { type: 'identifier', name: 'usagePageOpen' } } },
+      { command: 'navigation.back', shortcut: { key: 'u', modKey: true }, whenAst: { type: 'identifier', name: 'usagePageOpen' } },
+    ];
+    expect(chordWinners(toggle, context).get('Meta+u')).toBe('usage.open');
+    expect(chordWinners(toggle, { ...context, page: 'usage' }).get('Meta+u')).toBe('navigation.back');
+  });
+  // AppSidebarLayout.tsx SidebarControl: its capture listener has no dialog check, so ⌘B toggles the sidebar behind them.
+  test('sidebar.toggle keeps its chord while Settings or Usage covers the window', () => {
+    const c = client();
+    const sidebar = (extra: Obj) => keyboardDispatch(c, [], '', '', { ...context, ...extra }).find(row => row.command === 'sidebar.toggle');
+    expect(sidebar({ modalOpen: true, settingsOpen: true })).toMatchObject({ chord: 'Meta+b', target: 'sidebar' });
+    expect(sidebar({ page: 'usage' })).toMatchObject({ chord: 'Meta+b', target: 'sidebar' });
+    expect(sidebar({})).toBeUndefined(); // elsewhere the sidebar's own button holds the chord
   });
 });

@@ -21,6 +21,7 @@ import { acpRegistry, providerPage, providerSetupStreams, providerWizard, wizard
 import { providerUpkeepOp, withUpkeep, type UpkeepHost } from './providers-upkeep';
 import { providerSetupOp, watchProviderSetup } from './provider-setup';
 import { scopeRepresentative, settingsScopeOf } from '../settings/settings-core-view';
+import { idleCompactionRow, serverContext, type CoreRow } from '../settings/settings-core';
 
 const EMPTY = { auth: [] as string[], install: [] as string[] };
 /**
@@ -73,19 +74,38 @@ async function watchOn(owner: string, host: ProviderHost | null, native: Native,
   await watchProviderSetup(host, routedNative(host, native), owner, wanted);
 }
 
+// The newest wall time the Providers page saw (its clock argument), which times the ACP Registry's kept answers: Add
+// provider opens from that page, and data sources have no Date.now().
+let pageNow = 0;
+
+const NO_PREVIEW = { path: '', status: '', additions: 0, deletions: 0, scheme: '', lines: [] };
+/**
+ * Providers › Advanced's settings-core rows (CompactIdleThreadsRow), read from and written to the scope's targets as
+ * the core pages' are; `writeScope` names that scope in their commands (settings-core.ts parseCoreTarget), with the
+ * environment the route resolved when none was chosen.
+ */
+function advancedRows(client: T3Client, active: boolean, args: unknown[]) {
+  const none = { advanced: [] as CoreRow[], writeScope: '', codePreview: NO_PREVIEW };
+  if (!active) return none;
+  const { machine, projectKey, checkout, scope } = settingsScopeOf(client, 'providers', String(args[4] ?? ''), String(args[5] ?? ''), String(args[6] ?? ''), String(args[7] ?? ''));
+  if (scope.kind === 'unavailable' || !scope.connected) return none;
+  return { advanced: [{ ...idleCompactionRow(serverContext(client, scope, new Map())), divider: true }], writeScope: `${machine}|${projectKey}|${checkout}`, codePreview: NO_PREVIEW };
+}
+
 /**
  * The providerPage answer. args: selection, active, revision, clock, then the settings scope (machine,
  * project, checkout, legacy project id). Closed, the page is the focused environment's, as before.
  */
 export async function scopedProviderPage(client: T3Client, native: Native | null | undefined, args: unknown[]) {
   const selection = String(args[0] || ''), active = args[1] === true, now = Number(args[3]) || 0;
+  pageNow = Math.max(pageNow, now);
   const chosen = active ? providersEnvironment(client, String(args[4] ?? ''), String(args[5] ?? ''), String(args[6] ?? ''), String(args[7] ?? ''))
     : { environmentId: client.environmentId, message: '', projectIds: [] };
   const host = !active || chosen.environmentId ? providersHost(client, chosen.environmentId) : null;
   if (active && host && providerSettingsWritable(host) && native?.available) void migrateModelPreferences(host, routedNative(host, native)).catch(() => {});
   if (native?.available) await watchOn('page', host, native, active && host ? providerSetupStreams(host, selection) : EMPTY);
-  if (!host) return { ...withUpkeep(client, { ...providerPage(offline(client), '', now), message: chosen.message }), environment: NO_ENVIRONMENT };
-  return { ...withUpkeep(host, providerPage(host, selection, now, chosen.projectIds), client), environment: active ? chosen.environmentId : '' };
+  if (!host) return { ...withUpkeep(client, { ...providerPage(offline(client), '', now), message: chosen.message }), environment: NO_ENVIRONMENT, ...advancedRows(client, false, args) };
+  return { ...withUpkeep(host, providerPage(host, selection, now, chosen.projectIds), client), environment: active ? chosen.environmentId : '', ...advancedRows(client, active, args) };
 }
 
 /** The providerWizard answer on the page's environment (args[10]); the Reconnect ChatGPT picker reads its own target's streams. */
@@ -95,14 +115,14 @@ export async function scopedProviderWizard(client: T3Client, native: Native | nu
   const tab = target.indexOf('\t'), pickerEntry = dialog === 'codex-picker' && tab >= 0 ? appFleet.entries.get(target.slice(0, tab)) : undefined;
   const streamHost = pickerEntry ? ownedHost(client, pickerEntry) : host;
   if (native?.available) await watchOn('wizard', streamHost, native, wizardSetupStreams(streamHost, open, serial, dialog, pickerEntry ? target.slice(tab + 1) : target));
-  return providerWizard(host, open, serial, String(args[2] || 'codex'), args[3] === true, String(args[4] || ''), args[5] === true, String(args[6] || ''), dialog, target);
+  return providerWizard(host, open, serial, String(args[2] || 'codex'), args[3] === true, String(args[4] || ''), args[5] === true, String(args[6] || ''), dialog, target, Number(args[11]) || 0);
 }
 
 /** The ACP Registry search on the page's environment (args[3]), marking the agents it already has. */
 export function scopedAcpRegistry(client: T3Client, native: Native | null | undefined, args: unknown[]) {
   const host = providersHost(client, String(args[3] ?? ''));
   const configured = Object.values(obj(obj(host.config.settings).providerInstances)).filter(entry => obj(entry).driver === 'acpRegistry').map(entry => str(obj(obj(entry).config).agentId));
-  return acpRegistry(host, native?.available ? routedNative(host, native) : native, String(args[0] || ''), args[1] === true, configured);
+  return acpRegistry(host, native?.available ? routedNative(host, native) : native, String(args[0] || ''), args[1] === true, configured, pageNow);
 }
 
 /** Route commands to the page's synchronized environment; its RPC boundary checks each operation's permission. */
@@ -113,9 +133,9 @@ export function providersRoute(client: T3Client, environmentId: string): Provide
     requireWrite: () => { if (!host.ready) throw new ClientError('Reconnect before making changes.'); } };
 }
 
-/** The page's `upkeep:` ops (args[4] names its environment); Update all and the launch prompt cover every environment. */
+/** The page's `upkeep:` ops (args[4] names its environment); Update all covers every environment. */
 export async function scopedUpkeepOp(client: T3Client, native: Native, args: unknown[]): Promise<void> {
-  const op = String(args[0] || ''), host = op === 'upkeep:update-all' || op === 'upkeep:update-launch' ? client : providersHost(client, String(args[4] ?? ''));
+  const op = String(args[0] || ''), host = op === 'upkeep:update-all' ? client : providersHost(client, String(args[4] ?? ''));
   await providerUpkeepOp(host, routedNative(host, native), op, String(args[1] || ''), String(args[2] ?? ''), String(args[3] ?? ''));
 }
 

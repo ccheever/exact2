@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import { obj, type Obj } from '../../src/client/domain';
 import { modelCatalog, snapshot } from '../../src/client/presentation';
 import { providerEntries, resolveComposerProviderSelection, resolveSelectableProviderInstanceEntry, resolveAppModelSelectionForInstance,
-  composerSelection, applyProviderInstanceSettings, DEFAULT_MODEL, instanceModelOptions } from '../../src/composer/composer-provider-selection';
+  composerSelection, applyProviderInstanceSettings, DEFAULT_MODEL, defaultServerModel, instanceModelOptions } from '../../src/composer/composer-provider-selection';
 import { provider as fixtureProvider, Fake, storage, opened } from '../support/composer-controls-fixture';
 import { T3Client } from '../../src/client/client';
 import { composerBranches } from '../../src/composer/composer-controls-branch';
@@ -139,6 +139,8 @@ describe('instance-scoped model selection', () => {
     const client = { config: { providers, settings: {} }, providerId: 'codex', modelId: 'gpt-5.4', local: {} };
     expect(composerSelection(client)).toMatchObject({ instanceId: 'codex', model: DEFAULT_MODEL, showProviderUnavailable: false });
     expect(DEFAULT_MODEL).toBe('gpt-6-astra');
+    // fx and Muse defer to the account's own model.
+    expect([defaultServerModel([], 'fx'), defaultServerModel([], 'muse')]).toEqual(['default', 'default']);
   });
 });
 

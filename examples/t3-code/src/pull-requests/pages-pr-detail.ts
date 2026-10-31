@@ -6,7 +6,7 @@ import { markdownFilePick } from '../panel/files-surface';
 import { withFileLinkMenus } from '../timeline/file-link-menu';
 import { pullRequestUrls } from '../timeline/pull-link-registry';
 import { environmentClient } from '../settings/projects-fleet';
-import { pullRequestServer } from './pages-pr-environments';
+import { prEnvironments, pullRequestServer } from './pages-pr-environments';
 import { emptyGuideView, generateGuide, guideEntry, guideNavigate, guideReader, presentGuide, readGuide } from './pages-pr-guide';
 import { guideDiffLocal, presentGuideDiff, type GuideDiffCard } from './pages-pr-guide-diff';
 import { checkoutCommand, sourceControlHostName } from '../shared/source-control-hosts';
@@ -36,19 +36,20 @@ import { relativeLabel, stateKey, conflictLabel, labelChip, listEntryFor } from 
 import type { T3Client } from '../client/client';
 import { letGo } from '../client/let-go';
 import { peekDetail } from '../details/pr-row-actions';
-import { CHECKS_HEADLINE } from '../details/pr-row-logic';
+import { CHECKS_HEADLINE, checksRefreshIntervalMs, resolvePullRequestDetailChecks } from '../details/pr-row-logic';
 import {
   readPullRequestDetailSnapshot, resolveDisplayedPullRequestDetail, resolvePullRequestReferenceHost,
   shouldRefreshPullRequestActivity, writePullRequestDetailSnapshot, type PullRequestDetailSnapshotRef,
 } from './pages-pr-logic';
-import { holdPullRequestRefreshes, interactionResumes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
+import { holdPullRequestRefreshes, interactionResumes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, readerIdle, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
 import { breakdownKey, emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns, releaseChangeBreakdowns, type BreakdownTarget } from './pr-change-breakdown';
 import { commentFilter, conversationBodies, emptySummary, presentSummary, toggleCommentFilter, type CommentFilter, type RemarkWrites } from './pages-pr-summary';
 import { emptyTimeline, presentTimeline } from './pages-pr-timeline';
 import { canEditPullRequestChangeRequest } from './pages-pr-writes-logic';
 import { commentEditing, emptyWrites, presentWrites, previewBodies, prWrite, reactionPills, writeReference } from './pages-pr-writes';
 import { composerNow } from '../composer/composer-controls';
-import { emptyActions, isActionOp, notedListEntry, prActionCommand, prActionUi, presentActions, type PanelContext } from './pages-pr-actions';
+import { emptyActions, isActionOp, notedListEntry, panelTerminology, prActionCommand, prActionUi, presentActions, type PanelContext } from './pages-pr-actions';
+import { capitalizeTerm, termView, terminologyOf, type Terminology } from '../details/git-logic';
 import { markStackDue, readPanelStack } from './pages-pr-stack';
 import { emptyHandoffs, presentHandoffs, prHandoffCommand, prGuideTaskHandoff } from './pages-pr-handoffs';
 import { runQuickAction, queueQuickAction, queueCloseBatch } from './pages-pr-quick';
@@ -103,13 +104,14 @@ const labelColor = (color: unknown) => { const hex = str(color).trim().replace(/
 /** PullRequestDetailGhost's seed: what the list's row (or a kept detail) already says. */
 function emptyGhost() {
   return { seeded: false, conflicting: false, title: '', repository: '', url: '', state: 'open', author: '', avatar: '', initial: '', updated: '', baseBranch: '', headBranch: '',
-    files: '', additions: '', deletions: '', checksLabel: '', checksTone: '', labelsKnown: false, labels: [] as { key: string; name: string; background: string; ink: string }[] };
+    files: '', additions: '', deletions: '', checksLabel: '', checksTone: '', labelsKnown: false, labels: [] as { key: string; name: string; background: string; ink: string }[],
+    term: termView(terminologyOf(undefined)) };
 }
 export function emptyDetail() {
   return {
     open: false, loading: false, phase: 'ghost', error: '', errorTitle: '', githubUrl: '', copiedCheckout: 0, copiedBranch: 0, ref: '', number: 0, numberLabel: '', title: '', repository: '', url: '', state: 'open', stateLabel: 'Open', conflict: '',
     author: '', authorAvatar: '', authorInitial: '', updated: '', updatedAgo: '', filesCount: '', checkoutCommand: '', baseBranch: '', headBranch: '', files: '', additions: '', deletions: '',
-    breakdown: emptyBreakdown(), checksSummary: '', checksTone: '', reviewers: [] as { key: string; login: string; avatar: string; initial: string }[],
+    breakdown: emptyBreakdown(), checksSummary: '', checksTone: '', checksPoll: '' as '' | 'pending' | 'settled', reviewers: [] as { key: string; login: string; avatar: string; initial: string }[],
     labels: [] as { key: string; name: string; background: string; ink: string }[],
     bodies: [] as { id: string; kind: string; title: string; body: string }[], hasBody: false, bodyId: '',
     commentCount: 0, commentsLabel: 'Comments (0)', activityPending: false, activityError: '',
@@ -129,6 +131,8 @@ export function emptyDetail() {
     links: emptyLinks(), preview: emptyPreview(),
     // "Act on" — the servers a hand-off can act on, on the page.
     actOn: emptyActOn(),
+    // The host's words for the pull request on screen (PullRequestDetailPanel terminology).
+    term: termView(terminologyOf(undefined)),
   };
 }
 export type PrDetailView = ReturnType<typeof emptyDetail>;
@@ -142,6 +146,11 @@ type Panel = {
   detail: Obj | null; detailError: unknown; detailDue: boolean; invalidate: boolean;
   activity: Obj | null; activityError: string; activityDue: boolean;
   refresh: number; epoch: number; facts: { visible: boolean; returns: number };
+  /**
+   * usePullRequestDetail's checks query where the server reports them: the last answer, when it was asked (the resource's
+   * clock, 0 before the first), whether a refresh or an announcement asks it again, and a host that reports none.
+   */
+  checks: Obj | null; checksAt: number; checksDue: boolean; checksNone: boolean;
 };
 const panels = new WeakMap<object, Map<string, Panel>>();
 /** What the last view this resource returned showed (`key|detail|activity`), so a new state is shown before the read after it. */
@@ -157,7 +166,8 @@ const due = (panel: Panel) => panel.detailDue || (panel.activityDue && !!(panel.
 const messageOf = (error: unknown) => (error instanceof Error && error.message.trim() ? error.message : 'The environment request failed.');
 
 /** `returns`: the window focused again (app.contract `windowReturned`, which reads the clock then). */
-export type DetailInput = { selected: string; refresh: number; now: number; visible?: boolean; returns?: number; tab?: string; page?: boolean; linkTick?: number; preview?: string; guideActive?: boolean };
+/** `shown`: the detail is drawn (the page's panel open, or a thread's surface), which the checks timer needs. */
+export type DetailInput = { selected: string; refresh: number; now: number; visible?: boolean; returns?: number; tab?: string; page?: boolean; linkTick?: number; preview?: string; guideActive?: boolean; shown?: boolean };
 export async function pullRequestDetail(client: T3Client, native: Native | null | undefined, input: DetailInput, storage?: Files): Promise<PrDetailView> {
   const view = emptyDetail();
   view.md = markdownEnv(client); view.diffScheme = diffSchemeOf(client);
@@ -184,14 +194,15 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
     const kept = readPullRequestDetailSnapshot(snapshotStorage(client.local ? client : { local: {} }), client.environmentId, reference);
     panel = { key, reference, cached: kept ?? resolveDisplayedPullRequestDetail({ live: null, cached: peekDetail(client, selectionRef(selection)), reference }),
       detail: null, detailError: null, detailDue: true, invalidate: false, activity: null, activityError: '', activityDue: true,
-      refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), facts };
+      refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), facts, checks: null, checksAt: 0, checksDue: true, checksNone: false };
     panelsOf(client).set(key, panel);
   } else {
     // Refresh (the menu's, Retry, "Check details are out of date."): around the server's cache.
+    // It reads the detail, the activity and the stack again (refreshDetail), not the checks.
     if (input.refresh !== panel.refresh) { panel.refresh = input.refresh; panel.detailDue = panel.activityDue = panel.invalidate = true; }
-    // pullRequests.subscribeRefreshes: the server announced a change; detail and activity read again.
+    // pullRequests.subscribeRefreshes: the server announced a change; detail, activity and checks read again.
     const epoch = pullRequestRefreshEpoch(client);
-    if (epoch !== panel.epoch) { panel.epoch = epoch; panel.detailDue = panel.activityDue = true; }
+    if (epoch !== panel.epoch) { panel.epoch = epoch; panel.detailDue = panel.activityDue = panel.checksDue = true; }
     // useLiveRefresh's window listeners: `focus`, `visibilitychange` to visible and an interaction after six idle minutes are arrivals.
     const shownAgain = (facts.visible && !panel.facts.visible) || facts.returns !== panel.facts.returns;
     panel.facts = facts;
@@ -199,10 +210,15 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   }
   if (viewRefreshedAt(client, viewKey) === undefined) noteViewRefreshed(client, viewKey, input.now); // the mount's own read fills it in
   // Something new to show first: show it, and ask again for the read that follows.
-  if (due(panel) && phaseOf(panel) !== shown.get(client)) return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
+  if (due(panel) && phaseOf(panel) !== shown.get(client)) return wake(client, native!, present(view, panel, selection, listEntry, input.now, client, input), panel);
   const ref = { ...selectionRef(selection) };
-  if (panel.detailDue) await readDetail(client, native!, panel, ref, storage);
-  if (due(panel) && phaseOf(panel) !== shown.get(client)) return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
+  if (panel.detailDue) {
+    // PullRequestDetailPanel reads the page's linked threads beside the first detail (from the list's row), not after it.
+    const beside = !panel.detail && listEntry && input.page ? readLinkedThreads(client, native!, linkContext(selection, listEntry, input), input.linkTick ?? 0) : null;
+    await Promise.all([readDetail(client, native!, panel, ref, storage), beside]);
+  }
+  if (due(panel) && phaseOf(panel) !== shown.get(client)) return wake(client, native!, present(view, panel, selection, listEntry, input.now, client, input), panel);
+  await readChecks(client, native!, panel, ref, input);
   const loaded = panel.detail ?? panel.cached;
   const known = sharedPullRequestSummary(client, ref, loaded, selection.environmentId || client.environmentId);
   if (loaded && known && panel.detail) panel.detail = { ...loaded, ...known };
@@ -215,10 +231,10 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   // Opening the view (or another pull request in it) is the request; it ends when the view closes or moves on.
   if (display) releaseChangeBreakdowns(client, 'detail', new Set([breakdownKey(client, breakdownTarget(panel, selection, display))]));
   if (display && await readChangeBreakdowns(client, native!, [breakdownTarget(panel, selection, display)], { eager: 'detail', wakes: [] }) === 'wake')
-    return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
+    return wake(client, native!, present(view, panel, selection, listEntry, input.now, client, input), panel);
   // The Code tab's reads once it was opened (the ticks, the slice owed, the contents asked for).
   if (display && await readCode({ client, native: native!, reference: writeReference(selection), environmentId: selection.environmentId ?? '', detail: display, activity: panel.activity, tab: input.tab ?? '', refresh: input.refresh, epoch: pullRequestRefreshEpoch(client) }) === 'wake') {
-    return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
+    return wake(client, native!, present(view, panel, selection, listEntry, input.now, client, input), panel);
   }
   if (display && await readGuide({ client, native: native!, reference: { ...writeReference(selection), environmentId: selection.environmentId }, detail: display, now: input.now, tab: input.tab ?? '', refresh: input.refresh, visible: input.guideActive ?? input.visible }) === 'wake')
     return wake(client, native!, present(view, panel, selection, listEntry, input.now, client, input), panel);
@@ -234,6 +250,13 @@ async function wake(client: T3Client, native: Native, view: PrDetailView, panel:
   try { await native.later({ op: 'wake', topic: PR_WAKE_TOPIC }); } catch (error) { if (letGo(error)) throw error; }
   return view;
 }
+/** PullRequestsPage's panelSummary: the +/- the panel read for a selection, which its list row borrows; null before the detail. */
+export function shownDiffStat(client: T3Client, selected: string): { additions: number; deletions: number } | null {
+  const selection = parseSelection(selected);
+  const panel = selection ? panelsOf(client).get(JSON.stringify([client.environmentId, selectionRef(selection)])) : undefined;
+  const detail = panel?.detail ?? panel?.cached;
+  return detail && typeof detail.additions === 'number' && typeof detail.deletions === 'number' ? { additions: detail.additions, deletions: detail.deletions } : null;
+}
 /** useLiveRefresh: an arrival (a reopened view, the window shown or focused again, the reader back from idle) and the 5-minute interval read the detail. */
 function liveRefresh(client: T3Client, panel: Panel, viewKey: string, input: DetailInput, arrival: boolean): void {
   if (panel.detailDue) return;
@@ -246,9 +269,11 @@ async function readDetail(client: T3Client, native: Native, panel: Panel, ref: O
     // sent it, and the change it announces asks this read again; a run that sent it again would announce again,
     // and so on (#298 bug 15: 237 invalidates in 40 s after one Update with rebase).
     if (panel.invalidate) { panel.invalidate = false; await client.rpc(native, 'pullRequests.invalidate', { reference: ref }).catch((error: unknown) => { if (letGo(error)) throw error; return {}; }); }
-    const detail = obj(await client.rpc(native, 'pullRequests.detail', ref));
+    // usePullRequestDetail reads around the server's cache, so the checks it shows are the details card's.
+    const detail = obj(await client.rpc(native, 'pullRequests.detail', { ...ref, allowStale: false }));
     if (panel.detail && shouldRefreshPullRequestActivity({ key: panel.key, updatedAt: str(panel.detail.updatedAt) }, { key: panel.key, updatedAt: str(detail.updatedAt) })) panel.activityDue = true;
-    panel.detail = detail; panel.detailError = null;
+    // A checks answer the server read later than this detail still wins (resolvePullRequestDetailChecks).
+    panel.detail = resolvePullRequestDetailChecks(detail, panel.checks, false); panel.detailError = null;
     const store = snapshotStorage(client.local ? client : { local: {} });
     writePullRequestDetailSnapshot(store, client.environmentId, panel.reference, detail);
     if (store.changed && storage) await client.savePreferences(storage);
@@ -259,6 +284,43 @@ async function readDetail(client: T3Client, native: Native, panel: Panel, ref: O
   panel.detailDue = false; panel.invalidate = false;
   // An announcement that landed while this read was out is answered by it (the stream's first value among them).
   panel.epoch = pullRequestRefreshEpoch(client);
+}
+/** Whether the server the pull request is read through reports its checks apart (`pullRequestChecks`). */
+function serverReportsChecks(client: T3Client, ref: Obj): boolean {
+  const server = pullRequestServer(client, str(ref.environmentId), ref);
+  const config = server && server !== client.environmentId ? prEnvironments(client).find(environment => environment.id === server)?.config : client.config;
+  return obj(obj(config?.environment).capabilities).pullRequestChecks === true;
+}
+/**
+ * usePullRequestChecksRefresh's timer (pull-requests-members.contract `prChecksTick`): on while the open pull request's
+ * checks are read again, every 45 s while runs are pending (or none are reported) and 60 s once they settle; off while
+ * the detail is not drawn, in a hidden window, once the reader has been idle for six minutes (useLiveRefresh), and for a
+ * host that reports no checks.
+ */
+function checksPollOf(client: T3Client, panel: Panel | null, selection: PrSelection, input: DetailInput | undefined): '' | 'pending' | 'settled' {
+  const detail = panel?.detail;
+  if (!detail || !input || detail.state !== 'open' || panel!.checksNone || input.visible === false || input.shown === false || readerIdle(client, input.now) || !serverReportsChecks(client, selectionRef(selection))) return '';
+  return checksRefreshIntervalMs(arr(detail.checks)) === 45_000 ? 'pending' : 'settled';
+}
+/** How early a timer tick may land and still count as the interval come round. */
+const CHECKS_TICK_SLACK_MS = 1_000;
+/**
+ * usePullRequestDetail's checks: read once the detail is in, again when the server announces a change, and on the
+ * timer's ticks while it runs (checksPollOf); a host that answers with no checks is not asked again.
+ */
+async function readChecks(client: T3Client, native: Native, panel: Panel, ref: Obj, input: DetailInput): Promise<void> {
+  const detail = panel.detail;
+  if (!detail || panel.checksNone || !serverReportsChecks(client, ref)) return;
+  const interval = detail.state === 'open' && input.visible !== false && input.shown !== false && !readerIdle(client, input.now)
+    && input.now - panel.checksAt >= checksRefreshIntervalMs(arr(detail.checks)) - CHECKS_TICK_SLACK_MS;
+  if (!panel.checksDue && !interval) return;
+  panel.checksDue = false; panel.checksAt = input.now;
+  try {
+    const answer = obj(await client.rpc(native, 'pullRequests.checks', ref));
+    if (!Array.isArray(answer.checks)) { panel.checksNone = true; return; }
+    panel.checks = answer;
+    if (panel.detail) panel.detail = resolvePullRequestDetailChecks(panel.detail, answer, true);
+  } catch (error) { if (letGo(error)) throw error; }
 }
 async function readActivity(client: T3Client, native: Native, panel: Panel, ref: Obj): Promise<void> {
   try {
@@ -277,11 +339,14 @@ const linkContext = (selection: PrSelection, detail: Obj, input: DetailInput): L
     url: str(detail.url), page: input.page === true });
 function present(view: PrDetailView, panel: Panel | null, selection: PrSelection, listEntry: Obj | null, now: number, client: T3Client, input?: DetailInput): PrDetailView {
   Object.assign(view, { number: selection.number, numberLabel: `#${selection.number}`, repository: selection.repository });
+  view.checksPoll = checksPollOf(client, panel, selection, input);
   const display = panel?.detail ?? panel?.cached ?? null;
-  view.handoffs = presentHandoffs(client, display, selection); // the ghost's Check out too
+  const term = panelTerminology(client, selection.projectId, display, listEntry);
+  view.term = termView(term);
+  view.handoffs = presentHandoffs(client, display, selection, term); // the ghost's Check out too
   if (!display) {
     if (panel?.detailError) {
-      Object.assign(view, { phase: 'error' }, unavailable(selection, { error: messageOf(panel.detailError), notFound: isPullRequestNotFound(panel.detailError) }, client.shell.projects.find(project => project.id === selection.projectId)));
+      Object.assign(view, { phase: 'error' }, unavailable(selection, { error: messageOf(panel.detailError), notFound: isPullRequestNotFound(panel.detailError) }, client.shell.projects.find(project => project.id === selection.projectId), term));
     } else {
       view.phase = 'ghost'; view.loading = true; view.ghost = ghostOf(listEntry, now);
       // loadingPullRequestCheckoutCommand: a GitHub reference already names its checkout.
@@ -305,14 +370,15 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
   view.bodies = [...view.bodies, ...previewBodies(client, reference), ...code.bodies, ...guide.bodies, ...guideDiff.bodies];
   view.copiedCheckout = copyNonce(client, view.checkoutCommand); view.copiedBranch = copyNonce(client, view.headBranch);
   view.actions = presentActions(client, { ...panelContext(client, panel!, view.ref, listEntry), checksState: view.summary.checksState || null, checksStale: view.summary.checksStale,
-    refreshing: !!panel!.detail && panel!.detailDue, threadLinks: client.shell.threads.flatMap(thread => arr(thread.pullRequests)) });
+    refreshing: !!panel!.detail && panel!.detailDue, threadLinks: client.shell.threads.flatMap(thread => arr(thread.pullRequests)), tab: input?.tab ?? '' });
   view.actions.guideEnabled = view.guide.enabled && view.guide.canWrite; view.actions.guideDisabled = view.guide.running;
   view.actions.guideLabel = view.guide.running ? 'Writing guide...' : view.guide.hasGuide ? 'Rewrite guide' : 'Write guide';
   // `#N` and commit autolinks in the text (remarkPullRequestAutolinks), each pull request link a chip with its card.
   const context = linkContext(selection, display, input ?? { selected: '', refresh: 0, now });
   view.links = presentLinks(client, context);
   view.actOn = presentActOn(client, panel!.key, context.environmentId, selection.projectId, context.page);
-  const repositoryUrl = changeRequestRepositoryUrl(str(display.url)), links: { href: string; kind: string }[] = [];
+  // changeRequestReferenceAutolinker: only a host that links references (GitHub, the default host) gets them.
+  const repositoryUrl = str(display.provider, 'github') === 'github' ? changeRequestRepositoryUrl(str(display.url)) : null, links: { href: string; kind: string }[] = [];
   view.bodies = view.bodies.map(body => {
     const linked = repositoryUrl ? autolinkPullRequestMarkdown(body.body, repositoryUrl) : { text: body.body, links: [] };
     links.push(...linked.links, ...pullRequestUrls(linked.text).map(href => ({ href, kind: '' })));
@@ -334,7 +400,7 @@ export function ghostOf(entry: Obj | null, now: number): ReturnType<typeof empty
   if (!entry) return ghost;
   const author = person(entry.author), measured = num(entry.additions) + num(entry.deletions) > 0;
   const checks = str(entry.checksState);
-  return { ...ghost, seeded: true, conflicting: entry.state === 'open' && entry.mergeability === 'conflicting', title: str(entry.title), repository: str(entry.repository), url: str(entry.url), state: stateKey(entry), author: author.login, avatar: author.avatar, initial: author.initial,
+  return { ...ghost, seeded: true, term: termView(terminologyOf(str(entry.provider) || undefined)), conflicting: entry.state === 'open' && entry.mergeability === 'conflicting', title: str(entry.title), repository: str(entry.repository), url: str(entry.url), state: stateKey(entry), author: author.login, avatar: author.avatar, initial: author.initial,
     updated: `updated ${relativeLabel(entry.updatedAt, now)}`, baseBranch: str(entry.baseBranch), headBranch: str(entry.headBranch),
     additions: measured ? `+${count(num(entry.additions))}` : '', deletions: measured ? `-${count(num(entry.deletions))}` : '',
     // Passing list rollups can omit workflows awaiting approval; wait for the detail to claim success.
@@ -427,10 +493,10 @@ export function isPullRequestNotFound(error: unknown): boolean {
   return error instanceof ClientError && error.kind === 'PullRequestOperationError' && error.reason === 'not-found';
 }
 /** PullRequestsUnavailableState for a detail that never loaded: its title, text, and GitHub link. */
-export function unavailable(selection: PrSelection, cached: { error: string; notFound: boolean }, project: Obj | undefined) {
+export function unavailable(selection: PrSelection, cached: { error: string; notFound: boolean }, project: Obj | undefined, term: Terminology = terminologyOf(undefined)) {
   return {
-    errorTitle: cached.notFound ? `Pull request #${selection.number} not found` : 'Could not load pull requests',
-    error: cached.notFound ? "It may be an issue rather than a pull request, or this account can't see it." : cached.error,
+    errorTitle: cached.notFound ? `${capitalizeTerm(term.singular)} #${selection.number} not found` : 'Could not load pull requests',
+    error: cached.notFound ? `It may be an issue rather than a ${term.singular}, or this account can't see it.` : cached.error,
     githubUrl: gitHubPullRequestBrowserUrl(obj(project?.repositoryIdentity), selection.repository, selection.number),
   };
 }
@@ -517,7 +583,7 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
     // "Act on": on the page, the chosen server (or a background server's own row) acts.
     const acting = value.startsWith('page|') ? handoffServer(client, ctx.key, selection.environmentId ?? '', selection.projectId) : null;
     const elsewhere = acting ? (kind: string, task: Parameters<typeof actOnHandoff>[5], mode: 'worktree' | 'local', detail: Obj) => actOnHandoff(client, native, acting, detail, kind, task, mode) : undefined;
-    return prHandoffCommand(client, native, { detail: ctx.detail, activity: panel?.activity ?? null, listEntry: ctx.listEntry }, value, elsewhere);
+    return prHandoffCommand(client, native, { detail: ctx.detail, activity: panel?.activity ?? null, listEntry: ctx.listEntry, term: panelTerminology(client, selection.projectId, ctx.detail, ctx.listEntry) }, value, elsewhere);
   }
   // The Code tab's conversations (reply, resolve, edit, more) and "Add to agent".
   if (op.startsWith('thread-')) {
@@ -527,7 +593,7 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
   if (op === 'code-agent') {
     const ctx = contextOf(client, selected)!, bar = value.indexOf('|');
     const comment = ctx.detail ? draftSelection(client, writeReference(selection), ctx.detail, bar < 0 ? value : value.slice(bar + 1)) : null;
-    return comment && ctx.detail ? prSelectionHandoff(client, native, ctx.detail, bar < 0 ? 'page' : value.slice(0, bar), comment, bar < 0 ? value : value.slice(bar + 1)) : '';
+    return comment && ctx.detail ? prSelectionHandoff(client, native, ctx.detail, bar < 0 ? 'page' : value.slice(0, bar), comment, bar < 0 ? value : value.slice(bar + 1), panelTerminology(client, selection.projectId, ctx.detail, ctx.listEntry)) : '';
   }
   if (isActionOp(op)) {
     // The host actions run through one runner (pages-pr-actions.ts).

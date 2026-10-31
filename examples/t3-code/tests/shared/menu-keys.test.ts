@@ -136,9 +136,9 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
       text.split('\n').forEach((line, index) => {
         if (!/^\s*(button|link)\b/.test(line) || !/role=(?:"menuitem|\(.*menuitem)/.test(line)) return;
         // The context menus (the sidebar's rows, the legacy sidebar's rows and headers, the Files tree's, a panel tab's, a pull
-        // request number's) are AppKit menus on macOS (LLP 1021 §5.1): their keyboard is the system's. A row that is always
-        // disabled is never a stop; diff.contract's AddSurfaceItem is mounted nowhere.
-        if (/testId=`(thread|draft|tab|legacy-thread|legacy-project|files-tree)-menu-/.test(line) || /testId=`\$\{menuId\}-(copy-link|open-external)`/.test(line) || /\bdisabled=true\b/.test(line) || /popovertarget="diff-add-surface"/.test(line)) return;
+        // request number's) and the legacy New thread's members menu are AppKit menus on macOS (LLP 1021 §5.1, D2): their
+        // keyboard is the system's. A row that is always disabled is never a stop; diff.contract's AddSurfaceItem is mounted nowhere.
+        if (/testId=`(thread|draft|tab|legacy-thread|legacy-project|legacy-members|files-tree)-menu-/.test(line) || /testId=`\$\{menuId\}-(copy-link|open-external)`/.test(line) || /\bdisabled=true\b/.test(line) || /popovertarget="diff-add-surface"/.test(line)) return;
         rows++;
         if (!/^\s*(button|link) id=/.test(line)) missing.push(`${file}:${index + 1}`);
       });
@@ -159,7 +159,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['settings-source-control.contract', 'WriterTraitsPicker', 'triggerKey'],
     ['settings-rows.contract', 'CoreRowView', 'traitsKey'], ['settings-rows.contract', 'CoreSelect', 'triggerKey'],
     ['pages-pr-code.contract', 'PrdCodeToolbar', 'triggerKey'], ['pages-pr-code.contract', 'PrdDiffOptions', 'triggerKey'], ['settings-a-hosts.contract', 'HostRowView', 'triggerKey'],
-    ['pages-pr-quick.contract', 'PrRowStack', 'triggerKey'], ['settings-kit.contract', 'SettingsSelect', 'triggerKey'],
+    ['pages-pr-quick.contract', 'PrRowStack', 'triggerKey'], ['settings-kit.contract', 'SelectControl', 'triggerKey'],
     ['pages-prs.contract', 'PrSortMenu', 'triggerKey'], ['pages-prs.contract', 'PrHostMenu', 'triggerKey'],
     ['pages-prs.contract', 'PrFiltersMenu', 'triggerKey'], ['device-tools.contract', 'ToolsSelect', 'triggerKey'],
     ['pages-usage.contract', 'UsageBreadcrumb', 'triggerKey'], ['pages-usage.contract', 'UsageProviderMenu', 'triggerKey'],
@@ -174,7 +174,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['providers-setup.contract', 'ProviderAccountRow', 'triggerKey'], ['git.contract', 'GitRows', 'gitMenuKey'],
     ['pages-usage-prices.contract', 'UsagePricesApply', 'triggerKey'], ['project-scripts.contract', 'ScriptRow', 'triggerKey'],
     ['shell-details.contract', 'OpenInRow', 'triggerKey'], ['files-surface.contract', 'FileHeader', 'editorsKey'],
-    ['requests.contract', 'ApprovalActions', 'menuKey'], ['diff.contract', 'DiffToolbar', 'scopeKey'], ['device-workspace.contract', 'RailMenuButton', 'triggerKey'],
+    ['requests.contract', 'ApprovalActions', 'menuKey'], ['timeline-approval.contract', 'ApprovalMore', 'menuKey'], ['diff.contract', 'DiffToolbar', 'scopeKey'], ['device-workspace.contract', 'RailMenuButton', 'triggerKey'],
     ['add-project-machine.contract', 'AddMachineTargetSelect', 'triggerKey'], ['add-project-machine.contract', 'AddMachineSubmenu', 'rowKey'],
   ];
   // Submenu triggers open on Enter, Space (and ArrowRight, Base UI's submenu key); their arrows belong to the parent menu.
@@ -201,7 +201,10 @@ describe('public popover triggers execute one ordered command sequence', () => {
     const scope: Env = { ...await helpers, ...effects(calls), [itemName]: items, section: 'models', rowId: 'model', rowRef: 'repo:42',
       selectId: 'select', menuId: 'popup', popId: 'row-popup', idPrefix: 'account-', t: { id: 'thread' }, row: { id: 'row' },
       projects: [{ id: 'project' }], environments: [{ id: 'env' }], environment: { environmentId: 'env' }, account: { instanceId: 'instance' }, message: { id: 'message' },
-      host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' }, approval: { id: 'approval' }, testId: 'rail-trigger' };
+      host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' }, approval: { id: 'approval' }, testId: 'rail-trigger',
+      frame: () => ({ x: 0, y: 0, width: 600, height: 28 }) };
+    // SelectControl measures its trigger as the keys open it (SelectPopup's min-w-(--anchor-width)).
+    const state = (): Env => (name === 'SelectControl' ? { anchorWidth: 0 } : {});
     const popup = value(command[1]!, scope), sourceId = value(command[2]!, scope);
     expect(sourceId).not.toBe(popup);
     const triggerOwner = name === 'ThreadRow' ? await component(file, 'SidebarCardActions') : body;
@@ -219,22 +222,22 @@ describe('public popover triggers execute one ordered command sequence', () => {
     const keys = name === 'AddMachineSubmenu' ? ['Enter', ' ', 'Space', 'ArrowRight'] : submenu(name) ? ['Enter', ' ', 'Space'] : ['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Space'];
     for (const key of keys) {
       calls.length = 0;
-      owner.call(action, {}, scope, [key, event()]);
+      owner.call(action, state(), scope, [key, event()]);
       expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ...prep, ['showPopover', popup, { source: sourceId }], ['focus', key === 'ArrowUp' ? 'again' : 'alpha']]);
       calls.length = 0;
-      owner.call(action, {}, scope, [key, event({ repeat: true })]);
+      owner.call(action, state(), scope, [key, event({ repeat: true })]);
       expect(calls).toEqual([['preventDefault'], ['stopPropagation']]);
       for (const modifier of ['metaKey', 'ctrlKey', 'altKey', 'shiftKey']) {
         calls.length = 0;
-        owner.call(action, {}, scope, [key, event({ [modifier]: true })]);
+        owner.call(action, state(), scope, [key, event({ [modifier]: true })]);
         expect(calls).toEqual([]);
       }
-      owner.call(action, {}, { ...scope, [itemName]: [] }, [key, event()]);
+      owner.call(action, state(), { ...scope, [itemName]: [] }, [key, event()]);
       expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ...prep, ['showPopover', popup, { source: sourceId }]]);
     }
     for (const key of ['Escape', 'Tab', 'Home', 'End', 'a', ...(submenu(name) ? ['ArrowDown', 'ArrowUp'] : [])]) {
       calls.length = 0;
-      owner.call(action, {}, scope, [key, event()]);
+      owner.call(action, state(), scope, [key, event()]);
       expect(calls).toEqual([]);
     }
   });
@@ -345,13 +348,14 @@ describe('the Pull Requests Filters submenus', () => {
       const scope: Env = { ...await helpers, ...effects(calls) };
       scope.closeSub = () => menu.call('closeSub', state, scope, []);
       menu.call('subEscape', state, scope, ['Escape']);
-      expect(calls).toEqual([['preventDefault'], ['stopPropagation'], left ? ['blur'] : ['focus', 'pr-filter-author']]);
+      // Closing the submenu, and then the menu, stops the pickers' host search (`option-kind` none).
+      expect(calls).toEqual([['preventDefault'], ['stopPropagation'], left ? ['blur'] : ['focus', 'pr-filter-author'], ['control', 'option-kind', '']]);
       expect(state.sub).toBe('');
       calls.length = 0;
       menu.call('subEscape', state, scope, ['Escape']);
       expect(calls).toEqual([]); // the next Escape is available to the public popup.
       menu.call('menuChanged', state, scope, [{ newState: 'closed' }]);
-      expect(calls).toEqual([['focus', 'pull-requests-filters']]);
+      expect(calls).toEqual([['focus', 'pull-requests-filters'], ['control', 'option-kind', '']]);
       calls.length = 0;
       menu.call('menuChanged', state, scope, [{ newState: 'open' }]);
       expect(calls).toEqual([]);
@@ -366,7 +370,7 @@ describe('the Pull Requests Filters submenus', () => {
     expect(state).toMatchObject({ sub: 'state', subPointer: true, subLeft: false });
     menu.call('subKey', state, scope, ['author', 'ArrowRight', event()]);
     expect(state).toMatchObject({ sub: 'author', subPointer: false, subLeft: false });
-    expect(calls).toEqual([['preventDefault'], ['focus', 'pr-filters-sub-keys']]);
+    expect(calls).toEqual([['control', 'option-kind', ''], ['preventDefault'], ['control', 'option-kind', 'authors'], ['focus', 'pr-filters-sub-keys']]);
     calls.length = 0;
     const filterItems = value(body.match(/^  derive filterItems = (.+)$/m)![1]!, { KmItem: (item: unknown) => item, serverShown: false });
     menu.call('subKey', state, { ...scope, filterItems }, ['author', 'ArrowDown', event()]);

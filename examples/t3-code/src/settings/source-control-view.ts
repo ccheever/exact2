@@ -1,4 +1,4 @@
-// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 6d450a4284 (MIT); see LICENSE-T3.
 import { hostCredentials, type HostCredentials } from './source-control-credentials';
 import { can } from '../connections/command-permissions';
 // Settings → Source control and Integrations view models (reference
@@ -39,7 +39,9 @@ export type ScopedRow = { key: string; kind: string; title: string; description:
   /** A model row's picker trigger mark: the instance's driver and ProviderInstanceIcon badge. */
   driver: string; badge: string; accent: string;
   /** The writer model's TraitsPicker: its trigger label ('' draws none) and menu rows. */
-  traitsLabel: string; traits: CoreOption[] };
+  traitsLabel: string; traits: CoreOption[];
+  /** The row's search target (settings-catalog.ts `targetId ?? id`), '' for a row no result names. */
+  target: string };
 
 export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3', branchNameInstructions: '',
   sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null, reviewGuideModelSelection: null, reviewGuideInstructions: '', reviewGuidesEnabled: false, removeAgentCreditsOnMerge: false,
@@ -53,6 +55,11 @@ const WRITING_MODES: Record<string, { label: string; description: string }> = {
   custom: { label: 'Custom instructions', description: 'Use your instructions for change descriptions and change requests in every project.' },
 };
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+// The search results each scoped row answers to (settings-catalog.ts), by the row's key.
+const SEARCH_TARGETS: Readonly<Record<string, string>> = { defaultAutoPull: 'automatic-pull', removeAgentCreditsOnMerge: 'remove-agent-credits-on-merge',
+  pullRequestMergeMethod: 'pull-request-merge-method', branchNamingMode: 'worktree-branch-naming', sourceControlWritingStyle: 'source-control-writing-style',
+  'sourceControlWritingStyle.followChangeRequestTemplates': 'follow-change-request-templates', sourceControlWriterModelSelection: 'source-control-writer-model',
+  reviewGuidesEnabled: 'review-guides', enableAgentBrowserAccess: 'agent-browser-access' };
 
 /** settingInheritanceLayers + the SettingsRow summary for one environment/project target. */
 export function inheritance(settings: Obj, projectId: string, key: string, environmentLabel: string) {
@@ -76,10 +83,10 @@ function effective(settings: Obj, projectId: string): Obj {
 function row(settings: Obj, projectId: string, environmentLabel: string, key: string, partial: Partial<ScopedRow>): ScopedRow {
   const info = inheritance(settings, projectId, key, environmentLabel);
   return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '',
-    traitsLabel: '', traits: [], ...info, ...partial };
+    traitsLabel: '', traits: [], target: '', ...info, ...partial, ...(SEARCH_TARGETS[partial.key ?? key] ? { target: SEARCH_TARGETS[partial.key ?? key] } : {}) };
 }
 
-/** Source-control route rows: Repositories and Text generation. */
+/** Source-control route rows: Repositories, and Writing & review with its Advanced rows. */
 export function sourceControlRows(settings: Obj, projectId: string, environmentLabel: string, providers: Obj[], writable: boolean) {
   const value = effective(settings, projectId);
   const project = Boolean(projectId);
@@ -93,14 +100,14 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
       description: project ? "Keeps this project's default branch current when the checkout has no local changes or commits." : 'Keeps the default branch current when the checkout has no local changes or commits. Projects can override it.',
       reset: resetFor('defaultAutoPull', value.defaultAutoPull === true) }),
     row(settings, projectId, environmentLabel, 'removeAgentCreditsOnMerge', { title: 'Remove agent credits when merging', resetLabel: 'agent credit removal', checked: value.removeAgentCreditsOnMerge === true, disabled: !writable,
-      description: 'Remove recognized agent credit lines from GitHub merge and squash messages, keeping human co-authors. Includes auto-merge. Excludes merge queues, stack merges, and existing commits.',
+      description: 'Remove recognized agent credit lines from merge and squash messages on hosts that support it, keeping human co-authors. Includes auto-merge. Excludes merge queues, stack merges, and existing commits.',
       reset: resetFor('removeAgentCreditsOnMerge', value.removeAgentCreditsOnMerge === true) }),
     row(settings, projectId, environmentLabel, 'pullRequestMergeMethod', { kind: 'select', title: 'Default merge method', control: 'Default pull request merge method', resetLabel: 'default merge method', value: merge, valueLabel: merge === 'last' ? 'Last selected' : MERGE_LABELS[merge] || merge, disabled: !writable,
       description: project ? 'Pull requests in this project start with this method.' : 'Pull requests start with this method. Last selected reuses whatever you chose most recently on this device.',
       options: [['last', 'Last selected'], ['merge', 'Merge'], ['squash', 'Squash and merge'], ['rebase', 'Rebase and merge']].map(([v, l]) => ({ value: v, label: l, selected: v === merge })),
       reset: resetFor('pullRequestMergeMethod', merge !== 'last') }),
   ];
-  const mode = str(value.branchNamingMode, 'static'), writing = str(style.mode, 'repo_conventions');
+  const writing = str(style.mode, 'repo_conventions');
   const textProviders = providers.filter(provider => provider.supportsTextGeneration !== false && providerAvailable(provider));
   const available = textProviders.some(provider => arr(provider.models).some(model => model.isUnavailable !== true));
   const modelRow = (key: string, title: string, description: string) => {
@@ -110,25 +117,16 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
     const traits = resolved ? traitsControl({ providers }, resolved.provider, resolved.model, resolved.options) : null;
     return row(settings, projectId, environmentLabel, key, { kind: 'model', title, checked: enabled, disabled: !writable,
       description, value: resolved ? `${str(resolved.provider.instanceId)}:${str(resolved.model?.slug)}` : '',
-      valueLabel: resolved?.model ? triggerModelName(resolved.model) : 'Choose model', driver: str(resolved?.provider.driver),
+      valueLabel: resolved?.model ? triggerModelName(resolved.model, str(resolved.provider.driver)) : 'Choose model', driver: str(resolved?.provider.driver),
       badge: badge.providerBadge, accent: badge.providerBadgeColor, traitsLabel: str(traits?.label2), traits: traits?.options2 ?? [],
       status: !available ? 'No text generation providers available.' : '' });
   };
-  const text = [
-    row(settings, projectId, environmentLabel, 'branchNamingMode', { kind: 'select', title: 'Worktree branch naming', resetLabel: 'branch naming', first: true, value: mode, valueLabel: BRANCH_MODES[mode] || mode, disabled: !writable,
-      description: 'Choose how new worktree branches are named from your first message.', options: Object.entries(BRANCH_MODES).map(([v, l]) => ({ value: v, label: l, selected: v === mode })), reset: resetFor('branchNamingMode', mode !== 'static'),
-      status: mode === 'semantic' ? 'The model chooses a prefix that describes the work, such as feat/add-search, fix/login-timeout, or refactor/auth.' : '' }),
-    ...(mode === 'static' ? [row(settings, projectId, environmentLabel, 'branchNamePrefix', { kind: 'text', title: 'Branch prefix', resetLabel: 'branch prefix', value: str(value.branchNamePrefix), placeholder: 'No prefix', disabled: !writable,
-      description: 'For example, t3 or t3/ produces t3/add-search. Leave empty for no prefix.', reset: resetFor('branchNamePrefix', str(value.branchNamePrefix) !== 't3') })] : []),
-    ...(mode === 'custom' ? [row(settings, projectId, environmentLabel, 'branchNameInstructions', { kind: 'textarea', title: 'Branch naming instructions', resetLabel: 'branch naming instructions', value: str(value.branchNameInstructions), placeholder: 'Use julius/ followed by the issue ID and a short description.', disabled: !writable,
-      description: 'Appended to the naming prompt. The model returns the complete branch name; no prefix or suffix is added.', reset: resetFor('branchNameInstructions', str(value.branchNameInstructions) !== '') })] : []),
+  // SourceControlWritingSettingsSection: Writing & review, its change request templates and writer model under Advanced.
+  const writingRows = [
     row(settings, projectId, environmentLabel, 'sourceControlWritingStyle', { kind: 'select', title: 'Source control writing style', resetLabel: 'source control writing style', value: writing, valueLabel: WRITING_MODES[writing]?.label || writing, disabled: !writable,
       description: WRITING_MODES[writing]?.description || '', options: Object.entries(WRITING_MODES).map(([v, l]) => ({ value: v, label: l.label, selected: v === writing })),
       child: writing === 'custom' ? str(style.customInstructions) : '', placeholder: 'Keep titles concise. Use short bullet points in descriptions.',
       reset: project ? (overridden('sourceControlWritingStyle') ? 'key=sourceControlWritingStyle&value=__inherit__' : '') : (writing !== 'repo_conventions' || str(style.customInstructions) !== '' ? 'key=sourceControlWritingStyle&value=__default__' : '') }),
-    row(settings, projectId, environmentLabel, 'sourceControlWritingStyle', { key: 'sourceControlWritingStyle.followChangeRequestTemplates', kind: 'switch', title: 'Follow change request templates', resetLabel: 'change request templates', checked: style.followChangeRequestTemplates !== false, disabled: !writable,
-      description: "Use the repository's template for change request descriptions when available.", reset: project ? '' : style.followChangeRequestTemplates === false ? 'key=sourceControlWritingStyle.followChangeRequestTemplates&value=__default__' : '' }),
-    modelRow('sourceControlWriterModelSelection', 'Source control writer model', "Model for source control text and branch or bookmark names. Off uses the environment's text generation model."),
     row(settings, projectId, environmentLabel, 'reviewGuidesEnabled', { title: 'Review guides (beta)', control: 'Review guides', checked: settings.reviewGuidesEnabled === true, disabled: project || !writable,
       description: 'Adds a Guide tab to pull requests: an agent writes a tour of the change, stop by stop, with the calls a maintainer should make.' }),
     ...(settings.reviewGuidesEnabled === true ? [modelRow('reviewGuideModelSelection', 'Review guide model',
@@ -137,7 +135,30 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
         description: "Your preferences for review guides: what to show first, dwell on, or skip. The guide's format and coverage stay the same.", placeholder: 'Show service interfaces before implementations. Skip test files unless they change behavior. Keep summaries to two sentences.',
         reset: resetFor('reviewGuideInstructions', str(value.reviewGuideInstructions) !== '') })] : []),
   ];
-  return { repositories, text: text.map((entry, index) => ({ ...entry, first: index === 0 })) };
+  const writingAdvanced = [
+    row(settings, projectId, environmentLabel, 'sourceControlWritingStyle', { key: 'sourceControlWritingStyle.followChangeRequestTemplates', kind: 'switch', title: 'Follow change request templates', resetLabel: 'change request templates', checked: style.followChangeRequestTemplates !== false, disabled: !writable,
+      description: "Use the repository's template for change request descriptions when available.", reset: project ? '' : style.followChangeRequestTemplates === false ? 'key=sourceControlWritingStyle.followChangeRequestTemplates&value=__default__' : '' }),
+    modelRow('sourceControlWriterModelSelection', 'Source control writer model', "Model for source control text and branch or bookmark names. Off uses the environment's text generation model."),
+  ];
+  const first = (rows: ScopedRow[]) => rows.map((entry, index) => ({ ...entry, first: index === 0 }));
+  return { repositories, writing: first(writingRows), writingAdvanced: first(writingAdvanced) };
+}
+
+/** BranchNamingSettings: Worktrees' Branches section, the naming mode and its prefix or instructions. */
+export function branchNamingRows(settings: Obj, projectId: string, environmentLabel: string, writable: boolean): ScopedRow[] {
+  const value = effective(settings, projectId), project = Boolean(projectId);
+  const overridden = (key: string) => project && Object.prototype.hasOwnProperty.call(obj(obj(settings.projectSettingsOverrides)[projectId]), key);
+  const resetFor = (key: string, differs: boolean) => project ? (overridden(key) ? `key=${key}&value=__inherit__` : '') : differs ? `key=${key}&value=__default__` : '';
+  const mode = str(value.branchNamingMode, 'static');
+  return [
+    row(settings, projectId, environmentLabel, 'branchNamingMode', { kind: 'select', title: 'Worktree branch naming', resetLabel: 'branch naming', first: true, value: mode, valueLabel: BRANCH_MODES[mode] || mode, disabled: !writable,
+      description: 'Choose how new worktree branches are named from your first message.', options: Object.entries(BRANCH_MODES).map(([v, l]) => ({ value: v, label: l, selected: v === mode })), reset: resetFor('branchNamingMode', mode !== 'static'),
+      status: mode === 'semantic' ? 'The model chooses a prefix that describes the work, such as feat/add-search, fix/login-timeout, or refactor/auth.' : '' }),
+    ...(mode === 'static' ? [row(settings, projectId, environmentLabel, 'branchNamePrefix', { kind: 'text', title: 'Branch prefix', resetLabel: 'branch prefix', value: str(value.branchNamePrefix), placeholder: 'No prefix', disabled: !writable,
+      description: 'For example, t3 or t3/ produces t3/add-search. Leave empty for no prefix.', reset: resetFor('branchNamePrefix', str(value.branchNamePrefix) !== 't3') })] : []),
+    ...(mode === 'custom' ? [row(settings, projectId, environmentLabel, 'branchNameInstructions', { kind: 'textarea', title: 'Branch naming instructions', resetLabel: 'branch naming instructions', value: str(value.branchNameInstructions), placeholder: 'Use julius/ followed by the issue ID and a short description.', disabled: !writable,
+      description: 'Appended to the naming prompt. The model returns the complete branch name; no prefix or suffix is added.', reset: resetFor('branchNameInstructions', str(value.branchNameInstructions) !== '') })] : []),
+  ];
 }
 
 /** Integrations: Agent browser access, and the device hub rows. */
@@ -222,7 +243,7 @@ export function discoveryRows(result: Obj) {
   const vcs = arr(result.versionControlSystems).map(item => {
     const ready = item.implemented === true, available = str(item.status) === 'available';
     return { kind: str(item.kind), label: str(item.label), version: option(item.version), comingSoon: !ready, badge: '', dot: !ready ? 'muted' : available ? 'success' : 'warning',
-      summary: !ready ? `Support for ${str(item.label)} is coming soon.` : !available ? `Not available on this server: ${str(item.installHint)}` : 'Available', account: false, enabled: ready && available, details: str(item.kind) === 'git',
+      summary: !ready ? `Support for ${str(item.label)} is coming soon.` : !available ? `Not available on this server: ${str(item.installHint)}` : 'Available', account: false, enabled: ready && available, details: false,
       accountValue: '', accountPlaceholder: '' };
   });
   const providers = arr(result.sourceControlProviders).map(item => {
@@ -232,28 +253,11 @@ export function discoveryRows(result: Obj) {
       : status === 'unauthenticated' ? `${str(item.label)} is not authenticated on this server. Sign in or configure credentials using the ${str(item.executable)} tool on the server host to enable change request features.`
       : `Could not verify ${str(item.label)}. ${option(auth.detail) || str(item.installHint)}`;
     return { kind: str(item.kind), label: str(item.label), version: option(item.version), comingSoon: false, badge: status === 'unauthenticated' && available ? 'Not authenticated' : '',
-      dot: !available || status !== 'authenticated' ? 'warning' : 'success', summary, account: available && status === 'authenticated' && option(auth.account) !== '', enabled: available && status === 'authenticated', details: ['github', 'gitcafe', 'bitbucket'].includes(str(item.kind)),
+      dot: available && status === 'authenticated' ? 'success' : 'muted', summary, account: available && status === 'authenticated' && option(auth.account) !== '', enabled: available && status === 'authenticated', details: ['github', 'gitcafe', 'bitbucket'].includes(str(item.kind)),
       // RedactedAccount (SourceControlSettings.tsx:160-168): each item reveals its own account.
       ...(({ value, placeholder }) => ({ accountValue: value, accountPlaceholder: placeholder }))(redactedValue(available && status === 'authenticated' ? option(auth.account) : '')) };
   });
   return { vcs, providers };
-}
-
-export function fetchInterval(settings: Obj) {
-  // resolveServerBackgroundActivitySettings: custom overrides, else the profile preset.
-  const activity = obj(settings.backgroundActivity), presets: Record<string, number> = { performance: 15, balanced: 30, 'battery-saver': 0 };
-  const base = str(activity.profile) === 'custom' ? str(activity.baseProfile, 'balanced') : str(activity.profile, 'balanced');
-  const override = obj(activity.overrides).automaticGitFetchInterval;
-  const seconds = typeof override === 'number' ? Math.round(override / 1000) : presets[base] ?? 30;
-  return { seconds: String(seconds), canReset: seconds !== (presets[base] ?? 30), decrease: String(Math.max(0, seconds - 5)), increase: String(seconds + 5), base };
-}
-export function fetchIntervalPatch(settings: Obj, raw: string): Obj {
-  const activity = obj(settings.backgroundActivity);
-  const base = str(activity.profile) === 'custom' ? str(activity.baseProfile, 'balanced') : str(activity.profile, 'balanced');
-  const overrides: Obj = { ...obj(activity.overrides) };
-  if (raw === '__default__') delete overrides.automaticGitFetchInterval;
-  else { const seconds = Number(raw); if (!Number.isFinite(seconds)) throw new Error('Enter a number of seconds.'); overrides.automaticGitFetchInterval = Math.max(0, Math.round(seconds)) * 1000; }
-  return { backgroundActivity: { schemaVersion: 1, profile: 'custom', baseProfile: base, overrides } };
 }
 
 const discoveries = new WeakMap<T3Client, Map<string, { key: string; value: Obj; error: string }>>();
@@ -265,8 +269,8 @@ function scopeError(client: T3Client, native: Native | null | undefined, environ
 function environmentLabel(client: T3Client): string { return str(obj(client.config.environment).label, 'Environment'); }
 
 export async function sourceControlPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, rescan: number, machine = '', projectKey = '', checkout = '') {
-  const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, repositories: [] as ScopedRow[], text: [] as ScopedRow[], vcsTitle: 'Version Control',
-    scanned: false, scanError: '', vcs: [] as ReturnType<typeof discoveryRows>['vcs'], providers: [] as ReturnType<typeof discoveryRows>['providers'], fetches: [fetchInterval({})], hostCredentials: [] as HostCredentials[] };
+  const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, repositories: [] as ScopedRow[], writing: [] as ScopedRow[], writingAdvanced: [] as ScopedRow[], vcsTitle: 'Version Control',
+    scanned: false, scanError: '', vcs: [] as ReturnType<typeof discoveryRows>['vcs'], providers: [] as ReturnType<typeof discoveryRows>['providers'], hostCredentials: [] as HostCredentials[] };
   if (!active) return empty;
   if (!native?.available) return { ...empty, error: 'Connect an environment to inspect its version control tools and hosting integrations.' };
   try {
@@ -282,7 +286,7 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
     const config = owner.config, settings = obj(config.settings);
     if (selectedProjectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) return { ...empty, error: 'Update the selected environment to configure project overrides.' };
     const rows = sourceControlRows(settings, selectedProjectId, environmentLabel(owner), arr(config.providers), can(owner, 'settings:write'));
-    for (const row of [...rows.repositories, ...rows.text]) {
+    for (const row of [...rows.repositories, ...rows.writing, ...rows.writingAdvanced]) {
       row.layerGroups = inheritanceGroups(context, row.key, DEFAULTS);
       if (row.key === 'reviewGuideInstructions') {
         const values = context.targets.map(target => str(target.settings.reviewGuideInstructions));
@@ -305,7 +309,7 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
     // Across several connected environments the discovery heading names the one it scanned.
     const connected = scope.selected.filter(environment => environment.connection.phase === 'connected' && environment.serverConfig !== null);
     const vcsTitle = scope.resolved.environmentIds.length !== 1 && connected.length > 1 ? `Version Control · ${representative.label}` : 'Version Control';
-    return { ...empty, project: Boolean(selectedProjectId), available: true, ...rows, vcsTitle, scanned: true, scanError: cached.error, ...found, fetches: [fetchInterval(settings)],
+    return { ...empty, project: Boolean(selectedProjectId), available: true, ...rows, vcsTitle, scanned: true, scanError: cached.error, ...found,
       hostCredentials: hostCredentials(obj(owner.config.settings), cached.value, owner.environmentId, rescan, can(owner, 'settings:write') && scope.kind !== 'project' && scope.kind !== 'checkout' && !projectId) };
   } catch (failure) { return { ...empty, error: failure instanceof Error ? failure.message : 'Could not load settings.' }; }
 }
@@ -355,5 +359,5 @@ export function toolVersion(value: unknown): string {
   return version ? `v${version}` : 'Not installed';
 }
 function blankRow(): ScopedRow {
-  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [] };
+  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [], target: '' };
 }

@@ -263,7 +263,7 @@ describe('actual root composer intent ordering', () => {
   });
   test('Command-B and Command-I are the Markdown field\'s format commands, even before the projection catches up', () => {
     for (const [key, command] of [['b', 'bold'], ['i', 'italic']] as const) {
-      const f = fixture(); f.state.composerComposing = true;
+      const f = fixture(); f.state.composerComposing = true; f.state.composerSelectionStart = 0;
       f.call('composerKeyEvent', [key, {isComposing: false, shiftKey: false, metaKey: true, ctrlKey: false, altKey: false, repeat: false, code: key === 'b' ? 'KeyB' : 'KeyI'}],
         {composerRichCurrent: false, composerSelectionCurrent: false});
       expect(f.state.composerComposing).toBe(false); expect(f.suppressed).toBe(1);
@@ -272,23 +272,28 @@ describe('actual root composer intent ordering', () => {
     const plain = fixture(); plain.projection = {...plain.projection, mode: 'plain'};
     plain.call('composerKeyEvent', ['b', {isComposing: false, shiftKey: false, metaKey: true, ctrlKey: false, altKey: false, repeat: false, code: 'KeyB'}]);
     expect(plain.formats).toEqual([]); expect(plain.suppressed).toBe(0);
+    // Command-B bolds selected text only: at a caret it stays the app's (the sidebar toggle).
+    const caret = fixture();
+    caret.call('composerKeyEvent', ['b', {isComposing: false, shiftKey: false, metaKey: true, ctrlKey: false, altKey: false, repeat: false, code: 'KeyB'}]);
+    expect(caret.formats).toEqual([]); expect(caret.suppressed).toBe(0);
   });
-  test('Command-B pressed while an edit waits takes its turn after that edit, at the resulting selection', () => {
-    const bold = {isComposing: false, shiftKey: false, metaKey: true, ctrlKey: false, altKey: false, repeat: false, code: 'KeyB'};
+  test('a format command pressed while an edit waits takes its turn after that edit, at the resulting selection', () => {
+    // Command-I: at a caret Command-B is the app's (the field bolds selected text only).
+    const italic = {isComposing: false, shiftKey: false, metaKey: true, ctrlKey: false, altKey: false, repeat: false, code: 'KeyI'};
     const kinds = (f: ReturnType<typeof fixture>) => (f.state.composerIntentQueue as {kind: string}[]).map(item => item.kind);
     const f = fixture('- a', 3); f.press(); f.call('composerIntentPump');
-    f.call('composerKeyEvent', ['b', bold]);
+    f.call('composerKeyEvent', ['i', italic]);
     expect(f.formats).toEqual([]); expect(kinds(f)).toEqual(['key', 'format']); expect(f.state.composerIntentNotice).toBe('');
     // Also while the list edit's projection still lags the field.
     f.reply(); f.accept(undefined, false);
-    f.call('composerKeyEvent', ['i', {...bold, code: 'KeyI'}]);
+    f.call('composerKeyEvent', ['i', italic]);
     expect(kinds(f)).toEqual(['key', 'format', 'format']); expect(f.state.composerIntentNotice).toBe('');
     f.project(); f.call('composerIntentConfirmed'); f.call('composerIntentPump');
     expect(f.state.draft).toBe('- a\n- ');
-    expect(f.formats).toEqual([['composer', 'bold']]); expect(f.state.composerIntentPhase).toBe('format');
+    expect(f.formats).toEqual([['composer', 'italic']]); expect(f.state.composerIntentPhase).toBe('format');
     // The field reports the command as typing; its receipt releases the next one.
-    f.input('- a\n- ****', 8); f.project(); f.call('composerIntentConfirmed'); f.call('composerIntentPump');
-    expect(f.formats).toEqual([['composer', 'bold'], ['composer', 'italic']]); expect(kinds(f)).toEqual(['format']);
+    f.input('- a\n- **', 6); f.project(); f.call('composerIntentConfirmed'); f.call('composerIntentPump');
+    expect(f.formats).toEqual([['composer', 'italic'], ['composer', 'italic']]); expect(kinds(f)).toEqual(['format']);
     // A command that changed nothing reports no input; its turn still ends.
     f.call('composerIntentFormatSettled');
     expect(f.state.composerIntentQueue).toEqual([]); expect(f.state.composerIntentPhase).toBe(''); expect(f.state.composerIntentNotice).toBe('');

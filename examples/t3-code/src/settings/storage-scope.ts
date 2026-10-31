@@ -24,10 +24,11 @@ export async function scopedStorageCommand(client: T3Client, native: Native, op:
   const project = scope.kind === 'project' || scope.kind === 'checkout';
   const selected = scope.selected.filter(environment => environment.connection.phase === 'connected');
   const capability = (key: string) => selected.every(environment => obj(obj((environment.fleetKey ? fleet.entries.get(environment.fleetKey)?.config : client.config)?.environment).capabilities)[key] === true);
-  if (!capability('storageCleanup') || (project && !capability('projectWorktreeCleanup'))) throw new ClientError('Update the selected environments to configure storage cleanup.');
   const key = str(input.key), raw = str(input.value);
+  // Worktree location is the environment's own setting (WorktreesDirectoryRow): it asks only for worktreesDirectory.
+  if (key !== 'worktreesDirectory' && (!capability('storageCleanup') || (project && !capability('projectWorktreeCleanup')))) throw new ClientError('Update the selected environments to configure storage cleanup.');
   if ((key === 'worktreeSettledAfterDays' && !capability('settledWorktreeCleanup')) || (key === 'worktreesDirectory' && !capability('worktreesDirectory'))) throw new ClientError('Update the selected environments to change this storage setting.');
-  const settings = selected.some(environment => environment.environmentId === client.environmentId && !environment.fleetKey) ? await client.settingsCoreRequest(native, 'server.getSettings', {}) : undefined;
+  const settings = selected.some(environment => environment.environmentId === client.environmentId && !environment.fleetKey) ? obj((await client.settingsCoreRequest(native, 'server.getConfig', {})).settings) : undefined;
   let name = 'storageCleanup', value: Json, clear = false;
   if (project) {
     name = 'worktreeCleanup';

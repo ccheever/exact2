@@ -1,9 +1,9 @@
 import { composerFieldCurrent } from '../composer/composer-field-bridge';
 import { composerFieldOwner } from '../composer/auto-balance-owner';
 // The pull request panel's hand-offs: "Ask a question", "Explain this
-// PR", "Fix findings", the Check out menu ("In a separate worktree", "In this repository"), a
+// PR" (the host's term), "Fix findings", the Check out menu ("In a separate worktree", "In this repository"), a
 // finding's own Fix on the Summary tab, and Resolve conflicts — the panel's startAsk/startHandoff
-// (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: apps/web/src/components/pullRequest/
+// (T3 Code 7c3b3b3605ef, MIT, see LICENSE-T3: apps/web/src/components/pullRequest/
 // PullRequestDetailPanel.tsx writeTaskToComposer, startAsk, startHandoff, askAboutPullRequest,
 // explainPullRequest, startCheckout, startFixFinding, startFixFindings, startResolveConflicts and
 // the menus that call them). The thread-opening core is pr-row-actions.ts (checkoutHandoff,
@@ -22,7 +22,8 @@ import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
 import { replaceComposerPrompt } from '../composer/composer-editor';
-import { askInThread, beginCheckoutHandoff, prState, writeTaskToDraft, type HandoffTask } from '../details/pr-row-actions';
+import { askedDescription, askInThread, beginCheckoutHandoff, prState, writeTaskToDraft, type HandoffTask } from '../details/pr-row-actions';
+import { termView, terminologyOf, type Terminology, type TermView } from '../details/git-logic';
 import { checksRollup, resolveConflictsPrompt } from '../details/pr-row-logic';
 import {
   buildAddSelectionToAgentHandoff, buildAskAboutPullRequestHandoff, buildExplainPullRequestHandoff, buildFixFindingHandoff, buildFixFindingsHandoff, contextMetadata, pullRequestFindingKey,
@@ -38,25 +39,27 @@ export type PrHandoffsView = {
   canCheckout: boolean;
   /** pullRequestPanelContext beside the window's thread: its own pull request hides the Check out menu there. */
   threadOwn: boolean;
+  /** The panel's host words (pages-pr-actions.ts panelTerminology). */
+  term: TermView;
 };
-export const emptyHandoffs = (): PrHandoffsView => ({ pending: '', canCheckout: false, threadOwn: false });
+export const emptyHandoffs = (): PrHandoffsView => ({ pending: '', canCheckout: false, threadOwn: false, term: termView(terminologyOf(undefined)) });
 
-export function presentHandoffs(client: T3Client, detail: Obj | null, reference: { projectId: string; host: string; repository: string; number: number }): PrHandoffsView {
+export function presentHandoffs(client: T3Client, detail: Obj | null, reference: { projectId: string; host: string; repository: string; number: number }, term: Terminology = terminologyOf(undefined)): PrHandoffsView {
   const thread = arr(client.shell?.threads).find(entry => entry.id === client.threadId) ?? null;
   const surface = { projectId: reference.projectId, ...(reference.host ? { host: reference.host } : {}), repository: reference.repository, number: reference.number };
   const own = client.threadId
     ? pullRequestPanelContext({ projectId: str(thread?.projectId) || client.projectId, pullRequests: thread?.pullRequests,
       linkedPullRequest: thread?.linkedPullRequest ? obj(thread.linkedPullRequest) : null, branchPullRequest: thread?.branchPullRequest ? obj(thread.branchPullRequest) : null }, surface)
     : 'page';
-  return { pending: prState(client).handoff, canCheckout: checkoutRoot(client, detail, reference.projectId) !== '', threadOwn: own === 'thread' };
+  return { pending: prState(client).handoff, canCheckout: checkoutRoot(client, detail, reference.projectId) !== '', threadOwn: own === 'thread', term: termView(term) };
 }
 /** checkoutRoot: where the server keeps the repository — the detail's, else the project's (while the detail is out). */
 function checkoutRoot(client: T3Client, detail: Obj | null, projectId: string): string {
   return str(detail?.workspaceRoot) || str(arr(client.shell?.projects).find(project => project.id === projectId)?.workspaceRoot);
 }
 
-/** What a hand-off from the panel reads: the detail on screen, its conversation, and the list's row (for a newer checks rollup). */
-export type HandoffContext = { detail: Obj | null; activity: Obj | null; listEntry: Obj | null };
+/** What a hand-off from the panel reads: the detail on screen, its conversation, the list's row (for a newer checks rollup) and the panel's host words. */
+export type HandoffContext = { detail: Obj | null; activity: Obj | null; listEntry: Obj | null; term: Terminology };
 
 /** PullRequestSummaryTab checksStale: a newer list rollup disagrees with the detail's checks, which are then not handed over. */
 function checksStale(detail: Obj, listEntry: Obj | null): boolean {
@@ -106,12 +109,11 @@ export async function prHandoffCommand(client: T3Client, native: Native, ctx: Ha
   if (kind === 'ask' || kind === 'explain') {
     const task = kind === 'ask' ? buildAskAboutPullRequestHandoff(contextMetadata(detail)) : buildExplainPullRequestHandoff(contextMetadata(detail));
     if (attach) {
-      await writeToComposer(client, native, task, () => pushToast(client, { kind: 'success', title: 'Added to the composer', description: task.prompt.length > 0
-        ? 'The question is in the composer — read it over, then send.' : 'The pull request is in the composer — type your question, then send.' }));
+      await writeToComposer(client, native, task, () => pushToast(client, { kind: 'success', title: 'Added to the composer', description: askedDescription(task, ctx.term) }));
       return '';
     }
     if (elsewhere) return elsewhere(kind, task, 'worktree', detail);
-    return opened(await askInThread(client, native, kind, task, str(detail.projectId)));
+    return opened(await askInThread(client, native, kind, task, detail));
   }
   // startHandoff: a task the agent needs the branch for, or a checkout that carries nothing.
   let task: HandoffTask | null = null, mode: 'worktree' | 'local' = 'worktree';
@@ -127,7 +129,7 @@ export async function prHandoffCommand(client: T3Client, native: Native, ctx: Ha
     task = buildFixFindingHandoff({ ...subject, finding });
   } else throw new ClientError(`Unknown hand-off: ${kind}`);
   if (attach && task) {
-    await writeToComposer(client, native, task, () => pushToast(client, { kind: 'success', title: 'Added to the composer', description: 'The task is in the composer — read it over, then send.' }));
+    await writeToComposer(client, native, task, () => pushToast(client, { kind: 'success', title: 'Added to the composer', description: 'The task is in the composer. Read it over, then send.' }));
     return '';
   }
   if (elsewhere) return elsewhere(kind, task, mode, detail);
@@ -141,16 +143,15 @@ export async function prHandoffCommand(client: T3Client, native: Native, ctx: Ha
  * The Code tab's "Add to agent" (PullRequestDetailPanel addSelectionToAgent → startAsk): the
  * lines and the reader's request beside a thread go into its composer, elsewhere into a new thread.
  */
-export async function prSelectionHandoff(client: T3Client, native: Native, detail: Obj, surface: string, comment: ReviewCommentContext, request: string): Promise<string> {
+export async function prSelectionHandoff(client: T3Client, native: Native, detail: Obj, surface: string, comment: ReviewCommentContext, request: string, term: Terminology = terminologyOf(undefined)): Promise<string> {
   if (prState(client).handoff) return '';
   const { pullRequest: _none, ...lines } = comment;
   const task = buildAddSelectionToAgentHandoff({ ...contextMetadata(detail), comment: lines, request });
   if (surface === 'thread') {
-    await writeToComposer(client, native, task, () => pushToast(client, { kind: 'success', title: 'Added to the composer', description: task.prompt.length > 0
-      ? 'The question is in the composer — read it over, then send.' : 'The pull request is in the composer — type your question, then send.' }));
+    await writeToComposer(client, native, task, () => pushToast(client, { kind: 'success', title: 'Added to the composer', description: askedDescription(task, term) }));
     return '';
   }
-  return (await askInThread(client, native, `selection:${comment.id}`, task, str(detail.projectId))) ? 'sidebar:new-thread' : '';
+  return (await askInThread(client, native, `selection:${comment.id}`, task, detail)) ? 'sidebar:new-thread' : '';
 }
 
 /** A guide question keeps the same bounded handoff/concurrency path as other PR questions. */
@@ -159,5 +160,5 @@ export async function prGuideTaskHandoff(client: T3Client, native: Native, detai
   if (prState(client).handoff) return '';
   if (surface === 'thread') { await writeToComposer(client, native, task); return ''; }
   if (elsewhere) return elsewhere('ask', task, 'local', detail);
-  return await askInThread(client, native, 'guide', task, str(detail.projectId)) ? 'sidebar:new-thread' : '';
+  return await askInThread(client, native, 'guide', task, detail) ? 'sidebar:new-thread' : '';
 }

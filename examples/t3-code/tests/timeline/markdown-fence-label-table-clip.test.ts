@@ -1,4 +1,4 @@
-// ChatMarkdown's code block label and table expand toggle, read from markdown.contract's functions.
+// ChatMarkdown's code block label and its tables, read from markdown.contract.
 import { describe, expect, test } from 'bun:test';
 import { contractFn } from '../support/contract-fn-fixture';
 import { appPath } from '../support/app-files';
@@ -13,21 +13,21 @@ describe('code block label (extractFenceLanguage)', () => {
   });
   test('the toolbar shows that label', async () => {
     const source = await Bun.file(appPath('markdown.contract')).text();
-    expect(source).toContain('text (block.href != "" ? block.href : "text") font-family="ui-monospace"');
+    expect(source).toContain('text (block.href != "" ? block.href : "text") font-family="Menlo, Consolas, \\"Liberation Mono\\", monospace"');
   });
 });
 
-describe('table expand toggle (tableHasClippedCells)', () => {
-  test('a cell is clipped only when its unwrapped content is wider than its content box', async () => {
-    const clipped = await contractFn('markdown.contract', 'cellClipped', ['natural', 'box']);
-    // The comparison's table at 1280×840: its widest cell is 517 px in a 744 px column (493 px inside its padding).
-    expect(clipped(470, 493)).toBeFalse();
-    // Past the 24rem cap in a roomy table still fits (the oracle's td max-width only caps the column's request).
-    expect(clipped(450, 476)).toBeFalse();
-    expect(clipped(493.6, 493)).toBeFalse();
-    // A table wider than the column: the 24rem-capped cell cuts its 1,586 px text.
-    expect(clipped(1586, 559)).toBeTrue();
-    expect(clipped(526, 360)).toBeTrue();
+// MarkdownTable at v0.1.5 (#26449): no "Expand table cells" toggle; every cell, a header's too, wraps at word
+// boundaries within its column, so a table opens at its size.
+describe('tables open at their size', () => {
+  test('the footer holds only Copy table, and no cell keeps to one line', async () => {
+    const source = await Bun.file(appPath('markdown.contract')).text();
+    const table = source.slice(source.indexOf('component MarkdownTable\n'), source.indexOf('// Whether a cell draws run by run:'));
+    expect(table).not.toContain('Expand table cells');
+    expect(table).toContain('TableCopyButton(');
+    expect(table).not.toContain('line-clamp=1');
+    expect(table).toContain('nowrap=false');
+    expect(table).toContain('overflow-wrap="break-word"');
   });
 });
 

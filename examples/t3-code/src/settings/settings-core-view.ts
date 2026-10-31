@@ -3,17 +3,17 @@
 import { obj, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
-import { decodeClientPrefs, generalSections, memberFiles, resolveScope, restoreLabels, scopeTarget, serverContext, type ClientPrefs, type CoreSection } from './settings-core';
-import { appearanceSections, fontStack, modeTiles, palette } from '../appearance/settings-appearance';
-import { breadcrumbLabel, scopeAvailable, searchTargetScope } from './settings-search';
+import { decodeClientPrefs, dividedSection, generalSections, memberFiles, resolveScope, restoreLabels, scopeRepresentative, scopeTarget, serverContext, type ClientPrefs, type CoreSection } from './settings-core';
+export { scopeRepresentative }; // providers-scope.ts, source-control-view.ts
+import { appearanceSections, fontStack, modeTiles, palette, SEPARATE_FONT_TARGETS } from '../appearance/settings-appearance';
+import { breadcrumbLabel, CORE_ROUTES, foldStopOf, scopeAvailable, searchTargetScope } from './settings-search';
 import { scopeNoticeGroups } from './settings-scope-notice';
 import type { CustomTheme } from '../appearance/settings-themes';
 import { scopeMachine, singleEnvironmentRoute } from '../providers/settings-b-scope';
-import { isPrimaryEnvironment } from '../connections/local-primary';
 import { backgroundDialog } from './settings-a-background';
 import { archiveConfirmation } from './settings-a-archive';
 import { editorView, syncDraft } from '../appearance/settings-appearance-editor';
-import { paintOf } from '../appearance/settings-appearance-look';
+import { appStageLabel, paintOf, stageBackdropVariant } from '../appearance/settings-appearance-look';
 import { letGo } from '../client/let-go';
 import { importView, resetImport } from '../appearance/settings-appearance-import';
 import { rememberDelivery, updateConfirmation } from './settings-a-about';
@@ -31,7 +31,7 @@ import { quitMode } from './palette-native';
 const keyedLabel = (label: string) => ({ id: `label:${label}`, label, secondary: '', mark: '', ink: '', surface: '', member: '', selected: true, offline: false });
 
 // Pages whose every row is saved on this client; they have no scope sentence (SETTINGS_DEVICE_ONLY_PATHS).
-const DEVICE_ONLY = new Set(['appearance', 'snap-shot', 'connections']);
+const DEVICE_ONLY = new Set(['general', 'appearance', 'chat', 'diffs', 'snap-shot', 'connections', 'access', 'about']);
 const EDITOR_KINDS = new Set(['create', 'edit', 'duplicate']);
 
 /**
@@ -46,14 +46,10 @@ export function settingsScopeOf(client: T3Client, route: string, machine: string
   const projectKey = legacyGroup ? legacyGroup.key : projectKeyInput, checkout = legacyGroup ? '' : checkoutInput;
   const chosen = resolveScope(client, machine, projectKey, checkout);
   const machineAxis = scopeMachine(client, route, machine, chosen.kind === 'unavailable' ? [] : chosen.selected);
-  return { projectKey, checkout, scope: machineAxis === machine ? chosen : resolveScope(client, machineAxis, projectKey, checkout) };
+  // `machine` is the axis the scope resolved: on a single-environment route, the environment chosen when none was.
+  return { machine: machineAxis, projectKey, checkout, scope: machineAxis === machine ? chosen : resolveScope(client, machineAxis, projectKey, checkout) };
 }
 
-/** SettingsScopeContext's `environment`: the scope's connected environment, the primary first (its setup links and Providers name it). */
-export function scopeRepresentative(scope: ReturnType<typeof resolveScope>) {
-  const connected = scope.selected.filter(environment => environment.connection.phase === 'connected' && environment.serverConfig !== null);
-  return connected.find(candidate => isPrimaryEnvironment(candidate.environmentId)) ?? connected[0];
-}
 
 /**
  * The editor's draft opened or closed (a window state, no command): the window (devicePresentation) and the root's
@@ -90,12 +86,15 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   await wearMode(client, native, paint.mode);
   if (dialogKind !== 'import') resetImport(client);
   let sections: CoreSection[] = [];
-  if (active && route === 'general' && scope.kind !== 'unavailable') sections = generalSections(client, context);
-  if (active && route === 'appearance') sections = appearanceSections(prefs, true, await installedFonts(client, native));
-  const cli = active && route === 'general' ? await readCliCommand(client, native) : null;
+  // SettingsScopeBoundary renders a device-only page whatever the scope: its rows are this client's.
+  const deviceOnly = DEVICE_ONLY.has(route);
+  // Worktrees' rows are the storage panel's to draw, between its own (settings-data.ts worktreeRows).
+  if (active && CORE_ROUTES.has(route) && route !== 'appearance' && route !== 'worktrees' && (scope.kind !== 'unavailable' || deviceOnly)) sections = generalSections(client, context, route);
+  if (active && route === 'appearance') sections = appearanceSections(prefs, stageBackdropVariant(appStageLabel()) !== null, await installedFonts(client, native), target);
+  const cli = active && route === 'about' ? await readCliCommand(client, native) : null;
   if (cli) sections = sections.length ? sections.map(section => section.id === 'about' ? { ...section, rows: [...section.rows, cli] } : section)
     : [{ id: 'about', title: 'About', collapsible: false, toggle: false, rows: [cli] }];
-  sections = sections.map(section => ({ ...section, rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 })) }));
+  sections = sections.map(dividedSection);
   // ProjectSettingsPanel renders ProjectDefaultsSettings' modelRow: the Project page's Model row is General's, in the project scope.
   const projectModel = active && route === 'projects' && project ? generalSections(client, context).flatMap(section => section.rows).filter(row => row.id === 'default-model').map(row => ({ ...row, divider: false })) : [];
   // useSettingsRestore over useScopedSettings: the scope's representative target, not the focused environment.
@@ -109,8 +108,13 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   const unavailableMessage = scope.kind === 'unavailable' ? scope.message
     // Providers shows the chosen environment's own connection (providers-scope.ts); the other routes read the focused one.
     : scope.kind === 'environment' && !(singleEnvironmentRoute(route) ? scope.connected : client.ready) ? `Reconnect ${scope.environmentLabel} to change its settings.` : '';
+  // A jump to a row that exists only with Separate fonts on asks for the setting (shell-members.contract writes it) and
+  // waits for it: the answer names the jump only once the setting reads on, as revealSettingsSearchTarget writes it first.
+  const separateFontsWanted = active && SEPARATE_FONT_TARGETS.includes(target) && !prefs.typographyAdvanced;
   return {
-    ready: active, route, breadcrumb: breadcrumbLabel(route), showScope: !DEVICE_ONLY.has(route), kind: scope.kind, message: unavailableMessage, notice, noticeGroups,
+    ready: active, route, breadcrumb: breadcrumbLabel(route),
+    // The search jump this answer is for, and the reveal stop of the fold its row sits under (settings-members.contract).
+    jumpTarget: separateFontsWanted ? '' : target, jumpStop: foldStopOf(target), separateFontsWanted, showScope: !deviceOnly, kind: scope.kind, message: deviceOnly ? '' : unavailableMessage, notice, noticeGroups,
     environmentLabel: scope.environmentLabel, projectLabel: scope.projectLabel, projectMark: scope.projectMark, projectInk: scope.projectInk, projectSurface: scope.projectSurface,
     connective: scope.connective, // Every known environment, each with its own machine icon; a single-environment route drops "All environments".
     environmentChoices: singleEnvironmentRoute(route) ? scope.environmentChoices.filter(choice => choice.id) : scope.environmentChoices, environmentIcon: scope.environmentIcon, projectChoices: scope.projectChoices,
@@ -122,7 +126,7 @@ export async function settingsCore(client: T3Client, native: Native | null | und
     allEnvironmentsMember: String(scope.groups.find(group => group.projectKey === projectKey)?.memberProjects[0]?.id ?? ''),
     // A setup link inside Settings opens Providers on this environment (ProjectDefaultsSettings.tsx:60-62, 168-173; SettingsPanels.tsx:3260-3266); '' offers none.
     scopeEnvironment: scope.kind === 'unavailable' ? '' : scopeRepresentative(scope)?.environmentId ?? '',
-    sections, cliSections: cli ? [{ id: 'about', title: 'About', collapsible: false, toggle: false, rows: [cli] }] : [], projectModel, restoreCount: labels.length, restoreText: labels.length ? `This will reset: ${labels.join(', ')}.` : '',
+    sections, cliSections: cli ? [{ id: 'about', title: 'About', collapsible: false, toggle: false, rows: [cli], advanced: [] }] : [], projectModel, restoreCount: labels.length, restoreText: labels.length ? `This will reset: ${labels.join(', ')}.` : '',
     appearanceMode: device.appearanceMode, tiles: modeTiles(device.appearanceMode, prefs, custom), themes: libraryCards(prefs, custom, removalPicks(client, dialogKind === 'remove' ? dialogSubject : '')), typographyAdvanced: prefs.typographyAdvanced, themeLight: prefs.themeLight,
     palette: palette(paint.prefs, paint.custom, paint.mode), editor: editorView(draft, custom), themeImport: importView(client), interfaceFont: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', interfaceSize: prefs.fontSizeInterface, codeSize: prefs.fontSizeCode, codePreview: fontDiffPreview(prefs.diffColorScheme),
     wordWrap: prefs.wordWrap, panelDuration: prefs.panelAnimationDurationMs, quitMode: quitMode(client.local),

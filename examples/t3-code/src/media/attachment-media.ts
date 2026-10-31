@@ -1,19 +1,17 @@
 // The attachment preview's media bodies (MIT reference, see LICENSE-T3:
 // components/files/AttachmentFilePreview.tsx, BrowserDocumentFrame.tsx, AudioPreview.tsx).
-// A PDF and a rendered HTML page draw in the app module's `t3-media` hook (T3MediaPreview.swift:
-// PDFKit; a WebKit view whose document is the attachment's bytes under a sandbox CSP with no
-// network); audio and video are Contract `video` nodes with `controls` (AVKit). The surface reads
-// "Unable to load audio." / "Unable to load video." when the player reports an error, as the
-// reference's onError does; Try again re-mints the URL, and the error state in between unmounts
-// the failed player, so the next one is a new node.
+// A rendered HTML page is a Contract frame (media-frame.ts), and a PDF the viewer page's; audio and video are Contract
+// `video` nodes with `controls` (AVKit). The surface reads "Unable to load audio." / "Unable to load video."
+// when the player reports an error, as the reference's onError does; Try again re-mints the URL, and the error state in
+// between unmounts the failed player, so the next one is a new node.
 
-export type MediaPreview = 'pdf' | 'html' | 'audio' | 'video';
-const MEDIA: readonly string[] = ['pdf', 'html', 'audio', 'video'];
+export type MediaPreview = 'html' | 'audio' | 'video';
+const MEDIA: readonly string[] = ['html', 'audio', 'video'];
 
 /** Whether a filePreviewKind draws as a media body (not text, not an image, not "No preview"). */
 export const isMediaPreview = (kind: string): kind is MediaPreview => MEDIA.includes(kind);
 
-/** AttachmentFilePreview's onError messages (an image's `error` since exact2 #121); a PDF or page frame reports none. */
+/** AttachmentFilePreview's onError messages (an image's `error` since exact2 #121); a page frame reports none. */
 export function mediaErrorMessage(kind: string): string {
   return kind === 'audio' ? 'Unable to load audio.' : kind === 'video' ? 'Unable to load video.' : kind === 'image' ? 'Unable to load image.' : '';
 }

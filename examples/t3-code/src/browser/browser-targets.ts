@@ -78,7 +78,9 @@ export function environmentHostname(client: T3Client): string | null {
 }
 
 // ── Discovered local servers ────────────────────────────────────────────────────────────────────
-export type DiscoveredLocalServer = { host: string; port: number; url: string; processName: string | null; pid: number | null; terminal: { threadId: string; terminalId: string } | null };
+/** `agent`: the thread whose agent started it (older servers omit it). */
+export type DiscoveredLocalServer = { host: string; port: number; url: string; processName: string | null; pid: number | null; terminal: { threadId: string; terminalId: string } | null;
+  agent?: { threadId: string } | null };
 export type PreviewableServer = DiscoveredLocalServer & { source: 'scanner' | 'configured'; requestedUrl: string };
 
 export const PREVIEW_URL_MAX_LENGTH = 2_048;
@@ -141,10 +143,11 @@ export function mergeServers(input: { scanner: ReadonlyArray<DiscoveredLocalServ
 export function readDiscoveredServers(value: unknown): { servers: DiscoveredLocalServer[]; configuredUrlProbing: boolean } {
   const list = obj(value);
   const servers = arr(list.servers).flatMap((raw): DiscoveredLocalServer[] => {
-    const host = str(raw.host).trim(), port = Number(raw.port), url = str(raw.url), terminal = obj(raw.terminal);
+    const host = str(raw.host).trim(), port = Number(raw.port), url = str(raw.url), terminal = obj(raw.terminal), agent = obj(raw.agent);
     if (!host || !Number.isInteger(port) || port <= 0 || port >= 65536 || !url) return [];
     return [{ host, port, url, processName: str(raw.processName).trim() || null, pid: Number.isInteger(raw.pid) && Number(raw.pid) > 0 ? Number(raw.pid) : null,
-      terminal: str(terminal.threadId) && str(terminal.terminalId) ? { threadId: str(terminal.threadId), terminalId: str(terminal.terminalId) } : null }];
+      terminal: str(terminal.threadId) && str(terminal.terminalId) ? { threadId: str(terminal.threadId), terminalId: str(terminal.terminalId) } : null,
+      agent: str(agent.threadId) ? { threadId: str(agent.threadId) } : null }];
   });
   return { servers, configuredUrlProbing: list.configuredUrlProbing === true };
 }
@@ -158,7 +161,9 @@ export function previewableServers(environmentId: string, servers: ReadonlyArray
 export const DISCOVERED_SERVERS_KEY = 'browser-discovered-servers';
 /** The legacy sidebar's own stream (useThreadDiscoveredPorts: the environment's servers, no configured URLs; legacy-sidebar-links.ts). */
 export const SIDEBAR_DISCOVERED_SERVERS_KEY = 'sidebar-discovered-servers';
-export const isDiscoveredServersKey = (key: string): boolean => key === DISCOVERED_SERVERS_KEY || key === SIDEBAR_DISCOVERED_SERVERS_KEY;
+/** The thread details card's Servers section (thread-servers.ts): the same environment-wide stream, its own lifetime. */
+export const DETAILS_DISCOVERED_SERVERS_KEY = 'details-discovered-servers';
+export const isDiscoveredServersKey = (key: string): boolean => key === DISCOVERED_SERVERS_KEY || key === SIDEBAR_DISCOVERED_SERVERS_KEY || key === DETAILS_DISCOVERED_SERVERS_KEY;
 type Discovery = { generation: number; id: string; floor: number; maxSeen: number; tried: boolean; signature: string; servers: DiscoveredLocalServer[]; configuredUrlProbing: boolean; subscribes: number };
 const discoveries = new WeakMap<T3Client, Map<string, Discovery>>();
 function discovery(client: T3Client, key = DISCOVERED_SERVERS_KEY): Discovery {
@@ -187,7 +192,7 @@ export function discoveredServersEvent(client: T3Client, entry: Obj): void {
   value.servers = read.servers; value.configuredUrlProbing = read.configuredUrlProbing;
 }
 
-/** Follows its reader (the empty state; the legacy sidebar): subscribed (with the project's configured URLs) while it shows, released when it does not. */
+/** Follows its reader (the empty state; the legacy sidebar; the details card's Servers): subscribed (with the project's configured URLs) while it shows, released when it does not. */
 export async function watchDiscoveredServers(client: T3Client, native: Native, wanted: boolean, configuredUrls: ReadonlyArray<string>, key = DISCOVERED_SERVERS_KEY): Promise<void> {
   const value = discovery(client, key), bounded = boundConfiguredLocalServerUrls(configuredUrls), signature = JSON.stringify(bounded);
   if (value.id && (!wanted || signature !== value.signature)) {

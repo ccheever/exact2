@@ -3,13 +3,11 @@ import CryptoKit
 import ImageIO
 import Network
 import UniformTypeIdentifiers
-import WebKit
 import XCTest
 
 // T3MediaActions.swift (the media menu, Save, Copy image, Copy path) against a
-// loopback server, and the rendered HTML preview's external hosts (T3MediaPreview.swift). Every
-// pasteboard write goes to the agent's private pasteboard; saves go to a temporary exports/.
-// `T3_MEDIA_ACTIONS_NETWORK=1` adds the public https host (needs the network).
+// loopback server. Every pasteboard write goes to the agent's private pasteboard; saves go to a
+// temporary exports/.
 
 final class Fixture {
     private let listener: NWListener
@@ -44,17 +42,6 @@ final class Fixture {
         }
     }
     deinit { listener.cancel() }
-}
-
-/// A raster of the given size and type, drawn here.
-func raster(width: Int, height: Int, type: UTType) -> Data {
-    let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-    context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.9, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-    let data = NSMutableData()
-    let destination = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil)!
-    CGImageDestinationAddImage(destination, context.makeImage()!, nil)
-    CGImageDestinationFinalize(destination)
-    return data as Data
 }
 
 /// A real grayscale PNG of width × height (70,000,000 pixels compress to a few hundred KB).
@@ -139,20 +126,13 @@ final class MediaActionsTests: XCTestCase {
         XCTAssertEqual(board.string(forType: .string), "/repo/screens/logo.png")
     }
 
-    func testCopyImageWritesPngOfTheSamePixelSize() throws {
-        let png = raster(width: 31, height: 17, type: .png), jpeg = raster(width: 40, height: 24, type: .jpeg)
-        fixture.routes["/api/assets/a/shot.png"] = (200, "image/png", png)
-        fixture.routes["/api/assets/a/photo.jpg"] = (200, "image/jpeg", jpeg)
+    /// An SVG, which the data module's image codec does not draw (media-copy-image.ts copies every other image).
+    func testCopyImageDrawsAnSvgAtItsOwnSize() throws {
         fixture.routes["/api/assets/a/mark.svg"] = (200, "image/svg+xml", Data("<svg xmlns='http://www.w3.org/2000/svg' width='48' height='20'><rect width='48' height='20' fill='red'/></svg>".utf8))
-        XCTAssertEqual(run(["op": "mediaCopyImage", "url": "\(fixture.base)/api/assets/a/shot.png"])["ok"] as? Bool, true)
-        XCTAssertEqual(board.data(forType: .png), png, "a PNG goes to the pasteboard as it is")
-        let jpegReply = run(["op": "mediaCopyImage", "url": "\(fixture.base)/api/assets/a/photo.jpg"])
-        XCTAssertEqual(jpegReply["ok"] as? Bool, true)
-        XCTAssertEqual(pastedSize().map { [$0.0, $0.1] }, [40, 24])
         let svgReply = run(["op": "mediaCopyImage", "url": "\(fixture.base)/api/assets/a/mark.svg"])
         XCTAssertEqual(svgReply["ok"] as? Bool, true, "\(svgReply)")
         XCTAssertEqual(pastedSize().map { [$0.0, $0.1] }, [48, 20])
-        print("copy image: png 31x17 bytes equal; jpeg 40x24 -> png \(jpegReply["width"] ?? "?")x\(jpegReply["height"] ?? "?"); svg -> png \(svgReply["width"] ?? "?")x\(svgReply["height"] ?? "?")")
+        print("copy image: svg -> png \(svgReply["width"] ?? "?")x\(svgReply["height"] ?? "?")")
     }
 
     func testCopyImageRefusalsUseTheReferenceSentences() {
@@ -192,62 +172,6 @@ final class MediaActionsTests: XCTestCase {
         XCTAssertEqual(panel.allowedContentTypes, [UTType(filenameExtension: "mp4")!])
         XCTAssertTrue(panel.allowsOtherFileTypes)
         print("save: sha256 \(SHA256.hash(data: saved).description.suffix(16)) equal to the source; second save named \"clip one (1).mp4\"")
-    }
-
-    /// The rendered HTML preview loads assets from other hosts as the reference's sandboxed frame does:
-    /// an http IP host (stylesheet, script, fetch), a named http host resolving to loopback
-    /// (localtest.me: this unbundled binary has no ATS; the bundle allows it through app.json's
-    /// `appTransportSecurity`, exact2 #106), and, with the
-    /// network, a public https image.
-    func testRenderedHtmlLoadsExternalAssets() throws {
-        _ = NSApplication.shared
-        let other = try Fixture()
-        let media = T3MediaPreview(agent: true)
-        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 520, height: 420), styleMask: [.titled], backing: .buffered, defer: false)
-        let host = NSView(frame: window.contentView!.bounds)
-        window.contentView!.addSubview(host)
-        window.orderFrontRegardless()
-        defer { media.destroy(); window.orderOut(nil) }
-        let ip = "http://127.0.0.1:\(other.port)", named = "http://localtest.me:\(other.port)"
-        let network = ProcessInfo.processInfo.environment["T3_MEDIA_ACTIONS_NETWORK"] == "1"
-        other.routes["/style.css"] = (200, "text/css", Data("h1 { color: rgb(9, 8, 7); }".utf8))
-        other.routes["/app.js"] = (200, "text/javascript", Data("window.external = 'ran';".utf8))
-        other.routes["/data.json"] = (200, "application/json", Data("{\"ok\":1}".utf8))
-        other.routes["/named.svg"] = (200, "image/svg+xml", Data("<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14'><rect width='14' height='14' fill='green'/></svg>".utf8))
-        fixture.routes["/api/assets/tok/page.html"] = (200, "text/html", Data("""
-        <!doctype html><html><head><link rel="stylesheet" href="\(ip)/style.css"><script src="\(ip)/app.js"></script></head>
-        <body><h1 id="h">External assets</h1><img id="n" src="\(named)/named.svg" alt="">\(network ? "<img id=\"s\" src=\"https://www.google.com/favicon.ico\" alt=\"\">" : "")
-        <script>fetch('\(ip)/data.json').then(function (r) { return r.text(); }).then(function (t) { document.body.dataset.fetched = t; }, function () { document.body.dataset.fetched = 'refused'; });</script>
-        </body></html>
-        """.utf8))
-        media.mount(host: host, kind: "html", raw: "\(fixture.base)/api/assets/tok/page.html", name: "page.html")
-        let web = try XCTUnwrap(host.subviews.first as? WKWebView)
-        func evaluate(_ script: String) -> String {
-            var value: String?
-            let end = Date().addingTimeInterval(5)
-            while media.documentFrame(of: web) == nil && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-            guard let frame = media.documentFrame(of: web) else { return "no frame" }
-            web.evaluateJavaScript(script, in: frame, in: .page) { result in
-                switch result { case .success(let any): value = (any as? String) ?? "\(any)"; case .failure(let error): value = "error: \(error.localizedDescription)" }
-            }
-            while value == nil && Date() < end.addingTimeInterval(5) { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-            return value ?? "timeout"
-        }
-        func settle(_ script: String, _ expected: String) -> String {
-            let end = Date().addingTimeInterval(network ? 10 : 6)
-            var value = evaluate(script)
-            while value != expected && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.1)); value = evaluate(script) }
-            return value
-        }
-        XCTAssertEqual(settle("getComputedStyle(document.getElementById('h')).color", "rgb(9, 8, 7)"), "rgb(9, 8, 7)", "http IP stylesheet")
-        XCTAssertEqual(settle("String(window.external)", "ran"), "ran", "http IP script")
-        XCTAssertEqual(settle("String(document.body.dataset.fetched)", "{\"ok\":1}"), "{\"ok\":1}", "http IP fetch")
-        XCTAssertEqual(settle("String(document.getElementById('n').naturalWidth)", "14"), "14", "named http host (loopback)")
-        var https = "not run"
-        if network { https = settle("String(document.getElementById('s').naturalWidth > 0)", "true"); XCTAssertEqual(https, "true", "public https image") }
-        let reached = Set(other.seen.map { String($0.split(separator: "?").first ?? "") })
-        XCTAssertEqual(reached, ["/style.css", "/app.js", "/data.json", "/named.svg"])
-        print("rendered html: http IP css/js/fetch loaded; named http host (localtest.me) loaded in this unbundled binary; public https image: \(https)")
     }
 }
 

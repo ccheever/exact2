@@ -2,16 +2,17 @@ import { updateEverythingView } from '../sidebar/update-everything';
 import { legacySidebarSnapshot } from '../sidebar/legacy-sidebar-view';
 import { timelineReadsNeeded } from '../timeline/timeline-prepare';
 import { projectCloneBlock } from '../shell/project-clones-live';
-import { highlightPending } from '../highlight/shiki-highlight';
 import { markdownSkills } from '../timeline/message-chips';
 import { workspaceValues } from '../composer/composer-workspace-snapshots';
 import { workspaceCwd } from '../composer/composer-editor';
 import { snapshotDraftTiles } from '../snapshot/snapshot-settings';
 import { arr, obj, str, num, type Message, type Obj } from './domain';
+import { textDirection } from '../shared/text-direction';
 import { activeRun, providerAvailable } from './protocol';
 import type { T3Client } from './client';
-import { timelineMessages, timelineSnapshot, transcriptRows } from '../timeline/timeline-presentation';
+import { headerRenameDir, timelineMessages, timelineSnapshot, transcriptRows } from '../timeline/timeline-presentation';
 import { threadFooterRows } from '../timeline/thread-status-line';
+import { withKeptRows } from '../timeline/timeline-kept-rows';
 import { noteSubagentRequests } from '../sidebar/subagent-requests';
 import { sidebarSnapshot } from '../sidebar/sidebar-view';
 import { parentThreadLink, subagentLead } from '../sidebar/sidebar-lineage';
@@ -22,6 +23,7 @@ import { composerSnapshot } from '../composer/composer-presentation';
 import { antigravitySendBlockReason, composerSelection } from '../composer/composer-provider-selection';
 import { fanoutSelections } from '../composer/composer-controls-fanout';
 import { triggerModelName } from '../composer/composer-controls-model';
+import { resolveModelShortName } from './model-short-name';
 import { pickerCatalog, withJumpLabels } from '../composer/model-catalog';
 import { effectiveShortcut } from '../shell/shortcut-labels'; // the rows' ⌘1–⌘9
 import { ariaChord } from '../shell/keyboard-dispatch';
@@ -45,6 +47,7 @@ import { serverUpdateView } from '../connections/server-update-notices';
 import { composerOwner } from '../composer/auto-balance-owner';
 import { providerBanner } from '../providers/provider-status-message'; // the banner and its setup button
 import { feedbackUploading, withFeedbackRows } from '../composer/composer-feedback'; // Codex /feedback
+import { waitingSend } from '../composer/composer-uploads';
 
 const modes: Record<string, string> = {
   'approval-required': 'Ask for approval', 'auto-accept-edits': 'Auto-accept edits',
@@ -83,6 +86,18 @@ export function projectIdentity(name: string) {
   return { projectMark: mark, projectInk: `light-dark(${light}, ${dark})`,
     projectSurface: `light-dark(${light}24, ${dark}24)` };
 }
+/**
+ * providerInstanceInitials (reference 7c3b3b3605ef, client-runtime state/providerInstanceDisplay.ts): punctuation
+ * separates words, so "Codex (hub)" reads CH; an apostrophe inside a word stays ("Theo's Codex" is TC) and a quoting
+ * one does not ("Codex 'hub'" is CH). The reference's `[^\P{P}'’]` is written with a lookahead: Hermes matches
+ * nothing for `\P{…}` inside a negated class.
+ */
+export function providerInstanceInitials(label: string): string {
+  const words = label.replace(/(?:(?!['’])\p{P})+/gu, ' ').split(/\s+/u).map(word => word.replace(/^['’]+|['’]+$/gu, '')).filter(Boolean);
+  if (words.length === 0) return '';
+  if (words.length === 1) return Array.from(words[0]!).slice(0, 2).join('').toUpperCase();
+  return words.slice(0, 2).map(word => Array.from(word)[0]?.toUpperCase() ?? '').join('');
+}
 // Provider account marks follow the source instance-display helper (providerInstanceDisplay.ts
 // shouldShowInstanceBadge, 74541bab17).
 export function providerBadge(provider: Obj | undefined, providers: Obj[]) {
@@ -94,10 +109,7 @@ export function providerBadge(provider: Obj | undefined, providers: Obj[]) {
     && !(provider?.enabled === true && candidate.enabled !== true)
     && (driver !== 'acpRegistry' || candidate.acpRegistryAgentId === provider?.acpRegistryAgentId));
   if (!provider || !color && siblings.length <= 1) return {providerBadge:'',providerBadgeColor:''};
-  const words = str(provider.displayName, str(provider.instanceId)).replace(/[_-]+/g,' ').split(/\s+/u).filter(Boolean);
-  const initials = words.length === 1 ? Array.from(words[0]!).slice(0,2).join('')
-    : words.slice(0,2).map(word=>Array.from(word)[0] ?? '').join('');
-  return {providerBadge:initials.toUpperCase(),providerBadgeColor:color};
+  return {providerBadge:providerInstanceInitials(str(provider.displayName, str(provider.instanceId))),providerBadgeColor:color};
 }
 
 /** ProviderStatusBanner (provider-status-message.ts): the composer instance's banner. */
@@ -148,13 +160,19 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     projectId: client.projectId, projectName: isScratch(project, str(client.config.scratchWorkspaceRoot).trim()) ? 'No project' : str(project?.title, 'Choose a project'), threadId: client.threadId, // ChatHeader: a scratch thread's crumb
     threadTitle: str(obj(client.projection.thread).title, 'New thread'),
     // The header title keyed by its text: a reused one-line text keeps drawing the previous title clipped to the new width.
-    threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })), parentThread: parentThreadLink(client), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
+    threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })),
+    threadTitleDir: textDirection(str(obj(client.projection.thread).title, 'New thread')) === 'rtl' ? 'rtl' : 'ltr',
+    renameDir: headerRenameDir(client, str(obj(client.projection.thread).title, 'New thread')), parentThread: parentThreadLink(client), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
     settled: section(obj(client.projection.thread)) === 'settled', ...projectIdentity(str(project?.title)),
     running: !!run, subagentsLive: transcript.some(message => (message.activities ?? []).some(activity => (activity.startedMs ?? 0) > 0)), // AgentElapsed ticks
-    canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client) && !feedbackUploading(client), // a cloning project waits (project-clones-live.ts)
+    canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client) && !feedbackUploading(client) && !waitingSend(client), // a cloning project waits (project-clones-live.ts), and a draft sends one press at a time (composer-uploads.ts)
     canStop: client.writable && !pending && !client.busy && !!run,
-    providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? triggerModelName(currentModel) : selectedModel || 'Choose model',
-    composerCollapseOnScroll: client.local.deviceSettings.composerCollapseOnScroll,
+    // ProviderModelPicker: the trigger's accessible name is the full name (triggerLabel); its text is the name said on
+    // the model's provider (triggerTitle: the catalog's shortName, else model-short-name.ts), and an unavailable
+    // model's Unavailable badge follows it.
+    providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? `${triggerModelName({ ...currentModel, shortName: '' })}${currentModel.isUnavailable === true ? ' (Unavailable)' : ''}` : selectedModel || 'Choose model',
+    modelShortLabel: currentModel ? triggerModelName({ ...currentModel, shortName: resolveModelShortName(currentModel, str(selectedProvider?.driver)) ?? '' }) : selectedModel || 'Choose model',
+    modelUnavailable: currentModel?.isUnavailable === true,
     planModeEnabled: client.local.deviceSettings.planModeEnabled,
     composerResting: transcriptFacts(client).owner === `${client.origin}:${client.projectId}:${client.threadId}` && transcriptFacts(client).resting,
     transcriptAway: transcriptFacts(client).owner === `${client.origin}:${client.projectId}:${client.threadId}` && !transcriptFacts(client).atEnd,
@@ -176,7 +194,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     timelineReadsNeeded: timelineReadsNeeded(client),
     markdownSkills: markdownSkills(workspaceValues(provider ?? {}, workspaceCwd(client), 'skills').map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) }))),
     // The timeline's footer rows after the last message: a pending context handoff, then the status line.
-    messages: timelineMessages(client, [...transcript, ...threadFooterRows(client, now)], now), ...timelineSnapshot(client),
+    ...withKeptRows(client, timelineMessages(client, [...transcript, ...threadFooterRows(client, now)], now)), ...timelineSnapshot(client),
     providers: providers.map(provider => ({ id: str(provider.instanceId), name: str(provider.displayName, str(provider.driver)), available: providerAvailable(provider) })),
     models: providers.flatMap(provider => arr(provider.models).map(model => ({ id: str(model.slug), name: str(model.name, str(model.slug)),
       providerId: str(provider.instanceId), selected: provider.instanceId === client.providerId && model.slug === client.modelId }))),
@@ -186,7 +204,6 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     serverUpdate: serverUpdateView(client), // server-update-notices.ts: the offline timers' episodes, the details dot, the update confirmation
     look: look(client),
     ...tableMenuSnapshot(client), // a table's Copy popup over every layer
-    highlightPending: highlightPending(), // last, after every code text above asked for its tokens
   };
 }
 

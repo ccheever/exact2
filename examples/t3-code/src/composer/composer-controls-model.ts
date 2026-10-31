@@ -3,11 +3,12 @@
 // packages/shared/src/model.ts (resolveSelectableModel, formatModelSlugName,
 // normalizeModelSlug, getProviderOptionCurrentValue/Label/StatedValue),
 // packages/contracts/src/model.ts (MODEL_SLUG_ALIASES_BY_PROVIDER),
-// apps/web/src/components/chat/providerIconUtils.ts (getTriggerDisplayModelName),
+// apps/web/src/components/chat/providerIconUtils.ts (getDisplayModelName, getTriggerDisplayModelName),
 // packages/client-runtime/src/state/threadExecution.ts
 // (deriveReportedModelSelection, REASONING_EFFORT_OPTION_IDS at 74541bab17), and, at 9c161462c9, TraitsPicker.tsx
 // (buildTraitsTriggerDisplay) and TraitsSpeed.tsx (getTraitsSpeedDisplay).
 import { arr, obj, str, type Obj } from '../client/domain';
+import { resolveModelShortName as resolveShortName } from '../client/model-short-name';
 
 const ALIASES: Record<string, Record<string, string>> = {
   codex: { 'gpt-5-codex': 'gpt-5.4', '5.4': 'gpt-5.4', '5.3': 'gpt-5.3-codex', 'gpt-5.3': 'gpt-5.3-codex',
@@ -38,19 +39,31 @@ export function formatModelSlugName(slug: string): string {
   return prefix + name.replace(/^(claude-[a-z]+-\d+)-(\d{1,2})(?=-|\[|$)/i, '$1.$2').split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
 }
 
-/** getTriggerDisplayModelName: the short name when there is one, minus a leading sub-provider qualifier. */
-export function triggerModelName(model: Obj): string {
-  const name = str(model.shortName) || str(model.name), qualifier = str(model.subProvider).trim();
+/** resolveModelShortName (client/model-short-name.ts): the server's `shortName`, else the spoken name on `driver`'s icon. */
+const resolveModelShortName = (model: Obj, driver: string): string => resolveShortName(model, driver) ?? '';
+
+const withoutQualifier = (name: string, subProvider: unknown) => {
+  const qualifier = str(subProvider).trim();
   if (!qualifier) return name;
   const pattern = new RegExp(`^${qualifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s*[.:/-]\\s*|\\s+)`, 'iu');
   return name.replace(pattern, '').trim() || name;
+};
+/** getDisplayModelName: the full name, minus a leading sub-provider qualifier (picker rows, tooltips, accessible names). */
+export function displayModelName(model: Obj): string { return withoutQualifier(str(model.name), model.subProvider); }
+/**
+ * getTriggerDisplayModelName: the server's `shortName`, else the spoken name on `driver`'s families, minus the
+ * qualifier. Without a driver it finds no spoken name: callers that do not name the provider keep the full name.
+ */
+export function triggerModelName(model: Obj, driver?: string): string {
+  const short = driver === undefined ? str(model.shortName) : resolveModelShortName(model, driver);
+  return withoutQualifier(short || str(model.name), model.subProvider);
 }
 
-/** The read-only bar's model label: a reported dated id or alias resolves to its catalog entry. */
+/** The read-only bar's model label: a reported dated id or alias resolves to its catalog entry, by its spoken name. */
 export function reportedModelLabel(driver: string, reported: string, models: Obj[]): string {
   const slug = resolveSelectableModel(driver, reported, models);
   const model = slug ? models.find(candidate => candidate.slug === slug) : undefined;
-  return model ? triggerModelName(model) : formatModelSlugName(reported);
+  return model ? triggerModelName(model, driver) : formatModelSlugName(reported);
 }
 
 export type Selection = { instanceId: string; model: string; options: Obj[] };
@@ -117,16 +130,17 @@ export function chordGlyphs(chord: string): string {
   return `${has('Control') ? '⌃' : ''}${has('Alt') ? '⌥' : ''}${has('Shift') ? '⇧' : ''}${has('Meta') ? '⌘' : ''}${names[key] ?? (key.length === 1 ? key.toUpperCase() : key)}`;
 }
 
-/** threadExecution.ts REASONING_EFFORT_OPTION_IDS: the option ids that carry a reasoning effort (Cursor's is `reasoning_effort`). */
-export const REASONING_EFFORT_OPTION_IDS: readonly string[] = ['reasoningEffort', 'effort', 'reasoning', 'variant', 'reasoning_effort'];
+/** threadExecution.ts REASONING_EFFORT_OPTION_IDS (v0.1.5): the option ids that carry a reasoning effort (Cursor's is
+ *  `reasoning_effort`, Antigravity's `thinking_level`). */
+export const REASONING_EFFORT_OPTION_IDS: readonly string[] = ['reasoningEffort', 'effort', 'reasoning', 'variant', 'reasoning_effort', 'thinking_level'];
 
 /** TraitsPicker's reasoning selects: the first one listed pairs with the speed label and is the one effort keys step. */
 export const REASONING_SELECT_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([...REASONING_EFFORT_OPTION_IDS, 'thinking']);
 
 /**
- * buildTraitsTriggerDisplay: "Fast" or "Ultrafast" follows the first reasoning
+ * buildTraitsTriggerDisplay (modelTraits.ts at v0.1.5): "Fast" or "Ultrafast" follows the first reasoning
  * label ("High Fast · 1M"), or ends the list when there is none; booleans read
- * "<label> On|Off".
+ * "<label> On|Off". `speedLabel` is the speed alone, `otherLabels` every label but reasoning and speed.
  */
 export function traitsDisplay(driver: string, descriptors: Obj[], selections: Obj[], selection: Selection | null = null, reported: Selection | null = null,
   ultra: { primaryId: string; controlled: boolean } = { primaryId: '', controlled: false }) {
@@ -154,9 +168,10 @@ export function traitsDisplay(driver: string, descriptors: Obj[], selections: Ob
     if (reasoningAt === -1 && descriptor.type === 'select' && REASONING_SELECT_DESCRIPTOR_IDS.has(str(descriptor.id))) reasoningAt = labels.length;
     labels.push(label);
   }
-  if (!labels.length && fallback) return { label: fallback };
+  const otherLabels = labels.filter((_, index) => index !== reasoningAt), speedLabel = speed || null;
+  if (!labels.length && fallback) return { label: fallback, speedLabel, otherLabels };
   if (speed) { if (reasoningAt >= 0) labels[reasoningAt] = `${labels[reasoningAt]} ${speed}`; else labels.push(speed); }
-  return { label: labels.join(' · ') };
+  return { label: labels.join(' · '), speedLabel, otherLabels };
 }
 
 /**

@@ -5,11 +5,14 @@ afterEach(resetPrimary);
 import { defaultBranchCopy, featureBranchUnavailableReason, formatElapsed, menuItems, menuNotes, menuReason, progressPresentation, publishReadiness, quickAction, quickActionIcon,
   requiresDefaultBranchConfirmation, sortedPublishProviders, terminology } from '../../src/details/git-logic';
 import { GIT_ACTION_KEY, gitActionEvent, gitCardView, gitCommand, gitLocal, gitState, transportActionId } from '../../src/details/git-actions';
-import { branchLocal, branchState, includeRef, originLabel, startFromOrigin } from '../../src/details/git-branch';
+import { branchLocal, branchState, cardBranchView, includeRef, originLabel, startFromOrigin } from '../../src/details/git-branch';
+import { gitChatLocal } from '../../src/details/git-route';
 import { toasts } from '../../src/shell/toast';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
+import { contractComponent } from '../support/contract-action-fixture';
+import { adoptHostLocale } from '../../src/shared/timestamp-format';
 
 const status = (extra: Obj = {}): Obj => ({ isRepo: true, hasPrimaryRemote: true, isDefaultRef: false, refName: 'feature', hasWorkingTreeChanges: false,
   workingTree: { files: [], insertions: 0, deletions: 0 }, hasUpstream: true, aheadCount: 0, behindCount: 0, pr: null, ...extra });
@@ -29,7 +32,10 @@ describe('quick action (resolveQuickAction)', () => {
   });
   test('GitLab says MR; the icon follows the action', () => {
     const gitlab = status({ hasWorkingTreeChanges: true, sourceControlProvider: { kind: 'gitlab', name: 'GitLab', baseUrl: '' } });
-    expect(terminology(gitlab)).toEqual({ shortLabel: 'MR', singular: 'merge request' });
+    expect(terminology(gitlab)).toEqual({ shortLabel: 'MR', shortLabelWithArticle: 'an MR', singular: 'merge request', plural: 'merge requests' });
+    // A status with no host reads as GitHub's; a kind no host claims is a "change request".
+    expect(terminology(status())).toMatchObject({ shortLabel: 'PR', shortLabelWithArticle: 'a PR' });
+    expect(terminology(status({ sourceControlProvider: { kind: 'unknown', name: 'git.example', baseUrl: '' } }))).toEqual({ shortLabel: 'change request', shortLabelWithArticle: 'a change request', singular: 'change request', plural: 'change requests' });
     expect(quickAction(gitlab, false).label).toBe('Commit, push & MR');
     expect(quickActionIcon(quickAction(gitlab, false), gitlab)).toBe('gitlab');
     expect(quickActionIcon(quickAction(status({ hasWorkingTreeChanges: true, isDefaultRef: true }), false, true), null)).toBe('cloud-upload');
@@ -43,7 +49,10 @@ describe('options menu (buildMenuItems, getMenuActionDisabledReason)', () => {
     const items = menuItems(dirty, false, true);
     expect(items.map(item => [item.label, item.disabled])).toEqual([['Commit', false], ['Push', true], ['Create PR', true]]);
     expect(menuReason(items[1]!, dirty, false, true)).toBe('Commit or stash local changes before pushing.');
-    expect(menuReason(items[2]!, dirty, false, true)).toBe('Commit local changes before creating a pull request.');
+    // getMenuActionDisabledReason: uncommitted work does not hold Create PR back; nothing ahead of the default branch does.
+    expect(menuReason(items[2]!, dirty, false, true)).toBe('No local commits to include in a pull request.');
+    const ahead = status({ hasWorkingTreeChanges: true, aheadCount: 0, aheadOfDefaultCount: 2 });
+    expect(menuItems(ahead, false, true).map(item => [item.label, item.disabled])).toEqual([['Commit', false], ['Push', true], ['Create PR', false]]);
     expect(menuItems(dirty, false, false).map(item => item.id)).toEqual(['commit']);
     expect(menuItems(status({ pr: { state: 'open' } }), false, true).map(item => item.id)).toEqual(['commit', 'push']);
     expect(menuReason(menuItems(status(), false, true)[0]!, status(), false, true)).toBe('Worktree is clean. Make changes before committing.');
@@ -68,8 +77,8 @@ describe('options menu (buildMenuItems, getMenuActionDisabledReason)', () => {
   test('publish readiness', () => {
     const discovered = [{ kind: 'github', label: 'GitHub', status: 'available', auth: { status: 'unauthenticated', account: { _tag: 'None' }, detail: { _tag: 'None' } } },
       { kind: 'gitlab', label: 'GitLab', status: 'available', auth: { status: 'authenticated', account: { _tag: 'Some', value: 'me' } } }];
-    expect(publishReadiness('github', discovered)).toMatchObject({ ready: false, hint: 'GitHub is not authenticated. Open Settings -> Source Control for setup guidance.' });
-    expect(publishReadiness('bitbucket', discovered).hint).toBe('Provider status unavailable. Open Settings -> Source Control and rescan.');
+    expect(publishReadiness('github', discovered)).toMatchObject({ ready: false, hint: 'GitHub is not authenticated. Open Settings -> Source control for setup guidance.' });
+    expect(publishReadiness('bitbucket', discovered).hint).toBe('Provider status unavailable. Open Settings -> Source control and rescan.');
     expect(sortedPublishProviders(discovered).map(option => option.value)).toEqual(['gitlab', 'azure-devops', 'bitbucket', 'forgejo', 'gitcafe', 'github']);
   });
 });
@@ -180,6 +189,68 @@ describe('the action stream (vcsAction.ts)', () => {
     await gitCommand(client, native, 'quick', '/repo', '');
     expect(gitCardView(client, gitState(client).status, '', '/repo', 200)).toMatchObject({ success: true, successTitle: 'Pulled', successDescription: 'Updated main from origin/main' });
   });
+  test('a change request the action created leaves "Created PR" with no second line; on GitLab "Created MR"', async () => {
+    for (const [extra, title] of [[{}, 'Created PR'], [{ sourceControlProvider: { kind: 'gitlab', name: 'GitLab', baseUrl: 'https://gitlab.com' } }, 'Created MR']] as const) {
+      const { client, calls } = make();
+      gitCardView(client, status({ aheadOfDefaultCount: 1, ...extra }), '', '/repo', 100);
+      await gitCommand(client, native, 'quick', '/repo', '');
+      const subscribe = calls.at(-1)!;
+      expect(subscribe.payload).toMatchObject({ action: 'create_pr' });
+      gitActionEvent(client, { subscriptionId: '3-7', value: { actionId: (subscribe.payload as Obj).actionId as string, cwd: '/repo', action: 'create_pr', kind: 'action_finished', result: {
+        pr: { status: 'created', number: 5, url: 'https://github.com/acme/app/pull/5' }, toast: { title: 'Created PR #5', description: 'Add the thing', cta: { kind: 'none' } } } } });
+      expect(gitCardView(client, gitState(client).status, '', '/repo', 200)).toMatchObject({ success: true, successTitle: title, successDescription: '' });
+    }
+  });
+});
+
+describe('the card\'s Git rows (GitActionsControl panel)', () => {
+  const { client } = (() => ({ client: { scopes: [], ready: true, environmentId: 'env', generation: 1, threadId: '', projectId: 'p1', draftKey: 'env:new:p1', local: { composerControls: {} },
+    shell: { threads: [], projects: [] }, config: {}, projection: {}, restAccess: () => ({}) } as unknown as T3Client }))();
+  test('a draft or a run-less thread with nothing to commit, push or diff shows neither the Git action nor Changes (quietEmptyDraft)', () => {
+    expect(gitCardView(client, status(), '', '/repo', 100, '', true).quiet).toBe(true);
+    expect(gitCardView(client, status(), '', '/repo', 100, '', false).quiet).toBe(false);
+    expect(gitCardView(client, status({ aheadCount: 1 }), '', '/repo', 100, '', true).quiet).toBe(false);
+    expect(gitCardView(client, status({ branchChanges: { insertions: 0, deletions: 2 } }), '', '/repo', 100, '', true).quiet).toBe(false);
+    expect(gitCardView(client, status(), 'fatal: bad object', '/repo', 100, '', true).quiet).toBe(false);
+    const rows = contractComponent('git.contract', 'GitRows');
+    const scope = (quiet: boolean) => ({ compact: false, KmItem: (item: Obj) => item, details: { items: { branch: true, gitActions: true, changes: true }, git: { repo: true, quiet, progress: false, success: false, menu: [], branch: { show: false } } } });
+    expect([rows.drawn('testId="details-git-group"', rows.state(), scope(true)), rows.drawn('GitChanges(details=details', rows.state(), scope(true))]).toEqual([false, false]);
+    expect([rows.drawn('testId="details-git-group"', rows.state(), scope(false)), rows.drawn('GitChanges(details=details', rows.state(), scope(false))]).toEqual([true, true]);
+  });
+  test('Changes counts the branch\'s lines where the server reports them, grouped as the reference\'s runtime locale writes them (formatDiffCount)', () => {
+    // The packaged reference ships only en-US (scripts/build-desktop-artifact.ts DESKTOP_ELECTRON_LANGUAGES), so its default
+    // locale is en-US on every Mac: a German region (the host's format locale) still reads "1,234".
+    adoptHostLocale('de-DE');
+    try {
+      expect(gitCardView(client, status({ workingTree: { files: [], insertions: 1234, deletions: 0 } }), '', '/repo', 100)).toMatchObject({ changesAdd: '+1,234', changesDel: '-0' });
+      expect(gitCardView(client, status({ workingTree: { files: [], insertions: 9, deletions: 9 }, branchChanges: { insertions: 12_500, deletions: 3 } }), '', '/repo', 100))
+        .toMatchObject({ changesAdd: '+12,500', changesDel: '-3' });
+    } finally { adoptHostLocale(null); }
+  });
+  test('a split pair keeps its fill while its menu is open (data-popup-open): the branch picker, the options and Run on', () => {
+    const rows = contractComponent('git.contract', 'GitRows'), state = rows.state(), fill = 'light-dark(#0000000e, #ffffff13)', clear = '#00000000';
+    const scope = { compact: false, inline: true, rem: 16, KmItem: (item: Obj) => item, details: { cwd: '/repo', git: { repo: true, quiet: false, progress: false, success: false, menu: [], branch: { show: true, label: 'main', labelHead: '', labelTail: '' } } } };
+    const branchFill = () => rows.attribute('testId="details-branch" ', 'background-color', state, scope);
+    const groupFill = () => rows.attribute('testId="details-git-group"', 'background-color', state, scope);
+    expect([branchFill(), groupFill()]).toEqual([clear, clear]);
+    rows.call('branchToggled', state, { local: () => undefined }, [{ newState: 'open' }]);
+    rows.call('gitMenuToggled', state, {}, [{ newState: 'open' }]);
+    expect([state.branchOpen, state.gitMenuOpen, branchFill(), groupFill()]).toEqual([true, true, fill, fill]);
+    rows.call('branchToggled', state, {}, [{ newState: 'closed' }]);
+    expect([branchFill(), groupFill()]).toEqual([clear, fill]);
+    const runOn = contractComponent('git.contract', 'RunOnRow'), on = runOn.state();
+    const runOnFill = () => runOn.attribute('testId="details-environment"', 'background-color', on, { inline: true, details: { git: { envPick: true } } });
+    expect(runOnFill()).toBe(clear);
+    runOn.call('toggled', on, {}, [{ newState: 'open' }]);
+    expect([on.open, runOnFill()]).toEqual([true, fill]);
+  });
+  test('the branch label\'s title is its whole name, cut or not (MiddleTruncate showTitle)', () => {
+    const rows = contractComponent('git.contract', 'GitRows'), state = rows.state();
+    const scope = (branch: Obj) => ({ compact: false, inline: true, rem: 16, KmItem: (item: Obj) => item, details: { cwd: '/repo', git: { repo: true, quiet: false, menu: [], branch: { show: true, ...branch } } } });
+    const long = { label: 't3/clone-repo-to-other-machine', labelHead: 't3/clone-repo-to-other-', labelTail: 'machine' };
+    expect(rows.attribute('row flex=1 min-width=0 align-items="center" title=', 'title', state, scope(long))).toBe('t3/clone-repo-to-other-machine');
+    expect(rows.attribute('text details.git.branch.label title=', 'title', state, scope({ label: 'main', labelHead: '', labelTail: '' }))).toBe('main');
+  });
 });
 
 describe('branch picker (BranchToolbarBranchSelector)', () => {
@@ -191,6 +262,29 @@ describe('branch picker (BranchToolbarBranchSelector)', () => {
     branchLocal(client, 'query', '', 'feat');
     branchLocal(client, 'open', 'branch', '');
     expect(branchState(client)).toMatchObject({ open: 'branch', query: '' });
+  });
+  test('the branch popover showing refreshes the workspace\'s local status, unawaited (handleOpenChange)', async () => {
+    const asked: [string, Obj][] = [];
+    const client = { local: { composerControls: {} }, threadId: 't', draftKey: 'env:new:p1', ready: true, generation: 1, config: { settings: {} }, projection: { thread: {} }, shell: { projects: [], threads: [] },
+      restAccess: () => ({ read: async () => ({ refs: [{ name: 'main', isDefault: true, current: true }], totalCount: 1, nextCursor: null }),
+        request: async (method: string, input: Obj) => { asked.push([method, input]); return new Promise(() => {}); } }) } as unknown as T3Client;
+    const native = { available: true } as unknown as Native;
+    await gitChatLocal(client, native, 'opened', '', '');
+    expect(asked).toEqual([]); // no row drawn yet: no workspace to refresh
+    // The card draws the branch row for its workspace (BranchToolbarBranchSelector's branchCwd), then the popover shows.
+    await cardBranchView(client, native, '/repo/worktree', '/repo', true);
+    expect(await gitChatLocal(client, native, 'opened', '', '')).toBe('');
+    expect(asked).toEqual([['vcs.refreshStatus', { cwd: '/repo/worktree', localOnly: true }]]);
+    // A workspace that is no repository draws no row: nothing to refresh.
+    await cardBranchView(client, native, '/elsewhere', '/elsewhere', false);
+    await gitChatLocal(client, native, 'opened', '', '');
+    expect(asked).toHaveLength(1);
+    // GitBranchPicker's popover reports its showing; closing asks nothing.
+    const rows = contractComponent('git.contract', 'GitRows'), state = rows.state(), sent: unknown[][] = [];
+    const scope = { local: (...args: unknown[]) => sent.push(args) };
+    rows.call('branchToggled', state, scope, [{ newState: 'open' }]);
+    rows.call('branchToggled', state, scope, [{ newState: 'closed' }]);
+    expect(sent).toEqual([['git-opened', '', '']]);
   });
   test('a new worktree starts from remote by default, and the label says so', () => {
     const client = { local: { composerControls: { contexts: { 'env:new:p1': { envMode: 'worktree', branch: '', worktreePath: '' } } } }, threadId: '', draftKey: 'env:new:p1', projectId: 'p1',

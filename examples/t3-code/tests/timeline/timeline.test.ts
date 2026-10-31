@@ -6,6 +6,10 @@ import { commandDisplayText, commandProgramName, displayFailed, formatDuration, 
 import type { Files, Native } from '../../src/client/protocol';
 import { appPath } from '../support/app-files';
 import { availableRevertTurnCounts, revertTurnCounts, type Entry } from '../../src/timeline/timeline-rows';
+import { threadFindState } from '../../src/timeline/thread-find-runtime';
+import { liveEvent } from '../../src/client/live-streams';
+import { contractComponent } from '../support/contract-action-fixture';
+import { withTimers } from '../support/timers';
 
 const base = Date.parse('2026-10-03T00:00:00.000Z');
 const at = (seconds: number) => new Date(base + seconds * 1000).toISOString();
@@ -100,6 +104,35 @@ describe('settled turns', () => {
     expect(rows(cut).find(row => row.kind === 'attempt')).toMatchObject({ detail: 'Cut off by a steer' });
   });
 
+  test('a steer splits the settled turn: the total time above it, "Continued for" over each segment after (#22783)', async () => {
+    const value = client([user('u', 0, 'go'), command('a', 4, 'ls'), user('s', 10, 'steer', { inputIntent: 'steer' }), command('b', 15, 'pwd'), answer('x', 30, 'Done')],
+      { runs: [{ id: 'r1', status: 'completed', startedAt: at(0), completedAt: at(30) }] });
+    const segment = `r1:steer:${key('s')}`;
+    let result = rows(value);
+    expect(kinds(result)).toEqual(['user', 'work', 'user', 'work', 'assistant']);
+    expect(result[1]).toMatchObject({ title: 'Worked for 30s', groupId: 'r1' });
+    expect(result[3]).toMatchObject({ title: 'Continued for 20s', groupId: segment, createdAt: at(10) });
+    await toggle(value, 'fold', segment);
+    result = rows(value);
+    expect(kinds(result)).toEqual(['user', 'work', 'user', 'work', 'entry', 'assistant']);
+    expect(result[4]!.activities![0]).toMatchObject({ label: 'pwd' });
+    // Back-to-back steers split once, after the last of them.
+    const twice = rows(client([user('u', 0, 'go'), command('a', 4, 'ls'), user('s', 10, 'one', { inputIntent: 'steer' }),
+      user('t', 11, 'two', { inputIntent: 'promoted_queued_to_steer' }), command('b', 15, 'pwd'), answer('x', 30, 'Done')]));
+    expect(kinds(twice)).toEqual(['user', 'work', 'user', 'user', 'work', 'assistant']);
+    expect(twice[4]).toMatchObject({ title: 'Continued for 19s', groupId: `r1:steer:${key('t')}` });
+  });
+
+  test('a todo update is a quiet row where the agent wrote it, opening to every step (#25401)', async () => {
+    const todo = item('todo', 'todo_list', 2, { steps: [{ text: 'Read', status: 'completed' }, { text: 'Write tests', status: 'running' }, { text: 'Ship', status: 'pending' }] });
+    const value = client([user('u', 0, 'go'), todo, answer('x', 3, 'Done')]);
+    await toggle(value, 'fold', 'r1');
+    const group = rows(value).find(row => row.kind === 'group')!;
+    expect(group).toMatchObject({ title: 'Tasks 1/3 · Write tests' });
+    await toggle(value, 'group', group.groupId!);
+    expect(rows(value).find(row => row.kind === 'details')!.activities![0]).toMatchObject({ label: 'Tasks 1/3 · Write tests', icon: 'list-todo', body: '✓ Read\n◉ Write tests\n○ Ship' });
+  });
+
   test('a running subagent card stays out of its settled turn\'s fold (#16878)', async () => {
     const agent = (id: string, status: string) => item(id, 'subagent', 1, { status, providerTurnId: 'pt1', childThreadId: `c-${id}`, title: id });
     const value = client([user('u', 0, 'go'), command('a', 1, 'ls'), agent('s1', 'running'), agent('s2', 'completed'), answer('x', 2, 'Done')]);
@@ -171,6 +204,8 @@ describe('thought traces', () => {
     const thought = () => rows(value).find(row => row.activities?.some(activity => activity.id === key('think')))!;
     expect(thought().code).toEqual([]);
     await chatLocal(value, native, 'item-detail', key('think'), 'open');
+    thought();
+    (await import('../support/highlights-fixture')).settleHighlights(); // the fence waits for the lexers (highlights.ts)
     const [block] = thought().code!;
     expect(block).toMatchObject({ id: `${key('think')}:0`, code: 'const answer = 42;' });
     expect(block!.tokens.some(token => token.text.includes('const') && token.cls !== '')).toBeTrue();
@@ -261,14 +296,69 @@ describe('live runs', () => {
       expect(divider.activities![0]!.detail ?? '').toBe('');
     }
   });
-  test('a /compact the server has not drawn a compaction for yet reads "Compacting…" in the working row', () => {
-    const running = { runs: [{ id: 'r1', status: 'running', startedAt: at(0), completedAt: null }] };
-    const pending = rows(client([user('u', 0, '/compact')], running));
-    expect(pending.find(row => row.kind === 'working')).toMatchObject({ title: 'Compacting…', live: true, icon: 'minimize' });
-    // Once the compaction row runs, it carries the activity and the working row reads as usual.
-    const drawn = rows(client([user('u', 0, '/compact'), item('c', 'compaction', 1, { status: 'running' })], running));
-    expect(drawn.find(row => row.kind === 'working')).toMatchObject({ title: 'Working for', live: false });
-    expect(drawn.find(row => row.kind === 'compaction')).toMatchObject({ title: 'Compacting context', live: true });
+});
+
+describe('compactions T3 Code starts (#24334, #25837)', () => {
+  const running = { runs: [{ id: 'r1', status: 'running', startedAt: at(0), completedAt: null }] };
+  const prompt = (idleCompaction?: string) => user('u', 0, '/compact', idleCompaction ? { idleCompaction } : {});
+  const compaction = (id: string, status: string, extra: Obj = {}) => item(id, 'compaction', 1, { status, beforeTokenCount: 899_000, ...extra });
+
+  test('a bare /compact turn is one live row; only compacting on return speaks through the Working row', () => {
+    for (const [reason, live] of [
+      ['beforeCacheExpires', { kind: 'compaction', live: true, title: 'Compacting before the cache expires…' }],
+      ['onReturn', { kind: 'working', live: true, icon: 'minimize', title: 'Compacting for', startedMs: Date.parse(at(0)) }],
+      [undefined, { kind: 'compaction', live: true, title: 'Compacting context' }],
+    ] as const) {
+      for (const items of [[prompt(reason)], [prompt(reason), compaction('c', 'running')]]) expect(rows(client(items, running))).toMatchObject([live]);
+    }
+  });
+  test('the finished divider leads with why T3 Code compacted, and a compaction-only run leaves no Working row', () => {
+    const done = compaction('c', 'completed', { afterTokenCount: 19_000 });
+    for (const [reason, title] of [['beforeCacheExpires', 'Context automatically compacted before cache expiry 899K → 19K tokens'],
+      ['onReturn', 'Context compacted before sending 899K → 19K tokens'], [undefined, 'Context compacted 899K → 19K tokens']] as const) {
+      const settled = rows(client([prompt(reason), done]));
+      expect(settled).toMatchObject([{ kind: 'compaction', live: false, title }]);
+      expect(settled[0]!.activities![0]).toMatchObject({ body: title.split(' 899K')[0], detail: '899K', result: '19K' });
+      expect(rows(client([prompt(reason), done], running))).toMatchObject([{ kind: 'compaction', live: false, title }]);
+      const continuing = rows(client([prompt(reason), done, answer('a', 2, 'Continuing', { streaming: true })], running));
+      expect(continuing.filter(row => row.kind === 'compaction')).toHaveLength(1);
+      expect(continuing.filter(row => row.kind === 'working')).toMatchObject([{ title: 'Working for', live: false }]);
+    }
+  });
+  test('a failed compaction reads in the destructive colour with its reason', () => {
+    const retries = rows(client([prompt('onReturn'), compaction('c1', 'failed', { summary: ' retry needed ' }), compaction('c2', 'completed')]))
+      .filter(row => row.kind === 'compaction');
+    expect(retries).toHaveLength(2);
+    expect(retries[0]).toMatchObject({ failed: true, title: 'Context compaction failed: retry needed' });
+    expect(retries[0]!.activities![0]).toMatchObject({ label: 'Context compaction failed', output: 'retry needed' });
+    expect(retries[1]).toMatchObject({ failed: false });
+    expect(new Set(retries.map(row => row.id)).size).toBe(2);
+  });
+  test('a completed divider stays while the settled work folds', () => {
+    for (const text of ['/compact', 'Continue']) {
+      const result = rows(client([user('u', 0, text), command('cat', 1, 'cat a.ts'), compaction('c', 'completed', { beforeTokenCount: 100_000, afterTokenCount: 20_000 })]));
+      expect(kinds(result)).toEqual(text === '/compact' ? ['work', 'compaction'] : ['user', 'work', 'compaction']);
+      expect(result.at(-1)).toMatchObject({ title: 'Context compacted 100K → 20K tokens' });
+    }
+  });
+  test('an answered compact-on-return question folds into the compaction it asked for', () => {
+    const question = 'This session is 1h 5m old and uses 412,000 tokens. Compact it before continuing?';
+    const answered = item('q', 'user_input_request', 1, { requestId: 'rq', questions: [],
+      questionAnswer: { requestId: 'rq', questionTextById: { resume: question }, answers: { resume: 'Compact and continue' }, attachmentsByQuestionId: {} } });
+    const after = (items: Obj[], projection: Obj = {}) => rows(client([user('u', 0, 'Continue'), answered, ...items], projection)).slice(1);
+    // The question is answered mid-turn, so the Working row times the compaction, not the turn (#26299).
+    expect(after([compaction('c', 'running')], running)).toMatchObject([{ kind: 'working', title: 'Compacting for', startedMs: Date.parse(at(1)) }]);
+    expect(after([compaction('c', 'completed')])).toMatchObject([{ kind: 'compaction', title: 'Context compacted after 1h 5m idle' }]);
+    const later = after([compaction('c', 'completed'), compaction('c2', 'running')], running);
+    expect(later.filter(row => row.kind === 'compaction')).toMatchObject([{ title: 'Context compacted after 1h 5m idle', live: false }, { title: 'Compacting context', live: true }]);
+    expect(later.filter(row => row.kind === 'working')).toMatchObject([{ title: 'Working for' }]);
+  });
+  test('a skipped compaction shows as stopped, without a separate interrupted divider', () => {
+    const interrupted = { runs: [{ id: 'r1', status: 'interrupted', startedAt: at(0), completedAt: at(9) }] };
+    const result = item('i', 'run_interrupt_result', 2, { status: 'interrupted', message: 'Skipped compaction to send a queued message' });
+    expect(rows(client([prompt('onReturn'), compaction('c', 'interrupted'), result], interrupted))).toMatchObject([{ kind: 'compaction', title: 'Context compaction stopped' }]);
+    // Stopped before the provider started: no compaction row says so, so the interrupt stays.
+    expect(rows(client([prompt('onReturn'), result], interrupted)).map(row => row.id)).toContain(key('i'));
   });
 });
 
@@ -278,7 +368,7 @@ describe('events and messages', () => {
       item('f', 'fork', 2, { runId: null, source: { type: 'run', threadId: 'source' }, targetThreadId: 't1' }),
       item('e', 'error', 3, { status: 'failed', failure: { message: 'Intentional fixture failure.', class: 'provider_error' } })],
       { runs: [{ id: 'r1', status: 'failed', startedAt: at(0), completedAt: at(3) }] }));
-    expect(result.find(row => row.kind === 'event')).toMatchObject({ title: 'Run interrupted', detail: 'Stopped by user', tone: 'danger', icon: 'x' });
+    expect(result.find(row => row.kind === 'event')).toMatchObject({ title: 'Run interrupted', detail: 'Stopped by user', tone: 'neutral', icon: 'circle-stop' });
     expect(result.find(row => row.kind === 'fork')).toMatchObject({ body: 'Forked from conversation', actionLabel: 'Open source conversation', targetId: 'source' });
     expect(result.find(row => row.kind === 'entry')!.activities![0]).toMatchObject({ label: 'Provider error', tone: 'provider-error', detail: 'Intentional fixture failure.' });
   });
@@ -303,6 +393,68 @@ describe('events and messages', () => {
       user('p', 2, 'hi', { createdBy: 'agent', creationSource: 'mcp' })]));
     expect(result.filter(row => row.kind === 'user').map(row => [row.attribution, row.body, row.detail])).toEqual([
       ['t3code', 'Continue.', ''], ['automation', 'Run it', 'task-1'], ['agent', 'hi', '']]);
+  });
+
+  test('automation and other agents\' messages fold to one line under their author (#22638, #23135)', () => {
+    const value = client([user('s', 0, `Nightly digest\n\nRead yesterday's commits.\n${'Summarize them.\n'.repeat(12)}`, { scheduledTaskId: 'task-9' }),
+      user('a', 1, '\n\n  Please review [notes.md](t3-context://v1/file/file_1)  \nThey need a second read.', { createdBy: 'agent', creationSource: 'mcp', senderThreadId: 'sender' }),
+      user('b', 2, 'hello', { createdBy: 'agent', creationSource: 'mcp', senderThreadId: 'gone' }), user('u', 3, 'mine')]);
+    value.shell.threads = [{ id: 'sender', title: '  Release prep  ' }] as typeof value.shell.threads;
+    const users = rows(value).filter(row => row.kind === 'user');
+    expect(users.map(row => [row.attribution, row.title, row.summary, row.collapsible])).toEqual([
+      ['automation', 'Automation', 'Nightly digest', false], ['agent', 'Release prep', 'Please review notes.md', false],
+      ['agent', 'Agent', 'hello', false], ['', 'You', '', false]]);
+  });
+
+  test('a folded message opens while find\'s match is inside it, chevron or not, stays open after, and closes with its thread (findRevealRef)', async () => {
+    const value = client([user('s', 0, 'Nightly digest\n\nRead the commits.', { scheduledTaskId: 'task-9' }), user('u', 1, 'the commits are mine')]);
+    const folded = () => rows(value).find(row => row.attribution === 'automation')!;
+    expect(folded().expanded).toBe(false);
+    const find = threadFindState(value).model, at = (entryId: string) => ({ complete: true, snapshotSequence: 0, totalMatches: 2, activeIndex: 0, match: { entryId, runId: null, occurrence: 0 }, navigation: [] });
+    find.open = true; find.query = 'commits'; find.result = at('m-s');
+    expect(folded().expanded).toBe(true);
+    // The painter reveals the fold on every paint while the active match is inside, so the chevron cannot close it.
+    await toggle(value, 'message', key('s'));
+    expect(folded().expanded).toBe(true);
+    // The match moves on and the fold stays open, until the chevron closes it.
+    find.result = at('m-u');
+    expect(folded().expanded).toBe(true);
+    await toggle(value, 'message', key('s'));
+    expect(folded().expanded).toBe(false);
+    // The row's state is its own: another thread and back, and the fold is closed again.
+    await toggle(value, 'message', key('s'));
+    expect(folded().expanded).toBe(true);
+    value.threadId = 't2'; rows(value); value.threadId = 't1';
+    expect(folded().expanded).toBe(false);
+    // The footer (Open automation, the time, the actions) shows only while the fold is open.
+    const row = contractComponent('timeline.contract', 'UserRow');
+    const footer = (expanded: boolean) => row.drawn('label="Open automation"', row.state(), { message: { ...folded(), expanded }, threadFind: { open: true, query: 'commits', entry: '' } });
+    expect([footer(true), footer(false)]).toEqual([true, false]);
+  });
+
+  test('a sent sound plays in its audio chip, and its reference leaves the prompt (renderContextReference returns null)', () => {
+    const sound = (text: string, id: string, seconds: number) => user(id, seconds, text, { attachments: [{ type: 'file', id: `att-${id}`, name: 'memo.wav', mimeType: 'audio/wav' }],
+      context: { version: 1, records: [{ version: 1, kind: 'file', contextId: `file_${id}`, label: 'memo.wav', attachmentId: `att-${id}`, name: 'memo.wav' }] } });
+    const shown = rows(client([sound('Listen to [memo.wav](t3-context://v1/file/file_a) now', 'a', 0), sound('[memo.wav](t3-context://v1/file/file_b)', 'b', 1)]))
+      .filter(row => row.kind === 'user');
+    expect(shown.map(row => [row.body, row.audio?.length, row.chips?.length])).toEqual([['Listen to  now', 1, 0], ['', 1, 0]]);
+  });
+
+  test('an automation is named by its live task, reads its context references as labels, and copies without the old prefix', async () => {
+    const value = client([user('s', 0, 'Run [notes_v2.md](t3-context://v1/file/file_1) and ![](t3-context://v1/image/image_2) now', { scheduledTaskId: 'task-9',
+      context: { version: 1, records: [{ version: 1, kind: 'file', contextId: 'file_1', label: 'notes_v2.md', attachmentId: 'att', name: 'notes_v2.md' }] } }),
+    user('l', 1, '[Triggered by schedule task: Daily]\n\nRun it', { messageId: 'scheduled-task-message:task-1:3:scheduled' })]);
+    Object.assign(value, { environmentId: 'env-1', generation: 1 });
+    const fallback = rows(value).find(row => row.attribution === 'automation')!;
+    expect(fallback.summary).toBe('Run [notes_v2.md](t3-context://v1/file/file_1) and ![](t3-context://v1/image/image_2) now');
+    liveEvent(value, { key: 'scheduled-tasks', subscriptionId: 'sub-1', value: { tasks: [{ id: 'task-9', title: 'Nightly digest of the repository' }] } });
+    const [task, legacy] = rows(value).filter(row => row.attribution === 'automation');
+    expect([task!.summary, task!.body, task!.chips.length]).toEqual(['Nightly digest of the repository', 'Run notes\\_v2.md and image\\_2 now', 0]);
+    expect(legacy!.body).toBe('Run it');
+    const copied: string[] = [];
+    Object.assign(value, { restAccess: () => ({ call: async (request: { text: string }) => { copied.push(request.text); return {}; } }) });
+    await chatLocal(value, native, 'copy', key('l'), '');
+    expect(copied).toEqual(['Run it']);
   });
 
   test('short messages with links or quotes do not collapse; the visible text counts (#16624)', () => {
@@ -396,10 +548,10 @@ describe('Edit from here after a rewind (#18982)', () => {
 
 describe('Edit from here waits for the rollback', () => {
   const { settleRollback, rollbackWitness } = require('../../src/timeline/timeline-presentation') as typeof import('../../src/timeline/timeline-presentation');
+  // The projection moves on to its next state at each 200 ms pause, on the fake timers' clock.
   function rollbackClient(states: Obj[]) {
-    let tick = 0;
-    const client = { threadId: 't1', get projection() { return states[Math.min(tick, states.length - 1)]; },
-      refresh: async () => {}, restAccess: () => ({ call: async () => { tick++; return {}; } }) };
+    const start = Date.now();
+    const client = { threadId: 't1', get projection() { return states[Math.min(Math.floor((Date.now() - start) / 200), states.length - 1)]; }, refresh: async () => {} };
     return client as unknown as T3Client;
   }
   const thread = { id: 't1', activeProviderThreadId: 'pt1' };
@@ -407,25 +559,27 @@ describe('Edit from here waits for the rollback', () => {
   test('resolves once the provider thread is back at the target and the latest settled run after it rolled back (#18982)', async () => {
     const witness = rollbackWitness(before, 1);
     expect(witness.runId).toBe('r2');
-    const client = rollbackClient([before,
-      { ...before, runs: [before.runs[0], { id: 'r2', ordinal: 2, status: 'rolled_back' }] },
-      { ...before, providerThreads: [{ id: 'pt1', providerInstanceId: 'codex', lastRunOrdinal: 1 }], runs: [before.runs[0], { id: 'r2', ordinal: 2, status: 'rolled_back' }] }]);
-    await settleRollback(client, {} as Native, {} as Files, 't1', 'c1', witness, 1);
-    expect(client.projection.providerThreads).toEqual([{ id: 'pt1', providerInstanceId: 'codex', lastRunOrdinal: 1 }]);
+    const landed = await withTimers(async () => {
+      const client = rollbackClient([before,
+        { ...before, runs: [before.runs[0], { id: 'r2', ordinal: 2, status: 'rolled_back' }] },
+        { ...before, providerThreads: [{ id: 'pt1', providerInstanceId: 'codex', lastRunOrdinal: 1 }], runs: [before.runs[0], { id: 'r2', ordinal: 2, status: 'rolled_back' }] }]);
+      await settleRollback(client, {} as Native, {} as Files, 't1', 'c1', witness, 1);
+      return client.projection;
+    });
+    expect(landed.providerThreads).toEqual([{ id: 'pt1', providerInstanceId: 'codex', lastRunOrdinal: 1 }]);
   });
   test('a rewind to the start lands on a fresh root provider session', async () => {
     const witness = rollbackWitness(before, 0);
-    const client = rollbackClient([{ ...before, providerThreads: [...before.providerThreads, { id: 'pt2', providerInstanceId: 'codex', ownerNodeId: null, appThreadId: 't1', lastRunOrdinal: null }],
-      runs: before.runs.map(run => ({ ...run, status: 'rolled_back' })) }]);
-    await settleRollback(client, {} as Native, {} as Files, 't1', 'c1', witness, 0);
+    await withTimers(() => settleRollback(rollbackClient([{ ...before, providerThreads: [...before.providerThreads, { id: 'pt2', providerInstanceId: 'codex', ownerNodeId: null, appThreadId: 't1', lastRunOrdinal: null }],
+      runs: before.runs.map(run => ({ ...run, status: 'rolled_back' })) }]), {} as Native, {} as Files, 't1', 'c1', witness, 0));
   });
   test('with no settled run after the target the thread has changed', () => {
     expect(() => rollbackWitness({ thread, providerThreads: [], runs: [{ id: 'r1', ordinal: 1, status: 'completed' }] }, 1)).toThrow('The thread has changed. Select a message to rewind again.');
   });
   test("rejects with the thread's rollback failure for this command", async () => {
     const witness = rollbackWitness(before, 1);
-    const client = rollbackClient([before, { ...before, thread: { ...thread, rollbackFailure: { requestId: 'c1', message: 'The provider could not roll back this conversation.' } } }]);
-    await expect(settleRollback(client, {} as Native, {} as Files, 't1', 'c1', witness, 1)).rejects.toThrow('could not roll back');
+    await expect(withTimers(() => settleRollback(rollbackClient([before, { ...before, thread: { ...thread, rollbackFailure: { requestId: 'c1', message: 'The provider could not roll back this conversation.' } } }]),
+      {} as Native, {} as Files, 't1', 'c1', witness, 1))).rejects.toThrow('could not roll back');
   });
 });
 

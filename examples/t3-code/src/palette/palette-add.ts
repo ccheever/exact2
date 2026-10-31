@@ -6,9 +6,9 @@ import { sourceControlHosts } from '../shared/source-control-hosts';
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
-import { closedView, filterGroups, flatten, row, type Group, type Item, type PaletteView } from './palette';
+import { closedView, filterGroups, flatten, row, type Group, type Item, type PaletteView, type SearchExtra } from './palette';
 import { letGo } from '../client/let-go';
-import { addProjectEnvironments, addTarget, targetRequest, type AddEnvironment } from './palette-environments';
+import { addProjectEnvironments, addTarget, isNewProjectPage, newProjectEnvironmentId, newProjectEnvironments, pageEnvironmentId, targetRequest, type AddEnvironment } from './palette-environments';
 import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 
 export const SOURCES = sourceControlHosts.map(host => host.kind);
@@ -98,7 +98,7 @@ export function flowOf(client: T3Client): Flow {
 export type Readiness = Record<string, { ready: boolean; hint: string }>;
 /** buildAddProjectRemoteSourceReadiness over server.discoverSourceControl. */
 export function readiness(discovery: Obj | null): Readiness {
-  const unavailable = { ready: false, hint: 'Provider status unavailable. Open Settings -> Source Control and rescan.' };
+  const unavailable = { ready: false, hint: 'Provider status unavailable. Open Settings -> Source control and rescan.' };
   const result: Readiness = { url: { ready: true, hint: '' }, ...Object.fromEntries(SOURCES.map(source => [source, unavailable])) };
   if (!discovery) return result;
   for (const source of SOURCES) {
@@ -106,7 +106,7 @@ export function readiness(discovery: Obj | null): Readiness {
     if (!provider) continue;
     const auth = obj(provider.auth), detail = typeof auth.detail === 'string' ? auth.detail : str(obj(auth.detail).value);
     if (str(provider.status) !== 'available') result[source] = { ready: false, hint: str(provider.installHint) };
-    else if (str(auth.status) === 'unauthenticated') result[source] = { ready: false, hint: detail || `${str(provider.label)} is not authenticated. Open Settings -> Source Control for setup guidance.` };
+    else if (str(auth.status) === 'unauthenticated') result[source] = { ready: false, hint: detail || `${str(provider.label)} is not authenticated. Open Settings -> Source control for setup guidance.` };
     else result[source] = { ready: true, hint: '' };
   }
   return result;
@@ -173,11 +173,35 @@ export function environmentItem(option: AddEnvironment): Item {
       description: option.isPrimary ? 'This device' : option.environmentId }) };
 }
 
-export type AddContext = { page: string; query: string; highlighted: boolean };
+/**
+ * New project's Environments (CommandPalette.tsx newProjectMachineGroup): buildEnvironmentItem, the chosen one checked;
+ * choosing one moves the project there (switchNewProjectEnvironment).
+ */
+function newProjectEnvironmentItem(option: AddEnvironment, chosen: boolean): Item {
+  return { terms: [], row: row({ key: option.environmentId, op: 'flow', arg: 'new-project-environment', arg2: option.environmentId, icon: 'machine', project: option.machine,
+    title: option.label, description: option.isPrimary ? 'This device' : option.environmentId, trailing: chosen ? 'check' : '' }) };
+}
+/**
+ * showExistingProjectSources: back to the Sources page New project came from while its environment is the chosen one,
+ * else the chosen environment's Sources in that page's place: under the Environments step when it came from there,
+ * else on their own (`env:<id>`, whose Back is the root, as the reference pops New project before it pushes them).
+ * With one connected environment `add-project` is its Sources.
+ */
+function existingProjectSources(client: T3Client, parent: string, chosen: string, source: EnvironmentFleet): string {
+  const options = addProjectEnvironments(client, source);
+  const fromSources = parent === 'add-project' || /^(add-project\/)?env:[^/]+$/.test(parent);
+  if (fromSources && (pageEnvironmentId(parent) || options[0]?.environmentId) === chosen) return parent;
+  if (options.length <= 1 || !chosen) return 'add-project';
+  return parent.startsWith('add-project') ? `add-project/env:${chosen}` : `env:${chosen}`;
+}
+
+/** `fallback`: what a list page (Environments, Sources) searches when nothing on it matches, the root's results. */
+export type AddContext = { page: string; query: string; highlighted: boolean; fallback?: SearchExtra };
 /**
  * Every add-project page; the root's browse mode (a path typed at the root) too. With several connected
  * environments `add-project` is the Environments step and each one's Sources is `add-project/env:<id>`
- * (openAddProjectFlow); with one, `add-project` is its Sources. The later pages nest under it.
+ * (openAddProjectFlow), or `env:<id>` when the root's New project opens them; with one, `add-project` is its
+ * Sources. The later pages nest under it.
  */
 export async function addProjectView(client: T3Client, native: Native | null | undefined, context: AddContext, source: EnvironmentFleet = fleet): Promise<PaletteView> {
   const { page, query } = context;
@@ -187,9 +211,10 @@ export async function addProjectView(client: T3Client, native: Native | null | u
   if (!native?.available) return { ...base, empty: 'Connect an environment to add projects.' };
   const options = addProjectEnvironments(client, source);
   if (page === 'add-project' && options.length > 1 && !isBrowseQuery(query)) {
-    const rows = flatten(filterGroups([{ value: 'environments', label: 'Environments', items: options.map(environmentItem) }], query, true, { projects: [], settings: [], threads: [] }));
-    return { ...base, rows, count: rows.length, empty: rows.length ? '' : 'No matching commands, projects, or threads.' };
+    const rows = flatten(filterGroups([{ value: 'environments', label: 'Environments', items: options.map(environmentItem) }], query, true, context.fallback ?? { projects: [], settings: [], threads: [] }));
+    return { ...base, rows, count: rows.filter(entry => entry.index >= 0).length, empty: rows.length ? '' : 'No matching commands, projects, or threads.' };
   }
+  if (isNewProjectPage(page)) return await newProjectView(client, native, context, base, parent, source);
   const target = addTarget(client, page, source);
   if (!target) return { ...base, empty: 'Connect an environment to add projects.' };
   // Relative paths resolve against the current project only on its own environment (currentProjectCwdForBrowse).
@@ -197,29 +222,7 @@ export async function addProjectView(client: T3Client, native: Native | null | u
   const cwd = str(current?.workspaceRoot);
   const leafPage = page.split('/').pop() ?? '';
   const flow = flowOf(client);
-  const discovery = await discover(client, native, target), newProjectsRoot = str(target.config.newProjectsRoot);
-  // New project: the name step.
-  if (leafPage === 'new-project') {
-    const root = newProjectsRoot, name = query.trim();
-    const targets = newProjectPublishTargets(discovery), target = targets.find(target => target.definition.kind === flow.publishKind) ?? targets[0];
-    const preview = root ? cloneDestination(root, newProjectFolder(name)) : '';
-    const groups: Group[] = [];
-    if (target && root) {
-      groups.push({ value: 'new-project-options', label: 'Options', items: [{ terms: [], row: row({ key: 'publish', op: 'flow', arg: 'toggle-publish', icon: `source-${target.definition.kind}`,
-        title: targets.length > 1 ? 'Create private repository' : `Create private repository on ${target.definition.label}`, description: name ? `${target.owner}/${preview.split('/').pop()}` : target.owner, checkbox: true, checked: flow.publish,
-        publishHost: target.definition.kind, publishHostLabel: target.definition.label,
-        publishHosts: targets.length > 1 ? targets.map(candidate => ({ value: candidate.definition.kind, label: candidate.definition.label, selected: candidate === target })) : [] }) }] });
-    }
-    groups.push({ value: 'new-project-existing', label: '', items: [{ terms: [], row: row({ key: 'existing', op: 'page', arg: parent.endsWith('add-project') || /\/env:[^/]+$/.test(parent) ? parent : 'add-project', icon: 'folder-plus',
-      title: 'Add existing project', description: 'Open a folder or clone a repository', trailing: 'chevron' }) }] });
-    const rows = flatten(groups);
-    return { ...base, addon: 'back', placeholder: 'Project name', rows, count: rows.length, autoHighlight: false, popOnEmpty: false,
-      // Enter runs a highlighted option; ⌘ Enter always creates (palette.contract's inputKey).
-      enterLabel: context.highlighted ? 'Select' : 'Create', enterOp: 'flow', enterArg: 'new-project', enterArg2: name,
-      accessory: 'Create', accessoryKey: context.highlighted ? '⌘ Enter' : 'Enter', accessoryEnabled: name.length > 0, accessoryOp: 'flow', accessoryArg: 'new-project', accessoryArg2: name,
-      inputPaddingRight: context.highlighted ? 152 : 128,
-      contextLabel: '', contextTitle: name || 'New project', contextDescription: root ? (name ? `Creates ${preview}` : `Goes in ${root}`) : '', contextIcon: root ? 'folder-git' : '' };
-  }
+  const discovery = await discover(client, native, target);
   // Clone: the repository step, then the destination step.
   const cloneSource = leafPage.startsWith('clone:') ? leafPage.slice(6) : '';
   if (cloneSource && !(flow.clone && flow.clone.source === cloneSource && page.endsWith('/confirm'))) {
@@ -252,7 +255,41 @@ export async function addProjectView(client: T3Client, native: Native | null | u
   }
   // Sources.
   const ready = readiness(discovery);
-  const groups = filterGroups([{ value: `sources`, label: 'Sources', items: sourceItems(target.config, ready, page || 'add-project') }], query, true, { projects: [], settings: [], threads: [] });
+  const groups = filterGroups([{ value: `sources`, label: 'Sources', items: sourceItems(target.config, ready, page || 'add-project') }], query, true, context.fallback ?? { projects: [], settings: [], threads: [] });
   const rows = flatten(groups);
   return { ...base, rows, count: rows.filter(entry => entry.index >= 0).length, empty: rows.length ? '' : 'No matching commands, projects, or threads.' };
+}
+
+/**
+ * New project: the name step (CommandPalette.tsx newProjectFlow). Environments (newProjectMachineGroup) lists those that
+ * can make a project when there are several, or when the chosen one no longer can; then the publish option, on the
+ * chosen environment's discovery, then Add existing project.
+ */
+async function newProjectView(client: T3Client, native: Native, context: AddContext, base: PaletteView, parent: string, source: EnvironmentFleet): Promise<PaletteView> {
+  const options = newProjectEnvironments(client, source), chosen = newProjectEnvironmentId(client, context.page, source);
+  const target = addTarget(client, context.page, source), flow = flowOf(client), name = context.query.trim();
+  const root = str(target?.config.newProjectsRoot);
+  const targets = target ? newProjectPublishTargets(await discover(client, native, target)) : [];
+  const publish = targets.find(candidate => candidate.definition.kind === flow.publishKind) ?? targets[0];
+  const preview = root ? cloneDestination(root, newProjectFolder(name)) : '';
+  const groups: Group[] = [];
+  if (options.length > 1 || (options.length > 0 && !options.some(option => option.environmentId === chosen))) {
+    groups.push({ value: 'new-project-machines', label: 'Environments', items: options.map(option => newProjectEnvironmentItem(option, option.environmentId === chosen)) });
+  }
+  if (publish && root) {
+    groups.push({ value: 'new-project-options', label: 'Options', items: [{ terms: [], row: row({ key: 'publish', op: 'flow', arg: 'toggle-publish', icon: `source-${publish.definition.kind}`,
+      title: targets.length > 1 ? 'Create private repository' : `Create private repository on ${publish.definition.label}`, description: name ? `${publish.owner}/${preview.split('/').pop()}` : publish.owner, checkbox: true, checked: flow.publish,
+      publishHost: publish.definition.kind, publishHostLabel: publish.definition.label,
+      publishHosts: targets.length > 1 ? targets.map(candidate => ({ value: candidate.definition.kind, label: candidate.definition.label, selected: candidate === publish })) : [] }) }] });
+  }
+  groups.push({ value: 'new-project-existing', label: '', items: [{ terms: [], row: row({ key: 'existing', op: 'page', arg: existingProjectSources(client, parent, chosen, source), icon: 'folder-plus',
+    title: 'Add existing project', description: 'Open a folder or clone a repository', trailing: 'chevron' }) }] });
+  const rows = flatten(groups);
+  return { ...base, addon: 'back', placeholder: 'Project name', rows, count: rows.length, autoHighlight: false, popOnEmpty: false,
+    // Enter runs a highlighted row (the footer reads Toggle on the publish option, palette.contract's enterText); ⌘ Enter
+    // always creates (inputKey).
+    enterLabel: context.highlighted ? 'Select' : 'Create', enterOp: 'flow', enterArg: 'new-project', enterArg2: name,
+    accessory: 'Create', accessoryKey: context.highlighted ? '⌘ Enter' : 'Enter', accessoryEnabled: name.length > 0, accessoryOp: 'flow', accessoryArg: 'new-project', accessoryArg2: name,
+    inputPaddingRight: context.highlighted ? 152 : 128,
+    contextLabel: '', contextTitle: name || 'New project', contextDescription: root ? (name ? `Creates ${preview}` : `Goes in ${root}`) : '', contextIcon: root ? 'folder-git' : '' };
 }

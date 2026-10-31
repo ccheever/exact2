@@ -1,6 +1,7 @@
 // Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.ts).
 // This part holds the input helpers: clipboard shortcuts and copy priming, IME composition, mouse
-// reporting, the wheel, and click sequences. The reference keeps all of surface.ts in one file.
+// reporting, the wheel, the drag selection's autoscroll speed (7c3b3b3605ef), and click sequences.
+// The reference keeps all of surface.ts in one file.
 // Changes from the reference:
 // - split out of surface.ts for the 1,500-line cap.
 // - `isMacPlatform` comes from `src/shims/utils.ts` (lib/utils.ts imports contracts, effect and
@@ -137,6 +138,21 @@ export function resolveTerminalMouseTrackingState(
     tracking,
     motionData: previousTracking === tracking ? motionData : "",
   };
+}
+
+// Ramp from 1 to 15 rows per autoscroll tick over the first 50px past the edge, as xterm.js does.
+const SELECTION_AUTOSCROLL_RAMP_PX = 50;
+const SELECTION_AUTOSCROLL_MAX_ROWS = 15;
+
+export function terminalSelectionAutoscrollRows(
+  clientY: number,
+  top: number,
+  bottom: number,
+): number {
+  const distance = clientY < top ? clientY - top : clientY > bottom ? clientY - bottom : 0;
+  if (distance === 0) return 0;
+  const ramp = Math.max(-1, Math.min(1, distance / SELECTION_AUTOSCROLL_RAMP_PX));
+  return Math.sign(ramp) + Math.round(ramp * (SELECTION_AUTOSCROLL_MAX_ROWS - 1));
 }
 
 export function terminalWheelDeltaRows(

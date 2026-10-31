@@ -284,6 +284,6 @@ describe('keys inside an expanded tool row (#18831)', () => {
     const indent = lines[at]!.search(/\S/);
     const block = lines.slice(at + 1, at + 1 + lines.slice(at + 1).findIndex(line => line.trim() && line.search(/\S/) <= indent));
     expect(block.some(line => /button press=command\("open-related-thread", entry\.targetId/.test(line))).toBe(true);
-    expect(lines.some(line => /button press=command\("turn-diff", entry\.diffPath, entry\.diffRunId, 0\)/.test(line))).toBe(true);
+    expect(lines.some(line => /button press=command\("tool-diff", entry\.id, "", 0\)/.test(line))).toBe(true);
   });
 });

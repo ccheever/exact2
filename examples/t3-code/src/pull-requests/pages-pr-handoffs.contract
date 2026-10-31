@@ -11,14 +11,16 @@ use PrActOnItem, PrdActOnItems from "./pages-pr-links.contract"
 use KmItem from "../shared/menu-keys.contract"
 use KeyMenu from "../shared/menu-keys.contract"
 use kmTriggerKey, kmTriggerTarget from "../shared/menu-keys.contract"
+use PrTerm from "./pr-term.contract"
 
 shape PrHandoffsView
   pending: string
   canCheckout: bool
   threadOwn: bool
+  term: PrTerm
 
-fn phInk(): string = "light-dark(#27272a, #f5f5f5)"
-fn phMuted(): string = "light-dark(#71717b, #818181)"
+fn phInk(): string = "light-dark(#18181b, #f5f5f5)"
+fn phMuted(): string = "light-dark(#71717b, #a1a1a1)"
 
 // The header's Check out control (Button size="xs" variant="outline" with its menu, align end).
 component PrdCheckoutMenu
@@ -48,8 +50,8 @@ component PrdCheckoutMenu
           focus(target)
   view
     column position="relative" flex-shrink=0
-      Tip(label="Check out this pull request", side="top", align="center", offset=20)
-        button id="pull-request-checkout" popovertarget="pr-checkout-menu" hover=hover key=triggerKey disabled=disabled aria-label=(checking ? "Checking out..." : "Check out") testId="pull-request-checkout" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over and not disabled ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0 title=""
+      Tip(label=`Check out this ${handoffs.term.singular}`, side="top", align="center", offset=20)
+        button id="pull-request-checkout" popovertarget="pr-checkout-menu" hover=hover key=triggerKey disabled=disabled aria-label=(checking ? "Checking out..." : "Check out") testId="pull-request-checkout" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color=(over and not disabled ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0 title=""
           PgIcon(name="git-branch", size=14, color=phInk())
           if not narrow
             text (checking ? "Checking out..." : "Check out") font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=phInk()
@@ -58,10 +60,10 @@ component PrdCheckoutMenu
       // menu is 410 wide (its widest line, 350 at 12px, with the glyph, gap and insets). Opaque: a backdrop blur here
       // sees only its parent.
       row id="pr-checkout-menu" popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" position-area="bottom span-left" margin-top="0.25rem" testId="pr-checkout-layer"
-        column width=410 padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label="Check out" flex-shrink=0
+        column width=410 padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label="Check out" flex-shrink=0
           KeyMenu(menuId="pr-checkout-keys", items=menuItems, keyed=0, gap="0px", modal=true)
             PrdHandoffItem(keysId="pr-checkout-keys", menuId="pr-checkout-menu", icon="git-branch", label="In a separate worktree", detail="Its own folder and thread. Nothing you have open moves.", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|checkout:worktree`), testId="pr-checkout-worktree")
-            PrdHandoffItem(keysId="pr-checkout-keys", menuId="pr-checkout-menu", icon="folder-git-2", label="In this repository", detail="Switches the branch you are working in, like `gh pr checkout`.", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|checkout:local`), testId="pr-checkout-local")
+            PrdHandoffItem(keysId="pr-checkout-keys", menuId="pr-checkout-menu", icon="folder-git-2", label="In this repository", detail="Switches the branch you are working in.", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|checkout:local`), testId="pr-checkout-local")
             PrdActOnItems(keysId="pr-checkout-keys", items=actOn, disabled=(handoffs.pending != ""), act=act, idPrefix="pr-act-on-")
 
 // The More menu's hand-offs, after Refresh: Ask a question, Explain this PR, Fix findings.
@@ -73,8 +75,8 @@ component PrdHandoffItems
     menuId: string
     act: action
   view
-    PrdHandoffItem(keysId=keysId, menuId=menuId, icon="message-circle-question-mark", label=(handoffs.pending == "ask" ? "Opening..." : "Ask a question"), detail=(surface == "thread" ? "Adds the pull request to this thread's composer." : "Opens a thread that knows which pull request you mean."), disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|ask`), testId="pr-more-ask")
-    PrdHandoffItem(keysId=keysId, menuId=menuId, icon="book-open", label=(handoffs.pending == "explain" ? "Opening..." : "Explain this PR"), detail="A walk through the diff and what to read closely.", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|explain`), testId="pr-more-explain")
+    PrdHandoffItem(keysId=keysId, menuId=menuId, icon="message-circle-question-mark", label=(handoffs.pending == "ask" ? "Opening..." : "Ask a question"), detail=(surface == "thread" ? `Adds the ${handoffs.term.singular} to this thread's composer.` : `Opens a thread that knows which ${handoffs.term.singular} you mean.`), disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|ask`), testId="pr-more-ask")
+    PrdHandoffItem(keysId=keysId, menuId=menuId, icon="book-open", label=(handoffs.pending == "explain" ? "Opening..." : `Explain this ${handoffs.term.short}`), detail="A walk through the diff and what to read closely.", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|explain`), testId="pr-more-explain")
     PrdHandoffItem(keysId=keysId, menuId=menuId, icon="hammer", label=(handoffs.pending == "findings" ? "Preparing..." : surface == "thread" ? "Fix findings in this thread" : "Fix findings in a thread"), detail="", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|findings`), testId="pr-more-fix-findings")
 
 // MenuItem with its glyph at the first line's height, the label and, under it, a muted line.
@@ -98,7 +100,7 @@ component PrdHandoffItem
   action focused(on: bool)
     lit = on
   view
-    button id=testId press=press popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items=(detail != "" ? "flex-start" : "center")
+    button id=testId press=press popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(lit and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items=(detail != "" ? "flex-start" : "center")
       box margin-top=(detail != "" ? "0.25rem" : "0px") flex-shrink=0 display="flex"
         PgIcon(name=icon, size=14, color=phMuted())
       column flex=1 min-width=0 align-items="flex-start"

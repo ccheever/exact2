@@ -1,28 +1,24 @@
-// What the composer footer and its docked banners show,
+// What the composer footer and the notices above it show,
 // adapted from T3 Code (MIT); see LICENSE-T3. Sources at 9c161462c9: ComposerPrimaryActions.tsx,
-// ChatComposer.tsx (footer blocks, provider-unavailable control, activity row),
-// composerFooterLayout.ts (icon-only before overflow), TraitsPicker.tsx
-// (buildTraitsTriggerDisplay), ChatView.tsx (background and child-input banners,
-// the Compact chip, tasks progress), threadSync.ts and ComposerTasksBadge.tsx; the tasks
-// plan follows session-logic.ts at 74541bab17 (deriveActivePlanState, selectComposerTasksPlan).
-import { providerGoal, presentProviderGoal, providerGoalWorking } from './provider-goal';
+// ChatComposer.tsx (footer blocks, provider-unavailable control), composerFooterLayout.ts
+// (icon-only before overflow), TraitsPicker.tsx (buildTraitsTriggerDisplay) and ChatView.tsx (the
+// Compact chip); the notices follow ChatView.tsx, ChatComposer.tsx (shelfItems) and
+// ComposerBannerStack.tsx at 7c3b3b3605ef, and presentPendingBackgroundWork threadExecution.ts.
 import { branchMismatchNotice } from './composer-controls-branch';
 import { projectCloneBlock, projectCloneNotice } from '../shell/project-clones-live';
 import { systemComposerNotices } from '../connections/server-update-notices';
 import { autoBalanceState } from './auto-balance';
 import { autoBalanceNotices, type MachineRow } from './auto-balance-banner';
-import { arr, obj, str, num, type Obj } from '../client/domain';
-import { activeRun } from '../client/protocol';
-import { activityRun } from '../timeline/worktree-card-run';
+import { arr, obj, str, type Obj } from '../client/domain';
 import { antigravitySendBlockReason, composerSelection } from './composer-provider-selection'; // one provider rule
 import { fanoutSelections } from './composer-controls-fanout';
 import type { T3Client } from '../client/client';
 import { followUpBehavior, isCompacting, planFollowUp, resolveDispatchMode, resumeState, sendQueuesBehindSetup } from './composer-controls';
 import { usageNotices, type UsageAccountView } from './composer-controls-usage';
 import { feedbackNotices, feedbackUploading } from './composer-feedback'; // Codex /feedback
+import { uploadBlock, waitingSend } from './composer-uploads'; // attachmentUploadBlockReason
 import { subagentTitle } from '../timeline/timeline-events';
-import { compactBlocked, keepsFullHistory, latestTokenUsage, resumeCompaction, resumeCompactionTokens } from './composer-controls-resume';
-import { childThreadInputs, childThreadInputsTitle } from '../sidebar/subagent-requests';
+import { keepsFullHistory, latestTokenUsage, resumeCompactionTokens } from './composer-controls-resume';
 import { pendingRequests } from './requests';
 import { chordGlyphs } from './composer-controls-model';
 import { commandChords } from './composer-presentation';
@@ -32,9 +28,10 @@ import { labelWidth, type Measure, type ProbeKind } from './composer-measure';
 import { resolveRestingComposerControlsLayout } from './composer-resting-layout';
 import { terminalOpen } from '../terminal/terminal-drawer-view'; // the real terminalOpen
 import { pendingThreadImports } from './composer-thread-import';
+import { PLATFORM } from '../settings/desktop-shell-favicon'; // the send tooltip's modifier (isMacPlatform)
 
 // SF Pro advances (AppKit, ASCII 32–126) for the toolbar's two label styles:
-// 14pt medium ("sm" controls) and 12pt regular (the resting "xs" controls).
+// 14pt medium (an upper bound for the "sm" labels, which are drawn regular) and 12pt regular (the resting "xs" ones).
 const M14 = [3.67,4.44,7.0,8.88,8.88,13.37,9.98,4.27,5.44,5.44,6.52,8.88,4.27,6.52,4.27,4.27,8.95,6.59,8.5,8.84,9.08,8.74,9.0,8.0,9.07,9.0,4.27,4.27,8.88,8.88,8.88,7.26,12.75,9.58,9.24,10.0,10.13,8.32,7.99,10.37,10.45,3.86,7.71,9.33,7.94,12.25,10.37,10.73,8.94,10.73,9.21,8.96,8.86,10.29,9.53,13.61,9.61,9.29,9.18,5.44,4.27,5.44,8.88,8.24,6.85,7.77,8.64,7.83,8.64,8.0,5.15,8.57,8.31,3.51,3.51,7.75,3.61,12.35,8.24,8.27,8.58,8.58,5.46,7.4,5.19,8.24,7.65,11.06,7.48,7.73,7.54,5.44,3.68,5.44,8.88];
 const R12 = [3.38,3.73,5.73,7.56,7.56,11.1,8.54,3.56,4.58,4.58,5.66,7.56,3.56,5.66,3.56,3.66,7.56,5.57,7.24,7.52,7.72,7.42,7.64,6.83,7.66,7.64,3.56,3.56,7.56,7.56,7.56,6.15,11.02,8.09,7.89,8.59,8.72,7.15,6.87,8.96,8.91,3.21,6.46,7.9,6.81,10.49,8.91,9.26,7.62,9.26,7.84,7.65,7.61,8.85,8.09,11.61,8.14,7.86,7.94,4.58,3.66,4.58,7.56,7.0,6.0,6.62,7.37,6.71,7.37,6.86,4.34,7.31,7.06,2.96,2.96,6.52,3.04,10.44,7.0,7.09,7.32,7.31,4.57,6.28,4.36,7.0,6.5,9.29,6.29,6.52,6.47,4.58,3.11,4.58,7.56];
 /** Label width without kerning (a point or two wide, so labels compact a little early, never clip). */
@@ -46,54 +43,57 @@ export function textWidth(text: string, small = false): number {
 }
 
 /**
- * resolveRestingComposerControlsLayout (composer-resting-layout.ts): trailing
- * blocks lose their labels first (mode, then traits), then move into the "More
- * composer controls" menu (mode, then traits); only then does the model picker
- * shrink, and below its minimum the cluster hides. Labels are measured
- * (composer-measure.ts); the rest is the toolbar's geometry. `previous` holds
- * each size's last step (icon-only blocks plus hidden blocks) and whether the
- * cluster showed, for the promotion slack.
+ * The footer's fit (resolveRestingComposerControlsLayout, composer-resting-layout.ts, as ComposerControlsBar runs it
+ * at v0.1.5): trailing blocks lose their labels first (mode, then traits), then move into the "More composer
+ * controls" menu (mode, then traits); only then does the model picker shrink, and below its minimum the cluster
+ * hides. `traits` is the effort block's width (effortBlockWidth) and `runtime` the Permissions chip's label, '' when
+ * the chip shows its icon only; `mode` false when the chip is hidden and Plan is off (no mode block). Labels are
+ * measured (composer-measure.ts); the rest is the toolbar's geometry. `previous` holds the last step (icon-only
+ * blocks plus hidden blocks) and whether the cluster showed, for the promotion slack.
  */
-export type FooterSteps = { sm: number; xs: number; smHidden?: boolean; xsHidden?: boolean };
-export function footerLayout(input: { model: string; traits: string; traitsIcon: boolean; runtime: string; plan: string; host: number; measure?: Measure; previous?: FooterSteps }) {
+export type FooterSteps = { sm: number; smHidden?: boolean };
+export function footerLayout(input: { model: string; traits: number; runtime: string; runtimeShown: boolean; mode: boolean; plan: string; host: number;
+  measure?: Measure; previous?: FooterSteps;
+  /** An unavailable model's badge, which follows its name inside the picker (0 without one). */
+  badge?: number }) {
   // Label widths come from laid-out probes (composer-measure.ts); the estimate stands in until then.
-  const width = (text: string, small: boolean, kind: ProbeKind) => labelWidth(text, small, kind, input.measure, textWidth);
-  const steps = (small: boolean) => {
-    // Block widths from the toolbar's own geometry (composer-controls.contract), matching the
-    // reference's measured blocks: a block is its separator (1pt + 2pt margins, then the row gap: 9 at "sm",
-    // 5 in the resting row, which has no gap) and its trigger. "sm" triggers pad 11+11 with 6pt gaps, 16pt
-    // icons and a 10pt chevron; "xs" ones pad 7+7 with 4pt gaps, 12pt icons and an 8pt chevron.
-    // The picker sits at margin-left -10 and, resting, at most 168pt wide (ProviderModelPicker max-w-42);
-    // its minimum is the trigger's min-width (48 / 40) less that margin.
-    const picker = small ? Math.min(158, 34 + width(input.model, true, 'model')) : 50 + width(input.model, false, 'model');
-    const separator = small ? 5 : 9;
-    const traits = !input.traits && !input.traitsIcon ? 0
-      : separator + (small ? 26 : 38) + (input.traitsIcon ? (small ? 16 : 22) : 0) + (input.traits ? width(input.traits, small, 'traits') : 0);
-    const traitsIcon = !traits ? 0 : separator + (small ? 38 : 54);
-    // The plan toggle's glyph: PencilRuler 16pt while planning, Bot 18pt otherwise ("sm"); 12pt resting.
-    const planGlyph = small ? 12 : input.plan === 'Plan' ? 16 : 18;
-    const plan = input.plan ? separator + (small ? 14 : 22) + planGlyph + (small ? 4 : 6) + width(input.plan, small, 'plan') : 0;
-    const mode = separator + (small ? 42 : 60) + width(input.runtime, small, 'runtime') + plan;
-    const modeIcon = separator + (small ? 38 : 54) + (input.plan ? separator + (small ? 14 : 22) + planGlyph : 0);
-    // The reference's expanded footer has no gap before its actions (gap-2 sm:gap-0), so its controls
-    // host is 8pt wider than this footer's controls row (gap=8); the resting row is measured as it is.
-    const host = input.host > 0 ? input.host + (small ? 0 : 8) : 0;
-    const blocks = traits ? [traits, mode] : [mode], icons = traits ? [traitsIcon, modeIcon] : [modeIcon];
-    const previousStep = (small ? input.previous?.xs : input.previous?.sm) ?? 0;
-    const previous = { hiddenCount: Math.max(0, previousStep - blocks.length), iconOnlyCount: Math.min(previousStep, blocks.length),
-      visible: !(small ? input.previous?.xsHidden : input.previous?.smHidden) };
-    // The "…" trigger: an icon-only control (16pt glyph padded 11+11, resting 12pt padded 7+7).
-    const layout = host > 0 ? resolveRestingComposerControlsLayout({ gap: small ? 0 : 4, naturalFixedWidth: picker, minimumFixedWidth: small ? 30 : 38,
-      blockWidths: blocks, iconOnlyBlockWidths: icons, overflowWidth: small ? 26 : 38, hostWidth: host, previous }) : { hiddenCount: 0, iconOnlyCount: 0, visible: true };
-    const iconOnly = layout.iconOnlyCount ?? 0, hidden = layout.hiddenCount;
-    return { iconMode: iconOnly >= 1, iconTraits: !!traits && iconOnly >= 2, modeHidden: hidden >= 1, traitsHidden: !!traits && hidden >= 2,
-      hidden: !layout.visible, step: iconOnly + hidden };
-  };
-  const sm = steps(false), xs = steps(true);
-  return { runtimeIconOnly: sm.iconMode, traitsIconOnly: sm.iconTraits, restingRuntimeIconOnly: xs.iconMode, restingTraitsIconOnly: xs.iconTraits,
-    // Blocks in the overflow menu, and the cluster hidden below the picker's minimum.
-    modeOverflow: sm.modeHidden, traitsOverflow: sm.traitsHidden, restingModeOverflow: xs.modeHidden, restingTraitsOverflow: xs.traitsHidden,
-    controlsHidden: sm.hidden, restingControlsHidden: xs.hidden, steps: { sm: sm.step, xs: xs.step, smHidden: sm.hidden, xsHidden: xs.hidden } as FooterSteps };
+  const width = (text: string, kind: ProbeKind) => labelWidth(text, false, kind, input.measure, textWidth);
+  // Block widths from the toolbar's own geometry (composer-controls.contract). A trigger pads 9 at its start (px-2
+  // and the 1pt border) and 5 at its end (pe-1), with 6pt gaps and 16pt icons; the controls sit 2pt apart (gap-0.5).
+  // The picker's minimum is min-w-13; the badge sits after the name across the trigger's gap.
+  const badge = input.badge ? input.badge + 6 : 0;
+  const picker = 36 + width(input.model, 'model') + badge;
+  const traits = input.traits, traitsIcon = traits ? 20 : 0;
+  // The plan toggle's glyph: PencilRuler 16pt while planning, Bot 18pt otherwise.
+  const planGlyph = input.plan === 'Plan' ? 16 : 18;
+  const plan = input.plan ? 18 + planGlyph + 6 + width(input.plan, 'plan') : 0;
+  // The Permissions chip pads 7 at its start (ps-1.5) and 9 at its end: its icon alone, or the icon and its label.
+  const chip = !input.runtimeShown ? 0 : input.runtime ? 38 + width(input.runtime, 'runtime') : 32;
+  const mode = chip + plan + (chip && plan ? 2 : 0);
+  const modeIcon = (input.runtimeShown ? 32 : 0) + (input.plan ? 18 + planGlyph : 0) + (input.runtimeShown && input.plan ? 2 : 0);
+  const host = input.host > 0 ? input.host : 0;
+  const blocks = [...(traits ? [traits] : []), ...(input.mode ? [mode] : [])], icons = [...(traits ? [traitsIcon] : []), ...(input.mode ? [modeIcon] : [])];
+  const previousStep = input.previous?.sm ?? 0;
+  const previous = { hiddenCount: Math.max(0, previousStep - blocks.length), iconOnlyCount: Math.min(previousStep, blocks.length), visible: !input.previous?.smHidden };
+  // The "…" trigger: an icon-only control (16pt glyph padded 9+9).
+  const layout = host > 0 && blocks.length ? resolveRestingComposerControlsLayout({ gap: 2, naturalFixedWidth: picker, minimumFixedWidth: 52,
+    blockWidths: blocks, iconOnlyBlockWidths: icons, overflowWidth: 34, hostWidth: host, previous }) : { hiddenCount: 0, iconOnlyCount: 0, visible: true };
+  const iconOnly = layout.iconOnlyCount ?? 0, hidden = layout.hiddenCount;
+  return { runtimeIconOnly: input.mode && iconOnly >= 1, traitsIconOnly: !!traits && iconOnly >= (input.mode ? 2 : 1),
+    // How many trailing blocks the measurement moved into the overflow menu (resolveComposerControlsOwnership's input),
+    // and the cluster hidden below the picker's minimum.
+    measuredHidden: hidden, controlsHidden: !layout.visible, steps: { sm: iconOnly + hidden, smHidden: !layout.visible } as FooterSteps };
+}
+
+/**
+ * The effort trigger's width (TraitsPicker in the composer): it reads on from the model name, 4pt into the picker's
+ * end padding (-ms-1), padded 1 (ps-0 and the border) before a word or 3 before bars and 5 after; its parts 6pt apart.
+ */
+export function effortBlockWidth(effort: { word: string; bars: number; speed: string; other: string; shown: boolean }, measure?: Measure): number {
+  if (!effort.shown) return 0;
+  const parts = [effort.word ? labelWidth(effort.word, false, 'traits', measure, textWidth) : effort.bars ? 4 * effort.bars - 2 : 0,
+    effort.speed === 'Ultrafast' ? 15 : effort.speed ? 12 : 0, effort.other ? Math.min(96, textWidth(effort.other, true)) : 0].filter(width => width > 0);
+  return (effort.word ? 1 : 3) + 5 - 4 + parts.reduce((sum, width) => sum + width, 0) + 6 * Math.max(0, parts.length - 1);
 }
 
 // traitsDisplay (buildTraitsTriggerDisplay) lives in composer-controls-model.ts, beside the option labels it reads; Settings' TraitsPicker rows share it.
@@ -109,14 +109,15 @@ export function primaryAction(client: T3Client, phase: string) {
   const queueing = resolveDispatchMode(running, followUp, false, canSteer) === 'queue', queueingHeld = resolveDispatchMode(running, followUp, true, canSteer) === 'queue';
   const resume = client.threadId ? resumeState(client.projection) : { runId: '', heldQueue: false };
   const unavailable = client.connection !== 'connected';
-  const sending = client.busy && !!client.pending && str(client.pending.payload.type) === 'message.dispatch';
+  // A press kept until its images land is a send in flight too (useComposerSend awaits them inside onSend).
+  const sending = client.busy && !!client.pending && str(client.pending.payload.type) === 'message.dispatch' || !!waitingSend(client);
   const preparing = !!client.threadId && !setupQueue && threadWorktreeSetup(client).preparing;
   // sendDisabledReason: !canOperateThread first, the provider's own block reason after the thread's.
   const chosen = fanoutSelections(client) ? null : composerSelection(client);
   const providerBlock = chosen?.provider ? antigravitySendBlockReason(chosen.provider, chosen.model) : '';
   const status = unavailable ? 'Environment disconnected' : !client.scopes.includes('orchestration:operate') ? 'This connection cannot change threads.'
     : pendingThreadImports(client) ? 'Loading thread context…' : machineChanging(client) ? 'Preparing machine' : feedbackUploading(client) ? 'Sending feedback' : preparing ? 'Preparing worktree'
-      : projectCloneBlock(client) || providerBlock || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
+      : projectCloneBlock(client) || uploadBlock(client) || providerBlock || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
   const plan = planFollowUp(client);
   const alternate = followUp === 'queue' ? 'steer' : 'queue';
   // alternateShortcutLabel: composer.sendAlternate's effective binding, as formatShortcutLabel prints it (⌘Enter).
@@ -128,7 +129,7 @@ export function primaryAction(client: T3Client, phase: string) {
     sendHeldLabel: queueingHeld ? 'Queue message' : running ? 'Steer message' : 'Submit message',
     sendHeldIcon: queueingHeld ? 'list-plus' : running ? 'corner-up-right' : 'arrow',
     sendStatus: status, sendSpinner: connecting || sending,
-    sendTooltip: status || (running && canSteer ? `Click to ${followUp}, Ctrl/⌘-click${alternateKey ? ` or ${alternateKey}` : ''} to ${alternate}` : queueing ? 'Queue message' : 'Submit message'),
+    sendTooltip: status || (running && canSteer ? `Click to ${followUp}, ${/mac/i.test(PLATFORM) ? '⌘' : 'Ctrl'}-click${alternateKey ? ` or ${alternateKey}` : ''} to ${alternate}` : queueing ? 'Queue message' : 'Submit message'),
     canResume: !!resume.runId || resume.heldQueue,
     planReady: !!plan, planTitle: plan?.title ?? '',
   };
@@ -136,25 +137,30 @@ export function primaryAction(client: T3Client, phase: string) {
 
 /**
  * The Compact chip beside Send (ComposerPrimaryActions compactTokens): a stale Claude session's token count, on
- * ("Compact", the send compacts first) or off ("Full", the next send keeps the history). It hides while a queued
- * message is edited, and the contract hides it where Resume thread replaces Send. `compactWidth` is the chip's
- * width (h-8 rounded-full border px-2.5 gap-1.5, a 14pt glyph and 12pt labels), which the resting card reserves.
+ * ("Compact 312k", the send compacts first) or off ("Keep 312k", the next send keeps the history). It hides while a
+ * queued message is edited, and the contract hides it where Resume thread replaces Send. `compactWidth` is the chip's
+ * width (px-2 gap-1.5, a 16pt glyph, the 14pt medium label and the count), which the resting card reserves.
  */
 export function compactChip(client: T3Client, now: number, editingQueued: boolean) {
   const tokens = editingQueued ? null : resumeCompactionTokens(client, now, contextSnapshot(client.projection));
   if (tokens === null) return { compactTokens: '', compactKeepFull: false, compactTip: '', compactSend: false, compactWidth: 0 };
-  const count = formatTokens(tokens), keep = keepsFullHistory(client), word = keep ? 'Full' : 'Compact';
-  const anchor = obj(client.presentation.anchors)[`compact:${word}:${count}`], width = Array.isArray(anchor) ? Number(anchor[1]) : NaN;
-  return { compactTokens: count, compactKeepFull: keep, compactSend: !keep, compactWidth: Number.isFinite(width) && width > 0 ? width : Math.ceil(22 + 14 + 6 + textWidth(word, true) + 6 + textWidth(count.replace(/\d/g, '0'), true)),
+  const count = formatTokens(tokens), keep = keepsFullHistory(client), label = keep ? 'Keep' : 'Compact';
+  const anchor = obj(client.presentation.anchors)[`compact:${label}:${count}`], width = Array.isArray(anchor) ? Number(anchor[1]) : NaN;
+  return { compactTokens: count, compactKeepFull: keep, compactSend: !keep, compactWidth: Number.isFinite(width) && width > 0 ? width : Math.ceil(16 + 16 + 6 + textWidth(label) + 6 + textWidth(count)),
     compactTip: keep ? `Next send keeps all ${count} tokens.\nClick to compact first` : `Next send compacts ${count} tokens first.\nClick to keep full history` };
 }
 
-// ── Docked banners ─────────────────────────────────────────────────────────
+// ── Notices above the composer ─────────────────────────────────────────────
 
-export type ComposerNotice = { id: string; variant: string; icon: string; title: string; description: string;
+/**
+ * ComposerBannerStackItem: `group` "environment" is the machine's own notice (offline, a running or failed update,
+ * auto-balance), shown first; everything else needs you ("attention").
+ */
+export type ComposerNotice = { id: string; group: string; variant: string; icon: string; title: string; description: string;
   action: string; actionLabel: string; action2: string; action2Label: string; dismiss: string; dismissLabel: string; priority: number; lines: string[];
-  /** Why the action is disabled (its tooltip), '' when it is enabled; the ids the action and dismiss commands receive. */
-  actionReason: string; actionId: string; dismissId: string; segments: NoticeSegment[];
+  /** Why the action is disabled (its tooltip), '' when it is enabled; the second action shown disabled; the ids the
+   *  action and dismiss commands receive. */
+  actionReason: string; action2Disabled: boolean; actionId: string; actionValue: string; dismissId: string; segments: NoticeSegment[];
   /** The title's and the actions' tooltips, a red icon; `details`: the description is clipped (composer-presentation.ts). */
   tip: string; actionTip: string; action2Tip: string; iconTone: string; details: boolean;
   /** Auto balance: the multi-machine banner's popover rows and its title's accessible name. */
@@ -162,10 +168,12 @@ export type ComposerNotice = { id: string; variant: string; icon: string; title:
   /** A description that is an account address (RedactedSensitiveText, then `redactAfter`), and the /usage-limits body. */
   redact: string; redactMask: string; redactAfter: string; usage: UsageAccountView[];
   /** The title is cut off (composer-presentation.ts noticeTitleDetails). */
-  titleDetails?: boolean };
-const notice = (value: Partial<ComposerNotice> & { id: string; title: string }): ComposerNotice => ({ variant: 'info', icon: '', description: '',
-  action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', actionId: '', dismissId: '', segments: [],
-  tip: '', actionTip: '', action2Tip: '', iconTone: '', details: false, machines: [], menuLabel: '', redact: '', redactMask: '', redactAfter: '', usage: [], ...value });
+  titleDetails?: boolean;
+  /** A title in two parts: `title` a muted lead-in, then this code (the branch mismatch's branch), `tip` on it. */
+  code: string };
+const notice = (value: Partial<ComposerNotice> & { id: string; title: string }): ComposerNotice => ({ group: 'attention', variant: 'info', icon: '', description: '',
+  action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', action2Disabled: false, actionId: '', actionValue: '', dismissId: '', segments: [],
+  tip: '', actionTip: '', action2Tip: '', iconTone: '', details: false, machines: [], menuLabel: '', redact: '', redactMask: '', redactAfter: '', usage: [], code: '', ...value });
 
 const BACKGROUND_KINDS: Record<string, { order: number; singular: string; plural: string }> = {
   subagent: { order: 0, singular: 'subagent', plural: 'subagents' }, command: { order: 1, singular: 'command', plural: 'commands' },
@@ -173,18 +181,22 @@ const BACKGROUND_KINDS: Record<string, { order: number; singular: string; plural
 const joinWithAnd = (parts: string[]) => parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 /**
  * presentPendingBackgroundWork: what a thread with no active turn still runs.
- * Subagent descriptions read as display names; only work that wakes the agent
- * (anything but a command, backgroundWorkHoldsCompletion) is "waiting".
+ * Subagent descriptions read as display names; only work the agent waits on is
+ * "waiting" (backgroundWorkHoldsCompletion): a subagent or a background task, or
+ * a command or monitor the agent marked `awaited`, since either is as often a
+ * dev server or its watchdog as a wait.
  */
 export type NoticeSegment = { key: string; label: string; threadId: string; aria: string; last: boolean };
-export function presentBackgroundWork(tasks: Obj[]): { title: string; description: string; waiting: boolean; segments: NoticeSegment[] } | null {
+export type BackgroundWorkItem = { taskId: string; kind: string; label: string; childThreadId: string };
+export function presentBackgroundWork(tasks: Obj[]): { title: string; description: string; waiting: boolean; segments: NoticeSegment[]; items: BackgroundWorkItem[] } | null {
   if (!tasks.length) return null;
-  const waiting = tasks.some(task => task.kind !== 'command');
+  const waiting = tasks.some(task => task.awaited === true || (task.kind !== 'command' && task.kind !== 'monitor'));
   const kind = (task: Obj) => BACKGROUND_KINDS[str(task.kind)] ?? BACKGROUND_KINDS.background_task!;
   const items = tasks.map(task => {
     const description = str(task.description).trim(), label = task.kind === 'subagent' ? subagentTitle(description).trim() : description;
-    return { kind: str(task.kind), meta: kind(task), label: label || kind(task).singular, child: task.kind === 'subagent' ? str(task.childThreadId) : '' };
+    return { kind: str(task.kind), meta: kind(task), label: label || kind(task).singular, child: task.kind === 'subagent' ? str(task.childThreadId) : '', taskId: str(task.taskId) };
   }).sort((a, b) => a.meta.order - b.meta.order);
+  const presented = items.map(item => ({ taskId: item.taskId, kind: item.kind, label: item.label, childThreadId: item.child }));
   // The description lists every item; a subagent with its own thread is an inline "Open subagent …" link.
   const segments = (list: typeof items) => list.map((item, index) => ({ key: `${index}:${item.label}`, label: item.label, threadId: item.child,
     aria: `Open subagent ${item.label}`, last: index === list.length - 1 }));
@@ -192,157 +204,38 @@ export function presentBackgroundWork(tasks: Obj[]): { title: string; descriptio
     const only = items[0]!, noun = only.meta.singular, named = only.label !== noun;
     const title = waiting ? (named ? `${only.kind === 'monitor' ? '' : `Waiting on ${noun} `}${only.label}` : `Waiting on a ${noun}`) : named ? `Running: ${only.label}` : `Running a ${noun}`;
     // A single named item is already in the title, so a lone subagent's link reads "Show".
-    return { title, description: only.child ? 'Show' : '', waiting,
+    return { title, description: only.child ? 'Show' : '', waiting, items: presented,
       segments: only.child ? [{ key: `0:${only.label}`, label: 'Show', threadId: only.child, aria: `Show subagent ${only.label}`, last: true }] : [] };
   }
   const counts = new Map<string, number>();
   for (const item of items) counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
   const groups = [...counts].map(([key, count]) => { const meta = BACKGROUND_KINDS[key] ?? BACKGROUND_KINDS.background_task!; return `${count} ${count === 1 ? meta.singular : meta.plural}`; });
-  return { title: `${waiting ? 'Waiting on' : 'Running'} ${joinWithAnd(groups)}`, description: items.map(item => item.label).join(', '), waiting,
+  return { title: `${waiting ? 'Waiting on' : 'Running'} ${joinWithAnd(groups)}`, description: items.map(item => item.label).join(', '), waiting, items: presented,
     segments: items.some(item => item.child) ? segments(items) : [] };
-}
-function backgroundWork(client: T3Client): ComposerNotice | null {
-  if (activeRun(client.projection)) return null;
-  const shell = client.shell.threads.find(thread => thread.id === client.threadId);
-  const presented = presentBackgroundWork(arr(shell?.pendingBackgroundTasks));
-  // A dev server can run for hours after the agent is done, so only work that will wake the agent pulses.
-  return presented ? notice({ id: `background-work:${client.threadId}`, variant: 'default', icon: presented.waiting ? 'dot' : 'dot-static', priority: 0, title: presented.title,
-    description: presented.description, segments: presented.segments, action: 'cc:stop-background', actionLabel: 'Stop' }) : null;
 }
 
 /**
- * childInputBannerItem: a delegated subagent below this thread waits on the user. Its title opens it; the
- * action opens the first. Hidden while this thread itself waits on the user.
+ * ChatView composerBannerItems, as ChatComposer and ComposerBannerStack show them: notices about sending from this
+ * composer, each its own attached card, the machine's notices first and then feedback, limit recovery, usage limits,
+ * the project clone and the branch mismatch, in that fixed order so cards never trade places. An open approval or
+ * question owns the space above the composer: only a machine error or warning, which is why an answer could not go
+ * through, stays beside it. What the thread is doing lives at the end of the timeline (thread-end.ts).
  */
-function childInputNotice(client: T3Client): ComposerNotice | null {
-  const children = childThreadInputs(client.shell.threads, client.threadId), first = children[0];
-  const shell = client.shell.threads.find(thread => thread.id === client.threadId);
-  const requests = pendingRequests(client.projection);
-  const parentAwaiting = requests.approvals.length > 0 || requests.inputs.length > 0 || obj(shell?.pendingRuntimeRequest).kind === 'user_input';
-  if (!first || parentAwaiting) return null;
-  return notice({ id: `child-input:${first.id}`, priority: 0, icon: first.approval ? 'shield-question' : 'message-circle', title: childThreadInputsTitle(children),
-    segments: children.map((entry, index) => ({ key: entry.id, label: entry.title, threadId: entry.id, aria: `Open subagent ${entry.title}`, last: index === children.length - 1 })),
-    action: 'select-thread', actionId: first.id, actionLabel: first.approval ? 'Open approval' : 'Open question' });
-}
-function goalNotice(client: T3Client): ComposerNotice | null {
-  const thread = client.shell.threads.find(thread => thread.id === client.threadId), goal = providerGoal(thread?.goal);
-  if (!goal) return null;
-  const working = providerGoalWorking(client), view = presentProviderGoal(goal, working);
-  return notice({ id: `goal:${client.threadId}`, variant: 'default', priority: 0, icon: 'target', title: view.usage ? `${view.title} · ${view.usage}` : view.title,
-    description: view.objective, action: working ? '' : view.canResume ? 'cc:goal-resume' : 'cc:goal-clear', actionLabel: view.canResume ? 'Resume' : 'Clear',
-    action2: !working && view.canResume ? 'cc:goal-clear' : '', action2Label: 'Clear' });
-}
 export function composerNotices(client: T3Client, now: number): ComposerNotice[] {
   const mismatch = branchMismatchNotice(client); // returning to Home resets revelation, but keeps session dismissals
   // ChatView projectCloneBannerItem: a project added by cloning shows its clone where its draft is (project-clones-live.ts).
   const clone = projectCloneNotice(client);
-  const cloneItem = clone ? [notice({ ...clone, icon: 'download', priority: clone.variant === 'info' ? 0 : 2 })] : [];
-  // systemComposerBannerItems (server-update-notices.ts): the environment's offline and server-version notices.
+  const cloneItem = clone ? [notice({ ...clone, icon: 'download' })] : [];
+  // systemComposerBannerItems (server-update-notices.ts): the environment's offline and server-update notices.
   // An Auto draft shows one banner for every machine's update instead of the single-machine notice.
-  const system = [...systemComposerNotices(client, { automaticEnvironment: autoBalanceState(client).automatic }), ...autoBalanceNotices(client)].map(item => notice(item));
-  if (!client.threadId) return rankNotices([...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system]);
-  // ChatView composerBannerItems order: feedback, limit recovery, usage limits, project clone, system, then the
-  // activity tier (a subagent waiting on the user, background work), then the branch mismatch. Settled, snoozed and
-  // woke are thread state, not composer actions: a line after the last message (thread-status-line.ts).
-  const items: ComposerNotice[] = [...feedbackNotices(client).map(item => notice(item)), ...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system];
-  const child = childInputNotice(client);
-  if (child) items.push(child);
-  const goal = goalNotice(client);
-  if (goal) items.push(goal);
-  const background = backgroundWork(client);
-  if (background) items.push(background);
-  const resume = resumeCompaction(client, now, contextSnapshot(client.projection));
-  if (resume) items.push(notice({ id: `resume-compaction:${resume.key}`, icon: 'minimize', title: 'Resume with less context', description: `${formatTokens(resume.used)} tokens from earlier`,
-    action: 'cc:compact', actionLabel: 'Compact', actionReason: compactBlocked(client), dismiss: 'cclocal:resume-compaction-dismiss', dismissId: resume.key, dismissLabel: 'Keep full history' }));
-  if (mismatch) items.push(notice(mismatch));
-  return rankNotices(items);
-}
-/**
- * bannerPriority: urgency (priority 1), warnings and errors lead, so they stay attached ahead of activity
- * (priority 0, and the activity strip, composer-presentation.ts); other notices follow.
- */
-export function noticeRank(item: Pick<ComposerNotice, 'priority' | 'variant'>): number {
-  return item.priority === 1 || item.variant === 'error' || item.variant === 'warning' ? 0 : item.priority === 0 ? 1 : 2;
-}
-function rankNotices(items: ComposerNotice[]): ComposerNotice[] {
-  return items.map((item, order) => ({ item, order })).sort((a, b) => noticeRank(a.item) - noticeRank(b.item) || a.order - b.order).map(entry => entry.item);
-}
-
-// ── Activity row: thread sync and tasks ────────────────────────────────────
-
-const syncSeen = new Map<T3Client, string>();
-/**
- * resolveThreadSyncPhase. useDelayedStatus holds a status back 400ms so a short
- * load never flashes; data sources have no clock here, so a phase shows once a
- * second snapshot still finds it (the next event batch after it began).
- */
-export function syncStatus(client: T3Client): string {
-  const phase = !client.threadId || client.connection !== 'connected' || !client.shell.threads.some(thread => thread.id === client.threadId) ? ''
-    : !client.thread ? 'loading' : client.ready ? '' : 'syncing';
-  const key = phase ? `${client.environmentId}:${client.threadId}:${phase}` : '';
-  const shown = !!key && syncSeen.get(client) === key;
-  syncSeen.set(client, key);
-  return shown ? (phase === 'loading' ? 'Loading messages...' : 'Syncing messages...') : '';
-}
-
-export type TaskStep = { key: string; text: string; status: string; duration: string };
-function durationLabel(milliseconds: number): string {
-  if (milliseconds < 1000) return `${Math.max(1, Math.round(milliseconds))}ms`;
-  if (milliseconds < 60000) return `${Math.round(milliseconds / 100) / 10}s`.replace(/\.0s$/, 's');
-  const seconds = Math.round(milliseconds / 1000), minutes = Math.floor(seconds / 60);
-  return minutes < 60 ? `${minutes}m ${seconds % 60}s`.replace(/ 0s$/, '') : `${Math.floor(minutes / 60)}h ${minutes % 60}m`.replace(/ 0m$/, '');
-}
-const SETTLING = new Set(['preparing', 'queued', 'starting', 'running', 'waiting']);
-/**
- * deriveActivePlanState: the activity run's last todo list that no newer list superseded, else the one of the latest
- * run by ordinal.
- */
-function activePlan(projection: Obj, runId: string): Obj | null {
-  const plans = arr(projection.plans).filter(plan => plan.kind === 'todo_list' && plan.status !== 'superseded');
-  const ordinals = new Map(arr(projection.runs).map(run => [str(run.id), num(run.ordinal)]));
-  const rank = (plan: Obj) => ordinals.get(str(plan.runId)) ?? -1;
-  return plans.findLast(plan => !!runId && plan.runId === runId)
-    ?? plans.reduce<Obj | null>((latest, plan) => latest === null || rank(plan) >= rank(latest) ? plan : latest, null);
-}
-/**
- * selectComposerTasksPlan (session-logic.ts): the activity run's own plan while it works; after it, a Claude todo
- * list with unfinished steps stays while the latest started run is on the same provider thread, since Claude's tasks
- * belong to its session rather than the turn.
- */
-export function composerTasksPlan(projection: Obj, plan: Obj | null, runId: string, settled: boolean): Obj | null {
-  if (!plan) return null;
-  if (runId && !settled && plan.runId === runId) return plan;
-  if (arr(plan.steps).every(step => step.status === 'completed')) return null;
-  const providerThreadId = arr(projection.runs).find(run => run.id === plan.runId)?.providerThreadId;
-  if (providerThreadId == null) return null;
-  if (arr(projection.providerThreads).find(thread => thread.id === providerThreadId)?.driver !== 'claudeAgent') return null;
-  let latest: Obj | null = null;
-  for (const run of arr(projection.runs)) if (run.startedAt != null && run.providerThreadId != null && (!latest || num(run.ordinal) > num(latest.ordinal))) latest = run;
-  return latest?.providerThreadId === providerThreadId ? plan : null;
-}
-/** ChatView activeComposerTasksProgress: "now" marks the step in progress only while its run works (`live`). */
-export function tasksProgress(client: T3Client) {
-  const empty = { tasksTotal: 0, tasksDone: 0, tasksCurrent: '', tasks: [] as TaskStep[] };
-  if (!client.threadId) return empty;
-  // isLatestRunSettled over deriveThreadActivityRun: a run that stopped working and is not the runtime's active one.
-  // The runtime's active run is the thread shell's (sidebar-model.ts shellRuntime).
-  const run = activityRun(client.projection), runId = str(run?.id);
-  const activeRunId = str(client.shell.threads.find(thread => thread.id === client.threadId)?.activeRunId);
-  const settled = !!run && !SETTLING.has(str(run.status)) && activeRunId !== runId;
-  const plan = composerTasksPlan(client.projection, activePlan(client.projection, runId), runId, settled);
-  const steps = arr(plan?.steps);
-  if (!plan || !steps.length) return empty;
-  const live = !settled && !!runId && plan.runId === runId;
-  const status = (value: unknown) => value === 'running' || value === 'inProgress' ? 'inProgress' : value === 'completed' ? 'completed' : 'pending';
-  const seen = new Map<string, number>();
-  const tasks = steps.map(step => {
-    const text = str(step.text), occurrence = seen.get(text) ?? 0; seen.set(text, occurrence + 1);
-    const state = status(step.status);
-    return { key: `${text}:${occurrence}`, text, status: state,
-      duration: typeof step.durationMs === 'number' ? durationLabel(num(step.durationMs)) : state === 'inProgress' && live ? 'now' : '' };
-  });
-  const current = tasks.find(task => task.status === 'inProgress') ?? tasks.find(task => task.status === 'pending') ?? tasks[tasks.length - 1]!;
-  return { tasksTotal: tasks.length, tasksDone: tasks.filter(task => task.status === 'completed').length, tasksCurrent: current.text, tasks };
+  const system = [...systemComposerNotices(client, { automaticEnvironment: autoBalanceState(client).automatic }), ...autoBalanceNotices(client)]
+    .map(item => notice({ ...item, group: 'environment' }));
+  const attention = client.threadId
+    ? [...feedbackNotices(client).map(item => notice(item)), ...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...(mismatch ? [notice(mismatch)] : [])]
+    : [...usageNotices(client, now).map(item => notice(item)), ...cloneItem];
+  const requests = client.threadId ? pendingRequests(client.projection) : { approvals: [], inputs: [] };
+  if (requests.approvals.length > 0 || requests.inputs.length > 0) return system.filter(item => item.variant === 'error' || item.variant === 'warning');
+  return [...system, ...attention];
 }
 
 // ── Provider-unavailable control ───────────────────────────────────────────

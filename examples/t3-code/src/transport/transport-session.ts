@@ -1,14 +1,14 @@
 // One authenticated connection to a T3 server (T3 Code 74541bab17, MIT, see LICENSE-T3:
 // packages/client-runtime/src/rpc/client.ts same-session resubscribe, rpc/session.ts, connection/supervisor.ts,
-// driver.ts, resolver.ts, authorization/remote.ts). The connect flow is `/.well-known/t3/environment`,
-// `/oauth/token` for a pairing, `/api/auth/session`, `/api/auth/websocket-ticket`, then `wsTicket` on
-// the socket's URL.
+// driver.ts, resolver.ts, authorization/remote.ts at 7c3b3b3605ef). The connect flow is
+// `/.well-known/t3/environment`, `/oauth/token` for a pairing, an RPC ticket from `/api/auth/websocket-ticket/rpc`
+// (the bare path on a server that predates it), then `wsTicket` on the socket's URL. The session's grants are read
+// apart from it, once the reader asks (`readSession`), as the reference's session atom reads them.
 //
-// Exact drives it, since a data module has no timers (LLP 1016.000 D7 and its amendment of 2026-10-18):
-// an answer runs the HTTP steps (`connectFlow`), a stream resource owns the socket and hands each event
-// to `socketEvent`, the answer that asks for a request sends it on that socket itself, and the
-// transport's tick (`tick`) checks deadlines and pings and starts the next attempt when its backoff is
-// over. A frame no turn may send yet (the socket is not open) waits in the outbox, which the mapper
+// Exact drives it, since a data module's timer lives only inside an answer, which a session outlives (LLP 1016.000
+// D7 and its amendment of 2026-10-18): an answer runs the HTTP steps (`connectFlow`), a stream resource owns the
+// socket and hands each event to `socketEvent`, the answer that asks for a request sends it on that socket itself,
+// and the transport's tick (`tick`) checks deadlines and pings and starts the next attempt when its backoff is over. A frame no turn may send yet (the socket is not open) waits in the outbox, which the mapper
 // sends when the socket opens and after each frame, as the tick does.
 // Replies that resume an answer are handed to `hooks.deliver`, which a separate answer runs, so the
 // awaiting answer continues inside an answer of its own (exact2's prelude keeps a fetch made after a
@@ -24,10 +24,12 @@ import { credentialOrigins, type Catalog, type Route } from './transport-catalog
 import {
   TransportFailure, MAXIMUM_BYTES, PING_INTERVAL_MS, PONG_TIMEOUT_MS, UNRESPONSIVE_HOST_HINT, QUICK_PROBE_MS, FOREGROUND_PROBE_MS, SOCKET_OPEN_TIMEOUT_MS,
   BACKOFF_RESET_AFTER_MS, compatibility, credential as parseCredential, decode, encode, exchangeForm, exchangeScopes, failure as wireFailure, failureMessage, failureReason,
-  identifier, letGoAbort, notConnected, origin as parseOrigin, path as onOrigin, remoteRequestFailure, request as wireRequest, retriesStream, retryDelayMs, streamRetryMs, trimmed, utf8Length,
+  identifier, letGoAbort, mintTicket, notConnected, origin as parseOrigin, path as onOrigin, remoteRequestFailure, request as wireRequest, retriesStream, retryDelayMs, streamRetryMs, trimmed, utf8Length,
   type Frame,
 } from './transport-wire';
 import type { ActivityReporter } from './transport-activity';
+import { CLIENT_VERSION } from '../connections/version-skew';
+import { knownAddressRefusal } from '../connections/connection-routes';
 
 export interface SocketHandle { readonly readyState: number; readonly bufferedAmount: number; send(data: string): void; close(code?: number, reason?: string): void }
 export interface SocketEvent { type: string; data?: unknown; code?: number; reason?: string; kind?: string; message?: string; status?: number }
@@ -59,7 +61,28 @@ interface Call { done: Done; joiners: Done[]; deadline: number; trace: number | 
 
 /** Ops whose `generation` must still be the session's. */
 const GENERATIONAL = new Set(['http', 'request', 'subscribe', 'unsubscribe', 'events', 'ack', 'readChunk', 'releaseChunk']);
-const TERMINAL_KINDS = ['Authentication', 'Credential', 'Protocol', 'Keychain', 'Address', 'Limit'];
+const TERMINAL_KINDS = ['Authentication', 'Credential', 'Protocol', 'Keychain', 'Address', 'Limit', 'Pairing'];
+
+/** The inbox key of the session's grants (`readSession`). */
+export const SESSION_STATE_KEY = 'session-state';
+/** fetchEnvironmentSessionState's first deadline and its ceiling: a timeout asks again with double the time. */
+export const SESSION_READ_FIRST_MS = 6_000;
+export const SESSION_READ_MAX_MS = 60_000;
+
+/**
+ * An SSH host's pairing exchange answered with HTTP 500, from a server that runs another version than this client,
+ * ends the attempt (reference 7c3b3b3605ef, apps/web connection/platform.ts provisionDesktopSshEnvironment): a
+ * reused remote server on another build can fail to decode the grant, and answers so on every retry. Any other
+ * failure is left as it was. The server's label and version go with it (`context`).
+ */
+function pairingRefused(error: unknown, descriptor: Obj, ssh: boolean): unknown {
+  const label = str(descriptor.label), version = str(descriptor.serverVersion);
+  if (!ssh || !(error instanceof TransportFailure) || error.status !== 500 || version === CLIENT_VERSION) return error;
+  const refused = new TransportFailure('Pairing', `${label} runs T3 Code ${version}, but this desktop is ${CLIENT_VERSION}, and that server could not `
+    + `accept its pairing. Restart the T3 server on ${label} so it runs ${CLIENT_VERSION}, then retry.`, false, 'exchange_http_500', error.detail, { label, serverVersion: version });
+  refused.status = 500;
+  return refused;
+}
 
 export class Session {
   generation = 0;
@@ -122,11 +145,21 @@ export class Session {
   /** The attempt a connect flow should run for; another attempt's flow stops. */
   private connectAttempt = -1;
   private pendingCredential = '';
+  /** The pairing comes from an SSH host's bootstrap (`ssh: true` on connect), for pairingRefused. */
+  private pairingSsh = false;
   private walkFresh = false;
   private openDeadline = 0;
-  /** Better-route checks asked for while connected (`check`), and the last one run. */
+  /**
+   * Work the slot's connect answer runs while connected, asked for by moving `check`: a better-route check, the
+   * session read. Each stays due until it ends in an answer that is not let go, and runs one at a time.
+   */
   check = 0;
-  private checked = 0;
+  private routeCheckDue = false;
+  private routeCheck: Promise<void> | null = null;
+  /** The session read the reader asked for on this connection, and the deadline its next try takes. */
+  private sessionRead: { epoch: number; id: number; timeoutMs: number } | null = null;
+  private sessionReads = 0;
+  private sessionReading: Promise<void> | null = null;
   private socket: SocketHandle | null = null;
   private abort: AbortController | null = null;
   private readonly lease = {};
@@ -201,6 +234,7 @@ export class Session {
         case 'pairEnvironment': return await this.pairEnvironment(request);
         case 'setRoutes': return this.setRoutes(request);
         case 'prDiff': return await this.pullRequestDiff(request);
+        case 'readSession': return this.ok(this.askSession());
         default: throw this.argument('Unknown native operation.');
       }
     } catch (error) {
@@ -281,6 +315,7 @@ export class Session {
     this.origin = next; this.descriptor = {}; this.token = ''; this.primary = toPrimary;
     this.failureKind = ''; this.failureTrace = ''; this.lastHTTPTrace = '';
     this.privateValues = credential ? [credential] : []; this.exchangeScope = str(request.scope); this.legacyExchangeScope = str(request.legacyScope);
+    this.pairingSsh = request.ssh === true;
     // The primary walks no saved routes: one loopback address, its bearer from the embedded server.
     if (this.primary) this.routes.stop(); else this.routes.load(next, this.hooks.catalog);
     this.wantsConnection = true; this.failures = 0; this.everConnected = false;
@@ -417,8 +452,11 @@ export class Session {
       }
       if (!this.token) throw new TransportFailure('Credential', 'Paste a pairing link or token from this T3 server.');
     } else {
+      const refusal = this.pairingSsh ? null : knownAddressRefusal(this.hooks.catalog.entryForEnvironment(environment), this.origin);
+      if (refusal) throw new TransportFailure('Pairing', refusal);
       const grant = obj(await exchangeScopes(this.exchangeScope, this.legacyExchangeScope, scope =>
-        this.http('/oauth/token', { epoch, method: 'POST', body: exchangeForm(credential, scope), contentType: 'application/x-www-form-urlencoded', authorized: false })));
+        this.http('/oauth/token', { epoch, method: 'POST', body: exchangeForm(credential, scope), contentType: 'application/x-www-form-urlencoded', authorized: false }))
+        .catch(error => { throw pairingRefused(error, descriptor, this.pairingSsh); }));
       if (grant.token_type !== 'Bearer' || !str(grant.access_token)) throw new TransportFailure('Protocol', 'The server did not issue a bearer access token.');
       this.token = str(grant.access_token); this.routes.tokenOwner = trimmed(this.origin);
       this.hooks.catalog.saveToken(this.token, this.origin, environment);
@@ -426,27 +464,30 @@ export class Session {
       this.hooks.catalog.setEnabled(environment, true);
       this.privateValues = [];
     }
-    const auth = obj(await this.http('/api/auth/session', { epoch }));
-    if (auth.authenticated !== true) throw new TransportFailure('Authentication', 'The saved session expired. Pair with the server again.');
-    const ticket = str(obj(await this.http('/api/auth/websocket-ticket', { epoch, method: 'POST' })).ticket);
+    const ticket = str(obj(await mintTicket('rpc', path => this.http(path, { epoch, method: 'POST' }))).ticket);
     if (!ticket) throw new TransportFailure('Protocol', 'The server did not issue a socket ticket.');
     this.privateValues = [ticket];
     return socketURL(this.origin, ticket, true);
   }
 
-  /** One request on the connected origin; the JSON reply, or the failure the reference reports. */
-  async http(target: string, options: { epoch: number; method?: string; body?: string | Uint8Array; contentType?: string; authorized?: boolean; long?: boolean; large?: boolean }): Promise<unknown> {
+  /**
+   * One request on the connected origin; the JSON reply, or the failure the reference reports. A request that runs
+   * past its deadline (30 s, 60 s when long, unless it names one) fails with reason `timeout`.
+   */
+  async http(target: string, options: { epoch: number; method?: string; body?: string | Uint8Array; bodyFrom?: string; contentType?: string; authorized?: boolean; long?: boolean; large?: boolean; timeoutMs?: number }): Promise<unknown> {
     if (!this.origin) throw new TransportFailure('Disconnected', 'Connect to a server first.');
     const url = onOrigin(target, this.origin);
     const headers: Record<string, string> = { 'x-t3-orchestration-protocol': '2', Accept: 'application/json' };
-    if (options.body !== undefined) headers['Content-Type'] = options.contentType ?? 'application/json';
+    if (options.body !== undefined || options.bodyFrom) headers['Content-Type'] = options.contentType ?? 'application/json';
     if (options.authorized !== false) headers.Authorization = `Bearer ${this.token}`;
     let reply: HttpReply;
-    try { reply = await this.hooks.http(url, { method: options.method ?? 'GET', headers, body: options.body, timeoutMs: options.long ? 60_000 : 30_000, signal: this.abort?.signal, maxBytes: options.large ? MAXIMUM_BYTES : undefined }); }
+    const timeoutMs = options.timeoutMs ?? (options.long ? 60_000 : 30_000);
+    try { reply = await this.hooks.http(url, { method: options.method ?? 'GET', headers, body: options.body, ...(options.bodyFrom ? { bodyFrom: options.bodyFrom } : {}), timeoutMs, signal: this.abort?.signal, maxBytes: options.large ? MAXIMUM_BYTES : undefined }); }
     catch (error) {
       if (letGoAbort(error)) throw error;
       if (!this.alive || this.generation !== options.epoch) throw new TransportFailure('Replaced', 'The connection changed during the request.');
-      throw new TransportFailure('Network', this.clean(error instanceof Error ? error.message : String(error)));
+      const timedOut = error !== null && typeof error === 'object' && (error as { kind?: unknown }).kind === 'Timeout';
+      throw new TransportFailure('Network', this.clean(error instanceof Error ? error.message : String(error)), false, timedOut ? 'timeout' : '');
     }
     if (!this.alive || this.generation !== options.epoch) throw new TransportFailure('Replaced', 'The connection changed during the request.');
     if (utf8Length(reply.text) > MAXIMUM_BYTES) throw new TransportFailure('Limit', 'The server response is too large.');
@@ -455,7 +496,9 @@ export class Session {
       const trace = str(obj(decoded).traceId);
       if (trace) this.lastHTTPTrace = trace.slice(0, 200);
       const kind = reply.status === 401 || reply.status === 403 ? 'Authentication' : reply.status === 426 ? 'Protocol' : 'HTTP';
-      throw new TransportFailure(kind, this.clean(failureMessage(decoded, reply.status)), false, failureReason(decoded));
+      const refused = new TransportFailure(kind, this.clean(failureMessage(decoded, reply.status)), false, failureReason(decoded));
+      refused.status = reply.status;
+      throw refused;
     }
     if (decoded === undefined) throw new TransportFailure('Protocol', 'The server returned invalid JSON.');
     return decoded;
@@ -701,7 +744,7 @@ export class Session {
         this.failedStreams.delete(key);
         if (this.inbox.append(this.generation, key, due.id, { _retryDue: true })) this.hooks.changed('events');
       }
-      if (this.routes.nextCheckAt && now >= this.routes.nextCheckAt) { this.routes.schedule(now); this.check += 1; }
+      if (this.routes.nextCheckAt && now >= this.routes.nextCheckAt) { this.routes.schedule(now); this.routeCheckDue = true; this.check += 1; }
     } else if (this.url && this.openDeadline && now >= this.openDeadline) {
       this.connectionFailed(new TransportFailure('Network', this.unopened), this.generation);
     }
@@ -907,16 +950,73 @@ export class Session {
 
   /** A better-route check: asked for here, run by the connect answer (it fetches). */
   lookForBetterRoute(): void {
-    if (this.alive && this.wantsConnection && this.state === 'connected' && this.socket && this.routes.activeIndex > 0) this.check += 1;
+    if (this.alive && this.wantsConnection && this.state === 'connected' && this.socket && this.routes.activeIndex > 0) { this.routeCheckDue = true; this.check += 1; }
   }
-  /** The check the connect answer runs for `check`; a better route that answers replaces the session. */
-  async checkRoutes(check: number): Promise<void> {
-    if (check <= this.checked || this.state !== 'connected') return;
-    this.checked = check;
-    const best = await this.routes.checkBetter(this.hooks.catalog, this.hooks.now());
-    if (!best || !this.alive || !this.wantsConnection || this.state !== 'connected') return;
-    this.retire(new TransportFailure('Replaced', 'The connection moved to a better route.', true));
-    this.failures = 0; this.start();
+  /**
+   * The work the connect answer runs: the better-route check and the session read, while they are due. Moving `check`
+   * lets the running answer go (LLP 1016.000, "An answer let go"), and the answer that replaces it, started before
+   * or after that one's rejection settles, waits for the work in flight and runs what is still due.
+   */
+  async background(): Promise<void> {
+    if (this.state !== 'connected') return;
+    await Promise.all([this.routeCheckDue ? this.checkRoutes() : undefined, this.sessionRead ? this.readSession() : undefined]);
+  }
+  /** checkBetterRoutes: a better route that answers replaces the session. */
+  private async checkRoutes(): Promise<void> {
+    while (this.routeCheck) await this.routeCheck.catch(() => undefined);
+    if (!this.routeCheckDue) return;
+    const run = (async () => {
+      const best = await this.routes.checkBetter(this.hooks.catalog, this.hooks.now());
+      this.routeCheckDue = false;
+      if (!best || !this.alive || !this.wantsConnection || this.state !== 'connected') return;
+      this.retire(new TransportFailure('Replaced', 'The connection moved to a better route.', true));
+      this.failures = 0; this.start();
+    })();
+    this.routeCheck = run;
+    try { await run; } finally { if (this.routeCheck === run) this.routeCheck = null; }
+  }
+
+  /**
+   * Asks for the session's grants on this connection (reference 7c3b3b3605ef, client-runtime state/session.ts
+   * sessionStateAtom): the connect answer reads them (`readSession`) and files the reply in the inbox under
+   * `session-state`, so neither the reader nor the connection waits on a slow host.
+   */
+  private askSession(): Obj {
+    if (this.state !== 'connected') throw notConnected();
+    this.sessionRead = { epoch: this.generation, id: ++this.sessionReads, timeoutMs: SESSION_READ_FIRST_MS };
+    this.check += 1;
+    return { id: String(this.sessionRead.id) };
+  }
+  /** The session read the reader asked for, one at a time; one let go stays due. */
+  private async readSession(): Promise<void> {
+    while (this.sessionReading) await this.sessionReading.catch(() => undefined);
+    const read = this.sessionRead;
+    if (!read) return;
+    const run = this.readSessionFor(read);
+    this.sessionReading = run;
+    try { await run; } finally { if (this.sessionReading === run) this.sessionReading = null; }
+  }
+  /**
+   * fetchEnvironmentSessionState: a timeout says nothing about the grants, and failing would show a busy host as
+   * read-only, so the read asks again with double the time, from 6 s up to 60 s.
+   */
+  private async readSessionFor(read: { epoch: number; id: number; timeoutMs: number }): Promise<void> {
+    const current = () => this.sessionRead === read && read.epoch === this.generation && this.alive;
+    let reply: Obj;
+    for (;;) {
+      try { reply = { _reply: await this.http('/api/auth/session', { epoch: read.epoch, timeoutMs: read.timeoutMs }) }; break; }
+      catch (error) {
+        if (letGoAbort(error)) throw error;
+        if (!current()) return;
+        const failure = this.failure(error);
+        if (failure.reason === 'timeout' && read.timeoutMs < SESSION_READ_MAX_MS) { read.timeoutMs = Math.min(read.timeoutMs * 2, SESSION_READ_MAX_MS); continue; }
+        reply = { _replyError: failure.json() };
+        break;
+      }
+    }
+    if (!current()) return;
+    this.sessionRead = null;
+    if (this.inbox.append(read.epoch, SESSION_STATE_KEY, String(read.id), reply)) this.hooks.changed('events');
   }
 
   // MARK: HTTP ops
@@ -925,7 +1025,7 @@ export class Session {
   async terminalSocketAccess(): Promise<Reply> {
     if (this.state !== 'connected') throw notConnected();
     const epoch = this.generation, origin = this.origin;
-    const ticket = str(obj(await this.http('/api/auth/websocket-ticket', { epoch, method: 'POST' })).ticket);
+    const ticket = str(obj(await mintTicket('rpc', path => this.http(path, { epoch, method: 'POST' }))).ticket);
     if (!ticket) throw new TransportFailure('Protocol', 'The server did not issue a socket ticket.');
     if (epoch !== this.generation || origin !== this.origin) throw new TransportFailure('stale', 'The connection changed while preparing the terminal socket.');
     this.privateValues.push(ticket);
@@ -943,11 +1043,11 @@ export class Session {
     return this.ok(await this.hubTicket('the device stream'));
   }
 
-  /** A fresh WebSocket ticket for a stream that cannot carry the bearer, with the origin it was minted for. */
+  /** A fresh media ticket for a stream that cannot carry the bearer, with the origin it was minted for. */
   private async hubTicket(what: string): Promise<{ origin: string; ticket: string }> {
     if (this.state !== 'connected') throw notConnected();
     const epoch = this.generation, origin = this.origin;
-    const ticket = str(obj(await this.http('/api/auth/websocket-ticket', { epoch, method: 'POST' })).ticket);
+    const ticket = str(obj(await mintTicket('media', path => this.http(path, { epoch, method: 'POST' }))).ticket);
     if (!ticket) throw new TransportFailure('Protocol', 'The server did not issue a WebSocket ticket.');
     if (epoch !== this.generation || origin !== this.origin) throw new TransportFailure('stale', `The connection changed while preparing ${what}.`);
     this.privateValues.push(ticket);
@@ -955,11 +1055,13 @@ export class Session {
     return { origin, ticket };
   }
 
+  /** A GET the client reads; `timeoutMs` (1 to 60 s) is its own deadline, for a read that asks again with a longer one. */
   private async readHTTP(request: Obj): Promise<Reply> {
     if (this.state !== 'connected') throw notConnected();
     const target = str(request.path);
     if (!target || (str(request.method) || 'GET') !== 'GET' || request.body !== undefined) throw this.argument('The client HTTP interface is read-only.');
-    return this.ok(await this.http(target, { epoch: this.generation, large: true, long: request.long === true }));
+    const timeoutMs = typeof request.timeoutMs === 'number' && request.timeoutMs >= 1_000 && request.timeoutMs <= 60_000 ? request.timeoutMs : undefined;
+    return this.ok(await this.http(target, { epoch: this.generation, large: true, long: request.long === true, ...(timeoutMs ? { timeoutMs } : {}) }));
   }
 
   private async uploadAttachment(request: Obj): Promise<Reply> {
@@ -968,9 +1070,19 @@ export class Session {
     const declared = str(request.contentType);
     const typed = !!declared && /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+(;[ A-Za-z0-9=._-]*)?$/.test(declared);
     const target = str(request.path);
+    const limit = (typed ? 50 : 10) * 1024 * 1024;
+    // A staged file or image draft is sent from its app file, as the reference's XMLHttpRequest sends a File: the host
+    // reads it as the request goes out, so neither its bytes nor their base64 enter JavaScript.
+    const from = str(request.bodyFrom), size = Number(request.sizeBytes);
+    if (from) {
+      if (!target.startsWith('/api/attachments/upload/') || !from.startsWith('app:/') || !(size > 0) || size > limit) {
+        throw this.argument(typed ? 'Choose a file up to 50MB.' : 'Choose a valid captured PNG up to10MB.');
+      }
+      return this.ok(await this.http(target, { epoch: this.generation, method: 'POST', bodyFrom: from, contentType: typed ? declared : 'image/png', authorized: false, large: true }));
+    }
     let data: Uint8Array | null = null;
     try { data = typeof request.base64 === 'string' ? Uint8Array.from(atob(request.base64), char => char.charCodeAt(0)) : null; } catch { data = null; }
-    if (!target.startsWith('/api/attachments/upload/') || !data || !data.length || data.length > (typed ? 50 : 10) * 1024 * 1024) {
+    if (!target.startsWith('/api/attachments/upload/') || !data || !data.length || data.length > limit) {
       throw this.argument(typed ? 'Choose a file up to 50MB.' : 'Choose a valid captured PNG up to10MB.');
     }
     const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -1032,7 +1144,9 @@ export class Session {
       catch (error) { throw new TransportFailure('Network', scrub(remoteRequestFailure(url, method, error, 30_000))); }
       const decoded = json(reply);
       if (reply.status < 200 || reply.status >= 300 || typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
-        throw new TransportFailure(reply.status === 401 || reply.status === 403 ? 'Authentication' : 'HTTP', scrub(failureMessage(decoded, reply.status)), false, failureReason(decoded));
+        const refused = new TransportFailure(reply.status === 401 || reply.status === 403 ? 'Authentication' : 'HTTP', scrub(failureMessage(decoded, reply.status)), false, failureReason(decoded));
+        refused.status = reply.status;
+        throw refused;
       }
       return decoded as Obj;
     };
@@ -1044,12 +1158,18 @@ export class Session {
     if (expected && environment !== expected) {
       throw new TransportFailure('Pairing', `That ${request.ssh === true ? 'host' : 'address'} reaches ${str(descriptor.label) || 'another environment'}, a different machine. Add it as its own environment instead.`);
     }
+    // A pairing that names no saved machine adds no address to one (an SSH tunnel pairs at a loopback address).
+    const primaryId = str(request.primaryEnvironmentId);
+    if (!expected && request.ssh !== true && environment !== primaryId) {
+      const refusal = knownAddressRefusal(this.hooks.catalog.entryForEnvironment(environment), target);
+      if (refusal) throw new TransportFailure('Pairing', refusal);
+    }
     const problem = compatibility(descriptor);
     if (problem) throw new TransportFailure('Protocol', problem.message);
-    const grant = await exchangeScopes(str(request.scope), str(request.legacyScope), scope => send('/oauth/token', exchangeForm(code, scope)));
+    const grant = await exchangeScopes(str(request.scope), str(request.legacyScope), scope => send('/oauth/token', exchangeForm(code, scope)))
+      .catch(error => { throw pairingRefused(error, descriptor, request.ssh === true); });
     if (grant.token_type !== 'Bearer' || !str(grant.access_token)) throw new TransportFailure('Protocol', 'The server did not issue a bearer access token.');
     // This machine's own server (the primary's environment id): the code is spent, nothing is saved (registry.ts register).
-    const primaryId = str(request.primaryEnvironmentId);
     if (primaryId && primaryId === environment) return this.ok({ origin: target, environmentId: environment, label: str(descriptor.label), primary: true });
     this.hooks.catalog.saveToken(str(grant.access_token), target, environment);
     this.hooks.catalog.remember(target, descriptor, this.hooks.wall(this.hooks.now()));

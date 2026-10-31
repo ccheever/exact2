@@ -1,6 +1,6 @@
 import { DiffFind, markDiffRows, findGap } from '../diff/diff-find';
 // The pull request panel's Code tab: PullRequestCodeTab.tsx (T3 Code
-// 9c161462c9, MIT, see LICENSE-T3) — the change or one commit's change read a slice at a time
+// 6d450a4284, MIT, see LICENSE-T3) — the change or one commit's change read a slice at a time
 // (`POST /api/pull-requests/diff`, the native `prDiff` op), Viewed ticks, line comments into the
 // review being written, the host's conversations on their lines or listed off the diff, and the
 // toolbar. The panel's resource (pages-pr-detail.ts) reads here once the tab was opened for this
@@ -14,13 +14,16 @@ import { DiffFind, markDiffRows, findGap } from '../diff/diff-find';
 // the resource asked again (`wake`), as the panel's other reads do.
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { capitalizeTerm, terminologyOf } from '../details/git-logic';
 import { ClientError, type Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
+import { sleep } from '../client/command-waits';
 import { pushToast } from '../shell/toast';
 import { buildDiffReviewComment, diffReviewLines, findDiffReviewLineIndex, type SelectedLineRange, type SelectionSide } from '../diff/diff-comments';
 import { dragTo, gutterClick, parseLineCellId, pressGutter, pressLine, releaseDrag, type LineDrag, type LinePoint, type RowIndex } from '../diff/diff-line-drag';
 import { changeType, expandRange, type Expansion, type FileContents } from '../diff/diff-lazy';
-import { diffFileTreeEntries, diffTreeRows, ancestorDirectories, collectDirectoryPaths, allDirectoriesExpanded, type DiffTreeRow } from '../diff/diff-tree';
+import { diffFileTreeEntries, diffTreeRows, ancestorDirectories, collectDirectoryPaths, allDirectoriesExpanded, orderDiffFilesLikeTree, type DiffTreeRow } from '../diff/diff-tree';
+import { hideTestFiles, setHideTestFiles, shownDiffFiles, testFileCount } from '../diff/hide-test-files';
 import { decodeClientPrefs } from '../settings/settings-core';
 import { rememberDiffLayout } from '../appearance/settings-appearance-look';
 import { pagesPrefs } from '../pages/pages-prefs';
@@ -28,7 +31,7 @@ import { sourceControlHostName } from '../shared/source-control-hosts';
 import { nextPendingReviewCommentId, pullRequestReviewKey, pullRequestReviewStore } from './pages-pr-writes-logic';
 import type { WriteReference } from './pages-pr-writes';
 import {
-  adoptDiffSlice, areAllDiffFilesCollapsed, describePullRequestDiffError, fnv1a32, isLineInFileDiff, orderDiffFiles, renderablePatch, resolveDiffReviewPosition, reviewPositionAnchor, toggleFileDiffFoldForViewed,
+  adoptDiffSlice, areAllDiffFilesCollapsed, describePullRequestDiffError, fnv1a32, getFileViewedRange, isLineInFileDiff, orderDiffFiles, renderablePatch, resolveDiffReviewAnchor, reviewPositionAnchor, toggleFileDiffFoldForViewed,
   type DiffFoldOverride, type DiffSlice, type PrDiffFile, type PrDiffSide, type PullRequestReviewPosition, type RenderablePatch,
 } from './pages-pr-code-logic';
 import { BASE, codeRows, fileKey, hiddenCount, isCollapsed, type CodeItem } from './pages-pr-code-rows';
@@ -42,7 +45,7 @@ import { emptyThreadState, presentThreads, threadBodies, threadCommand, type PrT
 /** Commits per press of "Show more" in the scope menu. */
 export const COMMIT_PAGE_SIZE = 10;
 
-type Draft = { fileKey: string; path: string; oldPath: string | null; position: PullRequestReviewPosition; range: SelectedLineRange };
+type Draft = { fileKey: string; path: string; oldPath: string | null; position: PullRequestReviewPosition; startPosition?: PullRequestReviewPosition; range: SelectedLineRange };
 export type CodeState = {
   find: DiffFind;
   key: string; mounted: boolean; commit: string | null; refresh: number;
@@ -56,6 +59,8 @@ export type CodeState = {
   selection: { path: string; range: SelectedLineRange } | null; drag: LineDrag | null; draft: Draft | null;
   contents: Record<string, FileContents>; expansions: Record<string, Expansion>; contentsDue: Map<string, { path: string; gap: number }>;
   viewed: FilesViewedStore; threads: ThreadState; shown: string;
+  /** The file whose Viewed tick was pressed last: a Shift-press marks every file from it to the pressed one. */
+  lastViewed: string | null;
 };
 const states = new WeakMap<object, CodeState>();
 const prefs = (client: { local: object }) => decodeClientPrefs((client.local as { clientSettings?: unknown }).clientSettings);
@@ -63,7 +68,7 @@ export function createCodeState(client: { local: object }, key: string): CodeSta
   const settings = prefs(client);
   return { find: new DiffFind(), key, mounted: false, commit: null, refresh: 0, epoch: null, slices: [], cursor: null, diffDue: true, diffError: '', parsed: new Map(), toggled: new Set(), foldOverride: null,
     visibleCommits: COMMIT_PAGE_SIZE, ignoreWhitespace: settings.diffIgnoreWhitespace, wrap: settings.wordWrap, orphansOpen: false, treeClosed: new Set(), treeSelected: '',
-    reveal: null, selection: null, drag: null, draft: null, contents: {}, expansions: {}, contentsDue: new Map(), viewed: new FilesViewedStore(), threads: emptyThreadState(), shown: '' };
+    reveal: null, selection: null, drag: null, draft: null, contents: {}, expansions: {}, contentsDue: new Map(), viewed: new FilesViewedStore(), threads: emptyThreadState(), shown: '', lastViewed: null };
 }
 /** The Code tab of the pull request on screen; another pull request starts over. */
 export function codeState(client: { local: object }, key: string): CodeState {
@@ -83,7 +88,7 @@ function scope(code: CodeState, commit: string | null): void {
   if (code.commit === commit) return;
   code.commit = commit;
   // PullRequestCodeTab's reset on scopeKey: the draft, the selection, the folds, the menu page, the orphans.
-  code.draft = null; code.selection = null; code.drag = null; code.toggled = new Set(); code.foldOverride = null; code.visibleCommits = COMMIT_PAGE_SIZE; code.orphansOpen = false;
+  code.draft = null; code.selection = null; code.drag = null; code.toggled = new Set(); code.foldOverride = null; code.visibleCommits = COMMIT_PAGE_SIZE; code.orphansOpen = false; code.lastViewed = null;
   restart(code);
 }
 
@@ -134,7 +139,7 @@ export async function readCode(ctx: CodeContext & { native: Native; tab: string;
   // The Viewed ticks gather FLUSH_DELAY_MS after the last press, then go in one write.
   if (code.viewed.flushable()) {
     const presses = code.viewed.key();
-    await sleep(native, FLUSH_DELAY_MS);
+    await sleep(FLUSH_DELAY_MS);
     if (code.viewed.key() === presses) await flushViewed(client, native, code, reference, listedOn);
   }
   if (viewedOn && code.viewed.due) {
@@ -214,8 +219,10 @@ function parsedSlices(code: CodeState): RenderablePatch[] {
     return parsed;
   });
 }
-/** Ordered within a slice, not across them: a late slice never moves a file the reader is part way through. */
-export function filesOf(code: CodeState): PrDiffFile[] { return parsedSlices(code).flatMap(parsed => (parsed?.kind === 'files' ? orderDiffFiles(parsed.files) : [])); }
+/** Every loaded file, in the file tree's order (orderDiffFilesLikeTree): a test listed last sits in its directory. */
+export function filesOf(code: CodeState): PrDiffFile[] { return orderDiffFilesLikeTree(parsedSlices(code).flatMap(parsed => (parsed?.kind === 'files' ? orderDiffFiles(parsed.files) : [])), file => file.path); }
+/** The files the list shows: while tests are hidden, a file asked for stays so that a jump to it still lands. */
+const shownFiles = (client: { local: object }, code: CodeState) => shownDiffFiles(filesOf(code), file => file.path, hideTestFiles(client), code.reveal?.path ?? '');
 
 // ── The view ────────────────────────────────────────────────────────────────
 
@@ -225,9 +232,13 @@ export function emptyCode() {
     available: false, mounted: false, key: '', phase: 'loading', message: '', raw: [] as { id: string; reason: string; text: string }[],
     // PullRequestDiffUnavailableState: what a failed first slice says, and where the host shows the change.
     errorTitle: '', errorDescription: '', providerName: '', url: '',
+    // DiffPanelLoadingState's label, in the host's term.
+    loadingLabel: 'Loading pull request diff...',
     scopeLabel: 'All commits', allSelected: true, hasCommits: false, commits: [] as { oid: string; short: string; headline: string; selected: boolean }[], moreCommits: 0,
     filesLabel: '0 files', viewedShown: false, viewedCount: '', viewedWord: 'viewed', viewedHere: false, viewedError: '', viewedTruncated: false, withheld: false, commentsOff: false,
     ignoreWhitespace: true, allCollapsed: false, hasFiles: false, layout: 'stacked', wrap: true, tree: false,
+    // Hide test files: the loaded tests, whether they are hidden, and the meta line's "N test files hidden".
+    testFiles: 0, hideTests: false, hiddenTests: '',
     find: new DiffFind().view(), items: [] as CodeItem[], truncated: false, threads: [] as PrThreadCard[], footer: '', footerFailed: false,
     orphansLabel: '', orphanCount: 0, orphanSummary: '', orphansOpen: false, orphans: [] as { path: string; threads: { id: string; line: string }[] }[],
     treeRows: [] as DiffTreeRow[], treeLabel: '', treeCount: 0, treeFolders: false, treeAllOpen: true, treeFooter: '', treeBusy: false,
@@ -240,6 +251,8 @@ type Body = { id: string; kind: string; title: string; body: string };
 export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeView; bodies: Body[] } {
   const { client, reference, detail, activity } = ctx, view = emptyCode();
   const capabilities = obj(detail.capabilities), permissions = obj(detail.viewerPermissions);
+  const term = terminologyOf(str(detail.provider) || undefined).singular;
+  view.loadingLabel = `Loading ${term} diff...`;
   view.available = capabilities.diff === true;
   const code = ctx.state ?? peekCode(client);
   if (!code || (!ctx.state && code.key !== `${client.environmentId}|${pullRequestReviewKey(reference)}`) || !code.mounted || !view.available) return { view, bodies: [] };
@@ -258,7 +271,10 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
   const canCommentOnLines = inlineComment && code.commit === null;
   const canSelectLines = code.commit === null && (inlineComment || ctx.allowAsk === true);
   view.commentsOff = code.commit !== null && inlineComment;
-  const parsed = parsedSlices(code), files = filesOf(code), paths = files.map(file => file.path);
+  const parsed = parsedSlices(code), loaded = filesOf(code), files = shownFiles(client, code), paths = files.map(file => file.path);
+  view.testFiles = testFileCount(loaded, file => file.path); view.hideTests = hideTestFiles(client);
+  const hiddenTests = loaded.length - files.length;
+  view.hiddenTests = hiddenTests > 0 ? `${hiddenTests} test ${hiddenTests === 1 ? 'file' : 'files'} hidden` : '';
   const nextCursor = code.slices.at(-1)?.nextCursor ?? null;
   view.withheld = code.slices.some(slice => slice.truncated) || parsed.some(entry => entry?.kind === 'raw');
   view.filesLabel = `${files.length} ${files.length === 1 ? 'file' : 'files'}${nextCursor === null ? '' : '+'}`;
@@ -320,7 +336,7 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
   view.threadPending = code.threads.pending;
   // The tree lists only what has arrived; its footer pulls the rest in.
   const entries = diffFileTreeEntries(files.map(file => ({ path: file.path, status: file.status })));
-  view.treeRows = diffTreeRows(entries, code.treeClosed, code.treeSelected); view.treeLabel = `Pull request #${num(detail.number)} files`; view.treeCount = entries.length;
+  view.treeRows = diffTreeRows(entries, code.treeClosed, code.treeSelected); view.treeLabel = `${capitalizeTerm(term)} #${num(detail.number)} files`; view.treeCount = entries.length;
   view.treeFolders = collectDirectoryPaths(paths).length > 0; view.treeAllOpen = allDirectoriesExpanded(paths, code.treeClosed);
   view.treeFooter = nextCursor === null ? '' : code.diffError ? 'Retry' : code.diffDue ? 'Loading more files...' : 'Load more files';
   view.treeBusy = nextCursor !== null && code.diffDue;
@@ -330,12 +346,12 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
   if (code.slices.length === 0 && code.diffError) {
     view.phase = 'error'; view.message = code.diffError;
     view.providerName = sourceControlHostName(str(detail.provider, 'github')); view.url = str(detail.url);
-    const words = describePullRequestDiffError(code.diffError, view.providerName);
+    const words = describePullRequestDiffError(code.diffError, view.providerName, term);
     view.errorTitle = words.title; view.errorDescription = words.description;
   }
   else if (code.slices.length === 0) view.phase = 'loading';
   else if (files.length === 0 && raw.length > 0) view.phase = 'raw';
-  else if (rows.items.length === 0 && nextCursor === null) { view.phase = 'empty'; view.message = code.commit === null ? 'This pull request has no file changes.' : 'This commit has no file changes.'; }
+  else if (rows.items.length === 0 && nextCursor === null) { view.phase = 'empty'; view.message = code.commit === null ? `This ${term} has no file changes.` : 'This commit has no file changes.'; }
   else view.phase = 'files';
   return { view, bodies: threadBodies(code.threads, threads) };
 }
@@ -363,20 +379,24 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
     case 'layout': if (value === 'stacked' || value === 'split') rememberDiffLayout(client, value); return '';
     case 'tree': { const prefs = pagesPrefs(client); prefs.prFileTree = prefs.prFileTree !== true; return ''; }
     case 'fold-all': {
-      const fold = effectiveFold(client, code), all = files();
+      const fold = effectiveFold(client, code), all = shownFiles(client, code);
       code.foldOverride = areAllDiffFilesCollapsed(all.map(fileKey), new Set(all.filter(entry => isCollapsed({ foldOverride: fold, toggled: code.toggled }, entry)).map(fileKey))) ? 'expanded' : 'folded';
       code.toggled = new Set();
       return '';
     }
     case 'fold': { const next = new Set(code.toggled); if (next.has(value)) next.delete(value); else next.add(value); code.toggled = next; return ''; }
     case 'viewed': {
-      // The tick and the fold are one gesture: clearing a file puts it away, un-clearing brings it back.
-      const [path = '', viewed = ''] = fields(value, 2), on = viewed === 'true';
+      // The tick and the fold are one gesture: clearing a file puts it away, un-clearing brings it back. A Shift-press
+      // gives every file shown from the last pressed one to this one the same tick.
+      const [path = '', viewed = '', shift = ''] = fields(value, 3), on = viewed === 'true';
       if (!path) return '';
-      code.viewed.setViewed(path, on);
-      code.toggled = toggleFileDiffFoldForViewed(path, on, effectiveFold(client, code), code.toggled);
+      const range = getFileViewedRange(shownFiles(client, code).map(entry => ({ fileKey: entry.path })), path, shift === 'shift' ? code.lastViewed : null);
+      code.lastViewed = path;
+      const fold = effectiveFold(client, code);
+      for (const entry of range) { code.viewed.setViewed(entry.fileKey, on); code.toggled = toggleFileDiffFoldForViewed(entry.fileKey, on, fold, code.toggled); }
       return '';
     }
+    case 'hide-tests': setHideTestFiles(client, value === '' ? !hideTestFiles(client) : value === 'true'); return '';
     case 'next': {
       const nextCursor = code.slices.at(-1)?.nextCursor ?? null;
       // A failed slice is not asked for again on its own: Retry asks.
@@ -386,7 +406,7 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
     case 'retry': if (code.diffError) { code.diffError = ''; code.diffDue = true; } return '';
     case 'orphans': code.orphansOpen = !code.orphansOpen; return '';
     case 'folder': { if (code.treeClosed.has(value)) code.treeClosed.delete(value); else code.treeClosed.add(value); return ''; }
-    case 'folders': code.treeClosed = value === 'collapse' ? new Set(collectDirectoryPaths(files().map(entry => entry.path))) : new Set(); return '';
+    case 'folders': code.treeClosed = value === 'collapse' ? new Set(collectDirectoryPaths(shownFiles(client, code).map(entry => entry.path))) : new Set(); return '';
     case 'reveal': {
       // revealFile: a folded file opens; its folders open; the list scrolls to it (the contract's scrollIntoView).
       code.reveal = { path: value, nonce: (code.reveal?.nonce ?? 0) + 1, pending: true };
@@ -419,7 +439,8 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
       // "Add to review": the comment joins the pending review (pages-pr-writes-logic.ts PullRequestReviewStore).
       const draft = code.draft, body = value.trim();
       if (!draft || body.length === 0 || obj(obj(ctx.detail?.capabilities).review).inlineComment !== true || obj(ctx.detail?.viewerPermissions).comment !== true) return '';
-      pullRequestReviewStore(client).addComment(pullRequestReviewKey(reference), { id: nextPendingReviewCommentId(), path: draft.path, ...(draft.oldPath === null ? {} : { oldPath: draft.oldPath }), position: draft.position, body });
+      pullRequestReviewStore(client).addComment(pullRequestReviewKey(reference), { id: nextPendingReviewCommentId(), path: draft.path, ...(draft.oldPath === null ? {} : { oldPath: draft.oldPath }),
+        ...(draft.startPosition === undefined ? {} : { startPosition: draft.startPosition }), position: draft.position, body });
       code.draft = null; code.selection = null;
       return '';
     }
@@ -449,14 +470,17 @@ function beginComment(ctx: CodeLocalContext, code: CodeState, value: string): st
   const index: RowIndex = point => { const found = findDiffReviewLineIndex(lines, point.line, point.side); return found < 0 ? null : found; };
   return beginRange(code, ctx.detail, path, gutterClick(code.selection, path, at, index), ctx.allowAsk);
 }
-/** The draft on a range (beginComment's body): a range collapses to its last line, as only GitHub carries a multi-line comment. */
+/**
+ * The draft on a range (beginComment's body). On a host without ranged comments (`review.rangeComment`) a range collapses
+ * to its last line: one that silently lost its first line there would be worse than one line.
+ */
 function beginRange(code: CodeState, detail: Obj | null, path: string, range: SelectedLineRange, allowAsk = false): string {
   const target = filesOf(code).find(entry => entry.path === path);
   if (!target || !linesOpen(code, detail, allowAsk)) return '';
-  const position = resolveDiffReviewPosition(target, range.end, range.endSide ?? range.side, loadedContents(code, path));
-  if (position === null) return '';
+  const anchor = resolveDiffReviewAnchor(target, range, obj(obj(detail?.capabilities).review).rangeComment === true, loadedContents(code, path));
+  if (anchor === null) return '';
   code.selection = { path, range };
-  code.draft = { fileKey: fileKey(target), path, oldPath: target.previous && target.previous !== path && target.status === 'renamed' ? target.previous : null, position, range };
+  code.draft = { fileKey: fileKey(target), path, oldPath: target.previous && target.previous !== path && target.status === 'renamed' ? target.previous : null, ...anchor, range };
   return '';
 }
 /**
@@ -544,10 +568,6 @@ async function flushViewed(client: T3Client, native: Native, code: CodeState, re
     // A partly applied batch: the marks are read again rather than left where the revert put them.
     if (!answer.interrupted && reverted) { pushToast(client, { kind: 'error', title: 'Could not update viewed files' }); code.viewed.due = true; }
   });
-}
-/** The native sleep (command-waits.ts settle), but a let-go answer stops here. */
-async function sleep(native: Native, ms: number): Promise<void> {
-  try { await native.later({ op: 'timelineSleep', ms }); } catch (error) { if (letGo(error)) throw error; }
 }
 
 // ── The tab's host writes (pageslocal:pr-act-code-agent, thread-*) ──────────

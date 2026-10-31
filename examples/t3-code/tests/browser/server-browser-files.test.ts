@@ -17,15 +17,22 @@ test('each media request gets its own ticket and safely encodes the chooser iden
   expect(upload.searchParams.get('chooser')).toBe('../a?b'); expect(upload.searchParams.get('threadId')).toBe('thread&other');
   expect([download.searchParams.get('wsTicket'), upload.searchParams.get('wsTicket')]).toEqual(['media-1', 'media-2']);
 });
-test('a downloaded file preserves its bytes and opens Save only while its tab still owns the request', async () => {
+test('a download goes to a file the host writes, and opens Save only while its tab still owns the request', async () => {
   const client = fixture(), writes: { path: string; bytes: number[] }[] = [], original = globalThis.fetch;
   adoptAppFiles({ fs: { mkdir: async () => {}, readFile: async () => new ArrayBuffer(0), writeFile: async (path: string, bytes: Uint8Array) => { writes.push({ path, bytes: [...bytes] }); } } });
   try {
-    globalThis.fetch = (async () => new Response(new Uint8Array([0, 255, 10]))) as typeof fetch;
+    // The host writes a 2xx body to `exactBodyTo` itself, under the download's own size as the ceiling.
+    const inits: RequestInit[] = [];
+    globalThis.fetch = (async (_url: string, init: RequestInit & { exactBodyTo: string }) => {
+      inits.push(init); writes.push({ path: init.exactBodyTo, bytes: [0, 255, 10] }); return new Response('');
+    }) as unknown as typeof fetch;
     const download = { id: 'file', fileName: '../report.pdf', sizeBytes: 3 };
-    await downloadStreamFile(client, native, 'thread', 'tab', download, () => false); expect(writes).toEqual([]);
-    await downloadStreamFile(client, native, 'thread', 'tab', download, () => true); expect(writes[0]?.bytes).toEqual([0, 255, 10]);
-    expect(saveSnapshot(client).saveRequest.name).toBe('..-report.pdf');
+    await downloadStreamFile(client, native, 'thread', 'tab', download, () => false);
+    expect(saveSnapshot(client).saveRequest.name).toBe('');
+    await downloadStreamFile(client, native, 'thread', 'tab', download, () => true);
+    expect(writes[1]).toEqual({ path: expect.stringMatching(/^app:\/tmp\/saves\/\d+\/\.\.-report\.pdf$/), bytes: [0, 255, 10] });
+    expect(inits[1]).toMatchObject({ redirect: 'error', exactIndependentHttp: { maxResponseBytes: 3 } });
+    expect(saveSnapshot(client).saveRequest).toMatchObject({ from: writes[1]!.path, name: '..-report.pdf' });
   } finally { globalThis.fetch = original; }
 });
 test('a chooser uploads picked bytes as multipart and rejects an arbitrary local path', async () => {

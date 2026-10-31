@@ -6,8 +6,9 @@
 // text: a JSON `MediaActionSource` its view built, or `attachment:<id>` for a sent attachment
 // the transcript draws. The wrapper's right click, Menu key or Shift+F10 runs
 // `medialocal:menu` here, which shows the native menu (T3MediaActions.swift `mediaMenu`) and runs
-// the pick: copy a path or URL, open the file in the Files surface, save, or copy the image. An
-// asset is signed again at action time (`assets.createUrl`), so a player's URL is never replaced.
+// the pick: copy a path or URL, open the file in the Files surface, save, or copy the image
+// (media-copy-image.ts). An asset is signed again at action time (`assets.createUrl`), so a
+// player's URL is never replaced.
 //
 // Desktop Save: the reference's anchor download (`downloadMedia`) reaches Electron's default
 // download handling (the main window installs no `will-download`; only the Browser preview does,
@@ -24,6 +25,7 @@ import { assetUrl } from '../settings/settings-b-icons';
 import { wakeShell } from '../client/command-waits';
 import { mediaReferenceFileName, type MediaReference } from './media-reference';
 import { letGo } from '../client/let-go';
+import { copyMediaImage } from './media-copy-image';
 
 /** Menu action ids shared by every client so labels and handlers line up across surfaces. */
 export type MediaActionId = 'copy-full-path' | 'copy-relative-path' | 'copy-url' | 'open-file' | 'save' | 'copy-image';
@@ -184,7 +186,8 @@ export async function showMediaMenu(client: T3Client, native: Native, sourceText
       progress = pushToast(client, { kind: 'loading', title: action === 'save' ? `Preparing ${noun} download…` : 'Copying image…' });
       await wakeShell(native);
       const url = await mediaActionUrl(client, native, source);
-      await nativeValue(client, native, action === 'save' ? { op: 'mediaSave', url, name: mediaFileName(source) } : { op: 'mediaCopyImage', url });
+      if (action === 'save') await nativeValue(client, native, { op: 'mediaSave', url, name: mediaFileName(source) });
+      else await copyMediaImage(url, async () => { await nativeValue(client, native, { op: 'mediaCopyImage', url }); });
       updateToast(client, progress, { kind: 'success', title: action === 'save' ? 'Download started' : 'Image copied', description: '', timeoutMs: 5000 });
     }
     return action;

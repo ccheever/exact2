@@ -101,10 +101,8 @@ describe('HostResourcesSnapshot', () => {
 // ── ServerUpdatesAction ────────────────────────────────────────────────────
 describe("ServerUpdatesAction", () => {
   const targets: ReadonlyArray<ServerUpdateTarget> = [
-    { environmentKey: 'http://10.0.0.2:3773\nbatch-a', environmentId: 'batch-a', serverLabel: 'Laptop', selfUpdate: 'boot-service', targetVersion: '0.0.31', fromVersion: '0.0.30',
-      threadContinuation: true, continueThreadsAfterServerUpdate: true },
-    { environmentKey: 'http://10.0.0.3:3773\nbatch-b', environmentId: 'batch-b', serverLabel: 'Office', selfUpdate: 'respawn', targetVersion: '0.0.31', fromVersion: '0.0.30',
-      threadContinuation: true, continueThreadsAfterServerUpdate: false },
+    { environmentKey: 'http://10.0.0.2:3773\nbatch-a', environmentId: 'batch-a', serverLabel: 'Laptop', selfUpdate: 'boot-service', targetVersion: '0.0.31', fromVersion: '0.0.30' },
+    { environmentKey: 'http://10.0.0.3:3773\nbatch-b', environmentId: 'batch-b', serverLabel: 'Office', selfUpdate: 'respawn', targetVersion: '0.0.31', fromVersion: '0.0.30' },
     { environmentKey: 'http://10.0.0.4:3773\nbatch-c', environmentId: 'batch-c', serverLabel: 'Manual', selfUpdate: null, targetVersion: '0.0.31', fromVersion: '0.0.30' },
   ];
   type Harness = { deps: UpdateDeps; started: Obj[]; toasted: Obj[]; completions: Array<() => void> };
@@ -118,12 +116,12 @@ describe("ServerUpdatesAction", () => {
   }
   beforeEach(() => setJobs({}));
 
-  it("updates both supported machines with their own continuation preference and skips the manual machine", async () => {
+  it("updates both supported machines and skips the manual machine", async () => {
     const state = harness(), owner = {};
     expect(await updateServers(owner, targets, state.deps, async () => true)).toBe('started');
-    expect(state.started.map(call => [String(call.key).split('\n')[1], call.targetVersion, call.extras])).toEqual([
-      ['batch-a', '0.0.31', { continueRunningThreads: true }],
-      ['batch-b', '0.0.31', {}],
+    expect(state.started.map(call => [String(call.key).split('\n')[1], call.targetVersion])).toEqual([
+      ['batch-a', '0.0.31'],
+      ['batch-b', '0.0.31'],
     ]);
     // Each job's "<label> updated" toast follows its reconnect (server-update.test.ts, announceServerUpdates).
     expect(state.toasted).toEqual([]);

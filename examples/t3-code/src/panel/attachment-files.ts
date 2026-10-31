@@ -3,10 +3,9 @@
 // FILE_TEXT_PREVIEW_MAX_BYTES; MediaActions.tsx and mediaContent.ts readMediaBlob). A sent attachment is read from its
 // signed asset URL (`fetch`, app.ts grants); a draft's from its staged copy under the app's data
 // (composer-files/, composer-attach-stage.ts stages it under composer-staged-copies.ts stagedName).
-import { appFiles, requestSave, saveBytes, saveName } from '../media/save-file';
+import { appFiles, requestSave, saveBytes, saveDownload, saveName } from '../media/save-file';
 
 export const PREVIEW_BYTES = 1024 * 1024;
-export const SAVE_BYTES = 64 * 1024 * 1024;
 export type TextPreview = { ok: true; text: string; truncated: boolean } | { ok: false; message: string };
 
 /** A draft file's staged copy as an app file, by its staged name (composer-staged-copies.ts stagedName). */
@@ -61,12 +60,7 @@ export async function stagedText(name: string): Promise<TextPreview> {
 export async function saveAttachment(client: object, url: string, name: string): Promise<void> {
   const asset = assetUrl(url);
   if (!asset) throw new Error('The attachment is unavailable.');
-  let response: Response;
-  try { response = await fetch(asset); } catch { throw new Error('The file could not be loaded. Try again.'); }
-  if (!response.ok) throw new Error('The file could not be loaded. Try again.');
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.length > SAVE_BYTES) throw new Error('The file is too large to save here.');
-  await saveBytes(client, bytes, saveName(name, 'attachment'));
+  try { await saveDownload(client, asset, saveName(name, 'attachment')); } catch { throw new Error('The file could not be loaded. Try again.'); }
 }
 
 /** Save file of a draft's staged copy, as it is. */

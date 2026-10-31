@@ -1,0 +1,16 @@
+// A preview's rendered page (MIT reference, see LICENSE-T3: components/files/BrowserDocumentFrame.tsx), filling its
+// box: the reference's FileDocument, an `iframe` under `sandbox="allow-scripts allow-forms allow-popups
+// allow-downloads"` on white (its box's), a page that declares no color-scheme rendering light. A link navigates the
+// frame; a new tab (`target=_blank`, ⌘-click) opens the URL in the default browser, as the desktop's
+// setWindowOpenHandler opens it externally (LLP 1020.002 D5: a `window.open` with features has already opened as the
+// platform's popup). A PDF is the viewer page's (viewer-frame.contract).
+component MediaFrame
+  props
+    src: string
+    name: string
+    testId: string
+  action opened(e: FrameNewWindow)
+    if e.disposition != "new-window"
+      openURL(e.url)
+  view
+    iframe src=src sandbox="allow-scripts allow-forms allow-popups allow-downloads" newwindow=opened color-scheme="light" aria-label=name testId=testId position="absolute" left=0 top=0 width="100%" height="100%" border-width=0

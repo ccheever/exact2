@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { citationJump, citedRow, revealCitation } from '../../src/timeline/citation-source';
+import { toasts } from '../../src/shell/toast';
 import { T3Client } from '../../src/client/client';
 import { chatLocal, openCitedFold, timelineSnapshot, timelineView, transcriptRows } from '../../src/timeline/timeline-presentation';
 import type { Native } from '../../src/client/protocol';
@@ -10,6 +11,9 @@ const rows = [
   { id: '["t1","u2"]', kind: 'user', body: 'a1 again' },
   { id: '["t1","a2"]', kind: 'assistant', body: 'answer two' },
 ];
+/** The open thread's detail, holding the turn items `ids` (assistant answers, `u…` the user's) and older pages behind it. */
+const loaded = (ids: string[], hasMore = false) => ({ projection: { visibleTurnItems: ids.map(id => ({ sourceThreadId: 't1', sourceItemId: id,
+  item: { id, messageId: id, type: id.startsWith('u') ? 'user_message' : 'assistant_message' } })) }, hasMore, historyCursor: hasMore ? 'c0' : null }) as unknown as T3Client['thread'];
 
 describe('citation View source (AssistantCitationSource)', () => {
   test('the cited answer is an assistant row, never a user row that mentions its id', () => {
@@ -28,7 +32,7 @@ describe('citation View source (AssistantCitationSource)', () => {
   test('a citation on the open thread is placed at once; one whose thread is gone fails', async () => {
     const native = { available: true, watch() {}, async later(request: Record<string, unknown>) { return { ok: true, generation: request.generation, value: {} }; } } as unknown as Native;
     const client = new T3Client();
-    Object.assign(client, { threadId: 't1', connection: 'connected' });
+    Object.assign(client, { threadId: 't1', connection: 'connected', thread: loaded(['u1', 'a1', 'u2', 'a2']) });
     client.shell.threads = [{ id: 't1' }] as typeof client.shell.threads;
     const placed: string[] = [];
     await revealCitation(client, native, 't1', 'a1', () => rows, key => placed.push(key));
@@ -39,7 +43,7 @@ describe('citation View source (AssistantCitationSource)', () => {
   // no remembered position over it (timeline-anchor.test.ts); the flag clears once it lands or fails.
   test('the snapshot reports a citation in flight, and only then', async () => {
     const client = new T3Client();
-    Object.assign(client, { threadId: 't1', connection: 'connected' });
+    Object.assign(client, { threadId: 't1', connection: 'connected', thread: loaded(['u1', 'a1', 'u2', 'a2']) });
     client.shell.threads = [{ id: 't1' }] as typeof client.shell.threads;
     timelineView(client).lastRows = { threadId: 't1', rows };
     const native = { available: true, watch() {}, async later(request: Record<string, unknown>) {
@@ -56,6 +60,38 @@ describe('citation View source (AssistantCitationSource)', () => {
     expect(timelineSnapshot(client).citeJump).toEqual({ key: '', nonce: 0 });
     client.threadId = 't1';
     await expect(chatLocal(client, native, 'chip-citation', 'gone', 'a2')).rejects.toThrow('Thread no longer available');
+    expect(timelineSnapshot(client).citing).toBe(false);
+  });
+  // A newer View source lets the older go where it waits, on its own timer, so the older one's `finally` never runs.
+  test('a newer View source clears the flag the one it replaced left set', async () => {
+    const client = new T3Client();
+    Object.assign(client, { threadId: 't1', connection: 'connected', thread: loaded(['u1', 'a1', 'u2', 'a2']) });
+    client.shell.threads = [{ id: 't1' }, { id: 't2' }] as typeof client.shell.threads;
+    timelineView(client).lastRows = { threadId: 't1', rows };
+    const native = { available: true, watch() {}, async later(request: Record<string, unknown>) { return { ok: true, generation: request.generation, value: {} }; } } as unknown as Native;
+    client.openSelected = () => new Promise(() => {}); // the replaced one never gets past opening its thread
+    void chatLocal(client, native, 'chip-citation', 't2', 'b1');
+    expect(timelineSnapshot(client).citing).toBe(true);
+    await chatLocal(client, native, 'chip-citation', 't1', 'a2');
+    expect([timelineSnapshot(client).citing, timelineSnapshot(client).citeJump.key]).toEqual([false, '["t1","a2"]']);
+  });
+});
+
+describe('the composer chip\'s View source', () => {
+  // Its chip act takes View source's own send (app.contract editorOp), so it is let go only by a newer View source,
+  // which takes the flag over and clears it.
+  test('holds the flag while it places its answer; a newer View source clears it', async () => {
+    const { performChipAct } = await import('../../src/composer/composer-chip-details');
+    const client = new T3Client();
+    Object.assign(client, { threadId: 't1', connection: 'connected', thread: loaded(['u1', 'a1', 'u2', 'a2']) });
+    client.shell.threads = [{ id: 't1' }, { id: 't2' }] as typeof client.shell.threads;
+    timelineView(client).lastRows = { threadId: 't1', rows };
+    const native = { available: true, watch() {}, async later(request: Record<string, unknown>) { return { ok: true, generation: request.generation, value: {} }; } } as unknown as Native;
+    client.openSelected = () => new Promise(() => {}); // the chip's View source is let go while it opens its thread
+    void performChipAct(client, native, { act: 'citation', link: '[Assistant quote](t3-citation://v1/env/t2/b1?text=answer&start=0&end=6&prefix=&suffix=)' });
+    await Promise.resolve();
+    expect(timelineSnapshot(client).citing).toBe(true);
+    await chatLocal(client, native, 'chip-citation', 't1', 'a2');
     expect(timelineSnapshot(client).citing).toBe(false);
   });
 });
@@ -112,5 +148,59 @@ describe('a cited answer inside a folded turn', () => {
     expect(drawn(value).map(row => row.kind)).toEqual(['user', 'work', 'assistant', 'assistant']);
     expect(openCitedFold(value, 'message:source')).toBe(false); // already open
     expect(openCitedFold(value, 'message:prompt')).toBe(false); // not an assistant answer
+  });
+});
+
+// citationProcedure.ts loadCitedHistory (#25371): an answer outside the loaded history pages toward it.
+describe('a citation to an answer not yet loaded', () => {
+  const native = { available: true, watch() {}, async later(request: Record<string, unknown>) { return { ok: true, generation: request.generation, value: {} }; } } as unknown as Native;
+  function opened(pages: string[][], fail = -1) {
+    const client = new T3Client();
+    Object.assign(client, { threadId: 't1', connection: 'connected', thread: loaded(['u9', 'a9'], pages.length > 0) });
+    client.shell.threads = [{ id: 't1' }] as typeof client.shell.threads;
+    const asked: string[] = [];
+    client.history = async (_native: Native, through = '') => {
+      asked.push(through);
+      if (asked.length - 1 === fail) throw new Error('offline');
+      const page = pages[asked.length - 1] ?? [];
+      const older = loaded([...page, ...client.projection.visibleTurnItems.map(row => String((row as { item: { id: string } }).item.id))], asked.length < pages.length);
+      client.thread = { ...older!, historyCursor: asked.length < pages.length ? `c${asked.length}` : null } as T3Client['thread'];
+    };
+    return { client, asked };
+  }
+  test('three pages back: each page is asked through the cited message, then the answer is placed', async () => {
+    const { client, asked } = opened([['u3', 'a3'], ['u2', 'a2'], ['u1', 'a1']]);
+    const placed: string[] = [];
+    await revealCitation(client, native, 't1', 'a1', () => [{ id: '["t1","a1"]', kind: 'assistant', body: 'answer one' }], key => placed.push(key));
+    expect(asked).toEqual(['a1', 'a1', 'a1']);
+    expect(placed).toEqual(['["t1","a1"]']);
+    expect(toasts(client)).toEqual([]);
+  });
+  test('twenty pages without the answer stop with "Could not load"; a page that loads nothing new stops as unavailable', async () => {
+    // Every page moves the cursor and leaves more history, and none holds the answer.
+    const { client, asked } = opened(Array.from({ length: 25 }, (_, page) => [`u${page + 10}`, `a${page + 10}`]));
+    await revealCitation(client, native, 't1', 'a1', () => [], () => {});
+    expect(asked.length).toBe(20);
+    expect(toasts(client)).toEqual([expect.objectContaining({ kind: 'warning', title: 'Could not load the cited response' })]);
+    // A page that leaves the cursor where it was: nothing older loads, so asking again would spin.
+    const still = opened([['u3', 'a3'], ['u2', 'a2']]);
+    still.client.history = async (_native: Native, through = '') => { still.asked.push(through); };
+    await revealCitation(still.client, native, 't1', 'a1', () => [], () => {});
+    expect(still.asked).toEqual(['a1']);
+    expect(toasts(still.client)).toEqual([expect.objectContaining({ kind: 'warning', title: 'The cited response is unavailable' })]);
+  });
+  test('a removed answer, a failed page, or a user message toasts why and places nothing', async () => {
+    const cases: [string[][], number, string, string][] = [
+      [[], -1, 'a1', 'The cited response is unavailable'],
+      [[['u1', 'a1']], 0, 'a1', 'Could not load the cited response'],
+      [[], -1, 'u9', 'The citation does not refer to an assistant response'],
+    ];
+    for (const [pages, fail, id, title] of cases) {
+      const { client } = opened(pages, fail);
+      const placed: string[] = [];
+      await revealCitation(client, native, 't1', id, () => [], key => placed.push(key));
+      expect(placed).toEqual([]);
+      expect(toasts(client)).toEqual([expect.objectContaining({ kind: 'warning', title })]);
+    }
   });
 });

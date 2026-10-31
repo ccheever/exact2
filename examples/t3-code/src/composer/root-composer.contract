@@ -1,13 +1,15 @@
-use PickerCatalog, PickerTarget, ComposerBranches from "./composer-shapes.contract"
+use PickerCatalog, PickerTarget, ComposerBranches, ComposerUpload from "./composer-shapes.contract"
 use ComposerEditorView from "./composer-editor.contract"
 use ComposerRichView, ComposerIntentReply, ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldCommand, ComposerFieldResult, ComposerFieldAcknowledgement, composerSurrounds from "./composer-rich.contract"
 use promptPreviewSample from "../appearance/settings-prompt-preview.contract"
-use ChipPopover, ComposerChipFinish, ComposerChipRequest from "./composer-chip-popover.contract"
+use ChipPopover, ComposerChipFinish, ComposerChipRequest, chipPopoverFocus from "./composer-chip-popover.contract"
 use ShortcutModifierState, emptyShortcutModifierState, areShortcutModifierStatesEqual, shortcutModifierStateAfterKeyboardEvent, anyShortcutModifier, speedModifiers from "../shell/shortcut-modifiers.contract"
 use heldModifiers from "../shared/press-modifiers.contract"
 use QuitHoldState, quitHoldIdle, quitKeyDown, quitKeyUp, quitWatchFired, quitTypesLatin from "../shell/quit-hold.contract"
 use composerChord, composerChordIn from "./composer-keys.contract"
 use layoutFrame, optionsTriggerId from "../shell/layout-frames.contract"
+use Change from "../shared/shapes.contract"
+use routeKeyboardComplete from "../connections/connections-routes.contract"
 
 members T3Code
   state modelsOpen = false
@@ -19,6 +21,9 @@ members T3Code
   resource chip = composerChip(data.revision) as shape ChipPopover // a skill chip's details popover (composer-chip-popover.ts)
   mutation chipObserved as shape ChipPopover queue refreshes chip
   mutation chipPressed as shape ChipPopover queue refreshes chip
+  // A chip's close and actions queue on their own send: on `localChanged` a press's other local op in the same
+  // turn (the timeline's pointerdown) replaced the close before it ran, and the details' finish never came.
+  mutation chipChanged as shape Change queue refreshes data
   state chipFocusedId = ""
   state chipFinished = 0
   action chipFocusChanged(target: string)
@@ -33,11 +38,15 @@ members T3Code
   action chipComplete(item: ComposerChipFinish, focused: string)
     let preview = item.surface == "preview"
     let target = preview ? "prompt-font-preview" : "composer"
-    let covered = preview ? connecting or projectsOpen or paletteOpen or providerDialog != "" or restEditor != "" or welcome.show or querySelectorAll("[data-dialog-focus~=\"open\"]").length > 0 : modal
+    // Settings is itself a route dialog (AppRouteModal, `settings-dialog`); a dialog over it covers the sample.
+    let covered = preview ? connecting or projectsOpen or paletteOpen or providerDialog != "" or restEditor != "" or welcome.show or querySelectorAll("[data-dialog-focus~=\"open\"]").filter((id) => id != "settings-dialog").length > 0 : modal
     if not covered and item.seq == chip.finish.seq and item.generation == (preview ? richPromptPreview.generation : richComposer.generation) and item.snapshotOwner == data.snapshotOwner and (preview ? promptPreviewVisible and item.owner == promptPreviewOwner and item.value == promptPreviewText and item.inputSerial == promptPreviewSerial and not promptPreviewComposing : composerFieldLive and item.owner == richComposerOwner and item.value == composerText and item.inputSerial == composerFieldInputSerial and not composerComposing) and frame(target).width > 0
-      if item.focus == "after" or item.focus == "select" or (item.focus == "outside" and (focused == "" or focused == "chip-popover" or focused == "citation-comment-text"))
+      // After an outside press the focus comes back only if the press left it nowhere: on no element, on the window's root
+      // (`t3-code`, which a press on the page's ground focuses, as Chromium leaves the body), or on the closed popup's own
+      // (a focus event names what the press focused, the dialog included).
+      if item.focus == "after" or item.focus == "select" or ((item.focus == "outside" or item.focus == "return") and (focused == "" or focused == "t3-code" or frame(focused).unavailable))
         focus(target)
-        setSelectionRange(target, item.focus == "select" ? item.start : item.end, item.end)
+        setSelectionRange(target, item.focus == "select" or item.focus == "return" ? item.start : item.end, item.end)
       if item.send and not preview and not commandPending and data.canSend and data.requestMode != "question"
         commandPending = true
         send changed = command("send-citation", `${item.seq}`, "", 0)
@@ -49,6 +58,16 @@ members T3Code
     after(1, chipCoverClose)
   action chipCoverClose
     editorOp("chip-close", `${chip.seq}`, "")
+  // A chip's details take the focus as they open (PopoverPopup's `initialFocus`), so VoiceOver reads the dialog, whether a
+  // pointer or VoiceOver pressed the chip. The press leaves the focus on the prompt, whose editor takes a press on its pill,
+  // and `autofocus` yields to a focused field. A citation's comment is its own popover (citation-comment.contract).
+  state chipOpenFocused = 0
+  task chipOpenFocus when chip.open and chip.kind != "citation" and not chipCovered and chip.seq > chipOpenFocused key=chip.seq
+    after(1, chipOpenFocusRun)
+  action chipOpenFocusRun
+    chipOpenFocused = chip.seq
+    if chip.open and chip.kind != "citation" and not chipCovered
+      focus(chipPopoverFocus(chip))
   // A chip press that is an action (a mention, thread, citation source, pull request or attachment; composer-chip-details.ts)
   // is sent once, in its own turn.
   state chipActed = 0
@@ -351,10 +370,11 @@ members T3Code
       preventDefault()
       stopPropagation()
       composerStashKey(k)
-    else if not composing and richComposer.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "b" or k == "B" or e.code == "KeyB" or k == "i" or k == "I" or e.code == "KeyI")
+    else if not composing and richComposer.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "i" or k == "I" or e.code == "KeyI" or ((k == "b" or k == "B" or e.code == "KeyB") and composerSelectionStart != composerSelectionEnd))
       preventDefault()
       stopPropagation()
       // The Markdown editor's own command, at its selection, one undo step (LLP 1045 D6), after any edit still waiting.
+      // ⌘B bolds selected text only; with none it stays the app's (the sidebar toggle, isRichTextBoldShortcut).
       if not e.repeat
         if composerIntentQueue.length > 0
           composerIntentRequest("format", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic", "", false, true, composerSelectionStart, composerSelectionEnd, composing)
@@ -458,8 +478,14 @@ members T3Code
   action composerKeyReleased(k: string, e: KeyboardEvent)
     composerShift = e.shiftKey
     composerCommand = e.metaKey or e.ctrlKey
+  // A press in the prompt expands a resting composer, one whose field already has the focus too (ChatComposer's
+  // onPointerDownCapture); focus coming in does as well (onFocusCapture, composerFocus).
+  action composerPressed
+    restResting = false
+  // Focus coming into the composer expands a resting one (ChatComposer onFocusCapture).
   action composerFocus
     composerFocused = true
+    restResting = false
     composerComposing = false
     composerHeldMode = richComposer.mode
     modifierEditableFocus()
@@ -497,9 +523,9 @@ members T3Code
   derive speedModeHeld = speedModifiers(speedModifierState)
   action modifierKey(down: bool, e: KeyboardEvent, editable: bool)
     quitHoldKey(down, e)
-    // DesktopWindow.ts: a held ⌘W can outlive the panel or terminal that took its first press, so its repeats never
-    // reach File › Close Window. W by its key, or by its physical key where the source types no Latin character there
-    // (Korean 2-Set's ㅈ); AZERTY's W key types Z.
+    // DesktopWindow.ts: a held ⌘W closes one tab or terminal, not each one behind it, so its repeats are dropped. W by
+    // its key, or by its physical key where the source types no Latin character there (Korean 2-Set's ㅈ); AZERTY's W
+    // key types Z.
     if down and e.repeat and e.metaKey and not e.altKey and not e.shiftKey and (e.key.toLowerCase() == "w" or (e.code == "KeyW" and e.key.length == 1 and not quitTypesLatin(e.key)))
       preventDefault()
     // ThreadUndoShortcut: a held undo chord undoes once, so its repeats are cancelled even after the notice is gone,
@@ -586,6 +612,14 @@ members T3Code
     after(200, threadJumpHintsShow)
   task threadJumpHintReset when threadJumpHintsShown and not threadJumpsHeld
     after(1, threadJumpHintsHide)
+  // The sidebar's Working shelf on the window's clock (thread-inbox.ts): a grace's start or a return owed its time
+  // reads it at once, and the soonest grace ends 2 s after it started. Root timers, so they run with the sidebar closed.
+  task workingGraceOwed when data.sidebar.graceOwed > 0 key=data.sidebar.graceOwed
+    after(1, workingGraceClock)
+  task workingGraceEnds when data.sidebar.graceUntil > 0 key=data.sidebar.graceUntil
+    after(2000, workingGraceClock)
+  action workingGraceClock
+    send localChanged = command("sidebarlocal:working-grace", "", `${wallTime.epochAtZero + performanceNow()}`, 0)
   action threadJumpHintsShow
     threadJumpHintsShown = true
   action threadJumpHintsHide
@@ -665,7 +699,7 @@ members T3Code
   // measures them all again, so a box that only moves is measured with the box whose change of size moved it.
   state layoutFrames = ""
   action frameMoved(w: number, h: number)
-    layoutFrames = [layoutFrame("chat", frame("frame-chat")), layoutFrame("overlay", frame("frame-overlay")), layoutFrame("shoulder", frame("frame-shoulder")), layoutFrame("dock", frame("frame-dock")), layoutFrame("stack", frame("frame-stack")), layoutFrame("card", frame("composer-surface")), layoutFrame("toolbar", frame("frame-toolbar")), layoutFrame("strip", frame("frame-strip")), layoutFrame("notices", frame("frame-notices")), layoutFrame("details-content", frame("frame-details-content")), layoutFrame("details-density-compact", frame("frame-details-density-compact")), layoutFrame("details-full-top", frame("frame-details-full-top")), layoutFrame("details-vcs", frame("frame-details-vcs")), layoutFrame("details-full-tail", frame("frame-details-full-tail")), layoutFrame("details-lineage", frame("frame-details-lineage")), layoutFrame("details-full-git", frame("frame-details-full-git")), layoutFrame("details-pr-list", frame("frame-details-pr-list")), layoutFrame("device-area", frame("frame-device-area"))].filter((row) => row != "").join(";")
+    layoutFrames = [layoutFrame("chat", frame("frame-chat")), layoutFrame("overlay", frame("frame-overlay")), layoutFrame("shoulder", frame("frame-shoulder")), layoutFrame("dock", frame("frame-dock")), layoutFrame("stack", frame("frame-stack")), layoutFrame("card", frame("composer-surface")), layoutFrame("subagent", frame("provider-subagent-bar")), layoutFrame("toolbar", frame("frame-toolbar")), layoutFrame("strip", frame("frame-strip")), layoutFrame("details-content", frame("frame-details-content")), layoutFrame("details-density-compact", frame("frame-details-density-compact")), layoutFrame("details-full-top", frame("frame-details-full-top")), layoutFrame("details-vcs", frame("frame-details-vcs")), layoutFrame("details-full-tail", frame("frame-details-full-tail")), layoutFrame("details-lineage", frame("frame-details-lineage")), layoutFrame("details-full-git", frame("frame-details-full-git")), layoutFrame("details-pr-list", frame("frame-details-pr-list")), layoutFrame("device-area", frame("frame-device-area"))].filter((row) => row != "").join(";")
     if optionsOpen != ""
       measureOptionsTrigger(optionsOpen)
   action measureOptionsTrigger(name: string)

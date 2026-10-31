@@ -18,7 +18,8 @@ describe('Files editor press', () => {
 
   test('the editor mounts on that mark with the file text and carries no native hook', () => {
     const editor = preview.slice(preview.indexOf('textarea id="file-editor"'));
-    expect(preview).toContain('if editing\n            textarea id="file-editor"');
+    // Keyed on the editor's revision, so a change from outside mounts it again on the new text.
+    expect(preview).toContain('if editing\n            // A change from outside replaces the text: the editor mounts again on it (EditableFileSurface\'s externalFile).\n            for revision in [files.editorRevision] key=revision\n              textarea id="file-editor"');
     expect(editor).toContain('value=(files.editing ? files.editorText : files.text)');
     expect(editor).toContain('autofocus=true');
     expect(editor).toContain('autocorrect="off"');

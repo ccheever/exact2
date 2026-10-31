@@ -2,11 +2,12 @@
 // `look`. Reference: routes/__root.tsx (data-chat-width, data-diff-color-scheme,
 // font and theme variables on :root), index.css (--chat-content-max-width,
 // :root[data-diff-color-scheme="blue-orange"]), appearanceContrast.ts, the
-// theme palette roles and SidebarChrome's environment identification.
+// theme palette roles and useEnvironmentIdentificationMode.
 // `themed` is false for the stock T3 Code theme at default contrast and glass,
 // so surfaces keep their measured stock colours; otherwise they take the
 // palette's light-dark() tokens.
 import type { T3Client } from '../client/client';
+import { CLIENT_VERSION } from '../connections/version-skew';
 import { CLIENT_DEFAULTS, decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { alpha, effectiveMode, fontStack, palette, themeRoles } from './settings-appearance';
 import type { CustomTheme } from './settings-themes';
@@ -73,10 +74,10 @@ export function look(client: T3Client): Look {
     terminalLight: terminalTheme(prefs.themeLight, 'light', custom), terminalDark: terminalTheme(prefs.themeDark, 'dark', custom),
     terminalFont: prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode,
     terminalSize: prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode,
-    terminalFace: terminalFace(prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode, prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode),
+    terminalFace: terminalFace(prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode, prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode, prefs.fontSmoothing),
     canvas: pal.canvas, sidebar: pal.sidebar, sidebarBorder: pal.sidebarBorder, sidebarText: pal.sidebarText, sidebarMuted: pal.sidebarMuted, rowActive: pal.rowActive,
     message: messageSurface(prefs, custom, mode), wizardSteps: half(background, '#ffffff0a'), wizardPanel: half(alpha(background, 0.8), '#ffffff05'), surface: pal.surface, popover: pal.popover, border: pal.border, input: pal.input, text: pal.text, muted: pal.muted, accent: pal.accent, accentText: pal.accentText,
-    diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: chatMaxWidth(prefs.chatWidth, rootFontSize), artwork: prefs.environmentIdentificationMode === 'artwork', pill: prefs.environmentIdentificationMode === 'pill' ? 'Nightly' : '',
+    diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: chatMaxWidth(prefs.chatWidth, rootFontSize), ...environmentIdentification(client.preferencesLoaded, prefs, mode),
     diffAdd: diff.add, diffDel: diff.del, diffAddSurface: diff.addSurface, diffDelSurface: diff.delSurface, diffAddLine: diff.addLine, diffDelLine: diff.delLine,
     fontSans: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', fontSize: rootFontSize, promptSize: clampPromptFontSize(prefs.fontSizePrompt), promptFont: fontStack(prefs.fontFamilyComposer.trim() ? prefs.fontFamilyComposer : prefs.fontFamilySans, false), codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace',
     codeSize: prefs.fontSizeCode, wordWrap: prefs.wordWrap, math: prefs.mathRenderingEnabled, smoothing: prefs.fontSmoothing, panelMs: prefs.panelAnimationDurationMs,
@@ -86,14 +87,51 @@ export function look(client: T3Client): Look {
   };
 }
 
+/**
+ * The app's stage label (DesktopEnvironment.ts resolveDesktopAppStageLabel at 6d450a4284): Nightly for a nightly or
+ * preview version, else Beta. This app has no Dev build, and its stage follows CLIENT_VERSION alone: the reference's
+ * useEnvironmentStageLabel also reads Nightly from a nightly primary server, and This machine runs this app's release.
+ */
+export const appStageLabel = (version: string = CLIENT_VERSION) => /^[^-+]+-(?:nightly|preview)\.\d{8}\.\d+$/.test(version) ? 'Nightly' : 'Beta';
+/** resolveSidebarStageBackdropVariant (SidebarStageBackdrop.tsx) in the "artwork" mode: the stage's art, none on a stable app. */
+export function stageBackdropVariant(stageLabel: string): 'nightly' | 'dev' | null {
+  const normalized = stageLabel.trim().toLowerCase();
+  return normalized === 'nightly' ? 'nightly' : normalized === 'dev' ? 'dev' : null;
+}
+/** resolveEnvironmentIdentificationPillLabel (SidebarStageBackdrop.tsx). */
+export function identificationPillLabel(stageLabel: string): string {
+  const normalized = stageLabel.trim().toLowerCase();
+  return normalized === 'dev' ? 'Dev' : normalized === 'nightly' ? 'Nightly' : '';
+}
+
+/** The built-in palettes that keep the sidebar's artwork (themePalettes.ts `sidebarArtwork: true`). */
+const ARTWORK_THEMES = new Set(['t3-chat', 'grove', 'ocean', 'ember', 'iris']);
+/**
+ * resolveEnvironmentIdentificationMode (hooks/useSettings.ts at 6d450a4284): nothing until the preferences load; the
+ * pill, not the artwork, while a palette without artwork is the active half (a custom or an environment's theme, or the
+ * theme editor's draft, which paintOf puts on its half). The stock theme has no palette of its own and keeps the mode.
+ * Under System the half is the window's, which this module cannot read: either half that has no artwork shows the pill.
+ * The art and the pill are the stage's (SidebarChromeHeader): a stable app shows neither. Only the Nightly art is drawn.
+ */
+export function environmentIdentification(loaded: boolean, prefs: ClientPrefs, mode: string, stageLabel = appStageLabel()): { artwork: boolean; pill: string } {
+  if (!loaded) return { artwork: false, pill: '' };
+  const withoutArtwork = (id: string) => id !== 't3-code' && !ARTWORK_THEMES.has(id);
+  const halves = mode === 'light' ? [prefs.themeLight] : mode === 'dark' ? [prefs.themeDark] : [prefs.themeLight, prefs.themeDark];
+  const chosen = prefs.environmentIdentificationMode, shown = chosen === 'artwork' && halves.some(withoutArtwork) ? 'pill' : chosen;
+  return { artwork: shown === 'artwork' && stageBackdropVariant(stageLabel) === 'nightly', pill: shown === 'pill' ? identificationPillLabel(stageLabel) : '' };
+}
+
 /** devicePresentation's appearance mode: the window draws in the mode `look` resolves (T3WindowChrome.setAppearance), the theme editor's draft's included. */
 export function windowAppearanceMode(client: T3Client): string {
   return paintOf(client).mode;
 }
 
-/** bg-message (--message-surface): the theme's messageSurface role; the stock theme keeps --accent. */
+/**
+ * bg-message (--message-surface): the theme's messageSurface role. The stock theme's is index.css's own token
+ * (7df7cb9999): light zinc-200 55% over zinc-100, dark neutral-950 92% over white.
+ */
 function messageSurface(prefs: ClientPrefs, custom: CustomTheme[], mode: string): string {
-  const half = (id: string, appearance: 'light' | 'dark') => id === 't3-code' ? (appearance === 'light' ? '#f4f4f5' : '#ffffff0a') : themeRoles(id, appearance, custom).messageSurface;
+  const half = (id: string, appearance: 'light' | 'dark') => id === 't3-code' ? (appearance === 'light' ? '#ebebed' : '#1e1e1e') : themeRoles(id, appearance, custom).messageSurface;
   const light = half(prefs.themeLight, 'light'), dark = half(prefs.themeDark, 'dark');
   return mode === 'light' ? light : mode === 'dark' ? dark : `light-dark(${light}, ${dark})`;
 }
@@ -130,9 +168,12 @@ const TERMINAL_PALETTES: Record<string, readonly [string, string]> = {
   iris: ['#f8f7f9 #241523 #7253b9 #e0d9ee', '#1d1929 #fffaff #9d7df2 #4a3c70'],
 };
 /** JSON for the native terminal bridge; custom/editor roles override the standard palette. */
-/** The terminal page's font (terminal-frame.contract `font`): the family and size as JSON, an empty family the page's default. */
-export function terminalFace(family: string, size: number): string {
-  return JSON.stringify({ ...(family.trim() ? { family } : {}), ...(Number.isFinite(size) ? { size } : {}) });
+/**
+ * The terminal page's font (terminal-frame.contract `font`) as JSON: the family, an empty one the page's default, the
+ * size, and Font smoothing, which the page's root follows as the reference's root does (`-webkit-font-smoothing`).
+ */
+export function terminalFace(family: string, size: number, smoothing: boolean): string {
+  return JSON.stringify({ ...(family.trim() ? { family } : {}), ...(Number.isFinite(size) ? { size } : {}), smoothing });
 }
 
 export function terminalTheme(id: string, mode: 'light' | 'dark', custom: CustomTheme[]): string {

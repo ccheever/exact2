@@ -64,7 +64,7 @@ export async function deviceScopedCommand(client: T3Client, native: Native, scop
   const results = await Promise.allSettled(scope.selected.map(async environment => {
     if (environment.connection.phase !== 'connected' || !environment.serverConfig) throw new Error('Environment disconnected');
     await deviceRequest(client, native, environment, 'device.configure', input);
-    const settings = await deviceRequest(client, native, environment, 'server.getSettings', {});
+    const settings = obj((await deviceRequest(client, native, environment, 'server.getConfig', {})).settings);
     if (!environment.fleetKey) client.config = { ...client.config, settings };
   }));
   const failed = scope.selected.filter((_, index) => results[index]?.status !== 'fulfilled');

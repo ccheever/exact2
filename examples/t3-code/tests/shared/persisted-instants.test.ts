@@ -165,7 +165,7 @@ describe('the sidebar writers (sidebar-state wall time → snoozedUntil on the s
       install();
       const dispatched: Obj[] = [];
       const client = sidebarClient(dispatched);
-      await sidebarCommand(client, handle, {} as Files, 'snooze:hour', 'a', '', AT);
+      await sidebarCommand(client, handle, {} as Files, 'snooze:after:60', 'a', '', AT);
       expect(dispatched.map(payload => payload.type)).toEqual(['thread.snooze']);
       expect(dispatched[0]!.snoozedUntil).toBe(iso(AT + 3_600_000));
       expect(wall(client)).toBeGreaterThan(EPOCH_FLOOR);
@@ -175,7 +175,7 @@ describe('the sidebar writers (sidebar-state wall time → snoozedUntil on the s
     SHAPES[0]![1]();
     const dispatched: Obj[] = [];
     const client = sidebarClient(dispatched);
-    await sidebarCommand(client, handle, {} as Files, 'snooze:hour', 'a', '', 97_000);
+    await sidebarCommand(client, handle, {} as Files, 'snooze:after:60', 'a', '', 97_000);
     expect(dispatched).toEqual([]);
     expect(wall(client)).toBe(0);
   });

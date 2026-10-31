@@ -85,6 +85,10 @@ describe('composer source chips and active triggers', () => {
     expect(composerTrigger('see #1234', 9)).toMatchObject({ kind: 'pull-request', query: '1234' });
     expect(composerTrigger('$de', 3)).toMatchObject({ kind: 'skill', query: 'de' });
     const code = '```\n@src/x\n```';
+    // isCurrencyAmountQuery (composerTrigger.test.ts): an amount is money, not a skill.
+    for (const text of ['It costs $5', 'budget $9.99', 'only $.99', 'about €20', 'raise $10k', '$1,000', '£2e6', 'raise $10k.', 'is it $5?', '(about $9.99)'])
+      expect(composerTrigger(text, text.length)).toBeNull();
+    for (const text of ['$', '$1password', '$2fa']) expect(composerTrigger(text, text.length)).toMatchObject({ kind: 'skill', query: text.slice(1) });
     expect(composerTrigger(code, 10)).toBeNull();
     expect(composerTrigger('[x.ts](src/x.ts) ', 8)).toBeNull();
   });

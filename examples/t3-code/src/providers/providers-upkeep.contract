@@ -158,7 +158,7 @@ component UpkeepSpinner
     color: string
   view
     box width=`${size / 16}rem` height=`${size / 16}rem` display="flex" flex-shrink=0 animation=(still ? "none" : "upkeepSpin 1s linear infinite") aria-hidden=true
-      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
         path d="M21 12a9 9 0 1 1-6.219-8.56"
 
 // Button xs, variant outline or ghost-muted: 24pt, text-xs medium.
@@ -173,8 +173,8 @@ component UpkeepButton
   action hover(inside: bool)
     over = inside
   view
-    button press=press hover=hover disabled=disabled id=testId testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(outline ? "light-dark(#d4d4d8, #ffffff14)" : "#00000000") flex-shrink=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.25rem" background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0f)" : outline ? "light-dark(#ffffff, #ffffff08)" : "#00000000")
-      text label font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color=(outline ? "light-dark(#27272a, #f5f5f5)" : (over and not disabled ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+    button press=press hover=hover disabled=disabled id=testId testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(outline ? "light-dark(#d4d4d8, #ffffff1c)" : "#00000000") flex-shrink=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.25rem" background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0f)" : outline ? "light-dark(#ffffff, #ffffff08)" : "#00000000") data-focus-stop=(disabled ? "" : "enabled page")
+      text label font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color=(outline ? "light-dark(#18181b, #f5f5f5)" : (over and not disabled ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"))
 
 // ui/select: a trigger (`height` sm 28pt, xs/compact 24pt) and its listbox popup, each option checked when selected.
 // `area` is the caller's SelectPopup placement: "bottom span-right" (align="start") or "bottom span-left" (align="end")
@@ -195,11 +195,11 @@ component UpkeepSelect
     focus(selectId)
   view
     box position="relative" flex-shrink=0
-      button popovertarget=`${selectId}-menu` role="combobox" aria-label=label aria-haspopup="listbox" disabled=disabled id=selectId testId=selectId display="flex" flex-direction="row" align-items="center" gap="0.25rem" width=width height=(small ? "1.5rem" : "1.75rem") padding-left=(small ? "0.4375rem" : "0.5625rem") padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(disabled ? 0.64 : 1)
-        text valueLabel font-size=(small ? "0.75rem" : "0.875rem") line-height="1rem" flex=1 min-width=0 line-clamp=1 text-align="left" color="light-dark(#27272a, #f5f5f5)"
-        CnGlyph(name="chevron-down", size=12, color="light-dark(#71717b, #818181)")
+      button popovertarget=`${selectId}-menu` role="combobox" aria-label=label aria-haspopup="listbox" disabled=disabled id=selectId testId=selectId display="flex" flex-direction="row" align-items="center" gap="0.25rem" width=width height=(small ? "1.5rem" : "1.75rem") padding-left=(small ? "0.4375rem" : "0.5625rem") padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(disabled ? 0.64 : 1) data-focus-stop=(disabled ? "" : "enabled page")
+        text valueLabel font-size=(small ? "0.75rem" : "0.875rem") line-height="1rem" flex=1 min-width=0 line-clamp=1 text-align="left" color="light-dark(#18181b, #f5f5f5)"
+        CnGlyph(name="chevron-down", size=14, color="light-dark(#71717b, #a1a1a1)")
       column id=`${selectId}-menu` popover="auto" position-area=area position-try-fallbacks=(area == "none" ? "none" : "flip-block, flip-inline, flip-block flip-inline") position="absolute" margin-top="0.25rem" min-width=width
-        column padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff2, #171717f2)" backdrop-filter="blur(12px)" box-shadow="0 16px 40px -18px #0000008c" role="listbox" aria-modal=true aria-label=label testId=`${selectId}-menu`
+        column padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff2, #171717f2)" backdrop-filter="blur(12px)" box-shadow="0 16px 40px -18px #0000008c" role="listbox" aria-modal=true aria-label=label testId=`${selectId}-menu`
           button press=dismiss popovertarget=`${selectId}-menu` popovertargetaction="hide" aria-keyshortcuts="Escape" aria-label="Close" tabindex=-1 position="absolute" left=0 top=0 width=0 height=0 padding=0 border-width=0 overflow="hidden" background-color="#00000000" title=""
           for option in options key=option.value
             UpkeepSelectOption(option=option, menuId=`${selectId}-menu`, testId=`${selectId}-option-${option.value}`, choose=choose(option.value))
@@ -214,14 +214,14 @@ component UpkeepSelectOption
   action hover(inside: bool)
     over = inside
   view
-    button press=choose popovertarget=menuId popovertargetaction="hide" hover=hover role="option" aria-selected=option.selected testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button press=choose popovertarget=menuId popovertargetaction="hide" hover=hover role="option" aria-selected=option.selected testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       row flex=1 min-width=0 gap="0.5rem" align-items="baseline"
-        text option.label font-family=(option.note != "" ? "ui-monospace" : "system-ui") font-size=(option.note != "" ? "0.75rem" : "0.875rem") line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+        text option.label font-family=(option.note != "" ? "Menlo, Consolas, \"Liberation Mono\", monospace" : "system-ui") font-size=(option.note != "" ? "0.75rem" : "0.875rem") line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap"
         if option.note != ""
-          text option.note font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" white-space="nowrap"
+          text option.note font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" white-space="nowrap"
       box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
         if option.selected
-          CnGlyph(name="check", size=14, color="light-dark(#27272a, #f5f5f5)")
+          CnGlyph(name="check", size=14, color="light-dark(#18181b, #f5f5f5)")
 
 // versionAdvisoryNode: the advisory icon (icon-micro in a list row, icon-xs in the editor) with
 // its tooltip, and the details popover below it, end-aligned (side="bottom" align="end", w-80).
@@ -252,39 +252,39 @@ component ProviderVersionAdvisory
   derive list = advisory.mode == "list"
   view
     box position="relative" flex-shrink=0 pointer-events="auto" hover=hover
-      button press=pressed popovertarget=advisory.popId aria-label=advisory.label aria-haspopup="dialog" id=`${advisory.popId}-trigger` testId=`provider-advisory-${advisory.mode}-${advisory.instanceId}` class=(list ? PvMicro : PvIconButton) background-color=(over ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") title=""
+      button press=pressed popovertarget=advisory.popId aria-label=advisory.label aria-haspopup="dialog" id=`${advisory.popId}-trigger` testId=`provider-advisory-${advisory.mode}-${advisory.instanceId}` class=(list ? PvMicro : PvIconButton) background-color=(over ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") title="" data-focus-stop="enabled page"
         if advisory.updating
-          UpkeepSpinner(size=(list ? 14 : 16), color="light-dark(#71717b, #818181)")
+          UpkeepSpinner(size=(list ? 14 : 16), color="light-dark(#71717b, #a1a1a1)")
         else
-          PvIcon(name=(advisory.warning ? "warning" : "update"), size=(list ? 14 : 16), color=(advisory.warning ? "#fe9a00" : (over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")))
+          PvIcon(name=(advisory.warning ? "warning" : "update"), size=(list ? 14 : 16), color=(advisory.warning ? "#fe9a00" : (over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")))
       // side="bottom" align="end": the popup's right edge meets the trigger's, 4 pt below, flipping near an edge.
       column id=advisory.popId popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" position-area="bottom span-left" margin-top="0.25rem" width="20rem"
         // Modal while open, so Escape closes it (and returns to the icon) instead of reaching Settings' Back.
-        column width="100%" padding="1rem" gap="0.75rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff2, #171717f2)" backdrop-filter="blur(12px)" box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-modal=true aria-label=advisory.title testId=`${advisory.popId}-popover`
+        column width="100%" padding="1rem" gap="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff2, #171717f2)" backdrop-filter="blur(12px)" box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-modal=true aria-label=advisory.title testId=`${advisory.popId}-popover`
           button press=dismiss popovertarget=advisory.popId popovertargetaction="hide" aria-keyshortcuts="Escape" aria-label="Close" tabindex=-1 position="absolute" left=0 top=0 width=0 height=0 padding=0 border-width=0 overflow="hidden" background-color="#00000000" testId=`${advisory.popId}-escape` title=""
           column gap="0.125rem" min-width=0
-            text advisory.title font-size="0.875rem" line-height="1.09375rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" testId=`${advisory.popId}-title`
-            text advisory.detail font-size="0.75rem" line-height="1.03125rem" overflow-wrap="anywhere" color=(advisory.strong ? "light-dark(#e17100, #fdb022)" : "light-dark(#71717b, #818181)") testId=`${advisory.popId}-detail`
+            text advisory.title font-size="0.875rem" line-height="1.09375rem" font-weight=600 color="light-dark(#18181b, #f5f5f5)" testId=`${advisory.popId}-title`
+            text advisory.detail font-size="0.75rem" line-height="1.03125rem" overflow-wrap="anywhere" color=(advisory.strong ? "light-dark(#e17100, #fdb022)" : "light-dark(#71717b, #a1a1a1)") testId=`${advisory.popId}-detail`
           if advisory.action != ""
-            button press=op("upkeep:update", advisory.instanceId, "", advisory.target, true) class=PvOutline width="100%" height="1.5rem" font-size="0.75rem" disabled=advisory.updating opacity=(advisory.updating ? 0.64 : 1) testId=`${advisory.popId}-action`
+            button press=op("upkeep:update", advisory.instanceId, "", advisory.target, true) class=PvOutline width="100%" height="1.5rem" font-size="0.75rem" disabled=advisory.updating opacity=(advisory.updating ? 0.64 : 1) testId=`${advisory.popId}-action` id=`${advisory.popId}-action` data-focus-stop=(advisory.updating ? "" : "enabled page")
               if advisory.updating
-                UpkeepSpinner(size=14, color="light-dark(#27272a, #f5f5f5)")
+                UpkeepSpinner(size=14, color="light-dark(#18181b, #f5f5f5)")
               else
-                PvIcon(name="download", size=14, color="light-dark(#27272a, #f5f5f5)")
-              text advisory.action font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                PvIcon(name="download", size=14, color="light-dark(#18181b, #f5f5f5)")
+              text advisory.action font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
           if advisory.progress != "" or advisory.problem != ""
-            text (advisory.progress != "" ? advisory.progress : advisory.problem) aria-live="polite" font-size="0.75rem" line-height="1rem" color=(advisory.problem != "" ? "light-dark(#e17100, #fdb022)" : "light-dark(#71717b, #818181)") testId=`${advisory.popId}-progress`
+            text (advisory.progress != "" ? advisory.progress : advisory.problem) aria-live="polite" font-size="0.75rem" line-height="1rem" color=(advisory.problem != "" ? "light-dark(#e17100, #fdb022)" : "light-dark(#71717b, #a1a1a1)") testId=`${advisory.popId}-progress`
           if advisory.divider
             row width="100%" gap="0.5rem" align-items="center"
               box flex=1 height=1 background-color="light-dark(#e4e4e7, #ffffff14)" aria-hidden=true
-              text "or, update manually using" text-transform="uppercase" letter-spacing=0.05 font-size="0.5625rem" line-height="0.75rem" font-weight=500 color="light-dark(#71717b, #818181)"
+              text "or, update manually using" text-transform="uppercase" letter-spacing=0.05 font-size="0.5625rem" line-height="0.75rem" font-weight=500 color="light-dark(#71717b, #a1a1a1)"
               box flex=1 height=1 background-color="light-dark(#e4e4e7, #ffffff14)" aria-hidden=true
           if advisory.command != ""
             row width="100%" min-width=0 gap="0.25rem" align-items="center" padding-top="0.125rem" padding-bottom="0.125rem" padding-right="0.125rem" padding-left="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#f4f4f566, #ffffff0a)"
-              text advisory.command font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" flex=1 min-width=0 line-clamp=1 color="light-dark(#27272a, #f5f5f5)" testId=`${advisory.popId}-command`
+              text advisory.command font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" flex=1 min-width=0 line-clamp=1 color="light-dark(#18181b, #f5f5f5)" testId=`${advisory.popId}-command`
               box position="relative" flex-shrink=0 hover=copyHover
-                button press=op("upkeep:copy-command", advisory.instanceId, "", "", true) class=PvIconButton aria-label="Copy update command" testId=`${advisory.popId}-copy` title=""
-                  PvIcon(name="copy", size=12, color="light-dark(#71717b, #818181)")
+                button press=op("upkeep:copy-command", advisory.instanceId, "", "", true) class=PvIconButton aria-label="Copy update command" testId=`${advisory.popId}-copy` title="" id=`${advisory.popId}-copy` data-focus-stop="enabled page"
+                  PvIcon(name="copy", size=12, color="light-dark(#71717b, #a1a1a1)")
                 if copyOver
                   CnTooltip(tip="Copy command", tipId=`${advisory.popId}-copy-tip`, above=28)
 
@@ -298,8 +298,8 @@ component ProviderUpdatesAllButton
     over = inside
   view
     box position="relative" flex-shrink=0 hover=hover
-      button press=op("upkeep:update-all", "", "", "", true) class=PvGhost disabled=updateAll.pending opacity=(updateAll.pending ? 0.64 : 1) background-color=(over and not updateAll.pending ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") testId="providers-update-all"
-        text updateAll.label font-size="0.75rem" line-height="1rem" font-weight=500 color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+      button press=op("upkeep:update-all", "", "", "", true) class=PvGhost disabled=updateAll.pending opacity=(updateAll.pending ? 0.64 : 1) background-color=(over and not updateAll.pending ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") testId="providers-update-all" id="providers-update-all" data-focus-stop=(updateAll.pending ? "" : "enabled page")
+        text updateAll.label font-size="0.75rem" line-height="1rem" font-weight=500 color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
       if over and updateAll.tip != ""
         CnTooltip(tip=updateAll.tip, tipId="providers-update-all-tip", above=28)
 
@@ -311,11 +311,11 @@ component ProviderUrlAuth
     op: action
   view
     column max-width="36rem" gap="0.375rem" padding-top="0.25rem" testId=`provider-url-auth-${instanceId}`
-      text auth.message font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-      text auth.url font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)" testId=`provider-url-auth-url-${instanceId}`
-      button press=op("upkeep:acp-url-auth", instanceId, auth.elicitationId, auth.url, true) role="link" class=PvOutline height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" align-self="flex-start" testId=`provider-url-auth-continue-${instanceId}`
-        PvIcon(name="external", size=14, color="light-dark(#27272a, #f5f5f5)")
-        text "Continue authentication" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+      text auth.message font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+      text auth.url font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" overflow-wrap="anywhere" color="light-dark(#71717b, #a1a1a1)" testId=`provider-url-auth-url-${instanceId}`
+      button press=op("upkeep:acp-url-auth", instanceId, auth.elicitationId, auth.url, true) role="link" class=PvOutline height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" align-self="flex-start" testId=`provider-url-auth-continue-${instanceId}` id=`provider-url-auth-continue-${instanceId}` data-focus-stop="enabled page"
+        PvIcon(name="external", size=14, color="light-dark(#18181b, #f5f5f5)")
+        text "Continue authentication" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
 
 // AcpSessionManagementSection: Native sessions (Log out, the project, List sessions, the
 // sessions with Import and Delete, Load more) and Agent providers (protocol, base URL,
@@ -329,25 +329,25 @@ component AcpManagement
   action pickProject(value: string)
     op("upkeep:acp-project", acp.instanceId, "", value, true)
   view
-    column width="100%" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId=`acp-management-${acp.instanceId}`
+    column width="100%" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff0a)" testId=`acp-management-${acp.instanceId}`
       PvRow(title="Native sessions", description="Resume agent-owned conversations as T3 threads.", status=acp.status, policy="", wide=wide, divided=false)
         row gap="0.5rem" align-items="center" flex-wrap="wrap" justify-content=(wide ? "flex-end" : "flex-start")
           if acp.canLogout
-            button press=op("upkeep:acp-logout", acp.instanceId, "", "", true) class=PvOutline disabled=acp.logoutDisabled opacity=(acp.logoutDisabled ? 0.64 : 1) testId=`acp-logout-${acp.instanceId}`
-              text acp.logoutLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            button press=op("upkeep:acp-logout", acp.instanceId, "", "", true) class=PvOutline disabled=acp.logoutDisabled opacity=(acp.logoutDisabled ? 0.64 : 1) testId=`acp-logout-${acp.instanceId}` id=`acp-logout-${acp.instanceId}` data-focus-stop=(acp.logoutDisabled ? "" : "enabled page")
+              text acp.logoutLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
           if acp.showPicker
             UpkeepSelect(selectId=`acp-project-${acp.instanceId}`, label="Project for ACP sessions", valueLabel=acp.projectTitle, width="10rem", small=false, disabled=acp.pickerDisabled, options=acp.projects, area="none", choose=pickProject)
-            button press=op("upkeep:acp-list", acp.instanceId, "", "", true) class=PvOutline disabled=acp.listDisabled opacity=(acp.listDisabled ? 0.64 : 1) testId=`acp-list-${acp.instanceId}`
-              text acp.listLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            button press=op("upkeep:acp-list", acp.instanceId, "", "", true) class=PvOutline disabled=acp.listDisabled opacity=(acp.listDisabled ? 0.64 : 1) testId=`acp-list-${acp.instanceId}` id=`acp-list-${acp.instanceId}` data-focus-stop=(acp.listDisabled ? "" : "enabled page")
+              text acp.listLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
       if acp.showList
         column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-bottom="0.75rem" gap="0.75rem"
           if acp.sessions.length > 0
-            column width="100%" border-top-style="solid" border-bottom-style="solid" border-top-width=1 border-bottom-width=1 border-color="light-dark(#e4e4e799, #ffffff0f)" testId=`acp-sessions-${acp.instanceId}`
+            column width="100%" border-top-style="solid" border-bottom-style="solid" border-top-width=1 border-bottom-width=1 border-color="light-dark(#e4e4e799, #ffffff14)" testId=`acp-sessions-${acp.instanceId}`
               for session in acp.sessions key=session.key
-                row width="100%" min-width=0 gap="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" align-items="center" justify-content="space-between" border-top-style="solid" border-top-width=(session.first ? 0 : 1) border-color="light-dark(#e4e4e799, #ffffff0f)" testId=`acp-session-${session.sessionId}`
+                row width="100%" min-width=0 gap="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" align-items="center" justify-content="space-between" border-top-style="solid" border-top-width=(session.first ? 0 : 1) border-color="light-dark(#e4e4e799, #ffffff14)" testId=`acp-session-${session.sessionId}`
                   column min-width=0 flex-shrink=1
-                    text session.title font-size="0.75rem" line-height="1rem" line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
-                    text session.sessionId font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" line-clamp=1 color="light-dark(#71717b, #818181)"
+                    text session.title font-size="0.75rem" line-height="1rem" line-clamp=1 color="light-dark(#18181b, #f5f5f5)"
+                    text session.sessionId font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.625rem" line-height="0.875rem" line-clamp=1 color="light-dark(#71717b, #a1a1a1)"
                   row flex-shrink=0 gap="0.25rem" align-items="center"
                     UpkeepButton(label=session.importLabel, outline=false, disabled=session.importDisabled, press=op("upkeep:acp-import", acp.instanceId, session.sessionId, "", true), testId=`acp-import-${session.sessionId}`)
                     if session.canDelete
@@ -356,16 +356,16 @@ component AcpManagement
             row width="100%"
               UpkeepButton(label=acp.moreLabel, outline=false, disabled=acp.moreDisabled, press=op("upkeep:acp-more", acp.instanceId, "", "", true), testId=`acp-more-${acp.instanceId}`)
       if acp.canConfigure
-        column width="100%" box-sizing="border-box" padding="0.75rem" padding-left="1rem" padding-right="1rem" gap="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e799, #ffffff0f)" testId=`acp-providers-${acp.instanceId}`
+        column width="100%" box-sizing="border-box" padding="0.75rem" padding-left="1rem" padding-right="1rem" gap="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e799, #ffffff14)" testId=`acp-providers-${acp.instanceId}`
           row width="100%" gap="0.5rem" align-items="center" justify-content="space-between" flex-wrap="wrap"
             column min-width=0
-              text "Agent providers" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=4
-              text "Configure non-secret routing. Headers are write-only." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+              text "Agent providers" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=4
+              text "Configure non-secret routing. Headers are write-only." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
             UpkeepButton(label=acp.providersLabel, outline=true, disabled=acp.providersDisabled, press=op("upkeep:acp-providers", acp.instanceId, "", "", true), testId=`acp-list-providers-${acp.instanceId}`)
           if acp.showProviderPicker
             UpkeepSelect(selectId=`acp-provider-project-${acp.instanceId}`, label="Project for ACP providers", valueLabel=acp.projectTitle, width="12rem", small=true, disabled=acp.pickerDisabled, options=acp.projects, area="none", choose=pickProject)
           if acp.providers.length > 0
-            column width="100%" border-top-style="solid" border-bottom-style="solid" border-top-width=1 border-bottom-width=1 border-color="light-dark(#e4e4e799, #ffffff0f)"
+            column width="100%" border-top-style="solid" border-bottom-style="solid" border-top-width=1 border-bottom-width=1 border-color="light-dark(#e4e4e799, #ffffff14)"
               for provider in acp.providers key=provider.key
                 AcpProviderEditor(provider=provider, instanceId=acp.instanceId, wide=wide, op=op, ui=ui)
 
@@ -392,19 +392,19 @@ component AcpProviderEditor
   action pickProtocol(value: string)
     op("upkeep:acp-draft-api", instanceId, provider.providerId, value, true)
   view
-    column width="100%" gap="0.5rem" padding-top="0.75rem" padding-bottom="0.75rem" border-top-style="solid" border-top-width=(provider.first ? 0 : 1) border-color="light-dark(#e4e4e799, #ffffff0f)" testId=`acp-provider-${provider.providerId}`
+    column width="100%" gap="0.5rem" padding-top="0.75rem" padding-bottom="0.75rem" border-top-style="solid" border-top-width=(provider.first ? 0 : 1) border-color="light-dark(#e4e4e799, #ffffff14)" testId=`acp-provider-${provider.providerId}`
       row width="100%" gap="0.5rem" align-items="center" justify-content="space-between"
         column min-width=0
-          text provider.providerId font-size="0.75rem" line-height="1rem" font-weight=500 line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
-          text provider.status font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b, #818181)"
+          text provider.providerId font-size="0.75rem" line-height="1rem" font-weight=500 line-clamp=1 color="light-dark(#18181b, #f5f5f5)"
+          text provider.status font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b, #a1a1a1)"
         row gap="0.25rem" align-items="center"
           UpkeepButton(label=provider.saveLabel, outline=true, disabled=provider.saveDisabled, press=op("upkeep:acp-save", instanceId, provider.providerId, "", true), testId=`acp-provider-save-${provider.providerId}`)
           if provider.showDisable
             UpkeepButton(label="Disable", outline=false, disabled=provider.disableDisabled, press=ui("acp-disable", provider.confirmKey), testId=`acp-provider-disable-${provider.providerId}`)
       row width="100%" gap="0.5rem" flex-direction=(wide ? "row" : "column") align-items=(wide ? "center" : "stretch")
         UpkeepSelect(selectId=`acp-provider-protocol-${provider.providerId}`, label=`${provider.providerId} protocol`, valueLabel=provider.apiType, width="9rem", small=false, disabled=provider.fieldsDisabled, options=provider.protocols, area="none", choose=pickProtocol)
-        input value=(urlEdited ? url : provider.baseUrl) input=editUrl type="url" placeholder="https://api.example.com" aria-label=`${provider.providerId} base URL` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 disabled=provider.fieldsDisabled testId=`acp-provider-url-${provider.providerId}` id=`field-acp-provider-url-${provider.providerId}` data-editable="yes"
-      input value=(headersEdited ? headers : provider.headers) input=editHeaders type="password" autocomplete="off" placeholder="Write-only headers JSON, e.g. {\"Authorization\":\"Bearer …\"}" aria-label=`${provider.providerId} write-only headers JSON` class=PvField width="100%" min-width=0 disabled=provider.fieldsDisabled testId=`acp-provider-headers-${provider.providerId}` autocorrect="off" id=`field-acp-provider-headers-${provider.providerId}` data-editable="yes"
+        input value=(urlEdited ? url : provider.baseUrl) input=editUrl type="url" placeholder="https://api.example.com" aria-label=`${provider.providerId} base URL` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 disabled=provider.fieldsDisabled testId=`acp-provider-url-${provider.providerId}` id=`field-acp-provider-url-${provider.providerId}` data-editable="yes" data-focus-stop=(provider.fieldsDisabled ? "" : "enabled page")
+      input value=(headersEdited ? headers : provider.headers) input=editHeaders type="password" autocomplete="off" placeholder="Write-only headers JSON, e.g. {\"Authorization\":\"Bearer …\"}" aria-label=`${provider.providerId} write-only headers JSON` class=PvField width="100%" min-width=0 disabled=provider.fieldsDisabled testId=`acp-provider-headers-${provider.providerId}` autocorrect="off" id=`field-acp-provider-headers-${provider.providerId}` data-editable="yes" data-focus-stop=(provider.fieldsDisabled ? "" : "enabled page")
 
 // The ACP Delete and Disable confirmations (dialogs.confirm, variant destructive): the
 // question is the title; Cancel and Escape send nothing and return focus to the button.
@@ -443,33 +443,33 @@ component CustomModelEditor
   view
     column margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.5rem" gap="0.75rem" padding="0.75rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#f4f4f533, #ffffff05)" testId=`custom-model-editor-${editor.slug}`
       column gap="0.25rem"
-        text "Display name" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+        text "Display name" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
         DialogOpenFocus(target=`custom-model-name-${editor.slug}`)
-        input id=`custom-model-name-${editor.slug}` value=(nameEdited ? name : editor.name) input=editName placeholder=editor.slug aria-label="Display name" autofocus=true spellcheck="false" autocorrect="off" class=PvField width="18rem" max-width="100%" testId=`custom-model-name-${editor.slug}` data-editable="yes"
+        input id=`custom-model-name-${editor.slug}` value=(nameEdited ? name : editor.name) input=editName placeholder=editor.slug aria-label="Display name" autofocus=true spellcheck="false" autocorrect="off" class=PvField width="18rem" max-width="100%" testId=`custom-model-name-${editor.slug}` data-editable="yes" data-focus-stop="enabled page"
       column gap="0.5rem"
         row width="100%" gap="0.5rem" align-items="center" justify-content="space-between" flex-wrap="wrap"
-          text "Options shown in the composer" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+          text "Options shown in the composer" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
           if editor.copyFrom.length > 0
             UpkeepSelect(selectId=`custom-model-copy-${editor.slug}`, label="Copy options from a built-in model", valueLabel="Copy from…", width="11rem", small=true, disabled=false, options=editor.copyFrom, area="bottom span-left", choose=copyFrom)
         if editor.empty
-          text "No custom options. The composer uses the provider's default options." font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)" testId=`custom-model-empty-${editor.slug}`
+          text "No custom options. The composer uses the provider's default options." font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" testId=`custom-model-empty-${editor.slug}`
         for descriptor in editor.descriptors key=descriptor.key
           CustomModelOption(descriptor=descriptor, instanceId=editor.instanceId, hasPresets=editor.hasPresets, op=op)
         row gap="0.25rem" flex-wrap="wrap"
           for preset in editor.addPresets key=preset.id
-            button press=op("upkeep:cm-add-option", editor.instanceId, preset.id, "", true) class=PvGhost testId=`custom-model-add-${preset.id}`
-              PvIcon(name="plus", size=12, color="light-dark(#71717b, #818181)")
-              text preset.label font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
-          button press=op("upkeep:cm-add-option", editor.instanceId, "", "", true) class=PvGhost testId="custom-model-add-custom"
-            PvIcon(name="plus", size=12, color="light-dark(#71717b, #818181)")
-            text "Custom option" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
+            button press=op("upkeep:cm-add-option", editor.instanceId, preset.id, "", true) class=PvGhost testId=`custom-model-add-${preset.id}` id=`custom-model-add-${preset.id}` data-focus-stop="enabled page"
+              PvIcon(name="plus", size=12, color="light-dark(#71717b, #a1a1a1)")
+              text preset.label font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #a1a1a1)"
+          button press=op("upkeep:cm-add-option", editor.instanceId, "", "", true) class=PvGhost testId="custom-model-add-custom" id="custom-model-add-custom" data-focus-stop="enabled page"
+            PvIcon(name="plus", size=12, color="light-dark(#71717b, #a1a1a1)")
+            text "Custom option" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #a1a1a1)"
       if editor.error != ""
-        text editor.error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="custom-model-error"
+        text editor.error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#fb2c36, #fb414a)" testId="custom-model-error"
       row gap="0.5rem"
-        button press=op("upkeep:cm-save", editor.instanceId, "", "", true) class=PvOutline testId="custom-model-save"
-          text "Save" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-        button press=op("upkeep:cm-cancel", editor.instanceId, "", "", true) class=PvGhost height="1.75rem" aria-keyshortcuts="Escape" testId="custom-model-cancel-edit"
-          text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+        button press=op("upkeep:cm-save", editor.instanceId, "", "", true) class=PvOutline testId="custom-model-save" id="custom-model-save" data-focus-stop="enabled page"
+          text "Save" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+        button press=op("upkeep:cm-cancel", editor.instanceId, "", "", true) class=PvGhost height="1.75rem" aria-keyshortcuts="Escape" testId="custom-model-cancel-edit" id="custom-model-cancel-edit" data-focus-stop="enabled page"
+          text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
 
 // One option of the editor: `Option N`, the id (a preset or Custom…), the label, the type, remove;
 // a choices option lists its values. Typing keeps this row; a preset or type change redraws it.
@@ -496,24 +496,24 @@ component CustomModelOption
   action pickType(value: string)
     op("upkeep:cm-type", instanceId, descriptor.ref, value, true)
   view
-    column gap="0.5rem" padding="0.625rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0f)" background-color="light-dark(#fcfcfc66, #0a0a0a66)" testId=`custom-model-option-${descriptor.index}`
+    column gap="0.5rem" padding="0.625rem" box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff14)" background-color="light-dark(#fcfcfc66, #00000066)" testId=`custom-model-option-${descriptor.index}`
       row gap="0.5rem" align-items="center" flex-wrap="wrap"
-        text descriptor.position width="3.5rem" flex-shrink=0 font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+        text descriptor.position width="3.5rem" flex-shrink=0 font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
         if hasPresets
           UpkeepSelect(selectId=`custom-model-option-id-${descriptor.ref}`, label="Option id", valueLabel=descriptor.idSelectLabel, width="10rem", small=true, disabled=false, options=descriptor.idOptions, area="bottom span-right", choose=pickId)
         if descriptor.customId
-          input value=(idEdited ? id : descriptor.id) input=editId placeholder="optionId" aria-label="Option id" spellcheck="false" autocorrect="off" class=PvField width="9rem" height="1.75rem" font-family="ui-monospace" font-size="0.75rem" testId=`custom-model-option-id-input-${descriptor.index}` id=`field-custom-model-option-id-input-${descriptor.index}` data-editable="yes"
-        input value=(labelEdited ? label : descriptor.label) input=editLabel placeholder="Label" aria-label="Option label" class=PvField flex=1 min-width="6rem" font-size="0.75rem" testId=`custom-model-option-label-${descriptor.index}` autocorrect="off" id=`field-custom-model-option-label-${descriptor.index}` data-editable="yes"
+          input value=(idEdited ? id : descriptor.id) input=editId placeholder="optionId" aria-label="Option id" spellcheck="false" autocorrect="off" class=PvField width="9rem" height="1.75rem" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" testId=`custom-model-option-id-input-${descriptor.index}` id=`field-custom-model-option-id-input-${descriptor.index}` data-editable="yes" data-focus-stop="enabled page"
+        input value=(labelEdited ? label : descriptor.label) input=editLabel placeholder="Label" aria-label="Option label" class=PvField flex=1 min-width="6rem" font-size="0.75rem" testId=`custom-model-option-label-${descriptor.index}` autocorrect="off" id=`field-custom-model-option-label-${descriptor.index}` data-editable="yes" data-focus-stop="enabled page"
         UpkeepSelect(selectId=`custom-model-option-type-${descriptor.ref}`, label="Option type", valueLabel=descriptor.typeLabel, width="6rem", small=true, disabled=false, options=descriptor.typeOptions, area="bottom span-left", choose=pickType)
-        button press=op("upkeep:cm-remove-option", instanceId, descriptor.ref, "", true) class=PvMicro aria-label=`Remove option ${descriptor.index + 1}` testId=`custom-model-remove-option-${descriptor.index}` title=""
-          PvIcon(name="x", size=12, color="light-dark(#71717b, #818181)")
+        button press=op("upkeep:cm-remove-option", instanceId, descriptor.ref, "", true) class=PvMicro aria-label=`Remove option ${descriptor.index + 1}` testId=`custom-model-remove-option-${descriptor.index}` title="" id=`custom-model-remove-option-${descriptor.index}` data-focus-stop="enabled page"
+          PvIcon(name="x", size=12, color="light-dark(#71717b, #a1a1a1)")
       if descriptor.isSelect
         column gap="0.375rem" padding-left="4rem"
           for choice in descriptor.choices key=choice.key
             CustomModelChoice(choice=choice, instanceId=instanceId, op=op)
-          button press=op("upkeep:cm-add-choice", instanceId, descriptor.ref, "", true) class=PvGhost align-self="flex-start" margin-left="-0.5rem" testId=`custom-model-add-choice-${descriptor.index}`
-            PvIcon(name="plus", size=12, color="light-dark(#71717b, #818181)")
-            text "Add choice" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
+          button press=op("upkeep:cm-add-choice", instanceId, descriptor.ref, "", true) class=PvGhost align-self="flex-start" margin-left="-0.5rem" testId=`custom-model-add-choice-${descriptor.index}` id=`custom-model-add-choice-${descriptor.index}` data-focus-stop="enabled page"
+            PvIcon(name="plus", size=12, color="light-dark(#71717b, #a1a1a1)")
+            text "Add choice" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #a1a1a1)"
 
 component CustomModelChoice
   props
@@ -534,11 +534,11 @@ component CustomModelChoice
     op("upkeep:cm-text", instanceId, `c:${choice.ref}:label`, value, true)
   view
     row gap="0.5rem" align-items="center" testId=`custom-model-choice-${choice.ref}`
-      input value=(idEdited ? id : choice.id) input=editId placeholder="value" aria-label="Choice value" spellcheck="false" autocorrect="off" class=PvField width="7rem" font-family="ui-monospace" font-size="0.75rem" id=`field-custom-model-choice-${choice.ref}-value` data-editable="yes"
-      input value=(labelEdited ? label : choice.label) input=editLabel placeholder="Label" aria-label="Choice label" class=PvField flex=1 min-width=0 font-size="0.75rem" autocorrect="off" id=`field-custom-model-choice-${choice.ref}-label` data-editable="yes"
+      input value=(idEdited ? id : choice.id) input=editId placeholder="value" aria-label="Choice value" spellcheck="false" autocorrect="off" class=PvField width="7rem" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" id=`field-custom-model-choice-${choice.ref}-value` data-editable="yes" data-focus-stop="enabled page"
+      input value=(labelEdited ? label : choice.label) input=editLabel placeholder="Label" aria-label="Choice label" class=PvField flex=1 min-width=0 font-size="0.75rem" autocorrect="off" id=`field-custom-model-choice-${choice.ref}-label` data-editable="yes" data-focus-stop="enabled page"
       row gap="0.375rem" align-items="center" flex-shrink=0
-        button press=op("upkeep:cm-default", instanceId, choice.ref, (choice.isDefault ? "false" : "true"), true) role="switch" aria-checked=choice.isDefault aria-label="Default choice" width="1.625rem" height="1rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(choice.isDefault ? "flex-end" : "flex-start") flex-shrink=0 background-color=(choice.isDefault ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
-          box width="0.75rem" height="0.75rem" border-radius="624.9375rem" background-color=(choice.isDefault ? "light-dark(#fcfcfc, #0a0a0a)" : "light-dark(#fcfcfc, #818181)")
-        text "Default" font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b, #818181)"
+        button press=op("upkeep:cm-default", instanceId, choice.ref, (choice.isDefault ? "false" : "true"), true) role="switch" aria-checked=choice.isDefault aria-label="Default choice" width="1.625rem" height="1rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(choice.isDefault ? "flex-end" : "flex-start") flex-shrink=0 background-color=(choice.isDefault ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff1c)") title=""
+          box width="0.75rem" height="0.75rem" border-radius="624.9375rem" background-color=(choice.isDefault ? "light-dark(#fcfcfc, #000000)" : "light-dark(#fcfcfc, #a1a1a1)")
+        text "Default" font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b, #a1a1a1)"
       button press=op("upkeep:cm-remove-choice", instanceId, choice.ref, "", true) class=PvMicro aria-label="Remove choice" title=""
-        PvIcon(name="x", size=12, color="light-dark(#71717b, #818181)")
+        PvIcon(name="x", size=12, color="light-dark(#71717b, #a1a1a1)")

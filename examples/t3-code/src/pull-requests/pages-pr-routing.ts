@@ -1,22 +1,22 @@
 // Pull requests across several servers: which server lists a
 // repository, where a pull request can be acted on, the environments' listings folded into one, and
 // the routing of a pull request read or write through another connected server that shares the
-// same GitHub account. Sources: T3 Code (MIT, see LICENSE-T3) at 1e2ecbd975 —
+// same host account. Sources: T3 Code (MIT, see LICENSE-T3) at 1e2ecbd975 —
 // apps/web/src/components/pullRequest/{pullRequestProjectAssignment.logic,pullRequestList.logic}.ts
 // (assignProjectsToEnvironments, resolvePickableEnvironments, mergePullRequestLists,
 // pullRequestEntryViewer, pullRequestEnvironmentSetKey, resolveProjectScope, findScopedProject,
 // resolveQueryEnvironmentIds, resolveSelectedEnvironmentId), apps/web/src/routes/_chat.pull-requests.tsx
 // (PAGE_SIZE, MAX_PAGE_SIZE), packages/client-runtime/src/connection/githubRoutingPermissions.ts
 // (gitHubRoutingPermissionFor) and packages/client-runtime/src/state/pullRequestRouting.ts
-// (createPullRequestRouter, at 74541bab17).
+// (createPullRequestRouter, at 7c3b3b3605ef).
 //
 // Port changes. The reference router is an Effect over the connection registry; here it is a class
 // over a `PullRequestRouterHost` the caller builds from the focused connection and the background
 // fleet: `environments()` is the registry's entries (read again at every decision, as the reference
 // reads its SubscriptionRef), `request` is `registry.run(id, request(tag, input))`. Effect.cached is a
 // lazily started, memoized promise. Timeouts (30 s reads, 2 s identity probes, 1 s invalidations) are
-// the transport's own per-request deadline (`timeoutSeconds`, the request's `timeout`): a data module
-// has no timer (issues/closed/20261009-typescript-failure-parity.md). Interruption is Exact letting the answer go (`letGo`), which every fallback
+// the transport's own per-request deadline (`timeoutSeconds`, the request's `timeout`). Interruption is Exact letting
+// the answer go (`letGo`), which every fallback
 // rethrows, as the reference re-raises `Cause.hasInterrupts`. The SSH-profile re-check of
 // `routingAllowed` is folded into `permission` by the host: an SSH environment whose saved profile no
 // longer produces the stored connection key reads "off" (routingPermissionFor over the key the
@@ -305,7 +305,7 @@ async function orNull<T>(promise: Promise<T>): Promise<T | null> {
 function identityOf(value: Obj | null): Identity | null {
   if (value === null) return null;
   const accountId = str(value.accountId), host = str(value.host);
-  if (!accountId || !host) return null;
+  if (!accountId || !host || !str(value.provider)) return null;
   return { accountId, host, provider: str(value.provider), ...(typeof value.projectTitle === 'string' ? { projectTitle: value.projectTitle } : {}),
     ...(typeof value.workspaceRoot === 'string' ? { workspaceRoot: value.workspaceRoot } : {}) };
 }
@@ -445,8 +445,8 @@ export class PullRequestRouter {
     }
     if (alternatives.length === 0) return finish(source);
     const identity = identityOf(await orNull(host.request(origin, 'pullRequests.routing', ref, { write: false, timeoutSeconds: PROBE_TIMEOUT })));
-    // Old servers and unknown accounts retain the existing path.
-    if (identity === null || identity.provider !== 'github') return finish(source);
+    // Old servers and unknown accounts retain the existing path; the source server answers only for a host whose account it can verify.
+    if (identity === null) return finish(source);
     const routedInput = { ...input, host: identity.host, expectedAccountId: identity.accountId };
     const guardedSource = sourceRead ?? memo(() => leg(origin, routedInput, { write: uncertain }));
     const sourceLocal = originEntry?.local === true;
@@ -464,9 +464,11 @@ export class PullRequestRouter {
         if (!host.environments().some(entry => entry.id === id)) throw new ClientError('The environment was removed.', 'EnvironmentRpcUnavailableError');
         result = await leg(id, routedInput, { write: uncertain, ...(reads ? { timeoutSeconds: READ_TIMEOUT } : {}) });
       }
-      if (id !== origin && result != null && ['open', 'closed', 'merged'].includes(str(result.state))) {
+      // The state, and whether it is a draft when the answer says (a draft made ready on another server reaches this one's watch).
+      if (id !== origin && result != null && ['open', 'closed', 'merged'].includes(str(result.state)) && (result.isDraft === undefined || typeof result.isDraft === 'boolean')) {
         const { allowStale: _stale, expectedAccountId: _account, ...reference } = ref;
-        void host.request(origin, 'pullRequests.reportState', { reference, state: result.state }, { write: false, timeoutSeconds: 5 }).catch(error => { if (letGo(error)) return; });
+        void host.request(origin, 'pullRequests.reportState', { reference, state: result.state, ...(typeof result.isDraft === 'boolean' ? { isDraft: result.isDraft } : {}) },
+          { write: false, timeoutSeconds: 5 }).catch(error => { if (letGo(error)) return; });
       }
       this.remember(origin, refKey, { ...ref, host: identity.host }, id);
       return result;
@@ -478,7 +480,7 @@ export class PullRequestRouter {
         if (!this.allowed(host, id, writes)) return visit(index + 1);
         // An older server would discard expectedAccountId. Verify it implements the guard first.
         const alternate = identityOf(await orNull(host.request(id, 'pullRequests.routingIdentity', { host: identity.host }, { write: false, timeoutSeconds: PROBE_TIMEOUT })));
-        if (alternate === null || alternate.provider !== 'github' || alternate.host.toLowerCase() !== identity.host.toLowerCase() || alternate.accountId !== identity.accountId) return visit(index + 1);
+        if (alternate === null || alternate.provider !== identity.provider || alternate.host.toLowerCase() !== identity.host.toLowerCase() || alternate.accountId !== identity.accountId) return visit(index + 1);
         if (!this.allowed(host, id, writes)) return visit(index + 1);
       }
       let result: Obj;

@@ -76,10 +76,12 @@ fn declared_message_records_reach_markdown_with_find_anchors() {
     }
     fn marked(value: &Value) -> Vec<(String, u8)> {
         match value {
+            // A FindPart: its id, text, mark and offset.
             Value::Record(fields)
-                if fields.len() == 3
+                if fields.len() == 4
                     && fields[1].as_str().is_some()
-                    && fields[2].as_number().is_some() =>
+                    && fields[2].as_number().is_some()
+                    && fields[3].as_number().is_some() =>
             {
                 let mark = fields[2].as_number().unwrap() as u8;
                 if mark == 0 {

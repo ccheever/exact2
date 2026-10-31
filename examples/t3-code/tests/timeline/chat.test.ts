@@ -32,15 +32,14 @@ describe('timeline rows', () => {
     expect(rows[2]).toMatchObject({ fileCount: 1, targetId: 'fixture-result.md' });
   });
 
-  test('a checkpoint from another run, another thread or without files stays standalone', () => {
+  test('a checkpoint from another run stays standalone; one from another thread or without files is no row', () => {
     const files = [{ path: 'a.ts', additions: 1, deletions: 1 }];
     const rows = timelineMessages(fakeClient(), [row('a', 'assistant'), row('c', 'checkpoint', { runId: 'r2', files }),
       row('b', 'assistant'), row('d', 'checkpoint', { files: [] }), row('e', 'checkpoint', { sourceThreadId: 'source', files })], Date.parse(at));
-    expect(rows.map(message => message.id)).toEqual(['a', 'c', 'b', 'd']);
+    expect(rows.map(message => message.id)).toEqual(['a', 'c', 'b']);
     expect(rows[1]).toMatchObject({ attached: false, actionsId: '' });
     expect(rows[0]).toMatchObject({ actionsId: 'a' });
-    expect(rows[3]).toMatchObject({ attached: false });
-    expect(rows[2]).toMatchObject({ actionsId: 'b' });
+    expect(rows[2]).toMatchObject({ actionsId: 'b', last: true });
   });
 
   test('timestamps follow the selected 12/24-hour format and say yesterday across midnight', () => {
@@ -87,35 +86,35 @@ describe('sidebar row actions', () => {
   });
 });
 
-describe('sidebar search excerpts', () => {
-  test('a server match labels the speaker and marks every case-folded hit, title matches included', () => {
-    const { searchMatch } = require('../../src/sidebar/sidebar-presentation') as typeof import('../../src/sidebar/sidebar-presentation');
-    const match = searchMatch({ title: 'fixture complete' }, 'genuine', { source: 'assistant', snippet: '# Fixture complete\n\nThe GENUINE backend, genuine output.' });
-    expect(match.matchLabel).toBe('Agent:');
-    expect(match.matchUser).toBe(false);
-    expect(match.matchParts.map(part => [part.text, part.hit])).toEqual([
-      ['# Fixture complete The ', false], ['GENUINE', true], [' backend, ', false], ['genuine', true], [' output.', false]]);
-    expect(searchMatch({ title: 'fixture complete fork' }, 'fork', { source: 'user', snippet: 'fork here too' }).matchLabel).toBe('You:');
-  });
-
-  test('without a server match, or with an empty query, there is no excerpt', () => {
-    const { searchMatch } = require('../../src/sidebar/sidebar-presentation') as typeof import('../../src/sidebar/sidebar-presentation');
-    expect(searchMatch({ title: 'x', latestVisibleMessage: { role: 'user', text: 'needle' } }, 'needle').matchLabel).toBe('');
-    expect(searchMatch({ title: 'a' }, '  ', { source: 'user', snippet: 'b' }).matchLabel).toBe('');
-  });
-});
-
 describe('snooze', () => {
-  test('presets follow the shared rules: evening only with an hour left, next week unless it is tomorrow', () => {
-    const { snoozePresets } = require('../../src/sidebar/sidebar-presentation') as typeof import('../../src/sidebar/sidebar-presentation');
+  test('presets follow the shared rules: soonest first, a passed today left out, one row per wake minute', () => {
+    const { snoozePresets, pickSnoozePreset, snoozePresetSettings } = require('../../src/sidebar/sidebar-presentation') as typeof import('../../src/sidebar/sidebar-presentation');
     const sundayMorning = new Date(2026, 9, 4, 0, 9).getTime();
-    expect(snoozePresets(sundayMorning, '12-hour').map(preset => preset.id)).toEqual(['hour', 'three-hours', 'evening', 'tomorrow']);
+    // Monday 9:00 is tomorrow: the same wake minute as Tomorrow, which comes first in the settings.
+    expect(snoozePresets(sundayMorning, '12-hour').map(preset => preset.id)).toEqual(['after:60', 'after:180', 'at:today:18:00', 'at:tomorrow:09:00']);
     const wednesdayEvening = new Date(2026, 9, 7, 17, 30).getTime();
     const late = snoozePresets(wednesdayEvening, '24-hour');
-    expect(late.map(preset => preset.id)).toEqual(['hour', 'three-hours', 'tomorrow', 'next-week']);
-    expect(new Date(late[2]!.until).getHours()).toBe(9);
-    expect(new Date(late[3]!.until).getDay()).toBe(1);
-    expect(late[0]!.until).toBe(new Date(wednesdayEvening + 3_600_000).toISOString());
+    expect(late.map(preset => [preset.id, preset.label])).toEqual([['at:today:18:00', 'This evening'], ['after:60', 'In 1 hour'], ['after:180', 'In 3 hours'],
+      ['at:tomorrow:09:00', 'Tomorrow'], ['at:monday:09:00', 'Next week']]);
+    expect(new Date(late[3]!.until).getHours()).toBe(9);
+    expect(new Date(late[4]!.until).getDay()).toBe(1);
+    expect(late[1]!.until).toBe(new Date(wednesdayEvening + 3_600_000).toISOString());
+    expect(snoozePresets(new Date(2026, 9, 7, 18, 0).getTime(), '24-hour').map(preset => preset.id)).not.toContain('at:today:18:00');
+    // The environment's own options, with labels by the day gap and the largest even unit.
+    const settings = snoozePresetSettings({ settings: { snoozePresets: [{ kind: 'at', day: 'friday', time: '09:00' }, { kind: 'after', minutes: 90 },
+      { kind: 'after', minutes: 2880 }, { kind: 'at', day: 'wednesday', time: '08:00' }, { kind: 'at', day: 'today', time: '09:30' }] } });
+    // 09:30 twice: the first in the settings stays.
+    expect(snoozePresets(new Date(2026, 9, 7, 8, 0).getTime(), '24-hour', settings).map(preset => [preset.label, preset.wakeLabel])).toEqual([
+      ['In 90 minutes', '09:30'], ['In 2 days', 'Fri 08:00'], ['Friday', '09:00'], ['Next Wednesday', '08:00']]);
+    // A list the server would refuse falls back to the defaults.
+    expect(snoozePresetSettings({ settings: { snoozePresets: [{ kind: 'after', minutes: 0 }] } })).toHaveLength(5);
+    expect(snoozePresetSettings({ settings: { snoozePresets: [] } })).toEqual([]);
+    // A duration starts when picked; a set time keeps the wake shown, refused once that has passed.
+    expect(pickSnoozePreset(late, 'after:60', wednesdayEvening + 60_000, '24-hour')?.until).toBe(new Date(wednesdayEvening + 3_660_000).toISOString());
+    expect(pickSnoozePreset(late, 'at:today:18:00', new Date(2026, 9, 7, 18, 1).getTime(), '24-hour')).toBeUndefined();
+    const beforeMidnight = new Date(2026, 9, 7, 23, 59).getTime(), afterMidnight = new Date(2026, 9, 8, 0, 1).getTime();
+    expect(pickSnoozePreset(snoozePresets(beforeMidnight, '24-hour'), 'at:tomorrow:09:00', afterMidnight, '24-hour')?.until).toBe(new Date(2026, 9, 8, 9, 0).toISOString());
+    expect(pickSnoozePreset([], 'at:tomorrow:09:00', afterMidnight, '24-hour')).toBeUndefined();
     expect(snoozePresets(0, 'locale')).toEqual([]);
   });
 
@@ -140,19 +139,4 @@ test('every TypeScript source app.ts answers is registered with the mixed Rust/T
   const contract = appText('app.contract');
   const answered = [...app.matchAll(/source === '([A-Za-z]+)'/g), ...contract.matchAll(/\b(serverBrowser[A-Z][A-Za-z]+)\(/g)].map(match => match[1]!);
   expect(answered.filter(source => !listed.has(source))).toEqual([]);
-});
-
-test('message search keeps only the current query and marks the server snippet', async () => {
-  const { runThreadSearch, serverMatches, searchMatch } = require('../../src/sidebar/sidebar-presentation') as typeof import('../../src/sidebar/sidebar-presentation');
-  const calls: Obj[] = [];
-  const client = { query: 'genuine', restAccess: () => ({ request: async (method: string, payload: Obj) => { calls.push({ method, ...payload });
-    return { matches: [{ threadId: 't1', projectId: 'p1', source: 'assistant', snippet: '# Fixture complete The genuine T3 backend', messageCreatedAt: null }] }; } }) } as unknown as T3Client;
-  await runThreadSearch(client, {} as Native, 'genuine');
-  expect(calls).toEqual([{ method: 'orchestration.searchThreads', query: 'genuine', limit: 50 }]);
-  const match = serverMatches(client).get('t1')!;
-  expect(searchMatch({ title: 'fixture complete' }, 'genuine', match).matchParts.filter(part => part.hit).map(part => part.text)).toEqual(['genuine']);
-  (client as unknown as { query: string }).query = 'other';
-  expect(serverMatches(client).size).toBe(0);
-  await runThreadSearch(client, {} as Native, 'g');
-  expect(calls).toHaveLength(1);
 });

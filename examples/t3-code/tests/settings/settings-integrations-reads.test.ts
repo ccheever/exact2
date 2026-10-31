@@ -1,5 +1,5 @@
 // Settings › Integrations reads (#346): while the
-// page was open the app asked server.getConfig, server.getSettings and device.list 26 times a second. Each answer sent
+// page was open the app asked server.getConfig and device.list 26 times a second. Each answer sent
 // `device.list { inspectOnly: true }`; the server's DeviceService.inspect publishes every host's summary to each
 // subscribeDeviceState stream (T3 Code 1e2ecbd975 apps/server/src/device/DeviceService.ts:473-503), the app holds one
 // (useDeviceState, floating-player.ts), so the answer's own reply woke `data`, whose drain bumps data.revision, the
@@ -13,9 +13,9 @@ import { Backend, nextAppGeneration, storage } from '../support/client-fixture';
 import { arr, obj, str, type Obj } from '../../src/client/domain';
 import { DEVICE_STATE_KEY } from '../../src/device/device-surface';
 import { resetPrimary } from '../support/local-primary-fixture';
-import { resetHighlightSlicing } from '../../src/highlight/shiki-highlight';
+import { resetHighlights } from '../../src/highlight/highlights';
 
-const READS = ['server.getConfig', 'server.getSettings', 'device.list'];
+const READS = ['server.getConfig', 'device.list'];
 
 /** The lane server's device service behind the fake transport: inspect publishes to every device-state stream. */
 class DeviceServer extends Backend {
@@ -81,7 +81,7 @@ async function launched() {
   return { native, files };
 }
 
-afterEach(() => { resetPrimary(); resetHighlightSlicing(); });
+afterEach(() => { resetPrimary(); resetHighlights(); });
 
 describe('Settings › Integrations reads its config, settings and device state as the reference does', () => {
   test('opening the page answers once with no server reads, and its answer never asks it again', async () => {

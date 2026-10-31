@@ -35,9 +35,9 @@ component CommandOutput
   view
     column width="100%"
       if truncated
-        text "Earlier output not shown" font-size=codeSize font-style="italic" line-height=1.625 color="light-dark(#71717b, #818181)"
+        text "Earlier output not shown" font-size=codeSize font-style="italic" line-height=1.625 color="light-dark(#71717b, #a1a1a1)"
       scroll scroll=scrolled scrollTop=top resize=portSized width="100%" max-height="20rem" overflow-x="hidden" aria-label="Command output" testId=`command-output-${id}`
         column resize=contentSized width="100%"
-          text width="100%" font-family="ui-monospace" font-size=codeSize line-height=1.625 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
+          text width="100%" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size=codeSize line-height=1.625 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #a1a1a1)"
             for span in spans key=span.id
               text span.text color=`light-dark(${span.light}, ${span.dark})` background-color=`light-dark(${span.bgLight}, ${span.bgDark})` font-weight=(span.bold ? 600 : 400) opacity=(span.dim ? 0.65 : 1) font-style=(span.italic ? "italic" : "normal") text-decoration-line=(span.underline and span.strike ? "underline line-through" : span.underline ? "underline" : span.strike ? "line-through" : "none")

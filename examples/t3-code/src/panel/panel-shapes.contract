@@ -19,6 +19,7 @@ use BrowserPanel from "../browser/browser-shapes.contract"
 use BrowserMini from "../browser/browser-shapes.contract"
 use BrowserFrames from "../browser/browser-shapes.contract"
 use MediaView from "../media/media-actions.contract"
+use ViewerFrameView from "./viewer-frame.contract"
 
 shape PanelTab
   id: string
@@ -93,10 +94,6 @@ shape FileEditor
   id: string
   label: string
   selected: bool
-shape RenderedTableRow
-  id: string
-  header: bool
-  cells: FilesCodeRun[]
 shape FilesView
   cwd: string
   project: string
@@ -160,17 +157,35 @@ shape FilesView
   mdUrls: AttachmentUrl[]
   codeCopied: string
   codeCopyNonce: number
-  table: RenderedTableRow[]
   editing: bool
   editorText: string
+  // Bumped when a change from outside replaced the editor's text; the editor mounts again on it.
+  editorRevision: number
   // The last press that began editing, as FilePreview numbered it (its mark counts until the module has heard it).
   editPress: string
   crumbMenu: FilesCrumbMenu
   crumbsMask: string
   crumbsOffset: number
+  // A rendered page's frame source, or an audio file's signed URL.
   url: string
   // An image or video file (media-views.ts filesMediaView).
   media: MediaView
+  // A Mermaid file the reference will not lay out names why; `diagrams` holds its diagram otherwise.
+  mermaidNote: string
+  // The file shown, by environment, thread and path: the audio player is one per file.
+  fileKey: string
+  // A document, or a file read as binary: AttachmentFilePreview under "File" (preview "attachment").
+  attachment: AttachmentSurface
+  // A PDF, a rendered table or a text file past 1 MB in the viewer page (preview "viewer", files-viewer.ts), and the
+  // "Full file" subheader of the last.
+  viewer: ViewerFrameView
+  fullFile: FullFileBar
+shape FullFileBar
+  open: bool
+  copyLabel: string
+  copied: bool
+  saving: bool
+  saveLabel: string
 shape FilesCrumbEntry
   id: string
   path: string
@@ -184,12 +199,19 @@ shape FilesCrumbMenu
   root: string
   back: string
   backPath: string
+  // The folder the menu lists.
+  dir: string
+  // Stands for the entries: loading, empty, or a failed first listing, which `statusRetry` makes a retry row.
   status: string
+  statusRetry: bool
+  // After the entries when their refresh failed ("Refresh failed. Retry").
+  retry: string
   entries: FilesCrumbEntry[]
 shape LinkedPrRow
   context: string
   speed: PrSpeedAction[]
   speedPending: bool
+  quickLabel: string
   key: string
   index: number
   number: number

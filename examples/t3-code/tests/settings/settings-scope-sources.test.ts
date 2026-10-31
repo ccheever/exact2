@@ -3,6 +3,7 @@ import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes
 // reaches each selected connected environment through its own transport, a failure names
 // the environments that did not save, and disagreeing targets draw the mixed switch.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { appText } from '../support/app-files';
 import type { T3Client } from '../../src/client/client';
 import { applyShell, initialShell, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
@@ -11,7 +12,7 @@ import { settingsCore } from '../../src/settings/settings-core-view';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { scopeEnvironments, scopeProjectGroups } from '../../src/settings/settings-scope-sources';
 import { restCommand } from '../../src/settings/settings-rest-commands';
-import { archivedSettings, lastRunSummary, storageSettings } from '../../src/settings/settings-data';
+import { archivedSettings, lastRunSummary, storageSettings, worktreeRows } from '../../src/settings/settings-data';
 import { groupDeviceHosts, scopedDeviceHostsView, deviceHostsCommand, hostChecks } from '../../src/device/settings-a-hosts';
 import { taskEnvironmentSummaries } from '../../src/settings/scheduled-view';
 import { toasts } from '../../src/shell/toast';
@@ -21,13 +22,13 @@ import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 const capabilities = { storageCleanup: true, storageCleanupRun: true, projectWorktreeCleanup: true, settledWorktreeCleanup: true, worktreesDirectory: true, projectSettingsOverrides: true, threadAutoSettlement: true, threadRestartContinuation: true };
 function focused(settings: Obj = {}) {
   const client = {
-    local: { deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' },
+    local: { deviceSettings: { planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' },
       clientSettings: decodeClientPrefs({}), groupingMode: 'repository', groupingOverrides: {} },
     scopes: AUTH_STANDARD_CLIENT_SCOPES, ready: true, environmentId: 'env-a', origin: 'http://127.0.0.1:16100', writes: [] as Obj[],
     config: { environment: { environmentId: 'env-a', label: 'Studio', capabilities, platform: { machine: 'laptop' } }, providers: [], settings: { projectSettingsOverrides: {}, ...settings } } as Obj,
     projectGroups: () => [{ key: 'github.com/acme/app', name: 'App', members: [{ id: 'pa', title: 'App', workspaceRoot: '/a/app' }] }],
     async settingsCoreRequest(_native: Native, method: string, payload: Obj) {
-      if (method === 'server.getSettings') return client.config.settings as Obj;
+      if (method === 'server.getConfig') return client.config as Obj;
       if (method === 'projects.readFile') throw new Error('missing');
       client.writes.push(payload);
       client.config.settings = { ...(client.config.settings as Obj), ...(payload.patch as Obj) };
@@ -111,6 +112,41 @@ describe('settings scope across environments', () => {
     expect(stale.available).toBe(false);
     expect(stale.error).toContain('checkout is no longer available');
   });
+  test('Worktrees and Maintenance group their rows as WorktreesSettings and MaintenanceSettingsPanel do', async () => {
+    const client = focused();
+    Object.assign(client, { generation: 1, shell: initialShell() });
+    const key = 'http://127.0.0.1:16104\nenv-storage-groups';
+    fleet.entries.set(key, entry(key, 'env-storage-groups', 'Server', { storageCleanup: { worktreeOnDelete: true } }));
+    const page = await storageSettings(as(client), nativeFor(), '', '', true, 'env-storage-groups', '', '');
+    // Creation: the location, Start from remote, Submodules under Advanced; Branches; then Cleanup's three rules with
+    // settled and unchanged worktrees and Keep worktrees with local changes under its Advanced fold.
+    expect([page.directorySupported, page.creation.map(row => [row.id, row.divider]), page.creationAdvanced.map(row => [row.id, row.divider])])
+      .toEqual([true, [['start-from-origin', true]], [['worktree-submodules', false]]]);
+    expect(page.branches.map(row => row.key)).toEqual(['branchNamingMode', 'branchNamePrefix']);
+    expect(page.worktrees.map(rule => [rule.key, rule.first])).toEqual([['worktreeOnDelete', true], ['worktreeOnMerge', false], ['worktreeAfterDays', false]]);
+    expect([page.worktreesAdvanced.map(rule => [rule.key, rule.first]), page.keepSupported]).toEqual([[['worktreeSettledAfterDays', true], ['worktreeUnchanged', false]], true]);
+    // Maintenance ends with Diagnostics, on the one selected environment.
+    expect(page.diagnostics.map(row => [row.id, row.kind, row.target, row.description])).toEqual([['diagnostics', 'link', 'diagnostics', 'Inspect processes, resource use, and logs on this environment.']]);
+    // A machine without settled cleanup keeps only unchanged worktrees under Advanced.
+    fleet.entries.set(key, { ...fleet.entries.get(key)!, config: { ...fleet.entries.get(key)!.config, environment: { environmentId: 'env-storage-groups', label: 'Server', capabilities: { ...capabilities, settledWorktreeCleanup: false } } } });
+    expect((await storageSettings(as(client), nativeFor(), '', '', true, 'env-storage-groups', '', '')).worktreesAdvanced.map(rule => rule.key)).toEqual(['worktreeUnchanged']);
+    // Worktree location shows wherever every selected machine has a worktrees directory, storage cleanup or not
+    // (WorktreesDirectoryRow), with Start from remote divided under it; a machine without one starts the card at Start
+    // from remote, undivided.
+    const only = async (extra: Obj) => {
+      fleet.entries.set(key, { ...fleet.entries.get(key)!, config: { ...fleet.entries.get(key)!.config, environment: { environmentId: 'env-storage-groups', label: 'Server', capabilities: { ...capabilities, ...extra } } } });
+      const page = await storageSettings(as(client), nativeFor(), '', '', true, 'env-storage-groups', '', '');
+      return [page.available, page.directorySupported, page.creation.map(row => [row.id, row.divider])];
+    };
+    expect(await only({ storageCleanup: false })).toEqual([false, true, [['start-from-origin', true]]]);
+    // Its write asks for the directory alone, as useUpdateScopedSettings does.
+    const calls: Obj[] = [];
+    await restCommand(as(client), nativeFor(new Set(), calls), { read: async () => null, write: async () => {} }, 'storage', '', `scope=${encodeURIComponent('env-storage-groups||')}&key=worktreesDirectory&value=~/wt`);
+    expect(calls.at(-1)?.payload).toEqual({ patch: { worktreesDirectory: '~/wt' } });
+    expect(await only({ worktreesDirectory: false })).toEqual([true, false, [['start-from-origin', false]]]);
+    const storage = appText('settings-storage.contract');
+    expect(storage).toContain('          if data.directorySupported\n            column width="100%" id="storage-worktrees-location" tabindex=-1');
+  });
   test('Storage keeps maintenance available on a supported machine while an older machine hides configuration', async () => {
     const client = focused();
     Object.assign(client, { scopes: [], generation: 1, shell: initialShell() });
@@ -173,11 +209,12 @@ describe('settings scope across environments', () => {
   test('checkouts of one project that disagree draw mixed for start-from-origin', async () => {
     const client = focused({ projectSettingsOverrides: { pa: { newWorktreesStartFromOrigin: false } } });
     fleet.entries.set(B, entry(B, 'env-b', 'Server', {}));
-    const core = await settingsCore(as(client), nativeFor(), '', 'github.com/acme/app', '', '', 'general', '', true);
-    const start = core.sections.flatMap(section => section.rows).find(item => item.id === 'start-from-origin')!;
+    // Worktrees' Creation rows are the storage panel's, written as the core pages' are (`rest:core`).
+    const { creation } = await worktreeRows(as(client), nativeFor(), resolveScope(as(client), '', 'github.com/acme/app', ''), false);
+    const start = creation.find(item => item.id === 'start-from-origin')!;
     expect([start.mixed, start.inheritance]).toEqual([true, 'mixed']);
     const calls: Obj[] = [];
-    await applyCoreSetting(as(client), nativeFor(new Set(), calls), 'start-from-origin:||github.com/acme/app|', 'true');
+    await restCommand(as(client), nativeFor(new Set(), calls), { read: async () => null, write: async () => {} }, 'core', '', `id=${encodeURIComponent('start-from-origin:||github.com/acme/app|')}&value=true`);
     expect(client.writes).toEqual([{ patch: { projectSettingsOverrides: { pa: { newWorktreesStartFromOrigin: true } } } }]);
     expect(calls.filter(call => call.method === 'server.updateSettings').map(call => (call.payload as Obj).patch)).toEqual([{ projectSettingsOverrides: { 'p-env-b': { newWorktreesStartFromOrigin: true } } }]);
   });
@@ -199,7 +236,7 @@ describe('the primary represents a scope that includes it', () => {
     const scope = resolveScope(as(client), '', '', '');
     expect(scope.environmentChoices.map(choice => choice.label)).toEqual(['All environments', "Daehyeon's MacBook Pro", 'Lane Second', 'Lane Third']);
     const model = generalSections(as(client), serverContext(as(client), scope, new Map())).flatMap(section => section.rows).find(row => row.id === 'default-model')!;
-    expect([model.status, model.kind, model.label]).toEqual(['Automatic', 'text-only', 'No providers available']);
+    expect([model.status, model.kind, model.label, model.description]).toEqual(['', 'text-only', 'No providers available', 'Default model for new threads, selected automatically. Projects can override it.']);
     // Without a primary the focused environment represents the scope, as before.
     resetPrimary();
     const focusedModel = generalSections(as(client), serverContext(as(client), resolveScope(as(client), '', '', ''), new Map())).flatMap(section => section.rows).find(row => row.id === 'default-model')!;
@@ -263,14 +300,14 @@ describe('eight-machine settings', () => {
   test('host identity conflicts keep lists separate; checks address every selected transport', async () => {
     const host = { id: 'h-a', label: 'Build host', target: 'builder' };
     const client = focused({ deviceHosts: [host] });
-    Object.assign(client, { shell: initialShell(), restAccess: () => ({ request: async (method: string) => method === 'device.testHost' ? { kind: 'local' } : client.config.settings }) });
+    Object.assign(client, { shell: initialShell(), restAccess: () => ({ request: async (method: string) => method === 'device.testHost' ? { kind: 'local' } : method === 'server.getConfig' ? client.config : client.config.settings }) });
     for (let index = 1; index < 8; index++) {
       const id = `env-${index}`, key = `http://127.0.0.1:${16500 + index}\n${id}`;
       fleet.entries.set(key, entry(key, id, 'Studio', { deviceHosts: [{ ...host, id: `host-${index}` }] }));
     }
     const native: Native = { available: true, watch() {}, async later(request) {
       const call = request as Obj, environment = fleet.entries.get(String(call.fleet))!;
-      const value = call.method === 'device.testHost' ? { kind: 'local' } : environment.config.settings;
+      const value = call.method === 'device.testHost' ? { kind: 'local' } : call.method === 'server.getConfig' ? environment.config : environment.config.settings;
       return { ok: true, generation: environment.generation, value };
     } };
     const scope = resolveScope(as(client), '', '', '');

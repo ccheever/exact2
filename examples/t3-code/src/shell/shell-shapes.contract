@@ -3,6 +3,10 @@ use GitCard from "../details/git-shapes.contract"
 // panel controls and labels, the right panel's surface chooser, the thread
 // details panel and the thread title's action menu.
 use AutomationsView from "../details/thread-automations.contract"
+use DetailsItems from "../details/thread-details-shapes.contract"
+use DetailsItemsMenu from "../details/thread-details-shapes.contract"
+use ThreadServersView from "../details/thread-details-shapes.contract"
+use UsageView from "../details/thread-details-shapes.contract"
 use PanelView from "../panel/panel-shapes.contract"
 use DetailsPrRowList from "../panel/pr-attachment-shapes.contract"
 use ComposerFilePreview from "../panel/pr-attachment-shapes.contract"
@@ -100,6 +104,9 @@ shape ShellEditor
   id: string
   label: string
   selected: bool
+shape NotifySound
+  completion: number
+  input: number
 shape ShellView
   openGuideSelected: string
   toasts: ShellToast[]
@@ -121,6 +128,8 @@ shape ShellView
   titleMenu: ShellMenuItem[]
   titleSubmenu: ShellMenuItem[]
   notifications: string
+  // The notification sounds the window plays (shell-notify.ts notificationSound): each kind's count of requests.
+  notifySound: NotifySound
   // panel-surfaces.ts: the right panel's tabs and its Files / Linked pull requests / Device surfaces.
   panel: PanelView
   // The branch picker's PullRequestThreadDialog (pr-checkout.ts).
@@ -129,7 +138,14 @@ shape ShellView
   addMachine: AddMachine
   // A composer file chip's AttachmentFilePreview over the draft's bytes (composer-chip-file.ts).
   composerFile: ComposerFilePreview
-  highlightPending: bool // a Files / attachment code text waits for its Shiki tokens
+  highlightPending: bool // a Files / attachment code text waits for its tokens (highlights.ts)
+  // The screen reader's live regions (announce.ts, live-regions.contract).
+  announce: AnnounceView
+shape AnnounceView
+  thread: string
+  background: string
+  first: string
+  second: string
 shape CardScript
   id: string
   label: string
@@ -192,5 +208,19 @@ shape ShellDetails
   prRows: DetailsPrRowList
   // ThreadAutomationsPanel (thread-automations.ts): the thread's bound scheduled tasks.
   automations: AutomationsView
+  // What the card shows (thread-details-items.ts), its menu, the Servers section and the Usage item.
+  items: DetailsItems
+  itemsMenu: DetailsItemsMenu
+  servers: ThreadServersView
+  usage: UsageView
   // The branch picker, Git actions and their dialogs (git-card.ts).
   git: GitCard
+// The control a workspace area last held (shell-members.contract workspaceEntered).
+shape WorkspaceTarget
+  area: string
+  target: string
+// The element that is each workspace area (shell-members.contract workspaceMove).
+fn workspaceContainer(area: string): string = area == "composer" ? "frame-overlay" : (area == "settings-nav" ? "settings-navigation" : (area == "settings" ? "settings-content-scroll" : `workspace-${area}`))
+// Whether an area is shown: laid out, the terminal drawer open; the details card is placed out of its holder's flow, so
+// it is shown when the canvas shows it.
+fn workspaceShown(area: string, width: number, height: number, unavailable: bool, card: bool, drawer: bool): bool = area == "details" ? card : (not unavailable and width > 0 and height > 0 and (area != "terminal" or drawer))

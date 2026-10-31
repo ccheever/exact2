@@ -1,12 +1,12 @@
 // The clone's rows for the data module's half (browser-navigation.ts), each named after the
 // reference code it follows (T3 Code 1e2ecbd975, MIT, see LICENSE-T3): PreviewEmptyState / PreviewRecentUrlCard /
-// PreviewLocalServerCard, PreviewView handleSubmitUrl / handleOpenServerUrl / the title effect, PreviewMoreMenu's zoom
+// PreviewLocalServerCard, PreviewView handleSubmitUrl / handleOpenServerUrl (7c3b3b3605ef's registration), PreviewMoreMenu's zoom
 // and appearance, handleToggleDeviceToolbar, BrowserDeviceToolbar, useBrowserViewportResize, ZoomIndicator, the
 // `previewFocus` keybindings and ChatView `togglePreviewPanel` (⇧⌘J). The module and the server are fakes. Ported:
 // PreviewEmptyState.test.tsx (4, under their own names), over the projection the Contract view draws (a group shows
 // when its list is not empty; both empty draw "No preview yet").
 import { describe, expect, it } from 'bun:test';
-import { browserHost, browserLocal, browserView } from '../../src/browser/browser-surface';
+import { browserHost, browserLocal, browserView, frameLocal } from '../../src/browser/browser-surface';
 import { browserKey, navigationPrepare, previewKeys, previewToggleRow, showPreview } from '../../src/browser/browser-navigation';
 import { useAutomationCalls, type AutomationCalls } from '../../src/browser/browser-automation-run';
 import { browserHistory } from '../../src/browser/browser-history';
@@ -189,9 +189,9 @@ describe('PreviewEmptyState', () => {
     const s = setup({ nav: { _tag: 'Idle' } });
     const history = browserHistory(s.client.local);
     await navigationPrepare(s.client, module, { ...s.state, visible: true });
-    history.registerThreadProject(ref, 'proj'); // a thread whose project mapping was saved before de34391427
+    history.registerThreadProject(ref, 'proj'); // a saved mapping
     for (let i = 9; i >= 0; i--) history.recordVisitForThread(ref, `http://localhost:${3000 + i}/`, Date.now() - i * 120_000);
-    history.setTitleForThreadUrl(ref, 'http://localhost:3000/', 'Home');
+    history.setTitleForUrl('proj', 'http://localhost:3000/', 'Home');
     discoveredServersEvent(s.client, { subscriptionId: 'sub-1', value: { servers: [
       { host: 'localhost', port: 9000, url: 'http://localhost:9000/', processName: null, pid: null, terminal: null },
       { host: 'localhost', port: 8080, url: 'http://localhost:8080/', processName: 'vite', pid: 7, terminal: null },
@@ -214,23 +214,24 @@ describe('PreviewEmptyState', () => {
 });
 
 describe('PreviewView handleSubmitUrl and handleOpenServerUrl', () => {
-  it('records a typed address, which waits unregistered as at 1e2ecbd975 (nothing registers the thread\'s project)', async () => {
+  it('records a typed address under the thread\'s project, titled by the page the tab settled on', async () => {
     const s = setup();
+    (s.client as unknown as { preferencesLoaded: boolean }).preferencesLoaded = true;
     await navigationPrepare(s.client, module, s.state);
     await local(s, 'navigate', 'localhost:5173');
-    await navigationPrepare(s.client, module, s.state);
+    const history = browserHistory(s.client.local);
+    expect(history.state.projectKeyByThreadKey).toEqual({ 'local:thread-1': 'local:/p' }); // the separate grouping's key
+    expect(history.projectHistory('local:/p', 8)).toEqual([expect.objectContaining({ url: 'http://localhost:5173/', title: 'Vite' })]);
+  });
+  it('keeps a visit waiting until the preferences, and so the grouping, are known', async () => {
+    const s = setup();
+    await local(s, 'navigate', 'localhost:5173');
     const history = browserHistory(s.client.local);
     expect(history.state.projectKeyByThreadKey).toEqual({});
     expect(history.state.pendingVisitsByThreadKey['local:thread-1']?.map(visit => visit.url)).toEqual(['http://localhost:5173/']);
-    expect(history.threadRecentHistory(ref, 8)).toEqual([]);
-    expect(browserView(s.client, s.surface, Date.now()).recents).toEqual([]);
-  });
-  it('records and titles a typed address for a thread whose project mapping was saved', async () => {
-    const s = setup();
-    browserHistory(s.client.local).registerThreadProject(ref, 'proj');
-    await local(s, 'navigate', 'localhost:5173');
-    await navigationPrepare(s.client, module, s.state);
-    expect(browserHistory(s.client.local).threadRecentHistory(ref, 8)).toEqual([expect.objectContaining({ url: 'http://localhost:5173/', title: 'Vite' })]);
+    (s.client as unknown as { preferencesLoaded: boolean }).preferencesLoaded = true;
+    await local(s, 'navigate', 'localhost:5174');
+    expect(history.projectHistory('local:/p', 8).map(entry => [entry.url, entry.title])).toEqual([['http://localhost:5174/', undefined], ['http://localhost:5173/', 'Vite']]);
   });
   it('opens a local server at the environment\'s host and keeps the address it was found at', async () => {
     const s = setup({ origin: 'http://192.168.1.25:3773' });
@@ -238,9 +239,9 @@ describe('PreviewView handleSubmitUrl and handleOpenServerUrl', () => {
     await navigationPrepare(s.client, module, s.state);
     await local(s, 'open-url', 'http://localhost:5173/app');
     expect(commands(s)).toEqual([{ kind: 'navigate', url: 'http://192.168.1.25:5173/app', delta: 0, flag: false }]);
-    expect(browserHistory(s.client.local).threadRecentHistory(ref, 8).map(entry => entry.url)).toEqual(['http://localhost:5173/app']);
+    expect(browserHistory(s.client.local).projectHistory('proj', 8).map(entry => entry.url)).toEqual(['http://localhost:5173/app']);
     await local(s, 'remove-recent', 'http://localhost:5173/app');
-    expect(browserHistory(s.client.local).threadRecentHistory(ref, 8)).toEqual([]);
+    expect(browserHistory(s.client.local).projectHistory('proj', 8)).toEqual([]);
   });
 });
 
@@ -281,6 +282,25 @@ describe('the preview keys and ⇧⌘J', () => {
     } finally { useAutomationCalls(null); }
     expect(commands(s)).toEqual([{ kind: 'reload', url: '', delta: 0, flag: false }, { kind: 'window', url: '', delta: 0, flag: true },
       { kind: 'window', url: '', delta: 3, flag: false }, { kind: 'window', url: '', delta: 1, flag: false }]);
+  });
+  it('⌘L over a shown page asks the address bar for the focus while the page holds it, once, and else does nothing', async () => {
+    const s = setup(), frameId = frameIdOf(s.runtimeId);
+    (s.client.config as Obj).keybindings = [{ command: 'preview.focusUrl', shortcut: { key: 'l', modKey: true }, whenAst: { type: 'identifier', name: 'previewFocus' } }];
+    let focused = false;
+    useAutomationCalls({ evaluate: async () => ({ result: focused }) } as unknown as AutomationCalls);
+    try {
+      await browserKey(s.client, frameId, 'chord=meta+l');
+      expect(browserView(s.client, s.surface, Date.now()).focusUrlSerial).toBe(0);
+      focused = true;
+      await browserKey(s.client, frameId, 'chord=meta+l');
+      const serial = browserView(s.client, s.surface, Date.now()).focusUrlSerial;
+      expect(serial).toBeGreaterThan(0);
+      // The field took the focus (browser-surface.contract BrowserChrome): a later mount of the chrome asks no more.
+      await frameLocal(s.client, module, 'frame-url-focused', s.runtimeId, String(serial));
+      expect(browserView(s.client, s.surface, Date.now()).focusUrlSerial).toBe(0);
+    } finally { useAutomationCalls(null); }
+    // ⌘L moves neither the page nor the window.
+    expect(commands(s)).toEqual([]);
   });
   it('closes a shown Browser panel, else shows the thread\'s tab without opening another', async () => {
     const s = setup();

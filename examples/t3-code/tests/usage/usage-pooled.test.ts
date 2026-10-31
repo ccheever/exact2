@@ -17,6 +17,7 @@ import { fleet, environmentKey, EnvironmentFleet } from '../../src/connections/s
 import { initialShell } from '../../src/client/domain';
 import { forgetUsageState } from '../../src/usage/usage-environments';
 import { popoverSides } from '../../src/usage/usage-pooled-view';
+import { providerInstanceInitials } from '../../src/client/presentation';
 import { usageFleetEvent, usageFleetReset } from '../../src/usage/usage-replies';
 import { forgetLimitsRefreshes } from '../../src/usage/usage-refresh';
 import { appPath } from '../support/app-files';
@@ -337,7 +338,7 @@ describe('usage across environments', () => {
     await rig.reply(rig.of('server.getUsageSummary')[0]!, summary({ sources: [usageSource('codex', '/c'), usageSource('cursor', 'cursor-account:a', { refreshing: true })],
       buckets: [usageBucket('codex', 1.5, '/c')] }));
     let page = await rig.page({ metric: 'cost' });
-    expect(page.providers.map(row => [row.key, row.value, row.loading, row.awaiting])).toEqual([['codex', '$1.50', false, false], ['cursor', '—', true, true]]);
+    expect(page.providers.map(row => [row.key, row.value, row.loading, row.awaiting])).toEqual([['codex', '$1.50', false, false], ['cursor', '-', true, true]]);
     expect(page.chart.series.map(series => series.key)).toEqual(['codex', 'cursor']);
     expect(page.columns.map(column => column.key)).toEqual(['codex', 'cursor']);
     await rig.reply(rig.of('server.getUsageSummary')[1]!, { error: { kind: 'RPC', message: 'Cursor API timed out' } });
@@ -390,7 +391,7 @@ describe('usage across environments', () => {
     page = await rig.page({ metric: 'cost' });
     expect([page.total, page.sessions, page.providers.map(row => row.key), page.notices]).toEqual(['$1.50', '1 sessions', ['codex'], []]);
     expect([page.providerFilter.label, page.providerFilter.all, page.providerFilter.rows.filter(row => !row.checked).map(row => row.key)])
-      .toEqual(['6 providers', false, ['claude']]);
+      .toEqual(['7 providers', false, ['claude']]);
     expect(page.providerFilter.rows.map(row => row.key)).toContain('pi');
     const limits = (await rig.page()).pooled;
     expect(limits.pools.map(pool => pool.driver)).toEqual(['codex']); // the hub's Claude seat leaves with its driver
@@ -398,7 +399,7 @@ describe('usage across environments', () => {
     expect(rig.client.local).toMatchObject({ pages: { usage: { hiddenProviders: ['claude'] } } });
     await rig.command('usage-provider', '', 'codex');
     page = await rig.page({ metric: 'cost' });
-    expect([page.total, page.chatgptShared, page.providerFilter.label]).toEqual(['$0.00', false, '5 providers']);
+    expect([page.total, page.chatgptShared, page.providerFilter.label]).toEqual(['$0.00', false, '6 providers']);
     expect((await rig.page()).pooled.links).toEqual([]);
     await rig.command('usage-provider', '', ''); // "All providers" shows every one
     expect((await rig.page({ metric: 'cost' })).providerFilter.label).toBe('All providers');
@@ -434,7 +435,8 @@ describe('fleet hub sources', () => {
       const ok = (value: unknown) => ({ ok: true, generation: 7, value });
       if (request.op === 'environments') return ok({ saved: [{ origin: 'http://10.0.0.2:3773', environmentId: 'env-b', enabled: true }] });
       if (request.op === 'status') return ok({ state: 'connected' });
-      if (request.op === 'http') return ok(request.path === '/api/auth/session' ? { authenticated: true, scopes: [] } : { snapshotSequence: 1, projects: [], threads: [] });
+      if (request.op === 'readSession') return ok({ id: 'session-1' }); // the grants land in the inbox later
+      if (request.op === 'http') return ok({ snapshotSequence: 1, projects: [], threads: [] });
       if (request.op === 'request') return ok(desktop());
       if (request.op === 'subscribe') return ok({ id: `sub-${calls.length}` });
       if (request.op === 'events') return ok({ events: [], latest: 0 });
@@ -643,5 +645,22 @@ describe('the even-pace gap', () => {
       const source = await Bun.file(appPath(file)).text();
       expect(source).not.toContain('-after');
     }
+  });
+});
+
+// T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3): client-runtime state/providerInstanceDisplay.test.ts, original names. A
+// segment's badge is client/presentation.ts's providerInstanceInitials, the sidebar's and the timeline's.
+describe('providerInstanceInitials', () => {
+  test('treats punctuation as a word break but keeps apostrophes between letters', () => {
+    expect(providerInstanceInitials('Codex (hub)')).toBe('CH');
+    expect(providerInstanceInitials('work_codex')).toBe('WC');
+    expect(providerInstanceInitials("Theo's Codex")).toBe('TC');
+    expect(providerInstanceInitials("Codex 'hub'")).toBe('CH');
+    expect(providerInstanceInitials('‘hub’')).toBe('HU');
+    expect(providerInstanceInitials('(hub)')).toBe('HU');
+  });
+  test('keeps an emoji whole instead of splitting its surrogate pair', () => {
+    expect(providerInstanceInitials('😀 Work')).toBe('😀W');
+    expect(providerInstanceInitials('😀')).toBe('😀');
   });
 });

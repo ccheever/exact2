@@ -10,6 +10,7 @@ import { opened, running } from '../support/composer-controls-fixture';
 import { snapshot } from '../../src/client/presentation';
 import { toasts } from '../../src/shell/toast';
 import { ATTACHMENT_ONLY_PROMPT, mergedEditContext, prepareQueuedEditAttachments, recoverQueuedMessageEdit } from '../../src/composer/queued-edit-attachments';
+import { queuedTurnRows } from '../../src/composer/thread-end';
 import type { T3Client } from '../../src/client/client';
 
 const file = { type: 'file', id: 'file:report', name: 'report.pdf', mimeType: 'application/pdf', sizeBytes: 6 };
@@ -65,10 +66,10 @@ const lastToast = (client: T3Client) => toasts(client).at(-1);
 describe('editing a queued message with its attachments (G12a)', () => {
   test('the row shows its image thumbnail, and stays visible while edited', async () => {
     const { client, command } = await queuedWithAttachments();
-    expect(snapshot(client).composer.queued[0]).toMatchObject({ text: 'Queued with a screenshot', thumbnails: [{ id: 'attachment-1', name: 'kept.png' }], pending: false });
+    expect(queuedTurnRows(client)[0]).toMatchObject({ kind: 'queued', body: 'Queued with a screenshot', images: [{ id: 'attachment-1', name: 'kept.png' }], status: '' });
     await command('cclocal:queued-edit', 'q1');
     const composer = snapshot(client).composer;
-    expect(composer.queued[0]).toMatchObject({ text: 'Queued with a screenshot', editing: true });
+    expect(queuedTurnRows(client)[0]).toMatchObject({ body: 'Queued with a screenshot', status: 'editing', actionLabel: '' });
     expect(composer.queueEditAttachments).toEqual([{ id: 'attachment-1', name: 'kept.png', image: true }, { id: 'attachment-2', name: 'notes.txt', image: false }]);
     expect(client.draft).toBe('Queued with a screenshot');
   });
@@ -129,7 +130,7 @@ describe('editing a queued message with its attachments (G12a)', () => {
     await kept.command('draft', '', 'Changed while queued');
     kept.client.thread!.projection.runs = arr(kept.client.thread!.projection.runs).filter(run => run.id !== 'q1');
     snapshot(kept.client);
-    expect(lastToast(kept.client)).toMatchObject({ title: 'Queued message is no longer queued', description: 'Your unsaved edit was kept in the composer.' });
+    expect(lastToast(kept.client)).toMatchObject({ title: 'Queued message is no longer queued', description: 'Your unsaved edit in “Thread t1” was kept in the composer.' });
     expect(kept.client.draft).toBe('Changed while queued');
 
     const dropped = await queuedWithAttachments();
@@ -138,7 +139,7 @@ describe('editing a queued message with its attachments (G12a)', () => {
     await dropped.command('draft', '', 'Changed while queued');
     dropped.client.thread!.projection.runs = arr(dropped.client.thread!.projection.runs).filter(run => run.id !== 'q1');
     snapshot(dropped.client);
-    expect(lastToast(dropped.client)).toMatchObject({ title: 'Queued message is no longer queued', description: 'Your unsaved edit was discarded.' });
+    expect(lastToast(dropped.client)).toMatchObject({ title: 'Queued message is no longer queued', description: 'Your unsaved edit in “Thread t1” was discarded.' });
     expect(dropped.client.draft).toBe('My own draft');
   });
 });

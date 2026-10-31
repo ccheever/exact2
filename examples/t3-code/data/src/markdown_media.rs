@@ -52,7 +52,8 @@ fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
     let tables = table_lines(&lines);
     let mut out = String::with_capacity(text.len() + 32);
     let mut fence: Option<(char, usize)> = None;
-    let mut paragraph = false;
+    // The quote depth (0 outside a quote) of the paragraph the previous line continues, when it continues one.
+    let mut paragraph: Option<usize> = None;
     for (index, line) in lines.iter().enumerate() {
         if index > 0 {
             out.push('\n');
@@ -64,7 +65,7 @@ fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
                 fence = None;
             }
             out.push_str(line);
-            paragraph = false;
+            paragraph = None;
             continue;
         }
         if let Some(marker @ ('`' | '~')) = trimmed.chars().next() {
@@ -72,89 +73,206 @@ fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
             if width >= 3 {
                 fence = Some((marker, width));
                 out.push_str(line);
-                paragraph = false;
+                paragraph = None;
                 continue;
             }
         }
-        let block_image = !paragraph && !tables[index] && sole_image_line(trimmed);
+        // remarkBreakAroundImageLines: an image alone on its source line inside a paragraph keeps that line (a label
+        // such as `**Palette**` above a screenshot), with line breaks before and after it. Spaces around it, the quote
+        // marks of a paragraph in a quote and a list item's indent are not the line's content.
+        let (depth, content) = quoted(trimmed);
+        let shown = content.trim_matches([' ', '\t']);
+        let starts = paragraph != Some(depth);
+        // The parser's image block: a sole image starting a block outside a quote and a list item's text.
+        let block_image = depth == 0 && starts && !tables[index] && sole_image_line(trimmed);
+        let owns_line = !block_image
+            && !tables[index]
+            && (sole_image_line(shown) || sole_linked_image_line(shown));
+        if owns_line && !starts && !out.ends_with(&format!("{LINE_BREAK}\n")) {
+            out.pop();
+            out.push_str(LINE_BREAK);
+            out.push('\n');
+        }
         if block_image || !line.contains("![") {
             out.push_str(line);
         } else {
             image_links_in_line(line, &mut out);
         }
-        paragraph = !block_image && prose_line(line);
+        if owns_line
+            && lines.get(index + 1).is_some_and(|next| continues(next, depth))
+            && !trimmed.ends_with(LINE_BREAK)
+        {
+            out.push_str(LINE_BREAK);
+        }
+        // A list item's text opens a paragraph that its indented lines go on with (markdown_parse's item joins them).
+        paragraph = match item_text(shown) {
+            Some(text) => (!text.trim().is_empty()).then_some(depth),
+            None => (!block_image && continues(line, depth)).then_some(depth),
+        };
     }
     std::borrow::Cow::Owned(out)
 }
 
-/// `![alt](inside)` at `at`: the `]` and the `)` that close it (the destination's parentheses balanced).
-fn image_span(line: &str, at: usize) -> Option<(usize, usize)> {
-    let bytes = line.as_bytes();
-    let close = at + 2 + line[at + 2..].find(']')?;
-    if bytes.get(close + 1) != Some(&b'(') {
+/// A line's quote depth (its `>` marks, each with the one space after it) and the text after them.
+fn quoted(trimmed: &str) -> (usize, &str) {
+    let (mut depth, mut rest) = (0, trimmed);
+    while let Some(after) = rest.strip_prefix('>') {
+        depth += 1;
+        rest = after.strip_prefix(' ').unwrap_or(after);
+    }
+    (depth, rest)
+}
+
+/// A list item line's text after its marker, as markdown_parse's bullet_of reads one (`-`, `*`, `+`, or one to nine
+/// digits and `.` or `)`, then a space; a rule is no item).
+fn item_text(line: &str) -> Option<&str> {
+    if is_rule_line(line) {
         return None;
     }
-    let mut depth = 0usize;
-    for (offset, byte) in bytes[close + 1..].iter().enumerate() {
-        match byte {
-            b'(' => depth += 1,
-            b')' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some((close, close + 1 + offset));
-                }
-            }
-            _ => {}
-        }
+    if let Some(rest) = line.strip_prefix(['-', '*', '+']).filter(|rest| rest.starts_with(' ')) {
+        return Some(rest);
     }
-    None
+    let digits = line.chars().take_while(char::is_ascii_digit).count();
+    if !(1..=9).contains(&digits) {
+        return None;
+    }
+    line[digits..].strip_prefix(['.', ')']).filter(|rest| rest.starts_with(' '))
 }
 
-/// The end of the code span whose backticks start at `at` (the same number of backticks closes it on this line; else
-/// they are text and end where they do).
-fn code_span_end(line: &str, at: usize) -> usize {
-    let bytes = line.as_bytes();
-    let run = bytes[at..].iter().take_while(|b| **b == b'`').count();
-    let fence = &line[at..at + run];
-    let mut from = at + run;
-    loop {
-        match line[from..].find(fence) {
-            Some(found) => {
-                let start = from + found;
-                let length = bytes[start..].iter().take_while(|b| **b == b'`').count();
-                if length == run {
-                    return start + run;
-                }
-                from = start + length;
-            }
-            None => return at + run,
-        }
-    }
+/// Whether `line` is prose going on with a paragraph at quote depth `depth`.
+fn continues(line: &str, depth: usize) -> bool {
+    let (at, content) = quoted(line.trim_start());
+    at == depth && prose_line(content)
 }
 
-/// Whether the `[` at `open` starts a link's text: its matching `]` is followed by `(`.
-fn starts_link_text(line: &str, open: usize) -> bool {
-    let bytes = line.as_bytes();
-    let (mut at, mut depth) = (open + 1, 1usize);
-    while at < bytes.len() {
-        match bytes[at] {
-            b'\\' => at += 2,
-            b'`' => at = code_span_end(line, at),
-            b'[' => {
-                depth += 1;
-                at += 1;
-            }
-            b']' => {
-                depth -= 1;
-                if depth == 0 {
-                    return bytes.get(at + 1) == Some(&b'(');
+/// `[![alt](src)](link)` alone on a line: a link whose only content is one image, which isImageNode counts as an image.
+fn sole_linked_image_line(trimmed: &str) -> bool {
+    let Some(image) = trimmed.strip_prefix('[').filter(|rest| rest.starts_with("![")) else {
+        return false;
+    };
+    let Some((_, end)) = image_span(image, 0) else {
+        return false;
+    };
+    image[end + 1..]
+        .strip_prefix("](")
+        .and_then(|rest| rest.strip_suffix(')'))
+        .is_some_and(|link| !link.is_empty() && !link.contains(')'))
+}
+
+/// `![alt](inside)` at `at`: the `]` and the `)` that close it (the destination's parentheses balanced).
+fn image_span(line: &str, at: usize) -> Option<(usize, usize)> {
+    LineMarks::new(line).image_span(line.as_bytes(), at)
+}
+
+/// One line's brackets, parentheses and backtick runs, found in one pass, so a `![`, a `[` or a run of backticks is
+/// looked up (a binary search, or the table filled from the line's end) where the reads it replaces went on to the
+/// line's end from each: a line of many unclosed `![` or `(`, or of images inside an unclosed link's text, no longer
+/// takes time in the square of its length.
+struct LineMarks {
+    /// Where each `[` and each `]` is, in order.
+    opens: Vec<usize>,
+    closes: Vec<usize>,
+    /// The `)` that balances the `(` at each position, every parenthesis counted, as an image's destination counts them.
+    parens: std::collections::HashMap<usize, usize>,
+    /// The start of each run of backticks, by its length.
+    ticks: std::collections::HashMap<usize, Vec<usize>>,
+    /// The `]` that a read one bracket deep, starting at each position, closes on (`usize::MAX` for none): escapes
+    /// skipped, code spans passed over and nested brackets matched, as the read from a link's `[` went, whatever came
+    /// before the position.
+    closers: Vec<usize>,
+}
+
+impl LineMarks {
+    fn new(line: &str) -> Self {
+        let bytes = line.as_bytes();
+        let mut marks = LineMarks {
+            opens: Vec::new(),
+            closes: Vec::new(),
+            parens: std::collections::HashMap::new(),
+            ticks: std::collections::HashMap::new(),
+            closers: Vec::new(),
+        };
+        let mut unclosed = Vec::new();
+        let mut at = 0;
+        while at < bytes.len() {
+            match bytes[at] {
+                b'[' => marks.opens.push(at),
+                b']' => marks.closes.push(at),
+                b'(' => unclosed.push(at),
+                b')' => {
+                    if let Some(open) = unclosed.pop() {
+                        marks.parens.insert(open, at);
+                    }
                 }
-                at += 1;
+                b'`' => {
+                    let run = bytes[at..].iter().take_while(|b| **b == b'`').count();
+                    marks.ticks.entry(run).or_default().push(at);
+                    at += run;
+                    continue;
+                }
+                _ => {}
             }
-            _ => at += 1,
+            at += 1;
         }
+        // From the line's end, so each position reads only answers already made after it: a `[` closes where the read
+        // after it does, and the read goes on past that `]`.
+        let mut closers = vec![usize::MAX; bytes.len() + 2];
+        // The backticks from each position on, counted as the read goes, so a position inside a run is not counted again.
+        let mut run = 0;
+        for at in (0..bytes.len()).rev() {
+            run = if bytes[at] == b'`' { run + 1 } else { 0 };
+            closers[at] = match bytes[at] {
+                b'\\' => closers[at + 2],
+                b'`' => closers[marks.span_end(at, run)],
+                b'[' => match closers[at + 1] {
+                    usize::MAX => usize::MAX,
+                    close => closers[close + 1],
+                },
+                b']' => at,
+                _ => closers[at + 1],
+            };
+        }
+        marks.closers = closers;
+        marks
     }
-    false
+
+    /// Whether the `[` at `open` starts a link's text: the `]` that closes it is followed by `(`.
+    fn starts_link_text(&self, bytes: &[u8], open: usize) -> bool {
+        let close = self.closers[open + 1];
+        close != usize::MAX && bytes.get(close + 1) == Some(&b'(')
+    }
+
+    /// `![alt](inside)` at `at`: the first `]` after its `![`, followed by a `(` whose `)` balances it.
+    fn image_span(&self, bytes: &[u8], at: usize) -> Option<(usize, usize)> {
+        let close = *self
+            .closes
+            .get(self.closes.partition_point(|&close| close < at + 2))?;
+        if bytes.get(close + 1) != Some(&b'(') {
+            return None;
+        }
+        self.parens.get(&(close + 1)).map(|&end| (close, end))
+    }
+
+    /// The end of the code span whose backticks start at `at`: past the next run of as many backticks, or, with none,
+    /// past its own run, which is then text.
+    fn code_span_end(&self, bytes: &[u8], at: usize) -> usize {
+        self.span_end(at, bytes[at..].iter().take_while(|b| **b == b'`').count())
+    }
+
+    /// `code_span_end` for the `run` backticks that start at `at`.
+    fn span_end(&self, at: usize, run: usize) -> usize {
+        self.ticks
+            .get(&run)
+            .and_then(|starts| starts.get(starts.partition_point(|&start| start < at + run)))
+            .map_or(at + run, |&start| start + run)
+    }
+
+    /// Whether a `[` lies in `from..to`.
+    fn opens_within(&self, from: usize, to: usize) -> bool {
+        self.opens
+            .get(self.opens.partition_point(|&open| open < from))
+            .is_some_and(|&open| open < to)
+    }
 }
 
 fn hex(text: &str) -> String {
@@ -179,13 +297,14 @@ fn destination(inside: &str) -> &str {
 
 fn image_links_in_line(line: &str, out: &mut String) {
     let bytes = line.as_bytes();
+    let marks = LineMarks::new(line);
     let (mut at, mut copied) = (0usize, 0usize);
     // The `[` of each bracket still open.
     let mut opened: Vec<usize> = Vec::new();
     while at < bytes.len() {
         match bytes[at] {
             b'\\' => at += 2,
-            b'`' => at = code_span_end(line, at),
+            b'`' => at = marks.code_span_end(bytes, at),
             b'[' => {
                 opened.push(at);
                 at += 1;
@@ -196,13 +315,13 @@ fn image_links_in_line(line: &str, out: &mut String) {
             }
             b'!' if bytes.get(at + 1) == Some(&b'[') => {
                 // An alt text holding a `[` is left as the parser reads it (the span's `]` would not be its link's).
-                let Some((close, end)) = image_span(line, at).filter(|(close, _)| !line[at + 2..*close].contains('['))
+                let Some((close, end)) = marks.image_span(bytes, at).filter(|(close, _)| !marks.opens_within(at + 2, *close))
                 else {
                     at += 1;
                     continue;
                 };
                 let inside = &line[close + 2..end];
-                if opened.last().is_some_and(|open| starts_link_text(line, *open)) {
+                if opened.last().is_some_and(|&open| marks.starts_link_text(bytes, open)) {
                     out.push_str(&line[copied..at]);
                     out.push(LINKED_IMAGE);
                     out.push_str(&hex(&line[at + 2..close]));
@@ -239,7 +358,8 @@ fn image_links_in_line(line: &str, out: &mut String) {
 fn image_link(link: &dyn Fn(&str) -> String, href: &str) -> String {
     match href.strip_prefix(IMAGE_MARK) {
         Some(source) => {
-            let resolved = link(source);
+            // An image's source resolves as its media chip does, not as a link.
+            let resolved = media_href(source);
             let resolved = if resolved == NO_HREF || resolved.starts_with('#') {
                 ""
             } else {
@@ -454,6 +574,48 @@ mod media_tests {
     }
 
     #[test]
+    fn long_lines_of_unclosed_marks_read_quickly() {
+        // Lines the scans read in time that grew with the square of their length: on to the line's end from each `![`,
+        // `(` or bracket (the image links, an image chip's `]`), from each run of backticks to the next of its length,
+        // from each `<` to a `>`, and back over every open run of tildes. The `![a` line took a second either way, and
+        // the others from 0.3 s to 31 s in a debug build.
+        let ticks: String = (1..=500).map(|k| format!("{}x ", "`".repeat(k))).collect();
+        let links = [
+            format!("x {}", "![a".repeat(170_000)),
+            "![a](".repeat(51_000),
+            format!("[{}", "[![a](b)".repeat(32_000)),
+            format!("![a](b) {ticks}"),
+        ];
+        // A struck line's `](` destinations were read once before as well: that line holds their lookup to it.
+        let struck = [
+            format!("~a~ {}", "](".repeat(128_000)),
+            format!("~a~ {}", "<".repeat(255_000)),
+            format!("{}{}", " ~x".repeat(25_000), " x~~".repeat(25_000)),
+        ];
+        let chips = format!("![c](t3-context://v1/image/a) {}", "![a".repeat(170_000));
+        // Each takes under 6 ms in a release build and under 80 ms in a debug one.
+        let limit = std::time::Duration::from_millis(if cfg!(debug_assertions) { 250 } else { 50 });
+        let timed = |what: &str, text: &str, read: &dyn Fn(&str)| {
+            let start = std::time::Instant::now();
+            read(text);
+            let took = start.elapsed();
+            assert!(took < limit, "{what} of {} bytes of {:?}… took {took:?}", text.len(), &text[..8]);
+        };
+        for line in &links {
+            timed("image links", line, &|line| drop(inline_image_links(line)));
+        }
+        for line in &struck {
+            timed("struck runs", line, &|line| drop(strike_pairs(line)));
+        }
+        timed("image chips", &chips, &|text| drop(image_chip_links(text)));
+        timed("context images", &chips, &|text| drop(context_image_hrefs(text)));
+        // The whole document still renders each.
+        for text in links.iter().chain(&struck).chain([&chips]) {
+            document_with_skills(Value::str("m"), text, None);
+        }
+    }
+
+    #[test]
     fn images_inside_a_line_are_rewritten_and_block_images_kept() {
         let text = "Beside: ![Shot](shot.png) and ![Logo **x**](<../a b.png> \"t\").\n\n![Alone](shot.png)\n\nText\n![Joined](j.png)\n\n`![code](c.png)` \\![esc](e.png) [![linked](l.png)](https://a.com) ![a[b](x.png)\n\n```\n![fenced](f.png)\n```\n\n| a | b |\n| - | - |\n| ![cell](c.png) | x |\n\n![CI](ci.png) ![npm](npm.png)\n\n![a](x.png) and (b)";
         let rewritten = inline_image_links(text);
@@ -465,8 +627,8 @@ mod media_tests {
             "a block image stays"
         );
         assert!(
-            rewritten.contains("Text\n[\u{e001}Joined](t3-image:j.png)"),
-            "a line that continues a paragraph is inline"
+            rewritten.contains("Text\u{e000}\n[\u{e001}Joined](t3-image:j.png)"),
+            "a line that continues a paragraph is inline, on a line of its own: {rewritten}"
         );
         assert!(
             rewritten.contains(&format!(
@@ -486,6 +648,55 @@ mod media_tests {
             text.lines().count(),
             "line structure kept for task offsets"
         );
+    }
+
+    // remarkBreakAroundImageLines (#22787): an image alone on its source line sits under its label.
+    #[test]
+    fn an_image_on_its_own_line_keeps_that_line() {
+        let lines = |text: &str| {
+            let Value::Record(fields) = document_with_tasks(Value::str("m"), text, None, true) else {
+                unreachable!()
+            };
+            let Value::List(blocks) = &fields[1] else { unreachable!() };
+            blocks
+                .iter()
+                .map(|block| {
+                    let Value::Record(block) = block else { unreachable!() };
+                    let Value::List(runs) = &block[7] else { return String::new() };
+                    runs.iter()
+                        .map(|run| match run {
+                            Value::Record(run) if run[6].as_str() == Some("media") => "<img>".to_string(),
+                            Value::Record(run) => run[1].as_str().unwrap_or("").to_string(),
+                            _ => String::new(),
+                        })
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            lines("**Palette**\n![Palette](/tmp/palette.png)\n**Hero** (dark)\n![Hero](/tmp/hero.png)"),
+            ["Palette", "<img>", "Hero (dark)", "<img>"]
+        );
+        assert_eq!(lines("Shot\n[![CI](/ci.svg)](/ci)\nafter").len(), 3, "a linked image alone on its line too");
+        assert_eq!(lines("Built [![CI](/ci.svg)](/ci)\nand wrapped").len(), 1, "an inline badge still wraps");
+        assert_eq!(lines("Hard-wrapped\nprose"), ["Hard-wrapped prose"]);
+        // Spaces after the image and a quote's marks are not the line's content (remarkBreakAroundImageLines reads
+        // the paragraph's own text).
+        let trimmed = |text: &str| lines(text).iter().map(|line| line.trim().to_string()).collect::<Vec<_>>();
+        assert_eq!(trimmed("**Palette**\n![P](p.png) \nnext"), ["Palette", "<img>", "next"]);
+        assert_eq!(trimmed("> **Palette**\n> ![P](p.png)"), ["Palette", "<img>"]);
+        assert_eq!(trimmed("> **Palette**\n> ![P](p.png)\n> next"), ["Palette", "<img>", "next"]);
+        // A list item's indented line keeps its picture (the item would take it in as alt text), and an image that
+        // opens a quote's paragraph keeps its line too.
+        assert_eq!(trimmed("1. Open settings\n   ![Settings](s.png)"), ["Open settings", "<img>"]);
+        // Its picture's line is the item's own: no second marker.
+        let Value::Record(fields) = document_with_tasks(Value::str("m"), "1. Open settings\n   ![Settings](s.png)", None, true) else {
+            unreachable!()
+        };
+        let Value::List(blocks) = &fields[1] else { unreachable!() };
+        let markers: Vec<&str> = blocks.iter().map(|block| match block { Value::Record(block) => block[3].as_str().unwrap_or(""), _ => "" }).collect();
+        assert_eq!(markers, ["1.", ""]);
+        assert_eq!(trimmed("> ![P](p.png)\n> caption"), ["<img>", "caption"]);
     }
 
     #[test]

@@ -7,11 +7,14 @@ import { updateEverythingPass, updateEverythingState } from '../sidebar/update-e
 // the toast stack with its timers, the header's panel-control labels, the
 // right panel's surface chooser and the thread title's action menu.
 import { noteAutomationWindow } from '../browser/browser-automation';
+import { agentHoldWaiting, settleAgentHolds } from '../browser/browser-automation-run';
+import { threadTurnRunning } from '../browser/browser-capture';
+import { frameEntry } from '../browser/browser-frames';
+import { reportBrowserProfiles } from '../browser/browser-profile-report';
 import { migrateModelPreferences } from '../providers/model-preferences';
 import type { T3Client } from '../client/client';
 import { terminalAvailable, terminalOpen } from '../terminal/terminal-drawer-view';
 import type { DispatchContext } from './keyboard-dispatch'; // terminal labels resolve with terminalFocus
-import { highlightPendingSince } from '../highlight/shiki-highlight';
 import { toasts, dismissToast, type Toast, type ToastAction, type ToastKind } from './toast';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { Files, Native } from '../client/protocol';
@@ -20,7 +23,7 @@ import { shortcutLabel } from '../settings/keybinding-view';
 import { snoozePresets } from '../sidebar/sidebar-presentation';
 import { canSnooze, effectiveSnoozed } from '../sidebar/sidebar-model';
 import { diffNotGit } from '../diff/diff';
-import { threadNotifications, providerUpdates, nativeNotifyStatus, reportWindowFacts, type NotifyStatus } from './shell-notify';
+import { threadNotifications, notifyStatus, notificationSounds, notificationsWaiting, reportWindowFacts, type NotifyStatus } from './shell-notify';
 import { slowRequests, tracking } from './shell-slow';
 import { settleLiveTraces } from '../client/protocol-reader'; // answered requests whose answer was let go end on the next shell read
 import { permissionUpdateNotices } from './permission-update-notice';
@@ -36,6 +39,7 @@ import { checkoutView } from '../composer/pr-checkout';
 import { addMachineView } from './add-project-dialog';
 import { cloneToasts } from './project-clones-live';
 import { activationOpen } from './desktop-activation'; // a `t3 app` request opens like a clicked notification
+import { announcements, announcing } from './announce'; // the screen reader's live regions
 
 export type ShellToastView = {
   id: number; kind: string; title: string; description: string; icon: string; iconColor: string; provider: string;
@@ -55,14 +59,14 @@ export type ShellSurface = { id: string; label: string; icon: string; shortcut: 
 export const TOAST_LIMIT = 3;
 const KIND_ICON: Record<ToastKind, [string, string]> = {
   success: ['circle-check', '#00bc7d'], error: ['circle-alert', 'light-dark(#fb2c36, #fb414a)'],
-  warning: ['triangle-alert', '#fe9a00'], info: ['info', '#2b7fff'], loading: ['loader', 'light-dark(#27272a, #f5f5f5)'],
+  warning: ['triangle-alert', '#fe9a00'], info: ['info', '#2b7fff'], loading: ['loader', 'light-dark(#18181b, #f5f5f5)'],
 };
 /** Leading glyphs callers name (ThreadToastData.leadingIcon): `<glyph>:<tone>`. */
 const TONES: Record<string, string> = {
   'success-foreground': 'light-dark(#007a55, #00d492)', 'warning-foreground': 'light-dark(#bb4d00, #ffb900)',
   'destructive-foreground': 'light-dark(#c10007, #ff6467)', 'info-foreground': 'light-dark(#1447e6, #51a2ff)',
   success: '#00bc7d', warning: '#fe9a00', info: '#2b7fff', destructive: 'light-dark(#fb2c36, #fb414a)',
-  foreground: 'light-dark(#27272a, #f5f5f5)',
+  foreground: 'light-dark(#18181b, #f5f5f5)',
 };
 
 type Clock = { remaining: number; last: number; timeout?: number };
@@ -70,7 +74,7 @@ type ShellState = { clocks: Map<number, Clock>; handled: Set<string>; status: No
 const states = new WeakMap<T3Client, ShellState>();
 export function shellState(client: T3Client): ShellState {
   let state = states.get(client);
-  if (!state) { state = { clocks: new Map(), handled: new Set(), status: { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' }, now: 0, copied: new Map(), copiedActions: new Map() }; states.set(client, state); }
+  if (!state) { state = { clocks: new Map(), handled: new Set(), status: { active: true, authorization: 'unknown', opened: '', openedThread: '' }, now: 0, copied: new Map(), copiedActions: new Map() }; states.set(client, state); }
   return state;
 }
 
@@ -269,8 +273,7 @@ async function panelSaved<T>(client: T3Client, storage: Files, view: T): Promise
  * `page` is the window's `exactPage()` focus and visibility (exact2 #219).
  */
 export async function shellView(client: T3Client, native: Native | null | undefined, storage: Files, now: number, dismissed: string, paused: boolean, sheet = false,
-  page: { focused: boolean; visible: boolean } = { focused: true, visible: true }, chatShown = true) {
-  const highlightPending = highlightPendingSince();
+  page: { focused: boolean; visible: boolean; notifications?: string } = { focused: true, visible: true }, chatShown = true) {
   // A closed toast's onClose may change saved preferences (shell-prefs.ts): write them now.
   if (applyDismissals(client, dismissed)) await client.savePreferences(storage);
   const state = shellState(client);
@@ -278,14 +281,14 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   if (native?.available) {
     if (client.writable) void migrateModelPreferences(client, native).catch(() => {});
     native.watch('t3.notify');
-    state.status = await nativeNotifyStatus(native, state.status, page.focused);
+    state.status = notifyStatus(client, state.status, page.focused, page.notifications ?? '');
     await reportWindowFacts(client, native, page.visible, page.focused);
     noteAutomationWindow(client, page.focused && page.visible); // browser-automation.ts: previewAutomation.focusHost's `focused`
-    await providerUpdates(client, storage);
+    reportBrowserProfiles(client, native); // browser-profile-report.ts: server browsers keep this client's profiles and frame rate
     updateEverythingPass(client, native, now);
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
     await coordinateGuides(client, native, state.status, now);
-    await threadNotifications(client, native, state.status); // every connected environment: the focus and the fleet (shell-notify.ts)
+    await threadNotifications(client, state.status, undefined, now); // every connected environment: the focus and the fleet (shell-notify.ts)
     if (tracking(client)) await settleLiveTraces(client, native);
   }
   slowRequests(client, now);
@@ -294,8 +297,10 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
   const menu = titleMenu(client, now);
   const opened = await activationOpen(client, native, state.status);
+  const announce = announcements(client, now); // before `ticking`: a region it just wrote keeps the clock running
+  settleAgentHolds(client, now, runtimeId => frameEntry(client, runtimeId) !== null, (environmentId, threadId) => threadTurnRunning(client, environmentId, threadId));
   return {
-    toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: guideReader(client).watches.size > 0 || updateEverythingState(client).run?.machines.some(machine => machine.result === null) === true || tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client),
+    toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: announcing(client) || notificationsWaiting(client) || guideReader(client).watches.size > 0 || updateEverythingState(client).run?.machines.some(machine => machine.result === null) === true || tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client) || agentHoldWaiting(client, now),
     ...opened, openGuideSelected: decodeGuideOpenTarget(opened.openThreadId) ?? '', // openRequest, openThreadId: a clicked notification's thread or a `t3 app` request (desktop-activation.ts)
     keyRightPanel: commandShortcut(client.config, 'rightPanel.toggle'), keyThreadPanel: commandShortcut(client.config, 'threadPanel.toggle'),
     keyTerminal: commandShortcut(client.config, 'terminal.toggle'), keyNewThread: commandShortcut(client.config, 'chat.new'),
@@ -307,7 +312,8 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     prCheckout: checkoutView(client),
     addMachine: addMachineView(client), // Add to another machine (add-project-dialog.ts)
     composerFile: await composerFileView(client, native, now), // a composer file chip's preview (composer-chip-file.ts)
-    notifications: `${state.status.authorization}${state.status.agent ? ' (agent)' : ''}${state.status.active ? '' : ' (window inactive)'}`,
-    highlightPending: highlightPending(), // after the panel's code texts asked for their tokens
+    notifications: `${state.status.authorization}${state.status.active ? '' : ' (window inactive)'}`,
+    notifySound: notificationSounds(client), // the thread and guide notifications' sounds (app.contract notifyCompletionSound)
+    announce,
   };
 }

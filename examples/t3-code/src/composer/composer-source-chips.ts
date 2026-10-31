@@ -1,7 +1,8 @@
 // composer-editor-mentions.ts, composer-logic.ts and citation spacing at T3 Code 9c161462c9;
-// composerInlineTokens.ts (decorators), composerTrigger.ts (path words) and the provider's skill
-// chips (ComposerPromptEditorTiptap.tsx composerSkillMeta) at 74541bab17.
+// composerInlineTokens.ts (decorators) and the provider's skill chips (ComposerPromptEditorTiptap.tsx
+// composerSkillMeta) at 74541bab17; composerTrigger.ts (path words, currency amounts) at 7c3b3b3605ef.
 import { codeAt, composerMarkdown, type ComposerBlock, type ComposerBlockOrigin } from './composer-markdown';
+import { contextLinks, contextTarget } from './context-links';
 import type { ComposerRange } from './composer-markdown';
 import type { ComposerEdit } from './composer-markdown-edit';
 import { assistantCitationLabel, parseAssistantCitationHref } from '../timeline/diff-citations';
@@ -34,10 +35,10 @@ export type SkillOffer = ((name: string) => boolean) | null;
 
 export function composerChips(value: string, skills: SkillOffer = null): ComposerChip[] {
   const links: ComposerChip[] = [], tokens: ComposerChip[] = [];
-  for (const match of value.matchAll(/(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/[^\s)]{1,200})\)/g)) {
-    const href = match[3] ?? '', parts = href.slice('t3-context://v1/'.length).split('/'), kind = parts[0] ?? '', id = parts[1] ?? '';
-    if (parts.length !== 2 || !/^[a-z][a-z0-9-]{0,39}$/.test(kind) || !/^[a-z0-9_-]{1,128}$/i.test(id)) continue;
-    links.push({ kind: 'context', start: match.index, end: match.index + match[0].length, source: match[0], label: match[2] ?? '', contextKind: kind, contextId: id, image: match[1] === '!' });
+  for (const link of contextLinks(value)) {
+    const target = contextTarget(link.href);
+    if (!target) continue;
+    links.push({ kind: 'context', start: link.start, end: link.end, source: value.slice(link.start, link.end), label: link.label, contextKind: target.kind, contextId: target.id, image: link.image });
   }
   for (const match of value.matchAll(COMPOSER_CITATION)) {
     const href = match[1] ?? '', citation = parseAssistantCitationHref(href);
@@ -109,6 +110,14 @@ export function composerCharacterDeletion(value: string, selection: ComposerRang
   return { start, end, text: '', selection: { start, end: start } };
 }
 
+/**
+ * isCurrencyAmountQuery: `$5`, `€9.99` and `$10k` are money, not skills. Matches the amounts the inline skill tokens
+ * already refuse, plus the punctuation prose puts after one (`$10k.`, `($5)`).
+ */
+export function isCurrencyAmountQuery(query: string): boolean {
+  return /^\.?[0-9][0-9,._]*(?:[kKmMbBtT]|[eE][0-9]+)?[.,;:!?)]*$/.test(query);
+}
+
 export function composerTrigger(value: string, cursor: number, chips = composerChips(value), styling = true, blockOrigins?: readonly ComposerBlockOrigin[]): ComposerTrigger | null {
   if (!Number.isInteger(cursor) || cursor < 0 || cursor > value.length || chips.some(chip => cursor > chip.start && cursor < chip.end)) return null;
   if (styling && codeAt(composerMarkdown(value, { blockOrigins }).blocks, { start: cursor, end: cursor })) return null;
@@ -120,6 +129,7 @@ export function composerTrigger(value: string, cursor: number, chips = composerC
   const pr = /^#([\p{L}\p{N}][\p{L}\p{N}_-]*)?$/u.exec(token);
   if (pr) return { kind: 'pull-request', query: pr[1] ?? '', start: tokenStart, end: cursor };
   const skill = /^\p{Sc}/u.exec(token);
+  if (skill && isCurrencyAmountQuery(token.slice(skill[0].length))) return null;
   if (skill) return { kind: 'skill', query: token.slice(skill[0].length), start: tokenStart, end: cursor };
   return token.startsWith('@') ? { kind: 'path', query: token.slice(1), start: tokenStart, end: cursor } : null;
 }

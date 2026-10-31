@@ -1,7 +1,7 @@
-// The palette's "Link pull request to thread": T3 Code 9c161462c9 reference pullRequest/LinkPullRequestDialog.tsx
-// (client-runtime/pullRequestLinkInput.ts at 74541bab17)
-// over shared/changeRequestUrl.ts (parseChangeRequestUrl, changeRequestUrlFor),
-// web/pullRequestReference.ts, web/lib/openPullRequestLink.ts (project matching),
+// The palette's "Link pull request to thread": T3 Code reference pullRequest/LinkPullRequestDialog.tsx and
+// client-runtime/pullRequestLinkInput.ts (7c3b3b3605ef) over each host's parseChangeRequestUrl and changeRequestUrl in
+// the definitions registry's claim order (packages/source-control-*/src/shared/definition.ts), with
+// web/pullRequestReference.ts, web/lib/openPullRequestLink.ts (project matching; 9c161462c9),
 // hooks/usePullRequestLinking.ts and client-runtime/threadPullRequestCompatibility.ts.
 // The dialog is a palette page drawn as a dialog (palette-dialog.contract).
 import type { T3Client } from '../client/client';
@@ -9,59 +9,95 @@ import { obj, str, type Obj } from '../client/domain';
 import type { Files } from '../client/protocol';
 import { closedView, type PaletteView } from './palette';
 import { letGo } from '../client/let-go';
+import { changeRequestTerms, type ChangeRequestTerms } from '../shared/source-control-hosts';
 
 export type ChangeRequestLink = { host: string; repository: string; number: number; authority?: string };
 export type ResolvedLink = { host: string; repository: string; number: number; url: string };
 type Project = Obj;
 
-// ── Change request URLs (packages/shared/src/changeRequestUrl.ts) ──────────
-function isHostOf(hostname: string, apex: string, label?: string): boolean {
-  return hostname === apex || hostname.endsWith(`.${apex}`) || (label !== undefined && hostname.split('.').includes(label));
-}
-function claim(host: string, match: RegExpExecArray | null): ChangeRequestLink | null {
-  const repository = match?.[1], number = Number(match?.[2]);
-  return repository && Number.isSafeInteger(number) && number > 0 ? { host, repository: repository.toLowerCase(), number } : null;
-}
-export function parseChangeRequestUrl(target: string): ChangeRequestLink | null {
+// ── Change request URLs: each host's parseChangeRequestUrl, in the registry's claim order ────────────────────────────
+type Claim = { kind: string; route: RegExp; claims?: (hostname: string) => boolean; authority?: (url: URL) => boolean };
+/** GitCafe has no self-hosted installs: production and staging are its only hosts. */
+const GITCAFE_HOSTS = new Set(['git.cafe', 'staging.git.cafe']);
+const CLAIMS: Claim[] = [
+  // GitCafe serves pull requests at /pull/<n> and redirects the older /pulls/<n> there. Those are GitHub's and
+  // Forgejo's routes on any hostname too, so GitCafe's own hosts claim first.
+  { kind: 'gitcafe', route: /^\/([^/]+\/[^/]+)\/pulls?\/(\d+)(?:\/|$)/u, claims: hostname => GITCAFE_HOSTS.has(hostname) },
+  // GitHub Enterprise Server runs on any hostname, so the route alone identifies a GitHub pull request.
+  { kind: 'github', route: /^\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/|$)/u },
+  { kind: 'gitlab', route: /^\/([^/]+(?:\/[^/]+)+)\/-\/merge_requests\/(\d+)(?:\/|$)/u },
+  // A Forgejo server's identity includes its port, so the link carries it.
+  { kind: 'forgejo', route: /^\/([^/]+(?:\/[^/]+)+)\/pulls\/(\d+)(?:\/|$)/u, authority: () => true },
+  { kind: 'bitbucket', route: /^\/([^/]+\/[^/]+)\/pull-requests\/(\d+)(?:\/|$)/u, claims: hostname => hostname === 'bitbucket.org' || hostname.endsWith('.bitbucket.org') || hostname.split('.').includes('bitbucket') },
+  // Azure DevOps Server runs on any hostname; servers on different ports are different servers, so a port stays.
+  { kind: 'azure-devops', route: /^\/((?:[^/]+\/)*_git\/[^/]+)\/pullrequest\/(\d+)(?:\/|$)/u, authority: url => url.port !== '' },
+];
+/** The first host, in the registry's claim order, that reads `target` as one of its change requests. */
+export function claimChangeRequestUrl(target: string): { kind: string; link: ChangeRequestLink } | null {
   let url: URL;
   try { url = new URL(target); } catch { return null; }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
-  const host = url.hostname.toLowerCase();
-  if (isHostOf(host, 'github.com', 'github')) {
-    const match = /^\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/|$)/u.exec(url.pathname);
-    if (match) return claim(host, match);
+  const hostname = url.hostname.toLowerCase();
+  for (const { kind, route, claims, authority } of CLAIMS) {
+    if (claims && !claims(hostname)) continue;
+    const match = route.exec(url.pathname);
+    const repository = match?.[1], number = Number(match?.[2]);
+    if (!repository || !Number.isSafeInteger(number) || number <= 0) continue;
+    const link = { host: hostname, repository: repository.toLowerCase(), number };
+    return { kind, link: authority?.(url) ? { ...link, authority: url.host.toLowerCase() } : link };
   }
-  const forgejo = /^\/([^/]+(?:\/[^/]+)+)\/pulls\/(\d+)(?:\/|$)/u.exec(url.pathname);
-  if (forgejo) { const link = claim(host, forgejo); return link === null ? null : { ...link, authority: url.host.toLowerCase() }; }
-  const gitlab = /^\/([^/]+(?:\/[^/]+)+)\/-\/merge_requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
-  if (gitlab) return claim(host, gitlab);
-  if (isHostOf(host, 'bitbucket.org', 'bitbucket')) return claim(host, /^\/([^/]+\/[^/]+)\/pull-requests\/(\d+)(?:\/|$)/u.exec(url.pathname));
-  if (isHostOf(host, 'dev.azure.com') || host.endsWith('.visualstudio.com')) return claim(host, /^\/((?:[^/]+\/)*_git\/[^/]+)\/pullrequest\/(\d+)(?:\/|$)/u.exec(url.pathname));
   return null;
+}
+export function parseChangeRequestUrl(target: string): ChangeRequestLink | null {
+  return claimChangeRequestUrl(target)?.link ?? null;
+}
+/** changeRequestTerminologyForUrl: the terms of the host whose change request `url` is, else GitHub's, the client default. */
+export function changeRequestTermsForUrl(url: string): ChangeRequestTerms {
+  return changeRequestTerms(claimChangeRequestUrl(url)?.kind ?? 'github');
+}
+/** canonicalizeGitCafePullRequestUrl: a GitCafe link is stored at its canonical /pulls/<n>; any other link as typed. */
+export function canonicalPullRequestUrl(value: string): string {
+  const claimed = claimChangeRequestUrl(value);
+  return claimed?.kind === 'gitcafe' ? `https://${claimed.link.host}/${claimed.link.repository}/pulls/${claimed.link.number}` : value;
 }
 export function canonicalRepositoryKey(key: string): string {
   return key.replace(/^(?:ssh\.dev\.azure\.com|vs-ssh\.visualstudio\.com)\/v3\/([^/]+)\/([^/]+)\/([^/]+)$/u, 'dev.azure.com/$1/$2/_git/$3')
     .replace(/^([^.]+)\.visualstudio\.com\/(?:defaultcollection\/)?([^/]+)\/_git\/([^/]+)$/u, 'dev.azure.com/$1/$2/_git/$3');
 }
-function changeRequestUrlFor(kind: string, host: string, repository: string, number: number, remoteUrl: string): string | null {
+/** remoteWebOrigin: an HTTP remote on `host` names the server's web origin, port included; SSH remotes do not. */
+function remoteWebOrigin(host: string, remoteUrl: string): string {
+  try {
+    const remote = new URL(remoteUrl);
+    if ((remote.protocol === 'http:' || remote.protocol === 'https:') && (remote.hostname.toLowerCase() === host.toLowerCase() || remote.host.toLowerCase() === host.toLowerCase())) return remote.origin;
+  } catch { /* SSH remotes do not name the web origin. */ }
+  return `https://${host}`;
+}
+/** Each host's changeRequestUrl: below the repository's browser URL when the project names one. */
+function changeRequestUrlFor(kind: string, host: string, repository: string, number: number, remoteUrl: string, webUrl: string): string | null {
+  const below = (route: string) => `${webUrl.replace(/\/+$/u, '')}/${route}`;
   switch (kind) {
-    case 'github': return `https://${host}/${repository}/pull/${number}`;
-    case 'gitcafe': return `https://${host}/${repository}/pulls/${number}`;
-    case 'forgejo': {
-      try {
-        const remote = new URL(remoteUrl);
-        if ((remote.protocol === 'http:' || remote.protocol === 'https:') && (remote.hostname.toLowerCase() === host.toLowerCase() || remote.host.toLowerCase() === host.toLowerCase())) return `${remote.origin}/${repository}/pulls/${number}`;
-      } catch { /* SSH remotes do not name the web origin. */ }
-      return `https://${host}/${repository}/pulls/${number}`;
+    case 'github': {
+      if (!Number.isSafeInteger(number) || number < 1) return null;
+      if (webUrl) return below(`pull/${number}`);
+      // Owner and repository names are only these characters, so nothing here is a dot segment `new URL` would reread.
+      const segments = repository.split('/');
+      if (segments.length !== 2 || !segments.every(segment => /^[\w.-]+$/u.test(segment) && segment !== '.' && segment !== '..')) return null;
+      try { return new URL(`/${repository}/pull/${number}`, remoteWebOrigin(host, remoteUrl)).toString(); } catch { return null; }
     }
-    case 'gitlab': return `https://${host}/${repository}/-/merge_requests/${number}`;
-    case 'bitbucket': return `https://${host}/${repository}/pull-requests/${number}`;
-    case 'azure-devops': return `https://${canonicalRepositoryKey(`${host}/${repository}`.toLowerCase())}/pullrequest/${number}`;
+    case 'gitcafe': return webUrl ? below(`pulls/${number}`) : `https://${host}/${repository}/pulls/${number}`;
+    case 'forgejo': return webUrl ? below(`pulls/${number}`) : `${remoteWebOrigin(host, remoteUrl)}/${repository}/pulls/${number}`;
+    case 'gitlab': return webUrl ? below(`-/merge_requests/${number}`) : `https://${host}/${repository}/-/merge_requests/${number}`;
+    case 'bitbucket': return webUrl ? below(`pull-requests/${number}`) : `https://${host}/${repository}/pull-requests/${number}`;
+    case 'azure-devops': {
+      if (webUrl) return below(`pullrequest/${number}`);
+      const [canonicalHost = host, ...path] = canonicalRepositoryKey(`${host}/${repository}`.toLowerCase()).split('/');
+      return `${remoteWebOrigin(canonicalHost, remoteUrl)}/${path.join('/')}/pullrequest/${number}`;
+    }
     default: return null;
   }
 }
 
-// ── Typed references (apps/web/src/pullRequestReference.ts) ─────────────────
+// ── Typed references (each host's isChangeRequestReference and checkoutCommandArgument) ──────────────────────────────
 const URL_PATTERNS = [/^https?:\/\/[^/\s]+\/(?:[^/\s]+\/)+[^/\s]+\/pulls\/(\d+)(?:[/?#].*)?$/i, /^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/(\d+)(?:[/?#].*)?$/i,
   /^https:\/\/[^/\s]*gitlab[^/\s]*\/.+\/-\/merge_requests\/(\d+)(?:[/?#].*)?$/i,
   /^https:\/\/(?:dev\.azure\.com\/[^/\s]+\/[^/\s]+|[^/\s]+\.visualstudio\.com\/[^/\s]+)\/_git\/[^/\s]+\/pullrequest\/(\d+)(?:[/?#].*)?$/i];
@@ -80,7 +116,8 @@ export function parsePullRequestReference(input: string): string | null {
   const normalized = /^tea\s+(?:pr|pulls)\s+checkout\s+(.+)$/i.exec(trimmed)?.[1]?.trim() ?? /^gh\s+pr\s+checkout\s+(.+)$/i.exec(trimmed)?.[1]?.trim()
     ?? /^glab\s+mr\s+checkout\s+(.+)$/i.exec(trimmed)?.[1]?.trim() ?? (azure ? azureCheckout(azure) : null) ?? trimmed;
   if (!normalized) return null;
-  if (URL_PATTERNS.some(pattern => pattern.exec(normalized)?.[1])) return normalized;
+  // GitCafe's references are its change request URLs, on its own hosts.
+  if (URL_PATTERNS.some(pattern => pattern.exec(normalized)?.[1]) || claimChangeRequestUrl(normalized)?.kind === 'gitcafe') return normalized;
   return /^#?(\d+)$/.exec(normalized)?.[1] ?? null;
 }
 
@@ -148,7 +185,15 @@ function canLink(projects: Project[], mode: LinkMode, url: string): boolean {
   if (parsed === null || mode === 'unsupported') return false;
   return mode === 'multiple' || findProjectForChangeRequest(projects, parsed) !== undefined;
 }
-/** resolveLinkPullRequestInput over the thread's own project. */
+/** pullRequestLinkProject: the thread project's repository, so a bare number resolves to one of its change requests. */
+function linkProject(identity: Obj | null) {
+  const repository = identity ? displayRepository(identity) : null;
+  if (!identity || repository === null) return null;
+  // sourceControlClients.get(provider ?? "unknown"): a host no definition claims has no change request URL.
+  const kind = str(identity.provider) || 'unknown', host = pullRequestHost(identity, kind);
+  return { terms: changeRequestTerms(kind), webUrl: (number: number) => changeRequestUrlFor(kind, host, repository, number, remoteOf(identity), str(identity.webUrl)) };
+}
+/** resolveLinkPullRequestInput over the thread's own project; a GitCafe link resolves to its canonical URL. */
 export function resolveLinkInput(reference: string, projects: Project[], projectId: string, mode: LinkMode): { link: ResolvedLink } | { error: string } | null {
   const trimmed = reference.trim();
   const parsed = parseChangeRequestUrl(trimmed) !== null ? trimmed : parsePullRequestReference(reference);
@@ -156,18 +201,16 @@ export function resolveLinkInput(reference: string, projects: Project[], project
   const url = parseChangeRequestUrl(parsed);
   if (url !== null) {
     if (!canLink(projects, mode, parsed)) return { error: `No project in this environment can read ${url.host}/${url.repository}.` };
-    return { link: { host: url.host, repository: url.repository, number: url.number, url: parsed } };
+    return { link: { host: url.host, repository: url.repository, number: url.number, url: canonicalPullRequestUrl(parsed) } };
   }
   const number = Number(parsed);
   if (!Number.isSafeInteger(number) || number < 1) return null;
   const project = projects.find(candidate => candidate.id === projectId);
-  const identity = project ? identityOf(project) : null;
-  const repository = identity ? displayRepository(identity) : null;
-  if (!identity || repository === null) return { error: 'Paste the full pull request URL; this thread has no repository to resolve the number against.' };
-  const kind = str(identity.provider), host = pullRequestHost(identity, kind);
-  const webUrl = kind === 'forgejo' && str(identity.webUrl) ? `${str(identity.webUrl).replace(/\/+$/, '')}/pulls/${number}` : changeRequestUrlFor(kind, host, repository, number, remoteOf(identity));
+  const own = linkProject(project ? identityOf(project) : null);
+  if (own === null) return { error: 'Paste the full pull request URL; this thread has no repository to resolve the number against.' };
+  const webUrl = own.webUrl(number);
   const web = webUrl === null ? null : parseChangeRequestUrl(webUrl);
-  if (webUrl === null || web === null) return { error: "Paste a full URL; this project's host has no known pull request URL." };
+  if (webUrl === null || web === null) return { error: `Paste a full URL; this project's host has no known ${own.terms.singular} URL.` };
   return { link: { host: web.host, repository: web.repository, number: web.number, url: webUrl } };
 }
 

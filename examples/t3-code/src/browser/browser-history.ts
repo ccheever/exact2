@@ -1,4 +1,4 @@
-// The Browser tab's history (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
+// The Browser tab's history (T3 Code 7c3b3b3605ef, MIT, see LICENSE-T3:
 // apps/web/src/browserHistoryStore.ts; apps/web/src/timestampFormat.ts `formatRelativeTimeLabel`).
 //
 // Visits are kept per project (the sidebar's logical project key, so history follows the project rows the
@@ -10,12 +10,10 @@
 // The reference persists `byProjectKey` and `projectKeyByThreadKey` in localStorage
 // (`t3code:browser-history:v1`); here they are the client's saved preferences (`browserHistory`, written with
 // the rest of client.local), read back through the same sanitizer (`mergeBrowserHistoryState`). The pending
-// queues stay in memory, as the reference's `partialize` leaves them out.
+// queue stays in memory, as the reference's `partialize` leaves it out.
 //
-// Registration: at 1e2ecbd975 nothing calls `registerThreadProject` (#2829, de34391427, dropped ChatView's
-// effect), so a thread's visits wait in the pending queue and Recently used lists only the history of a thread whose
-// project mapping was saved before that change. The clone does the same (user decision 2026-10-09: match the
-// reference, de34391427): the store keeps the reference's API, and nothing registers a thread's project.
+// This store takes project keys from its caller: browser-history-record.ts registers each thread under its project
+// as it records a visit, titles the visited pages, and reads a thread's history by its project.
 import { normalizePreviewUrl } from './browser-url';
 import { isLocalLoopbackHost, normalizeHostname } from '../connections/host-classification';
 import { scopedThreadKey, type ScopedThreadRef } from '../terminal/terminal-ui-state';
@@ -120,13 +118,12 @@ function migratePersistedThreadProjectKeys(persistedState: unknown, byProjectKey
 /** The saved half (the reference's `partialize`). */
 export type PersistedBrowserHistory = { byProjectKey: Record<string, BrowserHistoryEntry[]>; projectKeyByThreadKey: Record<string, string> };
 type PendingVisit = { url: string; at: number; environmentHostname: string | null };
-type PendingTitle = { url: string; title: string; environmentHostname: string | null | undefined };
-export type BrowserHistoryState = PersistedBrowserHistory & { pendingVisitsByThreadKey: Record<string, PendingVisit[]>; pendingTitlesByThreadKey: Record<string, PendingTitle[]> };
+export type BrowserHistoryState = PersistedBrowserHistory & { pendingVisitsByThreadKey: Record<string, PendingVisit[]> };
 
 /** mergeBrowserHistoryState: saved state sanitized on every read, the pending queues empty. */
 export function mergeBrowserHistoryState(persistedState: unknown): BrowserHistoryState {
   const migrated = migratePersistedBrowserHistoryState(persistedState);
-  return { ...migrated, projectKeyByThreadKey: migratePersistedThreadProjectKeys(persistedState, migrated.byProjectKey), pendingVisitsByThreadKey: {}, pendingTitlesByThreadKey: {} };
+  return { ...migrated, projectKeyByThreadKey: migratePersistedThreadProjectKeys(persistedState, migrated.byProjectKey), pendingVisitsByThreadKey: {} };
 }
 
 const PENDING_MAX_PER_THREAD = 10;
@@ -184,18 +181,20 @@ export class BrowserHistoryStore {
     this.set({ byProjectKey: { ...this.state.byProjectKey, [projectKey]: next } });
   }
 
-  registerThreadProject(ref: ScopedThreadRef, projectKey: string): void {
+  /** Registers the thread under `projectKey` and lands its queued visits; their URLs, which the caller then titles. */
+  registerThreadProject(ref: ScopedThreadRef, projectKey: string): string[] {
     const threadKey = scopedThreadKey(ref), state = this.state;
-    const pendingVisits = state.pendingVisitsByThreadKey[threadKey], pendingTitles = state.pendingTitlesByThreadKey[threadKey];
-    if (state.projectKeyByThreadKey[threadKey] === projectKey && !pendingVisits && !pendingTitles) return;
-    const nextPendingVisits = { ...state.pendingVisitsByThreadKey }, nextPendingTitles = { ...state.pendingTitlesByThreadKey };
+    const pendingVisits = state.pendingVisitsByThreadKey[threadKey];
+    if (state.projectKeyByThreadKey[threadKey] === projectKey && !pendingVisits) return [];
+    const nextPendingVisits = { ...state.pendingVisitsByThreadKey };
     delete nextPendingVisits[threadKey];
-    delete nextPendingTitles[threadKey];
-    this.set({ projectKeyByThreadKey: { ...state.projectKeyByThreadKey, [threadKey]: projectKey }, pendingVisitsByThreadKey: nextPendingVisits, pendingTitlesByThreadKey: nextPendingTitles },
+    this.set({ projectKeyByThreadKey: { ...state.projectKeyByThreadKey, [threadKey]: projectKey }, pendingVisitsByThreadKey: nextPendingVisits },
       state.projectKeyByThreadKey[threadKey] !== projectKey);
     for (const visit of pendingVisits ?? []) this.recordVisit(projectKey, visit.url, visit.at, { insertOrdered: true, environmentHostname: visit.environmentHostname });
-    for (const pendingTitle of pendingTitles ?? []) this.setTitleForUrl(projectKey, pendingTitle.url, pendingTitle.title, pendingTitle.environmentHostname);
+    return (pendingVisits ?? []).map(visit => visit.url);
   }
+  /** The project a thread was last registered under. */
+  registeredProject(ref: ScopedThreadRef): string | undefined { return this.state.projectKeyByThreadKey[scopedThreadKey(ref)]; }
 
   /** recordVisitForThread: the environment's host (its prepared connection) makes it one site with loopback. The time is the
    *  caller's (a data source reads no clock: the projection's wall time). */
@@ -208,25 +207,16 @@ export class BrowserHistoryStore {
     this.recordVisit(projectKey, url, at, { environmentHostname });
   }
 
-  setTitleForThreadUrl(ref: ScopedThreadRef, url: string, title: string, environmentHostname?: string | null): void {
-    const threadKey = scopedThreadKey(ref), projectKey = this.state.projectKeyByThreadKey[threadKey];
-    if (!projectKey) {
-      this.set({ pendingTitlesByThreadKey: addPendingByThread(this.state.pendingTitlesByThreadKey, threadKey, { url, title, environmentHostname }) }, false);
-      return;
-    }
-    this.setTitleForUrl(projectKey, url, title, environmentHostname);
-  }
-
-  removeUrlForThread(ref: ScopedThreadRef, url: string): void {
-    const projectKey = this.state.projectKeyByThreadKey[scopedThreadKey(ref)];
-    if (projectKey) this.removeUrl(projectKey, url);
-  }
-
-  /** useThreadRecentHistory. */
-  threadRecentHistory(ref: ScopedThreadRef, limit: number): ReadonlyArray<BrowserHistoryEntry> {
-    const projectKey = this.state.projectKeyByThreadKey[scopedThreadKey(ref)];
+  /** useThreadRecentHistory's read: the project's newest entries. */
+  projectHistory(projectKey: string | null | undefined, limit: number): ReadonlyArray<BrowserHistoryEntry> {
     const entries = projectKey ? this.state.byProjectKey[projectKey] : undefined;
     return entries && entries.length > 0 ? entries.slice(0, limit) : [];
+  }
+
+  /** titleLookupKey for a URL as history keys it; null for a URL history cannot hold. */
+  titleKey(url: string, environmentHostname: string | null): string | null {
+    const normalized = normalizeHistoryUrl(url);
+    return normalized ? titleLookupKey(normalized, environmentHostname) : null;
   }
 }
 

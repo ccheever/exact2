@@ -37,7 +37,7 @@ component BcIcon
     size: number
     color: string
   view
-    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 pointer-events="none" aria-hidden=true
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 pointer-events="none" aria-hidden=true
       path d=bcPath(name)
 
 // PreviewChromeRow's Annotate, Capture and Float preview, between the address and More; one subtree serves both schemes: an svg's light-dark() paint follows an appearance change (main 9223aad88).
@@ -197,13 +197,13 @@ component BrowserMiniPlayer
     box position="absolute" left=(framed ? 0 : frame.x) top=(framed ? 0 : frame.top) width=frame.width height=frame.height z-index=40 hover=overPlayer pointermove=movePlayer pointerdown=outside pointerup=outside pointer-events=(framed ? "none" : "auto") role="region" aria-label="Floating browser preview" testId="browser-mini-player"
       column position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius overflow="hidden" background-color=(framed and mini.hasWebContents ? "#00000000" : "light-dark(#f4f4f5, #1a1a1a)") box-shadow="0 25px 50px -12px #00000059"
         if mini.server
-          ServerBrowserPage(runtimeId=mini.runtimeId, url=mini.streamUrl, pdfUrl=mini.pdfUrl, pageWidth=frame.width, pageHeight=frame.height, followSize=false, mini=true)
+          ServerBrowserPage(runtimeId=mini.runtimeId, url=mini.streamUrl, pdfUrl=mini.pdfUrl, pdfViewer=mini.pdfViewer, local=local, pageWidth=frame.width, pageHeight=frame.height, followSize=false, mini=true)
         if not mini.hasWebContents
           box position="absolute" left=0 top=0 right=0 bottom=0 display="flex" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #1a1a1a)" pointer-events="none" testId="browser-mini-reconnecting"
-            text "Reconnecting preview…" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+            text "Reconnecting preview…" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
         box position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" pointer-events="none"
       // The resting dot: muted, or destructive and pulsing while recording ("Recording preview").
-      box position="absolute" top=(frame.pillInset - 1) right=(frame.pillInset - 1) width="0.625rem" height="0.625rem" border-radius="0.3125rem" border-width=1 border-style="solid" border-color="light-dark(#ffffffb3, #0a0a0ab3)" background-color=(mini.recording ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#0a0a0a40, #fafafa40)") box-sizing="border-box" box-shadow="0 1px 2px 0 #0000000d" opacity=(pill ? 0 : 1) animation=(mini.recording and not still ? "bcStatusPulse 2s infinite" : "none") transition=(still ? "opacity 0ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)") pointer-events="none" role=(mini.recording ? "status" : "") aria-label=(mini.recording ? "Recording preview" : "") testId="browser-mini-dot"
+      box position="absolute" top=(frame.pillInset - 1) right=(frame.pillInset - 1) width="0.625rem" height="0.625rem" border-radius="0.3125rem" border-width=1 border-style="solid" border-color="light-dark(#ffffffb3, #000000b3)" background-color=(mini.recording ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#0a0a0a40, #fafafa40)") box-sizing="border-box" box-shadow="0 1px 2px 0 #0000000d" opacity=(pill ? 0 : 1) animation=(mini.recording and not still ? "bcStatusPulse 2s infinite" : "none") transition=(still ? "opacity 0ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)") pointer-events="none" role=(mini.recording ? "status" : "") aria-label=(mini.recording ? "Recording preview" : "") testId="browser-mini-dot"
       // ThreadPreviewMiniPlayer's `group`: the 12 pt handle, which grows to the pill's box while the pill shows (the
       // group-hover). Whether the pointer is on it is the player's own hover and moves (`bcPlayerZone`), not a hover of
       // the handle: a real pointer that came to rest on the 12 pt box often brought no enter there, so the pill waited for
@@ -255,5 +255,5 @@ component BcPillButton
   view
     box position="relative" flex-shrink=0
       button press=pressed focus=focusChange(true) blur=focusChange(false) pointer-events=(shown ? "auto" : "none") aria-label=label title="" testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(on ? "light-dark(#fafafa, #ffffff08)" : (hot and shown ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000"))
-        BcIcon(name=icon, size=14, color="light-dark(#27272a, #f5f5f5)")
+        BcIcon(name=icon, size=14, color="light-dark(#18181b, #f5f5f5)")
       TipBubble(label=tip, side="top", align=align, offset=28, inset=0, shown=tipShown)

@@ -5,7 +5,8 @@ import { focusedDiffFind } from '../diff/diff-find';
 // context, and the last matching rule for a chord wins (resolveShortcutCommand).
 // sidebar.toggle, modelPicker.toggle, composer.effort and composer.mode
 // stay on their visible buttons (keyboardSettings, composer-presentation), so a
-// chord has one button; the rest are dispatched from here.
+// chord has one button; the rest are dispatched from here, and sidebar.toggle
+// too while Settings or Usage leaves its button inert (sidebarRow).
 import { settingsForward } from './navigation-forward';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { modelCatalog } from '../client/presentation';
@@ -59,7 +60,7 @@ function when(ast: unknown, context: Record<string, boolean>, depth = 0): boolea
 }
 /** Each chord's winning command in this context ('' when an unknown condition makes it undecidable). */
 export function chordWinners(bindings: Obj[], context: DispatchContext): Map<string, string> {
-  const values: Record<string, boolean> = { true: true, false: false, isDesktop: true, isWeb: false, terminalFocus: context.terminalFocus === true, terminalOpen: context.terminalOpen === true, previewFocus: context.previewFocus === true, previewOpen: false, usagePageOpen: false,
+  const values: Record<string, boolean> = { true: true, false: false, isDesktop: true, isWeb: false, terminalFocus: context.terminalFocus === true, terminalOpen: context.terminalOpen === true, previewFocus: context.previewFocus === true, previewOpen: false, usagePageOpen: context.page === 'usage',
     composerFocus: context.composerFocus, editableFocus: context.editableFocus, turnRunning: context.turnRunning, modelPickerOpen: context.modelPickerOpen, draftThreadRoute: context.draftThreadRoute };
   const winners = new Map<string, string>();
   const rules: Rule[] = bindings.map(binding => ({ command: str(binding.command), chord: ariaChord(obj(binding.shortcut)), whenAst: binding.whenAst }));
@@ -141,6 +142,8 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
     // The palette provider's chords are app-wide (CommandPalette.tsx), so they work in Settings too.
     overlays(); add('theme.select', 'palette', 'command', 'Change Theme', 'theme'); add('usage.open', 'palette-run', 'usage', 'Open Usage'); appearanceRow(add, client, threads, browseProvider, modelQuery, context);
     modelPickerRows(add, client, threads, browseProvider, modelQuery, context); // a General model row's picker (ModelPickerContent's own keys)
+    sidebarRow(add, client, threads, browseProvider, modelQuery, context);
+    workspaceRow(add); // Settings' own areas: its sections and its page
     return out;
   }
   overlays();
@@ -195,7 +198,12 @@ export type DispatchRow = (add: DispatchAdd, client: T3Client, threads: Obj[], b
 // order (the host files a button's first ⌘ chord as its menu key equivalent,
 // so order is kept). A feature adds a row function, here or in its own file,
 // and one entry below; no row reads another's locals.
-const MAIN_ROWS: DispatchRow[] = [paletteRows, appearanceRow, threadOrderRows, navigationRows, scratchRow, threadRows, panelRows, (add, client) => previewToggleRow(add, client), terminalRows, turnRows, effortRows, modelPickerRows, threadCommandRows];
+const MAIN_ROWS: DispatchRow[] = [workspaceRow, paletteRows, appearanceRow, threadOrderRows, navigationRows, scratchRow, threadRows, panelRows, (add, client) => previewToggleRow(add, client), terminalRows, turnRows, effortRows, modelPickerRows, threadCommandRows, sidebarRow];
+/** workspace.focusNext / focusPrevious: F6 and ⇧F6 (⌘F6 and ⇧⌘F6 too) move between the shown workspace areas. */
+function workspaceRow(add: DispatchAdd): void {
+  add('workspace.focusNext', 'workspace-focus', 'next', 'Focus Next Workspace Area');
+  add('workspace.focusPrevious', 'workspace-focus', 'previous', 'Focus Previous Workspace Area');
+}
 /** The palette, usage, theme editor and new-thread commands. */
 function paletteRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // theme.select opens the palette on Change theme; usage.open and themeEditor.toggle run the palette's rows.
@@ -204,6 +212,13 @@ function paletteRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseP
   add('themeEditor.toggle', 'palette-run', 'theme-editor', 'Toggle Theme Editor');
   add('chat.new', 'chat-new', '', 'New Thread'); // with or without the sidebar's button (routes/_chat.tsx)
   add('chat.newLocal', 'new-thread', '', 'New Local Thread');
+}
+/**
+ * sidebar.toggle while Settings or Usage covers the window: SidebarControl's capture listener has no dialog check, so
+ * the sidebar behind the modal toggles. The sidebar's own button is inert under the modal, so its chord is here.
+ */
+function sidebarRow(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
+  if (context.settingsOpen || context.page === 'usage') add('sidebar.toggle', 'command', 'sidebar', 'Toggle Sidebar');
 }
 /** appearance.cycle: System → Light → Dark. */
 function appearanceRow(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {

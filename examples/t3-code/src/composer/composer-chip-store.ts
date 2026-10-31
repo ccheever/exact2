@@ -6,7 +6,7 @@ import type { ComposerChip } from './composer-source-chips';
 export type ComposerChipPreview = ComposerFieldSnapshot & { inputSerial: number };
 export type ComposerChipFinish = {
   seq: number; generation: number; snapshotOwner: string; owner: string; value: string; inputSerial: number;
-  surface: 'composer' | 'preview'; start: number; end: number; focus: 'after' | 'select' | 'outside' | 'none'; send: boolean; interaction: number;
+  surface: 'composer' | 'preview'; start: number; end: number; focus: 'after' | 'select' | 'outside' | 'return' | 'none'; send: boolean; interaction: number;
 };
 export const NO_CHIP_FINISH: ComposerChipFinish = { seq: 0, generation: -1, snapshotOwner: '', owner: '', value: '', inputSerial: 0, surface: 'composer', start: 0, end: 0, focus: 'none', send: false, interaction: -1 };
 type Entry = { presses: ComposerChipPresses; citations: ComposerCitationReceipts; preview: ComposerChipPreview | null; finish: ComposerChipFinish | null };

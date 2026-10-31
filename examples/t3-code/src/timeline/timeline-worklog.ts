@@ -10,7 +10,7 @@ export { commandDisplayText, commandProgramName } from './command-label';
 import { toolCallLines } from './timeline-item-detail';
 import { replToolTitle } from './tool-activity';
 import { arr, num, obj, str, type Json, type Obj } from '../client/domain';
-import { summarizeT3ToolCalls, t3ActionPriority, t3ToolDefinition, t3ToolPresentation, t3ToolResultFailed, type T3ToolCall, type T3ToolPresentation } from './timeline-t3tools';
+import { summarizeT3ToolCalls, t3ActionPriority, t3SummaryAction, t3ToolDefinition, t3ToolPresentation, t3ToolResultFailed, type T3ToolCall, type T3ToolPresentation } from './timeline-t3tools';
 import { extractToolActivityPresentation, notificationSource } from './timeline-work-rows';
 
 export const last = <T>(items: readonly T[]): T | undefined => items[items.length - 1];
@@ -132,6 +132,12 @@ export function projectedWorkEntry(row: Obj): WorkEntry {
         ? formatSearchToolLabel({ input }) ?? (str(item.toolName) || 'Tool call') : str(item.toolName) || 'Tool call'),
         toolTitle: title ?? (str(item.toolName) || 'Tool'), toolData: { input, output: item.output ?? null } };
     }
+    // Each todo update is a quiet row where the agent wrote it; it opens to every step.
+    case 'todo_list': {
+      const steps = arr(item.steps), done = steps.filter(step => step.status === 'completed').length;
+      const current = steps.find(step => step.status === 'running') ?? steps.find(step => step.status === 'pending');
+      return { ...common, label: `Tasks ${done}/${steps.length}${current ? ` · ${str(current.text)}` : ''}` };
+    }
     case 'approval_request': return { ...common, label: title ?? 'Approval requested', detail: str(item.prompt, str(item.requestKind)), toolData: item };
     case 'user_input_request': return { ...common, label: title ?? (item.questionAnswer ? 'Answered questions' : 'Input requested'),
       ...(item.questionAnswer ? { questionAnswer: obj(item.questionAnswer) } : {}), toolData: item };
@@ -238,12 +244,16 @@ function entryToolName(entry: WorkEntry): string | undefined {
   if (typeof data.toolName === 'string') return data.toolName;
   return t3ToolDefinition(entry.toolTitle) ? entry.toolTitle : entry.label;
 }
+function entryToolInput(entry: WorkEntry): unknown {
+  const data = entry.toolData ?? {};
+  return entry.itemType === 'dynamic_tool' ? entry.item.input : data.arguments ?? data.input ?? data.rawInput;
+}
 function entryToolOutput(entry: WorkEntry): unknown {
   const data = entry.toolData ?? {};
   return entry.itemType === 'dynamic_tool' ? entry.item.output : data.output ?? data.result ?? data.rawOutput ?? data.content;
 }
 export function toolPresentation(entry: WorkEntry, status: string = entry.status): T3ToolPresentation | null {
-  const definition = t3ToolDefinition(entryToolName(entry));
+  const definition = t3ToolDefinition(entryToolName(entry), entryToolInput(entry));
   return t3ToolPresentation(definition, definition && t3ToolResultFailed(entryToolOutput(entry)) ? 'failed' : status, entry.toolData);
 }
 
@@ -320,8 +330,7 @@ function actionLabel(action: GroupAction, count: number): string {
   }
 }
 function t3Call(entry: WorkEntry): T3ToolCall {
-  const data = entry.toolData ?? {};
-  return { input: entry.itemType === 'dynamic_tool' ? entry.item.input : data.arguments ?? data.input ?? data.rawInput, output: entryToolOutput(entry),
+  return { input: entryToolInput(entry), output: entryToolOutput(entry),
     outcome: entry.status === 'failed' || entry.status === 'declined' || entry.tone === 'error' ? 'failed' : entry.status === 'completed' ? 'completed' : 'unfinished' };
 }
 /** summarizeToolGroup: at most two action categories, the rest counted, joined as a sentence. */
@@ -352,7 +361,7 @@ export function summarizeToolGroup(all: WorkEntry[]): { summary: string; hasFail
   return { summary: sentence.length < 3 ? sentence.join(' and ') : `${sentence.slice(0, -1).join(', ')}, and ${last(sentence)}`,
     hasFailure: summaries.some(group => group.failed > 0) };
 }
-const t3Action = (entry: WorkEntry) => t3ToolDefinition(entryToolName(entry))?.summaryAction ?? null;
+const t3Action = (entry: WorkEntry) => t3SummaryAction(entryToolName(entry), entryToolInput(entry));
 export type SummaryKind = GroupAction | 'reasoning' | 'agent-tool' | 'tone-tool' | 'dynamic-tool' | 'mixed' | 'pull-request';
 export function summaryKind(all: WorkEntry[]): SummaryKind {
   const entries = all.filter(entry => entry.itemType !== 'reasoning');
@@ -392,6 +401,7 @@ export function entryIcon(entry: WorkEntry): string {
     return kind === 'subagent' || kind === 'delegated_task' ? 'bot' : kind === 'command' ? 'terminal' : kind === 'monitor' ? 'eye' : kind === 'system' ? 't3-code' : 'zap';
   }
   if (entry.itemType === 'user_input_request' || entry.itemType === 'approval_request') return 'message-circle';
+  if (entry.itemType === 'todo_list') return 'list-todo';
   const surface = extractToolActivityPresentation(entry.item).toolSurface;
   if (surface) return surface;
   const presentation = toolPresentation(entry);
@@ -516,6 +526,7 @@ export function inspectorDetail(entry: WorkEntry, root: string): { input: string
     case 'notification': return { input: display(item.detail), result: '', ok: true };
     case 'system_notice': return { input: str(item.message), result: '', ok: true };
     case 'reasoning': return { input: str(item.text), result: '', ok: true };
+    case 'todo_list': return { input: arr(item.steps).map(step => `${step.status === 'completed' ? '✓' : step.status === 'running' ? '◉' : '○'} ${str(step.text)}`).join('\n'), result: '', ok: true };
     default: return { input: '', result: '', ok: true };
   }
 }

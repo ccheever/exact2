@@ -7,6 +7,7 @@ import { fileBreadcrumbs, isListableHostFolder, joinHostPath, retainedBreadcrumb
 import { navigateFolderIn, panelState, type PanelState, type Surface } from '../../src/panel/panel-surfaces';
 import { adoptRightPanels, savedPanel } from '../../src/panel/saved-panel';
 import { fileIconToken, languageIconToken } from '../../src/shared/timeline-files';
+import { memoryAppFiles, serveAssets } from '../support/asset-server';
 
 const file = (path: string): Surface => ({ id: `file:${path}`, kind: 'file', path, line: 0, reveal: 0 });
 const panel = (...surfaces: Surface[]): PanelState => ({ surfaces, active: surfaces[0]?.id ?? '', visible: true, userRevision: 0 });
@@ -105,13 +106,18 @@ test('typed file errors keep the exact attempted path through the transport and 
 });
 
 test('draft image, video, HTML and PDF previews mint workspace assets before a thread exists', async () => {
-  for (const [path, preview] of [['photo.png', 'media'], ['movie.mp4', 'media'], ['index.html', 'html'], ['notes.pdf', 'pdf']] as const) {
-    const { client, calls } = fixture('');
-    const view = await filesView(client, native, file(path));
-    expect(view.preview).toBe(preview);
-    expect(calls.find(call => call.method === 'assets.createUrl')?.payload).toMatchObject({ resource: { _tag: 'draft-workspace-file', cwd: '/repo', path: `/repo/${path}` } });
-    expect(client.threadId).toBe('');
-  }
+  // The PDF opens in the viewer page, which fetches its signed URL (files-viewer.ts).
+  const server = serveAssets(() => ({ body: '%PDF-1.4' }));
+  memoryAppFiles();
+  try {
+    for (const [path, preview] of [['photo.png', 'media'], ['movie.mp4', 'media'], ['index.html', 'html'], ['notes.pdf', 'viewer']] as const) {
+      const { client, calls } = fixture('');
+      const view = await filesView(client, native, file(path));
+      expect(view.preview).toBe(preview);
+      expect(calls.find(call => call.method === 'assets.createUrl')?.payload).toMatchObject({ resource: { _tag: 'draft-workspace-file', cwd: '/repo', path: `/repo/${path}` } });
+      expect(client.threadId).toBe('');
+    }
+  } finally { server.restore(); }
 });
 
 test('fourteen additional language icons resolve in files and fenced code', () => {

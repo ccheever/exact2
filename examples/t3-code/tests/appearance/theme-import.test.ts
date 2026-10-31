@@ -56,3 +56,28 @@ describe('VS Code theme import keeps switches and focus rings visible', () => {
     expect(contrast(c.placeholder!, c.surfaceRaised!)).toBeLessThan(contrast(c.text!, c.surfaceRaised!));
   });
 });
+
+// vscodeThemeImport.test.ts at 7c3b3b3605ef: a dim status colour is lightened along its hue, so Delete buttons stay red.
+describe('VS Code theme import keeps destructive buttons red', () => {
+  const oklch = (hex: string) => {
+    const lin = (v: number) => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    const [r, g, b] = rgb(hex).map(lin) as [number, number, number];
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b), m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b), s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, bb = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+    return { chroma: Math.hypot(a, bb), hue: ((Math.atan2(bb, a) * 180) / Math.PI + 360) % 360 };
+  };
+  for (const [type, canvas] of [['dark', '#282828'], ['light', '#ffffff']] as const) {
+    test(`keeps a dim status colour's hue on a ${type} canvas instead of replacing it`, () => {
+      const c = convert('Gruvbox', type, { 'editor.background': canvas, 'editorError.foreground': '#fb4934', 'editorWarning.foreground': '#b57614' });
+      for (const [role, source] of [['error', '#fb4934'], ['warning', '#b57614']] as const) {
+        expect(contrast(c[role]!, c.canvas!)).toBeGreaterThanOrEqual(4.5);
+        expect(oklch(c[role]!).chroma).toBeGreaterThan(0.1);
+        expect(Math.abs(oklch(c[role]!).hue - oklch(source).hue)).toBeLessThan(2);
+      }
+    });
+  }
+  test('keeps the derived status colour when the file hides its own', () => {
+    const c = convert('Hidden squiggles', 'dark', { 'editor.background': '#101010', 'editorError.foreground': '#ff000000' });
+    expect(oklch(c.error!).chroma).toBeGreaterThan(0.1);
+  });
+});

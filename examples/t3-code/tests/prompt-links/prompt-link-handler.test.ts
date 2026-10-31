@@ -3,6 +3,7 @@ import { T3Client } from '../../src/client/client';
 import { arr, obj, str, type Obj } from '../../src/client/domain';
 import { Backend, storage } from '../support/client-fixture';
 import { promptLinkView } from '../../src/prompt-links/prompt-link-handler';
+import { readPairingAppLink } from '../../src/connections/remote';
 import { toasts } from '../../src/shell/toast';
 import { paletteCommand } from '../../src/palette/palette-commands';
 import { chatLocal } from '../../src/timeline/timeline-presentation';
@@ -32,6 +33,11 @@ class LinkBackend extends Backend {
       this.calls.push(request);
       this.shell.projects = [...arr(this.shell.projects).filter(project => project.id !== 'scratch'), { id: 'scratch', title: 'Scratch', workspaceRoot: '/scratch' }];
       return this.good({ projectId: 'scratch' });
+    }
+    if (request.op === 'pairEnvironment') {
+      this.calls.push(request);
+      if (request.credential === 'spent') return this.bad('The environment credential is invalid.');
+      return this.good({ origin: request.origin, environmentId: 'env-paired', label: 'Paired' });
     }
     if (request.op === 'ids' && this.failIds) return this.bad('no ids');
     if (request.op === 'request' && request.method === 'preview.list') return this.good({ sessions: [], serverEpoch: 'epoch-1', revision: 1 });
@@ -225,6 +231,21 @@ test('without a recent or primary Scratch machine, multiple offerings require a 
   } finally { for (const key of keys) fleet.entries.delete(key); }
 });
 
+test('a link without a project starts on This machine even when another machine was active more recently', async () => {
+  const { client, native, open } = await setup();
+  primary.target = { environmentId: 'env1', httpBaseUrl: 'http://127.0.0.1:3773' } as PrimaryTarget;
+  const key = environmentKey('http://remote-a.test', 'remote-a');
+  fleet.entries.set(key, { key, origin: 'http://remote-a.test', environmentId: 'remote-a', phase: 'connected', message: '', traceId: '', generation: 1,
+    synchronized: 1, lastEvent: 0, subscriptions: {}, config: { scratchWorkspaceRoot: '/scratch', environment: { environmentId: 'remote-a' } },
+    shell: { sequence: 1, projects: [{ id: 'rp', title: 'Remote', workspaceRoot: '/remote' }], threads: [{ id: 'rt', projectId: 'rp', title: 'Latest', updatedAt: '2999-01-01T00:00:00.000Z' }] },
+    scopes: ['orchestration:read', 'orchestration:operate'], error: '', requested: true });
+  try {
+    expect((await open('t3code://new?prompt=Read+this')).message).toBe('sidebar:new-thread');
+    expect(native.calls.some(call => call.method === 'projects.ensureScratch')).toBe(true);
+    expect([client.environmentId, client.projectId]).toEqual(['env1', 'scratch']);
+  } finally { fleet.entries.delete(key); primary.target = null; }
+});
+
 const previewOpens = (native: Backend) => native.calls.filter(call => call.method === 'preview.open').map(call => obj(call.payload));
 const panelOf = (client: T3Client, threadId: string) => surfaceStore(client).panels.get(`env1:${threadId}`);
 
@@ -308,4 +329,40 @@ test('a web link leaves an open prompt-link dialog open', async () => {
   expect(promptLinkView(client)).toMatchObject({ show: true, title: "You don't have missing/repo" });
   await open('https://example.com/');
   expect(promptLinkView(client)).toMatchObject({ show: true, title: "You don't have missing/repo" });
+});
+
+test('readPairingAppLink reads t3code://pair on any channel scheme and nothing else', () => {
+  const pairingUrl = 'https://box.example.com/pair#token=abc';
+  expect(readPairingAppLink(`t3code://pair?pairingUrl=${encodeURIComponent(pairingUrl)}`)).toBe(pairingUrl);
+  expect(readPairingAppLink(`t3code-dev://pair/?pairingUrl=${encodeURIComponent(pairingUrl)}`)).toBe(pairingUrl);
+  expect(readPairingAppLink('t3code://pair/extra?pairingUrl=x')).toBeNull();
+  expect(readPairingAppLink('t3code://pair')).toBeNull();
+  expect(readPairingAppLink('https://pair?pairingUrl=x')).toBeNull();
+  expect(readPairingAppLink('t3code://new?prompt=x')).toBeNull();
+});
+
+test('a t3code://pair link asks to add the backend, spends its code only once confirmed, and is not paired twice', async () => {
+  const { client, native, command, open } = await setup();
+  const link = (url: string) => `t3code://pair?pairingUrl=${encodeURIComponent(url)}`;
+  const pairs = () => native.calls.filter(call => call.op === 'pairEnvironment');
+  await open(link('http://box.example.com:3773/pair#token=code-1'));
+  expect(promptLinkView(client)).toMatchObject({ show: false, pairing: 'Add the backend at http://box.example.com:3773?' });
+  await command('shelllocal:prompt-link-action', 'pair-cancel');
+  expect(promptLinkView(client).pairing).toBe('');
+  expect(pairs()).toHaveLength(0);
+  await open(link('http://box.example.com:3773/pair#token=code-1'));
+  await command('shelllocal:prompt-link-action', 'pair-confirm');
+  expect(pairs().map(call => [call.origin, call.credential])).toEqual([['http://box.example.com:3773', 'code-1']]);
+  expect(promptLinkView(client).pairing).toBe('');
+  expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Backend added', description: 'The environment is saved and will reconnect on app startup.' });
+  // A repeated click asks nothing: its one-time code is spent.
+  await open(link('http://box.example.com:3773/pair#token=code-1'));
+  expect(promptLinkView(client).pairing).toBe('');
+  // A refused code and a link without a token are the "Could not add backend" toast.
+  await open(link('http://box.example.com:3773/pair#token=spent'));
+  await command('shelllocal:prompt-link-action', 'pair-confirm');
+  expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not add backend', description: 'The environment credential is invalid.' });
+  await open(link('http://box.example.com:3773/pair'));
+  expect(promptLinkView(client).pairing).toBe('');
+  expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not add backend', description: 'Pairing URL is missing its token.' });
 });

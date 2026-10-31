@@ -1,7 +1,7 @@
-// Ported from T3 Code 9c161462c9 packages/client-runtime/src/work-log/itemDetail.ts (MIT, LICENSE-T3).
+// Ported from T3 Code 7c3b3b3605ef packages/client-runtime/src/work-log/itemDetail.ts (MIT, LICENSE-T3).
 // Exact adaptation: decoded JSON records/ISO strings replace schema/Effect types; output-only tools also disclose.
 import { arr, obj, str, type Obj } from '../client/domain';
-import { readToolOutputImage, turnItemOutputImages } from './tool-output-images';
+import { toolOutputImageBlocks, turnItemOutputImages } from './tool-output-images';
 export { turnItemOutputImages } from './tool-output-images';
 
 const MAX_TEXT_BLOCK_DEPTH = 4;
@@ -15,16 +15,17 @@ function isSummarizedValue(value: unknown): boolean {
   return isRecord(value) && value.truncated === true && typeof value.summary === "string";
 }
 
-function textFromBlocks(value: unknown, depth: number): string | null {
+/** `imageBlocks`: the blocks the detail previews as images (the first eight); any other image reads "[image]". */
+function textFromBlocks(value: unknown, depth: number, imageBlocks: ReadonlyArray<unknown>): string | null {
   if (depth > MAX_TEXT_BLOCK_DEPTH) return null;
   if (typeof value === "string") return value;
   if (Array.isArray(value)) {
-    const parts = value.map((block) => textFromBlocks(block, depth + 1));
+    const parts = value.map((block) => textFromBlocks(block, depth + 1, imageBlocks));
     return parts.every((part) => part !== null) ? parts.filter(part => part !== "").join("\n") : null;
   }
   if (!isRecord(value)) return null;
   if (value.type === "text" && typeof value.text === "string") return value.text;
-  if (value.type === "image") return readToolOutputImage(value) ? "" : "[image]";
+  if (value.type === "image") return imageBlocks.includes(value) ? "" : "[image]";
   if (value.type === "resource_link" && typeof value.uri === "string") return value.uri;
   if (value.type === "resource" && isRecord(value.resource)) {
     const resource = value.resource;
@@ -35,9 +36,9 @@ function textFromBlocks(value: unknown, depth: number): string | null {
   // MCP results and provider tool results wrap their text in `content`.
   // `structuredContent` usually repeats it as data, so it only shows when the
   // text is empty.
-  if (keys.length === 1 && keys[0] === "content") return textFromBlocks(value.content, depth + 1);
+  if (keys.length === 1 && keys[0] === "content") return textFromBlocks(value.content, depth + 1, imageBlocks);
   if (keys.length === 2 && keys.includes("content") && keys.includes("structuredContent")) {
-    const text = textFromBlocks(value.content, depth + 1);
+    const text = textFromBlocks(value.content, depth + 1, imageBlocks);
     return text?.trim() ? text : null;
   }
   return null;
@@ -67,7 +68,7 @@ function prettyJsonText(text: string): string {
 function formatToolValue(value: unknown, hasImagePreview = false): string | null {
   if (value === undefined || value === null) return null;
   if (hasImagePreview && isRecord(value) && value.type === "image") return null;
-  const text = textFromBlocks(value, 0);
+  const text = textFromBlocks(value, 0, toolOutputImageBlocks(value));
   if (text !== null) return text.trim() ? prettyJsonText(text) : null;
   let json: string | undefined;
   try {

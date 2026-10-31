@@ -65,3 +65,48 @@ describe('sent attachments', () => {
     expect(() => imagePreviewAction(c, 'image-open', 'zz', id)).toThrow('no longer available');
   });
 });
+
+describe('a sent sound is an audio chip (#21363)', () => {
+  test('an audio file plays in its chip; one the server will not serve stays a file row', async () => {
+    const { messageAttachments, isSentAudio } = await import('../../src/timeline/timeline-attachments');
+    const attached = messageAttachments({ attachments: [
+      { type: 'file', id: 'a', name: 'memo.mp3', mimeType: 'audio/mpeg' },
+      { type: 'file', id: 'b', name: 'take.m4a', mimeType: 'application/octet-stream' },
+      { type: 'file', id: 'c', name: 'locked.wav', mimeType: 'audio/wav', downloadable: false },
+      { type: 'file', id: 'd', name: 'notes.md', mimeType: 'text/markdown' },
+    ] });
+    expect(attached.audio.map(file => file.id)).toEqual(['a', 'b']);
+    expect(attached.attachFiles.map(file => file.id)).toEqual(['c', 'd']);
+    expect(isSentAudio({ name: 'clip.mp4', mimeType: 'video/mp4' })).toBe(false);
+  });
+  test('the MIME type is read without its parameters, and text/plain is as generic as none (filePreviewKind)', async () => {
+    const { isSentAudio } = await import('../../src/timeline/timeline-attachments');
+    expect([
+      { name: 'memo.mp3', mimeType: 'text/plain' },
+      { name: 'take.wav', mimeType: 'application/octet-stream; charset=binary' },
+      { name: 'voice.ogg', mimeType: 'Audio/Ogg; codecs=opus' },
+      { name: 'notes.txt', mimeType: 'text/plain' },
+      { name: 'memo.mp3', mimeType: 'text/markdown' },
+    ].map(isSentAudio)).toEqual([true, true, true, false, false]);
+  });
+  test('a live or unknown length reads as none, not "Infinity:NaN" (AudioPreview sets 0)', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const chip = contractComponent('timeline-audio.contract', 'AudioChip'), state = chip.state();
+    for (const [seconds, duration] of [[Infinity, 0], [Number.NaN, 0], [-1, 0], [92.5, 92.5]] as const) {
+      chip.call('measured', state, {}, [seconds]);
+      expect(state.duration).toBe(duration);
+    }
+  });
+  test('the chip tells its row when its sound starts and stops, once each, so the transcript keeps the row mounted', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const chip = contractComponent('timeline-audio.contract', 'AudioChip'), state = { ...chip.state(), id: 'memo.wav' }, reports: string[] = [];
+    const scope = { report: (value: string) => reports.push(value) };
+    chip.call('stopped', state, scope, []); // a paused chip's own pause tells nothing
+    chip.call('started', state, scope, []);
+    chip.call('started', state, scope, []);
+    chip.call('stopped', state, scope, []);
+    chip.call('started', state, scope, []);
+    chip.call('refused', state, scope, ['MEDIA_ERR_DECODE']);
+    expect(reports).toEqual(['1memo.wav', '0memo.wav', '1memo.wav', '0memo.wav']);
+  });
+});

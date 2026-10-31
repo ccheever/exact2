@@ -23,6 +23,7 @@ function focused(settings: Obj = {}) {
     restAccess() {
       return { request: async (method: string, payload: Obj = {}) => {
         calls.push({ method, payload });
+        if (method === 'server.getConfig') return client.config;
         const current = client.config.settings as Obj;
         if (method === 'device.configure') {
           client.config.settings = { ...current, ...(payload.enabled !== undefined ? { enableDeviceSupport: payload.enabled } : {}),
@@ -54,7 +55,7 @@ function nativeFor(calls: Obj[] = [], fail = new Set<string>()): Native {
     const payload = call.payload as Obj;
     if (call.method === 'device.configure') target.config = { ...target.config, settings: { ...(target.config.settings as Obj), enableDeviceSupport: payload.enabled ?? (target.config.settings as Obj).enableDeviceSupport } };
     if (call.method === 'server.updateSettings') target.config = { ...target.config, settings: { ...(target.config.settings as Obj), ...(payload.patch as Obj) } };
-    return { ok: true, generation: target.generation, value: target.config.settings };
+    return { ok: true, generation: target.generation, value: call.method === 'server.getConfig' ? target.config : target.config.settings };
   } };
 }
 const B = 'http://127.0.0.1:16101\nenv-b';

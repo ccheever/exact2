@@ -74,8 +74,8 @@ export function mix(a: string, weight: number, b: string): string {
 export const alpha = (color: string, amount: number) => { const [r, g, b, a] = parse(color); return hex([r, g, b, a * amount]); };
 
 /** The tokens this module paints, in the stock index.css vocabulary, per appearance. */
-type Tokens = Record<'canvas' | 'sidebar' | 'sidebarBorder' | 'rowActive' | 'sidebarText' | 'sidebarMuted' | 'sidebarIcon' | 'text' | 'muted' | 'heading' | 'description'
-  | 'card' | 'cardBorder' | 'divider' | 'input' | 'field' | 'accent' | 'accentText' | 'switchOff' | 'thumb' | 'thumbOff' | 'popover' | 'popoverBorder' | 'highlight' | 'kbd' | 'output' | 'line' | 'rowHover' | 'sectionMuted' | 'tileActive'
+type Tokens = Record<'canvas' | 'sidebar' | 'sidebarBorder' | 'rowActive' | 'sidebarText' | 'sidebarMuted' | 'sidebarIcon' | 'text' | 'muted'
+  | 'card' | 'cardBorder' | 'divider' | 'input' | 'field' | 'accent' | 'accentText' | 'switchOff' | 'thumb' | 'thumbOff' | 'popover' | 'popoverBorder' | 'highlight' | 'optionHighlight' | 'optionSelected' | 'kbd' | 'output' | 'line' | 'rowHover' | 'sectionMuted' | 'tileActive'
   | 'border' | 'backdrop' | 'footer' | 'surface', string>;
 function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custom: CustomTheme[], glass = 80): Tokens {
   const stock = themeId === 't3-code' || !(themeId in THEMES || custom.some(theme => theme.id === themeId));
@@ -86,27 +86,29 @@ function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custo
   const target = dark ? '#ffffff' : '#000000';
   const ink = (fg: string, bg: string) => mix(mix(fg, base, bg), 1 - boost, target);
   const edge = (border: string, fg: string) => mix(alpha(border, base), 1 - borderBoost, fg);
-  const text = stock ? (dark ? '#f5f5f5' : '#27272a') : r.text;
-  const canvas = stock ? (dark ? '#0a0a0a' : '#fcfcfc') : r.canvas;
+  const text = stock ? (dark ? '#f5f5f5' : '#18181b') : r.text;
+  const canvas = stock ? (dark ? '#000000' : '#fcfcfc') : r.canvas;
   const sidebar = stock ? (dark ? '#000000' : '#fafafa') : r.sidebar;
-  const sidebarText = stock ? (dark ? '#f1f3f7' : '#27272a') : r.sidebarForeground;
+  const sidebarText = stock ? (dark ? '#f1f3f7' : '#18181b') : r.sidebarForeground;
   const sidebarMuted = stock ? (dark ? '#a3a3a3' : '#71717b') : r.sidebarMutedForeground;
-  const mutedText = stock ? (dark ? '#818181' : '#71717b') : r.textMuted;
-  const border = stock ? (dark ? '#ffffff0f' : '#e4e4e7') : r.border;
-  const input = stock ? (dark ? '#ffffff14' : '#d4d4d8') : r.input;
+  const mutedText = stock ? (dark ? '#a1a1a1' : '#71717b') : r.textMuted;
+  const border = stock ? (dark ? '#ffffff14' : '#e4e4e7') : r.border;
+  const input = stock ? (dark ? '#ffffff1c' : '#d4d4d8') : r.input;
   const card = stock ? (dark ? '#111111' : '#ffffff') : r.surface;
   return {
-    canvas, sidebar, text: ink(text, canvas), muted: ink(mutedText, canvas), heading: alpha(ink(text, canvas), 0.7), description: alpha(ink(mutedText, canvas), 0.8),
+    canvas, sidebar, text: ink(text, canvas), muted: ink(mutedText, canvas),
     sidebarBorder: edge(stock ? (dark ? '#ffffff14' : '#e4e4e7') : r.sidebarBorder, sidebarText), rowActive: stock ? (dark ? '#f1f1f112' : '#ffffff') : r.sidebarRowActive,
-    sidebarText: ink(sidebarText, sidebar), sidebarMuted: alpha(ink(sidebarMuted, sidebar), 0.8), sidebarIcon: mix(ink(sidebarMuted, sidebar), 0.6, sidebar),
+    sidebarText: ink(sidebarText, sidebar), sidebarMuted: alpha(ink(sidebarMuted, sidebar), 0.8), sidebarIcon: mix(ink(sidebarMuted, sidebar), 0.85, sidebar),
     card: alpha(card, 0.4), cardBorder: edge(alpha(border, 0.6), text), divider: edge(alpha(border, 0.5), text), input: edge(input, text),
-    field: stock ? (dark ? '#ffffff07' : '#fcfcfc') : canvas, accent: stock ? (dark ? '#346bf1' : '#1b4ed8') : r.accent, accentText: r.accentForeground,
+    field: stock ? (dark ? '#ffffff09' : '#fcfcfc') : canvas, accent: stock ? (dark ? '#346bf1' : '#1b4ed8') : r.accent, accentText: r.accentForeground,
     // ui/switch: a switched-off thumb is muted-foreground in dark mode, so it stays visible on the dark track.
     thumbOff: dark ? ink(mutedText, canvas) : canvas,
     switchOff: edge(input, text), thumb: canvas, // The reference blurs what is behind a glass surface; the native top layer has no backdrop
     // filter, so the glass mix is composited over the canvas it would mostly show.
     popover: mix(stock ? (dark ? '#111111' : '#ffffff') : r.surfaceOverlay, 0.18 + 0.82 * glass / 100, canvas),
-    popoverBorder: dark ? '#ffffff1a' : alpha(text, 0.1), highlight: alpha(text, dark ? 0.06 : 0.08), kbd: dark ? (stock ? '#0a0a0a' : r.sidebar) : sidebar,
+    popoverBorder: dark ? '#ffffff1a' : alpha(text, 0.1), highlight: alpha(text, dark ? 0.06 : 0.08), kbd: alpha(ink(text, canvas), 0.07), // ui/kbd.tsx bg-foreground/[0.07]
+    // ui/combobox.tsx ComboboxItem: highlighted bg-foreground/[0.09], selected bg-foreground/[0.06].
+    optionHighlight: alpha(ink(text, canvas), 0.09), optionSelected: alpha(ink(text, canvas), 0.06),
     output: stock ? (dark ? '#ffffff08' : '#fafafa') : r.muted, line: '#7f7f7f40',
     rowHover: stock ? (dark ? '#ffffff0a' : '#fcfcfc') : mix(r.sidebarRowActive, 0.5, sidebar), sectionMuted: alpha(ink(sidebarMuted, sidebar), 0.75),
     tileActive: alpha(stock ? (dark ? '#ffffff0a' : '#f4f4f5') : r.accentSurface, 0.3),
@@ -167,6 +169,14 @@ export function modeTiles(mode: string, prefs: Pick<ClientPrefs, 'themeLight' | 
 const SYSTEM_FONTS: Record<string, string> = { 'sf pro': 'system-ui', 'sf pro text': 'system-ui', '-apple-system': 'system-ui',
   'sf pro rounded': 'ui-rounded', 'new york': 'ui-serif', 'sf mono': 'ui-monospace' };
 const GENERIC_FONTS = new Set(['system-ui', 'ui-sans-serif', 'sans-serif', 'ui-serif', 'serif', 'ui-rounded', 'ui-monospace', 'monospace']);
+// The reference's code font (DEFAULT_CODE_FONT_STACK under its --font-mono) as its renderer draws it: Chromium resolves
+// neither ui-monospace nor "SF Mono" and "SFMono-Regular" by name, so on macOS the stack lands on Menlo (Consolas or
+// Liberation Mono elsewhere). The native host would draw SF Mono for those, so the default starts at Menlo.
+export const DEFAULT_CODE_FONT = 'Menlo, Consolas, "Liberation Mono", monospace';
+/** resolveDefaultFamilyLabel(DEFAULT_CODE_FONT_STACK): the first of those families installed here, Menlo when none reads. */
+export function defaultCodeFamily(installed: InstalledFont[]): string {
+  return ['Menlo', 'Consolas', 'Liberation Mono'].find(family => installed.some(font => font.family.toLowerCase() === family.toLowerCase())) ?? 'Menlo';
+}
 export function fontFamilies(selected: string, mono: boolean, defaultLabel: string, installed: InstalledFont[] = []) {
   const current = selected.trim();
   const named = installed.map(({ family }) => ({ id: family, value: family, label: family, detail: fontStack(family, mono),
@@ -175,13 +185,20 @@ export function fontFamilies(selected: string, mono: boolean, defaultLabel: stri
 }
 export function fontStack(family: string, mono: boolean): string {
   const name = family.trim().replace(/^["']|["']$/g, ''), key = name.toLowerCase();
-  if (!key) return mono ? 'ui-monospace' : 'system-ui';
+  if (!key) return mono ? DEFAULT_CODE_FONT : 'system-ui';
   return SYSTEM_FONTS[key] ?? (GENERIC_FONTS.has(key) ? key : `${JSON.stringify(name)}, ${mono ? 'ui-monospace' : 'system-ui'}`);
 }
 
 // ── Appearance rows ────────────────────────────────────────────────────────
 const option = (value: string, label: string, selected: boolean) => ({ id: value, value, label, detail: '', icon: '', selected, disabled: false });
-export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, installed: InstalledFont[] = []): CoreSection[] {
+/** The rows that exist only with Separate fonts on (settingsSearch.ts ADVANCED_TYPOGRAPHY_TARGET_IDS). */
+export const SEPARATE_FONT_TARGETS: readonly string[] = ['prompt-font', 'terminal-font'];
+/**
+ * AppearanceSettingsPanel's Interface section and TypographySection, each ending with its Advanced fold. A search jump
+ * to a separate font row (`target`) draws the separate rows at once, as TypographySection's `showAdvanced` does; the
+ * pick turns the setting on (app-settings.contract corePick).
+ */
+export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, installed: InstalledFont[] = [], target = ''): CoreSection[] {
   const row = (key: keyof ClientPrefs, id: string, title: string, description: string, kind: string, extra: Partial<CoreRow> = {}) =>
     coreRow(id, title, description, kind, { checked: prefs[key] === true, value: String(prefs[key]), resettable: prefs[key] !== CLIENT_DEFAULTS[key], target: key, ...extra });
   const slider = (key: 'appearanceContrast' | 'glassOpacity' | 'panelAnimationDurationMs', min: number, max: number, step: number, suffix: string) =>
@@ -192,18 +209,20 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, 
   const interfaceRows: CoreRow[] = [
     row('appearanceContrast', 'setting-appearance-contrast', 'Contrast', 'Adjust the contrast of colors and borders across the interface.', 'slider', slider('appearanceContrast', 50, 200, 5, '%')),
     row('glassOpacity', 'setting-glass-opacity', 'Glass opacity', 'Higher values make menus, dialogs, and the composer more solid.', 'slider', slider('glassOpacity', 40, 100, 5, '%')),
-    ...(artworkVisible ? [row('environmentIdentificationMode', 'environment-identification', 'Environment identification', 'Choose how Dev and Nightly environments are identified.', 'select',
-      select('environmentIdentificationMode', [['artwork', 'Artwork'], ['pill', 'Version pill'], ['none', 'None']]))] : []),
-    row('diffColorScheme', 'diff-color-scheme', 'Diff colors', 'Choose colors for additions and deletions, including change counts.', 'select',
-      { ...select('diffColorScheme', [['red-green', 'Red & green (default)'], ['blue-orange', 'Blue & orange']], prefs.diffColorScheme === 'blue-orange' ? 'Blue & orange' : 'Red & green'),
-        icon: prefs.diffColorScheme === 'blue-orange' ? 'dots-blue-orange' : 'dots-red-green' }),
-    row('persistComposerContextStrip', 'composer-context', 'Composer context', 'Keep branch and worktree controls below the composer after a thread starts.', 'switch'),
     row('chatWidth', 'chat-width', 'Chat width', 'Set how wide messages and the composer can grow on large screens.', 'select',
       select('chatWidth', [['comfortable', 'Comfortable (default)'], ['wide', 'Wide'], ['full', 'Full']], { comfortable: 'Comfortable', wide: 'Wide', full: 'Full' }[prefs.chatWidth])),
+    row('effortDisplay', 'effort-display', 'Effort display', 'Show reasoning effort in the composer as its name, such as High, or as bars.', 'select',
+      select('effortDisplay', [['label', 'Word (default)'], ['bars', 'Bars']], prefs.effortDisplay === 'bars' ? 'Bars' : 'Word')),
     row('mathRenderingEnabled', 'math-rendering', 'Render math', 'Typeset LaTeX math, such as $x^2$ or \\[x^2\\], in messages and Markdown previews. The composer keeps TeX source editable.', 'switch',
       { resetLabel: 'math rendering' }),
   ];
-  const motion = [row('panelAnimationDurationMs', 'panel-animations', 'Panel animations', 'Set how fast panels open and close.', 'slider', { ...slider('panelAnimationDurationMs', 0, 400, 25, ' ms'), info: 'preview' })];
+  const interfaceAdvanced: CoreRow[] = [
+    row('panelAnimationDurationMs', 'panel-animations', 'Panel animations', 'Set how fast panels open and close.', 'slider', { ...slider('panelAnimationDurationMs', 0, 400, 25, ' ms'), info: 'preview' }),
+    ...(artworkVisible ? [row('environmentIdentificationMode', 'environment-identification', 'Environment identification', 'Choose how Dev and Nightly environments are identified.', 'select',
+      select('environmentIdentificationMode', [['artwork', 'Artwork'], ['pill', 'Version pill'], ['none', 'None']]))] : []),
+    row('persistComposerContextStrip', 'composer-context', 'Composer context', 'Keep branch and worktree controls below the composer after a thread starts.', 'switch'),
+  ];
+  const separate = prefs.typographyAdvanced || SEPARATE_FONT_TARGETS.includes(target);
   const font = (familyKey: 'fontFamilySans' | 'fontFamilyCode' | 'fontFamilyComposer' | 'fontFamilyTerminal', sizeKey: 'fontSizeInterface' | 'fontSizeCode' | 'fontSizePrompt' | 'fontSizeTerminal',
     id: string, title: string, description: string, placeholder: string, min: number, max: number) =>
     row(familyKey, id, title, description, 'font', { value: prefs[familyKey], placeholder, amount: prefs[sizeKey], previewSize: familyKey === 'fontFamilySans' || familyKey === 'fontFamilyComposer' ? prefs.fontSizePrompt : prefs[sizeKey], value2: String(prefs[sizeKey]), label2: `${prefs[sizeKey]} px`, target: familyKey, suffix: sizeKey,
@@ -211,18 +230,22 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, 
       driver: fontStack(familyKey === 'fontFamilyComposer' && !prefs.fontFamilyComposer.trim() ? prefs.fontFamilySans : prefs[familyKey], familyKey === 'fontFamilyCode' || familyKey === 'fontFamilyTerminal')
         ?? (familyKey === 'fontFamilyCode' || familyKey === 'fontFamilyTerminal' ? 'ui-monospace' : 'system-ui'),
       status: '',
-      info: { 'interface-font': prefs.typographyAdvanced ? '' : 'preview-prompt', 'prompt-font': 'preview-prompt', 'code-font': prefs.typographyAdvanced ? 'preview-code' : 'preview-code-terminal', 'terminal-font': 'preview-terminal' }[id] ?? '',
+      info: { 'interface-font': separate ? '' : 'preview-prompt', 'prompt-font': 'preview-prompt', 'code-font': separate ? 'preview-code' : 'preview-code-terminal', 'terminal-font': 'preview-terminal' }[id] ?? '',
       options: fontFamilies(prefs[familyKey], familyKey === 'fontFamilyCode' || familyKey === 'fontFamilyTerminal', placeholder, installed), label: prefs[familyKey].trim() || placeholder,
       resettable: prefs[familyKey] !== '' || prefs[sizeKey] !== CLIENT_DEFAULTS[sizeKey], options2: sizes(min, max).map(([value, label]) => option(value, label, value === String(prefs[sizeKey]))) });
   const typography = [
     font('fontFamilySans', 'fontSizeInterface', 'interface-font', 'Interface font', 'Everything outside code blocks and the terminal.', 'SF Pro', 12, 20),
-    ...(prefs.typographyAdvanced ? [font('fontFamilyComposer', 'fontSizePrompt', 'prompt-font', 'Prompt font', 'Only the box you write prompts in. Mono works well here.', prefs.fontFamilySans || 'SF Pro', 12, 20)] : []),
-    prefs.typographyAdvanced ? font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Code font', 'Code blocks, diffs, and file previews.', 'SF Mono', 10, 18)
-      : font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Monospace font', 'Code blocks, diffs, file previews, and the terminal.', 'SF Mono', 10, 18),
-    ...(prefs.typographyAdvanced ? [font('fontFamilyTerminal', 'fontSizeTerminal', 'terminal-font', 'Terminal font', 'Terminal output, independent from code blocks and diffs.', 'SF Mono', 8, 20),
-      row('fontSmoothing', 'font-smoothing', 'Font smoothing', 'Use thinner grayscale text smoothing instead of the macOS default.', 'switch')] : []),
-    row('wordWrap', 'word-wrap', 'Word wrap', 'Wrap long lines in code blocks, tables, diffs, and file previews by default.', 'switch'),
+    ...(separate ? [font('fontFamilyComposer', 'fontSizePrompt', 'prompt-font', 'Prompt font', 'Only the box you write prompts in. Mono works well here.', prefs.fontFamilySans || 'SF Pro', 12, 20)] : []),
+    separate ? font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Code font', 'Code blocks, diffs, and file previews.', defaultCodeFamily(installed), 10, 18)
+      : font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Monospace font', 'Code blocks, diffs, file previews, and the terminal.', defaultCodeFamily(installed), 10, 18),
+    ...(separate ? [font('fontFamilyTerminal', 'fontSizeTerminal', 'terminal-font', 'Terminal font', 'Terminal output, independent from code blocks and diffs.', defaultCodeFamily(installed), 8, 20)] : []),
+    row('wordWrap', 'word-wrap', 'Word wrap', 'Wrap long lines in code blocks, diffs, and file previews by default.', 'switch', { resetLabel: 'word wrapping' }),
   ];
-  return [{ id: 'appearance-interface', title: 'Interface', collapsible: false, rows: interfaceRows, toggle: false }, { id: 'motion', title: 'Motion', collapsible: false, rows: motion, toggle: false },
-    { id: 'typography', title: 'Typography', collapsible: false, rows: typography, toggle: prefs.typographyAdvanced }];
+  const typographyAdvanced: CoreRow[] = [
+    row('typographyAdvanced', 'separate-fonts', 'Separate fonts', 'Set the prompt, code, and terminal fonts separately instead of one monospace font.', 'switch',
+      { checked: separate, value: String(separate), resettable: false }),
+    row('fontSmoothing', 'font-smoothing', 'Font smoothing', 'Use thinner grayscale text smoothing instead of the macOS default.', 'switch'),
+  ];
+  return [{ id: 'appearance-interface', title: 'Interface', collapsible: false, rows: interfaceRows, toggle: false, advanced: interfaceAdvanced },
+    { id: 'typography', title: 'Typography', collapsible: false, rows: typography, toggle: false, advanced: typographyAdvanced }];
 }

@@ -1,7 +1,7 @@
-// The pull request Code tab's pure logic, ported from T3 Code 9c161462c9
+// The pull request Code tab's pure logic, ported from T3 Code 6d450a4284
 // (MIT, see LICENSE-T3): apps/web/src/components/pullRequest/{pullRequestDiff.logic,
 // pullRequestFilesViewed.logic,pullRequestFileOrder.logic}.ts, pullRequestDetail.logic.ts (the
-// thread comment pages), apps/web/src/reviewCommentContext.ts resolveDiffReviewPosition,
+// thread comment pages), apps/web/src/reviewCommentContext.ts resolveDiffReviewPosition and resolveDiffReviewAnchor,
 // apps/web/src/lib/{diffRendering.ts hideWhitespaceChanges and getRenderablePatch, diffCollapse.ts}
 // and PullRequestCodeTab.tsx's slice adoption. Changes from the reference: a file is the clone's
 // parsed patch (diff.ts parsePatch) carrying the two hunk ranges Pierre's FileDiffMetadata has
@@ -9,7 +9,7 @@
 // (additionLines, deletionLines); the whitespace filter re-diffs each hunk with a line LCS where
 // Pierre calls its own diff.
 import { parsePatch, type DiffFileModel, type Hunk, type Line } from '../diff/diff';
-import { diffReviewLines, findDiffReviewLineIndex, type ReviewContents, type SelectionSide } from '../diff/diff-comments';
+import { diffReviewLines, findDiffReviewLineIndex, type ReviewContents, type SelectedLineRange, type SelectionSide } from '../diff/diff-comments';
 
 // ── Files and hunks ─────────────────────────────────────────────────────────
 
@@ -117,6 +117,14 @@ export function toggleFileDiffFoldForViewed(fileKey: string, viewed: boolean, fo
   const next = new Set(toggledFileKeys);
   if (next.has(fileKey)) next.delete(fileKey); else next.add(fileKey);
   return next;
+}
+/** getFileViewedRange: the pressed file and, with an anchor still listed, every file between them in shown order. */
+export function getFileViewedRange<T extends { readonly fileKey: string }>(files: readonly T[], fileKey: string, anchorFileKey: string | null): readonly T[] {
+  const index = files.findIndex(file => file.fileKey === fileKey);
+  if (index === -1) return [];
+  const anchorIndex = files.findIndex(file => file.fileKey === anchorFileKey);
+  if (anchorIndex === -1) return files.slice(index, index + 1);
+  return files.slice(Math.min(index, anchorIndex), Math.max(index, anchorIndex) + 1);
 }
 /** lib/diffCollapse.ts areAllDiffFilesCollapsed. */
 export function areAllDiffFilesCollapsed(fileKeys: readonly string[], collapsedFileKeys: ReadonlySet<string>): boolean {
@@ -272,6 +280,31 @@ export function resolveDiffReviewPosition(file: { hunks: PrHunk[] }, lineNumber:
   return line.oldLineNumber === null || line.newLineNumber === null || !isLineInFileDiff(file, 'right', line.newLineNumber)
     ? null : { kind: 'context', oldLine: line.oldLineNumber, newLine: line.newLineNumber, side: side === 'deletions' ? 'left' : 'right' };
 }
+/** reviewHunkIndex: the hunk a position falls in, a deleted line by its old number and any other by its new one. */
+function reviewHunkIndex(file: { hunks: PrHunk[] }, position: PullRequestReviewPosition): number {
+  const left = position.kind === 'deleted', line = position.kind === 'deleted' ? position.oldLine : position.newLine;
+  return file.hunks.findIndex(hunk => left ? line >= hunk.deletionStart && line < hunk.deletionStart + hunk.deletionCount
+    : line >= hunk.additionStart && line < hunk.additionStart + hunk.additionCount);
+}
+/**
+ * resolveDiffReviewAnchor: where a review comment on `range` is anchored. With `ranged` (the host's `review.rangeComment`),
+ * a selection inside one hunk keeps its first line, in diff order, as `startPosition`, because hosts refuse a range that
+ * crosses hunks. Otherwise the comment sits on the line the selection ended on.
+ */
+export function resolveDiffReviewAnchor(file: { hunks: PrHunk[] }, range: SelectedLineRange, ranged: boolean, contents?: ReviewContents | null):
+  { position: PullRequestReviewPosition; startPosition?: PullRequestReviewPosition } | null {
+  const endSide = range.endSide ?? range.side;
+  const last = resolveDiffReviewPosition(file, range.end, endSide, contents);
+  if (last === null) return null;
+  const first = ranged ? resolveDiffReviewPosition(file, range.start, range.side, contents) : null;
+  if (first === null) return { position: last };
+  const lines = diffReviewLines(file, contents);
+  const startIndex = findDiffReviewLineIndex(lines, range.start, range.side), endIndex = findDiffReviewLineIndex(lines, range.end, endSide);
+  if (startIndex === endIndex) return { position: last };
+  const [start, end] = startIndex < endIndex ? [first, last] : [last, first];
+  const hunk = reviewHunkIndex(file, end);
+  return hunk >= 0 && reviewHunkIndex(file, start) === hunk ? { position: end, startPosition: start } : { position: last };
+}
 /** getReviewPositionAnchor: the line and side a position is pinned under. */
 export function reviewPositionAnchor(position: PullRequestReviewPosition): { line: number; side: PrDiffSide } {
   if (position.kind === 'added') return { line: position.newLine, side: 'right' };
@@ -317,13 +350,13 @@ export function fnv1a32(text: string): string {
 }
 
 /**
- * describePullRequestDiffError (T3 Code 74541bab17 pullRequestDiffError.ts): diff failures arrive wrapped by the
- * transport, so the reason is recognised inside them.
+ * describePullRequestDiffError (T3 Code 7c3b3b3605ef pullRequestDiffError.ts): diff failures arrive wrapped by the
+ * transport, so the reason is recognised inside them. `term`: the host's word for a change request.
  */
-export function describePullRequestDiffError(error: string, providerName: string): { title: string; description: string } {
+export function describePullRequestDiffError(error: string, providerName: string, term = 'pull request'): { title: string; description: string } {
   if (/\brate limit\b|\brate[-_]limited\b|\btoo many requests\b/i.test(error)) {
     return { title: `${providerName} rate limit reached`,
       description: `${providerName} is temporarily limiting requests, so this diff couldn't be loaded. Try again after the limit resets, or view the changes on ${providerName}.` };
   }
-  return { title: "Couldn't load the changes", description: `The environment couldn't load this pull request's diff. Try again, or view the changes on ${providerName}.` };
+  return { title: "Couldn't load the changes", description: `The environment couldn't load this ${term}'s diff. Try again, or view the changes on ${providerName}.` };
 }

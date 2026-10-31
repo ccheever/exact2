@@ -19,8 +19,11 @@
 //   the responder chain to the window, and a responder placed after the window's content view (`T3ShellMenuTail`) pops
 //   the shell's menu for the page: Copy Link over a link (the inline link's accessibility URL), Copy Image over an image
 //   (the image layer's bitmap), Copy while page text is selected (ExactKit enables Edit ▸ Speech ▸ Start Speaking exactly
-//   then), Select All.
-// - A Browser page answers in its web view (T3ShellWebView.swift); other web views (an iframe's page, the terminal's among them) keep their own menus.
+//   then), Select All. The tail is placed in each window as the module first sees it (at install, and as an element
+//   mounts there) and again at each click, so the ContextMenu key or VoiceOver's show menu that no node answers, which
+//   ExactKit sends to the session's view as a secondary click's press (main #1114, `MouseEventsMac.swift`
+//   `unansweredContextMenu`), reaches it before any right-click has.
+// - Web views (an iframe's page: a Browser tab, a rendered HTML preview, the terminal) keep their own menus.
 // - A reply's mailto, irc, xmpp or fragment link writes no `contextmenu` (markdown.contract FlowRuns), as ChatMarkdown's
 //   anchor returns before `preventDefault` when the link has no web host: its click is one no node answers.
 //
@@ -81,7 +84,6 @@ final class T3TextContextMenu: NSObject {
 
     init(agent: Bool) {
         self.agent = agent
-        T3ShellWebView.agent = agent
     }
 
     func install() {
@@ -92,6 +94,12 @@ final class T3TextContextMenu: NSObject {
             guard let self else { return event }
             return self.handle(event)
         }
+        for window in NSApp.windows where window.contentView.map(Self.holdsPage) == true { attachTail(to: window) }
+    }
+
+    /// Whether `view` or a view inside it is an Exact page.
+    static func holdsPage(_ view: NSView) -> Bool {
+        String(describing: type(of: view)) == "ExactView" || view.subviews.contains(where: holdsPage)
     }
 
     func destroy() {
@@ -224,7 +232,7 @@ final class T3TextContextMenu: NSObject {
         return nil
     }
 
-    private func attachTail(to window: NSWindow) {
+    func attachTail(to window: NSWindow) {
         guard let content = window.contentView else { return }
         let key = ObjectIdentifier(window)
         let tail: T3ShellMenuTail

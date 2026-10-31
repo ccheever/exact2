@@ -123,7 +123,7 @@ export async function easAccountCheck(client: T3Client, native: Native, input: R
 async function writeHosts(client: T3Client, native: Native, change: (hosts: EasHost[]) => EasHost[], failedTitle: string): Promise<boolean> {
   const access = client.restAccess(native);
   try {
-    const settings = await access.request('server.getSettings');
+    const settings = obj((await access.request('server.getConfig')).settings);
     const updated = await access.request('server.updateSettings', { patch: { easDeviceHosts: change(easHostsOf(settings)) } }, true);
     client.config = { ...client.config, settings: updated };
     return true;

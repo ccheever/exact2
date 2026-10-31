@@ -43,6 +43,12 @@ describe('panel layout belongs to the owning thread', () => {
     expect(restored.maximized).toBe(true);
     await surfaceLocal(app, native, 'hide', '', ''); expect(a.maximized).toBe(false);
   });
+  test('Maximize leads the layout controls in either layout; the sheet, which covers the details card, then offers its toggle', () => {
+    const header = contractComponent('panel.contract', 'PanelHeaderBar'), local = header.state();
+    const scope = (sheet: boolean) => ({ sheet, min: Math.min, max: Math.max, panel: { tabStrip: { activeLeft: 0, activeRight: 0, view: 0, max: 0, serial: 0, overflow: false } } });
+    expect([header.drawn('testId="maximize-right-panel"', local, scope(true)), header.drawn('testId="panel-toggle-details"', local, scope(true))]).toEqual([true, true]);
+    expect([header.drawn('testId="maximize-right-panel"', local, scope(false)), header.drawn('testId="panel-toggle-details"', local, scope(false))]).toEqual([true, false]);
+  });
   test('pointer movement crosses tab midpoints after the drag threshold', () => {
     const header = contractComponent('panel.contract', 'PanelHeaderBar'), local = header.state(), calls: unknown[][] = [];
     const scope = { max: Math.max, panel: { tabs: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }, frame: (id: string) => ({ x: id.endsWith('a') ? 0 : id.endsWith('b') ? 64 : 128, width: 60 }), local: (...args: unknown[]) => calls.push(args) };

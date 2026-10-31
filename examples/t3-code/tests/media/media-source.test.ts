@@ -1,6 +1,6 @@
 // Ported from T3 Code 1e2ecbd975 packages/client-runtime/src/mediaSource.test.ts (MIT; see LICENSE-T3).
 import { describe, expect, it } from 'bun:test';
-import { resolveMediaSource } from '../../src/media/media-source';
+import { classifyMarkdownImageSource, resolveMediaSource } from '../../src/media/media-source';
 
 const threadId = 'thread-1';
 const attachmentId = '11111111-1111-4111-8111-111111111111-22222222-2222-4222-8222-222222222222-mp4';
@@ -31,7 +31,8 @@ describe('resolveMediaSource', () => {
   });
 
   describe('host paths', () => {
-    // POSIX, Windows, UNC, and file URLs must all reach the same media-file resource.
+    // POSIX, Windows and file URLs must all reach the same media-file resource; a network path only from the project's
+    // own share (below).
     it.each([
       ['/tmp/frame%23one.png:12', '/tmp/frame#one.png'],
       ['/tmp/frame%3Fone.png:12:3', '/tmp/frame?one.png'],
@@ -39,8 +40,6 @@ describe('resolveMediaSource', () => {
       ['C:\\Users\\demo\\frame.png', 'C:\\Users\\demo\\frame.png'],
       ['/C:/Users/demo/frame.png', 'C:/Users/demo/frame.png'],
       ['file:///C:/Users/demo/frame.png', 'C:/Users/demo/frame.png'],
-      ['file://server/share/frame.png', '\\\\server\\share\\frame.png'],
-      ['\\\\server\\share\\frame.png', '\\\\server\\share\\frame.png'],
     ])('resolves %s through the environment', (href, path) => {
       expect(resolveMediaSource(href, { threadId, workspaceRoot: '/repo' })).toEqual({
         kind: 'image', mimeType: 'image/png', name: path.split(/[\\/]/).at(-1)!, reference: { kind: 'file', path }, srcFragment: '',
@@ -77,5 +76,33 @@ describe('resolveMediaSource', () => {
   it('serves T3 attachment files in place like any other host path', () => {
     const path = `/home/demo/.t3/userdata/attachments/${attachmentId}.mp4`;
     expect(resolveMediaSource(path, { threadId, workspaceRoot: '/repo' })).toMatchObject({ kind: 'video', access: 'environment', resource: { _tag: 'media-file', threadId, path } });
+  });
+});
+
+// markdownImages.test.ts at 7c3b3b3605ef: a network path loads only from the project's own share.
+describe('classifyMarkdownImageSource', () => {
+  it.each([
+    ['images/result.png', '/workspace/project', '/workspace/project/images/result.png'],
+    ['file:///workspace/project/image%20one.png', null, '/workspace/project/image one.png'],
+    ['file://server/share/image.png', '\\\\server\\share', '\\\\server\\share\\image.png'],
+  ])('maps %s to a workspace file', (source, workspaceRoot, path) => {
+    expect(classifyMarkdownImageSource(source, workspaceRoot)).toEqual({ _tag: 'WorkspaceFile', path });
+  });
+  // Loading these makes Windows send the user's NTLM credentials to the named host.
+  it.each([
+    'file://attacker.test/share/cat.jpg',
+    '\\\\attacker.test\\share\\cat.jpg',
+    '/\\attacker.test\\share\\cat.jpg',
+    'file:/%5Cattacker.test%5Cshare%5Ccat.jpg',
+    '\\\\server\\other\\cat.jpg',
+  ])('blocks network path %s outside the project', source => {
+    expect(classifyMarkdownImageSource(source, '\\\\server\\share\\project')).toEqual({ _tag: 'Blocked' });
+  });
+});
+
+// mediaPreview.ts at 7c3b3b3605ef: BMP, HEIC, HEIF and TIFF are images.
+describe('decoded image types', () => {
+  it.each([['shot.bmp', 'image/bmp'], ['IMG_0001.HEIC', 'image/heic'], ['photo.heif', 'image/heif'], ['scan.tif', 'image/tiff'], ['scan.tiff', 'image/tiff']])('%s is an image', (name, mimeType) => {
+    expect(resolveMediaSource(`/repo/${name}`, { threadId: 't1', workspaceRoot: '/repo' })).toMatchObject({ kind: 'image', mimeType });
   });
 });

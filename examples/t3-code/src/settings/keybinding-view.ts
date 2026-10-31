@@ -1,5 +1,5 @@
 // Settings → Keybindings view model: rows, pills, labels, sources, conflicts and
-// area groups from KeybindingsSettings.logic.ts (T3 74541bab17), and the When builder of
+// area groups from KeybindingsSettings.logic.ts (T3 7c3b3b3605ef), and the When builder of
 // KeybindingsSettings.tsx as precomputed next expressions, so every builder
 // control only replaces the draft expression with a string computed here.
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -15,12 +15,14 @@ function titleCase(segment: string): string {
   return segment.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(/[-_\s]+/).filter(Boolean).map(part => part.slice(0, 1).toUpperCase() + part.slice(1)).join(' ');
 }
 export function commandLabel(command: string): string {
+  if (command === 'workspace.focusNext') return 'Focus Next Workspace Area';
+  if (command === 'workspace.focusPrevious') return 'Focus Previous Workspace Area';
   if (command === 'composer.sendAlternate') return 'Composer: Opposite Queue or Steer Action';
   if (command === 'composer.sendBackground') return 'Composer: Start in Background';
   if (command === 'composer.sendAndNewThread') return 'Composer: Send and Start New Thread';
-  if (command === 'thread.steerQueuedMessage') return 'Queue: Send First Queued Message as Steer';
+  if (command === 'thread.steerQueuedMessage') return 'Queue: Send First Queued Message';
   if (command === 'thread.editQueuedMessage') return 'Queue: Edit Last Queued Message';
-  if (command === 'thread.copyReference') return 'Pull Request: Copy Link or Thread ID';
+  if (command === 'thread.copyReference') return 'Pull Request: Copy Link or Thread';
   if (command === 'preview.focusUrl') return 'Preview: Focus URL';
   if (usageMetrics[command]) return `Usage: ${usageMetrics[command]}`;
   if (usagePeriods[command]) return `Usage: Period: ${usagePeriods[command]}`;
@@ -194,7 +196,9 @@ export function whenEditor(expression: string) {
 
 // --- Rows (buildKeybindingRows) ---
 export type KeybindingRowView = { id: string; command: string; label: string; key: string; condition: string; whenLabel: string; source: string; pills: { id: string; text: string }[]; aria: string;
-  defaultKey: string; defaultWhen: string; canReset: boolean; canRemove: boolean; conflict: string; first: boolean };
+  defaultKey: string; defaultWhen: string; canReset: boolean; canRemove: boolean; conflict: string; first: boolean;
+  /** keybindingAnchorIds: the search target `keybinding-<command>` on the first row of each command, '' on the rest. */
+  anchor: string };
 export function conflictLabels(rows: { id: string; command: string; key: string; when: string }[], input: { id: string; key: string; when: string }): string[] {
   if (!input.key.trim()) return [];
   const conflicts = rows.filter(row => row.id !== input.id && row.key === input.key && (!row.when || !input.when || row.when === input.when)).map(row => commandLabel(row.command));
@@ -223,10 +227,13 @@ export function buildRows(bindings: Obj[], query: string): KeybindingRowView[] {
   }
   const base = [...byId.values()];
   const rows = base.map(row => ({ ...row, condition: row.when, label: commandLabel(row.command), whenLabel: row.when || 'Always', pills: pillParts(row.key).map((text, index) => ({ id: `${index}`, text })), aria: shortcutLabel(row.key),
-    canReset: row.source === 'Custom' && row.defaultKey !== '', canRemove: row.source !== 'Default', conflict: conflictText(conflictLabels(base, row)), first: false }));
+    canReset: row.source === 'Custom' && row.defaultKey !== '', canRemove: row.source !== 'Default', conflict: conflictText(conflictLabels(base, row)), first: false, anchor: '' }));
   rows.sort((left, right) => compareCommands(left.command, right.command, command => command) || left.key.localeCompare(right.key));
   const term = query.trim().toLowerCase();
   const filtered = term ? rows.filter(row => [row.command, row.label, row.key, row.condition, row.source].some(text => text.toLowerCase().includes(term))) : rows;
+  // keybindingAnchorIds: each command's first listed row is its search result's target.
+  const anchored = new Set<string>();
+  for (const row of filtered) if (!anchored.has(row.command)) { anchored.add(row.command); row.anchor = `keybinding-${row.command}`; }
   return filtered.map(({ when, ...row }, index) => ({ ...row, first: index === 0 }));
 }
 export type KeybindingGroup = { id: string; title: string; rows: KeybindingRowView[] };

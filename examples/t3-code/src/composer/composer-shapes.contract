@@ -24,7 +24,7 @@ shape ComposerRuntime
   icon: string
   selected: bool
   index: number
-// A docked composer notice (ComposerBannerStack item) and a todo step (ComposerTasksBadge).
+// A notice above the composer (ComposerBannerStackItem).
 // A description part: plain text, or (threadId set) an inline link that opens that thread.
 shape NoticeSegment
   key: string
@@ -35,6 +35,8 @@ shape NoticeSegment
   last: bool
 shape ComposerNotice
   id: string
+  // "environment" (the machine's own notice, shown first) or "attention".
+  group: string
   variant: string
   icon: string
   title: string
@@ -44,14 +46,18 @@ shape ComposerNotice
   dismiss: string
   dismissLabel: string
   priority: number
-  front: bool
-  activityBefore: bool
+  // Not the first card: it joins the card above edge to edge.
+  stacked: bool
   action2: string
   action2Label: string
   lines: string[]
   actionReason: string
-  // The id the action's command receives (the child-input banner's thread).
+  // The second action shows, disabled (Snooze until reset once the reset passed).
+  action2Disabled: bool
+  // The id the action's command receives.
   actionId: string
+  // The action command's value (the fallback notice's "Use <default>": the model's instance).
+  actionValue: string
   dismissId: string
   segments: NoticeSegment[]
   // The title's and actions' tooltips, a red icon; `details`: the description is clipped (NoticeDescription).
@@ -62,6 +68,8 @@ shape ComposerNotice
   details: bool
   // The title is cut off: an info button shows it in full (NoticeText).
   titleDetails: bool
+  // A title in two parts: `title` a muted lead-in, then this code (the branch mismatch's branch), with `tip` on it.
+  code: string
   // The multi-machine update banner's popover rows, and its title's accessible name.
   machines: NoticeMachine[]
   menuLabel: string
@@ -78,28 +86,52 @@ shape NoticeMachine
   line: string
   copyLabel: string
   note: string
-shape ComposerTask
-  key: string
-  text: string
-  status: string
-  duration: string
-// A queued row's image thumbnail, and an attachment the queued edit keeps.
-shape QueuedThumb
+// An image taken into the draft whose file is still being prepared, under the id its draft will take.
+shape PreparingImage
   id: string
   name: string
+  // A 256 px thumbnail of the taken image (an `app:/` PNG); "" until it is made, or for none.
+  source: string
+// One upload resource's answer (composer-uploads.ts UploadValue): the image it carries and how its upload goes, status
+// "uploading" with its progress (0 to 1), "ready", "failed" with the reason, or "" while it carries none.
+shape ComposerUpload
+  slot: number
+  id: string
+  attachmentId: string
+  status: string
+  progress: number
+  reason: string
+// The image an upload resource carries, under the attachment its upload URL was minted for ("" for none).
+shape ComposerUploadSlot
+  id: string
+  attachmentId: string
+// A draft image's upload (ImageUpload): "queued" for a slot, in a "slot" (whose answer has its percentage), or "failed".
+shape ComposerUploadImage
+  id: string
+  attachmentId: string
+  status: string
+  progress: number
+  reason: string
+// The draft's uploads (composer-uploads.ts uploadTable): what each resource carries, the images waiting while one is
+// free (the root then starts them), the slots and attachments to settle, and each image's upload; `supported`: the
+// server stages uploads; `operate`: this connection may operate threads, so a failed upload's Retry acts.
+shape ComposerUploads
+  u0: ComposerUploadSlot
+  u1: ComposerUploadSlot
+  u2: ComposerUploadSlot
+  u3: ComposerUploadSlot
+  u4: ComposerUploadSlot
+  u5: ComposerUploadSlot
+  supported: bool
+  operate: bool
+  pending: string
+  settle: number
+  images: ComposerUploadImage[]
+// An attachment the queued edit keeps.
 shape QueueEditAttachment
   id: string
   name: string
   image: bool
-shape ComposerQueued
-  runId: string
-  text: string
-  images: number
-  index: number
-  editing: bool
-  last: bool
-  thumbnails: QueuedThumb[]
-  pending: bool
 // The workspace / branch strip under the draft composer (composer-controls-branch.ts).
 shape BranchRef
   name: string
@@ -158,9 +190,22 @@ shape ComposerBranches
 shape FanoutMark
   key: string
   driver: string
+  icon: string
+// One bar of the effort glyph (effort-glyph.ts effortBars): its x, top and height in a 14pt box, filled up to the level.
+shape EffortBar
+  x: number
+  y: number
+  height: number
+  on: bool
+
 shape ComposerView
   placeholder: string
   modelTip: string
+  // The prompt field's accessible name: "Message <thread title>".
+  fieldLabel: string
+  // The shown approval's reason, and why full access still asked ("" when it did not), drawn under and beside it.
+  approvalReason: string
+  approvalWhy: string
   fanout: bool
   fanoutLabel: string
   fanoutAria: string
@@ -168,10 +213,30 @@ shape ComposerView
   fanoutMore: number
   fanoutKeys: string[]
   traitsLabel: string
+  // The effort chip (TraitsPicker in the composer): shown when the model has traits; its word ("High", "" for bars),
+  // its bars, the speed ("Fast", "Ultrafast" or ""), the other traits ("1M") and its name and tooltip.
+  effortShown: bool
+  effortWord: string
+  effortBars: EffortBar[]
+  effortBarsWidth: number
+  effortSpeed: string
+  effortOther: string
+  traitsTip: string
+  // Where Permissions live (composer-controls-ownership.ts): the chip shows "label", "icon" or is "hidden"; it is
+  // emphasized off the project's default; the mode block (the chip or Plan) shows; the effort chip or the overflow
+  // menu answers composer.mode; a new thread's strip names them.
+  accessDisplay: string
+  accessEmphasized: bool
+  showModeBlock: bool
+  effortOwnsMode: bool
+  overflowPermissions: bool
+  permissionsInStrip: bool
+  permissionsTip: string
+  stripPermissionsTip: string
+  // The selected ACP Registry instance's agent icon URL (acp-instance-icon.ts).
+  providerIcon: string
   runtimeIconOnly: bool
   traitsIconOnly: bool
-  restingRuntimeIconOnly: bool
-  restingTraitsIconOnly: bool
   sendRunning: bool
   sendLabel: string
   sendIcon: string
@@ -195,21 +260,24 @@ shape ComposerView
   planTitle: string
   noProvider: string
   providerSetupId: string
-  tasksTotal: number
-  tasksDone: number
-  tasksCurrent: string
-  tasks: ComposerTask[]
-  syncStatus: string
-  activity: string
   // The context strip shows its controls' icons without their labels (useLabelsOverflow, context-strip.ts).
   stripCompact: bool
-  // The activity strip is the attached front item, or floats in the stack (before a notice's `activityBefore`, or last).
-  activityFront: bool
-  activityLast: bool
   notices: ComposerNotice[]
   // The account whose reset credit confirm is open ('' when none).
   resetConfirm: string
-  queued: ComposerQueued[]
+  // A usage-limit reset under a minute away: the root's clock ticks each second until it passes (`resetKey` re-arms it).
+  resetSoon: bool
+  resetKey: string
+  // ScrollToEndButton's summary ("Subagent waiting · 2 queued"; '' for none).
+  endSummary: string
+  // The draft's images still being prepared: the strip shows their tiles at once, disabled.
+  preparingImages: PreparingImage[]
+  // Its images' uploads, which start as each joins the draft (attachmentUploadQueue.ts), and why Send and Return wait for
+  // them ("Attachment still uploading"; "" when they need not).
+  uploads: ComposerUploads
+  uploadBlock: string
+  // The first send kept while its images uploaded that can go now ("" for none; composer-uploads.ts).
+  sendResume: string
   contextShow: bool
   contextAria: string
   contextPercent: string
@@ -228,14 +296,10 @@ shape ComposerView
   stripTop: number
   stripLeft: number
   stripRight: number
-  queueReorder: bool
-  queueSteer: bool
-  queueSteerReason: string
   queueEditing: string
   // The edit's kept attachments and whether its save is in flight.
   queueEditAttachments: QueueEditAttachment[]
   queueEditSaving: bool
-  queueDropSeq: number
   traitsCount: number
   traitsSelected: number
   traits: ComposerTrait[]
@@ -257,21 +321,14 @@ shape ComposerView
   // The prompt drives the ultrathink frame (composer-ultrathink.ts).
   ultrathink: bool
   // Blocks moved into "More composer controls", the cluster hidden below the
-  // picker's minimum, and the menu's rows and widths, for the expanded and the resting footer.
+  // picker's minimum, and the menu's rows and widths.
   modeOverflow: bool
   traitsOverflow: bool
-  restingModeOverflow: bool
-  restingTraitsOverflow: bool
   controlsHidden: bool
-  restingControlsHidden: bool
   more: ComposerTrait[]
   moreCount: number
-  restingMore: ComposerTrait[]
-  restingMoreCount: number
   moreMenuWidth: number
-  restingMoreMenuWidth: number
   moreMenuHeight: number
-  restingMoreMenuHeight: number
   keyEffort: string
   keyMode: string
   attach: bool
@@ -281,6 +338,8 @@ shape ComposerView
   subagentStatus: string
   subagentAnnounce: string
   subagentParent: string
+  // The bar's laid-out width (0 until measured): it stacks under 560pt (ProviderSubagentBar's container queries).
+  subagentWidth: number
 
 shape PickerRow
   key: string
@@ -290,6 +349,10 @@ shape PickerRow
   name: string
   label: string
   driver: string
+  // An ACP Registry instance's agent icon URL (acp-instance-icon.ts).
+  icon: string
+  // The provider line shows (a search, Favorites, a sub-provider; the Legacy header): a 48pt row, else 32pt.
+  twoLine: bool
   favorite: bool
   selected: bool
   isNew: bool
@@ -307,6 +370,8 @@ shape PickerRail
   index: number
   name: string
   driver: string
+  // An ACP Registry instance's agent icon URL (acp-instance-icon.ts).
+  icon: string
   ready: bool
   // An instance that needs setup is selectable though not ready.
   selectable: bool
@@ -334,6 +399,12 @@ shape PickerCatalog
   legacyCount: number
   restCount: number
   restLegacyCount: number
+  twoLineCount: number
+  legacyTwoLineCount: number
+  restTwoLineCount: number
+  restLegacyTwoLineCount: number
+  // The tallest tab's list, in points (rows and their gaps): the popup is never shorter.
+  tallest: number
   highlight: number
   highlightKind: string
   highlightId: string

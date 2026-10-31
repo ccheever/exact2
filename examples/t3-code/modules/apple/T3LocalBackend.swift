@@ -611,10 +611,10 @@ final class T3LocalBackend: @unchecked Sendable {
         }
     }
 
-    /// `localAccess`: one of the reference's six `/api/auth/*` calls (environmentHttp.ts EnvironmentAuthHttpApi)
+    /// `localAccess`: one of the reference's four `/api/auth/*` writes (environmentHttp.ts EnvironmentAuthHttpApi)
     /// on the embedded server with its in-memory bearer. Answers the JSON value, or the HTTP status (0: none).
-    static let accessRoutes: Set<String> = ["POST /api/auth/pairing-token", "GET /api/auth/pairing-links", "POST /api/auth/pairing-links/revoke",
-                                            "GET /api/auth/clients", "POST /api/auth/clients/revoke", "POST /api/auth/clients/revoke-others"]
+    static let accessRoutes: Set<String> = ["POST /api/auth/pairing-token", "POST /api/auth/pairing-links/revoke",
+                                            "POST /api/auth/clients/revoke", "POST /api/auth/clients/revoke-others"]
     func access(method: String, path: String, body: Any?, done: @escaping (Result<Any, T3Failure>) -> Void) {
         guard Self.accessRoutes.contains("\(method) \(path)") else { return done(.failure(T3Failure(kind: "Arguments", message: "That request is not an access request."))) }
         let status = statusValue()

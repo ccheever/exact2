@@ -11,11 +11,11 @@ use SkPopup from "../settings/settings-kit.contract"
 use SkMenuItem from "../settings/settings-kit.contract"
 use KmItem from "../shared/menu-keys.contract"
 
-fn toolsInk(): string = "light-dark(#27272a, #f5f5f5)"
-fn toolsMuted(): string = "light-dark(#71717b, #818181)"
+fn toolsInk(): string = "light-dark(#18181b, #f5f5f5)"
+fn toolsMuted(): string = "light-dark(#71717b, #a1a1a1)"
 fn toolsBorder(): string = "light-dark(#e4e4e7, #ffffff14)"
-fn toolsInputBorder(): string = "light-dark(#d4d4d8, #ffffff14)"
-fn toolsFieldBackground(): string = "light-dark(#fcfcfc, #ffffff07)"
+fn toolsInputBorder(): string = "light-dark(#d4d4d8, #ffffff1c)"
+fn toolsFieldBackground(): string = "light-dark(#fcfcfc, #ffffff09)"
 fn toolsDestructive(): string = "light-dark(#e40014, #ff6467)"
 
 keyframes toolsSpin
@@ -28,7 +28,7 @@ component ToolsGlyph
     size: number
     color: string
   view
-    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
       if name == "sliders"
         path d="M10 5H3M12 19H3M14 3v4M16 17v4M21 12h-9M21 19h-5M21 5h-7M8 10v4M8 12H3"
       if name == "box"
@@ -90,7 +90,7 @@ component ToolsButton
   action hover(value: bool)
     over = value
   view
-    button press=press hover=hover disabled=disabled testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(outline ? toolsInputBorder() : "#00000000") flex-shrink=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0f)" : outline ? "light-dark(#ffffff, #ffffff07)" : "#00000000") box-shadow=(outline and not disabled ? "0 1px 2px #0000000d" : "none")
+    button press=press hover=hover disabled=disabled testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(outline ? toolsInputBorder() : "#00000000") flex-shrink=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0f)" : outline ? "light-dark(#ffffff, #ffffff09)" : "#00000000") box-shadow=(outline and not disabled ? "0 1px 2px #0000000d" : "none")
       text label font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color=toolsInk()
 
 // Input compact, mono: a 28pt field inside its 1pt border, rounded-md.
@@ -104,7 +104,7 @@ component ToolsField
     submit: action
     testId: string
   view
-    input value=value input=input submit=submit placeholder=placeholder aria-label=label disabled=disabled autocorrect="off" spellcheck="false" testId=testId flex=1 min-width=0 height="1.875rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=toolsInputBorder() background-color=toolsFieldBackground() box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=toolsInk() id=`field-${testId}` data-editable="yes"
+    input value=value input=input submit=submit placeholder=placeholder aria-label=label disabled=disabled autocorrect="off" spellcheck="false" testId=testId flex=1 min-width=0 height="1.875rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=toolsInputBorder() background-color=toolsFieldBackground() box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color=toolsInk() id=`field-${testId}` data-editable="yes"
       ::placeholder
         color=toolsMuted()
 
@@ -118,7 +118,7 @@ component ToolsSwitchControl
     testId: string
   view
     button press=press role="switch" aria-checked=on aria-label=label disabled=disabled testId=testId width="1.625rem" height="1rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content=(on ? "flex-end" : "flex-start") background-color=(on ? "light-dark(#1b4ed8, #346bf1)" : toolsInputBorder()) title=""
-      box width="0.75rem" height="0.75rem" border-radius="0.375rem" background-color=(on ? "light-dark(#fcfcfc, #0a0a0a)" : "light-dark(#fcfcfc, #818181)") box-shadow="0 1px 2px #0000000d"
+      box width="0.75rem" height="0.75rem" border-radius="0.375rem" background-color=(on ? "light-dark(#fcfcfc, #000000)" : "light-dark(#fcfcfc, #a1a1a1)") box-shadow="0 1px 2px #0000000d"
 
 // ToggleGroup (segmented): two toggles in a tinted track.
 component ToolsSegment
@@ -133,7 +133,7 @@ component ToolsSegment
     choose: action
     testId: string
   view
-    row gap="0.125rem" padding="0.125rem" border-radius="0.625rem" background-color="light-dark(#d4d4d866, #ffffff08)" role="group" aria-label=label opacity=(disabled ? 0.64 : 1) testId=testId
+    row gap="0.125rem" padding="0.125rem" border-radius="0.5rem" background-color="light-dark(#d4d4d866, #ffffff0b)" role="group" aria-label=label opacity=(disabled ? 0.64 : 1) testId=testId
       button press=choose(first) disabled=disabled aria-checked=(value == first) testId=`${testId}-${first}` height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-width=0 border-radius="0.5rem" display="flex" align-items="center" background-color=(value == first ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(value == first ? "0 1px 2px #0000001a" : "none")
         text firstLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(value == first ? toolsInk() : toolsMuted())
       button press=choose(second) disabled=disabled aria-checked=(value == second) testId=`${testId}-${second}` height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-width=0 border-radius="0.5rem" display="flex" align-items="center" background-color=(value == second ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(value == second ? "0 1px 2px #0000001a" : "none")
@@ -199,7 +199,7 @@ component ToolsDrawer
     edit: action
     command: action
   view
-    column min-height=0 height="100%" width=(tools.overlay ? "100%" : "18rem") max-width="18rem" flex-shrink=0 box-sizing="border-box" border-left-width=1 border-left-style="solid" border-color=toolsBorder() background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow=(tools.overlay ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : "none") role="complementary" aria-label="Device tools" testId="device-tools"
+    column min-height=0 height="100%" width=(tools.overlay ? "100%" : "18rem") max-width="18rem" flex-shrink=0 box-sizing="border-box" border-left-width=1 border-left-style="solid" border-color=toolsBorder() background-color="light-dark(#fcfcfc, #000000)" box-shadow=(tools.overlay ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : "none") role="complementary" aria-label="Device tools" testId="device-tools"
       row height="2.25rem" flex-shrink=0 gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color=toolsBorder()
         text "Tools" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=toolsInk()
         if tools.pending
@@ -220,7 +220,7 @@ component ToolsDrawer
               text tools.diagnostics white-space="pre-line" font-size="0.75rem" line-height="1rem" color=toolsMuted()
           ToolsSection(title="App", last=false)
             ToolsRow(label="Foreground")
-              text tools.foreground min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=toolsInk() testId="device-tools-foreground"
+              text tools.foreground min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color=toolsInk() testId="device-tools-foreground"
             if tools.hasForeground
               row gap="0.375rem"
                 ToolsButton(label="Terminate", outline=true, disabled=tools.disabled, press=command("shell:surface-session-tools-act", "terminate", "", 0), testId="device-tools-terminate")
@@ -283,8 +283,8 @@ component ToolsDrawer
               scroll max-height="16rem"
                 column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" hatch="t3-media" data-media-kind="device-events" data-device-id=tools.logDevice data-device-host=tools.logHost testId="device-tools-events"
                   if tools.eventsEmpty
-                    text "No events yet." font-family="ui-monospace" font-size="0.6875rem" line-height="1.1171875rem" color=toolsMuted()
+                    text "No events yet." font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1.1171875rem" color=toolsMuted()
                   for entry in tools.events key=entry.id
                     row gap="0.5rem" min-width=0
-                      text entry.time flex-shrink=0 font-family="ui-monospace" font-size="0.6875rem" line-height="1.1171875rem" color=toolsMuted()
-                      text entry.summary min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-family="ui-monospace" font-size="0.6875rem" line-height="1.1171875rem" color=toolsInk()
+                      text entry.time flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1.1171875rem" color=toolsMuted()
+                      text entry.summary min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1.1171875rem" color=toolsInk()

@@ -2,7 +2,7 @@
 // adapted from T3 Code (MIT); see LICENSE-T3. Sources:
 // chat/ComposerUsageLimits.tsx (accountLabel, AccountSummary, usageLimitsBannerItem,
 // UsageLimitsBannerBody), usage/UsageLimits.tsx (WindowBar, LimitWindows, ResetCredits,
-// useResetCredit), chat/UsageLimitRecoveryBanner.tsx and ChatView.tsx (usageLimitsPanel,
+// useResetCredit), chat/UsageLimitRecoveryBanner.tsx (at 7c3b3b3605ef) and ChatView.tsx (usageLimitsPanel,
 // openUsageLimits, limitRecoveryBanner). The report is usage-limits.ts's port of
 // collectProviderUsageLimits over the server's provider snapshots and limit sources; nothing
 // here asks the agent. Changes: the banner body is data for usage-bars.contract (each window's
@@ -14,13 +14,15 @@ import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import type { T3Client } from '../client/client';
 import { composerNow } from './composer-controls';
-import { RUNTIME_LOCALE, formatUpcomingTimestamp } from '../shared/timestamp-format';
+import { formatUpcomingTimestamp } from '../shared/timestamp-format';
 import { PACE_LABEL, barColor, collectProviderUsageLimits, formatResetsIn, hasProviderUsageLimits, isUsageLimitsCommand, limitsNotice,
   paceOf, paceRemainingPercent, remainingPercent, type ResetCreditInput, type UsageLimitsAccount, type UsageLimitsReport } from '../usage/usage-limits';
 import { REDEEM_IDLE, redeemStep, resetCreditsShown, resetCreditsSummary, type RedeemEvent, type RedeemState } from '../usage/reset-credits';
 import { redactedValue } from '../shared/redacted-text';
 import { startDetached, type DetachedReply } from './composer-replies';
 import { openExternal } from '../client/external-open';
+import { draftFallbackOf, draftModelFallback } from './composer-provider-selection';
+import { fanoutSelections } from './composer-controls-fanout';
 
 export { isUsageLimitsCommand };
 const DRIVER_LABELS: Record<string, string> = { codex: 'Codex', claudeAgent: 'Claude', cursor: 'Cursor', grok: 'Grok', opencode: 'OpenCode', antigravity: 'Antigravity', pi: 'Pi', acpRegistry: 'ACP Registry' };
@@ -98,24 +100,73 @@ export function closeUsageLimits(client: T3Client): void { panels.delete(client)
 export type UsageAccountView = ReturnType<typeof accountViews>[number];
 export type UsageNotice = { id: string; variant: string; icon: string; title: string; description: string; action: string; actionLabel: string;
   action2: string; action2Label: string; dismiss: string; dismissLabel: string; priority: number; lines: string[]; actionReason: string; dismissId: string; segments: Array<{ key: string; label: string; threadId: string; aria: string; last: boolean }>;
+  /** The second action shows, disabled. */
+  action2Disabled?: boolean;
+  /** The action command's id and value (the fallback notice's pick: its model and instance). */
+  actionId?: string; actionValue?: string;
   redact?: string; redactMask?: string; redactAfter?: string; usage?: UsageAccountView[] };
+/**
+ * usageLimitRecoveryBannerItem: a run stopped by its subscription limit. Resume at reset schedules (or cancels) the
+ * resume; Snooze until reset snoozes the thread to the reset and then reads "Wake now". The reset ends the snooze (the
+ * server leaves snoozedUntil in place after it wakes the thread) and disables Snooze; both say "Saving..." while
+ * their change is in flight.
+ */
+function limitRecovery(client: T3Client, now: number) {
+  const shell = client.shell.threads.find(thread => thread.id === client.threadId);
+  if (!shell || shell.status !== 'failed' || shell.lastErrorClass !== 'usage_limit') return null;
+  const run = obj(shell.latestRun), runId = str(run.runId, str(shell.latestRunId)), resetAt = str(shell.usageLimitResetAt);
+  const stoppedAt = str(run.completedAt, str(shell.updatedAt));
+  const recovery = obj(shell.limitRecovery), resetPassed = !!resetAt && Date.parse(resetAt) <= now;
+  return { runId, resetAt, resetPassed, canSchedule: !!resetAt && Date.parse(resetAt) > Date.parse(stoppedAt),
+    scheduled: recovery.runId === runId && recovery.resetAt === resetAt && recovery.autoResume === true,
+    snoozed: recovery.snooze === true && recovery.runId === runId && recovery.resetAt === resetAt && !!resetAt
+      && Date.parse(str(shell.snoozedUntil)) === Date.parse(resetAt) && !resetPassed };
+}
+/** The fallback windows dismissed here, per environment (ChatView's `t3code:fallback-notice-dismissed:<environment>`). */
+const dismissedFallback = new WeakMap<object, Map<string, string>>();
+export function dismissFallbackNotice(client: T3Client, window: string): void {
+  const map = dismissedFallback.get(client) ?? new Map<string, string>();
+  map.set(client.environmentId, window);
+  dismissedFallback.set(client, map);
+}
+/**
+ * modelFallbackBannerItem: a new thread that started on the fallback model, while it still has it and no other pick,
+ * says so until dismissed for that provider's window: "Using <fallback>", "<provider> is out of usage · resets <when>",
+ * and "Use <default>" picks the default model.
+ */
+function fallbackNotice(client: T3Client, now: number): UsageNotice | null {
+  const started = draftFallbackOf(client);
+  if (!started || client.threadId || fanoutSelections(client)) return null;
+  if (client.providerId !== started.selection.instanceId || client.modelId !== started.selection.model) return null;
+  // ChatView re-resolves every minute, so the notice goes once the default's window resets.
+  const fallback = draftModelFallback(client, started.defaultSelection, now);
+  if (!fallback || fallback.selection.instanceId !== started.selection.instanceId || fallback.selection.model !== started.selection.model) return null;
+  const window = `${str(fallback.provider.instanceId)}:${fallback.resetsAt ?? ''}`;
+  if (dismissedFallback.get(client)?.get(client.environmentId) === window) return null;
+  const providers = arr(client.config.providers);
+  const name = (instanceId: string, model: string) => str(arr(providers.find(entry => entry.instanceId === instanceId)?.models).find(entry => entry.slug === model)?.name, model);
+  const resets = fallback.resetsAt ? ` · resets ${formatUpcomingTimestamp(fallback.resetsAt, client.local.deviceSettings.timestampFormat, now)}` : '';
+  return { id: 'fallback-model', variant: 'info', icon: 'gauge', title: `Using ${name(fallback.selection.instanceId, fallback.selection.model)}`, priority: 2,
+    description: `${str(fallback.provider.displayName, str(fallback.provider.driver))} is out of usage${resets}`,
+    action: 'model', actionLabel: `Use ${name(fallback.defaultSelection.instanceId, fallback.defaultSelection.model)}`, actionId: fallback.defaultSelection.model,
+    actionValue: fallback.defaultSelection.instanceId, action2: '', action2Label: '', dismiss: 'cclocal:fallback-dismiss', dismissLabel: 'Dismiss fallback model notice',
+    dismissId: window, lines: [], actionReason: '', segments: [] };
+}
+
 export function usageNotices(client: T3Client, now: number): UsageNotice[] {
   const notices: UsageNotice[] = [];
-  // usageLimitRecoveryBannerItem: a run stopped by its subscription limit.
-  const shell = client.shell.threads.find(thread => thread.id === client.threadId);
-  if (shell && shell.status === 'failed' && shell.lastErrorClass === 'usage_limit') {
-    const run = obj(shell.latestRun), runId = str(run.runId, str(shell.latestRunId));
-    const resetAt = str(shell.usageLimitResetAt);
-    const stoppedAt = str(run.completedAt, str(shell.updatedAt));
-    const canSchedule = !!resetAt && Date.parse(resetAt) > Date.parse(stoppedAt);
-    const recovery = obj(shell.limitRecovery);
-    const scheduled = recovery.runId === runId && recovery.resetAt === resetAt && recovery.autoResume === true;
-    const snoozed = recovery.snooze === true && recovery.runId === runId && recovery.resetAt === resetAt && !!resetAt
-      && Date.parse(str(shell.snoozedUntil)) === Date.parse(resetAt);
-    notices.push({ id: `usage-limit-recovery:${runId}`, variant: 'warning', icon: 'gauge', title: 'Usage limit reached', priority: 1,
-      description: resetAt ? `Resets ${new Date(resetAt).toLocaleString(RUNTIME_LOCALE)}` : 'Reset time unavailable; retry manually',
-      action: canSchedule ? 'cc:limit-resume' : '', actionLabel: scheduled ? 'Cancel auto-resume' : 'Resume at reset',
-      action2: canSchedule && !snoozed && Date.parse(resetAt) > now ? 'cc:limit-snooze' : '', action2Label: 'Snooze until reset', dismiss: '', dismissLabel: '', lines: [], actionReason: '', dismissId: '', segments: [] });
+  const fallback = fallbackNotice(client, now);
+  if (fallback) notices.push(fallback);
+  const limit = limitRecovery(client, now);
+  if (limit) {
+    const saving = client.busy && client.pending?.description === 'Change limit recovery';
+    const { runId, resetAt, canSchedule, scheduled, snoozed } = limit;
+    notices.push({ id: `usage-limit-recovery:${runId}`, variant: 'warning', icon: 'gauge', title: 'Usage limit reached', priority: 2,
+      description: resetAt ? `Resets ${formatUpcomingTimestamp(resetAt, client.local.deviceSettings.timestampFormat, now)}` : 'Reset time unavailable; retry manually',
+      action: canSchedule ? 'cc:limit-resume' : '', actionLabel: saving ? 'Saving...' : scheduled ? 'Cancel auto-resume' : 'Resume at reset',
+      action2: canSchedule ? 'cc:limit-snooze' : '', action2Label: saving ? 'Saving...' : snoozed ? 'Wake now' : 'Snooze until reset',
+      action2Disabled: !snoozed && limit.resetPassed,
+      dismiss: '', dismissLabel: '', lines: [], actionReason: '', dismissId: '', segments: [] });
   }
   const panel = panels.get(client);
   if (panel && panel.key === panelKey(client)) {
@@ -185,17 +236,26 @@ export async function usageLocal(client: T3Client, native: Native, op: string, i
   throw new ClientError(`Unknown composer action: ${op}`);
 }
 
-/** updateThreadMetadata({ limitRecovery }): schedule (or cancel) the resume, or snooze until the reset. */
+/** updateThreadMetadata({ limitRecovery }): schedule (or cancel) the resume, or snooze until the reset (or wake). */
 export async function changeLimitRecovery(client: T3Client, native: Native, storage: Files, action: 'resume' | 'snooze'): Promise<void> {
-  const shell = client.shell.threads.find(thread => thread.id === client.threadId);
-  if (!shell || shell.lastErrorClass !== 'usage_limit') throw new ClientError('This thread is not waiting on a usage limit.');
-  const runId = str(obj(shell.latestRun).runId, str(shell.latestRunId)), resetAt = str(shell.usageLimitResetAt);
+  const limit = limitRecovery(client, composerNow(client));
+  if (!limit) throw new ClientError('This thread is not waiting on a usage limit.');
+  const { runId, resetAt, scheduled, snoozed } = limit;
   if (!resetAt) throw new ClientError('Reset time unavailable; retry manually');
-  if (action === 'snooze' && Date.parse(resetAt) <= composerNow(client)) throw new ClientError('The reset time has passed. Retry the thread manually.');
-  const recovery = obj(shell.limitRecovery);
-  const scheduled = recovery.runId === runId && recovery.resetAt === resetAt && recovery.autoResume === true;
+  if (action === 'snooze' && !snoozed && limit.resetPassed) throw new ClientError('The reset time has passed. Retry the thread manually.');
   const access = client.restAccess(native);
   const [commandId] = await access.ids(1);
   await access.dispatch(storage, { type: 'thread.metadata.update', commandId, threadId: client.threadId,
-    limitRecovery: { runId, resetAt, ...(action === 'resume' ? { autoResume: !scheduled } : { snooze: true }) } }, 'Change limit recovery');
+    limitRecovery: { runId, resetAt, ...(action === 'resume' ? { autoResume: !scheduled } : { snooze: !snoozed }) } }, 'Change limit recovery');
+}
+
+/**
+ * useDeadlinePassed(resetAt): the banner turns at the reset, even one weeks away. The root's minute clock alone would
+ * be up to a minute late, so while the reset is under a minute away it ticks each second (`resetSoon`); `resetKey`
+ * names the reset it waits for.
+ */
+export function usageResetClock(client: T3Client, now: number): { resetSoon: boolean; resetKey: string } {
+  const limit = client.threadId ? limitRecovery(client, now) : null, at = limit ? Date.parse(limit.resetAt) : NaN;
+  const soon = !!limit && limit.canSchedule && Number.isFinite(at) && at > now && at - now <= 60_000;
+  return { resetSoon: soon, resetKey: soon ? `${limit!.runId}:${limit!.resetAt}` : '' };
 }

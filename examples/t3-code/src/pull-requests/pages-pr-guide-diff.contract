@@ -7,6 +7,7 @@ use ChatDocument, CodeHighlight, MarkdownEnv from "../timeline/markdown.contract
 use PgIcon from "../shared/pages-icons.contract"
 use DiffGlyph from "../diff/diff-glyphs.contract"
 use diffInk from "../appearance/settings-appearance-look.contract"
+use diffChangeInk from "../diff/diff-rows.contract"
 
 shape GuideRowNote
   key: string
@@ -88,19 +89,19 @@ component GuideDiffs
                 button press=press("file-toggle", card.path) aria-expanded=card.open aria-label=`${card.open ? "Collapse" : "Expand"} ${card.path}` title="" testId=`guide-file-toggle-${card.id}` padding=0 border-width=0 background-color="#00000000"
                   PgIcon(name=(card.open ? "chevron-down" : "chevron-right"), size=14, color="light-dark(#71717b, #a1a1aa)")
                 text card.path flex=1 min-width=0 font-family=env.codeFont font-size="0.75rem" line-height="1.125rem" text-overflow="ellipsis" white-space="nowrap"
-                button press=reveal(card.path) aria-label=`Open ${card.path} in Code` testId=`guide-open-code-${card.id}` font-size="0.75rem"
+                button press=reveal(card.path) aria-label=`Open ${card.path} in Code` testId=`guide-open-code-${card.id}`
                   text "Open in Code"
               else
                 if not card.missing
-                  DiffGlyph(name=card.status, size=16, color=(card.status == "deleted" ? diffInk(scheme, "del") : card.status == "added" ? diffInk(scheme, "add") : "#009fff"))
+                  DiffGlyph(name=card.status, size=16, color=diffChangeInk(scheme, card.status))
                 text card.path flex=1 min-width=0 font-size="0.75rem" line-height="1rem" text-overflow="ellipsis" white-space="nowrap"
                 row align-items="center" gap="0.5rem" flex-shrink=0
                   if not card.missing
                     row align-items="baseline" gap="0.25rem" aria-label=`${card.additions} additions, ${card.deletions} deletions`
                       if card.deletions > 0
-                        text `-${card.deletions}` font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "del-count")
+                        text `-${card.deletions}` font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "del-count")
                       if card.additions > 0
-                        text `+${card.additions}` font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "add-count")
+                        text `+${card.additions}` font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "add-count")
                     text `${card.removed ? "removed code, " : ""}showing ${card.shown} of ${card.total} diff lines` font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1aa)"
                   button press=reveal(card.path) aria-label=`Open ${card.path} in Code` testId=`guide-open-code-${card.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
                     PgIcon(name="arrow-up-right", size=14, color="light-dark(#71717b, #a1a1aa)")
@@ -112,7 +113,7 @@ component GuideDiffs
               for item in card.items key=item.id
                 if item.kind == "pr-draft" and not view.canComment
                   column width="100%" gap="0.5rem" padding="0.75rem" box-sizing="border-box" testId="guide-ask-lines-draft"
-                    textarea data-editable="yes" id="guide-lines-question" value=draftText input=edit rows=2 placeholder="Ask about these lines…" aria-label="Question about selected guide lines" autocorrect="off" spellcheck="false" testId="guide-lines-question" width="100%" min-height="3rem"
+                    textarea data-editable="yes" id="guide-lines-question" value=draftText input=edit rows=2 placeholder="Ask about these lines…" aria-label="Question about selected guide lines" autocorrect="off" spellcheck="false" testId="guide-lines-question" width="100%" min-height="3rem" resize="vertical"
                     row gap="0.5rem" justify-content="flex-end"
                       button press=cancel testId="guide-lines-cancel"
                         text "Cancel"

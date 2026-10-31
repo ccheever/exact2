@@ -35,6 +35,57 @@ describe('workspace provider discovery', () => {
     await discovery.refresh(initial.key, request); expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual({ method: 'server.refreshProviders', instanceId: 'p', cwd: '/repo' });
   });
+  test('a cwd that never scans stops after three failures until the TTL from its last request (useProviderWorkspaceSnapshotRefresh)', async () => {
+    const discovery = new WorkspaceDiscovery(), now = Date.parse('2026-10-25T00:00:00Z'), wake = { prompt: '', config: partial };
+    let calls = 0;
+    const failing = async () => { calls++; throw new Error('no such directory'); };
+    for (const attempt of [1, 2, 3]) {
+      const state = discovery.state('env', 1, partial, '/gone', wake, true, now + attempt);
+      expect(state.needed).toBe(true);
+      expect((await discovery.refresh(state.key, failing)).retry).toBe(attempt < 3);
+    }
+    expect(calls).toBe(3);
+    expect(discovery.state('env', 1, partial, '/gone', wake, true, now + 60_000).needed).toBe(false);
+    expect(discovery.state('env', 1, partial, '/gone', wake, true, now + 3 + 300_000).needed).toBe(true);
+  });
+  test('the failure count starts over when the composer mounts again or a complete snapshot arrives (providerSkills.ts)', async () => {
+    const now = Date.parse('2026-10-25T00:00:00Z'), failing = async () => { throw new Error('no such directory'); };
+    const state = (discovery: WorkspaceDiscovery, provider: Obj, cwd: string, at: number, shown = true) => discovery.state('env', 1, provider, cwd, { prompt: '', config: provider }, shown, at);
+    const exhaust = async (discovery: WorkspaceDiscovery, cwd: string) => {
+      for (const attempt of [1, 2, 3]) await discovery.refresh(state(discovery, partial, cwd, now + attempt).key, failing);
+    };
+    // Mounted again after its last failure: the next failure is the first of three.
+    const remounted = new WorkspaceDiscovery();
+    await exhaust(remounted, '/gone');
+    state(remounted, partial, '/gone', now + 10, false);
+    expect((await remounted.refresh(state(remounted, partial, '/gone', now + 11).key, failing)).retry).toBe(true);
+    // A complete snapshot by subscription: once it goes stale, a failure is again the first of three.
+    const subscribed = new WorkspaceDiscovery(), current = { ...complete, workspaceSnapshots: [{ ...complete.workspaceSnapshots[0], checkedAt: new Date(now + 10).toISOString() }] };
+    await exhaust(subscribed, '/repo');
+    state(subscribed, current, '/repo', now + 10);
+    const stale = state(subscribed, partial, '/repo', now + 3 + 300_001);
+    expect(stale.needed).toBe(true);
+    expect((await subscribed.refresh(stale.key, failing)).retry).toBe(true);
+  });
+  test('a folder the composer moved from loses its count; a stale complete snapshot ends one too', async () => {
+    const now = Date.parse('2026-10-25T00:00:00Z'), failing = async () => { throw new Error('no such directory'); };
+    const state = (discovery: WorkspaceDiscovery, provider: Obj, cwd: string, at: number) => discovery.state('env', 1, provider, cwd, { prompt: '', config: provider }, true, at);
+    // Three failures on /gone, then another folder, then /gone again: a fresh count.
+    const moved = new WorkspaceDiscovery();
+    for (const attempt of [1, 2, 3]) await moved.refresh(state(moved, partial, '/gone', now + attempt).key, failing);
+    expect(state(moved, partial, '/gone', now + 10).needed).toBe(false);
+    state(moved, partial, '/other', now + 11);
+    const back = state(moved, partial, '/gone', now + 12);
+    expect(back.needed).toBe(true);
+    expect((await moved.refresh(back.key, failing)).retry).toBe(true);
+    // A complete snapshot checked long ago is not current, yet it ends the count (hasCompleteProviderWorkspaceSnapshot).
+    const old = { ...complete, workspaceSnapshots: [{ ...complete.workspaceSnapshots[0], checkedAt: new Date(now - 86_400_000).toISOString() }] };
+    const stale = new WorkspaceDiscovery();
+    for (const attempt of [1, 2, 3]) await stale.refresh(state(stale, partial, '/repo', now + attempt).key, failing);
+    state(stale, old, '/repo', now + 10);
+    const next = state(stale, partial, '/repo', now + 3 + 300_001);
+    expect((await stale.refresh(next.key, failing)).retry).toBe(true);
+  });
   test('retries failures and keeps delimiter-containing keys distinct', async () => {
     const discovery = new WorkspaceDiscovery();
     const first = discovery.state('a:b', 1, { instanceId: 'c' }, '/repo');

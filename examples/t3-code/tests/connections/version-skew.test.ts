@@ -2,9 +2,9 @@
 // with the case names kept. APP_VERSION is pinned per case by passing the client version.
 import { beforeEach, describe, expect, it } from 'bun:test';
 import {
-  appendVersionMismatchHint, buildVersionMismatchDismissalKey, dismissServerUpdateFailure, dismissVersionMismatch, isServerUpdateFailureDismissed,
+  buildVersionMismatchDismissalKey, dismissServerUpdateFailure, dismissVersionMismatch, isServerUpdateFailureDismissed,
   isVersionMismatchDismissed, resolveServerConfigVersionMismatch, resolveServerSelfUpdateCapability, resolveVersionMismatch,
-  serverUpdateGuidance, supportsDesktopAppUpdate, type DismissalStore,
+  supportsDesktopAppUpdate, CLIENT_VERSION, type DismissalStore,
 } from '../../src/connections/version-skew';
 import type { ServerUpdateState } from '../../src/connections/server-update';
 
@@ -38,6 +38,13 @@ describe('versionSkew', () => {
 
   it('does not warn when versions match', () => {
     expect(resolve(APP_VERSION)).toBeNull();
+  });
+
+  it('this client is the stable 0.1.5, so a 0.1.4 Nightly server reads as out of date and its update targets 0.1.5', () => {
+    expect(CLIENT_VERSION).toBe('0.1.5');
+    expect(resolveVersionMismatch('0.1.4-nightly.20261027.3770')).toEqual({ clientVersion: CLIENT_VERSION, serverVersion: '0.1.4-nightly.20261027.3770', hint: MISMATCH_HINT });
+    expect(resolveVersionMismatch('0.1.5-nightly.20261030.3900')).toBeNull();
+    expect(resolveVersionMismatch(CLIENT_VERSION)).toBeNull();
   });
 
   it('returns a mismatch when the server is behind the client', () => {
@@ -100,11 +107,6 @@ describe('versionSkew', () => {
     expect(isVersionMismatchDismissed(buildVersionMismatchDismissalKey(environmentId, { clientVersion: APP_VERSION, serverVersion: '9.9.10' }), store)).toBe(false);
   });
 
-  it('appends a hint to connection errors when the server is behind', () => {
-    const mismatch = resolve('0.0.33');
-    expect(appendVersionMismatchHint('Socket closed.', mismatch)).toBe(`Socket closed. Hint: ${MISMATCH_HINT}`);
-  });
-
   it('reads desktop-managed update capabilities from config descriptors', () => {
     expect(resolveServerSelfUpdateCapability({ environment: { environmentId: 'environment-desktop', label: 'Desktop', platform: { os: 'darwin', arch: 'arm64' },
       serverVersion: '9.9.9', capabilities: { repositoryIdentity: true, serverSelfUpdate: 'desktop-managed' } } })).toBe('desktop-managed');
@@ -118,10 +120,5 @@ describe('versionSkew', () => {
     expect(supportsDesktopAppUpdate(descriptor(false))).toBe(false);
     expect(supportsDesktopAppUpdate(descriptor())).toBe(false);
     expect(supportsDesktopAppUpdate(null)).toBe(false);
-  });
-
-  it('matches version-drift guidance to the advertised update path', () => {
-    expect(serverUpdateGuidance('respawn')).toBe('Update to stay in sync');
-    expect(serverUpdateGuidance('desktop-managed')).toBe('Update the desktop app');
   });
 });

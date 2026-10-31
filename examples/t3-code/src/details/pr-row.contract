@@ -1,4 +1,4 @@
-// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 7c3b3b3605ef (MIT); see LICENSE-T3.
 // Measured on the served HEAD reference (MIT, see LICENSE-T3;
 // chat/ThreadDetailsPrRow.tsx, pullRequest/PullRequestChecksPopover.tsx,
 // pullRequestPresentation.tsx, ui/popover.tsx, ui/tooltip.tsx variant "glass",
@@ -19,7 +19,7 @@
 //   (`flipped`: its end meets the link half's end). The reference portals it; here the window's hover layer
 //   draws it (kind "pr-card"), so the details card does not clip it, and keeps it inside the window, flipping
 //   below the row where it does not fit above.
-// - MergeDialog: "Merge pull request?" / "This merges #N using <method>." with
+// - MergeDialog: "Merge pull request?" (the host's term) / "This merges #N using <method>." with
 //   Cancel (Escape) and Merge.
 use DetailsPrRow from "../panel/pr-attachment-shapes.contract"
 use PrCard from "./pr-row-shapes.contract"
@@ -38,13 +38,15 @@ keyframes prRowSpin
   from rotate=0
   to rotate=360
 
-fn prRowInk(): string = "light-dark(#27272a, #f5f5f5)"
-fn prRowMuted(): string = "light-dark(#71717b, #818181)"
-fn prRowSoft(): string = "light-dark(#27272abf, #f5f5f5bf)"
+fn prRowInk(): string = "light-dark(#18181b, #f5f5f5)"
+fn prRowMuted(): string = "light-dark(#71717b, #a1a1a1)"
+fn prRowSoft(): string = "light-dark(#18181bbf, #f5f5f5bf)"
 fn prRowPrimary(): string = "light-dark(#1b4ed8, #346bf1)"
 fn prRowDestructive(): string = "light-dark(#fb2c36, #fb414a)"
+// The row action is a 20pt pill: solid primary with primary-foreground text, or destructive at 10% (16% on hover).
+fn prActionFill(destructive: bool, hovered: bool): string = destructive ? (hovered ? "light-dark(#fb2c3629, #fb414a29)" : "light-dark(#fb2c361a, #fb414a1a)") : (hovered ? "light-dark(#1b4ed8d9, #346bf1d9)" : "light-dark(#1b4ed8, #346bf1)")
 // CHECK_STATUS_PRESENTATION tones: emerald-600 / emerald-300/90, text-destructive, amber-500 for a running spinner.
-fn checkTone(status: string): string = status == "success" ? "light-dark(#009966, #5ee9b5e6)" : status == "failure" or status == "cancelled" ? "light-dark(#fb2c36, #fb414a)" : status == "pending" ? "#fe9a00" : status == "action-required" ? "light-dark(#e17100, #ffb900e6)" : "light-dark(#71717bb3, #818181b3)"
+fn checkTone(status: string): string = status == "success" ? "light-dark(#009966, #5ee9b5e6)" : status == "failure" or status == "cancelled" ? "light-dark(#fb2c36, #fb414a)" : status == "pending" ? "#fe9a00" : status == "action-required" ? "light-dark(#e17100, #ffb900e6)" : "light-dark(#71717bb3, #a1a1a1b3)"
 fn checkIcon(status: string): string = status == "success" ? "circle-check" : status == "failure" or status == "cancelled" ? "circle-x" : status == "action-required" ? "circle-dot" : status == "skipped" ? "circle-slash" : "circle-dashed"
 // CHECKS_STATE_PRESENTATION: the trigger's rollup glyph (a running set is the amber dot).
 fn rollupTone(rollup: string): string = rollup == "passing" ? "light-dark(#009966, #5ee9b5e6)" : rollup == "failing" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#e17100, #ffb900e6)"
@@ -58,7 +60,7 @@ component CheckGlyph
   view
     if status == "pending"
       box width=`${size / 16}rem` height=`${size / 16}rem` flex-shrink=0 display="flex" animation="prRowSpin 1s linear infinite" aria-label="Loading"
-        svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color="#fe9a00" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+        svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color="#fe9a00" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
           path d="M21 12a9 9 0 1 1-6.219-8.56"
     else
       PgIcon(name=checkIcon(status), size=size, color=checkTone(status))
@@ -83,7 +85,7 @@ component ChecksPopover
   view
     // PullRequestChecksPopover: PopoverPopup align="start" side="bottom", flipping near an edge.
     row id=row.extra.popId popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" testId=`details-pr-checks-layer-${row.key}`
-      column width="20rem" box-sizing="border-box" padding="1rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" role="dialog" aria-label=row.extra.checksTitle testId=`details-pr-checks-popover-${row.key}`
+      column width="20rem" box-sizing="border-box" padding="1rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" role="dialog" aria-label=row.extra.checksTitle testId=`details-pr-checks-popover-${row.key}`
         text row.extra.checksTitle font-size="0.875rem" line-height="1.25rem" font-weight=500 color=prRowInk() margin-bottom="0.5rem"
         text row.extra.checksSummary font-size="0.75rem" line-height="1rem" color=prRowMuted() margin-bottom="0.5rem"
         // ScrollArea max-h-64, -me-3 over a pe-3 list: the scroller reaches into the popup's padding, so its bar clears Details.
@@ -124,7 +126,7 @@ component PrCardView
     card: PrCard
     testId: string
   view
-    column max-width="20rem" padding-left="0.8125rem" padding-right="0.8125rem" padding-top="0.8125rem" padding-bottom="0.8125rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" pointer-events="none" role="tooltip" testId=testId
+    column max-width="20rem" padding-left="0.8125rem" padding-right="0.8125rem" padding-top="0.8125rem" padding-bottom="0.8125rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" pointer-events="none" role="tooltip" testId=testId
       row gap="0.375rem" align-items="baseline" min-width=0
         text card.title min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="0.75rem" font-weight=500 color=prRowInk()
         text card.number flex-shrink=0 font-size="0.75rem" line-height="0.75rem" color=prRowMuted()
@@ -150,14 +152,14 @@ component PrCardView
           row gap="0.25rem" align-items="baseline" min-width=0
             text card.files white-space="nowrap" font-size="0.75rem" line-height="1rem" color=prRowSoft()
             if card.additions != ""
-              text card.additions font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#009966, #00d492)"
+              text card.additions font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#007a55, #00d492)"
               text card.deletions font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=prRowDestructive()
         // PullRequestChangeBreakdownRows: the split inline (pl-5, foreground/75), with no Total.
         if card.breakdown.rows.length > 0
           box padding-left="1.25rem" display="flex"
             PrBreakdownGrid(rows=card.breakdown.rows, total=card.breakdown.total, diff="", ink=prRowSoft())
 
-// The action at the second line's end (part "meta", tone primary or destructive): Resolve and Fix (with the
+// The action at the second line's end (part "meta", tone primary or destructive, h-5): Resolve and Fix (with the
 // hand-off arrow), Ready, Merge.
 component PrActionButton
   props
@@ -169,19 +171,19 @@ component PrActionButton
   view
     // Merge asks first (the AlertDialog); the others act on the press.
     if row.action == "merge"
-      button id=`details-pr-merge-${row.actionTarget}` press=local("surface-linked-pr-merge-ask", row.actionTarget, row.extra.method) hover=hover disabled=row.actionDisabled testId=`details-pr-action-${row.key}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" gap="0.25rem" border-width=0 border-radius="0.375rem" opacity=(row.actionDisabled ? 0.64 : 1) background-color=(hovered ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 data-focus-stop=(row.actionDisabled ? "" : "enabled")
+      button id=`details-pr-merge-${row.actionTarget}` press=local("surface-linked-pr-merge-ask", row.actionTarget, row.extra.method) hover=hover disabled=row.actionDisabled testId=`details-pr-action-${row.key}` height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" gap="0.25rem" border-width=0 border-radius="0.375rem" opacity=(row.actionDisabled ? 0.64 : 1) background-color=prActionFill(row.extra.destructive, hovered) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 data-focus-stop=(row.actionDisabled ? "" : "enabled")
         PrActionLabel(row=row)
     else
-      button press=act(`shell:surface-linked-pr-${row.action}`, row.actionTarget, "") hover=hover disabled=row.actionDisabled testId=`details-pr-action-${row.key}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" gap="0.25rem" border-width=0 border-radius="0.375rem" opacity=(row.actionDisabled ? 0.64 : 1) background-color=(hovered ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+      button press=act(`shell:surface-linked-pr-${row.action}`, row.actionTarget, "") hover=hover disabled=row.actionDisabled testId=`details-pr-action-${row.key}` height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" gap="0.25rem" border-width=0 border-radius="0.375rem" opacity=(row.actionDisabled ? 0.64 : 1) background-color=prActionFill(row.extra.destructive, hovered) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
         PrActionLabel(row=row)
 
 component PrActionLabel
   props
     row: DetailsPrRow
   view
-    text row.actionLabel white-space="nowrap" font-size="0.75rem" font-weight=500 line-height="1rem" color=(row.extra.destructive ? prRowDestructive() : prRowPrimary())
+    text row.actionLabel white-space="nowrap" font-size="0.75rem" font-weight=500 line-height="1rem" color=(row.extra.destructive ? prRowDestructive() : "#ffffff")
     if row.extra.suffix
-      PgIcon(name="arrow-up-right", size=12, color=(row.extra.destructive ? prRowDestructive() : prRowPrimary()))
+      PgIcon(name="arrow-up-right", size=12, color=(row.extra.destructive ? prRowDestructive() : "#ffffff"))
 
 // The Merge AlertDialog over the window.
 component PrRowLayers
@@ -210,16 +212,16 @@ component MergeDialog
   // Base UI's AlertDialog is modal: while it shows only its own shortcuts are heard, so Cancel's Escape closes it
   // before an Escape declared under it (the right panel sheet's toggle) does.
   view
-    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="pr-merge-dialog-overlay"
-      column width="100%" max-width="32rem" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="alertdialog" aria-modal=dialogSeated.includes("pr-merge-dialog") aria-describedby="pr-merge-dialog-description" aria-label="Merge pull request?" testId="pr-merge-dialog" id="pr-merge-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("pr-merge-dialog") key=dialogFallback("pr-merge-dialog", dialogTargets)
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #000000a3)" backdrop-filter="blur(4px)" testId="pr-merge-dialog-overlay"
+      column width="100%" max-width="32rem" position="relative" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #000000cc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="alertdialog" aria-modal=dialogSeated.includes("pr-merge-dialog") aria-describedby="pr-merge-dialog-description" aria-label=merge.title testId="pr-merge-dialog" id="pr-merge-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("pr-merge-dialog") key=dialogFallback("pr-merge-dialog", dialogTargets)
         // The focus trap (dialog-trap.contract).
         FocusGuard(guardId="pr-merge-guard-start", targets=dialogTargets, popup="pr-merge-dialog")
         DialogOpenFocus(target="pr-merge-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
-          text "Merge pull request?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color=prRowInk() role="heading" aria-level=2
+          text merge.title font-size="1.25rem" font-weight=600 line-height="1.25rem" color=prRowInk() role="heading" aria-level=2
           text merge.description font-size="0.875rem" line-height="1.25rem" color=prRowMuted() testId="pr-merge-dialog-description" id="pr-merge-dialog-description"
-        row width="100%" gap="0.5rem" justify-content="flex-end" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
-          button id="pr-merge-cancel" press=local("surface-linked-pr-merge-cancel", "", "") aria-keyshortcuts="Escape" testId="pr-merge-cancel" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center" data-focus-stop="enabled"
+        row width="100%" gap="0.5rem" justify-content="flex-end" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#fafafab8, #ffffff06)"
+          button id="pr-merge-cancel" press=local("surface-linked-pr-merge-cancel", "", "") aria-keyshortcuts="Escape" testId="pr-merge-cancel" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center" data-focus-stop="enabled"
             text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=prRowInk()
           button id="pr-merge-confirm" press=act("shell:surface-linked-pr-merge", merge.target, "") disabled=merge.pending testId="pr-merge-confirm" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=prRowPrimary() background-color=prRowPrimary() box-shadow="inset 0 1px 0 #ffffff29, 0 1px 2px #0000000d" opacity=(merge.pending ? 0.64 : 1) display="flex" align-items="center" justify-content="center" data-focus-stop=(merge.pending ? "" : "enabled")
             text "Merge" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"

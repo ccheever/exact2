@@ -29,6 +29,8 @@ describe('projectClone.ts labels', () => {
   test('progress summary joins the stage, percent and detail', () => {
     expect(projectCloneProgressSummary(clone())).toBe('Receiving objects · 45% · 12.3 MiB | 5.0 MiB/s');
     expect(projectCloneProgressSummary(clone({ stage: 'connecting', percent: null, detail: null }))).toBe('Connecting');
+    // 7c3b3b3605ef (#22780): a stall replaces git's last transfer speed.
+    expect(projectCloneProgressSummary(clone({ stalled: true }))).toBe('Receiving objects · 45% · Stalled');
     expect(['counting', 'resolving', 'checkout'].map(stage => projectCloneProgressSummary(clone({ stage, percent: null, detail: null })))).toEqual(['Counting objects', 'Resolving deltas', 'Checking out files']);
   });
 });
@@ -67,6 +69,16 @@ describe('ProjectCloneToastCoordinator', () => {
     expect(log).toEqual(['add clone:env:p1 loading Cloning pr-demo', 'update 1 loading Cloning pr-demo', 'update 1 success Cloned pr-demo']);
     expect(live.has(1)).toBe(true);
     expect(tracked.size).toBe(0);
+  });
+  // ProjectCloneToastCoordinator's render key includes `stalled` (8fe4206dec): git going quiet with the same detail redraws
+  // the toast as "Stalled", and output resuming redraws it again.
+  test('a clone that stalls or resumes with the same detail redraws its toast', () => {
+    const { port, log, live } = fakePort(), tracked = new Map<string, TrackedToast>();
+    syncCloneToasts(tracked, [clone()], 'env', '', port);
+    syncCloneToasts(tracked, [clone({ stalled: true })], 'env', '', port);
+    expect(live.get(1)?.description).toBe('Receiving objects · 45% · Stalled');
+    syncCloneToasts(tracked, [clone({ stalled: false })], 'env', '', port);
+    expect([log.length, live.get(1)?.description]).toEqual([3, 'Receiving objects · 45% · 12.3 MiB | 5.0 MiB/s']);
   });
   test('a running or failed clone that leaves the list closes its toast', () => {
     const { port, log } = fakePort(), tracked = new Map<string, TrackedToast>();

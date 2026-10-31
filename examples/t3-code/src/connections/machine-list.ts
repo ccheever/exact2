@@ -1,4 +1,4 @@
-// Load balancing and GitHub sharing's machine list (ConnectionsSettings.tsx
+// Load balancing and Pull request sharing's machine list (ConnectionsSettings.tsx
 // loadBalancingEnvironments at 74541bab17): the primary environment leads and is
 // always counted, then every switched-on saved environment; the sections show
 // once that list holds two machines. The primary is the embedded server ("This

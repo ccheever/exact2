@@ -2,28 +2,30 @@ import { sourceControlHostName } from '../shared/source-control-hosts';
 import { sharedPullRequestSummary } from './pages-pr-shared';
 // The Pull Requests page: pullRequests.list / listStats /
 // detail / activity, grouped, sorted and presented as the reference page does.
-// Sources: T3 Code 9c161462c9 (MIT, see LICENSE-T3) apps/web/src/routes/_chat.pull-requests.tsx
+// Sources: T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3) apps/web/src/routes/_chat.pull-requests.tsx
 // and components/pullRequest/{pullRequestList.logic,pullRequestListPreferences,
 // PullRequestListFilters,PullRequestListRow,pullRequestPresentation,
 // pullRequestIcons,PullRequestDetailPanel,PullRequestListEmptyState}.tsx.
 import { diffSchemeOf } from '../timeline/message-chips';
 import { arr, num, obj, str, type Obj } from '../client/domain';
-import { ClientError, type Native } from '../client/protocol';
+import { ClientError, type Files, type Native } from '../client/protocol';
 import { pagesPrefs } from '../pages/pages-prefs';
 import { projectIdentity } from '../client/presentation';
 import type { T3Client } from '../client/client';
 import { letGo } from '../client/let-go';
-import { holdPullRequestRefreshes, interactionResumes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, viewRefreshedAt } from './pages-pr-refresh';
+import { holdPullRequestRefreshes, interactionResumes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, rememberListAnswer, viewRefreshedAt } from './pages-pr-refresh';
 import { listRelist, overrideListEntries, settleListOverrides } from './pages-pr-actions'; // the panel's onActed
 import { emptyChecksPopover, emptyStackPopover, quickPopovers, quickRow, flushQuickInvalidations } from './pages-pr-quick';
 import { pullRequestEntryKey, pullRequestEntryViewer } from './pages-pr-routing'; // several servers' rows
-import { environmentQueries, filterKeyOf, foldAnswers, largestPullRequestReadCount, listTargets, loadMore, noteAnswer, noteShowing, orderAnswer, pagingFooter, refreshPaging, statsBatches, type ListTarget } from './pages-pr-paging';
+import { environmentQueries, filterKeyOf, foldAnswers, largestPullRequestReadCount, listTargets, loadMore, noteAnswer, noteShowing, orderAnswer, pagingFooter, refreshPaging, restoredPullRequestList, statsBatches, type ListTarget } from './pages-pr-paging';
 import { openOnHostLabel } from '../shared/context-menus'; // the number's menu label
 import { isScratchProject, scratchRoot } from '../pages/pages-home';
 import { projectScopes } from '../sidebar/sidebar-view'; // the project filter's order
 import { prEnvironments, readsPullRequests, type PrEnvironment } from './pages-pr-environments'; // the Server filter
 import { pullRequestHost } from '../palette/palette-linkpr';
 import { emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns, releaseChangeBreakdowns } from './pr-change-breakdown';
+import { shownDiffStat } from './pages-pr-detail';
+import { filterOptionTargets, hostedFilterOptions, pullRequestAuthorChoices, pullRequestLabelChoices, selectedPullRequestAuthor, type AuthorFacet, type LabelFacet } from './pages-pr-filter-options'; // Author and Labels search the host
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -226,7 +228,7 @@ function mix(label: string, base: string, share: number): string {
 }
 /** PullRequestLabelChip: a wash of the label's color with its name in a mix of it and the foreground. */
 export function labelChip(name: string, color: string) {
-  if (!color) return { key: name.toLowerCase(), name, background: 'light-dark(#f4f4f5, #ffffff0f)', ink: 'light-dark(#27272a, #f5f5f5)' };
+  if (!color) return { key: name.toLowerCase(), name, background: 'light-dark(#f4f4f5, #ffffff0f)', ink: 'light-dark(#18181b, #f5f5f5)' };
   return { key: name.toLowerCase(), name, background: `light-dark(${color}14, ${color}1f)`, ink: `light-dark(${mix(color, '#262626', 0.3)}, ${mix(color, '#f5f5f5', 0.45)})` };
 }
 
@@ -256,7 +258,8 @@ type ListCache = { key: string; scope: string; refresh: number; epoch: number; r
 const lists = new WeakMap<object, ListCache>();
 /** The Refresh press whose invalidate was sent, per client. */
 const invalidated = new WeakMap<object, number>();
-export type PrInput = { open: boolean; refresh: number; now: number; selected: string; query: string; typed: boolean };
+/** `optionKind`, `optionQuery`: the Filters submenu that searches the host ("authors", "labels" or none) and its search as sent. */
+export type PrInput = { open: boolean; refresh: number; now: number; selected: string; query: string; typed: boolean; optionKind?: string; optionQuery?: string };
 
 export function listPayload(prefs: PrPrefs, query: string): Obj {
   const parsed = parsePrQuery(query);
@@ -315,7 +318,8 @@ const failure = (error: unknown) => (error instanceof Error ? error.message : 'P
  * scroll with it, rather than blanking to an error; a server that fails beside others that answer leaves their rows
  * and the error ("… Showing the last pull requests loaded.").
  */
-async function readList(client: T3Client, native: Native, input: PrInput, round: { key: string; targets: ListTarget[]; cursors: boolean }, key: string, previous: ListCache | undefined, live: ListLive): Promise<ListCache> {
+async function readList(client: T3Client, native: Native, input: PrInput, round: { key: string; targets: ListTarget[]; cursors: boolean }, key: string, previous: ListCache | undefined, live: ListLive,
+  storage: Files | undefined): Promise<ListCache> {
   const order = ++listReads, scope = round.key;
   const cached: ListCache = { key, scope, refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), relist: listRelist(client), result: null, error: '', stats: previous?.stats ?? new Map<string, Obj>() };
   try {
@@ -328,8 +332,13 @@ async function readList(client: T3Client, native: Native, input: PrInput, round:
     }
     const answers: [string, Obj][] = [];
     for (const target of round.targets) {
-      try { answers.push([target.environmentId, await client.rpc(native, 'pullRequests.list', target.environmentId === client.environmentId ? target.input : { ...target.input, environmentId: target.environmentId })]); }
-      catch (error) { if (letGo(error)) throw error; cached.error ||= failure(error); }
+      try {
+        const answer = await client.rpc(native, 'pullRequests.list', target.environmentId === client.environmentId ? target.input : { ...target.input, environmentId: target.environmentId });
+        answers.push([target.environmentId, answer]);
+        // Each server's first-page answer is kept for the next start and written as it lands (rememberPullRequestListAnswer),
+        // as the detail panel writes its snapshot, so a read let go after it still leaves it on disk.
+        if (rememberListAnswer(client, target, answer) && storage) await client.savePreferences(storage);
+      } catch (error) { if (letGo(error)) throw error; cached.error ||= failure(error); }
     }
     const merged = foldAnswers(client, answers);
     if (!merged) throw new Error(cached.error || 'Pull requests could not be read.');
@@ -388,7 +397,7 @@ export function sortProjectsByGroupOrder<P extends Obj>(projects: readonly P[], 
  * and brought it back at its top on every refocus.
  */
 const lastDrawn = new WeakMap<object, { environmentId: string; view: PrListView }>();
-export async function pullRequestsPage(client: T3Client, native: Native | null | undefined, input: PrInput & { visible?: boolean; returns?: number }) {
+export async function pullRequestsPage(client: T3Client, native: Native | null | undefined, input: PrInput & { visible?: boolean; returns?: number }, storage?: Files) {
   const prefs = prPrefs(client);
   const query = input.typed ? input.query : prefs.q;
   // usePullRequestScope: the servers that read pull requests, by id; a saved server none of them is scopes nothing.
@@ -437,7 +446,13 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   const round = listTargets(client, question, queries);
   const key = JSON.stringify([round.targets, input.refresh]);
   noteShowing(client, false);
-  if (!cached || cached.key !== key || cached.epoch !== pullRequestRefreshEpoch(client) || cached.relist !== listRelist(client) || live.due) {
+  // A start with nothing read yet shows the answers kept for this question first (restoredPullRequestList), then reads.
+  const restored = cached ? null : restoredPullRequestList(client, round.targets);
+  if (restored) {
+    cached = { key: '', scope: round.key, refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), relist: listRelist(client), result: restored as unknown as Obj, error: '', stats: new Map() };
+    lists.set(client, cached);
+    try { await native.later({ op: 'wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; }
+  } else if (!cached || cached.key !== key || cached.epoch !== pullRequestRefreshEpoch(client) || cached.relist !== listRelist(client) || live.due) {
     // A longer page or the next slice of rows already shown: the footer's spinner first, then the read (the wake asks again).
     if (cached?.result?.truncated === true && cached.scope === round.key && cached.key !== key && growingShown.get(client) !== key) {
       growingShown.set(client, key);
@@ -457,13 +472,20 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
     const out = inflight.get(client);
     if (out && out.key === key && out.relist === listRelist(client) && out.native === native) cached = await out.read;
     else {
-      const read = readList(client, native, input, round, key, cached, live);
+      const read = readList(client, native, input, round, key, cached, live, storage);
       inflight.set(client, { key, relist: listRelist(client), read, native });
       try { cached = await read; } finally { if (inflight.get(client)?.read === read) inflight.delete(client); }
     }
   }
-  // The reader's pending answers (a closed pull request leaves an open list on the click), before the filters.
-  const answered = cached.result ? { ...cached.result, entries: overrideListEntries(client, arr(cached.result.entries).map(entry => ({ ...entry, ...sharedPullRequestSummary(client, entry, entry, str(entry.environmentId) || client.environmentId) })), prefs.state) } : null;
+  // withDiffStat over the panel's summary: a row the list could not measure takes the +/- of the pull request open beside it.
+  const panelStat = input.selected ? shownDiffStat(client, input.selected) : null;
+  const panelRow = panelStat ? arr(cached.result?.entries).find(entry => rowRef(entry) === input.selected && !measured(entry)) : undefined;
+  if (panelStat && panelRow) cached.stats.set(entryKey(panelRow), { ...panelStat });
+  // The reader's pending answers (a closed pull request leaves an open list on the click), before the filters. A row keeps
+  // the checks its own list read reported (PullRequestRow draws the list's entry); the newest checks read is the panel's,
+  // the tab's and the sidebar badge's.
+  const answered = cached.result ? { ...cached.result, entries: overrideListEntries(client, arr(cached.result.entries).map(entry => ({ ...entry,
+    ...sharedPullRequestSummary(client, entry, entry, str(entry.environmentId) || client.environmentId), checksState: entry.checksState })), prefs.state) } : null;
   const presented = presentList(view, answered, answered ? '' : cached.error, cached.stats, prefs, query, input.now, input.selected);
   // The list footer (Load more, Loading more, Narrow your search) and a failed read over shown rows.
   Object.assign(presented, pagingFooter(client, round.key, cached.result?.truncated === true, arr(answered?.entries).length, false, false));
@@ -482,6 +504,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   native.watch?.('t3.pr');
   await flushQuickInvalidations(client, native);
   Object.assign(presented, await quickPopovers(client, native, arr(answered?.entries), input.now).then(({ checks, stack }) => ({ checksPopover: checks, stackPopover: stack })));
+  presented.options = await filterOptions(client, native, input, prefs, arr(answered?.entries));
   lastDrawn.set(client, { environmentId: client.environmentId, view: presented });
   return presented;
 }
@@ -508,8 +531,9 @@ export function emptyList(prefs: PrPrefs, query: string) {
     // The Server filter (serverMenuOptions): All servers, then each server that reads pull requests; shown with two or more.
     server: prefs.environmentId, serverLabel: 'All servers', serverIcon: 'layers', servers: [] as { value: string; label: string; icon: string; selected: boolean }[],
     projects: [] as { id: string; name: string; mark: string; ink: string; surface: string; selected: boolean; unavailable: string }[],
-    authors: [] as { key: string; login: string; name: string; avatar: string; initial: string; detail: string; selected: boolean }[],
-    labelFacets: [] as { key: string; name: string; color: string; count: number; selected: boolean }[],
+    // The Author and Labels pickers: the loaded authors and labels, the chosen ones as choices (an author no row carries,
+    // a label beside them), and the host's answer to the open picker's search (pages-pr-filter-options.ts).
+    authors: [] as AuthorRow[], authorChosen: [] as AuthorRow[], labelFacets: [] as LabelRow[], labelChosen: [] as LabelRow[], options: emptyFilterOptions(),
     groups: [] as { key: string; label: string; count: number; rows: PrRow[] }[], truncated: false, errors: [] as { key: string; text: string }[], total: 0,
     authorLabel: prefs.author || 'Anyone', labelsLabel: labels.length ? `${labels.length} selected` : 'Any',
     stateIcon: STATE_ICONS[prefs.state] ?? 'layers', involvementIcon: INVOLVEMENT_ICONS[prefs.involvement] ?? 'layers',
@@ -522,6 +546,55 @@ export function emptyList(prefs: PrPrefs, query: string) {
   };
 }
 export type PrListView = ReturnType<typeof emptyList>;
+type AuthorRow = { key: string; login: string; name: string; avatar: string; initial: string; detail: string; selected: boolean };
+type LabelRow = { key: string; name: string; color: string; count: number; selected: boolean };
+/** The open picker's choices as the host answered its search: `kind` and `query` name what they answer. */
+const emptyFilterOptions = () => ({ kind: '', query: '', busy: false, failed: false, authors: [] as AuthorRow[], labels: [] as LabelRow[] });
+/** A choice in the Author picker: avatar, login and the merges loaded, shown only above 0. */
+const authorRow = (facet: AuthorFacet, chosen: string): AuthorRow => {
+  const person = actor(facet.actor);
+  return { key: person.login.toLowerCase(), login: person.login, name: person.name, avatar: person.avatar, initial: person.initial,
+    detail: facet.mergedCount > 0 ? `${facet.mergedCount} merges loaded` : '', selected: lower(chosen) === person.login.toLowerCase() };
+};
+const labelRow = (facet: LabelFacet, chosen: ReadonlySet<string>): LabelRow => ({ key: facet.name.toLowerCase(), name: facet.name, color: facet.color, count: facet.count, selected: chosen.has(facet.name.toLowerCase()) });
+/** collectPullRequestListFacets: authors by merges then count (only those with a row in the state); labels by count. */
+function listFacets(entries: readonly Obj[], prefs: PrPrefs): { authors: AuthorFacet[]; labels: LabelFacet[] } {
+  const authors = new Map<string, AuthorFacet>(), labels = new Map<string, LabelFacet>();
+  for (const entry of entries) {
+    const inState = prefs.state === 'all' || entry.state === prefs.state, login = lower(obj(entry.author).login);
+    if (login) { const held = authors.get(login); authors.set(login, { actor: held?.actor ?? obj(entry.author), count: (held?.count ?? 0) + Number(inState), mergedCount: (held?.mergedCount ?? 0) + Number(entry.state === 'merged') }); }
+    if (!inState) continue;
+    for (const label of arr(entry.labels)) { const name = lower(label.name); if (!name) continue; const held = labels.get(name); labels.set(name, { name: held?.name ?? str(label.name), color: held?.color ?? labelColor(label.color), count: (held?.count ?? 0) + 1 }); }
+  }
+  return {
+    authors: [...authors.values()].filter(author => author.count > 0).sort((a, b) => b.mergedCount - a.mergedCount || b.count - a.count || str(a.actor.login).localeCompare(str(b.actor.login))),
+    labels: [...labels.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+  };
+}
+/**
+ * The open picker's choices once the host answered its search (PullRequestAuthorChoices, PullRequestLabelChoices): the
+ * chosen author first, then the loaded matches and the host's, 30 in all; the chosen labels the choices do not hold,
+ * then the choices. The pickers draw the loaded matches alone while their search runs ahead of what was sent.
+ */
+async function filterOptions(client: T3Client, native: Native, input: PrInput, prefs: PrPrefs, entries: readonly Obj[]): Promise<PrListView['options']> {
+  const kind = input.optionKind === 'authors' || input.optionKind === 'labels' ? input.optionKind : '';
+  if (!kind) return emptyFilterOptions();
+  const query = (input.optionQuery ?? '').trim().slice(0, 100);
+  const targets = filterOptionTargets(environmentQueries(client, prefs.projectId, prefs.environmentId), prefs, kind, query);
+  const hosted = await hostedFilterOptions(client, native, kind, query, targets, input.now), facets = listFacets(entries, prefs);
+  const view = { ...emptyFilterOptions(), kind, query, busy: hosted.busy, failed: hosted.failed };
+  if (kind === 'authors') {
+    const login = prefs.author.toLowerCase(), selected = selectedPullRequestAuthor(facets.authors, hosted.authors, prefs.author || undefined);
+    const choices = pullRequestAuthorChoices(facets.authors, hosted.authors, query).filter(choice => str(choice.actor.login).toLowerCase() !== login);
+    view.authors = [...(selected ? [selected] : []), ...choices].slice(0, 30).map(facet => authorRow(facet, prefs.author));
+    return view;
+  }
+  const chosen = new Set(prefs.labels.map(label => label.toLowerCase()));
+  const choices = pullRequestLabelChoices(facets.labels, hosted.labels.map(label => ({ name: str(label.name), color: labelColor(label.color) })), query);
+  view.labels = [...prefs.labels.filter(name => !choices.some(choice => choice.name.toLowerCase() === name.toLowerCase())).map(name => ({ name, color: '', count: 0 })), ...choices]
+    .map(facet => labelRow(facet, chosen));
+  return view;
+}
 
 export function presentList(view: PrListView, result: Obj | null, error: string, stats: Map<string, Obj>, prefs: PrPrefs, query: string, now: number, selected: string): PrListView {
   if (!result) {
@@ -548,21 +621,14 @@ export function presentList(view: PrListView, result: Obj | null, error: string,
   const providers = arr(result.providers);
   if (providers.length) view.hosts = hostOptions(providers, providers.map(provider => ({ host: str(provider.host), kind: str(provider.kind) })), prefs.host);
   view.hostLabel = view.hosts.find(host => host.selected)?.label ?? 'All';
-  // collectPullRequestListFacets: authors by merges then count; labels by count.
-  const authors = new Map<string, { actor: Obj; count: number; merged: number }>(), labels = new Map<string, { name: string; color: string; count: number }>();
-  for (const entry of arr(result.entries)) {
-    const inState = prefs.state === 'all' || entry.state === prefs.state, login = lower(obj(entry.author).login);
-    if (login) { const held = authors.get(login); authors.set(login, { actor: held?.actor ?? obj(entry.author), count: (held?.count ?? 0) + Number(inState), merged: (held?.merged ?? 0) + Number(entry.state === 'merged') }); }
-    if (!inState) continue;
-    for (const label of arr(entry.labels)) { const name = lower(label.name); if (!name) continue; const held = labels.get(name); labels.set(name, { name: held?.name ?? str(label.name), color: held?.color ?? labelColor(label.color), count: (held?.count ?? 0) + 1 }); }
-  }
-  // Every author with a row in the state: the Author submenu shows the chosen one and ten that match its search
-  // (PullRequestAuthorFilter, pages-prs.contract prVisibleAuthors).
-  view.authors = [...authors.values()].filter(author => author.count > 0).sort((a, b) => b.merged - a.merged || b.count - a.count || str(a.actor.login).localeCompare(str(b.actor.login)))
-    .map(author => { const person = actor(author.actor); return { key: person.login.toLowerCase(), login: person.login, name: person.name, avatar: person.avatar, initial: person.initial, detail: `${author.merged} merges loaded`, selected: lower(prefs.author) === person.login.toLowerCase() }; });
-  const chosen = new Set(prefs.labels.map(label => label.toLowerCase()));
-  view.labelFacets = [...prefs.labels.filter(label => !labels.has(label.toLowerCase())).map(name => ({ name, color: '', count: 0 })), ...[...labels.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))]
-    .map(label => ({ key: label.name.toLowerCase(), name: label.name, color: label.color, count: label.count, selected: chosen.has(label.name.toLowerCase()) }));
+  // Every author with a row in the state and every label; the chosen author stays a choice when no loaded row carries it,
+  // as does each chosen label (pages-prs.contract prVisibleAuthors, prVisibleLabels).
+  const facets = listFacets(arr(result.entries), prefs), chosen = new Set(prefs.labels.map(label => label.toLowerCase()));
+  view.authors = facets.authors.map(facet => authorRow(facet, prefs.author));
+  const selectedAuthor = selectedPullRequestAuthor(facets.authors, [], prefs.author || undefined);
+  view.authorChosen = selectedAuthor ? [authorRow(selectedAuthor, prefs.author)] : [];
+  view.labelFacets = facets.labels.map(facet => labelRow(facet, chosen));
+  view.labelChosen = prefs.labels.map(name => labelRow({ name, color: '', count: 0 }, chosen));
   if (view.total === 0) {
     const filtered = prefs.state !== 'open' || prefs.involvement !== 'all' || !!prefs.projectId || !!prefs.host;
     const shown = query.length > 48 ? `${query.slice(0, 48)}…` : query;

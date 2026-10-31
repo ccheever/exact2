@@ -14,6 +14,7 @@ import { automationTick, toggleFrameMute, useAutomationCalls, type AutomationCal
 import { serveRecordingRequests } from '../../src/browser/browser-automation-recording';
 import { annotateState } from '../../src/browser/browser-annotate';
 import { adoptAppFiles } from '../../src/media/save-file';
+import { useClipboardCalls } from '../../src/media/media-copy-image';
 import { acceptComposerEdit, observeComposer } from '../support/composer-field-fixture';
 import { browserMiniSessions, browserHost, browserView } from '../../src/browser/browser-surface';
 import { previewRuntimeTabId } from '../../src/browser/browser-state';
@@ -71,7 +72,9 @@ function fakePage(next: () => unknown | Promise<unknown>, fail: Partial<Record<'
     async setDownloadBehavior(options) { calls.push({ call: 'setDownloadBehavior', ...options }); return {}; },
   };
   useAutomationCalls(fake);
-  adoptAppFiles({ fs: { readFile: async () => new ArrayBuffer(812), writeFile: async () => {}, mkdir: async () => {} } });
+  adoptAppFiles({ fs: { readFile: async () => new ArrayBuffer(812), writeFile: async () => {}, mkdir: async () => {},
+    rm: async (path: string) => { calls.push({ call: 'rm', path }); },
+    transformImage: async (from: string, to: string, options: Obj) => { calls.push({ call: 'transformImage', from, to, ...options }); return { path: to, width: 120, height: 80 }; } } });
   return calls;
 }
 /** Annotate on the tab, then the window's queued send its pick waits in (browser-annotate.ts). */
@@ -91,7 +94,7 @@ function fakeModule(handlers: Record<string, (request: Call) => Obj | Promise<Ob
     const call = request as Call;
     calls.push(call);
     const key = call.action ? `${call.op}:${call.action}` : call.op;
-    const handler = handlers[key] ?? handlers[call.op] ?? (call.op === 'timelineSleep' ? timelineSleep : undefined);
+    const handler = handlers[key] ?? handlers[call.op];
     if (!handler) return { ok: true, generation: 0, value: {} };
     try { return { ok: true, generation: 0, value: await handler(call) }; }
     catch (error) { return { ok: false, generation: 0, error: { kind: (error as { kind?: string }).kind ?? 'Fake', message: (error as Error).message } }; }
@@ -118,8 +121,6 @@ const annotation = {
   id: 'annotation_1', pageUrl: 'https://example.com/', pageTitle: 'Example', comment: 'Tighten this spacing', elements: [], regions: [{ id: 'region_1', rect: { x: 1, y: 2, width: 30, height: 40 } }],
   strokes: [], styleChanges: [], screenshot: null, createdAt: '2026-07-27T00:00:00.000Z',
 };
-/** The module's sleep, scaled down: a timeout still loses to an answer that comes at once. */
-const timelineSleep = (request: Call) => new Promise<Obj>(resolve => setTimeout(() => resolve({}), Math.min(Number(request.ms) || 0, 40)));
 const crop = { id: '0f8c1b52-9a4c-4d2e-8a0b-3c2d1e0f9a8b', name: 'preview-annotation-annotation_1.png', sizeBytes: 812, width: 120, height: 80, cropRect: { x: 0, y: 0, width: 60, height: 40 } };
 
 describe('PreviewChromeRow: Annotate, Capture and Float preview', () => {
@@ -133,7 +134,7 @@ describe('PreviewChromeRow: Annotate, Capture and Float preview', () => {
     useAutomationCalls(null);
     expect(browserCaptureView(client, ref, 'tab-1', runtimeId, true, false)).toMatchObject({ pickActive: true, pickTip: 'Cancel annotation (Esc)', separateWindow: true });
     // pickDisabled: a failed load covers the page; captureDisabled and floatDisabled: no web contents, or a failed load.
-    expect(browserCaptureView(client, ref, 'tab-1', runtimeId, true, true)).toMatchObject({ pickDisabled: true, pickTip: 'Page didn’t load — pick unavailable until the page renders', captureDisabled: true, floatDisabled: true });
+    expect(browserCaptureView(client, ref, 'tab-1', runtimeId, true, true)).toMatchObject({ pickDisabled: true, pickTip: 'Page didn\'t load. Pick is unavailable until the page renders', captureDisabled: true, floatDisabled: true });
     expect(browserCaptureView(client, ref, 'tab-1', runtimeId, false, false)).toMatchObject({ captureDisabled: true, floatDisabled: true, pickDisabled: false });
     expect(browserCaptureView(client, ref, '', runtimeId, true, false).pickDisabled).toBe(true);
   });
@@ -307,8 +308,9 @@ describe('⌘↩ in Annotate\'s editor (PickPreload: the page has the key)', () 
 describe('handleCapture', () => {
   it('saves a screenshot and offers Copy path, Reveal in Finder and Copy image; a copy reads "Copied!" for 2 s', async () => {
     const client = fakeClient();
-    const path = '/lane/t3-home/userdata/browser-artifacts/browser-screenshot-example-com-abc.png';
-    const module = fakeModule({ 'browserArtifact:adopt': () => ({ id: 'browser-screenshot-example-com-abc', path, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }) });
+    const path = '/lane/t3-home/userdata/browser-artifacts/browser-screenshot-example-com-abc.png', staged = 'app:/tmp/copy-image/artifact-1.png';
+    const module = fakeModule({ 'browserArtifact:adopt': () => ({ id: 'browser-screenshot-example-com-abc', path, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }),
+      'browserArtifact:stage': () => ({ path: staged }) });
     const calls = fakePage(() => null);
     await captureLocal(client, module.native, browserPanel(), 'capture', target, '');
     useAutomationCalls(null);
@@ -323,8 +325,17 @@ describe('handleCapture', () => {
     expect(toast?.extra).toEqual({ label: 'Copy path', op: 'shelllocal:surface-browser-artifact-copy-path', id: path, value: String(toast?.id) });
     expect(toast?.secondary).toEqual({ label: 'Reveal in Finder', op: 'shelllocal:surface-browser-artifact-reveal', id: path, value: String(toast?.id) });
     shellState(client).now = 10_000;
+    // copyArtifactToClipboard: the artifact by its path, which the module copies into the app's files (`stage`), as a PNG
+    // through @exact/clipboard; the copy and its PNG are removed once written.
+    const written: Obj[][] = [];
+    useClipboardCalls({ write: async items => { written.push(items as Obj[]); }, ClipboardItem: class { constructor(items: Obj) { Object.assign(this, items); } } });
     await artifactLocal(client, module.native, 'copy-image', path, String(toast?.id));
-    expect(module.calls.at(-1)).toMatchObject({ op: 'browserArtifact', action: 'copy-image', path });
+    useClipboardCalls(null);
+    expect(module.calls.filter(call => call.op === 'browserArtifact').map(call => [call.action, call.path])).toEqual([['adopt', shot.path], ['stage', path]]);
+    const drawn = calls.find(call => call.call === 'transformImage')!;
+    expect(drawn).toMatchObject({ from: staged, type: 'image/png' });
+    expect(written).toEqual([[{ 'image/png': drawn.to }]]);
+    expect(calls.filter(call => call.call === 'rm').map(call => call.path)).toEqual(expect.arrayContaining([staged, drawn.to]));
     let [view] = toastViews(toasts(client), copiedToasts(client, 10_000), copiedActions(client));
     expect([view?.actionLabel, view?.actionDone, view?.extraLabel, view?.extraDone, view?.secondaryLabel]).toEqual(['Copied!', true, 'Copy path', false, 'Reveal in Finder']);
     shellState(client).now = 12_000;
@@ -357,7 +368,7 @@ describe('handleCapture', () => {
   it('a failed Reveal says nothing; a recording\'s failed Copy path keeps only Reveal, a screenshot\'s keeps its buttons', async () => {
     const client = fakeClient(), dir = '/lane/t3-home/userdata/browser-artifacts';
     fakePage(() => null);
-    const saved = fakeModule({ timelineSleep, 'browserArtifact:adopt': () => ({ id: 'browser-screenshot-a', path: `${dir}/browser-screenshot-a.png`, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }),
+    const saved = fakeModule({ 'browserArtifact:adopt': () => ({ id: 'browser-screenshot-a', path: `${dir}/browser-screenshot-a.png`, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }),
       'browserRecord:capture': () => ({ width: 800, height: 600, frameRate: 30 }), 'browserRecord:begin': () => ({ mimeType: 'video/mp4;codecs=avc1' }),
       'browserRecord:finish': () => ({ path: '/var/folders/x/T/r.mp4', mimeType: 'video/mp4;codecs=avc1', sizeBytes: 9 }),
       'browserRecord:save': request => ({ id: 'browser-recording-b', tabId: request.tab, path: `${dir}/browser-recording-b.mp4`, mimeType: request.mimeType, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }) });
@@ -380,6 +391,9 @@ describe('handleCapture', () => {
     const shotFailed = toasts(client).find(toast => toast.id === shot?.id);
     expect(shotFailed).toMatchObject({ kind: 'error', title: 'Unable to copy screenshot path' });
     expect([shotFailed?.action?.label, shotFailed?.extra?.label, shotFailed?.secondary?.label]).toEqual(['Copy image', 'Copy path', 'Reveal in Finder']);
+    // An artifact the module cannot read (the reference: its image would not load).
+    await artifactLocal(client, failing.native, 'copy-image', `${dir}/browser-screenshot-elsewhere.png`, '');
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Unable to copy screenshot', description: 'Clipboard is busy.' });
   });
 
   it('records on a Shift-click and stops on the next press, saving the recording with Reveal in Finder and Copy path', async () => {
@@ -387,7 +401,7 @@ describe('handleCapture', () => {
     (client.local.clientSettings as Obj).browserRecordingFrameRate = 60;
     const encoded = '/var/folders/x/T/t3-recording-1.mp4';
     const module = fakeModule({
-      timelineSleep, 'browserRecord:arm': () => ({ armed: true }), 'browserRecord:capture': request => ({ width: 1280, height: 800, frameRate: request.frameRate }),
+      'browserRecord:arm': () => ({ armed: true }), 'browserRecord:capture': request => ({ width: 1280, height: 800, frameRate: request.frameRate }),
       'browserRecord:begin': () => ({ mimeType: 'video/mp4;codecs=avc1' }), 'browserRecord:disarm': () => ({ armed: false }),
       'browserRecord:finish': () => ({ path: encoded, mimeType: 'video/mp4;codecs=avc1', sizeBytes: 4096, frames: 90 }), 'browserRecord:release': () => ({}),
       'browserRecord:save': request => ({ id: 'browser-recording-x', tabId: request.tab, path: '/lane/t3-home/userdata/browser-artifacts/browser-recording-x.mp4', mimeType: request.mimeType, sizeBytes: 4096, createdAt: '2026-10-09T00:00:00.000Z' }),
@@ -407,13 +421,13 @@ describe('handleCapture', () => {
 
   it('reports a recording that cannot start, and turns decorations on only when a setting asks', async () => {
     const client = fakeClient();
-    const module = fakeModule({ timelineSleep, 'browserRecord:arm': () => { throw new Error('The page could not be captured.'); } });
+    const module = fakeModule({ 'browserRecord:arm': () => { throw new Error('The page could not be captured.'); } });
     await captureLocal(client, module.native, browserPanel(), 'capture', target, 'record');
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Unable to start recording',
       description: 'Preview capture failed during recording-start. Check the preview host and target tab before retrying.' });
     const decorated = fakeClient();
     Object.assign(decorated.local.clientSettings as Obj, { browserRecordingShowKeyPresses: true });
-    const ok = fakeModule({ timelineSleep, 'browserRecord:capture': () => ({ width: 800, height: 600, frameRate: 30 }), 'browserRecord:decorate': () => ({ active: true }), 'browserRecord:begin': () => ({ mimeType: 'video/mp4;codecs=avc1' }) });
+    const ok = fakeModule({ 'browserRecord:capture': () => ({ width: 800, height: 600, frameRate: 30 }), 'browserRecord:decorate': () => ({ active: true }), 'browserRecord:begin': () => ({ mimeType: 'video/mp4;codecs=avc1' }) });
     await captureLocal(decorated, ok.native, browserPanel(), 'capture', target, 'record');
     expect(ok.calls.find(call => call.action === 'decorate')).toMatchObject({ showKeyPresses: true, showMousePresses: false, primaryColor: '#1b4ed8' });
     expect(ok.calls.find(call => call.action === 'arm')).toMatchObject({ showKeyPresses: true, showMousePresses: false });

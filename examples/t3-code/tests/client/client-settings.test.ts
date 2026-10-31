@@ -3,9 +3,10 @@ import { scheduledSettings, taskDraft, taskFromArguments, validateTaskInput } fr
 import { scopedSettingPatch, scopedControls, scopedSearchControls } from '../../src/settings/scoped-settings';
 import { beforeAll, describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
+import { liveEvent, SCHEDULED_TASKS_KEY } from '../../src/client/live-streams';
 import { snapshot } from '../../src/client/presentation';
 import { obj, arr, str, type Obj } from '../../src/client/domain';
-import { archivedSettings, decodeNotices, licenseSettings, diagnosticsSettings, storageSettings } from '../../src/settings/settings-data';
+import { archivedSettings, decodeNotices, licenseSettings, storageSettings } from '../../src/settings/settings-data';
 import { timestamp, thread, storage, connected, opened } from '../support/client-fixture';
 
 // The sidebar asks each project's favicon once per process (sidebar-glyph.ts syncFavicons), and the
@@ -141,14 +142,13 @@ test('repository_path and physical overrides persist; guarded member removal ret
 test('device settings persist locally, affect projection, and do not write an unavailable server scope', async () => {
   const { client, native, command, disk } = await connected();
   const before = JSON.stringify(native.config.settings);
-  await command('device-setting', 'composerCollapseOnScroll', 'false');
   await command('device-setting', 'planModeEnabled', 'true');
   await command('device-setting', 'timestampFormat', '24-hour');
-  expect(snapshot(client)).toMatchObject({ composerCollapseOnScroll: false, planModeEnabled: true });
+  expect(snapshot(client)).toMatchObject({ planModeEnabled: true });
   expect(JSON.stringify(native.config.settings)).toBe(before);
   expect(native.calls.filter(call => call.method === 'server.updateSettings')).toHaveLength(0);
   const restored = new T3Client(); await restored.refresh(native, disk.files);
-  expect(restored.local.deviceSettings).toEqual({ composerCollapseOnScroll: false, planModeEnabled: true, timestampFormat: '24-hour', appearanceMode: 'system', sendShortcut: 'enter', snapShotShortcut: 'shift+shift', snapShotEnabled: false, snapShotIncludeAccessibility: true, snapShotPlaySound: true, snapShotSound: 'soft-pop', snapShotFlash: true, snapShotAnimations: true });
+  expect(restored.local.deviceSettings).toEqual({ planModeEnabled: true, timestampFormat: '24-hour', appearanceMode: 'system', sendShortcut: 'enter', snapShotShortcut: 'shift+shift', snapShotEnabled: false, snapShotIncludeAccessibility: true, snapShotPlaySound: true, snapShotSound: 'soft-pop', snapShotFlash: true, snapShotAnimations: true });
   expect((await command('device-setting', 'timestampFormat', 'invalid')).message).toBe('Unsupported device setting.');
   expect(client.local.deviceSettings.timestampFormat).toBe('24-hour');
 });
@@ -249,27 +249,6 @@ test('license manifest validates provenance shape, all-term search, disclosure a
   expect(() => decodeNotices({ schemaVersion: 1, entries: [{ ...entry, sourceUrl: 'file:///personal' }] })).toThrow('source URL');
 });
 
-test('diagnostics reads actual sections and range; partial/offline errors remain local', async () => {
-  const { client, native } = await connected();
-  const later = native.later.bind(native);
-  native.later = async request => {
-    const method = str(obj(request).method);
-    if (method === 'server.getProcessDiagnostics') return native.good({ readAt: timestamp, processCount: 1, totalCpuPercent: 2, totalRssBytes: 1024, processes: [] });
-    if (method === 'server.getProcessResourceHistory') { expect(obj(obj(request).payload)).toEqual({ windowMs: 300000, bucketMs: 15000 }); return native.good({ retainedSampleCount: 3, buckets: [], topProcesses: [] }); }
-    if (method === 'server.getTraceDiagnostics') return native.bad('Trace unavailable');
-    return later(request);
-  };
-  const result = await diagnosticsSettings(client, native, 'env1', '5m', true);
-  expect(result.available).toBe(true); expect(result.sections).toHaveLength(3);
-  expect(result.sections[0].rows[0].value).toBe('1'); expect(result.sections[2].error).toBe('Trace unavailable');
-  expect(client.error).toBe('');
-  expect((await diagnosticsSettings(client, native, 'env1', 'invalid', true)).error).toContain('Unsupported');
-  expect((await diagnosticsSettings(client, native, 'deleted', '15m', true)).available).toBe(false);
-  client.connection = 'disconnected';
-  expect((await diagnosticsSettings(client, native, 'env1', '15m', true)).available).toBe(false);
-});
-
-
 test('storage cleanup validates capability, retention and stale checkout before scoped writes', async () => {
   const { client, native, command } = await connected();
   obj(native.config.environment).capabilities = { serverResolvedCommandContext: true, storageCleanup: true, projectWorktreeCleanup: true };
@@ -346,27 +325,28 @@ test('scheduled defaults and edit conversion match reference daily and origin se
 
 test('scheduled edit rechecks membership, forces requireExisting and preserves provider options', async () => {
   const { client, native } = await connected();
-  let entries: Obj[] = [{ id: 's1', projectId: 'p1', modelSelection: { instanceId: 'codex-personal', model: 'model-a', options: [{ id: 'effort', value: 'high' }] } }];
+  // The live list (scheduledTasks.subscribe's snapshots): a 0.1.5 server has no scheduledTasks.list.
+  let serial = 0;
+  const tasks = (entries: Obj[]) => liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: `s-${++serial}`, value: { tasks: entries } });
+  tasks([{ id: 's1', projectId: 'p1', modelSelection: { instanceId: 'codex-personal', model: 'model-a', options: [{ id: 'effort', value: 'high' }] } }]);
   const writes: Obj[] = [], later = native.later.bind(native);
   native.later = async request => {
     const call = obj(request);
-    if (call.method === 'scheduledTasks.list') return native.good({ tasks: entries });
     if (call.method === 'scheduledTasks.upsert') { writes.push(obj(call.payload)); return native.good({ task: obj(call.payload) }); }
     return later(request);
   };
   const input = { id: 's1', title: 'Fixture', prompt: 'Safe disabled fixture', enabled: false, schedule: { type: 'interval', everyMs: 60000 }, projectId: 'p1', threadId: null, workspaceStrategy: { type: 'root' }, modelSelection: { instanceId: 'codex-personal', model: 'model-a' }, runtimeMode: 'approval-required', interactionMode: 'default' };
   expect((await client.command('task-save', 'env1:p1', JSON.stringify(input), 0, native, storage().files)).message).toBe('');
   expect(writes[0].requireExisting).toBe(true); expect(obj(writes[0].modelSelection).options).toEqual([{ id: 'effort', value: 'high' }]); expect(writes[0].enabled).toBe(false);
-  entries = [];
+  tasks([]);
   expect((await client.command('task-save', 'env1:p1', JSON.stringify(input), 0, native, storage().files)).message).toContain('no longer exists');
   expect(writes.length).toBe(1);
   expect((await client.command('task-delete', 'env1:deleted-project', JSON.stringify({ id: 's1' }), 0, native, storage().files)).message).toContain('no longer available');
 });
 
-test('scheduled list query reaches the allowlisted backend and preserves readonly/offline scope state', async () => {
+test('the scheduled list reads the live list and preserves readonly/offline scope state', async () => {
   const { client, native } = await connected();
-  const later = native.later.bind(native);
-  native.later = async request => obj(request).method === 'scheduledTasks.list' ? native.good({ tasks: [] }) : later(request);
+  liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: 's-1', value: { tasks: [] } });
   expect((await scheduledSettings(client, native, 'env1', '', '', true)).available).toBe(true);
   expect((await scheduledSettings(client, native, 'env1', '', 'missing-task', true)).error).toContain('no longer exists');
   expect((await scheduledSettings(client, native, 'env1', 'deleted-project', '', true)).available).toBe(false);

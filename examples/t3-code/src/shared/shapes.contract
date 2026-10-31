@@ -1,6 +1,7 @@
 use InlineDocument from "../timeline/inline-documents.contract"
 use CommandSpan from "../timeline/command-output.contract"
 use SecretCardView from "../timeline/secret-card.contract"
+use TimelineApproval from "../timeline/timeline-approval.contract"
 use CodeToken from "../timeline/markdown.contract"
 use DiffFindView, FindDiffSegment from "../diff/diff-find.contract"
 use CodeHighlight from "../timeline/markdown.contract"
@@ -14,7 +15,6 @@ use FindLine from "../timeline/thread-find.contract"
 use MessageImage from "../timeline/timeline-attachments.contract"
 use MessageFile from "../timeline/timeline-attachments.contract"
 use ComposerView from "../composer/composer-shapes.contract"
-use SnoozePreset from "../sidebar/sidebar-shapes.contract"
 use Thread from "../sidebar/sidebar-shapes.contract"
 use ChatGptPlanNotice from "../providers/codex-setup.contract"
 use SidebarView from "../sidebar/sidebar-shapes.contract"
@@ -159,6 +159,10 @@ shape Message
   intent: string
   intentTip: string
   attribution: string
+  // A folded automation or agent message's one line (its task title or first line).
+  summary: string
+  // A queued automation or agent message's fold heading ("Automation", or the sending thread's title).
+  sender: string
   targetId: string
   actionLabel: string
   copied: number
@@ -176,9 +180,13 @@ shape Message
   fileCount: number
   images: MessageImage[]
   attachFiles: MessageFile[]
+  // A sent message's sounds, each an audio chip (timeline-audio.contract).
+  audio: MessageFile[]
   // Code font/size, word wrap and the message's chips (message-chips.ts).
   md: MarkdownEnv
   secret: SecretCardView[]
+  // A pending approval answerable on its work row (timeline-approvals.ts).
+  approval: TimelineApproval[]
   // A workflow opening's title, description and phase titles with the thread find's matches marked.
   findLines: FindLine[]
 shape Provider
@@ -208,6 +216,10 @@ shape Approval
   count: string
   mono: bool
   detail: string
+  // The composer's presentation (requests.ts) carries these too; a snapshot field outside its shape refuses it whole.
+  reason: string
+  whyAsked: string
+  feedback: bool
   canRespond: bool
   operable: bool
   live: bool
@@ -239,6 +251,8 @@ shape Question
   index: number
   last: bool
   canAdvance: bool
+  // An image of this question's answer still uploads: Next and Submit wait (ChatComposer's attachmentBlockReason).
+  uploading: bool
   complete: bool
   action: string
   options: QuestionOption[]
@@ -351,6 +365,10 @@ shape SaveRequest
   from: string
   name: string
   nonce: number
+shape DiffRecordedContent
+  label: string
+  text: string
+
 shape SnapshotDraft
   id: string
   name: string
@@ -396,12 +414,19 @@ shape UpdateEverythingView
 shape ExternalOpen
   serial: number
   url: string
+// The ChatGPT sign-in's loopback receiver's answer (codex-setup-host.ts codexReceive): "idle", "received", "failed" or "gone".
+shape CodexReceive
+  phase: string
 shape Snapshot
   externalOpen: ExternalOpen
+  // The ChatGPT sign-ins whose callbacks the loopback receivers wait for, one per slot, "" for a free one
+  // (codex-setup-host.ts codexReceiving): app.contract codexLoopback and codexLoopbackSecond.
+  codexReceiving: string
+  codexReceivingSecond: string
   updateEverything: UpdateEverythingView
   serverUpdate: ServerUpdateView
   timelineReadsNeeded: bool
-  highlightPending: bool // a code text waits for its Shiki tokens
+  highlightPending: bool // a code text waits for its tokens (highlights.ts)
   markdownSkills: MarkdownSkill[]
   composer: ComposerView
   // The AlertStack wrapper's clip to its banners (laid-out-widths.ts alertClip).
@@ -450,6 +475,10 @@ shape Snapshot
   threadId: string
   threadTitle: string
   threadHeading: CommandChoice[]
+  // The title's majority direction (shared/text-direction.ts), "ltr" or "rtl": ChatHeader's `dir` on the title.
+  threadTitleDir: string
+  // The header's rename field's direction, `dir="auto"` over the text being typed (timeline-presentation.ts headerRenameDir).
+  renameDir: string
   // A subagent thread's parent (id and title) for the header's crumb; empty otherwise.
   parentThread: CommandChoice[]
   draft: string
@@ -460,8 +489,10 @@ shape Snapshot
   canStop: bool
   providerId: string
   modelId: string
+  // The model trigger's accessible name (the full name), its text (the short one) and its Unavailable badge.
   modelLabel: string
-  composerCollapseOnScroll: bool
+  modelShortLabel: string
+  modelUnavailable: bool
   planModeEnabled: bool
   composerResting: bool
   transcriptAway: bool
@@ -504,6 +535,11 @@ shape Snapshot
   diffWrap: bool
   diffIgnoreWhitespace: bool
   diffTree: bool
+  diffTestFiles: number
+  diffHideTests: bool
+  // A tool call's diff: the files its record names that the patch omits, and the content recorded without a diff.
+  diffToolCallNote: string
+  diffToolCallContent: DiffRecordedContent[]
   diffTruncated: bool
   diffEmpty: bool
   diffEmptyLabel: string
@@ -535,12 +571,14 @@ shape Snapshot
   diffRevealTarget: string
   projects: Project[]
   searchFirstId: string
-  snoozePresets: SnoozePreset[]
   threads: Thread[]
   sidebar: SidebarView
   // General › Sidebar (legacy)'s per-project thread trees (legacy-sidebar-view.ts).
   legacy: LegacySidebarView
   messages: Message[]
+  // The transcript's rows its window keeps mounted (timeline-kept-rows.ts): the first and last message, a playing
+  // sound's row and a full-screen app's.
+  transcriptKeep: string[]
   historyError: string
   revertPending: string
   minimap: MinimapItem[]
@@ -579,6 +617,8 @@ shape Snapshot
   // ThreadErrorBanner's collapsed message (a JSON error's message) and whether it expands to the full text.
   errorSummary: string
   errorExpandable: bool
+  // A ChatGPT sharing limit the server named by its code (timeline-errors.ts): "workspace", "chatgpt" or "".
+  errorLimit: string
   look: Look
 shape Change
   revision: number
@@ -593,11 +633,11 @@ shape Viewport
   displayMode: string // "fullscreen" while the window is in full screen (LLP 1039)
 
 style Ink
-  color="light-dark(#27272a, #ededed)"
+  color="light-dark(#18181b, #ededed)"
 style Muted
   color="light-dark(#71717a, #858585)"
 style Canvas
-  background-color="light-dark(#fcfcfc, #0a0a0a)"
+  background-color="light-dark(#fcfcfc, #000000)"
 style Surface
   background-color="light-dark(#ffffff, #101010)"
 style Edge
@@ -613,7 +653,7 @@ style Field
   box-sizing="border-box" min-width=0 padding="0.625rem" border-radius="0.5rem"
   border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #303030)"
   background-color="light-dark(#fafafa, #191919)"
-  color="light-dark(#27272a, #ededed)" font-size="0.8125rem"
+  color="light-dark(#18181b, #ededed)" font-size="0.8125rem"
 style Primary
   display="flex" flex-direction="row" align-items="center" justify-content="center"
   box-sizing="border-box"
@@ -634,7 +674,6 @@ shape Settings
   defaultModel: string
   defaultModelExplicit: bool
   modelOverridden: bool
-  composerCollapseOnScroll: bool
   planModeEnabled: bool
   timestampFormat: string
   appearanceMode: string

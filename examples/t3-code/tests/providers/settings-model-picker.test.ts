@@ -14,6 +14,7 @@ import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { toasts } from '../../src/shell/toast';
 import { settingsFailure } from '../../src/shell/shell-commands';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
+import { contractComponent } from '../support/contract-action-fixture';
 
 const badge = () => ({ providerBadge: '', providerBadgeColor: '' });
 const capabilities = { projectSettingsOverrides: true, threadAutoSettlement: true, threadRestartContinuation: true };
@@ -45,7 +46,7 @@ class Fake implements Native {
     const target = request.fleet ? fleet.entries.get(str(request.fleet)) : undefined;
     const config = target ? target.config : this.c.config;
     if (request.method === 'server.updateSettings') return { ok: true, generation: target?.generation ?? 1, value: { ...obj(config.settings), ...obj(obj(request.payload).patch) } };
-    if (request.method === 'server.getSettings') return { ok: true, generation: 1, value: obj(config.settings) };
+    if (request.method === 'server.getConfig') return { ok: true, generation: 1, value: config };
     return { ok: false, generation: target?.generation ?? 1, error: { kind: 'x', message: 'missing', uncertain: false } };
   }
 }
@@ -166,5 +167,28 @@ describe('keyboard', () => {
     expect(jumps('default-model:|||')).toEqual([['modelPicker.jump.1', 'gpt-6-astra', 'codex']]);
     expect(jumps('default-model:|env-a||')).toEqual([['modelPicker.jump.1', 'gpt-5.6-luna', 'codex'], ['modelPicker.jump.2', 'gpt-6-astra', 'codex']]);
     expect(keyboardDispatch(c, [], 'codex', '', { ...context, modelPickerOpen: false, modelTarget: 'default-model:|||' }).some(item => item.command.startsWith('modelPicker'))).toBe(false);
+  });
+  // ModelPickerContent onWindowKeyDown: ⇧⌘↑/⇧⌘↓ (modelPicker.previousProvider/nextProvider, mod+shift+arrowup/down) move
+  // along the tab rail, wrapping, and the dispatch's button for each presses providerByKey with that tab.
+  test("⇧⌘↑/⇧⌘↓ in the open picker are buttons whose press picks the tab before or after the current one", () => {
+    const c = client();
+    const tab = (key: string, command: string) => ({ command, shortcut: { key, modKey: true, metaKey: false, ctrlKey: false, altKey: false, shiftKey: true }, whenAst: pickerOpen });
+    (c.config as Obj).keybindings = [tab('arrowup', 'modelPicker.previousProvider'), tab('arrowdown', 'modelPicker.nextProvider')];
+    const context = { composerFocus: true, editableFocus: true, turnRunning: false, modelPickerOpen: true, draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false, settingsRoute: '' };
+    const tabs = (browse: string) => keyboardDispatch(c, [], browse, '', context).filter(item => item.kind === 'provider');
+    expect(tabs('codex').map(item => [item.chord, item.target])).toEqual([['Meta+Shift+ArrowUp', 'favorites'], ['Meta+Shift+ArrowDown', 'claudeAgent']]);
+    expect(tabs('favorites').map(item => [item.chord, item.target])).toEqual([['Meta+Shift+ArrowUp', 'cursor'], ['Meta+Shift+ArrowDown', 'codex']]);
+    const dispatch = contractComponent('settings-shortcuts.contract', 'ShortcutDispatch');
+    const button = 'ShortcutButton(item=item, press=providerByKey(item.target))';
+    const scope = { item: tabs('codex')[1]!, providerByKey: (target: string) => ['providerByKey', target] };
+    expect(dispatch.drawn(button, {}, scope)).toBe(true);
+    expect(dispatch.callArguments(button, {}, scope).press).toEqual(['providerByKey', 'claudeAgent']);
+    // ⌘1–9's buttons press modelByKey, which picks and then announces a pick that was taken.
+    const jump = keyboardDispatch(client(), [], 'codex', '', { ...context, settingsOpen: true, modalOpen: true, settingsRoute: 'general', modelTarget: 'default-model:|env-a||' })
+      .find(item => item.command === 'modelPicker.jump.1')!;
+    const model = 'ShortcutButton(item=item, press=modelByKey(item.target, item.extra))';
+    const modelScope = { item: jump, modelByKey: (target: string, provider: string) => ['modelByKey', target, provider] };
+    expect(dispatch.drawn(model, {}, modelScope)).toBe(true);
+    expect(dispatch.callArguments(model, {}, modelScope).press).toEqual(['modelByKey', 'gpt-5.6-luna', 'codex']);
   });
 });

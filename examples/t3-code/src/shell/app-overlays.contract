@@ -81,7 +81,7 @@ component ProjectPicker
                 row gap="0.25rem" align-items="center"
                   button press=manageProject(project.id, project.name, project.path) disabled=commandPending testId=`manage-project-${project.id}` class=Control aria-label=`Settings for ${project.name}` title=""
                     Icon(name="settings", size=16, color="light-dark(#71717a, #858585)")
-                  button id=`project-dialog-pick-${i}` press=selectProject(project.id) disabled=commandPending testId=`project-${project.id}` padding="0.75rem" border-radius="0.5625rem" border-width=0 display="flex" flex-direction="column" align-items="flex-start" gap="0.25rem" width="100%" box-sizing="border-box" background-color=(project.selected ? "light-dark(#f0f2f8, #242424)" : "#00000000") data-focus-stop=(commandPending ? "" : "enabled")
+                  button id=`project-dialog-pick-${i}` press=selectProject(project.id) disabled=commandPending testId=`project-${project.id}` padding="0.75rem" border-radius="0.4375rem" border-width=0 display="flex" flex-direction="column" align-items="flex-start" gap="0.25rem" width="100%" box-sizing="border-box" background-color=(project.selected ? "light-dark(#f0f2f8, #242424)" : "#00000000") data-focus-stop=(commandPending ? "" : "enabled")
                     text project.name font-size="0.875rem" font-weight=500 class=Ink
                     text project.path font-size="0.6875rem" class=Muted line-clamp=2
               if data.projects.length == 0
@@ -141,7 +141,6 @@ component WindowOverlays
     modelQuery: string
     modelTarget: PickerTarget
     composerLeft: number
-    resting: bool
     commandPending: bool
     lineageStopping: string
     closeModels: action
@@ -193,7 +192,7 @@ component WindowOverlays
     filesDocuments: ChatDocument[]
   view
     if modelsOpen
-      ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71) * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings, anchor=modelTarget)
+      ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - 2 + 4 : 63 * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings, anchor=modelTarget)
     PaletteFinalFocus(open=paletteOpen, owner=palette.testId, restore=paletteRestore)
     if paletteOpen
       CommandPalette(view=palette, query=paletteQuery, highlight=paletteHighlight, scroll=paletteScroll, busy=paletteBusy, viewport=viewport, scheme=scheme, edit=paletteEdit, onKey=paletteKey, run=paletteRun, hover=paletteHover, close=paletteClose, back=paletteKey("Back"), flag=paletteFlag)
@@ -252,9 +251,6 @@ component WindowOverlays
     DialogFinalFocus(open=(data.serverUpdate.confirmTitle != ""), owner="server-update-confirm")
     if data.serverUpdate.confirmTitle != ""
       AppConfirm(confirmLabel="Confirm", title=data.serverUpdate.confirmTitle, body=data.serverUpdate.confirmBody, destructive=false, busy=commandPending, confirmId="server-update-confirm", cancel=command("su:cancel", "", "", 0), confirm=command("su:confirm", "", "", 0))
-    DialogFinalFocus(open=data.updateEverything.confirm, owner="update-everything-confirm")
-    if data.updateEverything.confirm
-      AppConfirm(confirmLabel="Update", title=data.updateEverything.title, body=data.updateEverything.body, destructive=false, busy=commandPending, confirmId="update-everything-confirm", cancel=command("ue:cancel", "", "", 0), confirm=command("ue:confirm", "", "", 0))
     // The /usage-limits banner's reset credit confirm (ResetCreditDialog, outside the banner).
     DialogFinalFocus(open=(data.composer.resetConfirm != ""), owner="reset-credit-dialog")
     if data.composer.resetConfirm != ""

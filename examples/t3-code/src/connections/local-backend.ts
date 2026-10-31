@@ -22,7 +22,7 @@ export interface DesktopSettingsFacts {
   /** The Update track (General › About): the saved preference, which this build's absent update feed never reads. */
   updateChannel: DesktopUpdateChannel;
 }
-/** resolveDefaultDesktopUpdateChannel (apps/desktop/src/updates/updateChannels.ts): nightly for an `x-nightly.YYYYMMDD.N` version. */
+/** desktopUpdateChannelOf (packages/shared/src/cliRelease.ts): nightly for an `x-nightly.YYYYMMDD.N` version, else latest. */
 export const defaultUpdateChannel = (version: string): DesktopUpdateChannel => /^[^-+]+-nightly\.\d{8}\.\d+$/.test(version) ? 'nightly' : 'latest';
 /** DEFAULT_DESKTOP_SETTINGS' keys, with resolveDefaultDesktopSettings' channel for this client's version. */
 export const defaultDesktopSettings = (): DesktopSettingsFacts => ({ localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443, updateChannel: defaultUpdateChannel(CLIENT_VERSION) });
