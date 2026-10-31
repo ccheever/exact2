@@ -4,14 +4,17 @@
 use super::storage::{call, Root, GRANTS};
 use exact_js::{NativeStorage, SqliteFile};
 use exact_runner::{DataSource, Store};
+use std::path::Path;
 
 /// The module asks for `app:/data/notes.db` (granted) or `app:/data/other.db`
-/// (not) on `open` and `ungranted`, keeps the file until `close`, and
-/// answers the real path's file name.
+/// (not) on `open` and `ungranted`, and answers the real path's file name.
+/// It holds the file open with a POSIX lock on it, as its own SQLite would
+/// while writing, until `close`: the open file before the guard, so the
+/// file closes first.
 #[derive(Default)]
 struct Native {
     storage: Option<NativeStorage>,
-    file: Option<SqliteFile>,
+    file: Option<(std::fs::File, SqliteFile)>,
 }
 impl exact_js::NativeModule for Native {
     fn configure_storage(&mut self, storage: NativeStorage) -> Result<(), String> {
@@ -29,19 +32,72 @@ impl exact_js::NativeModule for Native {
             _ => "app:/data/other.db",
         };
         let file = storage.sqlite(path)?;
-        let name = file
-            .path()
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .into_owned();
-        self.file = Some(file);
-        Ok(exact_js::json!({ "text": name }))
+        let name = file.path().file_name().unwrap().to_string_lossy();
+        let text = name.into_owned();
+        self.file = Some((locked(file.path()), file));
+        Ok(exact_js::json!({ "text": text }))
     }
 }
 
-/// Each order of the two SQLites refuses the second by name, and each
-/// reservation ends when its holder lets the file go.
+/// The file at `path`, created if need be, with a write lock on all of it.
+fn locked(path: &Path) -> std::fs::File {
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        // SAFETY: a zeroed `flock` is a valid argument once its fields are set.
+        let mut lock: libc::flock = unsafe { std::mem::zeroed() };
+        lock.l_type = libc::F_WRLCK as _;
+        lock.l_whence = libc::SEEK_SET as _;
+        // SAFETY: the descriptor is open and `lock` outlives the call.
+        assert_eq!(
+            unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETLK, &lock) },
+            0
+        );
+    }
+    file
+}
+
+/// Whether this process holds a lock on `path`, as another process sees it
+/// (a process never sees its own locks): a forked child asks with `F_GETLK`.
+#[cfg(unix)]
+fn locked_here(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: the child calls only async-signal-safe functions (open, fcntl,
+    // _exit) on memory prepared before the fork.
+    unsafe {
+        let child = libc::fork();
+        assert!(child >= 0, "fork");
+        if child == 0 {
+            let fd = libc::open(name.as_ptr(), libc::O_RDWR);
+            let mut lock: libc::flock = std::mem::zeroed();
+            lock.l_type = libc::F_WRLCK as _;
+            lock.l_whence = libc::SEEK_SET as _;
+            let asked = fd >= 0 && libc::fcntl(fd, libc::F_GETLK, &mut lock) == 0;
+            libc::_exit(
+                if asked && i64::from(lock.l_type) != i64::from(libc::F_UNLCK) {
+                    0
+                } else {
+                    1
+                },
+            );
+        }
+        let mut status = 0;
+        assert_eq!(libc::waitpid(child, &mut status, 0), child);
+        libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0
+    }
+}
+
+/// Each order of the two SQLites refuses the second by name, without
+/// opening the file (whose closing would drop the holder's locks), and
+/// each reservation ends when its holder lets the file go.
 #[test]
 fn a_native_modules_sqlite_file_is_granted_and_held_by_one_sqlite_at_a_time() {
     let root = Root::new();
@@ -49,6 +105,7 @@ fn a_native_modules_sqlite_file_is_granted_and_held_by_one_sqlite_at_a_time() {
     let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     m.activate().unwrap();
     let mut ask = |op: &str, value: &str| call(&mut m, &mut s, op, value);
+    let notes = root.0.join("data/notes.db");
 
     let refused = ask("native", "ungranted");
     assert!(
@@ -59,23 +116,88 @@ fn a_native_modules_sqlite_file_is_granted_and_held_by_one_sqlite_at_a_time() {
     );
     assert!(!root.0.join("data/other.db").exists());
 
-    // The module holds the file: the app's own open is refused, then admitted once it closes.
+    // The module holds the file: the app's own open is refused and leaves
+    // its lock, then is admitted once it closes.
     assert_eq!(ask("native", "open"), "notes.db");
     let refused = ask("hold", "");
     assert!(
-        refused.contains("notes.db is open in the app's native module"),
+        refused.contains("notes.db is reserved for another SQLite library"),
         "{refused}"
+    );
+    #[cfg(unix)]
+    assert!(
+        locked_here(&notes),
+        "the refused open dropped the module's lock"
     );
     assert_eq!(ask("native", "close"), "closed");
     assert_eq!(ask("hold", ""), "held");
 
-    // The app's storage holds it: the module is refused, then admitted once the app closes it.
+    // The app's storage holds it: the module is refused, leaving a lock on
+    // the file where it was, then admitted once the app closes it.
+    let lock = locked(&notes);
     let refused = ask("native", "open");
     assert!(
         refused.contains("app:/data/notes.db is open in the app's own storage"),
         "{refused}"
     );
+    #[cfg(unix)]
+    assert!(
+        locked_here(&notes),
+        "the refused reservation dropped the lock"
+    );
+    drop(lock);
     assert_eq!(ask("release", ""), "released");
     assert_eq!(ask("native", "open"), "notes.db");
     assert_eq!(ask("native", "close"), "closed");
+}
+
+/// A reservation follows the file, not its name: another name of an
+/// existing file (a hard link, and a case alias where the volume ignores
+/// case) is the same file to every Exact SQLite connection, the TypeScript
+/// storage's and a Rust source's alike, in either order.
+#[test]
+fn a_reserved_file_is_known_by_its_identity_under_any_name() {
+    use ibex2::stdlib::sqlite::{Location, Provider};
+    let root = Root::new();
+    std::fs::create_dir_all(&root.0).unwrap();
+    // SQLite refuses a path through a link (macOS's `/var`).
+    let dir = std::fs::canonicalize(&root.0).unwrap();
+    let file = dir.join("vault.sqlite");
+    let link = dir.join("vault-link.sqlite");
+    let open = |path: &Path| {
+        ibex2_sqlite::SqliteProvider.open(Location {
+            path: path.to_path_buf(),
+        })
+    };
+    // Reserved before the file exists, by name; it learns the file's identity once made.
+    let reserved = ibex2_sqlite::reserve(&file).unwrap();
+    std::fs::File::create(&file).unwrap();
+    std::fs::hard_link(&file, &link).unwrap();
+    let upper = dir.join("VAULT.sqlite");
+    let aliased = upper.exists();
+    let mut names = vec![&link];
+    if aliased {
+        names.push(&upper);
+    }
+    for name in &names {
+        let refused = open(name).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(
+            refused.contains("is reserved for another SQLite library"),
+            "{}: {refused:?}",
+            name.display()
+        );
+    }
+    drop(reserved);
+    // Open through one name, the file is refused to a reservation by another.
+    let connection = open(&file).unwrap();
+    for name in &names {
+        assert_eq!(
+            ibex2_sqlite::reserve(name).unwrap_err(),
+            ibex2_sqlite::Holder::Open,
+            "{} was reserved while open",
+            name.display()
+        );
+    }
+    connection.close().unwrap();
+    drop(ibex2_sqlite::reserve(&link).unwrap());
 }
