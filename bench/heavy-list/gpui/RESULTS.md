@@ -11135,3 +11135,13 @@ full launch difference, the reducer reports the difference after the
 probe constructor (`coldMs − preMainMs`), separating the launcher's
 pre-constructor interval. Both use the same five adjacent pairs; neither
 changes a raw timestamp or the headline cold rows.
+
+The second attempt's five untraced pairs all qualify and also miss:
++23.616 [23.183, 25.113] million instructions/s. CPU is +0.918
+[−1.841, +2.438] ms/s and cycles are +1.973 [−2.576, +6.913] million/s.
+`final/summary.json` and `final/reduce.py` retain that comparison. The
+third source is `c2bbac1010`; its eight named suites, 20 image-control
+tests and eight carrier tests pass. Their latest outputs are in
+`checks/landing/`, `mounted-handoff-controls.log` and
+`carrier-landing.log`. Its measurements use `landing/`, preserving the
+two prior attempts' originals and predictions.
