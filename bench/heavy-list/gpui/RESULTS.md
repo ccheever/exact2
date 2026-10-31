@@ -8361,9 +8361,10 @@ Animation transaction. Setting it true associates `drawable.present()` with
 the caller's current transaction. Apple requires committing the rendering
 command, waiting until it is scheduled, then calling the drawable's present
 method; command-buffer presentation does not provide that synchronization.
-Cut 1b uses this existing live-resize sequence for first show as well. The
-worker acquires and copies only after show returns, and returns the scheduled
-drawable to the main thread for presentation in the same turn. Subsequent
+Cut 1b uses this existing live-resize sequence at the first redraw after show,
+or at the first display-link callback if it comes sooner. The worker then
+acquires and copies, and returns the scheduled drawable to the main thread
+for presentation in that callback's transaction. Subsequent
 frames keep their existing worker presentation. The compose target, resource
 retirement, archive-miss compilation and positive-timestamp retry remain.
 
@@ -8379,7 +8380,7 @@ post-show presentation still drops. The retained passive launch shows at
 callback at 137.723 ms, before the first layer transaction completes at
 152.681 ms. Its complete screen is 177.600 ms. The ordinary active diagnostic
 in `paired/ink-after-1-cold.json` similarly shows at 145.080 ms, presents at
-151.768 ms, drops at 151.829 ms and completes at 204.282 ms: 59.202 ms after
+151.768 ms, drops at 151.829 ms and completes at 204.282 ms: 59.2 ms after
 show, not the predicted 30. The cohort is excluded for load.
 
 The second attempt keeps the same prepared scene until the first redraw
@@ -8391,3 +8392,21 @@ predicts about 185 + 20 = **205 ms**, so the original 146–160 ms prediction
 may still miss. The first-composite interval is measured from the actual
 present request on the same retained trace instrument. No timing from this
 excluded diagnostic replaces a scoreboard row.
+
+**Second live attempt; prediction before the final fix round.** The retained
+archive's first redraw acquires at 146.841 ms and presents at 147.834 ms, but
+receives zero at 151.530 ms; a retry also drops, and the complete screen is
+192.261 ms. The CPU miss still hands off, at 212.389/345.722 ms for CPU/Ink,
+but drops three earlier submissions. These are `boot-functional-2/`.
+Winit 0.30's `RedrawRequested` comes through its NSView `drawRect`; GPUI
+0.2.2 supplies a `displayLayer` delegate. Presenting within that AppKit draw
+is the remaining hypothesis, not a proved compositor diagnosis.
+
+The final round holds the scene through redraw requests and presents only on
+the first display-link callback. Intervening redraws are suppressed through
+that turn; the existing retry loop resumes on the next display callback.
+Prediction on the same passive trace instrument: the first submission is
+displayed without a zero callback, at about **182–195 ms** (show at 130 ms,
+first display callback at 156 ms, then 27–39 ms to display). CPU startup still
+hands off. If this fails, three fix rounds are exhausted and no further
+implementation change is attempted in this cut.

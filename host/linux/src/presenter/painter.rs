@@ -405,7 +405,7 @@ impl<D: DataSource> Presenter<D> {
             .then_some(PreparedAppleFrame(pixels)))
     }
 
-    /// Present in the show call's transaction. Do not poll or repaint between the pair.
+    /// Present in AppKit's current transaction. Do not poll or repaint between the pair.
     #[cfg(target_os = "macos")]
     pub fn present_prepared_apple_frame(
         &mut self,

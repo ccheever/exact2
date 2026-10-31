@@ -41,6 +41,7 @@ struct App<D: DataSource> {
     display: Option<DisplayLink>,
     presenter: Option<Presenter<D>>,
     prepared: Option<exact_linux::presenter::PreparedAppleFrame>,
+    prepared_tick: bool,
     agent: Option<super::agent::Agent>,
     started: Instant,
     tick_pending: Arc<AtomicBool>,
@@ -145,6 +146,7 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         display: None,
         presenter: None,
         prepared: None,
+        prepared_tick: false,
         agent: None,
         started,
         tick_pending: Default::default(),
@@ -212,6 +214,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         );
         if old_scale != self.scale || p.host().viewport() != viewport {
             self.prepared = None;
+            self.prepared_tick = false;
         }
         layer.resize([size.width, size.height], self.scale);
         if let Some(e) = p.resize_scaled(
@@ -242,15 +245,14 @@ impl<D: DataSource + Default + 'static> App<D> {
         if self.hidden {
             return Ok(None);
         }
+        if !prepare
+            && (self.prepared.is_some() || self.prepared_tick && self.awaiting_first_present())
+        {
+            return Ok(None);
+        }
         let Some(p) = &mut self.presenter else {
             return Ok(None);
         };
-        if !prepare {
-            if let Some(frame) = self.prepared.take() {
-                p.present_prepared_apple_frame(frame)?;
-                return Ok(None);
-            }
-        }
         let now = if !self.live {
             p.host().now()
         } else {
@@ -398,8 +400,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             let prepared = self.draw(true)?;
             window.set_visible(true);
             trace_mark(c"boot window shown", || 0.);
-            // The first redraw follows AppKit's show work. A drawable acquired
-            // immediately after set_visible can still be dropped.
+            // Winit's first redraw is inside AppKit's drawRect. Present the
+            // prepared scene in the first display callback outside that draw.
             self.prepared = prepared;
             window.request_redraw();
             if self.config.agent {
@@ -420,8 +422,15 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 }
                 trace_mark(c"display wake", || 0.);
                 self.tick_pending.store(false, Ordering::Release);
-                if self.prepared.is_some() {
-                    if let Err(e) = self.draw(false) {
+                self.prepared_tick = false;
+                if let Some(frame) = self.prepared.take() {
+                    self.prepared_tick = true;
+                    if let Err(e) = self
+                        .presenter
+                        .as_mut()
+                        .unwrap()
+                        .present_prepared_apple_frame(frame)
+                    {
                         self.fail(events, e);
                     }
                     return;
