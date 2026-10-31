@@ -9,7 +9,7 @@ import { turnItemHasDetail, turnItemNeedsDetailFetch } from './timeline-item-det
 import { arr, num, obj, str, type Activity, type Message, type Obj } from './domain';
 import { ClientError, activeRun, type Files, type Native } from './protocol';
 import type { T3Client } from './client';
-import { deriveRows, type Row } from './timeline-rows';
+import { deriveRows, timelineEntries, type Row } from './timeline-rows';
 import { displayFailed, entryDisplayLabel, entryIcon, inspectorDetail, isToolLike, thoughtText, workspaceRelativePath, type WorkEntry } from './timeline-worklog';
 import { eventRow } from './timeline-events';
 import { messageCodeBlocks } from './timeline-highlight';
@@ -30,6 +30,7 @@ import { preparationFailureRunId, retryableActivities } from './r11-upstream-ret
 import { numericDateFormatter, timestampFormatter } from './timestamp-format'; // desktop-shell-details: the host's locale
 import { letGo } from './let-go';
 import { pullRequestLinkMenu } from './context-menu-actions'; // context-menu-gaps
+import { mobileLoadThreadHistory, mobileThreadHistoryError } from '../thread-history';
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
 export function shortTime(value: unknown, format: string): string {
@@ -61,12 +62,12 @@ export function messageTime(value: unknown, now: number, format: string): string
 }
 
 interface ViewState { open: Set<string>; copies: Map<string, { nonce: number; ok: boolean }>; nonce: number; codeCopy: { threadId: string; text: string; nonce: number };
-  historyError: Map<string, string>; revert: { threadId: string; messageId: string; turnCount: number } | null;
+  revert: { threadId: string; messageId: string; turnCount: number } | null;
   treeAll: Set<string>; treeDirs: Map<string, boolean>; lastRows: { threadId: string; rows: MinimapRow[] } }
 const views = new WeakMap<T3Client, ViewState>();
 export function timelineView(client: T3Client): ViewState {
   let view = views.get(client);
-  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] } }; views.set(client, view); }
+  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] } }; views.set(client, view); }
   return view;
 }
 const scoped = (client: T3Client, kind: string, id: string) => `${client.threadId}\u0000${kind}\u0000${id}`;
@@ -85,11 +86,11 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     openFile: relativePath => openFileSurface(client, native, relativePath, 0), forgetAttachment: attachmentId => { if (!forgetMediaPreviewUrl(client, attachmentId)) forgetAttachmentUrl(client, attachmentId); } });
   const view = timelineView(client);
   if (op === 'item-detail') { setTurnItemOpen(client, id, value === 'open'); return ''; }
-  if (op === 'history') {
-    const threadId = client.threadId;
-    view.historyError.delete(threadId);
-    try { await client.history(native); }
-    catch (error) { if (letGo(error)) throw error; view.historyError.set(threadId, error instanceof Error && error.message ? error.message : 'Could not load earlier turns.'); }
+  if (op === 'history-auto' || op === 'history-retry') {
+    await mobileLoadThreadHistory(client, native, id, op === 'history-retry', keys => timelineEntries({
+      rows: arr(client.projection.visibleTurnItems), attempts: arr(client.projection.attempts), nodes: arr(client.projection.nodes),
+    }).some(entry => keys.has(entry.id) && entry.kind !== 'checkpoint' && (entry.kind !== 'message'
+      || entry.role !== 'assistant' || str(entry.item.text).trim() || arr(entry.item.attachments).length > 0)));
     return '';
   }
   if (op.startsWith('plan-')) return planAction(client, native, op, id, value);
@@ -215,7 +216,7 @@ export function timelineSnapshot(client: T3Client) {
   const view = timelineView(client);
   const native = nativeTurns(client), rows = view.lastRows.threadId === client.threadId ? view.lastRows.rows : [];
   const minimap = minimapItems(rows, native.inView);
-  return { historyError: view.historyError.get(client.threadId) ?? '',
+  return { historyError: mobileThreadHistoryError(client),
     revertPending: view.revert?.threadId === client.threadId ? view.revert.messageId : '', ...planSaveView(client),
     minimap: minimap.map(({ row: _row, ...item }) => item), minimapCurrent: minimapCurrent(minimap, native.above), ...imagePreviewView(client), ...diagramPreviewView(client) };
 }

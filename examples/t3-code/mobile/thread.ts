@@ -26,6 +26,7 @@ import { requestPresentation } from './shared/requests';
 import { emptyPendingInput, type PendingInputView } from './pending-input';
 import type { ThreadMarkdownBlock } from './thread-markdown';
 import { mobileThreadMarkdownCache } from './thread-markdown-cache';
+import { mobileThreadHistory } from './thread-history';
 import { mobileForkLifecycleActivity, mobileThreadActivity } from './thread-work';
 import type { ThreadActivity } from './thread-work';
 import { mobileThreadOutbox, threadOutboxStatus, threadOutboxPreview, prepareThreadOutboxPreviews } from './thread-outbox';
@@ -44,7 +45,7 @@ export interface ThreadComposerState { editing: boolean; saving: boolean; canCan
   canOperate: boolean; showReadOnlyNotice: boolean; sendLabel: string; sendSymbol: string; blockedReason: string; modelLabel: string; providerDriver: string;
   providerIconURL: string; modelUnavailable: boolean; running: boolean; queueCount: number; }
 export interface ThreadSnapshot { queuedCanSelect: boolean; queuedFailed: boolean; queuedCanEdit: boolean; queued: boolean; queuedOwner: string; queuedStatus: string; queuedReason: string; queuedCanRetry: boolean; revision: number; environmentId: string; threadId: string; title: string; loaded: boolean; loading: boolean; rows: ThreadRow[];
-  emptyTitle: string; emptyDetail: string; error: string; uncertain: boolean; hasMore: boolean; historyLoading: boolean; historyError: string;
+  emptyTitle: string; emptyDetail: string; error: string; uncertain: boolean; hasMore: boolean; historyRequest: string; historyLoading: boolean; historyError: string;
   readsNeeded: boolean; answerFilesOwner: string; answerFilesRequest: string; approvals: ThreadApproval[]; composer: ThreadComposerState; pendingInput: PendingInputView; }
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 const legacyAutomationPrefix = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r?\n/;
@@ -151,7 +152,7 @@ export function mobileThreadComposer(client: T3Client): ThreadComposerState {
 export function mobileThread(now: number, dark = false, client: T3Client = mobileClient, routeKey = '', includeRows = true, html?: ThreadHtmlPresentation): ThreadSnapshot {
   const rows = includeRows ? mobileThreadRows(client, now, dark, routeKey, html) : [], loaded = !!client.thread;
   const loading = !loaded && ['connected', 'connecting', 'reconnecting'].includes(client.connection);
-  const requests = requestPresentation(client), view = timelineView(client);
+  const requests = requestPresentation(client);
   const answerFiles = includeRows ? mobileAnswerFilesRequest(client, visibleAnswerFiles(rows), now)
     : { owner: mobileAnswerFilesOwner(client), request: '' };
   return { pendingInput: emptyPendingInput(), queuedCanSelect: false, queuedFailed: false, queuedCanEdit: false, queued: false, queuedOwner: '', queuedStatus: '', queuedReason: '', queuedCanRetry: false, answerFilesOwner: answerFiles.owner, answerFilesRequest: answerFiles.request, revision: client.revision, environmentId: client.environmentId, threadId: client.threadId,
@@ -159,7 +160,7 @@ export function mobileThread(now: number, dark = false, client: T3Client = mobil
     emptyTitle: loaded ? 'No conversation yet' : loading ? '' : 'Messages not cached',
     emptyDetail: loaded ? 'Ask the agent to inspect the repo, run a command, or continue the active thread.' : loading ? '' : 'Reconnect this environment to load the conversation.',
     error: requests.error, uncertain: client.pending?.uncertain === true, hasMore: client.thread?.hasMore === true,
-    historyLoading: client.historyLoading, historyError: view.historyError.get(client.threadId) ?? '', readsNeeded: includeRows && timelineReadsNeeded(client),
+    ...mobileThreadHistory(client, routeKey, includeRows), readsNeeded: includeRows && timelineReadsNeeded(client),
     approvals: requests.approvals.map(approval => {
       const item = arr(client.projection.turnItems).slice().reverse().find(item => item.requestId === approval.id);
       const request = arr(client.projection.runtimeRequests).find(request => request.id === approval.id);

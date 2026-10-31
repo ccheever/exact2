@@ -639,30 +639,7 @@ component App
   action composerFocus(value: bool, owner: string, editorId: string)
     if owner != "" and ((value and owner == composerOwner and editorId == composerEditor) or (not value and composerFocusIdentity == `${editorId}:${owner}`))
       composerFocusIdentity = value ? `${editorId}:${owner}` : ""
-  action threadAction(op: string, id: string, value: string)
-    if op == "outbox:edit"
-      if not pending(outboxEdited)
-        send outboxEdited = outboxEdit(id, `${top(nav).id}`)
-    else if op == "outbox:retry"
-      if not pending(outboxChanged)
-        send outboxChanged = outboxAction("retry", id, wallTime.epochAtZero + performanceNow())
-    else if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
-      if op == "html-render"
-        send htmlRenderChanged = htmlRenderEvent(htmlRenderContext.context, id, value, `${top(nav).id}`, htmlRenderContext.full)
-      else if op == "fork-response"
-        if not pending(selected) and not pending(routeSelected)
-          haptic("selection")
-          send selected = threadFork(id, value, `${top(nav).id}`)
-      else if op == "queue-open"
-        blur()
-        composerFocusIdentity = ""
-        nav = push(nav, path("threadQueue", data.environmentId, data.threadId))
-      else if (op == "send" or op == "send-alternate") and threadSubmission.ordinary
-        if not pending(changed) and not pending(threadSubmissionChanged)
-          send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, "", value, id, `${top(nav).id}`, wallTime.epochAtZero + performanceNow())
-      else
-        lastOperation = "thread-action"
-        send changed = command(op, id, value, op.startsWith("pending-input:") ? `${top(nav).id}\n${top(nav).url}` : `${wallTime.epochAtZero + performanceNow()}`, taskGuardOwner, taskGuardRoute)
+  members "./root-thread-actions.contract"
   derive workspaceRouteReady = data.ready and top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
   derive threadHeaderOptions = ThreadHeaderOptions(routeKey=`${top(nav).id}`, routeIdentity=`${top(nav).url}:${terminalId}`, focused=(top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId and (top(nav).name == "thread" or top(nav).name == "threadReview" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == ""))), split=workspace.sidebarMounted, sidebarVisible=workspace.sidebarVisible, canGoBack=depth(nav) > 1, returnToChat=top(nav).name == "threadFiles", foreground=threadLook.foreground, review=top(nav).name == "threadReview", reviewRevision=reviewData.revision, dark=appearance.scheme == "dark", inspectorAvailable=workspace.fileInspectorSupported, inspectorVisible=workspace.inspectorVisible)
   resource threadHeader = threadHeader(threadHeaderOptions, data.revision) as shape ThreadHeaderSnapshot

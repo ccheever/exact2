@@ -380,14 +380,31 @@ describe('pinned shared sources', () => {
         .replace("    }\n    if (entry.kind === 'plan') { rows.push({ kind: 'plan', id: entry.id, createdAt: entry.createdAt, entry }); continue; }\n", "    }\n    if (entry.kind === 'html-render') { rows.push({ kind: 'html-render', id: entry.id, createdAt: entry.createdAt, entry }); continue; }\n    if (entry.kind === 'plan') { rows.push({ kind: 'plan', id: entry.id, createdAt: entry.createdAt, entry }); continue; }\n")
         .replace("    if (entry.kind === 'work' && entry.entry.itemType === 'system_notice') runId = null;\n    else if (entry.kind === 'message' && entry.role === 'assistant' || entry.kind === 'work') runId = runOf(entry) || runless;\n    else if (entry.kind === 'event' && (persistentResource(entry) || entry.item.type === 'subagent')) runId = str(entry.item.runId) || runless;\n", "    if (entry.kind === 'work' && entry.entry.itemType === 'system_notice') runId = null;\n    else if (entry.kind === 'message' && entry.role === 'assistant' || entry.kind === 'work' || entry.kind === 'html-render') runId = runOf(entry) || runless;\n    else if (entry.kind === 'event' && (persistentResource(entry) || entry.item.type === 'subagent')) runId = str(entry.item.runId) || runless;\n");
       let actual = local.slice(name === 'word-diff.ts' ? 3 : 2).join('\n');
+      if (name === 'timeline-presentation.ts') {
+        const history = expected.match(/^  if \(op === 'history'\) \{\n[\s\S]*?^  }\n/m)?.[0];
+        expect(history).toBeDefined();
+        expect(actual).toContain("op === 'history-auto' || op === 'history-retry'");
+        actual = actual.replace("import { mobileLoadThreadHistory, mobileThreadHistoryError } from '../thread-history';\n", '')
+          .replace('import { deriveRows, timelineEntries, type Row }', 'import { deriveRows, type Row }')
+          .replace('  revert: { threadId:', '  historyError: Map<string, string>; revert: { threadId:')
+          .replace("nonce: 0 }, revert: null", "nonce: 0 }, historyError: new Map(), revert: null")
+          .replace(/^  if \(op === 'history-auto' \|\| op === 'history-retry'\) \{\n[\s\S]*?^  }\n/m, history!)
+          .replace('historyError: mobileThreadHistoryError(client)', "historyError: view.historyError.get(client.threadId) ?? ''");
+      }
       if (name === 'client.ts') {
         expect(actual).toContain('// Mobile history ownership: invocation-local tokens and captured transfer cleanup.');
         const method = /^  private ownedNative\([^\n]*\n[\s\S]*?^  }\n/m;
         const pinnedGuard = expected.match(method)?.[0]; expect(pinnedGuard).toBeDefined();
+        const history = /^  async history\(native: Native[^\n]*\n[\s\S]*?^  }\n/m;
+        const pinnedHistory = expected.match(history)?.[0]; expect(pinnedHistory).toBeDefined();
+        expect(actual.match(history)).not.toBeNull();
         actual = actual.replace('// Mobile history ownership: invocation-local tokens and captured transfer cleanup.\n', '')
           .replace('// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#stable-history-reader-and-thread-ownership\n', '')
           .replace(/^  \/\/ Mobile history ownership begin:[^\n]*\n[\s\S]*?^  \/\/ Mobile history ownership end\.\n/gm, '')
           .replace(method, pinnedGuard!)
+          .replace(history, pinnedHistory!)
+          .replace('      this.historyRequest = null;\n', '')
+          .replace('      this.historyEpoch++;\n', '')
           .replace('  private async readThread(', '  async openThread(')
           .replace('storage: Files, claimed?: () => void): Promise<void>', 'storage: Files): Promise<void>')
           .replace('claimed?.(); this.available = false;', 'this.available = false;')

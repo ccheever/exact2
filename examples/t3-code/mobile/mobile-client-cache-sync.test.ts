@@ -439,10 +439,10 @@ test('real successful empty earlier page prevents publication, while failure and
     entered.resolve(); await finish.promise;
     return { ok: true, generation: 1, value: { snapshotSequence: 20, nextCursor: null, hasMoreHistory: false, items: [] } };
   };
-  const pending = f.client.history(f.native); await entered.promise;
+  const pending = f.client.history(f.native).catch(error => error); await entered.promise;
   const replacement = threadSnapshot({ projection: f.thread.projection, snapshotSequence: 22,
     historyCursor: 'replacement-cursor', hasMoreHistory: true, latestLocalTurnOrdinal: 100 });
-  f.client.thread = replacement; finish.resolve(); await pending;
+  f.client.thread = replacement; finish.resolve(); expect(await pending).toMatchObject({ kind: 'superseded' });
   expect(f.client.thread).toBe(replacement); expect(f.client.thread.historyExpanded).toBeUndefined();
   await f.sync(); expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config', 'thread']);
 });

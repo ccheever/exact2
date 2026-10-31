@@ -30,6 +30,7 @@ import { mobileComposerTarget } from './composer-target';
 import { mobileQueueSnapshot, mobileQueueCommand } from './queue';
 import { mobileQueuePrepare } from './queue-read';
 import { mobileThreadAnswerFilesPrepare } from './thread';
+import { mobileThreadHistory } from './thread-history';
 import { mobileGitColors } from './git-colors';
 import { mobileGitSnapshot, mobileGitRead, mobileGitAction } from './git-overview';
 import { mobileGitFeedbackSnapshot, mobileGitFeedbackAction } from './git-feedback';
@@ -832,6 +833,7 @@ async function newTaskFlow(args: unknown[], native?: Native | null) {
 async function threadView(args: unknown[], native?: Native | null) {
   const [_revision, time, scheme, environmentId, threadId, active, visit, routeName, htmlContext, contentWidth, themeId, routeURL] = args;
   const inputRoute = { active: active === true && ['thread', 'threadFiles'].includes(str(routeName)), visit: str(visit), url: str(routeURL), environmentId: str(environmentId), threadId: str(threadId) };
+  mobileThreadHistory(mobileClient, inputRoute.visit, inputRoute.active && environmentId === mobileClient.environmentId && threadId === mobileClient.threadId);
   const inputObservation = mobilePendingInputObserveRoute(mobileClient, inputRoute);
   mobileThreadForkObserveRoute(mobileClient, str(visit), active === true && routeName === 'thread'
     && environmentId === mobileClient.environmentId && threadId === mobileClient.threadId);
