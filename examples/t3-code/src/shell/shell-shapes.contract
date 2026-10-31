@@ -141,6 +141,8 @@ shape ShellView
   highlightPending: bool // a Files / attachment code text waits for its tokens (highlights.ts)
   // The screen reader's live regions (announce.ts, live-regions.contract).
   announce: AnnounceView
+  // The npmRelease resource's key: the version a server waits for on npm, with its five-minute window (npm-release.ts).
+  npmProbe: string
 shape AnnounceView
   thread: string
   background: string

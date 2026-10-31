@@ -1,6 +1,6 @@
 import { coordinateGuides, decodeGuideOpenTarget, guideReader } from '../pull-requests/pages-pr-guide';
 import { can as hasPermission } from '../connections/command-permissions';
-import { updateEverythingPass, updateEverythingState } from '../sidebar/update-everything';
+import { npmReleaseProbe, updateEverythingPass, updateEverythingState } from '../sidebar/update-everything';
 // The window shell's projection (MIT reference: apps/web/src/components/ui/
 // toast.tsx, chat/ChatHeader.tsx, chat/PanelLayoutControls.tsx,
 // RightPanelTabs.tsx RightPanelEmptyState, threadActionMenu.logic.ts):
@@ -289,7 +289,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     await reportWindowFacts(client, native, page.visible, page.focused);
     noteAutomationWindow(client, page.focused && page.visible); // browser-automation.ts: previewAutomation.focusHost's `focused`
     reportBrowserProfiles(client, native); // browser-profile-report.ts: server browsers keep this client's profiles and frame rate
-    updateEverythingPass(client, native, now);
+    updateEverythingPass(client, now);
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
     await coordinateGuides(client, native, state.status, now);
     await threadNotifications(client, state.status, undefined, now); // every connected environment: the focus and the fleet (shell-notify.ts)
@@ -319,5 +319,6 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     notifications: `${state.status.authorization}${state.status.active ? '' : ' (window inactive)'}`,
     notifySound: notificationSounds(client), // the thread and guide notifications' sounds (app.contract notifyCompletionSound)
     announce,
+    npmProbe: native?.available ? npmReleaseProbe(client, now) : '', // the npmRelease resource's key (npm-release.ts)
   };
 }

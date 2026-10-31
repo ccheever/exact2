@@ -223,7 +223,8 @@ component T3Code
   state hoverEnd = 0
   task hoverTick when hoverWait < hoverEnd key=hoverEnd
     every(10, hoverTicked)
-  task hoverSurface key=`${settingsOpen}|${settingsRoute}|${utilityPage}|${modal}|${prSelected}|${data.threadId}`
+  // The model picker counts: its rail's tips have no leave when Escape or a pick closes it under the pointer.
+  task hoverSurface key=`${settingsOpen}|${settingsRoute}|${utilityPage}|${modal}|${prSelected}|${data.threadId}|${modelsOpen}`
     after(1, hoverTicked)
   action hoverTicked
     hoverWait = hoverWait + 10

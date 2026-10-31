@@ -94,6 +94,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "threadFind",
             "terminalDrawer", // the thread terminal drawer (terminal-drawer-view.ts)
             "sidebarLaunchWidth",
+            "npmRelease", // the update pill's npm check (npm-release.ts)
             "prList",
             "prDetail",
             "welcome",

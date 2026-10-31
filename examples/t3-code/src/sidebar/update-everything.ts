@@ -14,7 +14,7 @@ import { providerUpdateMachines, updateAllProviders, updateTargets, type Provide
 import { getProviderUpdateRunOutcome, type ProviderUpdateRun } from '../providers/provider-updates';
 import { providerDisplayName } from '../providers/provider-updates';
 import { pushToast } from '../shell/toast';
-import { cachedReleasePublished, releasePublished } from './npm-release';
+import { cachedReleasePublished, npmReleaseKey } from './npm-release';
 import { closeFinishedUpdateRun, collectRestartingMachines, collectServerUpdateTargets, collectUpdateEverythingResult, describeUpdateCapsule, describeUpdateEverything,
   formatUpdateElapsed, getUpdateEverythingToastView, resolveUpdateRunMachineStatus, RUN_STATUS_LABELS,
   type UpdateEverythingMachine, type UpdateEverythingRun, type UpdateRunMachine } from './update-everything-logic';
@@ -49,12 +49,12 @@ export function updateEverythingPlan(client: T3Client, native: Native | null = n
       })) }), hasUpdates: servers.length > 0 || providers.length > 0 };
 }
 const notify = (native: Native) => { void native.later({ op: 'sidebarNotify' }).catch(() => {}); };
-/** Probes only when a remote npm-managed server is behind; the app remains usable while npm responds. */
-export function updateEverythingPass(client: T3Client, native: Native, now: number): void {
+export function updateEverythingPass(client: T3Client, now: number): void {
   updateEverythingState(client).now = now;
-  if (collectServerUpdateTargets(updateEverythingMachines(client), CLIENT_VERSION, false).waitForNpm.length > 0) {
-    releasePublished(CLIENT_VERSION, now, () => notify(native));
-  }
+}
+/** The npmRelease resource's key (useNpmReleasePublished): npm is asked only while a remote npm-managed server is behind. */
+export function npmReleaseProbe(client: T3Client, now: number): string {
+  return npmReleaseKey(collectServerUpdateTargets(updateEverythingMachines(client), CLIENT_VERSION, false).waitForNpm.length > 0 ? CLIENT_VERSION : null, now);
 }
 function versionOf(client: T3Client, environmentId: string): string | null {
   const machine = updateEverythingMachines(client).find(machine => machine.environmentId === environmentId);

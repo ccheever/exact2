@@ -56,6 +56,7 @@ import { shellView } from './src/shell/shell';
 import { shellDetails } from './src/details/shell-details';
 import { chatCanvasView } from './src/shell/chat-canvas-view';
 import { sidebarLaunchWidth } from './src/sidebar/sidebar-width';
+import { npmReleaseAnswer } from './src/sidebar/npm-release';
 import { highlightAsk, highlightStore, highlightView } from './src/highlight/highlights';
 import { noteServerUpdateClock } from './src/connections/server-update-notices';
 import { terminalDrawerView, terminalOpen } from './src/terminal/terminal-drawer-view';
@@ -233,6 +234,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'paletteView') return highlightView('palette', () => paletteView(client, native, args)); // its content search lines
   if (source === 'paletteCommand') return paletteCommand(client, native, storage, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''));
   if (source === 'shellDetails') return shellDetails(client, native, args[0] === true, String(args[1] || ''), args[3] === true, Number(args[4]) || 0, Number(args[5]) || 0, args[6] !== false, Array.isArray(args[7]) ? args[7].map(String) : [], Array.isArray(args[8]) ? args[8].map(String) : [], Array.isArray(args[9]) ? args[9].map(String) : [], args[10] !== false); // args[3]: the card docks inline; args[4]: wall time; args[5]: the window right of the canvas; args[6]: the window has the focus and is visible (exact2 #219); args[10]: the window is visible
+  if (source === 'npmRelease') return npmReleaseAnswer(String(args[0] ?? ''), native); // the update pill's npm check (npm-release.ts)
   if (source === 'sidebarLaunchWidth') return sidebarLaunchWidth(client, Number(args[0]) || 0, !!native?.available); // the width fixed at load
   if (source === 'chatCanvas') noteLayoutFrames(client, args[11]);
   if (source === 'chatCanvas') return chatCanvasView(client, native, { width: Number(args[1]) || 0, viewportHeight: Number(args[2]) || 0, detailsInline: args[3] === true, chatMax: Number(args[4]) || 0, overlaid: args[5] === true, gesture: String(args[6] || ''), wide: args[9] === true, popoverOpen: args[10] === true }); // args[7..8] re-ask when the player changes

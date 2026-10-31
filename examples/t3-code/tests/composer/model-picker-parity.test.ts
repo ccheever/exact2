@@ -15,8 +15,9 @@ import { sourceControlRows } from '../../src/settings/source-control-view';
 const writingRows = (rows: ReturnType<typeof sourceControlRows>) => [...rows.writing, ...rows.writingAdvanced];
 import { connected } from '../support/composer-controls-fixture';
 import { fleet } from '../../src/connections/settings-b-fleet';
-import { appPath } from '../support/app-files';
-import { contractComponent } from '../support/contract-action-fixture';
+import { appPath, appText } from '../support/app-files';
+import { contractComponent, value, type Env } from '../support/contract-action-fixture';
+import { contractFns } from '../support/contract-fn-fixture';
 
 const ready = { enabled: true, installed: true, availability: 'available', auth: { status: 'authenticated' }, status: 'ready' };
 const codexError = { instanceId: 'codex', driver: 'codex', displayName: 'Codex', enabled: true, installed: true, auth: { status: 'unauthenticated' }, status: 'error',
@@ -117,6 +118,31 @@ describe('a rail button names its state and the provider\'s message', () => {
     expect(railLabel({ ...claude, enabled: false }, false)).toBe('Claude: Disabled in settings.');
     expect(railLabel(claude, true)).toBe('Claude is unavailable in this thread. Start a new thread to switch providers.');
     expect(modelCatalog(client(), '', '').providers.map(rail => rail.label)).toEqual(['Codex: Unavailable. Codex CLI is not authenticated. Run `codex login` and try again.', 'Claude']);
+  });
+});
+
+// The rail's tooltip is drawn by the window's hover layer, so it outlives the rail: Escape or a pick unmounts the button
+// under the pointer, which then gets no leave. The oracle's TooltipPopup goes with the picker; the root's hover surface
+// counts the picker, and its change ends the tip.
+describe('the rail tooltip goes with the picker', () => {
+  test('closing the picker under a hovered rail button ends its tip', () => {
+    const root = contractComponent('app.contract', 'T3Code');
+    const fns = contractFns('src/shell/hover-layer.contract', ['HoverTip']) as unknown as { hoverTipAtFrame: (...args: unknown[]) => Env };
+    const label = 'Codex: Unavailable. Could not start Codex CLI.';
+    const tip = fns.hoverTipAtFrame('picker-rail-tip-1', 'tip', label, [], 'left', 'center', { x: 60, y: 400, width: 36, height: 36 }, 300, 'picker-rail-tip-1');
+    const source = appText('app.contract');
+    const shownWhen = /^ {2}derive hoverShown = (.+)$/m.exec(source)![1]!;
+    const state: Env = { hoverTip: { key: '' }, hoverOn: '', hoverOpen: 0, hoverUntil: 0, hoverWait: 0, hoverEnd: 0 };
+    const scope: Env = { hoverOpenDelay: () => 0, hoverDelay: () => 0, hoverShown: false };
+    const shown = () => value(shownWhen, state);
+    root.call('hoverTipAt', state, scope, [tip, 'trigger', true]);
+    expect(shown()).toBe(true);
+    const task = /^ {2}task hoverSurface key=(`[^`]*`)$/m.exec(source)![1]!;
+    const surface = (modelsOpen: boolean) => value(task, { settingsOpen: false, settingsRoute: '', utilityPage: '', modal: '', prSelected: '', data: { threadId: 't1' }, modelsOpen });
+    expect(surface(false)).not.toBe(surface(true));
+    // The key changed: the task runs hoverTicked a millisecond later.
+    root.call('hoverTicked', state, scope, []);
+    expect(shown()).toBe(false);
   });
 });
 
