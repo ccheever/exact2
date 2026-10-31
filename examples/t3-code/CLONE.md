@@ -1,6 +1,6 @@
 # T3 Code clone handoff
 
-Updated October 30, 2026, Toronto time. Finish the one-to-one clone with pstack
+Updated October 31, 2026, Toronto time. Finish the one-to-one clone with pstack
 handling routine execution and review. The legacy scheduled coordinator stays
 disabled. Use this handoff when taking over the work.
 
@@ -34,29 +34,46 @@ generator and framework edits require coordination before implementation.
 The Mini's normal development iOS bundle from `22e5f5c807` builds and signs with
 `--no-install`. Its 90 files pass deep strict signature verification; all 3,289
 recorded source inputs match. C ABI 18, TypeScript runtime 7 and native ABI 3
-are unchanged. The builder's simulator module-roster probe passes, but no app
-launch or connected acceptance has occurred on the Mini. The bundle and raw
-receipts are local to this worktree under `examples/t3-code/target/` and
+are unchanged. The normal app installed and launched on the local iPhone 18 Pro,
+iOS 27.2, through the T3 device launcher. Home and Add environment rendered.
+Connected acceptance remains open. The bundle and receipts are local to this
+worktree under `examples/t3-code/target/` and
 `target/t3-mini-coordinator/evidence/normal-artifact.json`.
 
-EAS device opening refuses with "No EAS project to run the session under."
-The owner must select the existing `@exponathan/t3-code` project for the EAS
-host in T3 Settings. No device session was opened. The private ordinary-mobile
-pairing request timed out; obtain a fresh grant after association, through the
-authorized owner flow and private secret card. Do not retry the failed target
-before its setup changes or add an app-config workaround. Real Duo discovery
-also remains unavailable through T3 tools; neither worker has driven a Duo.
+The user now requests local simulators. EAS project association is no longer a
+prerequisite for local acceptance. Home restored actual Duo discovery through
+the user-authorized Xcode DeviceHub New Simulator UI. Its owned Duo is
+`A44BE88B-1AA7-40A0-8FC1-25DA9CBC3214`, type `iPhone-Duo`, runtime
+`iOS-27-2-iPhone19-4`. T3 lists and opens it, and its screenshot shows SpringBoard.
+App interaction and folded/unfolded qualification remain open. Home owns the
+next device window after conversation's native build drains.
+
+The documented owner flow `/Users/nate/.t3/bin/t3 pair --base-dir /Users/nate/.t3`
+successfully issued a fresh ordinary grant for the Mini's running server
+`0.1.6-nightly.20261030.3940`. No saved bearer was copied. Secret entry failed
+because `--record-as` requires an armed recording; the prescribed
+`open --save-script` recovery then refused remote-daemon recording. The owned
+iPhone session was closed with shutdown. No grant reached the app or evidence.
+Installed launcher source supports `fill <ref> --text-stdin --no-record` with
+stdin redaction; this corrected invocation remains untried. Keep credentials in
+private stdin and avoid captures while a code is visible. The attempt and exact
+errors are recorded in `target/t3-mini-coordinator/evidence/local-core-attempt.json`.
+Do not repeat the stopped target without changed setup or explicit steering.
 
 Conversation's bounded Markdown reuse unit is draft
 [PR1190](https://github.com/ccheever/exact2/pull/1190), commit `43d669d337`.
 Its 136 focused tests, strict application TypeScript and caps pass. A changed-source
 native build and drive remain pending. Automatic older-history paging is the
-next separately approved unit; resident history bounds, native storage and
-selection retention remain open. Home's narrow spacing/separator patch has a
-signed Release build and 185 passing focused tests, with native interaction
-pending. Home also owns the original Release bundle at the shared reference
-pin below. Serialize follow-up builds and full suites after its existing root
-checks drain. Neither worker claims measured performance or native parity.
+next separately approved unit, with 281 focused tests, Contract compilation and
+strict application TypeScript passing after review. Its changed-source normal
+native build is running. Resident history bounds, native storage and selection
+retention remain open. Home's narrow spacing/separator patch is draft
+[PR1191](https://github.com/ccheever/exact2/pull/1191), head `137d49b2ff`.
+Its signed Release build, 185 focused tests, 4,171 quiet mobile tests, strict
+TypeScript, caps and all six root categories pass. Native interaction remains
+pending. Home owns the original Release bundle at the shared reference pin
+below. Conversation owns the next serial changed-source build window.
+Neither worker claims measured performance or native parity.
 
 The HTTPS core-acceptance delegate was interrupted before its device launch.
 Its retained receipt contains artifact verification and a CLI help command,
@@ -68,7 +85,8 @@ remain machine-local; use committed sources and rebuild on the Mini as needed.
 The current priority is iOS. Desktop feature work is deferred. Continue in this
 order, with small verified commits and normal pushes to PR216:
 
-1. Pair the normal iPhone app over the verified existing HTTPS route below.
+1. Pair the normal local iPhone app through the fresh owner-grant flow above.
+   The existing MacBook Pro HTTPS cloud route below remains a separate target.
 2. Open a project, create a thread, send, observe streaming, Stop, then restart
    and recover the environment, transcript and unsent draft.
 3. Verify reconnect, offline recovery, retries and duplicate-send prevention.
