@@ -208,7 +208,12 @@ size})`), and what the CLI runs one per argument. A target is a `testId`
 (first in preorder on a selected route of a selected tab; a covered screen's or
 an unselected tab's copy only when no active one carries it, flagged `inactive`
 in `tree`) or a view id; the driver resolves it through `tree`, so a
-host input path only ever sees a view id. A tab never selected has no views
+host input path only ever sees a view id. Such a node is `hidden` too where
+the host does not show its route, which is every such route but one a sheet
+covers (LLP 1153 D8); on the web both flags are read from the page as its
+projection left it, where a wide split's list beside its detail is neither.
+The text rendering prints `[hidden]` in place of `[inactive]`, which then
+marks only a screen still shown beneath a sheet. A tab never selected has no views
 to address: the runner builds it at its first selection (LLP 1075.003
 §9.14), and `tree` marks its empty panel `unopened`. Nothing is opened for
 a drive or a test, which select the tab as a person would (`tap
@@ -658,7 +663,7 @@ CLI splits argv, and nothing reads the outline in.
 
 ```
 tree     epoch E · incarnation I · clock C ms · N nodes
-         {"  " × depth}{Type}#{id} [{testId}] "{text}" value="…" label="…" ({handlers, ", "-joined})
+         {"  " × depth}{Type}#{id} [{testId}] "{text}" value="…" label="…" [hidden]|[inactive] ({handlers, ", "-joined})
 layout   viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] [· posture P · segments C×R [x,y w×h]…, when not flat] · clock C ms
          #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy} of {rx},{ry} port {x},{y} {w}×{h}
 logs     "(N earlier lines dropped by the journal ring)" when dropped > 0;

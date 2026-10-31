@@ -124,7 +124,7 @@ fn url_location_boot_and_live_navigate_share_the_apple_buffer_abi() {
         let n = bridge.input_write(b"s2b://post/42?q=a b#fragment");
         let n = bridge.location_of(n);
         let location = bridge.output_bytes(n as usize).to_vec();
-        assert_eq!(location, b"/post/42?q=a%20b");
+        assert_eq!(location, b"/post/42?q=a%20b#fragment"); // the fragment kept (LLP 1153 D5)
         let n = bridge.input_write(&location);
         bridge.set_launch_location(n);
         let n = if prepared {

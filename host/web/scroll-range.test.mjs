@@ -1,10 +1,10 @@
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { layoutBoxes, agentInput } from './input-glue.js';
+import { layoutBoxes, agentInput } from './agent-input.js';
 
 // The wasm host loads the agent's helpers as `agentInput` and binds each by name (glue.js `agentInputReady`): a name
 // it binds that `agentInput` lacks is undefined at the first call, as `scrollRange` once was in every `layout <target>`.
-test('the wasm host binds no agent helper that input-glue.js does not hand it', () => {
+test('the wasm host binds no agent helper that agent-input.js does not hand it', () => {
   const glue = readFileSync(new URL('./glue.js', import.meta.url), 'utf8');
   const bound = /\(\{ ([\w, ]+) \} = helpers\)/.exec(glue)?.[1].split(', ');
   expect(bound).toContain('scrollRange');

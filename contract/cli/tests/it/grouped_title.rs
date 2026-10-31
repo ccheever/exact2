@@ -397,3 +397,35 @@ fn a_bare_title_before_two_values_keeps_its_words_and_they_stack() {
         }
     }
 }
+
+/// A box its author grows before any text is the title's room, and a text
+/// after it, shown or not by an `if`, the value at the far edge:
+/// water-tracker's day row (round 33), whose "Goal met" took half the row
+/// from its bar as a second title.
+#[test]
+fn a_grown_box_before_the_text_keeps_the_room_and_the_text_trails() {
+    let r = boot(
+        r##"list appearance="auto" testId="list" flex=1
+  section
+    row testId="day" gap=8 align-items="center"
+      column flex=1 min-width=0 testId="bar"
+        column gap=6 role="meter" aria-label="Yesterday" aria-valuenow="1"
+          row flex-wrap="wrap" column-gap=8
+            text "Yesterday" flex-grow=1 min-width=0
+            text "1,200 ml" min-width=0
+          view height=8 background-color="#ccc"
+      if true
+        text "Goal met" testId="met""##,
+    );
+    let k = r.kernel();
+    let node = |t: &str| k.node(id(&r, t)).unwrap();
+    let (row, bar, met) = (node("day").frame, node("bar").frame, node("met").frame);
+    assert!(
+        row.width - (met.x + met.width) <= 17.0 && met.width < row.width / 4.0,
+        "the value trails: {met:?} in {row:?}"
+    );
+    assert!(
+        bar.width > row.width / 2.0,
+        "the bar keeps the room: {bar:?} in {row:?}"
+    );
+}

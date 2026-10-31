@@ -207,7 +207,7 @@ theorem shapeTys_of_valTy {p : Program} {v : Value} {s : String} (h : ValTy p v 
 structure RouteShapes (p : Program) : Prop where
   router : shapeTys p "Router" = .some [.string, .list (.record "Tab"), .number]
   tab : shapeTys p "Tab" = .some [.string, .list (.record "Entry")]
-  entry : shapeTys p "Entry" = .some [.number, .string, .string, .string, .record "Params"]
+  entry : shapeTys p "Entry" = .some [.number, .string, .string, .string, .record "Params", .string]
   params : shapeTys p "Params" = .some ((Route.paramNames p.routes).map fun _ => .string)
 
 theorem RouteShapes.of {p : Program} (hr : routeShapesOK p = true)
@@ -227,7 +227,7 @@ theorem paramsValue_ty {p : Program} (H : RouteShapes p) (ps : Route.Params) :
 
 theorem entryValue_ty {p : Program} (H : RouteShapes p) (e : Route.Entry) :
     ValTy p (Route.entryValue p.routes e) (.record "Entry") :=
-  recordTy_of H.entry ⟨trivial, trivial, trivial, trivial, paramsValue_ty H _, trivial⟩
+  recordTy_of H.entry ⟨trivial, trivial, trivial, trivial, paramsValue_ty H _, trivial, trivial⟩
 
 theorem entries_ty {p : Program} (H : RouteShapes p) : ∀ (es : List Route.Entry),
     ValTys p (es.map (Route.entryValue p.routes)) (.record "Entry")
@@ -350,24 +350,24 @@ theorem stdlib_router {env : Env} {p : Program} {name : String} {vs : List Value
       simp [ValTy]
   rw [ite_neg hn] at h
   by_cases hn : name = "searchParam"
-  · subst hn; rw [ite_pos rfl] at h
-    split at h <;> simp at h
+  · subst hn; rw [ite_pos rfl] at h; split at h <;> simp at h
     next r =>
-    obtain ⟨rfl, rfl⟩ := h
-    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
-    obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv; rw [hws'.nil_inv]
-    obtain ⟨_, rfl⟩ := hw'.str_inv
-    simp only [stdlib]
-    split <;> simp [GoodR, ValTy, Legit]
+    obtain ⟨rfl, rfl⟩ := h; obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
+    obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv; rw [hws'.nil_inv]; obtain ⟨_, rfl⟩ := hw'.str_inv
+    simp only [stdlib]; split <;> simp [GoodR, ValTy, Legit]
+  rw [ite_neg hn] at h
+  by_cases hn : name = "fragment"
+  · subst hn; rw [ite_pos rfl] at h; split at h <;> simp at h
+    next r =>
+    obtain ⟨rfl, rfl⟩ := h; obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
+    simp only [stdlib]; split <;> simp [GoodR, ValTy, Legit]
   rw [ite_neg hn] at h
   by_cases hn : name = "encodeRouteSegment"
-  · subst hn; rw [ite_pos rfl] at h
-    split at h <;> simp at h
+  · subst hn; rw [ite_pos rfl] at h; split at h <;> simp at h
     subst h
     obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
     obtain ⟨_, rfl⟩ := hw.str_inv
-    simp only [stdlib]
-    split <;> simp [GoodR, ValTy, Legit]
+    simp only [stdlib]; split <;> simp [GoodR, ValTy, Legit]
   rw [ite_neg hn] at h
   exact stdlib_unsupported h
 

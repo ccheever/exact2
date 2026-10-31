@@ -22,7 +22,7 @@ Item IDs are stable (for example `ENTRA-10` or `S25`). The ranked list at the en
 
 ### Contents
 
-1. Providers: Google, Microsoft Entra ID, Apple, Auth0, Okta, OneLogin, Keycloak, AWS Cognito, GitHub, Slack, Salesforce, Facebook/Meta, X, Spotify, Dropbox, Strava, LinkedIn, Discord, Twitch, Reddit, Zoom, Atlassian, Notion, Fitbit, Xero, Box, Intuit, Withings, Ping.
+1. Providers: Google, Microsoft Entra ID, Apple, Auth0, Okta, OneLogin, Keycloak, AWS Cognito, GitHub, Slack, Salesforce, Facebook/Meta, X, Spotify, Dropbox, Strava, LinkedIn, Discord, Twitch, Reddit, Zoom, Atlassian, Notion, Fitbit, Xero, Box, Intuit, Withings, Ping, ForgeRock (PingAM).
 2. Client library workarounds (`LIB-*`): which providers well-known libraries special-case, and why.
 3. Spec-level edge cases (`S*`): RFC 6749, RFC 7636, RFC 8252, RFC 9207, RFC 9700, RFC 10017, RFC 7009, RFC 6750, RFC 9449, OpenID Connect Core, OIDC Discovery and RFC 8414.
 4. The 20 behaviours most likely to break a naive client library.
@@ -1456,6 +1456,34 @@ Slack has two token endpoints. "Add to Slack" app installs use `oauth.v2.access`
 - Client must: Treat JSON `null` members as absent. Keep the previous ID token claims when a refresh omits `id_token` (OIDC Core §12.2 makes it optional).
 - Sources: https://github.com/openid/AppAuth-Android/issues/1055
 
+## ForgeRock (PingAM), signed in with an app's own screens
+
+Research date: 2026-10-29.
+
+### FR-1. REST authentication through a tree
+- Behaviour: An app signs the person in with its own screens through `POST /json/realms/root/realms/<realm>/authenticate`. AM answers a node with an `authId` and `callbacks`, such as a `NameCallback` and a `PasswordCallback`, each with `output` to show and `input` (`IDToken1`, `IDToken2`) to fill. The app posts the filled node back, and the last one answers the SSO token: `{"tokenId":"AQIC5wM…","successUrl":"/am/console"}`. A failed login answers 401 `{"code":401,"reason":"Unauthorized","message":"Login failure"}`; that body is UNVERIFIED.
+- Fake server: `POST /p/forgerock/json/authenticate`: an empty body answers the node; the filled node answers `tokenId`, or 401 for a wrong password.
+- Client must: leave the tree to the app's screens, and take the SSO token only in the authorization step (FR-2).
+- Sources: https://docs.pingidentity.com/pingam/8/am-authentication/authn-rest.html ; https://docs.pingidentity.com/pingam/8/am-authentication/login-using-REST.html
+
+### FR-2. The authorization endpoint takes the SSO token in a POST
+- Behaviour: The client POSTs to `/oauth2/realms/root/realms/<realm>/authorize` with the SSO token in the `iPlanetDirectoryPro` cookie, `csrf` repeating it, `decision=allow` (needed unless consent is saved), and the usual parameters (`response_type=code`, `client_id`, `redirect_uri`, `scope`, `state`, PKCE). AM answers 302 with the code in `Location`. Without a valid session it sends the person to its sign-in page. AM also takes the SSO token in a header named after its cookie, `iPlanetDirectoryPro: <token>`; this form is UNVERIFIED: Lexy, an app built on Exact, sends it, as its Expo app does (`src/auth/lexus-auth.ts`), and no provider documentation names it for this endpoint.
+- Fake server: `POST /p/forgerock/authorize` with the token in the cookie or an `iPlanetDirectoryPro` header answers the 302 a browser's GET would; anything else redirects to `/p/forgerock/login`.
+- Client must: let the app send this request (`signIn`'s `authorize`), then check the `Location` as any callback (`state`, `iss`, `code`) and exchange the code with PKCE.
+- Sources: https://docs.pingidentity.com/pingam/8/am-oauth2/oauth2-authz-grant.html ; https://backstage.pingidentity.com/docs/am/7/oauth2-guide/oauth2-authorize-endpoint.html
+
+### FR-3. Refresh tokens rotate when the realm says so
+- Behaviour: With "Issue Refresh Tokens on Refreshing Access Tokens" on, a refresh issues a new refresh token and expires the old one.
+- Fake server: `rotation: 'rotate'`; a spent token is refused as `invalid_grant`.
+- Client must: keep each new refresh token before using the access token it came with, and refresh once at a time.
+- Sources: https://docs.pingidentity.com/pingam/8/am-oauth2/oauth2-refresh-tokens.html
+
+### FR-4. An API gateway answers 403 for an expired access token
+- Behaviour: Lexus's API gateway, in front of a ForgeRock realm, answers 403, and sometimes 401, once the access token lapses, where RFC 6750 §3.1 gives 401 `invalid_token` (403 is `insufficient_scope`). Lexy, an app built on Exact, saw it; no provider documentation says so.
+- Fake server: `expiredStatus: 403` on `/p/forgerock/api/me`; an unknown token still answers 401.
+- Client must: refresh once on the statuses the app names for the API (`expiredStatus: [401, 403]`), and never on a 403 otherwise.
+- Sources: RFC 6750 §3.1, https://www.rfc-editor.org/rfc/rfc6750#section-3.1
+
 # 2. Client library workarounds
 
 ### LIB-1. golang.org/x/oauth2: `expires_in` as string, form-encoded responses, errors with HTTP 200, auth-style probing, refresh token retention, `token_type` normalization
@@ -1867,6 +1895,7 @@ These items have no source for the behaviour as a whole. The fake server shapes 
 - GOOG-17 (Google token endpoint 429 and 5xx), GH-19 (GitHub token endpoint 429 and 5xx), SLACK-11 (Slack callback error shape), X-11 (X token endpoint CORS), APPLE-14 (Apple RFC 9207 `iss`), AUTH0-12 (Auth0 loopback any port; the source thread was removed).
 - SPOT-3 (Spotify single-use refresh tokens) has only non-staff community reports.
 - ZOOM-3 (Zoom rotation) has conflicting staff statements.
+- FR-4 (an API gateway's 403 for an expired access token) is observed by an app, with no provider documentation.
 
 The items below have a sourced core and at least one UNVERIFIED detail. The item text names the detail.
 
@@ -1945,3 +1974,5 @@ The items below have a sourced core and at least one UNVERIFIED detail. The item
 - BOX-1: Single-use refresh tokens, 60-day lifetime
 - WITHINGS-1: Token response wrapped in `{"status":..., "body":{...}}`; `action=requesttoken` parameter
 - S12: Client credentials encoding in HTTP Basic (which named providers accept only raw, non-form-encoded credentials)
+- FR-1: the body of a failed login's 401
+- FR-2: the SSO token in a header named after its cookie

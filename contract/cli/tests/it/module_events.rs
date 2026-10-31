@@ -129,6 +129,50 @@ fn permission_ticket(r: &Runner<NoData>) -> u64 {
 }
 
 #[test]
+fn suggestion_sets_include_module_events_and_frames_accept_declared_host_sends() {
+    let app = App::new("suggestion-callers");
+    let property =
+        contract::properties("always \"heard\"\n  expect state heard in \"one\" \"two\"\nafter \"clearHostCounter\" \"clear\"\n  writes none\n")
+            .unwrap();
+    for event in ["", " chime=hostValue"] {
+        app.write(
+            "app.contract",
+            &format!(
+                r#"use chime, clearCount from "@fixture/bell"
+component App
+  state heard = "one"
+  action hear(v: string)
+    heard = v
+  action hostValue(v: string)
+    hear(v)
+  action clearHostCounter
+    clearCount()
+  view
+    column{event}
+      button press=hear("two")
+        text "Two"
+"#
+            ),
+        );
+        app.compile().unwrap_or_else(|e| panic!("{e:?}"));
+        let checked =
+            contract::check_suggestions_path(&app.0.join("app.contract"), &property).unwrap();
+        if event.is_empty() {
+            assert_eq!(checked[0], contract::SuggestionCheck::Keep);
+        } else {
+            assert!(
+                matches!(
+                    &checked[0],
+                    contract::SuggestionCheck::Drop { rule: "set", .. }
+                ),
+                "{checked:?}"
+            );
+        }
+        assert_eq!(checked[1], contract::SuggestionCheck::Keep);
+    }
+}
+
+#[test]
 fn the_fixture_compiles_its_statements_and_its_root_events() {
     let app = App::new("compile");
     let plan = app.compile().unwrap_or_else(|e| panic!("{e:?}"));

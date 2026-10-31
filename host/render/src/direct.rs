@@ -112,7 +112,7 @@ pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
     };
     let state = read_checkpoint(&page.checkpoint).map_err(|e| format!("the checkpoint: {e}"))?;
     let handlers = tree.handlers(plan);
-    let activate = activation(plan, location, &state, &handlers);
+    let (activate, wake) = activation(plan, location, &state, &handlers, page.clocked, &viewport);
     // The head's fields, before any element: the tree's head, its first
     // root's viewport policies, and the `@keyframes` its elements name.
     let (keyframes, scroll) = before_root(&tree);
@@ -192,7 +192,7 @@ pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
     hand(rest.as_bytes());
     let checkpoint = page.checkpoint.clone();
     let digest = digest(&encoded(plan), location, &checkpoint, &document.root);
-    let close = body_close_js(shell, js, &digest, activate, &checkpoint);
+    let close = body_close_js(shell, js, &digest, activate, &wake, &checkpoint);
     if boot.is_some() {
         // Right after the settled root's `</div>`: before the runtime runs.
         let (root_end, rest) = close.split_at("</div>".len());
@@ -215,6 +215,7 @@ pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
             state,
             settled,
             activate,
+            wake,
             runtime_form: true,
         },
         body,

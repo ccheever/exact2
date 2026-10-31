@@ -424,7 +424,7 @@ pub fn executable(path: &Path) -> bool {
     };
     path.metadata().is_ok_and(|m| m.is_file())
         // SAFETY: a NUL-terminated path.
-        && unsafe { libc::faccessat(libc::AT_FDCWD, c.as_ptr(), libc::X_OK, libc::AT_EACCESS) } == 0
+        && unsafe { libc::faccessat(libc::AT_FDCWD, c.as_ptr(), libc::X_OK, crate::AT_EACCESS) } == 0
 }
 
 /// The first executable named `name` on `path` (a `PATH` value), as a

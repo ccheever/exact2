@@ -64,8 +64,12 @@ fn surface(p: &mut Presenter<()>) -> Value {
     agent(p, json!({"op":"state"}))["surface"].clone()
 }
 fn outside(p: &mut Presenter<()>) {
-    p.pointer_down(10., 80., 1.).unwrap();
-    p.pointer_up(10., 80., 2.).unwrap();
+    // Each click later than the last: one that reaches a popover's live page
+    // keeps the pointer's clock.
+    static CLICKS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let at = 10. * f64::from(CLICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)) + 1.;
+    p.pointer_down(10., 80., at).unwrap();
+    p.pointer_up(10., 80., at + 1.).unwrap();
     p.run_commands(|| ());
     p.frame();
 }
@@ -321,23 +325,22 @@ fn popover_surfaces_placement_dismissal_and_modal_replacement() {
     assert_eq!(open["kind"], "popover");
     assert_eq!(open["modal"], false);
     assert_eq!(words(&p, "toggles"), "closed>open");
+    // A click outside light-dismisses it and reaches the live page (HTML),
+    // here the Page button: it presses and takes the focus.
     outside(&mut p);
     assert!(surface(&mut p).is_null());
-    assert_eq!(words(&p, "result"), ":0:0");
+    assert_eq!(words(&p, "result"), ":0:1");
     assert_eq!(words(&p, "toggles"), "open>closed");
-    assert_eq!(p.focus(), Some(invoker));
+    assert_eq!(p.focus(), Some(id(&p, "page")));
     assert!(p.rect_of(root).is_none());
     tap(&mut p, "invoker");
     key(&mut p, "Escape");
     assert!(surface(&mut p).is_null());
-    // The agent's tap on the page under it dismisses it and presses nothing.
+    // The agent's tap on the page under it dismisses it and presses there.
     tap(&mut p, "invoker");
-    let page = id(&p, "page");
-    let tapped: Value = serde_json::from_str(&p.tap(page).unwrap()).unwrap();
-    p.run_commands(|| ());
-    assert!(tapped["dismissed"].is_number(), "{tapped}");
+    tap(&mut p, "page");
     assert!(surface(&mut p).is_null());
-    assert_eq!(words(&p, "result"), ":0:0");
+    assert_eq!(words(&p, "result"), ":0:2");
     tap(&mut p, "invoker");
     tap(&mut p, "replace");
     assert_eq!(surface(&mut p)["kind"], "dialog");
@@ -347,7 +350,9 @@ fn popover_surfaces_placement_dismissal_and_modal_replacement() {
     tap(&mut p, "manual");
     outside(&mut p);
     key(&mut p, "Escape");
-    assert!(p.system_back(0.));
+    // Back under a manual popover is the page's (no close watcher): with no
+    // route to go back to, the app does not take it, and the popover stays.
+    assert!(!p.system_back(0.));
     assert_eq!(surface(&mut p)["kind"], "popover");
     tap(&mut p, "manual-hide");
     assert!(surface(&mut p).is_null());
@@ -440,6 +445,8 @@ fn authored_controls_keep_radio_keys_and_tab_inside() {
                     "dialog id=\"box\"",
                     "column id=\"box\" popover=\"auto\" role=\"dialog\"",
                 )
+                // A popover moves the focus in only to what autofocuses (HTML).
+                .replace("value=\"a\"", "value=\"a\" autofocus=true")
         } else {
             source.into()
         };
@@ -455,7 +462,14 @@ fn authored_controls_keep_radio_keys_and_tab_inside() {
         key(&mut p, "ArrowLeft");
         assert_eq!(p.focus(), Some(id(&p, "b")));
         assert_eq!(words(&p, "choice"), "b");
-        for name in ["close", "b", "close", "b"] {
+        // Tab stays inside a modal box; a popover's stops follow its
+        // invoker's (HTML's popover focus scope), then the page goes on.
+        let order = if popover {
+            ["close", "outside", "open", "b"]
+        } else {
+            ["close", "b", "close", "b"]
+        };
+        for name in order {
             key(&mut p, "Tab");
             assert_eq!(p.focus(), Some(id(&p, name)));
         }

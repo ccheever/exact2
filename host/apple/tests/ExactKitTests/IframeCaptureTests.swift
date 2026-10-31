@@ -235,13 +235,19 @@ final class IframeCaptureTests: XCTestCase {
         web.scrollView.setZoomScale(1.5, animated: false)
         web.scrollView.setContentOffset(CGPoint(x: 90, y: 60), animated: false)
         #endif
-        pause(0.8)
-        var read: [Double]?
-        web.evaluateJavaScript("(() => { const r = document.getElementById('target').getBoundingClientRect(), v = visualViewport; return [r.x, r.y, r.width, r.height, v.offsetLeft, v.offsetTop, v.pageLeft, v.pageTop, v.scale, scrollX, scrollY]; })()") { value, _ in
-            read = (value as? [NSNumber])?.map(\.doubleValue) ?? []
-        }
-        spin { read != nil }
-        let measured = try XCTUnwrap(read)
+        // WebKit hands the zoom and the offset to the page a few frames later, later still under
+        // load (a fixed 0.8 s failed twice in full parallel runs): read until the page has both.
+        var measured: [Double] = []
+        let deadline = Date().addingTimeInterval(10)
+        repeat {
+            pause(0.2)
+            var read: [Double]?
+            web.evaluateJavaScript("(() => { const r = document.getElementById('target').getBoundingClientRect(), v = visualViewport; return [r.x, r.y, r.width, r.height, v.offsetLeft, v.offsetTop, v.pageLeft, v.pageTop, v.scale, scrollX, scrollY]; })()") { value, _ in
+                read = (value as? [NSNumber])?.map(\.doubleValue) ?? []
+            }
+            spin { read != nil }
+            measured = read ?? []
+        } while Date() < deadline && !(measured.count == 11 && abs(measured[8] - 1.5) < 0.01 && measured[6] > 0 && measured[7] > 0)
         XCTAssertEqual(measured.count, 11, "\(measured)")
         guard measured.count == 11 else { return }
         say("iframe capture: rect \(measured[0..<4]), visualViewport offset \(measured[4]),\(measured[5]) page \(measured[6]),\(measured[7]) scale \(measured[8]), scroll \(measured[9]),\(measured[10])")

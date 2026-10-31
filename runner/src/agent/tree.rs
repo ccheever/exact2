@@ -99,6 +99,12 @@ fn tree_rows<D: DataSource>(
         s.push(']');
         if runner.inactive(node.id) {
             s.push_str(",\"inactive\":true");
+            // LLP 1153 D8: `hidden` where no host shows the route (every
+            // inactive one but a page a sheet covers), so an agent reading
+            // the tree sees which screen shows.
+            if crate::head::hidden_route(kernel, node.id) {
+                s.push_str(",\"hidden\":true");
+            }
         }
         if runner.unopened_tabs().contains(&node.id) {
             s.push_str(",\"unopened\":true");

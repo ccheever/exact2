@@ -525,6 +525,41 @@ fn a_native_button_marks_bound_size_and_padding() {
 }
 
 #[test]
+fn a_capsule_control_takes_no_curve() {
+    // Written, the capsule's round corner is in the node's CSS beside its radius.
+    let plan = contract::compile(
+        r#"component App
+  view
+    button "Go" -exact-corner-style="capsule" testId="go"
+"#,
+    )
+    .unwrap();
+    let sites = crate::emit::Sites::new(&plan).unwrap();
+    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
+    let go = parts
+        .iter()
+        .flatten()
+        .find(|part| part.props.get("data-testid").is_some_and(|id| id == "go"))
+        .unwrap();
+    assert!(
+        go.css.contains("--exact-control-curve:round;"),
+        "{}",
+        go.css
+    );
+    // Bound, the module writes the curve with the radius.
+    let plan = contract::compile(
+        r#"component App
+  state round = true
+  view
+    button "Go" -exact-corner-style=(round ? "capsule" : "medium")
+"#,
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("--exact-control-curve"), "{js}");
+}
+
+#[test]
 fn static_authored_clears_keep_inline_css_over_platform_rules() {
     let plan = contract::compile(
         r##"component App
@@ -943,33 +978,217 @@ fn a_bound_side_stays_its_authors_right_to_left_and_the_sheets_mirror() {
     .unwrap();
     let js = crate::emit::emit(&conditional, false, false).unwrap().js;
     assert!(js.contains("\"padding-inline-start\""), "{js}");
-    // Its author writing the other side of the pair, neither mirrors (as the kernel and wasm keep them).
+    // Its author binding the other side of the pair, that inset is physical
+    // while the author's side has a value and logical while it is unset (as
+    // the kernel and wasm keep them): each write is gated on the author's.
     let mixed = contract::compile(
-        "component App\n  state show = true\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : 4) testId=\"r\"\n          if show\n            image \"symbol:person\"\n          text \"Name\"\n",
+        "component App\n  state show = true\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : none) testId=\"r\"\n          if show\n            image \"symbol:person\"\n          text \"Name\"\n",
     )
     .unwrap();
     let js = crate::emit::emit(&mixed, false, false).unwrap().js;
-    assert!(
-        js.contains("\"padding-left\"") && js.contains("\"padding-right\""),
-        "{js}"
-    );
-    assert!(
-        !js.contains("inline-start") && !js.contains("inline-end"),
-        "{js}"
-    );
-    // And beside the sheet's static inset (an unconditional symbol): that inset stays left too.
+    for (side, gate) in [
+        ("padding-left", "?null:("),
+        ("padding-inline-start", "==null?("),
+    ] {
+        let at = js
+            .find(&format!("\"{side}\""))
+            .unwrap_or_else(|| panic!("{side}: {js}"));
+        let write = &js[at..js[at..].find(";S").map_or(js.len(), |n| at + n)];
+        assert!(
+            write.contains(gate),
+            "{side} is gated on the author's side: {write}"
+        );
+    }
+    // And beside the sheet's static inset (an unconditional symbol): that
+    // inset stays left in the class; while the author's side is unset,
+    // neither is the author's, and inline logical sides mirror the pair.
     let mixed = contract::compile(
-        "component App\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : 4) testId=\"r\"\n          image \"symbol:person\"\n          text \"Name\"\n",
+        "component App\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : none) testId=\"r\"\n          image \"symbol:person\"\n          text \"Name\"\n",
     )
     .unwrap();
     let out = crate::emit::emit(&mixed, false, false).unwrap();
-    let all = format!("{}{}", out.css, out.js);
     assert!(
-        all.contains("padding-left:") && out.js.contains("\"padding-right\""),
-        "{all}"
+        out.css.contains("padding-left:3.4375rem") && out.js.contains("\"padding-right\""),
+        "{}{}",
+        out.css,
+        out.js
+    );
+    assert!(!out.css.contains("padding-inline-"), "{}", out.css);
+    for (side, value) in [("start", "3.4375rem"), ("end", "0px")] {
+        let write = format!("\"padding-inline-{side}\",\"\",()=>(v=>v==null?\"{value}\":null)");
+        assert!(out.js.contains(&write), "{write}: {}", out.js);
+    }
+}
+
+/// A progress in block flow keeps its width with `justify-self: start` only where its parent's
+/// `justify-items` doesn't align it: a parent's own `start`, `center` or `end`, written or bound,
+/// aligns the progress, as the kernel's block layout does.
+#[test]
+fn a_progress_follows_its_block_parents_justify_items() {
+    let program = |items: &str, inner: &str| {
+        let source = format!("component App\n  state alignment = \"center\"\n  view\n    box justify-items={items} width=240 height=80\n      progress testId=\"outer\"\n      box width=240 height=40{inner}\n        progress testId=\"inner\"\n");
+        let out = crate::emit::emit(&contract::compile(&source).unwrap(), false, false).unwrap();
+        format!("{}\n{}", out.css, out.js)
+    };
+    let written = program("\"center\"", "");
+    assert!(
+        written.contains("--exact-progress-aligned:auto"),
+        "{written}"
     );
     assert!(
-        !all.contains("padding-inline-start") && !all.contains("padding-inline-end"),
-        "{all}"
+        written.contains("var(--exact-progress-aligned,var(--exact-progress-justify,start))"),
+        "{written}"
     );
+    // A plain block inside an aligning one cuts the inheritance: its progress keeps `start`.
+    assert!(
+        written.contains("--exact-progress-aligned:initial"),
+        "{written}"
+    );
+    let normal = program("\"normal\"", "");
+    assert!(
+        !normal.contains("--exact-progress-aligned:auto"),
+        "{normal}"
+    );
+    // A bound justify-items writes the property, `initial` for a value that aligns nothing.
+    let bound = program("alignment", "");
+    assert!(bound.contains("\"--exact-progress-aligned\""), "{bound}");
+    assert!(
+        bound.contains("?\"auto\":\"initial\""),
+        "the bound writer: {bound}"
+    );
+    assert!(!normal.contains("?\"auto\":\"initial\""), "{normal}");
+    // A server render's DOM keeps the bound string unparsed (dom.js): spaces are collapsed first.
+    let mapper = bound
+        .split("\"--exact-progress-aligned\"")
+        .nth(1)
+        .unwrap_or_default();
+    let mapper = &mapper[..mapper.find("\"auto\":\"initial\"").unwrap_or(0)];
+    assert!(mapper.contains(".trim()"), "{mapper}");
+}
+
+/// A canvas follows the same rule as a progress, written or bound: its `justify-self: start`
+/// gives way to an aligning parent's `justify-items` and stays where the parent would stretch it.
+#[test]
+fn a_canvas_follows_its_parents_justify_items() {
+    let program = |items: &str| {
+        let source = format!("component App\n  state alignment = \"center\"\n  view\n    box justify-items={items} width=240 height=80\n      canvas testId=\"c\" height=40\n");
+        let out = crate::emit::emit(&contract::compile(&source).unwrap(), false, false).unwrap();
+        format!("{}\n{}", out.css, out.js)
+    };
+    let written = program("\"center\"");
+    assert!(
+        written.contains("--exact-progress-aligned:auto"),
+        "{written}"
+    );
+    assert!(
+        written.contains("justify-self:var(--exact-progress-aligned,start)"),
+        "{written}"
+    );
+    assert!(!written.contains("justify-self:start"), "{written}");
+    let normal = program("\"normal\"");
+    assert!(
+        normal.contains("--exact-progress-aligned:initial"),
+        "{normal}"
+    );
+    let bound = program("alignment");
+    assert!(
+        bound.contains("\"--exact-progress-aligned\"") && bound.contains("?\"auto\":\"initial\""),
+        "the bound writer: {bound}"
+    );
+}
+
+/// A canvas that parents a canvas writes its child's alignment under the pair's other name, so its
+/// own `justify-self` still reads what its parent wrote.
+#[test]
+fn a_canvas_inside_a_canvas_reads_the_other_name() {
+    let source = "component App\n  view\n    box justify-items=\"center\" width=240 height=60\n      canvas testId=\"outer\" height=50 justify-items=\"normal\"\n        canvas testId=\"inner\" height=20\n";
+    let out = crate::emit::emit(&contract::compile(source).unwrap(), false, false).unwrap();
+    let css = out.css;
+    for want in [
+        "--exact-progress-aligned:auto",
+        "justify-self:var(--exact-progress-aligned,start)",
+        "--exact-progress-aligned-2:initial",
+        "justify-self:var(--exact-progress-aligned-2,start)",
+    ] {
+        assert!(css.contains(want), "{want}: {css}");
+    }
+    assert!(!css.contains("--exact-progress-aligned:initial"), "{css}");
+    // A component's root inside the canvas reads the canvas's names: uses are inlined.
+    let source = "component App\n  view\n    box justify-items=\"center\" width=240 height=60\n      canvas height=50\n        Inner()\n\ncomponent Inner\n  view\n    canvas height=20\n";
+    let out = crate::emit::emit(&contract::compile(source).unwrap(), false, false).unwrap();
+    assert!(
+        out.css
+            .contains("justify-self:var(--exact-progress-aligned-2,start)"),
+        "{}",
+        out.css
+    );
+}
+
+/// A role an element has natively is left off the page, as the live host
+/// leaves it off (host/web/src/element.rs `implicit_role`): a single `select`
+/// is a combobox already. A role an element lacks stays.
+#[test]
+fn a_native_elements_own_role_is_not_restated() {
+    let plan = contract::compile(
+        "component App\n  state v = \"a\"\n  action pick(s: string)\n    v = s\n  view\n    column\n      select value=v change=pick\n        option value=\"a\"\n          text \"A\"\n      button press=pick(\"b\") role=\"radio\" aria-checked=true\n        text \"B\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(!js.contains("combobox"), "{js}");
+    assert!(
+        js.contains("\"role\":\"radio\"") || js.contains("role:\"radio\""),
+        "{js}"
+    );
+}
+
+/// A header's bound `appearance` says `none` as element.rs marks a written
+/// one (`data-exact-said~="appearance"`), so the bar's rules and
+/// navigation.js leave it the author's while it reads `none` (LLP 1075.003
+/// §9.10), keeping the header's other said words.
+#[test]
+fn a_bound_appearance_marks_a_header_while_it_reads_none() {
+    let plan = contract::compile(
+        "component App\n  state plain = false\n  view\n    column\n      header appearance=(plain ? \"none\" : \"auto\") justify-content=\"start\" testId=\"h\"\n        text \"Title\" role=\"heading\" aria-level=1\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let at = js
+        .find("\"data-exact-said\",()=>")
+        .unwrap_or_else(|| panic!("{js}"));
+    let write = &js[at..js[at..].find("});").map_or(js.len(), |n| at + n)];
+    assert!(
+        write.contains("[\"justify-content\"]") && write.contains("w.push(\"appearance\")"),
+        "{write}"
+    );
+}
+
+/// @ref LLP 1153 D7.2 — a table and a description list are HTML's own
+/// elements, a cell's `colspan`, `rowspan` and `scope` their attributes, and
+/// `aria-sort` the attribute it is; the browser lays them out.
+#[test]
+fn a_table_and_a_description_list_are_their_elements() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      table\n        caption\n          text \"Moves\"\n        thead\n          tr\n            th scope=\"col\" aria-sort=\"ascending\"\n              text \"Name\"\n            th scope=\"col\"\n              text \"Power\"\n        tbody\n          tr\n            td colspan=2\n              text \"Tackle\"\n          tr\n            td rowspan=2\n              text \"a\"\n            td\n              text \"b\"\n        tfoot\n          tr\n            td\n              text \"2\"\n      dl\n        dt\n          text \"Type\"\n        dd\n          text \"Electric\"\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    for tag in [
+        "table", "caption", "thead", "tbody", "tfoot", "tr", "th", "td", "dl", "dt", "dd",
+    ] {
+        assert!(
+            out.js.contains(&format!("\"{tag}\",")),
+            "<{tag}> in {}",
+            out.js
+        );
+    }
+    for attr in [
+        "\"scope\":\"col\"",
+        "\"aria-sort\":\"ascending\"",
+        "\"colspan\":\"2\"",
+        "\"rowspan\":\"2\"",
+    ] {
+        assert!(out.js.contains(attr), "{attr} in {}", out.js);
+    }
+    // No grid of the host's: the browser's UA sheet gives each its display.
+    assert!(!out.css.contains("display:grid"), "{}", out.css);
 }

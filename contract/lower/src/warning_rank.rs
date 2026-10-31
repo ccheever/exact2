@@ -58,6 +58,15 @@ pub fn web_only(id: &str, message: &str) -> bool {
         }
 }
 
+/// A warning that is information, not a problem: `tamber-unreachable` names
+/// a control whose host draws the platform's own look, which the author
+/// should know of and cannot change (LLP 1121 D9, amended 2026-10-30). A
+/// build counts it apart, and verify and `test` do not count it
+/// (`scripts/app-cli.mjs` `information`).
+pub fn information(id: &str) -> bool {
+    id == "tamber-unreachable"
+}
+
 /// The first [`crate::MAX_WARNINGS`] of `out` by rank, source order kept
 /// within one.
 pub(crate) fn keep_first(out: &mut Vec<LowerError>) {

@@ -422,7 +422,7 @@ fn route_header<'a>(children: &'a [Node], after: &[&'a Node], out: &mut Vec<Lowe
     let Some(header @ Node::Element { tag, attrs, .. }) = children.first() else {
         return;
     };
-    if tag != "header" || literal(attrs, "display") == Some("none") || computed(attrs, "display") {
+    if tag != "header" || nested_header::no_bar(attrs) {
         return;
     }
     let mut bar = Bar::default();

@@ -151,6 +151,107 @@ test('blank text rows clear a shorthand start through adoption', async () => {
   });
 }, 60000);
 
+// @ref LLP 1153 D7.2 — the HTML parser puts a table's own rows in a `tbody`, and the plan has it, so
+// the parsed page is the one construction walks; a cell holding one text stays a `table-cell`.
+test('a table rendered ahead adopts without a rebuild, its cells still cells', async () => {
+  const source = `routes nav
+  home "/" render=build
+
+component Moves
+  state count = 0
+  action add
+    count = count + 1
+  view
+    column
+      button testId="add" press=add
+        text "Add"
+      table testId="moves"
+        caption testId="caption"
+          text "Moves"
+        tr
+          th scope="col" testId="name"
+            text "Name"
+          th scope="col"
+            text "Power"
+        tr
+          td testId="tackle"
+            text "Tackle"
+          td testId="count"
+            text \`\${count}\`
+`;
+  const cells = `[...document.querySelectorAll('caption, th, td')].map(e => getComputedStyle(e).display)`;
+  const shape = `[...document.querySelector('table').children].map(e => e.localName + ':' + e.children.length)`;
+  const want = ['table-caption', 'table-cell', 'table-cell', 'table-cell', 'table-cell'];
+  for (const renderer of ['rust', 'js']) await renderedPages(source, async (_, html, dist) => {
+    const displayed = html('').match(/<(?:caption|t[dh])\b[^>]*>/g).filter(tag => tag.includes('display:'));
+    expect([renderer, displayed]).toEqual([renderer, []]);
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    let suite, browser;
+    try {
+      suite = await suiteBrowser();
+      const page = await suite.newPage({ javaScriptEnabled: false });
+      await page.goto(server.url.href);
+      expect([renderer, await page.evaluate(cells), await page.evaluate(shape)]).toEqual([renderer, want, ['caption:1', 'tbody:2']]);
+      browser = await open({ host: 'web', url: server.url.href });
+      const journal = await browser.carrier.evaluate('globalThis.exact.journal');
+      expect([renderer, journal.some(l => l.endsWith('adopted the document')), journal.filter(l => /afresh|abandoned/.test(l))]).toEqual([renderer, true, []]);
+      expect([renderer, await browser.carrier.evaluate(cells), await browser.carrier.evaluate(shape)]).toEqual([renderer, want, ['caption:1', 'tbody:2']]);
+      await browser.tap('add');
+      expect(await browser.carrier.evaluate(`document.querySelector('[data-testid="count"]').textContent`)).toBe('1');
+    } finally { await browser?.close(); await suite?.close(); server.stop(true); }
+  }, {}, {}, renderer);
+}, 180000);
+
+// The parser's "in table" mode gives a row the table holds a `tbody` in either branch of a conditional
+// that makes a row in one and a row group in the other; the plan has one in each, so either adopts.
+test('a table rendered ahead adopts either branch of a conditional that makes rows', async () => {
+  const shape = `[...document.querySelector('table').children].map(e => e.localName + ':' + [...e.children].map(c => c.localName).join(','))`;
+  for (const shown of [true, false]) {
+    const source = `routes nav
+  home "/" render=build
+
+component Branches
+  state open = ${shown}
+  action flip
+    open = not open
+  view
+    column
+      button testId="flip" press=flip
+        text "Flip"
+      table
+        if open
+          tr testId="row"
+            td
+              text "open"
+        else
+          tbody
+            tr testId="row"
+              td
+                text "shut"
+`;
+    for (const renderer of ['rust', 'js']) await renderedPages(source, async (_, _html, dist) => {
+      const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+        const path = new URL(req.url).pathname;
+        return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+      } });
+      let browser;
+      try {
+        browser = await open({ host: 'web', url: server.url.href });
+        const journal = await browser.carrier.evaluate('globalThis.exact.journal');
+        const at = [renderer, shown];
+        expect([...at, journal.some(l => l.endsWith('adopted the document')), journal.filter(l => /afresh|abandoned/.test(l))]).toEqual([...at, true, []]);
+        expect([...at, await browser.carrier.evaluate(shape)]).toEqual([...at, ['tbody:tr']]);
+        await browser.tap('flip');
+        expect([...at, await browser.carrier.evaluate(shape)]).toEqual([...at, ['tbody:tr']]);
+        expect(await browser.carrier.evaluate(`document.querySelector('[data-testid="row"]').textContent`)).toBe(shown ? 'shut' : 'open');
+      } finally { await browser?.close(); server.stop(true); }
+    }, {}, {}, renderer);
+  }
+}, 300000);
+
 test('select and date text styles preserve shell leading only under a said row', async () => {
   const ids = ['select-said','select-bound-said','date-said','time-bound-said','select-unsaid','select-bound-unsaid','date-unsaid','time-bound-unsaid'];
   for (const weighted of [false, true]) await textStylePage(ids, async (before, read, tap, browser) => {
@@ -196,6 +297,24 @@ component Greeting
     expect(html('')).toContain('>Bonjour<');
   }, { 'strings/fr.json': '{"hello":"Bonjour"}', 'strings/en.json': '{"hello":"Hello"}' }, { lang: 'fr', strings: { base: 'fr' } });
 }, 30000);
+
+// A link the render binds to data keeps its href, so the page navigates before the runtime runs, or without it.
+test('both document renderers keep the hrefs of links bound to data', async () => {
+  for (const how of ['js', 'rust']) await renderedPages(`routes nav
+  home "/" render=build
+  item "/items/:id"
+
+component Home
+  state ids: string[] = ["a", "b"]
+  view
+    main
+      for id in ids key=id
+        link href=path("item", id)
+          text id
+`, (_, html) => {
+    expect([how, html('').match(/<a [^>]*>/g)?.map(a => /href="([^"]*)"/.exec(a)?.[1])]).toEqual([how, ['/items/a', '/items/b']]);
+  }, {}, {}, how);
+}, 180000);
 
 test('the render context reports UTC independently of the machine zone', async () => {
   const dir = mkdtempSync(resolve(import.meta.dir, '../../target/place-render-test-'));
@@ -518,8 +637,8 @@ test('pages rendered ahead of time scroll the selected route before they adopt, 
   try {
     const source = resolve(dir, 'app.contract');
     writeFileSync(source, `routes nav
-  tab first "/" render=build
-  tab second "/second" render=build
+  tab first "/" render=build activate=idle
+  tab second "/second" render=build activate=idle
 
 component Tabs
   derive current = top(nav)
@@ -593,7 +712,7 @@ component Tabs
 
 test('JavaScript prerender keeps every sheet and its underlying page visible through adoption', async () => {
   await renderedPages(`routes nav
-  home "/" render=build
+  home "/" render=build activate=idle
 
 component Sheets
   view
@@ -671,6 +790,74 @@ component Page
   }
 }, 180000);
 
+// LLP 1153.001 D8: a rendered page paints without the runtime, so it fetches the runtime at low priority; the shell,
+// which cannot paint until the runtime runs, keeps the default.
+test('both document renderers preload the runtime at low priority, and the shell at the default', async () => {
+  for (const how of ['js', 'rust']) {
+    await renderedPages('routes nav\n  home "/" render=build activate=idle\n\ncomponent Page\n  view\n    text "Home"\n', (_, html, dist) => {
+      const preloads = page => page.match(/<link rel="modulepreload"[^>]*>/g);
+      expect([how, preloads(html(''))]).toEqual([how, ['<link rel="modulepreload" href="./app.js" fetchpriority="low">']]);
+      expect([how, preloads(readFileSync(resolve(dist, 'shell.html'), 'utf8'))]).toEqual([how, ['<link rel="modulepreload" href="./app.js">']]);
+    }, {}, {}, how);
+  }
+}, 180000);
+
+// LLP 1048.007 D1: an undeclared route waits for the reader when its render left the runtime nothing to do, and runs it
+// at once when something is due; a page laid out by the viewport carries its comparisons, which wake it elsewhere.
+test('both document renderers infer an undeclared route\'s activation from its render', async () => {
+  const activation = page => [/data-activate="([a-z]+)"/.exec(page)?.[1], page.match(/<link rel="modulepreload"[^>]*>/g) ?? [], /data-wake="([^"]*)"/.exec(page)?.[1]?.replace(/&(quot|gt|lt|amp);/g, (_, e) => ({ quot: '"', gt: '>', lt: '<', amp: '&' })[e])];
+  const low = '<link rel="modulepreload" href="./app.js" fetchpriority="low">';
+  for (const how of ['js', 'rust']) {
+    await renderedPages(`routes nav
+  home "/" render=build
+  clock "/clock" render=build
+  wide "/wide" render=build
+
+shape Viewport
+  width: number
+
+component App
+  state n = 0
+  state ticks = 0
+  resource viewport = exactViewport() as shape Viewport
+  derive wide = viewport.width >= 640
+  action add
+    n = n + 1
+  action tick
+    ticks = ticks + 1
+  task ticker when top(nav).name == "clock"
+    every(1000, tick)
+  view
+    main
+      if top(nav).name == "home"
+        button "Add" press=add
+      if top(nav).name == "clock"
+        text \`\${ticks}\`
+      if top(nav).name == "wide"
+        text (wide ? "wide" : "narrow")
+`, async (_, html, dist) => {
+      const wake = '[["(width >= 640px)",false]]';
+      expect([how, activation(html(''))]).toEqual([how, ['interaction', [], wake]]);
+      expect([how, activation(html('clock'))]).toEqual([how, ['eager', [low], undefined]]);
+      expect([how, activation(html('wide'))]).toEqual([how, ['interaction', [], wake]]);
+      // The capture script wakes the runtime where the comparison differs, and only there.
+      const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+        const path = new URL(req.url).pathname;
+        return new Response(Bun.file(resolve(dist, path === '/wide' ? 'wide/index.html' : path.slice(1))));
+      } });
+      const browser = await suiteBrowser();
+      try {
+        for (const [width, woken] of [[390, false], [1280, true]]) {
+          const page = await browser.newPage({ viewport: { width, height: 800 } });
+          await page.goto(new URL('/wide', server.url).href);
+          await page.waitForTimeout(500);
+          expect([how, width, await page.evaluate(() => !!globalThis.exact?.ready)]).toEqual([how, width, woken]);
+        }
+      } finally { await browser.close(); server.stop(true); }
+    }, {}, {}, how);
+  }
+}, 240000);
+
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {
   const doc = createDocument(), root = doc.getElementById('exact-root');
@@ -725,11 +912,61 @@ component ProgressDocument
       const e = document.querySelector('[data-testid="'+id+'"]'), r = e.getBoundingClientRect(), p = e.parentElement.getBoundingClientRect();
       return { x: r.x - p.x, width: r.width };
     })`);
-    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 0, width: 20 }]);
+    // A block parent's `justify-items: center` centres the sized one, as the kernel's block layout does.
+    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 110, width: 20 }]);
     await browser.tap('toggle');
     expect(await frames()).toEqual([{ x: 0, width: 240 }, { x: 110, width: 20 }]);
     await browser.tap('toggle');
-    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 0, width: 20 }]);
+    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 110, width: 20 }]);
+  } finally {
+    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
+  }
+}, 180000);
+
+test('Rust-rendered canvases follow a bound parent justify-items after adoption, a nested one its own parent', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/canvas-document-agent-test-'));
+  let browser, server;
+  try {
+    const source = resolve(dir, 'app.contract'), dist = resolve(dir, 'dist');
+    writeFileSync(source, `routes nav
+  home "/" render=build
+
+component CanvasDocument
+  state items = "normal"
+  action toggle
+    items = items == "normal" ? "center" : "normal"
+  view
+    column
+      button "Toggle" testId="toggle" press=toggle width=100 height=24
+      box justify-items=items width=240 height=40
+        canvas testId="bound" height=40
+      box justify-items="center" width=240 height=60
+        canvas testId="outer" height=50 justify-items="normal"
+          canvas testId="inner" height=20
+`);
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'caltrain', '--contract', source, '--out', dist, '--render', 'rust'], {
+      cwd: root, env: process.env, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    browser = await open({ host: 'web', url: server.url.href });
+    expect(await browser.carrier.evaluate(`globalThis.exact.journal.some(l => l.endsWith('adopted the document'))`)).toBe(true);
+    const frames = () => browser.carrier.evaluate(`['bound','outer','inner'].map(id => {
+      const e = document.querySelector('[data-testid="'+id+'"]'), r = e.getBoundingClientRect(), p = e.parentElement.getBoundingClientRect();
+      return { x: r.x - p.x, width: r.width };
+    })`);
+    // The server render's inline justify-self: start goes at adoption, so the bound value applies;
+    // the outer canvas is centred by its box although it sets its own child's alignment.
+    expect(await frames()).toEqual([{ x: 0, width: 80 }, { x: 70, width: 100 }, { x: 0, width: 40 }]);
+    await browser.tap('toggle');
+    expect(await frames()).toEqual([{ x: 80, width: 80 }, { x: 70, width: 100 }, { x: 0, width: 40 }]);
+    await browser.tap('toggle');
+    expect(await frames()).toEqual([{ x: 0, width: 80 }, { x: 70, width: 100 }, { x: 0, width: 40 }]);
   } finally {
     await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
   }

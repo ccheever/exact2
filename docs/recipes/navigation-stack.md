@@ -1,12 +1,12 @@
 # Recipe: a navigation stack
 
-A list pushing a detail, a Cancel/Save sheet and an alert (`pattern list-detail`).
+A list pushing a detail, a Cancel/Save sheet, an alert (`pattern list-detail`).
 A second screen is a route (`if` over state gets no Back, links or split).
 
 A route's first `header` with one heading is its bar (title large at `aria-level=1`,
 inline at 2); buttons before it lead, after it trail. A pushed route has
-UIKit's Back, a bare chevron from iOS 26; a `button id="back"` (the root's
-`navigationBack`) with `text "Notes"` titles it "‹ Notes".
+Back; a `button id="back"` (the root's `navigationBack`) with `text "Notes"`
+titles it "Notes".
 
 <!-- check: app -->
 ```contract
@@ -73,7 +73,7 @@ The list: a row that only navigates is a `link` (`href=path(…)`, not a templat
 <!-- check: route notes -->
 ```contract
 column navigationKey=`${e.id}` navigationScroll="notes-list" position="absolute" inset=0
-  header display="flex" align-items="center" padding="8px 16px"
+  header display="flex" align-items="center"
     text "Notes" role="heading" aria-level=1 flex=1
     button press=openAdd aria-label="Add Note" testId="add-note"
       image "symbol:add"
@@ -88,7 +88,7 @@ column navigationKey=`${e.id}` navigationScroll="notes-list" position="absolute"
 <!-- check: route note -->
 ```contract
 column navigationKey=`${e.id}` navigationScroll="note-list" position="absolute" inset=0
-  header display="flex" align-items="center" padding="8px 16px"
+  header display="flex" align-items="center"
     text "Note" role="heading" aria-level=2
   list id="note-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
     for n in lib.filter(x => x.id == e.params.id) key=n.id
@@ -99,12 +99,12 @@ column navigationKey=`${e.id}` navigationScroll="note-list" position="absolute" 
 ```
 
 The sheet: `navigationPresentation="modal"`; its Cancel's `id` is the root's `navigationBack`,
-which a swipe down presses.
+which a swipe down presses. On the web: a dialog, its actions below.
 
 <!-- check: route add -->
 ```contract
 column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
-  header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
+  header display="flex" align-items="center" justify-content="space-between"
     button id="back" press=back aria-label="Cancel"
       image "symbol:close"
     text "New Note" role="heading"
@@ -140,6 +140,7 @@ test "add, open, delete after asking"
   `clock data` before reading a save.
 - A run (a workout, a quiz) has one exit that ends it or asks; no Back leaves it running.
 - An unmatched location offers home (`notfound`); a missing detail says so.
+- `link href="#tags"` scrolls to `id="tags"` once data lands.
 
 ## A screen open twice
 

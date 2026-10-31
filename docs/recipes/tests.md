@@ -24,12 +24,12 @@ test "a repeat is refused and keeps its text; the list survives a relaunch"
 | `tap "id"` (`… contextmenu`) | Presses (long-presses) it; `tap "Milk"`: by text or label. A disabled control fails the step. |
 | `type "id" "text"`, `type "id" key "Enter"` | Sets a value (a `select`'s, a date `"2026-10-10"`, a checkbox `"true"`); presses a key. |
 | `expect text "id" == "…"` | Its text, else its value, else its descendants' text. |
-| `expect tree has "id"` (`missing`) · `expect disabled "id"` (`enabled`) · `expect state groceries.0 .title == "Eggs"` | In the tree or not · a control's `disabled` · a state, derive or resource field. |
+| `expect tree has "id"` (`missing`) · `expect disabled "id"` (`enabled`) · `expect state groceries.0 .title == "Eggs"` | In the tree or not · a control's `disabled` · a state, derive or resource. |
 | `clock data` · `clock settle` · `clock +5000` · `reload` | Lands replies · ends transitions · moves the virtual clock · relaunches on the same storage, at the clock's time. |
-| `back` | The platform's Back: cancels a dialog, else dismisses a sheet, else pops the pushed route. |
+| `back` | The platform's Back: cancels a dialog, else dismisses a sheet, else pops the route. |
 | `fail fetch "<prefix>"`, `pass fetch …` | A lost connection there, then none. |
-| `request POST "/items" {…} as grace` (`expect 409`) | Writes through the app's server as another person ([rest-backend](rest-backend.md)); a status not 2xx (or the `expect`ed one) fails. |
-| `size 390x844`, `epoch`, `time-zone`, `locale`, `seed`, `before data` | Launch lines: before a test's steps, or atop the file. |
+| `request POST "/items" {…} as grace expect 409` | Writes through the app's server as another person ([rest-backend](rest-backend.md)); a status not 2xx fails, or with `expect 409` any other. |
+| `size 390x844`, `at "/item/7#moves"`, `epoch`, `time-zone`, `locale`, `seed`, `before data` | Launch lines, first in a test or atop the file. |
 
 Every other form (drags, `perf`, `on web`): [the grammar](../contract-grammar.md#authored-tests).
 

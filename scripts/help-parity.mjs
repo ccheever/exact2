@@ -6,6 +6,7 @@
 // rather than turning main red.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { appVerbs } from './app-cli.mjs';
 import { HELP, helpText, indexText, knownFlags } from './help.mjs';
 
 /** The `--flags` the `sources` parse, as the scripts spell a read: `args.includes('--x')`, `arg('--x'`,
@@ -39,6 +40,7 @@ export function scriptFlags(root) {
   return [
     ['web', parsed(read('host/web/dev.mjs'), read('scripts/install-page.mjs'), read('scripts/tamber-remote.mjs'), read('scripts/tamber-relay.mjs'), pairTtl, readiness)],
     ['web-build', parsed(read('host/web/build.mjs'))],
+    ['serve', parsed(read('host/web/serve.mjs'))],
     ['agent', agent], ['test', agent], ['verify', parsed(read('scripts/verify.mjs'))],
     ['ios', apple], ['mac', apple],
     ['linux', parsed(read('scripts/build-linux.mjs'))], ['android', parsed(read('scripts/agent-android.mjs'))],
@@ -79,10 +81,13 @@ export function helpParity(root) {
       for (const spec of row.split(' · ')) if (!all.includes(spec.split(' ')[0])) fail('help:hidden', `${verb} --help all does not show ${spec.split(' ')[0]}, which a row of its help names.`, `Its row in HELP['${verb}'] in ${where} is not rendered: an edit to another row took its place.`);
     }
   }
-  const index = indexText({ verbs: Object.keys(HELP).filter((v) => !['new', 'add'].includes(v)) });
-  const indexLines = index.split('\n').length, indexBytes = Buffer.byteLength(index);
-  if (indexLines > 36) fail('help:long', `the help index is ${indexLines} lines, over 36.`, 'It is the one read a builder makes: shorten a verb\'s line or a form.');
-  if (indexBytes > 2800) fail('help:long', `the help index is ${indexBytes} bytes, over 2800.`, 'It is the one read a builder makes: shorten a verb\'s line or a form.');
+  // The index an app's exact.mjs prints, and a game's: each lists its own verbs (app-cli.mjs `appVerbs`).
+  for (const game of [false, true]) {
+    const index = indexText({ verbs: Object.keys(appVerbs('app', '.', { game })) }), kind = game ? 'a game\'s' : 'an app\'s';
+    const indexLines = index.split('\n').length, indexBytes = Buffer.byteLength(index);
+    if (indexLines > 36) fail('help:long', `${kind} help index is ${indexLines} lines, over 36.`, 'It is the one read a builder makes: shorten a verb\'s line or a form.');
+    if (indexBytes > 2800) fail('help:long', `${kind} help index is ${indexBytes} bytes, over 2800.`, 'It is the one read a builder makes: shorten a verb\'s line or a form.');
+  }
   for (const [verb, entry] of Object.entries(HELP)) {
     if (verb === 'contract') continue; // the compiler's own subcommand flags
     const known = knownFlags(verb), rows = [...entry.flags, ...(entry.more ?? [])];

@@ -6,6 +6,10 @@
 
 #[path = "button_css.rs"]
 mod button_css;
+#[path = "element_semantic.rs"]
+mod semantic;
+#[path = "sized_css.rs"]
+mod sized;
 #[path = "element_symbol.rs"]
 mod symbol;
 use exact_kernel::svg::Paint;
@@ -147,9 +151,14 @@ pub(super) fn holds_folded(
 }
 
 /// A box holding a folded text ([`folds`]) is a block, which wraps no
-/// anonymous item around its text.
-pub fn blocks(mut css: String, holds_folded: bool) -> String {
-    if holds_folded {
+/// anonymous item around its text; a table's element keeps the display
+/// HTML's UA sheet gives it (`table-cell`, `table-caption`).
+pub fn blocks(mut css: String, holds_folded: bool, node: &NodeFacts<'_>) -> String {
+    let table = node
+        .props
+        .str(PropId::SemanticTag)
+        .is_some_and(semantic::not_block);
+    if holds_folded && !table {
         css.push_str("display:block;");
     }
     css
@@ -264,10 +273,10 @@ pub fn host_css_of(
         if !node.style.mask.has(StyleId::Isolation) {
             css.push_str("isolation:isolate;");
         }
-        canvas_css(node, &mut css);
+        sized::canvas_css(node, parent, &mut css);
     }
     if is_progress(node) {
-        progress_css(node, parent, &mut css);
+        sized::progress_css(node, parent, &mut css);
     }
     // A root is a block formatting context in the kernel, as CSS's root
     // element is: its first child's top margin stays inside it. On the web a
@@ -325,49 +334,6 @@ pub fn host_css_of(
     css
 }
 
-/// A canvas's `div` sized as a `<canvas>` is: a replaced element whose
-/// natural size is 300×150, ratio 2:1, and whose children never size it.
-/// `contain: size` keeps the children out and `contain-intrinsic-size`
-/// stands in for the natural size (none when a height is given, so the
-/// width comes through the ratio); `justify-self: start` keeps an auto width
-/// at that size in block flow, where a `div` would stretch; the natural
-/// ratio holds under `aspect-ratio: auto`; an automatic minimum height is
-/// its content's, as a replaced box's is, unless a height row bounds it; an
-/// absolutely positioned one is its natural size whatever its insets. Chrome
-/// sizes it as a `<canvas>` everywhere but a flex row's automatic minimum
-/// width, which would need the parent's direction (LLP 1001 §1).
-fn canvas_css(node: &NodeFacts<'_>, css: &mut String) {
-    use exact_kernel::{Dimension, PositionType};
-    let style = &node.style;
-    let given = |id: StyleId, value: Dimension| style.mask.has(id) && value != Dimension::Auto;
-    let (width, height) = (
-        given(StyleId::Width, style.width),
-        given(StyleId::Height, style.height),
-    );
-    css.push_str("contain:size;justify-self:start;");
-    if !height {
-        css.push_str("contain-intrinsic-size:300px 150px;");
-    }
-    if style.rare.aspect_ratio.defers_to_natural() {
-        css.push_str("aspect-ratio:auto 2/1;");
-    }
-    if !given(StyleId::MinHeight, style.min_height) {
-        css.push_str(if height || given(StyleId::MaxHeight, style.max_height) {
-            "min-height:0;"
-        } else {
-            "min-height:min-content;"
-        });
-    }
-    if style.position_type == PositionType::Absolute {
-        if !width {
-            css.push_str("width:fit-content;");
-        }
-        if !height {
-            css.push_str("height:fit-content;");
-        }
-    }
-}
-
 /// Whether the node is an indeterminate `progress` (LLP 1069.001, amended
 /// 2026-10-07), which the page draws as a ring in a box.
 fn is_progress(node: &NodeFacts<'_>) -> bool {
@@ -381,32 +347,6 @@ fn is_progress(node: &NodeFacts<'_>) -> bool {
 fn is_progress_bar(node: &NodeFacts<'_>) -> bool {
     exact_kernel::ControlKind::of(node.node_type, node.props)
         == Some(exact_kernel::ControlKind::ProgressBar)
-}
-
-/// A progress's box sized as the kernel's measured leaf: 20 × 20 content,
-/// each axis CSS's where it is given. Size containment (`container-type:
-/// size`) with a `contain-intrinsic-size` is that content, a flex item's
-/// automatic minimum included; a grid, so the base sheet's ring (its
-/// `::before`) fills the content box whether or not a height is given
-/// (container units resolve to 0 in an automatic height). Like the kernel's form controls (`item_is_table`), it
-/// keeps that width in block flow, where a `div` would stretch
-/// (`justify-self: start`, as a canvas's), and stretches where the kernel
-/// does: in a flex or grid container, and between an absolute box's insets.
-fn progress_css(node: &NodeFacts<'_>, parent: Option<&NodeFacts<'_>>, css: &mut String) {
-    use exact_kernel::{Display, PositionType};
-    let position = node.style.position_type;
-    css.push_str("container-type:size;contain-intrinsic-size:20px 20px;");
-    if node.style.display != Display::None {
-        css.push_str("display:grid;");
-    }
-    // Sticky is laid out as relative, in flow (kernel `style.rs`).
-    let in_flow = matches!(
-        position,
-        PositionType::Static | PositionType::Relative | PositionType::Sticky
-    );
-    if in_flow && parent.is_none_or(|p| p.style.display == Display::Block) {
-        css.push_str("justify-self:start;");
-    }
 }
 
 /// The element for a node: its type, refined by `semanticTag`. A `<button>`
@@ -490,22 +430,12 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
     {
         return "a";
     }
-    if let Some(t) = node.props.str(PropId::SemanticTag) {
-        match t {
-            "time" => return "time",
-            "main" => return "main",
-            "header" => return "header",
-            "nav" => return "nav",
-            "section" => return "section",
-            "footer" => return "footer",
-            "article" => return "article",
-            "aside" => return "aside",
-            "dialog" => return "dialog",
-            // @ref LLP 1021 D1 — HTML's separator, void: the kernel gives it
-            // no children, and its UA rows are the node's own.
-            "hr" => return "hr",
-            _ => {}
-        }
+    if let Some(t) = node
+        .props
+        .str(PropId::SemanticTag)
+        .and_then(semantic::element)
+    {
+        return t;
     }
     match node.node_type {
         NodeType::View | NodeType::List | NodeType::NativeView => "div",
@@ -1117,6 +1047,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityHasPopup => "aria-haspopup",
             PropId::AccessibilityCurrent => "aria-current",
             PropId::AccessibilitySort => "aria-sort",
+            // @ref LLP 1153 D7 — a table cell's own attributes.
+            PropId::ColSpan => "colspan",
+            PropId::RowSpan => "rowspan",
+            PropId::Scope => "scope",
             // HTML's global `title`: the browser's own tooltip (studio diary R24).
             PropId::Title => "title",
             // SVG 2 attributes by their exact (case-sensitive) names (LLP 1055 D1).
@@ -1332,6 +1266,20 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             out.insert("data-exact-said".into(), said.join(" "));
         }
     }
+    // @ref LLP 1075.003 §9.10 — what else its author wrote `appearance: none`
+    // on says so too: in a route's header it is no bar item (navigation.js),
+    // as iOS projects none of it, and a Back control so written is the
+    // route's Back, with none of the bar's beside it.
+    if element(node) != "header"
+        && node.style.written.has(exact_kernel::StyleId::Appearance)
+        && node.style.appearance == exact_kernel::Appearance::None
+    {
+        let words = match out.get("data-exact-said") {
+            Some(said) if !said.is_empty() => format!("{said} appearance"),
+            _ => "appearance".to_string(),
+        };
+        out.insert("data-exact-said".into(), words);
+    }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
     if element(node) == "button" {
         out.get_or_insert_with("type".into(), || "button".into());
@@ -1392,22 +1340,14 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         }
     }
     // A role the element already has natively is left off (ARIA in HTML:
-    // authors should not restate it): a button's `button`, a checkbox's
-    // `checkbox`, a link's `link`. Its accessibility is the element's own.
-    let implicit = match (element(node), out.get("type").map(String::as_str)) {
-        ("button", _) => Some("button"),
-        ("input", Some("checkbox")) => Some("checkbox"),
-        ("input", Some("radio")) => Some("radio"),
-        ("a", _) if out.contains_key("href") => Some("link"),
-        ("progress", _) => Some("progressbar"),
-        _ => None,
-    };
+    // authors should not restate it). Its accessibility is the element's own.
+    let implicit =
+        super::roles::implicit_role(element(node), |name| out.get(name).map(String::as_str));
     if implicit.is_some() && out.get("role").map(String::as_str) == implicit {
         out.remove("role");
     }
     out
 }
-
 #[cfg(test)]
 #[path = "element_name_tests.rs"]
 mod name_tests;
@@ -1427,7 +1367,7 @@ impl<D: exact_runner::DataSource> super::Host<D> {
         );
         let css = folded_css(kernel, node, css, m.is_some_and(|m| m.handled));
         let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
-        let css = blocks(css, holds_folded(kernel, node, &handled));
+        let css = blocks(css, holds_folded(kernel, node, &handled), &node.facts());
         self.paint_css(node, css)
     }
 
@@ -1445,7 +1385,7 @@ impl<D: exact_runner::DataSource> super::Host<D> {
     }
 
     /// Refresh child dependencies: text folds (LLP 1007.001), button metrics
-    /// and a progress's width in block flow.
+    /// and a progress's or canvas's width in block flow.
     pub(super) fn refold(&mut self, id: exact_kernel::ViewId, batch: &mut crate::batch::Batch) {
         let kernel = self.runner.kernel();
         let children = kernel.node(id).map(|n| n.children()).unwrap_or_default();
@@ -1466,6 +1406,7 @@ impl<D: exact_runner::DataSource> super::Host<D> {
             if child != id
                 && !matches!(node.node_type, NodeType::Text | NodeType::Pressable)
                 && !is_progress(&node.facts())
+                && node.node_type != NodeType::Canvas
             {
                 continue;
             }

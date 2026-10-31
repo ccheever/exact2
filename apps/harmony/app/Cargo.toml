@@ -1,0 +1,19 @@
+# Harmony's app crates: a workspace of their own, outside the root's members, as a
+# game's and an app outside the repository are (LLP 1153 D2.4, LLP 1036.001 D4). The
+# Snapback client they link pins a private git source (snapback4/Cargo.toml), which
+# must stay out of the root lock: every app's compiler build resolves that lock. The
+# async lane compiles this workspace (scripts/async.mjs, `harmony-check`).
+[workspace]
+members = ["apple", "linux", "web"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+[patch.crates-io]
+taffy = { path = "../../../vendor/taffy" }
+parley = { path = "../../../vendor/parley" }
+fontique = { path = "../../../vendor/fontique" }
+wgpu-hal = { path = "../../../vendor/wgpu-hal" }

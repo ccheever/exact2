@@ -217,6 +217,12 @@ change the native state inside that pair, then wait for the runner to apply it
   against 939 MB (the medians of 7 launches, every process of the browser
   counted). Install both builds with `bunx playwright@<version> install
   chromium chromium-headless-shell`.
+- **Run the device runner's own tests alone.** `scripts/agent-test.test.mjs`
+  drives a real app on the web, so it needs the pinned Chromium or `CHROME`
+  pointing at an installed Chrome, and one of its tests builds the app's web
+  dist inside its 180 s limit: beside a `cargo build` or `cargo test` holding
+  the Cargo lock, that build is killed at the limit and the test fails with
+  `Received: null`, which is contention, not a fault (seen twice, 2026-10-28).
 - **Name a need when the shell lacks what the test uses.**
   `chromium({ needs })` answers the full build (Chrome for Testing, run with
   `--headless=new`) for `gpu` (WebGPU and WebGL on the GPU: the shell has only

@@ -300,6 +300,14 @@ impl PendingReq {
     fn waited(&self) -> bool {
         self.in_flight() && !self.quiet() && !self.replied && self.reask_at.is_none()
     }
+
+    /// A request with effects the host has not refused at admission, and no
+    /// re-ask's wait (never sent), so it may reach its server: one let go is
+    /// offered to its source to keep, and the app is held open while it is
+    /// out (LLP 1146 D2).
+    fn admitted_effects(&self) -> bool {
+        self.effects && self.refusal.is_none() && !self.refused && self.reask_at.is_none()
+    }
 }
 
 type FocusPath = Vec<(ViewId, NodesId, Vec<Frame>)>;
@@ -1254,8 +1262,10 @@ impl<D: DataSource> Runner<D> {
         std::mem::take(&mut self.surfaces)
     }
 
-    /// The commands actions emitted since the last take.
+    /// The commands actions emitted since the last take, and the runner's
+    /// own scroll to a fragment once its route's content has arrived.
     pub fn take_commands(&mut self) -> Vec<Command> {
+        self.fragment_command();
         std::mem::take(&mut self.commands)
     }
 

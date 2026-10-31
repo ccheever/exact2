@@ -154,6 +154,23 @@ to an animation's end have no image here; verify prints that limit on its world
 line. The census computes undeliverable kinds from the parser's step enum minus
 the delivered kinds and prints the supported forms of input and clock steps.
 
+`clock until state <path> == <literal> within <ms>` emits one `land`, then
+reads the observation with the same matcher as `expect state`. A match lets the
+block continue. A miss stops it as `clock until (not met)`, naming the path,
+observed value and literal. This is a stop of the world's: the oracle has already
+answered, no later answer is pending, and the wait never advances time to fire a
+timer. It is neither an app failure nor a property violation. Both evaluators
+replay the landing; a disagreement still fails verification. The `.events` file
+records its `clock until` origin and bound in a comment. The bound has no effect
+in this world. The usual mutation clock runs after a met step.
+
+The observation matcher reads only top-level values. A field or index path such
+as `session.phase` or `rows.0` stops at `clock until (field path)` before landing.
+The receipt counts met waits, not-met stops and field-path stops separately.
+A leading `size WxH` is consumed as a launch fact with no event: the harness has
+no layout. The test parser refuses a `size` after an input; a `resize` still
+stops the block.
+
 An event is delivered as every host delivers one, at the current time: the
 work already due (a timer, a mutation's `then`, a queue's next send) fires
 first, then the event, which runs even when that work refused
@@ -355,6 +372,22 @@ Frames require at least two eligible input/landing pairs or clock advances and i
 changed queue slots. Sets, whole numbers, options and stays use the same cone as
 authored properties. Existing predicates are compared by scope and line, ignoring names.
 
+Before printing, `contract/analyze` walks the expanded program's writes and callers.
+A frame includes every branch, called action and send continuation; the clock includes
+every task, sequence end, continuation and queued send. A larger finite write set
+widens the frame; a call or send cycle suppresses it. A set must contain the
+initializer and every possible written value, including arguments supplied by every
+caller. Literal choices and literal-list controls are understood. Unbounded values
+from inputs, module-event arguments, host answers or unsupported expressions suppress
+the set. A latch is suppressed if any assignment can
+reset it. Whole-number suggestions require whole initializers and writes: literals,
+increments or decrements by one, lengths, rounding of finite numbers, or callers
+that preserve whole values. A raw clock reading does not qualify. The walk follows
+pure functions and derives, but does not use branch guards to establish invariants,
+so it can lose true suggestions. The receipt counts drops by rule, names their reasons, counts frames
+widened by the code and times the pass. A suggestion is observed and code-consistent,
+not proved; persisted-store and oracle limits still apply.
+
 The receipt records SHA-256 of the entry source, test files concatenated in filename
 order, and `contract::lean::lean_path(file, "app")`, plus the exact2 commit. It ends with
 the world and semantics boundaries. `never reached` names rendered test targets' actions
@@ -405,6 +438,11 @@ runs the Lean checker on the program. `--prove <Module>` regenerates
 section). `contract verify` runs `cargo run -p contract-difftest --
 verify` in the checkout it was built from. Warm on a small app it takes
 a few seconds.
+
+An unsupported first difference remains `OUTSIDE` when an oracle reply
+is missing later in the script: the unsupported input can leave the two
+evaluators in different states. A missing reply before that boundary
+still diverges. The trace-twin and omitted-commit checks are unchanged.
 
 **Changing the compiler, runner or semantics.** Before landing a change
 under `contract/`, `runner/`, `plan/` or `semantics/`, run

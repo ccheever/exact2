@@ -53,7 +53,7 @@ From the repository root:
 ```sh
 export EXACT_UPDATE_TRUST=development
 EXACT_WEB_DIST=target/markdown-stress-dist bun host/web/build.mjs markdown-stress-web
-bun host/web/serve.mjs --origin target/markdown-stress-dist --loopback 4321
+bun host/web/serve.mjs target/markdown-stress-dist --loopback --port 4321
 
 bun host/apple/build.mjs markdown-stress-apple --run
 

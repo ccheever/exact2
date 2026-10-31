@@ -238,10 +238,13 @@ impl<D: DataSource> Presenter<D> {
 
     /// Scroll `id` to `to`, clamped to its travel on the axes it scrolls
     /// along; where it then is, or `None` when `id` is no scroll container.
+    /// The person's: a key, a scrollbar, an accessibility action, a tab
+    /// reselected, the agent's `scroll`.
     pub fn scroll_to(&mut self, id: ViewId, to: (f32, f32)) -> Option<(f32, f32)> {
         if !to.0.is_finite() || !to.1.is_finite() {
             return None;
         }
+        self.person_scrolls += 1;
         self.restore_scroll_anchors();
         // An absolute destination supersedes the previous position's correction.
         self.cancel_anchor_correction(id);
@@ -314,6 +317,7 @@ impl<D: DataSource> Presenter<D> {
     /// it knew the app had moved the scroller (dropped), or for a scroller
     /// it was never told of.
     pub fn reader_scrolled(&mut self, id: ViewId, by: (f32, f32), rev: u32) -> Option<(f32, f32)> {
+        self.person_scrolls += 1;
         self.restore_scroll_anchors();
         if !self.reader.tracked.contains_key(&id) {
             return None;

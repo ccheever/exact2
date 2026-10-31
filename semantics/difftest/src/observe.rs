@@ -172,7 +172,10 @@ fn state(r: &mut Runner<Oracle>, plan: &Plan, out: &mut Vec<String>) {
             .map_or(0, |(_, n)| *n);
         out.push(format!("queued {name} {n}"));
     }
-    for c in r.take_commands() {
+    // The runner's own scroll to a fragment (LLP 1153 D5) is a host's effect
+    // of a router change once its content settles, which the semantics leaves
+    // out as it leaves out the change a host is sent: no app wrote it.
+    for c in (r.take_commands().into_iter()).filter(|c| c.name != "scrollToFragment") {
         let args: String = c.args.iter().map(|a| format!(" {}", value(a))).collect();
         out.push(format!("command {}{args}", c.name));
     }

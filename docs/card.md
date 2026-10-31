@@ -22,6 +22,7 @@ functions: call -> result
   formatDecimal(units, digits) -> string  (cents to "12.34"; literal digits)
   formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
   formatTime(ms, offsetMinutes, "short") -> string  ("2:13 PM"; minutes east of UTC)
+  fragment(entry) -> string
   frame(id) -> Geometry  (action)
   go(router, location) -> Router
   s.includes(x) -> bool  (text or list)
@@ -63,8 +64,8 @@ functions: call -> result
   text.trim() -> string
   pending(resourceOrMutationName)  failed(resourceOrMutationName)  failure(resourceOrMutationName)  path("routeName", args…)  empty(field=constant, …)  some(expr)  DeclaredShape(field=value, …)
 
-tags: attributes; on events. Every tag takes CSS style attributes (flex gap padding …) and colour roles (-exact-label); `contract vocab <style>` lists its values
-  view box row column main nav article aside section header footer hr: id testId role title tabindex; on press hover key keyup focus blur contextmenu dblclick
+tags: attributes; on events. Every tag also takes CSS style attributes and colour roles (`contract vocab <style>`)
+  view box row column main nav article aside section header footer hr table caption thead tbody tfoot tr th td dl dt dd: id testId role title tabindex; on press hover key keyup focus blur contextmenu dblclick
   text "…": markup; on selectionchange
   image "…": alt; on load
   button: disabled buttonStyle destructive; on press
@@ -98,8 +99,8 @@ test steps (app.test.contract; every other form: docs/contract-grammar.md)
   clock data · clock settle · clock +5000 · reload
   back
   fail fetch "<prefix>", pass fetch …
-  request POST "/items" {…} as grace (expect 409)
-  size 390x844, epoch, time-zone, locale, seed, before data
+  request POST "/items" {…} as grace expect 409
+  size 390x844, at "/item/7#moves", epoch, time-zone, locale, seed, before data
 
 ops: a target is a testId, else a view's exact text or label
   tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back
@@ -179,13 +180,13 @@ a dated record: The write reads the clock, not a ticked `now`, and stores `at`; 
   action log
     let at = time.epochAtZero + performanceNow()
     days = days.concat([formatDate(at, time.utcOffset, "iso")])
-a test, and verify: Each test starts with empty storage; target by `testId` or text. `clock data` lands replies, `clock settle` settles presentation, `clock held` lands held replies; `reload` keeps storage. `bun exact.mjs verify` tests, checks end screens and relaunches; `verify ios` last; `--shots <dir>` keeps screenshots. It runs `contract verify app.contract` too; keep its receipt.
+a test, and verify: Tests start with empty storage. `clock data` lands replies, `clock settle` ends transitions, `clock held` lands held replies; `reload` keeps storage. `bun exact.mjs verify` tests, checks end screens, relaunches; `verify ios` last; `--shots <dir>` keeps screenshots. It runs `contract verify` too; keep its receipt.
   test "a pick survives a relaunch"
     tap "pick"
     clock data
     reload
     expect text "n" == "1"
-composing a screen: One focal point. Emphasis is a part, not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search: `input type="search"` in the `header`, filtered live. A form is a grouped list (`grouped-form`); no rows, an `EmptyState`, its `button` indented under it.
+composing a screen: One focal point. Emphasis is a part, not paint on a `button`; the main action is `buttonStyle="filled"`. Search: `input type="search"` in the `header`, live. A form is a grouped list (`grouped-form`); no rows, an `EmptyState`, its `button` indented under it.
   use SummaryCard from "exact:content"
   column gap=16 padding=16
     SummaryCard(label="Streak", value="12", detail="days in a row", progress=none, symbol=none)
@@ -212,5 +213,5 @@ component App
 - A number field's `min`, `max`, `step` are numbers (`min=-40`); with `inputmode="decimal"` a negative `min` gives the pad its ± key.
 - Symbols: `"symbol:<role>"` (below); `symbol:sf/<name>` is Apple-only.
 - Not in Contract (`contract vocab <name>` says what instead): abs pow sqrt sort reduce find some every contains padStart parseInt.
-idioms with code (`contract vocab <name>`): scroll loading plural choice screen notfound modal confirm date persist swipe task mutation resource match for if let fn shape props derive action stepper gradients menu search menubar ::placeholder glass bar-buttons haptics status-bar toast titlebar share use svg safe-area
-symbol roles: back close compose add microphone send search copy select-text more delete forward home person messages notifications settings repeat activity bookmark bookmark-fill document select select-fill reorder sort filter heart heart-fill reply share ellipsis home-fill notifications-fill person-fill photo play play-fill pause pause-fill skip-back-15 skip-forward-15 skip-back-30 skip-forward-30 speaker speaker-mute moon pin link checkmark forward-chevron at hashtag follow sign-out quote feeds calendar book layers lock people stop stop-fill circle alert minus-circle pencil waveform info camera star star-fill minus chart sparkles refresh menu adjust alert-fill info-fill chooser download install open-app download-pending package mail emoji translate
+idioms with code (`contract vocab <name>`): scroll loading plural choice select screen notfound modal confirm date persist swipe task mutation resource match for if let fn shape props derive action stepper gradients menu search menubar ::placeholder glass bar-buttons haptics status-bar toast titlebar share use svg safe-area var
+symbol roles: back close compose add microphone send search copy select-text more delete forward home person messages notifications settings repeat activity bookmark bookmark-fill document select select-fill reorder list cart sort filter heart heart-fill reply share ellipsis home-fill notifications-fill person-fill photo play play-fill pause pause-fill skip-back-15 skip-forward-15 skip-back-30 skip-forward-30 speaker speaker-mute moon pin link checkmark forward-chevron at hashtag follow sign-out quote feeds calendar book layers lock people stop stop-fill circle alert minus-circle pencil waveform info camera star star-fill minus chart sparkles refresh menu adjust alert-fill info-fill chooser download install open-app download-pending package mail emoji translate

@@ -951,7 +951,6 @@ fn css_grid_rows_compile_with_the_closed_kernel_grammar() {
         ("grid-column", "calc(1 + 1)"),
         ("justify-items", "last baseline"),
         ("justify-items", "left legacy"),
-        ("justify-items", "var(--items)"),
         ("grid-template-columns", "repeat(10001, 1px)"),
         ("grid-column", "10001"),
         (

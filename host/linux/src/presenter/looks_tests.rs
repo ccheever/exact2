@@ -168,6 +168,40 @@ fn a_looks_opacity_is_never_kept() {
     );
 }
 
+#[test]
+fn a_step_equal_to_hover_is_kept_when_the_pointer_leaves_between_steps() {
+    let plan = crate::test_plan(
+        r##"keyframes blink
+  from opacity=1
+  to opacity=0
+component App
+  view
+    box width=80 height=40 background-color="#ffffff"
+      box testId="caret" width=20 height=20 background-color="#000000" animation="blink 1s steps(2) infinite"
+        :hover
+          opacity = 0.5
+"##,
+    );
+    let (mut p, error) = Presenter::boot_with(
+        &plan,
+        (),
+        (80., 40.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    assert_eq!(pixel(&mut p, 10., 10.), [0, 0, 0]);
+    p.pointer_move(10., 10., 0.).unwrap();
+    assert!(near(pixel(&mut p, 10., 10.), [128, 128, 128]));
+    p.tick(500.);
+    p.frame();
+    p.pointer_move(60., 30., 750.).unwrap();
+    // No animation tick on pointer leave: the held step must already be kept.
+    assert!(near(pixel(&mut p, 10., 10.), [128, 128, 128]));
+}
+
 /// A row a look clears (`unset`) is CSS's initial value: a transparent
 /// background shows the page.
 #[test]

@@ -11,20 +11,18 @@
 //! every comparison the plan makes on each fact it reads comes out the same
 //! for both (`viewport.width <= 700` makes two classes), so the page is the
 //! same page. A fact read any other way (a width in arithmetic, a record
-//! passed whole) is keyed by its value.
+//! passed whole) is keyed by its value (`exact_runner::viewport_reads`).
 
-use exact_plan::{Opcode, Plan, ResourcesId, StrId, TypeKind, Value};
-use exact_runner::vm::instructions;
+use exact_runner::viewport_reads::Reads as PlanReads;
 use exact_runner::Viewport;
-use std::collections::BTreeSet;
 
 /// The layout viewport of a desktop browser that sends no width: a 1280-wide
 /// window, the most common desktop width class's lower edge.
 pub(crate) const DESKTOP: (f64, f64) = (1280.0, 800.0);
 
-/// The facts `exactViewport` fills, as the runner names them, with the
-/// client hint that carries each (none: the browser has no hint for it).
-const FACTS: [(&str, Option<&str>); 6] = [
+/// The facts a request's hints can carry, with the client hint for each
+/// (none: the browser has no hint for it).
+const HINTED: [(&str, Option<&str>); 6] = [
     ("width", Some("Sec-CH-Viewport-Width")),
     ("height", Some("Sec-CH-Viewport-Height")),
     (
@@ -39,150 +37,39 @@ const FACTS: [(&str, Option<&str>); 6] = [
     ("prefersColorScheme", Some("Sec-CH-Prefers-Color-Scheme")),
 ];
 
-/// How the plan reads one fact.
-#[derive(Debug, Clone, PartialEq)]
-enum Read {
-    /// Only compared with constants: these comparisons, `fact <op> value`.
-    Compared(Vec<(Opcode, Constant)>),
-    /// Some other way: the page depends on its value.
-    Whole,
-}
-
-/// A constant a fact is compared with.
-#[derive(Debug, Clone, PartialEq)]
-enum Constant {
-    Number(f64),
-    Str(String),
-    Bool(bool),
-}
-
-/// What of the viewport a plan reads, fact by fact (in [`FACTS`]' order).
+/// What of the viewport a plan reads ([`PlanReads`]), as a server renders,
+/// keeps and answers for it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Reads {
-    facts: [Option<Read>; 6],
+    plan: PlanReads,
 }
 
 impl Reads {
-    /// Walk every code body: each `exactViewport` resource's field read is a
-    /// comparison with a constant, or not.
-    pub(crate) fn of(plan: &Plan) -> Reads {
-        let mut reads = Reads::default();
-        // Each viewport resource's fields: field index -> fact index.
-        let fields: Vec<(ResourcesId, Vec<Option<usize>>)> = plan
-            .resources
-            .iter()
-            .enumerate()
-            .filter(|(_, row)| plan.str(row.source) == exact_runner::viewport::SOURCE)
-            .map(|(i, row)| {
-                let ty = plan.type_(row.ty);
-                let names = if ty.kind == TypeKind::Record {
-                    ty.fields
-                        .iter()
-                        .map(|f| {
-                            let name = plan.str(plan.field(f).name);
-                            FACTS.iter().position(|(fact, _)| *fact == name)
-                        })
-                        .collect()
-                } else {
-                    Vec::new()
-                };
-                (ResourcesId(i as u32), names)
-            })
-            .collect();
-        if fields.is_empty() {
-            return reads;
+    pub(crate) fn of(plan: &exact_plan::Plan) -> Reads {
+        Reads {
+            plan: PlanReads::of(plan),
         }
-        plan.each_code(&mut |code| {
-            let Ok(code) = instructions(plan.code(code)).collect::<Result<Vec<_>, _>>() else {
-                // A body the VM would refuse reads nothing; the runner never runs it.
-                return;
-            };
-            // Where a jump can land: a value there may come from elsewhere.
-            let targets: BTreeSet<usize> = code
-                .iter()
-                .filter(|i| {
-                    matches!(
-                        i.op,
-                        Opcode::Jump
-                            | Opcode::JumpIfFalse
-                            | Opcode::JumpIfNone
-                            | Opcode::Map
-                            | Opcode::Filter
-                    )
-                })
-                .map(|i| i.args[0] as usize)
-                .collect();
-            for (at, i) in code.iter().enumerate() {
-                if i.op != Opcode::LoadResource {
-                    continue;
-                }
-                let Some((_, names)) = fields.iter().find(|(r, _)| r.0 as u64 == i.args[0]) else {
-                    continue;
-                };
-                // The record itself, not one field: every fact it holds.
-                let Some(field) = code.get(at + 1).filter(|n| n.op == Opcode::Field) else {
-                    for fact in names.iter().flatten() {
-                        reads.facts[*fact] = Some(Read::Whole);
-                    }
-                    continue;
-                };
-                let Some(fact) = names.get(field.args[0] as usize).copied().flatten() else {
-                    continue;
-                };
-                let constant = |n: &exact_runner::vm::Instruction| match n.op {
-                    Opcode::Number => Some(Constant::Number(n.number)),
-                    Opcode::Str => Some(Constant::Str(plan.str(StrId(n.args[0] as u32)).into())),
-                    Opcode::Bool => Some(Constant::Bool(n.args[0] != 0)),
-                    _ => None,
-                };
-                let landed = |n: &exact_runner::vm::Instruction| targets.contains(&n.pc);
-                // `fact <op> constant`, or `constant <op> fact`.
-                let after = code.get(at + 2).zip(code.get(at + 3)).and_then(|(c, op)| {
-                    let value = constant(c).filter(|_| !landed(c) && !landed(op))?;
-                    comparison(op.op).map(|op| (op, value))
-                });
-                let before = at
-                    .checked_sub(1)
-                    .and_then(|b| code.get(b))
-                    .zip(code.get(at + 2))
-                    .and_then(|(c, op)| {
-                        let value = constant(c).filter(|_| !landed(i) && !landed(op))?;
-                        comparison(op.op).map(|op| (mirror(op), value))
-                    });
-                match (after.or(before), &mut reads.facts[fact]) {
-                    (Some(_), Some(Read::Whole)) => {}
-                    (Some(compared), Some(Read::Compared(all))) => {
-                        if !all.contains(&compared) {
-                            all.push(compared);
-                        }
-                    }
-                    (Some(compared), slot) => *slot = Some(Read::Compared(vec![compared])),
-                    (None, slot) => *slot = Some(Read::Whole),
-                }
-            }
-        });
-        reads
     }
 
-    /// Whether the plan reads any viewport fact.
+    /// Whether the plan reads a fact a request can say (one of [`HINTED`]):
+    /// only then is a page rendered at the request's viewport.
     pub(crate) fn any(&self) -> bool {
-        self.facts.iter().any(Option::is_some)
+        HINTED.iter().any(|(fact, _)| self.plan.reads(fact))
     }
 
     /// Whether it reads the size, which a browser without hints is guessed at.
     fn size(&self) -> bool {
-        self.facts[0].is_some() || self.facts[1].is_some()
+        self.plan.reads("width") || self.plan.reads("height")
     }
 
     /// The header lines a page adds: `Accept-CH` naming the hints for the
     /// facts it reads, and `Vary` naming what its viewport was chosen by.
     /// Empty for a plan that reads none.
     pub(crate) fn headers(&self) -> String {
-        let hints: Vec<&str> = FACTS
+        let hints: Vec<&str> = HINTED
             .iter()
-            .zip(&self.facts)
-            .filter(|(_, read)| read.is_some())
-            .filter_map(|((_, hint), _)| *hint)
+            .filter(|(fact, _)| self.plan.reads(fact))
+            .filter_map(|(_, hint)| *hint)
             .collect();
         let mut vary = hints.clone();
         if self.size() {
@@ -214,70 +101,8 @@ impl Reads {
         self.key(&self.viewport(hints, page))
     }
 
-    /// Each fact the plan reads in `viewport`, as the plan can tell it apart.
     fn key(&self, viewport: &Viewport) -> String {
-        let mut key = String::new();
-        for ((name, _), read) in FACTS.iter().zip(&self.facts) {
-            let Some(read) = read else { continue };
-            let value = viewport.field(name).unwrap_or(Value::Unit);
-            key.push_str(name);
-            key.push('=');
-            match read {
-                Read::Whole => key.push_str(&format!("{value:?}")),
-                Read::Compared(all) => {
-                    for (op, constant) in all {
-                        key.push(if holds(*op, &value, constant) {
-                            '1'
-                        } else {
-                            '0'
-                        });
-                    }
-                }
-            }
-            key.push(';');
-        }
-        key
-    }
-}
-
-/// A comparison opcode, if `op` is one.
-fn comparison(op: Opcode) -> Option<Opcode> {
-    matches!(
-        op,
-        Opcode::Lt | Opcode::Le | Opcode::Gt | Opcode::Ge | Opcode::Eq | Opcode::Ne
-    )
-    .then_some(op)
-}
-
-/// `a <op> b` as `b <mirror(op)> a`.
-fn mirror(op: Opcode) -> Opcode {
-    match op {
-        Opcode::Lt => Opcode::Gt,
-        Opcode::Le => Opcode::Ge,
-        Opcode::Gt => Opcode::Lt,
-        Opcode::Ge => Opcode::Le,
-        other => other,
-    }
-}
-
-/// Whether `value <op> constant` holds, as the VM compares.
-fn holds(op: Opcode, value: &Value, constant: &Constant) -> bool {
-    let order = match (value, constant) {
-        (Value::Number(a), Constant::Number(b)) => a.partial_cmp(b),
-        (Value::Bool(a), Constant::Bool(b)) => Some(a.cmp(b)),
-        (_, Constant::Str(b)) => value.as_str().map(|a| a.cmp(b.as_str())),
-        _ => None,
-    };
-    let Some(order) = order else {
-        return op == Opcode::Ne;
-    };
-    match op {
-        Opcode::Lt => order.is_lt(),
-        Opcode::Le => order.is_le(),
-        Opcode::Gt => order.is_gt(),
-        Opcode::Ge => order.is_ge(),
-        Opcode::Eq => order.is_eq(),
-        _ => order.is_ne(),
+        self.plan.key(viewport)
     }
 }
 

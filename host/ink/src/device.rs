@@ -6,6 +6,10 @@ use std::fmt;
 
 #[cfg(windows)]
 pub mod d3d11;
+#[cfg(windows)]
+pub mod directwrite;
+#[cfg(windows)]
+mod windows_library;
 
 #[cfg(exact_ink_metal)]
 pub mod metal;
@@ -344,4 +348,24 @@ impl Retry {
         self.failures = self.failures.saturating_add(1);
         self.due = Some(now + std::time::Duration::from_millis(ms));
     }
+}
+
+/// Map a monotonic phase mark to process age. Every logged interval uses the
+/// same clock as the startup watchdog, regardless of how long logging takes.
+#[cfg(windows)]
+pub fn process_ms_at(at: std::time::Instant) -> Result<f64> {
+    static ORIGIN: std::sync::OnceLock<Result<(std::time::Instant, f64)>> =
+        std::sync::OnceLock::new();
+    let (origin, age) = ORIGIN
+        .get_or_init(|| {
+            let now = std::time::Instant::now();
+            process_ms().map(|age| (now, age))
+        })
+        .as_ref()
+        .map_err(Clone::clone)?;
+    Ok(if at >= *origin {
+        age + at.duration_since(*origin).as_secs_f64() * 1000.
+    } else {
+        age - origin.duration_since(at).as_secs_f64() * 1000.
+    })
 }

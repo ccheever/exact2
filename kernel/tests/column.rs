@@ -86,7 +86,7 @@ fn a_host_that_throws_the_switch_shows_the_neutral_column() {
     };
     assert_eq!(
         read(StyleId::BackgroundColor, "ground").background_color,
-        Some(role("-exact-grouped-background"))
+        Some(role("-exact-background"))
     );
     let radius = |style: StyleProps| style.border_radius_top_left;
     assert_eq!(

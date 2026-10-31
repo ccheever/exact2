@@ -388,8 +388,9 @@ final class MenuHost: NSObject {
     /// LLP 1021 §5.1: a context menu, its popover's menu rows as an NSMenu
     /// popped up at the click, after the node's own `contextmenu` has run
     /// (both fire), on the next turn as a button menu's. Its preview row is
-    /// not an item: a Mac's context menu has no preview. Under the agent the
-    /// popover opens painted, anchored to the node (D4). `run` names a run
+    /// not an item: a Mac's context menu has no preview. A popover that is
+    /// not menu-shaped (D3), and every popover under the agent (D4), opens
+    /// as a button's popover does, anchored to the node. `run` names a run
     /// of `source` whose own `contextPopover` it is (X77). `click` is the
     /// pointer's press that asked for it (`track`); a request from the
     /// keyboard has none, and its menu's top left is at `point`.
@@ -411,7 +412,9 @@ final class MenuHost: NSObject {
             for entry in self.entries[(holder.map { $0 + 1 } ?? 0)...].reversed() where entry.value != "manual" {
                 self.close(entry.popover, restoreFocus: false)
             }
-            if ExactEnv.agentMode { self.show(pop, from: source, run: run, contextMenu: true); return }
+            // As an NSMenu, one that is not menu-shaped would be closed by the
+            // next batch's `sync` before it tracked, and nothing would open.
+            if ExactEnv.agentMode || !self.isMenuShaped(pop) { self.show(pop, from: source, run: run, contextMenu: true); return }
             // A new presentation only if it has an item: it retires picks of the last.
             guard pop.container.subviews.contains(where: { ($0 as? NodeView).map { $0.isButton && $0.props["contextPreview"] != "true" } ?? false }) else { return }
             self.presentations[pop.id, default: 0] += 1

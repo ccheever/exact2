@@ -1,13 +1,19 @@
 //! The six verbs spend ids only when they make visits.
 //!
-//! @ref LLP 1038 §3 — Router, Reads, Verbs and Laws.
+//! @ref LLP 1038 §3 — Router, Reads, Verbs and Laws; LLP 1153 D5.
 //!
 //! Open builds the declaration's chain on its declared tab. Push and replace
 //! stay on the selected tab, because a person opened from Search belongs to
 //! the Search visit. Go compares canonical URLs and searches the selected
 //! stack from the top, so repeated visits have an unambiguous pop target.
+//! A location's fragment is never compared. Open's leaf, a push, a replace
+//! and a `go` that stays at the top write the location's fragment on the
+//! visit, so a location that differs from the top's only after `#` changes
+//! that visit in place; a `go` that returns to a visit beneath or on
+//! another tab writes a fragment only when the location has one, so a
+//! location without one returns to the visit as it was, as Back does.
 
-use crate::{canonical, Destination, Entry, Refusal, Router, Tab, Table};
+use crate::{canonical, fragment_of, Destination, Entry, Refusal, Router, Tab, Table};
 
 impl Router {
     /// Seed every tab at its root, then open the launch location. An unmatched
@@ -77,16 +83,20 @@ fn mint(next: &mut u64, d: Destination) -> Result<Entry, Refusal> {
         url: d.url,
         tab: d.tab,
         params: d.params,
+        fragment: String::new(),
     })
 }
 
 /// Select the declared tab and replace its chain. Same URL at the same
-/// position keeps its id; every other visit is fresh. Other tabs are retained.
+/// position keeps its id (and, above the leaf, its fragment); every other
+/// visit is fresh. The leaf takes the location's fragment. Other tabs are
+/// retained.
 pub fn open(table: &Table, r: Router, location: &str) -> (Router, Option<Refusal>) {
     let chain = table.chain(location);
     let Some(target) = chain.first().map(|d| d.tab.clone()) else {
         return (r, Some(no_match(location)));
     };
+    let leaf = chain.len() - 1;
     let result = (|| {
         let mut out = r.clone();
         if out.tabs.is_empty() {
@@ -113,7 +123,7 @@ pub fn open(table: &Table, r: Router, location: &str) -> (Router, Option<Refusal
             .ok_or_else(|| refusal(format!("unknown tab {target}")))?;
         let mut entries = Vec::with_capacity(chain.len());
         for (position, d) in chain.into_iter().enumerate() {
-            let entry = match out.tabs[index]
+            let mut entry = match out.tabs[index]
                 .stack
                 .get(position)
                 .filter(|old| old.url == d.url)
@@ -124,9 +134,13 @@ pub fn open(table: &Table, r: Router, location: &str) -> (Router, Option<Refusal
                     url: d.url,
                     tab: d.tab,
                     params: d.params,
+                    fragment: old.fragment.clone(),
                 },
                 None => mint(&mut out.next, d)?,
             };
+            if position == leaf {
+                entry.fragment = fragment_of(location);
+            }
             entries.push(entry);
         }
         out.tabs[index].stack = entries;
@@ -137,7 +151,8 @@ pub fn open(table: &Table, r: Router, location: &str) -> (Router, Option<Refusal
 }
 
 /// Append one fresh visit to the selected stack, regardless of its declared
-/// tab, unless the location is already on top.
+/// tab, unless the location is already on top: then only its fragment
+/// changes.
 pub fn push(table: &Table, r: Router, location: &str) -> (Router, Option<Refusal>) {
     if r.tabs.is_empty() {
         return open(table, r, location);
@@ -145,17 +160,23 @@ pub fn push(table: &Table, r: Router, location: &str) -> (Router, Option<Refusal
     let result = (|| {
         let d = destination(table, &r, location)?;
         let index = selected(&r)?;
+        let fragment = fragment_of(location);
         // A push of the location already on top is no new visit: as HTML
-        // replaces the entry for a same-URL navigation (LLP 1038).
-        if r.tabs[index]
-            .stack
-            .last()
-            .is_some_and(|top| top.url == d.url)
-        {
-            return Ok(r.clone());
+        // replaces the entry for a same-URL navigation (LLP 1038), and
+        // navigates within the document for a new fragment (LLP 1153 D5).
+        if let Some(top) = r.tabs[index].stack.last().filter(|top| top.url == d.url) {
+            if top.fragment == fragment {
+                return Ok(r.clone());
+            }
+            let mut out = r.clone();
+            if let Some(top) = out.tabs[index].stack.last_mut() {
+                top.fragment = fragment;
+            }
+            return Ok(out);
         }
         let mut out = r.clone();
-        let entry = mint(&mut out.next, d)?;
+        let mut entry = mint(&mut out.next, d)?;
+        entry.fragment = fragment;
         out.tabs[index].stack.push(entry);
         Ok(out)
     })();
@@ -185,6 +206,7 @@ pub fn replace(table: &Table, r: Router, location: &str) -> (Router, Option<Refu
             url: d.url,
             tab: d.tab,
             params: d.params,
+            fragment: fragment_of(location),
         };
         Ok(out)
     })();
@@ -219,24 +241,38 @@ pub fn select(_table: &Table, mut r: Router, name: &str) -> (Router, Option<Refu
 }
 
 /// Stay at the top, pop to the nearest selected occurrence, select another
-/// tab's top, or push — in that order, comparing canonical locations.
+/// tab's top, or push — in that order, comparing canonical locations. The
+/// top takes the location's fragment; a visit popped to or selected takes
+/// it only when the location has one.
 pub fn go(table: &Table, mut r: Router, location: &str) -> (Router, Option<Refusal>) {
     let url = canonical(location);
     if table.match_index(&url).is_none() {
         return (r, Some(no_match(location)));
     }
+    let fragment = fragment_of(location);
     if let Some(position) = stack(&r).iter().rposition(|entry| entry.url == url) {
         if let Ok(index) = selected(&r) {
-            r.tabs[index].stack.truncate(position + 1);
+            let stack = &mut r.tabs[index].stack;
+            if position + 1 == stack.len() || !fragment.is_empty() {
+                stack[position].fragment = fragment;
+            }
+            stack.truncate(position + 1);
         }
         return (r, None);
     }
-    if let Some(name) = r
+    if let Some(index) = r
         .tabs
         .iter()
-        .find(|t| t.name != r.tab && t.stack.last().is_some_and(|e| e.url == url))
-        .map(|t| t.name.clone())
+        .position(|t| t.name != r.tab && t.stack.last().is_some_and(|e| e.url == url))
     {
+        if let Some(top) = r.tabs[index]
+            .stack
+            .last_mut()
+            .filter(|_| !fragment.is_empty())
+        {
+            top.fragment = fragment;
+        }
+        let name = r.tabs[index].name.clone();
         return select(table, r, &name);
     }
     push(table, r, location)

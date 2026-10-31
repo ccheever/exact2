@@ -82,6 +82,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("timers"),
     recipe!("usb-hid-serial"),
     recipe!("web-look"),
+    recipe!("website"),
 ];
 
 pub const PATTERNS: &[(&str, &str)] = &[
@@ -89,6 +90,7 @@ pub const PATTERNS: &[(&str, &str)] = &[
     pattern!("list-detail"),
     pattern!("one-screen"),
     pattern!("rest"),
+    pattern!("site"),
     pattern!("tabs"),
 ];
 

@@ -182,7 +182,19 @@ impl<D: DataSource> Presenter<D> {
     /// the navigation root above `from`; anything else the reader keeps
     /// leaves the app, where the host's shell can open it.
     pub(crate) fn follow(&mut self, from: ViewId, href: &str, now_ms: f64) {
-        let Some(target) = crate::text::markup::target(href) else {
+        // A link to a fragment (`href="#moves"`) is the visit shown, at that
+        // fragment (LLP 1153 D5).
+        let shown = (href.trim().starts_with('#'))
+            .then(|| {
+                self.host
+                    .router_op()
+                    .map(|op| format!("{}{}", op.url, href.trim()))
+            })
+            .flatten();
+        let Some(target) = shown
+            .as_deref()
+            .or_else(|| crate::text::markup::target(href))
+        else {
             self.host.log(format!(
                 "link {href:?}: only an app path, http, https, mailto and tel are followed"
             ));

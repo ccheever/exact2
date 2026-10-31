@@ -3,6 +3,14 @@
 #import <CoreGraphics/CoreGraphics.h>
 #include <dlfcn.h>
 
+void g1_boot_mark(const char *name) {
+    typedef void (*Mark)(const char *);
+    static Mark mark;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ mark = (Mark)dlsym(RTLD_DEFAULT, "g1_startup_mark"); });
+    if (mark) mark(name);
+}
+
 // ImageIO downsamples during decode, as the native benchmark does.
 unsigned char *g1_thumbnail(const char *path, unsigned requestedWidth,
                             unsigned requestedHeight, unsigned *width, unsigned *height) {

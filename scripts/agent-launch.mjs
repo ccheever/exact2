@@ -12,6 +12,8 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
+import { boundSettings, settingChanges, settingInputs, settingLines } from '../js/bake/src/__exact_env.mjs';
+import { besidePattern } from '../host/web/beside.mjs';
 import { chooseSimulator, phone } from '../host/apple/devices.mjs';
 import { androidDevice } from './agent-android.mjs';
 import { bakeOutput, gpuModules, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
@@ -467,6 +469,8 @@ export function parseFlags(argv) {
     // Android: the app on the Canvas reader (its APK), not the Linux host headless. Said as the variable
     // `agent-android.mjs` reads, as `--sim` is said as EXACT_SIM: the driver's own file is at its line cap.
     else if (argv[i] === '--reader') { flags.reader = true; process.env.EXACT_ANDROID_READER = '1'; }
+    // `--headless`: the Linux host under adb shell, which an `exact new` app's `agent android` asks for with it (app-cli.mjs).
+    else if (argv[i] === '--headless') { flags.reader = false; delete process.env.EXACT_ANDROID_READER; }
     else if (argv[i] === '--seed') flags.seed = Number(argv[++i]);
     else if (argv[i] === '--locale') flags.locale = argv[++i];
     else if (argv[i] === '--format-locale') flags.formatLocale = argv[++i];
@@ -748,6 +752,17 @@ function watchedChanges(since, dir, skip) {
 /** Cargo's dep-info beside a binary: every source input newer than the binary, or gone. */
 export const depInfoChanges = bin => existsSync(bin) ? depInfoNewer(statSync(bin).mtimeMs, bin) : [];
 
+/** The settings the native build `bin` of `app` inlined (LLP 1153 D4) whose sources give them otherwise now, as
+ * `import.meta.env.NAME`: a change no file shows, which only a rebuild takes in. What it inlined is the record bound to
+ * this executable (`boundSettings`); an app that declares settings and has none bound, an executable another build
+ * made, has its record named as the change, so the drive says to build again. */
+export function bakedSettingChanges(bin, app) {
+  if (!app.manifest?.env?.length) return [];
+  const record = boundSettings(bin);
+  if (!record) return [`${bin}.settings.json (none, or another build's)`];
+  return settingChanges(record, process.env, app.dir).map(({ name }) => `import.meta.env.${name}`);
+}
+
 /** A packaged Windows game keeps compiler provenance in the private bake cache.
  * Require both unchanged source inputs and the exact copied executable/DLLs. */
 export function packagedBuildChanges(receipt, directory, app) {
@@ -794,9 +809,9 @@ export function traceLocators(appName) {
 }
 
 // Outputs, fixtures and prose are not what a build is made from.
-// A dist's swap siblings (`dist.gen`, `dist.gen.reaped`, `dist.leases`, `dist.lock`, `dist.previous`,
-// host/web/generations.mjs) are written by builds, never read by one: a later build's reap is no change.
-const NOT_INPUT = /^(target|(web-)?dist(\.(gen|gen\.reaped|leases|lock|previous|stage-[^/]*))?|dist-windows|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.test\.contract$|\.md$/;
+// What a dist keeps beside it (`dist.gen` and the rest, host/web/beside.mjs) is written by builds, never read by one:
+// a later build's reap is no change.
+const NOT_INPUT = new RegExp(String.raw`^(target|(web-)?dist|${besidePattern('dist')}|${besidePattern('web-dist')}|dist-windows|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.test\.contract$|\.md$`);
 /** Files under `roots` modified after `since`; `{shallow}` roots contribute only their own files. */
 export function newerThan(since, roots, skip = () => false) {
   const out = [];
@@ -985,11 +1000,18 @@ export function webInputs(app, js, since = -Infinity) {
   return { app: appFiles, shared };
 }
 const contentDigest = path => { try { return createHash('sha1').update(readFileSync(resolve(ROOT, path))).digest('hex'); } catch { return null; } };
-/** Content digests of every input of a web build, recorded in its marker. */
+/** Content digests of every input of a web build, recorded in its marker, with each setting app.json declares
+ * (`import.meta.env.NAME`: its value and source, LLP 1153 D4). */
 export function webInputDigests(app, js) {
   const { app: own, shared } = webInputs(app, js);
-  return {...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), EXACT_BACKEND_ORIGIN: process.env.EXACT_BACKEND_ORIGIN ?? null, PORT: process.env.PORT ?? null};
+  return {...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), EXACT_BACKEND_ORIGIN: process.env.EXACT_BACKEND_ORIGIN ?? null, PORT: process.env.PORT ?? null, ...settingsOf(app)};
 }
+const setting = key => key.startsWith('import.meta.env.');
+// Each declared setting as the bake would inline it, app.ts's defaults read with Rolldown's parser (loaded only then).
+let parseSettings;
+const settingsOf = app => settingInputs(app, process.env, app.manifest?.env?.length ? parseSettings ??= createRequire(import.meta.url)('rolldown/utils').parseSync : null);
+/** What the web build in `dist` inlined of each setting (its marker's `env`): a drive's first lines of host output. */
+export const builtSettingLines = dist => { try { return settingLines(JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')).env); } catch { return []; } };
 /** Inputs whose content changed since the build in `dist`. Modification times only
  * nominate candidates; a checkout that rewrote a file with its own bytes is not a
  * change. A marker without digests (an older build) trusts the times. */
@@ -1004,9 +1026,12 @@ export function webChanges(dist, app) {
   const { app: own, shared: roots } = webInputs(app, built.target === 'js', since);
   const appChanges = own.filter(changed), shared = roots.filter(changed);
   // A file the build read that is gone since (a source deleted) is a change too: absence is an input.
-  for (const path of Object.keys(built.inputs ?? {})) if (!['EXACT_BACKEND_ORIGIN', 'PORT'].includes(path) && built.inputs[path] !== null && !appChanges.includes(path) && !existsSync(resolve(ROOT, path))) (resolve(ROOT, path).startsWith(`${app.dir}/`) ? appChanges : shared).push(path);
+  for (const path of Object.keys(built.inputs ?? {})) if (!['EXACT_BACKEND_ORIGIN', 'PORT'].includes(path) && !setting(path) && built.inputs[path] !== null && !appChanges.includes(path) && !existsSync(resolve(ROOT, path))) (resolve(ROOT, path).startsWith(`${app.dir}/`) ? appChanges : shared).push(path);
   if ((built.inputs?.EXACT_BACKEND_ORIGIN ?? null) !== (process.env.EXACT_BACKEND_ORIGIN ?? null)) appChanges.push('EXACT_BACKEND_ORIGIN');
   if ((built.inputs?.PORT ?? null) !== (process.env.PORT ?? null)) appChanges.push('PORT');
+  // A setting whose value or source moved, one the build read and is no longer declared, or one declared since.
+  const settings = settingsOf(app);
+  for (const key of new Set([...Object.keys(settings), ...Object.keys(built.inputs ?? {}).filter(setting)])) if ((built.inputs?.[key] ?? null) !== (settings[key] ?? null)) appChanges.push(key);
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 

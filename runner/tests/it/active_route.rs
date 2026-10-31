@@ -75,6 +75,10 @@ fn a_test_id_resolves_on_the_selected_route_and_covered_screens_are_flagged() {
     let thread = by_test_id(&tree, "route-thread");
     assert_eq!(field(home, "inactive"), "true");
     assert!(!thread.contains("\"inactive\""), "{thread}");
+    // LLP 1153 D8: and not shown, which `hidden` says, to its last node.
+    assert_eq!(field(home, "hidden"), "true");
+    assert_eq!(field(by_test_id(&tree, "only-home"), "hidden"), "true");
+    assert!(!thread.contains("\"hidden\""), "{thread}");
     let dups: Vec<&str> = nodes(&tree)
         .into_iter()
         .filter(|n| n.contains("\"testId\":\"dup\""))
@@ -102,6 +106,41 @@ fn a_test_id_resolves_on_the_selected_route_and_covered_screens_are_flagged() {
     assert_eq!(
         field(nodes(&found)[0], "parent"),
         field(by_test_id(&tree, "route-home"), "id")
+    );
+}
+
+/// LLP 1153 D8: a screen a sheet covers stays shown beneath it, so it is
+/// `inactive` and not `hidden`; the sheet's own nodes are neither.
+#[test]
+fn a_screen_a_sheet_covers_is_inactive_and_not_hidden() {
+    let src = "routes nav
+  tab home \"/\"
+    compose \"/compose\"
+
+component App
+  view
+    main navigationKey=`${top(nav).id}` navigationBack=\"back\"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` testId=`route-${e.name}` navigationPresentation=(e.name == \"compose\" ? \"modal\" : \"auto\")
+          text e.name testId=`text-${e.name}`
+";
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/compose",
+    )
+    .unwrap();
+    let tree = agent::tree(&r);
+    let home = by_test_id(&tree, "text-home");
+    assert_eq!(field(home, "inactive"), "true");
+    assert!(!home.contains("\"hidden\""), "{home}");
+    let sheet = by_test_id(&tree, "text-compose");
+    assert!(
+        !sheet.contains("\"inactive\"") && !sheet.contains("\"hidden\""),
+        "{sheet}"
     );
 }
 
@@ -147,6 +186,7 @@ fn a_test_id_resolves_on_the_selected_tab_and_the_other_tabs_are_flagged() {
     let tree = agent::tree(&r);
     let (a, b) = (by_test_id(&tree, "panel-a"), by_test_id(&tree, "panel-b"));
     assert_eq!(field(a, "inactive"), "true");
+    assert_eq!(field(a, "hidden"), "true");
     assert!(!b.contains("\"inactive\""), "{b}");
     let hellos: Vec<&str> = nodes(&tree)
         .into_iter()

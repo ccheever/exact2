@@ -360,7 +360,8 @@ public final class ExactView: NSView {
                     // A click on the window behind a `closedby="any"` sheet is the sheet's.
                     if self.session.presenter.dialogs.pointer(event) { return nil }
                     // A press in an editor: its `pointerdown` before NSWindow focuses it (LLP 1005).
-                    self.session.presenter.pressEditorFirst(event)
+                    // Prevented there, the window does not get the down: the focus stays where it is.
+                    if self.session.presenter.pressEditorFirst(event) { return nil }
                     return event
                 }
                 if event.type == .keyDown { self.session.presenter.flushKeyViewLoop() }

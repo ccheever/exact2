@@ -147,6 +147,13 @@ impl<D: DataSource> Presenter<D> {
         let Some(id) = self.focus else {
             return (false, None);
         };
+        // A control a commit disabled loses the focus, except under a TV
+        // remote, where there is nowhere else for it until an arrow moves it
+        // (remote_tests.rs), and where its route hid it too: the route's path
+        // below keeps it to restore (`route_focus.inert`).
+        if !self.remote() && self.focus_fixup(id) && !self.host.route_visibility(id).1 {
+            return self.blur_disabled_focus(id);
+        }
         if self.host.kernel().node(id).is_some() && !self.host.route_visibility(id).1 {
             self.focus_out = self.host.runner().focus_bubble(id, None, false);
             return (false, None);
@@ -173,6 +180,51 @@ impl<D: DataSource> Presenter<D> {
         }
         // Finish the outgoing path before a replacement can autofocus.
         // Inside service_commit: no recursive collection refinement.
+        if sent {
+            error = error.or(self.sync_commit());
+        }
+        (sent, error)
+    }
+
+    /// Whether `id` is a control HTML disables (`surfaces::controls`
+    /// `disabled_control`: a button, an input, a select; not a link) and is
+    /// disabled: the web's focus fixup drops its focus. A disabled box, a
+    /// control inside one or a progress (a `div` or a `progress` on the web)
+    /// keeps it there (host/web/glue.js).
+    pub(crate) fn focus_fixup(&self, id: ViewId) -> bool {
+        self.host.kernel().node(id).is_some_and(|node| {
+            crate::surfaces::controls::disabled_control(&node)
+                && !matches!(
+                    exact_kernel::ControlKind::of(node.node_type, node.props),
+                    Some(
+                        exact_kernel::ControlKind::Progress
+                            | exact_kernel::ControlKind::ProgressBar
+                    )
+                )
+        })
+    }
+
+    /// Between one press's events (a checkbox's click, input and change), a
+    /// focused control the last one disabled loses the focus before the next
+    /// runs, as the web's fixup runs at once; `clear_removed_focus` after the
+    /// commit is otherwise where it does.
+    pub(crate) fn blur_disabled_now(&mut self) -> Option<String> {
+        let id = self.focus?;
+        if self.remote() || !self.focus_fixup(id) || self.host.route_visibility(id).1 {
+            return None;
+        }
+        self.blur_disabled_focus(id).1
+    }
+
+    /// A focused control that a commit disabled loses the focus as a blur
+    /// does (`set_focus`: a typed field commits, then its `blur` and the
+    /// bubbling `focusout`, staged and serviced), as the web's focus fixup
+    /// drops it. It does not get the focus back when enabled again.
+    fn blur_disabled_focus(&mut self, id: ViewId) -> (bool, Option<String>) {
+        self.disabled_blur.push(id);
+        let now = self.host.now();
+        // Every event first, then one servicing, as a removed focus's path.
+        let (sent, mut error) = self.move_focus_serviced(None, now, false);
         if sent {
             error = error.or(self.sync_commit());
         }
@@ -332,12 +384,31 @@ impl<D: DataSource> Presenter<D> {
     /// Move the focus in DOM order, with both bubbling paths fixed before an
     /// action on either path can change the tree.
     pub(crate) fn set_focus(&mut self, next: Option<ViewId>, now_ms: f64) -> Option<String> {
+        self.move_focus_serviced(next, now_ms, true).1
+    }
+
+    /// [`Self::set_focus`]; `service` false leaves its handlers' commits to the
+    /// caller (inside `service_commit`: one `sync_commit` after the last
+    /// event, so no autofocus or route arrival runs between a blur and its
+    /// focusout). Whether a handler ran, and the first error.
+    fn move_focus_serviced(
+        &mut self,
+        next: Option<ViewId>,
+        now_ms: f64,
+        service: bool,
+    ) -> (bool, Option<String>) {
         if next.is_some_and(|id| !self.alert_allows(id)) {
-            return Some("focus refused: page under the open surface is inert".into());
+            return (
+                false,
+                Some("focus refused: page under the open surface is inert".into()),
+            );
         }
         let previous = self.focus;
         if previous == next {
-            return None;
+            return (false, None);
+        }
+        if next.is_some() {
+            self.focus_start = None;
         }
         // A focus the app or a route moves shows a ring only where the one it
         // leaves did, as Chrome's `:focus-visible` has it for `focus()`: after
@@ -432,14 +503,16 @@ impl<D: DataSource> Presenter<D> {
                 }
                 dispatched = true;
                 let stop = self.take_focus_commands();
-                error = error.or(self.after_commit());
+                if service {
+                    error = error.or(self.after_commit());
+                }
                 stopped = stop && (stage == 1 || stage == 3);
             }
         }
-        if dispatched {
+        if dispatched && service {
             error = error.or(self.after_commit());
         }
-        error
+        (dispatched, error)
     }
 
     /// A modifier key went down or up, by its code (`ShiftLeft`…): what
@@ -493,7 +566,7 @@ impl<D: DataSource> Presenter<D> {
     ) -> (Option<String>, bool) {
         let target = self
             .focus
-            .or_else(|| self.alert_root())
+            .or_else(|| self.alert_root().filter(|_| self.alert_inert()))
             .or_else(|| self.host.roots().first().copied());
         let mut path = Vec::new();
         let mut at = target.and_then(|id| self.handler_target(id, kind));
@@ -637,6 +710,8 @@ impl<D: DataSource> Presenter<D> {
         {
             if self.host.kernel().node(id).is_some() {
                 error = error.or(self.host.dispatch_at(id, Event::Hover(over), now_ms));
+                // A focused control a hover disabled loses the focus before the next.
+                error = error.or(self.blur_disabled_now());
             }
         }
         error.or(self.after_commit())
@@ -832,6 +907,9 @@ impl<D: DataSource> Presenter<D> {
     }
 }
 
+#[cfg(test)]
+#[path = "focus_disabled_tests.rs"]
+mod focus_disabled_tests;
 #[cfg(test)]
 #[path = "focus_rendered_tests.rs"]
 mod focus_rendered_tests;

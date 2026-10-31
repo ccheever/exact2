@@ -119,6 +119,8 @@ def routerTy (name : String) (ts : List Ty) : Option Ty :=
     | _ => .none
   else if name = "searchParam" then
     match ts with | [.record r, .string] => if r = "Entry" then .some .string else .none | _ => .none
+  else if name = "fragment" then
+    match ts with | [.record r] => if r = "Entry" then .some .string else .none | _ => .none
   else if name = "encodeRouteSegment" then match ts with | [.string] => .some .string | _ => .none
   else unsupportedTy name ts
 
@@ -227,13 +229,13 @@ def shapeTys (p : Program) (s : String) : Option (List Ty) :=
 /-- The compiler's router shapes, when the program has them (a program
 without routes may declare an `Entry` of its own), are the
 values `Contract.Route` builds: `Router(tab, tabs, next)`, `Tab(name,
-stack)`, `Entry(id, name, url, tab, params)`, and `Params` with a string
+stack)`, `Entry(id, name, url, tab, params, fragment)`, and `Params` with a string
 per parameter of the table (`Route.paramNames`). -/
 def routeShapesOK (p : Program) : Bool :=
   !(shapeTys p "Router").isSome ||
     (decide (shapeTys p "Router" = .some [.string, .list (.record "Tab"), .number]) &&
      decide (shapeTys p "Tab" = .some [.string, .list (.record "Entry")]) &&
-     decide (shapeTys p "Entry" = .some [.number, .string, .string, .string, .record "Params"]) &&
+     decide (shapeTys p "Entry" = .some [.number, .string, .string, .string, .record "Params", .string]) &&
      decide (shapeTys p "Params" = .some ((Route.paramNames p.routes).map fun _ => .string)))
 
 /-- The router slot, when the program has one, is a state of type `Router`

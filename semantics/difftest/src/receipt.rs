@@ -46,6 +46,9 @@ impl Identity {
 #[derive(Default)]
 pub(crate) struct Delivery {
     pub settle_bounds: usize,
+    pub until_met: usize,
+    pub until_not_met: usize,
+    pub until_field_paths: usize,
     pub mutation_events: usize,
     pub mutation_bounds: usize,
     pub whole: usize,
@@ -80,6 +83,7 @@ pub(crate) struct Receipt<'a> {
     pub js: &'a str,
     pub runner_seconds: f64,
     pub candidates: usize,
+    pub precision: &'a crate::suggest::Precision,
 }
 impl Receipt<'_> {
     pub fn print(&self) {
@@ -120,6 +124,10 @@ impl Receipt<'_> {
         println!(
             "  delivery: {} settle bounds; {} test-clock advances, {} bounds",
             d.settle_bounds, d.mutation_events, d.mutation_bounds
+        );
+        println!(
+            "  clock until: {} met, {} not met, {} field path",
+            d.until_met, d.until_not_met, d.until_field_paths
         );
         println!("  steps: {} ({} with more than one commit; {} poisoned; {} with a commit the trace leaves out); stores: empty, {} seeded", c.steps, c.multiple, c.poisoned, c.omitted, d.stores);
         let declared: BTreeSet<_> = self
@@ -177,6 +185,7 @@ impl Receipt<'_> {
             }
         }
         println!("  properties: {held} held, {false_} false, {counted} counted only, {idle} not exercised{}", if details.is_empty() { String::new() } else { format!(" ({})", details.join("; ")) });
+        self.precision.print();
         let count = |class| c.classes.get(class).copied().unwrap_or(0);
         println!("  refusals: {} of the app's own (above); {} of class T; {} of the world's; {} limit; {} poisoned; {} cycle; {} value; {} unclassified", count("app"), count("type"), count("world"), count("limit"), count("poisoned"), count("cycle"), count("value"), count("unclassified"));
         println!("  world: seeded oracle answering at once and never failing; tap, type, land and clock events only; no reload, no late answer, no host input; {}", crate::settle::HOST_WORLD);

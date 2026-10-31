@@ -1,13 +1,13 @@
 // LLP 1116.000 D4, in Chrome, Firefox and WebKit: a pushed route's bar draws the system Back for the root's
-// `navigationBack` control, as iOS draws UIKit's (NavigationBarIOS.swift `projectBack`): the chevron alone for a
+// `navigationBack` control, where iOS draws UIKit's (NavigationBarIOS.swift `projectBack`): the arrow alone for a
 // control with no words, else its words, the control pressed through it. A control that is an item of the bar iOS makes
 // of its header is not shown; one elsewhere in the route, the title's own pressable or in a menu stays where it is, and
 // one in any other header that shows it is that header's way back, with no Back beside it (the web's choice: iOS draws
 // UIKit's there too). A control hidden in that header leaves a drawn Back. The bar discounts its own hiding mark
 // when deciding whether the control shows. The Back presses its control wherever it is. A disabled control, one the author
 // made inert, a route with no bar or whose header's author wrote `appearance: none`, a stack's root and a sheet leave
-// no Back. The chevron is UIKit's back chevron at the bar's font, and it and the words are the navigation root's
-// accent. The page is the shell, the neutral look and the navigation glue, which both runtimes run, over nodes as
+// no Back, and so does a control whose author wrote `appearance: none`, which stays where it is (iOS's `authoredBack`). The Back is
+// a web app's: an arrow at the bar's font and "Back", or the control's words, in the bar's ink. The page is the shell, the neutral look and the navigation glue, which both runtimes run, over nodes as
 // either writes them: an author's rows inline (the wasm runtime) or in a class (the JS target).
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -22,9 +22,6 @@ import { withLook } from '../look.mjs';
 import { serveBuildTree } from '../serve.mjs';
 
 const ROOT = resolve(import.meta.dir, '../../..');
-// UIKit's back chevron on an iOS 27 simulator (iPhone 18 Pro): 11 by 18.67 points of ink, its line 3.5 points across
-// a row of an arm, at the bar's 17-point body. At the web's 16 px body, in px.
-const UIKIT = { ink: [11, 18.67].map((points) => points * 16 / 17), run: 3.5 * 16 / 17 };
 // A stack of two routes whose pushed one holds `control` in its header or its content (`place`), its header holding
 // `headings` and written with `header`'s attributes.
 const heading = (text) => `<h2 role="heading" data-exact-text>${text}</h2>`;
@@ -55,6 +52,7 @@ const content = `<style>#exact-root#exact-root { & .sized { width: 44px; height:
   ${stack('row', symbol(), 'header', '', '<div role="heading" aria-level="1"><span data-exact-text>Updates</span></div>')}
   ${stack('authored', symbol(), 'header', '', heading('Updates'), 'data-exact-said="appearance"')}${stack('authored-content', symbol(), 'content', '', heading('Updates'), 'data-exact-said="appearance"')}
   ${stack('authored-alone', '', 'content', '', heading('Updates'), 'data-exact-said="appearance"')}${stack('alone', '', 'content')}
+  ${stack('own-back', symbol('data-exact-said="appearance"'))}
   ${stack('wraps', `<button type="button" id="back" data-exact-on="press" aria-label="Back"><img data-symbol-source="symbol:back" data-symbol-path="M15 5 8 12l7 7" style="width:20px;height:20px">${heading('Inbox')}</button>`, 'header', '', '')}
   ${stack('in-menu', `<div popover="manual" id="back-menu">${symbol()}</div>`)}${stack('in-dialog', `<dialog id="back-dialog">${symbol()}</dialog>`)}
   ${stack('hidden-content', `<div hidden>${symbol()}</div>`, 'content')}${stack('inert-content', `<div inert>${symbol()}</div>`, 'content')}
@@ -65,7 +63,7 @@ const content = `<style>#exact-root#exact-root { & .sized { width: 44px; height:
   ${stack('titled-tap', symbol(), 'header', '', `<div data-exact-on="press">${heading('Updates')}</div><button type="button" data-exact-on="press">${heading('Edit')}</button>`)}
   ${stack('foreign', symbol())}${stack('moved', symbol())}${stack('route-accent', symbol(), 'header', 'style="--exact-accent: rgb(204, 0, 0)"')}
   ${stack('app-accent', symbol()).replace('style="display:block"', 'style="display:block; --exact-accent: rgb(0, 0, 204)"')}
-  <div>${stack('nested-accent', symbol()).replace('style="display:block"', 'style="display:block; --exact-accent: rgb(0, 128, 0)"')}</div><span id="accent-probe" style="color: var(--exact-accent, AccentColor)"></span>
+  <div>${stack('nested-accent', symbol()).replace('style="display:block"', 'style="display:block; --exact-accent: rgb(0, 128, 0)"')}</div>
   ${stack('disabled', symbol('disabled'))}${stack('dimmed', symbol('disabled').replace(' data-exact-on="press"', ''))}${stack('dimmed-link', symbol('disabled role="link"').replace(' data-exact-on="press"', ''))}
   ${stack('content', symbol(), 'content')}
   ${stack('sheet', symbol(), 'header', 'navigationPresentation="modal"')}
@@ -144,7 +142,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a pushe
     }), ids);
     expect(await bars(['wraps', 'in-menu', 'search', 'alone', 'authored-content', 'authored-alone', 'in-dialog', 'hidden-content', 'hidden-header', 'two-dialog', 'inert-content'])).toEqual([
       ['wraps', true, 'Inbox', 'Back', null, true], ['in-menu', true, '', 'Back', null, true], ['search', true, '', 'Back', null, true],
-      ['alone', true, 'Settings', 'Back to Settings', null, false], ['authored-content', false, null, null, null, true],
+      ['alone', true, 'Back', 'Back to Settings', null, false], ['authored-content', false, null, null, null, true],
       ['authored-alone', false, null, null, null, false], ['in-dialog', true, '', 'Back', null, false], ['hidden-content', true, '', 'Back', null, false],
       ['hidden-header', true, '', 'Back', null, false], ['two-dialog', true, '', 'Back', null, false], ['inert-content', false, null, null, null, true],
     ]);
@@ -152,14 +150,14 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a pushe
     // The Back presses a control wherever it is, as UIKit's Back does: in a closed menu or dialog, or hidden in the content.
     expect(await page.evaluate(() => ['in-menu', 'in-dialog', 'hidden-content', 'two-dialog'].flatMap((id) => (document.querySelector(`#${id} > header`).shadowRoot.querySelector('button[part="back"]').click(), pressed.splice(0)))))
       .toEqual(['back-menu', 'back-dialog', 'hidden-content', 'two-dialog']);
-    expect(await bars(['symbol', 'inline', 'titled', 'long', 'keys', 'disabled', 'dimmed', 'dimmed-link', 'content', 'bare', 'bare-content', 'headless', 'two', 'row', 'titled-tap', 'authored', 'pressing', 'commanded', 'popover-first', 'foreign', 'sheet', 'root'])).toEqual([
+    expect(await bars(['symbol', 'inline', 'titled', 'long', 'keys', 'disabled', 'dimmed', 'dimmed-link', 'content', 'bare', 'bare-content', 'headless', 'two', 'row', 'titled-tap', 'authored', 'own-back', 'pressing', 'commanded', 'popover-first', 'foreign', 'sheet', 'root'])).toEqual([
       ['symbol', true, '', 'Back', null, false], ['inline', true, '', 'Back', null, false], ['titled', true, 'Done', 'Done', null, false],
       ['long', true, 'Back', 'All my conversations', null, false], ['keys', true, '', 'Back', 'Meta+[', false],
       ['disabled', false, null, null, null, false], ['dimmed', false, null, null, null, false],
       ['dimmed-link', false, null, null, null, true], ['content', true, '', 'Back', null, true],
       ['bare', false, null, null, null, true], ['bare-content', false, null, null, null, true], ['headless', false, null, null, null, true],
       ['two', false, null, null, null, true], ['row', false, null, null, null, true], ['titled-tap', true, '', 'Back', null, false],
-      ['authored', false, null, null, null, true], ['pressing', true, '', 'Back', null, false], ['commanded', true, '', 'Back', null, false],
+      ['authored', false, null, null, null, true], ['own-back', false, null, null, null, true], ['pressing', true, '', 'Back', null, false], ['commanded', true, '', 'Back', null, false],
       ['popover-first', true, '', 'Back', null, false], ['foreign', false, null, null, null, true], ['sheet', false, null, null, null, true], ['root', false, null, null, null, true],
     ]);
     // A control the header no longer holds is shown again.
@@ -180,10 +178,8 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a pushe
     await back.focus();
     await page.keyboard.press('Enter');
     expect(await page.evaluate(() => [pressed.splice(0), (document.querySelector('#symbol #back').focus(), document.activeElement.id)])).toEqual([['symbol', 'symbol'], '']);
-    // The Back is its navigation root's accent, its chevron and words alike, as UIKit tints its Back with the tint its
-    // navigation controller's view inherits from the root's node: the app's, or one the root says, at the top of the
-    // page or inside it, and not one a route says, which reaches no bar of UIKit's. It keeps that ink in dark and in
-    // increased contrast, and hovered and held, over a different fill for each.
+    // The Back is a web app's (LLP 1115.000 D4.14): its arrow and words in the bar's label ink whatever accent the app,
+    // the root or a route says, in dark and in increased contrast, and hovered and held, over a different fill for each.
     const inks = () => page.evaluate(() => ['titled', 'route-accent', 'app-accent', 'nested-accent'].map((id) => {
       const back = document.querySelector(`#${id} > header`).shadowRoot.querySelector('button[part="back"]');
       return [getComputedStyle(back).color, getComputedStyle(back.querySelector('path')).stroke, getComputedStyle(back.lastChild).color];
@@ -192,32 +188,18 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a pushe
     for (const media of [{ colorScheme: 'light' }, { colorScheme: 'dark' }, { colorScheme: 'light', contrast: 'more' }]) {
       await page.emulateMedia(media);
       await page.mouse.move(0, 0);
-      const accent = await page.evaluate(() => getComputedStyle(document.getElementById('accent-probe')).color), rest = await look();
+      const ink = await page.evaluate(() => getComputedStyle(document.querySelector('#titled > header')).color), rest = await look();
       await titled.hover();
       const hovered = await look();
       await page.mouse.down();
       const held = await look();
       await page.mouse.up();
       expect([media, await inks(), [rest[0], hovered[0], held[0]], new Set([rest[1], hovered[1], held[1]]).size])
-        .toEqual([media, [[accent, accent, accent], [accent, accent, accent], Array(3).fill('rgb(0, 0, 204)'), Array(3).fill('rgb(0, 128, 0)')], [accent, accent, accent], 3]);
+        .toEqual([media, Array(4).fill([ink, ink, ink]), [ink, ink, ink], 3]);
     }
     await page.emulateMedia({ colorScheme: 'light', contrast: 'no-preference' });
-    // The chevron is UIKit's, measured as its red ink: its box, and the run of a row a quarter of the way down.
-    const png = await back.locator('svg').screenshot();
-    const [width, height, run] = await page.evaluate(async (png) => {
-      const image = new Image();
-      image.src = `data:image/png;base64,${png}`;
-      await image.decode();
-      const canvas = Object.assign(document.createElement('canvas'), { width: image.width, height: image.height }), context = canvas.getContext('2d');
-      context.drawImage(image, 0, 0);
-      const { data } = context.getImageData(0, 0, image.width, image.height), red = (x, y) => { const at = (y * image.width + x) * 4; return data[at] - Math.max(data[at + 1], data[at + 2]) > 127; };
-      let [left, top, right, bottom] = [Infinity, Infinity, -1, -1];
-      for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) if (red(x, y)) [left, top, right, bottom] = [Math.min(left, x), Math.min(top, y), Math.max(right, x), Math.max(bottom, y)];
-      const row = Math.round(top + (bottom - top) / 4);
-      return [(right - left + 1) / 4, (bottom - top + 1) / 4, [...Array(image.width).keys()].filter((x) => red(x, row)).length / 4];
-    }, png.toString('base64'));
-    const near = (a, b, within) => Math.abs(a - b) <= within;
-    expect([width, height, run, near(width, UIKIT.ink[0], 0.2) && near(height, UIKIT.ink[1], 0.2) && near(run, UIKIT.run, 0.5)]).toEqual([width, height, run, true]);
+    // The arrow is a square of the bar's font, 1em a side.
+    expect(await back.locator('svg').evaluate((svg) => { const r = svg.getBoundingClientRect(), em = parseFloat(getComputedStyle(svg).fontSize); return [r.width / em, r.height / em]; })).toEqual([1, 1]);
     expect(errors).toEqual([]);
   } finally {
     await suite.close();
@@ -230,7 +212,7 @@ async function withBackPage(engine, run) {
     .replace('<div id="exact-root"></div>', () => `<div id="exact-root"><div id="wrapper">${stack('detail', symbol())}</div></div>`)
     .replace('<script type="module" src="./glue.js"></script>', () => `<script type="module">
       import { navigation, inertAncestor } from '/navigation.js';
-      import { reveal, viewBox } from '/input-glue.js';
+      import { reveal, viewBox } from '/agent-input.js';
       const root = document.getElementById('exact-root'); navigation.connect(root, () => false, () => {});
       window.project = () => navigation.project(root, () => {}); project();
       Object.assign(window, { reveal, viewBox, inertAncestor, ready: true });

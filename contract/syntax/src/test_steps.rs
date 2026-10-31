@@ -104,6 +104,14 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `at "/item/7#moves"`: the location the app opens at, its fragment
+    /// included, the driver's `--url` with a path (LLP 1153 D5).
+    At {
+        /// The location, a path with its query and fragment.
+        location: String,
+        /// Where.
+        span: Span,
+    },
     /// `locale "fr-FR"`: the session's BCP 47 locale, `--locale`.
     Locale {
         /// The tag.

@@ -1,5 +1,10 @@
 //! The carrier owns the view; the render thread only owns its Metal layer.
 //! @ref LLP 1149 D7, D11, D12.
+#[cfg(exact_ink_metal)]
+pub use super::metal::startup::Startup;
+#[cfg(not(exact_ink_metal))]
+#[path = "apple/startup_unavailable.rs"]
+mod startup_unavailable;
 use super::{Error, Result};
 use objc2::{rc::Retained, MainThreadMarker};
 use objc2_app_kit::{NSApplication, NSView};
@@ -8,11 +13,13 @@ use objc2_core_graphics::CGColorSpace;
 use objc2_metal::{MTLDrawable, MTLPixelFormat};
 use objc2_quartz_core::CAMetalLayer;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+#[cfg(not(exact_ink_metal))]
+pub use startup_unavailable::Startup;
 use std::{
     rc::Rc,
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -20,6 +27,7 @@ struct Inner {
     view: Retained<NSView>,
     layer: Retained<CAMetalLayer>,
     retry: Arc<Retry>,
+    presentation: Arc<Presentation>,
     wake: Arc<dyn Fn() + Send + Sync>,
     _owner: Rc<dyn HasWindowHandle>,
 }
@@ -62,9 +70,11 @@ impl Layer {
             view,
             layer,
             retry: Arc::default(),
+            presentation: Arc::default(),
             wake: Arc::new(wake),
             _owner: owner,
         }));
+        result.register_boot_expose();
         result.resize(size, scale);
         Ok(result)
     }
@@ -77,13 +87,55 @@ impl Layer {
             .setDrawableSize(CGSize::new(size[0] as f64, size[1] as f64));
     }
 
+    fn register_boot_expose(&self) {
+        if std::env::var_os("G1_BOOT_ONLY").is_none() {
+            return;
+        }
+        type Register = unsafe extern "C" fn(*const std::ffi::c_void);
+        // SAFETY: the optional probe copies a void(void) Objective-C block.
+        let register = unsafe {
+            let symbol = libc::dlsym(libc::RTLD_DEFAULT, c"g1_boot_expose".as_ptr());
+            if symbol.is_null() {
+                return;
+            }
+            std::mem::transmute::<*mut std::ffi::c_void, Register>(symbol)
+        };
+        let retry = self.0.retry.clone();
+        let presentation = self.0.presentation.clone();
+        let wake = self.0.wake.clone();
+        let callback = block2::RcBlock::new(move || {
+            if presentation.painter().is_none() {
+                retry.exposed();
+                wake();
+            }
+        });
+        unsafe {
+            register(block2::RcBlock::as_ptr(&callback).cast());
+        }
+    }
+
     pub fn retry_requested(&self) -> bool {
-        self.0.retry.requested.swap(false, Ordering::AcqRel)
+        let requested = self.0.retry.requested.swap(false, Ordering::AcqRel);
+        if requested {
+            trace_mark(c"presentation retry consumed", || 1.);
+        }
+        requested
     }
 
     /// An input or surface transition permits another recovery attempt.
     pub fn resume_retries(&self) {
         self.0.retry.reset();
+    }
+
+    /// Discard callbacks from the failed device generation.
+    pub fn invalidate(&self) {
+        self.0.presentation.invalidate();
+        self.resume_retries();
+    }
+
+    /// The painter of the last drawable with a nonzero displayed timestamp.
+    pub fn presented_painter(&self) -> Option<&'static str> {
+        self.0.presentation.painter()
     }
 
     pub fn live_resize(&self) -> bool {
@@ -110,6 +162,8 @@ impl Layer {
             raw: self.0.layer.clone(),
             retry: self.0.retry.clone(),
             wake: self.0.wake.clone(),
+            presentation: self.0.presentation.clone(),
+            generation: self.0.presentation.0.lock().unwrap().generation,
         }
     }
 }
@@ -118,11 +172,26 @@ pub(crate) struct RenderLayer {
     pub raw: Retained<CAMetalLayer>,
     retry: Arc<Retry>,
     wake: Arc<dyn Fn() + Send + Sync>,
+    presentation: Arc<Presentation>,
+    generation: u64,
 }
 impl RenderLayer {
-    pub fn track(&self, drawable: &objc2::runtime::ProtocolObject<dyn objc2_metal::MTLDrawable>) {
+    #[cfg(exact_ink_metal)]
+    pub(crate) fn framebuffer_only(self) {
+        self.raw.setFramebufferOnly(true);
+    }
+    pub fn track(
+        &self,
+        drawable: &objc2::runtime::ProtocolObject<dyn objc2_metal::MTLDrawable>,
+        ink: bool,
+    ) {
+        trace_mark(c"drawable framebuffer only", || {
+            f64::from(self.raw.framebufferOnly())
+        });
         let retry = self.retry.clone();
         let wake = self.wake.clone();
+        let presentation = self.presentation.clone();
+        let generation = self.generation;
         let block = block2::RcBlock::new(
             move |shown: std::ptr::NonNull<
                 objc2::runtime::ProtocolObject<dyn objc2_metal::MTLDrawable>,
@@ -131,10 +200,15 @@ impl RenderLayer {
                 // including while the window's first layer transaction is pending.
                 // https://developer.apple.com/documentation/metal/mtldrawable/presentedtime
                 let time = unsafe { shown.as_ref().presentedTime() };
+                trace_mark(c"presented handler", || time);
                 trace_interval(c"presented", || (time, time, 0.));
+                if !presentation.record(generation, time, ink) {
+                    return;
+                }
                 if time == 0. && retry.failed() {
                     wake();
                 } else if time != 0. {
+                    crate::counters::displayed();
                     retry.reset();
                 }
             },
@@ -152,11 +226,49 @@ impl RenderLayer {
 }
 
 #[derive(Default)]
+struct Presentation(Mutex<Shown>);
+#[derive(Default)]
+struct Shown {
+    generation: u64,
+    time: f64,
+    painter: Option<&'static str>,
+}
+impl Presentation {
+    fn painter(&self) -> Option<&'static str> {
+        self.0.lock().unwrap().painter
+    }
+    fn invalidate(&self) {
+        let mut shown = self.0.lock().unwrap();
+        *shown = Shown {
+            generation: shown.generation + 1,
+            ..Shown::default()
+        };
+    }
+    fn record(&self, generation: u64, time: f64, ink: bool) -> bool {
+        let mut shown = self.0.lock().unwrap();
+        if shown.generation != generation {
+            return false;
+        }
+        // Completion callbacks can arrive in a different order from display.
+        if time > shown.time {
+            shown.time = time;
+            shown.painter = Some(if ink { "ink" } else { "cpu" });
+        }
+        true
+    }
+}
+
+#[derive(Default)]
 struct Retry {
     failures: AtomicU8,
     requested: AtomicBool,
 }
 impl Retry {
+    fn exposed(&self) {
+        trace_mark(c"presentation exposed", || 0.);
+        self.failures.store(0, Ordering::Release);
+        self.requested.store(true, Ordering::Release);
+    }
     fn failed(&self) -> bool {
         let previous = self
             .failures
@@ -164,6 +276,7 @@ impl Retry {
                 Some(n.saturating_add(1).min(2))
             })
             .unwrap();
+        trace_mark(c"presentation retry failures", || f64::from(previous) + 1.);
         if previous == 0 {
             self.requested.store(true, Ordering::Release);
             true
@@ -211,6 +324,7 @@ pub struct Trace {
     name: &'static core::ffi::CStr,
     start: f64,
     hook: TraceHook,
+    value: f64,
 }
 impl Trace {
     pub fn new(name: &'static core::ffi::CStr) -> Option<Self> {
@@ -218,12 +332,26 @@ impl Trace {
             name,
             start: unsafe { CACurrentMediaTime() },
             hook,
+            value: 0.,
+        })
+    }
+    pub fn with_value(name: &'static core::ffi::CStr, value: f64) -> Option<Self> {
+        Self::new(name).map(|mut span| {
+            span.value = value;
+            span
         })
     }
 }
 impl Drop for Trace {
     fn drop(&mut self) {
-        unsafe { (self.hook)(self.name.as_ptr(), self.start, CACurrentMediaTime(), 0.) };
+        unsafe {
+            (self.hook)(
+                self.name.as_ptr(),
+                self.start,
+                CACurrentMediaTime(),
+                self.value,
+            )
+        };
     }
 }
 type TraceHook = unsafe extern "C" fn(*const core::ffi::c_char, f64, f64, f64);
@@ -298,6 +426,7 @@ impl DisplayLink {
             context: *mut std::ffi::c_void,
         ) -> i32 {
             trace_mark(c"display callback", || 0.);
+            let _trace = Trace::new(c"display link wake");
             let callback = unsafe { &*context.cast::<CallbackSlot>() };
             callback.call();
             0
@@ -353,6 +482,7 @@ impl DisplayLink {
             return Err(Error::Device(format!("CVDisplayLink start/stop: {status}")));
         }
         self.running = running;
+        trace_mark(c"display running", || f64::from(running));
         Ok(())
     }
 }
@@ -386,6 +516,57 @@ pub(crate) fn benchmark_scene() -> (bool, f32) {
     BENCHMARK.get()
 }
 
+/// Record which painter owns the next whole drawable, on the present worker.
+pub(crate) fn benchmark_painter(ink: bool) {
+    type Mark = unsafe extern "C" fn(i32);
+    static MARK: std::sync::OnceLock<Option<Mark>> = std::sync::OnceLock::new();
+    let mark = MARK.get_or_init(|| unsafe {
+        let symbol = libc::dlsym(libc::RTLD_DEFAULT, c"g1_painter".as_ptr());
+        if symbol.is_null() {
+            None
+        } else {
+            Some(std::mem::transmute::<*mut std::ffi::c_void, Mark>(symbol))
+        }
+    });
+    if let Some(mark) = mark {
+        unsafe {
+            mark(i32::from(ink));
+        }
+    }
+}
+
+/// Let the linked probe read the carrier thread's counters at its CPU endpoints.
+pub fn benchmark_counters() {
+    if !crate::counters::enabled() {
+        return;
+    }
+    type Register = unsafe extern "C" fn(
+        extern "C" fn(usize) -> *const core::ffi::c_char,
+        extern "C" fn(usize, bool) -> u64,
+    );
+    // SAFETY: the optional probe exports this signature and calls back on main.
+    unsafe {
+        let p = libc::dlsym(libc::RTLD_DEFAULT, c"g1_set_counter_reader".as_ptr());
+        if !p.is_null() {
+            std::mem::transmute::<*mut core::ffi::c_void, Register>(p)(
+                crate::counters::probe_name,
+                crate::counters::probe_value,
+            );
+        }
+    }
+}
+
+/// Only a linked benchmark probe can replace the final sample with a clear.
+pub fn benchmark_present_clear() -> bool {
+    type Clear = unsafe extern "C" fn() -> i32;
+    static CLEAR: std::sync::OnceLock<Option<Clear>> = std::sync::OnceLock::new();
+    let clear = CLEAR.get_or_init(|| unsafe {
+        let symbol = libc::dlsym(libc::RTLD_DEFAULT, c"g1_present_clear".as_ptr());
+        (!symbol.is_null()).then(|| std::mem::transmute::<*mut std::ffi::c_void, Clear>(symbol))
+    });
+    clear.is_some_and(|clear| unsafe { clear() != 0 })
+}
+
 /// Set the probe's metadata on the worker immediately before drawable acquisition.
 pub(crate) fn benchmark_present((complete, offset): (bool, f32)) {
     type Ready = unsafe extern "C" fn(i32, usize, f32);
@@ -408,6 +589,27 @@ pub(crate) fn benchmark_present((complete, offset): (bool, f32)) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn painter_identity_follows_display_and_rejects_a_lost_generations_callbacks() {
+        let presented = Presentation::default();
+        assert_eq!(presented.painter(), None);
+        presented.record(0, 0., true);
+        assert_eq!(presented.painter(), None);
+        presented.record(0, 1., false);
+        assert_eq!(presented.painter(), Some("cpu"));
+        presented.record(0, 0., true);
+        assert_eq!(presented.painter(), Some("cpu"));
+        presented.record(0, 2., true);
+        assert_eq!(presented.painter(), Some("ink"));
+        presented.record(0, 1.5, false);
+        assert_eq!(presented.painter(), Some("ink"));
+        presented.invalidate();
+        assert!(!presented.record(0, 3., true));
+        assert_eq!(presented.painter(), None);
+        presented.record(1, 4., false);
+        assert_eq!(presented.painter(), Some("cpu"));
+    }
 
     #[test]
     fn clearing_the_display_callback_waits_for_a_running_wake_and_releases_it() {
@@ -442,7 +644,7 @@ mod tests {
     }
 
     #[test]
-    fn two_unshown_frames_stop_retries_until_new_activity_or_a_shown_frame() {
+    fn callback_retry_allowance_resets_on_activity_or_a_shown_frame() {
         let retry = Retry::default();
         for _ in 0..3 {
             assert!(retry.failed());
@@ -453,6 +655,14 @@ mod tests {
             }
             retry.reset();
         }
+        assert!(retry.failed());
+        assert!(!retry.failed());
+        retry.exposed();
+        assert!(retry.requested.swap(false, Ordering::AcqRel));
+        assert!(
+            retry.failed(),
+            "the first expose restores the retry allowance"
+        );
     }
 
     #[test]

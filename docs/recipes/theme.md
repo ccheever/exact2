@@ -41,7 +41,8 @@ component App
         text "Always dark"
 ```
 
-- **A role if the platform has one, a token if it is the brand.** `contract vocab
+- **A role if the platform has one, a token if it is the brand** (`color="ink"`, or
+  `color="var(--ink)"`; `tamber import css tokens.css` writes a stylesheet's). `contract vocab
   -exact-label` answers a role.
 - **`light-dark(light, dark)`** gives a token both schemes. One colour on purpose (an ink on
   the brand's fill, a ground under media) says `scheme=fixed`; an unmarked one is warned once,
@@ -58,7 +59,6 @@ component App
 - **The scheme:** `setScheme("light" | "dark" | "system")` sets the app's, as a Theme setting
   of Auto, Light and Dark does (in its action, and a `mount` task for a kept one); `color-scheme`
   fixes a subtree in one. Modes the person picks (Dim, Black) are axes ([tamber](tamber.md)).
-- **Check it:** `bun exact.mjs tamber check .` (`pair=` warns below 4.5:1); drive with
-  `prefer prefers-color-scheme dark`, or `check both` to judge both schemes.
-  An authored test can use `prefer prefers-color-scheme dark` before an `expect`
-  or `screenshot`; switch to `light` later to check the other scheme.
+- **Check it:** `bun exact.mjs tamber check .` (`pair=` warns below 4.5:1); a drive or an
+  authored test says `prefer prefers-color-scheme dark` (then `light`) before an `expect` or
+  `screenshot`, or `check both` judges both schemes.

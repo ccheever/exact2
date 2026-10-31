@@ -8,7 +8,7 @@ use crate::page::{body_js, Js};
 use crate::{render_with, Ids, Projection, Rendered, Settled};
 use exact_plan::Plan;
 use exact_runner::DataSource;
-use exact_web::document::{route_at, Site};
+use exact_web::document::Site;
 use std::time::Duration;
 
 /// `location` rendered both ways: the JSON fields `<app>-render --compare`
@@ -117,8 +117,7 @@ fn streamed<D: DataSource + 'static, F: Fn() -> D>(
     kernel: &Rendered,
 ) -> Result<Option<String>, String> {
     let js = Js::of(shell)?;
-    let preload = route_at(plan, location)
-        .is_none_or(|route| route.activate != exact_plan::ActivatePolicy::Interaction);
+    let preload = crate::page::preloads_early(plan, location);
     let late = |activate: exact_plan::ActivatePolicy| {
         !preload && crate::page::activate_js(activate) != "interaction"
     };

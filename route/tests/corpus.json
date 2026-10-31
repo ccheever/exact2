@@ -93,16 +93,34 @@
     {"input": "app://line\u2028break", "expected": "/line%E2%80%A8break"},
     {"input": "/reports/q3|q4", "expected": "/reports/q3%7Cq4"},
     {"input": "https://exa mple.com/thread/42", "expected": "/thread/42"},
-    {"input": "https://interview.app/post/42?x=1#frag", "expected": "/post/42?x=1"},
+    {"input": "https://interview.app/post/42?x=1#frag", "expected": "/post/42?x=1#frag"},
     {"input": "interview://post/42", "expected": "/post/42"},
     {"input": "interview://", "expected": "/"},
-    {"input": "INTERVIEW://post/42?x=a b#frag", "expected": "/post/42?x=a%20b"},
+    {"input": "INTERVIEW://post/42?x=a b#frag", "expected": "/post/42?x=a%20b#frag"},
     {"input": "interview://post/../people/é", "expected": "/people/%C3%A9"},
-    {"input": "http://localhost:8080?x=1#f", "expected": "/?x=1"},
+    {"input": "http://localhost:8080?x=1#f", "expected": "/?x=1#f"},
     {"input": "https://user:pass@interview.app:443/post/42", "expected": "/post/42"},
     {"input": "mailto:hi@example.org?subject=Hello world", "expected": "/hi@example.org?subject=Hello%20world"},
     {"input": "file://folder/path", "expected": "/folder/path"},
-    {"input": "custom+app://post/%2f?x=1+2#f", "expected": "/post/%2f?x=1+2"}
+    {"input": "custom+app://post/%2f?x=1+2#f", "expected": "/post/%2f?x=1+2#f"},
+    {"input": "https://dex.app/pokemon/pikachu#moves", "expected": "/pokemon/pikachu#moves"},
+    {"input": "https://dex.app/pokemon/pikachu#", "expected": "/pokemon/pikachu"},
+    {"input": "dex://pokemon/pikachu#b c", "expected": "/pokemon/pikachu#b%20c"}
+  ],
+  "fragments": [
+    {"input": "/a", "expected": ""},
+    {"input": "/a#", "expected": ""},
+    {"input": "/a#moves", "expected": "moves"},
+    {"input": "/a#b c", "expected": "b%20c"},
+    {"input": "/a#\u00e9", "expected": "%C3%A9"},
+    {"input": "/a#%41%zz", "expected": "%41%zz"},
+    {"input": "/a#b#c", "expected": "b#c"},
+    {"input": "/a#<>\"`", "expected": "%3C%3E%22%60"},
+    {"input": "/a#{}|^'", "expected": "{}|^'"},
+    {"input": "/a?q=1#x?y", "expected": "x?y"},
+    {"input": "#top", "expected": "top"},
+    {"input": "/a#\u0001\u007f", "expected": "%01%7F"},
+    {"input": "/a\t#m\no", "expected": "mo"}
   ],
   "components": [
     {"input": "", "expected": ""},
@@ -1373,6 +1391,133 @@
           },
           "refusal": {"message": "replace cannot change the tab's root route"}
         }
+
+      ]
+    },
+    {
+      "name": "fragments ride on the visit: a fragment-only change is the same visit; a return without one keeps it",
+      "table": "plain",
+      "steps": [
+        {
+          "verb": "launch",
+          "arg": "/item/7#moves",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/7", "tab": "landing", "params": {"item": "7", "year": ""}, "fragment": "moves"}]}
+            ],
+            "next": 2
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/item/7#stats",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/7", "tab": "landing", "params": {"item": "7", "year": ""}, "fragment": "stats"}]}
+            ],
+            "next": 2
+          },
+          "refusal": null
+        },
+        {
+          "verb": "go",
+          "arg": "/item/7",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/7", "tab": "landing", "params": {"item": "7", "year": ""}}]}
+            ],
+            "next": 2
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/item/7/edit#notes",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/7", "tab": "landing", "params": {"item": "7", "year": ""}}, {"id": 2, "name": "edit", "url": "/item/7/edit", "tab": "landing", "params": {"item": "7", "year": ""}, "fragment": "notes"}]}
+            ],
+            "next": 3
+          },
+          "refusal": null
+        },
+        {
+          "verb": "go",
+          "arg": "/item/7#moves",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/7", "tab": "landing", "params": {"item": "7", "year": ""}, "fragment": "moves"}]}
+            ],
+            "next": 3
+          },
+          "refusal": null
+        },
+        {
+          "verb": "replace",
+          "arg": "/item/8#a%20b c",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/8", "tab": "landing", "params": {"item": "8", "year": ""}, "fragment": "a%20b%20c"}]}
+            ],
+            "next": 3
+          },
+          "refusal": null
+        },
+        {
+          "verb": "open",
+          "arg": "/item/8#top",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/8", "tab": "landing", "params": {"item": "8", "year": ""}, "fragment": "top"}]}
+            ],
+            "next": 3
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/item/8/edit",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/8", "tab": "landing", "params": {"item": "8", "year": ""}, "fragment": "top"}, {"id": 3, "name": "edit", "url": "/item/8/edit", "tab": "landing", "params": {"item": "8", "year": ""}}]}
+            ],
+            "next": 4
+          },
+          "refusal": null
+        },
+        {
+          "verb": "go",
+          "arg": "/item/8",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/8", "tab": "landing", "params": {"item": "8", "year": ""}, "fragment": "top"}]}
+            ],
+            "next": 4
+          },
+          "refusal": null
+        },
+        {
+          "verb": "back",
+          "arg": null,
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}]}
+            ],
+            "next": 4
+          },
+          "refusal": null
+        }
       ]
     }
   ],
@@ -1386,17 +1531,18 @@
   ],
   "laws": [
     {"name": "back_push", "statement": "stack(back(push(r, u))) = stack(r) for u not the top url"},
-    {"name": "push_top", "statement": "push(r, top(r).url) = r"},
+    {"name": "push_top", "statement": "push(r, location(top(r))) = r, a location being the url and its fragment"},
     {"name": "back_root", "statement": "back(r) = r when depth(r) = 1"},
     {"name": "select_twice", "statement": "select(select(r, t), t) has depth 1"},
     {"name": "open_idempotent", "statement": "open(open(r, u), u) = open(r, u)"},
     {"name": "replace_id", "statement": "top(replace(r, u)).id = top(r).id"},
-    {"name": "go_top", "statement": "go(r, top(r).url) = r"},
+    {"name": "go_top", "statement": "go(r, location(top(r))) = r"},
+    {"name": "fragment_in_place", "statement": "push, replace and go to top(r).url + \"#\" + f change only top(r).fragment, to f"},
     {"name": "unique_ids", "statement": "ids in any reachable value are distinct and next exceeds them all"},
     {"name": "entry_roundtrip", "statement": "every entry url is canonical and match(url) gives back its name and params"},
     {"name": "canonical_idempotent", "statement": "canonical is idempotent and agrees with Chrome on the fixture set"}
   ],
-  "law_locations": {"interview": ["/", "/post/42", "/prompt/5/write?x=1", "/unknown/"], "messages": ["/", "/t/7/contact", "/new?x=1"], "plain": ["/", "/item/7/edit", "/archive/2026/a%2Fb"]},
-  "oracle": {"browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36", "date": "2026-09-14", "canonical": "const u = new URL(\"https://x\" + (input.startsWith(\"/\") ? input : \"/\" + input)); u.pathname + u.search", "components": "encodeURIComponent(input)", "search": "new URL(url, \"https://x\").searchParams.get(name) ?? \"\""},
+  "law_locations": {"interview": ["/", "/post/42", "/post/42#reply", "/prompt/5/write?x=1", "/unknown/"], "messages": ["/", "/t/7/contact", "/t/7/contact#top", "/new?x=1"], "plain": ["/", "/item/7#moves", "/item/7/edit", "/archive/2026/a%2Fb"]},
+  "oracle": {"browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36", "date": "2026-09-14", "canonical": "const u = new URL(\"https://x\" + (input.startsWith(\"/\") ? input : \"/\" + input)); u.pathname + u.search", "fragments": "the same URL's u.hash.slice(1), read 2026-10-30 in HeadlessChrome/146 (Playwright chromium_headless_shell-1243)", "location_of": "an http(s) URL's u.pathname + u.search + u.hash; another scheme's rule is the router's, its hash Chrome's", "components": "encodeURIComponent(input)", "search": "new URL(url, \"https://x\").searchParams.get(name) ?? \"\""},
   "decisions": {"replace_root": "At depth 1, replace accepts only the tab's own root route (query or parameter changes), retaining its id; a different route leaves the value unchanged with one refusal.", "chain_leaf": "The leaf preserves its canonical incoming location, including query and escape spelling; ancestors format only their own parameters.", "parameter_names": "Whole-segment ASCII identifiers: [A-Za-z_$][A-Za-z0-9_$]*.", "ids": "Seed roots in declared tab order from zero before opening the launch chain; refuse before next exceeds the largest exactly representable JavaScript integer."}
 }

@@ -3,11 +3,11 @@ import XCTest
 
 final class RelaunchTests: XCTestCase {
     #if os(macOS)
-    func testRelaunchFromBeforeUnloadJoinsTheQuitStorageHold() {
+    func testRelaunchFromBeforeUnloadJoinsTheQuitHold() {
         var pending = true, terminations = 0
-        var quitting: StorageHold?
+        var quitting: QuitHold?
         let drained = expectation(description: "the original quit completes after storage drains")
-        let hold = StorageHold(pending: { pending }, begin: { _ in }, end: {
+        let hold = QuitHold(pending: { pending }, end: {
             XCTAssertFalse(pending)
             terminations += 1
             drained.fulfill()
@@ -28,7 +28,7 @@ final class RelaunchTests: XCTestCase {
         XCTAssertEqual(terminations, 1)
     }
 
-    func testRelaunchRequestsQuitWithoutAStorageHold() {
+    func testRelaunchRequestsQuitWithoutAQuitHold() {
         let terminated = expectation(description: "relaunch requests the normal quit")
         ProcessRelaunch.requestQuit(holding: { false }) { terminated.fulfill() }
         wait(for: [terminated], timeout: 2)

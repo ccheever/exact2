@@ -583,7 +583,23 @@ dismiss pairs every down with its up. The innermost enabled node that hears any 
 the three also holds the pointer for its `pointermove`s until it lifts (LLP
 1056 §8.6); a `pointermove` takes nothing from an ancestor's down or up.
 A handler's `stopPropagation()` stops the down or the up there (the one
-rule, below). The up is heard on the document on the web (a
+rule, below). A `pointerdown` handler's `preventDefault()` cancels the
+press's default, as Chrome cancels a prevented pointerdown's, by mouse and by
+touch (measured on Chrome 156; `host/web/tests/prevent-focus.test.mjs`): the
+focus stays where it is, no caret is placed and no selection starts. The
+`press` still fires, and the `pointerup`s and a held pointer's moves go on.
+The web prevents the DOM `pointerdown` (`glue.js`, the JS target's `rt.js`);
+macOS keeps a prevented editor's down from the window and has a node give
+itself the focus only after its `pointerdown` (`MouseChain.prevented`); UIKit
+keeps each prevented touch's view out of the focus until a turn after its
+lift, ends no editing for it and starts no selection under it
+(`Presenter.preventedTouches`). An action's own `focus()` still moves the focus. Declared: on UIKit a
+field that already has the focus still places its caret where the touch
+lifts (UIKit's own text gesture on its first responder, with no hook to
+cancel it alone); the focus stays and no selection starts. Declared: the
+shared Linux presenter (Linux, Android, Windows) does not yet keep the
+focus; rt1 owns it, sharing these tests, and removes this line when it
+lands. The up is heard on the document on the web (a
 pointer capture would also retarget the click and press on a lift
 elsewhere), where the pointer leaving the document (out of the window, into
 a frame) or the window losing focus also ends it, and a node the tree has
@@ -621,9 +637,12 @@ UIKit.
   and every node hears its down first. A window under a
   sheet takes no early down. A control-click (AppKit's contextual click), a click AppKit keeps
   from the editor (a first click into a window that is not key, unless the
-  editor takes it) and an editor under another view go as before. Chrome
-  lets a `mousedown` `preventDefault` keep the focus where it is; nothing
-  here does (a later ruling). A drag of selected text out of a text area or an
+  editor takes it) and an editor under another view go as before. A
+  prevented early down keeps the editor out of the focus (above). A node
+  that takes the click focus and hears `pointerdown` (itself or up the
+  authored tree) is not one AppKit focuses before its `mouseDown`
+  (`needsPanelToBecomeKey`): its `mouseDown` gives it the focus after its
+  `pointerdown`, unless that prevented it. A drag of selected text out of a text area or an
   input's editor is AppKit's dragging session, which runs after the loop
   returns: `pointerup` comes as the drag starts, where Chrome sends
   `pointercancel` (declared, not measured). A disabled editor tracks
@@ -797,6 +816,31 @@ root's edit actions and key path), Linux's
 `with_nothing_focused_the_root_hears_keys`, the terminal's
 `with_nothing_focused_the_root_hears_keys`, and the `body-keys` conformance
 plan (Chrome, JS against wasm, and the Linux host).
+
+**A non-modal popover on Linux and Windows** (the shared presenter,
+`presenter/alert.rs`; theme2 15:34 and the lead's 2026-10-31 00:13 ruling)
+follows HTML. Opening it leaves the focus where it was, unless something
+inside autofocuses; a `dialog` shown as a popover runs the dialog focusing
+steps. The page stays live: keys other than the popover's Escape, Tab, wheel,
+reveal and the accessibility tree all reach it. A press outside an auto
+popover dismisses it and goes on to what it lands on. A press on any button
+whose popover command targets it is that button's toggle. Tab enters the
+popover's stops right after where its invoker sorts. A manual popover hears
+no close request and gives no focus back. Modal dialogs and alerts keep the
+inert page and move the focus in. **Not yet conforming:**
+- From a focused node that is no stop inside a popover (an autofocused
+  `tabindex=-1`), Tab steps from that node's tree position at the default
+  tabindex rank. A positive-`tabindex` stop after it inside the popover is
+  then skipped, and Shift+Tab can land on it; HTML searches plain tree order
+  from such a starting point. This is dtool3's owned item, next.
+- One box at a time: a popover from a dialog, or a nested auto popover,
+  replaces the open box (owned, dtool3).
+- Light dismiss runs on pointerdown; HTML records the press there and
+  dismisses on the matching pointerup, and Chrome on the click (owned, dtool3).
+
+Tests: `presenter/alert_popover_tests.rs`, `alert_input_tests.rs` (modal
+kinds), `tests/authored_dialog.rs` and `tests/authored_dialog_windows.rs`, and
+the `reads` conformance plan with `--linux`.
 
 **A chord during an input method's composition, and held modifiers**
 (2026-10-07, #140). Chrome hands the page a ⌘ chord's keydown while the text

@@ -1478,6 +1478,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // own `contextmenu` still runs (review b5-b 2), and then no system
         // menu opens.
         pointerPressed(event)
+        let endKeeping = keepingFocus(for: event)
+        defer { endKeeping() }
         let canvas = canvasInput?.pointer(event, phase: "down") == true
         if inlineContextMenu(event) || dispatchContextMenu(at: convert(event.locationInWindow, from: nil), sample: pointerSample(event), click: event) { return }
         if !canvas, !bubbleContextMenu(event) { super.rightMouseDown(with: event) }

@@ -615,7 +615,7 @@ function watchModuleSources(directory, ignore, changed) {
           }
           if (stat.isDirectory()) { walk(path,name+'/',depth+1); continue; }
           // A design (`.tamber`) is a source: a value-only edit goes as a batch (LLP 1121 stage 4).
-          if (!/\.(ts|contract|json|tamber)$/.test(name) && name !== '.exact/backend-origin') continue;
+          if (!/\.(ts|contract|json|tamber)$/.test(name) && !['.exact/backend-origin', '.env.local', '.env'].includes(name)) continue;
           if (!stat.isFile()) { state.push([name,'not-regular']); continue; }
           bytes += Number(stat.size);
           if (stat.size > 16n*1024n*1024n || bytes > 64*1024*1024 || next.size >= 2048) throw new Error('module watcher source graph exceeds its file/byte budget');
@@ -811,9 +811,9 @@ function startModuleCompiler() {
   const contractSources = new Set(contractGraph().sources);
   // A source, or a directory on the way to one: the scan descends into it.
   const contractInput = path => contractSources.has(path) || [...contractSources].some(s => s.startsWith(path + '/') || s.startsWith(path + '\\'));
-  const backendInput = name => /^\.exact(?:[\\/]backend-origin)?$/.test(name);
+  const dotInput = name => /^\.exact(?:[\\/]backend-origin)?$|^\.env(?:\.local)?$/.test(name); // the backend selection, and the settings' files (LLP 1153 D4)
   const watches = [watchModuleSources(app.dir, name => name === 'app.contract.d.ts' || (skipped.test(name) && !contractInput(resolve(app.dir, name)))
-    || (/(^|\/)\./.test(name) && !contractInput(resolve(app.dir, name)) && !backendInput(name))
+    || (/(^|\/)\./.test(name) && !contractInput(resolve(app.dir, name)) && !dotInput(name))
     || (assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')) && !contractInput(resolve(app.dir, name))), moduleChanged)];
   // Directories the manifest mounts beside app.ts (typescript.sources) are sources too.
   for (const path of Object.values(app.manifest.typescript?.sources ?? {})) {

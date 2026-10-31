@@ -212,19 +212,20 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         finishLaunching()
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-    /// A quit waits while a session's storage is still landing or its native
-    /// module's quit work runs, five seconds at most for all of it (LLP 1097
-    /// D10, LLP 1069.010 Q4); a repeated quit joins that hold.
+    /// A quit waits while a session's storage is still landing, a request
+    /// with effects is in flight or its native module's quit work runs, five
+    /// seconds at most for all of it (LLP 1097 D10, LLP 1146 D2, LLP 1069.010
+    /// Q4); a repeated quit joins that hold.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quitting?.holding == true { return .terminateLater }
         for (_, s) in sessions { s.willQuit() }
-        let hold = StorageHold(bound: 5, pending: { sessions.contains { $0.1.storageOperations > 0 || $0.1.quitWorkPending } },
-                               begin: { _ in }, end: { NSApp.reply(toApplicationShouldTerminate: true) })
+        let hold = QuitHold(bound: 5, pending: { sessions.contains { $0.1.quitWorkPending || $0.1.mustFinish } },
+                            end: { NSApp.reply(toApplicationShouldTerminate: true) })
         guard hold.hold() else { return .terminateNow }
         quitting = hold
         return .terminateLater
     }
-    var quitting: StorageHold?
+    var quitting: QuitHold?
     /// The quit is decided and the hold, if any, has ended: each session goes,
     /// so its module's `destroy()` runs before the process does.
     func applicationWillTerminate(_ notification: Notification) {

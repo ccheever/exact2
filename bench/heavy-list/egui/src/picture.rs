@@ -20,9 +20,17 @@ pub fn diagnostic(message: std::fmt::Arguments<'_>) {
 
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
+    fn g1_boot_mark(name: *const std::ffi::c_char);
     fn g1_thumbnail(path: *const i8, w: u32, h: u32, ow: *mut u32, oh: *mut u32) -> *mut u8;
     fn free(bytes: *mut std::ffi::c_void);
     fn g1_scene_complete(complete: i32, item: usize, offset: f32);
+}
+
+pub fn boot_mark(_name: &'static std::ffi::CStr) {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        g1_boot_mark(_name.as_ptr())
+    }
 }
 
 #[derive(Clone, Hash, PartialEq, Eq)]

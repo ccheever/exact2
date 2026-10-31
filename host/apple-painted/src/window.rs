@@ -1,3 +1,4 @@
+use exact_ink::counters;
 use exact_ink::device::apple::{trace_mark, DisplayLink, Layer, Trace};
 use exact_linux::{
     app::{self, Config},
@@ -16,10 +17,10 @@ use std::{
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
-    event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
+    event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, PhysicalKey},
-    platform::macos::MonitorHandleExtMacOS,
+    platform::macos::{EventLoopBuilderExtMacOS, MonitorHandleExtMacOS},
     window::{Window, WindowId},
 };
 
@@ -53,6 +54,7 @@ struct App<D: DataSource> {
     wheel_phases: [u64; 2],
     scrolling: Scrolling,
     benchmark_complete: bool,
+    service_causes: u8,
 }
 
 impl<D: DataSource> Drop for App<D> {
@@ -64,8 +66,11 @@ impl<D: DataSource> Drop for App<D> {
 }
 
 pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &str) -> i32 {
+    trace_mark(c"boot host entry", || 0.);
+    let entry_trace = Trace::new(c"boot configuration and event loop");
     let started = Instant::now();
     app::prepare_environment(compat);
+    counters::initialize();
     if app::print_baked_receipt(compat) {
         return 0;
     }
@@ -113,7 +118,11 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
     if live {
         config.clock_started = Some(started);
     }
-    let events = match EventLoop::<Event>::with_user_event().build() {
+    let mut builder = EventLoop::<Event>::with_user_event();
+    if std::env::var_os("G1_BOOT_ONLY").is_some() {
+        builder.with_activate_ignoring_other_apps(false);
+    }
+    let events = match builder.build() {
         Ok(e) => e,
         Err(e) => {
             eprintln!("{e}");
@@ -148,7 +157,9 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         wheel_phases: [0; 2],
         scrolling: Scrolling::default(),
         benchmark_complete: false,
+        service_causes: 0,
     };
+    drop(entry_trace);
     if let Err(error) = events.run_app(&mut state) {
         eprintln!("{error}");
         state.failed = true;
@@ -169,6 +180,14 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
 }
 
 impl<D: DataSource + Default + 'static> App<D> {
+    fn awaiting_first_present(&self) -> bool {
+        self.frames > 0
+            && self
+                .layer
+                .as_ref()
+                .is_some_and(|layer| layer.presented_painter().is_none())
+    }
+
     fn fail(&mut self, events: &ActiveEventLoop, error: impl std::fmt::Display) {
         eprintln!("exact-apple-painted: {error}");
         self.failed = true;
@@ -199,6 +218,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             &self.display,
             self.window.as_ref().and_then(|w| w.current_monitor()),
         ) {
+            counters::refresh_rate(monitor.refresh_rate_millihertz().unwrap_or(60_000));
             if let Err(e) = display.set_display(monitor.native_id()) {
                 eprintln!("{e}");
             }
@@ -218,6 +238,8 @@ impl<D: DataSource + Default + 'static> App<D> {
             self.started.elapsed().as_secs_f64() * 1000.
         };
         let started = Instant::now();
+        counters::service(counters::DRAW);
+        let service_trace = Trace::with_value(c"draw service", f64::from(counters::DRAW) + 1.);
         p.pump(now);
         if self.live {
             p.animation_frame(now);
@@ -225,9 +247,11 @@ impl<D: DataSource + Default + 'static> App<D> {
         p.run_commands(D::default);
         p.hatch_turn();
         p.poll_images();
+        drop(service_trace);
         p.set_pointer(None);
         p.tick(now);
-        if p.dirty() {
+        p.poll_apple_painter()?;
+        if p.dirty() && p.apple_painter_can_draw() {
             if std::env::var_os("G1_OUTPUT").is_some() {
                 self.benchmark_complete = !p.images().pending() && !p.images().has_refusals();
                 let target = std::env::var("EXACT_BENCH_SCROLL_TARGET")
@@ -242,8 +266,9 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
             p.apple_window_frame()?;
             self.paint_ms += started.elapsed().as_secs_f64() * 1000.;
-            self.frames += 1;
-            if self.frames == 1 {
+            let submitted = p.last_frame_succeeded();
+            self.frames += u64::from(submitted);
+            if submitted && self.frames == 1 {
                 eprintln!("exact-apple-painted: first submission {:.3} ms; device {:.3}, shaders {:.3} ms; {}x{} at {}x (not a displayed timestamp)", self.started.elapsed().as_secs_f64() * 1000., p.painter.device_ms, p.painter.shaders_ms, p.viewport().0, p.viewport().1, self.scale);
             }
         }
@@ -253,11 +278,28 @@ impl<D: DataSource + Default + 'static> App<D> {
 }
 
 impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
+    fn new_events(&mut self, _: &ActiveEventLoop, cause: StartCause) {
+        let _trace = Trace::new(match cause {
+            StartCause::Init => c"winit init",
+            StartCause::Poll => c"winit poll",
+            StartCause::ResumeTimeReached { .. } => c"winit timer wake",
+            StartCause::WaitCancelled { .. } => c"winit event wake",
+        });
+        if counters::enabled() {
+            self.service_causes = if matches!(cause, StartCause::ResumeTimeReached { .. }) {
+                counters::TIMER
+            } else {
+                0
+            };
+        }
+    }
     fn resumed(&mut self, events: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
         }
         let setup = (|| -> Result<(), String> {
+            let window_trace = Trace::new(c"boot create window");
+            exact_ink::device::apple::benchmark_counters();
             let window = Rc::new(
                 events
                     .create_window(
@@ -267,10 +309,13 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                                 self.config.size.0,
                                 self.config.size.1,
                             ))
+                            .with_active(std::env::var_os("G1_BOOT_ONLY").is_none())
                             .with_visible(false),
                     )
                     .map_err(|e| e.to_string())?,
             );
+            drop(window_trace);
+            trace_mark(c"boot window created", || 0.);
             self.scale = window.scale_factor();
             self.config.scale = self.scale as f32;
             let size = window.inner_size();
@@ -278,7 +323,21 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 size.width as f32 / self.scale as f32,
                 size.height as f32 / self.scale as f32,
             );
-            let (mut p, warning) = app::boot_presenter::<D>(&mut self.config, viewport)?;
+            let presenter_trace = Trace::new(c"boot presenter");
+            let (mut p, warning) = if self.config.painter()
+                == exact_linux::presenter::PainterChoice::Ink
+                && std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("metal")
+            {
+                let proxy = self.proxy.clone();
+                let preparing = exact_ink::device::apple::Startup::start(Arc::new(move || {
+                    let _ = proxy.send_event(Event::Wake);
+                }))
+                .map_err(|e| e.to_string())?;
+                app::boot_presenter_with_metal::<D>(&mut self.config, viewport, preparing)?
+            } else {
+                app::boot_presenter::<D>(&mut self.config, viewport)?
+            };
+            drop(presenter_trace);
             if let Some(warning) = warning {
                 return Err(warning);
             }
@@ -297,6 +356,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             )
             .map_err(|e| e.to_string())?;
             p.attach_apple_layer(layer.clone())?;
+            trace_mark(c"boot layer attached", || 0.);
+            trace_mark(c"boot device milliseconds", || p.painter.device_ms);
+            trace_mark(c"boot shaders milliseconds", || p.painter.shaders_ms);
             let proxy = self.proxy.clone();
             let pending = self.tick_pending.clone();
             let active = self.display_active.clone();
@@ -319,6 +381,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             self.presenter = Some(p);
             self.window = Some(window.clone());
             window.set_visible(true);
+            trace_mark(c"boot window shown", || 0.);
             window.request_redraw();
             if self.config.agent {
                 let ready = serde_json::json!({"ready":true,"boot":self.started.elapsed().as_secs_f64()*1000.,"views":self.presenter.as_ref().unwrap().node_count(),"error":null,"benchmarkCarrier":true}).to_string();
@@ -333,26 +396,55 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
     fn user_event(&mut self, events: &ActiveEventLoop, event: Event) {
         match event {
             Event::Tick => {
+                if counters::enabled() {
+                    self.service_causes |= counters::LINK;
+                }
                 trace_mark(c"display wake", || 0.);
                 self.tick_pending.store(false, Ordering::Release);
+                let unshown = self.awaiting_first_present();
                 let dirty = self
                     .presenter
                     .as_ref()
-                    .is_some_and(|p| p.dirty() || self.live && p.needs_animation_frame());
+                    .is_some_and(|p| display_needed(p, self.live, self.hidden, unshown));
                 self.scrolling.tick(dirty);
                 if dirty {
+                    if unshown {
+                        // GPU completion does not prove the compositor showed a frame.
+                        self.presenter.as_mut().unwrap().repaint();
+                    }
+                    if let Some(window) = &self.window {
+                        trace_mark(c"display requests redraw", || 0.);
+                        window.request_redraw();
+                    }
+                }
+            }
+            Event::Wake => {
+                if counters::enabled() {
+                    self.service_causes |= counters::WORKER;
+                }
+                if self
+                    .presenter
+                    .as_ref()
+                    .is_some_and(|p| p.apple_painter_starting())
+                {
                     if let Some(window) = &self.window {
                         window.request_redraw();
                     }
                 }
             }
-            Event::Wake => {}
             Event::Closed => events.exit(),
             Event::Request(line, reply) => {
+                if counters::enabled() {
+                    self.service_causes |= counters::AGENT;
+                }
                 let _trace = Trace::new(c"agent request");
                 if let Some(p) = &mut self.presenter {
                     let request: serde_json::Value =
                         serde_json::from_str(&line).unwrap_or_default();
+                    if request["op"] == "state" && request["counters"] == true {
+                        let _ = reply.send(exact_linux::ink::counter_state().to_string());
+                        return;
+                    }
                     if matches!(
                         request["op"].as_str(),
                         Some("tap" | "type" | "clock" | "prefer")
@@ -388,6 +480,14 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         }
     }
     fn window_event(&mut self, events: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+        let _trace = Trace::new(c"winit window event");
+        if counters::enabled() {
+            self.service_causes |= match event {
+                WindowEvent::MouseWheel { .. } => counters::WHEEL,
+                WindowEvent::RedrawRequested => counters::DRAW,
+                _ => counters::WINDOW,
+            };
+        }
         if matches!(
             event,
             WindowEvent::CursorMoved { .. }
@@ -540,6 +640,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 }
             }
             WindowEvent::Occluded(hidden) => {
+                trace_mark(c"window hidden", || f64::from(hidden));
                 self.hidden = hidden;
                 p.surface_lifecycle(hidden, false);
                 if !hidden {
@@ -550,6 +651,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         }
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
+        let unshown = self.awaiting_first_present();
+        let _trace = Trace::new(c"winit dispatch");
         let Some(p) = &mut self.presenter else {
             return;
         };
@@ -561,7 +664,20 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         } else {
             self.started.elapsed().as_secs_f64() * 1000.
         };
-        service(p, now, self.live, D::default);
+        let causes = if counters::enabled() {
+            std::mem::take(&mut self.service_causes)
+        } else {
+            0
+        };
+        service(p, now, self.live, D::default, causes);
+        if p.apple_painter_retry_deadline()
+            .is_some_and(|due| Instant::now() >= due)
+        {
+            if let Err(e) = p.poll_apple_painter() {
+                self.fail(events, e);
+                return;
+            }
+        }
         // Offscreen metadata can finish after the last visible image. Submit a
         // complete scene for the probe even when that completion owes no damage.
         if std::env::var_os("G1_OUTPUT").is_some()
@@ -574,7 +690,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         if self.live {
             p.admit_idle_timer(now);
         }
-        let active = !self.hidden && (p.dirty() || self.live && p.needs_animation_frame());
+        let active = display_needed(p, self.live, self.hidden, unshown);
         let running = !self.hidden && (active || self.scrolling.active);
         self.display_active.store(running, Ordering::Release);
         if let Some(display) = &mut self.display {
@@ -584,10 +700,25 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             }
         }
         let wake = if !self.live { None } else { p.wake_due_ms() };
-        events.set_control_flow(wake.map_or(ControlFlow::Wait, |due| {
-            ControlFlow::WaitUntil(self.started + Duration::from_secs_f64(due.max(now) / 1000.))
-        }));
+        let wake = wake.map(|due| self.started + Duration::from_secs_f64(due.max(now) / 1000.));
+        events.set_control_flow(
+            wake.into_iter()
+                .chain(p.apple_painter_retry_deadline())
+                .min()
+                .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
+        );
     }
+}
+
+fn display_needed<D: DataSource>(
+    p: &Presenter<D>,
+    live: bool,
+    hidden: bool,
+    unshown: bool,
+) -> bool {
+    !hidden
+        && p.apple_painter_can_draw()
+        && (unshown || p.dirty() || live && p.needs_animation_frame())
 }
 
 #[derive(Default)]
@@ -633,8 +764,15 @@ fn live_wheel<D: DataSource>(
     Ok(serde_json::json!({"wheel":[dx,dy],"clock":p.host().now(),"live":true}))
 }
 
-fn service<D: DataSource>(p: &mut Presenter<D>, now: f64, live: bool, data: impl FnMut() -> D) {
-    let _trace = Trace::new(c"carrier service");
+fn service<D: DataSource>(
+    p: &mut Presenter<D>,
+    now: f64,
+    live: bool,
+    data: impl FnMut() -> D,
+    causes: u8,
+) {
+    counters::service(causes);
+    let _trace = Trace::with_value(c"carrier service", f64::from(causes) + 1.);
     // Timers can expire without a frame. Leaving their deadline in the past
     // makes WaitUntil wake continuously even though the display link is stopped.
     if live {
@@ -650,6 +788,39 @@ fn service<D: DataSource>(p: &mut Presenter<D>, now: f64, live: bool, data: impl
 mod tests {
     use super::*;
     use exact_linux::presenter::PainterChoice;
+
+    #[test]
+    fn an_unshown_boot_keeps_display_demand_after_two_completed_drawables() {
+        let plan = contract::compile("component App\n  view\n    text \"Still\"\n")
+            .unwrap()
+            .encode();
+        let (mut p, warning) =
+            Presenter::boot_with(&plan, (), (80., 80.), 1., ".".into(), PainterChoice::Cpu)
+                .unwrap();
+        assert!(warning.is_none(), "{warning:?}");
+        // Neither of the first two completed frames was selected for display.
+        for _ in 0..2 {
+            p.repaint();
+            p.frame();
+        }
+        assert!(!p.dirty());
+        for period in 2..8 {
+            assert!(
+                display_needed(&p, true, false, true),
+                "stopped at period {period}"
+            );
+            assert!(
+                !display_needed(&p, true, true, true),
+                "hidden windows must sleep"
+            );
+            p.repaint();
+            p.frame();
+        }
+        // A positive presented timestamp ends retries; the clean scene stays idle.
+        assert!(!display_needed(&p, true, false, false));
+        p.repaint();
+        assert!(display_needed(&p, true, false, false));
+    }
 
     #[test]
     fn agent_reads_leave_an_idle_window_clean_and_input_leaves_damage() {
@@ -748,12 +919,12 @@ mod tests {
         p.frame();
         assert!(!p.dirty());
         let due = p.wake_due_ms().unwrap();
-        service(&mut p, due + 1., true, || ());
+        service(&mut p, due + 1., true, || (), 0);
         assert!(!p.dirty());
         assert!(!p.host().motion() && !p.wants_display_frames());
         assert!(p.wake_due_ms().unwrap() > due + 1.);
         let next = p.wake_due_ms();
-        service(&mut p, due + 1000., false, || ());
+        service(&mut p, due + 1000., false, || (), 0);
         assert_eq!(p.wake_due_ms(), next, "the agent owns its clock");
     }
 }

@@ -143,10 +143,39 @@ fn a_route_that_is_no_sheet_is_left_alone() {
 }
 
 #[test]
-fn only_a_route_is_given_it() {
-    // The navigation root, and a box with the presentation but no `navigationKey`.
-    let r = boot(
-        "component App\n  view\n    column navigationPresentation=\"modal\" testId=\"box\"\n      text \"x\"\n",
-    );
-    assert_eq!(fill(&r, "box"), None, "no navigationKey: no route");
+fn a_presentation_off_a_route_is_refused() {
+    // No navigation root at all, and round 34's gradebook: the stack draws a
+    // form component whose root says the presentation but has no key, so no
+    // host presented it and iOS drew its header under the status bar.
+    let form = "routes nav
+  home \"/\"
+    rename \"/rename\"
+component App
+  view
+    main navigationKey=`${top(nav).id}` navigationBack=\"back\"
+      for e in stack(nav) key=e.id
+        if e.name == \"home\"
+          column navigationKey=`${e.id}` position=\"absolute\" inset=0
+            text \"Home\"
+        if e.name == \"rename\"
+          RenameForm()
+component RenameForm
+  view
+    column navigationPresentation=\"modal\" position=\"absolute\" inset=0
+      text \"Rename\"
+";
+    for (source, line) in [
+        ("component App\n  view\n    column navigationPresentation=\"modal\"\n      text \"x\"\n".to_string(), 3),
+        (form.to_string(), 15),
+    ] {
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "lower-route-place", "{error}");
+        assert!(error.message.contains("no host presents it") && error.message.contains("edit-sheet"), "{error}");
+        assert_eq!(error.span.line, line, "{error}");
+    }
+    // Moved onto the route, as the message says, it is a sheet.
+    let fixed = form
+        .replace("        if e.name == \"rename\"\n          RenameForm()", "        if e.name == \"rename\"\n          column navigationKey=`${e.id}` navigationPresentation=\"modal\" position=\"absolute\" inset=0\n            RenameForm()")
+        .replace("    column navigationPresentation=\"modal\" position=\"absolute\" inset=0\n      text \"Rename\"", "    column flex=1\n      text \"Rename\"");
+    contract::compile(&fixed).unwrap_or_else(|e| panic!("{e}"));
 }

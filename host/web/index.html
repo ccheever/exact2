@@ -30,6 +30,12 @@
      It is 1px over the display's scale, by the resolutions a sheet can ask about, so it holds before any script runs.
      Between two steps a border still snaps down to one device pixel. */
   :root { --exact-hairline: 1px; }
+  /* The platform's corners are Apple's continuous curve where the browser draws `corner-shape`: LLP 1077 D1's
+     stand-in, `superellipse(1.6)` over the radius scaled by 1.52 to the same reach (kernel/src/corner.rs
+     `APPLE_ON_THE_WEB`). Elsewhere a corner is round at the radius written. A capsule stays round: its ends are
+     half-circles on every platform. */
+  :root { --exact-curve: round; --exact-curve-reach: 1; }
+  @supports (corner-shape: superellipse(2)) { :root { --exact-curve: superellipse(1.6); --exact-curve-reach: 1.52; } }
   @media (min-resolution: 1.5dppx) { :root { --exact-hairline: calc(1px / 1.5); } }
   @media (min-resolution: 2dppx) { :root { --exact-hairline: .5px; } }
   @media (min-resolution: 2.5dppx) { :root { --exact-hairline: .4px; } }
@@ -169,6 +175,10 @@
   #exact-root button:not([data-native]):focus-visible,
   #exact-root input:not([data-native]):focus-visible,
   #exact-root textarea:not([data-native]):not([markup="markdown"]):focus-visible { outline: revert; outline-offset: 2px; }
+  /* A focus a pointer's press moved into a dialog has no platform ring until a key is pressed (input-glue.js): more
+     specific than `[data-native]`'s `all: revert` (above), which restores that ring. Under forced colors the system's ring
+     stays; a ring the shell or an author draws on purpose is more specific and theirs. */
+  @media not (forced-colors: active) { #exact-root [data-exact-no-ring]:focus-visible { outline: none; } }
   /* The UA's own reset, which \`all: unset\` undid: a field shows what was
      typed, as the kernel measures it and native fields draw it (LLP 1064 D6). The Markdown editor stands in for a textarea. */
   #exact-root [data-native], input, textarea, .exact-markdown-editor { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
@@ -198,7 +208,7 @@
      line (`white-space`, which writes --exact-button-title-min: 0px)
      truncates. `overflow: clip` clips without making the box a scroll
      container, whose automatic minimum size would be 0. */
-  #exact-root button[data-button-style] { appearance: auto; box-sizing: border-box; cursor: default; white-space: normal; text-align: center; letter-spacing: inherit; word-spacing: normal; text-transform: none; text-shadow: none; font-variant: normal; font-size: var(--exact-control-font-size, inherit); font-weight: 500; --exact-said-font-weight: ; border-radius: var(--exact-control-radius, 8px); align-items: center; justify-content: var(--exact-button-align, center); gap: 0; row-gap: 0 !important; column-gap: 0 !important; grid-template-areas: "title" "subtitle"; grid-template-columns: minmax(var(--exact-button-title-min, min-content), auto); overflow: clip; -webkit-user-select: none; user-select: none;
+  #exact-root button[data-button-style] { appearance: auto; box-sizing: border-box; cursor: default; white-space: normal; text-align: center; letter-spacing: inherit; word-spacing: normal; text-transform: none; text-shadow: none; font-variant: normal; font-size: var(--exact-control-font-size, inherit); font-weight: 500; --exact-said-font-weight: ; border-radius: var(--exact-control-radius, calc(8px * var(--exact-curve-reach))); corner-shape: var(--exact-control-curve, var(--exact-curve)); align-items: center; justify-content: var(--exact-button-align, center); gap: 0; row-gap: 0 !important; column-gap: 0 !important; grid-template-areas: "title" "subtitle"; grid-template-columns: minmax(var(--exact-button-title-min, min-content), auto); overflow: clip; -webkit-user-select: none; user-select: none;
     --exact-control-font-size: initial; --exact-touch-floor: initial; --exact-control-radius: initial; --exact-button-align: initial; --exact-button-clamp: initial; --exact-button-title-display: initial; --exact-button-title-min: initial; --exact-button-row-gap: initial; --exact-button-column-gap: initial; --exact-button-row-space: " "; --exact-button-column-space: " "; --exact-button-space: var(--exact-button-column-space); --exact-button-leading-areas: initial; --exact-button-leading-subtitle-areas: initial; --exact-button-trailing-areas: initial; --exact-button-trailing-subtitle-areas: initial; --exact-button-columns: initial; --exact-button-space-width: initial; --exact-button-space-height: initial; --exact-button-stacked: initial; }
   #exact-root button[data-button-style]:has(> img) { grid-template-areas: var(--exact-button-leading-areas, "image space title"); grid-template-columns: var(--exact-button-columns, auto auto minmax(var(--exact-button-title-min, min-content), auto)); }
   #exact-root button[data-button-style]:has(> [data-exact-text] ~ img) { grid-template-areas: var(--exact-button-trailing-areas, "title space image"); }
@@ -207,7 +217,7 @@
   #exact-root button[data-button-style]:has(> img):not(:has(> :not(img, [data-exact-text]:empty))) { grid-template-areas: "image"; grid-template-columns: auto; }
   /* A symbol alone on a fill is a capsule, a circle when square, as iOS draws one (ButtonConfigurationIOS.swift).
      Authored padding and corners keep the control's box, and tabs, segments, menu and chooser rows keep their own. */
-  #exact-root button[data-button-style]:not([data-button-style="plain"], [data-button-style="borderless"], [role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [data-exact-said~="padding-block"], [data-exact-said~="padding-inline"], [data-exact-padding-top], [data-exact-padding-bottom], [data-exact-padding-left], [data-exact-padding-right]):has(> img):not(:has(> :not(img, [data-exact-text]:empty))) { border-radius: var(--exact-control-radius, calc(infinity * 1px)); }
+  #exact-root button[data-button-style]:not([data-button-style="plain"], [data-button-style="borderless"], [role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [data-exact-said~="padding-block"], [data-exact-said~="padding-inline"], [data-exact-padding-top], [data-exact-padding-bottom], [data-exact-padding-left], [data-exact-padding-right]):has(> img):not(:has(> :not(img, [data-exact-text]:empty))) { border-radius: var(--exact-control-radius, calc(infinity * 1px)); corner-shape: round; }
   #exact-root button[data-button-style]:has(> img):has(> [data-exact-text]:not(:empty))::before { content: var(--exact-button-space); white-space: pre; grid-area: space; line-height: 0; --exact-said-line-height: ; width: var(--exact-button-space-width,var(--exact-button-column-gap,auto)); height: var(--exact-button-space-height,0px); }
   #exact-root button[data-button-style] > [data-exact-text] { grid-area: title; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: inherit; display: var(--exact-button-title-display, block) !important; -webkit-box-orient: vertical; -webkit-line-clamp: var(--exact-button-clamp, none); }
   /* Empty face text takes no grid track (LLP 1011 §3; LLP 1115.000). */
@@ -241,36 +251,33 @@
      the disclosure (they select, not push), the row whose press pushed the detail shown marked. */
   #exact-root [data-exact-sidebar] { flex-direction: row !important; }
   #exact-root [data-exact-sidebar] > [role="tablist"] { order: -1; flex: none !important; box-sizing: border-box !important; width: 240px !important; height: auto !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; gap: 2px !important; padding: 12px 10px !important; overflow-y: auto; }
-  #exact-root [data-exact-sidebar] > [role="tablist"] > [role="tab"] { flex: none !important; width: auto !important; height: auto !important; min-height: 36px; justify-content: start !important; padding: 6px 10px !important; border-radius: 8px !important; }
+  #exact-root [data-exact-sidebar] > [role="tablist"] > [role="tab"] { flex: none !important; width: auto !important; height: auto !important; min-height: 36px; justify-content: start !important; padding: 6px 10px !important; border-radius: calc(8px * var(--exact-curve-reach)) !important; corner-shape: var(--exact-curve); }
   /* A tab's symbol is in its ink as the page lays it out now (the runtimes copy the title's at a commit, and a resize is none). */
   #exact-root [role="tablist"] > button[role="tab"][aria-controls] > img { color: inherit !important; }
   #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls] > img { color: var(--exact-accent, AccentColor) !important; }
   #exact-root [data-exact-split="list"] { inset-inline-end: auto !important; box-sizing: border-box !important; width: var(--exact-split, 320px) !important; }
   #exact-root [data-exact-split="detail"] { inset-inline-start: var(--exact-split, 320px) !important; }
-  #exact-root [data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"]) { display: none !important; }
-  /* LLP 1116.006 D2: a split showing no detail fills the detail pane as an iPad's split view does: one quiet line,
-     centred, in the secondary label's colour (in English: the web host has no strings table of its own). A box of
+  /* LLP 1116.006 D2: a split showing no detail fills the detail pane with one quiet line, centred, in the secondary
+     label's colour, which asks for a choice as a web app's empty pane does, where an iPad's says "No Selection" (in
+     English: the web host has no strings table of its own; LLP 1115.000 D4.16). A box of
      the root route marked `navigationSplit="placeholder"`, the author's own, takes the pane instead: a centred
      column at the pane's width (the navigation glue sets it), its alignment the author's. The lowerer hides that box
      wherever no split shows it (a phone, a detail shown, a host that does not split). */
-  #exact-root [data-exact-split-empty]::before { content: "No Selection"; position: absolute; inset: 0; inset-inline-start: var(--exact-split, 320px); display: flex; align-items: center; justify-content: center; padding: 16px; color: var(--exact-secondary-label); font-size: 1.25rem; text-align: center; pointer-events: none; }
+  #exact-root [data-exact-split-empty]::before { content: "Select an item"; position: absolute; inset: 0; inset-inline-start: var(--exact-split, 320px); display: flex; align-items: center; justify-content: center; padding: 16px; color: var(--exact-secondary-label); font-size: 1.25rem; text-align: center; pointer-events: none; }
   #exact-root [data-exact-split-placeholder] { display: flex !important; position: absolute !important; inset-block: 0 !important; inset-inline: 100% auto !important; box-sizing: border-box !important; width: var(--exact-split-pane) !important; height: auto !important; margin: 0 !important; }
   :where(#exact-root [data-exact-split-placeholder]) { flex-direction: column; align-items: center; justify-content: center; padding: 16px; }
   /* Explicit glass styles retain their material when disabled. */
   #exact-root button[data-button-style="prominent-glass"]:disabled { background-color: light-dark(#ffffffb3, #262629b3); }
   #exact-root button[data-button-style="prominent-clear-glass"]:disabled { background-color: light-dark(#ffffff26, #ffffff1a); }
-  /* A route's app bar keeps its document-scroll position and content inset. Its neutral paint is in neutral.css. */
-  :where(#exact-root [navigationkey] > header) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; }
+  /* A route's app bar keeps its document-scroll position and content inset. Its neutral paint is in neutral.css. A
+     header drawn as written is no app bar, here or there (LLP 1153 D8): a site's, which navigation.js marks
+     `data-exact-site` when it holds a `nav` or more than one link, and one whose author wrote `appearance: none`. */
+  :where(#exact-root [navigationkey] > header:where(:not([data-exact-site], [data-exact-said~="appearance"]))) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; }
   /* LLP 1116.000 D4: the Back control a pushed route's header holds is pressed through the Back its bar draws
      (navigation.js), which stands for it, so it is not shown. A tap the agent aims at it lands on that Back
-     (input-glue.js `viewBox`), where the hit is the header holding it: the driver's check that no ancestor takes the
+     (agent-input.js `viewBox`), where the hit is the header holding it: the driver's check that no ancestor takes the
      press (scripts/agent.mjs, the tap's `why`) passes such a hit only for a target with `pointer-events: none`. */
   #exact-root [data-exact-bar-back] { display: none !important; pointer-events: none; }
-  /* The Back a route's bar draws (navigation.js), chevron and words, is its navigation root's accent. UIKit tints its
-     Back with the tint its navigation controller's view inherits from the navigation root's node, which holds that view
-     (NavigationIOS.swift): the accent that node or one around it says (SystemColor.swift `applyAccentTint`), else the
-     app's (AppAccentIOS.swift). An accent a route or its header says does not reach it, as none reaches UIKit's bar. */
-  #exact-root [navigationBack] { --exact-bar-accent: var(--exact-accent, AccentColor); }
   /* A dialog's padding is its author's (LLP 1115.000 D4.14): the user agent's own `1em` is a box the kernel does not
      know, so a plain `dialog` has none; the alert's is the page's, below. */
   :where(#exact-root dialog) { padding: 0; }
@@ -301,11 +308,11 @@
      the same way (LLP 1116.001 D1); the browser keeps its picker and icon.
      This leading is not a kernel start. The conditional shell property is
      invalid without an inherited said marker, letting a bare text style fill it. */
-  #exact-root input[data-native], #exact-root textarea[data-native] { border: 1px solid; border-radius: 8px; }
-  #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: var(--exact-control-line-height); --exact-control-line-height: 2.125; --exact-shell-line-height: var(--exact-said-line-height) var(--exact-control-line-height); padding-block: 0; padding-inline: .75em 2em; border: 1px solid; border-radius: 8px; background: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%) right .75em center / 4px 4px no-repeat, transparent; }
+  #exact-root input[data-native], #exact-root textarea[data-native] { border: 1px solid; border-radius: calc(8px * var(--exact-curve-reach)); corner-shape: var(--exact-curve); }
+  #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: var(--exact-control-line-height); --exact-control-line-height: 2.125; --exact-shell-line-height: var(--exact-said-line-height) var(--exact-control-line-height); padding-block: 0; padding-inline: .75em 2em; border: 1px solid; border-radius: calc(8px * var(--exact-curve-reach)); corner-shape: var(--exact-curve); background: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%) right .75em center / 4px 4px no-repeat, transparent; }
   /* LLP 1115.000 D4.14: the chevron is at the inline end, so on a right-to-left page it is at the left. */
   #exact-root select:not([multiple]):dir(rtl) { background-position: left .75em center, left calc(.75em + 4px) center, 0 0; }
-  #exact-root input[data-exact-field] { box-sizing: border-box; line-height: var(--exact-control-line-height); --exact-control-line-height: 2; --exact-shell-line-height: var(--exact-said-line-height) var(--exact-control-line-height); padding: 0 .75em; border: 1px solid; border-radius: 8px; }
+  #exact-root input[data-exact-field] { box-sizing: border-box; line-height: var(--exact-control-line-height); --exact-control-line-height: 2; --exact-shell-line-height: var(--exact-said-line-height) var(--exact-control-line-height); padding: 0 .75em; border: 1px solid; border-radius: calc(8px * var(--exact-curve-reach)); corner-shape: var(--exact-curve); }
   /* LLP 1116.005 D8: a field the author marks invalid (`aria-invalid=true`,
      beside its error text's `aria-describedby`) is outlined in the system
      red, and focused its ring is red too, as a well-made web form marks

@@ -14,6 +14,21 @@ const REFUSAL = {
   chain: 'the text, or a box between it and the wrapping context, is absolutely positioned, flex or grid, a button, sets align-content, or has a percentage top or bottom; keep ordinary in-flow blocks between them, or give the text a height',
 };
 
+/** `el`'s class rule's `height`, by its class attribute in `rules` (the build nests every class rule,
+ * `#exact-root#exact-root { & .cN { … } }`, emit.rs). A lowered node's class is its static class and its arm's
+ * (lower.js); an arm never sets a height (lower.rs R4), so the static class's stands. */
+export function classHeightOf(el, rules) {
+  const c = el.getAttribute('class');
+  if (!c) return '';
+  if (!rules.has(c)) {
+    let h = '';
+    const own = new Set(c.split(/\s+/).map(n => '.' + n)), walk = list => { for (const r of list ?? []) { if (r.style && own.has(r.selectorText?.replace(/^&\s+/, ''))) h = r.style.height || h; walk(r.cssRules); } };
+    for (const sheet of document.styleSheets) walk(sheet.cssRules);
+    rules.set(c, h);
+  }
+  return rules.get(c);
+}
+
 export async function flow({ views, viewId, wraps, clock, wall, say }) {
   const controller = createTextFlow({ views, request: await createFlowRequest(), agentMode: clock.agent, log: say,
     now: () => clock.agent ? clock.now : Math.max(clock.now, wall()), advance: () => {} });
@@ -33,19 +48,7 @@ export async function flow({ views, viewId, wraps, clock, wall, say }) {
     && ['min-height', 'max-height'].every(p => auto(el, p) || own(el, p));
   // A text's authored height (the kernel's `height != auto`): its inline
   // style (a dynamic row) or its class's rule.
-  const rules = new Map();
-  const classHeight = el => {
-    const c = el.getAttribute('class');
-    if (!c) return '';
-    if (!rules.has(c)) {
-      // The build nests every class rule, `#exact-root#exact-root { & .cN { … } }` (emit.rs).
-      let h = '';
-      const walk = list => { for (const r of list ?? []) { if (r.style && r.selectorText?.replace(/^&\s+/, '') === '.' + c) h = r.style.height || h; walk(r.cssRules); } };
-      for (const sheet of document.styleSheets) walk(sheet.cssRules);
-      rules.set(c, h);
-    }
-    return rules.get(c);
-  };
+  const rules = new Map(), classHeight = el => classHeightOf(el, rules);
   const definite = el => !!(el.style.height || classHeight(el)) && !/^auto$/.test(el.style.height || classHeight(el));
   const runs = el => el.parentElement?.hasAttribute('data-exact-text');
   let last = '';

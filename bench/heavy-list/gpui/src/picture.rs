@@ -4,9 +4,14 @@ use std::{cell::Cell, ffi::CString, path::PathBuf, sync::Arc};
 thread_local! { static MISSING: Cell<bool> = const { Cell::new(false) }; }
 
 unsafe extern "C" {
+    fn g1_boot_mark(name: *const std::ffi::c_char);
     fn g1_thumbnail(path: *const i8, w: u32, h: u32, ow: *mut u32, oh: *mut u32) -> *mut u8;
     fn free(bytes: *mut std::ffi::c_void);
     fn g1_scene_complete(complete: i32, item: usize, offset: f32);
+}
+
+pub fn boot_mark(name: &'static std::ffi::CStr) {
+    unsafe { g1_boot_mark(name.as_ptr()) }
 }
 
 #[derive(Clone, Hash, PartialEq, Eq)]

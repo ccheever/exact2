@@ -48,6 +48,9 @@ pub(crate) struct Sources {
     /// The literals a motion token was written into, or that a component's
     /// argument names one in (LLP 1121 D3): what `uses` reports for one.
     pub(crate) motion: Vec<contract_lower::motion::Site>,
+    /// Each `var()` whose fallback the loader dropped (LLP 1153 D6): one
+    /// warning says them.
+    pub(crate) var_fallbacks: Vec<(Span, String)>,
 }
 
 /// One name a `use` brought: where it is written, and the declaration it
@@ -169,6 +172,7 @@ pub(crate) fn load_partial(
             packages: Vec::new(),
             consulted: Vec::new(),
             motion: Vec::new(),
+            var_fallbacks: Vec::new(),
         },
         active: vec![root_key.clone()],
         units: Vec::new(),
@@ -177,6 +181,7 @@ pub(crate) fn load_partial(
         proposed: Vec::new(),
         declared: Vec::new(),
         motion: Vec::new(),
+        vars: None,
         refused: Refused::default(),
     };
     let loaded = loader.load_all(path, src, root_key);
@@ -266,6 +271,11 @@ impl Loader<'_> {
             &params,
             &identities,
         );
+        self.vars = Some(contract_lower::var_tokens::Tokens::of(
+            design.as_ref().map(|d| d.text.as_str()),
+            &package_designs,
+            self.units.first().and_then(|u| u.file.theme.as_ref()),
+        ));
         let library = library::read(&self.sources, self.app_root);
         match self.scope() {
             Ok(mut file) => {
@@ -502,6 +512,7 @@ pub(crate) fn graph_base(path: &Path, src: &str, app_root: &Path) -> GraphBase {
             packages: Vec::new(),
             consulted: Vec::new(),
             motion: Vec::new(),
+            var_fallbacks: Vec::new(),
         },
         active: vec![root_key.clone()],
         units: Vec::new(),
@@ -510,6 +521,7 @@ pub(crate) fn graph_base(path: &Path, src: &str, app_root: &Path) -> GraphBase {
         proposed: Vec::new(),
         declared: Vec::new(),
         motion: Vec::new(),
+        vars: None,
         refused: Refused::default(),
     };
     let loaded = loader.load_source(&root_key, src, 0);
@@ -597,6 +609,10 @@ struct Loader<'a> {
     /// The app's duration and easing tokens (LLP 1121 D3), written into the
     /// motion rows before scoping.
     motion: Vec<(String, String)>,
+    /// The app's tokens as a `var()` names them (LLP 1153 D6), once its
+    /// design is read: each file's style rows are written with them before
+    /// scoping.
+    vars: Option<contract_lower::var_tokens::Tokens>,
     /// The syntax refusals of the files read so far, resolved.
     refused: Refused,
 }
@@ -720,6 +736,19 @@ impl Loader<'_> {
         self.link_members(path, index)
     }
 
+    /// @ref LLP 1153 D6 — `file`'s style rows with each `var()` that names a
+    /// token written as the name, before a motion token is written in or a
+    /// keyframes name is scoped; a row naming none is refused beside the
+    /// syntax's refusals, and dropped.
+    fn vars(&mut self, file: &mut File) {
+        let Some(tokens) = &self.vars else { return };
+        let found = contract_lower::var_tokens::rewrite(file, tokens);
+        let sources = &self.sources;
+        let refused = found.refused.into_iter();
+        (self.refused.errors).extend(refused.map(|e| sources.resolve(e.into())));
+        self.sources.var_fallbacks.extend(found.fallbacks);
+    }
+
     /// Give every declaration its program-unique name (D4), rewrite each
     /// file through its own scope (D1, D5), and merge the files into the one
     /// `File` every later pass reads.
@@ -727,6 +756,7 @@ impl Loader<'_> {
         self.prepare_members()?;
         if self.units.len() == 1 {
             let mut file = self.units.pop().unwrap().file;
+            self.vars(&mut file);
             self.sources.motion = contract_lower::motion::substitute(&mut file, &self.motion);
             contract_syntax::resolve_clock_timelines(&mut file).map_err(|e| vec![e.into()])?;
             file.uses.clear();
@@ -776,10 +806,13 @@ impl Loader<'_> {
         // written into each motion row before scoping reads an animation's
         // keyframes name (the root's design, the app's).
         let motion = std::mem::take(&mut self.motion);
-        for unit in self.units.iter_mut() {
+        let mut units = std::mem::take(&mut self.units);
+        for unit in units.iter_mut() {
+            self.vars(&mut unit.file);
             let sites = contract_lower::motion::substitute(&mut unit.file, &motion);
             self.sources.motion.extend(sites);
         }
+        self.units = units;
         for (index, unit) in self.units.iter_mut().enumerate() {
             let mut scope = scopes[index].take().expect("every unit is scoped");
             scope.elsewhere = elsewhere

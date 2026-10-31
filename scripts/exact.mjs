@@ -47,12 +47,14 @@ import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } = await import('./app.mjs');
 const { applyPattern, createApp, createGame, patternList, wireSnapback } = await import('../game/new.mjs');
-const { sdkFetch } = await import('../game/app/shells.mjs');
+const { gameDefaults, sdkFetch } = await import('../game/app/shells.mjs');
 const { appleArtifacts, assertAppleIdentity, stripForDistribution } = await import('../host/apple/build.mjs');
 const { closeFilesystemReader } = await import('./filesystem.mjs');
 const { builtAppMatches, jsTargetBuild } = await import('../host/web/serve.mjs');
 const { signRelease } = await import('../host/apple/assets.mjs');
 const { chromium } = await import('./agent-launch.mjs');
+const { androidSdk } = await import('./agent-android.mjs');
+const { hermesAndroidBundle } = await import('./hermes-android.mjs');
 const { guardFlags, helpText } = await import('./help.mjs');
 const { backendOrigin } = await import('../js/bake/src/typescript.mjs');
 const { devicePreflight } = await import('../snapback4/web/device-build.mjs');
@@ -423,6 +425,9 @@ export function setup({check = false} = {}) {
         console.error(`exact setup: the ${target} Hermes bundle did not install; Apple TypeScript builds for it will name the command`);
       }
     }
+    // Android, where its SDK is (LLP 1107): the Rust target the APK's library builds for. Its Hermes bundle has no
+    // release to fetch yet (`sdkReport`'s row says how to install one).
+    if (existsSync(androidSdk())) run('rustup', ['target', 'add', 'aarch64-linux-android', '--toolchain', pin.channel]);
     // Every bake resolves offline and locked: the checkout's crates, and the game SDK's for a game's shell.
     run('cargo', [`+${pin.channel}`, 'fetch', '--locked', '--manifest-path', resolve(ROOT, 'Cargo.toml')]);
     console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
@@ -448,7 +453,45 @@ export function setup({check = false} = {}) {
 /** Every prerequisite at once (LLP 1086 D6): what is installed, what the SDK
  * pins, and, for what only some apps need, which ones. A row is `required`
  * when no app here builds without it. */
-export function sdkReport(env = process.env) {
+/** The report's rows a platform's build reads (LLP 1153 D1.2, D1.6): the web's are the toolchain exact2's own tools
+ * build with, Bun, node_modules and Chrome; a native platform's add Xcode and the Hermes bundle its TypeScript runs on. */
+export function platformRowNames(platform, { os = process.platform, cpu = process.arch, device = false } = {}) {
+  const host = `Hermes bundle (${hermesTarget(os, cpu)})`, simulator = `Hermes bundle (${hermesCrossTargets(os, cpu)[0]?.target})`;
+  return ['rustup', 'Rust', ...({
+    web: ['Bun', 'node_modules', 'Chrome'],
+    ios: ['Xcode', device ? 'Hermes bundle (aarch64-apple-ios)' : simulator],
+    macos: ['Xcode', host],
+    linux: [host],
+  }[platform] ?? [])];
+}
+/** The rows of `rows` a platform's build reads (`device`: an iOS build for a phone, whose Hermes bundle is the device's),
+ * and for Android the two its toolchain needs: the Rust target and the NDK (scripts/agent-android.mjs finds it, or says
+ * what to install). */
+export async function platformReport(platform, rows, { device = false } = {}) {
+  const own = rows.filter(row => platformRowNames(platform, { device }).includes(row.name));
+  const row = (name, ok, have, want, fix) => ({ name, have, want, ok, fix, required: true, need: null });
+  // The pinned toolchain's targets: the workspace builds with it, and the app directory pins none of its own.
+  const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain.channel;
+  const targets = () => spawnSync('rustup', [`+${pin}`, 'target', 'list', '--installed'], { encoding: 'utf8' }).stdout ?? '';
+  if (platform === 'windows') {
+    const msvc = /-pc-windows-msvc$/m.test(targets());
+    own.push(row('Rust target (MSVC)', msvc, msvc ? 'installed' : 'missing', 'a *-pc-windows-msvc target', 'rustup target add x86_64-pc-windows-msvc (or aarch64-pc-windows-msvc)'));
+  }
+  if (platform !== 'android') return own;
+  const android = /^aarch64-linux-android$/m.test(targets());
+  own.push(row('Rust target aarch64-linux-android', android, android ? 'installed' : 'missing', 'aarch64-linux-android', 'rustup target add aarch64-linux-android'));
+  try { (await import('./agent-android.mjs')).androidToolchainEnv(); own.push(row('Android NDK', true, 'found', 'an NDK', '')); }
+  catch (error) { own.push(row('Android NDK', false, 'missing', 'an NDK with the aarch64-linux-android toolchain', String(error.message ?? error))); }
+  const bundle = hermesAndroidBundle();
+  own.push(row('Hermes bundle (aarch64-linux-android)', !!bundle, bundle ? 'installed' : 'missing', 'the Android Hermes bundle a TypeScript app links',
+    'no Ibex release ships one yet: bun scripts/hermes-android.mjs install <archive>, or copy ~/.cache/exact/hermes-android from a machine that has one'));
+  return own;
+}
+
+/** Every row, or with `only` a platform's rows alone (`platformRowNames`), the others' checks skipped. */
+export function sdkReport(env = process.env, { only = null, device = false } = {}) {
+  const wanted = only ? new Set(platformRowNames(only, { device })) : null;
+  const want = (...names) => !wanted || names.some(name => wanted.has(name));
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain;
   const bindgen = Bun.TOML.parse(readFileSync(resolve(ROOT, 'game/Cargo.toml'), 'utf8')).workspace.dependencies['wasm-bindgen'].replace(/^=/, '');
   const output = (cmd, args) => {
@@ -461,46 +504,72 @@ export function sdkReport(env = process.env) {
   rows.push(row('rustup', rustup.split(' ')[1], 'any', !!rustup, 'install rustup from https://rustup.rs'));
   const rust = output('rustc', [`+${pin.channel}`, '--version']).split(' ')[1];
   rows.push(row('Rust', rust, pin.channel, rust === pin.channel, 'exact setup'));
-  const nightlyRoot = output('rustc', [`+${WEB_TOOLCHAIN}`, '--print', 'sysroot']);
+  const nightlyRoot = want('web nightly', 'web nightly wasm32', 'web nightly clippy') ? output('rustc', [`+${WEB_TOOLCHAIN}`, '--print', 'sysroot']) : '';
   const nightly = !!nightlyRoot && existsSync(resolve(nightlyRoot, 'lib/rustlib/src/rust/library/Cargo.toml'));
-  rows.push(row('web nightly', nightlyRoot ? (nightly ? WEB_TOOLCHAIN : 'no rust-src') : '', `${WEB_TOOLCHAIN} + rust-src`, nightly, 'exact setup'));
+  if (want('web nightly')) rows.push(row('web nightly', nightlyRoot ? (nightly ? WEB_TOOLCHAIN : 'no rust-src') : '', `${WEB_TOOLCHAIN} + rust-src`, nightly, 'exact setup'));
   // An app's web build makes its own std (-Zbuild-std); a GPU module's and a --wasm dev build use the prebuilt one.
   const nightlyWasm = !!nightlyRoot && existsSync(resolve(nightlyRoot, 'lib/rustlib/wasm32-unknown-unknown'));
-  rows.push(row('web nightly wasm32', nightlyWasm ? 'installed' : '', `${WEB_TOOLCHAIN} wasm32-unknown-unknown`, nightlyWasm, 'exact setup', 'GPU modules and --wasm builds'));
+  if (want('web nightly wasm32')) rows.push(row('web nightly wasm32', nightlyWasm ? 'installed' : '', `${WEB_TOOLCHAIN} wasm32-unknown-unknown`, nightlyWasm, 'exact setup', 'GPU modules and --wasm builds'));
   // A game's web bake runs the determinism lints under the nightly (game/app/shells.mjs lintGame).
-  const nightlyClippy = !!nightlyRoot && output('cargo', [`+${WEB_TOOLCHAIN}`, 'clippy', '--version']) !== '';
-  rows.push(row('web nightly clippy', nightlyClippy ? 'installed' : '', `${WEB_TOOLCHAIN} clippy`, nightlyClippy, 'exact setup', "games' web builds"));
+  if (want('web nightly clippy')) {
+    const nightlyClippy = !!nightlyRoot && output('cargo', [`+${WEB_TOOLCHAIN}`, 'clippy', '--version']) !== '';
+    rows.push(row('web nightly clippy', nightlyClippy ? 'installed' : '', `${WEB_TOOLCHAIN} clippy`, nightlyClippy, 'exact setup', "games' web builds"));
+  }
   // A game's shell resolves offline against the SDK lock; a crate missing from Cargo's cache stops its first bake.
-  const crates = sdkFetch({offline: true, env});
-  rows.push(row('game SDK crates', crates.ok ? 'in Cargo cache' : (/no matching package named `[^`]+`/.exec(crates.message)?.[0] ?? 'not all fetched'), 'game/app/shells.lock', crates.ok, 'exact setup', 'games'));
+  if (want('game SDK crates')) {
+    const crates = sdkFetch({offline: true, env});
+    rows.push(row('game SDK crates', crates.ok ? 'in Cargo cache' : (/no matching package named `[^`]+`/.exec(crates.message)?.[0] ?? 'not all fetched'), 'game/app/shells.lock', crates.ok, 'exact setup', 'games'));
+  }
   const bun = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager.slice(4);
-  rows.push(row('Bun', process.versions.bun, bun, process.versions.bun === bun, `use Bun ${bun} (README, Quick start)`));
-  const bindgenHave = output('wasm-bindgen', ['--version']);
-  rows.push(row('wasm-bindgen', bindgenHave, `wasm-bindgen ${bindgen}`, bindgenHave === `wasm-bindgen ${bindgen}`, 'exact setup'));
-  const opt = binaryenVersion(output('wasm-opt', ['--version']));
-  rows.push(row('wasm-opt', opt, BINARYEN, opt === BINARYEN, 'exact setup'));
-  const modules = existsSync(resolve(ROOT, 'node_modules/.bin/rolldown'));
-  rows.push(row('node_modules', modules ? 'installed' : '', 'bun.lock', modules, `bun install --frozen-lockfile in ${ROOT}`));
-  const browser = chromium({ environment: env });
-  rows.push(row('Chrome', browser.unavailable ? '' : browser.executable, 'any', !browser.unavailable, "install Playwright's Chromium (docs/testing.md, Browsers), or set CHROME"));
-  if (process.platform === 'darwin') {
+  if (want('Bun')) rows.push(row('Bun', process.versions.bun, bun, process.versions.bun === bun, `use Bun ${bun} (README, Quick start)`));
+  if (want('wasm-bindgen')) {
+    const bindgenHave = output('wasm-bindgen', ['--version']);
+    rows.push(row('wasm-bindgen', bindgenHave, `wasm-bindgen ${bindgen}`, bindgenHave === `wasm-bindgen ${bindgen}`, 'exact setup'));
+  }
+  if (want('wasm-opt')) {
+    const opt = binaryenVersion(output('wasm-opt', ['--version']));
+    rows.push(row('wasm-opt', opt, BINARYEN, opt === BINARYEN, 'exact setup'));
+  }
+  // Bun on Windows writes `rolldown.exe` and `rolldown.bunx` there.
+  const modules = ['rolldown', 'rolldown.exe'].some(bin => existsSync(resolve(ROOT, 'node_modules/.bin', bin)));
+  if (want('node_modules')) rows.push(row('node_modules', modules ? 'installed' : '', 'bun.lock', modules, `bun install --frozen-lockfile in ${ROOT}`));
+  if (want('Chrome')) {
+    const browser = chromium({ environment: env });
+    rows.push(row('Chrome', browser.unavailable ? '' : browser.executable, 'any', !browser.unavailable, "install Playwright's Chromium (docs/testing.md, Browsers), or set CHROME"));
+  }
+  if (process.platform === 'darwin' && want('Xcode')) {
     const developer = output('xcode-select', ['-p']);
     const xcode = /\.app\/Contents\/Developer$/.test(developer);
     rows.push(row('Xcode', developer, 'Xcode.app', xcode, 'install Xcode, then sudo xcode-select -s /Applications/Xcode.app', 'macOS and iOS'));
   }
-  const host = checkHermesBundles(env);
-  rows.push(row(
-    `Hermes bundle (${hermesTarget() ?? 'no host bundle'})`,
-    host.ok ? 'verified by hermes-lean-sys' : host.message,
-    'the pinned Ibex release', host.ok, host.fix,
-    // Only a native host's TypeScript data sources run Hermes; the web runs them in the browser
-    // (builders read a bare MISSING here as a blocker for a web-only app: bench diaries, 2026-10-07).
-    'TypeScript data sources on native hosts (macOS, iOS, Linux); not the web',
-  ));
+  const hostName = `Hermes bundle (${hermesTarget() ?? 'no host bundle'})`;
+  if (want(hostName)) {
+    const host = checkHermesBundles(env);
+    rows.push(row(
+      hostName,
+      host.ok ? 'verified by hermes-lean-sys' : host.message,
+      'the pinned Ibex release', host.ok, host.fix,
+      // Only a native host's TypeScript data sources run Hermes; the web runs them in the browser
+      // (builders read a bare MISSING here as a blocker for a web-only app: bench diaries, 2026-10-07).
+      'TypeScript data sources on native hosts (macOS, iOS, Linux); not the web',
+    ));
+  }
   for (const {target, need} of hermesCrossTargets()) {
+    if (!want(`Hermes bundle (${target})`)) continue;
     const cross = checkHermesBundles(env, spawnSync, process.platform, process.arch, [target]);
     rows.push(row(`Hermes bundle (${target})`, cross.ok ? 'verified by hermes-lean-sys' : 'not installed or invalid',
       'the pinned Ibex release', cross.ok, cross.fix, need));
+  }
+  // Android, where its SDK is (LLP 1107), in the whole report: what `bun exact.mjs android` needs besides it
+  // (`platformReport` checks the same for a first Android build).
+  if (!only && existsSync(androidSdk(env))) {
+    const ndks = resolve(androidSdk(env), 'ndk'), ndk = env.ANDROID_NDK_HOME ?? (existsSync(ndks) ? readdirSync(ndks).filter(v => /^\d/.test(v)).sort((a, b) => a.localeCompare(b, undefined, {numeric: true})).at(-1) : '');
+    rows.push(row('Android NDK', ndk && basename(ndk), 'any (27.1 is tried)', !!ndk, 'the SDK manager: sdkmanager "ndk;27.1.12297006" (or set ANDROID_NDK_HOME)', 'Android'));
+    const target = output('rustup', ['target', 'list', '--installed', '--toolchain', pin.channel]).split('\n').includes('aarch64-linux-android');
+    rows.push(row('Rust aarch64-linux-android', target ? 'installed' : '', pin.channel, target, 'exact setup', 'Android'));
+    const bundle = hermesAndroidBundle();
+    rows.push(row('Hermes bundle (aarch64-linux-android)', bundle ? 'installed' : '', 'scripts/hermes-android.mjs', !!bundle,
+      'no Ibex release ships one yet: bun scripts/hermes-android.mjs install <archive>, or copy ~/.cache/exact/hermes-android from a machine that has one', 'Android TypeScript'));
   }
   return rows;
 }
@@ -622,9 +691,9 @@ export function refreshTypes(dir, binary = resolve(ROOT, 'target/debug', process
 
 /** `exact new`: check the machine first, since a missing Cargo fails the
  * scaffold itself; then write the app and say what its builds will still need. */
-function newApp(path, {update = false, without = null, game = false, assets = false, snapback = null, title, id} = {}) {
+function newApp(path, {update = false, without = null, with: platforms = [], game = false, assets = false, snapback = null, title, id} = {}) {
   if (update) {
-    console.log(createApp(path, {update, without}));
+    console.log(createApp(path, {update, without, with: platforms}));
     const manifest = resolve(path, 'app.json');
     if (existsSync(manifest) && Object.values(JSON.parse(readFileSync(manifest, 'utf8')).typescript?.sources ?? {}).some(p => /(?:^|\/)snapback4\/ts\/?$/.test(p)))
       console.log(wireSnapback(path, {artifactOnly:true}));
@@ -635,13 +704,14 @@ function newApp(path, {update = false, without = null, game = false, assets = fa
     return;
   }
   if (game && !path) throw new Error('Usage: exact new <path> --game [--assets] (the last part names the game: lowercase-hyphenated, no host suffix)');
-  const report = sdkReport();
+  // The web's rows alone for an app (LLP 1153 D1.6); a native platform's are checked by the verb that first needs it.
+  const report = sdkReport(process.env, game ? {} : { only: 'web' });
   if (report.some(row => row.name === 'rustup' && !row.ok)) {
     printReport(report, {onlyMissing: true});
-    throw new Error('exact new needs Cargo (rustup) to resolve the new app; install it, then run exact new again');
+    throw new Error('exact new needs Rust (rustup) to build exact2\'s own tools, the compiler among them; install it, then run exact new again');
   }
   // A game is a path here, as an app is: `game/new.mjs` alone takes a bare name for game/games.
-  console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path, {snapback, title, id}));
+  console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path, {snapback, title, id, with: platforms}));
   prebuildCompiler();
   if (report.some(row => !row.ok)) {
     // Builders read a bare "still needs" list as the reason a later command failed (bench diaries,
@@ -695,6 +765,8 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact tamber op <url> <request JSON>|subscribe  its scripted client
   exact tamber pair <url> --scope read|propose|write [--name <n>]  a pairing code for a remote client
   exact tamber tool [<app>] [--via <dev url>]  the design tool, at http://127.0.0.1:7740/__tamber/tool/
+  exact tamber import css <stylesheet> [--app <app>]  its custom properties into app.tamber, between
+                               markers a later import of the same file rewrites
   exact tamber import shadcn|tailwind|dtcg|pen|astryx <source> <url> --app <app>  a theme as held proposals
                                (astryx: bun scripts/astryx-tokens.mjs resolves its pinned package first)
   exact tamber export dtcg <app> [-o <file>]  the design as DTCG 2025.10; its baseline in .exact/
@@ -1202,6 +1274,8 @@ async function main(argv) {
   if (verb === 'tamber' && (argv.includes('--help') || argv.includes('-h'))) return console.log(helpText('tamber'));
   // The design server's wire and its scripted client (LLP 1121 D13): development only.
   if (verb === 'tamber' && name === 'serve') return import('./tamber-server.mjs').then(m => m.serveAlone(rest)).then(code => process.exit(code));
+  // A stylesheet's custom properties written into app.tamber (LLP 1153 D6): the compiler's, with no server.
+  if (verb === 'tamber' && name === 'import' && rest[0] === 'css') return process.exit(contract(['tamber', ...argv.slice(1)]));
   if (verb === 'tamber' && name === 'import') return import('./tamber-server.mjs').then(m => m.importTheme(rest)).then(code => process.exit(code));
   if (verb === 'tamber' && name === 'op') return import('./tamber-server.mjs').then(m => m.op(rest)).then(code => process.exit(code));
   if (verb === 'tamber' && name === 'pair') return import('./tamber-pairing.mjs').then(m => m.pairCode(rest)).then(code => process.exit(code));
@@ -1214,9 +1288,9 @@ async function main(argv) {
   if (verb === 'docs') return docs(argv.slice(1));
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
-    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), without = args.indexOf('--without');
+    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), without = args.indexOf('--without'), withAt = args.indexOf('--with');
     const titled = args.indexOf('--name'), bundle = args.indexOf('--bundle-id');
-    const values = new Set([port, without, titled, bundle].filter(i => i >= 0).map(i => i + 1));
+    const values = new Set([port, without, withAt, titled, bundle].filter(i => i >= 0).map(i => i + 1));
     const path = args.find((arg, i) => !arg.startsWith('--') && !values.has(i));
     for (const [at, flag, example] of [[titled, '--name', '"Field Log"'], [bundle, '--bundle-id', 'com.yourcompany.fieldlog']])
       if (at >= 0 && (!args[at + 1] || args[at + 1].startsWith('--'))) throw new Error(`exact new: ${flag} takes a value, as in ${flag} ${example}`);
@@ -1224,8 +1298,11 @@ async function main(argv) {
     if (args.includes('--online') && !args.includes('--snapback')) throw new Error('exact new: --online requires --snapback and an existing backend schema');
     if (port >= 0 && !args.includes('--snapback')) throw new Error('exact new: --port is the Snapback origin’s, with --snapback');
     if (without >= 0 && !args[without + 1]) throw new Error('update --without: name the platform, as in --without linux');
+    if (withAt >= 0 && (!args[withAt + 1] || args[withAt + 1].startsWith('--'))) throw new Error('--with: name the platforms, as in --with ios,mac');
+    // `mac` is the verb's spelling; the manifest's key is `macos` (scripts/app-shells.mjs PLATFORMS).
+    const platforms = withAt >= 0 ? args[withAt + 1].split(',').map(p => p.trim()).filter(Boolean).map(p => p === 'mac' ? 'macos' : p) : [];
     const snapback = args.includes('--snapback') ? { port: port >= 0 ? args[port + 1] : undefined, online: args.includes('--online') } : null;
-    return newApp(path, {update: args.includes('--update'), without: without >= 0 ? args[without + 1] : null, game: args.includes('--game'), assets: args.includes('--assets'), snapback, title: titled >= 0 ? args[titled + 1] : undefined, id: bundle >= 0 ? args[bundle + 1] : undefined});
+    return newApp(path, {update: args.includes('--update'), without: without >= 0 ? (args[without + 1] === 'mac' ? 'macos' : args[without + 1]) : null, with: platforms, game: args.includes('--game'), assets: args.includes('--assets'), snapback, title: titled >= 0 ? args[titled + 1] : undefined, id: bundle >= 0 ? args[bundle + 1] : undefined});
   }
   if (verb === 'backend') {
     const dir = resolve(name), parent = resolve(dir, '..');
@@ -1257,7 +1334,26 @@ async function main(argv) {
   }
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
   if (!name) { console.error(`exact ${verb}: name an app (exact list)`); process.exit(2); }
+  // An app outside the repository (EXACT_APP_DIR, or a path): a bare `run` of one that names no native platform runs
+  // its web loop, on any OS; otherwise the Mac is named the first time (LLP 1153 D1.2).
+  const outsideDir = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : /[\\/]|^\.\.?$/.test(name) ? resolve(name) : null;
+  const outsideApp = verb !== 'uninstall' && outsideDir && existsSync(resolve(outsideDir, 'app.contract')) && !gameDefaults(outsideDir);
+  const outsideManifest = outsideApp && existsSync(resolve(outsideDir, 'app.json')) ? JSON.parse(readFileSync(resolve(outsideDir, 'app.json'), 'utf8')) : {};
+  if (outsideApp && verb === 'run' && !Object.keys(outsideManifest.host ?? {}).some(p => ['ios', 'macos', 'tvos', 'linux', 'android', 'windows'].includes(p))) {
+    console.error(`${basename(outsideDir)} names no native platform (app.json host): running its web loop; bun exact.mjs mac --run names the Mac and builds it`);
+    const web = spawnSync(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', outsideDir, ...rest], { stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: outsideDir } });
+    process.exit(web.status ?? 1);
+  }
+  if (process.platform === 'win32') { console.error(`exact ${verb} is macOS's; on Windows, bun exact.mjs windows --run in the app builds and opens it (--release for the build that ships)`); process.exit(2); }
   if (process.platform !== 'darwin') { console.error(`exact ${verb} is macOS's; on Linux build the app's own executable (cargo build --profile host-dev -p ${name}-linux to drive it, --release to ship it)`); process.exit(2); }
+  if (outsideApp) {
+    const { bringPlatform, namesPlatform } = await import('./app-shells.mjs'), manifest = outsideManifest;
+    const named = namesPlatform(manifest, 'macos');
+    const brought = await bringPlatform(outsideDir, 'macos', { report: named ? null : await platformReport('macos', sdkReport(process.env, { only: 'macos' })).catch(error => ({ error: String(error.message ?? error) })) });
+    if (brought.refused) { console.error(brought.refused); process.exit(1); }
+    for (const line of brought.lines) console.error(line);
+    process.env.EXACT_APP_DIR = outsideDir;
+  }
   const app = resolveApp(name);
   if (verb === 'run') return run(app, rest);
   // `--release` on `install` is the same path, since that is what it is for.

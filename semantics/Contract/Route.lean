@@ -48,6 +48,8 @@ structure Entry where
   url : String
   tab : String
   params : Params
+  /-- What the location that last named this visit had after `#` (LLP 1153 D5). -/
+  fragment : String := ""
   deriving Inhabited
 
 structure Tab where
@@ -227,6 +229,17 @@ def pathQuery (input : String) : String :=
 def canonical (location : String) : String :=
   let absolute := if startsWith location '/' then location else "/" ++ location
   pathQuery (clean absolute)
+
+/-- The fragment percent-encode set (WHATWG URL). -/
+def fragmentEscape (b : Nat) : Bool :=
+  !(0x21 ≤ b && b ≤ 0x7e) || [0x22, 0x3c, 0x3e, 0x60].contains b
+
+/-- What follows a location's first `#`, fragment-encoded; `""` with none
+(`fragment_of`, LLP 1153 D5). -/
+def fragmentOf (location : String) : String :=
+  match splitOnce (clean location) '#' with
+  | .some (_, f) => encode f fragmentEscape
+  | .none => ""
 
 /-- `URLSearchParams.get` on an entry's URL: the first occurrence, form
 decoded, `""` when absent. -/
@@ -440,15 +453,18 @@ def «open» (t : Table) (r : Router) (location : String) : Verb := do
   let old := ((out.tabs[index]?).map (·.stack)).getD []
   let mut entries : List Entry := []
   for (d, position) in ch.zipIdx do
+    -- The leaf takes the location's fragment; a kept ancestor keeps its own.
+    let leaf := position + 1 == ch.length
     match old[position]? with
     | .some o =>
       if o.url == d.url then
-        entries := entries ++ [{ id := o.id, name := d.name, url := d.url, tab := d.tab, params := d.params }]
+        entries := entries ++ [{ id := o.id, name := d.name, url := d.url, tab := d.tab, params := d.params,
+                                 fragment := if leaf then fragmentOf location else o.fragment }]
         continue
     | .none => pure ()
     let (e, o) ← mint out d
     out := o
-    entries := entries ++ [e]
+    entries := entries ++ [if leaf then { e with fragment := fragmentOf location } else e]
   out := setStack out index fun _ => entries
   return { out with tab := target }
 
@@ -464,10 +480,16 @@ def push (t : Table) (r : Router) (location : String) : Verb :=
   if r.tabs.isEmpty then «open» t r location else do
   let d ← destination t r location
   let index ← selected r
-  let tab := r.tabs[index]?
-  if ((tab.bind (·.stack.getLast?)).map (·.url)) == .some d.url then return r
+  let fragment := fragmentOf location
+  match (r.tabs[index]?).bind (·.stack.getLast?) with
+  | .some top =>
+    if top.url == d.url then
+      -- The location on top: no new visit, only its fragment (LLP 1153 D5).
+      return if top.fragment == fragment then r
+        else setStack r index fun s => s.dropLast ++ [{ top with fragment }]
+  | .none => pure ()
   let (e, out) ← mint r d
-  return setStack out index (· ++ [e])
+  return setStack out index (· ++ [{ e with fragment }])
 
 /-- Rewrite the top visit, keeping its id; at depth one only to the tab's
 own root route. -/
@@ -479,7 +501,8 @@ def replace (t : Table) (r : Router) (location : String) : Verb :=
   if tab.stack.length == 1 && d.name != tab.name then
     throw "replace cannot change the tab's root route"
   let .some old := tab.stack.getLast? | throw "router has no top"
-  let e : Entry := { id := old.id, name := d.name, url := d.url, tab := d.tab, params := d.params }
+  let e : Entry := { id := old.id, name := d.name, url := d.url, tab := d.tab, params := d.params,
+                     fragment := fragmentOf location }
   return setStack r index fun s => s.dropLast ++ [e]
 
 /-- Pop the selected stack; a root is unchanged. Never refuses. -/
@@ -503,16 +526,23 @@ def go (t : Table) (r : Router) (location : String) : Verb :=
   let url := canonical location
   if (matchIndex t url).isNone then .error (noMatch location) else
   let s := stack r
+  let fragment := fragmentOf location
+  -- The top takes the location's fragment; a visit returned to takes it
+  -- only when the location has one (LLP 1153 D5).
+  let withFragment (write : Bool) (s : List Entry) : List Entry :=
+    match s.getLast? with
+    | .some e => if write then s.dropLast ++ [{ e with fragment }] else s
+    | .none => s
   -- `rposition`: the last occurrence.
   let pos := (s.zipIdx.filter (·.1.url == url)).getLast?.map (·.2)
   match pos with
   | .some p =>
     match selected r with
-    | .ok i => .ok (setStack r i (·.take (p + 1)))
+    | .ok i => .ok (setStack r i fun s => withFragment (p + 1 == s.length || !fragment.isEmpty) (s.take (p + 1)))
     | .error _ => .ok r
   | .none =>
-    match r.tabs.find? (fun tb => tb.name != r.tab && (tb.stack.getLast?.map (·.url)) == .some url) with
-    | .some tb => select r tb.name
+    match r.tabs.findIdx? (fun tb => tb.name != r.tab && (tb.stack.getLast?.map (·.url)) == .some url) with
+    | .some i => select (setStack r i (withFragment !fragment.isEmpty)) ((r.tabs[i]?.map (·.name)).getD "")
     | .none => push t r location
 
 /-- Seed every tab at its root, then open the launch location. -/
@@ -531,12 +561,12 @@ def str? : Value → Option String
   | _ => .none
 
 def entryOf (t : Table) (v : Value) : Option Entry := do
-  let .record _ [id, name, url, tab, .record _ ps] := v | .none
+  let .record _ [id, name, url, tab, .record _ ps, fragment] := v | .none
   let names := paramNames t
   if ps.length != names.length then .none
   let values ← ps.mapM str?
   return { id := ← integer id, name := ← str? name, url := ← str? url, tab := ← str? tab,
-           params := names.zip values }
+           params := names.zip values, fragment := ← str? fragment }
 
 /-- A router read out of a value, when it is a valid one: the shapes, a
 total top, unique tab names and ids, ids below `next`, and every entry's
@@ -565,7 +595,8 @@ def paramsValue (t : Table) (ps : Params) : Value :=
   .record "Params" ((paramNames t).map fun n => .str ((Params.get ps n).getD ""))
 
 def entryValue (t : Table) (e : Entry) : Value :=
-  .record "Entry" [.num (F64.ofNat e.id), .str e.name, .str e.url, .str e.tab, paramsValue t e.params]
+  .record "Entry" [.num (F64.ofNat e.id), .str e.name, .str e.url, .str e.tab, paramsValue t e.params,
+    .str e.fragment]
 
 def routerValue (t : Table) (r : Router) : Value :=
   .record "Router" [.str r.tab,

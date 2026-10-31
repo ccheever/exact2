@@ -25,6 +25,7 @@ pub fn builder(table: &exact_route::Table) -> PlanBuilder {
             ("url", string),
             ("tab", string),
             ("params", params),
+            ("fragment", string),
         ],
     );
     let entries = b.list(entry);
@@ -46,6 +47,13 @@ pub fn builder(table: &exact_route::Table) -> PlanBuilder {
     let url = b.code(url);
     b.set_slot_init(initial_url, url);
     b.derive("url", string, url);
+    let mut fragment = Asm::new();
+    fragment
+        .load_slot(nav)
+        .call(Stdlib::Top)
+        .call(Stdlib::Fragment);
+    let fragment = b.code(fragment);
+    b.derive("fragment", string, fragment);
     for (f, ty) in [
         (Stdlib::Stack, entries),
         (Stdlib::Top, entry),
@@ -85,6 +93,7 @@ pub fn builder(table: &exact_route::Table) -> PlanBuilder {
     let empty = b.code(empty);
     let read_search = b.slot("read_search", string, empty);
     let encoded = b.slot("encoded", string, empty);
+    let peeked = b.slot("peeked", string, empty);
     for (name, f, slot) in [
         ("readParams", Stdlib::Params, read_params),
         ("readSearch", Stdlib::SearchParam, read_search),
@@ -119,6 +128,27 @@ pub fn builder(table: &exact_route::Table) -> PlanBuilder {
         .op(Opcode::Unit, &[]);
     let code = b.code(a);
     b.action("twice", &[("location", string)], &[nav], code);
+    // A router computed and not assigned, and one assigned by a commit that
+    // then traps: neither is a navigation.
+    let mut a = Asm::new();
+    a.load_slot(nav)
+        .load_param(0)
+        .call(Stdlib::Go)
+        .call(Stdlib::Top)
+        .call(Stdlib::Fragment)
+        .store_slot(peeked)
+        .op(Opcode::Unit, &[]);
+    let code = b.code(a);
+    b.action("peek", &[("location", string)], &[peeked], code);
+    let mut a = Asm::new();
+    a.load_slot(nav)
+        .load_param(0)
+        .call(Stdlib::Go)
+        .store_slot(nav)
+        .simple(Opcode::None)
+        .simple(Opcode::Unwrap);
+    let code = b.code(a);
+    b.action("goAndTrap", &[("location", string)], &[nav], code);
     for r in &table.routes {
         b.route(
             &r.name,

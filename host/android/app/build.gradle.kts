@@ -28,11 +28,19 @@ val minimumOS = (((manifest["host"] as Map<*, *>?)?.get("android") as Map<*, *>?
 val minimumApi = mapOf("10" to 29, "11" to 30, "12" to 31, "13" to 33, "14" to 34, "15" to 35, "16" to 36)[minimumOS]
     ?: throw GradleException("app.json host.android.minimumOS \"$minimumOS\": name an Android release from 10 to 16")
 
-// Each app builds into a directory of its own: two apps' libraries, assets and APKs never mix.
-layout.buildDirectory = layout.projectDirectory.dir("build/$app")
+// Each app builds into a directory of its own (`-PappBuildDir`, else build/<app>): two apps' libraries, assets and APKs
+// never mix, and two builds at once write nothing in common (agent-android.mjs gives the reader one too, `canvasBuildDir`).
+val out = providers.gradleProperty("appBuildDir").orNull?.let { file(it) } ?: projectDir.resolve("build/$app")
+layout.buildDirectory = out
 
 android {
     namespace = "dev.exact.app"
+    // The NDK the app's library was linked with (`-PndkPath`, agent-android.mjs), whose strip the APK's library goes
+    // through; without it AGP looks for its own default NDK and, missing it, packages the library unstripped.
+    providers.gradleProperty("ndkPath").orNull?.let { path ->
+        ndkPath = path
+        ndkVersion = file("$path/source.properties").readLines().first { it.startsWith("Pkg.Revision") }.substringAfter("=").trim()
+    }
     compileSdk { version = release(37) { minorApiLevel = 2 } }
     defaultConfig {
         // An Android package name's segments are Java identifiers: a manifest id's `-` becomes `_`.
@@ -56,8 +64,8 @@ android {
         }
     }
     // The app's Rust library (as libexactcanvas.so) and its assets (the reader copies `app/` out of the APK once).
-    sourceSets["main"].jniLibs.directories.add("build/$app/rust/jniLibs")
-    sourceSets["main"].assets.directories.add("build/$app/rust/assets")
+    sourceSets["main"].jniLibs.directories.add(out.resolve("rust/jniLibs").path)
+    sourceSets["main"].assets.directories.add(out.resolve("rust/assets").path)
     sourceSets["main"].kotlin.directories.add(if (compose) "src/compose/java" else "src/nocompose/java")
     // The app's Kotlin hatches and module roster (LLP 1115.001.000 D4) in its `modules/android`; -PmodulesDir lets a
     // component fixture compile the app's actual provider without copying its Kotlin.

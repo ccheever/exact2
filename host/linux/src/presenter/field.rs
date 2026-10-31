@@ -1039,6 +1039,10 @@ impl<D: DataSource> Presenter<D> {
                 if let Some(Some(e)) = self.commit_text(id, now_ms) {
                     eprintln!("exact: {e}");
                 }
+                // A field its change disabled loses the focus before its submit.
+                if let Some(e) = self.blur_disabled_now() {
+                    eprintln!("exact: {e}");
+                }
                 if let Some(e) = self.submit_event(id, now_ms) {
                     eprintln!("exact: {e}");
                 }

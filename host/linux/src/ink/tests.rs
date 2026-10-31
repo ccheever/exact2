@@ -178,7 +178,14 @@ fn finish_returns_a_group_error_without_hanging() {
         ink.begin(8., 8., 1.);
         ink.push_opacity(0.5);
         ink.error = Some("allocation refused".into());
-        send.send(ink.finish().unwrap_err()).unwrap();
+        let before = exact_ink::counters::snapshot();
+        let error = ink.finish().unwrap_err();
+        if let Some(before) = before {
+            let after = exact_ink::counters::snapshot().unwrap();
+            let attempts = exact_ink::counters::Counter::PaintAttempts as usize;
+            assert_eq!(after.values[attempts], before.values[attempts] + 1);
+        }
+        send.send(error).unwrap();
     });
     assert_eq!(
         receive

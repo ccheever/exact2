@@ -1,4 +1,5 @@
 // @ref LLP 1086 D12 — launchers use the pinned Bun independently of login-shell PATH.
+import { noteBunLoaded } from '../js/bake/src/__exact_env.mjs';
 /** Self-contained so generated app launchers carry the same resolver. */
 export function ensureBun(pin) {
   const {existsSync, realpathSync} = require('node:fs');
@@ -19,6 +20,8 @@ export function ensureBun(pin) {
   process.env.BUN = selected;
   process.env.PATH = [dirname(selected), ...(process.env.PATH ?? '').split(delimiter).filter(p => p !== dirname(selected))].join(delimiter);
   if (selected !== realpathSync(process.execPath)) {
+    // The pinned Bun takes this environment as the one it was given: what Bun loaded from `.env` files is noted first.
+    noteBunLoaded();
     const child = spawnSync(selected, process.argv.slice(1), {stdio: 'inherit', env: process.env});
     if (child.error) throw child.error;
     process.exit(child.status ?? 1);
