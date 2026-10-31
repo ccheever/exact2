@@ -113,7 +113,7 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
   // Queued messages' images (the queued rows' thumbnails and the edit's kept attachments).
   const queuedMessages = new Set(arr(client.projection.runs).filter(run => run.status === 'queued').map(run => str(run.userMessageId)));
   for (const message of arr(client.projection.messages)) if (queuedMessages.has(str(message.id))) for (const attachment of arr(message.attachments)) if (attachment.type === 'image' && str(attachment.id)) wanted.push(attachment);
-  const items: { id: string; url: string }[] = [], failed: { id: string; url: string }[] = [], videoIds = new Set(wanted.filter(entry => entry.type === 'file' && !isSvgAttachment(entry)).map(entry => str(entry.id)));
+  const items: { id: string; url: string }[] = [], failed: { id: string; url: string }[] = [];
   for (const attachment of wanted.slice(-64)) {
     const id = str(attachment.id), key = JSON.stringify([client.generation, client.environmentId, id]);
     const cached = urls.get(key);

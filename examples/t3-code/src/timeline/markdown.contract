@@ -20,7 +20,7 @@ use heldModifiers from "../shared/press-modifiers.contract"
 use LinkMenuRow, FileLinkButton from "./link-menus.contract"
 use EditorMenuIcon from "../composer/composer-editor.contract" // a pull request chip's state glyph
 use SkillChip from "./skill-chip.contract"
-use ChipInk, noChipInks, inkOf, contextRun, runAccent, chipAccent, chipIcon, chipFamily, docKind from "./markdown-chip-inks.contract"
+use ChipInk, noChipInks, inkOf, inkIn, contextRun, runAccent, chipAccent, chipIcon, chipFamily, docKind from "./markdown-chip-inks.contract"
 shape ChatRun
   id: string
   text: string
@@ -702,11 +702,11 @@ component FlowRuns
         if not run.mono and (run.kind == "file" or contextRun(run.kind))
           if chips.filter((chip) => chip.href == run.href and run.href != "").length > 0
             for chip in chips.filter((chip) => chip.href == run.href) key=chip.id
-              ResolvedChip(run=run, chip=chip, urls=urls, local=local, blockId=blockId)
+              ResolvedChip(run=run, chip=chip, urls=urls, local=local, blockId=blockId, color=color)
           if not (chips.filter((chip) => chip.href == run.href and run.href != "").length > 0) and run.kind == "file"
             FileChip(run=run)
           if not (chips.filter((chip) => chip.href == run.href and run.href != "").length > 0) and run.kind != "file"
-            ContextChipBox(run=run)
+            ContextChipBox(run=run, color=color)
         if not run.mono and not (run.kind == "file" or contextRun(run.kind)) and run.kind == "break"
           box width="100%" height=0 flex-shrink=0
         // An image inside a line of text (ChatMarkdownImage, not
@@ -809,7 +809,9 @@ component ContextChipBox
     chipInks: ChipInk[]
   props
     run: ChatRun
-  derive ink = inkOf(chipInks, run.kind == "context-file" and docKind(run.text) != "" ? docKind(run.text) : runAccent(run.kind))
+    // The text's colour, which a chip with no accent draws in (currentColor).
+    color: string
+  derive ink = inkIn(chipInks, run.kind == "context-file" and docKind(run.text) != "" ? docKind(run.text) : runAccent(run.kind), color)
   view
     row height="1.421875rem" flex-shrink=0 align-items="center" padding-left=1 padding-right=1
       row max-width="15rem" gap="0.175rem" align-items="center" testId=`context-chip-${run.id}`
@@ -883,13 +885,15 @@ component ResolvedChip
     // The run's block: with the message and the run it names this occurrence (a chip is one per href, and each
     // block numbers its runs from 0).
     blockId: string
+    // The text's colour, which an unresolved chip draws in (currentColor).
+    color: string
   state open = false
   state hovered = false
   action toggle
     open = not open
   action hover(over: bool)
     hovered = over
-  derive ink = inkOf(chipInks, chipAccent(chip.kind, chip.detail))
+  derive ink = inkIn(chipInks, chipAccent(chip.kind, chip.detail), color)
   view
     row height="1.421875rem" flex-shrink=0 align-items="center" padding-left=1 padding-right=1 position="relative" hover=hover
       if chip.kind == "link"
@@ -1360,7 +1364,7 @@ component CellRuns
         if not run.mono and run.kind == "file"
           FileChip(run=run)
         if not run.mono and run.kind != "file" and contextRun(run.kind)
-          ContextChipBox(run=run)
+          ContextChipBox(run=run, color=color)
         if not run.mono and run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
             MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=false, link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${nodePrefix}-${run.id}`, label=chip.label, menu=chip.menu)
@@ -1390,7 +1394,7 @@ component CellSizer
         if not run.mono and run.kind == "file"
           FileChip(run=run)
         if not run.mono and run.kind != "file" and contextRun(run.kind)
-          ContextChipBox(run=run)
+          ContextChipBox(run=run, color=color)
         if not run.mono and run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href and chip.size == "image" and chip.icon != "blocked").length > 0
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href and chip.size == "image" and chip.icon != "blocked") key=chip.id
             if chip.icon == "direct"

@@ -234,7 +234,7 @@ describe('skill chips open their details (#25432)', () => {
     const call = /SkillChip\(label=chip\.label, description=chip\.detail, path=chip\.target, id=(`[^`]+`)/.exec(appText('markdown.contract'))![1]!;
     const ids = [['0', chips[0]!], ['1', chips[0]!], ['3', chips[1]!]].map(([blockId, chip]) => value(call, { chip, blockId, run: { id: '0' } }));
     expect(ids).toEqual(['m-0-0', 'm-1-0', 'm-3-0']);
-    expect(appText('markdown.contract')).toContain('ResolvedChip(run=run, chip=chip, urls=urls, local=local, blockId=blockId)');
+    expect(appText('markdown.contract')).toContain('ResolvedChip(run=run, chip=chip, urls=urls, local=local, blockId=blockId, color=color)');
   });
 });
 
@@ -271,7 +271,7 @@ describe('a sent sound (#21363)', () => {
     const { contractComponent } = await import('../support/contract-action-fixture');
     const { contractFns } = await import('../support/contract-fn-fixture');
     const resolved = contractComponent('markdown.contract', 'ResolvedChip'), inks = { ...contractFns('src/timeline/markdown-chip-inks.contract'), chipInks: [] };
-    const drawn = (kind: string) => resolved.drawn('AttachmentChipBody(run=run, chip=chip', resolved.state(), { ...inks, chip: { ...chips[0], kind }, run: { id: '0' } });
+    const drawn = (kind: string) => resolved.drawn('AttachmentChipBody(run=run, chip=chip', resolved.state(), { ...inks, chip: { ...chips[0], kind }, run: { id: '0' }, color: '' });
     expect([drawn('audio'), drawn('file')]).toEqual([false, true]);
   });
   test('the timeline leaves the reference out of the prompt, so nothing draws for it (renderContextReference returns null)', async () => {
@@ -313,6 +313,8 @@ describe('sent chips, file links and citations without a pill', () => {
     expect([inks.chipAccent!('review', ''), inks.chipAccent!('pr', 'merged'), inks.chipAccent!('pr', ''), inks.chipAccent!('link', ''), inks.chipAccent!('unresolved', '')])
       .toEqual(['review-comment', 'pr-merged', 'pull-request', 'mention', 'neutral']);
     expect([inks.runAccent!('context-review-comment'), inks.runAccent!('context-other')]).toEqual(['review-comment', 'neutral']);
+    // A neutral chip draws in its text's colour (currentColor), a bubble's or a custom theme's too.
+    expect([inks.inkIn!(theirs, 'neutral', 'light-dark(#0a0a0a, #fafafa)'), inks.inkIn!(theirs, 'image', '#123456')]).toEqual(['light-dark(#0a0a0a, #fafafa)', 'light-dark(#000001, #fffffe)']);
   });
   test('markdownEnv carries the theme\'s inks; a sent message\'s bubble on the other side of the canvas takes its own text colour', async () => {
     const { markdownChipInks, markdownEnv } = await import('../../src/timeline/message-chips');
