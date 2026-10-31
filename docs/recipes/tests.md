@@ -28,7 +28,7 @@ test "a repeat is refused and keeps its text; the list survives a relaunch"
 | `clock data` · `clock settle` · `clock +5000` · `reload` | Lands replies · ends transitions · moves the virtual clock · relaunches on the same storage, at the clock's time. |
 | `back` | The platform's Back: cancels a dialog, else dismisses a sheet, else pops the pushed route. |
 | `fail fetch "<prefix>"`, `pass fetch …` | A lost connection there, then none. |
-| `request POST "/items" {…} as grace` (`expect 409`) | Writes through the app's server as another person ([rest-backend](rest-backend.md)); a status not 2xx (or the `expect`ed one) fails. |
+| `request POST "/items" {…} as grace expect 409` | Writes through the app's server as another person ([rest-backend](rest-backend.md)); a status not 2xx fails, or with `expect 409` any but 409. |
 | `size 390x844`, `epoch`, `time-zone`, `locale`, `seed`, `before data` | Launch lines: before a test's steps, or atop the file. |
 
 Every other form (drags, `perf`, `on web`): [the grammar](../contract-grammar.md#authored-tests).

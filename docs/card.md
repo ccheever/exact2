@@ -98,7 +98,7 @@ test steps (app.test.contract; every other form: docs/contract-grammar.md)
   clock data · clock settle · clock +5000 · reload
   back
   fail fetch "<prefix>", pass fetch …
-  request POST "/items" {…} as grace (expect 409)
+  request POST "/items" {…} as grace expect 409
   size 390x844, epoch, time-zone, locale, seed, before data
 
 ops: a target is a testId, else a view's exact text or label
