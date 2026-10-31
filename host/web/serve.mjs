@@ -897,6 +897,13 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
       return;
     }
   }
+  // A request that does not ask for HTML (`curl`'s `*/*`) gets no page, and a site without a 404 page sends nothing:
+  // where a browser's would get a page, that empty 404 says how to ask for it.
+  if (r.status === 404 && !r.body && target && !acceptsHTML(req.headers.accept) && (await servedFile(dist, target.pathname, 'text/html', { pinned })).status === 200) {
+    res.writeHead(404, { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8' });
+    res.end(`${target.pathname} is a page: ask for it as a browser does, with Accept: text/html (curl -H 'Accept: text/html' …).\n`);
+    return;
+  }
   if (!r.body) { res.writeHead(r.status, { 'cache-control': 'no-store', ...(r.status === 503 ? { 'retry-after': '1' } : {}) }); res.end(); return; }
   const type = webContentType(r.route);
   if (!compression || r.status !== 200) { sendStaticBody(req, res, r.body, { 'content-type': type, 'cache-control': 'no-store' }, r.status); return; }
