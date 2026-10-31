@@ -179,6 +179,27 @@ fn a_fallback_is_ignored_and_warned_once() {
         "{}",
         said[0].message
     );
+    // A design that does not parse fails the build; no fallback is said to
+    // name one of its tokens.
+    let path = app(
+        "unparsed",
+        &[
+            ("app.tamber", "tamber t\n\ntheme\n  ink #111111\n"),
+            (
+                "app.contract",
+                "component App\n  view\n    text \"a\" color=\"var(--typo, red)\"\n",
+            ),
+        ],
+    );
+    let (result, warnings) = contract::compile_path_all_warned(&path, false);
+    let Err(all) = result else {
+        panic!("compiled");
+    };
+    assert!(all.iter().any(|e| e.id.starts_with("tamber-")), "{all:#?}");
+    assert!(
+        !warnings.iter().any(|w| w.id == "tamber-var-fallback"),
+        "{warnings:#?}"
+    );
 }
 
 #[test]

@@ -107,15 +107,18 @@ test("each scheme's value is the declaration CSS's cascade gives it", () => {
 html { --rule: #101010; }
 :root { --rule: #202020; }
 html { --rule: #303030; }
+:root { --nested: #101010; @media (prefers-color-scheme: dark) { --nested: #efefef; } }
 ` });
   expect(r.status).toBe(0);
   // A later :root wins the dark scheme too; an !important one wins either scheme it applies in;
-  // :root outranks html whatever their order.
+  // :root outranks html whatever their order; the dark query nested in :root, CSS Nesting's form,
+  // is the dark side as the query around :root is.
   expect(r.design).toContain(`  // tamber:import tokens.css
   ink = #333333
   line = #cccccc
   muted = light-dark(#888888, #999999)
   rule = #202020
+  nested = light-dark(#101010, #efefef)
   // tamber:end
 `);
 });

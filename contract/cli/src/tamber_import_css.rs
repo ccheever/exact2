@@ -399,7 +399,10 @@ fn importance(raw: &str) -> (String, bool) {
 
 /// Whether a block's context applies in the dark scheme only (`true`) or in
 /// both, with its selector's specificity (`:root`, a pseudo-class, over
-/// `html`, a type), or why it is neither.
+/// `html`, a type), or why it is neither. A block the import reads has one
+/// or more preludes `:root` or `html` and any others the dark query, nested
+/// in either order (`:root { @media (prefers-color-scheme: dark) { … } }`,
+/// CSS Nesting's form, as well as the query around the rule).
 fn scope(context: &[String]) -> Result<(bool, u8), String> {
     let squash = |s: &str| {
         s.split_whitespace()
@@ -419,12 +422,13 @@ fn scope(context: &[String]) -> Result<(bool, u8), String> {
             "@media (prefers-color-scheme: dark)" | "@media (prefers-color-scheme:dark)"
         )
     };
-    match context {
-        [r] => root(r).map(|s| (false, s)),
-        [media, r] if dark(media) => root(r).map(|s| (true, s)),
-        _ => None,
-    }
-    .ok_or_else(|| {
+    let roots: Vec<u8> = context.iter().filter_map(|c| root(c)).collect();
+    let darks = context.iter().filter(|c| dark(c)).count();
+    let specificity = roots.iter().copied().max();
+    specificity
+        .filter(|_| roots.len() + darks == context.len())
+        .map(|s| (darks > 0, s))
+        .ok_or_else(|| {
         let shown = context.join(" { ") + &" }".repeat(context.len().saturating_sub(1));
         let switched = context.iter().any(|c| c.contains('.') || c.contains('['));
         match switched {

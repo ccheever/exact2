@@ -393,7 +393,9 @@ fn text(
                 if !tokens.declares(&name) {
                     return Err(Why::Unknown(name, fallback.is_some()));
                 }
-                if fallback.is_some() {
+                // A design that does not parse names no token: its refusal
+                // fails the build, and no fallback is said to be unused.
+                if fallback.is_some() && tokens.parsed {
                     fallbacks.push(text[range.clone()].to_string());
                 }
                 out.push_str(&text[at..range.start]);

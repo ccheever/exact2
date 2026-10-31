@@ -56,14 +56,15 @@ What to know:
 - **One colour on purpose** (white ink on the brand fill): `ink.on-brand =
   #ffffff  scheme=fixed`; an unmarked one-colour token is warned once, at its
   line here.
-- **`var(--ink)` is the token `ink`**; a name the design lacks is refused, fallback or
-  not. `tamber import css <file>` writes a stylesheet's tokens here.
+- **One way to write a colour:** a role if the platform has one, a token if it
+  is the brand: `ink`, or `var(--ink)`. `tamber import css <file>` writes a
+  stylesheet's here.
 - **The brand's states** (the focus ring, selection, a filled button's hover,
   a sheet's corners, a row's `:hover`): `contract-for-agents.md`, Tamber.
 - **Edit it while it runs** (development only): the dev loop serves
   `/__tamber`; `bun exact.mjs tamber op <url> '{"method":"describe"}'` reads,
   and `history` and `revert` read and undo token edits. `bun exact.mjs tamber
   tool .` opens the design tool on it (LLP 1122) at `http://127.0.0.1:7740`,
-  one per machine: to switch, stop it with ctrl-c and run `tamber tool <other
-  app>` (`--via <its URL>` when that app's dev loop runs).
+  one per machine: to switch, ctrl-c it and run `tamber tool <other app>`
+  (`--via <its URL>` when its dev loop runs).
   Reference: `docs/tamber-protocol.md`.
