@@ -796,8 +796,12 @@ reading. Nothing that isn't HTML is added by it.
   1020's `top` topology, for a partitioned frame only); its new windows, external
   schemes, dialogs, files, downloads and fullscreen get the platform's answers,
   and its permission requests are denied (navigation policy, with no veto);
-  `navigate`, `traverseHistory`, `reload(id)`, `stopLoading` and
-  `captureScreenshot` of an `iframe` join `HOST_COMMANDS`, with the Navigation
+  `navigate`, `traverseHistory`, `reload(id)`, `stopLoading`,
+  `captureScreenshot` and (2026-10-31) `openDevTools` of an `iframe` join
+  `HOST_COMMANDS` (`openDevTools` added because the T3 Code oracle's Browser
+  tab opens its page's developer tools, and nothing else in this expansion
+  reaches them. Nothing comes off the list for it; Daehyeon Mun's ruling of
+  2026-10-31, LLP 1020.002 D11, stands in place of the waiver), with the Navigation
   API's events (the controller ops); `clearSiteData`, `zoom`, and
   WebDriver BiDi automation under the `browser.automation` grant in production
   builds. macOS and iOS first; the web a detectable subset; Android and Windows

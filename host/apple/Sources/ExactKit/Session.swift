@@ -1165,7 +1165,7 @@ public final class ExactSession {
                     app.deliver { DevMenu.reload() }
                     continue
                 }
-                if ["navigate", "traverseHistory", "reload", "stopLoading", "captureScreenshot"].contains(name) { app.deliver { [weak self] in self?.webviews.command(name, args) }; continue } // an iframe's, by id (LLP 1020.002 D3, D7)
+                if ["navigate", "traverseHistory", "reload", "stopLoading", "captureScreenshot", "openDevTools"].contains(name) { app.deliver { [weak self] in self?.webviews.command(name, args) }; continue } // an iframe's, by id (LLP 1020.002 D3, D7, D11)
                 if name == "relaunch" { app.deliver { [weak self] in self?.relaunch() }; continue }
                 if name == "startTrace_EXPERIMENTAL" || name == "stopTrace_EXPERIMENTAL" { app.deliver { [weak self] in self?.traceCommand(name, args) }; continue }
                 if name == "haptic" {

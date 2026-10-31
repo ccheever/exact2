@@ -63,6 +63,7 @@ mod door;
 mod engine;
 mod module_work;
 mod native;
+mod native_storage;
 mod paired;
 #[cfg(all(test, exact_js_engine))]
 mod phase_cost_tests;
@@ -79,7 +80,8 @@ pub use engine::ENGINE_LINKED;
 pub use exact_data::Placed;
 pub use exact_js_value::{from_json, to_json, Shape};
 pub use exact_runner::Placement;
-pub use native::{Changed, LaterHandler, NativeModule, NativeReply};
+pub use native::{json, Changed, Json, LaterHandler, NativeModule, NativeReply};
+pub use native_storage::{NativeStorage, SqliteFile};
 pub use paired::{Bytecode, Paired};
 #[doc(hidden)]
 pub use storage::CompressionHold;
@@ -92,7 +94,6 @@ use exact_runner::{
     Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Request, Store, Target,
     Work,
 };
-use serde_json::Value as Json;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::Arc;
@@ -664,11 +665,8 @@ impl Module {
         if let Some(paths) = &self.directories {
             if let Some(factory) = self.native_factory {
                 let mut native = factory(&self.grants);
-                native.configure_storage(
-                    paths.data.clone(),
-                    paths.cache.clone(),
-                    paths.temporary.clone(),
-                )?;
+                let roots = [&paths.data, &paths.cache, &paths.temporary].map(Clone::clone);
+                native.configure_storage(NativeStorage::new(roots, &io)?)?;
                 let slot = self.native_slot.clone();
                 native.changes(Arc::new(move |topic: &str| slot.changed(topic)));
                 let later = native.later();

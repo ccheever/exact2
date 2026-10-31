@@ -1,5 +1,6 @@
 import { compilerPaths, unitDepInfo, cargoBakeInputs } from './cargo-dep-info.mjs';
 export { compilerPaths, unitDepInfo } from './cargo-dep-info.mjs';
+import { LIBRARY_CACHE, directDependencies, prepareLibrary } from './package-libraries.mjs';
 import { ensureBun } from './bun.mjs';
 import { macResourceMappings, macResourceInventory, appleAssetCatalogInventory, launchImageInventory } from '../host/apple/assets.mjs';
 // Where an app lives. Inside this repo an app is `apps/<name>` — its crates
@@ -1039,7 +1040,10 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const hermesLeanRoots = hermesLeanSysRoots(env);
   // Index roots once; each input walks ancestors to the nearest declaring root.
   const rootsAt = (roots) => { const at = new Map(); for (const root of roots) if (!at.has(root.path)) at.set(root.path, root); return at; };
-  const generatedAt = rootsAt(generated), locatedAt = rootsAt(locations);
+  // Each installed direct dependency, where it is installed and where its files really are: Bun installs a file:
+  // package as directories of links to its source's files, so a compiler reads them from the source directory.
+  const dependencies = directDependencies(app.dir).flatMap(({ name, root }) => [realpathSync(root), dirname(realpathSync(resolve(root, 'package.json')))].map(path => ({ path, name }))).sort((a,b) => b.path.length-a.path.length);
+  const generatedAt = rootsAt(generated), locatedAt = rootsAt(locations), installedAt = rootsAt(dependencies);
   const rootOf = (roots, path) => { for (let at = path; ; at = dirname(at)) { const root = roots.get(at); if (root || dirname(at) === at) return root; } };
   const nameOf = (path) => {
     path = resolve(path);
@@ -1049,6 +1053,9 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     if (pkg) return `${pkg.name}/${relative(pkg.path,path)}`;
     const hermesLeanRoot = hermesLeanRoots.find(root => under(root,path));
     if (hermesLeanRoot) return `hermes-lean-sys/${relative(hermesLeanRoot,path)}`;
+    if (under(LIBRARY_CACHE,path)) return `package-library/${relative(LIBRARY_CACHE,path)}`; // by its hash and target (package-libraries.mjs)
+    const installed = rootOf(installedAt, path);
+    if (installed) return `package/${installed.name}/${relative(installed.path,path)}`;
     if (under(app.dir,path)) return `app/${relative(app.dir,path)}`;
     if (under(ROOT,path)) return `exact/${relative(ROOT,path)}`;
     if (under(graph.metadata.workspace_root,path)) return `workspace/${relative(graph.metadata.workspace_root,path)}`;
@@ -1097,7 +1104,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     // A linked native archive is an input too; Rust dep-info cannot name its C/ObjC bytes.
     for (const raw of m.linked_paths) {
       const dir = raw.replace(/^native=/, '');
-      if (under(resolve(m.out_dir), resolve(dir))) for (const file of readdirSync(dir)) if (/\.(a|o|dylib|so|lib|obj|dll)$/.test(file)) add(resolve(dir,file));
+      if (under(resolve(m.out_dir), resolve(dir))) { for (const file of readdirSync(dir)) if (/\.(a|o|dylib|so|lib|obj|dll)$/.test(file)) add(resolve(dir,file)); }
+      else if (under(LIBRARY_CACHE, resolve(dir))) add(resolve(dir)); // a package's library, which the product carries
     }
     builders.push({package:pkg.name,role,cfgs:m.cfgs,environment:orderedBuild(environment),libraries:m.linked_libs,env:m.env.filter(([key])=>!key.startsWith('EXACT_')).map(normalizeEnv)});
   }
@@ -1131,7 +1139,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
       for(const resource of unit.resources??[])add(resolve(packageRoot,resource.path));
       if(unit.type==='system-target')add(resolve(packageRoot,unit.path));pending.push(...(unit.target_dependencies??[]));
     }
-    add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'webarm/FrameBrowser.swift'));add(resolve(packageRoot,'webarm/FrameWindows.swift'));add(resolve(packageRoot,'webarm/FrameCapture.swift'));add(resolve(packageRoot,'webarm/FramePDF.swift'));add(resolve(packageRoot,'webarm/FrameAutomation.swift'));add(resolve(packageRoot,'webarm/FrameFiles.swift'));add(resolve(packageRoot,'videoarm/VideoArm.swift'));add(resolve(packageRoot,'videoarm/PictureInPicture.swift'));add(resolve(packageRoot,'build.mjs'));add(resolve(packageRoot,'assets.mjs'));add(resolve(packageRoot,'bundle.mjs'));add(resolve(packageRoot,'widgets.mjs'));
+    add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'webarm/FrameBrowser.swift'));add(resolve(packageRoot,'webarm/FrameWindows.swift'));add(resolve(packageRoot,'webarm/FrameCapture.swift'));add(resolve(packageRoot,'webarm/FramePDF.swift'));add(resolve(packageRoot,'webarm/FrameAutomation.swift'));add(resolve(packageRoot,'webarm/FrameFiles.swift'));add(resolve(packageRoot,'webarm/FrameInspector.swift'));add(resolve(packageRoot,'videoarm/VideoArm.swift'));add(resolve(packageRoot,'videoarm/PictureInPicture.swift'));add(resolve(packageRoot,'build.mjs'));add(resolve(packageRoot,'assets.mjs'));add(resolve(packageRoot,'bundle.mjs'));add(resolve(packageRoot,'widgets.mjs'));
     const entries=platform==='ios'&&(app.manifest.widgets?.length||app.manifest.live_activities?.length); if(entries)add(resolve(packageRoot,'widget'),true); if(entries||env.EXACT_WIDGET_GALLERY==='1')add(resolve(packageRoot,'Sources/ExactSnapshot'),true);
   }
   if(platform==='web') {
@@ -1253,6 +1261,7 @@ export function buildBake(app, platform, target, options = {}) {
   if(platform==='web'||watch)env=webToolchainEnv(env);
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
+  if(platform!=='web')prepareLibrary(app.dir,target); // a package's library, fetched and checked before Cargo links it (LLP 1154 D3)
   const rustBundle=prepareRustBundle(app,platform,target,env);
   if(rustBundle)env.EXACT_RUST_BUNDLE=rustBundle;
   const native=platform==='web'?null:nativeSource(app,env); // what the binary compiles its Rust from (Swappable::with_native)

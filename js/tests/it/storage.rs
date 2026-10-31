@@ -104,17 +104,12 @@ fn native_modules_are_deferred_retired_and_unavailable_to_validation() {
         data: Option<PathBuf>,
     }
     impl exact_js::NativeModule for Native {
-        fn configure_storage(
-            &mut self,
-            data: PathBuf,
-            _: PathBuf,
-            _: PathBuf,
-        ) -> Result<(), String> {
+        fn configure_storage(&mut self, storage: exact_js::NativeStorage) -> Result<(), String> {
             assert!(
-                !data.exists(),
+                !storage.data().exists(),
                 "native configuration must precede storage activation"
             );
-            self.data = Some(data);
+            self.data = Some(storage.data().to_path_buf());
             Ok(())
         }
         fn call(&mut self, request: &serde_json::Value) -> Result<serde_json::Value, String> {

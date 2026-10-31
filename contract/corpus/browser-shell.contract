@@ -1,8 +1,8 @@
 // Accept fixture: a browser shell's `iframe` (LLP 1020.002 D1–D3, D5, D6,
 // §9): a partitioned top-level guest, the Navigation API's events with their
 // `FrameNavigation` record, the four frame commands, a guest's window
-// requests and downloads, a capture of the guest (D7), and an
-// agent-controlled frame's dialog (D9).
+// requests and downloads, a capture of the guest (D7), an agent-controlled
+// frame's dialog (D9), and its inspector (D11).
 component Shell
   state address = ""
   state title = ""
@@ -40,6 +40,8 @@ component Shell
     captureScreenshot("tab", "app:/tmp/shot.png", clip=DOMRect(x=10, y=20, width=200, height=100))
   action whole
     captureScreenshot("tab", "app:/tmp/whole.png")
+  action inspect
+    openDevTools("tab")
   action asking(e: FrameUserPrompt)
     prompted = e.type + " " + e.message + " " + e.defaultValue
   action captured(e: FrameCapture)
@@ -53,5 +55,6 @@ component Shell
         button "Stop" testId="stop" press=halt
         button "Snap" testId="snap" press=snap
         button "Whole" testId="whole" press=whole
+        button "Inspect" testId="inspect" press=inspect
       iframe "https://example.com/" id="tab" partition="persist:work" zoom=1.5 color-scheme="dark" apple.allowsBackForwardNavigationGestures=true apple.inactiveSchedulingPolicy="throttle" navigate=started currententrychange=moved navigatesuccess=landed navigateerror=failed newwindow=asked download=downloaded capture=captured userpromptopened=asking testId="tab" width=400 height=300
       text address testId="address"

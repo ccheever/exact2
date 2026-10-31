@@ -395,8 +395,11 @@ impl AppDirectories {
         if (actual.dev(), actual.ino()) != (pinned.dev(), pinned.ino()) {
             return Err(error("app directory was replaced"));
         }
-        match open_at(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK) {
-            Ok(file) if !file.metadata().map_err(error)?.is_file() => {
+        // Examined, never opened (Exact local patch 25): closing any descriptor
+        // of a file drops every POSIX lock the process holds on it, another
+        // SQLite library's included.
+        match document_metadata(&parent, Some(&leaf)) {
+            Ok(info) if info.st_mode & libc::S_IFMT != libc::S_IFREG => {
                 return Err(error("database is not a regular file"))
             }
             Ok(_) => {}

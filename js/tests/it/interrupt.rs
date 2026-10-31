@@ -7,7 +7,6 @@
 use exact_js::{Module, Placement};
 use exact_plan::{Plan, Value};
 use exact_runner::{Answer, DataError, DataSource, Dispatch, Reply, Store, Work};
-use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -74,7 +73,7 @@ pub static SPINNING: [Mutex<Option<Sender<()>>>; 2] = [Mutex::new(None), Mutex::
 /// The native module that tells `SPINNING[TEST]`.
 pub struct Announcer<const TEST: usize>;
 impl<const TEST: usize> exact_js::NativeModule for Announcer<TEST> {
-    fn configure_storage(&mut self, _: PathBuf, _: PathBuf, _: PathBuf) -> Result<(), String> {
+    fn configure_storage(&mut self, _: exact_js::NativeStorage) -> Result<(), String> {
         Ok(())
     }
     fn call(&mut self, _: &serde_json::Value) -> Result<serde_json::Value, String> {

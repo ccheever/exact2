@@ -1,0 +1,24 @@
+# @fixture/vault's prebuilt library (LLP 1154 §3 item 4): a dynamic library with its own Rust runtime and its own
+# SQLite, built by test/library.mjs (`cargo rustc --crate-type cdylib`) and never part of exact2's workspace.
+[package]
+name = "vault"
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+test = false
+bench = false
+
+[dependencies]
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+
+[profile.release]
+panic = "abort"
+# Cargo's release default strips debug info, and with MACOSX_DEPLOYMENT_TARGET set (test/library.mjs sets it) the
+# dylib Xcode 27's `strip` leaves is one ld refuses to link against ("mis-aligned LINKEDIT string pool").
+strip = false
+
+[workspace]

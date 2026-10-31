@@ -281,6 +281,15 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     expect(again.status, again.stdout + again.stderr).toBe(0);
     const next = await get('/live'), old = await fetch(`http://127.0.0.1:${serve.port}/.exact/gen/${id}/app.js`);
     expect([generationIn(next.body) === id, next.body.includes('Changed again.'), old.status, Buffer.from(await old.arrayBuffer()).equals(runtime)]).toEqual([false, true, 200, true]);
+    // A source changed since the build: serve builds the site again before it answers a navigation, and answers a
+    // build that fails with its output (LLP 1153.001 D3).
+    writeFileSync(resolve(app, 'app.contract'), source.replace('text note.text\n', 'text note.text\n      text "Edited."\n'));
+    await new Promise(ok => setTimeout(ok, 350));
+    expect((await get('/live')).body).toContain('Edited.');
+    writeFileSync(resolve(app, 'app.contract'), source.replace('text note.text\n', 'text note.text\n      nosuchtag "x"\n'));
+    await new Promise(ok => setTimeout(ok, 350));
+    const broken = await get('/live');
+    expect([broken.status, broken.body.startsWith("The app's build failed"), broken.body.includes('nosuchtag')]).toEqual([500, true, true]);
   } finally {
     await serve?.stop();
     if (server) { server.closeAllConnections(); await new Promise(ok => server.close(ok)); }

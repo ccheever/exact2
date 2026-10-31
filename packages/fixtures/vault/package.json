@@ -1,0 +1,12 @@
+{
+  "name": "@fixture/vault",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A package that fills the data module's native slot with a prebuilt library (LLP 1154 §3 item 4): its TypeScript driver is its \".\" export; exact.json \"native\" names the Rust shim, which calls the library and opens a SQLite file through the storage the host admits; \"web\" declares an asset. test/library.mjs builds the library and the package that declares it.",
+  "exports": {
+    ".": {
+      "types": "./driver.d.ts",
+      "default": "./driver.js"
+    }
+  }
+}
