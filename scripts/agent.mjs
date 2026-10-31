@@ -47,7 +47,7 @@ import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../
 import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// web
+/* web */ export const webFrame = (evaluate, ms = 250) => evaluate(`new Promise((resolve) => { let second, settled = false; const finish = (value) => { if (settled) return; settled = true; clearTimeout(timer); cancelAnimationFrame(first); if (second !== undefined) cancelAnimationFrame(second); resolve(value); }; const timer = setTimeout(() => finish(false), ${ms}); const first = requestAnimationFrame(() => { second = requestAnimationFrame(() => finish(true)); }); })`); // Its page-side deadline settles Runtime.evaluate too; false means two RAFs did not complete.
 /** Every desktop carrier's viewport unless a drive names one (LLP 1012.001.000 D8, Charlie 2026-09-30: 900, the page's and the conformance run's), so one drive gives one set of numbers on every host. A phone or simulator is its device's size. */
 export const VIEWPORT = [420, 900];
 export { LAUNCH_MEDIA, PREFERENCES, PAGE_FACTS, FOLD_FACTS, displayFeatures } from './agent-prefer.mjs'; // `prefer`'s tables and the web carrier's CDP path
@@ -253,7 +253,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
       // Another plan is a new document: its autofocus runs (LLP 1035.000 D9).
       await evaluate(`fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => { ${carry} return exact.reload(new Uint8Array(b), true); })`);
     }
-    const frame = () => waitAtMost(evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), 250);
+    const frame = () => webFrame(evaluate);
     // The one contact this carrier may hold (LLP 1035.003 D1).
     let contact = null;
     let dragged = null; // a file drag `tap … dragenter` holds over the page: its point and its DragData
