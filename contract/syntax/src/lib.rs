@@ -124,6 +124,10 @@ pub const HOST_COMMANDS: &[&str] = &[
     // its `src` names next; `enterpictureinpicture` and
     // `leavepictureinpicture` say when it did and when it left (LLP 1042 §9).
     "requestPictureInPicture",
+    // `exitPictureInPicture()`: the app's floating image leaves the window,
+    // as HTML's document.exitPictureInPicture(); no id, as one image floats
+    // at a time.
+    "exitPictureInPicture",
     // `reload()`: the development host boots the app again, as its dev
     // menu's Reload does; a host without a dev menu refuses it.
     // `reload(id)`, `reload(id, ignoreCache=true)`: that iframe's page

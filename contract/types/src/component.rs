@@ -668,6 +668,7 @@ pub(crate) fn handler_attr(name: &str) -> bool {
             | "fullscreenchange"
             | "enterpictureinpicture"
             | "leavepictureinpicture"
+            | "pictureinpictureerror"
             | "timeupdate"
             | "play"
             | "playing"
@@ -880,8 +881,15 @@ fn refine_params_from_view(
                                 "change" | "input" if file => {
                                     vec![Ty::List(Box::new(Ty::Record("Picked".into())))]
                                 }
-                                "change" | "input" | "key" | "keycapture" | "keyup" | "message"
-                                | "navigate" | "error" => {
+                                "change"
+                                | "input"
+                                | "key"
+                                | "keycapture"
+                                | "keyup"
+                                | "message"
+                                | "navigate"
+                                | "error"
+                                | "pictureinpictureerror" => {
                                     vec![Ty::String]
                                 }
                                 "timeupdate" | "durationchange" => vec![Ty::Number],
