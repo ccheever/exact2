@@ -1668,6 +1668,16 @@ and the Linux headless CPU renderer without claiming display frame timing.
 
 - **macOS live trackpad replay (LLP 1079.000, 2026-10-28).** Add a reliable completion acknowledgement for synthetic phased wheels before admitting them under platform timing. Immediate layout reads exposed zero or partial motion; posting the later phases first did not resolve it. The carrier currently refuses with `platform-trackpad-replay-unqualified`; ordinary wheels and frozen-clock functional replay remain available.
 
+- **NucBox: disable AMD Software's In-Game Overlay and qualify the change**
+  (LLP 1149.001 Stage 1w). The retained wgpu paint crash is an execution
+  access violation in `amdihk64.dll_unloaded` 2.0.0.1788 at `0x648d`;
+  a post-reboot module inventory finds the hook in many desktop processes.
+  Disable the overlay through [AMD Software's Preferences](https://www.amd.com/en/resources/support-articles/faqs/DH3-001.html), verify whether
+  the hook leaves newly launched arms, then requalify paint. This is a
+  proposed machine remedy, not a demonstrated fix. Keep the later
+  sleep/wake hang separate: chunk A reached `shelf_sleep_wake` at 18:39:46,
+  after the 18:32 paint crash, and the next boot's Kernel-Power 41 reports
+  `SleepInProgress=5`, `BugcheckCode=0`. Retain both investigations.
 - **Stage 1w chunk B: native-field pointer delivery** (Claude review 3,
   `target/review-claude-s1w.md`, `98cff0bdfa`). RichEdit's handled mouse messages
   make winit skip dispatch, so field and ancestor clicks never reach the page.

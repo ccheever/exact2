@@ -4968,12 +4968,12 @@ Runtime results that have not been collected are not passes.
 | Sol 1; Claude 14 — per-miss environment lookup | `deeb054430`: `glyph/swash.rs` caches the rasterizer choice in `OnceLock`. |
 | Sol 2; Claude 2, 16 — eager libraries and hidden helper | `deeb054430`: `device/windows_library.rs`, `device/directwrite.rs`, `device/d3d11/rich_edit.rs` and `startup_watchdog/stacks.rs` load exports on use; `startup_watchdog.rs` gates the helper. `af9c3aef86` records the 45-to-42 import result. |
 | Claude 6, 12 — arming and architecture | `deeb054430`: `desktop_tests.rs` and `bench/heavy-list/egui/windows-measure.py` remove ordinary arming; the watchdog's snapshot module is x64-only and `start()` refuses other architectures. |
-| Sol 3; Claude 5 — field lifetime and device ownership | `3168305a59`: `fields.rs` guards retirement by owning-device identity; `host/windows/src/window.rs` clears fields on app teardown. The native lifetime fixture's output remains uncollected. Disabled `begin`/`end` return before TLS in `deeb054430`. |
-| Sol 6; Claude 11 — embedded roots and hit-test fallback | `3168305a59`: vendored `node.rs` returns registered roots and falls back after a failed root cast or hit. `src/tests/embedded.rs`, included by `subclass.rs`, covers navigation, hit test, focus and removal. Native outputs and the product UIA attempt remain uncollected. |
-| Sol 10; Claude 17 — vendor provenance and tests | `3168305a59`: `EXACT-PATCHES.md` records the archive checksum, VCS revision, seven numbered hunks, their tests and the upstream removal condition. The new tests compile natively; execution results remain uncollected. |
+| Sol 3; Claude 5 — field lifetime and device ownership | `3168305a59`: `fields.rs` guards retirement by owning-device identity; `host/windows/src/window.rs` clears fields on app teardown. The recovered chunk A lifetime fixture passes (native collection below). Disabled `begin`/`end` return before TLS in `deeb054430`. |
+| Sol 6; Claude 11 — embedded roots and hit-test fallback | `3168305a59`: vendored `node.rs` returns registered roots and falls back after a failed root cast or hit. `src/tests/embedded.rs`, included by `subclass.rs`, covers navigation, hit test, focus and removal. The recovered native fixtures pass; a fresh product UIA attempt remains pending (native collection below). |
+| Sol 10; Claude 17 — vendor provenance and tests | `3168305a59`: `EXACT-PATCHES.md` records the archive checksum, VCS revision, seven numbered hunks, their tests and the upstream removal condition. The new tests compile natively; the recovered native run passes all 15 tests (native collection below). |
 | Sol 8; Claude 1, 7, 8 — observer and causal claim | `deeb054430`: `host/linux/src/app.rs`, `device.rs` and `startup_watchdog.rs` use one monotonic phase timestamp before logging. `f2f2f1d4ce` corrects the record. QUEUE's “startup observer and corrected A/B” retains the redesign, loader-lock probe and rerun. No series was rerun here. |
 | Sol 9 — full Mac root check | `022a9fc236`: the whole command passes, including the Apple executor case; the quiet rerun and other six-check outputs are retained above. |
-| Claude 9, 13 — M9 pairing and interpretation | `3168305a59`: `host/linux/src/text/windows_audit.rs` disables swash hinting. `2c5a90bb55` corrects both RFCs and labels the original coverage rows. The new rows remain uncollected. QUEUE's “M9 axis mapping” retains the design-space mapping work. |
+| Claude 9, 13 — M9 pairing and interpretation | `3168305a59`: `host/linux/src/text/windows_audit.rs` disables swash hinting. `2c5a90bb55` corrects both RFCs and labels the original coverage rows. The recovered unhinted rows meet the advance and Segoe UI predictions but miss Inter's coverage prediction (native collection below). QUEUE's “M9 axis mapping” retains the design-space mapping work. |
 | Claude 3, 10 — pointer and key delivery | QUEUE: “native-field pointer delivery” and “app keys from native fields”. |
 | Claude 4 — TSF/IMM ownership | QUEUE: “composition ownership”. |
 | Sol 7 — UIA focus and accessible name | QUEUE: “UIA focus and accessible name”. |
@@ -5062,7 +5062,7 @@ the crash reproduces with the candidate off, remain unverified.
 
 Source `f3ff290579`, branch `lane/1149-001-s1w-native`. The NucBox mirror is
 `projects/exact2-1149-001-s1w-native`, with its own `target/`. This chunk
-changes no Rust and runs no Mac build. Raw commands, logs, captures and
+changes no Rust; Mac verification belongs to the mini. Raw commands, logs, captures and
 exit codes are retained under `target/stage-1w-native/` on both machines.
 
 | Prediction | Instrument |
@@ -5078,3 +5078,183 @@ in `amdihk64.dll_unloaded` and subsequent machine hang require an isolated
 candidate-off run, module inventory and immediate fault-event/WER capture.
 It runs last. A repeat of that fault ends collection without another paint
 attempt. No AMD setting is changed by this chunk.
+
+### Native collection — imports and build
+
+The import prediction is **met on this revision**: 42 eager DLL imports,
+with zero `dbghelp.dll`, `d2d1.dll` or `dwrite.dll`. The list is unchanged
+from chunk A's after-build list. The complete `dumpbin /imports` report is
+`target/stage-1w-native/nucbox/imports.txt`. Shelf's SHA-256 is
+`f309134f771c69ec077282f7e94956a2517e645ec5a200aa61dc505f0e2fc7e9`.
+No startup saving is inferred.
+
+```text
+kernel32.dll
+user32.dll
+gdi32.dll
+api-ms-win-core-synch-l1-2-0.dll
+bcryptprimitives.dll
+shell32.dll
+imm32.dll
+comctl32.dll
+xinput1_4.dll
+advapi32.dll
+ole32.dll
+shlwapi.dll
+combase.dll
+ws2_32.dll
+ntdll.dll
+crypt32.dll
+bcrypt.dll
+dwmapi.dll
+dcomp.dll
+d3d11.dll
+setupapi.dll
+dxgi.dll
+opengl32.dll
+icuuc.dll
+icuin.dll
+uiautomationcore.dll
+oleaut32.dll
+api-ms-win-core-winrt-l1-1-0.dll
+WINMM.dll
+uxtheme.dll
+MSVCP140.dll
+VCRUNTIME140.dll
+VCRUNTIME140_1.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-utility-l1-1-0.dll
+api-ms-win-crt-time-l1-1-0.dll
+api-ms-win-crt-convert-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+```
+
+The source archive is commit `9ec641c9a1`, whose Rust is `f3ff290579`;
+its SHA-256 is
+`2374479f2f6066448d69e2b4adb96dfa831d704b63408301bba3ff167269b8e8`.
+Shelf uses unmodified `gpu-dev` with PDB output enabled. The native tests
+use S2.8b's `exact-linux` optimization-level-zero override, native SDK
+`fxc`, required-device flags and one test thread. Every build uses this
+mirror's own `target/`. Candidates are disabled except in the named field
+fixtures and journeys. No Rust source is changed in this collection.
+
+### Native collection — suite results
+
+The D3D11 zero-failure prediction is met for the suites and startup/fallback
+fixtures below. The separate bakeoff's build overlapped this correctness
+run; these wall times are test output, not a performance comparison.
+The native Ink/Windows/Linux executables use `gpu-dev`; AccessKit's
+standalone test build uses `test`. Its temporary `[workspace]` boundary
+was restored after building, as in chunk A.
+
+Retained initial archive: `target/stage-1w-native/stage-1w-native-d3d11-suites.tgz`,
+SHA-256 `a706a4994aa65fca145953b4033df924039ea487875a2f3ba8ccd14ca88febdb`.
+Its logs are extracted under `target/stage-1w-native/nucbox/`. Each suite
+exits zero; ignored tests are not counted as passes.
+
+```text
+d3d11-composition: test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 67 filtered out; finished in 0.74s
+d3d11-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 3.22s
+d3d11-ink: test result: ok. 48 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 8.33s
+d3d11-pinned-backdrop: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 1.03s
+d3d11-pinned-borders: test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 2.33s
+d3d11-pinned-gradients: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.61s
+d3d11-pinned-materials: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.56s
+d3d11-pinned-paint: test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 20.60s
+d3d11-pinned-tint: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.78s
+d3d11-pinned-visual: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 5.45s
+d3d11-shelf_both_late_devices_measure_the_first_pixel_trade: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.41s
+d3d11-shelf_device_preparation_overlaps_slow_configuration: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.43s
+d3d11-shelf_exhausted_devices_exit_with_both_refusals: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.83s
+d3d11-shelf_hardware_attach_refusal_uses_warp: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.00s
+d3d11-shelf_hardware_open_refusal_uses_warp: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.94s
+d3d11-shelf_hardware_recovers_while_startup_warp_is_pending: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.94s
+d3d11-shelf_quit_does_not_join_a_pending_shell_call: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.28s
+d3d11-shelf_refused_warp_waits_for_prepared_hardware: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.53s
+d3d11-shelf_slow_preparation_displays_cpu_before_hardware: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.39s
+d3d11-shelf_unavailable_mica_still_presents: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.85s
+d3d11-surfaces: test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 1620 filtered out; finished in 0.48s
+d3d11-windows: test result: ok. 39 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.28s
+```
+
+### Native collection — recovered chunk A field and M9 results
+
+These outputs were written by chunk A on `3168305a59` before the NucBox
+became unreachable. They are now retrieved, not rerun on the rebased
+source. `target/stage-1w-native/recovered-chunk-a.tgz` retains the logs,
+9,540 CSV rows, font bytes and paired masks; the extracted directory has
+the same name without `.tgz`. The derived face rows are
+`target/stage-1w-native/recovered-a-summary.json`.
+
+Both outline rasters are unhinted. The advance prediction is **met** for
+Inter and Segoe UI. The coverage prediction is **missed for Inter**:
+5.295/255 exceeds the predicted 4.589/255 bound. It is **met for Segoe UI**:
+5.473/255 is below 12.335/255. Correcting the hinting mismatch does not
+uniformly reduce coverage differences.
+
+| Face | Rows | Maximum advance difference, device px | Mean raw coverage difference /255 | Median swash / DirectWrite raster, µs | Default admission |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Inter Regular | 2,340 | 0.0000019074 | 5.295 | 1.00 / 0.80 | Refused pending appearance/motion audit |
+| Segoe UI | 2,340 | 0 | 5.473 | 1.00 / 0.80 | Refused pending smoothing/native-reference audit |
+| Segoe UI Variable | 2,340 | 1.951172 | 34.506 | 1.50 / 0.80 | Refused: axes not mapped |
+| Roboto Flex | 2,340 | 1.265625 | 38.079 | 0.30 / 0.40 | Refused: axes not mapped |
+| Noto Color Emoji (CBDT) | 180 | 0 | Not comparable: colour versus mask | 162.35 / 0.40 | Refused: mask drops colour |
+
+Coverage weights the union of paired glyph bounds. The timing column still
+includes DirectWrite cache hits from repeated static-face weight passes;
+it is not a saving estimate. D2D gamma/grayscale contrast, system smoothing,
+colour, synthesis and live motion remain unqualified. Swash stays default.
+The field and AccessKit fixtures pass on chunk A's source; these results
+do not resolve the product UIA discovery failure or qualify Japanese IME,
+Narrator or Excord.
+
+```text
+accesskit: test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+field-unit: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.14s
+field-lifetime: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.14s
+audit-unhinted: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1594 filtered out; finished in 0.54s
+```
+
+### Native collection — the prior fault and hang
+
+The retained WER report identifies an execution access violation
+(`0xc0000005`, exception data 8) in `amdihk64.dll_unloaded`, version
+2.0.0.1788, offset `0x648d`. The paint log was last written at 18:32:07 PDT.
+The run continued: its D3D11 device-loss log ends at 18:39:33 with a failed
+fixture, and `shelf_sleep_wake` starts at 18:39:46 without a returned-sleep
+line. The next boot is 19:33:20; Kernel-Power 41 records `BugcheckCode=0`
+and `SleepInProgress=5`. EventLog 6008 records an unclean shutdown, but its
+18:21:09 timestamp predates those test logs and does not date the hang.
+The evidence therefore leaves two questions: the AMD-hook process crash
+and the later sleep/wake hang. It does not establish a common cause.
+
+After reboot, `tasklist /m amdihk64.dll` finds the module in DWM, Explorer,
+Radeon Software and numerous other desktop processes. That is broad
+injection, not proof that every process loads it. The proposed remedy is
+to disable [AMD Software's In-Game Overlay](https://www.amd.com/en/resources/support-articles/faqs/DH3-001.html),
+check newly launched arms for the hook, and requalify paint. No setting is
+changed here, and this is not yet a demonstrated fix. QUEUE retains the
+machine setting and the separate sleep/wake investigation.
+
+The raw WER, application events, System event XML, module inventory and
+preceding test sequence are in `target/stage-1w-native/nucbox/prior-*`.
+
+### Native collection — caps
+
+`EXACT_CAPS_WASM=0 bun scripts/caps.mjs` exits zero:
+
+```text
+wasm32: skipped (EXACT_CAPS_WASM=0)
+All budgets within cap. 10 categories inspected.
+```
+
+The first unqualified caps invocation began its implicit Mac wasm build
+because the inherited branch differs from `origin/main` in Rust. It was
+interrupted (exit 130), and no check result is claimed from it. The scoped
+invocation skips that build under this chunk's no-Mac-check instruction;
+its complete output is `target/stage-1w-native/caps.log`. No other Mac
+build or test is run. `git diff --check` passes.

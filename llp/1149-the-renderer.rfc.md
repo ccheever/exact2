@@ -706,19 +706,28 @@ S2 runs before S1 (Charlie, 2026-10-28: the prospect's platform, and the stronge
 ## 4. Measurement
 
 **M9, Windows text (2026-10-30, Stage 1w): no default admission.** The
-original 9,540-row NucBox audit opens the shaper's bytes in DirectWrite,
-but its coverage comparison mixes hinted swash with unhinted DirectWrite.
-Static Inter and Segoe UI advances differ by at most 0.000002 device pixels
-at 100/125/150%. The opt-in whole-app band (mean 1.43/255, 1.09% beyond 32)
-measures parity with swash. It does not establish parity with a Windows app
-over Mica, where D2D applies gamma and grayscale enhanced contrast at blend
-time. The candidate maps no axes: its default instances are compared with
-requested instances, differing by up to 1.951172 px. DirectWrite's timing
-column includes glyph-cache hits; two of three weight passes repeat the same
-static-face raster. The monochrome candidate drops colour. Colour families,
-synthesis, system smoothing and live motion remain unqualified under D3.3.
-Swash stays the default. Predictions and retained raw files are in
-`host/ink/MEASUREMENTS.md`, “Stage 1w”.
+9,540-row unhinted audit from chunk A (`3168305a59`), recovered after the
+NucBox reboot, compares the shaper's font bytes in both rasterizers. Static
+Inter and Segoe UI advances differ by at most 0.000002 device pixels at
+100/125/150%. Inter's mean coverage difference is **5.295/255**, missing the
+prediction below 4.589; Segoe UI's is **5.473/255**, meeting the prediction
+below 12.335. The earlier hinted/unhinted comparison remains historical.
+
+| Face | Maximum advance difference, device px | Mean raw coverage difference /255 |
+| --- | ---: | ---: |
+| Inter Regular | 0.0000019074 | 5.295 |
+| Segoe UI | 0 | 5.473 |
+| Segoe UI Variable | 1.951172 | 34.506 |
+| Roboto Flex | 1.265625 | 38.079 |
+| Noto Color Emoji (CBDT) | 0 | Not comparable: colour versus mask |
+
+The candidate maps no axes and drops colour. DirectWrite's timing column
+includes cache hits across repeated static-face weight passes. The earlier
+whole-app band (mean 1.43/255, 1.09% beyond 32) measures parity with swash,
+not a Windows app over Mica and D2D's gamma/grayscale contrast at blend
+time. Colour, synthesis, system smoothing and live motion remain unqualified
+under D3.3. Swash stays default. The per-case table, predictions and raw
+files are in `host/ink/MEASUREMENTS.md`, “Native collection”.
 
 
 The program is the same on every platform; the baselines differ. "Has numbers" is not a
