@@ -72,8 +72,10 @@ def wait_for_lane(out, seconds=3600):
         while pid and pid not in ours:
             ours.add(pid)
             pid = parents.get(pid, 0)
-        blockers = [dict(pid=int(pid), command=command) for pid, _, command in rows
-                    if int(pid) not in ours and (re.search(
+        blockers = [dict(pid=int(pid), command=command) for pid, parent, command in rows
+                    if int(pid) not in ours
+                    and not (int(parent) in ours - {1} and command.startswith('/usr/bin/caffeinate '))
+                    and (re.search(
                         r'target/g0/\S*run-[^ /]+\.py(?:\s|$)', command) or re.search(
                         r'(?:^|/)(?:measure|gpui-heavy-list|egui-heavy-list|HeavyExact2|Heavy list)(?:\s|$)', command))]
         with (out / 'ownership.jsonl').open('a') as stream:
@@ -256,6 +258,7 @@ def sample(path, traced=True):
                   'first text shape start': first('text shape'),
                   'first text shape end': first('text shape', True),
                   'layer attached': first('boot layer attached'),
+                  'window show returned': first('boot window shown'),
                   'first paint record': first('paint walk'),
                   'first paint record completed': first('paint walk', True),
                   'first present committed': min((v for v in [first('probe present commit', True),
@@ -268,6 +271,9 @@ def sample(path, traced=True):
                                 ('main to complete callback', 'main', 'complete'),
                                 ('constructor to complete callback', 'constructor', 'complete'),
                                 ('process to complete callback', None, 'complete')]:
+        if any(prefix + suffix not in startup for prefix in [lower, upper] if prefix
+               for suffix in ['CpuSeconds', 'Cycles', 'Instructions']):
+            continue
         def delta(suffix):
             return startup[upper + suffix] - (startup[lower + suffix] if lower else 0)
         cpu, cycles, instructions = delta('CpuSeconds'), delta('Cycles'), delta('Instructions')
