@@ -8642,3 +8642,217 @@ callback, including zero. Expected unchanged-carrier result: at least one zero;
 expected GPUI result: a positive first callback. No millisecond saving is
 predicted before this instrument establishes a cause. Raw files and commands
 are retained in `target/m10-c1c/`; no earlier evidence is removed.
+
+### Cut 1c outcome: cause not established; no renderer fix
+
+The single diagnosis round rules out a scale/size change and replacement by
+another submission for the captured first Ink drawable. Neither an explicit
+flush nor presenting inside the show transaction repairs the fixture's first
+callback. GPUI also reports a zero first callback in this run, contradicting
+the expected control. The lane stops at the brief's one-round boundary.
+
+The Ink diagnostic uses cut 1b's retained `InkAfter3.app` with the new probe;
+its product is unchanged. It is a passive `G1_BOOT_ONLY` launch. GPUI uses
+the retained control with the same probe and the ordinary active launch path.
+They are functional observations with different activation paths, not paired
+performance samples. Instrument overhead is not measured. Main-thread window
+facts are cached with their timestamps for worker reads; the probe never asks
+AppKit for window state on the render worker. The CV callback records its
+link/counter state; its corresponding main-thread wake records the full
+surface and window state. GPUI's own link is not directly sampled; the probe's
+CADisplayLink is. Each trace retains fewer than
+the diagnostic's 4,096-row limit (Ink 709, GPUI 2,495), with zero ordinary
+trace events dropped.
+
+| Event, process age in ms | Ink | GPUI |
+| --- | ---: | ---: |
+| Show returned | 145.960 | 188.738 |
+| First acquire | 171.938 | 238.580 |
+| First drawable present request | 172.486 | 243.025 |
+| First callback, timestamp zero | 172.505 | 243.101 |
+| Submissions at that callback | 1 | 1 |
+| First positive drawable sequence | 3 | 2 |
+| First positive displayed timestamp | 216.378 | 289.752 |
+
+At Ink's first acquire, first present and first zero callback, texture and
+layer are **1600×1536**, `contentsScale` and backing scale are **2**, and view
+bounds are **800×768 points**. No size or scale assignment follows acquisition
+before that callback. The layer is the `WinitView`'s layer and is in the
+window's layer tree. The window is visible; occlusion state **8194** includes
+the visible bit. The first main-thread display wake records the same facts
+at **171.302 ms**, before acquisition on the worker. The carrier link is
+running. Two explicit CA flushes precede acquisition; no later submission
+exists when the zero callback arrives **0.019 ms** after the request. The
+successful third submission has the same size, scale and tree membership.
+Its positive timestamp follows show return by **70.418 ms**, including the
+failed submissions and retries; that is not the system's first-composite cost.
+
+GPUI's first acquire also matches its layer at **1600×1536**, scale **2**.
+Its `GPUIView` is the layer delegate; Ink's delegate is nil. GPUI is visible
+but occlusion state **8192** lacks the visible bit at its first callback.
+That callback arrives **0.076 ms** after the direct present request, with
+one submission. GPUI's second drawable supplies its first positive timestamp.
+The trace does not reproduce the brief's GPUI-first-drawable premise.
+
+Pinned GPUI 0.2.2's `platform/mac/window.rs` creates its Metal layer through
+`makeBackingLayer`. `view_did_change_backing_properties` assigns the window's
+backing scale to `contentsScale` before updating the drawable size. Its
+constructor calls `makeKeyAndOrderFront` when show and focus are requested.
+`display_layer` enables transaction presentation around its frame callback;
+`metal_renderer.rs` acquires, encodes, commits, waits until scheduled and
+presents. In this trace the scale/size assignment precedes show, which precedes
+acquire and present. Source copies are retained beside the diagnostic.
+
+The small fixture uses a layer-backed `NSView`, the carrier's layer format
+and dimensions, and a cleared Metal render target. It submits on main after
+the rendering command is scheduled. It holds subsequent submissions until
+the prior callback, except in the explicit replacement variation. These are
+single functional trials, with no quiet gate or performance conclusion.
+
+| Fixture variation | Callback sequence (`0` = unshown, `+` = positive) | Result |
+| --- | --- | --- |
+| Size from window backing scale, present just after show | `0, +` | Correct initial size does not remove the zero |
+| Acquire at 1×, change layer to 2× before present | `0, +` | Injected mismatch also drops; mismatch is not needed to reproduce it |
+| Submit again immediately | `0, 0, 0` | No positive callback; bounded driver termination |
+| Explicit flush after show, before acquire | `0, +` | Flush does not remove the zero |
+| Show and present inside one explicit CA transaction | `0, +` | Shared transaction does not remove the zero |
+| First present on the first display callback | `0, 0, +` | Moving to the callback does not remove the zero |
+
+The replacement fixture saved its failed result at its two-second bound,
+but `NSApp.stop` did not finish the process; the driver terminated its
+recorded PID at ten seconds (exit −15). The other five exit zero. This failed
+attempt is retained, not replaced. The first zero in every variation occurs
+while submission count is one, before the second submission can replace it.
+
+| Prediction or proposed explanation | Result |
+| --- | --- |
+| Unchanged Ink has at least one zero callback | **Observed:** sequences 1 and 2 report zero; sequence 3 displays |
+| GPUI's first callback is positive | **Miss:** sequence 1 reports zero; sequence 2 displays |
+| (a) Initial size/scale change causes Ink's first drop | **Ruled out for this launch:** matching texture/layer dimensions and scale throughout |
+| (b) Ink's next submission replaces its first | **Ruled out for this launch:** callback 1 arrives while submission count is 1 |
+| (c) A main-thread flush before acquire removes the zero | **Miss in the fixture:** first callback still zero. Tree membership and a flush call do not acknowledge server-side composition; the internal cause remains unknown. |
+| (d) Sharing the show transaction removes the zero | **Miss in the fixture:** first callback still zero |
+
+There is no established cause to fix once. Early painting, the CPU handoff
+and retry policy remain unchanged. No saving, no zero-free confirmation
+cohort and no qualified cold row are claimed. The startup qualification
+amendment in `startup.py`, `run-hook.py`, the README and RFC §4, the five-launch
+confirmation cohorts, the ten-pair cohorts and the four-arm cold series are
+not performed after this diagnosis stop. LLP 1149 §4.1's scoreboard stays.
+
+| Four-arm cold p50, ten launches per arm | Before, ms | After, ms |
+| --- | --- | --- |
+| Native | unavailable | unavailable |
+| GPUI | unavailable | unavailable |
+| Ink | unavailable | unavailable |
+| Egui | unavailable | unavailable |
+
+### Cut 1c reproduction and observer failures
+
+The rebase onto `origin/main` **`74a7f861f0`** completed without conflicts.
+The diagnostic source is **`6f8ea91f86`**; product code is unchanged by this
+cut. `target/m10-c1c/silver/` retains the measured signed bundle copies,
+probe and fixture binaries, launch scripts, raw records and session logs.
+The remote copy is
+`ccheever@100.76.94.78:~/projects/exact2-measure/target/g0/m10-c1c/`.
+All windows ran there through `sudo -n /bin/launchctl asuser 501`, followed
+by a user switch and `caffeinate -u -d -i`. No GO file was needed and no
+display events were posted on the development Mac.
+
+The observer needed two corrections before usable captures: its contents
+hook queried a partly initialized Metal layer, then its window scan mutated
+the layer map while enumerating it. The final observer skips layer properties
+until sizing and enumerates a snapshot. The first passive GPUI attempt also
+failed because `G1_BOOT_ONLY` creates an `NSApplication` before GPUI installs
+its subclass. The corrected GPUI run uses the active path. Final-observer
+Ink on that active path timed out with `probe: no window`; the passive Ink
+capture above succeeds. Those failures are under `diagnosis/`,
+`diagnosis-observer-fixed/` and `diagnosis-final-observer/`; none supplies
+a numeric startup sample. They limit comparisons between the captures.
+
+Build the probe using G4's command, with `first-present.m` beside `probe.m`.
+The existing probe self-test and the fixture build with:
+
+```sh
+xcrun clang -DG1_PROBE_TEST -fobjc-arc -O2 -Wall -Wextra -Werror \
+  -Wno-unused-parameter -mmacosx-version-min=14.0 -framework AppKit \
+  -framework QuartzCore -framework Metal bench/heavy-list/gpui/probe.m \
+  -o target/m10-c1c/probe-test
+G1_GPU_HOOK=0 G1_TRACE=1 target/m10-c1c/probe-test
+G1_GPU_HOOK=1 target/m10-c1c/probe-test
+xcrun clang -fobjc-arc -O2 -Wall -Wextra -Werror -Wno-unused-function \
+  -mmacosx-version-min=14.0 -framework AppKit -framework QuartzCore \
+  -framework Metal host/apple-painted/tests/first-present.m \
+  -o target/m10-c1c/first-present
+python3 -B target/m10-c1c/report.py
+```
+
+On silver, run `first-present <variation> <fresh-output.json>` for the six
+variations in the retained `fixture.py`, with its ten-second process bound.
+`diagnose.py` and `diagnose-ink-passive.py` retain the exact launch settings;
+use fresh output directories. `report.py` checks the recorded first callbacks,
+dimensions, scale and absence of intervening assignments, and writes
+`report.json` and `raw-sha256.json`. Diagnostic values above are reproduced
+from those files, not inferred from the source.
+
+### Cut 1c verification
+
+The affected suites run on the rebased branch with its own `target/`:
+
+```sh
+env CARGO_BUILD_JOBS=6 RUST_TEST_THREADS=2 EXACT_INK_DEVICE=metal EXACT_REQUIRED=1 \
+  cargo test -p exact-linux -p exact-apple-painted -p exact-ink \
+  --lib --tests --no-fail-fast
+```
+
+`checks/affected-tests.log` exits zero on its first run. Prepared-frame parity,
+the CPU archive-miss handoff and the unshown-frame retry tests pass. The suite
+summaries below are verbatim, including nested Linux test processes:
+
+```text
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 46 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.70s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1716 filtered out; finished in 0.59s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1716 filtered out; finished in 0.53s
+test result: ok. 170 passed; 0 failed; 15 ignored; 0 measured; 1532 filtered out; finished in 3.02s
+test result: ok. 1695 passed; 0 failed; 22 ignored; 0 measured; 0 filtered out; finished in 75.55s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.78s
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.48s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.38s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.91s
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.28s
+test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 12.74s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+```
+
+The probe tests also exit zero, with hook off plus trace on, then hook on:
+
+```text
+probe: painter-specific completeness and one boot-expose wake passed
+probe: lazy trace observes application queues without pre-creating a device or queue
+probe: direct presentation preserves methods, joins preceding commit, excludes buffer path and resets reused drawables
+probe: GPU hook off; three buffers completed, commit-phase accounting passed
+probe: painter-specific completeness and one boot-expose wake passed
+probe: GPU hook on; three buffers completed, commit-phase accounting passed
+```
+
+The separate wgpu prepared-frame comparison also passes
+(`checks/wgpu-parity.log`):
+
+```text
+test paint::backend::tests::a_prepared_first_frame_has_the_same_pixels_without_a_second_paint ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1716 filtered out; finished in 0.79s
+```
+
+The full six-check gate is left for the Mac mini as requested. No root build,
+root test, lint, boot or workspace check is claimed here. No push is made.
+
+The staged caps check (`checks/caps.log`) exits zero:
+
+```text
+All budgets within cap. 10 categories inspected.
+```
