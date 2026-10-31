@@ -29,7 +29,7 @@ extension NodeView {
         NotificationCenter.default.addObserver(self, selector: #selector(liveScrollEnded(_:)), name: NSScrollView.didEndLiveScrollNotification, object: sv)
     }
     @objc func liveScrollStarted(_ note: Notification) {
-        presenter?.fragmentArmed = false // a fragment's scroll not yet made stays unmade (Fragment.swift)
+        presenter?.personScrolls += 1 // a trackpad's or a scroller's: a fragment's scroll not yet made stays unmade (Fragment.swift)
         guard (handlers.contains("scrollend") || presenter?.session?.timerAdmissions.enabled == true), note.object as AnyObject? === scroll else { return }
         let end = scrollEnd ?? ScrollEnd()
         scrollEnd = end

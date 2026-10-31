@@ -527,21 +527,22 @@ def go (t : Table) (r : Router) (location : String) : Verb :=
   if (matchIndex t url).isNone then .error (noMatch location) else
   let s := stack r
   let fragment := fragmentOf location
-  -- The visit arrived at takes the location's fragment (LLP 1153 D5).
-  let withFragment (s : List Entry) : List Entry :=
+  -- The top takes the location's fragment; a visit returned to takes it
+  -- only when the location has one (LLP 1153 D5).
+  let withFragment (write : Bool) (s : List Entry) : List Entry :=
     match s.getLast? with
-    | .some e => s.dropLast ++ [{ e with fragment }]
+    | .some e => if write then s.dropLast ++ [{ e with fragment }] else s
     | .none => s
   -- `rposition`: the last occurrence.
   let pos := (s.zipIdx.filter (·.1.url == url)).getLast?.map (·.2)
   match pos with
   | .some p =>
     match selected r with
-    | .ok i => .ok (setStack r i fun s => withFragment (s.take (p + 1)))
+    | .ok i => .ok (setStack r i fun s => withFragment (p + 1 == s.length || !fragment.isEmpty) (s.take (p + 1)))
     | .error _ => .ok r
   | .none =>
     match r.tabs.findIdx? (fun tb => tb.name != r.tab && (tb.stack.getLast?.map (·.url)) == .some url) with
-    | .some i => select (setStack r i withFragment) ((r.tabs[i]?.map (·.name)).getD "")
+    | .some i => select (setStack r i (withFragment !fragment.isEmpty)) ((r.tabs[i]?.map (·.name)).getD "")
     | .none => push t r location
 
 /-- Seed every tab at its root, then open the launch location. -/

@@ -106,10 +106,11 @@ function go_(r, location) {
   if (!matchRoute(url)) return refuse(r, `no route matches ${url}`);
   const s = stack_(r), at = s.map(e => e[2]).lastIndexOf(url);
   if (at === s.length - 1 && s[at][5] === fragment) return r;
-  if (at >= 0) { const i = sel(r); if (i < 0) return r; const out = copy(r), t = out[1][i][1]; t.length = at + 1; t[at] = arrive(t[at], fragment); return out; }
+  // The top takes the location's fragment; a visit returned to takes it only when the location has one (route/src/router.rs).
+  if (at >= 0) { const i = sel(r); if (i < 0) return r; const out = copy(r), t = out[1][i][1]; if (at === t.length - 1 || fragment) t[at] = arrive(t[at], fragment); t.length = at + 1; return out; }
   const other = r[1].findIndex(t => t[0] !== r[0] && t[1].at(-1)?.[2] === url);
   if (other < 0) return push_(r, location);
-  const out = copy(r), t = out[1][other][1]; t[t.length - 1] = arrive(t.at(-1), fragment); return select_(out, out[1][other][0]);
+  const out = copy(r), t = out[1][other][1]; if (fragment) t[t.length - 1] = arrive(t.at(-1), fragment); return select_(out, out[1][other][0]);
 }
 const stack_ = r => r[1].find(t => t[0] === r[0])?.[1] ?? [];
 const top_ = r => stack_(r).at(-1) ?? [0, "", "", "", empty(), ""];
@@ -152,34 +153,53 @@ function hostBack(id) { const r = RouterSlot?.n.v; if (r && validRouter(r) && to
  * the router as it is. */
 function hostGo(location) {
   const r = RouterSlot?.n.v; if (!r || !validRouter(r)) return;
-  const next = go_(r, location); if (next !== r) commit(() => W(RouterSlot, next), "host go");
+  const next = navigating(go_)(r, location); if (next !== r) commit(() => W(RouterSlot, next), "host go"); else afterCommit();
 }
-// @ref LLP 1153 D5 — the scroll to a fragment, the browser's own step done once the route's content has arrived: no
-// resource's request in flight and none waiting for its source (the runner's `fragment_command`; an image or an
-// observer's first report is no content). `fragment.js` finds and scrolls; it loads at first use.
-let Due = null, Fragments = null;
+// @ref LLP 1153 D5 — the scroll to a fragment, the browser's own step made once the route's data has arrived (the
+// runner's `fragment_command`): no resource asked, in flight or waiting for its source. `fragment.js` finds and
+// scrolls, then holds the target while the route's pictures load; it loads at first use. `Activated`: the visit and
+// fragment an explicit navigation (an `open`, `push`, `replace` or `go` to a location with a fragment) arrived at in
+// the commit being made, which scrolls even to the fragment the visit already shows, where a return by `back` or
+// `select` keeps its place. `Due` waits for the data; `Scheduled` waits for the module, and either is let go when its
+// visit stops showing that fragment or the app scrolls into view itself.
+let Activated = null, Due = null, Scheduled = null, Fragments = null;
 const fragments = () => Fragments ??= import("./fragment.js");
 const pageRoot = () => document.getElementById("exact-root");
-function fragmentDue() {
-  if (!Due || Resources.some(r => r.waiting || r.ticket?.waiting)) return;
-  const { visit, fragment } = Due; Due = null;
-  fragments().then(f => f.scroll(pageRoot(), visit, fragment, say), e => say(`fragment: ${e.message}`));
+function navigating(f) {
+  return (r, location) => {
+    const next = f(r, location), fragment = fragmentOf(location), t = top_(next);
+    if (fragment && t[2] === canonical(location) && t[5] === fragment) Activated = [t[0], fragment];
+    return next;
+  };
 }
-function wantScroll(op) { Due = { visit: op.top, fragment: op.fragment }; fragments().then(f => f.arm(pageRoot(), op)); queueMicrotask(fragmentDue); }
+const shows = ({ visit, fragment }) => { const r = RouterSlot?.n?.v, t = r && validRouter(r) && top_(r); return !!t && t[0] === visit && t[5] === fragment; };
+function fragmentDue() {
+  if (Due && !shows(Due)) Due = null;
+  if (!Due || Resources.some(r => r.waiting || r.ticket?.waiting)) return;
+  const due = Scheduled = Due; Due = null;
+  fragments().then(f => { if (Scheduled !== due || !shows(due)) return; Scheduled = null; f.scroll(pageRoot(), due.visit, due.fragment, say); }, e => say(`fragment: ${e.message}`));
+}
+function wantScroll(op) { Due = { visit: op.top, fragment: op.fragment }; Scheduled = null; fragments().then(f => f.arm(pageRoot(), op)); queueMicrotask(fragmentDue); }
+/** After a commit's tree update: a navigation to the fragment the top already shows changes no value, and scrolls again.
+ * The check waits a microtask, for the commit's requests to go out and its commands to run. */
+function afterCommit() {
+  const t = Activated && RouterSlot?.n?.v && top_(RouterSlot.n.v);
+  if (t && t[0] === Activated[0] && t[5] === Activated[1]) wantScroll({ top: t[0], fragment: t[5] });
+  Activated = null; queueMicrotask(fragmentDue);
+}
 export function router(slot, history) {
-  RouterSlot = slot; navigationRoots(history); After.push(fragmentDue);
-  // An author's own `scrollIntoView` wins over a fragment's scroll still waiting.
-  const own = Hosts.scrollIntoView; Hosts.scrollIntoView = (...a) => { if (Due) { say(`fragment #${Due.fragment}: the app's own scrollIntoView took its place`); Due = null; } return own(...a); };
+  RouterSlot = slot; navigationRoots(history); After.push(afterCommit);
+  // An author's own `scrollIntoView` wins over a fragment's scroll not yet made.
+  const own = Hosts.scrollIntoView; Hosts.scrollIntoView = (...a) => { const d = Due ?? Scheduled; if (d) { say(`fragment #${d.fragment}: the app's own scrollIntoView took its place`); Due = Scheduled = null; } return own(...a); };
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document, as input-glue.js's rule for the wasm host:
   // a link with its own `press` navigates by it; any other goes to the
   // root's `navigate` handler, as popstate does, and with no handler is the
   // router's own `go` (`hostGo`). A link to a fragment is a location
   // too (LLP 1153 D5): `href="#moves"` is the visit shown, read from the
-  // attribute, since the shell's `<base href="/">` resolves it to `/`; the
-  // same fragment again scrolls again, as the browser's does. A modified
-  // click, a `target` or `download`, another origin or an undeclared path
-  // (a file) is the browser's alone.
+  // attribute, since the shell's `<base href="/">` resolves it to `/`. A
+  // modified click, a `target` or `download`, another origin or an
+  // undeclared path (a file) is the browser's alone.
   document.addEventListener("click", ev => {
     const a = ev.target.closest?.("a[href]"), root = document.getElementById("exact-root");
     if (!a || !root?.contains(a) || ev.defaultPrevented) return;
@@ -193,17 +213,17 @@ export function router(slot, history) {
     if (press || (here && !url.hash && !shown?.[5])) return;
     const target = to + url.hash;
     if (Navigate) Navigate(target); else hostGo(target);
-    if (RouterSlot.n?.v !== r) return;
-    if (here && url.hash) wantScroll({ top: shown[0], fragment: shown[5], scroll: true }); else say(`history: link ${JSON.stringify(target)} refused`);
+    if (RouterSlot.n?.v === r && !(here && url.hash)) say(`history: link ${JSON.stringify(target)} refused`);
   }, true);
   effect(() => {
     const r = slot(); if (!r || !r[1].length) return;
     const top = top_(r), ids = new Set(r[1].flatMap(t => t[1].map(e => e[0]))), before = Shown?.[1].flatMap(t => t[1]) ?? [];
     const removed = before.map(e => e[0]).filter(id => !ids.has(id)), was = before.find(e => e[0] === top[0]);
     Shown = r;
-    // A new visit with a fragment, or a fragment that changed, scrolls (LLP 1153 D5); a visit returned to keeps its
-    // place. The history mirrors the visit's url with its fragment.
-    const op = { top: top[0], url: top[5] ? `${top[2]}#${top[5]}` : top[2], fragment: top[5], scroll: was ? was[5] !== top[5] : !!top[5], removed, visits: r[1].flatMap(t => t[1].map(e => [e[0], e[2]])) };
+    // A navigation to a fragment, a new visit with one, or a fragment that changed scrolls (LLP 1153 D5); a visit
+    // returned to keeps its place. The history mirrors the visit's url with its fragment.
+    const activated = Activated?.[0] === top[0] && Activated[1] === top[5]; Activated = null;
+    const op = { top: top[0], url: top[5] ? `${top[2]}#${top[5]}` : top[2], fragment: top[5], scroll: activated || (was ? was[5] !== top[5] : !!top[5]), removed, visits: r[1].flatMap(t => t[1].map(e => [e[0], e[2]])) };
     history.apply(op);
     if (op.scroll) wantScroll(op);
   });
@@ -256,5 +276,5 @@ export function routerValid() {
 }
 /** A verb or read of an invalid router traps, as the runner's (its `call_verb`); `searchParam` reads any entry. */
 const checked = f => (r, ...a) => { if (!validRouter(r)) throw new Refusal("a router verb or read of an invalid router"); return f(r, ...a); };
-export const x_open = checked(open_), x_push = checked(push_), x_replace = checked(replace_), x_back = checked(back_), x_select = checked(select_), x_go = checked(go_);
+export const x_open = checked(navigating(open_)), x_push = checked(navigating(push_)), x_replace = checked(navigating(replace_)), x_back = checked(back_), x_select = checked(select_), x_go = checked(navigating(go_));
 export const x_stack = checked(stack_), x_top = checked(top_), x_depth = checked(depth_), x_params = checked(params_);

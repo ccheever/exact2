@@ -312,10 +312,16 @@ pub struct Presenter<D: DataSource> {
     /// Commands from the last commits, consumed by `run_commands`.
     commands: Vec<exact_runner::Command>,
     /// The router change that asked for a scroll to its fragment, and the
-    /// wheels turned by then (`wheels`): one turned since cancels the scroll
-    /// (LLP 1153 D5; `reveal.rs`).
+    /// person's scrolls by then (`person_scrolls`: a wheel, a key, a
+    /// scrollbar, the reader's drag): one since cancels the scroll; then the
+    /// target held in place while the pictures load (LLP 1153 D5;
+    /// `reveal.rs`).
     fragment_armed: Option<(exact_runner::RouterChange, u64)>,
-    wheels: u64,
+    fragment_anchor: Option<(ViewId, u64)>,
+    person_scrolls: u64,
+    /// HTML's sequential focus navigation starting point: where Tab starts
+    /// from while nothing has the focus (a fragment's target).
+    focus_start: Option<ViewId>,
     /// Range replacement selects wait until the action's commands finish.
     field_select_tasks: Vec<ViewId>,
     field_change_tasks: std::collections::BTreeSet<ViewId>,
@@ -560,7 +566,9 @@ impl<D: DataSource> Presenter<D> {
             updates: None,
             commands: Vec::new(),
             fragment_armed: None,
-            wheels: 0,
+            fragment_anchor: None,
+            person_scrolls: 0,
+            focus_start: None,
             field_select_tasks: Vec::new(),
             field_change_tasks: Default::default(),
             agent: crate::app::AGENT_BOOT.get(),
@@ -899,7 +907,7 @@ impl<D: DataSource> Presenter<D> {
                     .as_ref()
                     .is_none_or(|(armed, _)| armed != *op)
         }) {
-            self.fragment_armed = Some((op.clone(), self.wheels));
+            self.fragment_armed = Some((op.clone(), self.person_scrolls));
         }
         if !commands.is_empty() {
             self.commands.extend(commands);

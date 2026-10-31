@@ -140,6 +140,7 @@ impl<D: DataSource> Runner<D> {
         was_poisoned: bool,
     ) {
         let refused = result.is_err();
+        self.conclude_router(refused);
         match result {
             Ok(_) => {
                 self.module_work.standing = None;

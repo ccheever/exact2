@@ -1,12 +1,16 @@
 // @ref LLP 1153 D5 — the runner's `scrollToFragment(visit, fragment)`, sent
-// once a route's content has arrived: the browser's "scroll to the fragment"
-// on a native host. The node with that HTML `id` in the visit's own route (a
+// once a route's data has arrived: the browser's "scroll to the fragment" on
+// a native host. The node with that HTML `id` in the visit's own route (a
 // route retained beneath may hold the same id; the id as written, else
 // percent-decoded) is aligned as `scrollIntoView(id)` with `block="start"`
-// aligns it, every scroller above it moving, and on iOS VoiceOver's cursor
-// goes to it, as a screen reader's starts from the target on the web. `top`,
-// or no such node, takes the route's scrollers to their tops. A scroll by the
-// person after the router asked for it (`fragmentArmed`) cancels it.
+// aligns it, every scroller above it moving, held through a navigation's
+// transition and until pending fills land (`ElementScrolls` on iOS). The
+// accessibility cursor goes to it (VoiceOver on iOS, the layout change it
+// names on the Mac), as a screen reader starts from the target on the web;
+// the key-view loop has no starting point of its own to move. `top`, or no
+// such node, takes the route's scrollers to their tops and the route's start
+// into view. A scroll by the person since the router asked for it
+// (`fragmentArm` against `personScrolls`) cancels it.
 #if os(macOS)
 import AppKit
 #else
@@ -17,8 +21,8 @@ extension Presenter {
     func scrollToFragment(_ args: [Any]) {
         let visit = (args.first as? NSNumber).map { String($0.int64Value) } ?? ""
         let fragment = args.count > 1 ? args[1] as? String ?? "" : ""
-        defer { fragmentArmed = false }
-        guard fragmentArmed else {
+        defer { fragmentArm = nil }
+        if let arm = fragmentArm, arm != personScrolls {
             session?.log("fragment #\(fragment): the person scrolled first; the route stays where it is")
             return
         }
@@ -34,6 +38,8 @@ extension Presenter {
             scrollElementIntoView([name, "start", "nearest", "instant"], target: target)
             #if os(iOS)
             UIAccessibility.post(notification: .layoutChanged, argument: target)
+            #elseif os(macOS)
+            NSAccessibility.post(element: target, notification: .layoutChanged, userInfo: [.uiElements: [target]])
             #endif
             return
         }
@@ -51,5 +57,7 @@ extension Presenter {
             if sv.contentOffset != top { sv.setContentOffset(top, animated: false) }
             #endif
         }
+        // The scrollers that present the route, above it.
+        scrollElementIntoView([route.props["id"] ?? "route \(visit)", "start", "nearest", "instant"], target: route)
     }
 }

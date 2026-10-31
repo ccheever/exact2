@@ -499,7 +499,9 @@ impl<D: DataSource> Presenter<D> {
     /// D7.3): the Tab stops in tree order, positive `tabindex` values first
     /// in ascending order; from the focus to the next (Shift: the previous),
     /// wrapping, and from no focus, or one out of the order, to the first
-    /// (Shift: the last). A `key` handler's `preventDefault()` keeps Tab.
+    /// (Shift: the last), or from the starting point a fragment set, to the
+    /// first stop after it (Shift: the last before it; LLP 1153 D5). A
+    /// `key` handler's `preventDefault()` keeps Tab.
     pub(crate) fn move_focus(&mut self, backward: bool, now_ms: f64) -> Option<String> {
         self.move_focus_filtered(backward, now_ms, |_, _| true)
     }
@@ -525,7 +527,11 @@ impl<D: DataSource> Presenter<D> {
         boxed: &BTreeSet<ViewId>,
     ) -> Option<String> {
         let mut order: Vec<(i64, usize, ViewId)> = Vec::new();
+        let mut start = None;
         for (at, id) in self.host.preorder().into_iter().enumerate() {
+            if Some(id) == self.focus_start {
+                start = Some(at);
+            }
             // A focused node inside an open popover that is no stop goes on
             // from its place in tree order, within the popover's scope
             // (HTML's sequential navigation starting point).
@@ -550,12 +556,14 @@ impl<D: DataSource> Presenter<D> {
         let placed = self
             .focus
             .filter(|f| !self.tabbable(*f, boxed) && self.in_popover(*f));
+        let after = |s: usize| order.iter().position(|o| o.0 == i64::MAX && o.1 > s);
+        let before = |s: usize| order.iter().rposition(|o| o.0 == i64::MAX && o.1 < s);
         let next = match self.focus.and_then(|f| order.iter().position(|o| o.2 == f)) {
             _ if n == 0 || n == 1 && placed.is_some() => return None,
             Some(i) if backward => (i + n - 1) % n,
             Some(i) => (i + 1) % n,
-            None if backward => n - 1,
-            None => 0,
+            None if backward => start.and_then(before).unwrap_or(n - 1),
+            None => start.and_then(after).unwrap_or(0),
         };
         self.set_focus(Some(order[next].2), now_ms)
     }

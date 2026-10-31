@@ -163,7 +163,7 @@ final class ElementScrolls {
     /// reveal running on it is over: UIKit stops the animation for the drag.
     func userScrolled(_ scroll: UIScrollView) {
         FrameSampler.scrolled(scroll, in: presenter.session, person: true)
-        presenter.fragmentArmed = false // a fragment's scroll not yet made stays unmade (Fragment.swift)
+        presenter.personScrolls += 1 // a fragment's scroll not yet made stays unmade (Fragment.swift)
         reveals[ObjectIdentifier(scroll)] = nil
         held.removeAll { entry in
             guard let node = entry.node else { return true }

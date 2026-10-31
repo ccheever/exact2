@@ -231,7 +231,7 @@ function appBack(route) {
   if (!below) return;
   if (backControl(nav)) { const why = pressBack(nav); if (why) log(`app bar: Back refused: ${why}`); return; }
   const entry = written[cursor - 1], known = cursor > first && written[cursor]?.id === id && entry?.id === Number(below.getAttribute("navigationKey"));
-  if (!known || navigate(entry.url) === false) hostBack?.(id);
+  if (!known || navigate(entry.url.split("#")[0]) === false) hostBack?.(id); // without its fragment, which would scroll it again (LLP 1153 D5)
 }
 const closedNone = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none";
 /** Press the Back control wherever it is, shown or not, as UIKit's Back presses it (NavigationBack.swift `control`),
@@ -258,7 +258,7 @@ function commit(op) {
     originIndex = browserIndex();
     written[0] = stamp(0, op);
     history.replaceState(written[0], "", historyURL(op.url));
-  } else if (written[cursor]?.id === op.top && !(pop === null && op.url.includes("#") && written[cursor].url !== op.url && written[cursor].url.split("#")[0] === op.url.split("#")[0])) { // a new fragment on the visit shown is one more browser entry of it, as a same-document link's is (LLP 1153 D5)
+  } else if (written[cursor]?.id === op.top && !(pop === null && written[cursor].url !== op.url && written[cursor].url.split("#")[0] === op.url.split("#")[0])) { // another fragment on the visit shown, or none, is one more browser entry of it, as a same-document link's is (LLP 1153 D5)
     if (written[cursor].url !== op.url) {
       written[cursor] = stamp(cursor, op);
       history.replaceState(written[cursor], "", historyURL(op.url));
@@ -276,7 +276,7 @@ function commit(op) {
     }
     for (const index of Object.keys(written)) if (Number(index) > cursor) delete written[index];
     written.length = Math.max(0, cursor + 1);
-    written[++cursor] = stamp(cursor, op);
+    op.pushed = written[cursor]?.id === op.top; written[++cursor] = stamp(cursor, op); // `pushed`: an entry of the visit shown, whose place fragment.js keeps
     history.pushState(written[cursor], "", historyURL(op.url));
   }
 }

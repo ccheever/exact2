@@ -213,21 +213,25 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// The runner's `scrollToFragment(visit, fragment)`, once a route's
-    /// content has arrived (LLP 1153 D5): the node with that HTML `id` in the
+    /// data has arrived (LLP 1153 D5): the node with that HTML `id` in the
     /// visit's own route (a route beneath may hold the same id) at the start
     /// of each scroll container above it, as `scrollIntoView` with
-    /// `block="start"`; `top`, or no such node, the route's scrollers at
-    /// their tops. A wheel turned since the router asked for it cancels it.
+    /// `block="start"`, then the starting point of the next Tab, and held
+    /// there while the pictures load (`hold_fragment`); `top`, or no such
+    /// node, the route's scrollers at their tops and the route's start in
+    /// view. A scroll by the person since the router asked for it cancels
+    /// it.
     pub(super) fn scroll_to_fragment(&mut self, args: &[exact_plan::Value]) {
         let visit = args.first().and_then(exact_plan::Value::as_number);
         let fragment = args
             .get(1)
             .and_then(exact_plan::Value::as_str)
             .unwrap_or_default();
+        self.fragment_anchor = None;
         if self
             .fragment_armed
             .take()
-            .is_some_and(|(_, wheels)| wheels != self.wheels)
+            .is_some_and(|(_, scrolls)| scrolls != self.person_scrolls)
         {
             self.host.log(format!(
                 "fragment #{fragment}: the person scrolled first; the route stays where it is"
@@ -260,12 +264,15 @@ impl<D: DataSource> Presenter<D> {
                     .find(|n| self.is_inside(*n, route))
             });
         if let Some(target) = target {
-            self.scroll_into(target, true, true, |t, p| {
-                (
-                    aligned("nearest", t.0, t.0 + t.2, p.0, p.2) - p.0,
-                    aligned("start", t.1, t.1 + t.3, p.1, p.3) - p.1,
-                )
-            });
+            self.scroll_into(target, true, true, at_start);
+            self.fragment_anchor = self
+                .images
+                .pending()
+                .then_some((target, self.person_scrolls));
+            // HTML moves the sequential focus navigation starting point to
+            // the target; a focus elsewhere would take the next Tab instead.
+            self.blur();
+            self.focus_start = Some(target);
             return;
         }
         if !fragment.is_empty() && !id.is_some_and(|id| id.eq_ignore_ascii_case("top")) {
@@ -283,6 +290,27 @@ impl<D: DataSource> Presenter<D> {
             self.collection_scroll_input(id, off);
             self.dirty = true;
         }
+        // The scrollers that present the route, the page's among them.
+        self.scroll_into(route, true, true, at_start);
+    }
+
+    /// While the route's pictures load, the fragment's target stays at the
+    /// start of its scrollers, as a browser holds its fragment in view while
+    /// its document loads, until the person scrolls; whether it moved.
+    pub(crate) fn hold_fragment(&mut self) -> bool {
+        let Some((target, scrolls)) = self.fragment_anchor else {
+            return false;
+        };
+        if scrolls != self.person_scrolls || self.host.kernel().node(target).is_none() {
+            self.fragment_anchor = None;
+            return false;
+        }
+        let (page, scroll) = (self.page, self.scroll.clone());
+        self.scroll_into(target, true, true, at_start);
+        if !self.images.pending() {
+            self.fragment_anchor = None;
+        }
+        self.page != page || self.scroll != scroll
     }
 
     /// An app's `scrollBy("element-id", x, y)`: that scroll container moves
@@ -537,6 +565,15 @@ fn inset(rect: Rect4, [top, right, bottom, left]: [f32; 4]) -> Rect4 {
         rect.1 + top,
         (rect.2 - left - right).max(0.0),
         (rect.3 - top - bottom).max(0.0),
+    )
+}
+
+/// `scrollIntoView`'s `block="start"`, `inline="nearest"`: the offsets that
+/// put the target `t` at the start of the port `p`.
+fn at_start(t: Rect4, p: Rect4) -> (f32, f32) {
+    (
+        aligned("nearest", t.0, t.0 + t.2, p.0, p.2) - p.0,
+        aligned("start", t.1, t.1 + t.3, p.1, p.3) - p.1,
     )
 }
 

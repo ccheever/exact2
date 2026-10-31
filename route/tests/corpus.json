@@ -1395,7 +1395,7 @@
       ]
     },
     {
-      "name": "fragments ride on the visit: a fragment-only change is the same visit",
+      "name": "fragments ride on the visit: a fragment-only change is the same visit; a return without one keeps it",
       "table": "plain",
       "steps": [
         {
@@ -1483,6 +1483,30 @@
           "refusal": null
         },
         {
+          "verb": "push",
+          "arg": "/item/8/edit",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/8", "tab": "landing", "params": {"item": "8", "year": ""}, "fragment": "top"}, {"id": 3, "name": "edit", "url": "/item/8/edit", "tab": "landing", "params": {"item": "8", "year": ""}}]}
+            ],
+            "next": 4
+          },
+          "refusal": null
+        },
+        {
+          "verb": "go",
+          "arg": "/item/8",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/8", "tab": "landing", "params": {"item": "8", "year": ""}, "fragment": "top"}]}
+            ],
+            "next": 4
+          },
+          "refusal": null
+        },
+        {
           "verb": "back",
           "arg": null,
           "expected": {
@@ -1490,7 +1514,7 @@
             "tabs": [
               {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}]}
             ],
-            "next": 3
+            "next": 4
           },
           "refusal": null
         }

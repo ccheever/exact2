@@ -407,6 +407,9 @@ impl<D: DataSource> Presenter<D> {
         if previous == next {
             return (false, None);
         }
+        if next.is_some() {
+            self.focus_start = None;
+        }
         // A focus the app or a route moves shows a ring only where the one it
         // leaves did, as Chrome's `:focus-visible` has it for `focus()`: after
         // a press, none. A press or a key says so itself, before or after.

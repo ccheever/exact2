@@ -1,8 +1,9 @@
 // Fragments (LLP 1153 D5): a location's fragment rides on the visit it
 // arrives at and is no part of its identity. A push, replace or go that
 // changes only the fragment keeps the visit; go pops to an earlier visit or
-// selects another tab's top and writes the fragment there; open's leaf takes
-// it; the fragment percent-encode set applies; fragment() reads it.
+// selects another tab's top and writes the fragment there when the location
+// has one, and keeps the visit's own when it has none; open's leaf takes it;
+// the fragment percent-encode set applies; fragment() reads it.
 routes nav
   tab home "/"
     item "/item/:id"
@@ -30,6 +31,7 @@ component App
       button "x" press=push("/item/7") testId="push-plain"
       button "x" press=push("/item/8#a b") testId="push-other"
       button "x" press=go("/item/7#moves") testId="go-moves"
+      button "x" press=go("/item/7") testId="go-plain"
       button "x" press=replace("/item/9#é<>`\"x#y") testId="replace-encoded"
       button "x" press=select("other") testId="select-other"
       button "x" press=go("/item/7#again") testId="go-home-again"
@@ -51,6 +53,12 @@ test "go pops to the visit and writes its fragment"
   expect text "top" == "2|/item/7|moves|2"
   tap "replace-encoded"
   expect text "top" == "2|/item/9|%C3%A9%3C%3E%60%22x#y|2"
+
+test "go without a fragment returns to the visit as it was"
+  tap "open-moves"
+  tap "push-other"
+  tap "go-plain"
+  expect text "top" == "2|/item/7|moves|2"
 
 test "go selects another tab's top and writes its fragment"
   tap "open-moves"

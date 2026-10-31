@@ -1,13 +1,14 @@
 //! The runner's `scrollToFragment` on Linux (LLP 1153 D5): the element with
 //! that id in the visit's own route, though the route beneath holds one too,
 //! at the start of its scroller; no such element, the route's top and a line
-//! in the journal; a wheel the person turned first, no scroll; and a link to
-//! a fragment of the visit shown.
+//! in the journal; a scroll by the person first (a wheel, a key's or a
+//! scrollbar's `scroll_to`), no scroll; the next Tab from the target; and a
+//! link to a fragment of the visit shown.
 use super::*;
 
 /// A list route that holds an `id="moves"` of its own, beneath a detail with
 /// a link to its `#moves` and a scroller of ten 50 px rows, the `moves` box,
-/// then ten more.
+/// a button, then ten more.
 fn boot() -> Presenter<()> {
     let rows = |from: usize| -> String {
         (from..from + 10)
@@ -41,6 +42,8 @@ component App
             scroll testId="port" height=100
               column
 {}                box id="moves" height=50
+                button testId="after"
+                  text "After"
 {}"##,
         rows(0),
         rows(10)
@@ -76,12 +79,16 @@ fn id(p: &Presenter<()>, name: &str) -> ViewId {
 }
 
 /// Press `link` on the list, then run what the commits asked of the host.
-fn open(p: &mut Presenter<()>, link: &str, wheel_first: bool) -> ViewId {
+fn open(
+    p: &mut Presenter<()>,
+    link: &str,
+    first: Option<fn(&mut Presenter<()>, ViewId)>,
+) -> ViewId {
     p.tap(id(p, link)).unwrap();
     settle(p);
     let port = id(p, "port");
-    if wheel_first {
-        p.wheel(port, 0., 30.).unwrap();
+    if let Some(scroll) = first {
+        scroll(p, port);
     }
     p.run_commands(|| ());
     settle(p);
@@ -91,14 +98,17 @@ fn open(p: &mut Presenter<()>, link: &str, wheel_first: bool) -> ViewId {
 #[test]
 fn a_fragment_scrolls_its_own_routes_element_to_the_start() {
     let mut p = boot();
-    let port = open(&mut p, "moves", false);
+    let port = open(&mut p, "moves", None);
     assert_eq!(p.scroll_of(port).1, 500., "ten 50 px rows above it");
+    // The next Tab starts from the target, not from the list's button.
+    p.move_focus(false, 1.);
+    assert_eq!(p.focus, Some(id(&p, "after")));
 }
 
 #[test]
 fn no_such_element_says_so_and_leaves_the_route_at_its_top() {
     let mut p = boot();
-    let port = open(&mut p, "nothing", false);
+    let port = open(&mut p, "nothing", None);
     assert_eq!(p.scroll_of(port).1, 0.);
     let journal = crate::agent::handle(&mut p, r#"{"op":"logs"}"#);
     assert!(
@@ -110,7 +120,7 @@ fn no_such_element_says_so_and_leaves_the_route_at_its_top() {
 #[test]
 fn a_link_to_a_fragment_is_the_visit_shown_at_that_fragment() {
     let mut p = boot();
-    let port = open(&mut p, "nothing", false);
+    let port = open(&mut p, "nothing", None);
     let visit = p.host().router_op().unwrap().top;
     p.tap(id(&p, "to-moves")).unwrap();
     settle(&mut p);
@@ -126,10 +136,18 @@ fn a_link_to_a_fragment_is_the_visit_shown_at_that_fragment() {
 }
 
 #[test]
-fn a_wheel_before_the_scroll_cancels_it() {
-    let mut p = boot();
-    let port = open(&mut p, "moves", true);
-    assert_eq!(p.scroll_of(port).1, 30., "where the wheel left it");
-    let journal = crate::agent::handle(&mut p, r#"{"op":"logs"}"#);
-    assert!(journal.contains("the person scrolled first"), "{journal}");
+fn a_scroll_by_the_person_before_the_scroll_cancels_it() {
+    let wheel: fn(&mut Presenter<()>, ViewId) = |p, port| {
+        p.wheel(port, 0., 30.).unwrap();
+    };
+    let key: fn(&mut Presenter<()>, ViewId) = |p, port| {
+        p.scroll_to(port, (0., 30.)).unwrap();
+    };
+    for first in [wheel, key] {
+        let mut p = boot();
+        let port = open(&mut p, "moves", Some(first));
+        assert_eq!(p.scroll_of(port).1, 30., "where the person left it");
+        let journal = crate::agent::handle(&mut p, r#"{"op":"logs"}"#);
+        assert!(journal.contains("the person scrolled first"), "{journal}");
+    }
 }

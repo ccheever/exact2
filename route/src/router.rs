@@ -6,9 +6,12 @@
 //! stay on the selected tab, because a person opened from Search belongs to
 //! the Search visit. Go compares canonical URLs and searches the selected
 //! stack from the top, so repeated visits have an unambiguous pop target.
-//! A location's fragment is never compared: every verb given a location
-//! writes its fragment on the visit it arrives at, so a location that
-//! differs from the top's only after `#` changes that visit in place.
+//! A location's fragment is never compared. Open's leaf, a push, a replace
+//! and a `go` that stays at the top write the location's fragment on the
+//! visit, so a location that differs from the top's only after `#` changes
+//! that visit in place; a `go` that returns to a visit beneath or on
+//! another tab writes a fragment only when the location has one, so a
+//! location without one returns to the visit as it was, as Back does.
 
 use crate::{canonical, fragment_of, Destination, Entry, Refusal, Router, Tab, Table};
 
@@ -239,7 +242,8 @@ pub fn select(_table: &Table, mut r: Router, name: &str) -> (Router, Option<Refu
 
 /// Stay at the top, pop to the nearest selected occurrence, select another
 /// tab's top, or push — in that order, comparing canonical locations. The
-/// visit it stays at, pops to or selects takes the location's fragment.
+/// top takes the location's fragment; a visit popped to or selected takes
+/// it only when the location has one.
 pub fn go(table: &Table, mut r: Router, location: &str) -> (Router, Option<Refusal>) {
     let url = canonical(location);
     if table.match_index(&url).is_none() {
@@ -249,8 +253,10 @@ pub fn go(table: &Table, mut r: Router, location: &str) -> (Router, Option<Refus
     if let Some(position) = stack(&r).iter().rposition(|entry| entry.url == url) {
         if let Ok(index) = selected(&r) {
             let stack = &mut r.tabs[index].stack;
+            if position + 1 == stack.len() || !fragment.is_empty() {
+                stack[position].fragment = fragment;
+            }
             stack.truncate(position + 1);
-            stack[position].fragment = fragment;
         }
         return (r, None);
     }
@@ -259,7 +265,11 @@ pub fn go(table: &Table, mut r: Router, location: &str) -> (Router, Option<Refus
         .iter()
         .position(|t| t.name != r.tab && t.stack.last().is_some_and(|e| e.url == url))
     {
-        if let Some(top) = r.tabs[index].stack.last_mut() {
+        if let Some(top) = r.tabs[index]
+            .stack
+            .last_mut()
+            .filter(|_| !fragment.is_empty())
+        {
             top.fragment = fragment;
         }
         let name = r.tabs[index].name.clone();

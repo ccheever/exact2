@@ -125,10 +125,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const nav = root.firstElementChild, heard = nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate");
     event.preventDefault();
     if (press || (here && !url.hash && !shown.includes("#"))) return;
-    const moved = (heard ? navigate(to + url.hash) : go(to + url.hash))?.ops?.some(op => op.op === "router"), say = line => wasm.exact_log(writeIn(line));
-    // The fragment shown, again, scrolls again, as the browser's does.
-    if (!moved && here && url.hash && globalThis.exact.fragment) globalThis.exact.fragment.scroll(root, globalThis.history?.state?.id, url.hash.slice(1), say);
-    else if (!moved) say(`history: link ${JSON.stringify(to + url.hash)} refused`);
+    // The fragment shown, linked again, moves no router and scrolls again: the runner's `scrollToFragment`.
+    if (!(heard ? navigate(to + url.hash) : go(to + url.hash))?.ops?.some(op => op.op === "router" || op.name === "scrollToFragment")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to + url.hash)} refused`));
   }, true);
   document.addEventListener("keydown", (event) => {
     touched = true; // any key, Tab included: a route's focus shows the ring to a keyboard's user (`arrive`, below)

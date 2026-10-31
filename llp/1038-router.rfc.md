@@ -202,9 +202,12 @@ query is never matched; it rides in the entry's location.
 fragment: string}`. `id` is minted from the value's counter, unique within
 the value's life, and never reused. `url` is the canonical location;
 `fragment` is the fragment of the location that last named this visit,
-`""` when it had none. Every verb given a location writes its fragment on
-the visit it arrives at, so a location that differs from the top's only
-in its fragment changes the top in place and mints nothing.
+`""` when it had none. `open`'s leaf, `push`, `replace` and a `go` that
+stays at the top write the location's fragment on the visit, so a location
+that differs from the top's only in its fragment changes the top in place
+and mints nothing; a `go` that returns to a visit beneath or on another
+tab writes one only when the location has one, so a location without one
+returns to the visit as it was.
 
 **Router.** `{tab: string, tabs: [{name, stack: [Entry]}], next: number}`.
 Every tab's stack is non-empty and begins with an entry matching that tab's
@@ -229,11 +232,11 @@ reports one refusal (the caller journals it, 1035.001 D6).
 | verb | effect |
 |---|---|
 | `open(r, loc)` | Select the matched route's tab; replace that tab's stack with `chain(loc)`. Positions whose existing entry has the same `url` keep their `id`; the rest are fresh. Other tabs are untouched. A launch, a reload, a notification, a deep link. |
-| `push(r, loc)` | Append a fresh entry for `loc` to the selected stack — on the selected tab whatever tab the route is declared under. A post opened from Search sits on Search. A `loc` that is already the top is unchanged: as HTML replaces the entry for a same-URL navigation, a link to the screen shown adds no visit (2026-10-02; RealWorld's Home and feed tabs added duplicates). |
-| `replace(r, loc)` | Give the top entry `loc`'s name, url and params; keep its `id`. A search query mirrored into the URL; a redirect. At depth 1, only a location matching the tab's own root route is allowed; another route leaves the value unchanged with one refusal. |
+| `push(r, loc)` | Append a fresh entry for `loc` to the selected stack — on the selected tab whatever tab the route is declared under. A post opened from Search sits on Search. A `loc` that is already the top is unchanged but for its fragment, which the top takes: as HTML replaces the entry for a same-URL navigation, a link to the screen shown adds no visit (2026-10-02; RealWorld's Home and feed tabs added duplicates). |
+| `replace(r, loc)` | Give the top entry `loc`'s name, url, params and fragment; keep its `id`. A search query mirrored into the URL; a redirect. At depth 1, only a location matching the tab's own root route is allowed; another route leaves the value unchanged with one refusal. |
 | `back(r)` | Drop the top entry. At depth 1, unchanged. |
 | `select(r, t)` | Select tab `t`, showing its retained stack. Selecting the selected tab pops it to its root (the platform convention: `UITabBarController`, Twitter). Unknown `t`: unchanged, refused. |
-| `go(r, loc)` | Traverse: if `loc` is the top, unchanged; else if it is in the selected stack, pop to its nearest occurrence (ids kept); else if it is the top of another tab, `select` that tab; else `push`. A browser Back or Forward past one step; a pasted in-app link. |
+| `go(r, loc)` | Traverse: if `loc` is the top, unchanged but for its fragment, which the top takes; else if it is in the selected stack, pop to its nearest occurrence (ids kept); else if it is the top of another tab, `select` that tab; else `push`. A visit popped to or selected takes `loc`'s fragment only when `loc` has one. A browser Back or Forward past one step; a pasted in-app link. |
 
 **Laws** (the corpus is these, over a fixed table):
 `stack(back(push(r, u))) = stack(r)` for `u` not the top's url; `push(r, top(r).url + f) = r` for `f` its fragment as written (`""` or `#` and the fragment); `back(r) = r` when `depth(r) = 1`;

@@ -108,7 +108,8 @@ fn fragment_scrolls(r: &mut Runner<Data>) -> Vec<Vec<Value>> {
 }
 
 /// @ref LLP 1153 D5 — the fragment rides on the visit; a host is told to
-/// scroll to it on a new visit or a changed fragment, never on a return.
+/// scroll to it on a new visit, a changed fragment or a navigation to it,
+/// never on a return by Back or by a location without one.
 #[test]
 fn a_fragment_rides_on_the_visit_and_asks_one_scroll_per_activation() {
     let mut r = boot(fixture::plan(&table()), "/t/7#moves");
@@ -138,23 +139,40 @@ fn a_fragment_rides_on_the_visit_and_asks_one_scroll_per_activation() {
         fragment_scrolls(&mut r),
         [vec![visit.clone(), Value::str("stats")]]
     );
-    // The same fragment again changes nothing.
+    // The same fragment again changes no value and scrolls again, as a
+    // browser's link to it does.
     assert!(act(&mut r, "go", "/t/7#stats").is_none());
+    assert_eq!(
+        fragment_scrolls(&mut r),
+        [vec![visit.clone(), Value::str("stats")]]
+    );
 
-    // A new visit without one asks nothing; the return to /t/7 keeps its
-    // fragment and its place: no scroll.
+    // A new visit without one asks nothing; the return to /t/7 by Back, or
+    // by a location without a fragment, keeps its fragment and its place.
     assert!(!act(&mut r, "push", "/t/7/details").unwrap().scroll);
     let details = nav(&r).tabs[0].stack[2].id;
-    assert_eq!(r.location_beneath(details).as_deref(), Some("/t/7#stats"));
+    assert_eq!(r.location_beneath(details).as_deref(), Some("/t/7"));
     let back = act(&mut r, "back", "").unwrap();
     assert_eq!(
         (back.top, back.fragment.as_str(), back.scroll),
         (launched.top, "stats", false)
     );
     assert!(fragment_scrolls(&mut r).is_empty());
+    act(&mut r, "push", "/t/7/details");
+    let returned = act(&mut r, "go", "/t/7").unwrap();
     assert_eq!(
-        r.visit_location(launched.top).as_deref(),
-        Some("/t/7#stats")
+        (returned.fragment.as_str(), returned.scroll),
+        ("stats", false)
+    );
+    assert!(fragment_scrolls(&mut r).is_empty());
+    assert_eq!(r.visit_location(launched.top).as_deref(), Some("/t/7"));
+    // A navigation back to it with its fragment scrolls.
+    act(&mut r, "push", "/t/7/details");
+    let again = act(&mut r, "go", "/t/7#stats").unwrap();
+    assert_eq!((again.top, again.scroll), (launched.top, true));
+    assert_eq!(
+        fragment_scrolls(&mut r),
+        [vec![visit.clone(), Value::str("stats")]]
     );
 
     // `go` to the shown visit without a fragment clears it, and its route
