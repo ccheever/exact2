@@ -227,6 +227,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var routeInert = false { didSet { presenter?.mouseChain.bubbledPress?.validate() } }
     /// What `setAccessibilityHidden` last wrote (`Accessibility.swift`).
     var accessibilityHiddenWritten = false
+    var webArea: DialogWebArea? // served above it while it is a dialog drawn in the page (`dialogWebArea`)
     package var inert: Bool { inert(forAccessibility: false) }
     var accessibilityInert: Bool { inert(forAccessibility: true) }
     /// Inert by an `inert` attribute or a route behind a presentation, not by
@@ -417,9 +418,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard let presenter, presenter.macModalAccessibilityChildren?.contains(where: { $0 === self }) == true else { return nil }
         return presenter.viewport
     }
-    package override func accessibilityParent() -> Any? {
-        modalAccessibilityParent ?? super.accessibilityParent()
-    }
+    /// The parent the page's tree serves it in; a dialog's web area stands between (`dialogWebArea`).
+    var pageAccessibilityParent: Any? { modalAccessibilityParent ?? withoutWebArea { super.accessibilityParent() } }
+    package override func accessibilityParent() -> Any? { dialogWebArea ?? pageAccessibilityParent }
     /// A control's descendants with a role of their own, as the web keeps
     /// them: Chrome's `<button><h2>` is button › heading (X74). Nil when it
     /// holds only text and images, so it stays a leaf read once by its name.
@@ -436,7 +437,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         super.accessibilityAttributeNames() + (["AXLanguage"] + Self.ariaAttributes.filter { ariaAttribute($0) != nil }).map { .init(rawValue: $0) }
     }
     package override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        if attribute == .parent, let parent = modalAccessibilityParent { return parent }
+        if attribute == .parent, let parent = dialogWebArea ?? modalAccessibilityParent { return parent }
         if attribute.rawValue == "AXLanguage" {
             let language = presenter?.documentLanguage ?? ""
             return language.isEmpty ? nil : language
