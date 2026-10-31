@@ -2311,6 +2311,18 @@ dropping it, and meanwhile the app's own `storage.sqlite` is refused the file; t
 reservation ends when the guard drops. Two dependencies declaring `native` refuse the build
 (`bake-native-twice`). `packages/fixtures/vault` is a whole one.
 
+### A package's library and web assets
+
+A package whose root `exact.json` declares `native` may carry a prebuilt dynamic library
+(LLP 1154 D3): `native.link` is its name and `native.library` pins one `{"url", "sha256"}`
+per Rust target, a `lib<link>.so` for Linux, and for Apple a zip of one `.xcframework` whose
+slice for the target is `<link>.framework`, installed as `@rpath/<link>.framework/…`. A
+native build fetches the target's file by its hash before Cargo runs, links it, and puts it
+beside a Linux executable or, signed, in an Apple bundle's `Frameworks`. A wrong hash, or a
+target the declaration does not name, fails the build by name. `web.assets` lists files in
+the package that the web build serves at `/assets/<package>/<path>`, captured with the
+package's code.
+
 ## Routes and web documents
 
 Declare at most one `routes <slot>` in the app's root file. Each row names an
