@@ -470,7 +470,9 @@ export function platformRowNames(platform, { os = process.platform, cpu = proces
 export async function platformReport(platform, rows, { device = false } = {}) {
   const own = rows.filter(row => platformRowNames(platform, { device }).includes(row.name));
   const row = (name, ok, have, want, fix) => ({ name, have, want, ok, fix, required: true, need: null });
-  const targets = () => spawnSync('rustup', ['target', 'list', '--installed'], { encoding: 'utf8' }).stdout ?? '';
+  // The pinned toolchain's targets: the workspace builds with it, and the app directory pins none of its own.
+  const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain.channel;
+  const targets = () => spawnSync('rustup', [`+${pin}`, 'target', 'list', '--installed'], { encoding: 'utf8' }).stdout ?? '';
   if (platform === 'windows') {
     const msvc = /-pc-windows-msvc$/m.test(targets());
     own.push(row('Rust target (MSVC)', msvc, msvc ? 'installed' : 'missing', 'a *-pc-windows-msvc target', 'rustup target add x86_64-pc-windows-msvc (or aarch64-pc-windows-msvc)'));

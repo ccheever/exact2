@@ -1,5 +1,5 @@
 import { asyncContext, bundleOptions, developmentLocalNetwork, lowered, packageConfig, webImplementations } from '../../js/bake/src/typescript.mjs';
-import { bakeWatchEnv, hatchWords, moduleDirectory, resolveApp, webAppManifest } from '../../scripts/app.mjs';
+import { bakeWatchEnv, hatchWords, injectedProfiles, moduleDirectory, resolveApp, webAppManifest } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
 // 1. `exact-web-js js` compiles the plan (the app's Contract, or a baked
@@ -824,9 +824,11 @@ if (pages.length && how === 'rust') {
   const at = [['linux', `${app}-linux`], ['web', `${app}-web`]].find(([dir]) => existsSync(resolve(appDir, dir, 'src/bin', `${bin}.rs`)));
   if (!at) { console.error(`--render rust: ${app} has no ${bin} entry; use --render js`); process.exit(1); }
   const plan = opt('--plan') ? resolve(opt('--plan')) : resolve(out, 'app.plan');
-  // The render entry runs here as a build tool: the development profile, which the Linux host an agent drives shares.
-  const r = spawnSync('cargo', ['run', '--profile', 'host-dev', '-q', '-p', at[1], '--bin', bin, '--', '--plan', plan, '--name', manifest.name, ...(manifest.app?.origin ? ['--origin', manifest.app.origin] : []), '--shell', resolve(out, 'index.html'), '--build'],
-    { cwd: root, encoding: 'utf8', maxBuffer: 256 << 20, env: { ...process.env, EXACT_UPDATE_TRUST: 'development' } });
+  // The render entry runs here as a build tool, in the app's own workspace and target (an authored app outside the
+  // repository has its own, LLP 1153 D1.4): the development profile, which the Linux host an agent drives shares.
+  const renderApp = resolveApp(appDir);
+  const r = spawnSync('cargo', ['run', ...injectedProfiles(renderApp), '--profile', 'host-dev', '-q', '-p', at[1], '--bin', bin, '--', '--plan', plan, '--name', manifest.name, ...(manifest.app?.origin ? ['--origin', manifest.app.origin] : []), '--shell', resolve(out, 'index.html'), '--build'],
+    { cwd: renderApp.workspace, encoding: 'utf8', maxBuffer: 256 << 20, env: { ...process.env, CARGO_TARGET_DIR: renderApp.target, EXACT_UPDATE_TRUST: 'development' } });
   if (r.status !== 0) { console.error(r.stderr); process.exit(1); }
   for (const doc of r.stdout.split('\n').filter(Boolean).map(l => JSON.parse(l))) {
     if (doc.error) { console.error(`${bin} ${doc.location}: ${doc.error}`); process.exit(1); }

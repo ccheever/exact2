@@ -535,6 +535,14 @@ test('an authored app gains a Linux crate on update and loses it with --without 
     assert.match(createApp(dir, { update: true, without: 'ios' }), /without ios \(removed host\.ios, deploy\.store\.ios\)/);
     assert.ok(existsSync(resolve(dir, 'apple/Cargo.toml')));
     assert.throws(() => createApp(dir, { update: true, without: 'web' }), /the web host is the dev loop's/);
+    // Android alone brings the crate it shares with Linux; removing Android last takes the crate with it.
+    const withAndroid = createApp(dir, { update: true, with: ['android'] });
+    assert.match(withAndroid, /a linux\/ host crate/);
+    assert.match(withAndroid, /with android \(added host\.android\)/);
+    assert.ok(existsSync(resolve(dir, 'linux/Cargo.toml')));
+    assert.match(createApp(dir, { update: true, without: 'android' }), /without android \(removed its workspace member, app\.json host\.android, android\/\); without linux \(removed its workspace member, linux\/\)/);
+    assert.ok(!existsSync(resolve(dir, 'linux')));
+    assert.ok(!('android' in JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).host));
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000);
 
@@ -977,10 +985,18 @@ test('an app authored its workspace when its files say so, not because a directo
     assert.equal(authoredWorkspace(dir), parent);
     writeFileSync(resolve(parent, 'Cargo.toml'), '[workspace]\nmembers = ["tool", "site/*"]\nexclude = ["site/apple"]\n');
     assert.equal(authoredWorkspace(dir), dir);
-    // A member that depends on the crate by path makes it a member too (Cargo's automatic membership), unless excluded.
+    // A member that depends on the crate by path makes it a member too (Cargo's automatic membership), unless excluded;
+    // a dependency inherited from the workspace's table, or declared for one target, counts the same.
     writeFileSync(resolve(parent, 'Cargo.toml'), '[workspace]\nmembers = ["tool"]\n');
     writeFileSync(resolve(parent, 'tool/Cargo.toml'), '[package]\nname = "tool"\nversion = "0.1.0"\n[dependencies]\nsite-apple = { path = "../site/apple" }\n');
     assert.equal(authoredWorkspace(dir), parent);
+    writeFileSync(resolve(parent, 'Cargo.toml'), '[workspace]\nmembers = ["tool"]\n[workspace.dependencies]\nsite-apple = { path = "site/apple" }\n');
+    writeFileSync(resolve(parent, 'tool/Cargo.toml'), '[package]\nname = "tool"\nversion = "0.1.0"\n[dependencies]\nsite-apple = { workspace = true }\n');
+    assert.equal(authoredWorkspace(dir), parent, 'an inherited dependency');
+    writeFileSync(resolve(parent, 'Cargo.toml'), '[workspace]\nmembers = ["tool"]\n');
+    writeFileSync(resolve(parent, 'tool/Cargo.toml'), '[package]\nname = "tool"\nversion = "0.1.0"\n[target.\'cfg(target_os = "macos")\'.dependencies]\nsite-apple = { path = "../site/apple" }\n');
+    assert.equal(authoredWorkspace(dir), parent, 'a target\'s dependency');
+    writeFileSync(resolve(parent, 'tool/Cargo.toml'), '[package]\nname = "tool"\nversion = "0.1.0"\n[dependencies]\nsite-apple = { path = "../site/apple" }\n');
     writeFileSync(resolve(parent, 'Cargo.toml'), '[workspace]\nmembers = ["tool"]\nexclude = ["site"]\n');
     assert.equal(authoredWorkspace(dir), dir);
     // A package that names its workspace, and an app whose own manifest is the workspace.

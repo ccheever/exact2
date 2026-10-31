@@ -1136,9 +1136,7 @@ function dropPlatform(dir, platform) {
       for (const [key, table] of [['host', manifest.host], ['deploy.store', deploy.store], ['deploy.binaries', deploy.binaries]]) {
         if (table && platform in table) { delete table[platform]; removed.push(`app.json ${key}.${platform}`); }
       }
-      // A deploy naming no native platform is read as every one (scripts/deploy.mjs `nativePlatforms`), Linux included.
-      const native = [...Object.keys(deploy.store ?? {}), ...Object.keys(deploy.binaries ?? {})].filter(p => p !== 'web');
-      if ((deploy.store || deploy.binaries) && !native.length) throw new Error(`app.json deploy.store would name no native platform, which deploy reads as all of them, ${platform} included: name the ones the app ships there (as \`"ios": "0"\`) first`);
+      // A manifest naming no native platform ships none (LLP 1153 D1.5), so the last may go.
       writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
     }
     if (existsSync(resolve(crate, 'Cargo.toml'))) { renameSync(crate, aside); moved = true; }
@@ -1241,13 +1239,19 @@ function updateApp(dir, name, { without = null, with: platforms = [] } = {}) {
   // `android/` is Android's alone and goes with it. The `linux/` crate serves Linux and Android's headless drive: it goes
   // with Linux unless Android is named; otherwise a platform's keys go and the crate it shares (`apple/`) stays.
   const named = (p) => { try { return p in (JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).host ?? {}); } catch { return false; } };
-  const edits = platformEdits(dir, platforms, without, (d, p) => p === 'android' || (p === 'linux' && !named('android')) ? dropPlatform(d, p) : withoutPlatformKeys(d, p));
-  // An app made before the scaffold wrote a Linux host gains one (LLP 1086), unless it has its own
-  // or ships no Linux: app.json deploy.store.linux, which the scaffold wrote and `--without linux`
-  // removes, says it does.
-  let storesLinux = false;
-  try { storesLinux = 'linux' in (JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).deploy?.store ?? {}); } catch {}
-  const addedLinux = storesLinux && !existsSync(resolve(dir, 'linux'));
+  const edits = platformEdits(dir, platforms, without, (d, p) => {
+    // Android's own crate goes with it; the Linux host it also builds (LLP 1107) stays while Linux is named, and goes
+    // with the last of the two. Another platform's keys go and the crate it shares (`apple/`) stays.
+    if (p === 'android') { const own = dropPlatform(d, 'android'); return named('linux') ? own : `${own}; ${dropPlatform(d, 'linux')}`; }
+    if (p === 'linux') return named('android') ? withoutPlatformKeys(d, p) : dropPlatform(d, p);
+    return withoutPlatformKeys(d, p);
+  });
+  // An app made before the scaffold wrote a Linux host gains one (LLP 1086), unless it has its own or ships
+  // neither Linux nor Android (the crate serves both, LLP 1107): app.json's `host` keys, or the store key the
+  // scaffold wrote for Linux, say which.
+  let shipsLinux = false;
+  try { const m = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')); shipsLinux = 'linux' in (m.host ?? {}) || 'android' in (m.host ?? {}) || 'linux' in (m.deploy?.store ?? {}); } catch {}
+  const addedLinux = shipsLinux && !existsSync(resolve(dir, 'linux'));
   if (addedLinux) {
     mkdirSync(resolve(dir, 'linux'));
     for (const [path, text] of Object.entries(authoredCrate(dir, 'linux', name, titleOf(name)))) {

@@ -81,10 +81,13 @@ function owns(root, workspace, path) {
     if (seen.has(member)) continue;
     seen.add(member);
     const manifest = readToml(resolve(member, 'Cargo.toml'));
-    for (const table of ['dependencies', 'dev-dependencies', 'build-dependencies']) {
-      for (const dep of Object.values(manifest?.[table] ?? {})) {
+    // Its three dependency tables, each target's three, and a dependency inherited from the workspace's table.
+    const tables = [manifest, ...Object.values(manifest?.target ?? {})].flatMap(t => ['dependencies', 'dev-dependencies', 'build-dependencies'].map(k => t?.[k] ?? {}));
+    for (const table of tables) {
+      for (const [name, spec] of Object.entries(table)) {
+        const dep = spec?.workspace === true ? { ...workspace.dependencies?.[name], from: root } : { ...spec, from: member };
         if (!dep?.path) continue;
-        const at = resolve(member, dep.path), depRel = under(at);
+        const at = resolve(dep.from, dep.path), depRel = under(at);
         if (!depRel || excluded(depRel)) continue;
         if (at === path) return true;
         queue.push(at);

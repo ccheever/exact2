@@ -309,8 +309,13 @@ missing is the verb that serves the directory, and the rule that says how anyone
    the verb.
 4. **Routes a static directory cannot honour.** A route declared `render=request` or
    `cached` is a render server's (LLP 1048.002, `host/render`); a static root serves its
-   shell, and `web-build --out` says so once per such route. The render server stays a
-   deployment the author chooses (`scripts/deploy.mjs`), not something `serve` becomes.
+   shell, and `web-build --out` says so once per such route. `serve` renders them: in the
+   two-way rule, a request whose path such a route matches gets its page rendered under Bun
+   (`host/web-js/render.mjs` `pageServer`: a `cached` page kept 60 s, brotli, a navigation's
+   head sent first), not the shell, so the page arrives with its data rather than drawn after
+   it in the browser (the benchmark's page loads measured a CLS of 0.11 to 0.13 and an LCP
+   near 2.2 s from that). Files, client routes and misses are served as the rule says. A
+   render server elsewhere stays a deployment the author chooses (`scripts/deploy.mjs`).
 5. **Pages for a scaffolded app render under Bun.** `--render rust` needs an
    `<app>-render` entry that only an authored workspace has; `web-build` defaults to
    `--render js` when there is none, and says so once.
