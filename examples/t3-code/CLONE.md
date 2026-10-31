@@ -45,8 +45,11 @@ It was neither installed nor launched. Mobile UI remains stopped after the EAS
 and external driver failures; no new mobile UI parity or release checkpoint is
 qualified. Ordinary Mac mouse input, physical dragging and normal-app Keychain
 restart also remain unqualified. Evidence is under
-`target/t3-poc-evidence/main-refresh-20261030-43e0d93b/`. Independent review and
-push are pending; the PR-base update is separate work.
+`target/t3-poc-evidence/main-refresh-20261030-43e0d93b/`. Independent review
+finds no introduced P1 or P2 issue and passes 121 focused tests. It verifies
+the merge resolution, signed Mac and iPhone artifacts, production IPA, raw native
+evidence and cleanup. Its comment audit is clear. The PR-base update is separate
+work.
 
 The desktop manifest's unused `t3-browser` native tag is removed in `859f7b8676`.
 Browser already uses an iframe and the separate `t3-browser-page` hatch.
