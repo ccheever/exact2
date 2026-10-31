@@ -14,7 +14,6 @@
 #include <sys/resource.h>
 #include <sys/sysctl.h>
 #include <mach-o/dyld.h>
-#include <sys/resource.h>
 
 static double processStart, loaded, firstDrawable, firstComplete;
 static BOOL tracing;
@@ -468,7 +467,7 @@ static NSDictionary *usage(void) {
         + (thread.user_time.microseconds + thread.system_time.microseconds) / 1e6;
     NSMutableDictionary *sample = [@{@"time": @(CACurrentMediaTime()), @"cpu": @((r.ri_user_time + r.ri_system_time) * tickSeconds),
              @"main": @(main), @"cycles": @(r.ri_cycles), @"instructions": @(r.ri_instructions),
-             @"footprint": @(r.ri_phys_footprint), @"lifetimePeak": @(r.ri_lifetime_max_phys_footprint)} mutableCopy];
+             @"pageins": @(r.ri_pageins), @"footprint": @(r.ri_phys_footprint), @"lifetimePeak": @(r.ri_lifetime_max_phys_footprint)} mutableCopy];
     if (getenv("G1_CLOCK_DIAGNOSTIC")) {
         // XNU's thread_selfcounts kind 4 reports Mach time by hw.perflevel index.
         // This diagnostic is deliberately absent from ordinary timing samples.
@@ -514,7 +513,6 @@ static NSDictionary *usage(void) {
             @"userInteractive": @(r.ri_cpu_time_qos_user_interactive * tickSeconds)};
         sample[@"forcedInteractiveDiagnostic"] = @(getenv("G1_CLOCK_QOS") != NULL);
     }
-             @"pageins": @(r.ri_pageins), @"footprint": @(r.ri_phys_footprint), @"lifetimePeak": @(r.ri_lifetime_max_phys_footprint)} mutableCopy];
     if (counterName && counterValue) {
         NSMutableDictionary *values = [NSMutableDictionary dictionary], *high = [NSMutableDictionary dictionary];
         size_t i = 0;
@@ -1042,6 +1040,17 @@ __attribute__((constructor)) static void initialize(void) {
 
 int main(void) {
     @autoreleasepool {
+        mach_timebase_info_data_t timebase;
+        mach_timebase_info(&timebase);
+        tickSeconds = (double)timebase.numer / timebase.denom / 1e9;
+        mainThread = mach_thread_self();
+        NSDictionary *sample = usage();
+        assert(sample[@"pageins"] && sample[@"cycles"] && sample[@"instructions"] && sample[@"cpu"]);
+        if (getenv("G1_CLOCK_DIAGNOSTIC")) {
+            assert([sample[@"mainPerf"] count] > 0 && sample[@"mainRequestedQos"]);
+            assert(sample[@"taskPolicy"] && sample[@"processQos"]);
+            puts("probe: clock placement, QoS, task policy and startup page-ins coexist");
+        }
         presented = [NSMutableArray array];
         recordPresented(0, YES, 0);
         recordPresented(1, NO, 0);
