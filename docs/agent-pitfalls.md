@@ -205,6 +205,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   whose panes lost 6 px to side borders, 2026-10-06; reproduced on the web and
   macOS, 2026-10-12.)
 
+- **A button in a table's numeric column stays at the cell's start.** A sort button in a
+  `th text-align="end"` sat at the left of its column while the numbers under it lined up
+  at the right. Cause: a bare node is `display: block`, a `button` too, where HTML's
+  `<button>` is `inline-block`; `text-align` places inline content, not a block. Fix:
+  `margin-left="auto"` on the button, as a block's auto margin places it. (The `site`
+  pattern's sortable table, LLP 1153 D8; reproduced on the web, 2026-10-30.)
+
 ## Lists and scrolling
 
 - **A frame's cell count is not its stretched layout width.** Giving the

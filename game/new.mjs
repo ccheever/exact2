@@ -685,11 +685,11 @@ export const answer: Answer = (source, args, store, storage, native) =>
 
 /** The starter patterns (LLP 1116.001 D3): each a working app under
  * docs/patterns/<name>/, its app.contract, app.ts and app.test.contract and any
- * file it needs beside them (rest's server.ts), compiled by the docs check and run
+ * file it needs beside them (rest's server.ts, site's .env), compiled by the docs check and run
  * on the web by the async lane. A pattern.json there holds keys the app's app.json
- * gains (rest's `commands`). Its first line names the app `Starter` and says what it is. */
+ * gains (site's `env` and `server`). Its first line names the app `Starter` and says what it is. */
 export const PATTERNS = resolve(ROOT, 'docs/patterns');
-const PATTERN_ORDER = ['one-screen', 'list-detail', 'tabs', 'dashboard', 'rest'];
+const PATTERN_ORDER = ['one-screen', 'list-detail', 'tabs', 'dashboard', 'rest', 'site'];
 
 /** Each pattern's name and line, in the order to read them. */
 export function patterns() {
@@ -751,11 +751,14 @@ export function applyPattern(dir, pattern, { force = false } = {}) {
     if (!keys.commands?.[verb] && JSON.stringify(commands[verb]) === JSON.stringify(argv)) delete commands[verb];
   }
   Object.assign(commands, keys.commands ?? {});
-  if (JSON.stringify(commands) !== JSON.stringify(manifest.commands ?? {})) {
-    const next = { ...manifest, commands };
-    if (!Object.keys(commands).length) delete next.commands;
-    writeFileSync(manifestPath, JSON.stringify(next, null, 2) + '\n');
+  // Its other keys (site's `env` and `server`) are written whole, and another pattern's still as it wrote them go.
+  const next = { ...manifest, commands };
+  for (const other of others) for (const [key, value] of Object.entries(other.keys)) {
+    if (key !== 'commands' && !(key in keys) && JSON.stringify(next[key]) === JSON.stringify(value)) delete next[key];
   }
+  for (const [key, value] of Object.entries(keys)) if (key !== 'commands') next[key] = value;
+  if (!Object.keys(commands).length) delete next.commands;
+  if (JSON.stringify(next) !== JSON.stringify(manifest)) writeFileSync(manifestPath, JSON.stringify(next, null, 2) + '\n');
   const first = ['app.contract', 'app.ts', 'app.test.contract'];
   const wrote = [...first.filter(path => path in files), ...Object.keys(files).filter(path => !first.includes(path)).sort()];
   const verbs = Object.keys(keys.commands ?? {});

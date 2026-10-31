@@ -95,6 +95,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |`list-detail`|search, a detail, an add sheet, a delete alert, empty states, a file; split when wide|
 |`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
 |`rest`|its own server, polled; a signed-in person (`rest-backend`, `fetch-loading-error`, `after-a-write`)|
+|`site`|a website: a sortable `table` built ahead, a page per item rendered per request with a `dl`, an API's origin as a setting (`website`)|
 
 |Not in a pattern|Look up|
 |---|---|
@@ -116,6 +117,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
 |a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
 |sign in with Google, Microsoft, Auth0, Okta or another OAuth provider|`oauth`|
+|a website: serving it (`serve`, which renders a `render=request` page per request), a setting, a deep link|`website`|
 |ports, Bun, Chrome and its stores|`ports-and-browsers`|
 |porting an app, a release build, helpers sharing a port|`porting-and-release`|
 |a metronome, drum machine, sequencer or MIDI app: sound, MIDI, a transport (built in; write no native audio module)|`sequencer`; ["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media); `apps/metronome`|

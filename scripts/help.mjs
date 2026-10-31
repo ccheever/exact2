@@ -347,15 +347,15 @@ Ports    none. Runs to completion.`,
     example: 'bun exact.mjs docs tabular numbers',
   },
   pattern: {
-    line: 'start from a working, tested app: one-screen, list-detail, tabs, dashboard, rest',
+    line: 'start from a working, tested app: one-screen, list-detail, tabs, dashboard, rest, site',
     usage: 'bun exact.mjs pattern [<name>] [--force]',
     common: ['pattern [<name>]    a working, tested starter'],
     flags: [['--force', 'replace a file you edited (without it, it is refused, named)']],
     body: `With no name, lists the patterns. With one, writes its app.contract, app.ts and
-app.test.contract here (and what else it needs: rest's server.ts) with this
-app's id and name, then the types app.ts imports. A file still as exact new or a pattern
-wrote it is replaced; one you edited is refused unless --force. Each pattern passes its own
-tests and no-tells; rest's run with test or verify, which run its server.
+app.test.contract here (and what else it needs: rest's and site's server.ts, site's .env and
+app.json keys) with this app's id and name, then the types app.ts imports. A file still as exact
+new or a pattern wrote it is replaced; one you edited is refused unless --force. Each pattern
+passes its own tests and no-tells; rest's and site's run with test or verify, which run its server.
 Ports    none. Runs to completion.`,
     example: 'bun exact.mjs pattern list-detail && bun exact.mjs test web',
   },

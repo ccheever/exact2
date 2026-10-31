@@ -668,13 +668,14 @@ test('a new app\'s id is its own, and update keeps the id an older app has', () 
 }, 60_000); // Three offline Cargo resolutions.
 
 // LLP 1116.001 D3: a pattern replaces the template's three files with the app's own id and name; a file the
-// author edited is refused unless forced; rest brings its server, test runner and command, which go with it.
+// author edited is refused unless forced; rest and site bring their server, and site its setting and app.json keys,
+// which go with them.
 test('a pattern replaces the template, refuses an edited file unless forced, and takes its extras with it', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-pattern-'));
   try {
     const dir = resolve(parent, 'field-log');
     createApp(dir);
-    assert.deepEqual(patterns().map(p => p.name), ['one-screen', 'list-detail', 'tabs', 'dashboard', 'rest']);
+    assert.deepEqual(patterns().map(p => p.name), ['one-screen', 'list-detail', 'tabs', 'dashboard', 'rest', 'site']);
     for (const { line } of patterns()) assert.ok(line.length > 20 && line.length <= 92 && !line.startsWith('//'), line);
     const read = (file) => readFileSync(resolve(dir, file), 'utf8');
     // The app's own id (LLP 1116.004 D8), which the template's untouched app.ts carries.
@@ -702,6 +703,17 @@ test('a pattern replaces the template, refuses an edited file unless forced, and
     assert.equal(JSON.parse(read('app.json')).app.id, id);
     assert.match(applyPattern(dir, 'one-screen').said, /removed server\.ts$/);
     assert.ok(!existsSync(resolve(dir, 'server.ts')) && JSON.parse(read('app.json')).commands === undefined);
+    // site: its API's stand-in and the setting naming it (LLP 1153 D8), with the keys app.json gains; another
+    // pattern takes them away again, and keeps a key the author changed.
+    assert.match(applyPattern(dir, 'site').said, /^site: wrote app\.contract, app\.ts, app\.test\.contract, \.env, server\.ts as Field Log/);
+    assert.match(read('.env'), /^API_BASE_URL=http:\/\/127\.0\.0\.1:8787$/m);
+    assert.deepEqual([JSON.parse(read('app.json')).env, JSON.parse(read('app.json')).server], [['API_BASE_URL'], { database: false }]);
+    assert.match(applyPattern(dir, 'list-detail').said, /removed \.env, server\.ts$/);
+    assert.deepEqual([JSON.parse(read('app.json')).env, JSON.parse(read('app.json')).server, JSON.parse(read('app.json')).app.id], [undefined, undefined, id]);
+    applyPattern(dir, 'site');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...JSON.parse(read('app.json')), env: ['API_BASE_URL', 'TILE_URL'] }));
+    applyPattern(dir, 'tabs');
+    assert.deepEqual([JSON.parse(read('app.json')).env, JSON.parse(read('app.json')).server], [['API_BASE_URL', 'TILE_URL'], undefined]);
     // A name with a quote stays one Contract string.
     const quoted = patternFiles('one-screen', { id: 'com.example.q', title: 'Say "Hi" $5' }).files['app.contract'];
     assert.match(quoted, /text "Say \\"Hi\\" \\\$5" role="heading"/);

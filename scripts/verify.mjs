@@ -50,6 +50,8 @@ import { holderOf, takePort } from './port-lock.mjs';
 import { backendOriginSelection, privateNetwork } from '../js/bake/src/typescript.mjs';
 import { contractVerify, semanticsSummary } from './verify-semantics.mjs';
 
+import { declaredSettings, settingValues } from '../js/bake/src/__exact_env.mjs';
+
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 /** The web's two widths: a phone's, and a desktop window's. */
 export const WEB_SIZES = [[390, 844], [1280, 900]];
@@ -88,11 +90,15 @@ export function onThisMachine(origin) {
     || privateNetwork(origin) && Object.values(networkInterfaces()).flat().some(n => n?.address === new URL(origin).hostname.replace(/^\[|\]$/g, ''));
 }
 
-/** The server URL the data module calls: the first local one (`http://127.0.0.1:8787`, or localhost) in app.ts, else in
- * a module of the app's own that it imports (`import { API } from './api'`); null when it calls none. */
-export function serverUrl(dir) {
+/** The server URL the data module calls: a setting app.ts reads (`import.meta.env.API_BASE_URL`, LLP 1153 D4) whose
+ * value, as its sources give it now, is a local one; else the first local one (`http://127.0.0.1:8787`, or localhost) in
+ * app.ts, else in a module of the app's own that it imports (`import { API } from './api'`); null when it calls none. */
+export function serverUrl(dir, env = process.env) {
   const at = (text) => text?.match(LOCAL)?.[0].replace(/\/$/, '') ?? null;
-  return at(readIn(dir, 'app.ts')) ?? importsOf(dir, 'app.ts').map((p) => at(readIn(dir, p))).find(Boolean) ?? null;
+  const code = readIn(dir, 'app.ts');
+  const read = declaredSettings(dir).filter((name) => /^[A-Z][A-Z0-9_]*$/.test(name) && new RegExp(`\\bimport\\.meta\\.env\\.${name}\\b`).test(code ?? ''));
+  const setting = Object.values(settingValues(dir, read, env)).map((s) => s && at(s.value)).find(Boolean);
+  return setting ?? at(code) ?? importsOf(dir, 'app.ts').map((p) => at(readIn(dir, p))).find(Boolean) ?? null;
 }
 
 /** Whether `entry`, or a module of the app's own it imports (a root shim that only imports the backend), reads the
@@ -126,7 +132,7 @@ export function appServer(dir, env = process.env) {
   const fixture = /(^|[/\\])fixtures?[/\\]/.test(entry);
   const selected = fixture ? backendOriginSelection(dir, env) : null;
   const local = selected && onThisMachine(selected.origin);
-  const url = selected ? local ? selected.origin : null : serverUrl(dir);
+  const url = selected ? local ? selected.origin : null : serverUrl(dir, env);
   const why = !url ? `${entry} is left alone: app.ts calls no local URL (http://127.0.0.1:<port>), so where the app reaches it is unknown` : null;
   const refusal = url && database && !readsDB(dir, entry)
     ? `${entry}${entry === named ? ' (app.json\'s commands.server)' : ''} does not read its database's path from DB, so it cannot be run on an empty one: write new Database(process.env.DB ?? 'data.db') in it or a module it imports, or name the entry that does in app.json: "commands": { "server": ["bun", "server/index.ts"] }`
@@ -597,7 +603,7 @@ export function refusalsOf({ lines = [], host = [] } = {}, expected = []) {
   for (const line of expected) accepted.set(line,(accepted.get(line) ?? 0)+1);
   const normalized = raw => String(raw).replace(/^t=\d+(?:\.\d+)?\s+/, '').replace(/^(?:app|console\.\w+|chrome|warning|error): /, '').replace(/^exact: /, '').trim();
   const collect = line => {
-    if (/\brefus(?:ed|es|al)\b/i.test(line) && !/\b(?:dismissal|back|back gesture|drag) refused\b|connection[ _]refused/i.test(line) && !found.includes(line)) found.push(line);
+    if (/\brefus(?:ed|es|al)\b/i.test(line) && !/\b(?:dismissal|back|back gesture|drag) refused\b|connection[ _]refused|\(driver fault\)/i.test(line) && !found.includes(line)) found.push(line);
   };
   for (const raw of lines) {
     const line=normalized(raw), count=accepted.get(String(raw)) ?? 0;
