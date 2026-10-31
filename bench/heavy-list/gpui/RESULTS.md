@@ -7356,3 +7356,31 @@ The post-conflict release build passes on that base in 6m 04s
 repeated after it. Final formatting and structural caps pass on that tree
 (`checks/final-rebase-fmt.log`, `final-rebase-caps.log`). Windows compilation
 and the prohibited local suites remain for the orchestrator.
+
+## G7, Windows at 120 Hz
+
+**Predictions before collection, 2026-10-31.** Source `6d501215b7`,
+`lane/1149-001-win120`. The NucBox now uses DisplayPort at 5120×1440,
+120 Hz; every earlier Windows row in this file was collected at 60 Hz.
+The three arms use G6's release builds, five rotating fling/rest rounds
+and ten rotating fresh-process launches, with application, OS and driver
+caches retained. Each entire series must satisfy G6's five-second quiet
+rule: no compiler and total CPU below 10%. No build overlaps measurement.
+The historical comparison changes both refresh rate and source revision;
+it does not isolate a refresh-only effect.
+
+| Prediction | Instrument and criterion |
+| --- | --- |
+| D3D11 and egui reach 116–120 displays per gesture second; Ink/wgpu still has no app-owned present records. | PresentMon 2.6.0, G6's four one-second gesture windows, five rounds. |
+| D3D11 and egui have at most 1 late interval/s and p99 at most 12.5 ms. | Display timestamps; late means strictly over 12.5 ms, 1.5 periods at 120 Hz. |
+| Fling process/main CPU roughly doubles: D3D11 168/125, Ink/wgpu 243/224, egui 50/50 ms/s, each within 25% of that estimate. | G6's process and HWND-owner-thread CPU endpoints over ten seconds. Windows accounting remains quantized in 15.625 ms ticks. |
+| Peak working set stays within 10% of 153/325/182 MiB for D3D11/Ink-wgpu/egui. | G6's lifetime peak working set at the end of rest. |
+| Cold first screen stays within 10% of G6e/G6 medians: D3D11 161 ms DWM / 178 ms DXGI, Ink/wgpu 716 ms DWM, egui 249 ms DWM. | Ten fresh processes per arm; G6's DWM proxy and D3D11's DXGI endpoint. The other arms expose no DXGI startup endpoint. |
+| Painter snapshots equal successful D3D11 frames. | Existing exit counters, including startup. |
+
+The carrier's reservation uses the swap chain's refresh rational and rounds
+one period up to milliseconds: 9 ms at 120 Hz. Its lifecycle does not assume
+60 Hz. No carrier change is planned. `windows-summary.py --refresh-hz 120`
+uses the correct 12.5 ms late threshold for displayed and posted intervals;
+its default remains 60 Hz for reproducing G6. This analysis change predicts
+no change to cadence, CPU, memory or startup observations.

@@ -5347,3 +5347,27 @@ invocation skips that build under this chunk's no-Mac-check instruction;
 its complete outputs are `target/stage-1w-native/caps.log` and
 `target/stage-1w-native/caps-final.log`. No other Mac
 build or test is run. `git diff --check` passes.
+
+### Stage 1w desktop qualification at 120 Hz — predictions
+
+2026-10-31, source `6d501215b7`, `lane/1149-001-win120`. This collection
+uses its own NucBox mirror, `projects/exact2-1149-001-win120`, and retains
+commands, exits, captures and raw logs under `target/g7/` on both machines.
+No Rust change is planned. Candidates remain disabled outside field fixtures.
+
+Predict zero failures in both devices' resize, minimize/restore, idle-caret,
+forced-device-loss and DPI journeys, in the native field edit/lifetime
+fixtures and visual input journeys at 100/150%, and in wgpu surfaces,
+composition and the ten startup/fallback fixtures. The instrument is the
+existing native `gpu-dev` test binaries, required-device flags and one test
+thread. RichEdit journeys set `EXACT_INK_RICHEDIT=1`. The single UIA attempt
+is expected to repeat the 30-second discovery failure: its class/provider
+name detector has not changed. Retain its full rejected tree.
+
+Sleep/wake is deliberately skipped on both devices: the October 30 journey
+put the unattended machine to sleep without a successful wake. The wgpu
+pinned-paint suite runs last and alone, candidates off, with the prior fault
+event and `tasklist /m amdihk64.dll` captured before it and fault events
+captured immediately afterward. No pass is predicted for that unresolved
+access violation; a repeated AMD-hook fault ends the attempt without retry.
+No AMD setting is changed.
