@@ -53,6 +53,8 @@ extension NodeView {
     /// What is spoken: hidden inline runs are omitted. `paragraphText` stays
     /// the source, which selection still reads.
     var visibleParagraphText: String {
+        // A Markdown text with atoms reads each as its accessible name (LLP 1045.000 D8).
+        if props["markup"] == "markdown", props["text"] != nil, !(props["atoms"] ?? "").isEmpty { return accessibleText }
         guard !inlineText.isEmpty else { return paragraphText }
         return inlineText.filter { $0.paints && ($0.lightRun.box != nil || !$0.run(dark: drawsDark).hidden) }.map(\.spoken).joined()
     }

@@ -1053,7 +1053,10 @@ this one) and `aria-description` are its description. `aria-invalid`,
 `"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
 property for those four, so iOS exposes the first three not at all and a
 pressable's (a button's, a link's) `aria-current` other than `false` as its
-selected trait, as `aria-selected` is. A drawn range —
+selected trait, as `aria-selected` is. A data table is ARIA's roles on
+boxes (`role="table"`, `"row"`, `"columnheader"`, `"rowheader"`, `"cell"`), and
+a sortable column's header takes `aria-sort` (`"ascending"`, `"descending"`,
+`"none"` or `"other"`; no bool), which only the web exposes. A drawn range —
 `role="progressbar"`, `"slider"`, `"meter"`, `"scrollbar"` or `"spinbutton"` —
 takes `aria-valuenow`, `aria-valuemin` and `aria-valuemax` (numbers; ARIA's 0
 and 100 where a bound is unsaid) and `aria-valuetext`: it is one element, its

@@ -260,6 +260,14 @@ impl<D: DataSource> Presenter<D> {
         &mut self,
         layer: exact_ink::device::apple::Layer,
     ) -> Result<(), String> {
+        if let Some(boot) = &mut self.surfaces.apple_boot {
+            self.surfaces.apple_layer = Some(layer.clone());
+            boot.layer = Some(layer.clone());
+            if let Some(preparing) = &mut boot.preparing {
+                preparing.attach(layer);
+                return Ok(());
+            }
+        }
         let info = self.brush.attach_apple_layer(layer)?;
         self.painter.adapter = Some(format!("{} ({})", info.adapter, info.api));
         self.painter.api = Some(info.api);
@@ -268,16 +276,127 @@ impl<D: DataSource> Presenter<D> {
         Ok(())
     }
 
-    /// Submit a Mac benchmark window frame without requesting CPU pixels.
+    /// Install the archive-only device or keep the CPU until its worker is ready.
     #[cfg(target_os = "macos")]
-    pub fn apple_window_frame(&mut self) -> Result<(), String> {
-        if self.frame_for(crate::paint::FrameTarget::Window).is_some() {
-            return Err("the benchmark carrier requires a presenting ink device".into());
+    pub(crate) fn install_apple_painter(
+        &mut self,
+        preparing: exact_ink::device::apple::Startup,
+    ) -> Result<(), String> {
+        self.surfaces.apple_boot = Some(crate::surfaces::apple::Boot::new(preparing));
+        self.painter.adapter = Some("CPU startup; Metal pipelines pending".into());
+        self.poll_apple_painter()?;
+        self.choice = PainterChoice::Ink;
+        Ok(())
+    }
+
+    /// Whether a worker wake needs to poll Apple's startup or CPU presentation.
+    #[cfg(target_os = "macos")]
+    pub fn apple_painter_starting(&self) -> bool {
+        self.surfaces
+            .apple_boot
+            .as_ref()
+            .is_some_and(|b| b.preparing.is_some() || b.recovering)
+    }
+
+    /// Device recreation has its own deadline, independent of display frames.
+    #[cfg(target_os = "macos")]
+    pub fn apple_painter_retry_deadline(&self) -> Option<std::time::Instant> {
+        self.surfaces.apple_boot.as_ref().and_then(|b| b.deadline())
+    }
+
+    /// Keep damage without rasterizing while no presentation device exists.
+    #[cfg(target_os = "macos")]
+    pub fn apple_painter_can_draw(&self) -> bool {
+        self.apple_painter_retry_deadline().is_none()
+    }
+
+    /// Poll completion without creating damage while pipelines compile.
+    #[cfg(target_os = "macos")]
+    pub fn poll_apple_painter(&mut self) -> Result<(), String> {
+        let Some(boot) = &mut self.surfaces.apple_boot else {
+            return Ok(());
+        };
+        let refusal = boot.last_refusal.clone();
+        let waiting_for_device = boot.deadline().is_some();
+        let device = boot.poll(std::time::Instant::now());
+        if boot.last_refusal.is_some() && self.painter.name == "cpu" {
+            self.painter.adapter = Some(
+                if boot.recovering {
+                    "CPU startup; Metal device recovery pending"
+                } else {
+                    "CPU startup; Metal pipelines failed"
+                }
+                .into(),
+            );
+        }
+        if boot.last_refusal != refusal {
+            self.host.log(format!(
+                "Metal startup: {}; keeping the CPU painter",
+                boot.last_refusal.as_deref().unwrap_or("device unavailable")
+            ));
+        }
+        if waiting_for_device || boot.deadline().is_some() {
+            self.repaint();
+        }
+        let Some(device) = device else {
+            return Ok(());
+        };
+        let (backend, info) = ink_backend(crate::ink::Ink::from_device(device));
+        self.brush.replace_backend(backend);
+        self.painter = info;
+        self.repaint();
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn apple_frame_for(
+        &mut self,
+        target: crate::paint::FrameTarget,
+    ) -> Result<Option<Arc<Pixmap>>, String> {
+        self.poll_apple_painter()?;
+        if !self.apple_painter_can_draw() {
+            self.last_frame_succeeded = false;
+            return Ok(None);
+        }
+        let pixels = self.frame_for(target);
+        if let Some(boot) = &mut self.surfaces.apple_boot {
+            if let Some(preparing) = &mut boot.preparing {
+                let frame = pixels.as_ref().ok_or("CPU startup frame missing")?;
+                if matches!(target, crate::paint::FrameTarget::Window) {
+                    let accepted = match preparing.present_cpu(frame.clone()) {
+                        Ok(accepted) => accepted,
+                        Err(error) => {
+                            boot.refused(error, std::time::Instant::now());
+                            false
+                        }
+                    };
+                    if !accepted {
+                        self.last_frame_succeeded = false;
+                        self.repaint();
+                        return Ok(pixels);
+                    }
+                }
+                if boot.preparing.as_ref().is_some_and(|p| p.ready()) {
+                    self.repaint();
+                }
+            }
         }
         if !self.last_frame_succeeded() {
-            return Err("ink frame failed".into());
+            return Err("Mac painter frame failed".into());
         }
-        Ok(())
+        if matches!(target, crate::paint::FrameTarget::Pixels) {
+            if let Some(boot) = &mut self.surfaces.apple_boot {
+                boot.presented = Some(self.painter.name);
+            }
+        }
+        Ok(pixels)
+    }
+
+    /// Submit either a CPU startup frame or a complete ink frame to the same layer.
+    #[cfg(target_os = "macos")]
+    pub fn apple_window_frame(&mut self) -> Result<(), String> {
+        self.apple_frame_for(crate::paint::FrameTarget::Window)
+            .map(|_| ())
     }
     pub(crate) fn painter_state(&self) -> serde_json::Value {
         #[cfg(windows)]
@@ -287,12 +406,38 @@ impl<D: DataSource> Presenter<D> {
             recovery.is_some_and(|d| d.recovering),
             recovery.and_then(|d| d.last_refusal.as_deref()),
         );
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         let (recovering, refusal) = (false, None::<&str>);
+        #[cfg(target_os = "macos")]
+        let (recovering, refusal) = (
+            self.surfaces
+                .apple_boot
+                .as_ref()
+                .is_some_and(|b| b.recovering),
+            self.surfaces
+                .apple_boot
+                .as_ref()
+                .and_then(|b| b.last_refusal.as_deref()),
+        );
+        let name = Some(self.painter.name);
+        #[cfg(target_os = "macos")]
+        let name = if let Some(layer) = &self.surfaces.apple_layer {
+            layer.presented_painter()
+        } else if let Some(boot) = &self.surfaces.apple_boot {
+            boot.presented
+        } else {
+            name
+        };
+        let device = if name == Some("cpu") && self.painter.name == "ink" {
+            Some("CPU startup; first Metal frame pending")
+        } else {
+            self.painter.adapter.as_deref()
+        };
         serde_json::json!({
-            "name": self.painter.name,
-            "device": self.painter.adapter,
-            "api": self.painter.api,
+            "name": name,
+            "installed": self.painter.name,
+            "device": device,
+            "api": if name == Some(self.painter.name) { self.painter.api.as_deref() } else { None },
             "deviceMs": self.painter.device_ms,
             "shadersMs": self.painter.shaders_ms,
             "cached": self.painter.cached,
@@ -670,3 +815,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(all(test, target_os = "macos", debug_assertions))]
+#[path = "painter/apple_tests.rs"]
+mod apple_tests;

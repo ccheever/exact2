@@ -2173,3 +2173,1378 @@ Commands, exits and logs are in `target/g4c/{checks,checks-rebased}/`.
 The retained executables, probes, wheel helper, driver and message data all
 match G4b's provenance hashes. `git diff --check` passed. This reporting
 chunk opened no windows and posted no input.
+
+## G6: egui against ink on Windows
+
+**2026-10-29, NucBox; updated through G6e below.** Direct D3D11 starts fastest;
+egui uses the least fling CPU. G6e restores G6c's cadence while keeping the
+G6d lifecycle fixes, but misses the declared CPU range. D3D11's displayed
+cadence is close to egui's and its working set is below egui's. Three release applications
+render the heavy list:
+Ink through direct DirectX 11 composition; the same executable with
+`EXACT_INK_DEVICE=wgpu`, using DX12, readback and softbuffer; and published
+egui/eframe **0.37.0**, wgpu **30.0.1**, through eframe's DX12 swap chain.
+Both wgpu arms report **AMD Radeon(TM) 8060S Graphics (Dx12)**. Egui's Windows
+build enables only DX12 and explicitly requests it to match the control;
+this is a selected backend, not an inference about eframe's defaults.
+
+The machine is S2's Ryzen AI MAX+ 395, 16 cores/32 logical processors,
+Windows 11 Pro build **26200**, Radeon driver **32.0.23033.1002**, Balanced
+power plan, signed-in **5120×1440, 60 Hz, 100%** desktop. All applications
+open an **800×800 outer window**, as in G4. Windows leaves a **784×761**
+client, against the Mac's 800×768 content area. Rust is **1.97.0**, Bun
+**1.4.2**; the native build uses SDK **10.0.26100.0**'s x64 `fxc`.
+The measured executables use source `f3bd9710aa`, based on `origin/main`
+`48653eb5cb`, which includes the requested `be5413a907`. The clean NucBox mirror at
+`C:\Users\Charlie Cheever\projects\exact2` advanced through local Git
+bundles on `lane/g6-windows`; no branch was pushed. The spaced startup
+driver is `336fa9e44b`; the executables are unchanged.
+
+### Method and readiness
+
+Ten fresh processes per arm run in rotating order, with application and OS
+caches retained. A separate five-round series contains ten seconds of fling
+and ten seconds of rest per arm. Startup-only launches are spaced five
+seconds apart, and the final launch receives the same observation interval.
+Four decaying gestures start at 0, 2.5, 5 and 7.5
+seconds; each lasts about one second and posts 1,500 wheel units. This is
+600 logical pixels at the host's three-line, 16-pixel wheel mapping.
+The driver calls `DwmFlush` for each input tick and posts one `WM_MOUSEWHEEL`
+per return, without timer catch-up batches. Egui applies its own wheel
+conversion and smoothing; identical input does not establish equal scroll
+work. The second startup series performs AMD Software's supported **Reset
+Shader Cache**, confirms the dialog and minimizes AMD Software before
+every launch. It retains application and OS caches. Diagnostic launches,
+builds and native qualification precede the timed series.
+
+Windows has no Unix load average. The quiet rule here is no compiler
+process and less than 10% total system CPU over five seconds, checked before
+collection and every five seconds throughout. All attempts remain in the
+raw record. Tables use medians
+**[minimum–maximum]**. The original series's rapid startup-only tail had one
+11.5% CPU observation among 73. Its startup distribution is superseded by
+the complete spaced series, without selecting individual fast launches. All
+15 fling/rest samples overlap quiet observations only (**71** observations,
+maximum **9.7%** CPU). All **34** spaced retained-driver observations pass,
+with maximum **7.2%** CPU. All **38** reset-driver observations pass,
+with maximum **9.4%** CPU. The cache-reset driver's first invocation stopped
+before launching an application because AMD Software's window was absent;
+reopening it restored the supported reset path.
+
+The DWM proxy is process age from `GetProcessTimes` and the precise system
+clock after `DwmFlush` returns for the first frame with all requested images
+loaded. The Windows host also waits for data activation. Egui requests one
+more repaint after its complete UI pass, then observes the preceding
+paint/present in the next `App::logic`; its proxy includes that event-dispatch
+delay. [DwmFlush](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmflush)
+synchronizes with the compositor; it does not identify scanout of the
+application's particular frame. Direct D3D11 additionally reads the
+matching DXGI present's display timestamp, as in S2. Eframe's public wgpu
+render state exposes its adapter, instance, device, queue and renderer,
+but no surface or DXGI swap chain, so egui has no corresponding timestamp.
+The Ink/wgpu readback/softbuffer path has none either.
+
+### Startup
+
+Ten fresh processes per arm per cache condition; all 60 reach readiness.
+The original 30 launches also succeed, including the 15 fling/rest samples.
+All first-screen adapters are Radeon hardware; none reports WARP.
+
+| Arm | Retained-driver DWM proxy, ms | Retained-driver DXGI display, ms | Reset-driver DWM proxy, ms | Reset-driver DXGI display, ms |
+| --- | --- | --- | --- | --- |
+| Ink / D3D11 | 175.98 [169.40–190.49] | 187.14 [182.01–200.87] | 249.30 [241.31–263.67] | 261.69 [253.10–274.78] |
+| Ink / wgpu DX12 | 716.21 [706.02–736.88] | — | 1007.25 [994.91–1026.16] | — |
+| egui / wgpu DX12 | 248.76 [240.70–255.15] | — | 348.00 [337.97–365.33] | — |
+
+### CPU and memory
+
+Five ten-second phases per arm. CPU is milliseconds per second; working set
+is MiB. Main-thread CPU uses the HWND owner thread. Windows CPU accounting
+is quantized in 15.625 ms units; a zero rate means no accounted tick in that
+phase. Peak is the process lifetime peak at the end of rest; sampled fling
+peak is separate. PresentMon and the driver are outside these process totals.
+
+| Metric | Ink / D3D11 | Ink / wgpu DX12 | egui / wgpu DX12 |
+| --- | --- | --- | --- |
+| Fling process CPU, ms/s | 553.92 [504.33–583.87] | 121.41 [107.35–130.74] | 24.91 [17.13–32.69] |
+| Fling main-thread CPU, ms/s | 358.13 [347.11–370.30] | 112.02 [94.90–118.29] | 24.91 [15.57–32.69] |
+| Rest process CPU, ms/s | 4.66 [1.55–6.21] | 1.55 [1.55–6.21] | 0.00 [0.00–0.00] |
+| Rest main-thread CPU, ms/s | 3.11 [1.55–6.21] | 1.55 [1.55–6.21] | 0.00 [0.00–0.00] |
+| Lifetime peak working set, MiB | 220.88 [176.90–223.93] | 324.75 [320.96–329.70] | 181.74 [181.54–181.82] |
+| Sampled fling peak working set, MiB | 220.88 [176.65–223.93] | 322.48 [318.68–327.42] | 170.77 [170.66–171.54] |
+| End-of-fling working set, MiB | 220.88 [176.65–223.93] | 322.48 [318.64–327.42] | 170.00 [169.03–171.54] |
+| End-of-rest working set, MiB | 220.88 [176.65–223.93] | 322.48 [318.64–327.42] | 170.00 [169.03–171.54] |
+
+### Presented cadence and input pacing
+
+PresentMon **2.6.0** ran with the account’s existing elevated desktop
+privileges, without installing a service. Its DXGI/DWM ETW trace supplies
+display timestamps for D3D11 and egui. Ink/wgpu exits normally but produces
+no app-owned DXGI present records on its readback/softbuffer path; cadence
+there is **unmeasured**, not zero. Optional GPU/input tracking is disabled.
+The retained timed traces lose **zero ETW events**. Earlier diagnostic traces
+with broader tracking lost events and are excluded from the tables.
+
+Intervals count only consecutive displays inside the same one-second gesture
+window. “Late” is over 25 ms, or 1.5 refresh periods at 60 Hz, per gesture
+second. Per-run quantiles are aggregated below; the full-phase rate also
+includes pauses between gestures. Rest counts cover the following ten seconds.
+
+| Metric | Ink / D3D11 | Ink / wgpu DX12 | egui / wgpu DX12 |
+| --- | --- | --- | --- |
+| Display interval p50, ms | 16.73 [16.68–33.32] | — | 16.67 [16.67–16.68] |
+| Display interval p95, ms | 83.35 [33.35–83.37] | — | 16.77 [16.76–16.82] |
+| Display interval p99, ms | 83.38 [33.36–100.06] | — | 16.88 [16.84–17.21] |
+| Late intervals / gesture second | 12.41 [7.39–12.84] | — | 0.00 [0.00–0.00] |
+| Displays / gesture second | 26.05 [25.73–50.51] | — | 57.86 [57.74–58.06] |
+| Displays / full fling second | 11.36 [11.26–21.52] | — | 25.60 [25.42–25.70] |
+| Rest displays, count | 0 [0–0] | — | 0 [0–0] |
+| Posted wheel events, count | 244 [243–244] | 243 [241–244] | 243 [243–244] |
+| Largest within-gesture posting gap, ms | 19.11 [18.17–22.42] | 18.94 [17.79–21.81] | 20.31 [19.08–27.22] |
+| Posting gaps over 25 ms, count | 0 [0–0] | 0 [0–0] | 0 [0–1] |
+
+**Finding, updated through G6e.** Direct D3D11's complete-screen proxy is
+**160.78 ms** in G6e's ten quiet launches; egui and Ink/wgpu were not
+remeasured, and egui's proxy includes another event dispatch. G6's original
+D3D11/egui/Ink-wgpu medians were **175.98/248.76/716.21 ms**, rising to
+**249.30/348.00/1007.25 ms** after supported driver-cache resets. G6d corrected
+readiness ordering; the historical startup distributions do not isolate a
+scheduling gain or close [G6c's paired-startup question](#g6c-one-paint-per-refresh).
+[S2](../../../llp/1149-the-renderer.rfc.md#d12--where-it-is-the-presenter-and-what-the-same-everywhere-promises)
+records Shelf first screens of **142 ms D3D11 versus 859 ms wgpu**;
+[C6](../../../host/ink/MEASUREMENTS.md#device-startup-host-dev) measured
+**48 versus 139 ms** device creation and **457 ms** wgpu pipelines. Those
+`gpu-dev` Shelf costs do not predict egui's release whole-app startup.
+G6e's full-period reservation and removal of the clean-frame skip restore
+**58.15 displays/s**, **zero late intervals/s** and **16.85 ms p99**, with
+**1,247 snapshots / 1,247 successful frames**. Process/main CPU are
+**84.08/62.31 ms/s**, display p95 **16.74 ms**, and peak/ending working set
+**153.18/153.16 MiB**. The strict CPU gate misses G6c's **84.05 ms/s** upper
+bound; the final five-run maximum is **93.39 ms/s**, so the full G6e gate
+is not passed. The unchanged Ink/wgpu and egui controls used
+**121.41/24.91 ms/s**, with egui's **16.77 ms** p95. Egui retains the lowest
+fling CPU; D3D11 retains the lowest peak and ending working-set medians,
+against egui's **181.74/170.00 MiB** and Ink/wgpu's **324.75/322.48 MiB**.
+G6d's Mica recovery fix remains; [G6e](#g6e-the-full-period-reservation-wait-restored)
+records qualification and the stop at the CPU gate. These whole-application
+measurements retain unequal layout, scrolling, text, image and presentation
+paths.
+
+### Parity and non-comparables
+
+The 105 generated data files match `data.sha256`; Exact's baked messages
+match the same JSON and its 104 bundled JPEGs match egui's image files.
+The JSON SHA-256 is
+`0b63b79ca113dfc23e52fdc9f4b653890bd48a59110f917fe3cae80c730a30dd`.
+Both use Segoe UI at SPEC's sizes on Windows. Egui loads regular, semibold
+and italic system files, with **15-point Consolas** for inline code;
+SF and SF Mono are absent. Egui's four WIC workers request reduced JPEG
+decodes and scale/crop to the texture size; the Exact host keeps its own
+image pipeline. Equal files and font families do not equalize shaping,
+line height, fallback, emoji, color management or crop behavior.
+
+The separate row-zero captures were visually inspected after images loaded.
+Both show Ava, Ben and Chloé, avatars, photos and rich text. The end
+captures confirm scrolling but differ: Ink shows Ingrid and José, while
+egui shows Giulia, Hiro and part of Ingrid. Segoe UI wrapping
+is close but row geometry differs; Ink's separators span the window and
+egui's are inset. Photo color and crop differ. These are content checks,
+not pixel parity. The top captures contain no quote box, so this check does
+not qualify every row type or script. Captures remain under `target/g6/`;
+the desktop outside the rounded window corners is not published.
+
+Egui owns its immediate-mode layout, HarfRust text, tessellation, texture
+caches and estimated-height viewport virtualization, with **no Exact kernel
+or runner**. Exact runs the baked plan and host; egui parses JSON and loads
+font bytes. Egui lacks the benchmark's native row accessibility labels and
+uses equal-width digit cells rather than an OpenType `tnum` selector. The
+DirectX 11/wgpu Ink comparison includes the latter's GPU readback and
+softbuffer presentation. It does not isolate wgpu device creation or shader
+translation. No live mode, input-to-photon latency, energy, renderer-only
+cost, or shipping accessibility/IME qualification is measured. Windows
+working set is not G4's macOS physical footprint.
+
+### Reproduction and validation
+
+The [Windows README](../egui/README.md#g6-windows) gives the release build,
+desktop launch, supported cache reset and summary commands. The committed
+`windows-measure.py`, `windows-reset-cache.ps1` and `windows-summary.py`
+retain individual launches, input QPC timestamps, CPU/memory endpoints,
+PresentMon CSVs, focus observations and the quiet log. Raw evidence is in
+both worktrees' `target/g6/{warm,warm-startup,cold,native}/`;
+diagnostics are separate.
+`target/g6/provenance-nucbox.json` records data checks and effective tools.
+`target/g6/checks/` holds the Mac commands, timings and exits. The Ink
+executable SHA-256 is
+`47997e9150f7989c55df2b7b85dd2f42dd355d7d3aab51f19fe71d366c2bc3cf`;
+egui is `880cafe46277d29a7b86892f5ebcc68d3bc469987640d7cad049aa536b194b2e`.
+Both Ink arms use the same bytes.
+
+The fling process-CPU medians were checked against raw endpoints: D3D11
+round 3 is `(5796.875 − 234.375) / 10.0421222 = 553.9168 ms/s`; wgpu round 3
+is `(1984.375 − 765.625) / 10.0379882 = 121.4138 ms/s`; egui round 4 is
+`(421.875 − 171.875) / 10.0369905 = 24.9079 ms/s`. QPC frequency is
+10,000,000 ticks/s in every sample.
+
+All six Mac checks pass: root all-target build, tests, clippy plus fmt,
+staged caps, boot, and the workspace all-target check. Root tests report
+**7,257 passed, 82 ignored**, with `RUST_TEST_THREADS=2`. Egui's separate
+clippy (`-D warnings`) and fmt pass; clippy first found a redundant return
+in the conditional Mac decoder, which was removed. Native egui release
+build and clippy also pass. Each checkout uses its own `target/`.
+
+S2.8b's Windows qualification was rebuilt with native `fxc`: Shelf on
+unmodified `gpu-dev`, native Ink/Windows libraries, and exact-linux test
+executables with only that test crate's optimization set to zero. Required
+GPU flags and `--test-threads=1` apply. Both devices pass **42** Ink library
+tests (**27 ignored**), **35** Windows tests (**1 ignored**), pinned paint
+**56** (**1 ignored**), borders **6**, tint **2**, backdrop **5**, gradients
+**1**, visual **8**, materials **1**, and image **3**. The window filter with
+ignored tests enabled passes **9**; composition passes **12**; all ten
+S2.8b startup/fallback fault journeys pass. The six desktop journeys give:
+
+| Journey | Ink D3D11 | Ink wgpu/DX12 |
+| --- | --- | --- |
+| Resize | Pass | Pass |
+| Minimize/restore | Pass | Pass |
+| DPI 100→150→100→150→100% | Pass with Settings operator | Fail: final image sizes differ |
+| Idle caret | Pass | Pass |
+| Forced device loss | Fail: recovered background tint differs | Pass |
+| Sleep/wake | Pass | Pass |
+
+The first DPI attempts timed out without the Settings operator. D3D11 then
+passed. Wgpu completed all four scale transitions, but its final comparison
+received **5120×1369 versus 1024×720** images; this repeated on the third
+attempt, where investigation stopped. D3D11 recovered its hardware device
+but lost Shelf's tinted background: comparison mean **8.8669/255**, with
+**23.1606%** of pixels over 32, against limits 5 and 6%. The same failure
+repeated once. G6b below fixes recovery's Mica reapplication and the DPI
+fixture's accidental maximization; G6c reruns the six D3D11 journeys.
+Desktop scaling was restored to 100% and every measured launch independently checked 96 DPI.
+
+
+### G6b: the D3D11 fling, traced
+
+The G6 wheel trajectory, window, desktop and device selections are unchanged.
+The source is `636f1fe2ae`. The release profile keeps its optimization and adds
+PDB line tables (`CARGO_PROFILE_RELEASE_DEBUG=1`,
+`CARGO_PROFILE_RELEASE_STRIP=none`). A WPR `GeneralProfile` capture located
+resource creation and driver work; the attribution below uses a second,
+lighter ETW capture restricted to the fling: `xperf -on
+PROC_THREAD+LOADER+PROFILE -stackwalk Profile -buffersize 1024 -minbuffers 128
+-maxbuffers 256`. `xperf -d` stops it after the CPU endpoint. The rest interval
+of this diagnostic is excluded because trace merging delays that endpoint.
+Microsoft's symbol server and the executable's matching PDB resolve system
+and application stacks; AMD's private driver functions remain unnamed.
+
+One sampled fling per arm gives **532.56/365.94 ms/s** process/main CPU on
+D3D11 and **129.08/115.08 ms/s** on wgpu. Sample counts are apportioned to
+these independently measured thread CPU totals; they are estimates of CPU,
+not elapsed GPU time. The five unprofiled G6 medians remain the before series.
+
+| CPU attribution, ms/s | Ink D3D11 | Ink wgpu/DX12 |
+| --- | ---: | ---: |
+| Main: clipping, including mask targets and device calls | 173.71 | 28.43 |
+| Main: remaining paint-frame work | 135.54 | 61.73 |
+| Main: outside paint-frame work | 56.69 | 24.92 |
+| Other threads, total | 166.62 | 14.00 |
+
+The D3D11 worker stacks include about **146 ms/s** beneath AMD's driver
+thread entry; image decode accounts for about **8 ms/s**, versus about
+**11 ms/s** on wgpu. The driver stacks include condition-variable and
+critical-section work. Private symbols are unavailable, so these samples
+cannot establish which internal queue, spin policy or allocation routine
+owns each driver cycle.
+
+Within the main-thread totals (overlapping inclusive stacks), D3D11 texture
+creation is about **58 ms/s**, completion polling **18**, rendering device
+calls **78**, texture uploads **3**, and DXGI `Present` **3**. Wgpu texture
+creation is about **1 ms/s** and synchronous readback **13**. The D3D11
+instance/constant-buffer `UpdateSubresource` path is about **3 ms/s**;
+texture uploads pass a bounded region and its row pitch. These CPU stacks
+do not reveal the driver's internal copy extent. There is no ordinary
+D3D11 frame readback in the stacks. The DXGI display probe reads statistics,
+not pixels; its DWM synchronization runs at readiness. The latency handle is
+polled with zero timeout. Composition commits occur at content attachment,
+not every frame. Neither `Present`, readback nor a DWM wait explains the loss.
+
+The Windows host has no exporter for S1.4's Apple phase marks. Its agent
+`perf` runs the shared headless presenter, so it does not time this desktop
+window. Four supported 600-pixel wheel operations give identical plan work
+on both devices: 231 walked sites, nine constructed and four retired rows,
+zero rebound rows (collection site 4, `app.contract:92`). This checks shared
+plan work, not desktop pacing. The AppKit `fling`/phased-wheel forms are not
+supported by this Windows agent.
+
+A separate counter diagnostic found the D3D11 viewport-target pool retaining
+**1,201 targets / 2,866,181,696 bytes**, versus **16 / 38,183,936 bytes** on
+wgpu, with at most 16 targets used in one paint. These are logical texture
+bytes in an instrumented run, not the process working set from G6. The
+counter logging is excluded from the performance series.
+
+**Prediction before the change.** Submit the completion query after `Present`
+with an asynchronous D3D11 `Flush`. If a query left in the runtime's command
+buffer prevents reuse, the target pool should stay bounded near the wgpu
+arm, process CPU should fall below **250 ms/s**, and gesture cadence should
+rise above **45 displays/s**. This changes neither resource retirement nor
+completion requirements. It adds no completion wait. The result below must
+confirm or reject that hypothesis.
+
+**The flush hypothesis is rejected.** With the same counter probe, the trial
+still uses **543.29/372.05 ms/s** process/main CPU and retains **1,320
+targets / 3,150,174,720 bytes**. The flush is removed. These are diagnostic
+observations, not a five-sample after series.
+
+| D3D11 measure | G6: five quiet samples, median [range] | Predicted | Flush trial: one diagnostic |
+| --- | ---: | ---: | ---: |
+| Process CPU, ms/s | 553.92 [504.33–583.87] | <250 | 543.29 |
+| Main CPU, ms/s | 358.13 [347.11–370.30] | Lower | 372.05 |
+| Gesture displays/s | 26.05 [25.73–50.51] | >45 | 34.24 |
+| Display interval p95, ms | 83.35 [33.35–83.37] | Lower | 50.04 |
+
+The diagnostic has counter logging and no quiet-series qualification; its
+numbers do not establish improvement over G6. PresentMon loses no events.
+The [asynchronous flush](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-flush)
+submits work without waiting for completion, but submission was not the cause.
+
+The decisive counter is paint attempts: **6,337** completed painter snapshots
+for **145** successful host frames before the trial, **6,408/152** with the
+flush. A refused present still finishes the painter's work. The direct-window
+presenter marks that picture dirty and records a refresh-period retry deadline;
+`App::about_to_wait` immediately requests another redraw for the dirty flag,
+and `App::draw` does not check that deadline. It rebuilds and submits the
+clip masks before polling the latency handle again. Failed presents do not
+increment the host's successful-frame counter. This explains the repeated
+painter work, the unreusable targets and the driver's extra queue work.
+The composition commit, image uploads and kernel are not the dominant cause.
+
+#### Current build: five quiet flings
+
+After removing the probes and flush, the release executable includes the two
+qualification fixes below and the original carrier pacing. Its SHA-256 is
+`94693e70bce45d7ae14d1926e68bb62ae1e888af7cc0a5bb0e6c334dcf2dfcb6`;
+it retains the same PDB build settings as the sampled executable. Five runs
+use `windows-measure.py --fling-only --arm d3d11 --out target/g6b/final/warm`.
+All 24 quiet observations pass (maximum total CPU 9.6%, no compiler), every
+window is 800×800 outer at 96 DPI on the 60 Hz display, and PresentMon loses
+no events. No focus is lost and no within-gesture posting gap exceeds 25 ms.
+These measure the current build, not an accepted performance fix.
+
+| D3D11 measure, median [range] | G6 before | G6b current build |
+| --- | ---: | ---: |
+| Fling process CPU, ms/s | 553.92 [504.33–583.87] | 540.41 [484.16–583.85] |
+| Fling main CPU, ms/s | 358.13 [347.11–370.30] | 362.61 [354.95–365.88] |
+| Rest process CPU, ms/s | 4.66 [1.55–6.21] | 0.00 [0.00–3.11] |
+| Rest main CPU, ms/s | 3.11 [1.55–6.21] | 0.00 [0.00–3.11] |
+| Gesture displays/s | 26.05 [25.73–50.51] | 25.88 [25.23–26.66] |
+| Display interval p95, ms | 83.35 [33.35–83.37] | 83.36 [83.35–83.36] |
+| Late intervals/gesture second | 12.41 [7.39–12.84] | 12.86 [12.63–13.37] |
+| Peak working set, MiB | 220.88 [176.90–223.93] | 219.53 [212.16–226.40] |
+| Ending working set, MiB | 220.88 [176.65–223.93] | 219.28 [211.91–226.22] |
+
+The fling loss remains: process CPU is 13.51 ms/s lower, main CPU 4.48 ms/s
+higher, and cadence 0.17 displays/s lower, with p95 unchanged at 83 ms.
+The qualification fixes do not close the performance issue. No improvement
+is attributed to them.
+
+Artifacts are in `target/g6b/` on the NucBox mirror: `profile/` (WPR),
+`sampled/{d3d11,wgpu}/` (fling-only ETLs, xperf exports and CPU endpoints),
+`release-symbols/`, `perf-plain/`, `instrument/`, `trial1/`, and `final/warm/`. They are local artifacts,
+not checked-in results. The mirror remains the S2.8b mirror; no other
+checkout is used.
+
+#### Qualification failures and the requested bisect range
+
+The preserved G6 test executable drives a freshly built Shelf at the low endpoint
+`d1fa3c00dd`, in the same mirror, then the mirror returns to the lane. Both
+failures reproduce there. The journey source is identical between that
+endpoint and G6. There is no passing low endpoint for a bisect over
+`d1fa3c00dd..48653eb5cb`; neither failure can be assigned to S1's
+`270e56d396`, `0312b493fc` or `09c9086896` from this evidence.
+
+| Failure | Low endpoint `d1fa3c00dd` | G6 source rerun | Fixed, at 100% scale |
+| --- | --- | --- | --- |
+| D3D11 recovery tint | Fail: mean 5.24/255, 0% over 32 | Fail: 5.62/255, 0% over 32 | Pass: 2.39/255, 0% over 32 |
+| Wgpu DPI final comparison | Fail: 5120×1369 vs 1024×720 | Same failure | Pass: 1024×720; mean 0.000126/255, 0% over 32 |
+
+The device-loss fix is `b7c35de450`: reapply the HWND's Mica settings when
+recovery reuses the composition visual, and retain the new availability
+result for opaque fallback. The shared-visual path comes from `8c2ed78cc1`,
+before the requested range; this is code provenance, not a measured first-bad
+commit. The retained visual had skipped `set_backdrop`. The recovery journey
+now passes after a real `dxcap -forcetdr`, through CPU/WARP and back to
+hardware. The recovered sidebar is tinted in the inspected capture.
+
+The DPI failure is the fixture's: an independent HWND observer records
+`IsZoomed=true`, outer bounds −8,−8..5128,1400 and client 5120×1369. `BitBlt`
+was capturing the requested window, not the desktop. The repeated activation
+clicks used the same title-bar point, allowing a double-click to maximize
+Shelf. That click was introduced in `0c39c9e8c5`, before the requested range.
+`cc87abf43d` clicks Shelf's empty lower-right client margin instead. The fixed
+observer sees no maximized window and the final capture is 1024×720.
+
+The first fixed DPI attempt lost its Settings UI Automation control reference
+on the fourth transition. The operator now reacquires the window and control
+for each selection. The final attempt passes 96→144→96→144→96 DPI. An initial
+recovery check after that operator failure ran at 150% and passed, but is
+excluded from the table; the table uses the subsequent 100% native suite.
+The original failure artifacts, rejected trial and operator failure remain
+under `target/g6b/`; no attempt is removed from the record.
+
+#### Validation and remaining work
+
+The final native `gpu-dev` build passes the S2.8b/G6 suites: on each device,
+42 Ink tests (27 ignored), 35 Windows tests (one ignored), pinned paint 56
+(one ignored), borders 6, tint 2, backdrop 5, gradients 1, visual 8, materials 1,
+and image 3. All six desktop journeys pass on both devices, including the
+Settings-operated DPI round trip, real TDR and sleep/wake. The nine shared
+window tests, twelve composition tests and all ten startup/fallback fault
+journeys pass.
+
+The first composition suite failed the retirement fixture's second length
+assertion: its three-check missing-statistics fallback could release the
+first device before the assertion when WARP completed quickly. `af1627ea29`
+holds the display condition at an unpresented count, independently of GPU
+completion, then releases it explicitly. The unchanged product retirement
+code passes all twelve composition tests with that deterministic fixture.
+The first failure remains in `native/results.json`; the passing rerun is
+`native/composition-fixed.log`.
+
+Mac build, tests, clippy, formatting, staged caps, boot and full-workspace
+check pass. Temporary clip/target logging and the flush trial are removed.
+The accepted product change restores recovery material; the accepted journey
+change prevents accidental maximization. No D3D11 fling fix is claimed.
+The five current-build flings above retain the original pacing. G6b left
+the carrier change outside its named `host/ink` scope. Charlie subsequently
+authorized it; G6c below records the fix and remeasurement.
+
+### G6c: one paint per refresh
+
+**Prediction, recorded before measuring (2026-10-30).** Honoring the direct
+presenter's retry deadline and coalescing dirty redraws at the monitor rate
+should bring D3D11 fling process CPU below **150 ms/s**, main-thread CPU below
+**100 ms/s**, cadence above **55 displays per gesture second** on this 60 Hz
+desktop, display-interval p95 below **20 ms**, and late intervals below **1 per
+gesture second**. Completed painter snapshots should approximately equal
+successful frames. The ten-launch startup series should remain within G6's
+retained-driver distribution. These predictions are checked against the five
+quiet fling/rest samples and ten fresh-process launches below.
+
+The carrier retains early redraw requests and honors a refused present's
+retry deadline in both `WaitUntil` scheduling and admission to `draw`.
+Before allocating paint targets, DirectX 11 waits up to one refresh period
+(rounded to whole milliseconds) for its latency handle. A successful wait
+reserves that frame's present, which consumes the reservation without another
+poll. Resize discards the old reservation with its handle. This follows
+[DXGI's wait-before-render contract](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_3/nf-dxgi1_3-idxgiswapchain2-getframelatencywaitableobject).
+Continuous animation keeps the carrier's cadence; ordinary direct redraws
+use the waitable without a second timer delay. Readiness/recovery polling
+and device retirement keep their own deadlines. Recovery backoff does not
+delay changed content on the CPU fallback.
+
+The exit counters count completed painter snapshots and successful carrier
+frames over the whole process, including startup. They write once, after the
+CPU endpoints. G6b's diagnostic counted the same snapshots with per-paint
+logging; its **6,337/145** is diagnostic evidence, not an unprofiled sample.
+
+The first carrier revision (`a13a063ba1`) had one successful diagnostic:
+**79.44/60.75 ms/s** process/main CPU, **58.28 displays/s**, **16.75 ms** p95
+and **246 snapshots / 246 successful frames**. Its first quiet launch then
+timed out after one frame: a redraw from image completion arrived before
+the cadence deadline, and deferring it lost the request because image polling
+had not yet marked the picture dirty. The carrier now retains an early redraw
+request through the deadline, independently of the dirty flag. A windowless
+scheduling test covers that wake. Both attempts remain under `target/g6c/round1/`;
+neither enters the final series.
+
+The second revision (`5f0fce2d00`) meets all six fling predictions with
+**85.66/63.86 ms/s** process/main CPU, **58.28 displays/s**, **16.77 ms** p95,
+and **1,240/1,235** snapshots/frames over five quiet processes. Its additional
+timer pacing moves startup: a separate quiet, alternating comparison of
+G6b's preserved `636f1fe2ae` executable and this revision gives DWM
+**177.64 [173.65–195.50]** versus **187.01 [170.20–222.40] ms**. The median
+paired increase is **9.168 ms**. All 25 observations pass, at most 6.6% CPU.
+That result motivates the pre-paint waitable reservation in the final
+revision. The timer trial remains under `target/g6c/round2/`; the paired
+control is under `target/g6c/paired-startup/`. A prior timer-trial startup
+series had an 11.4% CPU observation and is retained separately as
+`round2/startup-loaded/`; none of its launches is selected for a final table.
+
+#### Final measurement
+
+Source **`3020f4b76c`**, release with G6b's PDB line tables retained
+(`CARGO_PROFILE_RELEASE_DEBUG=1`, `CARGO_PROFILE_RELEASE_STRIP=none`).
+The executable SHA-256 is
+`d5eb5c060b0c528dc62e96bed36cdf41f2ae48a72f7c127371d1b40b0b52a9b2`.
+Five fresh processes run the unchanged G6 four-gesture, ten-second fling and
+ten-second rest. All open 800×800 outer / 784×761 client at 96 DPI on the
+60 Hz desktop. The DWM-paced driver posts one wheel event per refresh.
+The five flings pass all **24** quiet observations (maximum **6.6%** CPU);
+the ten separate startup launches pass all **11** (maximum **9.3%**).
+There are no compiler processes, focus losses or lost ETW events.
+
+Medians **[minimum–maximum]**, five flings in each column. G6 and G6b remain
+historical series; G6c replaces their D3D11 performance conclusion.
+
+| Metric | G6 | G6b before | G6c after |
+| --- | --- | --- | --- |
+| Fling process CPU, ms/s | 553.92 [504.33–583.87] | 540.41 [484.16–583.85] | 82.46 [73.11–84.05] |
+| Fling main-thread CPU, ms/s | 358.13 [347.11–370.30] | 362.61 [354.95–365.88] | 66.89 [59.11–70.01] |
+| Rest process CPU, ms/s | 4.66 [1.55–6.21] | 0.00 [0.00–3.11] | 1.55 [0.00–4.66] |
+| Rest main-thread CPU, ms/s | 3.11 [1.55–6.21] | 0.00 [0.00–3.11] | 1.55 [0.00–3.11] |
+| Displays / gesture second | 26.05 [25.73–50.51] | 25.88 [25.23–26.66] | 58.25 [58.08–58.46] |
+| Display interval p95, ms | 83.35 [33.35–83.37] | 83.36 [83.35–83.36] | 16.77 [16.74–16.93] |
+| Late intervals / gesture second | 12.41 [7.39–12.84] | 12.86 [12.63–13.37] | 0.00 [0.00–0.00] |
+| Lifetime peak working set, MiB | 220.88 [176.90–223.93] | 219.53 [212.16–226.40] | 153.04 [152.35–153.66] |
+| End-of-rest working set, MiB | 220.88 [176.65–223.93] | 219.28 [211.91–226.22] | 153.04 [152.35–153.66] |
+
+Sampled fling peak, end-of-fling and end-of-rest working sets are equal in
+each final run. Display interval p50 is **16.67 [16.67–16.68] ms**; p99 is
+**17.17 [16.78–17.30] ms**. The full ten-second phase, including pauses,
+displays **24.59 [24.41–24.69]/s**. Every rest has zero displays. PresentMon
+2.6.0 reports `Composed: Flip`. The driver posts **243 [241–244]** wheel
+events, with largest within-gesture gap **20.51 [19.29–22.87] ms** and no
+gap over 25 ms. These are displayed presents, not input-to-photon latency.
+
+| Run | Completed painter snapshots | Successful carrier frames |
+| --- | --- | --- |
+| 1 | 252 | 252 |
+| 2 | 251 | 251 |
+| 3 | 249 | 249 |
+| 4 | 248 | 248 |
+| 5 | 251 | 251 |
+| Total | **1,251** | **1,251** |
+
+#### Startup and prediction
+
+Ten fresh processes, application and driver caches retained. G6c does not
+repeat the driver-cache reset or the two wgpu controls.
+
+| Series | DWM complete-screen proxy, ms | DXGI display timestamp, ms |
+| --- | --- | --- |
+| G6 original | 175.98 [169.40–190.49] | 187.14 [182.01–200.87] |
+| G6c final | 182.25 [171.22–211.84] | 194.67 [182.68–223.86] |
+
+The contemporaneous control alternates ten before and ten after processes,
+reversing order each pair, five seconds apart, at the same executable path
+with the same assets and application cache. Each launch runs a freshly copied
+executable image; OS prefetch and real-time scanning can differ from the
+ordinary startup series. The committed `egui/windows-paired-startup.py` and
+`egui/windows-paired-summary.py` reproduce this control. Before is G6b's preserved
+`636f1fe2ae` release with matching PDB settings (SHA-256
+`6d69997deac5ba5d8b34cf3c61ab04005937301ab22940479b445ab6af6e16e2`);
+the later G6b fixes concern recovery and the DPI fixture. After is the final
+G6c binary above. All **25** observations pass, maximum **6.9%** CPU.
+
+| Alternating startup control | DWM proxy, ms | DXGI display, ms |
+| --- | --- | --- |
+| Before | 184.29 [175.46–194.14] | 196.22 [185.47–207.14] |
+| After | 188.43 [182.65–215.32] | 199.48 [194.02–227.25] |
+| Per-pair after minus before | +3.28 [−10.72–37.23] | +2.08 [−12.81–38.31] |
+
+The median paired DWM increase is **3.281 ms**, reduced from the timer
+revision's 9.168 ms. The distributions overlap, but these ten pairs do not
+establish unchanged startup; the original G6 range prediction is missed.
+This is the third performance revision, so further optimization stops here.
+`QUEUE.md` retains the startup question. The first final paired attempt had
+one 10.5% CPU observation among 25; its whole series is excluded and retained
+under `paired-waitable-loaded/`. The table uses the complete quiet repeat,
+without selecting individual launches.
+
+| Prediction made before measuring | Final result |
+| --- | --- |
+| Process CPU <150 ms/s, at or below the 121.41 ms/s wgpu control | Pass: 82.46, maximum 84.05 |
+| Main-thread CPU <100 ms/s | Pass: 66.89, maximum 70.01 |
+| >55 displays / gesture second | Pass: 58.25, minimum 58.08 |
+| Display p95 <20 ms | Pass: 16.77, maximum 16.93 |
+| Late intervals <1 / gesture second | Pass: zero in all five |
+| Snapshots approximately equal successful frames | Pass: 1,251/1,251 across the five processes |
+| Startup stays within G6's retained-driver distribution | Miss: final 171.22–211.84 ms exceeds G6’s 169.40–190.49 ms; quiet paired DWM increase +3.28 ms |
+
+#### Native qualification and remaining work
+
+The final Shelf `gpu-dev` build passes all six D3D11 desktop journeys on
+their first attempt. Pixel comparisons use S2's fixed band against a fresh
+launch; these are mean channel errors out of 255.
+
+| Journey | Final result |
+| --- | --- |
+| Resize | Pass; mean 0.020671, 0.0296% of pixels over 32 |
+| Minimize/restore | Pass; identical pixels |
+| DPI 100→150→100→150→100% | Pass with Settings operator; final 1024×720 at 96 DPI, identical pixels |
+| Idle caret | Pass; three transitions, 20 changed pixels; fresh comparison identical |
+| Forced device loss | Pass; CPU-to-hardware 453.445 ms, identical recovered pixels |
+| Sleep/wake | Pass; sleep returned after 75.607 s, mean 0.000277, no pixels over 32 |
+
+The recovered Shelf capture was inspected: its sidebar tint and content are
+present. The timer revision's first TDR journey had a separate transient
+failure: Mica reapplication returned `0x80263001` (desktop composition
+disabled), leaving opaque fallback after hardware recovered. Its mean error
+was **5.2427/255**, above the limit of 5; no pixel exceeded 32. An unchanged
+rerun passed with identical pixels and **405.161 ms** recovery. Both attempts
+remain under `round2/native/` and `round2/journeys/recovery-rerun/`. The saved
+`round2/native/first-recovery-dwm-excerpt.txt` records the child-log error
+read before the fixture reused that log path. The final successful journey
+does not close this observed case: `QUEUE.md` now asks for retrying Mica
+when DWM returns. G6b's redraw backpressure item is resolved here.
+
+On each device, the final NucBox suites pass 42 Ink library tests (27 ignored),
+38 Windows tests (one ignored), pinned paint 56 (one ignored), borders 6,
+tint 2, backdrop 5, gradients 1, visual 8, materials 1 and image 3. The nine
+shared-window tests, twelve composition tests and ten startup/fallback fault
+journeys pass with ignored tests explicitly enabled. The three new carrier
+tests exercise deadline admission and dirty/retry interaction without a
+window, including the deferred image redraw. Composition tests verify a
+blocked latency handle causes no paint reservation, a reservation survives
+until present without a second wait, and hiding preserves an unused
+reservation. Existing retirement and recovery tests pass.
+
+All six Mac checks pass: root all-target build, tests, clippy plus fmt,
+staged caps, boot and full-workspace all-target check. Root tests report
+7,257 passed and 82 ignored with `RUST_TEST_THREADS=2`; the separate
+`cargo test -p exact-linux --lib --tests --no-fail-fast` also passes.
+Native suites use S2.8b's native `fxc`, required GPU flags and one test
+thread; Shelf keeps unmodified `gpu-dev`, while only the exact-linux test
+crate uses optimization level zero.
+
+Raw evidence is retained in both worktrees: `target/g6c/final/{warm,warm-startup}/`
+contains the JSON, process logs, PresentMon CSVs and quiet observations;
+`native/` and `journeys/final-d3d11-dpi/` contain qualification;
+`checks/` contains Mac checks. `round1/`, `round2/`, `paired-startup/`,
+`paired-waitable-loaded/` and `paired-waitable/` retain the earlier trials
+and startup controls. The release was built with the G6 README command
+and the PDB settings above.
+To repeat the final timed series on the signed-in desktop:
+
+```powershell
+python bench/heavy-list/egui/windows-measure.py --arm d3d11 --fling-only --out target/g6c/final/warm
+python bench/heavy-list/egui/windows-measure.py --arm d3d11 --startup-only --out target/g6c/final/warm-startup
+python bench/heavy-list/egui/windows-summary.py target/g6c/final
+```
+
+Use a new output directory for another attempt. No live mode, energy,
+input-to-photon latency or isolated renderer cost was measured. G6's
+whole-application and readiness non-comparables still apply. Egui and
+Ink/wgpu were not remeasured; their DX12 backend selections and original
+numbers remain controls, not new samples.
+
+## G6d: the Windows reviews’ lifecycle fixes
+
+Source **`d7fe8c32cb`**, measured before rebasing; `measured-source.bundle` retains it.
+Release executable SHA-256:
+`76e8eaf04a109588cddab88be65c930863b77521e516ccff9b774dfe544c5a2e`.
+
+**Finding:** the lifecycle fixes pass native qualification. CPU, working set
+and p95 remain close to G6c, but cadence is not fully preserved: displays fall
+from 58.25 to 56.41 per gesture second, late intervals rise from zero to
+0.993/s, and p99 rises from 17.17 to 33.33 ms. G6d stopped after its third
+performance revision. G6e below restores cadence and records the remaining
+CPU gate miss.
+
+The reservation path keeps a non-device-lost error as a refused frame, logs once
+per failure streak, and retries one refresh period later. Restore, focus, resize
+and DPI events clear presentation backoff without shortening device recovery.
+After a failed material setup, successful presents retry Mica at most three
+times and request the transparent replacement frame when it returns. A clean
+redraw checks device removal without reserving capacity, so TDR still reaches
+CPU/WARP recovery. Capacity timeouts back off on consecutive refusals.
+Each reservation wait requests at most half a refresh period (8 ms at 60 Hz).
+Two bounded waits share the first period, with the carrier’s deadline giving
+the event loop a turn between them; further refusals back off to one second.
+Occlusion keeps its idle backoff. A clean, noncontinuous frame reserves nothing.
+Geometry and CPU snapshots preserve damage still owed to the composition window.
+
+Readiness is checked after first-pixel data activation and requires a clean
+picture. Shelf’s baked screen can remain unchanged by activation; the prior
+probe waited for an unnecessary second paint, which the clean-frame guard now
+skips. A changed picture still needs its next successful present. The DWM proxy
+and DXGI timestamp keep their definitions, but this removes that extra dispatch
+from unchanged-screen startup and must be considered beside G6c.
+
+Windowless tests exercise reservation errors, clean-frame admission, damage
+retention, lifecycle reset and the carrier’s `about_to_wait` control flow with
+a stubbed presentation deadline and an earlier runner timer. The native modal
+fixture shares its one Winit event loop with the carrier test. Capacity and
+material-retry tests cover bounded refusal and recovery. Desktop captures now
+use `AttachThreadInput` for foreground activation; Settings’ protected
+`ApplicationFrameHost` refuses attachment, so the fixture then requests focus
+through UI Automation. Neither path sends a client click.
+
+### Fling and rest
+
+Five fresh-process D3D11 fling/rest samples, the same 800×800 outer window,
+784×761 client, 96 DPI and 60 Hz NucBox desktop as G6c. The release retains
+PDB line tables (`CARGO_PROFILE_RELEASE_DEBUG=1`, `CARGO_PROFILE_RELEASE_STRIP=none`).
+The unchanged driver posts one wheel event per `DwmFlush` return. No build,
+test or cache reset overlaps collection. Application, driver and OS caches
+are retained. Each process runs four gestures within ten seconds, then rests
+for ten seconds. All 24 fling quiet observations pass (maximum 7.6% CPU);
+all 11 startup observations pass (maximum 6.6%). There are no compiler
+processes, focus losses or lost ETW events. Values are median [minimum–maximum].
+
+| Metric | G6c | G6d |
+| --- | --- | --- |
+| Fling process CPU, ms/s | 82.46 [73.11–84.05] | 84.07 [74.78–87.22] |
+| Fling main-thread CPU, ms/s | 66.89 [59.11–70.01] | 63.89 [51.41–68.56] |
+| Rest process CPU, ms/s | 1.55 [0.00–4.66] | 1.55 [0.00–3.11] |
+| Rest main-thread CPU, ms/s | 1.55 [0.00–3.11] | 0.00 [0.00–1.55] |
+| Displays / gesture second | 58.25 [58.08–58.46] | 56.41 [56.04–56.46] |
+| Display interval p95, ms | 16.77 [16.74–16.93] | 16.75 [16.74–16.75] |
+| Display interval p99, ms | 17.17 [16.78–17.30] | 33.33 [33.28–33.35] |
+| Late intervals / gesture second | 0.000 [0.000–0.000] | 0.993 [0.742–0.995] |
+| Lifetime peak working set, MiB | 153.04 [152.35–153.66] | 153.85 [152.94–153.91] |
+| End-of-rest working set, MiB | 153.04 [152.35–153.66] | 153.85 [152.94–153.91] |
+
+PresentMon 2.6.0 reports `Composed: Flip`. Display p50 is
+16.68 [16.67–16.68] ms; the full ten-second phase, including pauses,
+displays 23.02 [22.93–23.04]/s. Every rest has zero displays. The driver
+posts 244 [243–244] wheel events; its largest within-gesture gap is
+18.29 [18.22–23.51] ms, with no gap above 25 ms.
+
+| Run | G6c snapshots / frames | G6d snapshots / frames |
+| --- | --- | --- |
+| 1 | 252 / 252 | 234 / 234 |
+| 2 | 251 / 251 | 234 / 234 |
+| 3 | 249 / 249 | 233 / 233 |
+| 4 | 248 / 248 | 233 / 233 |
+| 5 | 251 / 251 | 232 / 232 |
+| Total | 1,251 / 1,251 | 1,166 / 1,166 |
+
+### Startup
+
+Ten separate fresh-process launches, five seconds apart, with application,
+driver and OS caches retained. The egui and Ink/wgpu arms and driver-cache-cold
+series were not remeasured. DWM is the complete-screen synchronization proxy;
+DXGI identifies the corresponding displayed composition frame.
+
+| Series | DWM complete-screen proxy, ms | DXGI display timestamp, ms |
+| --- | --- | --- |
+| G6c | 182.25 [171.22–211.84] | 194.67 [182.68–223.86] |
+| G6d | 161.84 [155.63–181.27] | 176.85 [167.07–192.07] |
+
+The complete-screen proxies are lower than G6c’s, but readiness now follows
+data activation in the same draw. These historical before/after series do not
+isolate the scheduling change or close G6c’s paired-startup question.
+G6c’s separate paired control is reproducible with `windows-paired-startup.py`
+and `windows-paired-summary.py`; each control launch runs a freshly copied image.
+Its OS prefetch and real-time scanning conditions differ from ordinary launches.
+
+### The shortened-wait trials
+
+Two complete quiet trials precede the final scheduler. They are retained,
+not mixed into the final table. Both preserve one snapshot per successful
+frame, but neither preserves G6c's cadence.
+
+| Revision | Process CPU, ms/s | Displays / gesture second | Display p95, ms | Late intervals / gesture second | Snapshots / frames |
+| --- | --- | --- | --- | --- | --- |
+| Half-period wait, original retry backoff (`cf02ff55f1`) | 88.83 [79.45–93.43] | 43.21 [41.04–45.50] | 50.05 [50.01–50.05] | 8.14 [6.96–8.65] | 912 / 912 |
+| First retry at the end of the period (`b2fa19453d`) | 85.69 [74.76–88.82] | 55.38 [54.89–55.47] | 16.77 [16.76–16.85] | 1.74 [1.24–1.99] | 1,147 / 1,147 |
+
+The first deadline added two periods after the partial wait. Subtracting the
+elapsed wait restored p95, but still missed display slots. The final revision
+splits the first reservation period across two bounded waits, returning to the
+carrier between them; successive timeouts then increase the idle delay.
+These are the three performance revisions of G6d; no fourth was attempted.
+`timeout-trial/` and `deadline-trial/` retain both earlier series, their ten
+startup launches, quiet observations and qualification. Their fling/startup
+quiet maxima are respectively 8.4%/6.5% and 7.3%/6.2%, with no loaded observation.
+
+### Native qualification
+
+All six D3D11 desktop journeys pass on the final `gpu-dev` Shelf build.
+The pixel columns use S2's fixed band against a fresh launch; mean channel
+error is out of 255.
+
+| Journey | G6c | G6d |
+| --- | --- | --- |
+| Resize | Pass; mean 0.020671, 0.0296% over 32 | Pass; mean 0.020690, 0.0301% over 32 |
+| Minimize/restore | Pass; identical pixels | Pass; identical pixels |
+| DPI 100→150→100→150→100% | Pass; final pixels identical | Pass; final 1024×720 at 96 DPI, identical pixels |
+| Idle caret | Pass; three transitions, 20 changed pixels | Pass; three transitions, 20 changed pixels; fresh comparison identical |
+| Forced device loss | Pass; CPU-to-hardware 453.445 ms, identical pixels | Pass; 398.810 ms, identical pixels; refused Mica restored |
+| Sleep/wake | Pass; 75.607 s, mean 0.000277, no pixels over 32 | Pass; 76.606 s, mean 0.000277, no pixels over 32 |
+
+Both 150% DPI captures pass against a fresh 150% launch: mean 0.001828,
+0.002713% of pixels over 32. The recovery log records a real DWM material
+refusal on WARP and the fixture's injected refusal on hardware attachment;
+both are followed by `Mica retry 1/3 after present: restored`. The recovered
+capture was inspected: sidebar material and content are present. This closes
+G6c's queued transient-Mica case. Sleep/wake retains S2's limitation: it does
+not isolate the wake source or establish a timer-only wake. Lock/unlock was
+not repeated.
+
+The NucBox passes 44 Ink library tests (27 ignored), 39 Windows tests (one
+ignored), pinned paint 56 (one ignored), borders 6, tint 2, backdrop 5,
+gradients 1, visual 8, materials 1 and image 3 on each of D3D11 and wgpu.
+Ten shared-window tests, fourteen composition tests and all ten
+startup/fallback fault journeys pass with ignored tests explicitly enabled.
+Builds use S2.8b's native `fxc`, required GPU flags and one test thread.
+Shelf keeps unmodified `gpu-dev`; only the exact-linux test crate uses
+optimization level zero. UI Automation is a test dependency.
+
+All six Mac checks pass on the measurement source: all-target build, root
+tests, clippy plus fmt, staged caps, boot and full-workspace all-target check.
+Root tests report 7,257 passed and 82 ignored with `RUST_TEST_THREADS=2`.
+The separate exact-linux library and integration suites also pass.
+
+The branch was rebased onto `origin/main` **`175bdab9d1`**. Only queue placement
+needed conflict resolution; the source patches are unchanged. All six Mac
+checks pass again: **7,272 tests passed, 83 ignored**. On the rebased NucBox
+mirror, Shelf and the native test binaries rebuild; Ink 44, Windows 39,
+shared-window 10 and composition 14 tests pass on each of D3D11 and wgpu.
+The timed series and six desktop journeys above remain measurements of the
+pre-rebase source; they were not repeated after rebasing.
+
+Raw evidence is retained in both worktrees under `target/g6d/`:
+`final/{warm,warm-startup}/` holds process samples, PresentMon CSVs and quiet
+observations; `native/`, `preflight/` and `journeys/` hold qualification.
+`device-loss-recovery.log` and `device-loss-recovered.png` retain material
+recovery. `initial-native/`, `qualification3-native/`, `qualification3-journeys/`,
+`qualification4-journeys/` and the trace logs retain failed qualification and
+diagnostic runs, including the readiness-ordering, idle-removal and foreground
+refusals. No timed sample is drawn from those runs. `checks-complete/` holds
+the Mac checks before rebasing; `checks-rebased/` and `native-rebased/` hold
+the post-rebase checks. The source bundle preserves the measured revision
+despite rewritten commit IDs.
+
+To repeat the timed series on the signed-in desktop after a release build:
+
+```powershell
+python bench/heavy-list/egui/windows-measure.py --arm d3d11 --fling-only --out target/g6d/final/warm
+python bench/heavy-list/egui/windows-measure.py --arm d3d11 --startup-only --out target/g6d/final/warm-startup
+python bench/heavy-list/egui/windows-summary.py target/g6d/final
+```
+
+Use a new directory for another attempt. Egui and Ink/wgpu, driver-cache-cold
+startup, live mode, energy, input-to-photon latency and isolated renderer cost
+were not remeasured. G6's whole-app and readiness non-comparables still apply.
+
+
+## G6e: the full-period reservation wait restored
+
+**Cadence is restored; the strict CPU gate is missed.** All five quiet flings
+have zero late intervals, p99 below 20 ms and at least 58 displays per gesture
+second. Process CPU is **84.08 [74.70–93.39] ms/s**: the median exceeds G6c's
+84.05 ms/s upper bound by 0.03 ms/s, and two runs reach 91.85 and 93.39 ms/s.
+The declared gate therefore fails. No third pacing policy was tried.
+
+Source **`0b34fe1cb1`**, rebased onto `origin/main` **`4cebb42abe`** before
+measurement. Release executable SHA-256:
+`18fcfefe4f610cce038cea3b4076e5abf5281fe02c32c78d824e2331e208d251`.
+The build retains PDB line tables as G6c and G6d did.
+
+The waitable reservation again waits one refresh period rounded up to
+milliseconds, as `77ab0960ee` did: 17 ms at this desktop's 60 Hz. Consecutive
+timeouts still grow the retry period to one second, subtracting time already
+spent waiting. The clean-frame reservation skip is removed after the trial
+below. Reservation errors remain refusals; lifecycle deadline resets, idle
+device-loss detection, damage retention, readiness ordering and bounded Mica
+recovery remain. The carrier still submits no frames during rest.
+
+Five fresh-process fling/rest samples and ten separate fresh-process startup
+launches use the unchanged DWM-paced driver, 800×800 outer / 784×761 client
+window, 96 DPI, 5120×1440 desktop at 60 Hz, Radeon 8060S and driver
+32.0.23033.1002. Application, driver and OS caches are retained. No build or
+test overlaps collection. All **24** fling quiet observations pass (maximum
+**6.7%** CPU), as do all **11** startup observations (maximum **6.9%**).
+There are no compiler processes, focus losses or lost ETW events.
+
+Medians [minimum–maximum]. G6c and G6d are historical series. Startup uses ten
+launches; the other distributions use five.
+
+| Metric | G6c | G6d | G6e |
+| --- | --- | --- | --- |
+| Fling process CPU, ms/s | 82.46 [73.11–84.05] | 84.07 [74.78–87.22] | 84.08 [74.70–93.39] |
+| Fling main-thread CPU, ms/s | 66.89 [59.11–70.01] | 63.89 [51.41–68.56] | 62.31 [57.58–70.07] |
+| Rest process CPU, ms/s | 1.55 [0.00–4.66] | 1.55 [0.00–3.11] | 0.00 [0.00–6.22] |
+| Rest main-thread CPU, ms/s | 1.55 [0.00–3.11] | 0.00 [0.00–1.55] | 0.00 [0.00–6.22] |
+| Displays / gesture second | 58.25 [58.08–58.46] | 56.41 [56.04–56.46] | 58.15 [58.07–58.53] |
+| Display interval p95, ms | 16.77 [16.74–16.93] | 16.75 [16.74–16.75] | 16.74 [16.74–16.75] |
+| Display interval p99, ms | 17.17 [16.78–17.30] | 33.33 [33.28–33.35] | 16.85 [16.77–16.93] |
+| Late intervals / gesture second | 0.000 [0.000–0.000] | 0.993 [0.742–0.995] | 0.00 [0.00–0.00] |
+| Lifetime peak working set, MiB | 153.04 [152.35–153.66] | 153.85 [152.94–153.91] | 153.18 [152.79–153.39] |
+| End-of-rest working set, MiB | 153.04 [152.35–153.66] | 153.85 [152.94–153.91] | 153.16 [152.79–153.39] |
+| DWM complete-screen proxy, ms | 182.25 [171.22–211.84] | 161.84 [155.63–181.27] | 160.78 [151.81–171.37] |
+| DXGI displayed complete screen, ms | 194.67 [182.68–223.86] | 176.85 [167.07–192.07] | 177.66 [170.41–182.54] |
+| Painter snapshots / successful frames, total | 1,251 / 1,251 | 1,166 / 1,166 | 1,247 / 1,247 |
+
+PresentMon 2.6.0 reports `Composed: Flip`. Display p50 is
+16.67 [16.67–16.68] ms; the full ten-second phase, including pauses, displays
+24.51 [24.40–24.61]/s. Every rest has zero displays. The driver posts
+242 [241–243] wheel events; the largest within-gesture posting gap is
+19.19 [18.83–19.91] ms, with none above 25 ms. Painter snapshots and successful
+frames are equal in every run: **250, 250, 248, 250, 249**.
+
+The CPU median is independently reproduced from run 1's endpoints:
+843.75 process CPU ms / 10.0353022 wall seconds = 84.0781855 ms/s.
+The restored presentation cadence meets all three cadence thresholds in every
+run. These timestamps count presented frames, including redraws after zero
+wheel deltas; they do not establish distinct content changes or input latency.
+The retained PresentMon trace has no CPU stacks to attribute the remaining CPU
+range miss. Further performance changes stop here.
+
+### The clean-frame skip trial
+
+The first restoration (`b61c1cdd4d`) kept G6d's clean-frame skip. It produced
+56.11 [55.86–56.21] displays/s, p99 33.29 [16.90–33.37] ms, and
+0.993 [0.247–0.998] late intervals/s. Joining PresentMon display timestamps
+to the posted input places all **15** long intervals near the gesture tails:
+33.18–33.41 ms gaps starting 946.30–979.48 ms after gesture start, while wheel
+deltas alternate between zero and −1. There are no lost ETW events or focus
+losses. This retained trial is **not quiet**: one of 24 observations is
+10.1% CPU. Its five-run process CPU is 99.63 [77.89–102.78] ms/s, and its
+1,165 snapshots equal its 1,165 successful frames.
+
+The trial's ten startup launches are quiet (maximum 6.8% CPU): DWM
+165.86 [150.89–179.68] ms and DXGI 179.06 [167.53–191.25] ms. Removing the
+skip is the second and final configuration, authorized by G6e's condition
+that the skip remain only if measurement preserves the row. Its complete
+quiet series is the G6e column above; no sample is selected from the first
+trial. G6d's corrected readiness ordering still applies, so these historical
+startup distributions do not isolate a scheduling gain or close G6c's
+separate paired-startup question.
+
+### Native qualification and checks
+
+All six Mac checks pass on the measured source: all-target build, root tests,
+clippy plus fmt, staged caps, boot and full-workspace all-target check. Root
+tests pass **7,331**, with **83 ignored**, using `RUST_TEST_THREADS=2`.
+The separate exact-linux library and integration suites pass **2,066**, with
+**38 ignored**.
+
+All six D3D11 desktop journeys pass on the measured source and an unmodified
+`gpu-dev` Shelf build. Pixel errors use S2's fixed band against a fresh launch;
+mean channel error is out of 255.
+
+| Journey | G6c | G6d | G6e |
+| --- | --- | --- | --- |
+| Resize | Pass | Pass | Pass; mean 0.020690, 0.0301% over 32 |
+| Minimize/restore | Pass | Pass | Pass; identical pixels |
+| DPI 100→150→100→150→100% | Pass | Pass | Pass; final 1024×720 at 96 DPI, identical pixels |
+| Idle caret | Pass | Pass | Pass; three transitions, 20 changed pixels; fresh comparison identical |
+| Forced device loss | Pass; recovery interval 453.445 ms | Pass; 398.810 ms | Pass; 1,850.191 ms; identical pixels and Mica restored |
+| Sleep/wake | Pass; 75.607 s | Pass; 76.606 s | Pass; 75.692 s, mean 0.000403, no pixels over 32 |
+
+The device-loss fixture subtracts the first CPU and recovered Ink **frame-start**
+timestamps. G6e's longer interval includes a **1,446.210 ms** first fallback
+paint; WARP's composition setup takes **255.336 ms**, and its three Mica
+retries are refused. Hardware's injected Mica refusal then recovers on the
+first post-present retry. The final capture was inspected: material and content
+are present. This single qualification run establishes recovery, not unchanged
+recovery latency; no cause of the long first fallback paint was isolated.
+Both 150% DPI captures pass, with means 0.001830 and 0.001849 and 0.002713%
+of pixels over 32. Sleep/wake retains S2's wake-source limitation.
+
+On each of D3D11 and wgpu, the native suites pass Ink **44** (27 ignored),
+Windows **39** (one ignored), pinned paint **56** (one ignored), borders **6**,
+tint **2**, backdrop **5**, gradients **1**, visual **8**, materials **1** and
+image **3**. The **10** shared-window tests, **14** composition tests and all
+**10** startup/fallback fault journeys pass with ignored tests explicitly
+enabled. Builds use native SDK `fxc`, required GPU flags and one test thread;
+only the exact-linux test crate uses optimization level zero. The timeout
+unit test covers the full-period bound and growing backoff at 60/120/144 Hz;
+physical qualification remains 60 Hz.
+
+The final branch is rebased onto `origin/main` **`4b06e7e4f5`**. The reservation
+patches are unchanged. All six Mac checks pass again, with **7,362 tests passed
+and 83 ignored**; logs are in `checks-rebased/`. The timed series and native
+qualification above ran on `0b34fe1cb1`, before this final rebase, and were not
+repeated afterward. The source bundle retains that revision.
+
+Raw evidence is retained in both worktrees under `target/g6e/`: `final/`
+holds the quiet fling and startup series; `skip-trial/` holds the earlier
+configuration, including its loaded observation. `skip-trace.json` joins that
+trial's display gaps to input. `summary.json` records the final aggregation;
+`measured-source.bundle` preserves the measured source. Native logs and
+captures are in `native/` and `journeys/`; Mac logs are in `checks/`.
+
+Egui, Ink/wgpu, driver-cache-cold startup, energy, input latency and isolated
+renderer cost were not remeasured. G6's fonts, whole-app paths and readiness
+non-comparables remain.
+
+## G5: the static screen and the GPU
+
+@ref LLP 1149 §4.1; preparation on 2026-10-29, `lane/g5-static`, based on
+`48653eb5cb` (includes G4 at `be5413a907`). The prepared series has three
+interleaved rounds each of fling, `bar` and `caret`, using G4's four arms,
+screen, data and quiet rule. That series has no cold-only launches or
+cold-start comparisons. Each measured phase begins after the complete-scene
+readiness handshake.
+
+**Run status: prepared.** The series ran on the development Mac on
+2026-10-30, 09:30–09:38 PDT, and was spoiled: only 44 of 91 monitor
+observations were quiet, load reached 170 as other lanes built, focus-loss
+sidecars accompanied nearly every fling and bar sample, and only 14 power
+samples were collected in eight minutes. The raw files remain under
+`target/g5/series` on that Mac. No row is taken from this run. G5 will be
+measured as **G5m** on the dedicated measurement Mac, the silver M5 Max,
+once it is set up.
+
+**Expectation, stated before measurement.** In `bar`, native main-thread
+CPU should be near zero because Core Animation runs the animation; here
+“near zero” means below 10 ms/s, including the shared display-link probe.
+Ink and GPUI should pay the frame's bookkeeping; egui should rebuild visible
+rows each frame. In `caret`, every arm should be near idle between the two
+visibility changes per second. Continuous frame submissions would falsify
+that idle expectation; CPU totals alone cannot identify the work's stacks.
+
+`BENCH_MOTION=bar` paints a #007AFF fill at the top of the title bar, 2 points
+high, advancing across 800 points in two seconds. Contract translates the
+fill inside a clipped box; GPUI requests animation frames; egui requests a
+repaint each frame. `BENCH_MOTION=caret` paints a 1×20-point #007AFF caret
+at (112, 10) in that bar. Contract uses `steps(2, jump-none)` so its two states
+are opaque and transparent; GPUI's timer and egui's `request_repaint_after`
+schedule the next 500 ms boundary. The list stays at row zero and receives no input.
+Plain `steps(2)` would produce a half-opacity state. Live mode is off.
+
+The linked probe discovers the concrete Metal queue class from a queue on
+the default device, hooks its three command-buffer creation methods, then
+hooks `commit` on the first returned buffer's concrete class. Each completion
+adds `GPUEndTime - GPUStartTime` and a count to the phase recorded at commit.
+Counts, missing timestamps and outstanding buffers are retained; a 250 ms
+grace after measurement lets boundary buffers finish. An offscreen three-buffer
+check matched the accumulated time to the buffers' own timestamps and kept
+all three in their commit phase after the phase changed. GPU times sum buffer
+spans, including possible overlaps; they are not a union of device occupancy.
+**The GPU runs at whatever clock the load earns: these are busy times under
+that clock, not work units.** Work in WindowServer is outside this process
+hook; no observed command buffers does not mean zero GPU cost for native
+Core Animation. Native's frames/s remains display-link cadence, not presented
+pixels. G4's whole-app and visual non-comparables still apply.
+
+The preparation’s power preflight,
+`sudo -n /usr/bin/powermetrics --samplers cpu_power,gpu_power -i 1000 -n 1`,
+returned “sudo: a password is required”.
+
+The original preparation passed all six repository checks, including clippy
+and fmt, and both GPUI's and egui's clippy (`-D warnings`) and fmt. Cargo used this
+worktree's `target/`; tests used `RUST_TEST_THREADS=2`. Commands, exits and
+logs are in `target/g5/checks/`. The probe's offscreen check and controlled
+aggregation fixture passed; G4's two published tables still reproduce exactly.
+All four signed bundle copies have probe SHA-256
+`9006af6aa4f59aeac785531ee8978e38b3569ce9538700e59b4fa8a650a8208f`;
+`target/g5/provenance.json` records the other hashes. All 105 data assets match
+the declared hashes and their copies. The plan and run script are
+`target/g5/plan.txt` and `run-series.py`. A startup readiness failure, as well
+as a focus loss, retains its attempt and permits one retry for that slot;
+a second failure skips the slot.
+
+CPU, frame cadence, footprint, GPU cost and power remain unmeasured by a
+qualified G5 run. The offscreen probe and aggregation checks validate the
+instruments; they provide no evidence for accepting or rejecting the
+workload expectations.
+
+Rebased onto `origin/main` at `f726d13124` on 2026-10-30. The RESULTS and
+§4.1 conflicts retain the Windows record before G5; the Windows driver,
+PresentMon summary and per-arm heights remain intact. All six repository
+checks passed: **7,373 tests passed, 83 ignored**, with root clippy and fmt;
+both benchmark workspaces also passed clippy (`-D warnings`) and fmt. Logs
+and command exits are in `target/g5/checks-rebased/`. The rebuilt probe's
+offscreen GPU accounting check and the aggregation fixture passed, and
+G4's two published tables reproduce exactly. The Exact app's ignored
+lockfile was refreshed offline for main's added Windows dependencies.
+
+All four release builds passed. Each arm launched in `bar` and `caret`,
+reached a complete scene at 800×800 outer points and 2× scale, and exited
+cleanly. Captures show the moving fill in all four arms and the caret's two
+states in native, GPUI and Ink. Egui's caret reached a complete scene in
+three attempts, but each capture sequence stayed in one state: the first
+launch was inactive, and the next two recorded focus loss before readiness.
+The third used the driver's normal app activation once. The three-attempt
+limit ends that check; **egui's blinking remains unverified**. G5m must
+verify it with the foreground held before measuring it. No app code was
+changed to accommodate the shared display.
+
+These were functional launches, with no posted input or measured workload
+phase. Builds, bundle hashes, startup metadata and captures are under
+`target/g5/rebased/`; `functional-results.json` separates complete scenes
+from verified motion. All 398 raw files under `target/g5/series` retain
+their hashes. No timing or resource row is taken from these launches.
+
+## Stage 0b: direct Metal startup (2026-10-30)
+
+Chunk 4 fixes the retained-launch stall: a submitted but unshown window keeps
+its display link running until a positive presented timestamp, suspended while
+hidden. All **30/30** corrected silver Mac launches display: ten retained Metal,
+ten wgpu and ten archive misses. Complete-screen p50 is **202.050 ms** on Metal
+against **230.850 ms** on wgpu, meeting D15 part one's limit of at most 5 ms
+slower on the same carrier and probe. The warm phases are **5.715**
+and **6.069 ms**; P3 remains within 2 ms of the original 6.581 ms. Misses show
+CPU at **169.629 ms** and complete Ink at **343.322 ms**, with no boot-thread
+compilation. The **100 ms application budget remains unmet**. The first Metal
+launch's **669.576 ms** tail and every earlier failure remain in the record.
+[Cohorts, predictions and retained files](../../../host/ink/MEASUREMENTS.md#chunk-4--retained-launches-with-no-displayed-frame).
+
+## G4m: the four arms on the measurement Mac
+
+Measured 2026-10-30 on the dedicated silver M5 Max, source
+`42d5066572c148461b4b059306be1fd2225b45f0`, fetched from `origin/main`.
+All four release arms, the probe, driver and wheel helper were rebuilt in
+`~/projects/exact2-measure/target/`. The four bundles pass signature verification;
+all 105 data hashes and GPUI's and egui's bundled copies match. The shared
+probe SHA-256 is `40d6c4aaea87df9f25386259e3f0725b18905ca456b3b3cba57cc3c9a444d825`.
+
+The unlocked Aqua session runs the unchanged G4 driver through
+`launchctl asuser`, the user switch and `caffeinate -d -i`, with no GO file.
+Five interleaved fling/rest rounds and five further cold-only rounds yield
+**20 fling/rest samples and 40 successful launches**. All **104/104** five-second
+quiet observations pass; maximum 1/5/15-minute loads are **11.24/9.54/8.19**,
+with no compiler processes. Every selected launch has nominal thermal endpoints,
+Low Power Mode off, successful frontmost/key-window checks and 2× scale.
+The outer window is 800×800 points; content is 800×800 for native and
+800×768 for the painted arms. Caches remain retained.
+
+The first egui fling attempt received a focus-loss notification during rest.
+Its recorded focus state still names egui as active, frontmost and key; no
+other application is identified. It is rejected, and its one permitted retake
+passes. All **41 attempts** remain retained. The initial Ink qualification's
+complete-screen capture was inspected before the series.
+
+Cells give **G4m median (minimum–maximum)**, followed by G4's corresponding
+value. Cold has ten samples per arm; the other rows have five. G4's native
+snapshot and painted-drawable endpoints, cadence denominators, GPUI's unchanged
+re-presentations and visual non-comparables still apply. Unlike G4's last three
+cold launches, all G4m launches have retained quiet observations.
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Cold to first complete frame, ms; native snapshot / painted drawable | 277.67 (257.26–664.05)<br>G4: 354.14 (330.80–862.31) | 219.07 (198.91–515.50)<br>G4: 313.13 (301.71–484.67) | 249.78 (232.86–264.97)<br>G4: 352.13 (311.68–1019.34) | 234.43 (203.64–269.47)<br>G4: 337.45 (310.81–445.11) |
+| Fling process CPU, ms/s | 156.91 (151.68–175.09)<br>G4: 131.91 (112.39–143.12) | 129.79 (120.63–135.25)<br>G4: 84.92 (82.05–89.05) | 110.90 (105.46–119.73)<br>G4: 86.41 (84.98–87.07) | 108.28 (99.29–109.32)<br>G4: 66.84 (64.93–71.54) |
+| Fling process CPU per presented frame, ms | —<br>G4: — | 1.457 (1.352–1.518)<br>G4: 0.961 (0.922–1.005) | 3.341 (3.206–3.629)<br>G4: 2.615 (2.591–2.696) | 2.587 (2.382–2.616)<br>G4: 1.642 (1.592–1.733) |
+| Fling main-thread CPU, ms/s | 106.06 (102.76–111.39)<br>G4: 84.51 (76.30–92.87) | 65.55 (59.68–66.71)<br>G4: 39.56 (38.97–41.52) | 55.62 (52.68–60.11)<br>G4: 43.83 (41.98–44.65) | 50.36 (46.79–51.13)<br>G4: 31.33 (30.28–33.69) |
+| Rest process CPU, ms/s | 2.192 (2.055–2.245)<br>G4: 1.288 (1.108–1.440) | 5.073 (4.623–5.166)<br>G4: 5.631 (4.911–5.678) | 2.379 (2.042–2.406)<br>G4: 1.469 (1.241–1.544) | 0.644 (0.457–0.712)<br>G4: 0.359 (0.307–0.494) |
+| Rest main-thread CPU, ms/s | 1.091 (1.040–1.148)<br>G4: 0.636 (0.536–0.692) | 3.191 (2.851–3.241)<br>G4: 3.495 (3.134–3.598) | 2.239 (1.952–2.278)<br>G4: 1.382 (1.158–1.466) | 0.523 (0.386–0.612)<br>G4: 0.288 (0.238–0.413) |
+| Peak footprint during fling, MiB | 235.74 (198.41–240.30)<br>G4: 228.39 (211.35–232.45) | 413.75 (412.16–421.85)<br>G4: 406.42 (391.64–413.84) | 598.47 (592.45–606.92)<br>G4: 591.56 (587.67–593.42) | 512.95 (505.34–518.39)<br>G4: 507.81 (504.14–515.89) |
+| End-of-fling footprint, MiB | 216.47 (189.25–222.39)<br>G4: 216.61 (198.06–220.39) | 391.83 (388.33–395.63)<br>G4: 389.38 (388.77–391.05) | 245.38 (244.45–248.42)<br>G4: 246.08 (242.61–247.64) | 185.17 (180.74–287.61)<br>G4: 186.49 (179.99–188.63) |
+| End-of-rest footprint, MiB | 215.86 (188.56–221.72)<br>G4: 215.85 (197.42–219.58) | 209.64 (205.63–215.52)<br>G4: 208.55 (206.05–210.47) | 238.05 (237.16–241.30)<br>G4: 238.64 (235.56–240.38) | 176.99 (172.64–279.52)<br>G4: 178.28 (171.80–180.50) |
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Fling interval p50, ms | 8.33 (8.33–8.33)<br>G4: 8.33 (8.33–8.33) | 8.33 (8.33–8.33)<br>G4: 8.33 (8.33–8.33) | 8.33 (8.33–8.33)<br>G4: 8.33 (8.33–8.33) | 8.33 (8.33–8.33)<br>G4: 8.33 (8.33–8.33) |
+| Fling interval p95, ms | 8.33 (8.33–8.33)<br>G4: 8.33 (8.33–8.33) | 8.33 (8.33–8.33)<br>G4: 8.33 (8.33–8.33) | 8.33 (8.33–8.33)<br>G4: 8.33 (8.33–8.33) | 8.33 (8.33–8.33)<br>G4: 8.33 (8.33–8.33) |
+| Fling interval p99, ms | 16.67 (16.67–16.67)<br>G4: 8.33 (8.33–8.33) | 16.67 (8.33–16.67)<br>G4: 16.67 (12.50–16.67) | 16.67 (16.67–16.67)<br>G4: 8.33 (8.33–16.67) | 8.33 (8.33–8.33)<br>G4: 8.33 (8.33–8.33) |
+| Late intervals/s | 1.900 (1.599–2.599)<br>G4: 0.700 (0.300–0.900) | 1.072 (0.526–1.581)<br>G4: 1.248 (0.996–1.499) | 1.843 (1.339–1.878)<br>G4: 0.749 (0.500–1.999) | 0.000 (0.000–0.804)<br>G4: 0.738 (0.000–0.998) |
+| Gesture-window duration, s | 3.736 (3.731–4.001)<br>G4: 4.011 (4.003–4.085) | 3.795 (3.732–3.800)<br>G4: 4.007 (4.002–4.016) | 3.733 (3.728–3.864)<br>G4: 4.006 (4.001–4.011) | 3.799 (3.731–3.805)<br>G4: 4.009 (4.000–4.067) |
+| Presented frames/s inside gesture windows | —<br>G4: — | 107.49 (106.97–108.70)<br>G4: 102.82 (101.35–103.05) | 88.25 (85.93–88.67)<br>G4: 81.38 (80.57–82.99) | 105.55 (105.07–105.89)<br>G4: 101.02 (98.60–102.45) |
+| Presented frames/s over the full fling phase | —<br>G4: — | 89.09 (88.98–89.19)<br>G4: 88.59 (88.38–89.00) | 32.99 (32.89–33.19)<br>G4: 32.60 (32.29–33.20) | 41.79 (41.48–41.89)<br>G4: 40.90 (40.49–41.28) |
+| Inputs received / posted per sample | 8/424 (8–8/424)<br>G4: 8/424 (8–8/424) | 422/424 (420–424/424)<br>G4: 410/424 (394–415/424) | 424/424 (422–424/424)<br>G4: 417/424 (405–423/424) | 421/424 (418–422/424)<br>G4: 410/424 (403–414/424) |
+| Driver maxGapMs; maximum of four gestures | 16.664 (9.341–16.885)<br>G4: 24.270 (16.214–24.997) | 9.339 (9.328–16.551)<br>G4: 17.949 (16.712–24.829) | 9.341 (9.339–16.905)<br>G4: 16.704 (16.344–25.766) | 9.349 (9.342–9.355)<br>G4: 24.631 (16.665–25.281) |
+| Driver empty callbacks per sample | 0 (0–0)<br>G4: 0 (0–0) | 0 (0–0)<br>G4: 0 (0–0) | 0 (0–0)<br>G4: 0 (0–0) | 0 (0–0)<br>G4: 0 (0–0) |
+
+**The machines do not agree within the fling CPU spread:** every G4m process
+and main-thread CPU range lies above G4's. All four p95 medians agree at
+8.33 ms, but native's late-interval range is also above G4's. All four peak
+footprint ranges overlap G4's. Every cold median is below G4's minimum.
+Source, the GPU probe and simultaneous power sampling changed between series;
+these observations do not isolate a hardware difference. G4m is LLP 1149.001
+§4's Mac baseline for subsequent stages on this machine.
+
+Predictions were retained in `plan.txt` before the run, using the same probe
+and driver metrics. A footprint prediction concerns the median, not overlapping
+ranges.
+
+| Arm | Predicted fling CPU, ms/s → result | Predicted p95, ms → result | Predicted peak footprint, MiB → result |
+| --- | --- | --- | --- |
+| Native | 112.39–143.12 → 156.91, **miss** | 8.33 → 8.33, met | 211.35–232.45 → 235.74, **miss** |
+| GPUI | 82.05–89.05 → 129.79, **miss** | 8.33 → 8.33, met | 391.64–413.84 → 413.75, met |
+| Ink | 84.98–87.07 → 110.90, **miss** | 8.33 → 8.33, met | 587.67–593.42 → 598.47, **miss** |
+| egui | 64.93–71.54 → 108.28, **miss** | 8.33 → 8.33, met | 504.14–515.89 → 512.95, met |
+
+### G4m power and retained evidence
+
+`powermetrics --samplers cpu_power,gpu_power,tasks --show-process-energy
+--show-process-gpu -i 1000` retains **514** plist samples. `power-summary.py`
+joins accepted phases to the exact process PID and wall clock, excludes a second
+of timestamp uncertainty at each edge, and reports the median and range of
+five duration-weighted run means. System watts include the rest of the machine;
+process energy impact is a proxy, not watts. GPU clock values follow the
+sampler's MHz scale despite its `freq_hz` field name. No power saving was predicted.
+
+| Metric | Native | GPUI | Ink | egui |
+|---|---:|---:|---:|---:|
+| Fling interior: system CPU, W | 13.208 (7.980–14.395) | 12.608 (7.893–13.971) | 10.928 (5.686–13.851) | 11.828 (7.006–14.124) |
+| Fling interior: system GPU, W | 0.030 (0.029–0.064) | 0.215 (0.204–0.287) | 0.239 (0.220–0.262) | 0.077 (0.068–0.087) |
+| Fling interior: process energy impact/s | 534.41 (420.20–624.66) | 106.79 (93.89–130.04) | 102.05 (83.69–109.90) | 94.81 (71.72–105.71) |
+| Fling interior: system GPU clock, MHz | 338.0 (338.0–343.0) | 338.0 (338.0–371.9) | 338.5 (338.1–382.6) | 338.0 (282.1–358.2) |
+| Fling interior: system GPU active, % | 4.47 (4.19–5.60) | 17.07 (15.68–17.98) | 12.49 (10.66–13.70) | 9.69 (8.25–10.49) |
+| Rest interior: system CPU, W | 13.435 (4.911–14.406) | 11.479 (10.100–13.676) | 12.431 (4.917–12.809) | 10.368 (5.038–12.745) |
+| Rest interior: system GPU, W | 0.000 (0.000–0.003) | 0.001 (0.000–0.009) | 0.000 (0.000–0.007) | 0.001 (0.000–0.015) |
+| Rest interior: process energy impact/s | 0.84 (0.74–1.08) | 2.36 (2.14–2.46) | 1.07 (0.99–1.14) | 0.15 (0.09–0.37) |
+| Rest interior: system GPU clock, MHz | 57.5 (0.0–113.2) | 55.8 (0.0–224.6) | 0.0 (0.0–192.4) | 56.1 (0.0–226.6) |
+| Rest interior: system GPU active, % | 0.11 (0.00–0.61) | 0.14 (0.00–1.77) | 0.00 (0.00–1.26) | 0.13 (0.00–1.50) |
+
+The sampler emits process-path and “Second underflow occured.” warnings. The
+selected intervals have valid elapsed times and exact PID joins; these remain
+reported power estimates with those warnings retained. Its first SIGINT stop
+failed to exit within ten seconds. The recorded sudo PID was then terminated
+through the privileged Aqua-session command, and aggregation completed. No
+measurement slot was rerun for that cleanup failure.
+
+Python 3.9's monotonic clock has a process-local epoch on this Mac. The original
+quiet observations remain untouched; `clock-calibration.jsonl` records explicit
+`CACurrentMediaTime`/wall-clock pairs for the power join, with **1.242 ms** offset
+spread. G5m's monitor reads `CACurrentMediaTime` directly. Neither correction
+changes the timed driver or the arms.
+
+Raw files, build logs, predictions, source and bundle hashes, the exact wrappers,
+all attempts, quiet observations, power and captures remain on the silver Mac
+under `target/g0/run-42d5066572/`, with a copy in this development worktree at
+`target/g0/silver-run-42d5066572/`. Earlier locked-session attempts under
+`target/g0/refresh-ae835f960c/` remain excluded and retained. `g4m/summary.json`,
+`tables.md`, `power-summary.json` and `audit.json` retain the derivation and sample
+accounting. Reproduce the current tables (without their historical G4 cells) with:
+
+```sh
+bun bench/heavy-list/gpui/aggregate.mjs target/g0/silver-run-42d5066572/g4m
+bun bench/heavy-list/gpui/aggregate.mjs target/g0/silver-run-42d5066572/g4m --json
+python3 target/g0/silver-run-42d5066572/power-summary.py target/g0/silver-run-42d5066572/g4m
+```
+
+## G5m: static workloads on the measurement Mac
+
+Measured 2026-10-30 on G4m's four rebuilt arms and linked GPU probe, source
+`42d5066572`. Three interleaved rounds of fling, bar and caret yield **36/36**
+accepted samples, **114/114** quiet observations and no rejected attempts.
+Maximum 1/5/15-minute loads are **10.43/7.85/7.62**, with no compiler processes.
+All launches retain focus, nominal thermal endpoints, Low Power Mode off,
+G4m's dimensions and 2× scale. Static phases stay at row zero with zero wheel
+input. Captures precede timing in the first static round.
+
+All four bar capture pairs show different fill lengths. GPUI's and egui's
+first caret pairs show the 80-device-pixel caret on and off, with focus held.
+Native's and Ink's first pairs both catch the hidden state. Separate eight-frame
+capture sequences after timing show **0/80/80/0/0/80/80/0** caret pixels in
+both arms, with no focus loss. Egui's blink is therefore verified, resolving
+G5's earlier open check. The supplemental captures contribute no timing sample.
+
+The GPU hook accounts for every committed buffer in its commit phase: all
+counts complete, with zero invalid timestamps. Times sum command-buffer spans,
+including any overlap, at the clock the workload earns. They are not a union
+of GPU occupancy or a shader-only cost. Native submits no buffers through this
+hook; Core Animation's work in WindowServer remains outside it. Native's 120 Hz
+row is display-link cadence, not a count of displayed content changes.
+
+Medians (minimum–maximum), three runs per arm and workload:
+
+bar
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Quiet samples | 3 | 3 | 3 | 3 |
+| Process CPU, ms/s | 92.564 (90.519–95.920) | 146.946 (144.467–155.659) | 154.178 (150.781–166.870) | 165.564 (165.204–191.106) |
+| Main-thread CPU, ms/s | 84.487 (82.399–87.438) | 94.704 (93.887–101.078) | 74.406 (71.240–79.708) | 81.734 (80.918–95.319) |
+| Frames/s; native display link / painted drawables | 119.93 (119.74–119.96) | 119.76 (119.47–119.79) | 119.76 (119.08–119.86) | 119.59 (119.51–119.70) |
+| Peak footprint, MiB | 128.11 (126.86–130.64) | 303.19 (301.70–306.75) | 356.34 (356.25–364.13) | 443.45 (441.70–450.17) |
+| End footprint, MiB | 127.78 (126.56–130.20) | 302.81 (301.70–305.44) | 355.58 (353.05–364.13) | 442.94 (440.74–449.42) |
+| GPU busy time, ms/s; process command buffers | — | 32.379 (32.332–32.706) | 196.550 (163.489–213.628) | 23.251 (23.217–23.361) |
+| GPU ms/frame; native cadence / painted drawables | — | 0.2706 (0.2703–0.2731) | 1.6398 (1.3651–1.7939) | 0.1944 (0.1943–0.1952) |
+| Completed command buffers per sample | 0 (0–0) | 1198 (1197–1199) | 2399 (2398–2399) | 8379 (8372–8386) |
+
+caret
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Quiet samples | 3 | 3 | 3 | 3 |
+| Process CPU, ms/s | 12.176 (11.619–12.217) | 17.188 (17.126–17.598) | 154.320 (149.241–159.467) | 15.623 (15.526–16.815) |
+| Main-thread CPU, ms/s | 11.146 (10.522–11.296) | 13.956 (13.794–14.195) | 73.887 (72.356–76.607) | 13.479 (13.272–14.015) |
+| Frames/s; native display link / painted drawables | 119.98 (119.86–120.05) | 2.00 (2.00–2.00) | 119.74 (119.67–119.97) | 2.00 (2.00–2.00) |
+| Peak footprint, MiB | 128.84 (128.70–139.22) | 292.36 (292.20–302.14) | 356.03 (355.92–362.16) | 442.20 (440.30–444.02) |
+| End footprint, MiB | 128.42 (128.42–138.92) | 291.99 (291.67–301.69) | 354.50 (353.03–355.06) | 441.88 (439.99–443.66) |
+| GPU busy time, ms/s; process command buffers | — | 0.567 (0.566–0.567) | 212.438 (159.497–260.022) | 0.379 (0.377–0.381) |
+| GPU ms/frame; native cadence / painted drawables | — | 0.2836 (0.2829–0.2837) | 1.7741 (1.3328–2.1673) | 0.1896 (0.1885–0.1908) |
+| Completed command buffers per sample | 0 (0–0) | 20 (20–20) | 2399 (2399–2400) | 140 (140–140) |
+
+fling
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Quiet samples | 3 | 3 | 3 | 3 |
+| Process CPU, ms/s | 169.594 (154.607–173.340) | 132.453 (128.650–137.303) | 123.137 (114.198–123.463) | 104.650 (92.955–110.449) |
+| Main-thread CPU, ms/s | 102.070 (100.402–106.527) | 66.719 (62.813–69.686) | 57.452 (55.786–60.338) | 49.654 (43.099–52.288) |
+| Frames/s; native display link / painted drawables | 118.44 (118.28–118.49) | 89.07 (88.90–89.09) | 32.90 (32.69–33.19) | 41.79 (41.69–42.00) |
+| Peak footprint, MiB | 235.92 (212.17–240.02) | 413.61 (413.56–417.61) | 597.19 (594.83–604.13) | 520.17 (503.41–520.47) |
+| End footprint, MiB | 201.91 (197.63–211.19) | 392.38 (391.27–396.77) | 248.09 (246.41–249.78) | 185.39 (185.13–187.81) |
+| GPU busy time, ms/s; process command buffers | — | 22.727 (22.617–23.254) | 76.373 (75.484–76.403) | 8.244 (8.202–8.277) |
+| GPU ms/frame; native cadence / painted drawables | — | 0.2552 (0.2539–0.2616) | 2.3090 (2.3009–2.3225) | 0.1963 (0.1963–0.1985) |
+| Completed command buffers per sample | 0 (0–0) | 895 (893–895) | 1236 (1230–1238) | 3038 (3031–3052) |
+
+The fling control retains G4m's input and pause pattern; its GPU-per-frame row
+includes uploads and every observed command buffer over the full phase, divided
+by displayed drawables. Its CPU ranges overlap G4m's, although Ink's median
+123.14 ms/s is above G4m's 119.73 maximum. This is observed inter-series spread,
+not an optimization result.
+
+### G5's expectation, checked line by line
+
+| Expectation stated before any run | Result |
+| --- | --- |
+| Native bar main-thread CPU below 10 ms/s because Core Animation runs the animation | **Miss:** 84.487 (82.399–87.438) ms/s. The series does not attribute its stacks. |
+| Ink and GPUI pay the frame's bookkeeping in bar | Consistent with 119.76 presented frames/s each and main-thread CPU 74.406 / 94.704 ms/s; the amount specifically spent on bookkeeping is not isolated. |
+| Egui rebuilds visible rows each bar frame | Its existing `ui` path visits visible rows per repaint; 119.59 presentations/s and 81.734 main-thread ms/s are consistent. The probe does not count row rebuilds or attribute their CPU. |
+| Every caret arm is near idle between two changes per second | **Falsified for Ink:** 119.74 presentations/s and 154.320 process ms/s. GPUI and egui present exactly 20 frames per ten seconds; their CPU remains 17.188 / 15.623 ms/s, above G4m rest. Native uses 12.176 ms/s; its off-process submissions are unmeasured. |
+| Continuous caret submissions would falsify the idle expectation | **Falsified:** Ink completes 2,399–2,400 buffers per sample. GPUI completes 20 and egui 140 for their 20 presentations; neither continuously presents between blinks. |
+
+**M8 is not earned by this series.** Ink's summed GPU spans per displayed
+frame are **2.3090 ms fling, 1.6398 ms bar and 1.7741 ms caret**, or **27.7%,
+19.7% and 21.3%** of an 8.33 ms refresh. These exceed 15% **before M3** and
+include its compose/present path. Q3 requires the GPU share **after M3**;
+these rows do not satisfy that precondition or isolate the cost a plain pipeline
+would remove. Keep that decision open until the post-M3 measurement. No shader
+or renderer design changes here.
+
+### G5m power
+
+533 power samples use G4m's PID/wall-clock join and edge exclusions.
+Cells are medians (minimum–maximum) of three duration-weighted run means.
+The process-path and underflow warnings recur; the same power-estimate limits
+apply. Ink's caret system-GPU estimate remains close to its bar's, while the
+other caret arms' estimates are small. These are whole-machine watts, not
+per-process power or proof of a causal saving.
+
+| Metric | Native | GPUI | Ink | egui |
+|---|---:|---:|---:|---:|
+| Fling interior: system CPU, W | 10.575 (10.443–15.841) | 11.593 (9.259–12.516) | 10.234 (8.595–10.997) | 10.421 (8.791–12.971) |
+| Fling interior: system GPU, W | 0.029 (0.027–0.031) | 0.205 (0.204–0.207) | 0.231 (0.226–0.232) | 0.071 (0.069–0.080) |
+| Fling interior: process energy impact/s | 525.67 (417.04–628.24) | 110.40 (84.12–118.43) | 97.68 (83.68–105.81) | 97.19 (70.75–124.58) |
+| Fling interior: system GPU clock, MHz | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) | 344.7 (339.7–354.2) | 338.0 (280.9–338.0) |
+| Fling interior: system GPU active, % | 4.33 (4.18–4.48) | 16.70 (16.47–17.16) | 12.21 (11.32–12.97) | 9.68 (9.56–10.85) |
+| Bar interior: system CPU, W | 10.618 (9.649–12.160) | 10.894 (10.267–13.660) | 11.089 (10.226–13.571) | 10.370 (9.316–12.146) |
+| Bar interior: system GPU, W | 0.022 (0.021–0.029) | 0.276 (0.269–0.286) | 0.724 (0.715–0.767) | 0.177 (0.168–0.180) |
+| Bar interior: process energy impact/s | 57.77 (57.47–58.60) | 103.10 (100.93–113.89) | 104.21 (100.43–107.02) | 91.90 (91.44–94.76) |
+| Bar interior: system GPU clock, MHz | 338.0 (338.0–338.0) | 340.1 (338.0–340.7) | 338.0 (338.0–341.3) | 338.0 (338.0–338.0) |
+| Bar interior: system GPU active, % | 6.79 (6.66–8.21) | 22.10 (21.05–22.23) | 32.63 (26.39–40.19) | 22.79 (22.00–23.14) |
+| Caret interior: system CPU, W | 9.151 (7.863–13.019) | 13.259 (10.384–15.424) | 8.954 (7.117–11.841) | 10.733 (10.499–11.693) |
+| Caret interior: system GPU, W | 0.010 (0.003–0.011) | 0.007 (0.007–0.015) | 0.718 (0.708–0.753) | 0.010 (0.008–0.017) |
+| Caret interior: process energy impact/s | 5.52 (5.46–6.20) | 10.46 (10.41–10.51) | 96.08 (90.74–100.58) | 7.20 (7.18–8.09) |
+| Caret interior: system GPU clock, MHz | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) |
+| Caret interior: system GPU active, % | 1.82 (0.65–1.94) | 0.96 (0.94–2.15) | 32.11 (26.16–38.22) | 1.80 (1.43–3.01) |
+
+Raw phases, first-round captures, power and quiet observations are in
+`target/g0/run-42d5066572/g5m/` on the silver Mac and
+`target/g0/silver-run-42d5066572/g5m/` here. The separate blink sequences are
+`caret-capture-native/` and `caret-capture-ink/` beside them. `capture-audit.json`,
+`caret-capture-audit.json`, `audit.json` and `power-summary.json` retain the
+pixel counts and joins. Reproduce the three workload tables with:
+
+```sh
+bun bench/heavy-list/gpui/aggregate.mjs target/g0/silver-run-42d5066572/g5m
+bun bench/heavy-list/gpui/aggregate.mjs target/g0/silver-run-42d5066572/g5m --verify
+python3 target/g0/silver-run-42d5066572/power-summary.py target/g0/silver-run-42d5066572/g5m
+```
+
+### Measurement-lane validation
+
+All six repository checks pass in the development worktree after rebasing onto
+`origin/main` `8c88ae6902`: all-target build, tests, Clippy plus fmt, staged caps,
+boot and the workspace all-target check. Tests use `RUST_TEST_THREADS=2`:
+**7,384 passed, zero failed, 83 ignored**, across 113 result summaries.
+The Ibex failure in the brief was fixed upstream by `ae835f960c`; it does not
+reproduce, and this lane makes no fix. Complete commands, exits and verbatim
+output are in `target/g0/checks-final-8c88ae6902/`. The earlier full run
+on the measured source base `42d5066572` also passes, with 7,380 tests passed
+and 83 ignored, in `target/g0/checks-run-42d5066572/`.
+
+Both G4m tables and all three G5m tables reproduce exactly from their raw files;
+G5's committed `--verify` passes with zero exclusions. Both boot summaries also
+reproduce exactly. Power rows reproduce from the retained plists and clock join.
+No renderer, workload, committed probe or driver source changes in this lane.

@@ -160,7 +160,7 @@ pub fn from_value(value: &Value) -> Result<String, String> {
 /// so a binary that reads other fields is never given it; a test ties it,
 /// with each field's type (text, or `direction`'s three words), to the
 /// compiler's shape.
-pub const ATOM_FACE_FIELDS: [&str; 7] = [
+pub const ATOM_FACE_FIELDS: [&str; 8] = [
     "source",
     "label",
     "icon",
@@ -168,6 +168,7 @@ pub const ATOM_FACE_FIELDS: [&str; 7] = [
     "color",
     "backgroundColor",
     "direction",
+    "ariaLabel",
 ];
 
 /// Convert the compiler's positional `AtomFace` list to the named JSON of

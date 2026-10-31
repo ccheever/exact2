@@ -1,4 +1,5 @@
 // Linked into the native, GPUI, ink and egui benchmark copies. @ref LLP 1149 §4.1.
+#include <assert.h>
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <Metal/Metal.h>
@@ -10,6 +11,20 @@
 #include <stdatomic.h>
 
 static double processStart, loaded, firstDrawable, firstComplete;
+static double firstCpu, firstInk;
+static double firstCpuComplete, firstInkComplete;
+static void (^bootExpose)(void);
+void g1_boot_expose(void (^callback)(void));
+static void firstBootTick(void) {
+    if (bootExpose) {
+        void (^callback)(void) = bootExpose;
+        bootExpose = nil;
+        callback();
+    }
+}
+static atomic_int painterKind = 1;
+static atomic_bool cpuSubmitted;
+void g1_painter(int ink) { atomic_store(&painterKind, ink); }
 static mach_port_t mainThread;
 static atomic_bool completeScene;
 static atomic_uint drawableCalls, mainThreadDrawableCalls, drawableCount;
@@ -21,6 +36,93 @@ static NSString *arm;
 static double tickSeconds;
 static atomic_size_t topItem;
 static _Atomic(float) topOffset;
+static NSString *workload;
+
+// Charge a buffer to its commit phase, even if completion arrives in the next one.
+static pthread_mutex_t gpuLock = PTHREAD_MUTEX_INITIALIZER;
+static struct { double seconds; uint64_t committed, completed, invalid; } gpu[3];
+static int gpuPhase;
+static NSString *queueClass, *bufferClass;
+static IMP originalCommit, originalBuffer, originalUnretainedBuffer, originalDescriptorBuffer;
+
+static void commitBuffer(id<MTLCommandBuffer> buffer, SEL selector) {
+    pthread_mutex_lock(&gpuLock);
+    int phase = gpuPhase;
+    gpu[phase].committed++;
+    pthread_mutex_unlock(&gpuLock);
+    [buffer addCompletedHandler:^(id<MTLCommandBuffer> done) {
+        double start = done.GPUStartTime, end = done.GPUEndTime;
+        pthread_mutex_lock(&gpuLock);
+        gpu[phase].completed++;
+        if (done.status == MTLCommandBufferStatusCompleted && start > 0 && end >= start)
+            gpu[phase].seconds += end - start;
+        else gpu[phase].invalid++;
+        pthread_mutex_unlock(&gpuLock);
+    }];
+    ((void (*)(id, SEL))originalCommit)(buffer, selector);
+}
+
+static id watchBuffer(id buffer) {
+    if (!buffer) return nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class concrete = object_getClass(buffer);
+        Method method = class_getInstanceMethod(concrete, @selector(commit));
+        originalCommit = method_getImplementation(method);
+        pthread_mutex_lock(&gpuLock);
+        bufferClass = NSStringFromClass(concrete);
+        pthread_mutex_unlock(&gpuLock);
+        class_replaceMethod(concrete, @selector(commit), (IMP)commitBuffer, method_getTypeEncoding(method));
+    });
+    if (![buffer isKindOfClass:NSClassFromString(bufferClass)]) {
+        fprintf(stderr, "probe: uninstrumented command-buffer class %s\n", object_getClassName(buffer));
+        abort();
+    }
+    return buffer;
+}
+
+static id commandBuffer(id queue, SEL selector) {
+    return watchBuffer(((id (*)(id, SEL))originalBuffer)(queue, selector));
+}
+static id unretainedCommandBuffer(id queue, SEL selector) {
+    return watchBuffer(((id (*)(id, SEL))originalUnretainedBuffer)(queue, selector));
+}
+static id descriptorCommandBuffer(id queue, SEL selector, id descriptor) {
+    return watchBuffer(((id (*)(id, SEL, id))originalDescriptorBuffer)(queue, selector, descriptor));
+}
+
+static void watchCommandQueues(void) {
+    // A queue discovers the device's concrete class without creating a buffer or submitting work.
+    id<MTLCommandQueue> queue = [MTLCreateSystemDefaultDevice() newCommandQueue];
+    if (!queue) { fprintf(stderr, "probe: no Metal queue\n"); abort(); }
+    Class concrete = object_getClass(queue);
+    queueClass = NSStringFromClass(concrete);
+    SEL selectors[] = {@selector(commandBuffer), @selector(commandBufferWithUnretainedReferences), @selector(commandBufferWithDescriptor:)};
+    IMP replacements[] = {(IMP)commandBuffer, (IMP)unretainedCommandBuffer, (IMP)descriptorCommandBuffer};
+    IMP *originals[] = {&originalBuffer, &originalUnretainedBuffer, &originalDescriptorBuffer};
+    for (int i = 0; i < 3; i++) {
+        Method method = class_getInstanceMethod(concrete, selectors[i]);
+        if (!method) { fprintf(stderr, "probe: missing queue method\n"); abort(); }
+        *originals[i] = method_getImplementation(method);
+        class_replaceMethod(concrete, selectors[i], replacements[i], method_getTypeEncoding(method));
+    }
+}
+
+static void setGPUPhase(int phase) {
+    pthread_mutex_lock(&gpuLock);
+    gpuPhase = phase;
+    pthread_mutex_unlock(&gpuLock);
+}
+
+static NSDictionary *gpuUsage(int phase) {
+    pthread_mutex_lock(&gpuLock);
+    typeof(gpu[0]) value = gpu[phase];
+    NSDictionary *result = @{ @"seconds": @(value.seconds), @"committed": @(value.committed),
+        @"completed": @(value.completed), @"invalid": @(value.invalid),
+        @"queueClass": queueClass ?: @"", @"bufferClass": bufferClass ?: @"" };
+    pthread_mutex_unlock(&gpuLock);
+    return result;
+}
 
 // Opt-in fixed storage; serializing a trace happens after the measured scroll.
 static struct { const char *name; double start, end, value; mach_port_t thread; } intervals[131072];
@@ -36,10 +138,55 @@ void g1_interval(const char *name, double start, double end, double value) {
     pthread_mutex_unlock(&traceLock);
 }
 
+void g1_boot_expose(void (^callback)(void)) {
+    bootExpose = [callback copy];
+    if (tracing && !CATransaction.completionBlock) {
+        [CATransaction setCompletionBlock:^{
+            double now = CACurrentMediaTime();
+            g1_interval("layer first transaction completed", now, now, 0);
+        }];
+    }
+}
+
 void g1_ready(int complete, size_t item, float offset) {
+    g1_interval("scene ready", CACurrentMediaTime(), CACurrentMediaTime(), complete);
     atomic_store(&completeScene, complete != 0);
     topItem = item;
     topOffset = offset;
+}
+
+// winit activates NSApplication even with activateIgnoringOtherApps=false, and
+// set_visible(true) makes the window key. Boot-only measurements suppress both.
+static atomic_uint activationSuppressed, keySuppressed;
+static void passiveActivate(id app, SEL selector) { atomic_fetch_add(&activationSuppressed, 1); }
+static void passiveActivateIgnoring(id app, SEL selector, BOOL ignoring) { passiveActivate(app, selector); }
+static void passiveKey(id window, SEL selector) { atomic_fetch_add(&keySuppressed, 1); }
+static void passiveOrderFront(id window, SEL selector, id sender) {
+    atomic_fetch_add(&keySuppressed, 1);
+    [(NSWindow *)window orderFrontRegardless];
+}
+static void suppressBootFocus(void) {
+    method_setImplementation(class_getInstanceMethod(NSApplication.class, @selector(activate)), (IMP)passiveActivate);
+    method_setImplementation(class_getInstanceMethod(NSApplication.class, @selector(activateIgnoringOtherApps:)), (IMP)passiveActivateIgnoring);
+    method_setImplementation(class_getInstanceMethod(NSWindow.class, @selector(makeKeyAndOrderFront:)), (IMP)passiveOrderFront);
+    method_setImplementation(class_getInstanceMethod(NSWindow.class, @selector(makeKeyWindow)), (IMP)passiveKey);
+    method_setImplementation(class_getInstanceMethod(NSWindow.class, @selector(makeMainWindow)), (IMP)passiveKey);
+    if (![[NSApplication sharedApplication] setActivationPolicy:NSApplicationActivationPolicyAccessory]) {
+        fprintf(stderr, "probe: passive activation policy refused\n"); exit(2);
+    }
+}
+
+static void recordPresented(double time, BOOL ready, int painter) {
+    if (time <= 0) return;
+    pthread_mutex_lock(&lock);
+    if ((firstDrawable == 0 || time < firstDrawable)) firstDrawable = time;
+    if (painter && (firstInk == 0 || time < firstInk)) firstInk = time;
+    if (!painter && (firstCpu == 0 || time < firstCpu)) firstCpu = time;
+    if (ready && (firstComplete == 0 || time < firstComplete)) firstComplete = time;
+    if (ready && painter && (firstInkComplete == 0 || time < firstInkComplete)) firstInkComplete = time;
+    if (ready && !painter && (firstCpuComplete == 0 || time < firstCpuComplete)) firstCpuComplete = time;
+    [presented addObject:@(time)];
+    pthread_mutex_unlock(&lock);
 }
 
 static id nextDrawable(id layer, SEL selector) {
@@ -49,15 +196,11 @@ static id nextDrawable(id layer, SEL selector) {
     static IMP original;
     if (!original) original = class_getMethodImplementation([CAMetalLayer class], @selector(g1_originalDrawable));
     id<MTLDrawable> drawable = ((id (*)(id, SEL))original)(layer, selector);
+    int painter = atomic_load(&painterKind);
+    if (!painter) atomic_store(&cpuSubmitted, true);
     BOOL ready = atomic_load(&completeScene) || getenv("G1_ALLOW_IMAGE_REFUSALS");
     if (drawable) [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
-        double time = shown.presentedTime;
-        if (time <= 0) return;
-        pthread_mutex_lock(&lock);
-        if (!firstDrawable) firstDrawable = time;
-        if (ready && !firstComplete) firstComplete = time;
-        [presented addObject:@(time)];
-        pthread_mutex_unlock(&lock);
+        recordPresented(shown.presentedTime, ready, painter);
     }];
     return drawable;
 }
@@ -196,10 +339,11 @@ static NSData *signature(NSView *view) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1000000), dispatch_get_main_queue(), ^{ [self attach]; });
         return;
     }
-    if (!getenv("EXACT_AGENT_LIVE")) {
+    if (!getenv("EXACT_AGENT_LIVE") && !getenv("G1_BOOT_ONLY")) {
         [NSApp activate];
         [self.window makeKeyAndOrderFront:nil];
     }
+    if (getenv("G1_BOOT_ONLY")) [self.window orderFrontRegardless];
     self.windowAt = CACurrentMediaTime();
     self.ticks = [NSMutableArray array];
     self.coldPixels = [NSMutableArray array];
@@ -246,6 +390,7 @@ static NSData *signature(NSView *view) {
 }
 - (void)tick:(CADisplayLink *)link {
     double now = CACurrentMediaTime();
+    firstBootTick();
     if (!NSApp.active || !self.window.keyWindow || !self.hadFocus) [self observeFocus];
     if (self.phase == 0) {
         if (!painted) {
@@ -253,10 +398,10 @@ static NSData *signature(NSView *view) {
             [self.coldTimes addObject:@(link.timestamp)];
         }
         pthread_mutex_lock(&lock);
-        BOOL ready = firstComplete > 0;
+        BOOL ready = firstComplete > 0 && (!getenv("G1_BOOT_ONLY") || !atomic_load(&cpuSubmitted) || firstInkComplete > 0);
         pthread_mutex_unlock(&lock);
-        if (now - self.windowAt >= 2 && (!painted || ready)) [self ready];
-        if (now - processStart > 30) { fprintf(stderr, "probe: first complete frame timed out\n"); exit(2); }
+        if ((getenv("G1_BOOT_ONLY") || now - self.windowAt >= 2) && (!painted || ready)) [self ready];
+        if (now - processStart > 30) { fprintf(stderr, "probe: first complete frame timed out\n"); if (tracing) saveTrace(); exit(2); }
     } else if (self.phase == 1) {
         if (!NSApp.active || !self.window.keyWindow) self.inactiveTicks++;
         [self.ticks addObject:@{@"timestamp": @(link.timestamp), @"delivered": @(now),
@@ -289,6 +434,7 @@ static NSData *signature(NSView *view) {
     self.result[@"preMainMs"] = @((loaded - processStart) * 1000);
     if (firstDrawable) self.result[@"firstDrawableMs"] = @((firstDrawable - processStart) * 1000);
     self.result[@"arm"] = arm;
+    self.result[@"workload"] = workload;
     self.result[@"imageRefusalsAllowed"] = @(getenv("G1_ALLOW_IMAGE_REFUSALS") != NULL);
     if (painted) {
         self.result[@"drawableCalls"] = @(atomic_load(&drawableCalls));
@@ -303,6 +449,20 @@ static NSData *signature(NSView *view) {
     self.result[@"lowPower"] = @(NSProcessInfo.processInfo.lowPowerModeEnabled);
     self.result[@"activeAtStart"] = @(NSApp.active && self.window.keyWindow);
     self.result[@"screenHz"] = @(self.window.screen.maximumFramesPerSecond);
+    if (getenv("G1_BOOT_ONLY")) {
+        self.result[@"passiveStartup"] = @YES;
+        self.result[@"activationSuppressed"] = @(atomic_load(&activationSuppressed));
+        self.result[@"keySuppressed"] = @(atomic_load(&keySuppressed));
+        self.result[@"cpuSubmitted"] = @(atomic_load(&cpuSubmitted));
+        if (firstCpu) self.result[@"firstCpuMs"] = @((firstCpu - processStart) * 1000);
+        if (firstInk) self.result[@"firstInkMs"] = @((firstInk - processStart) * 1000);
+        if (firstCpuComplete) self.result[@"firstCpuCompleteMs"] = @((firstCpuComplete - processStart) * 1000);
+        if (firstInkComplete) self.result[@"firstInkCompleteMs"] = @((firstInkComplete - processStart) * 1000);
+        self.result[@"thermalEnd"] = @(NSProcessInfo.processInfo.thermalState);
+        writeJSON(self.result, output);
+        if (tracing) saveTrace();
+        exit(0);
+    }
     self.coldPixels = nil;
     self.coldTimes = nil;
     self.link.paused = YES;
@@ -340,16 +500,14 @@ static NSData *signature(NSView *view) {
             self.peak = MAX(self.peak, [sample[@"footprint"] unsignedLongLongValue]);
         });
         dispatch_resume(self.memory);
-        self.phase = 1; self.link.paused = NO;
-        writeJSON(self.start, [output stringByAppendingString:@".fling"]);
+        self.phase = 1; self.link.paused = NO; setGPUPhase(1);
+        writeJSON(self.start, [output stringByAppendingFormat:@".%@", workload]);
     } else if (self.phase == 1) {
+        setGPUPhase(2);
         NSDictionary *end = usage();
-        self.result[@"fling"] = @{ @"start": self.start, @"end": end, @"peak": @(self.peak), @"displayLink": self.ticks,
+        self.result[workload] = @{ @"start": self.start, @"end": end, @"peak": @(MAX(self.peak, [end[@"footprint"] unsignedLongLongValue])), @"displayLink": self.ticks,
             @"wheelEvents": @(self.wheels), @"wheelDeltaY": @(self.wheelDelta), @"wheelPositions": self.wheelPositions,
             @"inactiveTicks": @(self.inactiveTicks), @"samples": self.samples };
-        pthread_mutex_lock(&lock);
-        self.result[@"presented"] = [presented copy];
-        pthread_mutex_unlock(&lock);
         if (tracing) writeJSON(self.result[@"fling"], [output stringByAppendingString:@".fling-data"]);
         self.ticks = nil; self.link.paused = YES;
         NSScrollView *scroll = scrollView(self.window.contentView);
@@ -361,12 +519,22 @@ static NSData *signature(NSView *view) {
         writeJSON(self.start, [output stringByAppendingString:@".rest"]);
         if (tracing) saveTrace();
     } else if (self.phase == 2) {
+        setGPUPhase(0);
         self.result[@"rest"] = @{ @"start": self.start, @"end": usage(), @"peak": @(self.peak), @"samples": self.samples };
         self.result[@"thermalEnd"] = @(NSProcessInfo.processInfo.thermalState);
         self.result[@"activeAtEnd"] = @(NSApp.active && self.window.keyWindow);
         self.result[@"focusLosses"] = self.focusLosses;
-        writeJSON(self.result, output);
-        exit(0);
+        self.phase = 3;
+        dispatch_source_cancel(self.memory);
+        // Retain completions and presentations for buffers committed at the phase boundary.
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            self.result[@"gpu"] = @{workload: gpuUsage(1), @"rest": gpuUsage(2), @"outside": gpuUsage(0)};
+            pthread_mutex_lock(&lock);
+            self.result[@"presented"] = [presented copy];
+            pthread_mutex_unlock(&lock);
+            writeJSON(self.result, output);
+            exit(0);
+        });
     }
 }
 @end
@@ -381,7 +549,12 @@ __attribute__((constructor)) static void initialize(void) {
         mach_timebase_info(&timebase);
         tickSeconds = (double)timebase.numer / timebase.denom / 1e9;
         output = @(path);
+        if (getenv("G1_BOOT_ONLY")) suppressBootFocus();
         arm = @(getenv("G1_ARM") ?: "native");
+        workload = @(getenv("BENCH_MOTION") ?: "fling");
+        if (![@[@"fling", @"bar", @"caret"] containsObject:workload]) {
+            fprintf(stderr, "probe: BENCH_MOTION must be bar or caret\n"); exit(2);
+        }
         if (![@[@"native", @"gpui", @"ink", @"egui"] containsObject:arm]) {
             fprintf(stderr, "probe: unknown arm %s\n", arm.UTF8String); exit(2);
         }
@@ -391,7 +564,8 @@ __attribute__((constructor)) static void initialize(void) {
         if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&initial) || !initial.ri_proc_start_abstime) abort();
         processStart = initial.ri_proc_start_abstime * tickSeconds;
         presented = [NSMutableArray array];
-        if (painted) {
+        watchCommandQueues();
+        {
             Method method = class_getInstanceMethod(CAMetalLayer.class, @selector(nextDrawable));
             class_addMethod(CAMetalLayer.class, @selector(g1_originalDrawable), method_getImplementation(method), method_getTypeEncoding(method));
             method_setImplementation(method, (IMP)nextDrawable);
@@ -399,3 +573,29 @@ __attribute__((constructor)) static void initialize(void) {
         dispatch_async(dispatch_get_main_queue(), ^{ static G1Probe *probe; probe = [G1Probe new]; [probe attach]; });
     }
 }
+
+#ifdef G1_PROBE_TEST
+int main(void) {
+    @autoreleasepool {
+        presented = [NSMutableArray array];
+        recordPresented(0, YES, 0);
+        recordPresented(1, NO, 0);
+        recordPresented(2, NO, 1);
+        assert(firstComplete == 0 && firstCpuComplete == 0 && firstInkComplete == 0);
+        recordPresented(3, YES, 0);
+        recordPresented(4, YES, 1);
+        recordPresented(5, YES, 1);
+        assert(firstCpu == 1 && firstInk == 2 && firstComplete == 3);
+        assert(firstCpuComplete == 3 && firstInkComplete == 4 && presented.count == 5);
+        recordPresented(3.5, YES, 1);
+        assert(firstInkComplete == 3.5 && firstComplete == 3);
+        __block int wakes = 0;
+        g1_boot_expose(^{ wakes++; });
+        firstBootTick();
+        firstBootTick();
+        assert(wakes == 1);
+        puts("probe: painter-specific completeness and one boot-expose wake passed");
+    }
+    return 0;
+}
+#endif

@@ -16,10 +16,15 @@ use std::{
     time::Instant,
 };
 
+#[cfg(target_os = "macos")]
+use super::apple::Trace;
+
 mod mips;
 #[cfg(target_os = "macos")]
 mod present;
 mod setup;
+#[cfg(target_os = "macos")]
+pub mod startup;
 #[cfg(test)]
 mod tests;
 
@@ -41,6 +46,12 @@ pub struct Buffer {
     last: Rc<Cell<Submission>>,
     owner: Rc<()>,
 }
+
+#[cfg(target_os = "macos")]
+type PreparedPresentation = (
+    Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
+    Rc<crate::present::Thread>,
+);
 
 pub struct Metal {
     device: Retained<ProtocolObject<dyn MTLDevice>>,
@@ -67,23 +78,60 @@ pub struct Metal {
     thread: Option<Rc<crate::present::Thread>>,
     #[cfg(target_os = "macos")]
     window: Option<present::Window>,
+    #[cfg(target_os = "macos")]
+    prepared_present: Option<PreparedPresentation>,
 }
 
 impl Metal {
     pub fn new() -> Result<Self> {
         autoreleasepool(|_| {
+            #[cfg(target_os = "macos")]
+            let _boot = Trace::new(c"boot Metal constructor");
             let start = Instant::now();
-            let device = MTLCreateSystemDefaultDevice()
-                .ok_or_else(|| Error::NoAdapter("MTLCreateSystemDefaultDevice".into()))?;
-            let queue = device
-                .newCommandQueue()
-                .ok_or_else(|| Error::Device("command queue allocation".into()))?;
+            let device = {
+                #[cfg(target_os = "macos")]
+                let _trace = Trace::new(c"boot MTLCreateSystemDefaultDevice");
+                MTLCreateSystemDefaultDevice()
+                    .ok_or_else(|| Error::NoAdapter("MTLCreateSystemDefaultDevice".into()))?
+            };
+            let queue = {
+                #[cfg(target_os = "macos")]
+                let _trace = Trace::new(c"boot command queue");
+                device
+                    .newCommandQueue()
+                    .ok_or_else(|| Error::Device("command queue allocation".into()))?
+            };
             let adapter = device.name().to_string();
             let device_ms = start.elapsed().as_secs_f64() * 1000.;
             let start = Instant::now();
             let pipelines = setup::pipelines(&device, MTLPixelFormat::RGBA8Unorm)?;
             let shaders_ms = start.elapsed().as_secs_f64() * 1000.;
             pipelines.save();
+            Self::from_parts(
+                device,
+                queue,
+                pipelines,
+                Info {
+                    adapter,
+                    api: "direct Metal".into(),
+                    device_ms,
+                    shaders_ms,
+                    cached: false,
+                },
+            )
+        })
+    }
+
+    fn from_parts(
+        device: Retained<ProtocolObject<dyn MTLDevice>>,
+        queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
+        pipelines: setup::Pipelines,
+        mut info: Info,
+    ) -> Result<Self> {
+        autoreleasepool(|_| {
+            info.cached = pipelines.cached;
+            #[cfg(target_os = "macos")]
+            let resources = Trace::new(c"boot samplers buffers white textures");
             let sampler = setup::sampler(&device, false)?;
             let repeat_sampler = setup::sampler(&device, true)?;
             let owner = Rc::new(());
@@ -104,6 +152,8 @@ impl Metal {
             let white_color = texture(&device, TextureDesc::rgba(1, 1))?;
             upload(&white_alpha, [0, 0], [1, 1], &[255]);
             upload(&white_color, [0, 0], [1, 1], &[255; 4]);
+            #[cfg(target_os = "macos")]
+            drop(resources);
             Ok(Self {
                 device,
                 queue,
@@ -124,17 +174,13 @@ impl Metal {
                 retired_buffers: Vec::new(),
                 owner,
                 error: None,
-                info: Info {
-                    adapter,
-                    api: "direct Metal".into(),
-                    device_ms,
-                    shaders_ms,
-                    cached: pipelines.cached,
-                },
+                info,
                 #[cfg(target_os = "macos")]
                 thread: None,
                 #[cfg(target_os = "macos")]
                 window: None,
+                #[cfg(target_os = "macos")]
+                prepared_present: None,
             })
         })
     }

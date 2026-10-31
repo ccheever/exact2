@@ -17,6 +17,7 @@ exact-data = { path = "../../data" }
 exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
+exact-grants = { path = "../../grants" }
 exact-web = { path = "../web" }
 exact-web-capabilities = { path = "../web-capabilities" }
 # The executor core's transport (LLP 1016 D2), as the Apple and Linux hosts

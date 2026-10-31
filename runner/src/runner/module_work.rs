@@ -42,6 +42,12 @@ impl<D: DataSource> Runner<D> {
         self.module_work.tickets.contains_key(&ticket)
     }
 
+    /// Whether a kept request the host has not refused is in flight.
+    pub(super) fn module_work_effects(&self) -> bool {
+        let refused = |t: &u64| self.module_work.refused.iter().any(|(r, ..)| r == t);
+        (self.module_work.tickets.keys()).any(|t| !refused(t))
+    }
+
     /// Kept requests' tickets in flight, for `pending`, `in_flight` and `clock settle`.
     pub(super) fn module_work_tickets(&self) -> Vec<(String, u64)> {
         (self.module_work.tickets.keys())
@@ -93,8 +99,7 @@ impl<D: DataSource> Runner<D> {
         } else if p.upload {
             self.upload_let_go(p.ticket);
         }
-        // One the host refused never ran: nothing of it is lost.
-        if p.effects && p.refusal.is_none() && !p.refused && !self.poisoned {
+        if p.admitted_effects() && !self.poisoned {
             self.module_work.letting.push(p);
         }
     }

@@ -79,9 +79,10 @@ struct CompiledScript {
 /// `abort_hooks`, when set, names a global with the same name rules and
 /// collisions. It requires GROUP_ABORT and publishes the frozen hook object
 /// created by the abort binding, with exactly `{ own, subscribe }`. `own(signal)`
-/// returns a frozen, null-prototype live view with only read-only `aborted` and
-/// `reason` getters for an Ibex AbortSignal and throws a TypeError for any other
-/// value. The view retains private state and is capability-equivalent to `own`
+/// returns a frozen, null-prototype live view with only read-only `aborted`,
+/// `reason` and `sources` getters for an Ibex AbortSignal (`sources`: a fresh
+/// array of the signals `AbortSignal.any` composed it of, flattened, or null)
+/// and throws a TypeError for any other value. The view retains private state and is capability-equivalent to `own`
 /// for reading that signal. The harden reachability walk does not recognize or
 /// track views returned from `own`; trusted embedder code may read one but must
 /// never return, publish, or attach it to an application-reachable object.
@@ -96,6 +97,14 @@ struct CompiledScript {
 /// hooks and public abort dispatch still run. Because abort algorithms run
 /// before event dispatch, an application listener's
 /// `stopImmediatePropagation()` cannot suppress them.
+///
+/// `headers_hooks`, when set, names a global with the same name rules and
+/// collisions. It requires GROUP_PURE and publishes the frozen hook object
+/// created by the Headers binding, with exactly `{ guard }`.
+/// `guard(headers, kind)` gives an Ibex Headers object Fetch's guard and
+/// returns it: "immutable" makes `append`, `set` and `delete` throw a
+/// TypeError, and "response" makes them ignore `Set-Cookie` and `Set-Cookie2`.
+/// It throws a TypeError for any other kind or a value that is not a Headers.
 ///
 /// `defer_intrinsic_snapshot`, when true, makes installation discard the
 /// constructor-time SQLite integrity baseline after all selected binding
@@ -210,6 +219,8 @@ struct InstallOptions {
   const char* fetch_primitives = nullptr;
   // @ref LLP 0068#opt-in-abort-hooks-protocol — abort algorithms are a trusted-bootstrap handoff, never an application global
   const char* abort_hooks = nullptr;
+  // @ref LLP 0068#opt-in-headers-hooks-protocol — a Headers guard is a trusted-bootstrap handoff, never an application global
+  const char* headers_hooks = nullptr;
   // @ref LLP 0068#deferred-intrinsic-integrity-baseline — trusted preludes may establish the whole SQLite integrity baseline once
   bool defer_intrinsic_snapshot = false;
 };

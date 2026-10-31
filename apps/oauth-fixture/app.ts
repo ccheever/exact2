@@ -14,7 +14,7 @@ export const grants = [
   'auth.callback com.exact.oauthfixture:/oauth',
   'secret.keep oauth.spec', 'secret.keep oauth.google', 'secret.keep oauth.entra', 'secret.keep oauth.entra-v1',
   'secret.keep oauth.auth0', 'secret.keep oauth.okta', 'secret.keep oauth.onelogin', 'secret.keep oauth.github',
-  'secret.keep oauth.salesforce',
+  'secret.keep oauth.salesforce', 'secret.keep oauth.forgerock',
 ].join('\n');
 
 const at = (profile: string): string => `${FIXTURE}/p/${profile}`;
@@ -31,22 +31,46 @@ const CONFIGS: Record<string, OAuthConfig> = {
   onelogin: { ...common('onelogin'), issuer: `${at('onelogin')}/oidc/2`, scopes: ['openid', 'profile'], endedErrors: [{ error: 'invalid_request', status: 401 }] },
   github: { ...common('github'), clientSecret: 'fixture-secret', endpoints: { authorization: `${at('github')}/authorize`, token: `${at('github')}/token` }, scopes: ['read:user'], endedErrors: ['bad_refresh_token'], commaScopes: true },
   salesforce: { ...common('salesforce'), issuer: at('salesforce'), scopes: ['openid', 'api', 'refresh_token'] },
+  forgerock: { ...common('forgerock'), issuer: at('forgerock'), scopes: ['openid', 'profile'], expiredStatus: [401, 403] },
 };
 const providers = new Map<string, OAuthProvider>();
-const provider = (profile: string): OAuthProvider => {
-  let p = providers.get(profile);
+// `here`: the app's own sign-in screens (LLP 1146 D8), with the redirect URI the provider registered and no browser
+const provider = (profile: string, here = false): OAuthProvider => {
+  let p = providers.get(`${profile}${here ? ' here' : ''}`);
   if (!p) {
     const config = CONFIGS[profile];
     if (!config) throw new Error(`no profile ${profile}`);
-    p = oauth(config);
-    providers.set(profile, p);
+    p = oauth(here ? { ...config, callback: 'com.exact.oauthfixture:/oauth' } : config);
+    providers.set(`${profile}${here ? ' here' : ''}`, p);
   }
   return p;
 };
 
+// ForgeRock's tree (PROVIDERS.md FR-1) answered in one step with the fixture's person; its SSO token stays here.
+async function tree(profile: string): Promise<string> {
+  const url = `${at(profile)}/json/authenticate`;
+  const node = await (await fetch(url, { method: 'POST', body: '{}' })).json() as { callbacks: { input: { value: string }[] }[] };
+  node.callbacks[0].input[0].value = 'ada@example.com';
+  node.callbacks[1].input[0].value = 'lovelace';
+  const done = await (await fetch(url, { method: 'POST', body: JSON.stringify(node) })).json() as { tokenId?: string };
+  return done.tokenId ?? '';
+}
+
 const sources: Sources = {
   session: ([profile], store) => provider(profile).session(store),
   signIn: ([profile], store) => provider(profile).signIn(store),
+  // The authorization request the app sends with the tree's SSO token (FR-2)
+  signInHere: async ([profile], store) => {
+    const sso = await tree(profile);
+    return provider(profile, true).signIn(store, {
+      authorize: async ({ endpoint, params, fetch }) => {
+        const reply = await fetch(endpoint, { method: 'POST', redirect: 'manual',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: `iPlanetDirectoryPro=${sso}` },
+          body: new URLSearchParams({ ...params, csrf: sso, decision: 'allow' }).toString() });
+        return reply.headers.get('Location') ?? '';
+      },
+    });
+  },
   signOut: ([profile], store) => provider(profile).signOut(store),
   me: async ([profile, signedIn], store) => {
     if (!signedIn) return { name: '' };

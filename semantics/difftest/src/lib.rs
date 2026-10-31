@@ -356,22 +356,15 @@ fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
         }
         None
     };
-    // The semantics asked a question the runner never did: the two took
-    // different paths, whatever the outcome lines say.
-    if let Some(at) = lean_raw
+    let missing = lean_raw
         .iter()
         .position(|l| l.contains("# refused: the oracle has no answer"))
-    {
-        return Verdict::Diverge {
-            at: lean_raw[..at]
+        .map(|at| {
+            lean_raw[..at]
                 .iter()
                 .filter(|l| !l.starts_with('#'))
-                .count(),
-            rust: rust_raw,
-            lean,
-            lean_raw,
-        };
-    }
+                .count()
+        });
     // Where the two first differ, the runner refusing a step for passing
     // one of its evaluation bounds is outside the semantics, which is
     // unbounded (LLP 1090 D8): every executor refuses that step alike.
@@ -383,13 +376,41 @@ fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
             .find(|l| BOUNDS.iter().any(|b| l.contains(b)))
             .map(|l| format!("{l} (the runner's evaluation bound, LLP 1090 D8)"))
     };
+    // A binding past a bound was unset and the runner went on (LLP
+    // 1017.003 D3): from that step on, what it shows is outside the
+    // unbounded semantics.
+    let unset = |at: usize| -> Option<String> {
+        let mut seen = 0;
+        for l in rust_raw.iter().flat_map(|l| l.lines()) {
+            if !l.starts_with('#') {
+                seen += 1;
+                if seen > at + 1 {
+                    return None;
+                }
+            } else if l.contains(" trapped Trap(") && BOUNDS.iter().any(|b| l.contains(b)) {
+                return Some(format!("{l} (the runner's evaluation bound, LLP 1090 D8)"));
+            }
+        }
+        None
+    };
     let first = rust.iter().zip(&lean).position(|(a, b)| a != b);
     if let Some(at) = first.or((rust.len() != lean.len()).then(|| rust.len().min(lean.len()))) {
-        if !omitted_at(&rust_raw, at) {
-            if let Some(why) = unsupported(at).or_else(|| bound(at)) {
+        if missing.is_none_or(|missing| at < missing) && !omitted_at(&rust_raw, at) {
+            if let Some(why) = unsupported(at).or_else(|| bound(at)).or_else(|| unset(at)) {
                 return Verdict::Unsupported(why);
             }
         }
+    }
+    // An unsupported step can change later oracle calls. A missing reply
+    // before that boundary remains a divergence, even when both outcomes
+    // say "refused".
+    if let Some(at) = missing {
+        return Verdict::Diverge {
+            at,
+            rust: rust_raw,
+            lean,
+            lean_raw,
+        };
     }
     let at = rust.iter().zip(&lean).position(|(a, b)| a != b);
     match at {
@@ -451,13 +472,13 @@ pub fn expectations_on(s: &Scripted, rust: &[String]) -> Result<(), String> {
         match item {
             Item::Event(_) => k += 1,
             Item::Observe(_) => {}
-            Item::Settle { .. } => return Err("settle was not expanded".into()),
+            Item::Settle { .. } | Item::Until { .. } => {
+                return Err("clock step was not expanded".into());
+            }
             Item::Expect(e, _) => {
                 let step = steps.get(k).copied().unwrap_or(&[]);
                 let ok = match e {
-                    Expect::State(name, v) => ["slot", "derive", "resource"]
-                        .iter()
-                        .any(|kind| step.contains(&format!("{kind} {name} {v}"))),
+                    Expect::State(name, v) => script::state_value(step, name) == Some(v.as_str()),
                     Expect::Text(id, v) => step.contains(&format!(
                         "view {} {}",
                         observe::quote(id),
@@ -733,5 +754,89 @@ mod tests {
         rust.push(observe::OMITTED_COMMIT.into());
         rust.push("untraced configuration moved".into());
         assert!(matches!(compare(rust, lean), Verdict::Diverge { .. }));
+    }
+
+    /// A binding the runner unset for passing an evaluation bound shows
+    /// what the unbounded semantics does not: outside, from that step on.
+    /// One unset for another trap shows what the semantics shows (none), so
+    /// a difference there still diverges (LLP 1017.003 D3).
+    #[test]
+    fn a_binding_unset_for_a_bound_is_outside() {
+        let lean = lines(&[
+            "== boot",
+            "outcome ok",
+            "== tap \"go\"",
+            "outcome ok",
+            "view \"t\" \"x,x\"",
+        ]);
+        for (note, outside) in [
+            (
+                "# view 3 (site 1): text trapped Trap(IterationLimit { pc: 5 }); unset",
+                true,
+            ),
+            (
+                "# view 3 (site 1): text trapped Trap(TypeMismatch { pc: 5, op: Call }); unset",
+                false,
+            ),
+        ] {
+            let rust = lines(&[
+                "== boot",
+                "outcome ok",
+                "== tap \"go\"",
+                "outcome ok",
+                note,
+                "view \"t\" -",
+            ]);
+            let verdict = compare(rust, lean.clone());
+            assert_eq!(
+                matches!(verdict, Verdict::Unsupported(_)),
+                outside,
+                "{note}"
+            );
+            assert_eq!(
+                matches!(verdict, Verdict::Diverge { .. }),
+                !outside,
+                "{note}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_missing_reply_does_not_supersede_an_earlier_unsupported_step() {
+        let rust = lines(&[
+            "== boot",
+            "outcome ok",
+            "== type \"mode\" \"grid\"",
+            "outcome ok",
+            "== clock +10",
+            "outcome ok",
+        ]);
+        let lean = lines(&[
+            "== boot",
+            "outcome ok",
+            "== type \"mode\" \"grid\"",
+            "outcome refused",
+            "# unsupported: a payload for a `select` control",
+            "== clock +10",
+            "outcome refused",
+            "# refused: the oracle has no answer for load",
+        ]);
+        assert!(matches!(
+            compare(rust.clone(), lean.clone()),
+            Verdict::Unsupported(_)
+        ));
+
+        // Missing replies before the unsupported input still fail, even
+        // when the two outcomes at that earlier step agree.
+        let mut rust = rust;
+        let mut lean = lean;
+        for observation in [&mut rust, &mut lean] {
+            observation.splice(2..2, lines(&["== tap \"initial\"", "outcome refused"]));
+        }
+        lean.insert(4, "# refused: the oracle has no answer for initial".into());
+        assert!(matches!(
+            compare(rust, lean),
+            Verdict::Diverge { at: 4, .. }
+        ));
     }
 }

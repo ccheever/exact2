@@ -125,7 +125,7 @@ test "{{PROFILE}}: signing out while a renewal is in flight stays signed out"
   clock data
   expect text "status" == "Signed out"
   request POST "/control" {"action": "expect", "profile": "{{PROFILE}}", "most": {"revoke-stale": 0, "revoke-unknown": 0}, "least": {"refresh-ok": 1}}
-#if spec google entra auth0 okta onelogin salesforce
+#if spec google entra auth0 okta onelogin salesforce forgerock
   request POST "/control" {"action": "expect", "profile": "{{PROFILE}}", "least": {"revoke-current": 1}}
 #end
   reload

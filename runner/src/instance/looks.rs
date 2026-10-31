@@ -96,9 +96,11 @@ impl NodeInst {
         for look in &plan.looks[at..at + rows] {
             let mut written = Vec::with_capacity(look.bindings.len as usize);
             for b in look.bindings.iter() {
+                // A row that trapped is left out, as one that does not parse is.
                 let binding = plan.binding(b);
-                let value = u.eval_binding(b, binding.expr, frames)?;
-                written.push((binding.id, value, binding.written));
+                if let super::Evaluated::Value(value) = self.eval_row(u, b, frames)? {
+                    written.push((binding.id, value, binding.written));
+                }
             }
             states.push((look.state, written));
         }

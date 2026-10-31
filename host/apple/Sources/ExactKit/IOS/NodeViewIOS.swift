@@ -375,7 +375,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var focusesOnPress: Bool { canBecomeFirstResponder && asksForFocus }
     package override var canBecomeFirstResponder: Bool { !formDisabled && !inert && !cssVisibilityHidden && !isHidden && field == nil && textArea == nil && (kind == "button" || isNativeButton || isRadio || asksForFocus) }
     package override func becomeFirstResponder() -> Bool {
-        guard !formDisabled, !inert, !cssVisibilityHidden else { return false }
+        guard !formDisabled, !inert, !cssVisibilityHidden, !keepsFocus(from: self) else { return false }
         let ok = super.becomeFirstResponder()
         if ok { presenter?.collections.pinsChanged(); inputCanvas?.canvasInput?.focused() }
         if ok, presenter?.menus.focus.quiet != true { presenter?.focus(id) } // a menu's set-aside focus returns quietly (MenuFocusIOS)

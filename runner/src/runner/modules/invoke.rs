@@ -79,6 +79,8 @@ struct Running {
     to: Option<To>,
     /// The send it is the final handler of, by number.
     final_of: Option<u64>,
+    /// Its request in flight may change its server ([`crate::Request::has_effects`]).
+    effects: bool,
 }
 
 /// A handler the session drops unanswered (it ended, or was replaced) still
@@ -252,6 +254,7 @@ impl<D: DataSource> Runner<D> {
             started: self.now_ms,
             to: Some(to),
             final_of,
+            effects: false,
         };
         let answer = self.as_origin(origin, |r| {
             r.store.set_clock_ms(r.now_ms);
@@ -336,19 +339,26 @@ impl<D: DataSource> Runner<D> {
 
     /// A handler's turn ended: its answer to the implementation, or its
     /// next request out.
-    fn tool_step(&mut self, run: Running, answer: Result<Answer, DataError>) {
+    fn tool_step(&mut self, mut run: Running, answer: Result<Answer, DataError>) {
         self.take_data_logs();
         let answer = match answer {
             Ok(Answer::Later(mut request)) => {
                 let ticket = self.next_ticket;
                 self.next_ticket += 1;
                 request.reach = self.reach_of(run.origin);
-                self.requests.push(RequestOut {
-                    ticket,
-                    target: NAME.into(),
-                    request,
-                    forced: false,
-                });
+                run.effects = request.has_effects();
+                // A program starts only from the app's origin (LLP 1133.007
+                // D13): a handler's is refused before it reaches the host,
+                // so no ordered work waits on it.
+                match self.process_refusal(&request) {
+                    Some(why) => self.refuse_tool(ticket, why, false),
+                    None => self.requests.push(RequestOut {
+                        ticket,
+                        target: NAME.into(),
+                        request,
+                        forced: false,
+                    }),
+                }
                 self.extensions.invocations.running.insert(ticket, run);
                 self.native_slot().changed("");
                 return;
@@ -373,7 +383,6 @@ impl<D: DataSource> Runner<D> {
                 json!({ "error": "OperationError", "message": message })
             }
         };
-        let mut run = run;
         let final_of = run.final_of;
         match run.to.take() {
             Some(To::Implementation(reply)) => reply(answer.to_string()),
@@ -396,6 +405,14 @@ impl<D: DataSource> Runner<D> {
         (self.extensions.invocations.running.keys())
             .map(|t| (NAME.to_owned(), *t))
             .collect()
+    }
+
+    /// Whether a handler's request with effects is in flight, one the host
+    /// refused at admission aside.
+    pub(in crate::runner) fn tool_effects(&self) -> bool {
+        let invocations = &self.extensions.invocations;
+        (invocations.running.iter())
+            .any(|(t, r)| r.effects && !invocations.refused.iter().any(|(x, ..)| x == t))
     }
 
     /// The least privileged origin of a handler running now, if one is.
@@ -472,7 +489,7 @@ pub(super) fn grant_handles(granted: &Granted, ids: &[String], grant: &Grant) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DataError, Store};
+    use crate::{DataError, Request, Store};
     use exact_kernel::{Kernel, NodeType};
     use exact_plan::builder::PlanBuilder;
 
@@ -502,21 +519,49 @@ mod tests {
         }
     }
 
+    fn boot() -> Runner<Source> {
+        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+        let plan = b.finish().unwrap();
+        Runner::boot(
+            plan,
+            Source,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    }
+
+    /// Handler `h`'s run, answering `to`.
+    fn running(to: Option<To>) -> Running {
+        Running {
+            at: "test: h".into(),
+            source: "tool:h".into(),
+            args: Value::str("{}"),
+            origin: CallOrigin::Tool,
+            started: 0.0,
+            to,
+            final_of: None,
+            effects: false,
+        }
+    }
+
+    /// A handler's turn that sends `request`: its ticket.
+    fn send(r: &mut Runner<Source>, request: Request) -> u64 {
+        r.tool_step(running(None), Ok(Answer::Later(request)));
+        r.take_requests()
+            .last()
+            .expect("the handler's request")
+            .ticket
+    }
+
     /// A handler running ticket `ticket`'s request, whose replies `said` collects.
     fn run(r: &mut Runner<Source>, ticket: u64, said: &Arc<Mutex<Vec<(u64, String)>>>) {
         let said = said.clone();
         let reply: Box<dyn FnOnce(String) + Send> =
             Box::new(move |answer| said.lock().unwrap().push((ticket, answer)));
-        let run = Running {
-            at: format!("test: h for {ticket}"),
-            source: "tool:h".into(),
-            args: Value::str("{}"),
-            origin: CallOrigin::Tool,
-            started: 0.0,
-            to: Some(To::Implementation(reply)),
-            final_of: None,
-        };
-        r.extensions.invocations.running.insert(ticket, run);
+        (r.extensions.invocations.running).insert(ticket, running(Some(To::Implementation(reply))));
     }
 
     /// Two handlers' requests refused together each settle once, the second
@@ -524,17 +569,7 @@ mod tests {
     /// earlier ordered work is done (LLP 1133.016 D9, LLP 1041 §8.4).
     #[test]
     fn refused_handler_requests_settle_once_each_in_order() {
-        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
-        b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
-        let plan = b.finish().unwrap();
-        let mut r = Runner::boot(
-            plan,
-            Source,
-            Kernel::with_monospace(),
-            Default::default(),
-            "/",
-        )
-        .unwrap();
+        let mut r = boot();
         let said = Arc::new(Mutex::new(Vec::new()));
         run(&mut r, 901, &said);
         run(&mut r, 902, &said);
@@ -567,5 +602,33 @@ mod tests {
             "{said:?}"
         );
         assert!(r.extensions.invocations.running.is_empty());
+    }
+
+    /// A handler's POST is a request with effects until it lands, so the host
+    /// keeps the app running for it; its GET is not one, nor a POST the host
+    /// refused at admission (LLP 1146 D2).
+    #[test]
+    fn a_handler_s_post_has_effects_until_it_lands() {
+        let mut r = boot();
+        let get = send(&mut r, Request::get("https://example.test/get"));
+        assert!(!r.effects_in_flight(), "a GET has no effects");
+        let post = send(
+            &mut r,
+            Request::post_json("https://example.test/post", "{}"),
+        );
+        assert!(r.effects_in_flight());
+        let offline = Outcome::Failed {
+            kind: crate::request::FailureKind::Network,
+            message: "offline".into(),
+        };
+        r.fulfill(post, offline).unwrap();
+        assert!(!r.effects_in_flight(), "landed");
+        let refused = send(
+            &mut r,
+            Request::post_json("https://example.test/post", "{}"),
+        );
+        r.refuse_request(refused, "native executor admission limit reached", false);
+        assert!(!r.effects_in_flight(), "refused at admission, it never ran");
+        assert!(r.holds(get) && r.holds(refused));
     }
 }

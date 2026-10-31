@@ -122,7 +122,7 @@ test('the wasm agent loads its input helpers once and keeps settled reads synchr
   const context = vm.createContext({
     stageLoaded: () => true, agentMode: false, agentNow: request => ({ op: request.op }),
     loadAfterPaint: (file, exported) => {
-      expect([file, exported]).toEqual(['./input-glue.js', 'agentInput']);
+      expect([file, exported]).toEqual(['./agent-input.js', 'agentInput']);
       loads++;
       return new Promise(resolve => { finish = resolve; });
     },

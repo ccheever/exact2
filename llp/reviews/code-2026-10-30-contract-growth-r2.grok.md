@@ -1,0 +1,31 @@
+# Code review: the Contract compiler's quadratic growth, round 2 (grok)
+
+- **Family:** xAI. Grok 4.7 via `grok`, reasoning effort xhigh, no subagents, Edit and Write denied, a throwaway worktree at `6d6c847c1c`.
+- **Method:** one brief (sha256 `b00c529de40cac8d129fca1f817344e8127f3d44b01bc70585c44a90acadbd18`), shared by both reviewers, blind to the other review. The author (Claude, rt1) is not a reviewer.
+- **Transcription:** the final message, unedited.
+
+I'll review the three commits against the plan and the round-1 fixes, starting with the review criteria and the diff itself.The plan path is missing, so I’ll review the three commits against the stated conditions and the source around each change.The diff is in place. Next I’ll compile the type and growth tests and check the timing margin and the clock call.Auto-compacting conversation (81% full)...
+Conversation compacted.
+The caps check already failed on the lowerer. I'll run the growth test and the contract-types suite next, then write the review from those results.Tests are running. I'll re-read the lookup, retype, and name-map paths so the verdict cites the current lines.[P2] The lowerer is over the source-file budget — `contract/lower/src/lib.rs:214`
+
+The three name maps (`slot_names`, `action_names`, `mutation_names`) and the loops that fill them (`411–434`) take this file from 1,477 lines at `35e89d4068` to 1,508. The budget is 1,500 lines per source file, with no baseline allowance (`rules/RULES.md`, `scripts/caps.mjs` counts `text.split('\n').length`). Failing input: `bun scripts/caps.mjs` reports `cap:lines contract/lower/src/lib.rs is 1508 lines, over the cap of 1500.`
+
+The lookups match the scans they replaced, on the inputs those scans distinguished.
+
+- First-wins is `entry().or_insert` in `Frame::find` / `push_name`, in `Names::new`, and in the lowerer maps (filled in reverse, so the earliest declaration overwrites). A state is inserted after mutations, so it still wins a shared name in `slot_named`; `send` still uses `mutation_names` only. Duplicate `n3` at index 17 resolves to `Slot(3)`.
+- The index stores positions. `retype` writes the type in the live `names` entry, so a rebuilt index is not required after a write. `push_name` updates a built index; under 16 names the frame still scans. `Arc::make_mut` copies the frame, `OnceLock` included, before a push onto a shared frame. The scope tests cover an outer binding, a shadowed indexed frame, region depth past an indexed region, a name pushed after the index exists, and a clone that must not see that name. All passed.
+- Slot types change only on a successful assign, which records the slot before the statement returns. `retype_written` runs after `pop`, at `props + injects`, which is where states sit in `component_scope`. `calls::refine` keeps one declarations scope, updates `ct.actions` immediately, drops the caller's scope, then retypes `names.len() - actions.len() + ci`. That suffix is the action block. Later callers therefore see the refined callee; argument inference inside one caller still uses the scope from the start of that caller. `share_captures` still runs after `refine`, and the body rounds build a fresh scope after that. `name#N` is the full map key; `lifted` is still `name.contains('#')`.
+- The tint memo stores the same three outcomes as the old `contains(&Some(true))` / nonempty-`all(Some(false))` scan: native, drawn, or unknown. Unknown still falls through to the `appearance` literal. The range `(span, 0, "")` is the minimum key for that `Span` (`line, col, end_col, source_id`), and `take_while` keeps the span. Warning maps are lookup-only, so diagnostic order stays walk order.
+
+`cfg(test)` hooks compare each body refresh with every slot retyped from the same `ct`, and each calling action's kept declarations with a fresh `component_scope`. `refreshing_only_what_changed_matches_building_again` (300 components through `check_all`) and `action_checks_reuse_declarations_and_observe_prior_writes` (a later action reads a write from an earlier one; both slots end as `option<number>`) passed inside the 10 contract-types lib tests. contract-lower lib: 47 passed. contract-analyze lib: no tests. The growth test passed in 7.94s (debug), so its ratio on this machine is within 4.6. `cargo fmt --all -- --check` and clippy `-D warnings` on the four contract crates were clean earlier in this review. The full contract integration suite was not run.
+
+CHANGES
+
+1. `contract/lower/src/lib.rs:214` — the file is 1,508 lines and the cap is 1,500. `bun scripts/caps.mjs` fails with `cap:lines contract/lower/src/lib.rs is 1508 lines, over the cap of 1500.`
+
+Notes:
+
+- `host/apple/tests/ExactKitTests/NavigationBasicsIOSTests.swift` is 1,504 lines on the base commit as well. With no baseline, caps reports it too, so shrinking the lowerer still leaves the check red.
+- The growth fixture goes through `compile_path_all_warned(path, true)`, the same entry as `contract build`, and times `CLOCK_THREAD_CPUTIME_ID`. The compiler path has no worker threads, and the macOS test lane has that clock. `libc` is a unix-only dependency of `contract` (`contract/cli/Cargo.toml:34`) and `growth.rs` has no `#![cfg(unix)]`, unlike `tamber_limits.rs`. The Windows and Linux tier-2 checks do not compile contract tests. The author's clean band is 3.9–4.3 and the smallest scan put back is 4.8–5.2, so 4.6 has little room; this run passed and did not print the ratio. The module comment says main measured 15.6x; the commit message says 17.1x. The fixture asks the indexed lookup, the slot refresh, refine, the lowerer name maps, the tint aggregate, and the shared analyze set. It has no `send`, mutation `then`, module event, view event, or launch route, so a scan restored only in those passes would not move this ratio.
+- `settled > 300` counts slots that are still `Ty::Option`. `none` is already an option, so that counter holds whether or not a write settled one. `refined > 300` does require callees to leave `Unknown`, and the two hooks are what fail on a missed refresh.
+- Byte-identity is the lookup comparison above. The base tree was not checked out, so plans and diagnostics were not re-diffed here. `~/x2review/rt1-typecheck-growth-plan.md` is not on disk.

@@ -1,6 +1,6 @@
 // App-module bindings, injected by the bundler, never installed as page-wide
 // globals. Host modules keep the browser's functions at every load time.
-import { FetchError, fetchWith, inOverlay, overlaying, ownWithout, redirectOf } from './admission.js';
+import { FetchError, fetchWith, inOverlay, overlaying, ownWithout, redirectOf, signalDeadline } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
 // A stream or an upload takes the redirect mode as `fetch` is called, as Hermes
 // does: a bad one rejects before a file is read or a stream registered.
@@ -56,7 +56,8 @@ function fetchNow(input, options) {
       try { target = input instanceof Request ? input : String(input); init = captured(options); } catch (e) { return Promise.reject(e); }
       return Promise.resolve().then(() => {
         if (call.socketConflict) throw new Error(SOCKET_AND_FETCH);
-        return fetchWith(tsGrantSet, target, init, null, undefined, undefined, call.origin);
+        // As the mutation's own, so a deadline its signal gives aborts in its turn
+        return asCall(call, () => fetchWith(tsGrantSet, target, init, null, undefined, undefined, call.origin));
       });
     }
     return fetchOf(input, options, call);
@@ -102,20 +103,24 @@ function fetchOf(input, options, call) {
     } catch (e) { return Promise.reject(e); }
     const started = globalThis.performance.now();
     if (signal?.aborted) return Promise.reject(signal.reason ?? new FetchError('Aborted', 'the fetch was aborted'));
+    // The signal's deadline covers the file work too, as natively, replacing an `exactTimeout` no earlier
+    const armed = signalDeadline.arm(signal, ms);
+    if (armed) init.exactTimeout = ms = undefined;
     const deadline = ms === undefined ? null : AbortSignal.timeout(ms);
     let stop = () => {};
     const ended = new Promise((_, reject) => {
       const timedOut = () => reject(new FetchError('Timeout', `the request timed out after ${ms} ms`));
       const aborted = () => reject(signal.reason ?? new FetchError('Aborted', 'the fetch was aborted'));
-      signal?.addEventListener?.('abort', aborted, { once: true });
+      const heard = ownSignal(signal);
+      heard?.addEventListener?.('abort', aborted, { once: true });
       deadline?.addEventListener('abort', timedOut, { once: true });
-      stop = () => { signal?.removeEventListener?.('abort', aborted); deadline?.removeEventListener('abort', timedOut); };
+      stop = () => { heard?.removeEventListener?.('abort', aborted); deadline?.removeEventListener('abort', timedOut); };
     });
     const origin = fetchOrigin();
     return Promise.race([import('./ts-body-from.js'), ended]).finally(stop).then(m => {
       if (call?.socketConflict) throw new Error(SOCKET_AND_FETCH);
-      return m.fromFile(input, init, redirect, started, origin);
-    });
+      return m.fromFile(input, init, redirect, started, origin, armed);
+    }).finally(() => armed?.cancel());
   }
   return options.exactTimeout !== undefined && options.exactUploadProgress !== true ? Promise.reject(new TypeError('exactTimeout: a stream has no timeout')) : stream(input, options, redirect);
 }
@@ -156,26 +161,34 @@ function arm(api, run, ms, args) {
   if (overlaying.on) throw inOverlay(api);
   const call = answering.call;
   if (answering.mapper || !call || !answers(call)) throw new Error(`${api} is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value or was let go)`);
-  const { clock, journal, drive } = answering.page, id = NextTimer++;
+  const { clock, drive } = answering.page, id = NextTimer++;
   // The action answers true, as every clock entry's does (rt.js `advance`: anything else stops the advance).
   // `live`: its answer has not answered nor been let go (the agent's `clock settle` goes only to those).
   const live = () => answers(call);
   const entry = { due: clock.now + ms, once: true, data: true, call, live, action() {
     disarm(id);
     if (!live()) { dropTimers(call, true); return true; }
-    // In flight until the page's next task, so the agent's jump lands what it started (its microtasks, the answer's
-    // continuation) before the next timer fires, as a browser runs them between tasks.
-    call.firing = (call.firing ?? 0) + 1; call.recount?.();
-    globalThis.setTimeout(() => { call.firing--; call.recount?.(); });
-    const before = answering.call;
-    answering.call = call;
-    try { run(...args); } catch (e) { journal.push(`t=${clock.now} data: a timer's callback threw: ${e?.message ?? e}`); } finally { answering.call = before; }
+    runAs(call, () => run(...args));
     return true;
   } };
   Armed.set(id, { call, entry }); clock.timers.push(entry);
   call.timers = (call.timers ?? 0) + 1; call.recount?.();
   if (!clock.agent) drive();
   return id;
+}
+// Run `run` as `call`'s turn, as its timers run: in flight until the page's next task, so the agent's jump lands what it
+// started (its microtasks, the answer's continuation) before the next timer fires, as a browser runs them between tasks.
+function runAs(call, run) {
+  const { clock, journal } = answering.page;
+  call.firing = (call.firing ?? 0) + 1; call.recount?.();
+  globalThis.setTimeout(() => { call.firing--; call.recount?.(); });
+  asCall(call, () => { try { run(); } catch (e) { journal.push(`t=${clock.now} data: a timer's callback threw: ${e?.message ?? e}`); } });
+}
+// `run`'s answer, with `call` the answer running while it runs
+function asCall(call, run) {
+  const before = answering.call;
+  answering.call = call;
+  try { return run(); } finally { answering.call = before; }
 }
 /** Whether `call` still answers: it has not answered, and its ticket was not let go. */
 function answers(call) { const t = call.ticket; return !call.settled && !(t && (t.owner.ticket !== t || t.owner.gone)); }
@@ -189,15 +202,89 @@ function disarm(id) {
 }
 /** Clear `call`'s timers, unrun: it has answered, or (`gone`) its ticket was let go, which ends its bookkeeping. */
 export function dropTimers(call, gone) { for (const [id, armed] of Armed) if (armed.call === call) disarm(id); if (gone) call.abandon?.(); }
-// `AbortSignal.timeout` is an answer's timer too; the page's AbortSignal otherwise.
-const PageAbortSignal = globalThis.AbortSignal;
+// A signal of the request's own that the platform aborts with `signal`, so an abort listener of the app's that stops
+// the event cannot keep the request from ending, as none can keep a browser's fetch from ending (DOM, "signal abort":
+// a dependent signal's event is its own); `signal` where the platform composes none
+export function ownSignal(signal) {
+  return signal && typeof PageAbortSignal?.any === 'function' ? PageAbortSignal.any([signal]) : signal;
+}
+// A request carrying an `AbortSignal.timeout`, or a signal composed of one, takes the time the signal has left on the
+// page's clock as a real-time deadline (the browser's `setTimeout`, which `clock +N` does not move), as natively
+// (prelude.js `timers.left`, `expire`): the signal's own timer goes with its answer, but a POST let go runs on (LLP 1146
+// D2), and another answer may carry the signal. An earlier `exactTimeout` (`before`) stays the deadline instead. A
+// `Request`'s own signal gives none: it is the browser's, following the one the Request was given.
+signalDeadline.arm = (signal, before) => {
+  const t = signal && !signal.aborted ? Deadlines.get(signal) : undefined;
+  const left = t && Math.max(1, t.due - answering.page.clock.now);
+  if (left === undefined || before < left) return undefined;
+  // The signal aborts in the turn of the answer that fetched, as natively, while that answer still answers
+  const call = answering.call;
+  return after(left, () => {
+    disarm(t.id);
+    if (call && answers(call)) runAs(call, t.abort); else t.abort();
+  });
+};
+// `run` once `ms` of real time have passed, by the page's monotonic clock, waited in steps of at most the browser
+// timers' longest delay, 2^31 - 1 ms (HTML, "timer initialization steps"); answers `cancel`, after which it never
+// runs, and `overdue`, which runs it at once when it is due though its timer has not fired yet
+function after(ms, run) {
+  const due = globalThis.performance.now() + ms;
+  let id, done = false;
+  const fire = () => { done = true; run(); };
+  const step = () => {
+    const left = due - globalThis.performance.now();
+    if (left <= 0) fire();
+    else id = globalThis.setTimeout(step, Math.min(left, 2147483647));
+  };
+  id = globalThis.setTimeout(step, Math.min(ms, 2147483647));
+  return {
+    cancel: () => { done = true; globalThis.clearTimeout(id); },
+    overdue: () => { if (!done && globalThis.performance.now() >= due) { globalThis.clearTimeout(id); fire(); } },
+  };
+}
+// Each `AbortSignal.timeout`'s deadline by its signal, and a composed signal's: the earliest of its sources', the one
+// that aborts it first
+const Deadlines = new WeakMap();
+// `AbortSignal.any`'s argument as Web IDL converts a sequence, as the platform's own `any` does, so that it sees
+// the same signals as an array (https://webidl.spec.whatwg.org/#create-sequence-from-iterable): the iterator method and
+// `next` read once and called directly, never through a `call` of their own, each `value` read once, and each value
+// refused as it is yielded unless it is a signal (the `aborted` getter's own check).
+function sequence(values) {
+  const method = Object(values) === values ? values[Symbol.iterator] : undefined;
+  if (typeof method !== 'function') throw new TypeError('AbortSignal.any(): the signals are not iterable');
+  const iterator = Reflect.apply(method, values, []), list = [];
+  if (Object(iterator) !== iterator) throw new TypeError("AbortSignal.any(): the signals' iterator is not an object");
+  const next = iterator.next;
+  for (;;) {
+    const step = Reflect.apply(next, iterator, []);
+    if (Object(step) !== step) throw new TypeError('AbortSignal.any(): an iterator result is not an object');
+    if (step.done) return list;
+    const value = step.value;
+    try { Reflect.apply(abortedOf, value, []); } catch { throw new TypeError('AbortSignal.any(): a value is not an AbortSignal'); }
+    list.push(value);
+  }
+}
+// `AbortSignal.timeout` is an answer's timer too, and `AbortSignal.any` keeps the earliest deadline it is composed of,
+// as the platform keeps its sources; the page's AbortSignal otherwise.
+const PageAbortSignal = globalThis.AbortSignal, abortedOf = PageAbortSignal && Object.getOwnPropertyDescriptor(PageAbortSignal.prototype, 'aborted').get;
 const GuardedAbortSignal = PageAbortSignal && new Proxy(PageAbortSignal, { get(target, name, receiver) {
+  if (name === 'any' && typeof target.any === 'function') return function any(signals) {
+    const list = sequence(signals), signal = target.any(list);
+    let earliest;
+    for (const source of list) {
+      const t = Deadlines.get(source);
+      if (t && !(earliest?.due <= t.due)) earliest = t;
+    }
+    if (earliest) Deadlines.set(signal, earliest);
+    return signal;
+  };
   if (name !== 'timeout') return Reflect.get(target, name, receiver);
   return function timeout(ms) {
     const n = Number(ms);
     if (!(n >= 0 && n <= Number.MAX_SAFE_INTEGER)) throw new TypeError('AbortSignal.timeout(): the delay is a number of milliseconds from 0');
-    const controller = new AbortController();
-    arm('AbortSignal.timeout()', () => controller.abort(new DOMException('signal timed out', 'TimeoutError')), Math.floor(n), []);
+    const controller = new AbortController(), abort = () => controller.abort(new DOMException('signal timed out', 'TimeoutError'));
+    const id = arm('AbortSignal.timeout()', abort, Math.floor(n), []);
+    Deadlines.set(controller.signal, { id, due: Armed.get(id).entry.due, abort });
     return controller.signal;
   };
 } });

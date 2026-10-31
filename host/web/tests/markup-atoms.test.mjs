@@ -17,7 +17,7 @@ const wasm = engines.some(e => !missing[e]) ? readFileSync(await buildEditor()) 
 
 const KINDS = JSON.stringify([{ name: 'citation', link: 'cite:' }, { name: 'mention', prefix: '@' }]);
 const CITE = '[Quote](cite:1)';
-const faces = list => JSON.stringify(list.map(([source, label, title = '', color = '', backgroundColor = '', direction = '', icon = '']) => ({ source, label, icon, title, color, backgroundColor, direction })));
+const faces = list => JSON.stringify(list.map(([source, label, title = '', color = '', backgroundColor = '', direction = '', icon = '', ariaLabel = '']) => ({ source, label, icon, title, color, backgroundColor, direction, ariaLabel })));
 // An icon the web draws: a black square.
 const ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>');
 // Whether a pill's icon is on its right: its middle past the pill's, on its
@@ -102,6 +102,22 @@ for (const engine of engines) {
       await page.keyboard.press('Shift+ArrowLeft'); await settle(page);
       expect(await state(field)).toEqual([source, start, end]);
     }, { faceList: [[CITE, 'A quote', 'The quote']] });
+  }, 60000);
+
+  // D2, D8: a face's `ariaLabel` is the pill's accessible name, and the pill
+  // still draws its label, which `state.atoms` reports; a new name alone
+  // renames it.
+  engineTest[engine](`${engine}: a face's ariaLabel names its pill, which draws its label`, async () => {
+    await editor(engine, `a ${CITE} b`, async (page, field) => {
+      const box = island(field);
+      expect(await box.getAttribute('aria-label')).toBe('Image attachment, quote');
+      expect(await box.textContent()).toBe('A quote 40%');
+      const [atom] = await page.evaluate(() => exact.atoms.state(() => 'editor'));
+      expect(atom.label).toBe('A quote 40%');
+      await field.evaluate((el, f) => { el.setAttribute('data-atom-faces', f); el.exactMarkup.sync(); }, faces([[CITE, 'A quote 40%', '', '', '', '', '', 'Image attachment, quote, 2 MB']]));
+      await settle(page);
+      expect(await island(field).getAttribute('aria-label')).toBe('Image attachment, quote, 2 MB');
+    }, { faceList: [[CITE, 'A quote 40%', '', '', '', '', '', 'Image attachment, quote']] });
   }, 60000);
 
   engineTest[engine](`${engine}: Backspace and Delete remove an atom whole, undo brings it back, typing lands outside`, async () => {
@@ -263,7 +279,7 @@ for (const engine of engines) {
         globalThis.exact = {};
         const { renderMarkup } = await import('./navigation.js');
         const text = document.getElementById('text');
-        const json = JSON.stringify([['see ', 1, 0, 0, ''], ['A quote', 1, 700, 72, '', 0, ['citation', 'button', '', 'The quote', 'cite:1', '${CITE}', 4, 19, '', '']], [' and ', 1, 0, 0, ''], ['L', 1, 0, 72, '', 0, ['ref', 'link', '', '', 'cite:2', '[L](cite:2)', 24, 35, '#1a85d4', '']]]);
+        const json = JSON.stringify([['see ', 1, 0, 0, ''], ['A quote', 1, 700, 72, '', 0, ['citation', 'button', '', 'The quote', 'cite:1', '${CITE}', 4, 19, '', '']], [' and ', 1, 0, 0, ''], ['L', 1, 0, 72, '', 0, ['ref', 'link', '', '', 'cite:2', '[L](cite:2)', 24, 35, '#1a85d4', '', '', 'Reference L']]]);
         renderMarkup(text, json);
         window.before = text.querySelectorAll('.exact-atom').length; // until atoms.js is here: the labels alone
         await import('./atoms.js'); renderMarkup(text, json);
@@ -286,6 +302,7 @@ for (const engine of engines) {
       expect(await box.getAttribute('role')).toBe('button');
       expect(await box.getAttribute('tabindex')).toBe('0');
       expect(await box.getAttribute('aria-description')).toBe('The quote');
+      expect([await box.getAttribute('aria-label'), await link.getAttribute('aria-label')]).toEqual(['A quote', 'Reference L']); // its face's ariaLabel, else its label
       expect(await box.evaluate(b => [getComputedStyle(b).fontWeight, getComputedStyle(b).color])).toEqual(['700', 'rgb(1, 2, 3)']);
       expect(await link.evaluate(b => getComputedStyle(b).color)).toBe('rgb(26, 133, 212)'); // its face's paint
       await box.click();

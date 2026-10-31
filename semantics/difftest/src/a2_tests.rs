@@ -208,7 +208,7 @@ fn suggestions_parse_hold_and_deduplicate_predicates_not_titles() {
     let observation = observe::run(plan.clone(), Oracle::for_case(&plan, &case), &case.events).0;
     let mut suggestions = Suggestions::new(&plan, &path);
     suggestions.observe(&observation);
-    let blocks = suggestions.blocks(&[]);
+    let blocks = suggestions.blocks(&[], &path).unwrap().0;
     let properties = contract::properties(&blocks.join("\n")).unwrap();
     assert!(property::evaluate(&properties, &observation).passed());
     assert!(blocks.iter().any(|b| b.contains("expect state n whole")));
@@ -219,7 +219,9 @@ fn suggestions_parse_hold_and_deduplicate_predicates_not_titles() {
     let existing =
         contract::properties("after \"add\" \"different title\"\n  only writes n\n").unwrap();
     assert!(!suggestions
-        .blocks(&existing)
+        .blocks(&existing, &path)
+        .unwrap()
+        .0
         .iter()
         .any(|b| b.starts_with("after \"add\"")));
     for file in ["cone-clock.contract", "cone-resource.contract"] {
@@ -240,7 +242,9 @@ fn suggestions_parse_hold_and_deduplicate_predicates_not_titles() {
         .map(str::to_string);
         suggestions.observe(&observations);
         assert!(!suggestions
-            .blocks(&[])
+            .blocks(&[], &path)
+            .unwrap()
+            .0
             .iter()
             .any(|b| b.contains("state outer")));
     }

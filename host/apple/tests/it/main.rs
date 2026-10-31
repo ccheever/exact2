@@ -23,6 +23,7 @@ mod host_block;
 mod inherited;
 mod layout_refusal;
 mod live;
+mod mount_opacity;
 mod paint;
 mod presence;
 mod reset_gate;

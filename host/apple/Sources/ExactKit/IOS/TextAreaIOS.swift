@@ -54,6 +54,12 @@ enum ResignTrace {
 
 final class TextField: UITextField {
     weak var owner: NodeView?
+    // A commit that changes no text sends no editing change: a `direction`
+    // that came while it was marked applies here (LLP 1001 §1).
+    override func unmarkText() {
+        super.unmarkText()
+        owner?.applyFieldDirection()
+    }
     override func resignFirstResponder() -> Bool {
         let wasFirst = isFirstResponder
         let resigned = super.resignFirstResponder()
@@ -102,6 +108,7 @@ final class TextField: UITextField {
     /// no selection of the person's; one a script set while it had no focus
     /// is shown instead (x2apps codeedit #2).
     override func becomeFirstResponder() -> Bool {
+        if owner?.keepsFocus(from: self) == true { return false } // a prevented pointerdown's touch (LLP 1005 §3)
         let selections = owner?.presenter?.fieldSelections
         let ok = selections?.quietly { super.becomeFirstResponder() } ?? super.becomeFirstResponder()
         if ok, let owner { selections?.focused(owner) }
@@ -232,10 +239,11 @@ package final class TextArea: UITextView {
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
     }
     // A commit that changes no text posts no change: paint held back while
-    // it was marked catches up here.
+    // it was marked catches up here, and a `direction` that came meanwhile.
     package override func unmarkText() {
         super.unmarkText()
         owner?.restyleDecorations()
+        owner?.applyBaseDirection(to: self)
     }
     package override func insertText(_ text: String) {
         owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
@@ -296,6 +304,7 @@ package final class TextArea: UITextView {
         if !remaining.isEmpty {super.pressesCancelled(remaining,with:event)}
     }
     package override func becomeFirstResponder() -> Bool {
+        if owner?.keepsFocus(from: self) == true { return false } // a prevented pointerdown's touch (LLP 1005 §3)
         let wasFirst = isFirstResponder
         let focused = super.becomeFirstResponder()
         // Read-only selection has no editing-began delegate callback.
@@ -348,7 +357,7 @@ package final class TextArea: UITextView {
     @objc package func copyPlainText() {
         // tvOS has no pasteboard.
         #if !os(tvOS)
-        guard markup != nil, selectedRange.length > 0, let plain = MarkdownLink.installed?.plain(text, range: selectedRange, atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "") else { return }
+        guard markup != nil, selectedRange.length > 0, let plain = MarkdownLink.installed?.plain(text, range: selectedRange, atoms: owner?.props["atoms"] ?? "", faces: owner?.props["atomFaces"] ?? "", spoken: false) else { return }
         UIPasteboard.general.string = plain
         #endif
     }
@@ -375,12 +384,14 @@ package final class TextArea: UITextView {
         return super.canPerformAction(action, withSender: sender)
     }
     #endif
-    // Keep TextKit's line pitch equal to the authored CSS line box. Updating
-    // storage attributes preserves the value and selected range; replacing
-    // attributedText would reset a selection (including a read-only one).
-    func applyLineHeight(_ height: CGFloat?) {
+    // Keep TextKit's line pitch equal to the authored CSS line box, and the
+    // node's `direction` the base (LLP 1001 §1). Updating storage attributes
+    // preserves the value and selected range; replacing attributedText would
+    // reset a selection (including a read-only one).
+    func applyLineHeight(_ height: CGFloat?, direction: NSWritingDirection) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = textAlignment
+        paragraph.baseWritingDirection = direction
         if let height {
             paragraph.minimumLineHeight = height
             paragraph.maximumLineHeight = height
@@ -508,6 +519,7 @@ extension NodeView {
             editor.detach(storage)
             f.typingAttributes = editor.plainAttributes
             f.markup = nil
+            (f as? TextArea)?.applyLineHeight(usedLineHeight, direction: fieldBaseDirection) // the field's own base, which the editor's plain look does not say
             f.atomsChanged()
         }
     }
@@ -551,7 +563,7 @@ extension NodeView {
         }
         (f as? TextArea)?.placeholderColor = placeholderColor
         (f as? TextArea)?.configureNativeChrome(isNativeTextControl, cell: isCellField)
-        (f as? TextArea)?.applyLineHeight(usedLineHeight)
+        (f as? TextArea)?.applyLineHeight(usedLineHeight, direction: fieldBaseDirection)
         restyleMarkup()
         f.setNeedsDisplay()
         layoutTextArea()
@@ -634,8 +646,30 @@ extension NodeView {
         if textView.markedTextRange == nil, let held = pendingValue { writeValue(held, into: textView) }
         configureMarkup()
         restyleMarkup()
+        applyBaseDirection(to: textView) // an undo brings back the attributes of the text it restores
         publishMarkupSelection()
         presenter?.revealCaret(of: self)
+    }
+    /// The node's `direction` as the base of every paragraph of a plain
+    /// field's text and what is typed next, at its side (LLP 1001 §1), again
+    /// after what can bring back another's: an undo, a composition's end. A
+    /// Markdown editor says its own lines' (LLP 1045 D11). Attributes only.
+    func applyBaseDirection(to tv: UITextView) {
+        guard (tv as? TextArea)?.markup == nil, tv.markedTextRange == nil else { return }
+        let direction = fieldBaseDirection, alignment = tv.textAlignment, storage = tv.textStorage
+        let directed = { (style: NSParagraphStyle?) -> NSParagraphStyle? in
+            guard style?.baseWritingDirection != direction || style?.alignment != alignment else { return nil }
+            let next = style?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            next.baseWritingDirection = direction
+            next.alignment = alignment
+            return next
+        }
+        storage.beginEditing()
+        storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            if let next = directed(value as? NSParagraphStyle) { storage.addAttribute(.paragraphStyle, value: next, range: range) }
+        }
+        storage.endEditing()
+        if let next = directed(tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle) { tv.typingAttributes[.paragraphStyle] = next }
     }
     package func textViewDidChangeSelection(_ textView: UITextView) {
         // A person's selection beside a hidden link destination (LLP 1045 D5).

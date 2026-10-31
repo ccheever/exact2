@@ -18,6 +18,7 @@
         "@exact/calls": "workspace:*",
         "@exact/camera": "workspace:*",
         "@exact/cards": "workspace:*",
+        "@exact/child-process": "workspace:*",
         "@exact/compose": "workspace:*",
         "@exact/contacts": "workspace:*",
         "@exact/device": "workspace:*",
@@ -129,6 +130,10 @@
     "packages/cards": {
       "name": "@exact/cards",
       "version": "0.1.0",
+    },
+    "packages/child-process": {
+      "name": "@exact/child-process",
+      "version": "1.0.0",
     },
     "packages/clipboard": {
       "name": "@exact/clipboard",
@@ -347,6 +352,8 @@
     "@exact/camera": ["@exact/camera@workspace:packages/camera"],
 
     "@exact/cards": ["@exact/cards@workspace:packages/cards"],
+
+    "@exact/child-process": ["@exact/child-process@workspace:packages/child-process"],
 
     "@exact/clipboard": ["@exact/clipboard@workspace:packages/clipboard"],
 

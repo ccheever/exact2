@@ -27,6 +27,7 @@ fn main() {
         "src/standard.js",
         "src/binary.js",
         "src/prelude.js",
+        "src/process.js",
         "src/intl.js",
         "tests/fixtures/harden-probe.js",
     ] {
@@ -61,6 +62,10 @@ fn main() {
         shim.flag("-isysroot")
             .flag(String::from_utf8(sdk.stdout).expect("SDK path").trim());
     }
+    // The shim is compiled against ibex2's headers: a vendored Ibex bump
+    // that changes a struct the shim fills (`InstallOptions`) must compile
+    // it again, or ibex2 reads the new layout from the old one's bytes.
+    println!("cargo:rerun-if-changed={}", ibex.join("include").display());
     shim.cpp(true)
         .file("src/shim.cc")
         .include(ibex.join("include"))
@@ -106,6 +111,7 @@ fn main() {
         "src/standard.js",
         "src/binary.js",
         "src/prelude.js",
+        "src/process.js",
         "src/intl.js",
     ]
     .iter()
@@ -114,6 +120,14 @@ fn main() {
     .join("\n");
     let prelude = if target_os == "windows" {
         "globalThis.__exact_windows_storage = true;\n".to_owned() + &prelude
+    } else {
+        prelude
+    };
+    // The hosts that start programs for data code (LLP 1133.007 §8):
+    // `js/src/process.js` binds `@exact/child-process` to them, and every
+    // other target answers NotSupportedError.
+    let prelude = if matches!(target_os.as_str(), "macos" | "linux") {
+        format!("globalThis.__exact_process_host = \"{target_os}\";\n{prelude}")
     } else {
         prelude
     };
@@ -181,6 +195,7 @@ fn main() {
         "overlay-getter",
         "socket",
         "listen",
+        "process",
         "heap",
         "snapshot",
         "context",

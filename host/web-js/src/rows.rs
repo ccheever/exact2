@@ -44,7 +44,7 @@ impl Em<'_> {
                     .map(|b| plan.binding(b))
                     .find(|b| b.kind == BindingKind::Prop && b.id == prop as u16);
                 values.push(match value {
-                    Some(b) => format!("({})()", self.f(b.expr, scope)?),
+                    Some(b) => format!("({})()", self.bound(i, e, &b, scope)?),
                     None => "null".into(),
                 });
             }
@@ -520,23 +520,12 @@ impl Em<'_> {
                 })
                 .collect(),
         };
-        if id == StyleId::Display && parts.css.contains("--exact-progress-justify:") {
-            let normal = self.uses.rt("normal");
-            writes.push(("--exact-progress-justify".into(), String::new(), Some(format!(
-                "v=>[\"flex\",\"grid\",\"none\"].includes({normal}(\"display\",String(v??\"\")))?\"auto\":\"start\""
-            ))));
+        // A progress's or canvas's alignment, and its parent's (sized.rs).
+        let sized = crate::sized::writes(id, parts);
+        if !sized.is_empty() {
+            self.uses.rt("normal");
         }
-        if id == StyleId::PositionType && parts.props.contains_key("data-exact-progress") {
-            let normal = self.uses.rt("normal");
-            writes.push((
-                "justify-self".into(),
-                String::new(),
-                Some(format!(
-                    "v=>{normal}(\"position\",String(v??\"\"))===\"absolute\"?\"auto\":{:?}",
-                    style::PROGRESS_JUSTIFY
-                )),
-            ));
-        }
+        writes.extend(sized);
         if matches!(id, StyleId::FontWeight | StyleId::LineHeight) {
             let normal = self.uses.rt("normal");
             // The marker depends on both rows: either can expose an inherited value.
@@ -544,7 +533,7 @@ impl Em<'_> {
                 binding(StyleId::FontSize)
                     .filter(|b| style::literal(plan, plan.code(b.expr)).is_none())
                     .map(|b| {
-                        let size = self.f(b.expr, scope)?;
+                        let size = self.bound(i, e, &b, scope)?;
                         let styles = self.answers.styles();
                         let map = self.uses.share(
                             'm',
@@ -708,7 +697,7 @@ impl Em<'_> {
         };
         let value = match style::literal(plan, plan.code(b.expr)) {
             Some(v) => format!("()=>{}", super::value_js(&v)),
-            None => self.f(b.expr, scope)?,
+            None => self.bound(i, e, &b, scope)?,
         };
         self.flow = true;
         let wf = self.uses.rt("wf");

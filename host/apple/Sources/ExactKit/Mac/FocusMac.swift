@@ -116,7 +116,21 @@ extension NodeView {
     /// click gives it the focus. A paragraph that selects text, the one node
     /// that accepts and is asked here without taking keys, takes the focus
     /// itself as its selection begins (`mouseDown`).
-    package override var needsPanelToBecomeKey: Bool { takesClickFocus }
+    /// Not for a node whose press a `pointerdown` handler (its own or an
+    /// authored ancestor's) can prevent: AppKit would focus it before that
+    /// handler runs, so `mouseDown` gives the focus itself, after it, unless
+    /// it prevented the press (LLP 1005 §3).
+    package override var needsPanelToBecomeKey: Bool { takesClickFocus && !pointerdownHeard }
+    /// Whether a `pointerdown` handler hears a press here: this node's or an
+    /// enabled ancestor's up the authored tree.
+    var pointerdownHeard: Bool {
+        var at: NSView? = self
+        while let view = at {
+            if let node = view as? NodeView, !node.disabled, node.handlers.contains("pointerdown") { return true }
+            at = presenter?.eventParent(of: view)
+        }
+        return false
+    }
     /// Whether a click on this node in a window that is not key is also a
     /// press (LLP 1115.000 D7.9). Every node used to answer true, a
     /// browser's rule. AppKit's answer, measured on macOS 27.0

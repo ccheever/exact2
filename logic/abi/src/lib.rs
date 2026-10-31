@@ -227,6 +227,7 @@ fn encode_outcome(w: &mut Writer, outcome: &Outcome) {
                 // Additive, as tags 5–8 were; a Rust module never asks for a
                 // deadline across this seam (below), so it never sees one.
                 FailureKind::Timeout => 9,
+                FailureKind::NotFound => 10,
             });
             w.string(message);
         }
@@ -267,6 +268,7 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<Outcome, String> {
         3 => FailureKind::Unsupported,
         4 => FailureKind::Aborted,
         9 => FailureKind::Timeout,
+        10 => FailureKind::NotFound,
         _ => return Err("invalid outcome tag".into()),
     };
     Ok(Outcome::Failed {

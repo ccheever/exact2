@@ -27,17 +27,20 @@ impl Executor {
     ) -> Self {
         exact_runner::local_network::launch_once(local_network_prompts);
         let wake = wake.map(|(f, ctx)| (f, ctx as usize));
-        Self {
-            core: core::Core::start_switched(
-                bindings,
-                grants,
-                Box::new(move || {
-                    if let Some((f, ctx)) = wake {
-                        f(ctx as *mut c_void);
-                    }
-                }),
-            ),
+        let core = core::Core::start_switched(
+            bindings,
+            grants,
+            Box::new(move || {
+                if let Some((f, ctx)) = wake {
+                    f(ctx as *mut c_void);
+                }
+            }),
+        );
+        // The Mac starts programs for data code; iOS and tvOS do not (LLP 1133.007 §8).
+        if cfg!(target_os = "macos") {
+            core.allow_processes();
         }
+        Self { core }
     }
     /// Where the app's files are, for a request whose body is one of them
     /// (LLP 1108 D6 R2): set before the first request.
@@ -114,6 +117,10 @@ impl Executor {
     pub fn listen_reader(&self) -> exact_runner::listen::ListenReader {
         self.core.listen_reader()
     }
+    /// The clock its process work keeps under the agent (LLP 1133.007 §7).
+    pub fn work_clock(&self) -> Option<std::sync::Arc<dyn exact_runner::WorkClock>> {
+        self.core.work_clock()
+    }
 }
 
 /// What the bridge asks of the I/O executor (LLP 1047.001): the executor's
@@ -154,6 +161,8 @@ pub trait Io {
     fn listen_reader(&self) -> exact_runner::listen::ListenReader {
         std::sync::Arc::new(|_| None)
     }
+    /// [`Executor::work_clock`].
+    fn work_clock(&self) -> Option<std::sync::Arc<dyn exact_runner::WorkClock>>;
 }
 
 impl Io for Executor {
@@ -204,6 +213,9 @@ impl Io for Executor {
     }
     fn listen_reader(&self) -> exact_runner::listen::ListenReader {
         Executor::listen_reader(self)
+    }
+    fn work_clock(&self) -> Option<std::sync::Arc<dyn exact_runner::WorkClock>> {
+        Executor::work_clock(self)
     }
 }
 

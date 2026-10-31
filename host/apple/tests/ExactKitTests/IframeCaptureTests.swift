@@ -2,6 +2,7 @@ import Network
 import PDFKit
 import WebKit
 import XCTest
+@testable import ExactKit
 #if os(macOS)
 import AppKit
 #else
@@ -234,13 +235,19 @@ final class IframeCaptureTests: XCTestCase {
         web.scrollView.setZoomScale(1.5, animated: false)
         web.scrollView.setContentOffset(CGPoint(x: 90, y: 60), animated: false)
         #endif
-        pause(0.8)
-        var read: [Double]?
-        web.evaluateJavaScript("(() => { const r = document.getElementById('target').getBoundingClientRect(), v = visualViewport; return [r.x, r.y, r.width, r.height, v.offsetLeft, v.offsetTop, v.pageLeft, v.pageTop, v.scale, scrollX, scrollY]; })()") { value, _ in
-            read = (value as? [NSNumber])?.map(\.doubleValue) ?? []
-        }
-        spin { read != nil }
-        let measured = try XCTUnwrap(read)
+        // WebKit hands the zoom and the offset to the page a few frames later, later still under
+        // load (a fixed 0.8 s failed twice in full parallel runs): read until the page has both.
+        var measured: [Double] = []
+        let deadline = Date().addingTimeInterval(10)
+        repeat {
+            pause(0.2)
+            var read: [Double]?
+            web.evaluateJavaScript("(() => { const r = document.getElementById('target').getBoundingClientRect(), v = visualViewport; return [r.x, r.y, r.width, r.height, v.offsetLeft, v.offsetTop, v.pageLeft, v.pageTop, v.scale, scrollX, scrollY]; })()") { value, _ in
+                read = (value as? [NSNumber])?.map(\.doubleValue) ?? []
+            }
+            spin { read != nil }
+            measured = read ?? []
+        } while Date() < deadline && !(measured.count == 11 && abs(measured[8] - 1.5) < 0.01 && measured[6] > 0 && measured[7] > 0)
         XCTAssertEqual(measured.count, 11, "\(measured)")
         guard measured.count == 11 else { return }
         say("iframe capture: rect \(measured[0..<4]), visualViewport offset \(measured[4]),\(measured[5]) page \(measured[6]),\(measured[7]) scale \(measured[8]), scroll \(measured[9]),\(measured[10])")
@@ -280,13 +287,109 @@ final class IframeCaptureTests: XCTestCase {
     /// An `app:/` PDF shows in a PDF view at `#page=N`, fires `load`, draws
     /// its capture in-process, and gives way to a web view for HTML; a
     /// sandboxed one stays WebKit's.
+    /// The web views in the test's windows, however deep.
+    private func webViews() -> [WKWebView] {
+        #if os(macOS)
+        let roots: [NSView] = windows.compactMap(\.contentView)
+        func all(_ view: NSView) -> [WKWebView] { (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap(all) }
+        #else
+        let roots: [UIView] = windows
+        func all(_ view: UIView) -> [WKWebView] { (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap(all) }
+        #endif
+        return roots.flatMap(all)
+    }
+
+    /// A frame said to show a local PDF (WebModule's `pdf`) shows the PDF's
+    /// view from its mount, before the file comes, and makes no web view it
+    /// would drop at once (the teardown WebKit's Screen Time observer threw
+    /// in twice; LLP 1020.002 D10).
+    func testALocalPDFFrameMakesNoWebView() throws {
+        let arm = try arm(), seen = Seen()
+        // The host's moment before each web view is made: none is, from the mount through the PDF's load.
+        let library = try XCTUnwrap(dlopen(ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"], RTLD_NOW | RTLD_LOCAL))
+        let setConfiguring = unsafeBitCast(try XCTUnwrap(dlsym(library, "exact_web_set_configuring")), to: (@convention(c) (UnsafeMutableRawPointer?, ConfiguringFn?) -> Void).self)
+        Self.configured = []
+        defer { Self.configured = [] }
+        let handle = try mount(arm, seen, configuration: ["newwindow": true, "pdf": true], src: "app:/tmp/doc.pdf", document: Self.document(pages: 2),
+                               configuring: { setConfiguring($0, Self.configuring) })
+        defer { arm.destroy(handle) }
+        XCTAssertTrue(current(arm, handle) is PDFView, "the PDF's view from the mount")
+        XCTAssertEqual(webViews().count, 0, "no web view at the mount")
+        spin { !seen.views.isEmpty && seen.loads > 0 }
+        XCTAssertEqual(seen.views.last?["pdf"] as? Int, 2, "\(seen.views)")
+        XCTAssertTrue(current(arm, handle) is PDFView)
+        XCTAssertEqual(webViews().count, 0, "none after the PDF came")
+        XCTAssertEqual(Self.configured.count, 0, "no web view was made at all, shown or not")
+    }
+
+    /// A partitioned local PDF is WebKit's; losing its partition, it shows the
+    /// PDF's view without making another web view first (Grok, round 3).
+    func testALocalPDFLosingItsPartitionMakesNoSecondWebView() throws {
+        let arm = try arm(), seen = Seen()
+        let library = try XCTUnwrap(dlopen(ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"], RTLD_NOW | RTLD_LOCAL))
+        let setConfiguring = unsafeBitCast(try XCTUnwrap(dlsym(library, "exact_web_set_configuring")), to: (@convention(c) (UnsafeMutableRawPointer?, ConfiguringFn?) -> Void).self)
+        Self.configured = []
+        defer { Self.configured = [] }
+        let handle = try mount(arm, seen, configuration: ["partition": "memory-pdf"], src: "app:/tmp/doc.pdf", document: Self.document(pages: 2),
+                               configuring: { setConfiguring($0, Self.configuring) })
+        defer { arm.destroy(handle) }
+        spin { seen.loads > 0 }
+        XCTAssertTrue(current(arm, handle) is WKWebView, "partitioned: WebKit's")
+        XCTAssertEqual(Self.configured.count, 1)
+        json(["pdf": true], arm.configure, handle)
+        spin { current(arm, handle) is PDFView && (seen.views.last?["pdf"] as? Int) == 2 }
+        XCTAssertTrue(current(arm, handle) is PDFView, "unpartitioned: the PDF's view")
+        XCTAssertEqual(Self.configured.count, 1, "no second web view was made on the way")
+    }
+
+    /// A file named `.pdf` that is not one goes the way any page does: the
+    /// frame shows a web view (kind 7) with the page loaded in it.
+    func testAPDFNamedFileThatIsNotOneShowsAWebView() throws {
+        let arm = try arm(), seen = Seen()
+        let page = Data("<!doctype html><title>t</title><p id=p>not a PDF</p>".utf8)
+        let handle = try mount(arm, seen, configuration: ["newwindow": true, "pdf": true], src: "app:/tmp/page.pdf", document: page)
+        defer { arm.destroy(handle) }
+        spin { seen.loads > 0 }
+        XCTAssertGreaterThan(seen.loads, 0, "the page loaded")
+        XCTAssertTrue(current(arm, handle) is WKWebView, "the web view, shown in place of the PDF's")
+        XCTAssertEqual(seen.views.last.map { $0.isEmpty }, true, "kind 7 with no PDF: \(seen.views)")
+    }
+
+    #if os(macOS)
+    /// A link to another app in a PDF shown from the mount (no web view, so
+    /// none of a web view's delegates) asks first, as D5 has it.
+    func testALinkToAnotherAppInAPDFShownFromTheMountAsks() throws {
+        let arm = try arm(), seen = Seen()
+        let mail = try XCTUnwrap(URL(string: "mailto:someone@example.com"))
+        let handle = try mount(arm, seen, configuration: ["pdf": true], src: "app:/tmp/doc.pdf", document: Self.document(pages: 1, link: mail))
+        defer { arm.destroy(handle) }
+        spin { seen.loads > 0 }
+        let view = try XCTUnwrap(current(arm, handle) as? PDFView)
+        try XCTSkipIf(NSWorkspace.shared.urlForApplication(toOpen: mail) == nil, "no app here opens mailto:")
+        view.delegate?.pdfViewWillClick?(onLink: view, with: mail)
+        let window = try XCTUnwrap(view.window)
+        let sheet = try XCTUnwrap(window.attachedSheet, "the confirmation, on the frame's window")
+        window.endSheet(sheet)
+    }
+    #endif
+
+    /// WebViews' hint: a local file (an `app:/` path or a bundled one) by
+    /// its `.pdf` name, its fragment and query aside.
+    func testWhichSourcesAreHintedAsLocalPDFs() {
+        for (source, local) in [("app:/tmp/a.pdf", true), ("app:/tmp/a.pdf#page=2", true), ("docs/A.PDF?x=1", true), ("app:/tmp/a.html", false),
+                                ("https://example.com/a.pdf", false), ("//example.com/a.pdf", false), ("app:/tmp/a.pdf.html", false)] {
+            XCTAssertEqual(WebViews.localPDF(source), local, source)
+        }
+        XCTAssertFalse(WebViews.localPDF(nil))
+    }
+
     func testALocalPDFIsAPDFView() throws {
         #if os(iOS)
         guard hostedWindowScene() != nil else { throw missing("scene", "WebKit paints a snapshot only in an app's window scene") }
         #endif
         let arm = try arm(), seen = Seen()
         let pdf = Self.document(pages: 3, link: URL(string: "https://example.com/linked"))
-        let handle = try mount(arm, seen, configuration: ["newwindow": true], src: "app:/tmp/doc.pdf#page=2", document: pdf)
+        let handle = try mount(arm, seen, configuration: ["newwindow": true, "pdf": true], src: "app:/tmp/doc.pdf#page=2", document: pdf)
         defer { arm.destroy(handle) }
         spin { !seen.views.isEmpty && seen.loads > 0 }
         XCTAssertEqual(seen.views.last?["pdf"] as? Int, 3, "\(seen.views)")
@@ -393,6 +496,18 @@ final class IframeCaptureTests: XCTestCase {
         XCTAssertEqual(top, (300 - box.height) / 2, accuracy: 16, "\(box)")
     }
 
+    private typealias ConfiguringFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
+    /// What the host's moment before construction was handed: the frame's
+    /// context and its configuration's data store.
+    nonisolated(unsafe) private static var configured: [(context: UnsafeMutableRawPointer?, store: WKWebsiteDataStore)] = []
+    nonisolated(unsafe) private static var swapsStore = false
+    private static let configuring: ConfiguringFn = { context, raw in
+        let configuration = Unmanaged<WKWebViewConfiguration>.fromOpaque(raw!).takeUnretainedValue()
+        configured.append((context, configuration.websiteDataStore))
+        configuration.applicationNameForUserAgent = "Hatched/1"
+        if swapsStore { configuration.websiteDataStore = .nonPersistent() }
+    }
+
     #if os(macOS)
     /// What the arm owns that a hatch changed, said by name in a development build (RFC §9).
     func testAChangedDelegateIsSaidByName() throws {
@@ -415,18 +530,6 @@ final class IframeCaptureTests: XCTestCase {
         XCTAssert(said.contains("changed pageZoom"), said)
         XCTAssert(said.contains("changed the user scripts of the arm's content controller"), said)
         XCTAssertEqual(said.components(separatedBy: "navigationDelegate").count, 2, "said once: \(said)")
-    }
-
-    private typealias ConfiguringFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
-    /// What the host's moment before construction was handed: the frame's
-    /// context and its configuration's data store.
-    nonisolated(unsafe) private static var configured: [(context: UnsafeMutableRawPointer?, store: WKWebsiteDataStore)] = []
-    nonisolated(unsafe) private static var swapsStore = false
-    private static let configuring: ConfiguringFn = { context, raw in
-        let configuration = Unmanaged<WKWebViewConfiguration>.fromOpaque(raw!).takeUnretainedValue()
-        configured.append((context, configuration.websiteDataStore))
-        configuration.applicationNameForUserAgent = "Hatched/1"
-        if swapsStore { configuration.websiteDataStore = .nonPersistent() }
     }
 
     /// Tier 3's moment before construction (RFC §9): the configuration, the

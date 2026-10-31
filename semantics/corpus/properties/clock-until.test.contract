@@ -1,0 +1,20 @@
+always "screen stays in its set"
+  expect state screen in "lock" "home"
+
+test "a then wrote the slot before the wait"
+  size 800x600
+  tap "start"
+  clock until state screen == "home" within 1000
+  expect state screen == "home"
+  expect state ticks == 0
+
+test "a wait does not fire a pending timer"
+  clock until state screen == "home" within 1000
+  expect state screen == "home"
+  clock +100
+  reload
+
+test "fields need an observation adapter"
+  clock data
+  clock until state session.phase == "ready" within 1000
+  expect state screen == "home"

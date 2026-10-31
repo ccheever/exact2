@@ -119,8 +119,8 @@ export function atomFacesRecord(v, cm = c => c, view = () => 0, roles = []) {
     const m = cm(named, refuse) ?? "";
     return refused || typeof CSS !== "undefined" && !CSS.supports("color", m) ? none(c) : m;
   };
-  return v == null ? null : JSON.stringify(v.map(([source, label, icon, title, color, backgroundColor, direction]) =>
-    ({ source, label, icon, title, color: paint(color), backgroundColor: paint(backgroundColor), direction })));
+  return v == null ? null : JSON.stringify(v.map(([source, label, icon, title, color, backgroundColor, direction, ariaLabel]) =>
+    ({ source, label, icon, title, color: paint(color), backgroundColor: paint(backgroundColor), direction, ariaLabel })));
 }
 /** The compiler's positional `TextDecorations(value, spans)` as the named JSON the web host reads (LLP 1114.007). */
 export function decorationRecord(v) {

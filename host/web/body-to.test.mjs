@@ -30,7 +30,7 @@ function normalized(spec) {
 
 // Host modules under /web/ and /web-js/ (a JS-target build puts host/web's
 // beside its own), `/admission-data.js` as the build writes it, and the
-// downloads: `/big` (chunked), `/missing` (404), `/stall` (never ends).
+// downloads: `/big` (chunked), `/small`, `/missing` (404), `/stall` (never ends).
 function serve() {
   const seen = [];
   let grants = null;
@@ -55,6 +55,7 @@ function serve() {
       } }), { headers: { 'content-type': 'application/octet-stream' } });
     }
     if (path === '/stall') return new Response(new ReadableStream({ start(out) { out.enqueue(new Uint8Array(256 << 10)); } }));
+    if (path === '/small') return new Response('new');
     if (path === '/missing') return new Response('no such thing', { status: 404 });
     return new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } });
   } });
@@ -136,6 +137,13 @@ test('the JS target writes a 2xx body to the app file, says what it wrote, and r
       ]) result.refusals.push(await fail(ts.fetch(origin + '/never', init)));
       result.over = await fail(ts.fetch(origin + '/big', { exactBodyTo: 'app:/data/kept', exactIndependentHttp: { maxResponseBytes: 1 << 20 } }));
       result.stalled = await fail(ts.fetch(origin + '/stall', { exactBodyTo: 'app:/data/kept', exactTimeout: 300 }));
+      // A deadline that passes while the write waits for the file's lock ends the request then, and the write, run
+      // once the lock is free, leaves the file as it was; the next write to the app's store waits for it
+      let unlock;
+      await new Promise(locked => navigator.locks.request('exact-storage:body-to-js:app:/data/kept', () => { locked(); return new Promise(done => { unlock = done; }); }));
+      result.waited = await fail(ts.fetch(origin + '/small', { exactBodyTo: 'app:/data/kept', exactTimeout: 500 }));
+      unlock();
+      await ts.fetch(origin + '/small', { exactBodyTo: 'app:/data/after' });
       result.kept = new TextDecoder().decode(await store.readFile('app:/data/kept'));
       result.names = (await store.readdir('app:/data')).sort();
       return result;
@@ -152,8 +160,9 @@ test('the JS target writes a 2xx body to the app file, says what it wrote, and r
     ]);
     expect(out.over).toBe('FetchError Refused: HTTP response exceeds limit');
     expect(out.stalled).toBe('FetchError Timeout: the request timed out after 300 ms');
+    expect(out.waited).toBe('FetchError Timeout: the request timed out after 500 ms');
     expect(out.kept).toBe('old');
-    expect(out.names).toEqual(['big', 'kept']);
+    expect(out.names).toEqual(['after', 'big', 'kept']);
     expect(site.seen).not.toContain('/never');
   } finally { await browser.close(); site.server.stop(true); }
 }, 120_000);

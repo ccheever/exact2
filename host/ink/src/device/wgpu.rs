@@ -107,6 +107,8 @@ impl Wgpu {
 
     /// Browser callers await this without blocking the event loop.
     pub async fn open() -> Result<Self> {
+        #[cfg(target_os = "macos")]
+        let _trace = super::apple::Trace::new(c"boot wgpu constructor");
         let started = Instant::now();
         let instance = ::wgpu::Instance::new(::wgpu::InstanceDescriptor {
             // wgpu-types' environment helper is inert without its `std` feature.

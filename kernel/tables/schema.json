@@ -1731,7 +1731,7 @@
       "name": "atomFaces",
       "kind": "str",
       "measure": true,
-      "_comment": "@ref LLP 1045.000 D2: the app's `AtomFace` records as named JSON `[{source, label, icon, title, color, backgroundColor, direction}]`, keyed by each atom's whole source text, each colour the runner's wire text (`bridge::atom_face_paint`; on the JS target, what `atomFacesRecord` takes), empty where the kind's paint stands. Measured: a label changes a pill's width."
+      "_comment": "@ref LLP 1045.000 D2: the app's `AtomFace` records as named JSON `[{source, label, icon, title, color, backgroundColor, direction, ariaLabel}]`, keyed by each atom's whole source text, each colour the runner's wire text (`bridge::atom_face_paint`; on the JS target, what `atomFacesRecord` takes), empty where the kind's paint stands. Measured: a label changes a pill's width."
     },
     {
       "id": 289,
@@ -1762,6 +1762,12 @@
       "name": "paragraphDirs",
       "kind": "str",
       "_comment": "@ref LLP 1045 D11: a Markdown editor's base direction, one word per source line: HTML's `dir` words (`ltr`, `rtl`, `auto`) separated by white space, the first word the first line's; a line past the last word takes the last. Read where the editor draws its lines (markup-editor.js, Apple's MarkupDirections). Not measured: a base direction changes no line's length."
+    },
+    {
+      "id": 294,
+      "name": "accessibilitySort",
+      "kind": "str",
+      "_comment": "ARIA `aria-sort` on a `columnheader` or `rowheader`: `ascending`, `descending`, `none` or `other`, the order its table's rows are sorted by that column (WAI-ARIA 1.2 §6.7). The DOM attribute on the web; AppKit and UIKit have no such property on a view, so the Apple hosts expose none."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -6297,6 +6303,8 @@
     ["menu-row-padding-block", "length", "0.25em"],
     ["menu-row-padding-inline", "length", "0.625em"],
     ["menu-row-gap", "length", "0.5em"],
+    ["popover-padding", "length", "1rem"],
+    ["popover-margin", "length", 16],
     ["sheet-wide", "length", 900],
     ["sheet-width", "length", "35rem"],
     ["sheet-height", "length", "45rem"],

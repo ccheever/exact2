@@ -7,6 +7,32 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 #[derive(Default)]
+pub(crate) struct Precision {
+    observed: usize,
+    printed: usize,
+    widened: usize,
+    covered: usize,
+    dropped: BTreeMap<&'static str, usize>,
+    details: Vec<String>,
+    seconds: f64,
+}
+
+impl Precision {
+    pub(crate) fn print(&self) {
+        println!(
+            "  suggestions: {} observed candidates; {} printed; {} dropped (frame {}, set {}, stays {}, whole {}); {} widened by code; {} already in tests after widening; precision {:.6}s",
+            self.observed, self.printed, self.dropped.values().sum::<usize>(),
+            self.dropped.get("frame").unwrap_or(&0), self.dropped.get("set").unwrap_or(&0),
+            self.dropped.get("stays").unwrap_or(&0), self.dropped.get("whole").unwrap_or(&0),
+            self.widened, self.covered, self.seconds,
+        );
+        for detail in &self.details {
+            println!("    {detail}");
+        }
+    }
+}
+
+#[derive(Default)]
 struct Values {
     kind: Option<TypeKind>,
     enum_values: BTreeSet<String>,
@@ -164,7 +190,7 @@ impl Suggestions {
         }
     }
 
-    pub fn blocks(&self, existing: &[PropertyDecl]) -> Vec<String> {
+    fn observed_blocks(&self, existing: &[PropertyDecl]) -> Vec<String> {
         let mut blocks = Vec::new();
         let mut add = |block: String| {
             let Ok(parsed) = contract::properties(&block) else {
@@ -172,12 +198,7 @@ impl Suggestions {
             };
             let candidate = &parsed[0];
             // Compare predicates and their scope, not the author's title or source spans.
-            if candidate.lines.iter().all(|line| {
-                existing.iter().any(|p| {
-                    p.kind == candidate.kind
-                        && p.lines.iter().any(|l| same_form(&l.form, &line.form))
-                })
-            }) {
+            if already_written(candidate, existing) {
                 return;
             }
             blocks.push(block);
@@ -247,15 +268,95 @@ impl Suggestions {
         blocks
     }
 
-    pub fn print(&self, existing: &[PropertyDecl]) {
+    pub(crate) fn blocks(
+        &self,
+        existing: &[PropertyDecl],
+        file: &Path,
+    ) -> Result<(Vec<String>, Precision), String> {
+        check_blocks(self.observed_blocks(existing), existing, file)
+    }
+
+    pub fn print(&self, existing: &[PropertyDecl], file: &Path) -> Result<Precision, String> {
+        let (blocks, precision) = self.blocks(existing, file)?;
         println!(
-            "Observed over {} scripts and {} steps, not proved; keep the ones the app means:\n",
+            "Observed over {} scripts and {} steps and code-consistent, not proved; keep the ones the app means:\n",
             self.scripts, self.steps
         );
-        for block in self.blocks(existing) {
+        for block in blocks {
             println!("{block}");
         }
+        Ok(precision)
     }
+}
+
+fn check_blocks(
+    observed: Vec<String>,
+    existing: &[PropertyDecl],
+    file: &Path,
+) -> Result<(Vec<String>, Precision), String> {
+    let properties = observed
+        .iter()
+        .map(|b| {
+            contract::properties(b)
+                .map(|mut ps| ps.remove(0))
+                .map_err(|e| e.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let started = std::time::Instant::now();
+    let checked = contract::check_suggestions_path(file, &properties).map_err(|es| {
+        es.iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ")
+    })?;
+    let mut precision = Precision {
+        observed: observed.len(),
+        seconds: started.elapsed().as_secs_f64(),
+        ..Precision::default()
+    };
+    let mut blocks = Vec::new();
+    for ((block, mut property), check) in observed.into_iter().zip(properties).zip(checked) {
+        match check {
+            contract::SuggestionCheck::Keep => blocks.push(block),
+            contract::SuggestionCheck::Drop { rule, reason } => {
+                *precision.dropped.entry(rule).or_default() += 1;
+                precision
+                    .details
+                    .push(format!("dropped {rule} {:?}: {reason}", property.name));
+            }
+            contract::SuggestionCheck::Widen(names) => {
+                precision.widened += 1;
+                precision.details.push(format!(
+                    "widened frame {:?}: only writes {}",
+                    property.name,
+                    names.join(" ")
+                ));
+                property.lines[0].form = PropertyForm::OnlyWrites(names.clone());
+                if already_written(&property, existing) {
+                    precision.covered += 1;
+                    continue;
+                }
+                let (scope, subject) = match &property.kind {
+                    PropertyKind::After(a) => (crate::observe::quote(a), a.as_str()),
+                    PropertyKind::Clock => ("clock".into(), "the clock"),
+                    _ => unreachable!(),
+                };
+                let names = names.join(" ");
+                let title = crate::observe::quote(&format!("{subject} writes only {names}"));
+                blocks.push(format!("after {scope} {title}\n  only writes {names}\n"));
+            }
+        }
+    }
+    precision.printed = blocks.len();
+    Ok((blocks, precision))
+}
+
+fn already_written(candidate: &PropertyDecl, existing: &[PropertyDecl]) -> bool {
+    candidate.lines.iter().all(|line| {
+        existing.iter().any(|p| {
+            p.kind == candidate.kind && p.lines.iter().any(|l| same_form(&l.form, &line.form))
+        })
+    })
 }
 fn literal(value: &str) -> Option<String> {
     if let Some(n) = number(value) {
@@ -349,7 +450,7 @@ mod tests {
             ("n4000000000000000", "true", "some(true)"),
         ]);
         s.observe(&lines);
-        let blocks = s.blocks(&[]).join("\n");
+        let blocks = s.observed_blocks(&[]).join("\n");
         assert!(blocks.contains("state ready stays true"));
         assert!(!blocks.contains("state ready in"));
         assert!(blocks.contains("state n whole"));
@@ -363,7 +464,7 @@ mod tests {
             ("n3ff8000000000000", "true", "none"),
             ("n4000000000000000", "false", "none"),
         ]));
-        let blocks = s.blocks(&[]).join("\n");
+        let blocks = s.observed_blocks(&[]).join("\n");
         assert!(!blocks.contains("state ready stays true"));
         assert!(!blocks.contains("state n whole"));
         assert!(!blocks.contains("state answer in some"));
@@ -388,12 +489,12 @@ mod tests {
         .map(str::to_string);
         s.observe(&lines);
         assert!(!s
-            .blocks(&[])
+            .observed_blocks(&[])
             .iter()
             .any(|b| b.starts_with("after \"send\"")));
         s.observe(&lines);
         assert!(s
-            .blocks(&[])
+            .observed_blocks(&[])
             .iter()
             .any(|b| b.contains("after \"send\"") && b.contains("only writes answer")));
         let mut excluded = search();
@@ -402,8 +503,12 @@ mod tests {
         excluded.observe(&lines);
         excluded.observe(&lines);
         assert!(!excluded
-            .blocks(&[])
+            .observed_blocks(&[])
             .iter()
             .any(|b| b.starts_with("after \"send\"")));
     }
 }
+
+#[cfg(test)]
+#[path = "suggest_tests.rs"]
+mod precision_tests;

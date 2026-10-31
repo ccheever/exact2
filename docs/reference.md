@@ -909,7 +909,7 @@ on the web and these on Hermes (macOS, iOS, Linux):
 
 | Available on every executor | Notes on Hermes |
 | --- | --- |
-| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts, and the host cancels the request (below). A `body` is a string or an `ArrayBuffer` or view, sent as its bytes (an upload of `storage.fs.readFile`'s bytes); as Fetch does, a body on a GET or HEAD, or a view on a `SharedArrayBuffer` or resizable buffer, rejects, and a detached buffer sends no bytes. `exactBodyFrom: "app:/tmp/…"` sends an app file instead: the host reads it when it sends the request, under `fs.read` as `readFile` is, at most 64 MiB, and the bytes never enter JavaScript, so a 2 MB upload costs the answer's step nothing; with `body`, or on a GET or HEAD, it is a `TypeError`, and a missing file, a denied path or one over 64 MiB rejects the fetch (`FetchError`, kind `Refused`, naming why) before anything is sent, as does a host with no app files (a drive with no scratch store) or none built yet (Windows), with kind `Unsupported`; no Content-Type is added (LLP 1108 D6 R2). An older binary's prelude would send it as an empty body, so a native app with a TypeScript data module carries `typescriptRuntime` in its compatibility id: the first build after this change gives every such app a new id, and each needs a new binary once. `exactBodyTo: "app:/cache/…"` is the reverse, for a download: the host writes a 2xx reply's body into that app file as it arrives, under `fs.write` as `writeFile` is, and the bytes never enter JavaScript, so a large file costs neither the answer's step nor the engine's 64 MiB heap. The body goes to a staging file beside the target, which replaces the target only once the body is complete; a failure, an abort, the deadline or a body over the bound leaves the target as it was. The bound is `exactIndependentHttp.maxResponseBytes`, which may then be up to 1 GiB, or 1 GiB when none is given. The `Response` resolves once the file is in place, with `status`, `ok` and `headers` as received, an empty body, and `exactBodyTo: {path, bytes}`, the bytes written (absent or `null` on any other response). A reply that is not 2xx is not written: the file is untouched and its body is read as usual, at most 1 MiB, so the server's error is readable. A path that is not a plain `app:/` one, a HEAD, or `exactStream` beside it is a `TypeError`; a denied path or a missing folder rejects the fetch (`FetchError`, kind `Refused`) before anything is sent, and a host with no app files does so with kind `Unsupported`. It may come with a `body` or `exactBodyFrom`. On the web the body becomes a Blob the browser holds, stored in the page's store in one transaction (LLP 1108 D6 R2, 2026-10-26). An older prelude would ignore it and read the body into memory, so it moves `typescriptRuntime` to 4. `redirect` is Fetch's: `follow` (the default), `error` (a redirect rejects the fetch), or `manual`, which answers with the 3xx itself; natively its `Location` header is readable (an OAuth step whose redirect names an app scheme), while a browser gives its opaque redirect (status 0, no headers); any other word is a `TypeError`. An older prelude would ignore it and follow, so it moves `typescriptRuntime` to 2: such an app needs a new binary once more, and a cohort on an older binary gets no bundle that relies on it. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
+| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts, and the host cancels the request (below). A `body` is a string or an `ArrayBuffer` or view, sent as its bytes (an upload of `storage.fs.readFile`'s bytes); as Fetch does, a body on a GET or HEAD, or a view on a `SharedArrayBuffer` or resizable buffer, rejects, and a detached buffer sends no bytes. `exactBodyFrom: "app:/tmp/…"` sends an app file instead: the host reads it when it sends the request, under `fs.read` as `readFile` is, at most 64 MiB, and the bytes never enter JavaScript, so a 2 MB upload costs the answer's step nothing; with `body`, or on a GET or HEAD, it is a `TypeError`, and a missing file, a denied path or one over 64 MiB rejects the fetch (`FetchError`, kind `Refused`, naming why) before anything is sent, as does a host with no app files (a drive with no scratch store) or none built yet (Windows), with kind `Unsupported`; no Content-Type is added (LLP 1108 D6 R2). An older binary's prelude would send it as an empty body, so a native app with a TypeScript data module carries `typescriptRuntime` in its compatibility id: the first build after this change gives every such app a new id, and each needs a new binary once. `exactBodyTo: "app:/cache/…"` is the reverse, for a download: the host writes a 2xx reply's body into that app file as it arrives, under `fs.write` as `writeFile` is, and the bytes never enter JavaScript, so a large file costs neither the answer's step nor the engine's 64 MiB heap. The body goes to a staging file beside the target, which replaces the target only once the body is complete; a failure, an abort, the deadline or a body over the bound leaves the target as it was. The bound is `exactIndependentHttp.maxResponseBytes`, which may then be up to 1 GiB, or 1 GiB when none is given. The `Response` resolves once the file is in place, with `status`, `ok` and `headers` as received, an empty body, and `exactBodyTo: {path, bytes}`, the bytes written (absent or `null` on any other response). A reply that is not 2xx is not written: the file is untouched and its body is read as usual, at most 1 MiB, so the server's error is readable. A path that is not a plain `app:/` one, a HEAD, or `exactStream` beside it is a `TypeError`; a denied path or a missing folder rejects the fetch (`FetchError`, kind `Refused`) before anything is sent, and a host with no app files does so with kind `Unsupported`. It may come with a `body` or `exactBodyFrom`. On the web the body becomes a Blob the browser holds, stored in the page's store in one transaction (LLP 1108 D6 R2, 2026-10-26). An older prelude would ignore it and read the body into memory, so it moves `typescriptRuntime` to 4. `redirect` is Fetch's: `follow` (the default), `error` (a redirect rejects the fetch), or `manual`, which answers with the 3xx itself; natively its `Location` header is readable (an OAuth step whose redirect names an app scheme), while a browser gives its opaque redirect (status 0, no headers); any other word is a `TypeError`. An older prelude would ignore it and follow, so it moves `typescriptRuntime` to 2: such an app needs a new binary once more, and a cohort on an older binary gets no bundle that relies on it. A `Response` has `status`, `ok`, `statusText`, `headers`, `bodyUsed`, `text()`, `json()`, `arrayBuffer()`, `clone()`, as Fetch's does: a body reads once, a clone of a read one is a `TypeError`, a fetched reply's headers and a redirect's take no change, and a response's own refuse `Set-Cookie`; no `body` stream, `Request`, `Blob` or `FormData`. `new Response(body, init)`, `Response.json` and `Response.redirect` make a reply as Fetch does (a demo's server in the app), from a string, `URLSearchParams` or bytes; a module that names `Response`, `.clone`, `statusText` or `bodyUsed` needs `typescriptRuntime` 7, as an older prelude makes one with no status and no body, reads a body again, or throws. Natively and in the wasm target's module realms, `Response.redirect` takes only an absolute URL (a relative one is a `TypeError`; the web JS executor resolves it as the browser does), and natively a fetched reply's `statusText` is `""`; in the wasm target's browser realms, which are not hardened, a `Response`'s headers take no guard, and an app that replaces an intrinsic there (a prototype's method, `Math`, a `WeakMap`'s `get`) changes what `Response` does, as it changes what any code in that realm does, while what an app gives a `Response` (an object's own properties, its iterator, its conversion hooks) is read as Fetch reads it on every host |
 | `structuredClone` | No transfer list |
 | `TextEncoder`, `TextDecoder` | `TextEncoder` emits UTF-8. Hermes 0.4's built-in WHATWG decoder keeps the browser-style encoding labels, including UTF-8 and UTF-16LE/BE, plus `fatal`, streaming and `ignoreBOM` behavior |
 | `URL`, `URLSearchParams`, `atob`, `btoa` | |
@@ -1018,11 +1018,16 @@ time, and a fetch it awaits goes first: a timer raced against that fetch
 fetch lands, so it cannot cut the fetch short, and the journal says so once
 per answer. On the web JS target, whose answers run in the page, both work.
 For a deadline on every host, give the fetch `exactTimeout`: the host keeps
-it on real time, not the app's clock. `AbortSignal.timeout(ms)` is one too,
-on a different clock by host: natively and in the wasm target the fetch
-carries its time left as the host's real-time deadline; on the web JS target
-it is a timer on the page's clock, so under the agent `clock +N` fires it.
-Either way the signal aborts with `TimeoutError`. An answer waiting both for
+it on real time, not the app's clock. `AbortSignal.timeout(ms)` is one too:
+on every host a fetch carrying it takes its time left as a real-time
+deadline, unless an earlier `exactTimeout` is, and if the request is still in
+flight when that passes, the signal aborts with `TimeoutError`, whether its
+answer is over or not. Natively and on the wasm target, whose module realms
+run the same prelude, a fetch whose signal has more than an hour left takes an
+hour as its deadline, which ends it as a `Timeout`, the signal unaborted; the
+web JS target waits for the signal. On the web JS target the signal is also
+a timer on the page's clock while its answer runs, so under the agent
+`clock +N` fires it there too. An answer waiting both for
 another answer's work (a shared fetch) and for a timer of its own is woken by
 whichever comes first on native hosts, for a source on the main thread, and on
 the web JS target; in the wasm target and in a worker-placed source it wakes
@@ -1636,6 +1641,75 @@ before it is sent unless the fact is `granted` (`NotAllowedError`, message
 the web at the first, with the redirect not followed. The app's own code and a
 person's input are never refused: their reach is the ask. The web, Linux and
 Windows have no browser (`available` false); a typed address still works there.
+
+### Child processes (`@exact/child-process`)
+
+A desktop app's data code starts programs with Node's names (LLP 1133.007):
+`spawn(program, args, {exactStream, …})` is a resource's answer, a child that
+lives while the resource holds it, and `execFile`, `execPath`,
+`loginShellEnvironment()` and `appEnvironment()` are steps an answer awaits.
+Each program is named by a grant line: `process.spawn path:ssh`,
+`process.spawn /usr/bin/tar`, `process.spawn home:/.t3/runtime/versions` or a
+`bundle:` helper; the call names it as its line does
+(`spawn("path:ssh", …)`). A `path:` name runs the first program of its name
+on the login shell's `PATH`, and none where an `fs.write` line lets the app
+write (LLP 1133.007 D7, §9). The mapper receives `spawn`, `stdout` and `stderr`
+chunks, `exit`, `close`, `drain`, `ready` and `ready-timeout` in order, with
+that incarnation's handle (`write`, `end`, `kill`); a mutation writes through
+a kept handle, staged with its commit. A `write` that answers `false` hears
+`drain` once the child's stdin queue is empty, as Node's does. `exactRestart`
+and `exactReady` keep a service alive and say when it serves. Only a person's
+input or the app's own code starts, writes to, ends or signals a child (the
+package declares those names `"origin": "app"`, as a module declares its
+names). From a tool's call, a wake or the device's event, a start fails
+`person-required`; a re-ask of a child's resource keeps the child, and the
+arguments asked stay refused, by any origin, until they change (a refused
+start's too); what such a commit leaves for `data_ready` keeps its origin
+there; a handle's `write`, `end` or
+`kill` answers as usual, and the operation is dropped from its batch and
+journalled, the rest of the batch going. A tool's call ends `person-required`
+at each of these. There is no headless origin (LLP 1133.002 D12): a call in a
+session no one sees is a tool's or a wake's, and the rest of its code is the
+app's. A plain `fetch` to `exact-process:` is refused. macOS and Linux
+implement it; iOS, tvOS, Android, Windows and the web reject every name with
+`NotSupportedError`, and `processStatus()` says which (`{available, state}`).
+
+A child starts in a process group of its own with the default signal
+dispositions and only its three pipes; releasing its resource, a `kill`, the
+app's quit and its exit end the whole group, so a grandchild that holds the
+pipes after its parent exits ends too. After a crash, the next launch ends a
+group whose leader is still running; with the leader gone it ends the group
+only when the app led its own session, so a Mac app launched from the Finder
+(session 1) or from a terminal leaves that group's survivors running. `storage.fs`
+reads and writes `home:/…` (the user's home, under a grant narrower than
+`home:/`) and reads `bundle:/…` (the app bundle, read-only), following no
+link below either root, nor below a native `fs.read` or `fs.write`
+directory (one is refused, as under `app:/`); a native line is reached
+through a system link such as macOS's `/var` but not through one the user
+owns or could replace (`~/Dropbox`): such a line must name the link's target, and a native
+line names a directory, not a file; and it gains
+`lstat`, `readlink`, `access`, `chmod`, `symlink`, `digest(path, "SHA-256")`
+and `flock(path, {timeout})`, whose lock is held until the lock's `unlock()`,
+else until the answer that took it ends (a TypeScript source's only, for
+now); `stat`
+answers `mode` and `isSymbolicLink`. These are the TypeScript runtime 6: an
+older prelude has none of them, so a call throws a plain `TypeError` and the
+fields read `undefined`, and a module that names one needs `typescriptRuntime`
+6 (one that reads only `stat().mode` is not detected). An `env.read
+login:<NAME>` name is a shell variable's (`[A-Za-z_][A-Za-z0-9_]*`).
+
+Under the agent nothing runs unless the drive names it: `--process
+<target>=<executable>` runs that file in the target's place,
+`--process <target>=script:<file.json>` answers from a script with no process
+(the format is `host/apple/src/executor_process_script.rs`'s), and
+`--process <target>=real` runs the granted program itself. A script's events,
+restart delays and readiness move with `clock`; a real child's run on the
+wall, which `clock +<ms> real` waits for. `--login-env NAME=value`
+(repeated) stands in for the login shell and `--home <dir>` for the home
+directory. A tool's call (`call <tool> <json>`) runs as a tool's commit,
+to see the refusal.
+`packages/child-process/test/` holds a fixture app, its script and a helper
+program that starts a grandchild.
 
 ### Apple Health
 

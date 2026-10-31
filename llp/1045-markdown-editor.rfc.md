@@ -579,10 +579,9 @@ all its items, and a code block stays left to right.
 - **A line without a word** (no attribute, or a word other than the three)
   takes the field's own `direction`, the author's or else the document's, on
   every host. No first strong letter selects it, as none has for Apple text
-  since `0cb3cfbda0`; LLP 1001 §1 declares where one still does, Linux and
-  Apple's plain text fields. So on macOS `مرحبا Hello` in an `ltr` Markdown
-  editor draws left to right, while the same field with `markup="none"` draws
-  right to left (`QUEUE.md`).
+  since `0cb3cfbda0`, nor for Apple's plain text fields, so the same field
+  with `markup="none"` keeps it; LLP 1001 §1 declares where one still does,
+  Linux.
 - **`auto`** is the line's first strong letter (a letter, or an explicit
   mark) outside its Markdown syntax and its atoms; a line with none takes the
   field's direction. The syntax passed over is the markers the styler dims or

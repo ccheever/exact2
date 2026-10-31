@@ -13,7 +13,7 @@ test('a yield without the browser scheduler resolves in a later task; postTask a
   expect(globalThis.scheduler).toBeUndefined();
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-scheduler-'));
   cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), resolve(dir, 'ts-fetch.js'));
-  writeFileSync(resolve(dir, 'admission.js'), `export { ownWithout, redirectOf } from ${JSON.stringify(pathToFileURL(resolve(ROOT, 'host/web-js/admission.js')).href)};
+  writeFileSync(resolve(dir, 'admission.js'), `export { ownWithout, redirectOf, signalDeadline } from ${JSON.stringify(pathToFileURL(resolve(ROOT, 'host/web-js/admission.js')).href)};
 export class FetchError extends Error {} export const overlaying = { on: false }; export const inOverlay = what => new Error(what + ' in an overlay');
 export const fetchWith = () => Promise.reject(new Error('no fetch'));\n`);
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = {};\n');

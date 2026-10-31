@@ -871,6 +871,25 @@ fn a_bundle_needs_the_runtime_of_the_newest_option_it_names() {
     assert_eq!(needs(b"fetch(u, {signal: AbortSignal.timeout(5e3)})"), 5);
     assert_eq!(
         needs(b"fetch(u, {method:\"POST\",exactUploadProgress:!0,exactStream:m})"),
+        5
+    );
+    // LLP 1133.007 D6a's operations.
+    assert_eq!(
+        needs(b"const l = await storage.fs.flock(p, {timeout: 0})"),
+        6
+    );
+    assert_eq!(needs(b"(await fs.lstat(p)).isSymbolicLink"), 6);
+    assert_eq!(needs(b"return new Response(body, {status: 201})"), 7);
+    assert_eq!(needs(b"return new globalThis.Response(body)"), 7);
+    assert_eq!(needs(b"return Response.redirect(u, 303)"), 7);
+    assert_eq!(needs(b"const copy = (await fetch(u)).clone()"), 7);
+    assert_eq!(needs(b"const copy = r.clone.call(r)"), 7);
+    assert_eq!(needs(b"const {clone: copy} = r; return copy.call(r)"), 7);
+    assert_eq!(needs(b"return (await fetch(u)).statusText"), 7);
+    assert_eq!(needs(b"if (r.bodyUsed) return"), 7);
+    assert_eq!(needs(b"const c = structuredClone(v)"), 0);
+    assert_eq!(
+        needs(b"return Response.json({a: 1})"),
         super::TYPESCRIPT_RUNTIME
     );
 }

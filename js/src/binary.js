@@ -273,20 +273,25 @@
       if (op.ends) sent.closed.push(target);
       host(17, String(owner.ticket), wire(op));
     }
-    function wire(op) { return JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason, connection: op.connection }); }
+    // `op.wire`: a child's operation as js/src/process.js spells it.
+    function wire(op) { return JSON.stringify(op.wire || { op: op.op, data: op.data, code: op.code, reason: op.reason, connection: op.connection }); }
     function socketOwner(ticket, byMutation) {
       var owner = { ticket: ticket, state: 0 };
+      function amount() {
+        var n = buffered(owner), call = turn(owner), ops = call && call.socketOps;
+        for (var i = 0; ops && i < ops.length; i++) if (ops[i].owner === owner) n += ops[i].size;
+        return n;
+      }
+      // A child's handle stages through them (js/src/process.js).
+      owner.stage = function (op) { return stage(owner, owner, op, byMutation); };
+      owner.amount = amount;
       owner.handle = Object.freeze({
         get readyState() { return owner.state; },
-        get bufferedAmount() {
-          var n = buffered(owner), call = turn(owner), ops = call && call.socketOps;
-          for (var i = 0; ops && i < ops.length; i++) if (ops[i].owner === owner) n += ops[i].size;
-          return n;
-        },
+        get bufferedAmount() { return amount(); },
         send: function (data) {
           if (typeof data === "string") return stage(owner, owner, { op: "text", data: data, size: utf8Length(data) }, byMutation);
           if (!(data instanceof ArrayBuffer) && !ArrayBuffer.isView(data)) throw new TypeError("socket.send expects a string, ArrayBuffer or ArrayBufferView");
-          var bytes = new Uint8Array(env.copyBytes(data, "socket.send"));
+          var bytes = new Uint8Array(copyBytes(data, "socket.send"));
           stage(owner, owner, { op: "binary", data: toBase64(bytes), size: bytes.length }, byMutation);
         },
         close: function (code, reason) {
@@ -512,13 +517,271 @@
     if (at !== places.length) throw new Error("exact: a reply's kept rows lost their places");
     return text;
   }
+  // Web IDL's BufferSource: a copy of its bytes, so later writes change nothing, or null for any other value. One on a
+  // SharedArrayBuffer or a resizable buffer is refused, as Web IDL refuses it where neither is allowed; a detached
+  // buffer's bytes are none.
+  function bufferSourceBytes(value, api) {
+    var source = allowedSource(value, api);
+    if (!source) return null;
+    // A detached buffer can take no view; an empty source copies no bytes either way
+    return source.length ? new Bytes(new Bytes(source.buffer, source.offset, source.length)) : new Bytes(0);
+  }
+  // `bufferSourceBytes`' buffer, any other value refused
+  function copyBytes(data, api) {
+    var bytes = bufferSourceBytes(data, api);
+    if (!bytes) throw new TypeError(api + ": the data is not an ArrayBuffer or ArrayBufferView");
+    return slot(viewSlots[0], bytes);
+  }
+  function isBufferSource(value, api) {
+    return allowedSource(value, api) !== null;
+  }
+  // `value`'s buffer source (`bufferSource`), one on a SharedArrayBuffer or a resizable buffer refused
+  function allowedSource(value, api) {
+    var source = bufferSource(value);
+    if (source && sharedLength && holds(sharedLength, source.buffer)) throw new TypeError(api + ": data on a SharedArrayBuffer is not a BufferSource");
+    if (source && bufferResizable && slot(bufferResizable, source.buffer) === true) throw new TypeError(api + ": data on a resizable ArrayBuffer is not a BufferSource");
+    return source;
+  }
+  // A BufferSource's buffer, offset and length, read through its internal slots as Web IDL reads them, never through
+  // a property the object is given: the engine's own getters, taken before any app code runs; null for any other value.
+  // A view on an empty or detached buffer is offset 0 and length 0, found without its range getters, which throw on a
+  // detached one (a DataView's do).
+  function bufferSource(value) {
+    // A primitive is none, found without a getter's throw (`fetch` asks this of every body)
+    if (value === null || typeof value !== "object") return null;
+    if (isView(value)) {
+      var slots = holds(viewSlots[0], value) ? viewSlots : dataViewSlots, buffer = slot(slots[0], value);
+      if (holds(bufferLength, buffer) && slot(bufferLength, buffer) === 0) return { buffer: buffer, offset: 0, length: 0 };
+      return { buffer: buffer, offset: slot(slots[1], value), length: slot(slots[2], value) };
+    }
+    return holds(bufferLength, value) ? { buffer: value, offset: 0, length: slot(bufferLength, value) } : null;
+  }
+  var reflectApply = Reflect.apply, isView = ArrayBuffer.isView, Bytes = Uint8Array;
+  function getterOf(proto, name) { var described = Object.getOwnPropertyDescriptor(proto, name); return described && described.get; }
+  var viewSlots = ["buffer", "byteOffset", "byteLength"].map(function (name) { return getterOf(Object.getPrototypeOf(Uint8Array.prototype), name); });
+  var dataViewSlots = ["buffer", "byteOffset", "byteLength"].map(function (name) { return getterOf(DataView.prototype, name); });
+  var bufferLength = getterOf(ArrayBuffer.prototype, "byteLength"), bufferResizable = getterOf(ArrayBuffer.prototype, "resizable");
+  var sharedLength = typeof SharedArrayBuffer === "function" ? getterOf(SharedArrayBuffer.prototype, "byteLength") : undefined;
+  function slot(getter, value) { return reflectApply(getter, value, []); }
+  // Whether `value` has the internal slot `getter` reads
+  function holds(getter, value) { try { slot(getter, value); return true; } catch (e) { return false; } }
+
+  // A fetch's `Response` (Fetch, "Response class"): the host's replies
+  // (`reply`) and an app's own, as a demo's server in the app makes one. Its
+  // state is out of the app's reach, as the platform's is: properties an app
+  // gives one are not a clone's. A body is read once. An app's is held as
+  // bytes and read back as UTF-8, as Fetch extracts and reads it ("BodyInit
+  // unions"): a BufferSource's bytes, with no type; a `URLSearchParams`, as
+  // `application/x-www-form-urlencoded;charset=UTF-8`; any other value, its
+  // string, as `text/plain;charset=UTF-8`, unless `headers` names a type. Its
+  // headers take no cookie a server sets (the "response" guard); a
+  // redirect's and a fetched reply's take no change ("immutable"). `to` is the
+  // fetch's `exactBodyTo` path; the reply's `exactBodyTo` is `{path, bytes}`
+  // once the host wrote the body there.
+  function responses() {
+    // ibex2's Headers takes Fetch's guard, through the hooks the runtime publishes for this prelude alone; a browser
+    // realm's (the wasm target's module-glue.js and module-worker.js) are the platform's, which take none from data
+    // code, so there they go unguarded
+    var headersHooks = global.__exact_ibex2_headers_hooks;
+    delete global.__exact_ibex2_headers_hooks;
+    var guard = headersHooks ? headersHooks.guard : function (headers) { return headers; };
+    var ownKeys = Reflect.ownKeys, ownDescriptor = Reflect.getOwnPropertyDescriptor;
+    // The platform's own operations, taken before any app code runs, for what an app's object could answer itself; a
+    // realm may lack either class
+    var Headers = global.Headers, eachHeader = Headers && Headers.prototype.forEach, appendHeader = Headers && Headers.prototype.append;
+    var formText = global.URLSearchParams && global.URLSearchParams.prototype.toString;
+    var states = new WeakMap();
+    function state(response) {
+      var s = states.get(response);
+      if (!s) throw new TypeError("not a Response");
+      return s;
+    }
+    function headersOf(init, kind) {
+      return guard(new Headers(init), kind);
+    }
+    // A copy of a response's headers, as Fetch copies its header list: through the platform's own iteration, never
+    // an iterator an app gives the headers
+    function headersCopy(headers, kind) {
+      var copy = new Headers();
+      reflectApply(eachHeader, headers, [function (value, name) { reflectApply(appendHeader, copy, [name, value]); }]);
+      return guard(copy, kind);
+    }
+    // Whether `value` is a `URLSearchParams`, by the platform's own check
+    function isForm(value) {
+      if (!formText || value === null || typeof value !== "object") return false;
+      try { reflectApply(formText, value, []); return true; } catch (e) { return false; }
+    }
+    // Web IDL's `unsigned short`: ToNumber (a BigInt or a symbol refused), truncated, modulo 2^16; NaN and the infinities 0
+    function unsignedShort(value) { var n = +value; return isFinite(n) ? ((Math.trunc(n) % 65536) + 65536) % 65536 : 0; }
+    // Web IDL's strings: ToString, a symbol refused
+    function string(value, api) {
+      if (typeof value === "symbol") throw new TypeError(api + ": a symbol is not a string");
+      return String(value);
+    }
+    // Web IDL's `ByteString`
+    function byteString(value, api) {
+      var text = string(value, api);
+      if (/[^\x00-\xff]/.test(text)) throw new TypeError(api + ": " + JSON.stringify(text) + " is not a ByteString");
+      return text;
+    }
+    // Web IDL's `HeadersInit`, a sequence of pairs or a record, each part a `ByteString`: its iterator method read
+    // once, a sequence's pairs converted as they are yielded, and a record's own enumerable keys in order, each key's
+    // descriptor read just before its value. Whether they are headers is checked only as they are filled in (Fetch's
+    // "fill").
+    function headersInitOf(value, api) {
+      if (value === undefined) return [];
+      if (!isObject(value)) throw new TypeError(api + ": the headers are no sequence or record");
+      var method = iteratorOf(value, api);
+      if (method) {
+        return sequenceOf(value, method, function (pair) {
+          var parts = isObject(pair) ? iteratorOf(pair, api) : undefined;
+          if (!parts) throw new TypeError(api + ": a header is no sequence of a name and a value");
+          return sequenceOf(pair, parts, function (part) { return byteString(part, api); }, api);
+        }, api);
+      }
+      var pairs = [];
+      ownKeys(value).forEach(function (key) {
+        var described = ownDescriptor(value, key);
+        if (described && described.enumerable) pairs.push([byteString(key, api), byteString(value[key], api)]);
+      });
+      return pairs;
+    }
+    function isObject(value) { return value !== null && (typeof value === "object" || typeof value === "function"); }
+    // Web IDL's GetMethod for `Symbol.iterator`: the method, read once, or undefined for none
+    function iteratorOf(value, api) {
+      var method = value[Symbol.iterator];
+      if (method === undefined || method === null) return undefined;
+      if (typeof method !== "function") throw new TypeError(api + ": an iterator method is not a function");
+      return method;
+    }
+    // Web IDL's sequence from an iterable and its `method`: `next` read once, both called as they are, never through a
+    // `call` the app gives them, and each value converted as it is yielded
+    // (https://webidl.spec.whatwg.org/#create-sequence-from-iterable)
+    function sequenceOf(value, method, convert, api) {
+      var iterator = reflectApply(method, value, []), list = [];
+      if (!isObject(iterator)) throw new TypeError(api + ": an iterator is not an object");
+      var next = iterator.next;
+      for (;;) {
+        var step = reflectApply(next, iterator, []);
+        if (!isObject(step)) throw new TypeError(api + ": an iterator result is not an object");
+        if (step.done) return list;
+        list.push(convert(step.value));
+      }
+    }
+    // A `ResponseInit` as Web IDL converts the dictionary: nothing, or an object whose members are each read and
+    // converted in turn, in its order (`headers`, `status`, `statusText`)
+    function initOf(init, api) {
+      if (init != null && !isObject(init)) throw new TypeError(api + ": the init is not a dictionary");
+      var given = init == null ? {} : init;
+      var headers = headersInitOf(given.headers, api), asked = given.status;
+      var status = asked === undefined ? 200 : unsignedShort(asked), statusText = given.statusText;
+      return { headers: headers, status: status, statusText: statusText === undefined ? "" : byteString(statusText, api) };
+    }
+    // Fetch's "initialize a response": a body `source` (bytes or a string, or null for none) and the type it brings
+    function initialized(source, type, options, api) {
+      var status = options.status, statusText = options.statusText, headers = new Headers();
+      if (status < 200 || status > 599) throw new RangeError(api + ": the status must be from 200 to 599, not " + status);
+      // A reason phrase: tabs, spaces, visible ASCII and bytes from 0x80 (RFC 9112 §4)
+      if (/[^\t\x20-\x7e\x80-\xff]/.test(statusText)) throw new TypeError(api + ": the statusText " + JSON.stringify(statusText) + " is not a reason phrase");
+      options.headers.forEach(function (pair) {
+        if (pair.length !== 2) throw new TypeError(api + ": a header is a name and a value");
+        headers.append(pair[0], pair[1]);
+      });
+      headers["delete"]("set-cookie");
+      headers["delete"]("set-cookie2");
+      guard(headers, "response");
+      if (source !== null && (status === 204 || status === 205 || status === 304)) throw new TypeError(api + ": a " + status + " has no body");
+      if (type && !headers.has("content-type")) headers.set("content-type", type);
+      return { status: status, statusText: statusText, headers: headers, guard: "response", body: source === null ? null : typeof source === "string" ? new TextEncoder().encode(source) : source, used: false, exactBodyTo: null };
+    }
+    function made(fields) {
+      var response = Object.create(Response.prototype);
+      states.set(response, fields);
+      return response;
+    }
+    // Web IDL converts the body first (a BufferSource or a `URLSearchParams` kept as it is, any other value made a
+    // string), then the init; Fetch extracts the body after both
+    function Response(body, init) {
+      if (!new.target) throw new TypeError("Response must be constructed with new");
+      var api = "new Response()", form = isForm(body);
+      var kept = body == null || form || isBufferSource(body, api) ? body : string(body, api), options = initOf(init, api);
+      var source = kept == null ? null : form ? reflectApply(formText, kept, []) : typeof kept === "string" ? kept : bufferSourceBytes(kept, api);
+      var type = typeof kept === "string" ? "text/plain;charset=UTF-8" : form ? "application/x-www-form-urlencoded;charset=UTF-8" : null;
+      states.set(this, initialized(source, type, options, api));
+    }
+    ["status", "statusText", "headers", "exactBodyTo"].forEach(function (name) {
+      Object.defineProperty(Response.prototype, name, { get: function () { return state(this)[name]; }, enumerable: true, configurable: true });
+    });
+    Object.defineProperty(Response.prototype, "ok", { get: function () { var status = state(this).status; return status >= 200 && status < 300; }, enumerable: true, configurable: true });
+    Object.defineProperty(Response.prototype, "bodyUsed", { get: function () { var s = state(this); return s.body !== null && s.used; }, enumerable: true, configurable: true });
+    // Fetch's "consume body": a body is read once; none reads as empty, as often as asked. An app's body is bytes;
+    // a host reply's, its bytes in base64 and their UTF-8 text, as the host decoded it. `read` makes the reader's
+    // value from it, and the promise is resolved with that value alone: the body held stays out of reach. As Fetch
+    // consumes one, a body is marked read now and read in a later turn, and none is read now, so its promise is
+    // settled already, rejected if `read` throws.
+    var none = new Uint8Array(0);
+    function consumed(response, read) {
+      var body;
+      try {
+        var s = state(response);
+        if (s.body === null) return Promise.resolve(read(none));
+        if (s.used) throw new TypeError("the body was read already");
+        s.used = true;
+        body = s.body;
+      } catch (e) {
+        return Promise.reject(e);
+      }
+      return Promise.resolve().then(function () { return read(body); });
+    }
+    Response.prototype.arrayBuffer = function () {
+      return consumed(this, function (body) { return body instanceof Uint8Array ? copyBytes(body, "Response.arrayBuffer()") : fromBase64(body.base64).buffer; });
+    };
+    // A body UTF-8 decoded, a leading byte order mark dropped (Fetch's "UTF-8 decode")
+    function decoded(body) {
+      if (body instanceof Uint8Array) return new TextDecoder().decode(body);
+      return body.text.charCodeAt(0) === 0xfeff ? body.text.slice(1) : body.text;
+    }
+    Response.prototype.text = function () { return consumed(this, decoded); };
+    // Parsed as the body is read, as Fetch's "package data" does, not in a turn after
+    Response.prototype.json = function () { return consumed(this, function (body) { return JSON.parse(decoded(body)); }); };
+    Response.prototype.clone = function () {
+      var s = state(this);
+      if (s.body !== null && s.used) throw new TypeError("Response.clone(): the body was read already");
+      return made({ status: s.status, statusText: s.statusText, headers: headersCopy(s.headers, s.guard), guard: s.guard, body: s.body, used: false, exactBodyTo: s.exactBodyTo });
+    };
+    // The init converted before the data is serialized, as Web IDL converts the arguments first
+    Response.json = function (data, init) {
+      var api = "Response.json()", options = initOf(init, api), text = JSON.stringify(data);
+      if (text === undefined) throw new TypeError(api + ": the data has no JSON");
+      return made(initialized(text, "application/json", options, api));
+    };
+    // Both arguments converted, then the URL parsed, then the status checked. The URL is absolute: data code has no
+    // document to resolve a relative one against.
+    Response.redirect = function (url, status) {
+      var api = "Response.redirect()", given = string(url, api), code = status === undefined ? 302 : unsignedShort(status);
+      var location = new global.URL(given).href;
+      if ([301, 302, 303, 307, 308].indexOf(code) < 0) throw new RangeError(api + ": the status must be 301, 302, 303, 307 or 308, not " + code);
+      return made({ status: code, statusText: "", headers: headersOf([["location", location]], "immutable"), body: null, used: false, exactBodyTo: null, guard: "immutable" });
+    };
+    // A host reply. A HEAD's, and one whose status has no body, has none (Fetch, "HTTP-network fetch").
+    function reply(r, to, head) {
+      var written = to === undefined ? undefined : bodyWritten(r), empty = head || r.status === 204 || r.status === 205 || r.status === 304;
+      return made({
+        status: r.status, statusText: "", headers: headersOf(r.headers, "immutable"), guard: "immutable", used: false,
+        body: empty ? null : { base64: r.bodyBase64 || "", text: r.body || "" },
+        exactBodyTo: written === undefined ? null : { path: to, bytes: written },
+      });
+    }
+    return { Response: Response, reply: reply };
+  }
   global.__exact_binary = Object.freeze({
     keptReply: keptReply,
+    responses: responses,
+    bufferSourceBytes: bufferSourceBytes,
+    copyBytes: copyBytes,
     timers: timers,
     fileRefusal: fileRefusal,
-    bodyWritten: bodyWritten,
     imageOptions: imageOptions,
-    fromBase64: fromBase64,
     toBase64: toBase64,
     utf8Length: utf8Length,
     messageData: messageData,

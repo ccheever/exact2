@@ -1,0 +1,16 @@
+// Shelf's reindex task: module effects are consumed by the runner but
+// remain host commands in the semantics (LLP 1151 lane G).
+use setContentIndex, ContentDescription from "@exact/search-index"
+use setAppShortcuts, ShortcutItem from "@exact/quick-actions"
+
+component App
+  task index mount
+    after(1, reindex)
+  action reindex
+    setContentIndex(kind="book", entries=[])
+    setAppShortcuts(shortcuts=[])
+  view
+    text "Shelf" testId="shelf"
+
+test "the index and shortcuts are module effects"
+  clock +1

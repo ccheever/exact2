@@ -5,8 +5,7 @@
 
 use exact_kernel::{Kernel, PropValue};
 use exact_plan::{Items, Plan, Value};
-use exact_runner::instance::InstanceError;
-use exact_runner::{DataError, DataSource, Runner, RunnerError, Trap};
+use exact_runner::{DataError, DataSource, Runner, RunnerError};
 use std::path::Path;
 
 fn corpus(name: &str) -> String {
@@ -299,19 +298,23 @@ fn callback_runs_are_bounded_per_evaluation_and_the_trap_is_named() {
     contract::bake(plan.clone(), Xs(255)).unwrap();
     let error = contract::bake(plan.clone(), Xs(256)).unwrap_err();
     assert!(format!("{error:?}").contains("IterationLimit"), "{error:?}");
-    // At run time the commit is refused whole, and the journal says why.
+    // At run time the binding's row is unset, the journal says why, and the
+    // runner goes on (LLP 1017.003 D3).
     let r = Runner::boot(
         plan,
         Xs(256),
         Kernel::with_monospace(),
         Default::default(),
         "/",
+    )
+    .unwrap();
+    assert!(!r.is_poisoned());
+    assert!(
+        r.journal()
+            .any(|l| l.contains(": text trapped Trap(IterationLimit { pc: ")),
+        "{:?}",
+        r.journal().collect::<Vec<_>>()
     );
-    match r {
-        Err(RunnerError::Instance(InstanceError::Trap(Trap::IterationLimit { .. }))) => {}
-        Err(e) => panic!("{e:?}"),
-        Ok(_) => panic!("booted past the bound"),
-    }
 }
 
 /// `sum` (the euxy port's sheet height over its lanes) is

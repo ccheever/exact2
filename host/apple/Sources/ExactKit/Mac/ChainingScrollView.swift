@@ -12,6 +12,11 @@ package final class ChainingScrollView: NSScrollView {
     /// mouse contact, even if a handler removes the scroll view mid-press.
     weak var pointerOwner: NodeView? { didSet { followScrollerStyle() } }
     package override func accessibilityChildrenInNavigationOrder() -> [any NSAccessibilityElementProtocol]? { treeNavigationOrder }
+    // A Markdown field's atoms follow it among the scrolled children (`NodeView.withAtoms`).
+    package override func accessibilityChildren() -> [Any]? {
+        let children = super.accessibilityChildren()
+        return pointerOwner?.scroll === self ? pointerOwner?.withAtoms(children, inScroll: true) : children
+    }
     private var mouseHeld = false
     private var removeAfterMouseUp = false
     /// Removed mid-press, the view stays, transparent, until the up, which

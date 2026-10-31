@@ -71,7 +71,8 @@ fn indexed(r: &Runner<NoData>) -> Vec<ViewId> {
     r.ids.theme.faces().map(|(view, _)| view).collect()
 }
 
-const FACE: &str = "AtomFace(source=\"@a\", label=\"\", icon=\"\", title=\"\", direction=\"\"";
+const FACE: &str =
+    "AtomFace(source=\"@a\", label=\"\", icon=\"\", title=\"\", direction=\"\", ariaLabel=\"\"";
 
 /// A pin above the node that moves reads its faces again in the slice the
 /// pin makes, though nothing they read changed (D7, as a row's text).

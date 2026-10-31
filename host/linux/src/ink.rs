@@ -318,7 +318,7 @@ impl Backend for Ink {
     }
     #[cfg(windows)]
     fn device_lost(&self) -> bool {
-        self.device_lost
+        self.device_lost || matches!(&self.device, Selected::D3d11(d) if d.device_lost())
     }
     #[cfg(windows)]
     fn collect_retired_devices(&mut self) -> usize {
@@ -332,6 +332,21 @@ impl Backend for Ink {
         match &self.device {
             Selected::D3d11(d) => d.presentation_retry_delay(),
             _ => None,
+        }
+    }
+    #[cfg(windows)]
+    fn prepare_window_frame(&mut self, size: [u32; 2]) -> std::result::Result<bool, String> {
+        let result = match &mut self.device {
+            Selected::D3d11(d) => d.prepare_present(size),
+            _ => Ok(true),
+        };
+        self.accept(result)
+            .ok_or_else(|| self.error.clone().unwrap())
+    }
+    #[cfg(windows)]
+    fn reset_present_deadline(&mut self) {
+        if let Selected::D3d11(d) = &mut self.device {
+            d.reset_present_deadline();
         }
     }
     fn needs_geometry_paint(&self) -> bool {

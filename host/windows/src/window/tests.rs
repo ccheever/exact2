@@ -1,5 +1,74 @@
 use super::*;
 use winit::platform::windows::WindowAttributesExtWindows;
+
+#[test]
+fn dirty_redraws_respect_the_present_retry_and_one_paint_per_refresh() {
+    let start = Instant::now();
+    for hz in [60, 120, 144] {
+        let period = Duration::from_secs_f64(1. / hz as f64);
+        let next = start + period;
+        let mut schedule = FrameSchedule {
+            cadence: Some(next),
+            retry: None,
+            present: None,
+        };
+        for step in 0..100 {
+            let now = start + period * step / 100;
+            assert_eq!(schedule.redraw(now, true), Some(next));
+            assert_eq!(schedule.admit(now), next);
+        }
+        // Refusal can arrive after the cadence tick. New dirty events cannot
+        // shorten its deadline, and a clean picture must still retry there.
+        let refused_until = next + period / 2;
+        schedule.present = Some(refused_until);
+        schedule.retry = Some(refused_until);
+        for dirty in [false, true] {
+            assert_eq!(schedule.redraw(next, dirty), Some(refused_until));
+            assert_eq!(schedule.redraw(refused_until, dirty), Some(refused_until));
+        }
+        assert_eq!(schedule.admit(next), refused_until);
+        assert_eq!(schedule.admit(refused_until), refused_until);
+        schedule.present = None;
+        schedule.retry = None;
+        assert_eq!(schedule.redraw(refused_until, false), None);
+    }
+}
+
+#[test]
+fn recovery_backoff_keeps_idle_wakes_without_stalling_changed_content() {
+    let now = Instant::now();
+    let recovery = now + Duration::from_secs(1);
+    let mut schedule = FrameSchedule {
+        cadence: None,
+        retry: Some(recovery),
+        present: None,
+    };
+    assert_eq!(schedule.redraw(now, false), Some(recovery));
+    assert_eq!(schedule.redraw(now, true), Some(now));
+    assert_eq!(schedule.admit(now), now);
+    let tick = now + Duration::from_millis(16);
+    schedule.cadence = Some(tick);
+    assert_eq!(schedule.redraw(now, true), Some(tick));
+    assert_eq!(schedule.redraw(now, false), Some(recovery));
+}
+
+#[test]
+fn an_early_image_or_window_redraw_survives_until_the_next_tick() {
+    let now = Instant::now();
+    let tick = now + Duration::from_millis(16);
+    let schedule = FrameSchedule {
+        cadence: Some(tick),
+        retry: None,
+        present: None,
+    };
+    let mut pending = false;
+    // Image completion requests a redraw before poll_images marks the picture
+    // dirty. Deferring that event must preserve the request, not just damage.
+    assert!(schedule.defer(now, &mut pending));
+    assert_eq!(schedule.redraw(now, pending), Some(tick));
+    assert!(!schedule.defer(tick, &mut pending));
+    assert_eq!(schedule.redraw(tick, pending), None);
+}
 #[test]
 fn only_direct_ink_devices_prepare_asynchronously() {
     use exact_linux::presenter::PainterChoice::*;
@@ -95,6 +164,7 @@ fn direct_window_blinks_without_a_softbuffer_surface() {
         scale: 1.,
         refit_after_scale: false,
         next_frame: started,
+        redraw_pending: false,
         failed: false,
         minimized: false,
         occluded: false,
@@ -189,4 +259,129 @@ fn early_redraws_preserve_cadence_and_stalls_resume_without_catch_up() {
         next_frame_deadline(deadline, deadline + period, period),
         deadline + period * 2
     );
+}
+
+fn windowless_app(events: &EventLoop<crate::accessibility::Event>, plan: &[u8]) -> App<()> {
+    let started = Instant::now();
+    let (p, _) = Presenter::boot_with(
+        plan,
+        (),
+        (160., 80.),
+        1.,
+        Default::default(),
+        exact_linux::presenter::PainterChoice::Cpu,
+    )
+    .unwrap();
+    App {
+        proxy: events.create_proxy(),
+        accessibility: None,
+        name: "Frame scheduling regression".into(),
+        min_size: (1., 1.),
+        config: Config::from_env(&plan, ""),
+        window: None,
+        surface: None,
+        preparing: None,
+        jump_list_started: false,
+        direct: true,
+        presenter: Some(p),
+        timers: crate::timers::Timers::new(|_| {}),
+        started,
+        pointer: (0., 0.),
+        pointer_inside: false,
+        focused: true,
+        cursor: CursorIcon::Default,
+        buttons: 0,
+        clicks: Default::default(),
+        scale: 1.,
+        refit_after_scale: false,
+        next_frame: started,
+        redraw_pending: false,
+        failed: false,
+        minimized: false,
+        occluded: false,
+        frames: 1,
+        measured_first_screen: false,
+        measure_first_composition: false,
+        paint_ms: 0.,
+        present_ms: 0.,
+        previous_frame: None,
+        samples: Vec::new(),
+        frame_logs: Vec::new(),
+        frame_limit: None,
+        first_tap: None,
+        pads: Default::default(),
+        pads_active: false,
+        caret: Default::default(),
+        edit_menu: None,
+        ime: Default::default(),
+        appearance: Default::default(),
+        modal: Default::default(),
+        desktop: crate::desktop::Desktop::install("Frame scheduling regression"),
+    }
+}
+
+#[allow(deprecated)]
+pub(crate) fn about_to_wait_honors_retry_pending_redraw_and_earlier_timer(
+    events: EventLoop<crate::accessibility::Event>,
+) {
+    let plan = contract::compile("component App\n  view\n    text \"idle\"\n")
+        .unwrap()
+        .encode();
+    let mut app = windowless_app(&events, &plan);
+    let mut checked = false;
+    events.run(|event, events| {
+        if !matches!(event, winit::event::Event::AboutToWait) { return; }
+        let now = Instant::now();
+        let retry = now + Duration::from_secs(1);
+        app.presenter.as_mut().unwrap().frame();
+        assert!(!app.presenter.as_ref().unwrap().dirty());
+        app.wait(events, |_| (Some(retry), Some(retry)));
+        assert_eq!(events.control_flow(), ControlFlow::WaitUntil(retry));
+        app.redraw_pending = true;
+        app.wait(events, |_| (Some(retry), Some(retry)));
+        assert_eq!(events.control_flow(), ControlFlow::WaitUntil(retry));
+        assert!(app.redraw_pending);
+        app.next_frame = now + Duration::from_millis(500);
+        app.frame_limit = Some(10);
+        app.wait(events, |_| (None, None));
+        assert_eq!(events.control_flow(), ControlFlow::WaitUntil(app.next_frame));
+        app.frame_limit = None;
+        app.redraw_pending = false;
+        app.about_to_wait(events);
+        assert_eq!(events.control_flow(), ControlFlow::Wait);
+        // A runner wake must win over the presenter's later retry.
+        let timed = contract::compile("component App\n  state n = 0\n  action bump\n    n = n + 1\n  task timer mount\n    every(500, bump)\n  view\n    text \"idle\"\n").unwrap().encode();
+        let (mut p, _) = Presenter::boot_with(&timed, (), (160., 80.), 1., Default::default(),
+            exact_linux::presenter::PainterChoice::Cpu).unwrap();
+        p.frame();
+        let wake = p.wake_due_ms().unwrap();
+        app.presenter = Some(p);
+        app.wait(events, |_| (Some(retry), Some(retry)));
+        assert_eq!(events.control_flow(), ControlFlow::WaitUntil(app.started + Duration::from_secs_f64(wake / 1000.)));
+        checked = true;
+        events.exit();
+    }).unwrap();
+    assert!(checked);
+}
+
+#[test]
+fn newly_drawable_windows_discard_occlusion_deadlines_but_keep_cadence() {
+    let now = Instant::now();
+    let period = Duration::from_secs_f64(1. / 60.);
+    for event in [
+        WindowEvent::Occluded(false),
+        WindowEvent::Focused(true),
+        WindowEvent::Resized(winit::dpi::PhysicalSize::new(800, 800)),
+    ] {
+        assert!(presentation_resumes(&event));
+        let schedule = FrameSchedule {
+            cadence: Some(now + period),
+            retry: None,
+            present: None,
+        };
+        assert_eq!(schedule.admit(now), now + period);
+        assert_eq!(schedule.redraw(now, true), Some(now + period));
+    }
+    assert!(!presentation_resumes(&WindowEvent::Focused(false)));
+    assert!(!presentation_resumes(&WindowEvent::Occluded(true)));
 }

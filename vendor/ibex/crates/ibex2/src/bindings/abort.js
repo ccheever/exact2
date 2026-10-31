@@ -4,6 +4,7 @@
   var brand = global.__ibex2_brand || function (value) { return value; };
   var signals = new WeakMap(), controllers = new WeakMap(), views = new WeakMap();
   var objectCreate = Object.create;
+  var reflectApply = Reflect.apply;
   var objectDefineProperties = Object.defineProperties;
   var objectFreeze = Object.freeze;
   var useEvents = typeof global.EventTarget === "function" && typeof global.Event === "function";
@@ -21,6 +22,7 @@
     : consoleError
       ? function (error) { consoleError("Uncaught " + String(error)); }
       : function () {};
+  function isObject(value) { return value !== null && (typeof value === "object" || typeof value === "function"); }
   function own(signal) {
     var state = signals.get(signal);
     if (!state) throw new TypeError("not an AbortSignal");
@@ -33,7 +35,7 @@
     objectDefineProperties(view, {
       aborted: { get: function () { return state.aborted; }, enumerable: true },
       reason: { get: function () { return state.reason; }, enumerable: true },
-      // Exact patch 22: the signals `AbortSignal.any` composed this one of, or null.
+      // The signals `AbortSignal.any` composed this one of, flattened (a copy), or null for one it did not compose
       sources: { get: function () { return state.sources ? state.sources.slice() : null; }, enumerable: true }
     });
     objectFreeze(view);
@@ -169,10 +171,25 @@
     timerSet(function () { abort(signal, new DOMException("The operation timed out", "TimeoutError")); }, Math.floor(delay));
     return signal;
   };
+  // `values` is converted as Web IDL converts a `sequence<AbortSignal>`: the
+  // iterator method, `next` and each `value` read once, each value converted as
+  // it is yielded (https://webidl.spec.whatwg.org/#create-sequence-from-iterable).
   AbortSignal.any = function (values) {
-    if (values == null || (typeof values !== "object" && typeof values !== "function") || typeof values[Symbol.iterator] !== "function") throw new TypeError("signals must be an iterable");
-    var inputs = Array.from(values), result = create(), releases = [], sources = [];
-    inputs.forEach(own);
+    if (!isObject(values)) throw new TypeError("signals must be an iterable");
+    var method = values[Symbol.iterator];
+    if (typeof method !== "function") throw new TypeError("signals must be an iterable");
+    var iterator = reflectApply(method, values, []);
+    if (!isObject(iterator)) throw new TypeError("signals' iterator must be an object");
+    var next = iterator.next, inputs = [];
+    for (;;) {
+      var step = reflectApply(next, iterator, []);
+      if (!isObject(step)) throw new TypeError("signals' iterator result must be an object");
+      if (step.done) break;
+      var value = step.value;
+      own(value);
+      inputs.push(value);
+    }
+    var result = create(), releases = [], sources = [];
     for (var i = 0; i < inputs.length; i++) {
       if (own(inputs[i]).aborted) { abort(result, own(inputs[i]).reason); return result; }
     }

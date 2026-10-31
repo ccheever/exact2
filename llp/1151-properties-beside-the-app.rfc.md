@@ -776,7 +776,11 @@ rule (37, 129, 62): the two Excord blocks the settle bound stopped now run to th
 `prefer-midi` the census now classifies as undeliverable rather than consuming; the
 Design Tool's `size` skips became `request` stops once a leading `size` counted as a
 launch fact. The next steps worth delivering are `request` (79 blocks) and `clock
-until` (85).
+until` (85). Lane F (2026-10-30) delivered `clock until` as one `land` and a read, and
+a leading `size` as a launch fact: 36 whole, 139 partial, 65 skipped of 240. All 93
+Excord blocks that reach a `clock until` wait on `gateway.state`, a field path the
+matcher cannot read, so the field adapter D1 defers to stage 2 is what unblocks them
+(`QUEUE.md`).
 
 **What delivery exposed.** Two divergences that no run reached before: Shelf's Back
 test, at its one-millisecond task, has the semantics emit `setContentIndex` and
@@ -794,8 +798,11 @@ warm runs, `DIFFTEST_CACHE=1`): with the default twenty walks, Type Tour 2.6 s
 runner-only and 3.3 s with Lean, Excord 44 s and 88 s; with `--walks 0`, Type Tour
 1.5 s and 2.0 s, Excord 23 s and 47 s. The walks cost Excord 21 s on the runner and
 40 s with Lean; Lean's share of a default Excord run is 43 s. The device runner's cost
-on the web host was not measured: lane D's sandbox refused the profile lock, and the
-number is owed.
+on the web host (2026-10-30, three warm runs of `verify web --app typetour`: the
+authored test with its `always` line checked after every step, the screens at two
+widths light and dark, and the relaunch): 10.9 s median inside the run, 20.6 s wall
+with the build check, against 1.5 s for the harness's runner-only verify of the same
+app.
 
 **The trace.** The projection proof (open question 2) did not close in a page; the
 twin runs beside the original on every step and `trace disagrees` has never printed
@@ -848,6 +855,19 @@ the ten); and the input pair needs its lemma first. Stage 2 opens when a kept li
 is one a reader cannot settle from the code (a joint or conditional invariant, or
 arithmetic over `old`), which this corpus does not yet hold. The precision pass
 above and the coverage the §5 census names (`request`, `clock until`) come first.
+
+**The precision pass, measured** (lane E, 2026-10-30). Before a frame, a set, a
+`stays` or a `whole` is printed, `contract/analyze` walks the expanded program for
+what the code can do to the slot: an action's frame through its branches, the
+actions it calls, the sends it issues and their continuations (a cycle means no
+frame); a set from the initializer and every write, callers' arguments included; a
+latch refused when any write resets it; a whole number only from whole writes. Over
+the thirteen apps the search's candidates fell from 394 printed to 186, with 75
+frames widened to the set the code writes and the rest dropped by rule; all thirteen
+blocks the Fable judge found false are now widened or dropped, and all 21 kept blocks
+are still suggested. The pass costs about 10 ms on Type Tour and 300 ms on Excord. A
+suggestion is now observed and code-consistent, not proved; the walk reads no
+branch guard, so it can still drop a true property, which the receipt counts.
 
 ## Open questions
 

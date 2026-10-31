@@ -220,9 +220,10 @@ pub fn pieces(
 /// 7 code 8 footnote 9 table 10 embed 11 image 12 video; replaced 0 bullet
 /// 1 box 2 checked box 3 rule 4 footnote. `a` is each inline atom (LLP
 /// 1045.000): `[start,end,kind,label,icon,title,role,href,ink,background,
-/// direction]`: its face's paint in the colour wire form (null for the
-/// kind's), and its face's direction, `ltr`, `rtl` or empty for its line's;
-/// no hidden range lies inside one and no atom link is in `l`.
+/// direction,ariaLabel]`: its face's paint in the colour wire form (null for
+/// the kind's), its face's direction, `ltr`, `rtl` or empty for its line's,
+/// and its face's accessible name, empty for its label; no hidden range lies
+/// inside one and no atom link is in `l`.
 /// `l` is each link's opener and its `](target)`, which the editor hides
 /// whatever the selection, as the web editor does
 /// (`exact_markdown_editor::link_destinations`, LLP 1045 D5). Writes the
@@ -288,7 +289,8 @@ pub fn style(
                 a.href,
                 face_paint(&face.color),
                 face_paint(&face.background_color),
-                face.direction
+                face.direction,
+                face.aria_label
             ])
         })
         .collect();
@@ -386,12 +388,15 @@ pub fn selection(
 }
 
 /// Copy the UTF-16 range `start..end` of Markdown as plain UTF-8 text, each
-/// atom the whole source recognizes inside it as its label; the caller frees
+/// atom the whole source recognizes inside it as its label, or, `spoken`, as
+/// its accessible name (`Atoms::spoken`, LLP 1045.000 D8); the caller frees
 /// the returned handle.
+#[allow(clippy::too_many_arguments)]
 pub fn plain(
     text: *const u8,
     len: usize,
     atoms: u64,
+    spoken: bool,
     start: u32,
     end: u32,
     out: *mut *const u8,
@@ -400,12 +405,14 @@ pub fn plain(
     let Some(source) = text_input(text, len, out, count) else {
         return 0;
     };
+    let atoms = atoms_of(atoms);
+    let atoms = if spoken {
+        std::rc::Rc::new(atoms.spoken())
+    } else {
+        atoms
+    };
     hold_json(
-        exact_markdown::plain_range(
-            source,
-            exact_markdown::Range::new(start, end),
-            &atoms_of(atoms),
-        ),
+        exact_markdown::plain_range(source, exact_markdown::Range::new(start, end), &atoms),
         out,
         count,
     )
@@ -521,18 +528,21 @@ macro_rules! markup_exports {
         ) -> u64 {
             $crate::markup::selection(text, len, atoms, start, end, out, count)
         }
-        /// Copy a range of Markdown as plain UTF-8 text.
+        /// Copy a range of Markdown as plain UTF-8 text; `spoken` 1 reads
+        /// each atom as its accessible name.
         #[no_mangle]
+        #[allow(clippy::too_many_arguments)]
         pub extern "C" fn exact_markup_plain(
             text: *const u8,
             len: usize,
             atoms: u64,
+            spoken: u8,
             start: u32,
             end: u32,
             out: *mut *const u8,
             count: *mut usize,
         ) -> u64 {
-            $crate::markup::plain(text, len, atoms, start, end, out, count)
+            $crate::markup::plain(text, len, atoms, spoken != 0, start, end, out, count)
         }
         /// Each source line's `paragraphDirs` `auto` direction, one digit a line.
         #[no_mangle]
@@ -632,6 +642,7 @@ mod tests {
             source.as_ptr(),
             source.len(),
             0,
+            false,
             0,
             u32::MAX,
             &mut out,
@@ -733,7 +744,7 @@ mod tests {
     #[test]
     fn atoms_cross_the_seam_through_one_handle() {
         let kinds = r#"[{"name":"citation","link":"t3-citation:"}]"#;
-        let faces = r##"[{"source":"[q](t3-citation:1)","label":"Quote","icon":"i.png","title":"T","color":"light-dark(#d52c36, #ff6762)","backgroundColor":"no colour","direction":"ltr"}]"##;
+        let faces = r##"[{"source":"[q](t3-citation:1)","label":"Quote","icon":"i.png","title":"T","color":"light-dark(#d52c36, #ff6762)","backgroundColor":"no colour","direction":"ltr","ariaLabel":"Quoted passage"}]"##;
         let atoms = atoms(kinds.as_ptr(), kinds.len(), faces.as_ptr(), faces.len());
         let source = "a [q](t3-citation:1) b";
         let (mut out, mut count) = (std::ptr::null(), 0usize);
@@ -754,7 +765,7 @@ mod tests {
         let json = read(out, count);
         assert!(
             json.ends_with(
-                r#""l":[],"a":[[2,20,"citation","Quote","i.png","T","button","t3-citation:1",[[213,44,54,255],[255,103,98,255]],null,"ltr"]]}"#
+                r#""l":[],"a":[[2,20,"citation","Quote","i.png","T","button","t3-citation:1",[[213,44,54,255],[255,103,98,255]],null,"ltr","Quoted passage"]]}"#
             ),
             "{json}"
         );
@@ -780,6 +791,7 @@ mod tests {
             source.as_ptr(),
             source.len(),
             atoms,
+            false,
             0,
             u32::MAX,
             &mut out,
@@ -787,11 +799,25 @@ mod tests {
         );
         assert_eq!(read(out, count), "a Quote b");
         free(copied);
+        // Spoken, it reads the face's accessible name.
+        let spoken = plain(
+            source.as_ptr(),
+            source.len(),
+            atoms,
+            true,
+            0,
+            u32::MAX,
+            &mut out,
+            &mut count,
+        );
+        assert_eq!(read(out, count), "a Quoted passage b");
+        free(spoken);
         // A selection of exactly the atom copies its label.
         let copied = plain(
             source.as_ptr(),
             source.len(),
             atoms,
+            false,
             2,
             20,
             &mut out,

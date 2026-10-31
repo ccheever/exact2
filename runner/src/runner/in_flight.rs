@@ -22,6 +22,24 @@ impl<D: DataSource> Runner<D> {
         out
     }
 
+    /// Work an answer started that the app must finish before it is
+    /// suspended or ends: a request with effects in flight, an answer's, a
+    /// kept one or a handler's (LLP 1146 D2), or the module's storage still
+    /// landing (LLP 1097 D10). A host keeps the app running while there is
+    /// (an iOS background task, a quit held), so a reply lands and what its
+    /// turn writes is persisted.
+    pub fn must_finish(&self) -> bool {
+        self.effects_in_flight() || self.background_operations() > 0
+    }
+
+    /// Whether a request with effects the host has not refused is in flight
+    /// (`PendingReq::admitted_effects`).
+    pub fn effects_in_flight(&self) -> bool {
+        self.module_work_effects()
+            || self.pending.iter().any(PendingReq::admitted_effects)
+            || self.tool_effects()
+    }
+
     /// Whether any request is in flight (the agent's `settle` waits on it).
     /// An open stream counts only until its first message (LLP 1016.000
     /// D5): after that it is open, not in flight, or `settle` never ends.
@@ -33,6 +51,8 @@ impl<D: DataSource> Runner<D> {
         self.background_ticket().is_some()
             || (self.tool_tickets().iter()).any(|(_, t)| !self.data_timer_held(*t))
             || !self.module_work_tickets().is_empty()
+            // A child's outcomes its work owes on the agent's clock (LLP 1133.007 §7).
+            || self.work_owed()
             || self
                 .pending
                 .iter()
@@ -74,6 +94,11 @@ impl<D: DataSource> Runner<D> {
             .filter(|p| p.waited() && !self.held_for_agent(p) && !self.data_timer_held(p.ticket))
             .map(|p| (self.target_name(p.target), p.ticket))
             .collect();
+        // Child processes' outcomes their work owes on the agent's clock
+        // (LLP 1133.007 §7), listed as `processes`.
+        if self.work_owed() {
+            out.push(("processes".into(), 0));
+        }
         out.extend(
             self.background_ticket()
                 .map(|t| (super::background::NAME.to_string(), t)),

@@ -13,6 +13,8 @@ export interface OAuthSession {
   scopes: string[];
   /** Why the next sign-in cannot be prepared or the last session ended, for the person; "" otherwise. */
   error: string;
+  /** The last session ended, by the provider or because the package could not go on with it: `error` says why; false for a sign-in that cannot be prepared. */
+  ended: boolean;
 }
 
 /** What `signIn()` and `signOut()` answer; `OAuthResult` in Contract. */
@@ -24,12 +26,14 @@ export interface OAuthResult {
   error: string;
   /** Trying again later may succeed. */
   retryable: boolean;
+  /** The HTTP status, 400 or over, of the reply that failed; 0 otherwise: no reply came, or the package refused a 2xx or 3xx it could not use. */
+  status: number;
 }
 
 export interface OAuthConfig {
   /** The issuer. Discovery reads `<issuer>/.well-known/openid-configuration`, then RFC 8414's document. */
   issuer?: string;
-  /** Endpoints for a provider without discovery; with `issuer`, these override what discovery found. */
+  /** Endpoints for a provider without discovery. With an exact `issuer` (no `issuerTemplate`), `authorization` and `token` both given make no discovery: the ID token and a callback's `iss` are still checked against `issuer`, a callback without `iss` is taken, and sign-out revokes only at `revocation`. Otherwise they override what discovery found. */
   endpoints?: { authorization?: string; token?: string; revocation?: string };
   clientId: string;
   scopes: string[];
@@ -63,8 +67,49 @@ export interface OAuthConfig {
   cancelCodes?: string[];
   /** Ask the browser for a private session with no shared cookies, to choose another account. */
   ephemeral?: boolean;
-  /** The callback; the default is `authCallback()`. */
+  /** The callback; the default is `authCallback()`. With `signIn`'s `authorize`, the redirect URI the provider registered. */
   callback?: string;
+  /** The statuses an API answers an expired access token with: `[401]` by default (RFC 6750 §3.1); `[401, 403]` for a gateway that answers 403. `fetch` and `json` refresh once on each. A token an API refused right after the refresh that brought it refreshes again only once it has expired by the API's `Date`, or, its expiry unknown, a minute after that refusal; where the app cannot read the API's `Date` (from another origin, a browser shows it only when the API exposes it), each read the API refuses refreshes once, as without this limit. */
+  expiredStatus?: number[];
+  /** The transport of every request the package makes; `fetch` by default. For a demo's server in the app, or a provider's cookies. */
+  fetch?: (url: string, init: RequestInit) => Promise<Response>;
+  /** Hears what the session did, for an app's diagnostics (`OAuthEvent`). */
+  log?: (event: OAuthEvent) => void;
+}
+
+/**
+ * What the session did, for `log`. It carries no token: `token`, `sent` and
+ * `got` are refresh tokens' prints, the first six hex digits of their SHA-256
+ * ("" for none). `refreshed`'s `expiresIn` is in seconds, 0 when unknown.
+ * At `refresh-failed` the session stands; the event carries the reply's
+ * status (400 or over, else 0) and OAuth error, or status 0 and `network`
+ * when none came (`config` when the grants refused the request). At `ended`
+ * the session ended, the provider's refusal or the package's. `refused`: an
+ * API refused the access token again after a refresh.
+ */
+export type OAuthEvent =
+  | { type: 'signed-in'; token: string }
+  | { type: 'refreshed'; sent: string; got: string; expiresIn: number }
+  | { type: 'refresh-failed'; sent: string; status: number; code: string }
+  | { type: 'ended'; sent: string; status: number; code: string }
+  | { type: 'refused'; status: number; url: string }
+  | { type: 'signed-out' };
+
+/** The authorization request a sign-in sends, as `authorize` receives it. */
+export interface OAuthAuthorization {
+  /** The whole request: the endpoint with `params` in its query. */
+  url: string;
+  /** The authorization endpoint. */
+  endpoint: string;
+  /** `response_type`, `client_id`, `redirect_uri`, `scope`, `state`, the PKCE challenge, `nonce` with `openid`, and `authorizationParams`. */
+  params: Record<string, string>;
+  /** The package's transport (`OAuthConfig.fetch`, else `fetch`), to send it with. */
+  fetch: (url: string, init: RequestInit) => Promise<Response>;
+}
+
+export interface OAuthSignIn {
+  /** For an app that signs the person in with its own screens (LLP 1146 D8): sends the authorization request as the provider documents, and answers the URL it redirected to. Throw an `OAuthError` to say why it could not. */
+  authorize?: (request: OAuthAuthorization) => Promise<string>;
 }
 
 /** A failed authorized request. A resource source that throws it keeps its last answer (LLP 1016 D4). */
@@ -87,14 +132,16 @@ export interface OAuthStore {
 export interface OAuthProvider {
   /** The session the store keeps. While signed out it also readies the next sign-in, which may fetch the discovery document. */
   session(store: OAuthStore): Promise<OAuthSession>;
-  /** Opens the provider's sign-in, then exchanges and keeps the tokens. Send it from a press. */
-  signIn(store: OAuthStore): Promise<OAuthResult>;
+  /** Opens the provider's sign-in, then exchanges and keeps the tokens. Send it from a press. With `authorize`, the app's own sign-in sends the authorization request instead. */
+  signIn(store: OAuthStore, options?: OAuthSignIn): Promise<OAuthResult>;
   /** Forgets the session, then asks the provider to revoke it. */
   signOut(store: OAuthStore): Promise<OAuthResult>;
-  /** `fetch` with the access token, to an origin in `apis`; refreshes once on 401. Answers the `Response`. */
+  /** `fetch` with the access token, to an origin in `apis`; refreshes once on 401 (`expiredStatus`). Answers the `Response`. */
   fetch(store: OAuthStore, url: string, init?: RequestInit): Promise<Response>;
   /** As `fetch`, then the parsed JSON body; any status that is not 2xx throws `OAuthError`. */
   json(store: OAuthStore, url: string, init?: RequestInit): Promise<unknown>;
+  /** The kept ID token's claims; `null` while signed out or with none. */
+  claims(store: OAuthStore): Record<string, unknown> | null;
 }
 
 /** A provider: one per issuer and client, made once at module level. */

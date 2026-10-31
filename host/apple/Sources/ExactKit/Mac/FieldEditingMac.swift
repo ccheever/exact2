@@ -41,6 +41,8 @@ extension NodeView {
     /// The end of a field's editing: its `change` commits and it blurs.
     private func editingEnded() {
         presenter?.collections.pinsChanged()
+        // Its editor still holds it here; a turn later it is the field's alone.
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in self?.syncFieldSide() }
         showFieldFocus(false)
         presenter?.commitEdit(id, field?.stringValue ?? "", change: handlers.contains("change"))
         presenter?.blur(id)
@@ -70,7 +72,10 @@ extension NodeView {
             return
         }
         if !disabled { typedText(field?.stringValue ?? "") }
-        if let editor = field?.currentEditor() as? NSTextView { applyHeldValue(to: editor) }
+        if let editor = field?.currentEditor() as? NSTextView {
+            applyHeldValue(to: editor)
+            applyBaseDirection(to: editor) // an undo brings back the attributes of the text it restores
+        }
         if stepper != nil { updateNumberStepper() } // the stepper shows what the field holds (LLP 1116.007 D4)
     }
     /// The composition in `editor` is over, the app told of its text: what
@@ -117,6 +122,12 @@ extension NodeView {
         // here, and faces that came while it was marked are drawn.
         applyHeldValue(to: editor)
         if editor === textArea, !editor.hasMarkedText() { restyleMarkupProps() }
+        // And a `direction` that came while it was marked (LLP 1001 §1).
+        // The app heard its text first, and may have moved the focus: the editor is styled for its field now.
+        if !editor.hasMarkedText() {
+            if editor === textArea { applyBaseDirection(to: editor) }
+            else if let now = (editor as? FieldEditor)?.owner ?? (field?.currentEditor() === editor ? self : nil) { now.styleFieldEditor(editor) }
+        }
     }
     /// The ring Exact draws for a focused field (LLP 1104 D6): its border,
     /// painted by the box painter (`boxPlan`) two points wide in the focus

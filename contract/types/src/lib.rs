@@ -27,6 +27,7 @@ mod component;
 mod decorations;
 mod enums;
 mod failure;
+mod frame;
 mod frame_commands;
 mod frames;
 mod geometry;
@@ -54,6 +55,7 @@ mod uses;
 use checks::check_shape_cycles;
 use contract_syntax::{BinOp, Component, Expr, File, Span, TemplatePart, TypeExpr, UnOp};
 use exact_plan::Stdlib;
+use frame::Frame;
 use injects::check_injects;
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -382,13 +384,6 @@ pub enum Ref {
     Local(u32),
 }
 
-#[derive(Debug, Clone)]
-struct Frame {
-    names: Vec<(String, Ref, Ty)>,
-    /// Whether this frame is a region scope (counts toward `Item`/`Bound` depth).
-    region: bool,
-}
-
 /// A stack of scopes: component declarations at the bottom, then action
 /// parameters or region frames.
 #[derive(Debug, Clone, Default)]
@@ -426,28 +421,20 @@ impl Scope {
 
     /// Push a non-region frame (component declarations, action parameters).
     pub fn push(&mut self, names: Vec<(String, Ref, Ty)>) {
-        self.frames.push(Arc::new(Frame {
-            names,
-            region: false,
-        }));
+        self.frames.push(Arc::new(Frame::new(names, false)));
     }
 
     /// Push a region frame binding at most one name (`for` item or `match` binding).
     pub fn push_region(&mut self, name: Option<(String, Ref, Ty)>) {
-        self.frames.push(Arc::new(Frame {
-            names: name.into_iter().collect(),
-            region: true,
-        }));
+        self.frames
+            .push(Arc::new(Frame::new(name.into_iter().collect(), true)));
     }
 
     /// Push a `for` row's frame: its item, and its position when named.
     pub fn push_each(&mut self, item: &str, index: Option<&str>, ty: Ty) {
         let mut names = vec![(item.to_string(), Ref::Item(0), ty)];
         names.extend(index.map(|i| (i.to_string(), Ref::Index(0), Ty::Number)));
-        self.frames.push(Arc::new(Frame {
-            names,
-            region: true,
-        }));
+        self.frames.push(Arc::new(Frame::new(names, true)));
     }
 
     /// The one value name in scope `name` most plausibly misspells. Actions
@@ -462,6 +449,12 @@ impl Scope {
                 (!matches!(t, Ty::Action(_)) && !n.contains(['#', '@'])).then_some(n.as_str())
             });
         contract_syntax::suggestion(name, names)
+    }
+
+    /// Add a name at the end of frame `at`, copying the frame only when
+    /// another scope shares it.
+    pub(crate) fn push_name_at(&mut self, at: usize, entry: (String, Ref, Ty)) {
+        Arc::make_mut(&mut self.frames[at]).push_name(entry);
     }
 
     /// Pop the innermost frame.
@@ -479,16 +472,15 @@ impl Scope {
     pub fn lookup(&self, name: &str) -> Option<(Ref, &Ty)> {
         let mut depth = 0u32;
         for frame in self.frames.iter().rev() {
-            for (n, r, t) in &frame.names {
-                if n == name {
-                    let r = match r {
-                        Ref::Item(_) => Ref::Item(depth),
-                        Ref::Index(_) => Ref::Index(depth),
-                        Ref::Bound(_) => Ref::Bound(depth),
-                        other => *other,
-                    };
-                    return Some((r, t));
-                }
+            if let Some(i) = frame.find(name) {
+                let (_, r, t) = &frame.names[i];
+                let r = match r {
+                    Ref::Item(_) => Ref::Item(depth),
+                    Ref::Index(_) => Ref::Index(depth),
+                    Ref::Bound(_) => Ref::Bound(depth),
+                    other => *other,
+                };
+                return Some((r, t));
             }
             if frame.region {
                 depth += 1;
@@ -1489,3 +1481,6 @@ fn in_child(file: &File, span: Span) -> bool {
         .max_by_key(|(_, c)| c.span.line)
         .is_some_and(|(i, _)| i > 0)
 }
+
+#[cfg(test)]
+mod scope_tests;

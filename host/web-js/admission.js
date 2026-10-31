@@ -73,13 +73,20 @@ export function ownWithout(init, skip) {
   return copy;
 }
 
+/** Where a request takes the deadline of the `AbortSignal.timeout` it carries (ts-fetch.js sets `arm`): called with
+ * the signal the request reads and its `exactTimeout`, `arm` answers the function that ends that deadline once the
+ * request is done, or nothing when the request has no such deadline. */
+export const signalDeadline = { arm: null };
+
 // `read`: how the body is taken before the fetch answers, within the deadline (`exactBodyTo`'s writes it to a file).
 // `origin`: who asked it (LLP 1133.036 D6); a tool's, a wake's or the device's reach to a less public space is checked.
-export async function fetchWith(set, input, init = {}, expires = null, redirect = redirectOf(input, init), read = within, origin = 'app') {
-  let value, asset, deadline, signal, own;
+// `decided`: `fetchOf` has already armed the signal's deadline before the file work, or found the request has none
+// (ts-fetch.js), so it is not weighed again.
+export async function fetchWith(set, input, init = {}, expires = null, redirect = redirectOf(input, init), read = within, origin = 'app', decided = false) {
+  let value, asset, deadline, signal, own, armed;
   init ??= {};
   deadline = deadlineOf(init);
-  const until = expires ?? (deadline ? { at: performance.now() + deadline.ms, ms: deadline.ms } : null);
+  let until = expires ?? (deadline ? { at: performance.now() + deadline.ms, ms: deadline.ms } : null);
   const ceiling = ceilingOf(init);
   try {
     asset = hostAsset(input, init);
@@ -96,10 +103,15 @@ export async function fetchWith(set, input, init = {}, expires = null, redirect 
   if (unreached) throw new FetchError('Refused', `NotAllowedError: ${unreached}`);
   redirect = redirectFor(origin, redirect);
   try {
-    const rest = ownWithout(init, ['exactTimeout', 'exactIndependentHttp', 'redirect']);
-    // The caller's signal, from `init` or the input `Request` (`null`
-    // clears the Request's, `undefined` keeps it, as `fetch` has them).
-    own = rest.signal !== undefined ? rest.signal : typeof Request === 'function' && input instanceof Request ? input.signal : undefined;
+    const rest = ownWithout(init, ['exactTimeout', 'exactIndependentHttp', 'redirect', 'signal']);
+    // The caller's signal, read once by name, as `fetch` reads its init's members (an inherited one too), else the
+    // input `Request`'s (`null` clears the Request's, `undefined` keeps it, as `fetch` has them).
+    const given = init.signal;
+    if (given !== undefined) rest.signal = given;
+    own = given !== undefined ? given : typeof Request === 'function' && input instanceof Request ? input.signal : undefined;
+    if (!decided) armed = signalDeadline.arm?.(own, deadline?.ms);
+    // The signal's deadline replaces an `exactTimeout` no earlier, as natively (prelude.js `timers.left`)
+    if (armed) deadline = until = null;
     // The deadline reaches the request only until its body is read: a
     // response that arrived in time stays readable after the deadline.
     let relay;
@@ -137,6 +149,7 @@ export async function fetchWith(set, input, init = {}, expires = null, redirect 
     if (error?.name === 'AbortError') throw new FetchError('Aborted', error?.message ?? error);
     throw new FetchError('Network', error?.message ?? error);
   }
+  finally { armed?.cancel(); }
 }
 
 export function fetchHostAsset(input, init = {}) {

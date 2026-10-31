@@ -52,7 +52,8 @@ mod sources;
 mod strings;
 mod surface;
 mod symbols;
-pub use properties::{check_properties_path, properties, tests};
+pub use contract_analyze::SuggestionCheck;
+pub use properties::{check_properties_path, check_suggestions_path, properties, tests};
 mod tests_json;
 pub use tests_json::{authored_json, tests_json};
 pub mod snapshot;
@@ -105,7 +106,8 @@ pub enum BakeError {
     /// The first frame, laid out at [`LINT_VIEWPORT`], shows a layout that
     /// cannot be what the author meant.
     Lint {
-        /// Stable id: `bake-scroll-unbounded`, `bake-zero-size`, `bake-layout`.
+        /// Stable id: `bake-scroll-unbounded`, `bake-zero-size`, `bake-layout`,
+        /// `bake-binding-trap`.
         id: &'static str,
         /// What and where — the node by its `testId` when it has one.
         message: String,
@@ -1236,6 +1238,19 @@ fn first_frame<D: DataSource>(
         exact_runner::Viewport::sized(LINT_VIEWPORT.0 as f64, LINT_VIEWPORT.1 as f64),
         "/",
     )?;
+    // A binding that traps on the baked answers fails the build, where the
+    // runner would unset its row and go on (LLP 1017.003 D3).
+    if let Some(line) = runner.journal().find(|l| l.contains(" trapped Trap(")) {
+        let site = line
+            .split("(site ")
+            .nth(1)
+            .and_then(|s| s.split(')').next());
+        return Err(BakeError::Lint {
+            id: "bake-binding-trap",
+            message: line.to_string(),
+            site: site.and_then(|s| s.parse().ok()).map(exact_plan::NodesId),
+        });
+    }
     lint(&mut runner, answered)?;
     Ok(runner)
 }

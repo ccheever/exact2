@@ -2,13 +2,19 @@
 use egui::{
     Color32, FontData, FontDefinitions, FontFamily, Rect, ScrollArea, Ui, UiBuilder, pos2, vec2,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 mod heights;
 #[path = "../../gpui/src/model.rs"]
 mod model;
 mod picture;
 mod row;
+#[cfg(target_os = "windows")]
+mod windows;
 
 struct HeavyList {
     messages: Vec<model::Message>,
@@ -17,9 +23,16 @@ struct HeavyList {
     width: f32,
     start: Option<usize>,
     reactions: row::Reactions,
+    motion: String,
+    epoch: Instant,
 }
 
 impl eframe::App for HeavyList {
+    #[cfg(target_os = "windows")]
+    fn logic(&mut self, _: &egui::Context, _: &mut eframe::Frame) {
+        windows::after_frame();
+    }
+
     fn ui(&mut self, ui: &mut Ui, _: &mut eframe::Frame) {
         picture::diagnostic(format_args!(
             "frame {} begin",
@@ -50,6 +63,29 @@ impl eframe::App for HeavyList {
             0,
             row::color(0xe5e5ea),
         );
+        let elapsed = self.epoch.elapsed();
+        if self.motion == "bar" {
+            ui.painter().rect_filled(
+                Rect::from_min_size(
+                    screen.min,
+                    vec2(screen.width() * (elapsed.as_secs_f32() % 2.) / 2., 2.),
+                ),
+                0,
+                row::color(0x007aff),
+            );
+            ui.ctx().request_repaint();
+        } else if self.motion == "caret" {
+            if elapsed.as_millis() % 1000 < 500 {
+                ui.painter().rect_filled(
+                    Rect::from_min_size(screen.min + vec2(112., 10.), vec2(1., 20.)),
+                    0,
+                    row::color(0x007aff),
+                );
+            }
+            let next = (elapsed.as_millis() / 500 + 1) * 500;
+            ui.ctx()
+                .request_repaint_after(Duration::from_millis(next as u64).saturating_sub(elapsed));
+        }
         let bounds = Rect::from_min_max(screen.min + vec2(16., 40.5), screen.max - vec2(16., 0.));
         let mut list = ui.new_child(UiBuilder::new().max_rect(bounds));
         if self.width != bounds.width() {
@@ -89,6 +125,10 @@ impl eframe::App for HeavyList {
             }
             ui.set_min_size(vec2(self.width, self.heights.total()));
             self.images.finish_frame(first, viewport.top() - top);
+            #[cfg(target_os = "windows")]
+            if windows::needs_observation() {
+                ui.ctx().request_repaint();
+            }
         });
     }
 }
@@ -99,7 +139,36 @@ fn fonts(ctx: &egui::Context) {
     fonts
         .families
         .insert(FontFamily::Name("italic".into()), fallback);
-    for (name, family, path) in [
+    #[cfg(target_os = "windows")]
+    fonts.families.insert(
+        FontFamily::Name("semibold".into()),
+        fonts.families[&FontFamily::Proportional].clone(),
+    );
+    #[cfg(target_os = "windows")]
+    let faces = [
+        (
+            "Segoe UI",
+            FontFamily::Proportional,
+            "C:/Windows/Fonts/segoeui.ttf",
+        ),
+        (
+            "Consolas",
+            FontFamily::Monospace,
+            "C:/Windows/Fonts/consola.ttf",
+        ),
+        (
+            "Segoe UI Italic",
+            FontFamily::Name("italic".into()),
+            "C:/Windows/Fonts/segoeuii.ttf",
+        ),
+        (
+            "Segoe UI Semibold",
+            FontFamily::Name("semibold".into()),
+            "C:/Windows/Fonts/seguisb.ttf",
+        ),
+    ];
+    #[cfg(target_os = "macos")]
+    let faces = [
         (
             "SF Pro",
             FontFamily::Proportional,
@@ -115,7 +184,8 @@ fn fonts(ctx: &egui::Context) {
             FontFamily::Name("italic".into()),
             "/System/Library/Fonts/SFNSItalic.ttf",
         ),
-    ] {
+    ];
+    for (name, family, path) in faces {
         match std::fs::read(path) {
             Ok(bytes) => {
                 fonts
@@ -163,13 +233,25 @@ fn main() -> eframe::Result {
     )
     .expect("heavy-list data");
     assert_eq!(file.messages.len(), 10_000);
+    let motion = std::env::var("BENCH_MOTION").unwrap_or_default();
+    assert!(
+        matches!(motion.as_str(), "" | "bar" | "caret"),
+        "BENCH_MOTION must be bar or caret"
+    );
     let start = std::env::var("BENCH_START_INDEX").ok().map(|value| {
         let index: usize = value.parse().expect("BENCH_START_INDEX");
         assert!(index < file.messages.len());
         index
     });
     let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = wgpu::Backends::METAL;
+    #[cfg(target_os = "macos")]
+    {
+        setup.instance_descriptor.backends = wgpu::Backends::METAL;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        setup.instance_descriptor.backends = wgpu::Backends::DX12;
+    }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Heavy list · egui")
@@ -208,7 +290,10 @@ fn main() -> eframe::Result {
                 .expect("wgpu backend")
                 .adapter
                 .get_info();
+            #[cfg(target_os = "macos")]
             assert_eq!(adapter.backend, wgpu::Backend::Metal);
+            #[cfg(target_os = "windows")]
+            assert_eq!(adapter.backend, wgpu::Backend::Dx12);
             eprintln!("renderer: {} ({:?})", adapter.name, adapter.backend);
             Ok(Box::new(HeavyList {
                 heights: heights::Heights::new(file.messages.len()),
@@ -217,6 +302,8 @@ fn main() -> eframe::Result {
                 reactions: Default::default(),
                 width: 0.,
                 start,
+                motion,
+                epoch: Instant::now(),
             }))
         }),
     )

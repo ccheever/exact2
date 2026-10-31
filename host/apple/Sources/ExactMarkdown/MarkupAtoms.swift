@@ -209,7 +209,7 @@ extension MarkupAtom {
     }
 
     /// The atom of a styling row `[start, end, kind, label, icon, title, role, href, ink, background,
-    /// direction]`, its face's paint over its kind's.
+    /// direction, ariaLabel]`, its face's paint over its kind's.
     static func of(_ row: [Any], paint: [String: (ink: [Double]?, background: [Double]?)], selection: NSRange, atoms: MarkdownAtoms) -> (NSRange, MarkupAtom)? {
         guard row.count >= 8, let start = row[0] as? Int, let end = row[1] as? Int, end > start else { return nil }
         let text = { (i: Int) in row[i] as? String ?? "" }
@@ -219,6 +219,6 @@ extension MarkupAtom {
         return (range, MarkupAtom(kind: kind, label: text(3), icon: text(4), title: text(5), role: text(6), href: text(7),
                                   ink: face(8) ?? paint[kind]?.ink, background: face(9) ?? paint[kind]?.background, selected: selected,
                                   emphasized: atoms.emphasized, dark: atoms.dark, contrast: atoms.contrast,
-                                  direction: row.count > 10 ? text(10) : ""))
+                                  direction: row.count > 10 ? text(10) : "", ariaLabel: row.count > 11 ? text(11) : ""))
     }
 }

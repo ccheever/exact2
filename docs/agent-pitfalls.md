@@ -231,6 +231,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   so the binding can skip unrelated changes. Found in the harness's matrix
   animation, 2026-10-10; LLP 1017.003 D6 describes the field mask.
 
+- **`scale` accepts one factor for both axes.** A keyframe with `scale="0 1"`
+  is refused. To grow a progress bar horizontally, translate a full-width fill
+  inside an `overflow="hidden"` box. Verified by the heavy-list benchmark's
+  Contract build (2026-10-29).
+
 - **A tap that changes one row of a long list takes ~80 ms on the web.** Cause: the
   mutation answers the whole list (10,000 rows), and on the JS target a Rust
   module's answer crosses into JS as a copy and every row is checked again. Fix:
@@ -820,6 +825,10 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   `length`). Fix: another
   word (`count`, `steps`, `empty`). (euxy port, 2026-10-15.)
 
+- **An action call also names a host command.** `setMode(value)` is ambiguous
+  when an action is also named `setMode` (`syntax-call-ambiguous`). Rename the
+  action and its bindings, for example to `chooseMode`.
+
 - **`nav` read after it is assigned in the same action is the old value.** State
   writes land when the action ends (`analyze-read-after-assign`), so `nav = push(nav,
   "/d")` then `top(nav)` still sees the route before it. Fix: `let next = push(nav,
@@ -863,6 +872,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   `Aborted` (it would send twice); declare the mutation `queue` when every
   send's reply matters (LLP 1092). Until 2026-10-05 the continuation vanished
   natively, which held the Signal clone's sends forever (build 35).
+
+- **`redirect: 'manual'` shows a redirect natively and hides it on the web.**
+  Natively a fetch with `redirect: 'manual'` answers the 3xx with its
+  `Location`; in a browser it answers an opaque redirect (status 0, no headers),
+  and a `Cookie` header the app sets is dropped. An app's own OAuth sign-in
+  that reads the authorization step's `Location` therefore works natively only:
+  a web build sends that request from a server (`docs/contract-for-agents.md`,
+  "An app's own sign-in screens").
 
 - **Resetting a mutation beside its send can discard the new reply.** For a
   mutation without `queue`, `saved = none` in the action that sends `saved`

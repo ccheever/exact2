@@ -128,8 +128,12 @@ pub(in crate::runner) struct Origins {
     tickets: BTreeMap<u64, CallOrigin>,
     /// Each resource's last ask, by resource.
     asked: BTreeMap<usize, CallOrigin>,
+    /// Each resource whose ask waits for the data source (`stale`), where
+    /// that ask's origin is not the app's: the origin, and the arguments it
+    /// asked. `data_ready` asks it under that origin.
+    deferred: BTreeMap<usize, (CallOrigin, Vec<Value>)>,
     /// A re-ask the device causes is being made: each resource asks under
-    /// its own last ask's origin.
+    /// its own last ask's origin, or its waiting ask's.
     reasking: bool,
     /// Each armed `then`, by mutation, whose answer's commit was not the
     /// app's: the `then` runs under it (LLP 1133.002 D12).
@@ -151,6 +155,7 @@ pub(in crate::runner) struct Origins {
 pub(in crate::runner) struct OriginsSaved {
     tickets: BTreeMap<u64, CallOrigin>,
     asked: BTreeMap<usize, CallOrigin>,
+    deferred: BTreeMap<usize, (CallOrigin, Vec<Value>)>,
     thens: BTreeMap<usize, CallOrigin>,
     ticket_causes: BTreeMap<u64, Causes>,
     asked_causes: BTreeMap<usize, Causes>,
@@ -279,6 +284,7 @@ impl<D: DataSource> Runner<D> {
         OriginsSaved {
             tickets: o.tickets.clone(),
             asked: o.asked.clone(),
+            deferred: o.deferred.clone(),
             thens: o.thens.clone(),
             ticket_causes: o.ticket_causes.clone(),
             asked_causes: o.asked_causes.clone(),
@@ -294,6 +300,7 @@ impl<D: DataSource> Runner<D> {
         let o = &mut self.extensions.origins;
         o.tickets = saved.tickets;
         o.asked = saved.asked;
+        o.deferred = saved.deferred;
         o.thens = saved.thens;
         o.ticket_causes = saved.ticket_causes;
         o.asked_causes = saved.asked_causes;
@@ -364,9 +371,8 @@ impl<D: DataSource> Runner<D> {
         let o = &self.extensions.origins;
         match target {
             Target::Resource(i) if o.reasking => {
-                let origin = o.asked.get(&i).copied().unwrap_or_default();
                 let causes = o.asked_causes.get(&i).copied().unwrap_or_default();
-                causes.with(origin)
+                causes.with(self.origin_for(Some(target)))
             }
             _ => self.commit_causes(),
         }
@@ -407,12 +413,52 @@ impl<D: DataSource> Runner<D> {
         out
     }
 
-    /// The origin a request of `target` asked now carries.
+    /// The origin a request of `target` asked now carries: in a re-ask,
+    /// the least privileged of a resource's last ask's and its waiting
+    /// ask's.
     pub(in crate::runner) fn origin_for(&self, target: Option<Target>) -> CallOrigin {
         let o = &self.extensions.origins;
         match target {
-            Some(Target::Resource(i)) if o.reasking => o.asked.get(&i).copied().unwrap_or_default(),
+            Some(Target::Resource(i)) if o.reasking => {
+                let asked = o.asked.get(&i).copied().unwrap_or_default();
+                o.deferred
+                    .get(&i)
+                    .map_or(asked, |(waiting, _)| asked.min(*waiting))
+            }
             _ => o.now,
+        }
+    }
+
+    /// Resource `i`'s ask at `args` waits for the data source (LLP 1027
+    /// D4): its origin is kept for `data_ready`'s ask (D12), the least
+    /// privileged of the commits that asked these arguments; a commit that
+    /// changes them asks under its own.
+    pub(in crate::runner) fn note_deferred(&mut self, i: usize, args: &[Value]) {
+        let now = self.origin_for(Some(Target::Resource(i)));
+        let deferred = &mut self.extensions.origins.deferred;
+        let origin = match deferred.get(&i) {
+            Some((was, asked)) if asked[..] == *args => now.min(*was),
+            _ => now,
+        };
+        match origin {
+            CallOrigin::App => deferred.remove(&i),
+            _ => deferred.insert(i, (origin, args.to_vec())),
+        };
+    }
+
+    /// Resource `i` answered at once: no ask of it waits.
+    pub(in crate::runner) fn note_answered(&mut self, i: usize) {
+        self.extensions.origins.deferred.remove(&i);
+    }
+
+    /// Resource `i` is to be asked again for the commit being made, at a
+    /// later commit (a send `data_ready` makes): that ask is no more
+    /// privileged than this commit (D12).
+    pub(in crate::runner) fn note_reasked(&mut self, i: usize) {
+        let o = &mut self.extensions.origins;
+        if o.now != CallOrigin::App {
+            let asked = o.asked.get(&i).copied().unwrap_or_default();
+            o.asked.insert(i, asked.min(o.now));
         }
     }
 
@@ -444,6 +490,7 @@ impl<D: DataSource> Runner<D> {
                 true => o.asked_causes.remove(&i),
                 false => o.asked_causes.insert(i, causes),
             };
+            o.deferred.remove(&i);
         }
         let id = match target {
             Target::Resource(_) if o.reasking => 0,
@@ -969,14 +1016,7 @@ impl<D: DataSource> Runner<D> {
         let applies = sub["when"]
             .as_object()
             .is_none_or(|when| when.iter().all(|(k, v)| args.get(k) == Some(v)));
-        // `{"whenAny": [options], "is": "app"}`: only a call giving one of
-        // them is held to `app` (LLP 1133.012 D12 item 5).
-        let app_only = match &sub["origin"] {
-            Json::Object(o) if o.contains_key("none") => false,
-            Json::Object(o) => (o["whenAny"].as_array().into_iter().flatten())
-                .any(|a| a.as_str().is_some_and(|a| given(args, a))),
-            o => o == "app",
-        };
+        let app_only = held_to_app(&sub, args);
         // `{"none": [origins]}`: refused while any of them is among the
         // call's possible causes, read before they are folded to one (LLP
         // 1133.035 D16 item 6).
@@ -1039,6 +1079,18 @@ pub(in crate::runner) const ORIGINS: [CallOrigin; 4] = [
     CallOrigin::Tool,
     CallOrigin::App,
 ];
+
+/// Whether a name declared `sub` holds a call giving `args` to the `app`
+/// origin: `"origin": "app"`, or `{"whenAny": [options], "is": "app"}` when
+/// the call gives one of them (LLP 1133.012 D12 item 5).
+pub(super) fn held_to_app(sub: &Json, args: &Json) -> bool {
+    match &sub["origin"] {
+        Json::Object(o) if o.contains_key("none") => false,
+        Json::Object(o) => (o["whenAny"].as_array().into_iter().flatten())
+            .any(|a| a.as_str().is_some_and(|a| given(args, a))),
+        o => o == "app",
+    }
+}
 
 /// Whether a call gave option `argument`: set and not `false`. The grant
 /// key `"*"` is given by every call.

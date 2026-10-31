@@ -437,6 +437,7 @@ impl<D: DataSource> Runner<D> {
         if before.is_some() && before != self.trace_configuration() {
             self.clock.untraced_change = true;
         }
+        let mut work_spent = None;
         loop {
             // The earliest due timer, deterministic by index on ties.
             let due = self
@@ -520,6 +521,29 @@ impl<D: DataSource> Runner<D> {
                 .filter(|(_, at)| then_at.is_none_or(|then| *at < then));
             let answer = answer.filter(|at| ready(*at) && next.is_none());
             let then = then.filter(|(_, at)| ready(*at) && next.is_none() && answer.is_none());
+            // The host's process work on the agent's clock (LLP 1133.007 §7),
+            // before what the runner itself has due then: it runs, and a jump
+            // stops for what it owes to land. Work that stays due once run is
+            // not run again in this advance.
+            let work = self.work_due().filter(|at| {
+                timers
+                    && *at <= now_ms
+                    && ready(*at)
+                    && next.is_none()
+                    && then_at.is_none_or(|then| *at < then)
+                    && work_spent.is_none_or(|spent| *at > spent)
+            });
+            if let Some(at) = work {
+                self.now_ms = self.now_ms.max(at);
+                self.advance_work(at);
+                work_spent = Some(at);
+                if until_request && self.work_owed() {
+                    landed = self.now_ms;
+                    stopped_on_request = true;
+                    break;
+                }
+                continue;
+            }
             if let Some(at) = answer {
                 if receipts.len() == TIMER_FIRE_LIMIT {
                     return Advanced {
@@ -841,6 +865,7 @@ impl<D: DataSource> Runner<D> {
         } else {
             landed
         };
+        self.advance_work(self.now_ms);
         if self.live_times.due().is_some_and(|due| due <= self.now_ms) {
             match self.tick_live_times() {
                 Ok(None) => {}

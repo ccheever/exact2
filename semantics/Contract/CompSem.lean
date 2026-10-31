@@ -473,15 +473,19 @@ def ctext (fuel : Nat) (ce : CEnv) (f : Frame) (ls : Locals) (tag : String) (pos
   match pos with
   | e :: _ =>
     if tag == "text" || tag == "tspan" || tag == "option" then do
-      let v ← ceval fuel ce f ls e
-      pure (Option.some (← v.display))
+      match ← unsetRefused (ceval fuel ce f ls e) with
+      | .some v => pure (Option.some (← v.display))
+      | .none => pure Option.none
     else pure Option.none
   | [] => pure Option.none
 
 def ctestId (fuel : Nat) (ce : CEnv) (f : Frame) (ls : Locals) (props : List (String × Expr)) :
     Result (Option String) :=
   match lookupField "testId" props with
-  | .some e => do pure (Option.some (← (← ceval fuel ce f ls e).display))
+  | .some e => do
+    match ← unsetRefused (ceval fuel ce f ls e) with
+    | .some v => pure (Option.some (← v.display))
+    | .none => pure Option.none
   | .none => pure Option.none
 
 /-- An instance's states: kept from the store before the render, or
@@ -534,9 +538,9 @@ def crender : Nat → RCx → Locals → List CNode → Store → Result (List C
           let (f, act, ts) ← resolveAction fuel cx.env.prog cx.frame ls a (args.map (·, cx.frame, ls))
           pure ({ event := ev, frame := f, action := act, args := ts } : CHandler)
         let values ← (tabProps props).mapM fun (name, e) => do
-          pure (name, ← ceval fuel cx.env cx.frame ls e)
+          pure (name, ← unsetRefused (ceval fuel cx.env cx.frame ls e))
         let literals := props.map fun (name, e) => (name, cliteral fuel cx.env.prog cx.frame ls e)
-        let navigation := cx.tabs.element literals values
+        let navigation := cx.tabs.element literals (values.filterMap fun (n, v) => v.map (n, ·))
         let (kids, live) ← (if navigation.opened then
           crender fuel { cx with tabs := cx.tabs.children props } ls kids live
           else pure ([], live))

@@ -300,9 +300,23 @@ impl PendingReq {
     fn waited(&self) -> bool {
         self.in_flight() && !self.quiet() && !self.replied && self.reask_at.is_none()
     }
+
+    /// A request with effects the host has not refused at admission, and no
+    /// re-ask's wait (never sent), so it may reach its server: one let go is
+    /// offered to its source to keep, and the app is held open while it is
+    /// out (LLP 1146 D2).
+    fn admitted_effects(&self) -> bool {
+        self.effects && self.refusal.is_none() && !self.refused && self.reask_at.is_none()
+    }
 }
 
 type FocusPath = Vec<(ViewId, NodesId, Vec<Frame>)>;
+
+/// A send made before the data source was ready: its mutation, source and
+/// arguments, and the origin and invocation of the commit that made it,
+/// which `data_ready` sends it under (LLP 1133.002 D12), as a queue's
+/// waiting send keeps them (`queue.rs`).
+type Unsent = (usize, String, Vec<Value>, (CallOrigin, u64));
 
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
@@ -405,7 +419,7 @@ pub struct Runner<D: DataSource> {
     landed: Vec<usize>,
     /// Sends made before the data source was ready, by mutation, sent at
     /// `data_ready` (LLP 1027 D4): pending meanwhile, one per mutation.
-    unsent: Vec<(usize, String, Vec<Value>)>,
+    unsent: Vec<Unsent>,
     /// When each mutation's `then` action is due, as a one-shot timer: infinite until an answer lands.
     then_due: Vec<f64>,
     /// `queue` mutations' waiting sends, `next`s and stalls (LLP 1092).

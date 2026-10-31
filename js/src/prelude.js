@@ -19,7 +19,7 @@
   // The seam's bytes (binary.js): base64, UTF-8 lengths, a stream message's data.
   var binary = global.__exact_binary;
   delete global.__exact_binary;
-  var fromBase64 = binary.fromBase64, toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf, fileRefusal = binary.fileRefusal, bodyWritten = binary.bodyWritten, uploadOf = binary.uploadOf;
+  var toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf, fileRefusal = binary.fileRefusal, uploadOf = binary.uploadOf, bufferSourceBytes = binary.bufferSourceBytes, copyBytes = binary.copyBytes;
   // LLP 1027.000: time and seeds are source arguments, so bake and cache
   // see them. This VM belongs to one module; no page/guest globals change.
   // Install before the app can capture an alias, including Date's prototype
@@ -33,8 +33,7 @@
   // The engine's own Date, through its prototype: a browser realm under a
   // page's fake clock (Playwright's `clock.install`) has a fake `Date` that
   // keeps the real prototype.
-  var NativeDate = global.Date.prototype.constructor;
-  var construct = Reflect.construct;
+  var NativeDate = global.Date.prototype.constructor, construct = Reflect.construct;
   var InputDate = new Proxy(NativeDate, {
     apply: function () { return refuseAmbient("Date()"); },
     construct: function (target, args, newTarget) {
@@ -132,8 +131,7 @@
   // (D2, D3). `subtle` has what is built, the same on every executor: over
   // ibex2's `crypto` and the bytes door natively, over the realm's own on the
   // web. Every other `subtle` member refuses by name (D1).
-  var platformCrypto = global.crypto;
-  var fillRandom = platformCrypto.getRandomValues.bind(platformCrypto);
+  var platformCrypto = global.crypto, fillRandom = platformCrypto.getRandomValues.bind(platformCrypto);
   var platformSubtle = platformCrypto.subtle; // the web's, in a secure context
   // Natively: `(op, name, arrayBuffer) -> string`, the byte work in Rust.
   var bytesDoor = global.__exact_bytes;
@@ -213,12 +211,6 @@
     var bytes = new Uint8Array(hex.length / 2);
     for (var i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
     return bytes.buffer;
-  }
-  // A BufferSource's bytes, copied now: later writes to it change nothing.
-  function copyBytes(data, api) {
-    if (data instanceof ArrayBuffer) return data.slice(0);
-    if (ArrayBuffer.isView(data)) return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-    throw new TypeError(api + ": the data is not an ArrayBuffer or ArrayBufferView");
   }
   function algorithmName(algorithm) {
     var name = typeof algorithm === "string" ? algorithm : algorithm && algorithm.name;
@@ -440,10 +432,6 @@
   var pending = new Map(), currentCall = null, mapping = null, inMapper = false; // the answer a fetch belongs to; a socket's mapper answering a frame (D7); any mapper call
   var work = global.__exact_module_work({ host: host, live: function (c) { return !!c && c !== background && !c.stream && !c.module && c.status === "pending" && !c.replied && !c.letGo; } }); delete global.__exact_module_work; // work that outlives its answer (LLP 1146 D2, binary.js): an adopted fetch's reply reaches its let-go answer in a module turn; `route` keeps a live answer's async step in its own turn
   global.__exact_async_context = Object.freeze({ current: function () { return currentCall; }, swap: function (call) { var before = currentCall; currentCall = call; return before; }, route: work.route }); // the bundle's async helper resumes each step under its answer (LLP 1133.002 D14)
-  // A fetch's `signal` is watched through Ibex's own abort hooks natively,
-  // which run before any listener and so cannot be stopped by one; a
-  // browser realm's signal is the browser's, watched by a listener, and
-  // checked again when the reply lands. Either watch ends with the fetch.
   // Calls with storage steps in flight, settled or not: a step a settled
   // call left behind is still the module's work (see `settle`).
   var storing = new Set();
@@ -472,9 +460,7 @@
   // issued; one in flight at a time. So only the issuer of the operation in
   // flight waits on the store's shared completions: one completion wakes one
   // waiter, and the next answer's read sees the write issued before it.
-  var MAX_QUEUED = 256;
-  var queue = [];
-  var head = null;
+  var MAX_QUEUED = 256, queue = [], head = null;
   function issue(op) {
     head = op;
     var promise;
@@ -496,6 +482,8 @@
   }
   // The operation in flight's owner, or null.
   function headOwner() { return head ? owner(head.call) : null; }
+  // A fetch's `signal` is watched through Ibex's own abort hooks natively, which no listener can stop; a browser
+  // realm's is the browser's, watched by a listener and checked again when the reply lands. Either ends with the fetch.
   var abortHooks = global.__exact_ibex2_abort_hooks;
   delete global.__exact_ibex2_abort_hooks;
   function watchAbort(signal, aborted) {
@@ -526,19 +514,7 @@
     ys.forEach(function (y) { if (error) y[1](error); else y[0](); }); return ys.length;
   }
   fixed(global, "scheduler", Object.freeze({ yield: yieldTurn, postTask: function () { throw new Error("scheduler.postTask() is unavailable in data sources; split long work with await scheduler.yield()"); } }));
-  // `to`: the fetch's `exactBodyTo`; `exactBodyTo` is `{path, bytes}` once the host wrote the body there.
-  function Response(r, to) {
-    var written = to === undefined ? undefined : bodyWritten(r);
-    this.status = r.status;
-    this.ok = r.status >= 200 && r.status < 300;
-    this.headers = new global.Headers(r.headers);
-    this.exactBodyTo = written === undefined ? null : { path: to, bytes: written };
-    this._text = r.body;
-    this._b64 = r.bodyBase64;
-  }
-  Response.prototype.text = function () { return Promise.resolve(this._text); };
-  Response.prototype.json = function () { var t = this._text; return new Promise(function (res) { res(JSON.parse(t)); }); };
-  Response.prototype.arrayBuffer = function () { return Promise.resolve(fromBase64(this._b64).buffer); };
+  var responses = binary.responses(), Response = responses.Response, hostReply = responses.reply;
 
   function FetchError(f) {
     // Storage hardens Error.prototype. Define own fields instead of assigning
@@ -555,7 +531,7 @@
   // comes second refuses, and the mutation with it, before either leaves.
   var SOCKET_AND_FETCH = "a mutation cannot both send on a socket and fetch";
   // A resource's two-way socket (LLP 1016.000 D7) and a listener's connections (LLP 1133.005 D6): their handles (binary.js `sockets`).
-  var sockets = binary.sockets({ host: host, copyBytes: copyBytes, current: function () { return currentCall; }, mapping: function () { return mapping; }, inMapper: function () { return inMapper; }, conflict: SOCKET_AND_FETCH });
+  var sockets = binary.sockets({ host: host, current: function () { return currentCall; }, mapping: function () { return mapping; }, inMapper: function () { return inMapper; }, conflict: SOCKET_AND_FETCH });
   var socketOwner = sockets.socketOwner, listenOwner = sockets.listenOwner, handSocketOps = sockets.hand;
   // An aborted fetch's request, as a browser cancels one: a request its answer
   // awaits (handed out, `claimed`) is cancelled by the host, which resumes the
@@ -586,9 +562,12 @@
   }
   global.Response = Response;
   global.fetch = function (url, init) { return request(url, init); };
-  // `listen`: a listener's options (`exactListen`, LLP 1133.005 D1).
-  function request(url, init, listen) {
+  // `listen`: a listener's options (`exactListen`, LLP 1133.005 D1); `own(ticket,
+  // call)`: a child's stream owner and `child`: the call is js/src/process.js's, the one path to `exact-process:`.
+  function request(url, init, listen, own, child) {
     if (overlaying || mapping) return Promise.reject(overlaying ? inOverlay("fetch()") : new Error("fetch() is unavailable in a socket's mapper: it answers each frame now"));
+    url = String(url); // read once: the URL checked here and below is the one the host is sent
+    if (!child && /^exact-process:/i.test(url)) return Promise.reject(new TypeError("fetch: exact-process: is @exact/child-process's: import spawn or execFile from it (LLP 1133.007 D12)"));
     var call = currentCall;
     // Refused with no answer running, and below in a let-go answer's continuation, as no answer waits for the reply
     // (where the web lets it run; a request with effects already sent runs to its end, LLP 1146 D2, §2.4).
@@ -615,16 +594,7 @@
     // Fetch's Request refuses a body on a GET or HEAD, an empty one too.
     if (raw != null && (method === "GET" || method === "HEAD"))
       return Promise.reject(new TypeError("fetch: a " + method + " request cannot have a body"));
-    // Web IDL's BufferSource: a view on a SharedArrayBuffer and a resizable
-    // buffer are refused; a detached buffer is a copy of no bytes.
-    if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) {
-      var backing = ArrayBuffer.isView(raw) ? raw.buffer : raw;
-      if (typeof SharedArrayBuffer !== "undefined" && backing instanceof SharedArrayBuffer)
-        return Promise.reject(new TypeError("fetch: a body on a SharedArrayBuffer is not a BufferSource"));
-      if (backing.resizable === true)
-        return Promise.reject(new TypeError("fetch: a body on a resizable ArrayBuffer is not a BufferSource"));
-      bytes = raw.byteLength === 0 ? new Uint8Array(0) : new Uint8Array(copyBytes(raw, "fetch"));
-    }
+    try { bytes = bufferSourceBytes(raw, "fetch"); } catch (e) { return Promise.reject(e); }
     var body = bytes || raw == null ? "" : String(raw);
     // A body from an app file (LLP 1108 D6 R2): only the path goes to the
     // host, which reads the file when it runs the request, under `fs.read`,
@@ -689,16 +659,16 @@
     if (timed) { timeout = Math.min(left, 3600000); timed = left <= 3600000; }
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
-    var socket = stream && (!!listen || /^wss?:/i.test(String(url)));
+    var socket = stream && (!!listen || !!own || /^wss?:/i.test(String(url)));
     var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll && !upload ? true : undefined, upload_progress: upload ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, body_to: bodyTo, redirect: redirect, held: held ? true : undefined, listen: listen }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) { call.stream = stream; call.upload = !!upload; }
-    var owner = socket ? (call.socket = listen ? listenOwner(ticket) : socketOwner(ticket, call.mutation)) : null;
+    var owner = socket ? (call.socket = listen ? listenOwner(ticket) : own ? own(ticket, call) : socketOwner(ticket, call.mutation)) : null;
     return new Promise(function (resolve, reject) {
       // `early`: made while its answer was still in flight (its body, or its
       // own continuation), so that answer's own, whoever else is pending.
-      var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, timed: timed, release: function () {}, early: call.status === "pending", bodyTo: bodyTo };
+      var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, timed: timed, release: function () {}, early: call.status === "pending", bodyTo: bodyTo, head: method === "HEAD" };
       pending.set(ticket, p);
       // The caller's abort also makes its socket handle stale (D7); the
       // stream itself runs until the runner lets its ticket go.
@@ -944,7 +914,7 @@
     });
   }
   var files = { directories: Object.freeze({ data:"app:/data", cache:"app:/cache", temporary:"app:/tmp" }) };
-  ["readFile", "writeFile", "atomicWriteFile", "appendFile", "readdir", "mkdir", "rm", "stat", "rename", "copyFile", "realpath"].forEach(function (method) {
+  ["readFile", "writeFile", "atomicWriteFile", "appendFile", "readdir", "mkdir", "rm", "stat", "rename", "copyFile", "realpath", "lstat", "readlink", "access", "chmod", "symlink", "digest"].forEach(function (method) {
     files[method] = function () { return storageCall(nativeStorage && nativeStorage.fs, method, arguments); };
   });
   // LLP 1069.010.000 D4: a kept file the app replaces with its own atomic write stays kept: the host reads what the write replaces, then carries the entry to the file written.
@@ -960,6 +930,9 @@
     };
   });
   // LLP 1069.010.000 D1: the answer is asked again when the doc:/ path (a folder's own entries, or `recursive` its subtree) changes on disk.
+  // An advisory lock (LLP 1133.007 D6a), natively only: released by its `unlock()`, the end of the answer that took it (`freeLocks`), or the session's.
+  files.flock = function (path, options) { var t = options && options.timeout, fs = nativeStorage && nativeStorage.fs, by = currentCall; return storageCall(fs, "flock", [path, t === undefined ? 0 : t], function (h) { var lock = { h: h, by: by }; heldLocks.add(lock); if (by && by.replied) freeLocks(); return Object.freeze({ unlock: function () { return heldLocks.delete(lock) ? storageCall(fs, "unlock", [h]) : Promise.resolve(); } }); }); };
+  function freeLocks() { heldLocks.forEach(function (l) { if (!l.by || l.by === background || !l.by.replied) return; heldLocks.delete(l); try { Promise.resolve(nativeStorage.fs.unlock(l.h)).then(undefined, function () {}); } catch (e) {} }); }
   files.watch = function (path, options) {
     if (overlaying) throw inOverlay("storage.fs.watch()");
     if (!currentCall || currentCall.status !== "pending") throw new Error("storage.fs.watch() outside an answer");
@@ -1003,7 +976,8 @@
   // whose answer outlived a collection owes a full one, once no answer awaits (shim.cc).
   var captureString = global.__exact_capture_string, gcEpoch = global.__exact_gc_epoch || function () { return 0; };
   delete global.__exact_capture_string; delete global.__exact_gc_epoch;
-  function cleanUp() { var waiting = false; calls.forEach(function (c) { if (!c.stream && !c.letGo) waiting = true; }); if (gcOwed && !waiting) { gcOwed = false; gcEpoch(true); } }
+  var heldLocks = new Set();
+  function cleanUp() { freeLocks(); var waiting = false; calls.forEach(function (c) { if (!c.stream && !c.letGo) waiting = true; }); if (gcOwed && !waiting) { gcOwed = false; gcEpoch(true); } }
   function ok(value, held) {
     var reply = { tag: 0, value: value === undefined ? null : value };
     if (typeof captureString !== "function") return binary.keptReply(reply, null);
@@ -1360,7 +1334,9 @@
     // The socket's state as of this event (D7): `open` opens it, an end closes it. A listener's stream ends as its `error`.
     // `AddressInUse` travels as `Refused`, its message so prefixed (executor_listen.rs).
     if (socket && !o.message && socket.close) { var f = o.failed || { kind: "Network", message: event.message }, inUse = /^AddressInUse: /.test(f.message); socket.close(); event = { type: "error", kind: inUse ? "AddressInUse" : f.kind, message: inUse ? f.message.slice(14) : f.message }; }
-    if (socket) socket.state = !o.message ? 3 : event.type === "open" && socket.state === 0 ? 1 : socket.state;
+    // A child's owner reads its own events (js/src/process.js).
+    if (socket && socket.event) event = socket.event(o, event);
+    else if (socket) socket.state = !o.message ? 3 : event.type === "open" && socket.state === 0 ? 1 : socket.state;
     currentCall = call; inMapper = true;
     // Its mapper may reply on it answering `open` or a `message` (never on wasm, where it never opens): handed over however the call ends, sent if the frame's commit stands.
     // A listener's, on the connection whose `connection` or `message` it answers (LLP 1133.005 D6).
@@ -1469,6 +1445,8 @@
   global.__exact_yielded = function (id) { var call = calls.get(Number(id)); if (call) { currentCall = call; endYields(call); } };
   global.__exact_turn = function (id) { var t = id === "module" ? work.MODULE : id ? calls.get(Number(id)) || null : null; currentCall = t === work.MODULE ? null : t; work.setTurn(t); }; global.__exact_module_discarded = function () { work.runDiscarded(); }; // the executor's turns (js/src/module_work.rs): the turn's call is current, so a plain `.then` reaction runs as it (LLP 1146 D2)
   global.__exact_adopt = function (id, ticket) { var p = pending.get(Number(ticket)); if (!p || !p.claimed || p.stream || p.module || p.call !== calls.get(Number(id))) return ""; p.module = true; work.adopted(); return "adopted"; }; // a let-go call's fetch with effects the runner keeps (LLP 1146 D2): only one handed out (`claimed`, the one the call parked on, so its abort is a cancel, door 23); forgetting the call leaves it in flight and outstanding until its reply reaches the call's continuation in a module turn
+  // The child-process module's seam (LLP 1133.007), natively only: js/src/process.js takes it, and it is gone.
+  if (global.__exact_process_host) global.__exact_process_seam = Object.freeze({ request: function (url, init, listen, own) { return request(url, init, listen, own, true); }, socketOwner: socketOwner, host: host, copyBytes: copyBytes, toBase64: toBase64 });
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = settled(Number(ticket));
     if (!p) return;
@@ -1482,6 +1460,6 @@
     // the signal itself still says so.
     if (p.signal && p.signal.aborted) p.reject(p.signal.reason);
     else if (o.failed) p.reject(new FetchError(o.failed));
-    else p.resolve(new Response(o.response, p.bodyTo));
+    else p.resolve(hostReply(o.response, p.bodyTo, p.head));
   };
 })(globalThis);

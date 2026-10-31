@@ -1,0 +1,21 @@
+[package]
+name = "exact-heavylist-windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "exact-heavylist-windows"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+exact-heavylist-data = { path = "../data" }
+exact-windows = { path = "../../../../host/windows" }
+
+[build-dependencies]
+exact-heavylist-data = { path = "../data" }
+contract = { path = "../../../../contract/cli" }
+exact-bake = { path = "../../../../bake" }

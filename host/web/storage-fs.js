@@ -486,7 +486,10 @@ export async function bodyTarget(appId, grants, path) {
     if (target?.isDirectory) throw named('write needs a regular file', 'EISDIR');
   } catch (error) { store.close(); throw error; }
   return {
-    async put(response, limit) {
+    // Until the file starts to be replaced, the request's end refuses the write: `refusal()`, asked just before, says
+    // whether the request has ended and with what, and `ended` aborts when it may have, rejecting the write at once.
+    // Once the file starts to be replaced the write waits for it, so a request never fails while its file changes.
+    async put(response, limit, ended, refusal = () => undefined) {
       try {
         // A browser rejects the read with its own words, so the overflow is kept to say why.
         let size = 0, over = null;
@@ -495,7 +498,23 @@ export async function bodyTarget(appId, grants, path) {
           out.enqueue(chunk);
         } }));
         const blob = counted ? await new Response(counted).blob().catch(error => { throw over ?? error; }) : new Blob([]);
-        await mutateIn(key, [normalized], () => store.putBlob(normalized, blob)).catch(error => { throw named(error.message, error.code); });
+        let replacing = false, refused;
+        const replaced = mutateIn(key, [normalized], () => {
+          refused = refusal();
+          if (refused) throw refused;
+          replacing = true;
+          return store.putBlob(normalized, blob);
+        }).catch(error => { throw error === refused ? error : named(error.message, error.code); });
+        if (ended) {
+          await new Promise((done, failed) => {
+            const end = () => { if (!replacing) failed(refusal() ?? ended.reason); };
+            ended.addEventListener('abort', end, { once: true });
+            if (ended.aborted) end();
+            replaced.then(done, failed).finally(() => ended.removeEventListener('abort', end));
+          });
+        } else {
+          await replaced;
+        }
         return size;
       } finally { store.close(); }
     },

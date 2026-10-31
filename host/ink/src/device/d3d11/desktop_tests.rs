@@ -352,42 +352,47 @@ impl Shelf {
 
     fn capture_pixels(&mut self) -> tiny_skia::Pixmap {
         self.alive();
-        let mut clicked = false;
         until("Shelf is unobscured", || {
             self.alive();
             unsafe {
+                use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
                 let _ = SetForegroundWindow(self.hwnd);
-                if GetForegroundWindow() != self.hwnd
-                    && !GetForegroundWindow().is_invalid()
-                    && !clicked
-                {
-                    // Settings can own the last input after a DPI change.
-                    // Activate Shelf with a real title-bar click in that case.
-                    use windows::Win32::UI::Input::KeyboardAndMouse::*;
-                    SetWindowPos(
-                        self.hwnd,
-                        Some(HWND_TOP),
-                        0,
-                        0,
-                        0,
-                        0,
-                        SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE,
-                    )
-                    .unwrap();
-                    let mut rect = RECT::default();
-                    GetWindowRect(self.hwnd, &mut rect).unwrap();
-                    SetCursorPos(rect.left + 100, rect.top + 12).unwrap();
-                    let events = [MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP].map(|flags| INPUT {
-                        r#type: INPUT_MOUSE,
-                        Anonymous: INPUT_0 {
-                            mi: MOUSEINPUT {
-                                dwFlags: flags,
-                                ..Default::default()
-                            },
-                        },
-                    });
-                    assert_eq!(SendInput(&events, size_of::<INPUT>() as i32), 2);
-                    clicked = true;
+                if GetForegroundWindow() != self.hwnd {
+                    let foreground = GetWindowThreadProcessId(GetForegroundWindow(), None);
+                    let current = GetCurrentThreadId();
+                    let target = GetWindowThreadProcessId(self.hwnd, None);
+                    // The test thread has no event loop. Attachment requires a
+                    // message queue; share both the foreground and target queues.
+                    // https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-attachthreadinput
+                    let _ = PeekMessageW(&mut MSG::default(), None, 0, 0, PM_NOREMOVE);
+                    let mut attached = Vec::new();
+                    let mut refused = false;
+                    for thread in [foreground, target] {
+                        if thread != 0 && thread != current && !attached.contains(&thread) {
+                            if AttachThreadInput(current, thread, true).as_bool() {
+                                attached.push(thread);
+                            } else {
+                                refused = true;
+                            }
+                        }
+                    }
+                    BringWindowToTop(self.hwnd).unwrap();
+                    let _ = SetForegroundWindow(self.hwnd);
+                    for thread in attached.into_iter().rev() {
+                        assert!(AttachThreadInput(current, thread, false).as_bool());
+                    }
+                    if refused && GetForegroundWindow() != self.hwnd {
+                        // Settings' ApplicationFrameHost denies input attachment.
+                        // UI Automation requests focus without sending an app click.
+                        use windows::Win32::{System::Com::*, UI::Accessibility::*};
+                        CoInitializeEx(None, COINIT_APARTMENTTHREADED).unwrap();
+                        let automation: IUIAutomation =
+                            CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).unwrap();
+                        let focused = automation.ElementFromHandle(self.hwnd).unwrap().SetFocus();
+                        drop(automation);
+                        CoUninitialize();
+                        focused.unwrap();
+                    }
                 }
                 GetForegroundWindow() == self.hwnd
             }
@@ -947,7 +952,16 @@ fn shelf_dpi_roundtrip() {
 #[test]
 #[ignore = "NucBox desktop; forces a real GPU TDR with dxcap -forcetdr"]
 fn shelf_device_loss() {
-    let mut app = Shelf::open("device-loss", false);
+    let wgpu = std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("wgpu");
+    let mut app = Shelf::launch_fault(
+        "device-loss",
+        &std::env::var("INK_SHELF").unwrap(),
+        if wgpu { "wgpu" } else { "ink" },
+        "1024x720",
+        None,
+        false,
+        (!wgpu).then_some("mica-recovery"),
+    );
     app.capture("device-loss-before");
     let mut reset = Command::new("dxcap.exe").arg("-forcetdr").spawn().unwrap();
     println!("S2_PROCESS dxcap pid={}", reset.id());
@@ -991,6 +1005,14 @@ fn shelf_device_loss() {
         loss.is_some_and(|offset| text[offset..].contains("painter ink"))
     });
     let recovered = app.text();
+    assert!(
+        recovered.contains("injected Mica refusal during device recovery"),
+        "{recovered}"
+    );
+    assert!(
+        recovered.contains("Mica retry 1/3 after present: restored"),
+        "{recovered}"
+    );
     assert!(recovered.contains("WARP composition"));
     let presented = recovered
         .find("CPU recovery frame presented through composition")

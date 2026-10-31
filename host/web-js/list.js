@@ -170,9 +170,11 @@ class SizeIndex {
     for (const r of ranges) { const last = segments.at(-1); if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]); else segments.push(r.slice()); }
     return { offset, visible, overscan, segments };
   }
+  // @ref runner/src/instance/collection/index.rs `Anchor`, `capture_anchor_excluding`, `anchor_at` and
+  // `restore_anchor`: this is their port, so a change to either names the other (#1095 7b0352262f: `beyond`, `raw`).
   anchor(offset, port, follow, excluded = null) {
     // The end is judged where the port is, the padding before the rows included (index.rs).
-    const max = this.maxOffset(port), at = Math.max(-this.leading, Math.min(offset, max));
+    const raw = offset, max = this.maxOffset(port), at = Math.max(-this.leading, Math.min(offset, max));
     offset = Math.max(0, at);
     const follows = follow && port > 0 && max - at < END_SLACK;
     // At the start, no anchor unless it follows the end (index.rs
@@ -184,9 +186,11 @@ class SizeIndex {
       if (row !== null && this.prefix(row) >= offset + port) row = null;
       within = row === null ? offset : offset - this.prefix(row);
     }
-    return { order: this.order, row, within, follows };
+    // How far past the end the port was (a rubber band under a finger or a fling), kept past the end; and the
+    // offset it was taken at, unclamped, where a port with no row to anchor stays.
+    return { order: this.order, row, within, follows, beyond: Math.max(0, raw - max), raw };
   }
-  anchorAt(key, within) { const i = this.pos.get(key); return i === undefined ? null : { order: this.order, row: i, within, follows: false }; }
+  anchorAt(key, within) { const i = this.pos.get(key); return i === undefined ? null : { order: this.order, row: i, within, follows: false, beyond: 0, raw: 0 }; }
   anchorPosition(a) {
     if (a.row === null) return null;
     let i = this.pos.get(a.order[a.row]);
@@ -199,10 +203,10 @@ class SizeIndex {
   }
   restoreAnchor(a, port) {
     const max = this.maxOffset(port);
-    if (a.follows) return max;
-    if (a.row === null) return this.clamp(a.within, port);
+    if (a.follows) return max + a.beyond;
+    if (a.row === null) return a.beyond > 0 ? a.raw : this.clamp(a.raw, port);
     const offset = this.anchorPosition(a);
-    return offset === null ? 0 : Math.min(Math.max(offset, -this.leading), max);
+    return offset === null ? 0 : Math.min(Math.max(offset, -this.leading), max) + a.beyond;
   }
 }
 
@@ -331,10 +335,11 @@ class Collection {
       this.index.invalidateRow(key);
     }
   }
-  anchor() { const g = this.geometry; return g && this.index.anchor(this.anchorOffset(g.offset), g.port_main, this.follows()); }
+  anchor() { const g = this.geometry; return g && this.index.anchor(this.anchorOffset(g.offset, g.port_main), g.port_main, this.follows()); }
   // ------------------------------------------------ scroll-start: end (start.rs)
   follows() { return (this.followEnd || this.atEnd) && !this.preview; }
-  anchorOffset(offset) { return this.atEnd ? this.index.extent : offset; }
+  /** The offset an opening list's anchor is taken at: its end in a port of `port`, no overshoot past it (start.rs). */
+  anchorOffset(offset, port) { return this.atEnd ? this.index.maxOffset(port) : offset; }
   /** Before any report: the last rows, and the host told to start at the end. */
   startAtEnd() {
     if (!this.atEnd || this.geometry || !this.index.len) return;
@@ -681,12 +686,12 @@ class Collection {
    * `resized` (not by the reader) keeps an end the last report was at. */
   reportAnchor(offset, port, padding, resized) {
     const i = this.index, down = this.geometry ? padding[0] - i.leading : 0;
-    const atEnd = resized && this.geometry && this.follows() && i.anchor(this.anchorOffset(this.geometry.offset), port, true).follows;
-    let a = i.anchor(this.anchorOffset(offset + down), port, this.follows());
+    const atEnd = resized && this.geometry && this.follows() && i.anchor(this.anchorOffset(this.geometry.offset, port), port, true).follows;
+    let a = i.anchor(this.anchorOffset(offset + down, port), port, this.follows());
     const moved = padding[0] !== i.leading || padding[1] !== i.trailing;
     [i.leading, i.trailing] = padding;
-    if (moved && this.follows() && !a.follows) { const b = i.anchor(this.anchorOffset(offset), port, this.follows()); if (b.follows) a = b; }
-    if (atEnd && !a.follows) a = i.anchor(this.anchorOffset(i.maxOffset(port)), port, true);
+    if (moved && this.follows() && !a.follows) { const b = i.anchor(this.anchorOffset(offset, port), port, this.follows()); if (b.follows) a = b; }
+    if (atEnd && !a.follows) a = i.anchor(this.anchorOffset(i.maxOffset(port), port), port, true);
     return a;
   }
   travelWithin(f, byView, fill) {

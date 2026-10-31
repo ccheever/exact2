@@ -153,6 +153,8 @@ struct TextRasterJob {
     let ranges: [CFRange]
     let baselines: [CGFloat]
     let flush: CGFloat
+    /// CSS `white-space` (`Spec.whiteSpace`): which trailing spaces a line aligns with (`TextEngine.penOffset`).
+    var whiteSpace = 0
     /// CSS `text-align: justify`, at the box's width (`TextEngine.justified`).
     var justifies = false
     /// Where each line starts (`LineInsets`): `text-indent`, list indents.
@@ -405,7 +407,8 @@ struct TextRasterJob {
         }
         let positions = zip(lines, baselines).map { line, baseline in
             let inset = insets.at(CTLineGetStringRange(line).location)
-            return CGPoint(x: box.minX + inset.left + TextEngine.penOffset(line, flush: flush, room: Double(box.width - inset.width), rtl: insets.rtl),
+            return CGPoint(x: box.minX + inset.left + TextEngine.penOffset(line, flush: flush, room: Double(box.width - inset.width), rtl: insets.rtl,
+                                                                           whiteSpace: whiteSpace, source: source),
                            y: box.minY + TextEngine.paintedBaseline(baseline, scale: scale))
         }
         if ellipsis {

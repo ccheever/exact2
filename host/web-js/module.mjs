@@ -354,6 +354,10 @@ export function withInspectHooks(text) {
   }
   return text;
 }
+/** B5 (lower.js `RUNTIME`): the arms sheet's host stamp, a digest of the runtime files the build copies first (`files`:
+ * `{ path, text }`, lower.js's unstamped source among them), so a runtime whose helpers or rule builder changed under a
+ * kept document starts its sheet over, where the arm names (the recipe, its literals, its constants) did not change. */
+export const withRuntimeStamp = (text, files) => text.replace('"exact-runtime-unstamped"', JSON.stringify(createHash('sha256').update(files.map(f => `${f.path}\0${f.text}`).join('\0')).digest('hex').slice(0, 24)));
 export const withoutDev = (text) => text.replace(/^[ \t]*\/\/ dev-only \{.*\n[\s\S]*?^[ \t]*\/\/ dev-only \}.*\n/gm, '');
 
 /** The plan-to-JavaScript compiler (`exact-web-js`) as `[cmd, args]`: its

@@ -103,10 +103,11 @@ final class TextCSSTests: XCTestCase {
         XCTAssertLessThan(engine.minContentWidth(normal), natural.width)
     }
 
-    /// CSS Text 3 §4.1.3 removes collapsible spaces at a soft line break and
+    /// CSS Text 3 §4.1.2 removes collapsible spaces at a soft line break and
     /// hangs `pre-wrap`'s there; Core Text keeps their advance in the line's
-    /// typographic width. Before a forced break `pre-wrap`'s spaces hang only
-    /// as far as they would not fit, and `pre`'s count.
+    /// typographic width. Before a forced break, which the paragraph's end
+    /// also is (§5), `pre-wrap`'s spaces conditionally hang: only as far as
+    /// they would not fit. `pre`'s count.
     func testAWrappedLinesTrailingSpaceTakesNoWidth() {
         let first = width("word word", numeric: 0)
         // Room for "word word" and less than the space after it
@@ -124,10 +125,61 @@ final class TextCSSTests: XCTestCase {
                        "pre-wrap without: the spaces past the room hang")
         XCTAssertEqual(engine.paragraph(spec([run("word   \nx")], whiteSpace: 4), width: word + 1).width, spaced, accuracy: 1.0 / 64,
                        "pre: they count")
+        // §8.2 counts them in max-content. Chrome (156, 14px Helvetica): a pre-wrap "Say " is 28.02 px wide, "Say" 24.13
+        XCTAssertEqual(engine.paragraph(spec([run("word   ")], whiteSpace: 1), width: .infinity).width, spaced, accuracy: 1.0 / 64,
+                       "pre-wrap at the paragraph's end, max-content: the spaces count")
+        XCTAssertEqual(engine.paragraph(spec([run("word   ")], whiteSpace: 1), width: spaced).width, spaced, accuracy: 1.0 / 64,
+                       "pre-wrap at the paragraph's end, laid out in its max-content width: the spaces count")
+        XCTAssertEqual(engine.paragraph(spec([run("word   ")], whiteSpace: 1), width: word + 1).width, word + 1, accuracy: 1.0 / 64,
+                       "pre-wrap at the paragraph's end without room: the spaces past it hang")
         // The room is the line's, after its indent
         let indented = Spec(runs: [run("word   \nx")], align: 0, lineClamp: 0, color: [0, 0, 0, 255], whiteSpace: 1, textIndent: 20)
         XCTAssertEqual(engine.paragraph(indented, width: word + 21).width, word + 21, accuracy: 1.0 / 64,
                        "pre-wrap after an indent: the spaces past the line's room hang")
+    }
+
+    /// A line aligns as its ink and the trailing spaces its width counts
+    /// (CSS Text 3 §4.1.2): a `pre-wrap` paragraph's last spaces and `pre`'s
+    /// sit inside the box, spaces that hang sit past its end edge. Chrome
+    /// 156 at 14px Helvetica, where "Say" is 24.13 px and a space 3.89: a
+    /// right- or centre-aligned shrink-to-fit "Say " draws "Say" at 0; in a
+    /// 100 px box right-aligned at 71.98, centred at 35.98; "   " right-
+    /// aligned at 88.33, centred at 44.16; a right-to-left "שלום " (31.78)
+    /// with its space on its left: start-aligned at 68.20, left-aligned at
+    /// 3.88, centred at 36.03; "Say hello" right-aligned in 40 px breaks
+    /// after "Say ", which ends at 40.00 with its space hung past the edge.
+    func testAlignmentPlacesCountedTrailingSpacesInsideTheLine() {
+        func make(_ text: String, whiteSpace: Int = 1, align: Int = 0, rtl: Bool = false) -> Spec {
+            Spec(runs: [run(text)], align: align, lineClamp: 0, color: [0, 0, 0, 255], direction: rtl ? 1 : 0, whiteSpace: whiteSpace)
+        }
+        func start(_ s: Spec, in room: CGFloat? = nil, line: Int = 0) -> CGFloat {
+            let natural = engine.paragraph(s, width: .infinity).width
+            let box = room ?? natural
+            return engine.paragraph(s, width: box).origin(line, align: s.align, width: box)
+        }
+        let say = width("Say", numeric: 0)
+        let space = engine.paragraph(make("Say ", whiteSpace: 4), width: .infinity).width - say
+        XCTAssertGreaterThan(space, 0)
+        for align in [1, 2] {
+            XCTAssertEqual(start(make("Say ", align: align)), 0, accuracy: 0.02, "shrink-to-fit, align \(align): the space fills the box")
+        }
+        XCTAssertEqual(start(make("Say ", align: 2), in: 100), 100 - say - space, accuracy: 0.02, "right in 100: the space ends at the edge")
+        XCTAssertEqual(start(make("Say ", align: 1), in: 100), (100 - say - space) / 2, accuracy: 0.02, "centred in 100")
+        XCTAssertEqual(start(make("Say ", whiteSpace: 4, align: 2), in: 100), 100 - say - space, accuracy: 0.02, "pre counts its space")
+        XCTAssertEqual(start(make("Say ", whiteSpace: 0, align: 2), in: 100), 100 - say, accuracy: 0.02, "normal removes it")
+        XCTAssertEqual(start(make("Say   ", align: 2), in: say + 1), 0, accuracy: 0.02, "what does not fit hangs: the line fills the box")
+        XCTAssertEqual(start(make("   ", align: 2), in: 100), 100 - 3 * space, accuracy: 0.02, "an all-space line, right")
+        XCTAssertEqual(start(make("   ", align: 1), in: 100), (100 - 3 * space) / 2, accuracy: 0.02, "an all-space line, centred")
+        // A soft wrap's space hangs: "Say" ends at the edge
+        XCTAssertEqual(start(make("Say hello", align: 2), in: say + 2 * space), 2 * space, accuracy: 0.02, "a wrapped line's space hangs")
+        // Right to left: the pen is where the ink starts, the line's trailing space left of it
+        let shalom = engine.paragraph(make("שלום", rtl: true), width: .infinity).width
+        XCTAssertEqual(start(make("שלום ", align: 2, rtl: true), in: 100), 100 - shalom, accuracy: 0.02, "rtl start: the ink ends at the right edge")
+        XCTAssertEqual(start(make("שלום ", align: 0, rtl: true), in: 100), space, accuracy: 0.02, "rtl left: the space starts at the left edge")
+        XCTAssertEqual(start(make("שלום ", align: 1, rtl: true), in: 100), (100 - shalom - space) / 2 + space, accuracy: 0.02, "rtl centred")
+        XCTAssertEqual(start(make("שלום ", align: 0, rtl: true)), space, accuracy: 0.02, "rtl shrink-to-fit, left: the space fills the box")
+        // §8.2: min-content leaves out what conditionally hangs (Chrome: 24.13)
+        XCTAssertEqual(engine.minContentWidth(make("Say ")), say, accuracy: 1.0 / 64, "min-content")
     }
 
     func testPreLineKeepsLineFeedsWrapsAndSizesByForcedLines() {

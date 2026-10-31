@@ -27,6 +27,9 @@ pub struct Batch {
     /// The views this batch creates: each starts at its presentation's
     /// identity (`Host::present`).
     created: std::collections::HashSet<u32>,
+    /// The properties this batch presents of a view it creates: one
+    /// presented away from identity is no longer at it.
+    presented_new: std::collections::HashMap<u32, Vec<&'static str>>,
     /// What moves changes place or size (`Engine::spatial`): the display
     /// link asks for the panel's full rate (LLP 1061 D4).
     pub spatial: bool,
@@ -71,6 +74,9 @@ pub struct Batch {
     /// The session's orientation lock, JSON, when it changed
     /// (`Host::orientation_moved`, LLP 1133.029 D3).
     pub orientationlock: Option<String>,
+    /// Whether the app must finish work an answer started, when that
+    /// changed (`Host::finish_moved`).
+    pub must_finish: Option<bool>,
 }
 
 pub use exact_runner::agent::quote;
@@ -357,6 +363,28 @@ impl Batch {
     /// Whether this batch creates `id`.
     pub fn creates(&self, id: u32) -> bool {
         self.created.contains(&id)
+    }
+
+    /// Whether the presenter shows `id`'s `property` at its identity
+    /// unless this batch presents it: the batch creates the view and has
+    /// presented none of that property yet. A batch can present twice (a
+    /// commit, then a `resize` round's), and a view the first presented
+    /// away from identity stays there until a `present` says otherwise.
+    pub fn at_identity(&self, id: u32, property: &str) -> bool {
+        self.created.contains(&id)
+            && !self
+                .presented_new
+                .get(&id)
+                .is_some_and(|p| p.contains(&property))
+    }
+
+    fn note_present(&mut self, id: u32, property: &'static str) {
+        if self.created.contains(&id) {
+            let p = self.presented_new.entry(id).or_default();
+            if !p.contains(&property) {
+                p.push(property);
+            }
+        }
     }
 
     /// `{"op":"props","id":…,"set":{…},"clear":[…]}`.
@@ -808,7 +836,8 @@ impl Batch {
 
     /// `{"op":"present","id":…,"property":…,"x":…,"y":…}` — a motion
     /// property's presentation value this frame (`y` only for `translate`).
-    pub fn present(&mut self, id: u32, property: &str, x: f64, y: f64) {
+    pub fn present(&mut self, id: u32, property: &'static str, x: f64, y: f64) {
+        self.note_present(id, property);
         self.ops.push(format!(
             "{{\"op\":\"present\",\"id\":{id},\"property\":\"{property}\",\"x\":{x},\"y\":{y}}}"
         ));
@@ -817,7 +846,8 @@ impl Batch {
     /// `{"op":"present","id":…,"property":"layout","x":…,"y":…,"w":…,"h":…}`
     /// — a layout transition's offset from the laid-out box and its size's
     /// difference from it (LLP 1063).
-    pub fn present4(&mut self, id: u32, property: &str, [x, y, w, h]: [f64; 4]) {
+    pub fn present4(&mut self, id: u32, property: &'static str, [x, y, w, h]: [f64; 4]) {
+        self.note_present(id, property);
         self.ops.push(format!(
             "{{\"op\":\"present\",\"id\":{id},\"property\":\"{property}\",\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}"
         ));
@@ -925,6 +955,9 @@ impl Batch {
         }
         if let Some(lock) = &self.orientationlock {
             let _ = write!(s, ",\"orientationlock\":{lock}");
+        }
+        if let Some(must) = self.must_finish {
+            let _ = write!(s, ",\"mustFinish\":{must}");
         }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");

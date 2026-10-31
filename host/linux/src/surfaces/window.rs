@@ -290,6 +290,7 @@ pub(crate) struct DirectWindow {
     pub(crate) recovering: bool,
     retry: exact_ink::device::Retry,
     present_due: Option<std::time::Instant>,
+    reservation_error_reported: bool,
     ever_presented: bool,
     pub(crate) last_refusal: Option<String>,
     retire_due: Option<std::time::Instant>,
@@ -308,6 +309,7 @@ impl DirectWindow {
             recovering: false,
             retry: Default::default(),
             present_due: None,
+            reservation_error_reported: false,
             ever_presented: false,
             last_refusal: None,
             retire_due: None,
@@ -481,8 +483,19 @@ impl DirectWindow {
             }
         }
         if !self.recovering {
-            let frame = p.frame_for(FrameTarget::Window);
-            self.present_due = p.brush.presentation_retry_delay().map(|delay| now + delay);
+            let lost = p.brush.device_lost();
+            let ready = !lost && reserve_frame(p, size, &mut self.reservation_error_reported);
+            let frame = if ready {
+                p.frame_for(FrameTarget::Window)
+            } else {
+                p.last_frame_succeeded = false;
+                None
+            };
+            self.present_due = p
+                .brush
+                .presentation_retry_delay()
+                .or_else(|| (!ready).then_some(std::time::Duration::from_secs_f64(1. / 60.)))
+                .map(|delay| std::time::Instant::now() + delay);
             if self.present_due.is_some() {
                 p.repaint();
                 p.last_frame_succeeded = false;
@@ -533,7 +546,9 @@ impl DirectWindow {
                     self.fallback = None;
                 }
                 Ok(ms) => {
-                    self.present_due = device.presentation_retry_delay().map(|delay| now + delay);
+                    self.present_due = device
+                        .presentation_retry_delay()
+                        .map(|delay| std::time::Instant::now() + delay);
                     p.last_frame_succeeded = ms > 0.;
                     self.ever_presented |= ms > 0.;
                     if ms > 0. && std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
@@ -546,6 +561,24 @@ impl DirectWindow {
             self.retry.failed(std::time::Instant::now());
         }
         Ok(None)
+    }
+}
+
+fn reserve_frame<D: DataSource>(p: &mut Presenter<D>, size: [u32; 2], reported: &mut bool) -> bool {
+    match p.brush.prepare_window_frame(size) {
+        Ok(ready) => {
+            if ready {
+                *reported = false;
+            }
+            ready
+        }
+        Err(error) => {
+            if !p.brush.device_lost() && !*reported {
+                eprintln!("exact-ink: frame reservation: {error}; retrying");
+                *reported = true;
+            }
+            false
+        }
     }
 }
 
@@ -563,7 +596,29 @@ impl<D: DataSource> Presenter<D> {
         direct.retire_due
     }
 
-    /// Next readiness or recovery attempt for a directly presenting painter.
+    /// A newly drawable window gets a fresh capacity check, keeping device recovery's backoff.
+    pub fn reset_painter_present_deadline(&mut self) {
+        if let Some(direct) = &mut self.surfaces.direct_window {
+            direct.present_due = None;
+            if let Some((device, _)) = &mut direct.fallback {
+                device.reset_present_deadline();
+            }
+        }
+        self.brush.reset_present_deadline();
+        self.repaint();
+    }
+
+    /// Earliest paint after a refused present, measured from the refusal.
+    /// Recovery backoff is separate: it must not delay input on the CPU fallback.
+    pub fn painter_present_deadline(&self) -> Option<std::time::Instant> {
+        self.surfaces
+            .direct_window
+            .as_ref()
+            .and_then(|d| d.present_due)
+    }
+
+    /// Next readiness, recovery or presentation attempt; asks for a redraw even
+    /// without new damage. Only `painter_present_deadline` forbids earlier paint.
     pub fn painter_retry_deadline(&self) -> Option<std::time::Instant> {
         self.surfaces.direct_window.as_ref().and_then(|d| {
             if d.startup.pending() {
@@ -606,7 +661,7 @@ mod tests {
     fn mica_refusal_uses_page_color_in_both_schemes() {
         let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
         let mut p = cpu_presenter();
-        p.brush.replace_backend(Box::new(Lost(false)));
+        p.brush.replace_backend(Box::new(Lost(false, false)));
         p.surfaces.direct_window = Some(DirectWindow::new(window.clone()));
         for dark in [false, true] {
             p.set_system_scheme(dark);
@@ -679,8 +734,15 @@ mod tests {
         assert_eq!(p.brush.collect_retired_devices(), 0);
     }
 
-    struct Lost(bool);
+    struct Lost(bool, bool);
     impl Backend for Lost {
+        fn prepare_window_frame(&mut self, _: [u32; 2]) -> Result<bool, String> {
+            if self.1 {
+                Err("injected reservation refusal".into())
+            } else {
+                Ok(true)
+            }
+        }
         fn attach_window(
             &mut self,
             _: exact_ink::device::d3d11::Window,
@@ -742,7 +804,7 @@ mod tests {
             crate::presenter::PainterChoice::Cpu,
         )
         .unwrap();
-        p.brush.replace_backend(Box::new(Lost(true)));
+        p.brush.replace_backend(Box::new(Lost(true, false)));
         p.surfaces.direct_window = Some(DirectWindow::new(window.clone()));
         assert!(p.window_frame(window.clone()).unwrap().is_none());
         assert!(p.last_frame_succeeded());
@@ -788,11 +850,81 @@ mod tests {
     }
 
     #[test]
+    #[allow(unsafe_code)]
+    fn reservation_refusal_retries_and_lifecycle_clears_its_deadline() {
+        use wgpu::rwh as raw_window_handle;
+        struct UnusedWindow;
+        impl raw_window_handle::HasWindowHandle for UnusedWindow {
+            fn window_handle(
+                &self,
+            ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError>
+            {
+                let raw = raw_window_handle::Win32WindowHandle::new(
+                    std::num::NonZeroIsize::new(1).unwrap(),
+                );
+                // The stub backend never passes this handle to a native API.
+                Ok(unsafe { raw_window_handle::WindowHandle::borrow_raw(raw.into()) })
+            }
+        }
+        let window =
+            exact_ink::device::d3d11::Window::from_owner(std::rc::Rc::new(UnusedWindow)).unwrap();
+        let mut p = cpu_presenter();
+        p.frame();
+        p.brush.replace_backend(Box::new(Lost(false, true)));
+        let mut direct = DirectWindow::new(window);
+        assert!(!p.dirty());
+        for _ in 0..2 {
+            assert!(direct.frame(&mut p).unwrap().is_none());
+            assert!(!direct.recovering);
+            assert!(direct.reservation_error_reported);
+            assert!(direct.present_due.unwrap() > std::time::Instant::now());
+            assert!(!p.last_frame_succeeded());
+            assert_eq!(p.brush.backend(), "ink");
+            assert!(p.dirty());
+        }
+        direct.retry.failed(std::time::Instant::now());
+        let recovery = direct.retry.deadline();
+        p.surfaces.direct_window = Some(direct);
+        p.reset_painter_present_deadline();
+        assert_eq!(p.painter_present_deadline(), None);
+        assert_eq!(
+            p.surfaces.direct_window.as_ref().unwrap().retry.deadline(),
+            recovery
+        );
+        assert!(p.dirty());
+        let mut reported = true;
+        p.brush
+            .replace_backend(Box::new(crate::raster::Raster::new()));
+        p.frame();
+        assert!(
+            p.dirty(),
+            "a CPU snapshot must retain unpresented window damage"
+        );
+        p.frame_for(crate::paint::FrameTarget::Geometry);
+        assert!(p.dirty(), "geometry must retain unpresented window damage");
+        assert!(reserve_frame(&mut p, [80, 60], &mut reported));
+        assert!(!reported);
+        p.brush.replace_backend(Box::new(Lost(true, true)));
+        assert!(!reserve_frame(&mut p, [80, 60], &mut reported));
+        assert!(p.brush.device_lost());
+        assert!(!reported);
+        let mut direct = p.surfaces.direct_window.take().unwrap();
+        direct.open = |_| Err(exact_ink::device::Error::Device("test refusal".into()));
+        p.dirty = false;
+        assert!(direct.frame(&mut p).unwrap().is_none());
+        assert!(
+            direct.recovering,
+            "a clean redraw must observe device removal"
+        );
+        assert_eq!(p.painter.name, "cpu");
+    }
+
+    #[test]
     #[ignore = "native Windows composition requires fxc and a desktop session"]
     fn refused_hardware_attachment_retries_warp_and_reports_it() {
         let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
         let mut p = cpu_presenter();
-        p.brush.replace_backend(Box::new(Lost(true)));
+        p.brush.replace_backend(Box::new(Lost(true, false)));
         let startup = Startup::new(false);
         let direct = DirectWindow::attach(&mut p, window.clone(), [80, 60], startup).unwrap();
         p.surfaces.direct_window = Some(direct);
@@ -819,7 +951,7 @@ mod tests {
     fn refused_warp_does_not_block_later_hardware_recovery() {
         let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
         let mut p = cpu_presenter();
-        p.brush.replace_backend(Box::new(Lost(true)));
+        p.brush.replace_backend(Box::new(Lost(true, false)));
         let mut direct = DirectWindow::new(window.clone());
         direct.open = |warp| {
             if warp {
@@ -871,7 +1003,7 @@ mod tests {
     fn an_ordinary_paint_error_does_not_replace_the_device() {
         let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
         let mut p = cpu_presenter();
-        p.brush.replace_backend(Box::new(Lost(false)));
+        p.brush.replace_backend(Box::new(Lost(false, false)));
         p.surfaces.direct_window = Some(DirectWindow::new(window.clone()));
         p.window_frame(window).unwrap();
         let direct = p.surfaces.direct_window.as_ref().unwrap();

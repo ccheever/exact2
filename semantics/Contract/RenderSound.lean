@@ -91,6 +91,26 @@ theorem EnvGood.envOKE' {p : Program} (hp : WellTyped p) {E : Err → Prop}
     (fun _ _ hx _ => h.slots.valTy hp hx) h.rows h.settled (SettledFor.of hc)
   rwa [scopeWithout_none] at this
 
+/-- A binding unset for its refusal (`unsetRefused`) keeps `P` of the
+value it has, and fails only as the evaluation did. -/
+theorem GoodW.unsetRefused {α} {E : Err → Prop} {P : α → Prop} {r : Result α}
+    (h : GoodW E P r) : GoodW E (fun o => ∀ a, o = .some a → P a) (Contract.unsetRefused r) := by
+  cases r with
+  | ok a =>
+    show ∀ b, Option.some a = Option.some b → P b
+    intro b hb
+    cases hb
+    exact h
+  | error e =>
+    cases e with
+    | refused w =>
+      simp only [Contract.unsetRefused]
+      split
+      · exact h
+      · intro a ha
+        cases ha
+    | _ => exact h
+
 theorem elementText_good {p : Program} (hfn : ProgOK p) {E : Err → Prop}
     (hE : ∀ e, Legit e → e ≠ .pending → E e) {fuel G env Γ ls tag pos}
     (henv : EnvOKE p E G env) (hl : LocalsOK p Γ ls)
@@ -103,9 +123,12 @@ theorem elementText_good {p : Program} (hfn : ProgOK p) {E : Err → Prop}
     split
     · next ht =>
       obtain ⟨t, he, hd⟩ := h ht e (by simp)
-      refine GoodW.bind (eval_sound_E hfn hE henv hl he) fun v hv => ?_
-      obtain ⟨s, hs⟩ := display_ok hv hd
-      simp [hs, bind, Except.bind, pure, Except.pure, GoodW]
+      refine GoodW.bind (GoodW.unsetRefused (eval_sound_E hfn hE henv hl he)) fun o ho => ?_
+      cases o with
+      | some v =>
+        obtain ⟨s, hs⟩ := display_ok (ho v rfl) hd
+        simp [hs, bind, Except.bind, pure, Except.pure, GoodW]
+      | none => simp [pure, Except.pure, GoodW]
     · trivial
   · trivial
 
@@ -118,9 +141,12 @@ theorem elementTestId_good {p : Program} (hfn : ProgOK p) {E : Err → Prop}
   split
   · next e he =>
     obtain ⟨t, ht, hd⟩ := h e (by simp [he])
-    refine GoodW.bind (eval_sound_E hfn hE henv hl ht) fun v hv => ?_
-    obtain ⟨s, hs⟩ := display_ok hv hd
-    simp [hs, bind, Except.bind, pure, Except.pure, GoodW]
+    refine GoodW.bind (GoodW.unsetRefused (eval_sound_E hfn hE henv hl ht)) fun o ho => ?_
+    cases o with
+    | some v =>
+      obtain ⟨s, hs⟩ := display_ok (ho v rfl) hd
+      simp [hs, bind, Except.bind, pure, Except.pure, GoodW]
+    | none => simp [pure, Except.pure, GoodW]
   · trivial
 
 theorem tabValues_good {p : Program} (hfn : ProgOK p) {E : Err → Prop}
@@ -128,13 +154,13 @@ theorem tabValues_good {p : Program} (hfn : ProgOK p) {E : Err → Prop}
     (henv : EnvOKE p E G env) (hl : LocalsOK p Γ ls) : ∀ {props : List (String × Expr)},
     (∀ prop ∈ props, ∃ t, HasTy p G Γ prop.2 t) →
     GoodW E (fun _ => True) (props.mapM fun (name, e) => do
-      pure (name, ← eval fuel env false ls e))
+      pure (name, ← unsetRefused (eval fuel env false ls e)))
   | [], _ => trivial
   | (name, e) :: rest, h => by
     simp only [List.mapM_cons]
     obtain ⟨t, ht⟩ := h (name, e) (by simp)
     refine GoodW.bind (P := fun _ => True) ?_ fun _ _ => ?_
-    · exact GoodW.bind (eval_sound_E hfn hE henv hl ht) fun _ _ => True.intro
+    · exact GoodW.bind (GoodW.unsetRefused (eval_sound_E hfn hE henv hl ht)) fun _ _ => True.intro
     · exact GoodW.bind (tabValues_good hfn hE henv hl (fun prop hp => h prop (List.mem_cons_of_mem _ hp)))
         fun _ _ => True.intro
 
@@ -234,7 +260,7 @@ theorem render_good {p : Program} (hp : WellTyped p) {E : Err → Prop}
             refine GoodW.bind (elementTestId_good hfn hE hok hl htid) fun _ _ => ?_
             refine GoodW.bind (tabValues_good hfn hE hok hl hnav) fun values _ => ?_
             have hk : GoodW E (fun r => ViewOK p r.1 ∧ StoreOK p r.2)
-                (if (cx.tabs.element props values).opened then
+                (if (cx.tabs.element props (values.filterMap fun (n, v) => v.map (n, ·))).opened then
                   render n { cx with tabs := cx.tabs.children props } ls children live
                  else pure ([], live)) := by
               split

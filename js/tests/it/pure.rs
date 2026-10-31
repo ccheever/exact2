@@ -34,7 +34,7 @@ fn pure_utilities_match_the_web_executor() {
         String::from_utf8_lossy(&reference.stderr)
     );
     let expected: Vec<String> = serde_json::from_slice(&reference.stdout).unwrap();
-    let plan = contract::compile("component App\n  resource text = text() as shape string\n  resource url = url() as shape string\n  resource base64 = base64() as shape string\n  resource standard = standard() as shape string\n  resource microtask = microtask() as shape string\n  resource abort = abort() as shape string\n  resource hooks = hooks() as shape string\n  resource intl = intl() as shape string\n  view\n    text text\n").unwrap();
+    let plan = contract::compile("component App\n  resource text = text() as shape string\n  resource url = url() as shape string\n  resource base64 = base64() as shape string\n  resource standard = standard() as shape string\n  resource microtask = microtask() as shape string\n  resource abort = abort() as shape string\n  resource hooks = hooks() as shape string\n  resource intl = intl() as shape string\n  resource abortAny = abortAny() as shape string\n  resource response = response() as shape string\n  view\n    text text\n").unwrap();
     let mut module = Module::loaded(
         include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
         "test.pure",
@@ -53,6 +53,8 @@ fn pure_utilities_match_the_web_executor() {
         "abort",
         "hooks",
         "intl",
+        "abortAny",
+        "response",
     ]
     .into_iter()
     .zip(expected)
@@ -62,8 +64,8 @@ fn pure_utilities_match_the_web_executor() {
         if source == "hooks" {
             assert_eq!(
                 actual,
-                r#"{"present":false,"own":"undefined","subscribe":"undefined"}"#,
-                "the abort hook handoff and its own/subscribe functions must be unreachable after load"
+                r#"{"present":false,"own":"undefined","subscribe":"undefined","headersHooks":false}"#,
+                "the abort and headers hook handoffs and their functions must be unreachable after load"
             );
         }
         assert_eq!(actual, expected, "{source}");
@@ -96,7 +98,7 @@ try {
   });
   const fixture = readFileSync(process.env.EXACT_PURE_SCRIPT, 'utf8');
   const result = await cdp.send('Runtime.evaluate', {
-    expression:fixture + '\n;Promise.all(["text","url","base64","standard","microtask","abort","hooks","intl"].map(source=>globalThis.exact.answer(source))).then(JSON.stringify)',
+    expression:fixture + '\n;Promise.all(["text","url","base64","standard","microtask","abort","hooks","intl","abortAny","response"].map(source=>globalThis.exact.answer(source))).then(JSON.stringify)',
     returnByValue:true, awaitPromise:true,
   }, sessionId);
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);

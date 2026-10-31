@@ -27,7 +27,9 @@ struct RegionLine: Sendable {
     private let edgeIndices: [CFIndex]
     private let intervalIndices: [CFIndex]
 
-    init(_ line: CTLine, flush: CGFloat, width: CGFloat, rtl: Bool = false, captureHits: Bool = true, conservativeInk: CGRect? = nil) {
+    /// `whiteSpace` and `text` (the line's source) place the trailing spaces its width counts (`TextEngine.penOffset`).
+    init(_ line: CTLine, flush: CGFloat, width: CGFloat, rtl: Bool = false, whiteSpace: Int = 0, text: NSAttributedString? = nil,
+         captureHits: Bool = true, conservativeInk: CGRect? = nil) {
         let r = CTLineGetStringRange(line)
         range = NSRange(location: r.location, length: r.length)
         var above: CGFloat = 0, below: CGFloat = 0, extra: CGFloat = 0
@@ -37,7 +39,7 @@ struct RegionLine: Sendable {
             ink = CGRect(x: conservativeInk.minX, y: conservativeInk.minY,
                          width: typographicWidth + conservativeInk.width, height: conservativeInk.height)
         } else { ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds) }
-        flushOffset = TextEngine.penOffset(line, flush: flush, room: Double(width), rtl: rtl)
+        flushOffset = TextEngine.penOffset(line, flush: flush, room: Double(width), rtl: rtl, whiteSpace: whiteSpace, source: text)
         if !captureHits {
             self.carets = []; hitEdges = []; edgeIndices = []; intervalIndices = []
             return
@@ -111,14 +113,15 @@ final class RegionParagraph: Sendable {
     }
 
     convenience init(source: RegionTextSource, sourceSHA256: String, lines: [CTLine], baselines: [CGFloat], width: CGFloat,
-                     height: CGFloat, lineBottoms: [CGFloat], offeredWidth: CGFloat, retainHits: Bool = true, captureHits: Bool = true) {
+                     height: CGFloat, lineBottoms: [CGFloat], offeredWidth: CGFloat, retainHits: Bool = true, captureHits: Bool = true,
+                     attributed: NSAttributedString? = nil) {
         self.init(source: source, sourceSHA256: sourceSHA256, lines: lines, baselines: baselines, width: width,
                   height: height, lineBottoms: lineBottoms, offeredWidth: offeredWidth, retainHits: retainHits,
-                  captureHits: captureHits, metadataCheckpoint: {})
+                  captureHits: captureHits, attributed: attributed, metadataCheckpoint: {})
     }
     init(source: RegionTextSource, sourceSHA256: String, lines: [CTLine], baselines: [CGFloat], width: CGFloat,
          height: CGFloat, lineBottoms: [CGFloat], offeredWidth: CGFloat, retainHits: Bool = true, captureHits: Bool = true,
-         metadataCheckpoint: () throws -> Void) rethrows {
+         attributed: NSAttributedString? = nil, metadataCheckpoint: () throws -> Void) rethrows {
         precondition(!Thread.isMainThread)
         self.source = source; self.baselines = baselines; self.lineBottoms = lineBottoms
         self.sourceSHA256 = sourceSHA256
@@ -130,7 +133,8 @@ final class RegionParagraph: Sendable {
             captured.reserveCapacity(lines.count)
             for (index, line) in lines.enumerated() {
                 if index > 0 && index % 128 == 0 { try metadataCheckpoint() }
-                captured.append(RegionLine(line, flush: flush, width: offeredWidth, rtl: source.direction == 1, captureHits: captureHits))
+                captured.append(RegionLine(line, flush: flush, width: offeredWidth, rtl: source.direction == 1, whiteSpace: source.whiteSpace,
+                                           text: attributed, captureHits: captureHits))
             }
             // Include the final short tail. No partially initialized metadata
             // or layout binding escapes if the owning request was superseded.

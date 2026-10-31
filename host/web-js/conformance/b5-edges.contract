@@ -1,0 +1,60 @@
+// B5 (LLP 1071.001 part B, host/web-js/src/lower.rs): enumerated style rows
+// lowered to an arm class, and every refusal kept inline, through every arm: an option match, a none and a blank arm,
+// a CSS-wide keyword, an arm changed during a transition, and a tinted image whose source and style change apart.
+shape Run
+  id: string
+  s: string
+  t: string
+
+component App
+  state s = "a"
+  state t = "x"
+  state o: option<number> = none
+  state runs = [Run(id="1", s="code", t="code "), Run(id="2", s="bold", t="bold "), Run(id="3", s="mention", t="@mention "), Run(id="4", s="italic", t="italic "), Run(id="5", s="link", t="link "), Run(id="6", s="tag", t="#tag "), Run(id="7", s="plain", t="plain")]
+  action set(v: string)
+    s = v
+  action fill
+    o = o == none ? some(3) : none
+  action flip
+    t = t == "x" ? "y" : "x"
+  action shift
+    runs = [Run(id="1", s=s, t="code "), Run(id="2", s="code", t="bold "), Run(id="3", s="link", t="@mention "), Run(id="4", s="tag", t="italic "), Run(id="5", s="bold", t="link "), Run(id="6", s="mention", t="#tag "), Run(id="7", s="italic", t="plain")]
+  view
+    column testId="root" padding=8 gap=4
+      row gap=4
+        button testId="to-a" press=set("a") "a"
+        button testId="to-b" press=set("b") "b"
+        button testId="to-c" press=set("c") "c"
+        button testId="to-z" press=set("z") "z"
+        button testId="flip" press=flip "flip"
+        button testId="shift" press=shift "shift"
+        button testId="fill" press=fill "fill"
+      text testId="feed" font-size=16 color="#000000"
+        for r in runs key=r.id
+          text r.t font-family=(r.s == "code" ? "ui-monospace" : "system-ui") font-size=(r.s == "code" ? 15 : 16) background-color=(r.s == "code" ? "#F2F2F7" : "#00000000") font-weight=(r.s == "bold" or r.s == "mention" ? 600 : 400) font-style=(r.s == "italic" ? "italic" : "normal") color=(r.s == "link" or r.s == "mention" ? "#007AFF" : r.s == "tag" ? "#5856D6" : "#000000") text-decoration-line=(r.s == "link" ? "underline" : "none")
+      text testId="colour" "colour" color=(s == "a" ? "#000000" : s == "b" ? "#007AFF" : "#5856D6") background-color=(s == "c" ? "#F2F2F7" : "#00000000") font-weight=(s == "b" ? 600 : 400)
+      text testId="look" "look" tabindex=0 background-color=(s == "a" ? "#000000" : "#007AFF") color=(s == "a" ? "#FFFFFF" : "#000000")
+        :hover
+          background-color="#FF0000"
+        :focus-visible
+          background-color="#00FF00"
+      text testId="role" "role" font-size="-exact-headline" font-weight=(s == "b" ? 300 : 800)
+      column font-weight=(s == "c" ? 700 : 400) letter-spacing=(s == "a" ? 1 : 0)
+        text testId="inherits" "inherits"
+      text testId="border" "border" border-style="solid" border-width=2 border-color=(s == "b" ? "#FF0000" : "#0000FF") border-radius=(s == "c" ? 8 : 0)
+      text testId="token" "token" color=(s == "a" ? "AccentColor" : s == "b" ? "-exact-system-blue" : "-exact-label") background-color=(s == "c" ? "-exact-background" : "-exact-secondary-background")
+      text testId="match" "match" font-weight=(match o { case some(x) => 600, case none => 400 })
+      text testId="blank" "blank" font-weight=(s == "a" ? none : 700) font-family=(s == "b" ? "" : "serif")
+      text testId="wide" "wide" font-weight=(s == "a" ? "inherit" : 400)
+      text testId="eased" "eased" transition="color 300ms linear" color=(s == "a" ? "#000000" : s == "b" ? "#FF0000" : "#0000FF")
+      image testId="tinted" (t == "x" ? "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Crect width='8' height='8'/%3E%3C/svg%3E" : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Crect width='8' height='8'/%3E%3C/svg%3E#b") -exact-tint-color="#FF0000" width=20 height=20 background-color=(s == "a" ? "#00FF00" : "#0000FF")
+      text testId="r1" "pressable" press=flip color=(s == "a" ? "#000000" : "#007AFF")
+      text testId="r2" "display" display=(s == "b" ? "none" : "block")
+      text testId="r3" "fit" -exact-fit=(s == "a" ? "shrink" : "none")
+      text testId="r4" "visibility" visibility=(s == "c" ? "hidden" : "visible")
+      column testId="r5" border-top-style="solid" border-top-width=(s == "a" ? 1 : 3)
+        text "marked"
+      column testId="r9" color-scheme=(s == "b" ? "dark" : "light")
+        text "scheme"
+      text testId="two" "two fields" color=(s == "a" ? "#000000" : "#007AFF") font-weight=(t == "x" ? 600 : 400)
+      text testId="many" "many" font-weight=(s == "v0" ? 100 : s == "v1" ? 101 : s == "v2" ? 102 : s == "v3" ? 103 : s == "v4" ? 104 : s == "v5" ? 105 : s == "v6" ? 106 : s == "v7" ? 107 : s == "v8" ? 108 : s == "v9" ? 109 : s == "v10" ? 110 : s == "v11" ? 111 : s == "v12" ? 112 : s == "v13" ? 113 : s == "v14" ? 114 : s == "v15" ? 115 : s == "b" ? 700 : 400)

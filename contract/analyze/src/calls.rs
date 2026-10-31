@@ -47,7 +47,8 @@ type Written<'a> = BTreeMap<&'a str, Vec<Write<'a>>>;
 
 struct Walk<'a> {
     action: &'a str,
-    slots: BTreeSet<&'a str>,
+    /// The component's states and mutations, shared by every caller's walk.
+    slots: std::rc::Rc<BTreeSet<&'a str>>,
     /// The frame being walked (0 is the action's own body) and its call.
     frame: (usize, Frame<'a>),
     frames: usize,
@@ -373,12 +374,13 @@ pub(super) fn slot_reads<'e>(
 /// Every read, in an action of the expanded root, of a slot another frame
 /// assigns on a path to it: the one rule's cross-frame case, a warning.
 pub(super) fn check(c: &Component) -> Vec<AnalyzeError> {
-    let slots: BTreeSet<&str> = c
-        .states
-        .iter()
-        .map(|s| s.name.as_str())
-        .chain(c.mutations.iter().map(|m| m.name.as_str()))
-        .collect();
+    let slots: std::rc::Rc<BTreeSet<&str>> = std::rc::Rc::new(
+        c.states
+            .iter()
+            .map(|s| s.name.as_str())
+            .chain(c.mutations.iter().map(|m| m.name.as_str()))
+            .collect(),
+    );
     let mut errors = Vec::new();
     for a in &c.actions {
         if !has_call(&a.body) {
@@ -386,7 +388,7 @@ pub(super) fn check(c: &Component) -> Vec<AnalyzeError> {
         }
         let mut walk = Walk {
             action: &a.name,
-            slots: slots.clone(),
+            slots: std::rc::Rc::clone(&slots),
             frame: (0, None),
             frames: 0,
             top: a.span,

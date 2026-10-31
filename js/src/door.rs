@@ -68,8 +68,11 @@ pub(crate) unsafe extern "C" fn host_door(
                     Err("bake".into())
                 } else {
                     // `a` is the path a file operation names: a document
-                    // needs no app storage, as for a Rust source.
-                    let document = state.documents && a.starts_with("doc:/");
+                    // needs no app storage, as for a Rust source; nor does a
+                    // `home:` or `bundle:` path (LLP 1133.007 D6).
+                    let document = (state.documents && a.starts_with("doc:/"))
+                        || a.starts_with("home:/")
+                        || a.starts_with("bundle:/");
                     super::storage::refusal(true, state.storage || document, state.agent.is_some())
                 }
             }
@@ -77,7 +80,9 @@ pub(crate) unsafe extern "C" fn host_door(
             // let-go chain (splitter rough 7). Storage is live, with the
             // same refusal codes as an answer's call, not the bake's.
             None if state.between_answers => {
-                let document = state.documents && a.starts_with("doc:/");
+                let document = (state.documents && a.starts_with("doc:/"))
+                    || a.starts_with("home:/")
+                    || a.starts_with("bundle:/");
                 super::storage::refusal(
                     !state.baking,
                     state.storage || document,

@@ -235,11 +235,17 @@ extension TextEngine {
                 visible.replaceCharacters(in: NSRange(location: fragment.paint_end - 1, length: 1), with: "-")
                 line = CTTypesetterCreateLine(CTTypesetterCreateWithAttributedString(visible), range)
             }
-            if i == fragments.count - 1, spec.lineClamp > 0, fragment.end < source.utf8Count {
+            let clamps = i == fragments.count - 1 && spec.lineClamp > 0 && fragment.end < source.utf8Count
+            if clamps {
                 line = ellipsizedLine(spec, range: NSRange(location: range.location, length: range.length), width: Double(fragment.available), source: source.attributed) ?? line
             }
+            // The walker paints a line without the spaces it consumes after it; those its width counts (a `pre-wrap`
+            // paragraph's last, `pre`'s) align with it, so the line aligns as its consumed range (TextEngine.penOffset).
+            let consumed = !clamps && [1, 4].contains(spec.whiteSpace) && fragment.hyphenated == 0 && fragment.utf16_end > fragment.paint_end
+                ? CTTypesetterCreateLine(source.typesetter, CFRange(location: fragment.paint_start, length: fragment.utf16_end - fragment.paint_start)) : line
             let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
-            let x = CGFloat(fragment.x) + TextEngine.penOffset(line, flush: flush, room: Double(fragment.available), rtl: spec.direction == 1)
+            let x = CGFloat(fragment.x) + TextEngine.penOffset(consumed, flush: flush, room: Double(fragment.available), rtl: spec.direction == 1,
+                                                               whiteSpace: spec.whiteSpace, source: source.attributed)
             origins.append(x); baselines.append(CGFloat(fragment.y) + box.baseline)
             bottoms.append(CGFloat(fragment.y) + lineHeight)
             glyphs += CTLineGetGlyphCount(line); lines.append(line)
