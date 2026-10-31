@@ -786,6 +786,12 @@ above.
   paired environment, or of a server without a browser, is a web view in the clone and has the row. The web
   build has no row, as the reference offers it only through the desktop bridge. What the row opens is Safari's
   Web Inspector, not Chrome DevTools.
+- A server tab's picture-in-picture window on macOS is the system's panel, not Chromium's window. It opens at
+  216 × 299 points at the top right; the reference's opens at 284 × 377 at the bottom right. Its controls are close,
+  return to app and pause, where the reference's are minimize, back to tab and close under a title with the app's
+  icon. Pause does nothing, as the tab is live. A press elsewhere on the panel does not bring the app forward, as a
+  press on the reference's window does. AVKit sets the panel's size, place and controls, and the panel belongs to
+  the Picture in Picture process.
 - No development web view inspection on Android: the clone does not run on Android yet.
 - A composer reference's pill is the platform's token (LLP 1045.000 D4, §10 Q2): its kind's
   colours, with the platform's padding and radius and no border; its glyph is the nearest SF
