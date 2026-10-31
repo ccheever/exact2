@@ -1,4 +1,5 @@
 use ProviderIcon from "./provider-icon.contract"
+use ContentGeometry from "./content-geometry.contract"
 use ProjectFavicon, ProjectFaviconTarget from "./project-favicon.contract"
 use SettingsTextRole from "./settings.contract"
 // @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
@@ -109,6 +110,7 @@ shape HomeItem
 
 component Home
   props
+    contentGeometry: ContentGeometry
     listId: string
     routeId: string
     active: bool
