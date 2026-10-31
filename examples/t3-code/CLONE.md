@@ -31,62 +31,69 @@ complete phone or iPad parity. Historical notes below about the older POC build
 refer to `20261029015732` unless another build is named.
 
 Continue on `t3/t3-clone-pr216-poc`, which pushes to PR216's remote branch
-`feat(example)/t3-code-ios`. It includes Exact main through
-`43e0d93b858143f85c93c729057fd601d0f8fba2`. The earlier independent native
-NewTask POC created a real thread, received `FINAL_NATIVE_OK`, and restored the
-reply and environment after restart. That phone UI checkpoint has not been
-requalified on this main refresh. The older checkpoints below are provenance.
+`feat(example)/t3-code-ios`. Keep PR216 draft and unmerged. The local integration
+commit is `85d466e2e3c5ff0c4e94b7b6065c6a91b3584609`, a normal merge of
+`9db6b0d68ccf7d5780b46022ae16dbe2f4132d36` into
+`fe242e5a8dfb557510fbe6bac09d4074c2ceeeb3`. It is not pushed; independent review
+and publication belong to the root agent.
 
-The pinned main merge is `358dce46d1`. Its sole conflict passes `whiteSpace` to
-the existing UIKit raster job while preserving finite coverage, bounded retention
-and distant shadow handling. The clone supplies the required empty AtomFace
-`ariaLabel` and locks the existing `exact-grants` dependency. Main raises the
-TypeScript runtime from 5 to 7 for `storage.fs` and Response semantics; C ABI 18
-and native ABI 3 remain unchanged. App identities and the server runtime pin stay
-unchanged. The Mac titlebar press override and upstream focus ordering coexist.
+Desktop now follows reference `6d450a4284852af137b2f3407fddd89eb76e7644`
+and the official stable `0.1.5` server. Mobile remains independently pinned to
+`365aa87982`. The delivered TestFlight build above predates this desktop base;
+this integration creates no release checkpoint. Exact main remains
+`43e0d93b858143f85c93c729057fd601d0f8fba2`, already merged in `358dce46d1`.
+C ABI 18, TypeScript runtime 7 and native ABI 3 remain unchanged.
 
-All six root checks, the quick semantics comparison, 3,086 affected nondefault
-tests, 76 locked clone Rust tests, clone Clippy and formatting, 6,921 desktop and
-4,170 mobile tests, strict application TypeScript, and 379 native tests pass.
-The native tests include the original 96 header, focus and selection tests.
-UIKit tests compile, and the tvOS and normal iPhone no-install builds pass.
+Root has one active layout: the five current members plus the incoming
+server-browser member. This keeps Root at 1,474 lines while preserving the
+incoming declarations and their order. The prerequisite's owner-validating
+`appText` reader is unchanged. Its tests read the active members; the fixture
+retains existing interpreter semantics alongside incoming nested calls, sent
+notifications, derives and attributes. Compiled-plan fixtures now use the
+Permissions menu and each thread row's snooze presets.
 
-The clean standard Mac bundle from the merge verifies all 156 files, 3,529 inputs
-and its strict signature. Through the supported controller with `context.agent=true`,
-the original header opens, closes and reopens the panel. Thread details open and
-dismiss, and body Add Project opens its palette. Six contacts each have one
-intended press, complete zero-drop journals and matching state; seven native
-captures were inspected. No conversation is created and the composer stays empty.
-Normal Quit stops the app and backend before controller close. The original
-listener and window defaults remain unchanged; owned processes exit and the
-isolated port is free.
+The incoming uploads, permission and effort controls, accessible chip faces,
+text direction, protocol operations, file viewers, navigation, settings and
+Highlights producers are integrated. Shared generators retain mobile's exact
+Shiki/parser dependency entries, typography and Markdown behavior while adding
+Highlights and viewer packages. All tracked mobile files and ExactKit remain
+unchanged. The only changed ignored mobile output is the shared Markdown bundle,
+which also contains desktop minimap thread-link handling; its file parser is
+unchanged. Browser draft signing, native NewTask ownership, finite raster
+coverage, the Mac titlebar press fix and existing trust guards remain intact.
 
-The clean iPhone bundle verifies 92 files, 3,289 inputs and its strict signature.
-It was neither installed nor launched. Mobile UI remains stopped after the EAS
-and external driver failures; no new mobile UI parity or release checkpoint is
-qualified. Ordinary Mac mouse input, physical dragging and normal-app Keychain
-restart also remain unqualified. Evidence is under
-`target/t3-poc-evidence/main-refresh-20261030-43e0d93b/`. Independent review
-finds no introduced P1 or P2 issue and passes 121 focused tests. It verifies
-the merge resolution, signed Mac and iPhone artifacts, production IPA, raw native
-evidence and cleanup. Its comment audit is clear. The PR-base update is separate
-work.
+All six root check categories pass, including Clippy and formatting, as do
+115 locked clone Rust tests, clone Clippy/formatting, 7,926 desktop tests,
+4,170 mobile tests, strict desktop/mobile application TypeScript, 527 generator
+outputs, eight generator tests and 201 selected native tests. Two existing
+desktop heap-stress tests remain skipped. Root and clone Cargo checks use the
+documented command-local `CARGO_INCREMENTAL=0`; the original incremental
+identity failure is not repaired. Standalone fixture strict typing still lacks
+Node/Bun declarations and is not green.
 
-The desktop test reader consolidation is `0cd788b792`. `appText` in
-`tests/support/app-files.ts` now owns the existing owner-validating reader;
-all 29 direct test callers and `contractComponent` use it. All 547 assembled
-inputs remain byte-identical. The 6,921 desktop tests, 114 mobile cross-consumer
-tests and 76 locked clone Rust tests pass, including 29 compiled desktop-plan
-cases. All six root checks pass with command-local `CARGO_INCREMENTAL=0` for
-build, tests, Clippy and workspace compilation. Strict desktop app TypeScript
-passes; standalone fixture strict typechecking still fails with pre-existing
-missing Node and Bun declarations.
-Production sources and both standard bundles remain byte-identical. Evidence is
-under `target/t3-poc-evidence/pr216-reader-prerequisite/`. Independent review
-finds no introduced P1 or P2 issue and passes all 547 output comparisons and
-235 focused tests. It corrects the inventory to 21,289 tracked paths and verifies
-the five previously omitted filenames unchanged. Its comment audit is clear.
-The pinned PR-base integration remains pending. This adds no native UI qualification.
+The clean normal Mac bundle from `85d466e2e3` verifies 512 files, 3,942 inputs,
+its strict signature and the actual native factory table. Its bundled official
+0.1.5 archive matches the pinned checksum. Through the supported Exact Mac
+controller with `context.agent=true`, a fresh isolated server connects with
+protocol 2 and `serverResolvedCommandContext`. Onboarding skips import and the
+real palette adds one empty owned scratch project. The original panel header
+opens, closes and reopens its chooser; thread details open and dismiss, and body
+Add Project opens its palette. Six contacts each have one intended press and a
+complete zero-drop journal; seven native captures were inspected. No conversation
+is created and the composer stays empty. Normal Quit stops the app and backend
+before controller close; all owned processes exit, the isolated port is free,
+and the original listener and clone window defaults remain unchanged.
+
+The clean normal iPhone no-install bundle verifies 92 files, 3,289 inputs and its
+strict signature. It was neither installed nor launched. The delivered TestFlight
+record remains unchanged. Mobile UI routes stay stopped. Unit 3 must qualify live
+viewer/Copy/disposal and upload ownership flows, Browser A→B/Back/Forward/Reload,
+Markdown and retention, provider flows, and phone/iPad parity. Ordinary Mac mouse
+input, physical dragging and normal-app Keychain restart also remain unqualified.
+Evidence and the complete local receipt are under
+`target/t3-poc-evidence/pr216-base-9db6-integration/`. Independent review is pending.
+
+## Earlier checkpoints
 
 The desktop manifest's unused `t3-browser` native tag is removed in `859f7b8676`.
 Browser already uses an iframe and the separate `t3-browser-page` hatch.
