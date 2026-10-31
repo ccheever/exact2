@@ -10999,7 +10999,7 @@ silently excluded from a green claim. `caps.log` and
 `caps-source-final.log` pass all ten categories; the six broad repository
 checks remain assigned to the mini.
 
-**Finding dispositions at the measured source.** Commit `4a0166e254`
+**Review finding dispositions.** Commit `4a0166e254`
 fixes Sol 1–5 and Claude 1–3, 5–7, 9–12. It records Claude 8's boot input
 ordering as a known limit in LLP 1149.001. Commit `07ea81f30c` releases
 the one-repeat reservation when wgpu coalesces or refuses a submission,
@@ -11019,13 +11019,13 @@ The trace contains 12 picture-arrival direct draws after retirement;
 main routes these through redraw demand. The fixed carrier limits that
 direct path to unshown boot. These traces rule out a persistent observer
 for this workload; they do not establish how much of the instruction
-increase the direct path explains. The five final pairs test that claim.
+increase the direct path explains. The first five-pair attempt tests that claim.
 The second plan decode and earlier link start are boot work, not fling
 work. `diagnose.py` reproduces the phase counters and trace observations
 from `silver/diagnosis/` and `silver/diagnosis-traced/`.
 
-**Build identity.** The baseline is `origin/main` as fetched before work,
-`15c20224e2a16165bad87552a036d90d16fd4d91`; the fixed carrier is
+**Initial review-build identity.** The baseline is `origin/main` as fetched before work,
+`15c20224e2a16165bad87552a036d90d16fd4d91`; the first review candidate is
 `07ea81f30c0f5d69775bd96891dafc8a6eea93a5`. Both release builds use
 `MACOSX_DEPLOYMENT_TARGET=14.0`, the worktree's own `--target-dir target`,
 and the same explicit probe link command. `before-build.json`,
@@ -11033,7 +11033,7 @@ and the same explicit probe link command. `before-build.json`,
 The provenance check rejected a freshly compiled probe before collection;
 `probe-alignment.json` records replacement with the exact signed probe
 already shared by all three controls. The initially built probes are
-retained separately. All five final arms load identical probe bytes.
+retained separately. All five arms load identical probe bytes.
 The silver's A7 raster collector delayed this lane; the first waiting
 functional coordinator was stopped before launching an app to avoid
 mutual ownership waits. Its ownership log is retained.
@@ -11073,7 +11073,7 @@ restoring it, so mounted first loads need no input to resume. The
 after painting and retirement it now checks that ordinary first loads
 resume. That extended test passes (`boot-handoff-round1.log`).
 
-**Final functional checks, `e8202d4dc8`.** The archive-miss launch hands
+**Second-source functional checks, `e8202d4dc8`.** The archive-miss launch hands
 off from a displayed CPU frame to Ink; the retained Metal and wgpu
 launches display Ink. All three acquire zero drawables on main. Live
 Metal and wgpu drives continue painting after boot, with displayed-frame
@@ -11106,7 +11106,7 @@ outputs are in `checks/final/`. The 20 image-control tests pass, including
 the post-paint handoff assertion, and all eight carrier tests pass
 (`image-handoff-controls.log`, `carrier-handoff-final.log`). The earlier
 full-suite timing failures and the deferred six checks remain as stated
-above. Final measurements use a fresh `final/` artifact directory; the
+above. The second attempt uses a fresh `final/` artifact directory; the
 first five-pair miss and every earlier original remain in place.
 
 **Second handoff prediction: decode split misses.** Both traced originals
@@ -11171,5 +11171,11 @@ Another collector (`m10-cut7-4ee50baec5`) started after these diagnostics,
 while this lane entered its initial cost quiet gate. This lane stopped
 its own idle collectors before any cost sample, retaining the successful
 gate and ownership observations under `landing/silver/fling-ownership-wait/`.
-It resumes the same signed arms after the other collector exits; no
-measured original is replaced.
+A second cut 7 coordinator then appeared after this lane’s first
+qualified fling original. This lane again released its idle collector.
+The resumed coordinator skips completed slots, whether accepted or
+failed, and takes a fresh initial quiet gate; it keeps that original
+unchanged. `resume-provenance.json` records the original and resumed
+coordinator hashes and the retained slot. The first pair therefore
+straddles the ownership interruption; no measured original is replaced.
+The cold cohorts start only after this handoff.
