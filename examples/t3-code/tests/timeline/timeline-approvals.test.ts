@@ -112,13 +112,13 @@ describe('the approval views stay within their shapes', () => {
     expect(Object.keys(value()).sort()).toEqual((await fields('timeline-approval.contract', 'TimelineApproval')).sort());
     expect(Object.keys(value().options[0]!).sort()).toEqual((await fields('timeline-approval.contract', 'ApprovalChoice')).sort());
   });
-  test('the composer\'s approval', async () => {
+  test('the composer carries no approval of its own (its banner went with #26255)', async () => {
     const { requestPresentation } = await import('../../src/composer/requests');
     const { T3Client } = await import('../../src/client/client');
     const fixture = client([user('u', 0), approvalItem('a', 1, 'rq', { fullAccessOverride: 'ask_rule' })], [request('rq', 'command')]);
     const real = Object.assign(new T3Client(), { environmentId: 'env', threadId: 't1', projectId: 'p1', scopes: ['orchestration:operate'], thread: fixture.thread });
-    const shown = requestPresentation(real).approvals[0]!;
-    const allowed = await fields('shapes.contract', 'Approval');
-    expect(Object.keys(shown).filter(key => !allowed.includes(key))).toEqual([]);
+    const view = requestPresentation(real);
+    expect([view.requestMode, 'approvals' in view]).toEqual(['approval', false]);
+    expect(await fields('shapes.contract', 'Snapshot')).not.toContain('approvals');
   });
 });

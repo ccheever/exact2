@@ -30,11 +30,6 @@ shape MessageFile
 shape AttachmentUrl
   id: string
   url: string
-  // An image chip's tint from the picture's average colour ("" when unread).
-  fill: string
-  hover: string
-  border: string
-  ink: string
 shape TimelineAttachmentUrls
   items: AttachmentUrl[]
   posted: number // messages queued for inline documents so far (inline-documents.ts)

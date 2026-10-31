@@ -140,3 +140,12 @@ test('every TypeScript source app.ts answers is registered with the mixed Rust/T
   const answered = [...app.matchAll(/source === '([A-Za-z]+)'/g), ...contract.matchAll(/\b(serverBrowser[A-Z][A-Za-z]+)\(/g)].map(match => match[1]!);
   expect(answered.filter(source => !listed.has(source))).toEqual([]);
 });
+
+// cb4fe60a4b (#24864): the thread details toggle keeps its tooltip while the card is open, as the panel toggles do.
+describe('the thread details toggle', () => {
+  test('its tooltip shows on hover whether or not the card is open', () => {
+    const toggle = appText('chat.contract').split('\n').find(line => line.includes('TipBubble(label=(shell.keyThreadPanel == ""'))!;
+    expect(toggle).toContain('shown=(hovered == "details"))');
+    expect(toggle).not.toContain('detailsOpen');
+  });
+});

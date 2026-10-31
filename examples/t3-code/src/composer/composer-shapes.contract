@@ -203,9 +203,6 @@ shape ComposerView
   modelTip: string
   // The prompt field's accessible name: "Message <thread title>".
   fieldLabel: string
-  // The shown approval's reason, and why full access still asked ("" when it did not), drawn under and beside it.
-  approvalReason: string
-  approvalWhy: string
   fanout: bool
   fanoutLabel: string
   fanoutAria: string

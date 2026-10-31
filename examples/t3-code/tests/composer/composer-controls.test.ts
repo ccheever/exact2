@@ -607,3 +607,15 @@ describe('local checkout branch mismatch', () => {
     }
   });
 });
+
+// The stable app draws no Nightly sky in the send circle (decision 1, 2026-10-31; v0.1.5's default is no artwork).
+describe('the send circle', () => {
+  test('is bg-message-action with a white glyph, foreground/12 with a muted glyph when disabled, and never the sky', async () => {
+    const { contractFns } = await import('../support/contract-fn-fixture');
+    const { appText } = await import('../support/app-files');
+    const fns = contractFns('src/composer/composer-controls.contract') as Record<string, (...args: unknown[]) => string>;
+    expect([fns.sendFace!(false, false), fns.sendFace!(false, true), fns.sendFace!(true, false)]).toEqual(['light-dark(#1b4ed8, #346bf1)', 'light-dark(#315fdc, #2f60d9)', 'light-dark(#18181b1f, #f5f5f51f)']);
+    expect([fns.sendInk!(false), fns.sendInk!(true), fns.sendShadow!(true)]).toEqual(['#ffffff', 'light-dark(#71717b, #a1a1a1)', 'none']);
+    expect(appText('composer-controls.contract')).not.toMatch(/SendArt|send-sky|look\.artwork/);
+  });
+});

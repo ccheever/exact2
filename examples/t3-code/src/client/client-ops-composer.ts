@@ -253,7 +253,8 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
         if (compactFirst) {
           const [compactCommandId, compactMessageId] = await this.ids(native, 2);
           check();
-          // T3 Code's own compaction says why it ran (OrchestrationV2IdleCompaction), so it reads as compacting after being idle.
+          // T3 Code's own compaction says why it ran (OrchestrationV2IdleCompaction), so its row reads "Compacting…" and
+          // finishes as "Context compacted before sending" (timeline-compaction.ts).
           await this.dispatch(native, storage, { ...withDispatchMode(sendPayload(compactCommandId, selection.threadId, compactMessageId, '/compact', []), 'auto', turnSelection), idleCompaction: 'onReturn' }, 'Compact context', check);
         }
         const payload = withDispatchMode(withContext(sendPayload(commandId, selection.threadId, messageId, outgoingText, attachments, title), context), mode, turnSelection);

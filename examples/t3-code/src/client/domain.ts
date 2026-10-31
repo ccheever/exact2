@@ -19,7 +19,7 @@ export interface ThreadState {
 export interface Activity { replArguments?: ReturnType<typeof import('../timeline/tool-activity').replArguments>; terminal?: boolean; terminalTruncated?: boolean; terminalSpans?: ReturnType<typeof import('../timeline/command-output').commandSpans>; toolImages?: Pick<import('../timeline/tool-images').ToolImage, 'id' | 'name' | 'source'>[]; id: string; label: string; body: string; icon: string; output: string; result: string; failed: boolean; timestamp: string;
   detailOpen?: boolean; outputState?: string; iconLight?: string; iconDark?: string; badge?: string; badgeColor?: string; tone?: string; ok?: boolean; reasoning?: boolean; expandable?: boolean; detail?: string; status?: string; targetId?: string; answer?: string; retryRunId?: string;
   /** V2ItemInspector's search results and file change, a subagent's avatar and live start. */
-  results?: import('../timeline/timeline-work-rows').InspectorResult[]; changePath?: string; stats?: boolean; additions?: number; deletions?: number; diffRunId?: string; diffPath?: string;
+  results?: import('../timeline/timeline-work-rows').InspectorResult[]; changePath?: string; stats?: boolean; additions?: number; deletions?: number;
   startedMs?: number; initials?: string; driverIcon?: string; targetLabel?: string; modelLine?: string; effort?: string; speed?: string; speedLabel?: string;
   /** A thread read's label in parts: `<linkPrefix> “<linkTitle>”`, the title opening linkThreadId. */
   linkPrefix?: string; linkTitle?: string; linkThreadId?: string }

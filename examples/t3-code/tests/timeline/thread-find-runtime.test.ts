@@ -108,11 +108,14 @@ test('find shortcuts have a renderer branch and its command arguments open each 
 
 test('file, citation and skill faces paint the displayed label while preserving a different raw run text', async () => {
   const { contractComponent } = await import('../support/contract-action-fixture');
+  const { contractFns } = await import('../support/contract-fn-fixture');
   const run = { text: 'src/needle.ts:7', findParts: [{ id: '0', text: 'needle', find: 3 }, { id: '1', text: '.ts · L7', find: 0 }] };
   const label = 'needle.ts · L7';
+  const fns = contractFns('src/timeline/markdown-chip-inks.contract') as Record<string, (...args: unknown[]) => unknown>;
+  const inks = { ...fns, chipInks: [], chipDoc: (chip: { kind: string; label: string }) => chip.kind === 'file' ? fns.docKind!(chip.label) : '' };
   for (const name of ['FileChipFace', 'CitationContextChip', 'ChipFace']) {
     const face = contractComponent('markdown.contract', name);
-    const scope = { run, label, chip: { kind: 'skill', label }, urls: [] };
+    const scope = { ...inks, run, label, chip: { kind: 'skill', label }, urls: [] };
     expect(face.drawn('FindParts(parts=run.findParts)', scope)).toBeTrue();
     expect(face.drawn('FindParts(parts=run.findParts)', { ...scope, label: 'Different', chip: { kind: 'skill', label: 'Different' } })).toBeFalse();
   }

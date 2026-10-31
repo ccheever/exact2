@@ -114,7 +114,7 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     ['settings-rows.contract', '${menuId}-keys'], ['timeline-plan.contract', 'plan-menu-${message.id}-keys'], ['legacy-sidebar.contract', 'legacy-sidebar-options-keys'],
     ['snapshot.contract', 'snapshot-sound-keys'], ['pages-usage.contract', 'usage-environment-keys'], ['pages-usage-prices.contract', 'usage-prices-apply-keys'],
     ['git.contract', 'details-git-options-keys'], ['panel.contract', 'add-surface-menu-keys'], ['panel.contract', 'linked-pr-menu-keys'],
-    ['shell-panels.contract', 'title-menu-keys'], ['shell-panels.contract', 'title-submenu-keys'], ['requests.contract', 'approval-menu-${approval.id}-keys'],
+    ['shell-panels.contract', 'title-menu-keys'], ['shell-panels.contract', 'title-submenu-keys'], ['timeline-approval.contract', 'timeline-approval-menu-${approval.id}-keys'],
     ['shell-details.contract', 'details-editors-keys'], ['project-scripts.contract', 'details-scripts-keys'], ['diff.contract', 'diff-scope-keys'], ['diff.contract', 'diff-turns-keys'],
     ['files-surface.contract', 'crumb-menu-keys'],
     ['files-surface.contract', 'file-editors-keys'], ['table-menu.contract', 'table-copy-keys'],
@@ -174,7 +174,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['providers-setup.contract', 'ProviderAccountRow', 'triggerKey'], ['git.contract', 'GitRows', 'gitMenuKey'],
     ['pages-usage-prices.contract', 'UsagePricesApply', 'triggerKey'], ['project-scripts.contract', 'ScriptRow', 'triggerKey'],
     ['shell-details.contract', 'OpenInRow', 'triggerKey'], ['files-surface.contract', 'FileHeader', 'editorsKey'],
-    ['requests.contract', 'ApprovalActions', 'menuKey'], ['timeline-approval.contract', 'ApprovalMore', 'menuKey'], ['diff.contract', 'DiffToolbar', 'scopeKey'], ['device-workspace.contract', 'RailMenuButton', 'triggerKey'],
+    ['timeline-approval.contract', 'ApprovalMore', 'menuKey'], ['diff.contract', 'DiffToolbar', 'scopeKey'], ['device-workspace.contract', 'RailMenuButton', 'triggerKey'],
     ['add-project-machine.contract', 'AddMachineTargetSelect', 'triggerKey'], ['add-project-machine.contract', 'AddMachineSubmenu', 'rowKey'],
   ];
   // Submenu triggers open on Enter, Space (and ArrowRight, Base UI's submenu key); their arrows belong to the parent menu.

@@ -176,49 +176,12 @@ component CcIcon
         circle cx=15 cy=5 r=1
         circle cx=15 cy=19 r=1
 
-// The send circle's face: the Nightly sky (StageBackdropButtonArt) while the environment is identified by artwork, at
-// 64% when disabled; else bg-message-action (hover 90% over the background) with a white glyph, and, disabled,
+// The send circle's face: bg-message-action (hover 90% over the background) with a white glyph, and, disabled,
 // foreground/12 with a muted glyph and no shadow.
-fn sendFace(artwork: bool, disabled: bool, over: bool): string = artwork ? "#00000000" : disabled ? "light-dark(#18181b1f, #f5f5f51f)" : over ? "light-dark(#315fdc, #2f60d9)" : "light-dark(#1b4ed8, #346bf1)"
-fn sendInk(artwork: bool, disabled: bool): string = artwork or not disabled ? "#ffffff" : "light-dark(#71717b, #a1a1a1)"
-fn sendShadow(artwork: bool, disabled: bool): string = disabled ? "none" : artwork ? "0 1px 2px 0 #0000003d, inset 0 1px 0 0 #ffffff29" : "0 1px 2px 0 light-dark(#1b4ed83d, #346bf13d), inset 0 1px 0 0 #ffffff29"
+fn sendFace(disabled: bool, over: bool): string = disabled ? "light-dark(#18181b1f, #f5f5f51f)" : over ? "light-dark(#315fdc, #2f60d9)" : "light-dark(#1b4ed8, #346bf1)"
+fn sendInk(disabled: bool): string = disabled ? "light-dark(#71717b, #a1a1a1)" : "#ffffff"
+fn sendShadow(disabled: bool): string = disabled ? "none" : "0 1px 2px 0 light-dark(#1b4ed83d, #346bf13d), inset 0 1px 0 0 #ffffff29"
 
-// StageBackdropButtonArt: the Nightly sky behind the send button, the slice a
-// 32px circle shows of the 96px-tall artwork (x 96–192).
-component SendArt
-  view
-    svg width="2rem" height="2rem" viewBox="96 0 96 96" fill="none" position="absolute" left=0 top=0 aria-hidden=true
-      defs
-        linearGradient id="send-sky" x1=24 y1=0 x2=264 y2=96 gradientUnits="userSpaceOnUse" spreadMethod="reflect"
-          stop stop-color="#07152f"
-          stop offset=0.5 stop-color="#151443"
-          stop offset=1 stop-color="#32155b"
-        radialGradient id="send-glow" cx=0 cy=0 r=1 gradientTransform="translate(216 18) rotate(137) scale(120 84)" gradientUnits="userSpaceOnUse"
-          stop stop-color="#5165d8" stop-opacity=0.4
-          stop offset=0.5 stop-color="#283075" stop-opacity=0.16
-          stop offset=1 stop-color="#07152f" stop-opacity=0
-        linearGradient id="send-cloud" x1=0 y1=60 x2=288 y2=96 gradientUnits="userSpaceOnUse"
-          stop stop-color="#4ea4ff" stop-opacity=0.5
-          stop offset=0.52 stop-color="#696fea" stop-opacity=0.62
-          stop offset=1 stop-color="#a85bea" stop-opacity=0.5
-        filter id="send-soft" x=-24 y=-24 width=336 height=144 filterUnits="userSpaceOnUse"
-          feGaussianBlur stdDeviation=4
-      rect x=96 width=96 height=96 fill="url(#send-sky)"
-      rect x=96 width=96 height=96 fill="url(#send-glow)"
-      g fill="#e4eaff"
-        circle cx=104 cy=7 r=0.6 opacity=0.8
-        circle cx=126 cy=20 r=0.4 opacity=0.55
-        circle cx=148 cy=11 r=0.5 opacity=0.7
-        circle cx=170 cy=24 r=0.4 opacity=0.5
-        circle cx=118 cy=34 r=0.4 opacity=0.45
-      path d="M158.5 36h3M160 34.5v3" stroke="#c8d7ff" stroke-opacity=0.7 stroke-width=0.6 stroke-linecap="round"
-      g filter="url(#send-soft)"
-        path d="M-12 88C-12 74 0 63 14 63C18 50 30 41 44 41C58 41 70 49 74 62C79 57 86 54 94 54C110 54 123 66 124 82C132 83 138 88 141 96H-12V88Z" fill="url(#send-cloud)"
-        path d="M150 96C151 84 161 75 173 75C176 64 186 57 198 57C210 57 220 64 223 75C231 75 238 80 241 87C250 87 257 91 260 96H150Z" fill="url(#send-cloud)" opacity=0.8
-
-// ComposerControl "sm" (h-7 px-2 gap-1.5 text-sm font-medium, foreground/80, no chevron since v0.1.5). The model
-// and the effort read as one phrase ("Opus 5.5 High"): their hover and open states brighten the text, not a box
-// (TEXT_CONTROL_STATES), and the picker ends at pe-1.
 component ModelTrigger
   props
     data: Snapshot
@@ -479,18 +442,14 @@ component PrimaryActions
         else
           if data.composer.canResume and not sendable
             StillRowTip(label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Resume thread"), side="top", align="center", offset=36, shown=(over == "resume" and overThread == data.threadId), hover=hover("resume"))
-              button press=command("cc:resume", "", "", 0) disabled=(blocked or data.composer.sendSpinner) opacity=(data.look.artwork and blocked ? 0.64 : 1) testId="resume-thread" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Resume thread") width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 background-color=sendFace(data.look.artwork, blocked, over == "resume") box-shadow=sendShadow(data.look.artwork, blocked) title=""
-                if data.look.artwork
-                  SendArt()
-                SendGlyph(icon="play", spinner=data.composer.sendSpinner, ink=sendInk(data.look.artwork, blocked))
+              button press=command("cc:resume", "", "", 0) disabled=(blocked or data.composer.sendSpinner) testId="resume-thread" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Resume thread") width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 background-color=sendFace(blocked, over == "resume") box-shadow=sendShadow(blocked) title=""
+                SendGlyph(icon="play", spinner=data.composer.sendSpinner, ink=sendInk(blocked))
           else
             if data.composer.compactTokens != ""
               CompactChip(data=data, busy=busy, command=command)
             box position="relative" display="flex" flex-shrink=0 hover=hover("send")
-              button press=sendPress id="send-message" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : (sendable and data.composer.sendRunning) or data.composer.compactSend ? (composerSendHeld ? data.composer.sendHeldLabel : data.composer.sendLabel) : "Submit message") disabled=(busy or not sendable or data.composer.sendSpinner) opacity=(data.look.artwork and (busy or not sendable) ? 0.64 : 1) width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 scale=(over == "send" and sendable and not busy and not data.composer.sendSpinner ? 1.05 : 1) transition="scale 150ms cubic-bezier(0.4, 0, 0.2, 1)" background-color=sendFace(data.look.artwork, busy or not sendable, over == "send") box-shadow=sendShadow(data.look.artwork, busy or not sendable) title=""
-                if data.look.artwork
-                  SendArt()
-                SendGlyph(icon=(sendable ? (composerSendHeld ? data.composer.sendHeldIcon : data.composer.sendIcon) : "arrow"), spinner=data.composer.sendSpinner, ink=sendInk(data.look.artwork, busy or not sendable))
+              button press=sendPress id="send-message" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : (sendable and data.composer.sendRunning) or data.composer.compactSend ? (composerSendHeld ? data.composer.sendHeldLabel : data.composer.sendLabel) : "Submit message") disabled=(busy or not sendable or data.composer.sendSpinner) width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 scale=(over == "send" and sendable and not busy and not data.composer.sendSpinner ? 1.05 : 1) transition="scale 150ms cubic-bezier(0.4, 0, 0.2, 1)" background-color=sendFace(busy or not sendable, over == "send") box-shadow=sendShadow(busy or not sendable) title=""
+                SendGlyph(icon=(sendable ? (composerSendHeld ? data.composer.sendHeldIcon : data.composer.sendIcon) : "arrow"), spinner=data.composer.sendSpinner, ink=sendInk(busy or not sendable))
               TipBubble(label=data.composer.sendTooltip, side="top", align=(tipShift > 0 ? "end" : "center"), offset=36, inset=(tipShift > 0 ? data.composer.sendTipWidth / 2 - rem - tipShift : 0), shown=(over == "send" and overThread == data.threadId))
 
 // ComposerPrimaryActions' Compact chip (h-7 rounded-(--control-radius) px-2 gap-1.5, medium text-sm

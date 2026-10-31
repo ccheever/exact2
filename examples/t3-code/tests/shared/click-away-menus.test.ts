@@ -97,25 +97,24 @@ describe('a linked pull request\'s actions (ThreadPullRequestsPanel)', () => {
   });
 });
 
-describe('the approval\'s "More approval options" menu (ComposerPendingApprovalActions)', () => {
-  test('"…" opens a popover over it, end-aligned, modal while it shows; a choice closes it', async () => {
-    const requests = await source('requests.contract');
-    expect(requests).not.toContain('approval-menu-dismiss');
-    const menu = line(requests, 'column id=`approval-menu-${approval.id}`');
+describe('the approval\'s "More approval options" menu (TimelinePendingApprovalRow)', () => {
+  test('"More" opens a popover over it, end-aligned, modal while it shows; a choice closes it', async () => {
+    const row = await source('timeline-approval.contract');
+    const menu = line(row, 'column id=`timeline-approval-menu-${approval.id}`');
     for (const part of ['popover="auto"', 'position-area="top span-left"', 'margin-bottom="0.25rem"', 'toggle=toggled', 'data-dialog-return="menu"',
-      'focusin=dialogMenuEntered(`approval-menu-${approval.id}`, `approval-more-${approval.id}`)']) expect(menu).toContain(part);
+      'focusin=dialogMenuEntered(`timeline-approval-menu-${approval.id}`, `timeline-approval-more-${approval.id}`)']) expect(menu).toContain(part);
     // MenuPopup width "content": the popup is as wide as its rows (d356059c84).
     expect(menu).not.toContain(' width=');
-    const trigger = line(requests, 'button id=`approval-more-${approval.id}`');
-    for (const part of ['popovertarget=`approval-menu-${approval.id}`', 'key=menuKey', 'aria-haspopup="menu"', 'aria-expanded=menuOpen']) expect(trigger).toContain(part);
+    const trigger = line(row, 'button id=`timeline-approval-more-${approval.id}`');
+    for (const part of ['popovertarget=`timeline-approval-menu-${approval.id}`', 'key=menuKey', 'aria-haspopup="menu"', 'aria-expanded=open']) expect(trigger).toContain(part);
     expect(trigger).not.toContain('press=');
-    expect(line(requests, 'KeyMenu(menuId=`approval-menu-${approval.id}-keys`')).toContain('items=menuItems, keyed=0, gap="0px", modal=true)');
-    expect(line(requests, 'button id=testId press=choose')).toContain('popovertarget=menuId popovertargetaction="hide"');
-    const actions = contractComponent('requests.contract', 'ApprovalActions'), state = actions.state();
-    actions.call('toggled', state, {}, [{ newState: 'open' }]);
-    expect(state.menuOpen).toBe(true);
-    actions.call('toggled', state, {}, [{ newState: 'closed' }]);
-    expect(state.menuOpen).toBe(false);
+    expect(line(row, 'KeyMenu(menuId=`timeline-approval-menu-${approval.id}-keys`')).toContain('items=items, keyed=0, gap="0px", modal=true)');
+    expect(line(row, 'button id=testId press=choose')).toContain('popovertarget=menuId popovertargetaction="hide"');
+    const more = contractComponent('timeline-approval.contract', 'ApprovalMore'), state = more.state();
+    more.call('toggled', state, {}, [{ newState: 'open' }]);
+    expect(state.open).toBe(true);
+    more.call('toggled', state, {}, [{ newState: 'closed' }]);
+    expect(state.open).toBe(false);
   });
 });
 

@@ -120,7 +120,7 @@ component ChatHeader
           // PanelLayoutControls threadPanelHasAttention: the environment is unavailable, or the versions differ.
           if data.serverUpdate.attention
             box position="absolute" right="0.25rem" top="0.25rem" width="0.375rem" height="0.375rem" border-radius="0.1875rem" box-sizing="content-box" border-style="solid" border-width=2 border-color="light-dark(#fcfcfc, #000000)" margin-right="-0.125rem" margin-top="-0.125rem" background-color="light-dark(#e17100, #fe9a00)" pointer-events="none" aria-hidden=true testId="thread-details-attention"
-          TipBubble(label=(shell.keyThreadPanel == "" ? "Toggle thread details" : `Toggle thread details (${shell.keyThreadPanel})`), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "details" and not detailsOpen))
+          TipBubble(label=(shell.keyThreadPanel == "" ? "Toggle thread details" : `Toggle thread details (${shell.keyThreadPanel})`), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "details"))
         if not rightOpen
           box position="relative" flex-shrink=0 hover=hover("terminal")
             button press=panel("terminal", "") disabled=(not shell.terminalAvailable) aria-label="Toggle terminal drawer" aria-pressed=shell.terminalOpen testId="toggle-terminal" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 opacity=(shell.terminalAvailable ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(shell.terminalAvailable and (shell.terminalOpen or hovered == "terminal") ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""

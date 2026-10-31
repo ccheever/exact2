@@ -160,11 +160,11 @@ describe('the inspector’s search results and file changes', () => {
       { id: '1', kind: 'web', label: 'javascript:alert(1)', href: '', preview: '' }]);
     expect(externalWebLinkHref('//example.test/a')).toBe('https://example.test/a');
   });
-  test('file_change shows its path with green +N and red -M, and Open diff for a run’s change', () => {
+  test('file_change shows its path with green +N and red -M', () => {
     expect(inspectorExtras({ type: 'file_change', fileName: 'fixture.txt', additions: 1, deletions: 0, runId: null }, relative))
-      .toMatchObject({ changePath: 'project/fixture.txt', stats: true, additions: 1, deletions: 0, diffRunId: '', results: [] });
+      .toMatchObject({ changePath: 'project/fixture.txt', stats: true, additions: 1, deletions: 0, results: [] });
     expect(inspectorExtras({ type: 'file_change', fileName: 'a.ts', runId: 'r1', changes: [{ operation: 'rename', oldPath: 'b.ts', path: 'a.ts', fileType: 'text' }] }, relative))
-      .toMatchObject({ stats: false, diffRunId: 'r1', diffPath: 'a.ts', results: [{ kind: 'change', label: 'rename b.ts → project/a.ts (text)' }] });
+      .toMatchObject({ stats: false, results: [{ kind: 'change', label: 'rename b.ts → project/a.ts (text)' }] });
   });
   test('Open diff selects the change’s run and file, as onOpenTurnDiff does', () => {
     const value = { environmentId: 'e', threadId: 't1', diffState: { selections: {} as Obj } } as unknown as T3Client;
@@ -285,5 +285,11 @@ describe('keys inside an expanded tool row (#18831)', () => {
     const block = lines.slice(at + 1, at + 1 + lines.slice(at + 1).findIndex(line => line.trim() && line.search(/\S/) <= indent));
     expect(block.some(line => /button press=command\("open-related-thread", entry\.targetId/.test(line))).toBe(true);
     expect(lines.some(line => /button press=command\("tool-diff", entry\.id, "", 0\)/.test(line))).toBe(true);
+  });
+  test('every file change offers Open diff, beside its counts (V2ItemInspector at v0.1.5)', async () => {
+    const lines = (await source('timeline-work.contract')).split('\n');
+    const button = lines.findIndex(line => line.includes('button press=command("tool-diff"')), stats = lines.findIndex(line => line.trim() === 'if entry.stats');
+    expect(button).toBeGreaterThan(stats);
+    expect(lines[button]!.search(/\S/)).toBe(lines[stats]!.search(/\S/));
   });
 });

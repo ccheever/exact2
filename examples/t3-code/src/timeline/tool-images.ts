@@ -54,16 +54,15 @@ export async function toolImageUrls(client: T3Client, native: Native, now: numbe
   for (const image of active(client)?.images ?? []) wanted.set(image.id, image);
   let cache = urls.get(client);
   if (!cache) { cache = new Map(); urls.set(client, cache); }
-  const result: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[] = [];
-  const inks = { fill: '', hover: '', border: '', ink: '' }, origin = client.origin;
+  const result: { id: string; url: string }[] = [], origin = client.origin;
   for (const image of wanted.values()) {
     const key = JSON.stringify([client.generation, client.environmentId, origin, image.id]), cached = cache.get(key);
-    if (cached && now - cached.at < 5 * 60_000) { result.push({ id: cached.url ? image.id : `failed:${image.id}`, url: cached.url, ...inks }); continue; }
+    if (cached && now - cached.at < 5 * 60_000) { result.push({ id: cached.url ? image.id : `failed:${image.id}`, url: cached.url }); continue; }
     let url = '';
     try { const reply = await client.rpc(native, 'assets.createUrl', { resource: image.resource }); url = assetUrl(origin, str(reply.relativeUrl)); } catch { /* The preview exposes the unavailable state. */ }
     cache.set(key, { url, at: now });
     if (cache.size > 128) cache.delete(cache.keys().next().value!);
-    result.push({ id: url ? image.id : `failed:${image.id}`, url, ...inks });
+    result.push({ id: url ? image.id : `failed:${image.id}`, url });
   }
   return result;
 }

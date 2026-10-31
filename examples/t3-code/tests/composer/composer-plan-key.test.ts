@@ -10,7 +10,7 @@ const keyFns = contractFns('src/composer/composer-keys.contract');
 const { heldModifiers } = contractFns('src/shared/press-modifiers.contract');
 
 type Options = { planVisible?: boolean; planActive?: boolean; connected?: boolean; inCode?: boolean; inList?: boolean; menuOpen?: boolean;
-  menuCount?: number; stashOpen?: boolean; stashCount?: number; caret?: number; sendChords?: string; sendCommandChords?: string; queuedEdit?: string };
+  menuCount?: number; stashOpen?: boolean; stashCount?: number; caret?: number; sendChords?: string; sendCommandChords?: string; queuedEdit?: string; workspaceFocus?: boolean };
 function composer(options: Options = {}) {
   const calls: unknown[][] = [];
   const state: Env = { composerShift: false, composerCommand: false, composerComposing: false };
@@ -22,11 +22,13 @@ function composer(options: Options = {}) {
     composerRichCurrent: true, composerSelectionCurrent: true, composerSelectionStart: caret, composerSelectionEnd: caret, composerText: '- a',
     composerInCode: options.inCode ?? false, composerInList: options.inList ?? false, composerCodeStart: false, composerRequiresModifier: false,
     editor: { menu: { open: options.menuOpen ?? false, count: options.menuCount ?? 3 }, stash: { menuOpen: options.stashOpen ?? false, count: options.stashCount ?? 2 } },
-    shortcuts: options.queuedEdit ? [{ kind: 'composer-key', chord: options.queuedEdit, target: 'cclocal:queued-edit', extra: 'run-1' }] : [],
+    shortcuts: [...(options.queuedEdit ? [{ kind: 'composer-key', chord: options.queuedEdit, target: 'cclocal:queued-edit', extra: 'run-1' }] : []),
+      ...(options.workspaceFocus ? [{ kind: 'workspace-focus', chord: 'F6', target: 'next' }, { kind: 'workspace-focus', chord: 'Shift+F6', target: 'previous' }, { kind: 'workspace-focus', chord: 'Meta+F6', target: 'next' }] : [])],
     first: (items: unknown[]) => items[0], ...keyFns, heldModifiers, rangeFrame: () => ({ unavailable: true }),
     preventDefault: () => calls.push(['preventDefault']), stopPropagation: () => {},
     menuPick: (...args: unknown[]) => calls.push(['menuPick', ...args]),
     command: (...args: unknown[]) => calls.push(['command', ...args]),
+    workspaceMove: (...args: unknown[]) => calls.push(['workspaceMove', ...args]),
     submit: (...args: unknown[]) => calls.push(['submit', ...args]),
     composerMenuKey: (...args: unknown[]) => calls.push(['menu', ...args]),
     composerStashKey: (...args: unknown[]) => calls.push(['stash', ...args]),
@@ -223,5 +225,23 @@ describe('a composer menu follows its trigger (openOptions, frameMoved)', () => 
     expect(run('measureOptionsTrigger', ['effort'], '', {})).toMatchObject({ optionsAnchorX: -1, optionsAnchorWidth: 0 });
     expect(frames.optionsTriggerId!('context')).toBe('context-window-meter');
     expect(frames.optionsTriggerId!('implement')).toBe('implement-actions');
+  });
+});
+
+// AppSidebarLayout's capture listener (T3 Code v0.1.5, #25877): F6 and ⇧F6 leave the rich field as they leave any other
+// control; the field takes its keys before the dispatch buttons hear them, so its own key action moves the focus.
+describe('F6 in the composer (workspace.focusNext, workspace.focusPrevious)', () => {
+  test('F6, ⌘F6 and ⇧F6 move to the next or previous area from the composer, and keep the key', () => {
+    const field = composer({ workspaceFocus: true });
+    field.key('F6', {}, 'F6');
+    field.key('F6', { metaKey: true }, 'F6');
+    field.key('F6', { shiftKey: true }, 'F6');
+    expect(field.calls).toEqual([['preventDefault'], ['workspaceMove', 1, 'composer'], ['preventDefault'], ['workspaceMove', 1, 'composer'],
+      ['preventDefault'], ['workspaceMove', -1, 'composer']]);
+  });
+  test('without a binding F6 stays the field\'s', () => {
+    const field = composer();
+    field.key('F6', {}, 'F6');
+    expect(field.calls).toEqual([]);
   });
 });

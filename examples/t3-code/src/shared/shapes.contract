@@ -93,14 +93,12 @@ shape Activity
   timeTip: string
   // Upstream 737993303d: the failed run a workspace preparation Retry prepares again.
   retryRunId: string
-  // The inspector's results, and a file change's path, +/- counts and Open diff.
+  // The inspector's results, and a file change's path and +/- counts.
   results: InspectorResult[]
   changePath: string
   stats: bool
   additions: number
   deletions: number
-  diffRunId: string
-  diffPath: string
   // SubagentAvatar's driver mark (`detail` is the driver) and a live agent's start (ms; 0 when settled).
   initials: string
   driverIcon: string
@@ -204,29 +202,6 @@ shape ModelOption
   value: string
   selected: bool
   default: bool
-shape ApprovalOption
-  id: string
-  label: string
-  warning: string
-  primary: bool
-shape Approval
-  id: string
-  label: string
-  appName: string
-  count: string
-  mono: bool
-  detail: string
-  // The composer's presentation (requests.ts) carries these too; a snapshot field outside its shape refuses it whole.
-  reason: string
-  whyAsked: string
-  feedback: bool
-  canRespond: bool
-  operable: bool
-  live: bool
-  responding: bool
-  responseReason: string
-  options: ApprovalOption[]
-  more: ApprovalOption[]
 shape QuestionOption
   id: string
   label: string
@@ -608,7 +583,6 @@ shape Snapshot
   planSaveRow: string
   providers: Provider[]
   models: Model[]
-  approvals: Approval[]
   questions: Question[]
   requestMode: string
   requestKey: string

@@ -5,14 +5,13 @@
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { message } from './client-shared';
-import { adoptDiff, currentSelection, diffPaths, diffRequest, diffView, selectBaseRef, selectCheckpoint, selectScope, selectTurn, turnSummaries } from '../diff/diff';
+import { adoptDiff, currentSelection, diffPaths, diffRequest, diffView, selectBaseRef, selectCheckpoint, selectScope, selectToolCall, selectTurn, turnSummaries } from '../diff/diff';
 import { loadBaseRefs } from '../diff/diff-base-ref';
 import { rememberDiffLayout } from '../appearance/settings-appearance-look';
 import { diffReview, loadDiffFiles } from '../diff/diff-review';
 import { type Native, type Files } from './protocol';
 import { letGo } from './let-go';
 import { panelState } from '../panel/panel-surfaces';
-import { toolCallDiffTarget } from '../timeline/timeline-inspect';
 
 /** Opening or closing the Diff is the person's panel choice (rightPanelStore userAction), which a proactive opening respects. */
 const PANEL_CHOICES = new Set(['close-diff', 'diff', 'checkpoint-diff', 'turn-diff', 'tool-diff']);
@@ -46,9 +45,8 @@ async function diff(this: T3Client, native: Native, op: string, id: string, valu
   try {
     if (op === 'checkpoint-diff') selectCheckpoint(this, n, id);
     else if (op === 'turn-diff') selectTurn(this, value, id);
-    // A file change's Open diff names its tool call; until the panel shows a tool call's own change, its run's diff
-    // opens at its file.
-    else if (op === 'tool-diff') { const target = toolCallDiffTarget(this.projection, id); selectTurn(this, target?.runId ?? '', target?.filePath ?? ''); }
+    // A file change's Open diff shows that tool call's own change (`id`, its transcript row key).
+    else if (op === 'tool-diff') selectToolCall(this, id);
     else if (op === 'diff-scope') selectScope(this, value);
     else if (op === 'diff-base') selectBaseRef(this, value); // the comparison target picker's choice (Automatic, a ref, its remote switch)
     else if (op === 'diff') selectScope(this, 'branch'); // generic opens show Changes (diff.ts, upstream d1034d62b2)
