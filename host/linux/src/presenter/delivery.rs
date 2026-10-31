@@ -43,8 +43,8 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// Milliseconds from `now` until a turn is owed: the next timer, or the
-    /// development poll's next tick when sooner (attached, and the first
+    /// Milliseconds from `now` until a turn is owed: a timer, sampled motion
+    /// edge, or development poll (attached, and the first
     /// pixel out: it polls after). A host that turns only when woken asks
     /// this (the Android reader's canvas host).
     pub fn turn_due_ms(&self, now: f64) -> Option<f64> {
