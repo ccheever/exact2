@@ -77,6 +77,11 @@ impl Glyphs {
         Ok(())
     }
 
+    /// Submit newly cached masks before a pass samples their atlas entries.
+    pub fn flush(&mut self, device: &mut impl Device) -> Result<()> {
+        Atlas::flush(&mut [&mut self.alpha, &mut self.color], device)
+    }
+
     pub fn stats(&self) -> (Stats, Stats) {
         (self.alpha.stats(), self.color.stats())
     }
@@ -368,6 +373,7 @@ mod tests {
                     )
                     .unwrap();
             }
+            glyphs.flush(&mut device).unwrap();
             device
                 .render(&encoder.finish(), target, Some([0.; 4]))
                 .unwrap();

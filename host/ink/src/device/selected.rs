@@ -151,6 +151,15 @@ impl Device for Selected {
             Self::D3d11(d) => d.upload_texture(texture, origin, size, data),
         }
     }
+    fn upload_textures(&mut self, uploads: &[TextureUpload]) -> Result<Submission> {
+        match self {
+            Self::Wgpu(d) => d.upload_textures(uploads),
+            #[cfg(exact_ink_metal)]
+            Self::Metal(d) => d.upload_textures(uploads),
+            #[cfg(windows)]
+            Self::D3d11(d) => d.upload_textures(uploads),
+        }
+    }
     fn last_use(&self, texture: TextureId) -> Result<Submission> {
         match self {
             Self::Wgpu(d) => d.last_use(texture),

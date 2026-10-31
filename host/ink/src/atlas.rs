@@ -2,6 +2,8 @@
 use crate::device::{Device, Error, Format, Result, Submission, TextureDesc};
 use crate::instance::TextureId;
 use std::collections::HashMap;
+mod upload;
+use upload::PagePixels;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Entry {
@@ -32,6 +34,7 @@ pub struct Atlas {
     large_used: HashMap<TextureId, u64>,
     pins: HashMap<TextureId, usize>,
     stats: Stats,
+    pixels: Option<HashMap<TextureId, PagePixels>>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -48,11 +51,11 @@ pub struct Stats {
 
 impl Atlas {
     pub fn glyphs() -> Self {
-        Self::new([512, 512], Format::Alpha, 1, 16)
+        Self::new([512, 512], Format::Alpha, 1, 16).batched()
     }
 
     pub fn colors() -> Self {
-        Self::new([256, 256], Format::Rgba, 1, 16)
+        Self::new([256, 256], Format::Rgba, 1, 16).batched()
     }
 
     pub fn stats(&self) -> Stats {
@@ -102,16 +105,33 @@ impl Atlas {
             large_used: HashMap::new(),
             pins: HashMap::new(),
             stats: Stats::default(),
+            pixels: None,
         }
     }
 
     pub fn begin(&mut self, device: &mut impl Device) -> Result<()> {
         self.frame += 1;
         self.stats = Stats::default();
+        // Geometry-only walks may leave masks pending for a later pixel frame.
+        for page in &mut self.pages {
+            if self
+                .pixels
+                .as_ref()
+                .and_then(|p| p.get(&page.id))
+                .is_some_and(|p| p.dirty())
+            {
+                page.used = self.frame;
+            }
+        }
         let retired: Vec<_> = self
             .overflow
             .extract_if(.., |id| {
                 !self.pins.contains_key(id)
+                    && !self
+                        .pixels
+                        .as_ref()
+                        .and_then(|p| p.get(id))
+                        .is_some_and(|p| p.dirty())
                     && self
                         .large_used
                         .get(id)
@@ -120,6 +140,9 @@ impl Atlas {
             .collect();
         for id in retired {
             self.overflow_sizes.remove(&id);
+            if let Some(pixels) = &mut self.pixels {
+                pixels.remove(&id);
+            }
             self.large_used.remove(&id);
             self.entries.retain(|_, e| e.texture != id);
             device.retire_texture(id)?;
@@ -267,11 +290,18 @@ impl Atlas {
                 * channels;
             upload[start..start + row.len()].copy_from_slice(row);
         }
-        let submitted = device.upload_texture(texture, origin, padded, &upload)?;
-        if let Some(page) = self.pages.iter_mut().find(|p| p.id == texture) {
-            page.upload = submitted;
+        if let Some(pages) = &mut self.pixels {
+            pages
+                .entry(texture)
+                .or_insert_with(|| PagePixels::new(extent, channels))
+                .write(origin, padded, &upload);
+        } else {
+            let submitted = device.upload_texture(texture, origin, padded, &upload)?;
+            if let Some(page) = self.pages.iter_mut().find(|p| p.id == texture) {
+                page.upload = submitted;
+            }
+            self.stats.uploaded_bytes += upload.len() as u64;
         }
-        self.stats.uploaded_bytes += upload.len() as u64;
         let entry = Entry {
             texture,
             uv: [

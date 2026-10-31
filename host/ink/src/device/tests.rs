@@ -9,6 +9,7 @@ struct Delayed {
     done: Submission,
     textures: HashMap<TextureId, Submission>,
     uploads: HashMap<TextureId, Submission>,
+    upload_calls: Vec<(TextureId, [u32; 2], [u32; 2])>,
     retired: Vec<(TextureId, Submission)>,
 }
 impl Device for Delayed {
@@ -31,8 +32,8 @@ impl Device for Delayed {
     fn upload_texture(
         &mut self,
         id: TextureId,
-        _: [u32; 2],
-        _: [u32; 2],
+        origin: [u32; 2],
+        size: [u32; 2],
         _: &[u8],
     ) -> Result<Submission> {
         assert!(
@@ -42,6 +43,7 @@ impl Device for Delayed {
         self.submitted.0 += 1;
         self.textures.insert(id, self.submitted);
         self.uploads.insert(id, self.submitted);
+        self.upload_calls.push((id, origin, size));
         Ok(self.submitted)
     }
     fn last_use(&self, id: TextureId) -> Result<Submission> {
@@ -322,4 +324,37 @@ fn direct_device_selection_is_shared_by_carrier_painter_and_recovery() {
     for name in ["wgpu", "metal", "invalid"] {
         assert_eq!(super::direct_d3d11(Some(name)), None);
     }
+}
+
+#[test]
+fn a_cold_glyph_fill_batches_pages_and_a_warm_frame_uploads_nothing() {
+    let mut d = Delayed::default();
+    let mut alpha = Atlas::glyphs();
+    let mut color = Atlas::colors();
+    alpha.begin(&mut d).unwrap();
+    color.begin(&mut d).unwrap();
+    for n in 0..250 {
+        alpha.insert(&mut d, vec![n], [8, 8], &[73; 64]).unwrap();
+    }
+    color.insert(&mut d, vec![1], [8, 8], &[181; 256]).unwrap();
+    assert!(d.upload_calls.is_empty());
+    // A geometry-only walk may end before it needs any pixels.
+    alpha.begin(&mut d).unwrap();
+    color.begin(&mut d).unwrap();
+    assert!(alpha.contains(&[249]) && color.contains(&[1]));
+    Atlas::flush(&mut [&mut alpha, &mut color], &mut d).unwrap();
+    assert_eq!(d.upload_calls.len(), 2);
+    assert_eq!(d.upload_calls[0].2, [510, 50]);
+    assert_eq!(d.upload_calls[1].2, [10, 10]);
+    alpha.begin(&mut d).unwrap();
+    color.begin(&mut d).unwrap();
+    Atlas::flush(&mut [&mut alpha, &mut color], &mut d).unwrap();
+    assert_eq!(d.upload_calls.len(), 2);
+    // Earlier uploads remain incomplete. They are ordered, not a reason to wait
+    // or allocate another page when no draw has sampled it.
+    alpha.insert(&mut d, vec![250], [8, 8], &[211; 64]).unwrap();
+    Atlas::flush(&mut [&mut alpha], &mut d).unwrap();
+    assert_eq!(d.upload_calls.len(), 3);
+    assert_eq!(d.upload_calls[2].2, [10, 10]);
+    assert_eq!(d.upload_calls[2].0, d.upload_calls[0].0);
 }
