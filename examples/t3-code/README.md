@@ -1141,6 +1141,79 @@ VoiceOver reach the chips, which the clone now has from main):
   timeline's own pointerdown op replaced the details' close on their shared send, and the focus went
   nowhere; chip ops now have a send of their own (`chipChanged`).
 
+**Checked with real input (2026-10-31, the v0.1.5 follow round)** (bundle of `fbf13e6f05`, a lane copy
+on its own bundle id and home, `second` seeded with `--turns --pull-request`, the v0.1.5 oracle paired
+with the same lane server). Presses, drags, wheel scrolls and keys came from the HID event source
+(small CGEvent tools). `orca computer`'s accessibility right-click is not real input for native menus:
+it opens the menu with its first item highlighted, and the next key or snapshot chooses that item.
+22 rows: 17 hold and 5 fail.
+
+Hold:
+
+- A sidebar row's menu. Copy › Thread writes `[title](t3-context://v1/thread/thread_<id>)` (1 of 1).
+  Turn into project, on a scratch thread with its own folder, makes the project, and the server
+  moves the thread into it (1 of 1). Snooze lists the server's presets and In 1 hour snoozes the row
+  (1 of 1). There are 5 presets, or 4 when This evening and In 3 hours fall on the same minute, as
+  the Settings preview says. The row's clock popover lists the same presets (1 of 1). Escape on the
+  menu chooses nothing (1 of 1).
+- Custom snooze's Edit snooze options opens Settings › Threads with Snooze options in view (1 of 1).
+- The thread title menu: Copy › Thread writes the same link and shows "Thread copied" (1 of 1);
+  Turn into project on a scratch thread (1 of 1); Snooze › Tomorrow ("Snoozed, 18h left", 1 of 1).
+- The palette's Copy thread row, and ⇧⌘C, copy the open thread's link (1 of 1 each).
+- The sidebar tree: Tab from Search lands on a row, ArrowDown moves the focus ring, and F2 opens the
+  rename field (1 of 1).
+- F6 from the composer goes to the right panel, the terminal, the sidebar, the conversation and back
+  (1 of 1). From the terminal, F6 reaches the sidebar and ⇧F6 the right panel (1 of 1). The panel
+  takes the focus itself, where the oracle focuses its Diff scope menu (a known difference, #1187).
+- The approval row: More lists Cancel and Always allow this session, Approve underlines on hover, and
+  pressing Approve lets the turn complete with notes/approved.md (1 of 1). Decline was not pressed:
+  the fixture seeds one approval.
+- The composer's Permissions chip opens the four-mode toggle, hovering a mode describes it, and Full
+  access leaves the chip as its icon alone, as the oracle draws it (1 of 1).
+- Settings › Appearance › Thread details lists the ten items, and unchecking Servers reads "8 of 10
+  on" (1 of 1).
+- Thread details › Servers. A `python3 -m http.server` run in the thread's terminal shows as
+  "localhost:16946, Terminal · Python". Hover shows Stop and "Open in the browser panel. ⌘-click for
+  your browser.". A press opens the server in the Browser panel. Stop ends the server: the port no
+  longer listens and the section goes (1 of 1).
+- With that page live in the Browser panel, presses in the right half of the window reach their
+  targets: the Diff tab, a link in the page, the timeline's Open diff, the details card's Changes and
+  the tab's close button (5 of 5). Under the agent driver, #1186 saw these presses blocked.
+- Dragging a sidebar row toward the bottom brings the dashed drop hint into view. Over Settled, the
+  header lights up and the row shows Settle; the drop settles it ("Settled 1 thread, ⌘Z to undo")
+  (1 of 1).
+
+Fail (left in place):
+
+- Open diff on a tool call whose change has no recorded patch opens the Diff panel on the Tool call
+  scope, as the oracle does, but reads "No net changes in this selection." The oracle reads "No
+  patch available for this selection."
+- Right-clicking the thread details card opens nothing (0 of 3: on its padding and on its Workspace
+  row). On its padding the oracle opens Show in thread details; on the Workspace row, Copy full path.
+  Sidebar rows' right-clicks open their menus in the same session.
+- A thread chip in a sent message neither underlines nor shows a tooltip on hover (0 of 2). The
+  oracle underlines it and shows "Open thread".
+- A double-click on inline code selects nothing, in an answer or in a user message (0 of 2). A
+  double-click on a plain word selects nothing either, though a drag selects text. The oracle selects
+  `selectme`.
+- After F2 and then Escape in the sidebar, the focus goes to the window, and F6 never enters the
+  sidebar after that: from the composer it stops at the terminal (4 presses). In the oracle, Escape
+  returns the focus to the row and F6 reaches it.
+
+Not checked:
+
+- Effort words and bars: no provider has reasoning traits, and the lane's Codex is unavailable.
+- Shift-click Viewed and Allow edits from maintainers: the fixture's pull request has no files. The
+  oracle cannot load its detail either ("GitHub returned an unreadable getPullRequestDetail response").
+- The update dialog, which needs a server older than 0.1.5.
+- ⌘-click send, which needs a running turn.
+- The fallback model notice.
+- A palette move to another machine's scratch project.
+- Decline.
+
+Also seen: the model picker's "Codex: Unavailable…" tooltip stayed on screen after the picker closed,
+until another tooltip replaced it.
+
 **Fixed, not checked with real input or VoiceOver:**
 
 - Pairing a saved environment again reconnects it with the new credential, as the reference's
@@ -1212,9 +1285,18 @@ menu, not TISSelectInputSource, before they judge IME rows.
 Recording and other OS grants (FN24, the permission helper's real grant), provider installs and
 sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and GitHub writes.
 
-**Next real-input session:** VO-Space on the chip kinds not yet pressed and a terminal excerpt's
-details; the textarea grip and the narrow-window Merge row, which need a tool whose drags reach the
-app; and the Usage page's bars under VoiceOver. Drive it with `orca computer`. While VoiceOver runs,
+**Next real-input session:**
+
+- The five 2026-10-31 failures, once fixed.
+- Decline on an approval.
+- Effort words and bars, with a provider that has reasoning traits.
+- Shift-click Viewed, with a pull request fixture whose files the 0.1.5 server can read.
+- VO-Space on the chip kinds not yet pressed, and a terminal excerpt's details.
+- The textarea grip and the narrow-window Merge row. Drags from the HID event source reach the app,
+  and the window can be resized through AX.
+- The Usage page's bars under VoiceOver.
+
+Open native context menus with a HID right-click, not `orca computer`'s. While VoiceOver runs,
 its caption panel covers the composer of a window 840 pt tall, and `orca computer` refuses a click
 there (`window_not_focused`): make the window shorter first.
 
