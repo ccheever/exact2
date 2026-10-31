@@ -384,7 +384,9 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         web.uiDelegate = makeUI()
         #if EXACT_DEVELOPMENT
         // Safari's platform inspector sees only this guest, not Exact's
-        // native tree. Production arms never compile this opt-in (#101).
+        // native tree. Unasked, only a development arm makes a frame
+        // inspectable (#101); any arm does when the app calls
+        // `openDevTools` (LLP 1020.002 D11, which supersedes #101 there).
         web.isInspectable = true
         #endif
         #if os(macOS)

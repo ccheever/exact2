@@ -5,7 +5,8 @@
 // and `_WKInspector`'s `show` and `detach` (`_WKInspector.h`), as Tauri's
 // wry does, with `-[WKPreferences _setDeveloperExtrasEnabled:]`
 // (`WKPreferencesPrivate.h`), without which the inspector never connects
-// (measured on macOS 27.2). A WebKit without them is refused by name.
+// (measured on macOS 27.2). A WebKit without them is refused by name. They
+// compile into production arms too (ruled 2026-10-31, LLP 1020.002 D11).
 import Foundation
 import WebKit
 
@@ -37,8 +38,10 @@ extension WebArm {
         // `detach` before then is overridden. So the arm waits until the
         // inspector's view is in a window (at most 5 s) and detaches it when
         // that window is the frame's.
+        // A frame unmounted meanwhile ends the wait without a word.
         let shown = { (inspector.perform(named("inspectorWebView"))?.takeUnretainedValue() as? NSView)?.window }
         func detachWhenOpen(_ tries: Int) {
+            guard !invalidated, built === web else { return }
             if let window = shown() {
                 if window === web.window { inspector.perform(named("detach")) }
                 return
