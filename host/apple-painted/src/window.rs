@@ -240,17 +240,8 @@ impl<D: DataSource + Default + 'static> App<D> {
         let started = Instant::now();
         counters::service(counters::DRAW);
         let service_trace = Trace::with_value(c"draw service", f64::from(counters::DRAW) + 1.);
-        p.pump(now);
-        if self.live {
-            p.animation_frame(now);
-        }
-        p.run_commands(D::default);
-        p.hatch_turn();
-        p.poll_images();
+        prepare_draw(p, now, self.live)?;
         drop(service_trace);
-        p.set_pointer(None);
-        p.tick(now);
-        p.poll_apple_painter()?;
         if p.dirty() && p.apple_painter_can_draw() {
             if std::env::var_os("G1_OUTPUT").is_some() {
                 self.benchmark_complete = !p.images().pending() && !p.images().has_refusals();
@@ -380,6 +371,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             self.layer = Some(layer);
             self.presenter = Some(p);
             self.window = Some(window.clone());
+            // Layout and the layer are ready. The worker may acquire and present
+            // while AppKit shows the window; an unshown drawable still retries.
+            self.draw()?;
             window.set_visible(true);
             trace_mark(c"boot window shown", || 0.);
             window.request_redraw();
@@ -710,6 +704,23 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
     }
 }
 
+fn prepare_draw<D: DataSource + Default>(
+    p: &mut Presenter<D>,
+    now: f64,
+    live: bool,
+) -> Result<(), String> {
+    p.pump(now);
+    if live {
+        p.animation_frame(now);
+    }
+    p.run_commands(D::default);
+    p.hatch_turn();
+    p.poll_images();
+    p.set_pointer(None);
+    p.tick(now);
+    p.poll_apple_painter()
+}
+
 fn display_needed<D: DataSource>(
     p: &Presenter<D>,
     live: bool,
@@ -788,6 +799,55 @@ fn service<D: DataSource>(
 mod tests {
     use super::*;
     use exact_linux::presenter::PainterChoice;
+
+    #[test]
+    fn the_first_frame_before_visibility_matches_the_display_tick_frame() {
+        let plan = contract::compile(
+            r##"component App
+  view
+    scroll width=160 height=120 background-color="#23394f"
+      column width=160 gap=8 padding=8
+        text "First frame" color="#f3e7ca" font-size=18
+        box width=75 height=35 background-color="#e83a5b" border-radius=7
+        text "Kept rows 012345" color="white"
+        box width=100 height=60 background-color="#4488cc"
+"##,
+        )
+        .unwrap()
+        .encode();
+        for choice in [PainterChoice::Cpu, PainterChoice::Ink] {
+            let make = || {
+                let (mut p, warning) =
+                    Presenter::boot_with(&plan, (), (160., 120.), 2., ".".into(), choice).unwrap();
+                assert!(warning.is_none(), "{warning:?}");
+                p.host_mut().runner_mut().set_row_reuse(true);
+                p
+            };
+            let mut early = make();
+            prepare_draw(&mut early, 0., false).unwrap();
+            let first = early.frame();
+            assert!(early.last_frame_succeeded());
+
+            let mut on_tick = make();
+            service(&mut on_tick, 0., false, || (), 0);
+            assert!(display_needed(&on_tick, false, false, false));
+            prepare_draw(&mut on_tick, 0., false).unwrap();
+            let expected = on_tick.frame();
+            assert!(on_tick.last_frame_succeeded());
+            assert_eq!(first.data(), expected.data(), "{choice:?}: first frame");
+            assert!(first
+                .data()
+                .chunks_exact(4)
+                .any(|p| p != &first.data()[..4]));
+            early.repaint();
+            prepare_draw(&mut early, 0., false).unwrap();
+            assert_eq!(
+                early.frame().data(),
+                expected.data(),
+                "{choice:?}: unshown retry"
+            );
+        }
+    }
 
     #[test]
     fn an_unshown_boot_keeps_display_demand_after_two_completed_drawables() {
