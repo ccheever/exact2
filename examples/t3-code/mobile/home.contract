@@ -8,6 +8,9 @@ use SettingsTextRole from "./settings.contract"
 use HomeMenu, HomeMenuItem from "./home-menu.contract"
 use HomeSwipeControls, HomeSwipeMenu, homeSwipeField, homeSwipeNumber, homeSwipeFinite, homeSwipeInteger from "./home-swipe.contract"
 
+fn homeMeasuredHeight(geometry: ContentGeometry, fallback: number): number = geometry.state == "ready" and geometry.bounds.height > 0 ? geometry.bounds.height : fallback
+fn homeMeasuredSafeTop(geometry: ContentGeometry, fallback: number): number = geometry.state == "ready" ? geometry.safeArea.top : fallback
+
 shape HomeColors
   foreground: string
   muted: string
@@ -144,6 +147,8 @@ component Home
     projectFaviconSurface = listId
   derive swipeOwner = `${routeId}:${listId}`
   derive fullPageFrame = fullPageEmpty and liquidGlass
+  derive measuredHeight = homeMeasuredHeight(contentGeometry, windowHeight)
+  derive measuredSafeTop = homeMeasuredSafeTop(contentGeometry, safeTop)
   state stateOwner = ""
   state openToken = ""
   state dragToken = ""
@@ -275,13 +280,13 @@ component Home
         top=(fullPageFrame ? 0 : "auto")
         left=(fullPageFrame ? 0 : "auto")
         right=(fullPageFrame ? 0 : "auto")
-        height=(fullPageFrame ? windowHeight : "auto")
+        height=(fullPageFrame ? measuredHeight : "auto")
         box-sizing=(fullPageFrame ? "border-box" : "content-box")
         align-items="center"
         justify-content="center"
         padding-left=28
         padding-right=28
-        padding-top=(fullPageFrame ? safeTop + 72 : 0)
+        padding-top=(fullPageFrame ? measuredSafeTop + 72 : 0)
         padding-bottom=emptyClearance
         column max-width=430 width="100%"
           align-items="center"
