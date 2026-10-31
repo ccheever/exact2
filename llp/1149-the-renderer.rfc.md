@@ -1304,6 +1304,34 @@ saving. D7, D11 and D15, including the dated boot and 100 ms application
 obligations, are unchanged.
 [Tables, picture spans, predictions and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-4-request-the-pictures-earlier-and-re-present-the-latest-frame).
 
+**M10 cut 5, 2026-10-31:** source `94638ea2d8` starts the display link
+before painting and consumes image-slot damage directly on a delivered
+tick. One immediate successor uploads pictures that land during the first
+paint. Callbacks begin earlier, but winit still queues delivery until its
+first main-thread dispatch: the next-tick boot goal is unmet.
+Both four-arm cold-only schedules qualify, hook, trace and power off,
+with ten quiet seconds before each launch. All eighty originals succeed.
+
+| Arm | Before, ms (n) | After, ms (n) |
+| --- | ---: | ---: |
+| Native | 255.337 (10) | 254.012 (10) |
+| GPUI | 214.492 (10) | 209.626 (10) |
+| egui | 223.202 (10) | 223.863 (10) |
+| Ink | 221.389 (10) | 219.046 (10) |
+
+Ink misses 190–200 ms. Traced warm complete-frame commit is 209.712 ms
+and complete display 232.957 ms, missing about 165 and 185–195 ms.
+Last decode is 160.629 ms and final upload 209.144 ms; the median
+callback-to-delivery interval is 64.292 ms. Median paired changes are
++1.317 ms cold and +8.486 ms warm, both ranges crossing zero. No consistent
+startup saving is established. All thirty traced after first displays are
+complete, with one zero callback and two or three repeats; the repeat-count
+prediction misses. All 230 originals, including five egui failures, remain.
+Matching-backend first screens have zero changed RGBA pixels. Pixel suites,
+CPU-first handoff and live Metal/wgpu pass. This one implementation round
+leaves the boot dispatch delay unresolved; D7, D11 and D15 are unchanged.
+[Tables, predictions, wake spans and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-5-paint-landed-pictures-on-the-display-tick).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms

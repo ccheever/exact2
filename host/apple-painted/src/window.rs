@@ -414,7 +414,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             self.presenter = Some(p);
             self.window = Some(window.clone());
             // about_to_wait follows AppKit's first redraw transaction. Start
-            // boot ticks here so a landed picture does not wait for that turn.
+            // boot ticks here; winit may still defer their main-thread delivery.
             self.display_active.store(true, Ordering::Release);
             self.display
                 .as_mut()
