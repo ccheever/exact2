@@ -131,6 +131,10 @@ fn r4_a_glue_written_property_keeps_its_effects() {
 #[test]
 fn r5_a_marked_row_keeps_its_effects() {
     refused("column border-top-style=\"solid\" border-top-width=(s == \"a\" ? 1 : 2)\n        text \"x\"", Refusal::SidePath);
+    refused(
+        "svg width=40 height=40 fill=(s == \"a\" ? \"#ff0000\" : \"#0000ff\")\n        rect width=40 height=40",
+        Refusal::SidePath,
+    );
 }
 
 #[test]
