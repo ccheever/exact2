@@ -5464,3 +5464,121 @@ records and instrument binaries under
 `8ead227047` before the first gate began at **18:02:34 PDT**. The gate imports
 the landed `QuietMonitor`; its wrapper samples every five seconds in bounded
 one-minute loops, with a two-hour total deadline.
+
+The initial gate passed after **1,777.842 s (29 min 38 s)**: 351 observations,
+339 failing before twelve consecutive passes. Whole-machine CPU ranged from
+**0.645 to 4.417 busy cores**; Fleet/Claude reached **2.641 cores** and
+`PerfPowerServices` **2.008 cores**. The final twelve observations ranged from
+**0.645 to 1.715 busy cores**, with the largest process at **0.166 core**
+(`fleet`). No process was stopped by this lane. The full gate, including its
+power-mode record and result, is retained in `gate-fling-1/` beneath both raw
+roots above. Every series starts a fresh sixty-second gate; subsequent waits
+count toward the same two-hour allowance.
+
+### Fling attempt 1 — excluded
+
+`fling-a-1` completed all twenty launches, five interleaved rounds, hook off
+and power off. Its fresh gate took **60.749 s**. The gate and series have
+**102 observations, 18 failing**: whole-machine CPU is **0.640–1.816 cores**,
+but the largest non-benchmark process reaches **2.460 cores** (Fleet/Claude).
+`launchd` and `airportd` also cross the 0.25-core bound. The entire series is
+excluded from the scoreboard. These tables reproduce the retained attempt;
+they do not establish a quiet baseline. The startup row has five launches
+per arm and does not replace the separate ten-launch cold-only cohort.
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Cold to first complete frame, ms; native snapshot / painted drawable | 265.72 (261.14–646.75) | 223.15 (219.98–411.36) | 239.13 (210.47–617.54) | 231.93 (223.03–706.58) |
+| Fling process CPU, ms/s | 167.11 (151.68–178.86) | 161.49 (157.12–166.47) | 138.52 (130.85–144.70) | 121.95 (119.40–124.15) |
+| Fling process CPU per presented frame, ms | — | 1.821 (1.770–1.868) | 4.148 (3.943–4.346) | 2.939 (2.864–2.978) |
+| Fling main-thread CPU, ms/s | 117.42 (111.22–120.98) | 83.20 (78.33–86.43) | 69.62 (66.13–71.96) | 57.58 (55.10–58.78) |
+| Fling process instructions, million/s | 1247.899 (1041.508–1498.699) | 495.333 (491.563–499.232) | 510.133 (509.159–513.096) | 368.799 (367.443–370.094) |
+| Fling process cycles, million/s | 451.260 (387.775–506.569) | 259.053 (254.781–265.029) | 243.136 (241.973–257.866) | 204.568 (200.864–208.400) |
+| Rest process CPU, ms/s | 2.707 (2.585–2.830) | 4.994 (4.967–5.080) | 3.096 (2.998–3.220) | 0.777 (0.752–0.841) |
+| Rest main-thread CPU, ms/s | 1.340 (1.274–1.410) | 3.113 (3.066–3.198) | 2.932 (2.845–3.060) | 0.658 (0.618–0.691) |
+| Rest process instructions, million/s | 2.412 (2.265–2.434) | 8.000 (7.974–8.049) | 3.906 (3.873–4.099) | 1.037 (1.007–1.093) |
+| Rest process cycles, million/s | 4.034 (3.903–4.127) | 6.898 (6.785–7.083) | 4.587 (4.512–4.893) | 1.106 (0.997–1.117) |
+| Peak footprint during fling, MiB | 231.06 (230.19–240.45) | 410.83 (405.44–420.20) | 600.55 (599.30–605.70) | 514.88 (504.00–521.27) |
+| End-of-fling footprint, MiB | 217.31 (214.16–229.72) | 396.16 (386.69–398.80) | 249.50 (248.05–250.63) | 187.59 (187.09–191.97) |
+| End-of-rest footprint, MiB | 216.67 (213.67–228.99) | 210.64 (203.55–212.97) | 242.24 (240.74–243.28) | 179.44 (178.92–183.83) |
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Fling interval p50, ms | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) |
+| Fling interval p95, ms | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) |
+| Fling interval p99, ms | 8.33 (8.33–16.67) | 16.67 (16.67–16.67) | 16.67 (8.33–16.67) | 8.33 (8.33–8.33) |
+| Late intervals/s | 1.100 (0.600–1.600) | 1.877 (1.318–2.412) | 1.072 (0.538–1.295) | 0.000 (0.000–0.000) |
+| Gesture-window duration, s | 3.797 (3.730–3.929) | 3.730 (3.729–3.794) | 3.723 (3.720–3.860) | 3.795 (3.731–3.862) |
+| Presented frames/s inside gesture windows | — | 105.35 (104.54–106.23) | 89.53 (86.02–89.74) | 104.33 (103.45–104.97) |
+| Presented frames/s over the full fling phase | — | 88.78 (88.68–89.09) | 33.39 (33.19–33.40) | 41.60 (41.49–41.69) |
+| Inputs received / posted per sample | 8/424 (8–8/424) | 416/424 (413–418/424) | 422/424 (421–423/424) | 416/424 (415–418/424) |
+| Driver maxGapMs; maximum of four gestures | 9.386 (9.311–16.663) | 12.448 (9.331–14.194) | 9.352 (9.342–16.692) | 9.345 (9.336–16.436) |
+| Driver empty callbacks per sample | 0 (0–0) | 0 (0–0) | 0 (0–0) | 0 (0–0) |
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Fling GPU busy time, ms/s; process command buffers | — | — | — | — |
+| Fling GPU ms/presented frame | — | — | — | — |
+| Fling completed command buffers per sample | — | — | — | — |
+
+### Fling attempt 2 — excluded
+
+`fling-a-2` passed its gate after **182.160 s**. Its qualifying
+minute and series contain **115 observations, 22 failing**, with
+**0.633–1.769 busy cores** and Fleet/Claude reaching **2.077 cores**. All five
+native, GPUI and Ink samples complete; egui has four. Both attempts at egui's
+third launch time out waiting for startup readiness; its second launch also
+times out, then succeeds on retry. All three timeouts remain retained. The
+series is excluded in full; no third fling series is attempted.
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Cold to first complete frame, ms; native snapshot / painted drawable | 260.92 (238.62–261.28) | 227.66 (218.53–231.90) | 236.53 (227.45–248.59) | 233.02 (218.79–248.43) |
+| Fling process CPU, ms/s | 170.95 (159.22–183.68) | 148.07 (143.95–163.69) | 141.91 (137.03–146.59) | 121.39 (113.92–121.82) |
+| Fling process CPU per presented frame, ms | — | 1.666 (1.623–1.831) | 4.275 (4.092–4.391) | 2.941 (2.733–2.947) |
+| Fling main-thread CPU, ms/s | 117.12 (109.50–119.25) | 76.39 (74.90–84.65) | 70.88 (67.81–73.62) | 56.26 (54.02–57.02) |
+| Fling process instructions, million/s | 1357.071 (1211.326–1627.046) | 495.702 (493.899–497.706) | 506.061 (499.267–526.356) | 367.956 (366.883–370.093) |
+| Fling process cycles, million/s | 464.988 (417.105–552.464) | 271.152 (262.454–279.096) | 245.413 (240.284–260.082) | 205.842 (204.871–207.257) |
+| Rest process CPU, ms/s | 2.808 (2.706–3.454) | 4.942 (4.847–5.353) | 3.170 (2.822–3.231) | 0.752 (0.745–0.826) |
+| Rest main-thread CPU, ms/s | 1.366 (1.314–1.938) | 3.116 (3.046–3.389) | 3.021 (2.703–3.087) | 0.605 (0.597–0.674) |
+| Rest process instructions, million/s | 2.423 (2.331–4.859) | 8.014 (7.941–8.331) | 4.030 (3.859–4.066) | 0.993 (0.962–1.118) |
+| Rest process cycles, million/s | 4.202 (4.054–5.976) | 6.801 (6.554–7.522) | 4.541 (3.909–4.760) | 1.098 (1.027–1.128) |
+| Peak footprint during fling, MiB | 234.66 (229.94–245.56) | 411.61 (401.75–419.14) | 599.31 (597.22–604.80) | 513.31 (510.02–517.83) |
+| End-of-fling footprint, MiB | 218.31 (208.35–223.02) | 390.67 (388.38–401.50) | 249.39 (245.17–250.49) | 189.06 (183.09–194.45) |
+| End-of-rest footprint, MiB | 217.66 (207.72–222.28) | 207.55 (205.20–218.33) | 242.06 (237.95–243.19) | 180.90 (174.89–186.22) |
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Fling interval p50, ms | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) |
+| Fling interval p95, ms | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) |
+| Fling interval p99, ms | 16.67 (16.67–16.67) | 16.67 (16.67–16.67) | 16.67 (8.33–16.67) | 8.33 (8.33–8.33) |
+| Late intervals/s | 1.600 (1.500–2.400) | 1.847 (1.318–2.149) | 1.071 (0.791–1.296) | 0.134 (0.000–0.268) |
+| Gesture-window duration, s | 3.799 (3.730–3.858) | 3.790 (3.723–3.798) | 3.794 (3.732–3.866) | 3.732 (3.728–3.797) |
+| Presented frames/s inside gesture windows | — | 106.11 (105.84–107.29) | 87.52 (86.39–89.77) | 104.03 (102.54–104.61) |
+| Presented frames/s over the full fling phase | — | 88.87 (88.69–89.39) | 33.39 (33.19–33.48) | 41.39 (41.10–41.69) |
+| Inputs received / posted per sample | 8/424 (8–8/424) | 418/424 (415–420/424) | 420/424 (420–423/424) | 414/424 (410–418/424) |
+| Driver maxGapMs; maximum of four gestures | 16.627 (9.336–16.833) | 10.200 (9.330–16.658) | 16.628 (9.333–16.944) | 9.334 (9.329–16.826) |
+| Driver empty callbacks per sample | 0 (0–0) | 0 (0–0) | 0 (0–0) | 0 (0–0) |
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Fling GPU busy time, ms/s; process command buffers | — | — | — | — |
+| Fling GPU ms/presented frame | — | — | — | — |
+| Fling completed command buffers per sample | — | — | — | — |
+
+### Cold attempt 1 — excluded
+
+`cold-a-1` retains ten cold-only launches per arm, hook off and power off.
+Its fresh gate passed in **60.711 s**, then **3 of 37** gate/series observations
+failed. Whole-machine CPU ranges **0.653–2.269 cores**; WindowServer reaches
+**0.320 core**. The entire cohort is excluded from the cold scoreboard.
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Cold to first complete frame, ms; native snapshot / painted drawable | 263.04 (243.46–282.00) | 215.54 (195.20–231.52) | 240.08 (207.61–273.29) | 242.52 (204.43–263.59) |
