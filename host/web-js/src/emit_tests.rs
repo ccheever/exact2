@@ -1140,3 +1140,24 @@ fn a_native_elements_own_role_is_not_restated() {
         "{js}"
     );
 }
+
+/// A header's bound `appearance` says `none` as element.rs marks a written
+/// one (`data-exact-said~="appearance"`), so the bar's rules and
+/// navigation.js leave it the author's while it reads `none` (LLP 1075.003
+/// §9.10), keeping the header's other said words.
+#[test]
+fn a_bound_appearance_marks_a_header_while_it_reads_none() {
+    let plan = contract::compile(
+        "component App\n  state plain = false\n  view\n    column\n      header appearance=(plain ? \"none\" : \"auto\") justify-content=\"start\" testId=\"h\"\n        text \"Title\" role=\"heading\" aria-level=1\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let at = js
+        .find("\"data-exact-said\",()=>")
+        .unwrap_or_else(|| panic!("{js}"));
+    let write = &js[at..js[at..].find("});").map_or(js.len(), |n| at + n)];
+    assert!(
+        write.contains("[\"justify-content\"]") && write.contains("w.push(\"appearance\")"),
+        "{write}"
+    );
+}

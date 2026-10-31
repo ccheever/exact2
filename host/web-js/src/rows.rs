@@ -560,6 +560,9 @@ impl Em<'_> {
                 writes.push(("--exact-padding-bottom".into(), unit, Some(px)));
             }
         }
+        if id == StyleId::Appearance && b.written {
+            self.said_appearance(e, f, parts.props.get("data-exact-said"));
+        }
         // Right to left, the sides of a pair different hands say (sides.rs).
         let other = style::other_side(id).and_then(binding);
         self.side_writes(
