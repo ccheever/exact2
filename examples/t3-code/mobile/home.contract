@@ -310,6 +310,9 @@ component Home
               text "Add environment" color=colors.primaryForeground font-size=plainActionRole.size line-height=`${plainActionRole.line}px` font-weight=700
     else
       list id=listId flex=1 min-height=0 hatch="mobile-home-swipe-list" data-mobile-swipe-owner=swipeOwner
+        padding-left=(listId == "sidebar-list" ? 8 : 0)
+        padding-right=(listId == "sidebar-list" ? 8 : 0)
+        padding-top=(listId == "sidebar-list" ? 6 : 0)
         virtualized=true
         estimated-item-height=72
         testId="home-thread-list"
@@ -414,8 +417,8 @@ component HomeListItem
           margin-top=14
           margin-bottom=5.25
           padding=0
-          padding-left=17.5
-          padding-right=17.5
+          padding-left=(sidebar ? 10.5 : 17.5)
+          padding-right=(sidebar ? 10.5 : 17.5)
           aria-label=`${item.count} ${item.section} ${item.count == 1 ? "thread" : "threads"}`
           aria-expanded=item.expanded
           testId=`home-shelf-${item.section}`
@@ -505,7 +508,7 @@ component HomeListItem
               aria-selected=selectedRow
               testId=`home-thread-${item.key}`
               if item.card
-                column padding-left=17.5 padding-right=17.5 padding-top=8.75 padding-bottom=8.75
+                column padding-left=(sidebar ? 12 : 17.5) padding-right=(sidebar ? 12 : 17.5) padding-top=(sidebar ? 10 : 8.75) padding-bottom=(sidebar ? 10 : 8.75)
                   row align-items="center" gap=5.25
                     if item.projectPresent
                       HomeProjectIcon(item=item, colors=colors)
@@ -535,15 +538,15 @@ component HomeListItem
                       view flex=1 min-width=0
                     if item.provider.visible
                       HomeProviderStack(provider=item.provider, surfaceColor=rowBackground, colors=colors)
-                if item.trailingDivider
-                  view height=1 margin-left=17.5 background-color=colors.borderSubtle
+                if item.trailingDivider and not sidebar
+                  view height=1 margin-left=17.5 background-color=colors.borderSubtle testId=`home-thread-divider-${item.key}`
               else
                 row min-height=44
                   box-sizing="border-box"
                   align-items="center"
-                  gap=8.75
-                  padding-left=17.5
-                  padding-right=17.5
+                  gap=7
+                  padding-left=(sidebar ? 10.5 : 17.5)
+                  padding-right=(sidebar ? 10.5 : 17.5)
                   padding-top=7
                   padding-bottom=7
                   if item.projectPresent
