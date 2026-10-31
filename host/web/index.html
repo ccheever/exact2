@@ -381,11 +381,12 @@
      scroller. Body and root grow with the content and the marked scroller is
      a plain block, so printing, #anchors, scroll restoration and a collapsing
      browser toolbar work, with JavaScript or without. The render host and
-     the runtimes mark `<html>` while an element is the page's scroller. */
+     the runtimes mark `<html>` while an element is the page's scroller; one
+     in a hidden route (`data-exact-offpage`) scrolls inside its bound. */
   html[data-scrolldocument] {
     & body { height: auto; min-height: 100%; }
     & #exact-root { height: auto; }
-    & [data-scrolldocument="true"] { overflow: visible !important; height: auto !important; max-height: none !important; }
+    & [data-scrolldocument="true"]:not([data-exact-offpage]) { overflow: visible !important; height: auto !important; max-height: none !important; }
   }
   [data-itemheight], [data-estimateditemheight] { overflow-anchor: none; } /* List keys own the reading anchor. */
   /* LLP 1055 D3: an `svg` is a block, as every node is (declared deviation from HTML's inline replaced svg). */

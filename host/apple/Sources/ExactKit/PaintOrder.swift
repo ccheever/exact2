@@ -53,8 +53,9 @@ enum PaintOrder {
 extension NodeView {
     var paintRank: Int64 {
         if paintLifted { return 4_294_967_294 }
-        if paintGhost { return 4_294_967_292 }
-        return paintGhosts > 0 && rank == 0 ? 1 : rank
+        // A ghost keeps its rank, but one at rank 0 paints at ½ (the encoded 1), as the web's absolute ghost does.
+        // So does a ghost's parent at rank 0 while the ghost lives, since the parent stacks (LLP 1083.000 D4).
+        return (paintGhost || paintGhosts > 0) && rank == 0 ? 1 : rank
     }
 
     var paintZPosition: CGFloat {

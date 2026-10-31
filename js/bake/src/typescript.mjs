@@ -511,11 +511,29 @@ export function capturedSources(stage, refusals=null) {
     if (!existsSync(to) || !readFileSync(to).equals(bytes)) { mkdirSync(dirname(to),{recursive:true}); writeFileSync(to,bytes); }
     files.set(to,{real:from,package:pkg,sha256:createHash('sha256').update(bytes).digest('hex')});
   };
+  // The files a package's exact.json declares in `web.assets` (LLP 1154 D2), with that declaration: captured with its
+  // code, so its digest covers their bytes and the web build serves them from the capture (host/web-js/build.mjs).
+  const assets=(pkg)=>{
+    const at=join(pkg.root,'exact.json');
+    if (!existsSync(at)) return;
+    let declared;
+    try { declared=JSON.parse(readFileSync(at,'utf8')).web?.assets; } catch (e) { throw new Error(`${pkg.key}: exact.json is not JSON: ${e.message}`); }
+    if (declared===undefined) return;
+    if (!Array.isArray(declared) || declared.some(p=>typeof p!=='string')) throw new Error(`${pkg.key}: exact.json web.assets is a list of paths in the package`);
+    const base=join(area,...pkg.key.split('/'));
+    copy(join(pkg.root,'exact.json'),join(base,'exact.json'),pkg);
+    for (const path of declared) {
+      const from=resolve(pkg.root,path), real=existsSync(from) ? realpathSync.native(from) : null;
+      if (isAbsolute(path) || real!==from || real===pkg.root || !within(real,pkg.root) || !statSync(real).isFile()) throw new Error(`${pkg.key}: exact.json web.assets names ${JSON.stringify(path)}, which is not a file in the package (a link is not one)`);
+      copy(real,join(base,relative(pkg.root,real)),pkg);
+    }
+  };
   const capture=(real,who,installed)=>{
     const found=packageOf(real);
     if (!found) throw new Error('module outside captured app: '+real);
     const pkg=roots.get(found.key) ?? found;
     if (pkg.root!==found.root) throw new Error(`two copies of ${found.key} (${pkg.root}, ${found.root}); install one`);
+    if (!roots.has(pkg.key)) assets(pkg);
     roots.set(pkg.key,pkg);
     if (installed) pkg.installed.add(installed);
     if (/\.node$/.test(real) || pkg.json.gypfile || existsSync(join(pkg.root,'binding.gyp')))
@@ -600,6 +618,18 @@ export function capturedSources(stage, refusals=null) {
       if (!existsSync(path) || readFileSync(path,'utf8')!==record) writeFileSync(path,record);
     },
   };
+}
+/** The web assets a capture holds (`capturedSources`): each package's name, the asset's path in it, and the file. */
+export function capturedAssets(stage) {
+  const out=[];
+  for (const [key] of JSON.parse(readFileSync(resolve(stage,RECORD),'utf8')).packages) {
+    const base=join(stage,'node_modules','.packages',...key.split('/'));
+    if (!existsSync(join(base,'exact.json'))) continue;
+    let declared;
+    try { declared=JSON.parse(readFileSync(join(base,'exact.json'),'utf8')).web?.assets; } catch (e) { throw new Error(`${key}: the captured exact.json is not JSON: ${e.message}`); }
+    for (const path of declared ?? []) out.push({ name:key.slice(0,key.lastIndexOf('@')), path:slash(relative(base,resolve(base,path))), file:resolve(base,path) });
+  }
+  return out;
 }
 /** A later bundle of the checked capture (the web page's and its server
  * render's): every import from a captured file resolves to what

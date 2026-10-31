@@ -154,6 +154,7 @@ package the backend's directory installs beside `snapback4`, holding:
   "native": {
     "rust": "native/lib.rs",
     "class": "Module",
+    "link": "snapback4_exact",
     "library": {
       "aarch64-apple-ios": { "url": "…", "sha256": "…" },
       "aarch64-apple-ios-sim": { "url": "…", "sha256": "…" },
@@ -166,8 +167,11 @@ package the backend's directory installs beside `snapback4`, holding:
   ```
 
   `rust` is the shim's root file, `class` the type in it that implements
-  `exact_js::NativeModule` and has `fn new(app: &str) -> Self`; `library` is LLP 1133.001
-  D9's `{url, sha256}` per target. The package is not a module in LLP 1133 D6's sense (it
+  `exact_js::NativeModule` and has `fn new(app: &str) -> Self`; `link` is the library's
+  link name (`lib<link>.so`, whose SONAME it must be; `<link>.framework`, whose install
+  name is `@rpath/<link>.framework/…`; the shim's `#[link(name = "<link>")]`); `library`
+  is LLP 1133.001 D9's `{url, sha256}` per target. The declaration is the package's root
+  `exact.json`, whatever its `"."` export is (as built, 2026-10-31: lanes A to C). The package is not a module in LLP 1133 D6's sense (it
   declares no named sources or sends; the driver's API is TypeScript), so `kind`, `names`
   and `implements` do not apply to it. What does apply, from LLP 1133.001 D4 and D9: the
   app depends on it directly and pins it exactly, the installed tree agrees with

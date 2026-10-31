@@ -1435,7 +1435,7 @@
   function timerOwner(api) {
     if (overlaying) throw inOverlay(api);
     if (inMapper || !currentCall || currentCall === background || currentCall.replied || currentCall.letGo)
-      throw new Error(api + " is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value or was let go)");
+      throw new Error(api + " is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value or was let go). A cache needs no timer to expire: fetch keeps each answer as long as its HTTP headers allow");
     return currentCall;
   }
   // A timer's turn: the answer's earliest callback due by the runner's clock `at` runs in the drain that follows;

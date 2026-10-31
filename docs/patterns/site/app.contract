@@ -6,9 +6,11 @@
 // The API's origin is a setting: app.json's `env`, `import.meta.env.API_BASE_URL` in app.ts, and its
 // value in `.env`: the address of server.ts, a stand-in for the API that `test` and `verify` run themselves.
 // `bun exact.mjs web-build --out dist` builds the site and `bun exact.mjs serve dist` serves it, with
-// `bun server.ts` running for its API; `npm start` (package.json's `start`) serves the last `web-build`
-// made without `--out` (recipes/website.md).
+// `bun server.ts` running for its API, and builds it again when you edit: leave it running and reload.
+// `npm start` (package.json's `start`) serves the last `web-build` made without `--out` (recipes/website.md).
 // The header holds a `nav` and says `appearance="none"`, so every host draws it as written, not as a bar.
+// Each page's `scroll document` is the web page's own scroll: the browser's toolbar collapses, `#details`
+// and printing work, and each page keeps its place when the reader comes back to it.
 // The list is a `table` whose sortable columns say `aria-sort`; a planet's figures are a `dl`, and
 // `/planet/7#details` opens at them.
 use EmptyState from "exact:content"
@@ -76,7 +78,7 @@ component App
           column navigationKey=`${e.id}` navigationScroll="planets-page" position="absolute" inset=0
             display="flex" flex-direction="column"
             SiteHeader(current=e.name)
-            scroll id="planets-page" flex=1 min-height=0
+            scroll document id="planets-page" flex=1 min-height=0
               column gap=16 padding=16 max-width="48rem" margin-left="auto" margin-right="auto"
                 text "Planets" role="heading" aria-level=1
                 // A table wider than a phone scrolls sideways, as a web page's does.
@@ -106,7 +108,7 @@ component App
           column navigationKey=`${e.id}` navigationScroll="planet-page" position="absolute" inset=0
             display="flex" flex-direction="column" focusin=focusMoved
             SiteHeader(current=e.name)
-            scroll id="planet-page" flex=1 min-height=0
+            scroll document id="planet-page" flex=1 min-height=0
               column gap=16 padding=16 max-width="48rem" margin-left="auto" margin-right="auto"
                 if nameOf(planets, e.params.id) == ""
                   // An id no planet has (a stale link): the page says so, and its head says 404.

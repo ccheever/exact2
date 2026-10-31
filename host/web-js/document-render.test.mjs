@@ -507,6 +507,38 @@ component SequenceRender
   }, { 'assets/kick.wav': readFileSync(new URL('./conformance/transport/assets/kick.wav', import.meta.url)) });
 }, 30000);
 
+// Both renderers write the head a crawler reads, its URLs absolute against the manifest's origin, after the viewport
+// meta (page.rs `page_head`).
+test('both document renderers write the same crawler head', async () => {
+  const source = `routes nav
+  home "/" render=build
+    art "/art" render=build
+
+component Crawled
+  view
+    column
+      if top(nav).name == "art"
+        head title="Pikachu & co" description="An electric \\"mouse\\"" image="/art/25.png" canonical="/pokemon/25" robots="noindex"
+      text "page"
+`;
+  const crawled = page => [...page.matchAll(/<meta (?:name|property)="(?:viewport|description|robots|og:[a-z_]+|twitter:[a-z]+)" content="[^"]*">|<link rel="canonical"[^>]*>/g)].map(m => m[0]);
+  const heads = {};
+  for (const renderer of ['rust', 'js']) await renderedPages(source, (_, html) => { heads[renderer] = ['', 'art'].map(path => crawled(html(path))); },
+    {}, { name: 'Caltrain', app: { id: 'test.heads', name: 'Caltrain', origin: 'https://caltrain.exact.invalid' } }, renderer);
+  expect(heads.js).toEqual(heads.rust);
+  expect(heads.js[1]).toEqual([
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<meta name="description" content="An electric &quot;mouse&quot;">', '<meta name="robots" content="noindex">',
+    '<link rel="canonical" href="https://caltrain.exact.invalid/pokemon/25">', '<meta property="og:type" content="website">',
+    '<meta property="og:site_name" content="Caltrain">', '<meta property="og:title" content="Pikachu &amp; co">',
+    '<meta property="og:description" content="An electric &quot;mouse&quot;">', '<meta property="og:url" content="https://caltrain.exact.invalid/pokemon/25">',
+    '<meta property="og:image" content="https://caltrain.exact.invalid/art/25.png">', '<meta name="twitter:card" content="summary_large_image">',
+    '<meta name="twitter:title" content="Pikachu &amp; co">', '<meta name="twitter:description" content="An electric &quot;mouse&quot;">',
+    '<meta name="twitter:image" content="https://caltrain.exact.invalid/art/25.png">',
+  ]);
+  expect(heads.js[0]).toContain('<meta property="og:url" content="https://caltrain.exact.invalid/">');
+}, 1_800_000);
+
 test('JavaScript-rendered pages exclude a covered route’s deeper head', async () => {
   await renderedPages(`routes nav
   tab home "/" render=build
@@ -876,6 +908,61 @@ component App
   }
 }, 240000);
 
+// LLP 1048.003 D4: only the shown route's `scroll document` is the page's scroller. A hidden route's is
+// `data-exact-offpage`, scrolling inside its bound, so its content leaves the page's height; each route keeps its own
+// place in the page's scroll, so a route opened anew starts at its top and one shown again where the reader left it.
+test('both document renderers make only the shown route\'s page scroller the page\'s, and each route keeps its place', async () => {
+  for (const how of ['rust', 'js']) await renderedPages(`routes nav
+  home "/" render=build activate=idle
+    detail "/detail" render=build activate=idle
+
+component Pages
+  action open
+    nav = push(nav, path("detail"))
+  action back
+    nav = back(nav)
+  action follow(url: string)
+    nav = go(nav, url)
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=follow width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` position="absolute" inset=0 display="flex" flex-direction="column"
+          scroll document flex=1 min-height=0
+            if e.name == "home"
+              column height=700
+              button "Open" press=open testId="open"
+              column height=1300
+            if e.name == "detail"
+              column height=1000
+`, async (_, html, dist) => {
+    const offpage = path => html(path).match(/\sdata-exact-offpage(?=[\s>=])/g)?.length ?? 0;
+    expect([how, offpage(''), offpage('detail'), /<html [^>]*data-scrolldocument/.test(html('detail'))]).toEqual([how, 0, 1, true]);
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path === '/detail' ? 'detail/index.html' : path.slice(1))));
+    } });
+    const browser = await suiteBrowser();
+    try {
+      const page = await browser.newPage({ viewport: { width: 390, height: 600 } });
+      const at = () => page.evaluate(() => [location.pathname, scrollY, document.documentElement.scrollHeight]);
+      await page.goto(new URL('/detail', server.url).href);
+      expect([how, (await at())[2]]).toEqual([how, 1000]);
+      await page.goto(server.url.href);
+      await page.waitForFunction(() => !!globalThis.exact?.ready, null, { timeout: 5000 });
+      const home = (await at())[2];
+      // The button shows at 500, so the press scrolls nothing before it.
+      await page.evaluate(() => scrollTo(0, 500));
+      await page.click('[data-testid="open"]');
+      await page.waitForFunction(() => location.pathname === '/detail');
+      expect([how, await at()]).toEqual([how, ['/detail', 0, 1000]]);
+      await page.evaluate(() => history.back());
+      await page.waitForFunction(() => location.pathname === '/');
+      await page.waitForTimeout(100);
+      expect([how, await at()]).toEqual([how, ['/', 500, home]]);
+    } finally { await browser.close(); server.stop(true); }
+  }, {}, {}, how);
+}, 240000);
+
 // LLP 1048.007 D4: a rendered page carries only the rules its document can match, and the runtime puts the whole sheet
 // back before its first render, so what it then shows is styled as on the shell.
 test('both document renderers give a page its own rules, and the runtime restores the whole sheet', async () => {
@@ -975,6 +1062,7 @@ routes nav
   fresh "/" render=request
   never "/never" render=request
   seed "/seed" render=request
+  broken "/broken" render=request
 
 component App
   resource note = note(top(nav).name) as shape Note
@@ -989,12 +1077,16 @@ component App
       for (const at of ['/', '/', '/never', '/never', '/seed', '/seed']) expect(Buffer.from((await page(at, header)).body).toString()).toContain('from /');
       const renders = at => said.filter(l => l.startsWith(`render ${at} 200`)).length;
       expect([renders('/'), renders('/never'), renders('/seed')]).toEqual([1, 2, 2]);
+      // A source that fails is named in the log, under its page, which shows its placeholder.
+      await page('/broken', header); await page('/broken', header);
+      expect([renders('/broken'), said.filter(l => l === '  /broken: resource note: no such note').length]).toEqual([2, 2]);
     }, { 'app.ts': `import type { Answer, Result } from './app.contract.d.ts';
 export const appId = 'test.heads';
 const API = '${origin}';
 export const grants = \`net.fetch \${API}\`;
 export const answer: Answer = async (_source, [name]): Promise<Result<'note'>> => {
   if (name === 'seed') crypto.getRandomValues(new Uint8Array(1));
+  if (name === 'broken') throw new Error('no such note');
   const response = await fetch(\`\${API}/\${name === 'fresh' ? 'fresh' : name}\`);
   return { text: await response.text() };
 };
@@ -1023,6 +1115,34 @@ component App
     const { renderer } = await import('./render.mjs');
     const render = renderer(dist);
     expect([(await render('/items/gone')).status, (await render('/items/kept')).status, (await render('/no/such/page')).status]).toEqual([404, 200, 404]);
+  });
+}, 60000);
+
+// LLP 1048.006 under Bun: a page laid out by the viewport is rendered at the reader's, as its request tells it, and asks for
+// the hints that tell it; a desktop browser's first visit gets the desktop layout, not the phone's it would shift from.
+test('serve lays a page out for the viewport its request tells', async () => {
+  await renderedPages(`shape Viewport
+  width: number
+
+routes nav
+  home "/" render=request
+
+component App
+  resource viewport = exactViewport() as shape Viewport
+  derive wide = viewport.width >= 640
+  view
+    main
+      text (wide ? "wide" : "narrow")
+`, async (_, html, dist) => {
+    const { pageServer } = await import('./render.mjs');
+    const page = pageServer(dist, undefined, () => {});
+    const at = async headers => { const r = await page('/', name => headers[name]); return [/>(wide|narrow)</.exec(Buffer.from(r.body).toString())?.[1], r.headers['accept-ch']?.includes('Sec-CH-Viewport-Width')]; };
+    const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15';
+    const phone = 'Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36';
+    expect(await at({ 'user-agent': mac })).toEqual(['wide', true]);
+    expect(await at({ 'user-agent': phone, 'sec-ch-ua-mobile': '?1' })).toEqual(['narrow', true]);
+    expect(await at({ 'user-agent': mac, 'sec-ch-viewport-width': '500' })).toEqual(['narrow', true]);
+    expect(await at({})).toEqual(['narrow', true]);
   });
 }, 60000);
 

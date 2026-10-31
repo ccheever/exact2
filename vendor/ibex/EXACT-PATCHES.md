@@ -457,6 +457,30 @@ reach `grant.rs`. Bionic's `faccessat` refuses every flag, so on Android
 `crate::AT_EACCESS` is none and `access` checks its leaf without
 `AT_SYMLINK_NOFOLLOW`, after the `fstatat` that found it no link. Replay on a refresh.
 
+## Local patch 25, a database file held by one SQLite library at a time
+
+For exact2 LLP 1154 D3: an embedder may link a second SQLite library beside
+this one (a native module's), and two in one process are safe only while no
+file is open in both, since closing any descriptor of a file drops every
+POSIX lock the process holds on it (sqlite.org/howtocorrupt.html §2.2.1).
+`ibex2-sqlite`'s `held.rs` keeps the process's registry: `SqliteProvider::open`
+counts each connection's file before SQLite opens it and refuses one that
+`reserve(path)` has reserved; `reserve` refuses a file a connection has open,
+and its `Reservation` ends the reservation when dropped and says whether the
+file `existed()`; a connection's count ends at a successful close or when it
+drops. A file is one entry by its name under its canonical directory and by
+its device and inode, so a case alias or a hard link is the same file: an
+absent file is created empty (`O_EXCL`) under the registry's lock when its
+entry is made, by either side, and an entry keeps the identity it learned
+then for its life, matching by name only where an identity is unknown: the
+holder's descriptor keeps the inode from reuse, and a name unlinked and made
+again names another file. `stdlib/app_fs_unix.rs`
+`AppDirectories::sqlite_path` checks that the database is a regular file with
+`fstatat(AT_SYMLINK_NOFOLLOW)` beneath the pinned parent instead of opening
+and closing it, so resolving a path, a refused one's included, never touches
+another library's locks. exact2 tests both through `exact-js`
+(`tests/it/native_storage.rs`). Replay on a refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.
