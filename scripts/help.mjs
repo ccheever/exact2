@@ -109,7 +109,7 @@ export const HELP = {
     line: 'build the web app once (the page test web and agent web drive)',
     usage: 'bun exact.mjs web-build [--out <dir>] [--render rust|js|none]',
     flags: [
-      ['--out <dir>', 'build there (dist, say) instead of target/web-dist, and say how a static host serves it'],
+      ['--out <dir>', 'a release build there (inside the app: dist), as deploy publishes, and how a static host serves it'],
       ['--render rust|js|none', 'pre-rendered pages: rust (the app\'s <app>-render entry; the default where it has one), js (Bun; the default otherwise), none'],
     ],
     internal: ['--js', '--wasm', '--bake'],
@@ -129,8 +129,8 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
     ],
     internal: ['--loopback'],
     body: `Serves <dir> (default target/web-dist, web-build's) and prints its URL. For a request: the
-file at its path; else, for a page whose path a route in routes.json matches, shell.html with
-200, or for a render=request or cached route its page rendered under Bun (cached: kept 60 s);
+file at its path; else, for a browser's navigation to a path a route in routes.json matches,
+shell.html with 200, or for a render=request or cached route its page rendered under Bun;
 else 404.html with 404. A static host serves the directory so, with those routes' shell.
 Ports    one HTTP port, on 127.0.0.1 (--lan: every interface). Runs in the foreground until ^C.`,
     example: 'bun exact.mjs serve dist --port 3000',

@@ -619,26 +619,30 @@ function routeFileIdentity(dist, files) {
   return [was.root, was.at.dev, was.at.ino, ...files.map(stamp)].join('|');
 }
 /** The route table of a JS-target build, from the `routes.json` its build writes from the plan: `[]` for none, or
- * for one this does not read (no route is then declared). Checked as `servedRoutePlan` checks a plan. */
+ * for one this does not parse (no route is then declared), and null when it cannot be read: a read that fails, or
+ * a build that moves under it, is asked again, four times in all. Checked as `servedRoutePlan` checks a plan. */
 function* servedRouteTable(dist) {
   const key = `routes:${resolve(dist)}`;
   for (let attempt = 0; attempt < 4; attempt++) {
+    let identity, bytes;
     try {
-      const identity = routeFileIdentity(dist, ['routes.json']);
+      identity = routeFileIdentity(dist, ['routes.json']);
       if (!identity) return [];
       const cached = servedRoutePlans.get(key);
       if (cached?.identity === identity) return cached.plan;
-      const bytes = yield {op: 'get', root: resolve(dist), path: 'routes.json'};
+      bytes = yield {op: 'get', root: resolve(dist), path: 'routes.json'};
       if (routeFileIdentity(dist, ['routes.json']) !== identity) continue;
+    } catch { continue; }
+    let routes = [];
+    try {
       const table = bytes === null ? null : JSON.parse(Buffer.from(bytes, 'base64').toString('utf8'));
-      const routes = Array.isArray(table?.routes) && table.routes.every((r) => typeof r?.pattern === 'string')
-        ? table.routes.map((r) => ({pattern: r.pattern, notfound: r.notfound === true, render: r.render})) : [];
-      if (servedRoutePlans.size >= 32) servedRoutePlans.delete(servedRoutePlans.keys().next().value);
-      servedRoutePlans.set(key, {identity, plan: routes});
-      return routes;
-    } catch { return []; }
+      if (Array.isArray(table?.routes) && table.routes.every((r) => typeof r?.pattern === 'string')) routes = table.routes.map((r) => ({pattern: r.pattern, notfound: r.notfound === true, render: r.render}));
+    } catch { /* not a route table */ }
+    if (servedRoutePlans.size >= 32) servedRoutePlans.delete(servedRoutePlans.keys().next().value);
+    servedRoutePlans.set(key, {identity, plan: routes});
+    return routes;
   }
-  return [];
+  return null;
 }
 // Check the build, plan and published head before reading. A producer may
 // rewrite a local plan without replacing its build directory.
@@ -747,23 +751,6 @@ export function replaceBuild(stage, dist) {
   });
 }
 
-/** Put the complete build in `stage` in place of `out`, a directory an author named (`web-build --out`), as
- * `replaceBuild` does, but keeping no generation of the build it replaces: what is left beside `out` would sit in the
- * app's folder, so the lock and the tree put aside take dot names, and the tree is removed. */
-export function replaceOut(stage, out) {
-  const beside = (suffix) => resolve(dirname(out), `.${basename(out)}.${suffix}`);
-  withLock(beside('lock'), () => {
-    if (!realDirectory(stage)) throw new Error(`${stage}: no build to put in place`);
-    if (!existsSync(out)) { renameSync(stage, out); return; }
-    if (realDirectory(out) && exchangeDirectories(stage, out)) { rmSync(stage, { recursive: true, force: true }); return; }
-    const aside = beside('previous');
-    rmSync(aside, { recursive: true, force: true });
-    renameSync(out, aside);
-    try { renameSync(stage, out); } catch (error) { renameSync(aside, out); throw error; }
-    rmSync(aside, { recursive: true, force: true });
-  });
-}
-
 /** The lines `web-build --out` ends with (LLP 1153 D3): each route a static root cannot render on request, which
  * `serve` renders, then the directory and the rule any static host serves it by, which `serve` applies
  * (`buildTreeFile`). */
@@ -773,7 +760,7 @@ export function hostingNotes(dist, serve = 'bun exact.mjs serve') {
   return [
     ...routes.filter((r) => r.render === 'request' || r.render === 'cached').map((r) => `${r.notfound ? 'notfound' : r.pattern}: render=${r.render}, so serve renders its page ${r.render === 'cached' ? 'and keeps it 60 s' : 'for each request'}; a static host serves its shell, and the client draws it`),
     `${shown}: the site, for any static host. ${serve} ${shown} serves it by the rule a host applies:`,
-    `  a file at the path; else, for a page whose path a route in routes.json matches, shell.html with status 200; else ${missing}.`,
+    `  a file at the path; else, for a browser's navigation to a path a route in routes.json matches, shell.html with status 200; else ${missing}.`,
     '  A host with a single fallback page serves shell.html for every page it lacks; the client then draws the notfound route.',
   ];
 }
@@ -826,10 +813,10 @@ export function jsTargetBuild(dist) {
   catch { return false; }
 }
 /** A file of a JS-target build for a request path, by the hosting rule (LLP 1153 D3): the file, or a directory's
- * index.html (a page rendered at build); else, for a document whose path a route in the build's `routes.json`
- * matches, `shell.html`. With `miss`, a request the rule finds nothing for gets the build's `404.html`, else, for a
- * document, the shell, whose client draws the notfound route; either marked `status: 404`. The previous build answers
- * during a rebuild's rename. */
+ * index.html (a page rendered at build); else, for an HTML navigation (`acceptsHTML`) whose path a route in the
+ * build's `routes.json` matches, `shell.html`. With `miss`, a request the rule finds nothing for gets the build's
+ * `404.html`, else, for a navigation to a page, the shell, whose client draws the notfound route; either marked
+ * `status: 404`. The previous build answers during a rebuild's rename. */
 export function buildTreeFile(dist, pathname, accept = '', { miss = false } = {}) { return runReads(treeFile(dist, pathname, accept, miss)); }
 export function buildTreeFileAsync(dist, pathname, accept = '', { miss = false } = {}) { return runReadsAsync(treeFile(dist, pathname, accept, miss)); }
 function* treeFile(dist, pathname, accept, miss) {
@@ -838,7 +825,7 @@ function* treeFile(dist, pathname, accept, miss) {
   // No dot path, but the auth callback page's (LLP 1069.006 D4: `/.exact/auth/…`)
   // and the install pages and their data (LLP 1030.003 D6a).
   if (!path.startsWith('/') || path.includes('\\') || path.includes('\0') || (!INSTALL_PUBLIC.includes(path) && path.replace(/^\/\.exact\/auth\//, '/').split('/').some((part) => part.startsWith('.')))) return null;
-  const navigation = acceptsHTML(accept), document = appDocumentPath(pathname, navigation);
+  const navigation = acceptsHTML(accept), page = navigation && appDocumentPath(pathname, true);
   // Asked again, three times at most: a build put in place as it was looked up
   // moves the tree it resolved away under it (its files then resolve to
   // where the old tree went).
@@ -853,18 +840,20 @@ function* treeFile(dist, pathname, accept, miss) {
     };
     const found = file(path) ?? file(path.replace(/\/?$/, '/index.html'));
     if (found) return found;
-    // A dotted last segment is a document only on a navigation, and then only when it is no file's extension or a
+    // Only a navigation gets the shell; a dotted last segment is a page only when it is no file's extension or a
     // route matches it (`appDocumentPath`).
-    if (document || navigation) {
+    if (navigation) {
       const routes = yield* servedRouteTable(root);
       if (!stillBuild(dist, was)) continue;
-      const at = appDocumentPath(pathname, navigation, routes) ? matchPattern(routes, canonical(pathname)) : -1;
+      // A route table that cannot be read is no answer yet (503 when serving), never "no route" (a 404 for a page).
+      if (routes === null) return miss ? { status: 503 } : null;
+      const at = appDocumentPath(pathname, true, routes) ? matchPattern(routes, canonical(pathname)) : -1;
       // (With the route's render policy: `serve` renders a `request` or `cached` route's page instead.)
       const shell = at >= 0 && file('/shell.html');
       if (shell) return { ...shell, render: routes[at].render };
     }
-    const page = miss && (file('/404.html') ?? (document ? file('/shell.html') : null));
-    if (page) return { ...page, status: 404 };
+    const missed = miss && (file('/404.html') ?? (page ? file('/shell.html') : null));
+    if (missed) return { ...missed, status: 404 };
     // None there: asked again only if the build moved meanwhile.
     if (stillBuild(dist, was)) return null;
   }
@@ -895,7 +884,7 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
       return;
     }
   }
-  if (!r.body) { res.writeHead(r.status, { 'cache-control': 'no-store' }); res.end(); return; }
+  if (!r.body) { res.writeHead(r.status, { 'cache-control': 'no-store', ...(r.status === 503 ? { 'retry-after': '1' } : {}) }); res.end(); return; }
   sendStaticBody(req, res, r.body, { 'content-type': webContentType(r.route), 'cache-control': 'no-store' }, r.status);
 }
 

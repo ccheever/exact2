@@ -124,7 +124,8 @@ function sourcePathspec(repo, app, exactRoot) {
       for (const output of ['target', '.shells', 'dist', 'dist.previous', 'artifacts']) outputs.push(resolve(dir, output));
     }
   }
-  if (app.manifest?.game) for (const output of ['target', '.shells', 'dist', 'dist.previous', 'artifacts']) outputs.push(resolve(app.dir, output));
+  // An app's web build in `dist` (`web-build --out dist`) and the builds kept beside it are outputs too.
+  for (const output of [...app.manifest?.game ? ['target', '.shells', 'artifacts'] : [], 'dist', 'dist.gen', 'dist.leases', 'dist.previous']) outputs.push(resolve(app.dir, output));
   // Keep the lexical path as well as its canonical alias. In particular,
   // `target -> /shared/cache` is still the declared in-repo output root; if
   // we realpath it first, the symlink itself re-enters the source inventory.
@@ -620,11 +621,10 @@ export function deployRun(target, release) {
 
 // ------------------------------------------------------------------ the bake
 
-/** The web root on the JS target (LLP 1071 §7, delivery), when it takes the app: the wasm bake's baked plan compiled
- * to JavaScript into `<run>/web-js` (`host/web-js/build.mjs --production`), carrying the bake's origin files, so the
- * root and every stream's bundle share one plan. The bake stays what the streams publish; the web needs no update
- * client, since a fresh load of the atomic root is current. With no bake (`web` null, LLP 1153 D3.6), the app's own
- * Contract, with no envelope. Returns the directory; a JS build that fails refuses the deploy, as the web build does. */
+/** The web root on the JS target (LLP 1071 §7, delivery): the wasm bake's plan compiled to JavaScript into
+ * `<run>/web-js` (`host/web-js/build.mjs --production`) with the bake's origin files, so the root and every stream's
+ * bundle share one plan, and a fresh load of the atomic root is current; with no bake (`web` null, LLP 1153 D3.6), the
+ * app's own Contract, with no envelope. Returns the directory; a JS build that fails refuses the deploy. */
 function bakeJs(app, run, web, exactRoot, sourceRoot) {
   const out = resolve(run, 'web-js');
   const env = sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_APP_DIR: app.dir });
@@ -703,14 +703,16 @@ function channelOf(manifest) {
   return names.length === 1 ? names[0] : 'prod';
 }
 
-/** Native deployment targets, including binary-only L=0: what `deploy.store` and `deploy.binaries` name, and none when they name none (LLP 1153 D1.5). Classification decides the carrier before touching a stream. */
+/** Native deployment targets, including binary-only L=0: what `deploy.store` and `deploy.binaries` name, else what `host` names (LLP 1153 D1.1). Classification decides the carrier before touching a stream. */
 export function nativePlatforms(manifest) {
   const deploy = manifest.deploy ?? {};
   const named = [...new Set([...Object.keys(deploy.store ?? {}), ...Object.keys(deploy.binaries ?? {})])].filter((p) => p !== 'web');
   const unknown = named.filter((p) => !PLATFORMS.includes(p));
   if (unknown.length) refuse(`app.json names the platform${unknown.length > 1 ? 's' : ''} ${unknown.join(', ')} under deploy; this repo builds ${PLATFORMS.join(', ')}`);
-  return PLATFORMS.filter((p) => named.includes(p));
+  return PLATFORMS.filter((p) => p !== 'web' && (named.length ? named : Object.keys(manifest.host ?? {})).includes(p));
 }
+/** Whether the manifest names a native platform, under `host` or `deploy`; one that names none ships the web root alone, with no stream and no envelope, and its deploy bakes nothing (LLP 1153 D1.5, D3.6). */
+export const namesNative = (manifest) => [manifest.host, manifest.deploy?.store, manifest.deploy?.binaries].some((table) => Object.keys(table ?? {}).some((p) => p !== 'web'));
 
 /** What the bundle changes against a head: `app.plan` and each asset by digest — new, changed, removed — with a `.wgsl` whose cohort is this one marked an asset (its interface digest is an input to the id, so an unchanged id is an unchanged interface). */
 function changesAgainst(bundle, head) {
@@ -1325,8 +1327,7 @@ async function deployCaptured(opts, capsule) {
   if (signer) log(`signing as ${signer.keyId} (${signer.path})`);
   if (signer) origin.useSigner?.(signer);
 
-  // A manifest naming no native platform has no stream and no envelope (LLP 1153 D3.6): nothing is baked.
-  const webOnly = app.manifest.game === undefined && !nativePlatforms(app.manifest).length;
+  const webOnly = app.manifest.game === undefined && !namesNative(app.manifest);
   log(`snapshot ${snapshot.id}${snapshot.sources.length > 1 ? ` (${snapshot.sources.map((source) => `${source.roles.join('+')} ${source.commit.slice(0, 7)}`).join(', ')})` : ''}${snapshot.dirty ? ' + uncommitted changes (--dirty)' : ''}; ${webOnly ? 'building the web root, no stream named,' : 'baking'} into ${run}`);
   const web = webOnly ? null : bake(app, run, exactRoot, sourceRoot);
   const webRoot = wantOrigin && app.manifest.game === undefined ? bakeJs(app, run, web, exactRoot, sourceRoot) : web;
@@ -1361,7 +1362,7 @@ async function deployCaptured(opts, capsule) {
 
   const table = await classify({ app, opts, origin, channel, snapshot, release, web: webRoot, bundle, compat, builds, platforms, wantOrigin });
   table.appdrop = appdropPlan(app, table, builds);
-  if (webOnly) table.notes.push('app.json names no native platform under deploy, so this publishes the web root alone: no stream, and no envelope for a native client');
+  if (webOnly) table.notes.push('app.json names no native platform under host or deploy, so this publishes the web root alone: no stream, and no envelope for a native client');
   if (!opts.json) console.log(renderTable(table) + (table.appdrop ? `\n${renderAppdrop(table.appdrop)}` : ''));
 
   if (!opts.yes) {

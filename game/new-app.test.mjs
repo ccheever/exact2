@@ -9,6 +9,7 @@ import { outsideWorkspaceProblems, pathFrom, readManifest, resolveApp } from '..
 import { bringPlatform, ensureShells, namePlatform, platformOf, shellCrates, withoutPlatformKeys } from '../scripts/app-shells.mjs';
 import { authoredWorkspace } from '../scripts/cargo-check.mjs';
 import { appVerbs } from '../scripts/app-cli.mjs';
+import { namesNative, nativePlatforms } from '../scripts/deploy.mjs';
 import { applyPattern, authoredApp, createApp, createGame, patternFiles, patterns, rosterSeeds, wireSnapback, withoutMember } from './new.mjs';
 
 /** An app that authored its crates, as `exact new` wrote them before LLP 1153 (or one that needs Rust of its own): the
@@ -590,12 +591,16 @@ test('update --without edits any spelling of the workspace member, and a refusal
     assert.deepEqual(state(), again);
     assert.ok(existsSync(resolve(dir, 'linux/Cargo.toml')));
     assert.deepEqual(readdirSync(dir).filter(f => f.startsWith('.linux')), []);
-    // The last native store may go: a manifest naming no native platform ships none (LLP 1153 D1.5).
+    // The last native key may go: with the native hosts gone too, the manifest names no native platform and ships
+    // none (LLP 1153 D1.5).
     writeFileSync(apple, appleManifest);
+    app.host = { web: {}, linux: {} };
     app.deploy.store = { web: '0', linux: '0' };
     writeFileSync(manifest, JSON.stringify(app, null, 2) + '\n');
-    assert.match(createApp(dir, { update: true, without: 'linux' }), /without linux \(removed its workspace member, app\.json deploy\.store\.linux, linux\/\)/);
-    assert.deepEqual(JSON.parse(readFileSync(manifest, 'utf8')).deploy.store, { web: '0' });
+    assert.match(createApp(dir, { update: true, without: 'linux' }), /without linux \(removed its workspace member, app\.json host\.linux, app\.json deploy\.store\.linux, linux\/\)/);
+    const left = JSON.parse(readFileSync(manifest, 'utf8'));
+    assert.deepEqual([left.host, left.deploy.store], [{ web: {} }, { web: '0' }]);
+    assert.deepEqual([nativePlatforms(left), namesNative(left)], [[], false]);
     assert.ok(!existsSync(resolve(dir, 'linux')));
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000);

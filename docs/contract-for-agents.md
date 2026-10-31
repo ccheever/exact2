@@ -2320,12 +2320,15 @@ Exact's web servers use declared routes for file-like deep links: `/profile/:han
 admits a navigation to `/profile/photos.zip`. Existing public files win; unmatched
 file paths stay 404, even with `notfound`.
 
-**A built site, hosted.** `bun exact.mjs web-build --out dist` writes the site to `dist/`: a
-page for each `render=build` route (rendered under Bun unless the app has a render entry of its
-own), `404.html` for a `notfound` route rendered so, `shell.html`, and `routes.json`, the route
-table in the plan's order with each route's pattern, render policy and `notfound`. `bun
-exact.mjs serve dist` serves it on 127.0.0.1 (`--lan`: every interface), and any static host
-serves it by the same rule: a file at the path; else, for a page whose path a route matches,
+**A built site, hosted.** `bun exact.mjs web-build --out dist` writes the site to `dist/`, a
+release build as deploy makes one (no agent mode): a page for each `render=build` route
+(rendered under Bun unless the app has a render entry of its own), `404.html` for a `notfound`
+route rendered so, `shell.html`, and `routes.json`, the route table in the plan's order with each
+route's pattern, render policy and `notfound`. Inside the app, `--out` is `dist` (or a path under
+`dist/` or `target/`), which no build reads as source; the build it replaces is kept beside it in
+`dist.gen` while a page sent from it may still ask for its files. `bun exact.mjs serve dist`
+serves it on 127.0.0.1 (`--lan`: every interface), and any static host serves it by the same
+rule: a file at the path; else, for a browser's navigation to a path a route matches,
 `shell.html` with 200; else `404.html` with 404. A host with a single fallback page serves
 `shell.html` for every page it lacks, and the client draws the `notfound` route. For a route
 declared `render=request` or `cached`, `serve` renders the page for the request under Bun

@@ -36,7 +36,7 @@ import { DEV_STATUS_TYPE, FAILED, PHASE, gist } from '../web/dev-phase.mjs';
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
-const skipped = /(^|\/)(target|dist(?:\.previous)?|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$/;
+const skipped = /(^|\/)(target|dist(?:\.(?:gen|gen\.reaped|leases|lock|previous|stage-[^/]+))?|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$/;
 /** The files beside app.json a setting is read from (`import.meta.env`, LLP 1153 D4): inputs, though dot files. */
 const settingsFile = (name) => /^\.env(?:\.local)?$/.test(String(name));
 /** Whether `path` changed from `since` (ms) until now, by the entry's own times (lstat: a link replaced by one to an older

@@ -1,6 +1,6 @@
 import { test, expect, mock, spyOn } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -134,6 +134,33 @@ test('production lazy host modules ignore agent storage and entropy parameters',
 }, 30000);
 
 
+// `web-build --out` replaces the directory it names whole, so it refuses, before building, one that is or holds the
+// app or this checkout (through a link too), one inside the app where a source scan would read it, and one already
+// holding what is not a web build; each leaves the app as it was.
+test('web-build --out refuses a directory it would destroy', () => {
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-site-out-')), app = resolve(dir, 'site');
+  try {
+    mkdirSync(app);
+    writeFileSync(resolve(app, 'app.json'), JSON.stringify({ name: 'Site', app: { id: 'test.site', name: 'Site' } }));
+    writeFileSync(resolve(app, 'app.contract'), 'component App\n  view\n    text "Site"\n');
+    symlinkSync(app, resolve(dir, 'link'));
+    mkdirSync(resolve(dir, 'notes'));
+    writeFileSync(resolve(dir, 'notes/todo.txt'), 'keep');
+    writeFileSync(resolve(dir, 'file'), 'keep');
+    for (const [out, why] of [[app, /it is or holds the app/], [dir, /it is or holds the app/], [resolve(dir, 'link'), /it is or holds the app/],
+      [root, /it is or holds this exact2 checkout/], [resolve(root, '..'), /it is or holds this exact2 checkout/], [resolve(app, 'site'), /inside the app, the build goes in dist/], [resolve(app, '.site'), /inside the app/],
+      [resolve(dir, 'notes'), /holds files that are not a web build/], [resolve(dir, 'file'), /is not a directory/]]) {
+      const r = spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
+      expect([out, r.status, why.test(r.stderr)], r.stderr).toEqual([out, 2, true]);
+    }
+    expect(readdirSync(app).sort()).toEqual(['app.contract', 'app.json']);
+    expect(readFileSync(resolve(dir, 'notes/todo.txt'), 'utf8')).toBe('keep');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 30000);
+
 // LLP 1153 D3: `web-build --out` writes a site any static host serves (its pages, the shell, the route table and
 // 404.html, none of the build's intermediates but the server bundle), ends saying how a host serves it, and serve.mjs
 // serves it so; `serve` (serve.mjs as the verb runs it) renders a `render=request` route's page for each request and
@@ -141,17 +168,19 @@ test('production lazy host modules ignore agent storage and entropy parameters',
 test('web-build --out writes a site that serve.mjs serves by the hosting rule, rendering request and cached routes', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-site-')), app = resolve(dir, 'site'), out = resolve(dir, 'dist');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-site-')), app = resolve(dir, 'site'), out = resolve(app, 'dist');
   let server, serve;
   try {
     mkdirSync(app);
     writeFileSync(resolve(app, 'app.json'), JSON.stringify({ name: 'Site', app: { id: 'test.site', name: 'Site' } }));
-    writeFileSync(resolve(app, 'app.contract'), 'shape Note\n  text: string\n\nroutes nav\n  home "/" render=build\n  item "/item/:id"\n  live "/live" render=request\n  feed "/feed" render=cached\n  notfound render=build\n\n'
-      + 'component App\n  resource note = note("rendered") as shape Note\n  view\n    column\n      text top(nav).url\n      text note.text\n');
+    const source = 'shape Note\n  text: string\n\nroutes nav\n  home "/" render=build\n  item "/item/:id"\n  live "/live" render=request\n  feed "/feed" render=cached\n  notfound render=build\n\n'
+      + 'component App\n  resource note = note("rendered") as shape Note\n  view\n    column\n      text top(nav).url\n      text note.text\n';
+    writeFileSync(resolve(app, 'app.contract'), source);
     writeFileSync(resolve(app, 'app.ts'), "import type { Answer, Result, Sources } from './app.contract.d.ts';\nexport const appId = 'test.site';\nexport const grants = '';\n"
       + "const sources: Sources = { note: ([what]): Result<'note'> => ({ text: `The note, ${what}.` }) };\n"
       + 'export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);\n');
-    const built = spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
+    const build = () => spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
+    const built = build();
     expect(built.status, built.stdout + built.stderr).toBe(0);
     expect(built.stdout).toContain('site: no site-render entry, so its pages render under Bun (--render js)');
     expect(built.stdout).toContain('/live: render=request, so serve renders its page for each request; a static host serves its shell');
@@ -169,18 +198,37 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     expect(readdirSync(resolve(out, '.gen'))).toEqual(['server.js']);
     expect(files).not.toContain('app.plan.map.json');
     expect(JSON.parse(readFileSync(resolve(out, '.exact-build.json'), 'utf8')).inputs).toBeUndefined();
-    expect(readdirSync(dir).sort()).toEqual(['dist', 'site']);
+    // A site to host is a release, as delivery builds one: no file of it admits agent mode, and its install pages say so.
+    for (const name of readdirSync(out, { recursive: true }).filter((name) => /\.m?js$/.test(name))) {
+      expect(readFileSync(resolve(out, name), 'utf8'), name).not.toContain('const AGENT_ADMITTED = true;');
+    }
+    expect(readFileSync(resolve(out, '.exact/install.json'), 'utf8')).toContain('"mode": "Release build"');
+    expect(readFileSync(resolve(out, 'index.html'), 'utf8')).toContain('<link rel="manifest" href="./manifest.json">');
+    expect(readdirSync(app).filter((name) => name.startsWith('dist'))).toEqual(['dist']);
     // As a static host serves it: a request or cached route gets the shell, which has none of the data.
     const { serveBuildTree } = await import('../web/serve.mjs');
     server = createServer((req, res) => serveBuildTree(out, req, res));
     await new Promise(ok => server.listen(0, '127.0.0.1', ok));
     const page = (name) => readFileSync(resolve(out, name), 'utf8');
+    const url = (path) => `http://127.0.0.1:${server.address().port}${path}`, html = { accept: 'text/html' };
     expect(page('shell.html')).not.toContain('The note, rendered.');
-    for (const [path, status, file] of [['/', 200, 'index.html'], ['/item/7', 200, 'shell.html'], ['/live', 200, 'shell.html'], ['/no/such/route', 404, '404.html'], ['/nope.png', 404, '404.html']]) {
-      const r = await fetch(`http://127.0.0.1:${server.address().port}${path}`);
+    for (const [path, accept, status, file] of [['/', 'text/html', 200, 'index.html'], ['/item/7', 'text/html', 200, 'shell.html'], ['/live', 'text/html', 200, 'shell.html'],
+      ['/item/7', 'application/json', 404, '404.html'], ['/no/such/route', 'text/html', 404, '404.html'], ['/nope.png', '*/*', 404, '404.html']]) {
+      const r = await fetch(url(path), { headers: { accept } });
       // (A served document names its build's generation in its base.)
-      expect([path, r.status, (await r.text()).replace(/<base href="[^"]*">/, '<base href="/">')]).toEqual([path, status, page(file)]);
+      expect([path, accept, r.status, (await r.text()).replace(/<base href="[^"]*">/, '<base href="/">')]).toEqual([path, accept, status, page(file)]);
     }
+    // A page sent before the build is replaced still loads its build's files: the build replaced is kept beside the
+    // output by its generation (`dist.gen`), as target/web-dist's is.
+    const generation = async () => /<base href="\/\.exact\/gen\/([0-9a-f]{32})\/">/.exec(await (await fetch(url('/'), { headers: html })).text())?.[1];
+    const before = await generation(), script = readFileSync(resolve(out, 'app.js'));
+    writeFileSync(resolve(app, 'app.contract'), source.replace('text note.text\n', 'text note.text\n      text "Changed."\n'));
+    const rebuilt = build();
+    expect(rebuilt.status, rebuilt.stdout + rebuilt.stderr).toBe(0);
+    const after = await generation(), kept = await fetch(url(`/.exact/gen/${before}/app.js`));
+    expect([before === after, kept.status, Buffer.from(await kept.arrayBuffer()).equals(script)]).toEqual([false, 200, true]);
+    expect(readFileSync(resolve(out, 'app.js')).equals(script)).toBe(false);
+    expect(readdirSync(app).filter((name) => name.startsWith('dist')).sort()).toEqual(['dist', 'dist.gen']);
     // As `serve` serves it: each route's page rendered with its data, the live one per request, the cached one once.
     const probe = createServer();
     await new Promise(ok => probe.listen(0, '127.0.0.1', ok));
@@ -198,7 +246,7 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     serve.stdout.on('data', (data) => { said += data; });
     serve.stderr.on('data', (data) => { said += data; });
     await heard((text) => text.includes(`http://127.0.0.1:${port}/`));
-    const get = async (path) => { const r = await fetch(`http://127.0.0.1:${port}${path}`); return { status: r.status, cache: r.headers.get('cache-control'), body: await r.text() }; };
+    const get = async (path) => { const r = await fetch(`http://127.0.0.1:${port}${path}`, { headers: html }); return { status: r.status, cache: r.headers.get('cache-control'), body: await r.text() }; };
     const feed = [await get('/feed'), await get('/feed')], live = [await get('/live'), await get('/live')];
     for (const r of [...feed, ...live]) expect([r.status, r.body.includes('The note, rendered.'), r.body.includes('<div id="exact-root"></div>')]).toEqual([200, true, false]);
     expect(feed.map((r) => r.cache)).toEqual(['public, max-age=0, s-maxage=60', 'public, max-age=0, s-maxage=60']);

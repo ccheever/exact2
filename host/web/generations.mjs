@@ -162,6 +162,7 @@ export async function generationFile(dist, id, pathname, accept = '', { miss = f
   for (const end = Date.now() + 1000; ;) {
     if (generationOf(dist) === id) {
       const found = await buildTreeFileAsync(dist, pathname, accept, { miss });
+      if (found?.status === 503) return 'busy'; // (its route table unreadable: serve.mjs `buildTreeFile`)
       let body = null;
       try { body = found && readFileSync(found.path); } catch { /* moved */ }
       if (generationOf(dist) === id) return found && body ? { ...found, body, id } : null;
@@ -170,6 +171,7 @@ export async function generationFile(dist, id, pathname, accept = '', { miss = f
     const dir = resolve(generationsOf(dist), id);
     if (realDirectory(dir)) {
       const found = await buildTreeFileAsync(dir, pathname, accept, { miss });
+      if (found?.status === 503) return 'busy';
       let body = null;
       try { body = found && readFileSync(found.path); } catch { /* reaped meanwhile */ }
       if (body) return { ...found, body, id };
@@ -210,6 +212,7 @@ export async function servedFile(dist, pathname, accept = '', { base = '/', pinn
     // exchange) there is no dist, and `.previous` answers with no generation: asked again until the swap is done.
     for (const end = Date.now() + 1000; found === undefined; ) {
       const id = generationOf(dist), at = await buildTreeFileAsync(dist, pathname.slice(base.length - 1) || '/', accept, { miss: true });
+      if (at?.status === 503) return { status: 503 };
       let body = null;
       try { body = at && readFileSync(at.path); } catch { /* moved */ }
       // (No dist and no swap under way: no build yet, or one a killed swap left as `.previous`, served as before.)

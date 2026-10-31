@@ -39,7 +39,9 @@ test('a navigation to a dotted deep link is the document; a fetch of one is not'
     expect((await readWebRequest(dist, '/assets/app.css', html)).found?.route).toBe('/assets/app.css');
     expect(buildTreeFile(dist, '/profile/jay.bsky.team', html)?.route).toBe('/shell.html');
     expect(buildTreeFile(dist, '/profile/jay.bsky.team')).toBe(null);
-    expect(buildTreeFile(dist, '/profile/alice')?.route).toBe('/shell.html');
+    // A build tree's shell is a navigation's (LLP 1153 D3.2): a fetch of a route's path, dotted or not, is no page.
+    expect(buildTreeFile(dist, '/profile/alice', html)?.route).toBe('/shell.html');
+    for (const accept of ['', '*/*', 'application/json']) expect(buildTreeFile(dist, '/profile/alice', accept), accept).toBe(null);
     // A missing file a page or an iframe navigates to is still missing.
     expect((await readWebRequest(dist, '/deck/missing.html', html)).found).toBe(null);
     expect((await readWebRequest(dist, '/assets/missing.pdf', html)).found).toBe(null);
@@ -125,8 +127,9 @@ test('declared routes disambiguate file extensions on both serving paths and fol
   } finally { rmSync(dist, {recursive: true, force: true}); }
 });
 
-// LLP 1153 D3: a JS-target build is served as any static host serves it: a file, else a declared route's shell with
-// 200, else 404.html with 404. With no 404.html a page's miss gets the shell, whose client draws the notfound route.
+// LLP 1153 D3: a JS-target build is served as any static host serves it: a file, else for an HTML navigation a declared
+// route's shell with 200, else 404.html with 404. With no 404.html a page's miss gets the shell, whose client draws
+// the notfound route; a request for anything but HTML at a route's path is a miss.
 test('a build tree answers a miss with 404 and its 404.html, or a page with the shell', async () => {
   const dist = mkdtempSync(resolve(tmpdir(), 'exact-hosting-rule-'));
   let server;
@@ -142,13 +145,14 @@ test('a build tree answers a miss with 404 and its 404.html, or a page with the 
     };
     const shell = '<!doctype html><title>shell</title>', missing = '<title>not found</title>';
     expect(await get('/')).toEqual([200, '<title>home</title>']);
-    expect(await get('/profile/alice')).toEqual([200, shell]);
+    expect(await get('/profile/alice', 'text/html')).toEqual([200, shell]);
     expect(await get('/profile/alice.png', 'text/html')).toEqual([200, shell]);
+    for (const accept of ['*/*', 'application/json']) expect(await get('/profile/alice', accept), accept).toEqual([404, missing]);
     for (const path of ['/no/such/route', '/nope.png', '/profile/alice.png', '/profile/alice/']) expect(await get(path), path).toEqual([404, missing]);
     expect(await get('/no/such/route', 'text/html')).toEqual([404, missing]);
     rmSync(resolve(dist, '404.html'));
     expect(await get('/no/such/route', 'text/html')).toEqual([404, shell]);
-    expect(await get('/nope.png')).toEqual([404, '']);
+    for (const path of ['/nope.png', '/no/such/route']) expect(await get(path, 'application/json'), path).toEqual([404, '']);
     // Asked without `miss`, a miss is nothing, as before: the dev gallery and the tool serve only what is there.
     expect(buildTreeFile(dist, '/no/such/route', 'text/html')).toBe(null);
     expect(buildTreeFile(dist, '/no/such/route', 'text/html', {miss: true})).toMatchObject({route: '/shell.html', status: 404});
@@ -397,8 +401,9 @@ for (const failure of ['published plan', 'published pointer', 'local plan', 'tre
       const published = failure.startsWith('published');
       const root = published ? resolve(dist, 'origin') : dist;
       if (published) await publishRoot({origin: new DirectoryOrigin(root), row: {}, web: dist});
-      // Local static reads retry four times inside one request; published reads fail closed immediately.
-      let remaining = failure === 'local plan' ? 4 : 1, pointers = 0;
+      // Local static reads and a build tree's route table retry four times inside one request; published reads fail
+      // closed immediately.
+      let remaining = failure === 'local plan' || failure === 'tree plan' ? 4 : 1, pointers = 0;
       reads = spyOn(filesystem, 'filesystemRead').mockImplementation(request => {
         const selected = failure === 'published pointer' ? request.path === webRootPath && ++pointers === 2
           : failure === 'tree plan' ? request.path === 'routes.json'
@@ -414,6 +419,16 @@ for (const failure of ['published plan', 'published pointer', 'local plan', 'tre
       expect(await read('/index.html')).toBe('/index.html');
       expect(await read('/profile/photos.zip')).toBe(failure === 'tree plan' ? '/shell.html' : '/index.html');
       expect(await read('/deck/missing.html')).toBe(undefined);
+      if (failure === 'tree plan') {
+        // A route table that stays unreadable is no answer yet when serving (503), never a page's miss; one read that
+        // fails is asked again, and the route's shell served.
+        writeFileSync(resolve(dist, 'routes.json'), readFileSync(resolve(dist, 'routes.json'), 'utf8') + '\n');
+        remaining = 4;
+        expect(await buildTreeFileAsync(root, '/profile/photos.zip', 'text/html', {miss: true})).toEqual({status: 503});
+        writeFileSync(resolve(dist, 'routes.json'), readFileSync(resolve(dist, 'routes.json'), 'utf8') + '\n');
+        remaining = 1;
+        expect([await read('/profile/photos.zip'), remaining]).toEqual(['/shell.html', 0]);
+      }
     } finally {
       reads?.mockRestore();
       rmSync(dist, {recursive: true, force: true});
