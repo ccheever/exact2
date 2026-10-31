@@ -2,11 +2,11 @@ import { mobileMarkdownBlocks } from './markdown-blocks';
 import { queuedEditState, type MobileQueuedEditSession } from './queued-edit-memory';
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
-import { arr, obj, type Obj } from './shared/domain';
+import { arr, mergeHistory, obj, type Obj } from './shared/domain';
 import { chatLocal, transcriptRows } from './shared/timeline-presentation';
 import { timelineEntries } from './shared/timeline-rows';
 import type { Native } from './shared/protocol';
-import { mobileThread, mobileThreadRows, mobileThreadComposer } from './thread';
+import { mobileMessageTime, mobileThread, mobileThreadRows, mobileThreadComposer, mobileThreadAnswerFilesPrepare } from './thread';
 import { mobileCodeTokens } from './thread-highlight';
 import { mobileModelSelectionReady, mobileModelSelectionUnavailable } from './model-availability';
 import { htmlRenderFileName, htmlRenderFrameHeight, htmlRenderFromToolItem, htmlRenderReferencesEqual, readHtmlRenderReference } from './html-render';
@@ -37,6 +37,134 @@ function fixture(items: Obj[] = [], projection: Obj = {}): T3Client {
     visibleTurnItems: items.map((value, position) => ({ position, visibility: 'local', sourceThreadId: 't1', sourceItemId: value.id, item: value })) } };
   return client;
 }
+
+describe('bounded transcript Markdown reuse', () => {
+  test('streaming replaces changed blocks without rebuilding unchanged prose or retaining stale metadata', () => {
+    const prompt = user('Keep **this** prompt.'), response = answer('First paragraph.');
+    const client = fixture([prompt, response]);
+    const before = mobileThreadRows(client, now, false, 'visit');
+    response.text = 'First paragraph.\n\nNext paragraph.';
+    response.streaming = true;
+    response.updatedAt = at(120);
+    const after = mobileThreadRows(client, now, false, 'visit');
+    expect(after[0]!.blocks).toBe(before[0]!.blocks);
+    expect(after[1]!.blocks).not.toBe(before[1]!.blocks);
+    expect(after[1]).toMatchObject({ body: response.text, streaming: true, showMeta: false, timestamp: mobileMessageTime(at(120)) });
+    expect(JSON.parse(after[1]!.copyConfiguration).text).toBe(response.text);
+    expect(before[1]!.blocks).toEqual([{ id: '0', kind: 'markdown', text: 'First paragraph.', language: '', tokens: [] }]);
+    response.streaming = false;
+    response.updatedAt = at(180);
+    const completed = mobileThreadRows(client, now, false, 'visit');
+    expect(completed[1]!.blocks).toBe(after[1]!.blocks);
+    expect(completed[1]).toMatchObject({ streaming: false, showMeta: true, timestamp: mobileMessageTime(at(180)) });
+  });
+
+  test('long forward traversals retain a bounded tail through streaming and prepended history', () => {
+    const items = Array.from({ length: 400 }, (_, index) => item(`answer-${index}`, 'assistant_message',
+      { text: `Paragraph ${index}.`, messageId: `message-${index}`, streaming: false, ordinal: index + 1 }));
+    const client = fixture(items, { runs: [{ id: 'r1', status: 'running', startedAt: at(0) }] });
+    const first = mobileThreadRows(client, now);
+    const second = mobileThreadRows(client, now);
+    const content = (rows: typeof first) => rows.filter(row => row.kind === 'assistant');
+    const a = content(first), b = content(second);
+    expect(a).toHaveLength(400);
+    expect(b.map(row => row.body)).toEqual(items.map(value => value.text));
+    expect(b[0]!.blocks).not.toBe(a[0]!.blocks);
+    expect(b.at(-1)!.blocks).toBe(a.at(-1)!.blocks);
+    expect(b.filter((row, index) => row.blocks === a[index]!.blocks).length).toBeLessThanOrEqual(128);
+    const third = content(mobileThreadRows(client, now));
+    expect(third.at(-1)!.blocks).toBe(a.at(-1)!.blocks);
+    client.thread = mergeHistory(client.thread!, { snapshotSequence: 1, nextCursor: null, hasMoreHistory: false,
+      items: [{ position: 0, visibility: 'local', sourceThreadId: 't1', sourceItemId: 'older',
+        item: item('older', 'assistant_message', { text: 'Older paragraph.', messageId: 'older', streaming: false, ordinal: 0 }) }] });
+    const prepended = content(mobileThreadRows(client, now));
+    expect(prepended.map(row => row.body)).toEqual(['Older paragraph.', ...items.map(value => value.text)]);
+    expect(prepended.at(-1)!.blocks).toBe(a.at(-1)!.blocks);
+  });
+
+  test('theme, route and client ownership changes invalidate blocks without changing message identity', () => {
+    const client = fixture([answer('```typescript\nconst answer = 42;\n```')]);
+    let before = mobileThreadRows(client, now, false, 'visit')[0]!;
+    for (const change of [() => { client.generation++; }, () => { client.threadEpoch++; },
+      () => { client.environmentId = 'other'; }, () => { client.origin = 'https://other.example'; },
+      () => { client.projectId = 'other-project'; }, () => { client.threadId = 'other-thread'; }]) {
+      change();
+      const after = mobileThreadRows(client, now, false, 'visit')[0]!;
+      expect(after.id).toBe(before.id);
+      expect(after.blocks).not.toBe(before.blocks);
+      expect(JSON.parse(after.copyConfiguration).owner).toMatchObject({ generation: client.generation,
+        epoch: client.threadEpoch, environment: client.environmentId, origin: client.origin, project: client.projectId, thread: client.threadId });
+      before = after;
+    }
+    const dark = mobileThreadRows(client, now, true, 'visit')[0]!;
+    expect(dark.blocks).not.toBe(before.blocks);
+    expect(dark.blocks[0]!.tokens.map(token => token.text).join('')).toBe('const answer = 42;');
+    expect(mobileThreadRows(client, now, true, 'new-visit')[0]!.blocks).not.toBe(dark.blocks);
+    const otherClient = fixture([answer('```typescript\nconst answer = 42;\n```')]);
+    expect(mobileThreadRows(otherClient, now, true, 'new-visit')[0]!.blocks).not.toBe(dark.blocks);
+  });
+
+  test('oversized messages remain complete and do not evict a reusable small message', () => {
+    const huge = 'Long paragraph. '.repeat(40_000);
+    const client = fixture([user('Keep this.'), answer(huge)]);
+    const before = mobileThreadRows(client, now), after = mobileThreadRows(client, now);
+    expect(after[0]!.blocks).toBe(before[0]!.blocks);
+    expect(after[1]!.blocks).not.toBe(before[1]!.blocks);
+    expect(after[1]!.blocks.map(block => block.text).join('')).toBe(huge);
+    expect(JSON.parse(after[1]!.copyConfiguration).text).toBe(huge);
+  });
+
+  test('aggregate text and individual object budgets bound reuse without truncating content', () => {
+    const items = Array.from({ length: 8 }, (_, index) => item(`large-${index}`, 'assistant_message',
+      { text: `${index}:` + 'a'.repeat(40_000), messageId: `large-${index}`, streaming: false }));
+    const client = fixture(items, { runs: [{ id: 'r1', status: 'running', startedAt: at(0) }] });
+    const before = mobileThreadRows(client, now).filter(row => row.kind === 'assistant');
+    const after = mobileThreadRows(client, now).filter(row => row.kind === 'assistant');
+    expect(after.map(row => row.body)).toEqual(items.map(value => value.text));
+    const reused = after.filter((row, index) => row.blocks === before[index]!.blocks);
+    expect(reused.length).toBeGreaterThan(0);
+    expect(reused.reduce((sum, row) => sum + row.body.length * 2, 0)).toBeLessThanOrEqual(512 * 1024);
+    expect(after[0]!.blocks).not.toBe(before[0]!.blocks);
+
+    const manyBlocks = '```\nx\n```\n'.repeat(17_000);
+    const dense = fixture([user('Keep this.'), answer(manyBlocks)]);
+    const first = mobileThreadRows(dense, now), second = mobileThreadRows(dense, now);
+    expect(second[0]!.blocks).toBe(first[0]!.blocks);
+    expect(second[1]!.blocks).not.toBe(first[1]!.blocks);
+    expect(second[1]!.blocks).toHaveLength(17_000);
+    expect(second[1]!.blocks.every(block => block.text === 'x' && block.tokens.map(token => token.text).join('') === 'x')).toBe(true);
+    expect(JSON.parse(second[1]!.copyConfiguration).text).toBe(manyBlocks);
+  });
+
+  test('inherited source identities stay separate and code edits leave previous snapshots intact', () => {
+    const first = answer('```typescript\nconst n = 1;\n```'), second = answer('Other source.');
+    const client = fixture([first, second]);
+    client.thread!.projection.visibleTurnItems[1]!.sourceThreadId = 'ancestor';
+    const before = mobileThreadRows(client, now), saved = structuredClone(before);
+    const unchanged = mobileThreadRows(client, now);
+    expect(unchanged.map(row => row.id)).toEqual(['["t1","answer"]', '["ancestor","answer"]']);
+    expect(unchanged[0]!.blocks).toBe(before[0]!.blocks);
+    expect(unchanged[1]!.blocks).toBe(before[1]!.blocks);
+    first.text = '```typescript\nconst n = 2;\n```';
+    const edited = mobileThreadRows(client, now);
+    expect(edited[0]!.blocks[0]!.tokens.map(token => token.text).join('')).toBe('const n = 2;');
+    expect(edited[1]!.blocks).toBe(before[1]!.blocks);
+    expect(before).toEqual(saved);
+    client.threadId = 'other'; mobileThreadRows(client, now);
+    client.threadId = 't1';
+    expect(mobileThreadRows(client, now)[0]!.blocks).not.toBe(edited[0]!.blocks);
+  });
+
+  test('answer-file preparation leaves the visible route and theme cache intact', async () => {
+    const client = fixture([user('Read this.'), answer('```typescript\nconst n = 1;\n```')]);
+    const before = mobileThread(now, true, client, 'visible-visit');
+    await mobileThreadAnswerFilesPrepare(before.answerFilesOwner, before.answerFilesRequest, now, undefined, client);
+    const after = mobileThread(now, true, client, 'visible-visit');
+    expect(after.rows[0]!.blocks).toBe(before.rows[0]!.blocks);
+    expect(after.rows[1]!.blocks).toBe(before.rows[1]!.blocks);
+    expect(after.rows).toEqual(before.rows);
+  });
+});
 
 test('New agent attribution preserves two senders and exact automation precedence without rewriting messages', () => {
   const entry = (id: string, extra: Obj = {}) => item(id, 'user_message', { text: id, messageId: id, attachments: [], createdBy: 'agent', ...extra });
