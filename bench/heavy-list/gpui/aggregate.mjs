@@ -10,6 +10,8 @@ assert(bootOutput === undefined || mode === '--boot' && ['--table', '--verify'].
 const hookStates = new Set();
 const hookSamples = [];
 function hookState(raw, path, retained = raw.accepted !== false) {
+  assert(mode === '--sample' || !raw.fling?.start?.forcedInteractiveDiagnostic,
+    `${path}: forced QoS is diagnostic only; use --sample, never a scoreboard table`);
   const enabled = raw.gpuHookEnabled ?? true; // Pre-switch probes always enabled the hook.
   assert.equal(typeof enabled, 'boolean', `${path}: gpuHookEnabled must be boolean`);
   hookSamples.push({ path, gpuHookEnabled: retained ? enabled : raw.gpuHookEnabled ?? null,
@@ -47,6 +49,10 @@ function workCounters(start, end, seconds, path) {
       && end[counter] >= start[counter], `${path}: invalid ${counter}`);
     result[`${counter}_million_s`] = (end[counter] - start[counter]) / seconds / 1e6;
   }
+  if ('cycles_million_s' in result && end.cpu > start.cpu)
+    result.effective_ghz = (end.cycles - start.cycles) / (end.cpu - start.cpu) / 1e9;
+  if ('instructions_million_s' in result && end.cycles > start.cycles)
+    result.ipc = (end.instructions - start.instructions) / (end.cycles - start.cycles);
   return result;
 }
 function verifyPowerReport() {
@@ -104,14 +110,14 @@ if (mode === '--sample') {
   assert.equal(raw.accepted, true, `${directory}: rejected sample`);
   const enabled = hookState(raw, directory);
   console.log(`${hookLabel()} Instrument check only; not a scoreboard table.\n`);
-  console.log('| Phase | Seconds | Process CPU, ms | Main CPU, ms | Instructions | Cycles |');
-  console.log('|---|---:|---:|---:|---:|---:|');
+  console.log('| Phase | Seconds | Process CPU, ms | Main CPU, ms | Instructions | Cycles | Effective GHz | IPC |');
+  console.log('|---|---:|---:|---:|---:|---:|---:|---:|---:|');
   for (const phase of [raw.workload, ...(raw.rest ? ['rest'] : [])]) {
     const { start, end } = raw[phase];
     const seconds = end.time - start.time;
-    workCounters(start, end, seconds, directory);
+    const work = workCounters(start, end, seconds, directory);
     gpuMetrics(raw, phase, enabled, seconds, 0, directory);
-    console.log(`| ${phase} | ${seconds.toFixed(6)} | ${((end.cpu-start.cpu)*1000).toFixed(3)} | ${((end.main-start.main)*1000).toFixed(3)} | ${end.instructions-start.instructions} | ${end.cycles-start.cycles} |`);
+    console.log(`| ${phase} | ${seconds.toFixed(6)} | ${((end.cpu-start.cpu)*1000).toFixed(3)} | ${((end.main-start.main)*1000).toFixed(3)} | ${end.instructions-start.instructions} | ${end.cycles-start.cycles} | ${work.effective_ghz?.toFixed(3) ?? '—'} | ${work.ipc?.toFixed(3) ?? '—'} |`);
   }
   process.exit(0);
 }
@@ -342,6 +348,8 @@ function staticReport() {
       ['Process CPU, ms/s', 'cpu', 3], ['Main-thread CPU, ms/s', 'main', 3],
       ...(['instructions', 'cycles'].filter(key => targets.some(arm => summary[phase][arm][`${key}_million_s`]))
         .map(key => [`Process ${key}, million/s`, `${key}_million_s`, 3])),
+      ...(['effective_ghz', 'ipc'].filter(key => targets.some(arm => summary[phase][arm][key]))
+        .map(key => [key === 'ipc' ? 'Process instructions/cycle' : 'Process effective GHz', key, 3])),
       ['Frames/s; native display link / painted drawables', 'fps', 2],
       ['Peak footprint, MiB', 'peak_mib', 2], ['End footprint, MiB', 'end_mib', 2],
       ['GPU busy time, ms/s; process command buffers', 'gpu_ms_s', 3],
@@ -478,10 +486,14 @@ const resources = table([
   ['Fling main-thread CPU, ms/s', 'fling_main', 2],
   ...(['instructions', 'cycles'].filter(key => arms.some(arm => metrics[arm][`fling_${key}_million_s`]))
     .map(key => [`Fling process ${key}, million/s`, `fling_${key}_million_s`, 3])),
+  ...(['effective_ghz', 'ipc'].filter(key => arms.some(arm => metrics[arm][`fling_${key}`]))
+    .map(key => [key === 'ipc' ? 'Fling process instructions/cycle' : 'Fling process effective GHz', `fling_${key}`, 3])),
   ['Rest process CPU, ms/s', 'rest_cpu', 3],
   ['Rest main-thread CPU, ms/s', 'rest_main', 3],
   ...(['instructions', 'cycles'].filter(key => arms.some(arm => metrics[arm][`rest_${key}_million_s`]))
     .map(key => [`Rest process ${key}, million/s`, `rest_${key}_million_s`, 3])),
+  ...(['effective_ghz', 'ipc'].filter(key => arms.some(arm => metrics[arm][`rest_${key}`]))
+    .map(key => [key === 'ipc' ? 'Rest process instructions/cycle' : 'Rest process effective GHz', `rest_${key}`, 3])),
   ['Peak footprint during fling, MiB', 'peak_mib', 2],
   ['End-of-fling footprint, MiB', 'end_fling_mib', 2],
   ['End-of-rest footprint, MiB', 'end_rest_mib', 2],

@@ -7,9 +7,12 @@
 #include <libproc.h>
 #include <mach/mach.h>
 #include <mach/mach_time.h>
+#include <mach/task_policy.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <dlfcn.h>
+#include <sys/resource.h>
+#include <sys/sysctl.h>
 
 static double processStart, loaded, firstDrawable, firstComplete;
 static double firstCpu, firstInk;
@@ -309,6 +312,48 @@ static NSDictionary *usage(void) {
     NSMutableDictionary *sample = [@{@"time": @(CACurrentMediaTime()), @"cpu": @((r.ri_user_time + r.ri_system_time) * tickSeconds),
              @"main": @(main), @"cycles": @(r.ri_cycles), @"instructions": @(r.ri_instructions),
              @"footprint": @(r.ri_phys_footprint), @"lifetimePeak": @(r.ri_lifetime_max_phys_footprint)} mutableCopy];
+    if (getenv("G1_CLOCK_DIAGNOSTIC")) {
+        // XNU's thread_selfcounts kind 4 reports Mach time by hw.perflevel index.
+        // This diagnostic is deliberately absent from ordinary timing samples.
+        struct { uint64_t instructions, cycles, user, system; } levels[8] = {0};
+        unsigned n = 0; size_t size = sizeof(n);
+        int (*counts)(int, void *, size_t) = dlsym(RTLD_DEFAULT, "thread_selfcounts");
+        if (!pthread_main_np() || sysctlbyname("hw.nperflevels", &n, &size, NULL, 0)
+            || !n || n > 8 || !counts || counts(4, levels, n * sizeof(levels[0]))) abort();
+        NSMutableArray *perf = [NSMutableArray array];
+        for (unsigned i = 0; i < n; i++) {
+            char key[64], name[64]; size = sizeof(name);
+            snprintf(key, sizeof(key), "hw.perflevel%u.name", i);
+            if (sysctlbyname(key, name, &size, NULL, 0)) abort();
+            [perf addObject:@{@"name": @(name), @"cpu": @((levels[i].user + levels[i].system) * tickSeconds),
+                @"cycles": @(levels[i].cycles), @"instructions": @(levels[i].instructions)}];
+        }
+        sample[@"mainPerf"] = perf;
+        sample[@"mainRequestedQos"] = @(qos_class_self());
+        task_category_policy_data_t category = {0};
+        mach_msg_type_number_t count = TASK_CATEGORY_POLICY_COUNT;
+        boolean_t defaults = false;
+        kern_return_t roleStatus = task_policy_get(mach_task_self(), TASK_CATEGORY_POLICY,
+            (task_policy_t)&category, &count, &defaults);
+        // Diagnostic-only XNU task_policy_state ABI: retain raw bits as well as
+        // the current effective-policy role/clamp; this is not a runtime policy.
+        uint64_t policy[8] = {0}; count = sizeof(policy) / (sizeof(integer_t)); defaults = false;
+        kern_return_t policyStatus = task_policy_get(mach_task_self(), TASK_POLICY_STATE,
+            (task_policy_t)policy, &count, &defaults);
+        sample[@"taskPolicy"] = @{@"roleStatus": @(roleStatus), @"role": @(category.role),
+            @"stateStatus": @(policyStatus), @"effectiveRaw": [NSString stringWithFormat:@"%016llx", policy[7]],
+            @"effectiveRole": @((policy[7] >> 20) & 15), @"qosClamp": @((policy[7] >> 27) & 7),
+            @"darwinBackground": @((policy[7] & 1) != 0)};
+        sample[@"processQos"] = @{
+            @"default": @(r.ri_cpu_time_qos_default * tickSeconds),
+            @"maintenance": @(r.ri_cpu_time_qos_maintenance * tickSeconds),
+            @"background": @(r.ri_cpu_time_qos_background * tickSeconds),
+            @"utility": @(r.ri_cpu_time_qos_utility * tickSeconds),
+            @"legacy": @(r.ri_cpu_time_qos_legacy * tickSeconds),
+            @"userInitiated": @(r.ri_cpu_time_qos_user_initiated * tickSeconds),
+            @"userInteractive": @(r.ri_cpu_time_qos_user_interactive * tickSeconds)};
+        sample[@"forcedInteractiveDiagnostic"] = @(getenv("G1_CLOCK_QOS") != NULL);
+    }
     if (counterName && counterValue) {
         NSMutableDictionary *values = [NSMutableDictionary dictionary], *high = [NSMutableDictionary dictionary];
         size_t i = 0;
@@ -720,6 +765,18 @@ __attribute__((constructor)) static void initialize(void) {
     @autoreleasepool {
         const char *path = getenv("G1_OUTPUT");
         if (!path) return;
+        if (getenv("G1_CLOCK_DIAGNOSTIC")) {
+            [[NSString stringWithFormat:@"%d\n", getpid()]
+                writeToFile:[@(path) stringByAppendingString:@".pid"] atomically:YES
+                encoding:NSUTF8StringEncoding error:NULL];
+        }
+        if (getenv("G1_CLOCK_QOS")) {
+            if (!getenv("G1_CLOCK_DIAGNOSTIC")) abort();
+            int role = setpriority(PRIO_DARWIN_PROCESS, 0, 0);
+            int qos = pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+            fprintf(stderr, "clock diagnostic: clear background=%d; interactive QoS=%d\n", role, qos);
+            if (role || qos) abort();
+        }
         if (getenv("G1_AGENT_CPU_ONLY") && !getenv("EXACT_AGENT_LIVE")) abort();
         tracing = getenv("G1_TRACE") != NULL;
         dispatchTracing = tracing && getenv("G1_DISPATCH_TRACE");
