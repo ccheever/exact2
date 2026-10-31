@@ -1,18 +1,22 @@
 //! A package's prebuilt dynamic library, linked into the app's crate (LLP 1154 D3 "The library", LLP 1133.001 D9).
 //! The app's direct dependency whose `exact.json` declares `native.library` names one `{url, sha256}` per Rust
-//! target; the native build fetched the target's file before Cargo ran and laid out its link inputs under
-//! `~/.cache/exact/package-libraries/<sha256>/<target>/` (`scripts/package-libraries.mjs`). This build script only
-//! points the linker there: `-L` that directory, `-l` the declaration's `native.link`, and a run path where the
-//! product carries the library, beside a Linux executable (`$ORIGIN`) and a macOS one run as the Linux host
-//! (`@executable_path`). An Apple app's crate is an archive, which links nothing; `host/apple/build.mjs` links the
-//! framework into the app and embeds it.
+//! target; the native build fetched and checked the target's file before Cargo ran and laid out its link inputs
+//! under `~/.cache/exact/package-libraries/<sha256>/<target>/<link>/` (`scripts/package-libraries.mjs`). This build
+//! script only points the linker there: `-L` that directory, `-l` the declaration's `native.link`, and a run path
+//! where the product carries the library, beside a Linux executable (`$ORIGIN`) and a Mac one run as the Linux host
+//! (`@executable_path`). An Apple app's crate is an archive, for which Cargo records these and links nothing;
+//! `host/apple/build.mjs` links the framework into the app and embeds it. A web bake links no native library.
 
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-/// Print the link of the app's package library for Cargo's `TARGET`; nothing when no direct dependency declares one.
-pub(crate) fn link(app: &Path) -> Result<(), String> {
+/// Print the link of the app's package library for Cargo's `TARGET`; nothing for a web bake or when no direct
+/// dependency declares one.
+pub(crate) fn link(app: &Path, platform: &str) -> Result<(), String> {
     let target = std::env::var("TARGET").map_err(|_| "build requires TARGET".to_string())?;
+    if platform == "web" || target.starts_with("wasm32-") {
+        return Ok(());
+    }
     let app = app
         .canonicalize()
         .map_err(|e| format!("{}: {e}", app.display()))?;
@@ -23,17 +27,31 @@ pub(crate) fn link(app: &Path) -> Result<(), String> {
     let Some(library) = native.get("library").and_then(Value::as_object) else {
         return Ok(());
     };
-    let link = native["link"].as_str().ok_or_else(|| {
-        format!("{name}'s exact.json: native.library needs native.link, the library's link name")
-    })?;
+    // The name is printed into `cargo:` lines, so it is held to the characters a library name has.
+    let link = native["link"]
+        .as_str()
+        .filter(|link| {
+            !link.is_empty()
+                && !link.starts_with(['.', '-', '+'])
+                && link
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'+' | b'-'))
+        })
+        .ok_or_else(|| {
+            format!("{name}'s exact.json: native.link names the library (`lib<link>.so`, `<link>.framework`) in letters, digits and `_.+-`")
+        })?;
     let Some(entry) = library.get(&target) else {
         let named: Vec<&str> = library.keys().map(String::as_str).collect();
         return Err(format!(
             "{name} has no native library for {target}: its exact.json native.library names {}. An app that builds for {target} waits for the package to publish one (LLP 1154 D6)",
-            if named.is_empty() { "no target".to_string() } else { named.join(", ") }
+            if named.is_empty() {
+                "no target".to_string()
+            } else {
+                named.join(", ")
+            }
         ));
     };
-    if target.ends_with("-android") {
+    if target.contains("-android") {
         return Err(format!(
             "{name} declares a native library for {target}, and exact2 links a package's library only for Apple and Linux targets; Android's APK carries none yet (LLP 1154 D6)"
         ));
@@ -52,7 +70,8 @@ pub(crate) fn link(app: &Path) -> Result<(), String> {
     let view = PathBuf::from(home)
         .join(".cache/exact/package-libraries")
         .join(sha256)
-        .join(&target);
+        .join(&target)
+        .join(link);
     let apple = target.contains("-apple-");
     let placed = view.join(if apple {
         format!("lib{link}.dylib")
@@ -72,11 +91,9 @@ pub(crate) fn link(app: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The direct dependency whose `exact.json` declares `native`: its name, that file and the `native` object.
+/// The direct dependency whose `exact.json` declares `native`: its name, that file and the `native` object. A
+/// declaration that is there and does not parse is refused by name.
 fn declaring(app: &Path) -> Result<Option<(String, PathBuf, Value)>, String> {
-    let read = |path: &Path| -> Option<Value> {
-        serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
-    };
     let Some(manifest) = app
         .ancestors()
         .map(|dir| dir.join("package.json"))
@@ -84,7 +101,11 @@ fn declaring(app: &Path) -> Result<Option<(String, PathBuf, Value)>, String> {
     else {
         return Ok(None);
     };
-    let mut names: Vec<String> = (read(&manifest).unwrap_or_default()["dependencies"].as_object())
+    let manifest: Value = std::fs::read_to_string(&manifest)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default();
+    let mut names: Vec<String> = (manifest["dependencies"].as_object())
         .map(|deps| deps.keys().cloned().collect())
         .unwrap_or_default();
     names.sort();
@@ -98,10 +119,13 @@ fn declaring(app: &Path) -> Result<Option<(String, PathBuf, Value)>, String> {
             continue;
         };
         let path = root.join("exact.json");
-        if let Some(native) = read(&path).map(|json| json["native"].clone()) {
-            if native.is_object() {
-                found.push((name, path, native));
-            }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let json: Value = serde_json::from_str(&text)
+            .map_err(|e| format!("{name}'s exact.json ({}) is not JSON: {e}", path.display()))?;
+        if json["native"].is_object() {
+            found.push((name, path, json["native"].clone()));
         }
     }
     if found.len() > 1 {
