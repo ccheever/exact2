@@ -124,3 +124,99 @@ Keep the same Snapback-owned npm package and JSON binary boundary, but publish *
 This retains Snapback’s ownership and keeps the protocol in one binary implementation while potentially avoiding new Apple and Android Rust-package runtimes. It costs a few small bridges in different languages. The RFC should compare that cost with building and maintaining those new runtimes. Rejecting a generic Exact-owned C ABI dispatcher does not reject this alternative: each bridge would still own its symbols and implement the existing package contract.
 
 NOT READY — The ownership decision is sound, but the package does not yet fit the stated seam, and the cutover would leave broken callers and uncheckable success criteria.
+## r2 (2026-10-31, delta round)
+
+**Provenance.** Family: OpenAI, codex `gpt-6.1-sol`, reasoning effort `ultra` (both in the codex run header), session `01a19172-fcaf-7641-8955-98f31ee88fd5`, run by Claude (Fable 5.1) for Charlie Cheever, read-only in the round-2 capsule: a `git archive` of `f69e5b18fc` with `llp/reviews/1154-*` removed, capsule hash `e3b0c44298fc1c14…`. Target: r2, sha256 `19e4f405772c…`. Brief sha256 `3b9b2f669672199f…` (it carries the r1→r2 diff and asks for IN-DELTA/PRE-EXISTING classification). Blind as in r1. Not redacted. The text below is the reviewer's final message, unedited.
+
+---
+
+NOT READY — r2 fixes the native seam, but the transition omits existing consumers and M1 cannot pass as written.
+
+## Direction
+
+The ownership decision and revised native boundary are sound. `NativeModule` is the slot Harmony uses; generating its factory and putting grant admission behind `NativeStorage` can remove the shim’s dependencies on `ibex2` and `exact-runner`. A C ABI implemented by a separate Rust dynamic library is feasible in principle, with packaging and symbol isolation to prove through the fixture. The four build items are apparatus, and Status records approval covering them; I found no additional approval requirement for those items under `rules/RULES.md:63–66`. The principal external dependency is Snapback supplying the **wider module ABI**, including client dispatch and durable partition semantics—not merely its existing device ABI. That cannot be verified here. The supplied SHA-256 matches; this review used static, read-only inspection.
+
+## MATERIAL concerns
+
+1. **IN-DELTA — Step 1 changes a trait with more consumers than §3 acknowledges.**
+
+   **Where:** RFC §3 item 2, lines 277–282; §5 step 1, lines 356–358.
+
+   “The trait’s one consumer is the adapter” is false. Excord implements it on Windows (`apps/excord/windows/src/main.rs:20–34`) and Android (`apps/excord/android/src/lib.rs:28–43`). Exact’s tests implement it too (`js/tests/it/storage.rs:106–124`, `js/tests/it/native_later.rs:18`). Harmony’s existing wrappers implement the current three-directory signature (`apps/harmony/app/apple/src/lib.rs:10–18`, `apps/harmony/app/linux/src/main.rs:11–19`).
+
+   Replacing `configure_storage(data, cache, temporary)` with `configure_storage(NativeStorage)` therefore requires updating these implementations. As written, step 1 cannot both change the trait and leave its existing callers untouched.
+
+   **Resolution:** Include every affected implementation in step 1’s atomic change, including adapting Harmony’s existing wrappers while retaining its paths, pin and adapter. Correct the single-consumer claim. No compatibility branch is needed.
+
+2. **PRE-EXISTING — The deletion list leaves dependencies on files and exports it removes.**
+
+   **Where:** RFC §3 Deletes, lines 296–325; §5 step 3, lines 361–363. Deleting the whole adapter and scaffolding exports was already in r1.
+
+   A root Cargo test contains a compile-time dependency on the deleted tree:
+
+   ```rust
+   include_str!("../../../../snapback4/online/projection.ts")
+   ```
+
+   This is at `contract/cli/tests/it/typescript.rs:594–598`. Deleting `snapback4/` without addressing it makes the test target fail to compile. Likewise, `game/new-app.test.mjs:13` imports `wireSnapback`, which §3 removes. `host/web-js/build.test.mjs:352–385` tests the Snapback-specific declaration transformation that §3 deletes.
+
+   These are concrete surviving consumers, so §R’s claim that every caller joins the deletion is inaccurate. M4 cannot pass by performing the listed deletions alone.
+
+   **Resolution:** Add the corresponding test removals or ownership transfers to step 3. Preserve any general Exact coverage using Exact-owned fixtures; do not retain copied Snapback implementation code merely to satisfy those tests.
+
+3. **IN-DELTA — M1 rejects unrelated dependencies and therefore cannot establish its stated pass condition.**
+
+   **Where:** RFC §6 M1, line 372.
+
+   Its final grep matches **every** `0.4.*` version outside `apps/` and `llp/`. The root lock contains unrelated dependencies such as Chrono `0.4.45` (`Cargo.lock:720–722`) and getrandom `0.4.3` (`Cargo.lock:2445–2447`). These remain after removing every Snapback pin.
+
+   Consequently, “all three empty” requires unrelated dependency changes that D1 does not call for. Conversely, the numeric branch would miss a bare Snapback version after it leaves the `0.4` series.
+
+   **Resolution:** Scope dependency checks to Snapback package/source records and prose checks to Snapback references. Remove the global version-number pattern.
+
+## Minor concerns
+
+1. **IN-DELTA — Preserve the native-package selection rules explicitly.** D2 adds a declaration outside the existing module kinds (RFC lines 184–188). State that this native slot still requires a direct dependency, exact pin, installed/locked agreement, and refusal of competing slot providers. Those requirements belong to LLP 1133.001 D4/D9 (`llp/1133.001-modules-anyone-can-write.rfc.md:259–267,399–413`). Also identify how D6’s “optional” marking applies to a package with no interface declaration. This is implementation specification, not an objection to using the slot.
+
+2. **IN-DELTA — Dynamic-library packaging needs more than copying the file.** D3, lines 230–238, should acknowledge final Apple linker inputs, framework install names/search paths, signing, and Linux runtime lookup. Apple’s current Rust archive reaches the Swift link through `host/apple/Package.swift:55–60`; GPU signing/capture is a separate path (`host/apple/build.mjs:901–930`). Have the fixture launch the packaged app without build-tree library paths and verify that bundled SQLite symbols remain private. Separate libraries make isolation possible; the fixture should demonstrate it.
+
+3. **IN-DELTA — Preserve identity and storage lifetime across the new ABI.** D3/§4 list `open(real_path, origin, viewer, backend)` but omit how the library receives `appId`. Existing partition identity includes it (`snapback4/client/src/partition.rs:11–12`; `snapback4/src/lib.rs:165`). Also retain the directory authority while SQLite remains open: today `OpenPartition` retains `AppDirectories` (`snapback4/src/lib.rs:31–35`), and physical SQLite paths require stable ancestry (`vendor/ibex/crates/ibex2/src/stdlib/app_fs_unix.rs:385–406`). These should be explicit obligations of `NativeStorage` and §4’s ABI ask.
+
+4. **IN-DELTA — Complete the measurement instructions.** M3 should name the lock-updating upgrade step before its frozen install and identify the engine-version observable. Current client status contains connection/outbox state, not an engine version (`snapback4/client/src/client.rs:773–793`). M5 exercises native libraries but does not exercise §3 item 3’s package web asset. M6 should cover both native SQLite and the web’s retained-change representation (`snapback4/web/src/lib.rs:120–130`) before deletion.
+
+5. **PRE-EXISTING — Specify where app tests invoke the package’s preflight.** D4 promises preflight before a test run, while D2 now describes running it before the package’s own tests. Those are different entry points. The existing Exact hook runs on web drives (`scripts/agent-test.mjs:611`), and the current preflight reads a wasm stamp (`snapback4/web/device-build.mjs:53–66`). §4 should explicitly cover application test invocation and the native library’s actual identity.
+
+6. **IN-DELTA — `Package` does have a synchronous method.** RFC §R line 16 and §7’s rejection should say that these hosts do not provide synchronous dispatch. The trait contains `Package::call`, defaulting to `NotSupportedError` (`host/linux/src/package.rs:39–42`); LLP 1133.001 records the dispatch limitation at lines 459–461. The corrected wording still supports choosing `NativeModule`.
+
+7. **IN-DELTA — Remove the revision ledger from the design.** §R, lines 12–36, is review history and attribution rather than governing design. `rules/DEFERRED.md:1704–1708` explicitly refuses revision ledgers. Keep the resulting decisions and necessary rationale; shorten Status accordingly. This also follows `AGENTS.md:51–55`.
+
+8. **PRE-EXISTING — Tighten two promises.** “Above the floor” should be “at or above”: equality passes the implementation (`snapback4/web/device-build.mjs:63–66`). “Exact keeps [the seams] stable” at RFC lines 122–123 also promises more than `rules/DEFERRED.md:1717–1719`, which explicitly disclaims public API stability. Independence here means ownership of the adapter and release artifacts, not an immutable Exact API.
+
+## Claims checked
+
+| Claim | True/false/unverifiable | Evidence |
+|---|---|---|
+| The supplied file is r2 with the specified hash | True | SHA-256 matched `19e4f405…b830560`. |
+| The adapter pins three upstream crates to one revision and exact version | True | `snapback4/Cargo.toml:15–17`. |
+| Root and Harmony npm dependencies name `0.4.33` | True | `package.json:13`; `apps/harmony/package.json:6`. |
+| The receipt hashes nineteen files and records five examples | True | `snapback4/readme-tested.json:7–53`; `scripts/check-snapback-readme.mjs:8–12,29–32`. |
+| Harmony attaches Snapback through the data module’s native slot | True | `apps/harmony/app/apple/src/lib.rs:9–35`; `apps/harmony/app/linux/src/main.rs:10–36`. |
+| The host configures native storage before using the instance | True | `js/src/lib.rs:663–686`; trait contract at `js/src/native.rs:45–56`. |
+| The adapter is the trait’s only consumer | False | Excord implementations at `apps/excord/windows/src/main.rs:20` and `apps/excord/android/src/lib.rs:28`, plus Exact tests. |
+| `Package` has no synchronous call | False as written | It has `call`; its default refuses. `host/linux/src/package.rs:39–42`. |
+| The adapter performs grant admission and resolves a physical SQLite path | True | `snapback4/src/lib.rs:151–179`. |
+| The adapter’s Rust `DataSource` transport has no app consumer here | True in the inspected source | External adapter uses are Harmony’s native wrappers; transport helpers are defined at `snapback4/src/lib.rs:207–252`. |
+| Linux/Windows package composition currently uses `#[path]`, not a generated Cargo manifest | True | `contract/cli/src/native/packages.rs:83–116`; governing qualification at LLP 1133.001:442–458. |
+| Existing Apple builds provide framework/dylib packaging precedents | True, with distinct paths | `host/apple/build.mjs:200–207,683–692,901–930`; `host/apple/modules.mjs:2–13`. |
+| Exact bundles SQLite | True | `vendor/ibex/crates/ibex2-sqlite/Cargo.toml:12`. |
+| §3 identifies every consumer affected by deletion | False | Compile-time include at `contract/cli/tests/it/typescript.rs:598`; removed-export import at `game/new-app.test.mjs:13`; transformation test at `host/web-js/build.test.mjs:352–385`. |
+| M1 can become empty solely by implementing D1 | False | Unrelated versions at `Cargo.lock:721,2446`. |
+| No lane step otherwise touches Snapback after moving `harmony` | False without further changes | The glue list includes `harmony-seed` (`scripts/async.mjs:118`); that test directly resolves and starts the server (`scripts/harmony-seed.test.mjs:20–26`). Delegate this through Harmony too. |
+| Upstream crates are unpublished; seven releases followed the pin; Expo ships the described ABI/framework | Unverifiable here | Upstream repository/release evidence is absent. Local `publish = false` at `snapback4/Cargo.toml:27` describes this adapter. |
+| Snapback can supply the wider ABI, private runtime/SQLite libraries and compatible retained partitions | Unverifiable here; central dependency | These are §4 asks, not existing repository capabilities. M2, M5 and M6 must establish them. |
+
+## Delta assessment
+
+Judging from the supplied diff alone, r2 resolves the main seam mistake: it replaces `Package` composition with the existing `NativeModule` slot, centralizes storage admission, makes the library declaration concrete, and requires fetching and hash verification. Shipping wasm glue and deferring Android are coherent improvements. Copying before deletion and waiting for all five Snapback asks repairs the cross-repository ordering. The deletion list is substantially better but remains incomplete; that is a material pre-existing concern. The measures improve through rebuilding and retained-partition reopening, but M1 introduces an impossible pass condition. The trait change also introduces an unacknowledged caller migration. The round therefore has not converged.
+
+NOT READY — r2 fixes the native seam, but the transition omits existing consumers and M1 cannot pass as written.

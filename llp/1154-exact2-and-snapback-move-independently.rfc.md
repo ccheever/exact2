@@ -1,48 +1,22 @@
 # LLP 1154: exact2 and Snapback move independently
 
 **Type:** RFC
-**Status:** Review r2, 2026-10-31. r1 was reviewed blind by GPT-6.1 Sol (ultra) and Grok 4.7 (xhigh) (`llp/reviews/1154-exact2-and-snapback-move-independently.{sol,grok}.md`): both NOT READY, both finding the direction right and the native shim on the wrong seam. r2 takes what §R lists. Written at Charlie's request ("we sort of ended up pinning a specific snapback4 version to exact2. i think that was a mistake … the two projects should be able to move independent of each other"), and his request the same day to have it implemented after review is the approval `rules/RULES.md` asks for the build items and the fixture of §3, which are apparatus. Nothing built.
-**Systems:** the Snapback adapter (`snapback4/`: `client/`, `src/`, `web/`, `ts/`, `online/`, `web/build.mjs`, `web/device-build.mjs`, `tests/`); the pins (`snapback4/Cargo.toml`, `snapback4/Cargo.lock`, `package.json`, `bun.lock`, `snapback4/readme-tested.json`); the retest apparatus (`scripts/retest-snapback-readme.mjs`, `scripts/check-snapback-readme.mjs`, `scripts/check-snapback-readme.test.mjs`, `scripts/snapback-handshake.test.mjs`); scaffolding (`game/new.mjs`: `wireSnapback`, `buildSnapbackDevice`, `snapbackVersion`; `scripts/exact.mjs`: the `snapback` and `backend` verbs, `new --snapback`; `scripts/app-cli.mjs`); the bake (`js/bake/src/lib.rs`: `snapback_glue`, `module_constants`; `js/bake/src/typescript.mjs`: `snapbackMutationTypes`, `moduleInterfaces`); the data module's native slot (`js/src/native.rs` `NativeModule`, `js/src/lib.rs` `with_native`); the JS target's build (`host/web-js/build.mjs`); the test driver (`scripts/agent-test.mjs`: `devicePreflight`, `fresh`, `backendHead`; `scripts/agent-launch.test.mjs`); the Apple build's modules (`host/apple/build.mjs`, `host/apple/modules.mjs`); the module seam (LLP 1133.001 as built: `contract/cli/src/native/packages.rs`, `artifacts`); Harmony (`apps/harmony/`, `scripts/memory-backend-test.mjs`, `packages/background/test/harmony.mjs`); the async lane (`scripts/async.mjs`: `harmony`, `harmony-check`); the docs (`README.md`, `AGENTS.md`, `CLAUDE.md`, `docs/reference.md`, `docs/start-here.md`, `docs/recipes/snapback*.md`)
+**Status:** Review r3, 2026-10-31. r1 and r2 were reviewed blind by GPT-6.1 Sol (ultra) and Grok 4.7 (xhigh) (`llp/reviews/1154-exact2-and-snapback-move-independently.{sol,grok}.md`), both rounds NOT READY on both sides with the direction found right each time; r3 takes their findings, and is the last round `rules/DEFERRED.md` allows ("No refine loops"). Written at Charlie's request ("we sort of ended up pinning a specific snapback4 version to exact2. i think that was a mistake … the two projects should be able to move independent of each other"); his request the same day to have it implemented after review is the approval `rules/RULES.md` asks for the build items and the fixture of §3, which are apparatus. Nothing built.
+**Systems:** the Snapback adapter (`snapback4/`: `client/`, `src/`, `web/`, `ts/`, `online/`, `web/build.mjs`, `web/device-build.mjs`, `tests/`); the pins (`snapback4/Cargo.toml`, `snapback4/Cargo.lock`, `package.json`, `bun.lock`, `snapback4/readme-tested.json`); the retest apparatus (`scripts/retest-snapback-readme.mjs`, `scripts/check-snapback-readme.mjs`, `scripts/check-snapback-readme.test.mjs`, `scripts/snapback-handshake.test.mjs`); scaffolding (`game/new.mjs`: `wireSnapback`, `buildSnapbackDevice`, `snapbackVersion`; `game/new-app.test.mjs`; `scripts/exact.mjs`: the `snapback` and `backend` verbs, `new --snapback`, its import of `devicePreflight`; `scripts/app-cli.mjs`); the bake (`js/bake/src/lib.rs`: `snapback_glue`, `module_constants`; `js/bake/src/typescript.mjs`: `snapbackMutationTypes`; `host/web-js/build.test.mjs`; `contract/cli/tests/it/typescript.rs`); the data module's native slot (`js/src/native.rs` `NativeModule`, `js/src/lib.rs` `with_native` and the activation that calls `configure_storage`; its implementors in `apps/excord/`, `apps/harmony/` and `js/tests/it/`); the JS target's build (`host/web-js/build.mjs`); the test driver (`scripts/agent-test.mjs`: `devicePreflight`, `fresh`, `backendHead`, `backendPreflight`; `scripts/agent-launch.test.mjs`; `scripts/harmony-seed.test.mjs`); the Apple build (`host/apple/build.mjs`: the frameworks it embeds and signs, the Swift link); Harmony (`apps/harmony/`, `scripts/memory-backend-test.mjs`, `packages/background/test/harmony.mjs`); the async lane (`scripts/async.mjs`: `harmony`, `harmony-check`, the glue list); the docs (`README.md`, `AGENTS.md`, `CLAUDE.md`, `QUEUE.md`, `docs/reference.md`, `docs/start-here.md`, `docs/recipes/snapback*.md`)
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-10-31
-**Revised:** r2, 2026-10-31
+**Revised:** r3, 2026-10-31
 **Implementer:** a coding lane (codex GPT-6.1 Sol, or Opus 5.5) from 2026-11-01 for §3 and §5, reviewed blind by Astra and Grok before each push; the Snapback side (§4) is Snapback's own document to adopt.
-**Related:** LLP 1036.001 D4 (the private Snapback pin leaves the root workspace, ruled 2026-09-30: it moved the pin, which this document removes); LLP 1086 D12 (`exact new --snapback` and the `snapback` verb, which §3 moves to Snapback's CLI); LLP 1153 D2.4 (Harmony's own workspace, kept out of the root lock because of the pin); LLP 1027 D5 (the bake captures npm packages), D8 and D10 (the data module's native slot: `native.call`, host grants); LLP 1133.001 (modules anyone can write: D1 the package kinds, D9 distribution and prebuilt libraries, as built for Linux and Windows on 2026-10-26, and its refusal of a module naming `exact-*` crates); LLP 1133 D8 (every target it names, or a visible absence); LLP 1009 D6 (a GPU module's dylib beside the app, which D3 follows); LLP 1091 D9 (packages through `node_modules`); LLP 1107 (an app on Android is its Rust crate for `aarch64-linux-android`); LLP 1108 and LLP 1110 (what the adapter does; they move with it); Snapback's LLP 3000 (2026-09-13: one interpreter hosted two ways, "the native module on hosts where SQLite is native and bytes are a library — Expo, and Exact2's Apple and Linux hosts") and LLP 3000.001.000 (the build stamp and the compatibility floor)
-
-## R. Round 1, and what r2 changed
-
-Two reviewers, blind, asked for direction and major oversights. Both found the ownership
-decision right and the seam wrong: r1 put the native shim on LLP 1133.001's `Package`
-trait, which has no storage roots, no grants and no synchronous call, while the driver
-already uses the data module's native slot. r2 takes every material concern and the minor
-ones the repository bears out.
-
-| Change | Raised by | Where |
-|---|---|---|
-| The shim implements the data module's native slot (`exact_js::NativeModule`), not the `Package` trait; the bake generates the `with_native` wiring; open question 1 closes | Sol, Grok | D2, D3, §3 |
-| Grants stay in Exact: the host hands the native module admitted storage, so the shim names no `ibex2` or `exact-runner` | Sol, Grok | D3, §3 item 2 |
-| The library is a dynamic library per target, placed as Exact's own Rust modules are, so two Rust runtimes and two SQLites never share one link | Sol (minor 1), Grok (minor 7) | D3, §7 |
-| The package's declaration: one field for the native slot, with the library per target as `{url, sha256}`; the fetch and the hash check are §3's; M5 fetches and refuses a wrong hash | Sol, Grok | D2, §3 item 1, §6 |
-| Android is deferred: Harmony has no Android crate; a target the package does not cover is a visible absence; §4's first list is five targets | Sol, Grok | D6, §4, §8 |
-| Transport is the driver's `fetch`; the adapter's Rust `DataSource` shape has no consumer in exact2 and goes with the code | Sol | D3 |
-| Every Snapback-specific caller joins the deletion: `CLAUDE.md`, the `backend` verb, `app-cli` registrations, `memory-backend-test.mjs`, `packages/background/test/harmony.mjs`, the preflight test, `agent-test`'s mount detection | Sol, Grok | §3 |
-| Harmony's lane installs from Harmony's lock on every run and builds no device | Sol, Grok | D5, §3 |
-| Step 2 copies the code and publishes; exact2's tree is untouched until step 3; step 3 waits for every ask of §4, not three of five | Sol, Grok | §5 |
-| M1 measures D1 (three greps, `llp/` and `apps/` excluded); M3 reinstalls, rebuilds and runs; M6 reopens a retained partition | Sol, Grok | §6 |
-| The wasm's glue ships with it and takes its URL from the driver | Sol (minor 2), Grok (minor 6) | D2 |
-| Errors: nineteen hashed files and five examples; the device is pinned, the server is free; `publish = false` is upstream's; `engine_info` is the client's and `engine_headers` the hosts'; the floor check is `devicePreflight`'s, not the verb's; seven published releases; the dated list was diary | Sol, Grok | Summary, §1 |
-
-Not taken: Sol's Swift and Kotlin bridges (§7), Grok's `DataSource` in the package
-through a generated manifest naming `exact-runner` and `ibex2` (§7).
+**Related:** LLP 1036.001 D4 (the private Snapback pin leaves the root workspace, ruled 2026-09-30: it moved the pin, which this document removes); LLP 1086 D12 (`exact new --snapback` and the `snapback` verb, which §3 moves to Snapback's CLI); LLP 1153 D2.4 (Harmony's own workspace, kept out of the root lock because of the pin); LLP 1027 D5 (the bake captures npm packages) and D8 (the data module's native slot: `native.call`, host grants, and its sentence on one shared SQLite, which D3 amends); LLP 1133.001 (modules anyone can write: D1 the package kinds, D4 the app opts in, D9 distribution and prebuilt libraries, as built for Linux and Windows on 2026-10-26, and its refusal of a module naming `exact-*` crates); LLP 1133 D8 (every target it names, or a visible absence); LLP 1091 D9 (packages through `node_modules`); LLP 1107 (an app on Android is its Rust crate for `aarch64-linux-android`); LLP 1108 and LLP 1110 (what the adapter does; they stay as history); `rules/DEFERRED.md` "Deliberately worse" (no public API stability before 1.0); Snapback's LLP 3000 (2026-09-13: one interpreter hosted two ways, "the native module on hosts where SQLite is native and bytes are a library — Expo, and Exact2's Apple and Linux hosts") and LLP 3000.001.000 (the build stamp and the compatibility floor)
 
 ## Summary
 
 exact2 compiles Snapback's private Rust source, so it must name one Snapback commit, and
 it names the matching npm version in the root `package.json`, the README, `AGENTS.md`,
-`CLAUDE.md`, the reference, the recipes and two tests. Every Snapback release therefore
-needs an exact2 commit; an app's device is the version exact2 compiled, whatever server
-the app installs; and Snapback cannot change its Rust internals without breaking exact2.
-Six repins in two weeks still left exact2 seven published releases behind (§1).
+`CLAUDE.md`, the reference, the recipes, `QUEUE.md` and two tests. Every Snapback release
+therefore needs an exact2 commit; an app's device is the version exact2 compiled, whatever
+server the app installs; and Snapback cannot change its Rust internals without breaking
+exact2. Six repins in two weeks still left exact2 seven published releases behind (§1).
 
 The decision: **exact2 names no Snapback version, carries no Snapback source and installs
 no Snapback binary** (D1). Snapback on Exact is a package Snapback publishes, versioned
@@ -52,13 +26,14 @@ The native boundary is the one JSON call Snapback declares for "Expo and Exact2 
 behind the package's own shim; the host hands the shim admitted storage, so grants never
 leave Exact and exact2 never sees a C header (D3). The app chooses the version in its
 `package.json`; the server's floor and the device's stamp decide compatibility, as they do
-today (D4). exact2 builds four things the seam lacks: fetching and linking a package's
-library per target, generating the native slot's wiring from the package, serving a
-package's web asset, and a fixture package that proves all three (§3). It deletes
-`snapback4/`, the pins, the retest apparatus and every Snapback verb (§3). The move is
-three steps in two repositories, and exact2's tree changes only in the first and the last
-(§5). Harmony is the proof: it builds and passes on the web, iOS and Linux from its own
-lock, and a Snapback upgrade touches nothing outside `apps/harmony` (§6).
+today (D4). exact2 builds four things the seam lacks: fetching, linking and embedding a
+package's library per target, generating the native slot's wiring and handing it admitted
+storage, serving a package's web asset, and a fixture package that proves all three (§3).
+It deletes `snapback4/`, the pins, the retest apparatus, every Snapback verb and every
+test of them (§3). The move is three steps in two repositories, and exact2's tree changes
+only in the first and the last (§5). Harmony is the proof: it builds and passes on the web,
+iOS and Linux from its own lock, and a Snapback upgrade touches nothing outside
+`apps/harmony` (§6).
 
 ## 1. Why
 
@@ -66,11 +41,11 @@ lock, and a Snapback upgrade touches nothing outside `apps/harmony` (§6).
 `github.com/expo/snapback` at one revision with an exact version; in Snapback's repository
 the crates are `publish = false`, so no registry carries them. The root `package.json`
 installs `snapback4@0.4.33` so tests have a server binary; Harmony's does the same. The
-README, `AGENTS.md`, `CLAUDE.md`, `docs/reference.md`, the recipes and two test scripts say
-the number; `snapback4/readme-tested.json` records the version, the revision and the hash
-of nineteen files, and `check-snapback-readme.mjs` refuses a change to any of them until
-`retest-snapback-readme.mjs` runs the README's four apps and the auth recipe against a
-registry and rewrites the pins.
+README, `AGENTS.md`, `CLAUDE.md`, `docs/reference.md`, the recipes, `QUEUE.md` and two test
+scripts say a number; `snapback4/readme-tested.json` records the version, the revision and
+the hash of nineteen files, and `check-snapback-readme.mjs` refuses a change to any of
+them until `retest-snapback-readme.mjs` runs the README's four apps and the auth recipe
+against a registry and rewrites the pins.
 
 **How it has gone.** The pin moved six times between 2026-10-07 and 2026-10-20, from
 0.4.13 to 0.4.33; Snapback published seven more releases by 2026-10-29, the latest 0.4.49.
@@ -92,26 +67,29 @@ private crate's internals must name a commit.
 rounds, receipts, generation adoption and the change poll, 2,500 lines ported from
 Snapback's `local.ts`) drives the device through one trait, `Core::call(Json) -> Json`.
 What reaches deeper: `partition::bind` (the device's `meta` and `set_meta`, which the C
-ABI's call also answers), `engine_info` in the client (`DeviceEngine::current()`) and
-`engine_headers` on each host (`engine::headers()`). The web wasm `exact-snapback4-web`
-re-implements what Snapback's published `WebDevice` exposes: construct with the kept
-changes, `call`, `drain`, `engine_info`.
+ABI's call also answers), and the engine's identity, which the client reads
+(`DeviceEngine::current()` for `engine_info`, `engine::headers()` on every request) and
+each host answers as the operations `engine_info` and `engine_headers`. The web wasm
+`exact-snapback4-web` re-implements what Snapback's published `WebDevice` exposes:
+construct with the kept changes, `call`, `drain`, `engine_info`.
 
 **The seam the driver uses.** On Apple and Linux the driver calls the app's one native
 module, `native.call` (LLP 1027 D8): the app's crate attaches `exact_snapback4::Module`
 with `exact_js::Module::with_native`, and the host calls the module's `configure_storage`
 with the data, cache and temporary roots before its first `call`
 (`apps/harmony/app/apple/src/lib.rs`, `apps/harmony/app/linux/src/main.rs`,
-`js/src/native.rs`). The module admits `sqlite.open app:/data/<name>.sqlite` against the
-app's grants itself, through `ibex2`. This is a different slot from LLP 1133.001's
-`Package` (named sources and sends, `later` with a reply, no roots, no grants).
+`js/src/native.rs`, `js/src/lib.rs`). The module admits `sqlite.open app:/data/<name>.sqlite`
+against the app's grants itself, through `ibex2`, and keeps the directory authority for the
+connection's lifetime. This is a different slot from LLP 1133.001's `Package` (named
+sources and sends, `later` with a reply, no roots, no grants, and a `call` these hosts
+answer `NotSupportedError`).
 
 **Skew is already designed in.** Every server answers `device_compatibility`
 (`server_version`, `minimum_version`, `capabilities`); the floor at 0.4.33 is 0.4.24. The
 device carries a `snapback4.engine` stamp, and both `snapback4 check`
 (`exact_device.rs`: "mounted Exact apps carry their actual wasm engine stamp, not the npm
 pin") and exact2's `devicePreflight` compare the two. A device and a server need not be the
-same version; the device must sit above the floor with the capabilities the schema
+same version; the device must be at or above the floor with the capabilities the schema
 requires. Nothing in that contract needs exact2 to know a version.
 
 **The direction of ownership.** The adapter's Rust client speaks Snapback's HTTP wire;
@@ -119,8 +97,10 @@ when the wire moves, the client moves. The party that changes a wire owns the cl
 that speak it and ships them under one version: that is how Snapback ships its TypeScript
 client and its Expo module, and how `snapback4 check` already knows an Exact app's
 `app.json` and device stamp. Exact is the platform; Snapback is a module on it, as any
-`@exact/*` package or anyone's module is. The coupling runs one way: Snapback tracks
-Exact's seams, which exact2 keeps stable for every module.
+`@exact/*` package or anyone's module is. The coupling runs one way: the package's shim
+follows exact2's native slot as any module follows a seam, and exact2 promises no API
+stability before 1.0 (`rules/DEFERRED.md`), so a seam change is a package release, as it
+is for every module.
 
 ## 2. Design
 
@@ -140,8 +120,9 @@ guide); a version and a dependency may not. `llp/` is history and keeps what it 
 
 What exact2 keeps of Snapback's documented wire, as a consumer: the test operation `fresh`
 empties a development server through `POST /dev/reset` and names the flag that opens the
-doors; `backendHead` reads a server's commit head before a run. Both detect a server by
-what it answers at a loopback origin the app fetches, never by a mount path.
+doors; `backendHead` reads a server's commit head before a run; `backendPreflight` refuses
+a run whose server is down for an app that depends on the package (read from the app's
+`package.json`, not from a mount path), because a partition that never synced cannot open.
 
 An app under `apps/` is an app: its `package.json` names the Snapback it uses, exactly,
 as any app outside the repository does. Harmony's does today.
@@ -157,15 +138,15 @@ package the backend's directory installs beside `snapback4`, holding:
   an exact2 checkout) goes away;
 - **the web device**: the wasm the page loads (today `exact-snapback4-web`: the device
   over the memory store, the client, `drain` into Exact SQLite) with its wasm-bindgen
-  glue beside it, both built and committed by Snapback; the package declares the wasm as
-  a web asset, the build serves it under the app's assets and captures it with the
-  package's bytes, and the glue takes the asset's URL from the driver, never from a
-  constant;
-- **the native module**: the Rust shim (today `exact-snapback4`'s `Module`: one partition,
-  the client's dispatch) and the device and client compiled by Snapback as a prebuilt
-  dynamic library per target (D3), behind Snapback's C ABI;
-- **`exact.json`**: the package's declaration, with one field this document adds for the
-  data module's native slot:
+  glue beside it, both built and committed by Snapback at one version. The package
+  declares the wasm as a web asset; the build serves each declared asset at
+  `/assets/<package>/<path>` and captures it with the package's bytes; the driver forms
+  the URL from its own package name and the declared path, never from a constant of the
+  app's;
+- **the native module**: the Rust shim (D3) and the device and client compiled by Snapback
+  as a prebuilt dynamic library per target, behind Snapback's C ABI;
+- **`exact.json`**: the package's declaration, with two fields this document adds, for the
+  data module's native slot and for web assets:
 
   ```json
   "native": {
@@ -178,24 +159,28 @@ package the backend's directory installs beside `snapback4`, holding:
       "x86_64-unknown-linux-gnu": { "url": "…", "sha256": "…" },
       "aarch64-unknown-linux-gnu": { "url": "…", "sha256": "…" }
     }
-  }
+  },
+  "web": { "assets": ["web/device.wasm"] }
   ```
 
   `rust` is the shim's root file, `class` the type in it that implements
-  `exact_js::NativeModule` and has `fn new(app: &str, grants: &str) -> Self`; `library` is
-  LLP 1133.001 D9's `{url, sha256}` per target. The package is not a module in LLP 1133
-  D6's sense (it declares no named sources or sends; the driver's API is TypeScript), so
-  `kind`, `names` and `implements` do not apply to it;
+  `exact_js::NativeModule` and has `fn new(app: &str) -> Self`; `library` is LLP 1133.001
+  D9's `{url, sha256}` per target. The package is not a module in LLP 1133 D6's sense (it
+  declares no named sources or sends; the driver's API is TypeScript), so `kind`, `names`
+  and `implements` do not apply to it. What does apply, from LLP 1133.001 D4 and D9: the
+  app depends on it directly and pins it exactly, the installed tree agrees with
+  `bun.lock`, and the build refuses two packages that declare `native` (the slot is one
+  per app), by name;
 - the guide (today `snapback4/README.md`), the Exact scaffold (`snapback4 init --exact`,
   as `init --expo` and `init --web` exist), and what `exact snapback` and `exact backend`
   do today: the `appId` check, the grants, the origin and port, the development server,
-  and the device's preflight against the server's floor (today `devicePreflight`), run
-  before the package's own tests.
+  and the device's preflight against the server's floor (today `devicePreflight`), as a
+  script of the package that an app's tests run first.
 
-The code is copied from `snapback4/` to the Snapback repository (§5 step 2); LLP 1108 and
-LLP 1110, which specify the adapter's media and live reads, go with it as research for
-Snapback's own documents. What stays in exact2 of those two is what the runtime provides
-to any module (`Answer::message`, `exactSaveTo`, `Blob`), already landed.
+The code is copied from `snapback4/` to the Snapback repository (§5 step 2). LLP 1108 and
+LLP 1110, which specify the adapter's media and live reads, stay in `llp/` as history;
+what the runtime provides to any module (`Answer::message`, `exactSaveTo`, `Blob`) is
+landed and stays.
 
 ### D3 — The native boundary is one JSON call behind the package's shim
 
@@ -203,20 +188,26 @@ to any module (`Answer::message`, `exactSaveTo`, `Blob`), already landed.
 module (LLP 1027 D8): `call(request) -> Result<Json, String>`, answered synchronously on
 the source's thread. The bake generates the `with_native` wiring from `exact.json` into
 the app's `module.rs`, beside `APP` and `GRANTS`, on Apple and Linux (and so on Android,
-whose crate is the same Rust: LLP 1107), so an app's crate writes nothing: Harmony's
-`struct Snapback` and `fn snapback` go.
+whose crate is the same Rust: LLP 1107); the generated factory ignores the grants text the
+host passes it. An app's crate then writes nothing for the slot: Harmony's `struct
+Snapback`, `fn snapback` and the `.with_native(snapback)` in its `embedded_data` go.
 
-**Storage.** The host hands the module admitted storage, and the shim never reads grants:
-`configure_storage` gives an `exact_js::NativeStorage` whose `sqlite(app_path)` admits
+**Storage.** The host hands the module admitted storage, and the shim never reads grants.
+`configure_storage` takes an `exact_js::NativeStorage` carrying the data, cache and
+temporary roots and `sqlite(app_path) -> Result<SqliteFile, String>`, which admits
 `sqlite.open <app_path>` under the app's grants (`app:/data/<name>.sqlite`, as today's
-`Module::open` admits it through `ibex2`) and answers the real path, and whose roots are
-the data, cache and temporary directories. What `Module::open` does today with `ibex2`
-and `exact_runner` moves into the host behind that call; the shim names only `exact_js`,
-`serde_json` and the standard library, which every app's crate has.
+`Module::open` admits it through `ibex2`) and answers a guard that holds the directory
+authority while the module holds it (what `OpenPartition` keeps as `_directories` today)
+and names the real path. What `Module::new` and `Module::open` do today with `ibex2` and
+`exact_runner` moves into the host behind that call; the shim names only `exact_js`,
+`serde_json` and the standard library, which every app's crate has. The trait's nine
+implementors (Excord's two, Harmony's two, four test fakes) change in the same commit
+(§3 item 2).
 
 **The call.** The library exposes the module's call, as `exact_snapback4::Module::call` is
-today (`open` with the partition's real path, origin, viewer and backend; `close`;
-`engine_info`; `engine_headers`; the client's operations), over Snapback's C ABI
+today (`open` with the app's id, the partition's real path, origin, viewer and backend,
+binding the partition's identity and minting the device's from the library's own entropy;
+`close`; `engine_info`; `engine_headers`; the client's operations), over Snapback's C ABI
 discipline: every answer is JSON the caller frees, one caller at a time, nothing unwinds
 across the boundary. The shim is the only code that calls it; exact2 reads no header and
 knows no symbol.
@@ -231,20 +222,25 @@ Snapback's.
 frameworks for Apple, a `.so` for Linux and Android. It carries its own Rust runtime and
 SQLite privately and exports only its C symbols, so it never shares a link with Exact's
 Rust: a static archive would put two Rust runtimes and two SQLites (Exact's `ibex2-sqlite`
-bundles one; Snapback's `rusqlite` bundles one) into one binary. The build links it
-through the shim's `#[link]` and places it as Exact's own Rust modules are placed: in the
-app's frameworks on Apple, signed with them (`host/apple/build.mjs`: `ExactCore.framework`,
-the GPU module's dylib, LLP 1009 D6), beside the binary on Linux, in the APK's libraries on
-Android.
+bundles one; Snapback's device carries one) into one link. Two SQLites in one process are
+safe while no file is opened by both: the partition file is the library's alone, Exact's
+SQLite never opens it, and the host's `sqlite(app_path)` guard is what says so. This
+amends LLP 1027 D8's sentence that both native SQLite users share one linked library.
+Where the library goes: the app's crate is an rlib the host's build links into the app's
+Rust module, and `host/apple/build.mjs` assembles the bundle in the Swift link; the build
+adds the library's search path to that link, embeds the framework in the bundle's
+`Frameworks` with an `@rpath` install name, and signs it in the order it signs
+`ExactCore.framework`; on Linux it is placed beside the binary on its run path, on Android
+in the APK's libraries.
 
 ### D4 — The app chooses the version; the floor and the stamp decide compatibility
 
 `package.json` in the backend's directory pins `snapback4` and `snapback4-exact` exactly
 (a package with native code pins exactly: LLP 1133.001 D9), and `snapback4 upgrade`
 moves both, as it moves `snapback4-expo` today. Compatibility is Snapback's contract
-alone: the device above the server's `minimum_version` with the capabilities the schema
-requires, checked by `snapback4 check` and by the package's own preflight before a test
-run. exact2's build refuses nothing about versions.
+alone: the device at or above the server's `minimum_version` with the capabilities the
+schema requires, checked by `snapback4 check` and by the package's preflight script
+before an app's tests. exact2's build refuses nothing about versions.
 
 ### D5 — Harmony installs the package; the lane tests what Harmony installs
 
@@ -253,47 +249,53 @@ path into exact2 for Snapback, so its Cargo workspace needs no private source. W
 crates then rejoin the root workspace is LLP 1153 D2.4's question again, and its answer
 stands: Harmony is an app, with an app's workspace. The lane's `harmony` step runs a
 script under `apps/harmony/` that installs with `--frozen-lockfile` on every run, starts
-the server that install provides in memory on a free port, and runs the tests; it builds
-no device. `harmony-check` compiles Harmony's workspace as today. No step of the gate or
-the lane touches Snapback otherwise.
+the server that install provides in memory on a free port, and runs Harmony's web tests;
+it builds no device. `harmony-check` compiles Harmony's workspace as today, and the
+`harmony-seed` test resolves the server through the same script. The lane's iOS and Linux
+runs of Harmony are §6's M2, run before the push of step 3, not a lane step. No step of
+the gate or the lane touches Snapback otherwise.
 
 ### D6 — Targets the package does not cover are visible absences
 
 `library` names the targets the package covers. A target it does not cover is LLP 1133
 D8's visible absence: the build refuses by name unless the app marks the module optional.
 Nothing in exact2 builds a Snapback device from source for a missing target; that is
-Snapback's to publish (§4). Android is one: Harmony has no `android/` crate, so the first
-list of §4 has five targets, and `aarch64-linux-android` follows when an app with an
-Android crate needs it, through the same generated wiring.
+Snapback's to publish (§4). Android is one: Harmony's manifest names iOS, macOS and the
+web, so the first list of §4 has five targets, and `aarch64-linux-android` follows when an
+app that builds for Android needs it, through the same generated wiring.
 
 ## 3. What exact2 changes
 
 **Builds** (approval: the request in Status; each is apparatus under `rules/RULES.md`):
 
-1. **Fetch and link a package's library** named by `exact.json` `native.library` for the
-   target being built: fetched by the step that fetches locked Cargo sources, into a cache
-   keyed by the hash, refused on a mismatch (LLP 1133.001 D9); linked through the shim and
-   placed in the app's bundle as D3 says, on Apple, Linux and Android.
+1. **Fetch, link and embed a package's library** named by `exact.json` `native.library`
+   for the target being built: fetched by the step that fetches locked Cargo sources, into
+   a cache keyed by the hash, refused on a mismatch (LLP 1133.001 D9); linked and placed as
+   D3 says on Apple (the Swift link's search path, the embedded framework, its install
+   name, its signature), Linux and Android.
 2. **Generate the native slot's wiring and hand it admitted storage**: the bake writes the
    `with_native` factory from `native.rust` and `native.class` into `module.rs`
    (`js/bake/src/lib.rs` `module_constants`), and `exact_js::NativeModule::configure_storage`
-   takes an `exact_js::NativeStorage` whose `sqlite(app_path)` admits under the app's grants
-   (the admission `snapback4/src/lib.rs` does today, moved into `exact_js`). The trait's
-   one consumer is the adapter, so this is a change, not a migration.
-3. **A package's web asset**: a file the package declares is served under the app's
-   assets and captured by the bake with the package (`host/web-js/build.mjs` copies the
-   app's own assets today; package JavaScript capture does not carry arbitrary files).
+   takes an `exact_js::NativeStorage` (D3), with the admission `snapback4/src/lib.rs` does
+   today moved into `exact_js`. The nine implementors change in the same commit: Excord's
+   two and the four test fakes take the roots from the handle; Harmony's two wrappers pass
+   the roots through to the adapter, which keeps its own admission until step 3.
+3. **A package's web asset**: each file `exact.json` `web.assets` declares is served at
+   `/assets/<package>/<path>` and captured by the bake with the package
+   (`host/web-js/build.mjs` copies the app's own assets today; package JavaScript capture
+   does not carry arbitrary files).
 4. **The proof package**: a fixture under `packages/fixtures/` (beside `tally`, which proves
    source composition, not a library), with a prebuilt dynamic library per target built
    from Rust in the fixture by its own script, published at a `file:` URL with its hash,
-   and a shim on the native slot that opens a SQLite file through `NativeStorage`. Its test
-   fetches the library by hash, refuses a wrong hash, refuses an ungranted path, and
-   asserts a value only the library answers, under native binding and not the
-   substitute, on iOS, macOS and Linux headless, from an app `exact new` makes. It is not
-   Snapback: it proves the seam before Snapback publishes on it, and it stays as the
-   seam's test.
+   a shim on the native slot that opens a SQLite file through `NativeStorage`, and a
+   declared web asset. Its test fetches the library by hash, refuses a wrong hash, refuses
+   an ungranted path, launches the packaged app from its bundle with no build-tree library
+   path, and asserts a value only the library answers, under native binding and not the
+   substitute, on iOS, macOS and Linux headless, from an app `exact new` makes; on the web
+   it loads the declared asset. It is not Snapback: it proves the seam before Snapback
+   publishes on it, and it stays as the seam's test.
 
-**Deletes**, once `snapback4-exact` is published and the asks of §4 are met (§5 step 3),
+**Deletes**, once `snapback4-exact` is published and every ask of §4 is met (§5 step 3),
 in one change:
 
 - `snapback4/` entire, and the root `Cargo.toml`'s `exclude` of it;
@@ -303,29 +305,35 @@ in one change:
   publish already proves each release from an installed consumer, and the package's own
   tests take the handshake's;
 - `wireSnapback`, `buildSnapbackDevice`, `snapbackVersion` and `new --snapback` in
-  `game/new.mjs` and `scripts/exact.mjs`; the `snapback` and `backend` verbs and their
-  `scripts/app-cli.mjs` registrations and the `contract build` preflight hook there (LLP
-  1086 D12's flag and verbs become `snapback4 init --exact` and the package's scripts);
+  `game/new.mjs` and `scripts/exact.mjs`, with `scripts/exact.mjs`'s import of
+  `devicePreflight` and the `new --snapback` test in `game/new-app.test.mjs`; the
+  `snapback` and `backend` verbs and their `scripts/app-cli.mjs` registrations and the
+  `contract build` preflight hook there (LLP 1086 D12's flag and verbs become `snapback4
+  init --exact` and the package's scripts);
 - `snapback_glue` in the bake; `snapbackMutationTypes` and the driver-mount test in
-  `js/bake/src/typescript.mjs`; the mount warnings in `host/web-js/build.mjs`;
-  `devicePreflight`, `mountsSnapback` and the mount detection in `scripts/agent-test.mjs`
-  (`backendHead` and `fresh` stay, detecting a server by its answers); the preflight test
-  in `scripts/agent-launch.test.mjs`;
-- `scripts/memory-backend-test.mjs` and `packages/background/test/harmony.mjs`'s device
-  build: the lane's script becomes Harmony's (D5), and the background package's Harmony
-  test uses it;
-- Harmony's `struct Snapback` and `fn snapback` in its Apple and Linux crates, its
-  `exact-snapback4` path dependencies and its `snapback4` mount;
+  `js/bake/src/typescript.mjs` with its test in `host/web-js/build.test.mjs`; the
+  projection test in `contract/cli/tests/it/typescript.rs` that includes
+  `snapback4/online/projection.ts` (its Exact-side check, that a checked projection
+  requires every contract key, keeps an Exact-owned fixture); the mount warnings in
+  `host/web-js/build.mjs`; `devicePreflight`, `mountsSnapback` and the mount detection in
+  `scripts/agent-test.mjs` (`backendPreflight` keys off the app's dependency on the
+  package; `backendHead` and `fresh` stay); the preflight test in
+  `scripts/agent-launch.test.mjs`;
+- `scripts/memory-backend-test.mjs`, the device build in
+  `packages/background/test/harmony.mjs`, and `scripts/harmony-seed.test.mjs`'s own server
+  start: the lane's script becomes Harmony's (D5), and both tests use it;
+- Harmony's `struct Snapback`, `fn snapback` and `.with_native(snapback)` in its Apple and
+  Linux crates, its `exact-snapback4` path dependencies and its `snapback4` mount;
 - the Messages leftovers in `.gitignore` (`apps/messages/snapback/`,
   `assets/snapback4-device.wasm`, `snapback4-LICENSE.txt`, `.snapback/`);
-- every Snapback version in `README.md`, `AGENTS.md`, `CLAUDE.md`, `docs/reference.md`,
-  `docs/start-here.md`, the recipes and `scripts/agent-test.mjs`; the reference's
-  Snapback paragraph becomes two sentences naming the package and D1.
+- every Snapback version in `README.md`, `AGENTS.md`, `CLAUDE.md`, `QUEUE.md`,
+  `docs/reference.md`, `docs/start-here.md`, the recipes and `scripts/agent-test.mjs`; the
+  reference's Snapback paragraph becomes two sentences naming the package and D1.
 
-**Keeps**: `fresh` and `backendHead`; the recipes `snapback`, `snapback-tests` and
-`snapback-auth`, rewritten to point at the package's guide for wiring and to keep only
-what is Exact's (the test file's `epoch now`, `fail fetch`, `clock data`, `fresh`);
-Harmony.
+**Keeps**: `fresh`, `backendHead` and `backendPreflight`; the recipes `snapback`,
+`snapback-tests` and `snapback-auth`, rewritten to point at the package's guide for
+wiring and to keep only what is Exact's (the test file's `epoch now`, `fail fetch`,
+`clock data`, `fresh`); Harmony; LLP 1108 and LLP 1110 as history.
 
 ## 4. Asks of Snapback
 
@@ -333,34 +341,38 @@ Snapback's own document decides these; they are what D2 needs of it, and step 3 
 waits for all five.
 
 1. **Publish `snapback4-exact`** with each release, from the code `snapback4/` holds, with
-   `exact.json`, the driver, the web wasm and its glue, the Rust shim and the library.
+   `exact.json` as D2 declares it, the driver, the web wasm and its glue at one version,
+   the shim and the library. The shim is D3's, not today's `Module`: it implements
+   `exact_js::NativeModule`, takes its storage from `NativeStorage`, and names no `ibex2`
+   or `exact-runner`.
 2. **Prebuilt dynamic libraries for Exact's targets**, as `build-xcframework.sh` builds the
    two iOS targets as static ones: first Harmony's five (`aarch64-apple-ios`,
    `aarch64-apple-ios-sim`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`,
    `aarch64-unknown-linux-gnu`), each carrying its Rust runtime and SQLite privately and
    exporting its C symbols only; Android, tvOS, watchOS and Windows when an app needs them
    (D6).
-3. **The module's call over the C ABI**: `open` with a real path, origin, viewer and
-   backend; `engine_info` and `engine_headers` answered through the call (today Rust
-   functions); the client's dispatch compiled into the library beside the device. This is
-   a wider ABI than the Expo module's four device functions, not a reuse of it.
+3. **The module's call over the C ABI**: `open` with the app's id, a real path, origin,
+   viewer and backend, doing inside the library what `partition::bind` and the device's
+   identity minting do today (the entropy is the library's own); `engine_info` and
+   `engine_headers` answered through the call (today Rust functions); the client's
+   dispatch compiled into the library beside the device. This is a wider ABI than the Expo
+   module's four device functions, not a reuse of it.
 4. **`snapback4 init --exact`**, taking `exact new --snapback`'s job, and `upgrade`
    moving `snapback4-exact` with `snapback4`.
 5. **The guide** (`snapback4/README.md`), its retest and the device preflight, as the
-   package's README, tests and scripts.
+   package's README, tests and scripts, the preflight callable before an app's tests.
 
 ## 5. Transition
 
 Three steps, in order; each repository is whole after each.
 
 1. **exact2 builds the seam** (§3 Builds, items 1 to 4) and proves it with the fixture
-   package. Nothing about Snapback changes: `snapback4/`, the pin and Harmony's paths stay
-   as they are.
+   package. `snapback4/`, the pin and Harmony's Snapback paths stay as they are; Harmony's
+   two wrappers change only for the trait (§3 item 2).
 2. **Snapback copies the code and publishes `snapback4-exact`** for Harmony's five targets,
    meeting every ask of §4, against its current release. exact2's tree does not change.
 3. **exact2 switches and deletes**: Harmony depends on the published package (D5); then
-   every deletion of §3 in one change, with the docs. The Harmony lane passes on the web,
-   iOS and Linux before the push.
+   every deletion of §3 in one change, with the docs. M2 passes before the push.
 
 No transitional shim, no second mount, no "legacy" path: step 3 is one change
 (`rules/RULES.md`, "Delete; don't deprecate").
@@ -369,12 +381,12 @@ No transitional shim, no second mount, no "legacy" path: step 3 is one change
 
 | | Measure | Passes when |
 |---|---|---|
-| M1 | three greps outside `llp/` and `apps/`: `git grep -n 'expo/snapback' -- ':!llp' ':!apps'`; `git grep -n 'snapback4' -- '*/package.json' package.json bun.lock '*/Cargo.toml' Cargo.toml '*/Cargo.lock' Cargo.lock ':!apps'`; `git grep -n -E 'snapback4(-[a-z]+)?@|0\.4\.[0-9]+' -- ':!llp' ':!apps'` | all three empty |
-| M2 | Harmony's tests on the web, iOS and Linux, from Harmony's own lock, on a machine with no access to Snapback's source | pass |
-| M3 | bump Harmony's `snapback4` and `snapback4-exact` to the latest, `bun install --frozen-lockfile`, rebuild, run M2; `state` shows the new engine version; `git status` | M2 passes; the version moved; changes only under `apps/harmony` |
-| M4 | the six checks and the async lane on a machine with no Snapback installed and no access to its source | green |
-| M5 | the fixture package's test (§3 item 4) on iOS, macOS and Linux headless | the hash check refuses, the grant check refuses, the native answer is the library's |
-| M6 | a partition Harmony's current adapter wrote, with a queued write, reopened under the package | the identity is kept and the write reaches the server |
+| M1 | three greps: `git grep -n 'expo/snapback' -- ':!llp'`; `git grep -n -i 'snapback' -- package.json bun.lock Cargo.toml Cargo.lock '**/package.json' '**/Cargo.toml' '**/Cargo.lock' ':!apps' ':!llp'`; `git grep -n -i -E 'snapback.{0,60}[0-9]+\.[0-9]+\.[0-9]+' -- ':!llp' ':!apps' ':!vendor'` | all three empty |
+| M2 | Harmony's tests from Harmony's own lock, on a machine with no access to Snapback's git source: `bun exact.mjs test web`, `bun exact.mjs test ios` and `bun exact.mjs test linux` in `apps/harmony/app`, the server started by Harmony's script | pass |
+| M3 | bump Harmony's `snapback4` and `snapback4-exact` to the latest (`snapback4 upgrade`, updating the lock), then `bun install --frozen-lockfile`, rebuild, run M2; the driver's `engine_info` answer in a drive's `state`; `git status` | M2 passes; the engine version moved; changes only under `apps/harmony` |
+| M4 | the six checks and the async lane on a machine with no Snapback installed and no access to its git source | green |
+| M5 | the fixture package's test (§3 item 4) on iOS, macOS, Linux headless and the web | the hash check refuses, the grant check refuses, the packaged app launches, the native answer is the library's, the web loads the asset |
+| M6 | a partition Harmony's current adapter wrote, with a queued write, reopened under the package, natively and on the web (the kept changes in Exact SQLite) | the identity is kept and the write reaches the server |
 
 M3 is the sentence of the title made checkable: Snapback moved, exact2 did not.
 
@@ -397,23 +409,23 @@ M3 is the sentence of the title made checkable: Snapback moved, exact2 did not.
 - **A generic C ABI module seam with symbols exact2 names.** A second module contract
   beside the native slot; the shim is a few dozen lines the package owns.
 - **The shim on LLP 1133.001's `Package` trait** (r1). No roots, no grants, no synchronous
-  call; the driver uses the native slot.
-- **Swift and Kotlin bridges per host** (Sol). The driver's seam is the data module's
-  native slot, which is Rust on every host; a Swift bridge would need a new seam from
-  Swift into the data module on each host, for one package.
+  dispatch on these hosts; the driver uses the native slot.
+- **Swift and Kotlin bridges per host.** The driver's seam is the data module's native
+  slot, which is Rust on every host; a Swift bridge would need a new seam from Swift into
+  the data module on each host, for one package.
 - **The shim as a `DataSource` through a generated Cargo manifest naming `exact-runner`
-  and `ibex2`** (Grok). LLP 1133.001 D9 refuses a module naming `exact-*` crates, and
-  grants would then be parsed outside Exact. The admitted-storage handle keeps them in.
+  and `ibex2`.** LLP 1133.001 D9 refuses a module naming `exact-*` crates, and grants would
+  then be parsed outside Exact. The admitted-storage handle keeps them in.
+- **A second `configure_storage` with a default, keeping the three-path method.** A
+  compatibility branch for seven call sites in one repository; `rules/DEFERRED.md` says
+  no compatibility before 1.0, and the change is one commit (§3 item 2).
 - **A static archive.** Two Rust runtimes and two SQLites in one link (D3).
 
 ## 8. Open questions
 
-1. **Where a package's web asset is served** (§3 item 3): under `/assets/<package>/…` or
-   a path the package declares. The implementer's call; the driver reads it from the
-   package, never from a constant.
-2. **One native slot per app.** The data module has one native module; an app with
-   Snapback and another `native.call` module has the same limit today. Not changed here;
-   LLP 1133.001's modules are separate from the slot.
-3. **The glue's build.** The wasm-bindgen glue is committed in the package by Snapback at
+1. **One native slot per app.** The data module has one native module; an app with
+   Snapback and another `native.call` module (Excord has its own) has the same limit
+   today. Not changed here; LLP 1133.001's modules are separate from the slot.
+2. **The glue's pairing.** The wasm-bindgen glue is committed in the package by Snapback at
    the version its wasm was built with; whether the bake re-checks the pair is the
    implementer's call with §3 item 3.
