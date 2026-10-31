@@ -47,6 +47,7 @@ import { compilerWarnings, windowsWindow } from './app-cli.mjs';
 import { guardFlags } from './help.mjs';
 import { holderOf, takePort } from './port-lock.mjs';
 import { backendOriginSelection, privateNetwork } from '../js/bake/src/typescript.mjs';
+import { contractVerify, semanticsSummary } from './verify-semantics.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 /** The web's two widths: a phone's, and a desktop window's. */
@@ -1329,7 +1330,8 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   return { lines: out, problems, exit: failedTests || broken ? 1 : 0, full: grouped ? full : [] };
 }
 
-async function deviceMain(argv, emitJSON, declined) {
+// `ended` takes the report's last line, which `main` prints last, after `contract verify`'s summary.
+async function deviceMain(argv, emitJSON, declined, ended) {
   const args = guardFlags('verify', argv);
   const value = (flag) => args.indexOf(flag) >= 0 ? args[args.indexOf(flag) + 1] : undefined;
   const json = args.includes('--json'), sim = value('--sim'), copyTo = value('--shots');
@@ -1456,7 +1458,7 @@ async function deviceMain(argv, emitJSON, declined) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, file, failures, end }) => ({ name, file, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, large, ...rest }) => rest)(relaunched);
     emitJSON({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, ...(scrolled ? { scrolling: scrollingOut(scrolled) } : {}), ...(desktop ? { window: desktop } : {}), screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started });
-  } else say(r.lines);
+  } else { say(r.lines.slice(0, -1)); ended(r.lines.at(-1)); }
   // The run, against the build it used (LLP 1146 D2: `bun scripts/evidence.mjs`).
   (await import('./evidence.mjs')).recordRun(app.name, { host, what: 'verify', result: r.problems ? `${r.problems} problem${r.problems === 1 ? '' : 's'}${tested?.failed ? `, ${tested.failed} failed test${tested.failed === 1 ? '' : 's'}` : ''}` : 'clean', timing: 'agent', sim });
   return r.exit;
@@ -1468,23 +1470,20 @@ async function main(argv) {
   const args = guardFlags('verify', argv), json = args.includes('--json');
   const { resolveApp } = await import('./app.mjs');
   const app = resolveApp(args.includes('--app') ? args[args.indexOf('--app') + 1] : undefined);
-  let device = null, code, refused = false;
-  try { code = await deviceMain(args, result => { device = result; }, (exit) => { refused = true; return exit; }); }
+  const semantics = contractVerify(app, json);
+  let device = null, code, refused = false, verdict = null;
+  try { code = await deviceMain(args, result => { device = result; }, (exit) => { refused = true; return exit; }, line => { verdict = line; }); }
   catch (e) { code = 1; device = { error: e.message, exit: 1 }; if (!json) console.error(`verify: ${e.message}`); }
-  if (refused) { if (json && device) console.log(JSON.stringify(device)); return code; }
-  console.error('verify: checking properties and scripts with contract verify');
-  const semantics = await new Promise(resolveResult => {
-    let output = '';
-    const child = spawn('cargo', ['run', '-q', '-p', 'contract', '--', 'verify', resolve(app.dir, 'app.contract')], { cwd: ROOT, stdio: ['ignore', 'pipe', 'inherit'] });
-    const pass = signal => child.kill(signal), signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
-    for (const signal of signals) process.on(signal, pass);
-    child.stdout.on('data', data => { output += data; if (!json) process.stdout.write(data); });
-    const finish = exit => { for (const signal of signals) process.off(signal, pass); resolveResult({ exit, output }); };
-    child.on('error', e => { output += e.message; finish(1); });
-    child.on('exit', exit => finish(exit ?? 1));
-  });
-  const exit = code || semantics.exit;
-  if (json) console.log(JSON.stringify({ ...device, semantics, exit }));
+  if (refused) { semantics.stop(); if (json && device) console.log(JSON.stringify(device)); return code; }
+  const done = await semantics.done;
+  const exit = code || done.exit;
+  if (json) { console.log(JSON.stringify({ ...device, semantics: { exit: done.exit, output: done.output }, exit })); return exit; }
+  const kept = resolve(app.dir, '.exact', 'verify', 'properties.txt');
+  mkdirSync(dirname(kept), { recursive: true });
+  writeFileSync(kept, `${done.output}${done.errors}`);
+  const listed = relative(process.cwd(), kept);
+  console.log(semanticsSummary(done, listed.startsWith('..') ? kept : listed).join('\n'));
+  if (verdict) console.log(done.exit ? `${verdict}; contract verify failed (exit ${done.exit}), as above` : verdict);
   return exit;
 }
 

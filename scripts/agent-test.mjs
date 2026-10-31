@@ -628,7 +628,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   const appOrigin = host !== 'web' && existsSync(resolve(resolveApp(app).dir, 'app.ts')) ? backendOrigin(resolveApp(app).dir, { ...process.env, ...(env ?? {}) }) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(readFileSync(resolve(resolveApp(app).dir, 'app.ts'), 'utf8'))?.[1] : null;
   const authored = JSON.parse(c.stdout), properties = authored.properties.filter(p => p.kind === 'always');
   const unchecked = authored.properties.filter(p => p.kind !== 'always').reduce((n, p) => n + Math.max(1, p.lines.length), 0);
-  console.error(`properties on ${host}: ${unchecked} lines not checked (after, its frames and commands, and never refuses); the driver exposes no commit trace`);
+  if (unchecked) console.error(`properties on ${host}: ${unchecked} lines not checked (after, its frames and commands, and never refuses); the driver exposes no commit trace`);
   let propertyChecks = 0, propertyFalse = 0;
   const tests = backendFetchPrefixes(authored.tests, granted.length ? granted : appOrigin ? [appOrigin] : []);
   const reseeded = tests.filter(t => t.steps.some(s => s.op === 'fresh')).length;

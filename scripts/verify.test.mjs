@@ -12,6 +12,7 @@ import { applyPattern, createApp } from '../game/new.mjs';
 import { findings } from '../host/apple/feel/analyze.mjs';
 import { chromium } from './agent-launch.mjs';
 import { ago, appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, recordedServerAddress, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, reusable, savedChanges, screenTexts, serverUrl, shotName, storedTexts, warningsOfBuild } from './verify.mjs';
+import { semanticsSummary } from './verify-semantics.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
 /** A port nothing holds now, put in a rest-pattern app in place of 8787, which another run on this machine may hold. */
@@ -23,6 +24,21 @@ function onPort(dir) {
 }
 const runs = (lines, screen) => SIZES.flatMap((size) => ['light', 'dark'].map((scheme) => ({ ...(screen ? { screen } : {}), size, scheme, asked: scheme, lines: lines(size, scheme), hidden: 0 })));
 const shots = SIZES.flatMap(([w, h]) => ['light', 'dark'].map((scheme) => `/app/.exact/verify/web-${w}x${h}-${scheme}.png`));
+
+test('contract verify beside the run: a line, the receipt; a failure\'s own lines, not the routine ones', () => {
+  const receipt = ['verify receipt — reproduce: contract verify app.contract --walks 20', '  scripts: 2 tests delivered (2 whole; 0 in part: none; 0 skipped: none), 1 explored, 20 walks',
+    '  suggestions: 3 observed candidates; 2 printed; 1 dropped', '    dropped set "q is one of 6 values": `q`: the value is not bounded', '  properties: 0 held, 0 false, 0 counted only, 0 not exercised'];
+  const routine = ['undeliverable parser step kinds: drag, reload', 'WHOLE /app/app.test.contract: adds; kept: /x.events', 'NOTE /app/app.test.contract: adds: with the oracle\'s data, after step 0: Text("n", "1") does not hold',
+    'OUTSIDE walk 1 from "boot": # unsupported: roster entry `toLowerCase`', 'runner: 1.0s; 22 search scripts; 0 findings; 0 shrink candidates', 'properties: 0 held, 0 false, 0 counted only, 0 not exercised; 0 violations, 0 counted-only line steps'];
+  const suggestions = ['Observed over 23 scripts and 400 steps and code-consistent, not proved; keep the ones the app means:', '', 'always "n is a whole number"', '  expect state n whole', '', 'after "add" "add writes only n"', '  only writes n', ''];
+  const clean = semanticsSummary({ exit: 0, output: [...routine, ...suggestions, ...receipt].join('\n'), errors: '' }, '.exact/verify/properties.txt');
+  assert.deepEqual(clean, ['contract verify: done; 2 suggested properties (observed, not proved: keep the ones the app means); every line: .exact/verify/properties.txt',
+    ...receipt.filter((l) => !l.includes('dropped set'))]);
+  const false_ = ['property "n stays small": false', '  after tap "add" at step 3: n = 7'];
+  const failed = semanticsSummary({ exit: 1, output: [...routine, ...false_, ...suggestions, ...receipt].join('\n'), errors: 'cargo: a warning\n' }, 'p.txt');
+  assert.deepEqual(failed.slice(0, 4), ['contract verify: failed (exit 1); 2 suggested properties (observed, not proved: keep the ones the app means); every line: p.txt', ...false_, 'cargo: a warning']);
+  assert.equal(failed.at(-1), receipt.at(-1));
+});
 
 test('the report: clean in four lines; a failed test fails it; a finding is said once, where it was', () => {
   const clean = report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots, ms: 4000, cwd: '/app' });
@@ -921,10 +937,10 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
       const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, ...args], { cwd: dir, encoding: 'utf8', timeout: 180_000 });
       return { ...r, lines: r.stdout.trim().split('\n') };
     };
-    // `contract verify`'s report follows verify's own, which ends at its verdict (LLP 1151 D8).
+    // `contract verify`'s summary and receipt come after verify's own report and before its verdict, the last line (LLP 1151 D8).
     const verify = (...args) => {
-      const r = exact('verify', ...args), end = r.lines.findLastIndex((l) => l.startsWith('verify: ')) + 1;
-      return end && !args.includes('--json') ? { ...r, lines: r.lines.slice(0, end), semantics: r.lines.slice(end).join('\n') } : r;
+      const r = exact('verify', ...args), at = r.lines.findIndex((l) => l.startsWith('contract verify: '));
+      return at >= 0 && !args.includes('--json') ? { ...r, lines: [...r.lines.slice(0, at), r.lines.at(-1)], semantics: r.lines.slice(at, -1).join('\n') } : r;
     };
     const warned = (text) => text.split('\n').filter((l) => / warning \[/.test(l));
     // The build `test web` runs first says its count, and here names nothing; its drive's stdout is the tests'.
