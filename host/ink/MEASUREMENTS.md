@@ -4933,3 +4933,26 @@ api-ms-win-crt-convert-l1-1-0.dll
 api-ms-win-crt-stdio-l1-1-0.dll
 api-ms-win-crt-locale-l1-1-0.dll
 ```
+
+### Fix chunk A — native verification in progress
+
+Shelf and the native test executables build from `3168305a59`. The standalone
+AccessKit build first refuses the nested mirror because Cargo discovers the
+outer checkout's workspace. It passes with a temporary empty `[workspace]`
+in the mirrored vendor manifest. The build script copies the original manifest
+back afterward. Both build logs remain. This changes the test workspace boundary, not its source.
+
+The first wgpu `pinned paint` process exits with `-1073741819` (`0xc0000005`)
+while running `paint::coverage::every_island_blend_matches_cpu_over_translucent_destination`.
+The Windows application-error event names `amdihk64.dll_unloaded`, version
+2.0.0.1788, offset `0x648d`. This identifies the faulting module, not its cause.
+The full filter needs an unchanged rerun; the crash is not a passing suite.
+The log, exit code and event are retained locally under
+`target/stage-1w-fix-a/nucbox/wgpu-pinned-paint*`.
+
+The native sequence becomes unreachable at 01:40 UTC on 2026-10-31
+(18:40 PDT on October 30). Tailscale reports the NucBox offline. The remaining
+results, including the new field/embedded-provider fixtures, M9 rows and the
+single UIA attempt, cannot yet be retrieved or confirmed. No additional M9
+or UIA attempt is started. Native qualification remains open; the candidates
+stay disabled. All files in the mirror and its retained output directory remain.
