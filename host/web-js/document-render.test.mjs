@@ -671,6 +671,18 @@ component Page
   }
 }, 180000);
 
+// LLP 1153.001 D8: a rendered page paints without the runtime, so it fetches the runtime at low priority; the shell,
+// which cannot paint until the runtime runs, keeps the default.
+test('both document renderers preload the runtime at low priority, and the shell at the default', async () => {
+  for (const how of ['js', 'rust']) {
+    await renderedPages('routes nav\n  home "/" render=build\n\ncomponent Page\n  view\n    text "Home"\n', (_, html, dist) => {
+      const preloads = page => page.match(/<link rel="modulepreload"[^>]*>/g);
+      expect([how, preloads(html(''))]).toEqual([how, ['<link rel="modulepreload" href="./app.js" fetchpriority="low">']]);
+      expect([how, preloads(readFileSync(resolve(dist, 'shell.html'), 'utf8'))]).toEqual([how, ['<link rel="modulepreload" href="./app.js">']]);
+    }, {}, {}, how);
+  }
+}, 180000);
+
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {
   const doc = createDocument(), root = doc.getElementById('exact-root');

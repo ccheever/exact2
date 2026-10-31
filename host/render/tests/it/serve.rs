@@ -1320,7 +1320,7 @@ fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
     let text = String::from_utf8_lossy(&bytes).into_owned();
     // A 103 names the entry's preload, then the page is a chunked 200.
     assert!(
-        text.starts_with("HTTP/1.1 103 Early Hints\r\nLink: </app.js>; rel=modulepreload\r\n\r\nHTTP/1.1 200 OK\r\n"),
+        text.starts_with("HTTP/1.1 103 Early Hints\r\nLink: </app.js>; rel=modulepreload; fetchpriority=low\r\n\r\nHTTP/1.1 200 OK\r\n"),
         "{text}"
     );
     let head_end = text.find("\r\n\r\nHTTP/1.1 200").unwrap() + 4;
@@ -1338,7 +1338,8 @@ fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
     // The first chunk was the head: the capture script, the preload and the
     // stylesheet, before the render's title.
     assert!(first_chunk.contains(exact_render::capture_js()));
-    assert!(first_chunk.contains("<link rel=\"modulepreload\" href=\"./app.js\">"));
+    assert!(first_chunk
+        .contains("<link rel=\"modulepreload\" href=\"./app.js\" fetchpriority=\"low\">"));
     assert!(first_chunk.contains("<style>p{margin:0}</style>"));
     assert!(!first_chunk.contains("<title>"));
     // The rest: at the deadline, the document with what is pending, which

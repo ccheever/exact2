@@ -262,14 +262,25 @@ fn lang_attr(shell: &str, lang: &str) -> String {
         .to_string()
 }
 
+/// One of the shell's `modulepreload` lines (`<link …>\n`), marked
+/// `fetchpriority="low"` (LLP 1153.001 D8): a rendered page paints without
+/// the runtime, which only adopts it (LLP 1048.001), so the runtime must not
+/// compete with the page for the link. The shell a `client` route is sent
+/// keeps it at the default priority: that page cannot paint until it runs.
+fn push_low(out: &mut String, line: &str) {
+    let tag = line.trim_end_matches('\n').trim_end_matches('>');
+    out.push_str(tag);
+    out.push_str(" fetchpriority=\"low\">\n");
+}
+
 /// What of a JavaScript page comes before anything its render decides: the
 /// doctype and `<html lang dir>`, the charset and base, the capture script,
-/// the entry's `modulepreload`s when `preload` (an `interaction` page has
-/// none: it fetches nothing before intent) and the stylesheet. A server
-/// sends it as a request arrives (LLP 1071 D6's early flush), while the
-/// page's data is still being asked; the head stays open, so what the
-/// render decides — the title, the metas, a late preload — still lands in
-/// `<head>`.
+/// the entry's `modulepreload`s at low priority when `preload` (an
+/// `interaction` page has none: it fetches nothing before intent) and the
+/// stylesheet. A server sends it as a request arrives (LLP 1071 D6's early
+/// flush), while the page's data is still being asked; the head stays open,
+/// so what the render decides — the title, the metas, a late preload — still
+/// lands in `<head>`.
 pub(crate) fn head_js(
     shell: &str,
     js: &Js,
@@ -297,7 +308,7 @@ pub(crate) fn head_js(
     for &(start, stop) in &js.preloads {
         out.push_str(&shell[from..start]);
         if preload {
-            out.push_str(&shell[start..stop]);
+            push_low(&mut out, &shell[start..stop]);
         }
         from = stop;
     }
@@ -369,7 +380,7 @@ pub(crate) fn body_open_js(
     }
     if late {
         for &(start, stop) in &js.preloads {
-            out.push_str(&shell[start..stop]);
+            push_low(&mut out, &shell[start..stop]);
         }
     }
     out.push_str(&shell[js.at.root..js.at.root_open]);

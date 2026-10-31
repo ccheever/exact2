@@ -546,11 +546,13 @@ fn a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(mut r: R
     let shell = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<link rel=\"modulepreload\" href=\"./shared-1.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
     let html = exact_render::page(shell, &r).unwrap();
     // Undeclared is eager: the runtime downloads from the head, before the
-    // stylesheet and the document, while the page streams.
+    // stylesheet and the document, while the page streams, at low priority:
+    // the page paints without it (LLP 1153.001 D8).
     assert!(html.contains("data-activate=\"eager\""), "{html}");
     let head = &html[..html.find("<style>").unwrap()];
-    assert!(head.contains("<link rel=\"modulepreload\" href=\"./app.js\">\n"));
-    assert!(head.contains("<link rel=\"modulepreload\" href=\"./shared-1.js\">\n"));
+    assert!(head.contains("<link rel=\"modulepreload\" href=\"./app.js\" fetchpriority=\"low\">\n"));
+    assert!(head
+        .contains("<link rel=\"modulepreload\" href=\"./shared-1.js\" fetchpriority=\"low\">\n"));
     // First paint runs nothing of the app's: no module script is in the
     // page (the checkpoint takes the entry's place), and the one script
     // that runs is the capture script, in the head, which imports the entry
@@ -626,6 +628,7 @@ fn a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(mut r: R
     let html = exact_render::page(shell, &r).unwrap();
     assert!(html.contains("data-activate=\"idle\""));
     assert_eq!(html.matches("rel=\"modulepreload\"").count(), 2);
+    assert_eq!(html.matches("fetchpriority=\"low\"").count(), 2);
     r.activate = exact_plan::ActivatePolicy::Interaction;
     let html = exact_render::page(shell, &r).unwrap();
     assert!(html.contains("data-activate=\"interaction\""));
