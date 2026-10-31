@@ -34,6 +34,24 @@ test('queued route retains original owner and prompt without requesting local at
   expect(mobileOutboxThread('different', original.threadId, now, false, client)).toBeNull();
   expect(mobileOutboxThread('env', 'missing', now, false, client)).toBeNull();
 });
+test('fallback queued table retains the original prompt, row position, status and disabled actions', async () => {
+  const original = record(); original.text = 'Intro\r\n\r\n| Plant | Count |\r\n| - | -: |\r\n| Rose | 7 |';
+  const client = await loaded([original]), before = structuredClone(original);
+  const view = mobileOutboxThread('env', original.threadId, now, false, client)!;
+  expect(view.rows).toHaveLength(1);
+  expect(view.rows[0]).toMatchObject({ id: 'm', kind: 'pending', body: original.text, first: true, last: true,
+    intent: 'Sends on reconnect', copyConfiguration: '', canFork: false, forkKey: '', toggleOp: '', toggleId: '', media: [] });
+  expect(view).toMatchObject({ queued: true, queuedStatus: 'Sends on reconnect', queuedCanSelect: false,
+    queuedFailed: false, queuedCanRetry: false, queuedCanEdit: false,
+    composer: { canSend: false, canStop: false, canOperate: false, showStop: false } });
+  expect(view.rows[0]!.blocks.map(block => block.kind)).toEqual(['markdown', 'table']);
+  expect(view.rows[0]!.blocks[0]).toMatchObject({ columns: 0, alignments: [], rows: [] });
+  expect(view.rows[0]!.blocks[1]).toMatchObject({ columns: 2, alignments: ['left', 'right'] });
+  expect(view.rows[0]!.blocks[1]!.rows.map(row => row.cells.map(cell => cell.runs.map(run => run.text).join(''))))
+    .toEqual([['Plant', 'Count'], ['Rose', '7']]);
+  expect(original).toEqual(before);
+  expect([client.threadId, client.projectId]).toEqual(['other-thread', 'other-project']);
+});
 test('matching shell permits detail selection while the local creation stays visible', async () => {
   const original = record(), client = await loaded([original]);
   client.environmentId = 'different'; client.shell.threads = [{ id: original.threadId }];

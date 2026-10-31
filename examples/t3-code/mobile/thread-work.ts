@@ -1,7 +1,7 @@
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#work-log-detail-rows
 // Pinned365aa87982 thread-work-log.tsx ThreadWorkLogRow; shared state/read owners remain unchanged.
 import { mobileAnswerFile } from './thread-answer-files';
-import type { MarkdownBlock } from './markdown-blocks';
+import type { ThreadMarkdownBlock } from './thread-markdown';
 import { questionAnswerText, questionAnswerPreview, hasQuestionAnswer } from './shared/timeline-inspect';
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Activity, type Obj } from './shared/domain';
@@ -15,7 +15,7 @@ export interface ThreadAnswerFile { id: string; name: string; image: boolean; ur
 export interface ThreadAnswerHistory { id: string; question: string; answer: string; files: ThreadAnswerFile[] }
 export interface ThreadActivity { id: string; label: string; body: string; output: string; result: string; detail: string;
   failed: boolean; expandable: boolean; expanded: boolean; reasoning: boolean; loading: boolean; symbol: string; timestamp: string;
-  prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string; reasoningBlocks: MarkdownBlock[]; answerPreview: string; hasAnswer: boolean; answerHistory: ThreadAnswerHistory[]; nativeWorkRow: string; nativeWorkImage: boolean; nativeWorkDetail: boolean; nativeCommandDetail: boolean }
+  prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string; reasoningBlocks: ThreadMarkdownBlock[]; answerPreview: string; hasAnswer: boolean; answerHistory: ThreadAnswerHistory[]; nativeWorkRow: string; nativeWorkImage: boolean; nativeWorkDetail: boolean; nativeCommandDetail: boolean }
 const toolSymbols: Record<string, string> = { terminal: 'terminal', 'file-text': 'doc.text', 'file-code': 'doc.text', search: 'magnifyingglass',
   brain: 'brain', 'circle-alert': 'exclamationmark.circle', 'file-pen': 'square.and.pencil', 'folder-open': 'folder', globe: 'globe', browser: 'globe', 'git-branch': 'arrow.triangle.branch', zap: 'bolt' };
 const errorTime = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });

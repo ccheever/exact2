@@ -120,8 +120,16 @@ Loaded raw history remains unbounded; resident bounds, native storage, stable
 anchors and selection are not complete.
 Conversation's separate table unit `116eedc7ae` is also in draft PR1190.
 It passes 152 focused tests, strict types, Contract compilation, and caps.
-The completed QA table has a literal regression; width, clipping, selection,
-and actual table rendering still need a normal native build and drive.
+The normal artifact matches all 3,289 inputs and passes strict signature
+verification. On the actual Duo outer panel, QA04 renders all three headers
+and nine data cells. Cell selection survives adjacent code scrolling, and
+message Copy returns Copied. The table fits this panel. Oversized-table
+scrolling, selection during recycling or reflow, reference width parity and
+animation remain unqualified. The coordinator isolates this table unit from
+automatic history. Parent verification passes 193 focused tests, all 4,192
+mobile tests, strict types and Contract compilation. The combined coordinator
+artifact still needs its normal build and drive. Conversation's exact receipt
+is `target/t3-conversation-evidence/tables/native-qa-result.json` in its worktree.
 
 Home's spacing/separator patch is draft
 [PR1191](https://github.com/ccheever/exact2/pull/1191), head `22d8eb348d`.

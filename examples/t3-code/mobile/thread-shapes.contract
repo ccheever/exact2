@@ -12,6 +12,21 @@ shape ThreadBlock
   text: string
   language: string
   tokens: ThreadCodeToken[]
+  columns: number
+  alignments: string[]
+  rows: ThreadTableRow[]
+shape ThreadTableRun
+  id: string
+  kind: string
+  text: string
+shape ThreadTableCell
+  id: string
+  numeric: bool
+  runs: ThreadTableRun[]
+shape ThreadTableRow
+  id: string
+  header: bool
+  cells: ThreadTableCell[]
 shape ThreadMedia
   id: string
   name: string
