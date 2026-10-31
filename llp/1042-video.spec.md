@@ -507,6 +507,18 @@ symbol, only compares a class name. Where no such window is found, the layer
 keeps the size the first picture gave it (its aspect, at most 640 points
 long), which the panel then shows scaled down or cropped.
 
+AVKit moves the layer's video into the panel and lays it out again at the
+video's own size whenever that size changes; only the panel's next layout
+fits it back to the panel. A change that no panel layout follows leaves the
+picture outside the panel, which then shows its blank window background. A
+stream's pictures differ by a pixel as the page is scaled (a seed of
+1078 × 1496, then 922 × 1280), which left the panel blank in 20 of 30 runs.
+The arm therefore draws a picture whose aspect is within 2% of the video's
+at the video's size. A new aspect resizes the panel, whose layout fits the
+video again. A stream deletes a picture once it names the next, sometimes
+before the arm reads it: a first picture whose file is gone fails the
+request only when no picture opens the window within a second.
+
 Sources: [W3C Picture-in-Picture](https://w3c.github.io/picture-in-picture/),
 [AVPictureInPictureController.ContentSource](https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/contentsource-swift.class),
 [AVSampleBufferDisplayLayer](https://developer.apple.com/documentation/avfoundation/avsamplebufferdisplaylayer),

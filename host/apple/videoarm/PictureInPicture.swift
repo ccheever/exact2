@@ -115,8 +115,17 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
                 self.decoding = false
                 if buffer == nil { self.log("decode failed \(path)") }
                 if let buffer, !self.invalid { self.show(buffer) }
-                // The first picture opens the window: one that cannot be read fails the request.
-                else if buffer == nil, !self.started, self.waiting == nil { self.say("error the picture could not be read") }
+                // The first picture opens the window: one that cannot be read fails the request. A stream
+                // deletes a picture once it names the next, sometimes before it is read here, so a file
+                // that is gone fails the request only when no picture opens the window within a second.
+                else if buffer == nil, !self.started, self.waiting == nil {
+                    if FileManager.default.fileExists(atPath: path) { self.say("error the picture could not be read") }
+                    else {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                            if let self, !self.started { self.say("error the picture could not be read") }
+                        }
+                    }
+                }
                 if let next = self.waiting { self.waiting = nil; self.frame(next) }
             }
         }
