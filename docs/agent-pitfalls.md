@@ -1880,6 +1880,19 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   platform's background, border and corners. `background-clip` and
   `background-attachment` alone keep the field native. (LLP 1104 r8 D2.)
 
+- **A package's prebuilt library, built by Cargo on a Mac, fails the app's link.** Cargo's
+  release profile strips debug info by default, and ld refuses the dylib Apple's `strip`
+  leaves ("mis-aligned LINKEDIT string pool"). Set `strip = false` in the library's
+  `[profile.release]` (`packages/fixtures/vault/library/Cargo.toml`). (LLP 1154, 2026-10-31.)
+
+- **A package's `web.assets` are missing from the web build.** The bake captures a package,
+  and its assets with it, only when `app.ts` imports it: import its driver even if the app
+  uses nothing from it yet. (LLP 1154, 2026-10-31.)
+
+- **An edit to a `file:` package does not reach the app.** `bun install` copies a `file:`
+  directory into `node_modules`, so the app builds the copy (the bake's `#[path]` to a shim
+  names it) until the next `bun install`. (LLP 1154, 2026-10-31.)
+
 ## Games
 
 A game's pitfalls (the world and its saves, game input, its tests, proof and setup)

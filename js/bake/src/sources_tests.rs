@@ -468,7 +468,10 @@ fn a_package_declaring_native_writes_the_factory_and_a_second_refuses() {
     manifest(r#""@fixture/vault": "1.0.0", "bare": "1.0.0""#);
     let selection = contract::native::native_slot(&app.0).unwrap();
     assert_eq!(selection.slot.unwrap().package, "@fixture/vault");
-    assert!(!selection.watched.iter().any(|file| file.ends_with("bare/exact.json")));
+    assert!(!selection
+        .watched
+        .iter()
+        .any(|file| file.ends_with("bare/exact.json")));
     package("unread", r#"{"native": "#);
     manifest(r#""@fixture/vault": "1.0.0", "unread": "1.0.0""#);
     let refused = contract::native::native_slot(&app.0).unwrap_err();

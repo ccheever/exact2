@@ -10,7 +10,7 @@
 //! `native.link` (`js/bake/src/library.rs`). This is the one place that
 //! chooses the package, so the one place that refuses two.
 
-use crate::package_views::{dependencies, read};
+use crate::package_views::dependencies;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 

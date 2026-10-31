@@ -5,7 +5,9 @@
 // - Each app bundle carries the framework in its Frameworks.
 // - With the fetched library deleted, each drive (fixture.mjs STEPS) gets the library's answer, an ungranted path
 //   refused with the grant named, the file opened by the library's SQLite with its row count, and the app's own open
-//   of it refused while the library holds it and admitted after; and nothing fetched the library again.
+//   of it refused while the library holds it and admitted after. The drive's own build check fetches the library
+//   again (host/apple/build.mjs fetches before every build), so what the app loads is shown by its executable: it
+//   names the framework by `@rpath`, and no run path outside the bundle holds one.
 //
 // The simulator is the suite's own (docs/testing.md: another person may share the Mac), deleted after.
 //
@@ -13,7 +15,17 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { checker, drive, fetched, forget, makeFixture, refused, run, workDir, wrongHash } from './fixture.mjs';
+import { checker, drive, forget, makeFixture, refused, run, workDir, wrongHash } from './fixture.mjs';
+
+/** Whether the executable at `binary` loads `framework` (its install name) only from `within`, a run path relative to
+ * the executable: it names it by `@rpath`, its run paths include `within`, and none that is a directory on this
+ * machine holds a vault.framework. */
+function loadsFromBundle(binary, framework, within) {
+  const rpaths = [...run('otool', ['-l', binary], '/').matchAll(/cmd LC_RPATH\n\s+cmdsize \d+\n\s+path (\S+)/g)].map(m => m[1]);
+  return run('otool', ['-L', binary], '/').includes(framework) && rpaths.includes(within)
+    && !rpaths.some(path => !path.startsWith('@') && existsSync(join(path, 'vault.framework')));
+}
+const plistValue = (plist, key) => run('plutil', ['-extract', key, 'raw', plist], '/').trim();
 
 if (process.platform !== 'darwin') { console.error('apple.mjs runs on a Mac'); process.exit(1); }
 const given = process.argv[2], dir = workDir(given);
@@ -27,7 +39,8 @@ const bundle = /^local client: (.+\.app)$/m.exec(run('bun', ['exact.mjs', 'mac']
 check('macos', 'the bundle carries the framework in Contents/Frameworks', !!bundle && existsSync(join(bundle, 'Contents/Frameworks/vault.framework/Versions/A/vault')), bundle);
 forget(library);
 drive(check, 'macos', app);
-check('macos', 'the drive loaded the framework the bundle carries: nothing fetched it again', !fetched(library), 'the cache holds it again');
+const macExecutable = bundle && join(bundle, 'Contents/MacOS', plistValue(join(bundle, 'Contents/Info.plist'), 'CFBundleExecutable'));
+check('macos', 'the executable loads the framework from the bundle alone', !!bundle && loadsFromBundle(macExecutable, '@rpath/vault.framework/Versions/A/vault', '@executable_path/../Frameworks'), macExecutable);
 
 // The iOS app, on a simulator of the suite's own.
 const udid = run('xcrun', ['simctl', 'create', 'exact-vault', 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro'], dir).trim();
@@ -39,7 +52,8 @@ try {
   check('ios', 'the bundle carries the framework in Frameworks', !!ios && existsSync(join(ios, 'Frameworks/vault.framework/vault')), ios);
   forget(library);
   drive(check, 'ios', app, ['--sim', udid], env);
-  check('ios', 'the drive loaded the framework the bundle carries: nothing fetched it again', !fetched(library), 'the cache holds it again');
+  const iosExecutable = ios && join(ios, plistValue(join(ios, 'Info.plist'), 'CFBundleExecutable'));
+  check('ios', 'the executable loads the framework from the bundle alone', !!ios && loadsFromBundle(iosExecutable, '@rpath/vault.framework/vault', '@executable_path/Frameworks'), iosExecutable);
 } finally {
   spawnSync('xcrun', ['simctl', 'shutdown', udid]);
   spawnSync('xcrun', ['simctl', 'delete', udid]);
