@@ -822,6 +822,8 @@ impl Images {
                 }
                 match self.backend.request(demand) {
                     Ok(request) => {
+                        #[cfg(target_os = "macos")]
+                        exact_ink::device::apple::trace_mark(c"image request", || source as f64);
                         view.request = Some((request, decode.full()));
                         view.requested_for = view.desired;
                         view.requested_fit = view.object_fit;
@@ -963,6 +965,24 @@ impl Images {
     }
     pub(crate) fn enable_decode(&mut self) {
         self.decode_enabled = true;
+    }
+
+    /// First-commit identities are known before layout supplies decode sizes.
+    pub(crate) fn prepare_boot(&mut self, kernel: &Kernel, roots: &[ViewId], scale: f32) {
+        self.decode_enabled = false;
+        let live = kernel.preorder_where(roots, |ty, _| ty == NodeType::Image);
+        let live: Vec<_> = live
+            .into_iter()
+            .filter(|id| {
+                kernel.node(*id).is_some_and(|n| {
+                    !n.props
+                        .str(PropId::ImageSource)
+                        .unwrap_or("")
+                        .starts_with("symbol:")
+                })
+            })
+            .collect();
+        self.sync_visible(kernel, &live, scale, |_| true);
     }
     /// Wait for available work until the deadline, without spinning on capacity.
     pub fn wait(&mut self, timeout: Duration) -> Vec<Report> {

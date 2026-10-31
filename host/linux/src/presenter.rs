@@ -428,6 +428,8 @@ impl<D: DataSource> Presenter<D> {
             .map_err(HostError::Painter)?;
         #[cfg(not(windows))]
         let (backend, painter) = painter.open().map_err(HostError::Painter)?;
+        let mut images = Images::with_assets(assets.clone());
+        images.fit(viewport, scale);
         let (mut host, error) = Host::boot_decoded(
             decoded,
             data,
@@ -439,6 +441,7 @@ impl<D: DataSource> Presenter<D> {
             launch,
             region,
             Some(text.clone()),
+            (!assets.is_selected()).then_some((&mut images, scale)),
         )?;
         // @ref LLP 1115.000 D10.3 — a hairline is one device pixel of this.
         let error = error.or(host.set_display_scale(f64::from(scale)));
@@ -448,8 +451,6 @@ impl<D: DataSource> Presenter<D> {
                 .map_err(HostError::Painter)?,
             None => opened.expect("synchronous painter"),
         };
-        let mut images = Images::with_assets(assets.clone());
-        images.fit(viewport, scale);
         if assets.is_selected() {
             if let Some(error) = error {
                 return Err(HostError::Layout(error));

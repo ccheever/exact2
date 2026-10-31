@@ -44,6 +44,45 @@ fn assets() -> Assets {
 }
 
 #[test]
+fn boot_metadata_waits_for_layout_size_before_decoding() {
+    let mut k = kernel(2);
+    source(&mut k, 2, "symbol:checkmark");
+    let mut images = Images::with_assets(Assets::selected(
+        PathBuf::new(),
+        Arc::new(|_| Ok(Some(encoded(512, 512, [40, 100, 200, 255])))),
+    ));
+    images.prepare_boot(&k, &k.roots(), 2.);
+    until(|| {
+        images.poll();
+        images
+            .views
+            .get(&1)
+            .and_then(|v| v.source_id.as_ref())
+            .is_some_and(|s| matches!(images.backend.prepared(s.id), Some(Prepared::Ready(_))))
+    });
+    assert!(images.views[&1].request.is_none());
+    assert!(images.bitmaps.is_empty());
+    assert!(
+        !images.views.contains_key(&2),
+        "symbols still owe their intrinsic size"
+    );
+    boxed(&mut k, 1, 32., 32., exact_kernel::ObjectFit::Cover);
+    images.enable_decode();
+    let reports = images.sync_visible(&k, &k.roots(), 2., |_| true);
+    assert!(reports.iter().any(|(id, size)| *id == 2 && size.is_some()));
+    until(|| {
+        images.poll();
+        images.bitmaps.contains_key(&1)
+    });
+    let picture = &images.bitmaps[&1];
+    assert!(
+        picture.width() < 512 && picture.height() < 512,
+        "layout must size the decode"
+    );
+    assert_eq!(picture.natural(), (512, 512));
+}
+
+#[test]
 fn http_images_share_a_download_without_blocking_local_images() {
     use std::io::{Read, Write};
     use std::net::TcpListener;

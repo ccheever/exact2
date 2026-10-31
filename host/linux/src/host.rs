@@ -199,7 +199,7 @@ impl<D: DataSource> Host<D> {
     ) -> Result<(Host<D>, Option<String>), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         Self::boot_decoded(
-            plan, data, measurer, width, height, carried, delivery, launch, region, None,
+            plan, data, measurer, width, height, carried, delivery, launch, region, None, None,
         )
     }
 
@@ -217,6 +217,7 @@ impl<D: DataSource> Host<D> {
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
         font_sync: Option<crate::text::Shared>,
+        mut boot_images: Option<(&mut crate::image::Images, f32)>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
         // @ref LLP 1075.003.000 §3.3 — whether the plan marks nodes for a hatch.
         let hatched = plan.bindings.iter().any(|b| {
@@ -277,6 +278,9 @@ impl<D: DataSource> Host<D> {
         }
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;
+        }
+        if let Some((images, scale)) = &mut boot_images {
+            images.prepare_boot(runner.kernel(), &runner.roots(), *scale);
         }
         let mut host = Host {
             runner,
@@ -360,10 +364,15 @@ impl<D: DataSource> Host<D> {
                 .map_err(HostError::Layout)?,
             );
         }
-        let error = crate::traced(c"boot first layout", || host.layout()).err();
+        let mut error = crate::traced(c"boot first layout", || host.layout()).err();
         host.observe_layout();
         #[cfg(any(windows, target_os = "macos"))]
         crate::app::boot_phase(c"layout-ready");
+        if let Some((images, scale)) = boot_images {
+            images.enable_decode();
+            let reports = images.sync_visible(host.kernel(), &host.preorder(), scale, |_| true);
+            error = error.or(host.set_intrinsics(reports));
+        }
         host.present();
         Ok((host, error))
     }

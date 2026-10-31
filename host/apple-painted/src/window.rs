@@ -242,9 +242,6 @@ impl<D: DataSource + Default + 'static> App<D> {
         if !self.awaiting_first_present() {
             self.first_frame = None;
         }
-        if self.first_frame.is_some() {
-            return Ok(());
-        }
         let Some(p) = &mut self.presenter else {
             return Ok(());
         };
@@ -258,7 +255,13 @@ impl<D: DataSource + Default + 'static> App<D> {
         let service_trace = Trace::with_value(c"draw service", f64::from(counters::DRAW) + 1.);
         prepare_draw(p, now, self.live)?;
         drop(service_trace);
+        if !p.apple_painter_can_draw() {
+            self.first_frame = None;
+        }
         if p.dirty() && p.apple_painter_can_draw() {
+            // Painting replaces the compose target (or the CPU startup device).
+            // Only a successful submission below may become the next repeat.
+            self.first_frame = None;
             if std::env::var_os("G1_OUTPUT").is_some() {
                 self.benchmark_complete = !p.images().pending() && !p.images().has_refusals();
                 let target = std::env::var("EXACT_BENCH_SCROLL_TARGET")
@@ -424,14 +427,23 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 if !unshown {
                     self.first_frame = None;
                 }
+                if self.first_frame.is_some() {
+                    let before = self.frames;
+                    if let Err(e) = self.draw() {
+                        self.fail(events, e);
+                        return;
+                    }
+                    if self.frames != before {
+                        return;
+                    }
+                }
                 if let Some(frame) = &self.first_frame {
                     if self
                         .layer
                         .as_ref()
                         .is_some_and(Layer::first_present_dropped)
                     {
-                        // A redraw waits for AppKit's transaction. The tick can
-                        // copy the retained frame immediately on the present worker.
+                        // With no new paint, repeat the latest submitted pixels.
                         let _trace = Trace::new(c"first frame repeat");
                         match self.presenter.as_mut().unwrap().repeat_apple_frame(frame) {
                             Ok(true) => {}
@@ -698,7 +710,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         let Some(p) = &mut self.presenter else {
             return;
         };
-        if self.layer.as_ref().is_some_and(Layer::retry_requested) {
+        if self.layer.as_ref().is_some_and(Layer::retry_requested) && self.first_frame.is_none() {
             p.repaint();
         }
         let now = if !self.live {
