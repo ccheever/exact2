@@ -133,7 +133,9 @@ impl<D: DataSource> Host<D> {
         if read {
             self.emit_paragraphs(&mut batch);
         }
+        // PROTO (rule 4): a route's far frames owed (`set_moving_top`) need a layout pass
         let needs_layout = read
+            || self.far_owed
             || !(covers.is_empty()
                 && blocks.is_empty()
                 && margins.is_empty()

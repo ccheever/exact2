@@ -189,7 +189,7 @@ extension BatchReader {
 extension BatchOp {
     package var isAdapter: Bool {
         switch op {
-        case .create, .props, .style, .children, .paragraph, .frame, .content, .present, .roots, .destroy, .roles: return false
+        case .create, .props, .style, .children, .paragraph, .frame, .content, .present, .roots, .destroy, .roles, .far: return false
         default: return true
         }
     }
