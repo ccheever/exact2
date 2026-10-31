@@ -24,7 +24,11 @@ The only required reading; the rest is lookup.
      `"correct"`, `"wrong"`, `"dimmed"` or `"chosen"` (your pick once closed). `SummaryCard`: the one number, shown once
    - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark` done or not; `EmptyState` with your `button` indented under it
 4. **Compose as the platform does:** a row pushes its detail; create and edit are sheets; a
-   phone gets one column, a wide window two (`responsive-columns`). Tabs (a sidebar) and a
+   phone gets one column, a wide window two (`responsive-columns`). Every screen, tab, detail
+   and sheet is a route (`routes`, `push`, a row that is a `link href=path(…)`): on the web
+   that is its URL, so Back, reload, a shared link and a new tab work, and focus moves to the
+   new screen. A screen chosen by `if page == …` over a state has none of these, and the
+   build warns (`lower-screen-by-state`). Tabs (a sidebar) and a
    list whose rows push (beside its detail) need no code. The rows of a list the person deletes from swipe to
    delete and open a menu on a long press (`list-detail`, `contract vocab swipe`).
    `haptic("selection")` marks a choice in your own control, `haptic("success")` a task done.
