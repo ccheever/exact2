@@ -681,8 +681,9 @@ final class WebViews {
 
     /// `navigate(id, url)`, `traverseHistory(id, delta)`, `reload(id,
     /// ignoreCache=)`, `stopLoading(id)` (@ref LLP 1020.002 D3) and
-    /// `captureScreenshot(id, path, clip)` (D7), to the one mounted frame with
-    /// that id. A capture's `app:/` path goes with the file it names.
+    /// `captureScreenshot(id, path, clip)` (D7) and `openDevTools(id)` (D11),
+    /// to the one mounted frame with that id. A capture's `app:/` path goes
+    /// with the file it names.
     func command(_ name: String, _ args: [Any]) {
         let target = args.first as? String ?? ""
         let matches = entries.values.filter { $0.owner?.props["id"] == target }

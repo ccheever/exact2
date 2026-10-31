@@ -139,3 +139,30 @@ test('openURL opens a declared scheme, refuses the rest, and journals under the 
     server.stop(true);
   }
 }, 30000);
+
+// A page cannot open the browser's developer tools (LLP 1020.002 D11): `openDevTools(id)` is refused in the journal.
+test('openDevTools is refused on the web', async () => {
+  const server = Bun.serve({ port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    for (const [name, file] of [['commands.js', './commands.js'], ['frame-messages.js', '../web/frame-messages.js'], ['navigation.js', '../web/navigation.js'], ['prompt-glue.js', '../web/prompt-glue.js'], ['alert-message.js', '../web/alert-message.js'], ['menu-rows.js', '../web/menu-rows.js']]) {
+      if (path === `/${name}`) return new Response(Bun.file(new URL(file, import.meta.url)));
+    }
+    return new Response(`<iframe id="tab"></iframe><script type="module">
+        import { commands } from '/commands.js';
+        const said = [];
+        commands(line => said.push(line)).openDevTools('tab');
+        globalThis.result = said;
+      </script>`, { headers: { 'content-type': 'text/html' } });
+  } });
+  let browser;
+  try {
+    browser = await suiteBrowser();
+    const page = await browser.newPage();
+    await page.goto(server.url.href);
+    await page.waitForFunction(() => globalThis.result);
+    expect(await page.evaluate(() => globalThis.result)).toEqual([`openDevTools("tab") refused: a page cannot open the browser's developer tools; open them from the browser's menu`]);
+  } finally {
+    await browser?.close();
+    server.stop(true);
+  }
+}, 30000);
