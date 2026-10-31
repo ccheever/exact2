@@ -368,6 +368,7 @@ fn write<S: Source>(
         out: String::new(),
         links: 0,
         buttons: 0,
+        hidden: 0,
         touch: 0,
         select: None,
         scroll_document: false,
@@ -591,6 +592,8 @@ struct Walk<'r, 'w, S: Source> {
     /// Open boxes that restrict touch (`element::restricts_touch`): a folded
     /// text under one is an inline box.
     touch: u32,
+    /// Open routes `navigation.project` hides.
+    hidden: u32,
     /// The open `select`'s value: the option that carries it is `selected`.
     select: Option<String>,
     scroll_document: bool,
@@ -646,9 +649,14 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         super::element::router_press(&mut props, self.presses.get(&id).copied());
         svg_props_of(&resolve, &node, &mut props);
-        self.scroll_document |= props
+        // A page scroller in a route `navigation.project` hides is off the
+        // page (`markDocument`): an inner scroller, not the document's.
+        let route_hidden = self.routes.get(&id).is_some_and(|r| r.hidden);
+        let page_scroller = props
             .get("data-scrolldocument")
             .is_some_and(|v| v == "true");
+        let offpage = page_scroller && (route_hidden || self.hidden > 0);
+        self.scroll_document |= page_scroller && !offpage;
         let mut text = match src.with_style_rows(id, css_style_of(&resolve, &node)) {
             Cow::Borrowed(style) => {
                 let fonts = &self.fonts;
@@ -827,6 +835,9 @@ impl<S: Source> Walk<'_, '_, S> {
                 attrs.push(("inert".into(), None));
             }
         }
+        if offpage {
+            attrs.push(("data-exact-offpage".into(), None));
+        }
         if self.bars.contains(&id) {
             attrs.push(("data-exact-bar".into(), None));
         }
@@ -906,6 +917,7 @@ impl<S: Source> Walk<'_, '_, S> {
         self.buttons += u32::from(button);
         let touch = restricts_touch(&node);
         self.touch += u32::from(touch);
+        self.hidden += u32::from(route_hidden);
         let outer = chosen.map(|value| std::mem::replace(&mut self.select, value));
         let only = children.len() == 1;
         for child in children.iter().copied() {
@@ -922,6 +934,7 @@ impl<S: Source> Walk<'_, '_, S> {
         self.links -= u32::from(link);
         self.buttons -= u32::from(button);
         self.touch -= u32::from(touch);
+        self.hidden -= u32::from(route_hidden);
         self.out.push_str("</");
         self.out.push_str(element);
         self.out.push('>');

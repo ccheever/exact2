@@ -906,6 +906,61 @@ component App
   }
 }, 240000);
 
+// LLP 1048.003 D4: only the shown route's `scroll document` is the page's scroller. A hidden route's is
+// `data-exact-offpage`, scrolling inside its bound, so its content leaves the page's height; each route keeps its own
+// place in the page's scroll, so a route opened anew starts at its top and one shown again where the reader left it.
+test('both document renderers make only the shown route\'s page scroller the page\'s, and each route keeps its place', async () => {
+  for (const how of ['rust', 'js']) await renderedPages(`routes nav
+  home "/" render=build activate=idle
+    detail "/detail" render=build activate=idle
+
+component Pages
+  action open
+    nav = push(nav, path("detail"))
+  action back
+    nav = back(nav)
+  action follow(url: string)
+    nav = go(nav, url)
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=follow width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` position="absolute" inset=0 display="flex" flex-direction="column"
+          scroll document flex=1 min-height=0
+            if e.name == "home"
+              column height=700
+              button "Open" press=open testId="open"
+              column height=1300
+            if e.name == "detail"
+              column height=1000
+`, async (_, html, dist) => {
+    const offpage = path => html(path).match(/\sdata-exact-offpage(?=[\s>=])/g)?.length ?? 0;
+    expect([how, offpage(''), offpage('detail'), /<html [^>]*data-scrolldocument/.test(html('detail'))]).toEqual([how, 0, 1, true]);
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path === '/detail' ? 'detail/index.html' : path.slice(1))));
+    } });
+    const browser = await suiteBrowser();
+    try {
+      const page = await browser.newPage({ viewport: { width: 390, height: 600 } });
+      const at = () => page.evaluate(() => [location.pathname, scrollY, document.documentElement.scrollHeight]);
+      await page.goto(new URL('/detail', server.url).href);
+      expect([how, (await at())[2]]).toEqual([how, 1000]);
+      await page.goto(server.url.href);
+      await page.waitForFunction(() => !!globalThis.exact?.ready, null, { timeout: 5000 });
+      const home = (await at())[2];
+      // The button shows at 500, so the press scrolls nothing before it.
+      await page.evaluate(() => scrollTo(0, 500));
+      await page.click('[data-testid="open"]');
+      await page.waitForFunction(() => location.pathname === '/detail');
+      expect([how, await at()]).toEqual([how, ['/detail', 0, 1000]]);
+      await page.evaluate(() => history.back());
+      await page.waitForFunction(() => location.pathname === '/');
+      await page.waitForTimeout(100);
+      expect([how, await at()]).toEqual([how, ['/', 500, home]]);
+    } finally { await browser.close(); server.stop(true); }
+  }, {}, {}, how);
+}, 240000);
+
 // LLP 1048.007 D4: a rendered page carries only the rules its document can match, and the runtime puts the whole sheet
 // back before its first render, so what it then shows is styled as on the shell.
 test('both document renderers give a page its own rules, and the runtime restores the whole sheet', async () => {
