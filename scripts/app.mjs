@@ -1,5 +1,6 @@
 import { compilerPaths, unitDepInfo, cargoBakeInputs } from './cargo-dep-info.mjs';
 export { compilerPaths, unitDepInfo } from './cargo-dep-info.mjs';
+import { LIBRARY_CACHE } from './package-libraries.mjs';
 import { ensureBun } from './bun.mjs';
 import { macResourceMappings, macResourceInventory, appleAssetCatalogInventory, launchImageInventory } from '../host/apple/assets.mjs';
 // Where an app lives. Inside this repo an app is `apps/<name>` — its crates
@@ -1049,6 +1050,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     if (pkg) return `${pkg.name}/${relative(pkg.path,path)}`;
     const hermesLeanRoot = hermesLeanRoots.find(root => under(root,path));
     if (hermesLeanRoot) return `hermes-lean-sys/${relative(hermesLeanRoot,path)}`;
+    if (under(LIBRARY_CACHE,path)) return `package-library/${relative(LIBRARY_CACHE,path)}`; // by its hash and target (package-libraries.mjs)
     if (under(app.dir,path)) return `app/${relative(app.dir,path)}`;
     if (under(ROOT,path)) return `exact/${relative(ROOT,path)}`;
     if (under(graph.metadata.workspace_root,path)) return `workspace/${relative(graph.metadata.workspace_root,path)}`;
@@ -1097,7 +1099,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     // A linked native archive is an input too; Rust dep-info cannot name its C/ObjC bytes.
     for (const raw of m.linked_paths) {
       const dir = raw.replace(/^native=/, '');
-      if (under(resolve(m.out_dir), resolve(dir))) for (const file of readdirSync(dir)) if (/\.(a|o|dylib|so|lib|obj|dll)$/.test(file)) add(resolve(dir,file));
+      if (under(resolve(m.out_dir), resolve(dir))) { for (const file of readdirSync(dir)) if (/\.(a|o|dylib|so|lib|obj|dll)$/.test(file)) add(resolve(dir,file)); }
+      else if (under(LIBRARY_CACHE, resolve(dir))) add(resolve(dir)); // a package's library, which the product carries
     }
     builders.push({package:pkg.name,role,cfgs:m.cfgs,environment:orderedBuild(environment),libraries:m.linked_libs,env:m.env.filter(([key])=>!key.startsWith('EXACT_')).map(normalizeEnv)});
   }

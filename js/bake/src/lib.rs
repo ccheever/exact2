@@ -6,6 +6,7 @@
 
 mod android;
 mod beside;
+mod library;
 mod linked;
 #[path = "../../package_tool.rs"]
 mod package_tool;
@@ -59,8 +60,12 @@ impl std::error::Error for BakeError {}
 /// script takes the files Rust compiles from it and watches only those, so
 /// an edit that changes the plan alone leaves the archive as it was, and the
 /// link carries the plan (`exact_apple::baked`).
+///
+/// Either way it links the library a package the app depends on declares
+/// (`library`), which the native build fetched before Cargo ran.
 pub fn build(app: &Path, platform: &str) -> Result<(), BakeError> {
     println!("cargo:rerun-if-env-changed=EXACT_BAKED");
+    library::link(app).map_err(BakeError)?;
     match std::env::var_os("EXACT_BAKED") {
         Some(baked) => std::env::var_os("OUT_DIR")
             .ok_or_else(|| "build requires OUT_DIR".to_string())
