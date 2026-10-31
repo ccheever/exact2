@@ -11145,3 +11145,31 @@ tests and eight carrier tests pass. Their latest outputs are in
 `checks/landing/`, `mounted-handoff-controls.log` and
 `carrier-landing.log`. Its measurements use `landing/`, preserving the
 two prior attempts' originals and predictions.
+
+**Third decode prediction: miss; source fixes stop.** Both traced
+originals at `c2bbac1010` qualify. Main again decodes 7 pictures before
+fling and 33 during it; after decodes 5 then 35. Its 348 fling draws all
+follow redraw requests (main: 347/347). The mounted sync is only one
+pass: later ordinary syncs restore visibility and can cancel offscreen
+requests before decoding begins. The trace establishes that the pass
+does not move those two decodes earlier; it does not identify individual
+source cancellations. This is the third attempt, so no further source
+fix is made in this chunk. The five untraced pairs below measure the
+remaining work difference.
+
+The final source repeats the archive-miss handoff, retained Metal, wgpu,
+live updates and all six background cases successfully. The bound
+window's first visible window and layer colours match; reveal follows
+acquisition by 24.001 ms. Each background case retires its observer
+once. `landing/{trace-summary,background-summary}.py` reproduces these
+checks from `landing/silver/`; the live Metal and wgpu screenshots show
+the scrolled list. Dark appearance is covered by unit tests, not a live
+silver appearance switch; nesting is tested with a real nested Core
+Foundation loop, not an AppKit modal window.
+
+Another collector (`m10-cut7-4ee50baec5`) started after these diagnostics,
+while this lane entered its initial cost quiet gate. This lane stopped
+its own idle collectors before any cost sample, retaining the successful
+gate and ownership observations under `landing/silver/fling-ownership-wait/`.
+It resumes the same signed arms after the other collector exits; no
+measured original is replaced.
