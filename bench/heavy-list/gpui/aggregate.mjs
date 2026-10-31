@@ -4,8 +4,9 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 
-const [directory = 'target/g3c', mode] = process.argv.slice(2);
+const [directory = 'target/g3c', mode, bootOutput] = process.argv.slice(2);
 assert([undefined, '--verify', '--json', '--boot', '--sample'].includes(mode), 'expected --verify, --json, --boot or --sample');
+assert(bootOutput === undefined || mode === '--boot' && ['--table', '--verify'].includes(bootOutput), 'only --boot accepts --table or --verify');
 const hookStates = new Set();
 const hookSamples = [];
 function hookState(raw, path, retained = raw.accepted !== false) {
@@ -146,10 +147,34 @@ if (mode === '--boot') {
       medians[arm][key] = values.length ? (values[Math.floor((values.length-1)/2)] + values[Math.floor(values.length/2)])/2 : null;
     }
   }
-  console.log(JSON.stringify({...hookMetadata(), instrument: 'probe CACurrentMediaTime startup span union; MTLDrawable.presentedTime first pixels and per-painter complete scenes', medians, samples}, null, 2));
+  if (bootOutput) {
+    const targets = Object.keys(medians);
+    const rows = [
+      ['Launches', 'count'], ['Displayed', 'displayed'], ['Complete Ink screens', 'inkCompleteSamples'],
+      ['Device/layer phase, ms', 'phaseMs'], ['First pixel, ms', 'firstPixelMs'],
+      ['First CPU pixel, ms', 'firstCpuMs'],
+      ['Complete CPU screen, ms', 'firstCpuCompleteMs'], ['Complete Ink screen, ms', 'firstInkCompleteMs'],
+      ['Worker compilation/serialization, ms', 'compileMs'], ['Active or key windows', 'activated'],
+    ];
+    const table = `| Metric | ${targets.join(' | ')} |\n|---|${targets.map(() => '---:|').join('')}\n`
+      + rows.map(([label, key]) => `| ${label} | ${targets.map(arm => {
+        const value = medians[arm][key];
+        if (value === null) return '—';
+        if (!key.endsWith('Ms')) return String(value);
+        const values = samples.filter(s => s.arm === arm && s[key] !== null).map(s => s[key]);
+        return `${value.toFixed(3)} (${Math.min(...values).toFixed(3)}–${Math.max(...values).toFixed(3)})`;
+      }).join(' | ')} |`).join('\n');
+    if (bootOutput === '--verify') {
+      const record = readFileSync(new URL('../../../host/ink/MEASUREMENTS.md', import.meta.url), 'utf8');
+      assert(record.includes(table), `boot table differs:\n${table}`);
+      console.log(`${hookLabel()} Boot table reproduced exactly: ${samples.length} retained attempts.`);
+    } else console.log(`${hookLabel()}\n\n${table}`);
+  } else console.log(JSON.stringify({...hookMetadata(), instrument: 'probe CACurrentMediaTime startup span union; MTLDrawable.presentedTime first pixels and per-painter complete scenes', medians, samples}, null, 2));
   process.exit(0);
 }
-const fourArms = readdirSync(join(directory, 'series', 'fling')).some(file => /^egui-/.test(file));
+const phaseFiles = phase => existsSync(join(directory, 'series', phase)) ? readdirSync(join(directory, 'series', phase)) : [];
+const hasSamples = phase => phaseFiles(phase).some(file => /^(native|gpui|ink|egui)-\d+(-retry)?\.json$/.test(file));
+const fourArms = ['fling', 'cold', 'bar', 'caret'].some(phase => phaseFiles(phase).some(file => /^egui-/.test(file)));
 const arms = ['native', 'gpui', 'ink', ...(fourArms ? ['egui'] : [])];
 const report = fourArms ? 'G4' : 'G3c';
 const samples = Object.fromEntries(arms.map(arm => [arm, []]));
@@ -175,7 +200,7 @@ function distribution(values) {
   };
 }
 
-if (existsSync(join(directory, 'series', 'bar')) || existsSync(join(directory, 'series', 'caret'))) {
+if (hasSamples('bar') || hasSamples('caret')) {
   staticReport();
   process.exit(0);
 }
@@ -187,7 +212,8 @@ function staticReport() {
   const header = '| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |\n|---|---:|---:|---:|---:|';
   const targets = ['native', 'gpui', 'ink', 'egui'];
   const summary = {};
-  for (const phase of ['fling', 'bar', 'caret']) {
+  const phases = ['fling', 'bar', 'caret'].filter(hasSamples);
+  for (const phase of phases) {
     retained[phase] = Object.fromEntries(targets.map(arm => [arm, []]));
     const folder = join(directory, 'series', phase);
     for (const file of readdirSync(folder).sort()) {
@@ -250,7 +276,7 @@ function staticReport() {
     for (const arm of targets) {
       const samples = retained[phase][arm];
       const slots = samples.map(row => round(row.path));
-      assert(slots.every(slot => slot >= 1 && slot <= 3) && new Set(slots).size === slots.length, `${phase}/${arm}: slots`);
+      assert(slots.every(slot => slot >= 1 && slot <= 5) && new Set(slots).size === slots.length, `${phase}/${arm}: slots`);
       const keys = new Set(samples.flatMap(sample => Object.keys(sample)).filter(key => !['path', 'gpuHookEnabled'].includes(key)));
       summary[phase][arm] = Object.fromEntries([...keys].map(key => [key,
         distribution(samples.filter(sample => key in sample).map(sample => sample[key])),
@@ -261,7 +287,7 @@ function staticReport() {
     const metric = summary[phase][arm][key];
     return metric ? `${metric.median.toFixed(digits)} (${metric.min.toFixed(digits)}–${metric.max.toFixed(digits)})` : '—';
   };
-  const tables = ['bar', 'caret', 'fling'].map(phase => {
+  const tables = ['bar', 'caret', 'fling'].filter(phase => phases.includes(phase)).map(phase => {
     const rows = [
       ['Process CPU, ms/s', 'cpu', 3], ['Main-thread CPU, ms/s', 'main', 3],
       ...(['instructions', 'cycles'].filter(key => targets.some(arm => summary[phase][arm][`${key}_million_s`]))
@@ -280,11 +306,11 @@ function staticReport() {
     const record = readFileSync(new URL('./RESULTS.md', import.meta.url), 'utf8').split('## G5:')[1];
     assert(record, 'missing G5 results');
     for (const table of tables) assert(record.includes(table), `G5 table differs:\n${table}`);
-    console.log(`${hookLabel()} G5 reproduced exactly: three tables; ${excluded.length} excluded samples.`);
+    console.log(`${hookLabel()} G5 reproduced exactly: ${tables.length === 3 ? 'three' : tables.length} tables; ${excluded.length} excluded samples.`);
   } else console.log(hookLabel() + '\n\n' + tables.join('\n\n'));
 }
 
-const phases = ['cold', 'fling'];
+const phases = ['cold', 'fling'].filter(phase => existsSync(join(directory, 'series', phase)));
 if (existsSync(join(directory, 'series', 'cold2'))) phases.push('cold2');
 for (const phase of phases) {
   const folder = join(directory, 'series', phase);
@@ -368,7 +394,7 @@ for (const arm of arms) {
   if (fourArms) samples[arm].sort((a, b) => round(a.path) - round(b.path));
   const flings = samples[arm].filter(sample => sample.fling_seconds).length;
   assert(samples[arm].length > 0 && samples[arm].length <= 10, `${arm}: one to ten accepted launches`);
-  assert(flings > 0 && flings <= 5, `${arm}: one to five fling/rest samples`);
+  assert(flings <= 5 && (flings > 0 || !hasSamples('fling')), `${arm}: one to five fling/rest samples, or a cold-only series`);
   const slots = samples[arm].map(sample => sample.path.split('/').at(-1).replace('-retry', ''));
   assert.equal(new Set(slots).size, slots.length, `${arm}: duplicate accepted slot`);
   const keys = new Set(samples[arm].flatMap(sample => Object.keys(sample)).filter(key => !['path', 'gpuHookEnabled'].includes(key)));
@@ -384,6 +410,16 @@ const header = '| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal |'
   + (fourArms ? ' egui 0.37.0 |' : '') + '\n|---|' + arms.map(() => '---:|').join('');
 const table = rows => [header, ...rows.map(([label, key, digits]) =>
   `| ${label} | ${arms.map(arm => format(arm, key, digits)).join(' | ')} |`)].join('\n');
+if (!hasSamples('fling')) {
+  const cold = table([['Cold to first complete frame, ms; native snapshot / painted drawable', 'cold_ms', 2]]);
+  if (mode === '--json') console.log(JSON.stringify({ ...hookMetadata(), samples, metrics, rejected, unused }, null, 2));
+  else if (mode === '--verify') {
+    const record = readFileSync(new URL('./RESULTS.md', import.meta.url), 'utf8');
+    assert(record.includes(cold), `cold-only table differs:\n${cold}`);
+    console.log(`${hookLabel()} Cold-only table reproduced exactly: ${Object.values(samples).flat().length} retained launches; ${rejected.length} rejected attempts.`);
+  } else console.log(`${hookLabel()}\n\n${cold}`);
+  process.exit(0);
+}
 const resources = table([
   [fourArms ? 'Cold to first complete frame, ms; native snapshot / painted drawable' : 'Cold to first complete frame, ms; native snapshot / GPUI and Ink presented drawable', 'cold_ms', 2],
   ['Fling process CPU, ms/s', 'fling_cpu', 2],

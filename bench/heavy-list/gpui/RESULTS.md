@@ -5441,3 +5441,26 @@ wgpu controls and ten archive misses. Predict retained Metal's phase p50
 ≤8 ms and within 2 ms of 6.581 ms; complete Ink p50 ≤wgpu +5 ms. Misses
 predict zero boot-thread compilation, CPU first pixel p50 ≤300 ms and
 complete Ink p50 ≤450 ms. No 100 ms application-budget pass is predicted.
+
+**Preparation.** The silver worktree is detached at `d5429830d2`. Only Ink,
+the probe and the driver were rebuilt; the wheel helper and the three control
+applications were copied from `target/g0/run-42d5066572/`. All 105 data hashes
+and the GPUI/egui bundled copies pass. All four bundles pass strict signature
+verification. `verify-hook-code.py` confirms that native, GPUI and egui are
+byte-identical to their originals before the code signatures. The probe and
+driver compile with `-Wall -Wextra -Werror`.
+
+| Prepared artifact | SHA-256 |
+|---|---|
+| Ink executable | `12d3baf93c7298942b9858c36a441c24eada8b19957894b67a71774f8ff56a15` |
+| Shared probe | `2a83c0c93fa1ede456e7144a2bb33584e0deb8b3bb2970e53cce19722fba9ab2` |
+| Driver | `7ef5c8053383c5f84fd3ba9cda9f728c03aa83368ca995bb97aabcfad45235e1` |
+
+The signed bundles, commands, build logs, source bundle, predictions and hashes
+are retained on silver under `target/g0/quiet-d5429830d2/` (source bundle:
+`target/g0/quiet-source-d5429830d2.bundle`). This worktree retains the preparation
+records and instrument binaries under
+`target/g4q/silver/target/g0/quiet-d5429830d2/`. Predictions were committed as
+`8ead227047` before the first gate began at **18:02:34 PDT**. The gate imports
+the landed `QuietMonitor`; its wrapper samples every five seconds in bounded
+one-minute loops, with a two-hour total deadline.
