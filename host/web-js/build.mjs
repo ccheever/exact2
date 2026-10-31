@@ -807,6 +807,12 @@ if (existsSync(gpuLib)) {
 }
 if (pageModules) cpSync(moduleDirectory(appDir, 'web'), resolve(out, 'modules'), { recursive: true });
 if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), resolve(out, 'assets'), { recursive: true });
+// Each file a package app.ts imports declares in exact.json `web.assets`, at /assets/<package>/<path>, from the capture
+// alone (LLP 1154 D2; js/bake/src/typescript.mjs `capturedSources`).
+if (ts) for (const { name, path, file } of (await import(resolve(root, 'js/bake/src/typescript.mjs'))).capturedAssets(tsStage)) {
+  mkdirSync(dirname(resolve(out, 'assets', name, path)), { recursive: true });
+  cpSync(file, resolve(out, 'assets', name, path));
+}
 if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve(out, 'deck'), { recursive: true });
 if (devReload) writeFileSync(resolve(out, '.exact-dev-logic.json'), JSON.stringify({ version: 1, modules: devLogic.sort(([a], [b]) => a.localeCompare(b)) }) + '\n');
 // The web host's own picker and storage adapters beside the page, fetched on
