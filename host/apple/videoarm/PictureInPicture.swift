@@ -156,6 +156,24 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
         CATransaction.commit()
     }
 
+    /// The panel's views, for the trace: class, frame, hidden, layer background.
+    private func tree(_ view: NSView, _ depth: Int = 0) -> String {
+        let colour = view.layer?.backgroundColor.flatMap { $0.components?.map { String(format: "%.2f", $0) }.joined(separator: ",") } ?? "-"
+        let line = String(repeating: " ", count: depth) + "\(type(of: view)) \(NSStringFromRect(view.frame)) hidden=\(view.isHidden) layer=\(view.layer.map { "\(type(of: $0))" } ?? "-") bg=\(colour) sublayers=\(view.layer?.sublayers?.count ?? 0)"
+        return ([line] + view.subviews.map { tree($0, depth + 2) }).joined(separator: "\n         ")
+    }
+
+    /// AVKit's sample-buffer panel stacks an empty `AVPictureInPictureCALayerHostView`, opaque in the
+    /// app's appearance, over the view that draws the picture, and in some sessions it covers it
+    /// (Apple Developer Forums 821582): it is hidden, as that report's workaround hides it.
+    private func uncover(_ view: NSView) {
+        if String(describing: type(of: view)) == "AVPictureInPictureCALayerHostView", !view.isHidden {
+            log("hiding the overlay \(NSStringFromRect(view.frame))")
+            view.isHidden = true
+        }
+        view.subviews.forEach(uncover)
+    }
+
     /// The layer follows the panel's content size, which the person may drag.
     private func follow() {
         if panel == nil, let found = NSApp.windows.first(where: { String(describing: type(of: $0)).contains("PIPPanel") }) {
@@ -165,6 +183,10 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
             resized = NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: found, queue: .main) { [weak self] _ in self?.follow() }
         }
         if let size = panel?.contentView?.bounds.size { fit(size) }
+        if let content = panel?.contentView {
+            if Self.trace != nil { log("panel views\n         " + tree(content)) }
+            uncover(content)
+        }
     }
 
     func invalidate() {
@@ -192,6 +214,7 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
         follow()
         // The panel settles its size after its opening animation.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.follow() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.follow() }
         say("enter")
     }
     func pictureInPictureController(_ c: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
