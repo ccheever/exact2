@@ -652,6 +652,13 @@ extension Presenter {
                 // Keep the configuration guard current without rewriting the
                 // face or restarting native animations for referenced text.
                 button.written?.label = name
+            } else if let control = controls.controls[node.id], control.superview != nil {
+                // A native control is its node's accessibility element (`ControlsIOS`, `ControlsMac`).
+                #if os(macOS)
+                if control.accessibilityLabel() != node.authoredLabel { control.setAccessibilityLabel(node.authoredLabel) }
+                #else
+                if control.accessibilityLabel != node.authoredLabel { control.accessibilityLabel = node.authoredLabel }
+                #endif
             } else {
                 #if os(macOS)
                 if node.accessibilityLabel() != node.accessibleName { node.setAccessibilityLabel(node.accessibleName) }

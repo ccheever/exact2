@@ -68,6 +68,23 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertEqual(image.accessibilityValue, image.rangeValueText)
     }
 
+    /// A native control is named by `aria-labelledby` as by `aria-label`
+    /// (accname), and follows the text it names.
+    func testANativeCheckboxIsNamedByTheTextItsLabelledbyNames() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "control", "props": ["type": "checkbox", "accessibilityLabelledBy": "notify"], "handlers": ["change"]],
+            ["op": "create", "id": 21, "kind": "text", "props": ["id": "notify", "text": "Notify me"]],
+            ["op": "children", "id": 4, "ids": [5, 20, 21]],
+            ["op": "frame", "id": 20, "x": 110.0, "y": 0.0, "w": 22.0, "h": 22.0],
+            ["op": "frame", "id": 21, "x": 140.0, "y": 0.0, "w": 100.0, "h": 22.0],
+        ]))
+        let control = try XCTUnwrap(p.controls.controls[20])
+        XCTAssertEqual(control.accessibilityLabel, "Notify me")
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["text": "Email me"]]]))
+        XCTAssertEqual(control.accessibilityLabel, "Email me")
+    }
+
     func testImageExposureFollowsItsReferencedCaptionsArrivalAndRemoval() throws {
         let p = try fixture()
         p.apply(wireBatch([
