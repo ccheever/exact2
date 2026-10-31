@@ -67,7 +67,10 @@ the change on stderr. `contract types --check app.contract` checks freshness wit
 refreshes it. `contract migrate app.contract` rewrites retired Contract syntax;
 [the Snapback upgrade note](../snapback4/README.md#updating-an-inherited-app) covers
 mutation refusals too.
-Keep scratch files in `.exact/`: they do not make the build stale (a JSON file `app.ts` imports does).
+Keep scratch files in `.exact/` and committed verification helpers in `tools/`.
+Neither makes the build stale. A Python helper under `scripts/` does: that name
+does not exclude it from build inputs. Keep code and assets the app uses out of
+`tools/`; a JSON file `app.ts` imports is a build input.
 
 **To check a screen against a reference** (the original's screenshot, a design), drive to it and
 take `"screenshot .exact/home.png compare ref/home.png"`: it says in text, node by node, where
