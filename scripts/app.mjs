@@ -86,7 +86,7 @@ function shaderPath(app,path) {
 export const ENGINE_PRELUDES = {
   'exact-game-render:frame': ['frame.wgsl'],
   'exact-game-render:material': ['frame.wgsl', 'transform.wgsl', 'custom_instance.wgsl'],
-  'exact-game-render:material_shadows': ['shadow_sample.wgsl', 'fade.wgsl', 'lights.wgsl', 'material_shadows.wgsl'],
+  'exact-game-render:material_shadows': ['caustics.wgsl', 'shadow_sample.wgsl', 'fade.wgsl', 'lights.wgsl', 'material_shadows.wgsl'],
 };
 /** One declared prelude entry's files: an engine set, or a path relative to app.json. */
 function preludePaths(app, path) {
