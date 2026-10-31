@@ -8885,3 +8885,248 @@ during-launch maxima beside every row; they never exclude a launch. The first
 launch of each freshly signed arm is a throwaway. Cold remains a fresh process
 with application and system caches retained. Before uses M10 tip `9a88c8bead`'s
 carrier. Artifacts for this cut are retained under `target/m10-c1d/`.
+
+### Cut 1d mechanism and functional result
+
+`window.rs` retains the prepared frame until the layer reports a positive
+presentation timestamp. Each display-link event acquires a fresh drawable
+and copies the compose target; the CPU path uploads the retained pixmap.
+Redraw events leave that frame alone. A failed submission releases it to
+chunk 4's existing retry path. After a positive callback, ordinary demand
+resumes. The display-link event previously requested a Winit redraw and
+waited for AppKit to deliver it in a later transaction. This cut removes
+that wait; each rejected presentation still costs a drawable and a copy.
+
+The measured source is `7945a07fe0`; the prediction was committed first as
+`6e0f4946ee`. Silver uses the retained M10 carrier from `9a88c8bead` for
+before, the new release binary for after, and identical GPUI and egui
+binaries for both labels. `silver/*/provenance.json` retains executable
+hashes and driver settings. The final freshly signed throwaways all exit
+zero after a normal AppKit quit. Earlier throwaways encountered macOS's
+crash-restoration alert before application launch completed. A main-thread
+sample and the benchmark process's accessibility tree identify the alert;
+pressing its “Don't Reopen” button and quitting normally clears it. Those
+attempts remain under `silver/prewarm*` and `silver/restore-alert*`.
+
+The passive functional launches are diagnostics, without the cohort's quiet
+gate. Both Metal paths present once per observed tick, with no paint walk
+between their first request and first positive callback:
+
+| Path | Requests / ticks before positive callback | Zero callbacks | Request gaps, ms | Show return → positive callback, ms | First complete screen, ms |
+| --- | ---: | ---: | --- | ---: | ---: |
+| Fresh archive, CPU first | 6 / 6 | 2 | 6.234–8.360 | 69.762 | 223.095 |
+| Retained archive, Metal first | 6 / 6 | 2 | 6.949–9.043 | 76.053 | 234.397 |
+
+The CPU screen hands off to a complete Ink screen at 323.095 ms. The
+retained-archive launch submits no CPU frame. Both acquire drawables off
+main and present on main. The first prepared frame can lack images: the
+retained-archive launch first displays at 201.064 ms and completes at
+234.397 ms, after painting resumes. These values come from
+`silver/boot-functional/`, reproduced by `cadence.py` and `functional.py`.
+
+**The live wgpu startup fails.** It makes 3,576 presentation requests over
+3,576 ticks and records 3,549 positive probe timestamps, but only one paint
+walk and no carrier `presented handler` event. Its timeout sidecar still
+reports an incomplete scene. The wgpu surface path does not register the
+layer callback that updates `presented_painter`; retaining the prepared
+frame therefore prevents painting from resuming. The offscreen pixel
+comparison passes but does not exercise this carrier transition. This is
+a regression and prevents qualification of the implementation. The one
+renderer round ends here; no second cadence policy is tried.
+
+### Cut 1d launch qualification
+
+The five-round confirmation and ten-round paired cohorts both stop on an
+original egui launch with `probe: first complete frame timed out`. All
+recorded prelaunch gates pass, power sampling is absent, and neither monitor
+reports an error. Their during-launch load is not the exclusion reason.
+`startup.py summarize` rejects both with `AssertionError: incomplete cohort`.
+
+| Traced cohort | Successful / required launches | Failed original | Maximum during-launch other / user cores |
+| --- | ---: | --- | ---: |
+| Five per arm, cold and warm | 5 / 30 | egui, round 1 warm | 1.632 / 0.228 |
+| Ten paired before/after per arm, cold and warm | 28 / 120 | egui-before, round 3 cold | 2.206 / 0.896 |
+
+No five-launch or ten-pair median is qualified. The retained individual Ink
+warm observations are 217.119 and 210.604 ms before, and 288.987, 276.463
+and 264.808 ms after (the first after value is from confirmation). All three
+after observations miss the predicted 140–170 ms range. The two completed
+warm pairs regress by 59.344 and 54.205 ms; they do not substitute for ten
+pairs. Both controls' before/after labels use identical binaries.
+
+All six traced after launches record two zero callbacks, then a positive
+callback 80.547–95.235 ms after show return: the zero count matches, the
+17 ms bound misses. No retry paint intervenes. In the first warm pair,
+before has one zero callback, four presentation requests and three further
+paint walks before its positive callback; after has two zeros, six requests
+and no further paint walk. The respective request gaps are 6.975–8.270 ms
+and 6.966–8.494 ms. The prior redraw cadence can already approach display
+cadence once it starts; the new path's repeated copies do not establish a
+complete-screen saving. GPUI and egui zero callbacks are not recorded by the
+ordinary positive-timestamp trace, so their zero-count pattern is not
+requalified here.
+
+The first warm pair locates the loss. These are process ages from one pair,
+not qualified phase medians; before is the M10 tip, so the comparison includes
+cuts 1 and 1b as well as 1d.
+
+| Phase | Before, ms | After, ms |
+| --- | ---: | ---: |
+| First paint starts | 158.734 | 116.012 |
+| Show returns | 126.778 | 150.986 |
+| First present requested | 191.099 | 200.204 |
+| First drawable displayed | 217.119 | 243.129 |
+| Complete screen displayed | 217.119 | 276.463 |
+
+`report.py` reproduces the excluded diagnostics and each launch's load
+maxima from `silver/confirm/` and `silver/paired/`. Their schedule, gate
+observations, failure sidecars and original logs are retained. There are no
+replacement samples.
+
+### Cut 1d four-arm cold rows and prediction outcomes
+
+Both `measure.m` cold-only cohorts also stop on egui's original readiness
+failure: before at round 2 (6 successes of 40 required), after at round 3
+(9 of 40). Every prelaunch gate passes; both monitors report no error and
+power sampling stays absent. The summarizer rejects both as incomplete.
+The table retains **individual successful observations, not qualified
+medians**, in round order. Load columns are the largest observed maxima
+among those successful rows; every original's maxima, including the failed
+ones, remain beside it in `launch-rows.md` and the schedule JSON.
+
+| Arm | Before cold observations, ms | After cold observations, ms | Before max other / user cores | After max other / user cores |
+| --- | --- | --- | ---: | ---: |
+| Native | 256.525 | 239.993, 259.797 | 1.817 / 0.154 | 1.197 / 0.213 |
+| GPUI | 197.056, 204.165 | 203.051, 189.589 | 1.572 / 0.230 | 1.311 / 0.181 |
+| Ink | 225.509, 209.686 | 268.315, 265.702, 254.946 | 1.267 / 0.217 | 1.570 / 0.226 |
+| egui | 225.886; round 2 fails | 214.469, 220.172; round 3 fails | 1.308 / 0.194 | 1.455 / 0.179 |
+
+| Prediction | Result |
+| --- | --- |
+| Warm complete screen about 150 ms, range 140–170 | **Miss in every retained after observation:** passive retained 234.397 ms; traced warm 264.808–288.987 ms. No qualified warm median. |
+| Cold median at least 30 ms below GPUI | **Not established:** neither cold cohort qualifies. The excluded after Ink observations are 254.946–268.315 ms against GPUI's 189.589–203.051 ms, in the opposite direction. |
+| One or two zero callbacks, positive within 17 ms of show return | **Count matches, time misses:** two zeros in all six traced after launches; positive callback at 80.547–95.235 ms after show. Passive CPU/Metal launches also have two zeros, at 69.762/76.053 ms. |
+| Identical prepared pixels, CPU-first handoff and unshown-frame retries | **Tests pass; live Metal handoff passes. Live wgpu fails:** it never leaves the prepared-frame loop. |
+| Fling, rest and static rows unchanged | **Unmeasured:** no performance claim is made after the startup failure. Existing rows remain historical. |
+
+No qualified startup table or saving is established. LLP 1149 §4.1's cold
+row is unchanged. The experimental source remains on the lane branch with
+the wgpu regression recorded in `QUEUE.md`; it is not ready to land. D15's
+100 ms obligation, Q4/Q6 and Stage 0b's third part are unchanged. No second
+renderer round or replacement cohort is attempted.
+
+### Cut 1d reproduction and retained files
+
+The worktree's release bundle builds with its own `target/`; the build
+script passes `--target-dir` to the benchmark workspace's Cargo invocation:
+
+```sh
+env EXACT_APP_DIR="$PWD/bench/heavy-list/exact-heavylist" \
+  EXACT_PAINTED_PROBE="$PWD/bench/heavy-list/gpui/probe.m" \
+  CARGO_TARGET_DIR="$PWD/target" CARGO_BUILD_JOBS=6 \
+  bun host/apple/build.mjs exact-heavylist-apple --painted-benchmark --release
+```
+
+`target/m10-c1d/build-context.json` and `after-source.patch` record the
+build inputs. The after executable's SHA-256 is
+`48668f28af536b379b31b01e447a13a72a94653f5e748abc6aa6fa5b26314cfc`.
+Silver's retained base is `~/projects/exact2-measure/target/g0/m10-c1d/`;
+its complete contents, including signed bundles, are copied to local
+`target/m10-c1d/silver/`. `collection-final.json` records every command,
+driver PID and exit. The wrapper continues to the next independently
+requested cohort after an earlier one fails; its own exit is not a pass.
+
+`prepare.py` records the copied control bundles, probe replacement and
+signing. `prewarm-quit.py` pays first-execution validation and quits normally.
+`run-final.py` runs that prewarm, the passive checks, five-round confirmation,
+ten-round pairing, then both cold scoreboards. It uses the existing GUI
+session through `launchctl asuser 501` and `caffeinate -u -d -i`, without a
+GO file. Reproduction needs fresh output directories; the retained cohort
+directories must not be reused. `provenance.json` in each cohort freezes
+which Ink executable its before or after label selected.
+
+Reproduce the values without launching an app:
+
+```sh
+python3 -B target/m10-c1d/report.py
+python3 -B target/m10-c1d/cadence.py
+python3 -B target/m10-c1d/launch-rows.py
+```
+
+`report.json`, `cadence.json` and `launch-rows.md` retain the derived
+values. `raw-sha256.json` hashes the retained files. `checks/summarize-*.log`
+contains the unchanged summarizer's four refusals. All first-complete
+timeouts, gate observations, per-launch load maxima and callback traces
+remain in the corresponding `silver/` directories.
+
+### Cut 1d verification
+
+The affected suites run here with this worktree's `target/`, Metal required,
+and two test threads. The full six checks are deferred to the Mac mini.
+
+```sh
+env CARGO_BUILD_JOBS=6 RUST_TEST_THREADS=2 EXACT_INK_DEVICE=metal EXACT_REQUIRED=1 \
+  cargo test -p exact-linux -p exact-apple-painted -p exact-ink \
+  --lib --tests --no-fail-fast
+```
+
+`target/m10-c1d/checks/affected-tests.log` exits zero. Its suite summaries,
+including nested Linux processes, are verbatim:
+
+```text
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 46 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.90s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1716 filtered out; finished in 0.65s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1716 filtered out; finished in 0.58s
+test result: ok. 170 passed; 0 failed; 15 ignored; 0 measured; 1532 filtered out; finished in 3.21s
+test result: ok. 1695 passed; 0 failed; 22 ignored; 0 measured; 0 filtered out; finished in 86.08s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.83s
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.05s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.17s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.03s
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.92s
+test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 13.90s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+```
+
+Prepared-frame parity, the CPU archive-miss handoff and the unshown-frame
+retry tests pass. The separate wgpu prepared-frame comparison also passes:
+
+```text
+test paint::backend::tests::a_prepared_first_frame_has_the_same_pixels_without_a_second_paint ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1716 filtered out; finished in 0.72s
+```
+
+The probe tests, hook off with trace on and then hook on, exit zero:
+
+```text
+probe: painter-specific completeness and one boot-expose wake passed
+probe: lazy trace observes application queues without pre-creating a device or queue
+probe: direct presentation preserves methods, joins preceding commit, excludes buffer path and resets reused drawables
+probe: GPU hook off; three buffers completed, commit-phase accounting passed
+probe: painter-specific completeness and one boot-expose wake passed
+probe: GPU hook on; three buffers completed, commit-phase accounting passed
+```
+
+The qualification regression checks pass: the prelaunch total is strictly
+below 1.0 core and the user-process bound includes 0.25; launch maxima above
+both limits are report-only. Failed originals, failed gates and power sampling
+still prevent qualification. Other workloads keep their existing rule.
+`checks/qualification.py` and its log retain the checks. All 105 generated
+assets match `data.sha256`; no cited artifact was deleted.
+
+The staged caps check exits zero (`checks/caps-final.log`):
+
+```text
+All budgets within cap. 10 categories inspected.
+```
+
+The changed Rust files pass `rustfmt --check`; `git diff --check` is clean.
+The other broad checks are left for the Mac mini as requested: no root
+build, root test, root clippy/fmt, boot or workspace check is claimed here.
+The release benchmark build and affected suites above run locally. No push
+is made.
