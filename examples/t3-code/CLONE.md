@@ -58,13 +58,30 @@ Preserve this QA draft. Raw trees, hashes and the result are under
 qualify the separate MacBook Pro HTTPS cloud route, reading-position recovery,
 fold/rotation transitions or performance.
 
-On the first fresh pairing/project visit, the NewTask editor stayed unavailable
-until normal relaunch. Conversation traced the missing preferences file to a
-nonempty native document without `version: 1`, which hydration correctly refuses.
-Its separate fix initializes a genuinely absent, empty preference document only
-when the existing mutex-protected inventory has no bound pins. Existing invalid,
-versionless and unknown-version documents must remain refused. The fix and
-first-launch acceptance are pending; do not weaken JavaScript hydration guards.
+The first-run NewTask admission defect is fixed in Conversation commit
+`a9981950a3e3c909214dd5d1846c5c5d812766aa`. A genuinely absent, empty preference
+document receives version 1 only when the mutex-protected inventory has no
+bound pins. Existing invalid documents remain refused. The native regression
+fails before the fix and passes 89 checks after it. The editor bridge passes
+133 tests using the actual native first-read JSON. The full mobile suite passes
+4,204 tests with one optional native bridge skip. Strict TypeScript and caps pass.
+
+Its normal development artifact independently matches all 3,289 source inputs
+and 92 bundle files, with strict signature verification. The executable SHA-256 is
+`b1e492fc323e8d06aa5cc6334aa91620993c3e21d4df837a8d0f2c96be8512fa`.
+On a second genuinely fresh actual Duo,
+`8AE91541-FA45-4707-89E1-43DB980A2985`, ordinary pairing, project selection and
+editable Unicode text succeed on the first normal launch without relaunching.
+This closes the held-editor reproduction. After Cancel and normal relaunch,
+ordinary Home Search finds the existing Unsent row. Opening that row restores
+the exact 68-UTF-16-unit Unicode draft in an editable composer with Send enabled.
+The initial visible-only Home snapshot hid rows below the viewport and did not
+prove absence. No persistence patch was needed. The original Duo's ordinary-thread
+transcript and draft remain intact. Admission evidence is under
+`target/t3-mini-coordinator/evidence/first-run-final/`; Conversation's recovery
+evidence is under `target/t3-conversation-evidence/new-task-recovery/` in its
+worktree. The coordinator closed its session without shutdown before handing
+the new device to Conversation for live history acceptance.
 
 The user now requests local simulators. EAS project association is no longer a
 prerequisite. Home restored actual Duo discovery through the user-authorized
@@ -74,24 +91,30 @@ Panel captures changed from 466×678 to 951×669 and back, but hinge readback
 failed. Orientation commands succeeded without a confirmed layout change in
 either app. Fold angle and rotation remain unqualified. Upstream has an inner
 split sidebar and right rail; the clone still shows full-width Home. Add
-environment presentation also differs. Home owns the next populated-Home drive
-in a fresh session after the coordinator closed its session without shutdown.
+environment presentation also differs. Home completed populated controls in its
+own session and closed it without shutdown.
 
 Conversation's draft [PR1190](https://github.com/ccheever/exact2/pull/1190)
 contains bounded Markdown reuse commit `43d669d337` and separate automatic
 older-history commit `9a8dce92b3`. The final focused suite passes 283 tests and
 3,912 assertions; Contract compilation, strict TypeScript and caps pass.
 The signed pre-refinement native artifact matches all 3,289 recorded inputs.
-The final history and first-run fix still require a changed-source build,
-required checks and normal app drive. Loaded raw history remains unbounded;
-resident bounds, native storage, stable anchors and selection are not complete.
+The final normal artifact includes history and the first-run fix. Required root
+checks are running serially. Automatic history still needs normal app acceptance.
+Loaded raw history remains unbounded; resident bounds, native storage, stable
+anchors and selection are not complete.
 Home's spacing/separator patch is draft
 [PR1191](https://github.com/ccheever/exact2/pull/1191), head `4a5502d0d7`.
 Its signed Release build, 185 focused tests, 4,171 quiet mobile tests, strict
 TypeScript, caps and all six root categories pass. Initial Duo controls and the
 local core flow use this artifact; populated-row parity remains pending.
-Conversation owns the serial build/check lane while Home drives its existing
-Release. Home owns the original Release at the frozen reference below.
+Conversation owns the serial root-check lane and the new Duo live history
+acceptance. Home completed populated controls and preserved the QA draft.
+A trailing swipe action opened Control Center beneath the Duo system rail;
+reserved-region reachability remains open. Home owns the original Release at
+the frozen reference below. That linker-only ad hoc artifact cannot read its
+secure connection catalog. A normally signed simulator build is queued after
+the root-check lane drains, preserving its source pin and secure storage.
 Neither worker qualifies visual parity or a performance advantage.
 
 The HTTPS core-acceptance delegate was interrupted before its device launch.
@@ -104,8 +127,8 @@ remain machine-local; use committed sources and rebuild on the Mini as needed.
 The current priority is iOS. Desktop feature work is deferred. Continue in this
 order, with small verified commits and normal pushes to PR216:
 
-1. Fix the first-run editor defect and verify the final normal artifact without
-   the relaunch workaround. Drive the conversation cache and automatic-history units.
+1. Drive the conversation cache and automatic-history units. First-run editor
+   admission and new-task draft recovery now pass on the final normal artifact.
 2. Verify reconnect, offline recovery, retries and duplicate-send prevention.
 3. Complete Photos and Files selection, cancellation, preview, removal and Undo.
 4. Verify keyboard focus, Return behavior, IME, hardware shortcuts and voice.
