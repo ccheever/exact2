@@ -29,10 +29,9 @@ export const LIBRARY_CACHE = resolve(homedir(), '.cache/exact/package-libraries'
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const inside = (root, path) => { const at = relative(root, path); return at !== '' && !isAbsolute(at) && at !== '..' && !at.startsWith(`..${sep}`); };
 
-/** The packages among the app's direct dependencies (the `dependencies` of the nearest `package.json` above it, as
- * contract/cli/src/package_views.rs reads them) whose `exact.json`, at the package's root, declares `native`. A
- * declaration that is there and does not parse is refused by name. */
-export function nativePackages(appDir) {
+/** The app's direct dependencies (the `dependencies` of the nearest `package.json` above it, as
+ * contract/cli/src/package_views.rs reads them) that are installed: each one's name and directory, as installed. */
+export function directDependencies(appDir) {
   let manifest = null;
   for (let dir = resolve(appDir); ; dir = dirname(dir)) {
     if (existsSync(join(dir, 'package.json'))) { try { manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')); } catch { /* none */ } break; }
@@ -45,9 +44,15 @@ export function nativePackages(appDir) {
       if (dirname(dir) === dir) return null;
     }
   };
-  return Object.keys(manifest?.dependencies ?? {}).sort().flatMap((name) => {
-    const root = located(name), path = root && join(root, 'exact.json');
-    if (!path || !existsSync(path)) return [];
+  return Object.keys(manifest?.dependencies ?? {}).sort().flatMap(name => { const root = located(name); return root ? [{ name, root }] : []; });
+}
+
+/** The app's direct dependencies whose `exact.json`, at the package's root, declares `native`. A declaration that is
+ * there and does not parse is refused by name. */
+export function nativePackages(appDir) {
+  return directDependencies(appDir).flatMap(({ name, root }) => {
+    const path = join(root, 'exact.json');
+    if (!existsSync(path)) return [];
     let declaration;
     try { declaration = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${name}'s exact.json (${path}) cannot be read as JSON: ${e.message}`); }
     return declaration?.native && typeof declaration.native === 'object' ? [{ name, root, native: declaration.native }] : [];

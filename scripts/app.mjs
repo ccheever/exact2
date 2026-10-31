@@ -1,6 +1,6 @@
 import { compilerPaths, unitDepInfo, cargoBakeInputs } from './cargo-dep-info.mjs';
 export { compilerPaths, unitDepInfo } from './cargo-dep-info.mjs';
-import { LIBRARY_CACHE, prepareLibrary } from './package-libraries.mjs';
+import { LIBRARY_CACHE, directDependencies, prepareLibrary } from './package-libraries.mjs';
 import { ensureBun } from './bun.mjs';
 import { macResourceMappings, macResourceInventory, appleAssetCatalogInventory, launchImageInventory } from '../host/apple/assets.mjs';
 // Where an app lives. Inside this repo an app is `apps/<name>` — its crates
@@ -1040,7 +1040,10 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const hermesLeanRoots = hermesLeanSysRoots(env);
   // Index roots once; each input walks ancestors to the nearest declaring root.
   const rootsAt = (roots) => { const at = new Map(); for (const root of roots) if (!at.has(root.path)) at.set(root.path, root); return at; };
-  const generatedAt = rootsAt(generated), locatedAt = rootsAt(locations);
+  // Each installed direct dependency, where it is installed and where its files really are: Bun installs a file:
+  // package as directories of links to its source's files, so a compiler reads them from the source directory.
+  const dependencies = directDependencies(app.dir).flatMap(({ name, root }) => [realpathSync(root), dirname(realpathSync(resolve(root, 'package.json')))].map(path => ({ path, name }))).sort((a,b) => b.path.length-a.path.length);
+  const generatedAt = rootsAt(generated), locatedAt = rootsAt(locations), installedAt = rootsAt(dependencies);
   const rootOf = (roots, path) => { for (let at = path; ; at = dirname(at)) { const root = roots.get(at); if (root || dirname(at) === at) return root; } };
   const nameOf = (path) => {
     path = resolve(path);
@@ -1051,6 +1054,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     const hermesLeanRoot = hermesLeanRoots.find(root => under(root,path));
     if (hermesLeanRoot) return `hermes-lean-sys/${relative(hermesLeanRoot,path)}`;
     if (under(LIBRARY_CACHE,path)) return `package-library/${relative(LIBRARY_CACHE,path)}`; // by its hash and target (package-libraries.mjs)
+    const installed = rootOf(installedAt, path);
+    if (installed) return `package/${installed.name}/${relative(installed.path,path)}`;
     if (under(app.dir,path)) return `app/${relative(app.dir,path)}`;
     if (under(ROOT,path)) return `exact/${relative(ROOT,path)}`;
     if (under(graph.metadata.workspace_root,path)) return `workspace/${relative(graph.metadata.workspace_root,path)}`;
