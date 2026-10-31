@@ -8318,6 +8318,12 @@ checks remain for the orchestrator.
 
 ## M10, cut 1b: the prepared frame rides the window's first composite
 
+**Outcome, 2026-10-31: the first-composite goal remains unmet.** All three
+placements of the first Metal presentation still produce zero timestamps.
+The final implementation preserves early preparation, pixel parity and CPU
+handoff, but still needs the existing retry path. Three fix rounds are
+exhausted; this is not a first-composite win.
+
 **Predictions before the runs, 2026-10-30.** Paint the first scene into the
 compose target before showing the window. Only after the show call returns,
 acquire its drawable on the existing worker, copy the scene and present on the
@@ -8361,8 +8367,8 @@ Animation transaction. Setting it true associates `drawable.present()` with
 the caller's current transaction. Apple requires committing the rendering
 command, waiting until it is scheduled, then calling the drawable's present
 method; command-buffer presentation does not provide that synchronization.
-Cut 1b uses this existing live-resize sequence at the first redraw after show,
-or at the first display-link callback if it comes sooner. The worker then
+The final cut uses this existing live-resize sequence at the first display-link
+callback after show, outside Winit's AppKit redraw. The worker then
 acquires and copies, and returns the scheduled drawable to the main thread
 for presentation in that callback's transaction. Subsequent
 frames keep their existing worker presentation. The compose target, resource
@@ -8410,3 +8416,206 @@ displayed without a zero callback, at about **182–195 ms** (show at 130 ms,
 first display callback at 156 ms, then 27–39 ms to display). CPU startup still
 hands off. If this fails, three fix rounds are exhausted and no further
 implementation change is attempted in this cut.
+
+### Final live result
+
+The final passive retained-archive launch paints at 99.513–126.813 ms, shows
+at 133.196 ms, receives its first display callback at 162.993 ms, acquires at
+163.072–163.851 ms and presents on main at 164.279 ms. The zero callback
+arrives at 164.301 ms. A retry also drops; the complete screen displays at
+207.990 ms. That is 74.793 ms after show and 43.710 ms after the first
+request. These intervals include waiting and retries; they do not isolate
+the system's first-composite cost. Moving the request outside `drawRect`
+did not eliminate the drop. The trace does not establish its internal cause.
+
+The final CPU archive miss displays CPU at 199.749 ms and Ink at 324.749 ms.
+Both frames satisfy the complete-scene criterion. Wgpu completes at
+368.287 ms. The three runs acquire no drawable on main and paint once before
+the first direct-present request. The Metal no-zero assertions fail; wgpu
+has no equivalent negative-callback record, so its successful completion
+is not evidence that its first submission displayed. These passive runs
+are functional diagnostics, with activation suppressed, not scoreboard rows.
+
+### Qualification and cold rows
+
+No cohort qualifies. The six final-version attempts (before, paired final and
+after, each with one repeat) all cross the 1.0-core non-benchmark aggregate.
+None crosses the amended 0.25-core user-process bound during collection;
+compiler and power-sampler checks pass and load averages stay below 30.
+The earlier `paired` attempt measures the superseded immediate-post-show
+implementation and is retained separately. Original attempts are never
+replaced by successful diagnostic retries.
+
+| Cohort | Original launches / planned | Maximum non-benchmark cores | Largest contributors at that observation |
+| --- | ---: | ---: | --- |
+| `scoreboard-before` | 4/40 | 1.189 | secd 0.110, BiomeAgent 0.090, MenuBarAgent 0.085 |
+| `scoreboard-before-2` | 4/40 | 1.847 | ScreensharingAgent 0.266, SafariPlatformSupport.Helper 0.225, Tailscale 0.098 |
+| `paired` (superseded) | 3/120 | 1.452 | ScreensharingAgent 0.273, BiomeAgent 0.103, Tailscale 0.097 |
+| `paired-final` | 3/120 | 1.521 | ScreensharingAgent 0.208, BiomeAgent 0.148, CursorUIViewService 0.098 |
+| `paired-final-2` | 3/120 | 1.591 | ScreensharingAgent 0.281, BiomeAgent 0.160, Tailscale 0.095 |
+| `scoreboard-after` | 4/40 | 2.172 | ScreensharingAgent 0.218, fleet 0.194, agy 0.192 |
+| `scoreboard-after-2` | 4/40 | 1.790 | ScreensharingAgent 0.283, launchd 0.177, Tailscale 0.136 |
+
+The last row also rejects egui's original launch: the scene is complete and
+visible, but its one drawable never receives a positive complete-frame
+timestamp before the timeout (`egui-1.json.timeout`, exit 2). `measure.m`'s
+successful `egui-1-retry` is retained as a diagnostic and excluded. Three of
+the four original launches in that round succeed.
+
+**Qualified four-arm cold p50, ten launches per arm:**
+
+| Arm | Before, ms | After, ms |
+| --- | ---: | ---: |
+| Native | unavailable | unavailable |
+| GPUI | unavailable | unavailable |
+| Ink | unavailable | unavailable |
+| Egui | unavailable | unavailable |
+
+The following are **excluded single launches**, not medians or replacement
+scoreboard rows. They preserve what `measure.m cold-only` actually collected:
+
+| Attempt | Native, ms | GPUI, ms | Ink, ms | Egui, ms |
+| --- | ---: | ---: | ---: | ---: |
+| Before 1 | 266.372 | 219.500 | 256.507 | 230.904 |
+| Before 2 | 245.883 | 206.083 | 244.212 | 239.677 |
+| After 1 | 250.189 | 234.273 | 277.069 | 235.358 |
+| After 2 | 250.936 | 205.988 | 286.109 | rejected |
+
+The traced final cohorts each stop before reaching the GPUI and egui arms.
+They therefore supply neither ten-pair startup tables nor control medians.
+LLP 1149 §4.1's cold table remains unchanged.
+
+### Predictions and results
+
+| Prediction written before its run | Result |
+| --- | --- |
+| Warm complete screen 146–160 ms | **Miss in the retained observations:** final warm samples are 230.178 and 234.121 ms. Both cohorts are excluded; a qualified warm median is unavailable. |
+| Qualified Ink cold at least 30 ms below GPUI | **Not established:** no four-arm cohort qualifies. The excluded Ink launches are slower than GPUI; they cannot fund a scoreboard claim. |
+| Complete screen about show return plus a 30 ms first composite | **Miss as an end-to-end estimate:** the first active immediate-post-show trace takes 59.201 ms after show; the final passive trace takes 74.793 ms. Dropped submissions and retries prevent isolating the system-only composite cost. |
+| No unshown first submission on the retained-archive path | **Miss:** the final passive Metal launch has two zero callbacks; the two final active warm launches have two and three. |
+| First-frame pixels identical; CPU miss hands off; dropped frames retry | **Pass:** exact prepared-texture comparisons pass for CPU, direct Metal and wgpu. The final live CPU/Ink complete frames arrive at 199.749/324.749 ms, and every Ink diagnostic eventually displays. |
+| Second-round active estimate about 205 ms | **Not measured as specified:** that revision fails its passive no-drop check (192.261 ms with two zero callbacks) and receives no active cohort. |
+| Final-round passive complete screen 182–195 ms, without a zero callback | **Miss:** 207.990 ms and two zero callbacks. |
+
+No saving is qualified, no first-composite mechanism is established, and
+D15's 100 ms application obligation remains unmet. Q4/Q6 and Stage 0b's
+third part remain as assigned.
+
+### Reproduction
+
+Both Ink arms build in this worktree's own target directory:
+
+```sh
+env EXACT_APP_DIR="$PWD/bench/heavy-list/exact-heavylist" \
+  EXACT_PAINTED_PROBE="$PWD/bench/heavy-list/gpui/probe.m" \
+  CARGO_TARGET_DIR="$PWD/target" CARGO_BUILD_JOBS=6 \
+  bun host/apple/build.mjs exact-heavylist-apple --painted-benchmark --release
+```
+
+On silver, the retained base is `target/g0/m10-c1b`. The scripts run in the
+logged-in GUI session through `launchctl asuser`, with `caffeinate -u -d -i`;
+no GO file is used. `startup.py` checks lane ownership, observes a sixty-second
+quiet gate, retains five-second observations throughout, and refuses an
+incomplete, loaded or rejected-original cohort. Its default is ten rounds.
+The paired final runs begin with the after arm and rotate the six variants;
+GPUI/egui before and after keys name the same signed controls.
+
+```sh
+python3 target/g0/m10-c1b/provenance-third.py target/g0/m10-c1b ink-after
+python3 target/g0/m10-c1b/prewarm.py target/g0/m10-c1b ink-after
+python3 target/g0/m10-c1b/startup.py run target/g0/m10-c1b <fresh-output> \
+  --arms ink-after,ink-before,gpui-after,gpui-before,egui-after,egui-before
+python3 target/g0/m10-c1b/startup.py run target/g0/m10-c1b <fresh-output> --scoreboard
+```
+
+The before scoreboard uses `provenance.py ... ink-before`, after the four
+before/control signature prewarms. `provenance-third.py` selects `InkAfter3.app`.
+The retained driver snapshots, launch settings, executable hashes, power
+observations, focus checks and failures reproduce the run conditions.
+Locally, `python3 -B target/m10-c1b/report.py` reproduces the diagnostic
+values and qualification decisions in `report.json`; `startup.py summarize`
+refuses all seven cohorts. No retained raw file or failed original is removed.
+
+### Builds and verification
+
+The before arm is `a48fc7e77d` with the carrier from `9a88c8bead`; its product
+sources are the M10 tip's. The three after arms are `438bb9fc11`,
+`af03bc1d95` and `534e6b3271`. Native, GPUI and egui reuse the signed controls
+from cut 1: native `d16c84ee03`, GPUI/egui `a91fd38b4d`. Every newly signed arm
+launches once as an unrecorded throwaway before collection. The 105 data files
+match `data.sha256`. No display events are posted on the black Mac.
+
+All artifacts are retained under `target/m10-c1b/`, with silver's raw output
+under `silver/`; the remote root is
+`ccheever@100.76.94.78:~/projects/exact2-measure/target/g0/m10-c1b/`.
+`InkBefore.app`, `InkAfter.app`, `InkAfter2.app` and `InkAfter3.app` retain the
+local signed binaries. Each remote cohort's `provenance.json` records the
+executable and driver hashes. `after-source.patch` preserves the final
+measured source against `9a88c8bead`. The `boot-functional*` directories retain
+the raw JSON, trace, log, launch environment, exit status and pipeline archives.
+`functional-third.py` checks all three arms and records both failed Metal
+assertions in `boot-functional-3/validation.json`.
+
+The branch is rebased onto `7b9e3b9bc3`. The carrier, presenter, Ink, probe and
+startup-driver sources are byte-identical across that rebase
+(`checks/final-source.diff` is empty). Main changes the kernel schema and
+Contract lowering, so the affected suites run again on the final tree with
+Metal required. The timing artifacts remain the measured pre-rebase builds;
+no post-rebase startup timing is claimed. The full six-check gate is left
+for the Mac mini, as requested.
+
+```sh
+env CARGO_BUILD_JOBS=6 RUST_TEST_THREADS=2 EXACT_INK_DEVICE=metal EXACT_REQUIRED=1 \
+  cargo test -p exact-linux -p exact-apple-painted -p exact-ink \
+  --lib --tests --no-fail-fast
+```
+
+`checks/rebase-affected-tests.log` exits zero. Its suite summaries, in output
+order (including the nested Linux processes), are verbatim:
+
+```text
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 46 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.62s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1709 filtered out; finished in 0.53s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1709 filtered out; finished in 0.50s
+test result: ok. 170 passed; 0 failed; 15 ignored; 0 measured; 1525 filtered out; finished in 2.81s
+test result: ok. 1688 passed; 0 failed; 22 ignored; 0 measured; 0 filtered out; finished in 68.92s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.81s
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.07s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.50s
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.97s
+test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 10.50s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+```
+
+The first pre-rebase Linux run timed out in the asynchronous photo-upload
+burst test. Its failure is retained in `checks/affected-tests.log`; the
+repeat passes all 1,688 tests in `checks/linux-repeat.log`. The prepared-frame
+test reads the compose texture without a second paint and compares every
+pixel with the ordinary path, for CPU and Ink. It also passes with wgpu.
+The archive-miss test preserves the CPU painter across preparation and
+checks the subsequent whole-frame handoff. The painted-carrier suite retains
+the unshown-frame retry test. The existing probe test, load-rule boundary and
+partition checks, and cross-thread phase reducer checks also pass; their
+verbatim output is in `checks/`.
+
+The final-tree wgpu comparison (`checks/rebase-wgpu-parity.log`) prints:
+
+```text
+test paint::backend::tests::a_prepared_first_frame_has_the_same_pixels_without_a_second_paint ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1709 filtered out; finished in 0.43s
+```
+
+`checks/record-verification.log` verifies the retained executable hashes,
+CPU-to-Ink ordering, lane ownership, absent power sampler, all seven reducer
+refusals and the failed no-drop prediction. The scoped format check passes.
+The staged caps check (`checks/caps-final.log`) exits zero:
+
+```text
+All budgets within cap. 10 categories inspected.
+```
