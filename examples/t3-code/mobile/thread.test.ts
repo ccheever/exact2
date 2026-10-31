@@ -1,4 +1,5 @@
 import { mobileMarkdownBlocks } from './markdown-blocks';
+import { mobileThreadMarkdownBlocks } from './thread-markdown';
 import { queuedEditState, type MobileQueuedEditSession } from './queued-edit-memory';
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
@@ -39,6 +40,130 @@ function fixture(items: Obj[] = [], projection: Obj = {}): T3Client {
 }
 
 describe('bounded transcript Markdown reuse', () => {
+  test('completed Duo table response presents cells and alignment without changing Copy or adjacent code', () => {
+    const code = '"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx"';
+    const body = ['T3-CONVERSATION-QA-04', '', '| Plant | Count | Note |', '|---|---:|---|',
+      '| Moonbell | 7 | Chimes at dusk |', '| Cloudfern | 3 | Collects floating dew |',
+      '| Starroot | 9 | Glows underground |', '', '```typescript', code, '```', '', 'END-04'].join('\n');
+    const [row] = mobileThreadRows(fixture([answer(body)]), now);
+    expect(row!.blocks.map(block => block.kind)).toEqual(['markdown', 'table', 'code', 'markdown']);
+    const table = row!.blocks[1]!;
+    expect(table.columns).toBe(3);
+    expect(table.alignments).toEqual(['left', 'right', 'left']);
+    expect(table.rows.map(row => row.cells.map(cell => cell.runs.map(run => run.text).join('')))).toEqual([
+      ['Plant', 'Count', 'Note'], ['Moonbell', '7', 'Chimes at dusk'],
+      ['Cloudfern', '3', 'Collects floating dew'], ['Starroot', '9', 'Glows underground'],
+    ]);
+    expect(table.rows.map(row => row.header)).toEqual([true, false, false, false]);
+    expect(row!.blocks.filter(block => block.kind === 'markdown').map(block => block.text))
+      .toEqual(['T3-CONVERSATION-QA-04\n\n', '\nEND-04']);
+    expect(row!.blocks[2]!.text).toBe(code);
+    expect(row!.blocks[2]!.tokens.map(token => token.text).join('')).toBe(code);
+    expect(code.slice(1, -1)).toHaveLength(180);
+    expect(row!.body).toBe(body);
+    expect(JSON.parse(row!.copyConfiguration).text).toBe(body);
+  });
+
+  test('table promotion and edits preserve source identity and prior presentation snapshots', () => {
+    const response = answer('😀 Intro\n\n| Name | Count |\n| --- | :');
+    response.streaming = true;
+    const client = fixture([response]);
+    const pending = mobileThreadRows(client, now);
+    expect(pending[0]!.blocks.map(block => block.kind)).toEqual(['markdown']);
+    response.text = '😀 Intro\n\n| Name | Count |\n| --- | --: |\n| **Rose** | `7` |';
+    const first = mobileThreadRows(client, now), old = structuredClone(first);
+    const table = first[0]!.blocks.find(block => block.kind === 'table')!;
+    expect(table.id).toBe('0:table:10');
+    expect(table.rows[1]!.cells.map(cell => cell.runs)).toEqual([
+      [{ id: '1:0:0', kind: 'strong', text: 'Rose' }], [{ id: '1:1:0', kind: 'code', text: '7' }],
+    ]);
+    response.text += '\n| Fern | 3 |';
+    const next = mobileThreadRows(client, now);
+    expect(next[0]!.id).toBe(first[0]!.id);
+    expect(next[0]!.blocks[1]!.id).toBe(table.id);
+    expect(next[0]!.blocks[1]!.rows).toHaveLength(3);
+    expect(first).toEqual(old);
+    expect(pending[0]!.blocks[0]!.text).toBe('😀 Intro\n\n| Name | Count |\n| --- | :');
+    expect(JSON.parse(next[0]!.copyConfiguration).text).toBe(response.text);
+    expect(mobileThreadRows(client, now)[0]!.blocks).toBe(next[0]!.blocks);
+  });
+
+  test('table projection preserves surrounding Markdown and falls back completely for unsupported cells or fences', () => {
+    const table = '| A | B |\n| :---: | ---: |\n| a \\| b | 7 |';
+    const source = `# Heading\n\nOne\nline.\n\n${table}\n\nTail\nline.`;
+    const blocks = mobileThreadMarkdownBlocks(source, false);
+    expect(blocks.map(block => block.kind)).toEqual(['markdown', 'table', 'markdown']);
+    expect(blocks.map(block => block.text).join('')).toBe(source);
+    expect(blocks[1]!.alignments).toEqual(['center', 'right']);
+    expect(blocks[1]!.rows[1]!.cells[0]!.runs[0]!.text).toBe('a | b');
+    for (const body of [
+      `\x60\x60\x60text\n${table}\n\x60\x60\x60`, `\x60\x60\x60text\n${table}`, `~~~\n${table}`,
+      '| A |\n| --- |\n| [link](https://example.test) |', '| A |\n| --- |\n| **bold *nested*** |',
+    ]) {
+      const actual = mobileThreadMarkdownBlocks(body, false);
+      expect(actual.some(block => block.kind === 'table')).toBe(false);
+      expect(actual.map(({ columns, alignments, rows, ...block }) => block)).toEqual(mobileMarkdownBlocks(body, false));
+    }
+    expect(mobileThreadMarkdownBlocks('Name\n:---\nValue', false)[0]).toMatchObject({ kind: 'table', columns: 1, alignments: ['left'] });
+    const crlf = mobileThreadMarkdownBlocks(source.replaceAll('\n', '\r\n'), false);
+    expect(crlf).toEqual(blocks);
+  });
+
+  test('table row cell and run budgets keep dense content complete without evicting small reusable blocks', () => {
+    const body = '| A | B | C | D | E | F | G | H |\n| - | - | - | - | - | - | - | - |\n' + '| x | y | z | a | b | c | d | e |\n'.repeat(1_300);
+    const client = fixture([user('Keep this.'), answer(body)]);
+    const before = mobileThreadRows(client, now), after = mobileThreadRows(client, now);
+    expect(after[0]!.blocks).toBe(before[0]!.blocks);
+    expect(after[1]!.blocks).not.toBe(before[1]!.blocks);
+    expect(after[1]!.blocks[0]!.rows).toHaveLength(1_301);
+    expect(after[1]!.blocks[0]!.rows.at(-1)!.cells.map(cell => cell.runs[0]!.text)).toEqual(['x', 'y', 'z', 'a', 'b', 'c', 'd', 'e']);
+    expect(JSON.parse(after[1]!.copyConfiguration).text).toBe(body);
+  });
+
+  test('ragged and empty-header tables retain complete source, while valid empty cells and numeric labels remain readable', () => {
+    for (const table of ['| A | B |\n| - | - |\n| short |', '| A |\n| - |\n| extra | dropped |', '| | |\n| - | - |\n| x | y |']) {
+      const body = `Before\n\n${table}\n\nAfter`, blocks = mobileThreadMarkdownBlocks(body, false);
+      expect(blocks.some(block => block.kind === 'table')).toBe(false);
+      expect(blocks.map(block => block.text).join('')).toBe(body);
+    }
+    const [block] = mobileThreadMarkdownBlocks('| A | B |\n| - | - |\n| | |\n| NaN | Infinity |\n| v2 | 1,2 |', false);
+    expect(block!.kind).toBe('table');
+    expect(block!.rows.map(row => row.cells.map(cell => cell.numeric))).toEqual([[false, false], [false, false], [false, false], [false, false]]);
+    expect(block!.rows[1]!.cells.map(cell => cell.runs)).toEqual([[], []]);
+  });
+
+  test('adjacent table identities stay distinct across edits and table-to-code streaming preserves order', () => {
+    const table = '| A | B |\n| - | -: |\n| first | 1 |', body = `${table}\n\nBetween.\n\n${table}`;
+    const response = answer(body), client = fixture([response]);
+    const first = mobileThreadRows(client, now)[0]!, saved = structuredClone(first);
+    expect(first.blocks.map(block => block.kind)).toEqual(['table', 'markdown', 'table']);
+    expect(new Set(first.blocks.map(block => block.id)).size).toBe(3);
+    response.text = body.replace('first', 'edited longer');
+    const edited = mobileThreadRows(client, now)[0]!;
+    expect(new Set(edited.blocks.map(block => block.id)).size).toBe(3);
+    expect(edited.blocks[0]!.id).toBe(first.blocks[0]!.id);
+    expect(first).toEqual(saved);
+    response.text = `Before\n\n\x60\x60\x60text\n${table}\n\x60\x60\x60\n\nAfter`;
+    const fenced = mobileThreadRows(client, now)[0]!;
+    expect(fenced.id).toBe(first.id);
+    expect(fenced.blocks.map(block => block.kind)).toEqual(['markdown', 'code', 'markdown']);
+    expect(fenced.blocks[1]!.text).toBe(table);
+    expect(JSON.parse(fenced.copyConfiguration).text).toBe(response.text);
+  });
+
+  test('decoded table text participates in the existing aggregate text budget', () => {
+    const cell = 'a'.repeat(70_000), body = '| A | B |\n| --- | --- |\n| ' + cell + ' | ' + cell + ' |';
+    const items = [0, 1].map(index => item(`table-${index}`, 'assistant_message', { text: body, messageId: `m${index}`, streaming: false }));
+    const client = fixture(items);
+    const before = mobileThreadRows(client, now), after = mobileThreadRows(client, now);
+    expect(after[0]!.blocks).not.toBe(before[0]!.blocks);
+    expect(after[1]!.blocks).toBe(before[1]!.blocks);
+    for (const row of after) {
+      expect(row.blocks[0]!.rows[1]!.cells.map(cell => cell.runs[0]!.text)).toEqual([cell, cell]);
+      expect(JSON.parse(row.copyConfiguration).text).toBe(body);
+    }
+  });
+
   test('streaming replaces changed blocks without rebuilding unchanged prose or retaining stale metadata', () => {
     const prompt = user('Keep **this** prompt.'), response = answer('First paragraph.');
     const client = fixture([prompt, response]);
@@ -51,7 +176,7 @@ describe('bounded transcript Markdown reuse', () => {
     expect(after[1]!.blocks).not.toBe(before[1]!.blocks);
     expect(after[1]).toMatchObject({ body: response.text, streaming: true, showMeta: false, timestamp: mobileMessageTime(at(120)) });
     expect(JSON.parse(after[1]!.copyConfiguration).text).toBe(response.text);
-    expect(before[1]!.blocks).toEqual([{ id: '0', kind: 'markdown', text: 'First paragraph.', language: '', tokens: [] }]);
+    expect(before[1]!.blocks).toEqual([{ id: '0', kind: 'markdown', text: 'First paragraph.', language: '', tokens: [], columns: 0, alignments: [], rows: [] }]);
     response.streaming = false;
     response.updatedAt = at(180);
     const completed = mobileThreadRows(client, now, false, 'visit');

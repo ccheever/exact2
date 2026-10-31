@@ -24,7 +24,7 @@ import { followUpBehavior } from './shared/composer-controls';
 import { queueState } from './shared/composer-controls-queue';
 import { requestPresentation } from './shared/requests';
 import { emptyPendingInput, type PendingInputView } from './pending-input';
-import type { MarkdownBlock } from './markdown-blocks';
+import type { ThreadMarkdownBlock } from './thread-markdown';
 import { mobileThreadMarkdownCache } from './thread-markdown-cache';
 import { mobileThreadHistory } from './thread-history';
 import { mobileForkLifecycleActivity, mobileThreadActivity } from './thread-work';
@@ -35,7 +35,7 @@ export type { ThreadActivity } from './thread-work';
 export interface ThreadMedia { id: string; name: string; kind: string; url: string }
 export interface ThreadHtmlPresentation { context: string; width: number; theme: HtmlRenderTheme; iconColor: string }
 const emptyHtmlRender: HtmlRenderSnapshot = { context: '', key: '', identifier: '', sourceJSON: '', title: '', height: 80, available: false };
-export interface ThreadRow { id: string; kind: string; title: string; body: string; blocks: MarkdownBlock[]; user: boolean;
+export interface ThreadRow { id: string; kind: string; title: string; body: string; blocks: ThreadMarkdownBlock[]; user: boolean;
   timestamp: string; showMeta: boolean; streaming: boolean; attribution: string; senderThreadId: string; intent: string; intentDescription: string; intentTone: string; copyConfiguration: string;
   expanded: boolean; toggleOp: string; toggleId: string; failed: boolean; live: boolean; activities: ThreadActivity[];
   htmlRender: HtmlRenderSnapshot; media: ThreadMedia[]; first: boolean; last: boolean; canFork: boolean; forkKey: string; forkBusy: boolean; }

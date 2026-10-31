@@ -1,7 +1,7 @@
-import { mobileMarkdownBlocks, type MarkdownBlock } from './markdown-blocks';
+import { mobileThreadMarkdownBlocks, type ThreadMarkdownBlock } from './thread-markdown';
 import type { T3Client } from './shared/client';
 
-interface Entry { body: string; blocks: MarkdownBlock[]; textUnits: number; objects: number }
+interface Entry { body: string; blocks: ThreadMarkdownBlock[]; textUnits: number; objects: number }
 interface Snapshot { scope: string; entries: Map<string, Entry> }
 const snapshots = new WeakMap<T3Client, Snapshot>();
 const maxEntries = 128, maxTextUnits = 512 * 1024, maxObjects = 32_768;
@@ -18,20 +18,29 @@ export function mobileThreadMarkdownCache(client: T3Client, dark: boolean, route
     textUnits -= entry.textUnits; objects -= entry.objects; entries.delete(key);
   };
   return {
-    blocks(key: string, body: string): MarkdownBlock[] {
-      // Keep the previous lookup intact: a forward scan longer than the cache must not evict its own hits.
+    blocks(key: string, body: string): ThreadMarkdownBlock[] {
       let entry = previous?.get(key);
       if (!entry || entry.body !== body) {
-        const blocks = mobileMarkdownBlocks(body, dark);
-        entry = { body, blocks, textUnits: key.length + body.length, objects: blocks.length };
+        const blocks = mobileThreadMarkdownBlocks(body, dark);
+        entry = { body, blocks, textUnits: key.length + body.length, objects: 2 + blocks.length };
         for (const block of blocks) {
-          entry.textUnits += block.text.length + block.language.length;
-          entry.objects += block.tokens.length;
-          for (const token of block.tokens) entry.textUnits += token.text.length;
+          entry.textUnits += block.id.length + block.kind.length + block.text.length + block.language.length;
+          entry.objects += 3 + block.tokens.length;
+          for (const token of block.tokens) entry.textUnits += token.id.length + token.text.length + token.color.length + token.slant.length;
+          if (block.kind === 'table') {
+            entry.objects += block.rows.length;
+            for (const alignment of block.alignments) entry.textUnits += alignment.length;
+            for (const row of block.rows) {
+              entry.textUnits += row.id.length; entry.objects += 1 + row.cells.length;
+              for (const cell of row.cells) {
+                entry.textUnits += cell.id.length; entry.objects += 1 + cell.runs.length;
+                for (const run of cell.runs) entry.textUnits += run.id.length + run.kind.length + run.text.length;
+              }
+            }
+          }
         }
       }
       if (entries.has(key)) remove(key);
-      // Large messages still render in full; they must not flush the reusable smaller entries.
       if (entry.blocks.length && entry.textUnits <= maxTextUnits && entry.objects <= maxObjects) {
         entries.set(key, entry); textUnits += entry.textUnits; objects += entry.objects;
         while (entries.size > maxEntries || textUnits > maxTextUnits || objects > maxObjects) {
