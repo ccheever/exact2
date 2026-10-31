@@ -1,6 +1,6 @@
 // The window's side of a drop, a paste and Attach files, run with Contract's action semantics (contract-action-fixture.ts):
 // the composer's `paste` (onComposerPaste, shouldHandleComposerAttachmentPaste), the chat column's drop overlay
-// (makeWorkspaceFileDropHandlers) and a legacy row's drop (handleThreadFileDrop).
+// (makeWorkspaceFileDropHandlers) and a sidebar row's drop (handleThreadFileDrop).
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
@@ -174,19 +174,6 @@ describe('a drop on the chat column (makeWorkspaceFileDropHandlers)', () => {
     expect([state.fileDrag, state.overHeader]).toEqual([false, false]);
     column.call('filesPicked', state, scope, [[{ path: 'app:/tmp/picked/1/a.txt', name: 'a.txt', type: 'text/plain', size: 1 }]]);
     expect(calls).toEqual([['drop', ['doc:/1/notes.txt', 'doc:/2/src'], [], false, ''], ['pick', [], [{ path: 'app:/tmp/picked/1/a.txt', name: 'a.txt', type: 'text/plain', size: 1 }], false, '']]);
-  });
-});
-
-describe('a drop on a legacy row (handleThreadFileDrop)', () => {
-  test('a drag rings the row; its drop names the row, whether it is the open thread\'s and its drop key', () => {
-    const row = contractComponent('legacy-sidebar.contract', 'LegacyThread'), state = row.state();
-    const calls: unknown[][] = [];
-    const scope = { t: { id: 'thread-2', dropKey: 'fleet:local:thread-2', active: false }, page: '', isOpen: false, attachFiles: (...args: unknown[]) => calls.push(args) };
-    row.call('fileDragged', state, scope, [true]);
-    expect(state.fileDrag).toBe(true);
-    row.call('filesDropped', state, scope, [{ files: ['doc:/1/notes.txt'] }]);
-    expect(state.fileDrag).toBe(false);
-    expect(calls).toEqual([['row', ['doc:/1/notes.txt'], [], false, '0\tthread-2\tfleet:local:thread-2']]);
   });
 });
 

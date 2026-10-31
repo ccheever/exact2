@@ -30,7 +30,7 @@ import { ageLabel, capabilities, canSnooze, isWoke, lastVisited, recedes, sectio
 import { sidebarPrBadge } from '../panel/pr-surface';
 import { branchPrBadge, branchPullRequest } from './sidebar-branch-pr';
 import { notePlaces, rowHoverKey } from './row-hover-key';
-import { orderItemsByPreferredIds } from './legacy-sidebar-model'; // the persisted project order
+import { orderItemsByPreferredIds } from './thread-sort'; // the persisted project order
 import { resolveRouteReveal } from './route-reveal';
 import { WORKTREE_DIALOG_TITLE, worktreeDialogDescription } from './worktree-cleanup';
 import { bulkMenuState, menuRows, threadMenuItems, threadMenuState, type MenuRow } from './sidebar-menu'; // the row's context popover (exact2 #223)
@@ -156,7 +156,7 @@ export function projectScopes(client: T3Client): { key: string; name: string; id
   const prefs = sidebarPrefs(client), scratch = groups.find(group => group.key === NO_PROJECT_SCOPE);
   const scratchKey = (saved: string) => scratch?.members.some(member => saved === logicalKey(client, str(member.environmentId), member) || saved === `${str(member.environmentId)}:${str(member.workspaceRoot).trim().replace(/\\/g, '/').replace(/\/+$/, '')}`) === true;
   if (scratch && prefs.scopes.some(scratchKey)) prefs.scopes = [...new Set(prefs.scopes.map(saved => scratchKey(saved) ? NO_PROJECT_SCOPE : saved))];
-  // Manual follows the persisted project order (orderItemsByPreferredIds over physical keys), as the legacy sidebar arranges it.
+  // Manual follows the persisted project order (orderItemsByPreferredIds over physical keys).
   if (order === 'manual') return orderItemsByPreferredIds({ items: groups, preferredIds: sidebarPrefs(client).projectOrder, getId: group => group.key,
     getPreferenceIds: group => group.members.map(member => `${str(member.environmentId)}:${str(member.workspaceRoot).trim().replace(/\\/g, '/').replace(/\/+$/, '')}`) });
   return groups.sort((left, right) => (right.time === left.time ? 0 : right.time > left.time ? 1 : -1) || left.name.localeCompare(right.name) || left.key.localeCompare(right.key));
@@ -175,6 +175,10 @@ export function scopedProjectIds(chosen: readonly ProjectScope[]): Set<string> |
 export function projectSortOrder(client: T3Client): 'updated_at' | 'created_at' | 'manual' {
   const value = (client.local.clientSettings as Record<string, unknown> | undefined)?.sidebarProjectSortOrder;
   return value === 'created_at' || value === 'manual' ? value : 'updated_at';
+}
+/** clientSettings.sidebarThreadSortOrder: updated_at (default) or created_at; the delete fallback's order. */
+export function threadSortOrder(client: T3Client): 'updated_at' | 'created_at' {
+  return (client.local.clientSettings as Record<string, unknown> | undefined)?.sidebarThreadSortOrder === 'created_at' ? 'created_at' : 'updated_at';
 }
 /** getThreadSortTimestamp: creation (else update), or the latest user message (else update, else creation). */
 function threadSortTime(thread: Obj, order: string): number {
@@ -409,10 +413,9 @@ function revealRows(client: T3Client, rows: { thread: Obj }[], searching: boolea
 }
 
 export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarHelpers): { threads: SidebarThread[]; searchFirstId: string; sidebar: SidebarView } {
-  // The legacy sidebar keeps its own reveal while it is the one shown (legacy-sidebar-view.ts).
-  const searching = client.query.trim() !== '', reveals = client.local.clientSettings?.legacySidebarEnabled !== true;
+  const searching = client.query.trim() !== '';
   noteSnapshotTime(client, now);
-  if (reveals) revealRoute(client, searching);
+  revealRoute(client, searching);
   const prefs = sidebarPrefs(client), session = sidebarSession(client), parts = partition(client, now);
   const scopes = projectScopes(client), chosen = chosenScopes(client, scopes), scope = chosen[0];
   notePlaces(client, parts); // a row's moves count while its shelf is collapsed too
@@ -480,7 +483,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       updateDialog: updateEverythingDialog(client),
       tree: searching ? [] : sidebarTree(threads, parts, prefs, total, draftRows(client, helpers.projectIdentity), prefs.settledExpanded && hidden > 0),
       treeCurrent: !searching && threads.some(thread => thread.id === routeRowThreadId(client)) ? `thread-${routeRowThreadId(client)}` : '',
-      ...(reveals ? revealRows(client, rows, searching) : { revealRow: '', revealPending: '' }),
+      ...revealRows(client, rows, searching),
     },
   };
 }

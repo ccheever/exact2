@@ -16,7 +16,7 @@ import { attachIncoming, cancelPreparingImage, type IncomingFiles } from './comp
 import { retryDraftUpload, runDraftUploads } from './composer-uploads';
 import { foldPaste, heldPaste } from './composer-editor-files';
 import { uuid } from '../transport/transport-wire';
-import { queueRowDrop } from '../sidebar/legacy-sidebar-drop';
+import { queueRowDrop } from '../sidebar/row-drop';
 import { openUsageLimits, closeUsageLimits, changeLimitRecovery, dismissFallbackNotice, usageLocal } from './composer-controls-usage';
 import { feedbackLocal } from './composer-feedback';
 import type { T3Client } from '../client/client';

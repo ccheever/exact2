@@ -111,7 +111,7 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     ['sidebar-row.contract', 'snooze-${t.id}-keys'], ['pages-pr-actions.contract', 'pr-more-keys'], ['pages-pr-handoffs.contract', 'pr-checkout-keys'],
     ['pages-prs.contract', 'pr-sort-keys'], ['pages-prs.contract', 'pr-host-keys'], ['pages-prs.contract', 'pr-filters-keys'], ['pages-prs.contract', 'pr-filters-sub-keys'],
     ['pages-pr-quick.contract', '${popId}-keys'], ['pages-pr-stack.contract', 'pr-stack-keys'], ['settings-b-kit.contract', '${menuId}-keys'], ['settings-kit.contract', '${menuId}-keys'],
-    ['settings-rows.contract', '${menuId}-keys'], ['timeline-plan.contract', 'plan-menu-${message.id}-keys'], ['legacy-sidebar.contract', 'legacy-sidebar-options-keys'],
+    ['settings-rows.contract', '${menuId}-keys'], ['timeline-plan.contract', 'plan-menu-${message.id}-keys'],
     ['snapshot.contract', 'snapshot-sound-keys'], ['pages-usage.contract', 'usage-environment-keys'], ['pages-usage-prices.contract', 'usage-prices-apply-keys'],
     ['git.contract', 'details-git-options-keys'], ['panel.contract', 'add-surface-menu-keys'], ['panel.contract', 'linked-pr-menu-keys'],
     ['shell-panels.contract', 'title-menu-keys'], ['shell-panels.contract', 'title-submenu-keys'], ['requests.contract', 'approval-menu-${approval.id}-keys'],
@@ -135,10 +135,9 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
       if (!/\bKeyMenu\(/.test(text)) continue;
       text.split('\n').forEach((line, index) => {
         if (!/^\s*(button|link)\b/.test(line) || !/role=(?:"menuitem|\(.*menuitem)/.test(line)) return;
-        // The context menus (the sidebar's rows, the legacy sidebar's rows and headers, the Files tree's, a panel tab's, a pull
-        // request number's) and the legacy New thread's members menu are AppKit menus on macOS (LLP 1021 §5.1, D2): their
-        // keyboard is the system's. A row that is always disabled is never a stop; diff.contract's AddSurfaceItem is mounted nowhere.
-        if (/testId=`(thread|draft|tab|legacy-thread|legacy-project|legacy-members|files-tree)-menu-/.test(line) || /testId=`\$\{menuId\}-(copy-link|open-external)`/.test(line) || /\bdisabled=true\b/.test(line) || /popovertarget="diff-add-surface"/.test(line)) return;
+        // The context menus (the sidebar's rows, the Files tree's, a panel tab's, a pull request number's) are AppKit menus
+        // on macOS (LLP 1021 §5.1, D2): their keyboard is the system's. A row that is always disabled is never a stop; diff.contract's AddSurfaceItem is mounted nowhere.
+        if (/testId=`(thread|draft|tab|files-tree)-menu-/.test(line) || /testId=`\$\{menuId\}-(copy-link|open-external)`/.test(line) || /\bdisabled=true\b/.test(line) || /popovertarget="diff-add-surface"/.test(line)) return;
         rows++;
         if (!/^\s*(button|link) id=/.test(line)) missing.push(`${file}:${index + 1}`);
       });
@@ -151,7 +150,7 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
 describe('public popover triggers execute one ordered command sequence', () => {
   // The complete migrated inventory, plus the Icon submenu's Enter/Space trigger (its arrows belong to its parent).
   const openers: [string, string, string][] = [
-    ['legacy-sidebar.contract', 'LegacyOptions', 'triggerKey'], ['timeline-plan.contract', 'PlanCard', 'triggerKey'],
+    ['timeline-plan.contract', 'PlanCard', 'triggerKey'],
     ['connections.contract', 'ThisMachineSection', 'triggerKey'], ['connections.contract', 'EnvironmentRow', 'triggerKey'],
     ['connections.contract', 'EnvironmentIconMenu', 'triggerKey'], ['settings-b-kit.contract', 'CnSelect', 'triggerKey'],
     ['pages-pr-stack.contract', 'PrdStackControls', 'triggerKey'],
@@ -214,7 +213,6 @@ describe('public popover triggers execute one ordered command sequence', () => {
     expect(trigger).toContain(` popovertarget=${command[1]} `);
     // The same eligible rows drive the public opening and the menu's subsequent navigation.
     expect(body).toContain(`items=${itemName},`);
-    // LegacyOptions measures nothing first (its menu is end-aligned by `position-area`, not a measured tail).
     const prep: unknown[][] = name === 'PrFiltersMenu' ? [['openMenu']]
       : name === 'PrRowStack' ? [['control', 'quick-stack', 'repo:42']]
       : name === 'ThreadRow' ? [['hoverCard', '', false]]
@@ -398,7 +396,7 @@ describe('one highlight: the pointer and the keys move one focus (Base UI highli
     ['pages-prs.contract', 'PrAuthorItem', '`pr-author-${person.key}`'], ['pages-prs.contract', 'PrLabelItem', '`pr-label-${label.key}`'],
     ['browser-surface.contract', 'BsMenuItem', 'id'], ['browser-surface.contract', 'BrowserAppearanceItem', '"browser-more-appearance"'],
     ['browser-surface.contract', 'BrowserLauncherProfileItem', '`launcher-browser-profile-${profile.id}`'], ['browser-surface.contract', 'BrowserAddItem', '"add-surface-browser"'],
-    ['diff.contract', 'DiffMenuItem', 'testId'], ['legacy-sidebar.contract', 'LegacyRadio', 'testId'], ['pages-pr-actions.contract', 'PaMenuItem', 'testId'],
+    ['diff.contract', 'DiffMenuItem', 'testId'], ['pages-pr-actions.contract', 'PaMenuItem', 'testId'],
     ['pages-pr-actions.contract', 'PaRadioItem', 'testId'], ['pages-pr-code.contract', 'PrdScopeCommit', '`pull-request-code-scope-${commit.short}`'],
     ['pages-pr-code.contract', 'PrdScopeMore', '"pull-request-code-scope-more"'], ['pages-pr-handoffs.contract', 'PrdHandoffItem', 'testId'],
     ['pages-pr-links.contract', 'PrdActOnItem', '`${idPrefix}${item.key}`'], ['pages-pr-quick.contract', 'PqStackItem', 'testId'], ['pages-pr-stack.contract', 'PsMenuItem', 'testId'],

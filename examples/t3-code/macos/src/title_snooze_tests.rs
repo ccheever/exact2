@@ -141,6 +141,17 @@ fn snooze_host() -> exact_apple::Host<Replies> {
         .unwrap();
     let thread_type = plan.type_(plan.field(threads).ty).elem.unwrap();
     let mut thread = empty_record(&plan, thread_type);
+    let presets = [("hour", "In an hour"), ("tomorrow", "Tomorrow")]
+        .into_iter()
+        .map(|(id, label)| {
+            Value::record(vec![
+                Value::str(id),
+                Value::str(label),
+                Value::str(""),
+                Value::str(""),
+            ])
+        })
+        .collect::<Vec<_>>();
     for (name, value) in [
         ("id", Value::str("fixture-thread")),
         ("title", Value::str("Fixture thread")),
@@ -157,17 +168,14 @@ fn snooze_host() -> exact_apple::Host<Replies> {
     ] {
         set(&plan, thread_type, &mut thread, &[name], value);
     }
-    let presets = [("hour", "In an hour"), ("tomorrow", "Tomorrow")]
-        .into_iter()
-        .map(|(id, label)| {
-            Value::record(vec![
-                Value::str(id),
-                Value::str(label),
-                Value::str(""),
-                Value::str(""),
-            ])
-        })
-        .collect();
+    // Each row lists its own environment's options.
+    set(
+        &plan,
+        thread_type,
+        &mut thread,
+        &["snoozePresets"],
+        Value::list(presets),
+    );
     let mut replies = Replies::default();
     replies.fixture(
         &plan,
@@ -177,7 +185,6 @@ fn snooze_host() -> exact_apple::Host<Replies> {
             (&["connected"], Value::Bool(true)),
             (&["sidebarOpen"], Value::Bool(true)),
             (&["threads"], Value::list(vec![thread])),
-            (&["snoozePresets"], Value::list(presets)),
         ],
     );
     replies.fixture(&plan, "welcome", &[(&["show"], Value::Bool(false))]);

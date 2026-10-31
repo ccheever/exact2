@@ -56,7 +56,7 @@ export type WorktreePlan = { path: string; display: string; cwd: string };
  * "on delete" cleanup rule is off; when it is on the server cleans up).
  * Null when nothing is to be asked or removed.
  */
-/** `env`: the thread's environment's reads (a background environment's for the legacy sidebar, legacy-sidebar-fleet.ts). */
+/** `env`: the thread's environment's reads (a background environment's row, background-threads.ts). */
 export function worktreePlan(client: T3Client, threadId: string, deleted: ReadonlySet<string>,
   env: { shell: { projects: Obj[]; threads: Obj[] }; config: Obj; connected: boolean } = { shell: client.shell, config: client.config, connected: client.connection === 'connected' }): WorktreePlan | null {
   const threads = env.shell.threads.filter(thread => thread.id === threadId || (!thread.archivedAt && !deleted.has(str(thread.id))));

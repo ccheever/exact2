@@ -14,7 +14,7 @@ import {
 } from '../palette/palette-search';
 import { threadFindState } from '../timeline/thread-find-runtime';
 import type { FindPosition } from '../timeline/thread-find';
-import { envAccess } from './legacy-sidebar-fleet';
+import { envAccess } from './background-threads';
 import type { SidebarSection } from './sidebar-model';
 import { sidebarSession } from './sidebar-state';
 

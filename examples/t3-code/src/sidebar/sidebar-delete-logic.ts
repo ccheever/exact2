@@ -6,7 +6,7 @@
 // run's state and stop at an entry whose deletion paused on a question
 // (`paused`), so the run resumes after the "Delete the worktree too?" answer.
 import { str, type Obj } from '../client/domain';
-import { sortThreads, type ThreadSortOrder } from './legacy-sidebar-model';
+import { sortThreads, type ThreadSortOrder } from './thread-sort';
 
 export type DeleteResult = { ok: true } | { ok: false; error: unknown; interrupted?: boolean } | { paused: true };
 export type DeleteOutcome = { deletedThreadKeys: Set<string>; firstFailure: { ok: false; error: unknown } | null; pausedAt: number };

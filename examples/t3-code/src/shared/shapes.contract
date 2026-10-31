@@ -18,7 +18,6 @@ use ComposerView from "../composer/composer-shapes.contract"
 use Thread from "../sidebar/sidebar-shapes.contract"
 use ChatGptPlanNotice from "../providers/codex-setup.contract"
 use SidebarView from "../sidebar/sidebar-shapes.contract"
-use LegacySidebarView from "../sidebar/legacy-sidebar-shapes.contract"
 use Look from "../appearance/settings-appearance-look.contract"
 use ComposerVideo from "../composer/composer-video.contract"
 use ComposerVideoPreview from "../composer/composer-video.contract"
@@ -573,8 +572,6 @@ shape Snapshot
   searchFirstId: string
   threads: Thread[]
   sidebar: SidebarView
-  // General › Sidebar (legacy)'s per-project thread trees (legacy-sidebar-view.ts).
-  legacy: LegacySidebarView
   messages: Message[]
   // The transcript's rows its window keeps mounted (timeline-kept-rows.ts): the first and last message, a playing
   // sound's row and a full-screen app's.

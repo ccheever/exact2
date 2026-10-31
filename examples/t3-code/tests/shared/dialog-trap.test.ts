@@ -38,7 +38,6 @@ const GUARDED: Record<string, string> = {
   'browser-profiles.contract "browser-profile-remove-dialog"': 'browser-profile-remove',
   'connections-routes.contract "route-remove-dialog"': 'route-remove',
   'connections.contract "environment-remove-dialog"': 'environment-remove',
-  'legacy-sidebar.contract label': 'legacy-dialog',
   'pages-usage-dialogs.contract dialogId': 'usage-dialog',
   'pages-welcome.contract "welcome-dialog"': 'welcome',
   'palette.contract view.testId': 'palette', // CommandPaletteBody, then PaletteDialog (link-pr), below
@@ -329,7 +328,7 @@ describe('the reference\'s order of stops', () => {
 
   test('the dialogs that drew no X have DialogPopup\'s (showCloseButton is left on in the reference): last, at the top right', () => {
     for (const [file, anchor, close] of [['providers-wizard.contract', 'testId="usage-hub-dialog"', 'testId="usage-hub-close"'],
-      ['timeline-plan.contract', 'testId="plan-save-dialog"', 'testId="plan-save-close"'], ['legacy-sidebar.contract', 'role="dialog" aria-modal=dialogSeated.includes(label) aria-label=title testId=label', 'testId=`${label}-close`']] as const) {
+      ['timeline-plan.contract', 'testId="plan-save-dialog"', 'testId="plan-save-close"']] as const) {
       const lines = source(file).split('\n');
       const at = lines.findIndex(line => line.includes(anchor));
       expect(lines[at]).toContain('position="relative"');
@@ -482,12 +481,6 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
     expect(line('settings-scheduled.contract', 'DialogOpenFocus(')).toBe('DialogOpenFocus(target=(draft.id == "" and not busy ? "task-environment" : "task-title"))');
   });
 
-  test('Project grouping opens on its grouping rule, the reference popup\'s first Tab stop (LegacySidebar.tsx:2594)', () => {
-    const line = (needle: string) => source('legacy-sidebar.contract').split('\n').find(text => text.includes(needle))!;
-    expect(line('label="legacy-grouping"')).toContain('first="legacy-grouping-rule"');
-    // A trap stop, so Tab past the X comes round to it as well.
-    expect(line('select id="legacy-grouping-rule"')).toContain('data-focus-stop="enabled"');
-  });
 });
 
 // Base UI's Dialog also gives the focus back as it closes
@@ -502,7 +495,6 @@ describe('every modal dialog gives focus back through a surviving observer or it
     'app-overlays.contract "project-dialog"': ['app-overlays.contract', ['project-dialog']],
     'connections-routes.contract "route-remove-dialog"': ['app-settings.contract', ['route-remove-dialog']],
     'connections.contract "environment-remove-dialog"': ['app-settings.contract', ['environment-remove-dialog']],
-    'legacy-sidebar.contract label': ['legacy-sidebar.contract', ['legacy-rename-project', 'legacy-grouping']],
     'pages-usage-dialogs.contract dialogId': ['app-main.contract', ['usage-prices-dialog', 'usage-model-dialog']],
     'pages-welcome.contract "welcome-dialog"': ['app-overlays.contract', ['welcome-dialog']],
     'providers-wizard.contract "add-provider-dialog"': ['app-settings.contract', ['add-provider-dialog']],
@@ -559,7 +551,6 @@ describe('every modal dialog gives focus back through a surviving observer or it
   };
   const shared: Record<string, string[]> = {
     'app-settings.contract': ['project-remove', 'project-remove-member', 'archive-delete', 'signal-kill', 'archive-context-delete', 'theme-remove', 'update-install'],
-    'legacy-sidebar.contract': ['legacy-remove-project', 'legacy-archive-many'],
     'app-overlays.contract': ['server-update-confirm', 'app-confirm'],
     'prompt-links.contract': ['pairing-link-confirm'],
     'providers-wizard.contract': ['wizard-sign-out-confirm'],

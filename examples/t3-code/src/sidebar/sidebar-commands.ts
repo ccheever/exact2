@@ -12,7 +12,7 @@ import { bulkMenuState, canArchive, rowConfig, threadMenuState } from './sidebar
 import { wall, latestWall, shownWall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, undoSummary, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
 import { calendarLocal } from './snooze-calendar';
 export { clock, undoLive } from './sidebar-state';
-import { partition, projectScopes, renderedRows, scopedRowKey, undoLabel, workingInbox } from './sidebar-view';
+import { partition, projectScopes, renderedRows, scopedRowKey, threadSortOrder, undoLabel, workingInbox } from './sidebar-view';
 import { pickSearchResult, showPendingFind } from './sidebar-search';
 import { announce, cancelAnnouncement } from '../shell/announce';
 import { completeRouteReveal } from './route-reveal';
@@ -26,12 +26,9 @@ import { syncBranchPullRequests } from './sidebar-branch-pr';
 import { resetSidebarWidth } from './sidebar-width';
 import { sweepRelease } from './row-sweep';
 import { discardDraft, draftChoice } from './draft-rows';
-import { legacyCommand, legacyLocal } from './legacy-sidebar-commands'; // The "Sidebar (legacy)" gestures
-import { legacyEnabled, legacyProjectOrder, threadSortOrder } from './legacy-sidebar-view';
-import { archiveBackground, backgroundThreadPath, backgroundWorktreePlan, envAccess, isBackground, markUnreadBackground, openBackgroundDraft, removeBackground } from './legacy-sidebar-fleet';
-import { openBranchDraft, revealRowTerminal, rowThread } from './legacy-sidebar-links';
+import { archiveBackground, backgroundThreadPath, backgroundWorktreePlan, envAccess, isBackground, markUnreadBackground, openBackgroundDraft, removeBackground } from './background-threads';
+import { openBranchDraft, revealRowTerminal, rowThread } from './row-thread';
 import { dropHeldRename, startHeldRename, startRename } from './sidebar-rename-wait';
-import { openPendingPort, watchRowPorts } from './legacy-sidebar-ports';
 import { closeThreadTerminals, detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup';
 import { deleteSelectedThreadEntries, getFallbackThreadIdAfterDelete } from './sidebar-delete-logic';
 import { openHome } from '../pages/home-landing';
@@ -430,7 +427,7 @@ export async function sidebarSelecting(client: T3Client, _nativeHandle: Native, 
   if (value === 'click' || value.startsWith('click:')) {
     const flags = { command: value === 'click:meta', shift: value === 'click:shift' };
     // ⇧-click ranges over the row's project list (rangeSelectTo(threadKey, orderedProjectThreadKeys)).
-    const rows = legacyEnabled(client) ? legacyProjectOrder(client, id) : renderedRows(client, partition(client, wall(client))).map(entry => str(entry.thread.id));
+    const rows = renderedRows(client, partition(client, wall(client))).map(entry => str(entry.thread.id));
     if (flags.command === true) {
       const removing = session.selection.includes(id);
       session.selection = removing ? session.selection.filter(key => key !== id) : [...session.selection, id];
@@ -462,8 +459,6 @@ export async function sidebarRefreshed(client: T3Client, nativeHandle: Native): 
   scheduleProviderPill(client, wall(client), delay => { void nativeHandle.later({ op: 'sidebarNotify', delay }).catch(() => undefined); });
   await syncFavicons(client, nativeHandle);
   await syncBranchPullRequests(client, nativeHandle, wall(client)); // A linkless thread's branch pull request
-  await watchRowPorts(client, nativeHandle); // The legacy rows' discovered ports
-  await openPendingPort(client, nativeHandle); // a background row's port, once its thread is open here
   startHeldRename(client); // a double-click's rename, once its row's environment is in
   visitOpenThread(client, nativeHandle);
   showPendingFind(client); // a message result's find, once its thread is the open one
@@ -475,7 +470,6 @@ const menuState = (client: T3Client, thread: Obj) => threadMenuState(client, thr
 
 /** The sidebar's local ops: view state that never reaches the server. */
 export async function sidebarLocal(client: T3Client, _native: Native, op: string, id: string, value: string): Promise<string> {
-  if (op.startsWith('legacy-')) return legacyLocal(client, op.slice(7), id, value);
   const prefs = sidebarPrefs(client), session = sidebarSession(client);
   if (op === 'pill-dismiss') { dismissProviderPill(client, value); return ''; }
   // The window's clock (app.contract workingGraceClock): owed Working stamps are paid with it, and a grace past it ends.
@@ -537,14 +531,14 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
 /** The sidebar's server ops. Failures are toasts, never the transcript banner. */
 export async function sidebarCommand(client: T3Client, nativeHandle: Native, storage: Files, op: string, id: string, value: string, at = 0): Promise<string> {
   adoptCommandTime(client, at);
-  if (op.startsWith('legacy-')) return legacyCommand(client, nativeHandle, storage, op.slice(7), id, value);
   const session = sidebarSession(client);
   const settings = client.local.clientSettings;
   if (op === 'undo') { await undoLatest(client, nativeHandle); return ''; }
   if (op === 'rename') { await rename(client, nativeHandle, id, value); return ''; }
   if (op === 'dialog-confirm') return confirmDialog(client, nativeHandle, storage, value);
-  // CustomSnoozeDialog's "Edit snooze options": the dialog closes on Settings › Threads (`sidebar:settings:<route>`).
-  if (op === 'snooze-settings') { if (session.dialog.kind === 'snooze') closeDialog(session); return 'sidebar:settings:threads'; }
+  // CustomSnoozeDialog's "Edit snooze options": the dialog closes on Settings › Threads at Snooze options
+  // (`sidebar:settings:<route>:<target>`, the reference's /settings/threads#snooze-options).
+  if (op === 'snooze-settings') { if (session.dialog.kind === 'snooze') closeDialog(session); return 'sidebar:settings:threads:snooze-options'; }
   if (op === 'dialog-cancel') { if (session.dialog.kind === 'delete-worktree') await answerWorktree(client, nativeHandle, storage, false); else closeDialog(session); return ''; }
   if (op === 'drop' && id.startsWith('sweep|')) return sweepRelease(client, nativeHandle, storage, id); // upstream 1826fb55cc
   if (op === 'drop') return sidebarDrop(client, nativeHandle, id, value);
@@ -562,10 +556,10 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
   if (op === 'discard-project-draft') { discardDraft(client, nativeHandle, `${client.environmentId}:new:${id}`, true); return ''; } // Behind the undo notice
   if (op === 'draft-choice') return draftChoice(client, nativeHandle, id, value); // the draft row's context popover (exact2 #223)
   if (op === 'new-thread-click') {
-    // routes/_chat.tsx chat.new: the legacy sidebar keeps the immediate contextual create; ⇧-click (`value` "shift", the
-    // press's own MouseEvent, app.contract sidebarNewThread) creates at once.
+    // routes/_chat.tsx chat.new; ⇧-click (`value` "shift", the press's own MouseEvent, app.contract sidebarNewThread)
+    // creates at once.
     // The picker opens when the sidebar holds several projects, across every environment (projectScopes).
-    if (value !== 'shift' && projectScopes(client).length > 1 && !legacyEnabled(client)) return 'sidebar:palette-new-thread';
+    if (value !== 'shift' && projectScopes(client).length > 1) return 'sidebar:palette-new-thread';
     try { await (client as unknown as Navigator).openDraft?.(nativeHandle, client.projectId); }
     catch (error) { toast(client, 'Could not create thread', error); return ''; }
     return 'sidebar:new-thread';
@@ -577,7 +571,7 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
     catch (error) { toast(client, 'Could not open threads', error); return ''; }
     return 'sidebar:new-thread';
   }
-  if (op === 'terminal-reveal') return revealRowTerminal(client, nativeHandle, id); // either sidebar's running-terminal button
+  if (op === 'terminal-reveal') return revealRowTerminal(client, nativeHandle, id); // the row's running-terminal button
   // A choice from the row's context popover (sidebar-row.contract ThreadMenu, exact2 #223): the row's
   // menu as painted, so a selected row's is the bulk menu, as the right-click's handler decides. The row's
   // thread is on its own environment (handleThreadContextMenu's threadByKey): a background row's choices act there.

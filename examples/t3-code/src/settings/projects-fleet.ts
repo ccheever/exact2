@@ -5,7 +5,7 @@ import { requireRpcPermissions } from '../connections/command-permissions';
 // settings on a project only a background environment has opens this page without changing the focused environment.
 //
 // A member of the focused environment keeps its project id; a background environment's member is named
-// `fleet:<environment>:<project>` (settings-b-fleet.ts fleetThreadId), as the legacy sidebar names its rows.
+// `fleet:<environment>:<project>` (settings-b-fleet.ts fleetThreadId), as the sidebar names a background environment's rows.
 import { obj, str, type Obj } from '../client/domain';
 import { bridgeReply, ClientError, type Native, type Files } from '../client/protocol';
 import type { T3Client } from '../client/client';

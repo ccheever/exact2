@@ -115,7 +115,7 @@ describe('header and panels', () => {
     expect(top.map(item => item.label)).toEqual(['Pin thread', 'Settle thread', 'Snooze', 'Rename thread', 'Regenerate title', 'Mark unread', 'Auto-settle behavior', 'Copy', 'Project settings', 'Archive thread', 'Delete']);
     expect(top.filter(item => item.separated).map(item => item.id)).toEqual(['rename', 'copy', 'archive']);
     expect(top.map(item => item.offset)).toEqual([5, 33, 61, 98, 126, 154, 182, 219, 247, 284, 312]);
-    expect(menu.filter(item => item.submenu === 'copy').map(item => item.label)).toEqual(['Path', 'Thread ID']);
+    expect(menu.filter(item => item.submenu === 'copy').map(item => item.label)).toEqual(['Path', 'Thread', 'Thread ID']);
     expect(menu.filter(item => item.submenu === 'snooze').at(-1)).toMatchObject({ label: 'Custom…', separated: true });
     expect(menu.find(item => item.id === 'auto-settle:enabled')).toMatchObject({ checked: true, op: 'shell:auto-settle', value: 'true' });
     const del = menu.find(item => item.id === 'delete')!;
@@ -124,7 +124,7 @@ describe('header and panels', () => {
     const plain = titleMenu(fakeClient({ threadId: 't1', shell: { threads: [{ ...thread, status: 'running', branch: 'feature' }], projects: [] } }), 0);
     expect(plain.filter(item => item.submenu === '').map(item => item.id)).toEqual(['new-thread-on-branch', 'rename', 'mark-unread', 'copy', 'project-settings', 'archive', 'delete']);
     expect(plain.find(item => item.id === 'archive')!.disabled).toBe(true);
-    expect(plain.filter(item => item.submenu === 'copy').map(item => item.label)).toEqual(['Path', 'Branch', 'Thread ID']);
+    expect(plain.filter(item => item.submenu === 'copy').map(item => item.label)).toEqual(['Path', 'Branch', 'Thread', 'Thread ID']);
     expect(titleMenu(fakeClient({ projectId: 'p1' }), 0).map(item => item.label)).toEqual(['Project settings']);
   });
 

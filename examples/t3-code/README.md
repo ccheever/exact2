@@ -373,16 +373,14 @@ its letters are its rows' `aria-keyshortcuts` (`shell-panels.contract`), which E
 menu is a window-level popup, placed from the trigger's `frame()` (scroll offsets applied),
 that Escape and an outside press close (`table-menu.*`). The row context menus are Contract context
 popovers, which the host presents as an `NSMenu` at the pointer, or for the ContextMenu key at the
-focused row's centre (exact2 #314): the sidebar's thread, draft and selection menus, the legacy sidebar's
-row, selection and project menus, the Files tree's, a panel tab's, a pull request number's, the branch
+focused row's centre (exact2 #314): the sidebar's thread, draft and selection menus, the Files tree's, a panel tab's, a pull request number's, the branch
 picker's Copy branch name (on its trigger and on each ref in the open picker, which stays open under it), and the chat's
 web and file link menus (`link-menus.contract`; their rows are computed before the right-click,
 `external-link-menu.ts` and `file-link-menu.ts`). A draft
 row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. A mailto, irc,
 xmpp or fragment link has no menu of its own, so its right-click and its ContextMenu key get the desktop shell's
-(`T3TextContextMenu.swift`). The media menu stays the module's (`T3ContextMenu.swift` says why). The legacy
-sidebar's New thread shows a project's members, and a file link on the pull request page its menu, where the press
-was (LLP 1021 D2: the press's `clientX` and `clientY` as the popover's `left` and `top`; a key's press is at 0, 0,
+(`T3TextContextMenu.swift`). The media menu stays the module's (`T3ContextMenu.swift` says why). A file link on
+the pull request page shows its menu where the press was (LLP 1021 D2: the press's `clientX` and `clientY` as the popover's `left` and `top`; a key's press is at 0, 0,
 the window's corner, as the reference's `Menu.popup` puts it). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
@@ -748,6 +746,16 @@ above.
 
 **Known differences:**
 
+- Settings › About › Update track saves only this app's own track. In v0.1.5 the switch also moves every
+  connected server between Stable and Nightly, after a database-migration check
+  (`UpdateTrackSwitchDialog.tsx`). The clone is updated through Exact delivery and has no desktop
+  update feed (`settings-a-about.ts`), and Nightly is not cloned.
+- The legacy sidebar is removed, as in v0.1.5. In v0.1.5 a saved `legacySidebarEnabled` opens the boring
+  sidebar, which is a Labs feature, and ⌘N there starts the thread in the current project. The clone
+  has no boring sidebar, so the same setting opens the default sidebar, where ⌘N with several projects
+  opens "New thread in…". For the same reason, the Working section's description leaves out v0.1.5's
+  "The boring sidebar in Labs has no Working section."
+
 - After VO-Space on a composer thread chip, the reference's VoiceOver cursor ends on the window's close
   button (VO-F3 "close, button", then VO-Right "minimize, button"; 3 of 3), though it has just read the
   new thread's prompt: Chromium drops the pressed link. The clone's stays on the prompt it read, which
@@ -856,9 +864,6 @@ above.
   lasts, 5 s (`sidebar-commands.ts`); a ⌘Z after that leaves the row snoozed (FN29).
 - A composer pull request chip is named 'Open Open pull request #132: …': the reference's own
   template, `Open ${kindLabel} …` with the kind label 'Open pull request' (contextChipParts.tsx:113).
-- With Reduce motion on, a legacy project's rows jump as it collapses but its chevron still turns,
-  as the reference's (`transition-transform duration-150` with no motion-reduce variant,
-  LegacySidebar.tsx:2405-2409).
 - Return on a focused button that is not the default one, such as 'Edit Echo test', does nothing
   and Space presses it, as in any AppKit window (Return presses the default button).
 - A press outside a chip's popover closes it and still does what it lands on (a press on a
@@ -870,13 +875,8 @@ above.
   first click on #144 that did not open it come from the github-lane fixture's `gh` stand-in;
   the list loaded and the second click opened it. The timeline's 'Image unavailable' for a table
   image and a linked image is the lane's missing media server.
-- The legacy sidebar's thread machine glyph has no pointer tooltip, and neither does the
-  reference's. Its meta slot is `pointer-events-none` and fades out on hover
-  (LegacySidebar.tsx:489-493, 903-920); 'Lane Second' is only the glyph's accessible name.
 - Mark unread changes nothing on a thread with no completed run: the server refuses it and the
   reference stays silent. On a completed thread the row gains the green 'Completed' label.
-- The legacy thread menu has no Archive item, in the reference too (LegacySidebar.tsx:2241-2264).
-  One row archives from its hover button, a selection from 'Archive (n)'.
 - A chip pressed to open its preview stays selected after the preview closes, and a letter typed
   after Escape, Close or a backdrop click replaces the file or image chip (C14/C23). T3 Code's
   Tiptap editor keeps the chip's NodeSelection and Base UI's finalFocus gives the editor back the

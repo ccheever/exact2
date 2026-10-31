@@ -133,7 +133,7 @@ describe('general rows', () => {
       'Follow-up behavior', 'Diff layout', 'Hide whitespace changes', 'Default diff file state', 'Diff colors', 'Proactive panels', 'Open pull requests in T3 Code', 'Add project starts in', 'Model', 'Fallback model', 'Permissions', 'Workspace',
       'Snooze options', 'Resume after usage limits', 'Snooze until limits reset', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle',
       'Text generation model', 'Start from remote', 'Provider update checks', 'Continue threads after restarts', 'Background activity',
-      'Version', 'Update track', 'Mobile app', 'Open source licenses', 'Plan mode (legacy)', 'Context window indicator (legacy)', 'Sidebar (legacy)']);
+      'Version', 'Update track', 'Mobile app', 'Open source licenses', 'Plan mode (legacy)', 'Context window indicator (legacy)']);
     // AdvancedSettings: Chat's Show skills, Threads' Response streaming and Worktrees' Submodules fold at their section's end.
     expect(sections.flatMap(section => (section.advanced ?? []).map(row => [section.title, row.title]))).toEqual([['Composer', 'Show skills in slash menu'],
       ['Text generation', 'Thread title instructions'], ['Text generation', 'Response streaming'], ['Creation', 'Submodules']]);
@@ -393,12 +393,12 @@ describe('writes through the command', () => {
     // Every route reads the scope (Restore defaults is the settings header's), and the project scope's target is its first member.
     expect([await list('repo', 'p1', 'source-control'), await list('repo', '')]).toEqual([p1, p1]);
     expect(await list('repo', 'p2')).toBe('This will reset: Snooze until limits reset, New thread mode.');
-    // Device values take their places among the environment's; a font counts its family and its size; Visible threads is listed.
-    for (const [key, value] of [['confirmThreadDelete', 'false'], ['wordWrap', 'false'], ['fontSizeCode', '14'], ['sidebarThreadPreviewCount', '8'], ['chatWidth', 'wide']] as const)
+    // Device values take their places among the environment's; a font counts its family and its size.
+    for (const [key, value] of [['confirmThreadDelete', 'false'], ['wordWrap', 'false'], ['fontSizeCode', '14'], ['chatWidth', 'wide']] as const)
       applyDeviceSetting(client.local as never, key, value);
-    expect(await list('', '')).toBe('This will reset: Chat width, Visible threads, Snooze until limits reset, Word wrap, Code font, Delete confirmation.');
+    expect(await list('', '')).toBe('This will reset: Chat width, Snooze until limits reset, Word wrap, Code font, Delete confirmation.');
     // No connected target lists the device values alone (DEFAULT_SERVER_SETTINGS).
-    expect(restoreLabels(client.local as never, null)).toEqual(['Chat width', 'Visible threads', 'Word wrap', 'Code font', 'Delete confirmation']);
+    expect(restoreLabels(client.local as never, null)).toEqual(['Chat width', 'Word wrap', 'Code font', 'Delete confirmation']);
   });
   test('Restore defaults lists "Theme mix" for a theme on one appearance, after Follow system (useTheme themeHalves)', async () => {
     // The library's Use puts a one-palette theme on its own half (assignHalf): the reference stores the mix and lists it
@@ -508,7 +508,7 @@ describe('navigation and search', () => {
     expect(titles('token')).toEqual(['GitHub accounts and token / Source control', 'Compact idle threads / Providers', 'Response streaming / Threads', 'Context window indicator (legacy) / Labs', 'Cursor account usage / Providers',
       'GitCafe credentials / Source control', 'Bitbucket credentials / Source control']);
     expect(titles('mcp')).toEqual([]);
-    expect(titles('sidebar')).toEqual(['Sidebar (legacy) / Labs', 'Project grouping / General', 'Project order / General', 'Working section / General', 'Auto-settle inactive threads / Threads',
+    expect(titles('sidebar')).toEqual(['Project grouping / General', 'Project order / General', 'Working section / General', 'Auto-settle inactive threads / Threads',
       'Auto-settle merged threads / Threads', 'Keep threads with a PR / Threads', 'Days of inactivity before auto-settle / Threads', 'Environment icon / Sharing & access']);
     expect(titles('settle')).toEqual(['Auto-settle inactive threads / Threads', 'Auto-settle merged threads / Threads', 'Days of inactivity before auto-settle / Threads', 'Keep threads with a PR / Threads']);
     // 7c3b3b3605ef's moves: network access on Sharing & access, pull request sharing on Environments, the fetch interval in

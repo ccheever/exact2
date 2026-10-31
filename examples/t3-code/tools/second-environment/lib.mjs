@@ -258,7 +258,7 @@ export const SEEDS = {
     { repo: "background-only", origin: "https://github.com/t3-fixture/background-only.git", threads: ["Background thread (no run)", "Background follow-up"],
       scripts: [{ id: "echo-test", name: "Echo test", command: "echo test", icon: "test", runOnWorktreeCreate: false }],
       turns: [{ title: "Background thread (completed turn)", prompt: "Say hello from the stand-in" }] },
-    // A project with no thread: the legacy sidebar's Remove project needs one.
+    // A project with no thread.
     { repo: "empty-project", origin: "https://github.com/t3-fixture/empty-project.git", threads: [] },
     // The stand-in edits files in a turn (its checkpoint has a diff) and asks before an edit (an approval).
     { repo: "agent-edits", origin: "https://github.com/t3-fixture/agent-edits.git", threads: [],

@@ -19,7 +19,6 @@ use ShellView from "../shell/shell-shapes.contract"
 use SidebarEdgeTips from "./sidebar-control-tips.contract"
 use SidebarWindowRail from "./sidebar-rail.contract"
 use PlacementProbes from "../details/project-scripts.contract"
-use LegacyDialogs from "./legacy-sidebar.contract"
 use SnoozeDateField from "./snooze-calendar.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 use DialogFinalFocus from "../shared/dialog-trap.contract"
@@ -101,8 +100,6 @@ component SidebarOverlays
       SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=true, busy=busy, error="", dialogId="sidebar-delete-worktree", cancel=run("dialog-cancel", "", ""), confirm=run("dialog-confirm", "", ""))
     if data.sidebar.dialog == "snooze"
       SidebarSnoozeDialog(data=data, busy=busy, covered=covered, local=local, run=run)
-    // Rename project, Project grouping and the removal / archive confirms.
-    LegacyDialogs(data=data, busy=busy, local=local, run=run)
     // The footer's update pill asks before it updates (SidebarUpdatePill's UpdateEverythingDialog).
     DialogFinalFocus(open=data.sidebar.updateDialog.open, owner="update-everything-confirm")
     if data.sidebar.updateDialog.open
