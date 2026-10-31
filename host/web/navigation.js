@@ -120,6 +120,7 @@ function unselectedWithin(nav, keepList) {
   return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...routes.filter(r => r !== top && r !== beside)];
 }
 export function unselected(nav) { return unselectedWithin(nav, true); } export function unselectedForHead(nav) { return unselectedWithin(nav, false); }
+export function routeFlags(root) { const off = new Set([...root.querySelectorAll("[navigationBack]")].flatMap(nav => unselected(nav))), seen = new Map(); const at = el => { if (!el || el === root) return 0; let v = seen.get(el); if (v === undefined) seen.set(el, v = Math.max(off.has(el) ? (el.style.visibility === "hidden" ? 2 : 1) : 0, at(el.parentElement))); return v; }; return at; } // LLP 1153 D8 — both runtimes' agent `tree` flags an element as the projection left the page, for one read: 1 (`inactive`) under a route or panel `unselected` names, which a split's list beside its detail is not; 2 (`hidden` too) where the projection hid that route, every one but a page a sheet covers
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
@@ -146,8 +147,8 @@ const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("n
 const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-bar-accent,var(--exact-accent,AccentColor));cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.13;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15.35 5 8 12l7.35 7"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
 const authored = '[data-exact-said~="appearance"]'; // a header or a node in one whose author wrote `appearance: none` (element.rs)
-// @ref LLP 1153 D8 — a route's header holding a `nav`, or more than one link outside a `popover` or `dialog` in it (the top layer's), is a site's, marked `data-exact-site`: drawn as written (index.html, neutral.css), as one whose author wrote `appearance: none` is, it is no app bar and holds no Back. document_bars.rs `site_header` is the Rust renderer's rule.
-const siteHeader = (header, links = 0) => { const holds = el => [...el.children].some(child => !child.matches("[popover], dialog") && (child.localName === "nav" || (child.matches("a[href], [role=link]") && ++links > 1) || holds(child))); return holds(header); }, markSites = route => { for (const child of route.children) if (child.localName === "header") child.toggleAttribute("data-exact-site", siteHeader(child)); }, asWritten = header => header.matches(`${authored}, [data-exact-site]`);
+// @ref LLP 1153 D8 — a route's header holding a `nav` anywhere (a popover's too), or more than one link outside a `popover` or `dialog` in it (a menu's links are its button's, as an app bar's are), is a site's, marked `data-exact-site`: drawn as written (index.html, neutral.css), as one whose author wrote `appearance: none` is, it is no app bar and holds no Back. document_bars.rs `site_header` is the Rust renderer's rule.
+const siteHeader = (header, links = 0) => { const holds = (el, menu) => [...el.children].some(child => { const inMenu = menu || child.matches("[popover], dialog"); return child.localName === "nav" || (!inMenu && child.matches("a[href], [role=link]") && ++links > 1) || holds(child, inMenu); }); return holds(header, false); }, markSites = route => { for (const child of route.children) if (child.localName === "header") child.toggleAttribute("data-exact-site", siteHeader(child)); }, asWritten = header => header.matches(`${authored}, [data-exact-site]`);
 // The items of the bar iOS makes of a shown `header`, or null where it makes none: kernel/src/bars.rs `header_bar`,
 // ported to the elements both runtimes write alike, since the JS target keeps no kernel to ask. `walk` is `Walk::walk`:
 // a bar's header holds one heading, and an item is a pressable it reaches, not the title's, or a disabled button. A header drawn as written is no bar.
@@ -191,10 +192,9 @@ function appBarBack(nav, routes, index, split, shown) {
   const route = routes[index], header = headerOf(route);
   if (!header) return;
   const headerShown = getComputedStyle(header).display !== "none";
-  // In a split, a detail its list's row pushed has none: the list beside it is its way back (LLP 1116.004 D1). Nor has a route whose shown header
-  // is drawn as written: its author wrote `appearance: none`, keeping the bar they drew (HeaderRule.swift `keepsAuthoredHeader`), or it is a site's.
+  // In a split, a detail its list's row pushed has none: the list beside it is its way back (LLP 1116.004 D1). Nor has a route whose shown header is drawn as written, wherever it stands in the route (LLP 1153 D8): its author wrote `appearance: none`, keeping the bar they drew (HeaderRule.swift `keepsAuthoredHeader`), or it is a site's.
   const pushed = index > 0 && !sheet(route) && route.getAttribute("data-navigationbar") !== "none" && !(split && (index === 1 || rowOf.has(route)))
-    && !(route.firstElementChild === header && asWritten(header) && headerShown);
+    && !(asWritten(header) && headerShown);
   // A header iOS makes no bar of draws Back when it does not show a visible Back control (iOS draws it either way).
   // Discount the bar's own hiding mark. In a header not shown, the Back stays hidden with it.
   const control = pushed ? backControl(nav, route) : null, inShownHeader = headerShown && !!control && header.contains(control) && !header.contains(control.closest("[popover], dialog"));

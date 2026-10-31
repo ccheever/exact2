@@ -11,10 +11,10 @@ box (emphasis is a part: [content-design](content-design.md)).
 | `buttonStyle="bordered-prominent"` (`"filled"`) | the accent as its fill: once a screen, the action people came for |
 | `buttonStyle="plain"`, `"tinted"` | the accent as text; as a light tint |
 | `destructive=true` | red, in the button's style |
-| a card with a `press`, a custom `button`, a `link` | a wash on hover; dims while pressed and from Space (an authored press replaces it); dimmed when disabled |
+| a card with a `press`, a custom `button`, a `link` | a wash on hover; dims while pressed and from Space (an authored press replaces the dim); dimmed when disabled |
 | `row role="radiogroup"` of `button role="radio"` (two to five); a root `tablist` (`aria-controls`) | a segmented control, arrows move the choice; a tab bar |
-| a route's `header`: one heading, buttons | an app bar, sticky on scroll |
-| a site's `header`: `appearance="none"`; a `nav` or two links in it | as written |
+| a route's `header`: one heading, buttons | an app bar, sticky |
+| `header appearance="none"`; a site's: a `nav`, or two links not in a menu | either as written |
 | `dialog role="alertdialog"` | an alert: its `aria-label` the title |
 | an `input` checkbox, radio, range; `switch` | in the accent; a switch |
 | `input`, `textarea`, `select`, `date`, `time` | 36 px fields (44 on touch); the browser's picker |
@@ -23,14 +23,14 @@ box (emphasis is a part: [content-design](content-design.md)).
 What you write wins: a heading's `font-weight`, an `accent-color` on a button or the root.
 The one colour to write is that accent, a role or one `light-dark(light, dark)` pair; a
 page, card or text colour is a role (a card on a plain page `-exact-secondary-background`,
-text `-exact-label`) or unsaid: a hex stays the same in dark mode while the controls change.
+text `-exact-label`) or unsaid: a hex stays put in dark mode while the controls change.
 
 - `destructive=true` on anything that deletes, asked first with a `dialog
   role="alertdialog"`; `list appearance="auto" listStyle="inset-grouped"` of `section`s
   for settings.
 - **Compose for a wide window by what the content is.** One number and its actions (a
   tracker, a timer): a focused column, centred, `max-width` about a phone's width;
-  stretched, its buttons sit at the two edges. A list and its detail, or a dashboard of
+  stretched, its buttons sit at both edges. A list and its detail, or a dashboard of
   cards: two columns. A root tab bar is a sidebar and a list whose rows push (the
   `forward-chevron`) sits beside its detail ([tabs](tabs.md),
   [navigation-stack](navigation-stack.md)); wrapping cards and a layout chosen by width

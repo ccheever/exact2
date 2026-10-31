@@ -551,12 +551,13 @@ component App
     }
 }
 
-// LLP 1153 D8 — a route's header that holds a `nav`, or more than one link,
-// is a site's: marked `data-exact-site`, which the shell draws as written,
-// and no bar, though iOS would make one of its one heading. The header iOS
-// makes its bar of (one heading, its buttons) stays the bar, and so does one
-// whose second link is in a menu (a popover is the top layer's). A header
-// whose author wrote `appearance: none` is drawn as written by its own mark.
+// LLP 1153 D8 — a route's header that holds a `nav`, a popover's too, or
+// more than one link, is a site's: marked `data-exact-site`, which the shell
+// draws as written, and no bar, though iOS would make one of its one heading.
+// The header iOS makes its bar of (one heading, its buttons) stays the bar,
+// and so does one whose second link is in a menu that is no `nav`: a menu's
+// links are its button's. A header whose author wrote `appearance: none` is
+// drawn as written by its own mark.
 #[test]
 fn a_site_header_is_marked_and_is_no_bar() {
     let src = r#"
@@ -565,6 +566,7 @@ routes nav
     navs "/navs"
     links "/links"
     menu "/menu"
+    navmenu "/navmenu"
     own "/own"
 component App
   action back
@@ -584,6 +586,14 @@ component App
                 text "All"
               link href=path("menu")
                 text "Types"
+            if e.name == "navmenu"
+              link href=path("home")
+                text "All"
+              button popovertarget="sections" aria-label="Sections"
+                text "Sections"
+              nav popover="auto" id="sections"
+                link href=path("links")
+                  text "Links"
             if e.name == "menu"
               link href=path("home")
                 text "All"
@@ -606,6 +616,7 @@ component App
         ("/navs", "header-navs", true, false),
         ("/links", "header-links", true, false),
         ("/menu", "header-menu", false, true),
+        ("/navmenu", "header-navmenu", true, false),
         ("/own", "header-own", false, false),
     ] {
         let tag = tag(launch, header);

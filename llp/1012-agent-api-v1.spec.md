@@ -210,8 +210,10 @@ an unselected tab's copy only when no active one carries it, flagged `inactive`
 in `tree`) or a view id; the driver resolves it through `tree`, so a
 host input path only ever sees a view id. Such a node is `hidden` too where
 the host does not show its route, which is every such route but one a sheet
-covers (LLP 1153 D8): the text rendering prints `[hidden]` in place of
-`[inactive]`, which then marks only a screen still shown beneath a sheet. A tab never selected has no views
+covers (LLP 1153 D8); on the web both flags are read from the page as its
+projection left it, where a wide split's list beside its detail is neither.
+The text rendering prints `[hidden]` in place of `[inactive]`, which then
+marks only a screen still shown beneath a sheet. A tab never selected has no views
 to address: the runner builds it at its first selection (LLP 1075.003
 §9.14), and `tree` marks its empty panel `unopened`. Nothing is opened for
 a drive or a test, which select the tab as a person would (`tap

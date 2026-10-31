@@ -73,31 +73,30 @@ pub(super) fn bar_header<S: Source>(
         .filter(|header| !site_header(src, *header))
 }
 
-/// LLP 1153 D8 — whether `header` is a site's: it holds a `nav`, or more
-/// than one link, outside any `popover` or `dialog` in it, whose contents
-/// are the top layer's. The shell draws it as written, with no app bar
-/// (`data-exact-site`), as navigation.js `siteHeader` decides on a live page.
+/// LLP 1153 D8 — whether `header` is a site's: it holds a `nav` anywhere,
+/// a popover's too, or more than one link outside any `popover` or
+/// `dialog` in it (a menu's links are its button's, as an app bar's are).
+/// The shell draws it as written, with no app bar (`data-exact-site`), as
+/// navigation.js `siteHeader` decides on a live page.
 pub(super) fn site_header<S: Source>(src: &S, header: ViewId) -> bool {
-    fn holds<S: Source>(src: &S, id: ViewId, links: &mut u32) -> bool {
+    fn holds<S: Source>(src: &S, id: ViewId, menu: bool, links: &mut u32) -> bool {
         src.children(id).iter().any(|&child| {
             let Some(node) = src.facts(child) else {
                 return false;
             };
             let props = node.props;
             let tag = props.str(PropId::SemanticTag);
-            if props.get(PropId::Popover).is_some() || tag == Some("dialog") {
-                return false;
-            }
+            let menu = menu || props.get(PropId::Popover).is_some() || tag == Some("dialog");
             // A link: a node with an `href` (an `a`), or whose role is `link`.
             let link = props.str(PropId::Href).is_some()
                 || props.str(PropId::AccessibilityRole) == Some("link");
-            if link {
+            if link && !menu {
                 *links += 1;
             }
-            tag == Some("nav") || *links > 1 || holds(src, child, links)
+            tag == Some("nav") || *links > 1 || holds(src, child, menu, links)
         })
     }
-    holds(src, header, &mut 0)
+    holds(src, header, false, &mut 0)
 }
 
 /// Mark the headers of `node` that are a site's ([`site_header`]) when it

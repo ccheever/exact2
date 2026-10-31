@@ -59,7 +59,7 @@ function streamTiming(start) {
 }
 import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
-import { inertAncestor, displayMode, environment, navigation, unselected, foldEnv, preferFold, typedControl, settleValue, animationClocks, pageReporter } from './navigation.js';
+import { inertAncestor, displayMode, environment, navigation, routeFlags, foldEnv, preferFold, typedControl, settleValue, animationClocks, pageReporter } from './navigation.js';
 import { backButton } from './input-glue.js';
 import { guestOutline, guestTap, guestType, viewBox, reveal, selectAll, scrollRange, typeControl, watchGlides, glidesSettled, scrollsSeen } from './agent-input.js';
 watchGlides();
@@ -145,18 +145,18 @@ export function install(exact) {
     return n;
   };
   // `inactive` (the runner's tree): under a route or tab its navigation root has not selected (shop F16), and `hidden`
-  // too where the projection hides it (all but a route a sheet covers, navigation.js; LLP 1153 D8);
+  // too where the projection hides it (navigation.js `routeFlags`, as the wasm glue's `tree` reads it; LLP 1153 D8);
   // `unopened`: a tab panel whose tab has never been selected, empty until it is (LLP 1075.003 §3.7).
   const all = () => {
-    const out = [], root = document.getElementById('exact-root'), off = new Set([...root.querySelectorAll('[navigationBack]')].flatMap(nav => unselected(nav)));
-    const walk = (el, d, dead, unseen) => {
-      const n = record(el, d); out.push(n);
-      if ((dead ||= off.has(el))) n.inactive = true;
-      if ((unseen ||= off.has(el) && el.style.visibility === 'hidden')) n.hidden = true;
+    const out = [], root = document.getElementById('exact-root'), flag = routeFlags(root);
+    const walk = (el, d) => {
+      const n = record(el, d), f = flag(el); out.push(n);
+      if (f) n.inactive = true;
+      if (f > 1) n.hidden = true;
       if (unopened(el)) n.unopened = true;
-      n.children = kids(el).map(c => walk(c, d + 1, dead, unseen).id); return n;
+      n.children = kids(el).map(c => walk(c, d + 1).id); return n;
     };
-    kids(root).forEach(el => walk(el, 0, false, false));
+    kids(root).forEach(el => walk(el, 0));
     return out;
   };
   // The runner's tags (LLP 1035.002 D3): a commit is an epoch; a JS page
