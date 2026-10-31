@@ -30,9 +30,9 @@ The roles: `add`, `close`, `back`, `forward-chevron`, `chooser`, `compose`, `pen
 `circle`, `minus`, `minus-circle`, `alert`, `info` (each with `-fill`), `lock`, `settings`, `home`,
 `person`, `people`, `follow`, `sign-out`, `messages`, `reply`, `send`, `quote`, `at`,
 `hashtag`, `notifications`, `calendar`, `chart`, `activity`, `book`, `document`,
-`layers`, `photo`, `camera`, `microphone`, `waveform`, `speaker`, `speaker-mute`,
-`play`, `pause`, `stop`, `skip-back-15`, `skip-forward-15`, `repeat`, `reorder` (a drag handle),
-`sparkles`, `moon`, and more `-fill`s (`home-fill`, `play-fill`…). Unknown literals fail the build; computed sources are checked at runtime.
+`list`, `cart`, `layers`, `photo`, `camera`, `microphone`, `waveform`, `speaker`,
+`speaker-mute`, `play`, `pause`, `stop`, `skip-back-15`, `skip-forward-15`, `repeat`,
+`reorder` (a drag handle), `sparkles`, `moon` and more `-fill`s (`home-fill`, `play-fill`…). Unknown literals fail the build; computed ones are checked at runtime.
 `contract vocab symbol` lists roles. A role also takes SF Symbols names and aliases (`gearshape`, `gear`, `trash`, `chevron-right`, `checkmark.circle.fill`): it builds as
 the role, with a warning that names it (`lower-symbol-alias`).
 

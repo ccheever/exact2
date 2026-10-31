@@ -34,6 +34,8 @@ fn symbols_admit_roles_and_opaque_sf_names_but_refuse_misspelled_roles() {
         "select",
         "select-fill",
         "reorder",
+        "list",
+        "cart",
         "sort",
         "filter",
     ] {
