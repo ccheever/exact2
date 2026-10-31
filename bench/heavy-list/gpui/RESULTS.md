@@ -11072,3 +11072,39 @@ restoring it, so mounted first loads need no input to resume. The
 60-image test still makes zero off-screen requests before first paint;
 after painting and retirement it now checks that ordinary first loads
 resume. That extended test passes (`boot-handoff-round1.log`).
+
+**Final functional checks, `e8202d4dc8`.** The archive-miss launch hands
+off from a displayed CPU frame to Ink; the retained Metal and wgpu
+launches display Ink. All three acquire zero drawables on main. Live
+Metal and wgpu drives continue painting after boot, with displayed-frame
+counters 12→112 and 10→110, respectively, no focus losses and no trace
+drops. Their screenshots show the scrolled list. The six background
+cases each retire the boot observer exactly once.
+
+The silver's effective appearance is Aqua. The first visible diagnostic
+sample records matching window and layer colours, and the final
+screenshots show these cases:
+
+| Root | What appears |
+| --- | --- |
+| Literal `#23394f` | The matching dark-blue surface, then its label. |
+| `light-dark(#ffffff, #111111)` | White in Aqua, then its label. The dark selection is unit-tested. |
+| `-exact-background` | The platform's white window surface, then its label. |
+| Bound `#a72b54` | Hidden through initial acquisition; the first visible window and layer are magenta, then the label appears on that colour. |
+| No background | The platform's white window surface. |
+| Refused picture | The dark-blue surface and label with the picture absent; the refusal does not keep boot alive. |
+
+The bound-window prediction is met: both first-visible RGBA values are
+`[167, 43, 84, 255] / 255`, and the show marker follows acquisition by
+23.831 ms. This diagnostic timing is not a cold scoreboard measurement.
+`final/background-summary.py` checks the colours, reveal order and
+retirement counts against the retained first-present facts and traces;
+`final/silver/background/` retains the plans, screenshots and originals.
+
+All eight named suites pass again at this source; commands and verbatim
+outputs are in `checks/final/`. The 20 image-control tests pass, including
+the post-paint handoff assertion, and all eight carrier tests pass
+(`image-handoff-controls.log`, `carrier-handoff-final.log`). The earlier
+full-suite timing failures and the deferred six checks remain as stated
+above. Final measurements use a fresh `final/` artifact directory; the
+first five-pair miss and every earlier original remain in place.
