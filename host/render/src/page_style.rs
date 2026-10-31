@@ -87,24 +87,116 @@ pub(crate) fn tokens(html: &str) -> HashSet<String> {
             if attr == "id" {
                 out.insert(format!("i:{value}"));
             }
+            if attr == "style" {
+                out.extend(vars(value).map(|v| format!("v:{v}")));
+            }
             out.insert(format!("a:{attr}"));
         }
     }
     out
 }
 
+/// The custom properties `css` reads (`var(--name`).
+fn vars(css: &str) -> impl Iterator<Item = &str> {
+    css.match_indices("var(").filter_map(move |(at, _)| {
+        let rest = css[at + 4..].trim_start();
+        let len = rest
+            .bytes()
+            .position(|b| !(b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))
+            .unwrap_or(rest.len());
+        rest.starts_with("--").then(|| &rest[..len])
+    })
+}
+
+const ROOT: &str = ":root{";
+
+/// A `:root{…}` rule's declarations, split at the semicolons outside
+/// parentheses, brackets and braces.
+fn declarations(rule: &str) -> Vec<&str> {
+    let body = &rule[ROOT.len()..rule.len() - 1];
+    let (mut out, mut depth, mut at, mut quote) = (Vec::new(), 0i32, 0, None);
+    let b = body.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        match quote {
+            Some(_) if c == b'\\' => i += 1,
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None => match c {
+                b'"' | b'\'' => quote = Some(c),
+                b'\\' => i += 1,
+                b'(' | b'[' | b'{' => depth += 1,
+                b')' | b']' | b'}' => depth -= 1,
+                b';' if depth == 0 => {
+                    out.push(body[at..i].trim());
+                    at = i + 1;
+                }
+                _ => {}
+            },
+        }
+        i += 1;
+    }
+    out.push(body[at..].trim());
+    out.retain(|d| !d.is_empty());
+    out
+}
+
 /// The rules a document offering `have` can need, as one sheet
-/// (`page-style.mjs` `select`).
+/// (`page-style.mjs` `select`): a `:root` rule keeps only the custom
+/// properties the kept rules or the document's inline styles read, and
+/// those they read in turn; one left with nothing goes.
 pub(crate) fn select(rules: &[Rule], have: &HashSet<String>) -> String {
+    let kept: Vec<&Rule> = rules
+        .iter()
+        .filter(|r| r.needs.iter().any(|a| a.iter().all(|t| have.contains(t))))
+        .collect();
+    let mut read: HashSet<String> = have
+        .iter()
+        .filter_map(|t| t.strip_prefix("v:").map(str::to_owned))
+        .collect();
+    let mut declared: std::collections::HashMap<&str, String> = Default::default();
+    for rule in &kept {
+        if rule.rule.starts_with(ROOT) {
+            for d in declarations(&rule.rule)
+                .into_iter()
+                .filter(|d| d.starts_with("--"))
+            {
+                let name = &d[..d.find(':').unwrap_or(d.len())];
+                declared.entry(name).or_default().push_str(d);
+            }
+        } else {
+            read.extend(vars(&rule.rule).map(str::to_owned));
+        }
+    }
+    let mut queue: Vec<String> = read.iter().cloned().collect();
+    while let Some(name) = queue.pop() {
+        for v in declared
+            .get(name.as_str())
+            .map(|d| vars(d).collect::<Vec<_>>())
+            .unwrap_or_default()
+        {
+            if read.insert(v.to_owned()) {
+                queue.push(v.to_owned());
+            }
+        }
+    }
     let depth = |wrap: &str| wrap.matches('{').count();
     let mut out = String::new();
     let mut open = "";
-    for rule in rules {
-        if !rule
-            .needs
-            .iter()
-            .any(|a| a.iter().all(|t| have.contains(t)))
-        {
+    for rule in kept {
+        let text = if rule.rule.starts_with(ROOT) {
+            let kept: Vec<&str> = declarations(&rule.rule)
+                .into_iter()
+                .filter(|d| {
+                    !d.starts_with("--") || read.contains(&d[..d.find(':').unwrap_or(d.len())])
+                })
+                .collect();
+            format!("{ROOT}{}}}", kept.join(";"))
+        } else {
+            rule.rule.clone()
+        };
+        if text == format!("{ROOT}}}") {
             continue;
         }
         if rule.wrap != open {
@@ -112,7 +204,7 @@ pub(crate) fn select(rules: &[Rule], have: &HashSet<String>) -> String {
             out.push_str(&rule.wrap);
             open = &rule.wrap;
         }
-        out.push_str(&rule.rule);
+        out.push_str(&text);
     }
     out.push_str(&"}".repeat(depth(open)));
     out
@@ -122,19 +214,19 @@ pub(crate) fn select(rules: &[Rule], have: &HashSet<String>) -> String {
 mod tests {
     use super::*;
 
+    /// The same sheet and documents as `page-style.test.mjs`: the two
+    /// renderers select alike.
     #[test]
-    fn a_page_keeps_the_rules_its_markup_can_meet_in_order() {
-        let rules = parse(
-            r#"[["","p{a:1}",[[]]],["","button[data-x]{b:2}",[["t:button","a:data-x"]]],["@media (hover:hover){",".c1:hover{c:3}",[["c:c1"]]],["@media (hover:hover){","dialog{d:4}",[["t:dialog"]]]]"#,
-        )
-        .unwrap();
-        let have = tokens(r#"<div class="c0 c1" title="a>b"><button data-x>Go</button></div>"#);
-        assert!(have.contains("t:button") && have.contains("a:data-x") && have.contains("c:c1"));
-        assert!(have.contains("a:title") && !have.contains("t:b"));
+    fn a_page_keeps_the_rules_its_markup_can_meet_and_the_custom_properties_they_read() {
+        let rules = parse(r#"[["",":root{--a:red;--b:var(--a);--c:blue;--d:green}",[[]]],["","p{color:var(--b)}",[["t:p"]]],["@media (hover:hover){:where(html:not([data-x])){","button:hover{color:var(--c)}",[["t:button"]]],["@media (hover:hover){:where(html:not([data-x])){","dialog{color:red}",[["t:dialog"]]],["",".c9{x:1}",[["c:c9"]]]]"#).unwrap();
         assert_eq!(
-            select(&rules, &have),
-            "p{a:1}button[data-x]{b:2}@media (hover:hover){.c1:hover{c:3}}"
+            select(&rules, &tokens(r#"<p title="a>b">x</p><button>y</button>"#)),
+            ":root{--a:red;--b:var(--a);--c:blue}p{color:var(--b)}@media (hover:hover){:where(html:not([data-x])){button:hover{color:var(--c)}}}"
         );
-        assert_eq!(select(&rules, &tokens("<p>")), "p{a:1}");
+        assert_eq!(
+            select(&rules, &tokens(r#"<p style="margin:var(--d)">x</p>"#)),
+            ":root{--a:red;--b:var(--a);--d:green}p{color:var(--b)}"
+        );
+        assert_eq!(select(&rules, &tokens(r#"<b class="c9">"#)), ".c9{x:1}");
     }
 }

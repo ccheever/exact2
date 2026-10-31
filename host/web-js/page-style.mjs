@@ -24,8 +24,8 @@ function split(s, by = ',') {
     if (quote) { if (ch === '\\') i++; else if (ch === quote) quote = null; continue; }
     if (ch === '"' || ch === "'") quote = ch;
     else if (ch === '\\') i++;
-    else if (ch === '(' || ch === '[') depth++;
-    else if (ch === ')' || ch === ']') depth--;
+    else if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') depth--;
     else if (ch === by && depth === 0) { out.push(s.slice(at, i)); at = i + 1; }
   }
   out.push(s.slice(at));
@@ -116,17 +116,28 @@ function blocks(css) {
 
 const GROUPING = /^@(media|supports|container|layer|scope|document)\b/i;
 
+// Whether a rule's body holds only nested rules, no declaration of its own.
+const onlyRules = body => {
+  const inner = blocks(body);
+  return inner.length > 0 && inner.every(([, b]) => b !== null) && !body.slice(body.lastIndexOf('}') + 1).trim();
+};
+
+// Every alternative of `a` joined with every one of `b`: a nested rule needs its parent's and its own.
+const both = (a, b) => a.flatMap(x => b.map(y => [...new Set([...x, ...y])]));
+
 /** The sheet as rules in order: `[wrap, rule, needs]`, `wrap` the grouping
- * at-rules around it (`@media …{`, each opened), `needs` as `needs` gives. */
-export function analyze(css, wrap = '') {
+ * rules around it (`@media …{`, a parent selector's `…{`, each opened),
+ * `needs` as `needs` gives, with every parent's. */
+export function analyze(css, wrap = '', parent = [[]]) {
   const out = [];
   for (const [prelude, body] of blocks(css)) {
-    if (body === null) out.push([wrap, prelude, [[]]]);
-    else if (GROUPING.test(prelude) && !/^@layer\s+[^{]*$/.test(prelude) && blocks(body).length) out.push(...analyze(body, `${wrap}${prelude}{`));
-    else if (prelude.startsWith('@')) out.push([wrap, `${prelude}{${body}}`, [[]]]);
-    // The app's classes, written inside one `#exact-root#exact-root{…}`: each its own rule, nested.
-    else if (prelude === '#exact-root#exact-root' && /^[^{]*\{/.test(body)) out.push(...analyze(body, `${wrap}${prelude}{`));
-    else out.push([wrap, `${prelude}{${body}}`, needs(prelude)]);
+    if (body === null) out.push([wrap, prelude, parent]);
+    else if (GROUPING.test(prelude) && !/^@layer\s+[^{]*$/.test(prelude) && blocks(body).length) out.push(...analyze(body, `${wrap}${prelude}{`, parent));
+    else if (prelude.startsWith('@')) out.push([wrap, `${prelude}{${body}}`, parent]);
+    // A selector that only groups nested rules (the app's classes in one `#exact-root#exact-root{…}`, the hover
+    // rules under `:where(html:not([data-exact-input="touch"]))`): each nested rule its own, needing the group's too.
+    else if (onlyRules(body)) out.push(...analyze(body, `${wrap}${prelude}{`, both(parent, needs(prelude))));
+    else out.push([wrap, `${prelude}{${body}}`, both(parent, needs(prelude))]);
   }
   return out;
 }
@@ -156,18 +167,40 @@ export function tokens(html) {
       out.add(`a:${attr}`);
       if (attr === 'class') for (const c of value.split(/\s+/).filter(Boolean)) out.add(`c:${c}`);
       if (attr === 'id') out.add(`i:${value}`);
+      if (attr === 'style') for (const v of value.matchAll(VAR)) out.add(`v:${v[1]}`);
     }
   }
   return out;
 }
 
-/** The rules of `rules` (`analyze`'s) a document offering `have` can need, as one sheet. */
+const VAR = /var\(\s*(--[-\w]+)/g;
+const ROOT = ':root{';
+
+/** The rules of `rules` (`analyze`'s) a document offering `have` can need, as one sheet. A `:root` rule keeps only
+ * the custom properties the kept rules or the document's inline styles read (`v:` tokens), and those they read in
+ * turn; one left with nothing goes. */
 export function select(rules, have) {
+  const kept = rules.filter(([, , alts]) => alts.some(a => a.every(t => have.has(t))));
+  // The custom properties read, then those their `:root` values read, to a fixed point.
+  const read = new Set([...have].filter(t => t.startsWith('v:')).map(t => t.slice(2)));
+  for (const [, rule] of kept) if (!rule.startsWith(ROOT)) for (const v of rule.matchAll(VAR)) read.add(v[1]);
+  const declared = new Map();
+  for (const [, rule] of kept) if (rule.startsWith(ROOT)) for (const d of declarations(rule)) if (d.startsWith('--')) {
+    const name = d.slice(0, d.indexOf(':'));
+    declared.set(name, (declared.get(name) ?? '') + d);
+  }
+  for (const queue = [...read]; queue.length;) for (const v of (declared.get(queue.pop()) ?? '').matchAll(VAR)) if (!read.has(v[1])) { read.add(v[1]); queue.push(v[1]); }
   let out = '', open = '';
-  for (const [wrap, rule, alts] of rules) {
-    if (!alts.some(a => a.every(t => have.has(t)))) continue;
+  for (const [wrap, rule] of kept) {
+    const text = rule.startsWith(ROOT) ? ROOT + declarations(rule).filter(d => !d.startsWith('--') || read.has(d.slice(0, d.indexOf(':')))).join(';') + '}' : rule;
+    if (text === ROOT + '}') continue;
     if (wrap !== open) { out += '}'.repeat(open.split('{').length - 1) + wrap; open = wrap; }
-    out += rule;
+    out += text;
   }
   return out + '}'.repeat(open.split('{').length - 1);
+}
+
+// A `:root{…}` rule's declarations, split at the semicolons outside parentheses.
+function declarations(rule) {
+  return split(rule.slice(ROOT.length, -1), ';').map(d => d.trim()).filter(Boolean);
 }
