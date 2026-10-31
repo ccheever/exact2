@@ -4956,3 +4956,31 @@ results, including the new field/embedded-provider fixtures, M9 rows and the
 single UIA attempt, cannot yet be retrieved or confirmed. No additional M9
 or UIA attempt is started. Native qualification remains open; the candidates
 stay disabled. All files in the mirror and its retained output directory remain.
+
+### Fix chunk A — review dispositions
+
+The references below are to `target/review-sol-s1w.md` and
+`target/review-claude-s1w.md`, both reviewing `98cff0bdfa`.
+Runtime results that have not been collected are not passes.
+
+| Finding | Disposition |
+| --- | --- |
+| Sol 1; Claude 14 — per-miss environment lookup | `deeb054430`: `glyph/swash.rs` caches the rasterizer choice in `OnceLock`. |
+| Sol 2; Claude 2, 16 — eager libraries and hidden helper | `deeb054430`: `device/windows_library.rs`, `device/directwrite.rs`, `device/d3d11/rich_edit.rs` and `startup_watchdog/stacks.rs` load exports on use; `startup_watchdog.rs` gates the helper. `af9c3aef86` records the 45-to-42 import result. |
+| Claude 6, 12 — arming and architecture | `deeb054430`: `desktop_tests.rs` and `bench/heavy-list/egui/windows-measure.py` remove ordinary arming; the watchdog's snapshot module is x64-only and `start()` refuses other architectures. |
+| Sol 3; Claude 5 — field lifetime and device ownership | `3168305a59`: `fields.rs` guards retirement by owning-device identity; `host/windows/src/window.rs` clears fields on app teardown. The native lifetime fixture's output remains uncollected. Disabled `begin`/`end` return before TLS in `deeb054430`. |
+| Sol 6; Claude 11 — embedded roots and hit-test fallback | `3168305a59`: vendored `node.rs` returns registered roots and falls back after a failed root cast or hit. `src/tests/embedded.rs`, included by `subclass.rs`, covers navigation, hit test, focus and removal. Native outputs and the product UIA attempt remain uncollected. |
+| Sol 10; Claude 17 — vendor provenance and tests | `3168305a59`: `EXACT-PATCHES.md` records the archive checksum, VCS revision, seven numbered hunks, their tests and the upstream removal condition. The new tests compile natively; execution results remain uncollected. |
+| Sol 8; Claude 1, 7, 8 — observer and causal claim | `deeb054430`: `host/linux/src/app.rs`, `device.rs` and `startup_watchdog.rs` use one monotonic phase timestamp before logging. `f2f2f1d4ce` corrects the record. QUEUE's “startup observer and corrected A/B” retains the redesign, loader-lock probe and rerun. No series was rerun here. |
+| Sol 9 — full Mac root check | `022a9fc236`: the whole command passes, including the Apple executor case; the quiet rerun and other six-check outputs are retained above. |
+| Claude 9, 13 — M9 pairing and interpretation | `3168305a59`: `host/linux/src/text/windows_audit.rs` disables swash hinting. `2c5a90bb55` corrects both RFCs and labels the original coverage rows. The new rows remain uncollected. QUEUE's “M9 axis mapping” retains the design-space mapping work. |
+| Claude 3, 10 — pointer and key delivery | QUEUE: “native-field pointer delivery” and “app keys from native fields”. |
+| Claude 4 — TSF/IMM ownership | QUEUE: “composition ownership”. |
+| Sol 7 — UIA focus and accessible name | QUEUE: “UIA focus and accessible name”. |
+| Sol 4; Claude 15 — edit causes and message churn | QUEUE: “input event causes” and “field message and paint churn”. |
+| Sol 5 — selection direction | QUEUE: “selection direction”. |
+| Product qualification | QUEUE: “product qualification” retains Japanese IME, Narrator and Excord. The field and rasterizer remain off by default. |
+
+`host/linux/src/presenter/focus_disabled_tests.rs` receives only rustfmt's
+formatting, needed for the full format check after the rebase. The records
+also correct `bench/heavy-list/gpui/RESULTS.md` and both renderer RFCs.
