@@ -708,6 +708,10 @@ package final class Presenter {
     /// What native containers cover of boxes (LLP 1075.003 §3.5), and
     /// content owners' values (LLP 1123 D9), told under one layout.
     var onCovers: (([(UInt32, HostCover?)], [(UInt32, OwnerValues?)]) -> Void)?
+    // PROTO (rule 4, `EdgeFramesIOS.swift`): routes whose top edge moves, as told; each one's boxes' two frames
+    var onMovingTops: (([(UInt32, Bool)]) -> Void)?
+    var movingTops = Set<UInt32>(), deliveredMovingTops = Set<UInt32>()
+    var edgeFrames: [UInt32: [UInt32: (rest: CGRect, far: CGRect)]] = [:]
     /// In `reset`: host state its views would move with no runtime to tell stays as it was (FocusEvents' focus,
     /// OwnersIOS' blocks, ExactView `fit`'s geometry; ResetGate).
     private(set) var resetting = false
@@ -966,6 +970,7 @@ package final class Presenter {
             case .roots:
                 root.subviews.forEach { $0.removeFromSuperview() }
                 accent.attach(op.ids.compactMap { views[UInt32($0)] }) { for r in $0 { root.addSubview(r); regrid(r) } }
+            case .far: farFrame(op)
             case .frame, .content, .fieldContent:
                 if flats.isFlat(id) {
                     if kind == .frame { flats.frame(id, CGRect(x: op.x, y: op.y, width: op.w, height: op.h)) }
@@ -1000,6 +1005,7 @@ package final class Presenter {
         // A view the flush promoted and mounted may have moved its children.
         while !gridMoved.isEmpty { regridMoved(); flats.flush() }
         fitDocument(); reachPageEdges(); reachSafeEdges() // PROTO (safe-area design r2)
+        placeEdgesAfterBatch() // PROTO (rule 4)
         paintCanvas()
         let first = root.subviews.first as? NodeView
         let widget = first?.props["interactiveWidget"]

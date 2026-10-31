@@ -124,7 +124,7 @@ extension Runtime {
     /// What native containers cover of boxes (LLP 1075.003 §3.5), under one
     /// layout: `edges` add to a box's padding; `whole` lays it out as
     /// `display: none`; nil clears.
-    func covers(_ covers: [(UInt32, HostCover?)], owners: [(UInt32, OwnerValues?)] = []) -> Batch {
+    func covers(_ covers: [(UInt32, HostCover?)], owners: [(UInt32, OwnerValues?)] = [], movingTops: [(UInt32, Bool)] = []) -> Batch {
         return on {
             var bytes = Data(capacity: covers.count * 24 + owners.count * 188)
             func append(_ words: [UInt32]) {
@@ -141,6 +141,8 @@ extension Runtime {
                 }
                 append([view, kind] + floats(edges))
             }
+            // PROTO (rule 4): kind 19, a route whose top edge moves (1) or no longer does (0)
+            for (view, on) in movingTops { append([view, 19] + floats([on ? 1 : 0, 0, 0, 0])) }
             // Kind 16, a content owner's values; 17 takes them back (exact.h).
             for (view, values) in owners {
                 guard let v = values else { append([view, 17, 0, 0, 0, 0]); continue }

@@ -27,7 +27,8 @@
 use super::{engine, Kernel};
 use crate::arena::NodeArena;
 use crate::error::{KernelError, LayoutError};
-use crate::id::{NodeFlags, Offer, ViewId};
+use crate::id::{Frame, NodeFlags, Offer, ViewId};
+use super::cover::HostCover;
 use crate::layout::{self, LayoutMirror, LayoutReceipt};
 use crate::style::resolve_calc;
 use taffy::style::{BoxSizing, LengthPercentageAuto as Lpa, Position};
@@ -791,6 +792,73 @@ impl Kernel {
             border: (l.size.width, l.size.height),
             margin: [l.margin.top, l.margin.right, l.margin.bottom, l.margin.left],
         })
+    }
+
+    /// PROTO (rule 4, "Exact describes, UIKit drives"): the frames `view`'s
+    /// subtree would take with its clearance's top edge at `top`, in each
+    /// box's parent's space, for each box whose frame differs from the last
+    /// layout's by more than `slack` points: the box, its frame now, its
+    /// frame then. `view` holds a block and an
+    /// `Edges` clearance (an owner's root). Laid out by `measure_block`'s
+    /// path, in a copy of the arena and engine tree that is dropped after:
+    /// nothing the kernel holds changes.
+    pub fn trial_clearance_frames(
+        &mut self,
+        view: ViewId,
+        top: f32,
+        slack: f32,
+    ) -> Result<Vec<(ViewId, Frame, Frame)>, KernelError> {
+        let slot = self
+            .arena
+            .slot_of(view)
+            .ok_or(LayoutError::UnknownView(view))?;
+        let Some(block) = self.arena.blocks.get(slot) else {
+            return Err(LayoutError::HostBlock("only a block's root takes a clearance").into());
+        };
+        let Some(HostCover::Edges(mut edges)) = self.arena.cover(slot) else {
+            return Ok(Vec::new());
+        };
+        if !top.is_finite() || top < 0.0 {
+            return Err(LayoutError::InvalidOffer.into());
+        }
+        let tree = self.layout.as_deref().and_then(LayoutMirror::tree_ref);
+        let (Some(node), Some(tree)) = (self.arena.taffy(slot), tree) else {
+            return Err(LayoutError::HostBlock("not laid out yet").into());
+        };
+        let (wants, moved) = self.implied_changes();
+        if !wants.is_empty() || !moved.is_empty() || self.symbols_pending() || tree.is_dirty(node) {
+            return Err(LayoutError::HostBlock("a layout is due first").into());
+        }
+        let (mut arena, mut trial) = (self.arena.trial_copy(), tree.clone());
+        edges[0] = top;
+        arena.set_cover(slot, Some(HostCover::Edges(edges)));
+        trial.restyle(&arena, slot, node);
+        trial.mark_dirty(node);
+        let room = inner(&arena, slot, block);
+        let offer = Offer::definite(room.width.length(), room.height.length());
+        layout::compute(&mut arena, &mut trial, self.measurer.as_mut(), slot, offer)?;
+        // Each box in its parent's space, as the host places it; the root in the block's
+        let relative = |a: &NodeArena, s: u32| {
+            let f = a.frame(s);
+            match a.parent(s).filter(|_| s != slot) {
+                Some(p) => {
+                    let pf = a.frame(p);
+                    Frame { x: f.x - pf.x, y: f.y - pf.y, width: f.width, height: f.height }
+                }
+                None => f,
+            }
+        };
+        let mut out = Vec::new();
+        let mut stack = vec![slot];
+        while let Some(s) = stack.pop() {
+            let (now, far) = (relative(&self.arena, s), relative(&arena, s));
+            let apart = [now.x - far.x, now.y - far.y, now.width - far.width, now.height - far.height];
+            if apart.iter().any(|d| d.abs() > slack) {
+                out.push((self.arena.local_id(s), now, far));
+            }
+            stack.extend_from_slice(arena.children(s));
+        }
+        Ok(out)
     }
 }
 

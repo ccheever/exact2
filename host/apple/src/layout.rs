@@ -168,7 +168,37 @@ impl<D: DataSource> Host<D> {
         self.height_projection.clear();
         self.height_projection
             .extend_from_slice(&self.height_sampling);
-        self.emit_layout(batch)
+        let before = batch.op_count();
+        self.emit_layout(batch)?;
+        if batch.op_count() != before || std::mem::take(&mut self.far_owed) {
+            self.emit_far(batch);
+        }
+        Ok(())
+    }
+
+    /// PROTO (rule 4): `route`'s clearance's top edge moves, or no longer does.
+    pub fn set_moving_top(&mut self, route: ViewId, on: bool) {
+        self.moving_tops.retain(|r| *r != route);
+        if on {
+            self.moving_tops.push(route);
+            self.far_owed = true;
+        }
+    }
+
+    /// PROTO (rule 4, "Exact describes, UIKit drives"): for each route whose
+    /// top edge moves, the frame each of its boxes would take with that edge
+    /// at the block's top, for each box that differs from this layout's: the
+    /// host moves those boxes between the two as UIKit moves the edge.
+    fn emit_far(&mut self, batch: &mut Batch) {
+        for route in self.moving_tops.clone() {
+            let Ok(far) = self.runner.kernel_mut().trial_clearance_frames(route, 0.0, 0.25) else {
+                continue;
+            };
+            batch.far_reset(route);
+            for (id, now, f) in far {
+                batch.far(id, route, [now.x, now.y, now.width, now.height], [f.x, f.y, f.width, f.height]);
+            }
+        }
     }
 
     /// @ref LLP 1083 D3 — each sticky node's constraint, when it changed.

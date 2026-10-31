@@ -117,6 +117,11 @@ extension NavigationHost {
                     let full = c.view.convert(bar.bounds, from: bar).minY + bar.sizeThatFits(CGSize(width: bar.bounds.width, height: .greatestFiniteMagnitude)).height + c.additionalSafeAreaInsets.top
                     if full > safe.top { safe.top = full }
                 }
+                // PROTO (rule 4, `EdgeFramesIOS.swift`): where the top edge rests, and whether a large title moves it
+                c.restingTop = safe.top
+                #if os(iOS)
+                if c.navigationItem.largeTitleDisplayMode == .always && !barless { presenter.movingTops.insert(c.node.id) } else { presenter.movingTops.remove(c.node.id) }
+                #endif
                 // PROTO (r2 §2.1): the bottom clearance is the part of the inset the block still overlaps (a block the
                 // keyboard ends above the bars has none), measured from the block, not the root laid out inside it.
                 let block = presenter.owners.block(in: c.view)
@@ -242,6 +247,10 @@ extension NavigationHost {
         for (id, values) in ownerValues where deliveredOwners[id] != values { owners.append((id, values)) }
         for id in deliveredOwners.keys where ownerValues[id] == nil && presenter.views[id] != nil { owners.append((id, nil)) }
         deliveredOwners = ownerValues
+        // PROTO (rule 4): the routes whose top edge moves, told first
+        let moving = presenter.movingTops.symmetricDifference(presenter.deliveredMovingTops).map { ($0, presenter.movingTops.contains($0)) }
+        presenter.deliveredMovingTops = presenter.movingTops
+        if !moving.isEmpty { presenter.onMovingTops?(moving) }
         guard !changes.isEmpty || !owners.isEmpty else { return }
         // An inspector's column coming in: its route's are told first, still (`tellStill`).
         tellStill(changes, owners) { if !$0.isEmpty || !$1.isEmpty { presenter.onCovers?($0, $1) } }

@@ -93,6 +93,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         super.viewSafeAreaInsetsDidChange()
         rideBars()
         host?.coversChanged()
+        host?.presenter.placeEdge(self) // PROTO (rule 4)
     }
     // Back on a screen whose list pushed the one leaving: the row that was
     // tapped fades with the transition (LLP 1115.000 D11.3).
@@ -136,6 +137,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     }
 
     let safeArea = RouteSafeArea()
+    var restingTop: CGFloat = 0, placedEdge: Double? // PROTO (rule 4, `EdgeFramesIOS.swift`)
 
     /// Whether the route turns off `edge`'s native clearance: by
     /// `-exact-safe-area`, or at the top under a transparent bar, whose

@@ -107,6 +107,7 @@ public typealias NodeStyle = [String: BatchValue]
 public struct BatchOp {
     package enum Kind: String {
         case create, props, style, children, paragraph, frame, content, present, roots, destroy
+        case far // PROTO (rule 4): a box's frame with its route's top edge at the block's top
         case fieldContent, flow, surface, surfaceWork, command, hold, collections, region, router, title, language, unknown
         case activity
         case auth // LLP 1069.006 D3: open or cancel an authentication session

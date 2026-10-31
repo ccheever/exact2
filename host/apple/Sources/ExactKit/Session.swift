@@ -739,6 +739,7 @@ public final class ExactSession {
         // An owner's values change with each frame of a keyboard; where no row reads them the batch changes nothing (LLP 1123 D9).
         presenter.onCovers = { [unowned self] covers, owners in whenIdle(bound: true) { [unowned self] in applyUnlessEmpty(runtime.covers(covers, owners: owners)) } }
         #if os(iOS) || os(tvOS)
+        presenter.onMovingTops = { [unowned self] m in whenIdle(bound: true) { [unowned self] in applyUnlessEmpty(runtime.covers([], movingTops: m)) } } // PROTO (rule 4)
         natives.onHatchesConnected = { [weak self] in
             self?.presenter.navigation.replayHatches()
             self?.presenter.elements.replay()
