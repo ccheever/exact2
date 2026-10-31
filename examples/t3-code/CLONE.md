@@ -31,8 +31,9 @@ The coordinator owns core pairing and persistence acceptance, this handoff,
 shared workspace layout, Root and the manifest. Shared transport, cache,
 generator and framework edits require coordination before implementation.
 
-The normal local iPhone core flow now passes on an actual Duo, with one
-first-run editor defect. The signed production simulator Release contains
+The normal local iPhone core flow passes on an actual Duo. The older Home
+Release needed a first-run editor relaunch workaround; the separate fix below
+now passes without it. The signed production simulator Release contains
 Home patch `27964196a0222969a9d316ff9d9f29c920af7f12` on base `66ea5fefc4`.
 Its binary SHA-256 is
 `94cf5b812f7338e41acedf55b9c979e749ed6e74ce5c9c58e67bd315ee176351`.
@@ -59,7 +60,10 @@ qualify the separate MacBook Pro HTTPS cloud route, reading-position recovery,
 fold/rotation transitions or performance.
 
 The first-run NewTask admission defect is fixed in Conversation commit
-`a9981950a3e3c909214dd5d1846c5c5d812766aa`. A genuinely absent, empty preference
+`a9981950a3e3c909214dd5d1846c5c5d812766aa`, integrated independently into PR216
+as `4736ba42b0`. The coordinator repeats all 89 native checks and 133 editor
+bridge tests, then passes caps and boot. The framework sources match the
+Conversation checkpoint that passes all required root categories. A genuinely absent, empty preference
 document receives version 1 only when the mutex-protected inventory has no
 bound pins. Existing invalid documents remain refused. The native regression
 fails before the fix and passes 89 checks after it. The editor bridge passes
@@ -99,8 +103,14 @@ contains bounded Markdown reuse commit `43d669d337` and separate automatic
 older-history commit `9a8dce92b3`. The final focused suite passes 283 tests and
 3,912 assertions; Contract compilation, strict TypeScript and caps pass.
 The signed pre-refinement native artifact matches all 3,289 recorded inputs.
-The final normal artifact includes history and the first-run fix. Required root
-checks are running serially. Automatic history still needs normal app acceptance.
+The final normal artifact includes history and the first-run fix. All required
+root categories pass at clean `a9981950a3`, including 7,383 root tests with 84
+ignored. Automatic history still needs normal app acceptance. Six numbered QA
+turns have completed through ordinary UI; a separate seventh draft is preserved.
+The launcher's advised snapshot recovery ended with a daemon timeout, so that
+target is stopped and paging remains unqualified. Keyboard-visible Send overlaps the outer
+Duo system rail. Normal Back and reopening preserve the draft and expose Send
+without the keyboard; this does not qualify keyboard-visible reachability.
 Loaded raw history remains unbounded; resident bounds, native storage, stable
 anchors and selection are not complete.
 Home's spacing/separator patch is draft
@@ -108,14 +118,23 @@ Home's spacing/separator patch is draft
 Its signed Release build, 185 focused tests, 4,171 quiet mobile tests, strict
 TypeScript, caps and all six root categories pass. Initial Duo controls and the
 local core flow use this artifact; populated-row parity remains pending.
-Conversation owns the serial root-check lane and the new Duo live history
-acceptance. Home completed populated controls and preserved the QA draft.
+Conversation owns the new Duo live history acceptance. Home owns the serial
+build lane for the queued signed-reference Release. Home completed populated controls and preserved the QA draft.
 A trailing swipe action opened Control Center beneath the Duo system rail;
 reserved-region reachability remains open. Home owns the original Release at
 the frozen reference below. That linker-only ad hoc artifact cannot read its
-secure connection catalog. A normally signed simulator build is queued after
-the root-check lane drains, preserving its source pin and secure storage.
+secure connection catalog. A normally signed simulator build is running with
+its existing team and entitlements, preserving its source pin and secure storage.
 Neither worker qualifies visual parity or a performance advantage.
+
+The coordinator's ordinary iPhone target `FD6F1599-5E3C-4D86-AF69-22FBD6596F6B`
+is held by another project's device session. Installation and launch were refused.
+The coordinator removed only its own panel without shutdown. Do not use this
+target for app acceptance or builder roster probes until its owner releases it.
+The coordinator currently has no open device session. Shared Duo geometry remains
+design-only. A root-document observer cannot supply route-local rectangles; Home
+needs a stationary local observer after native containment has applied its insets.
+Keep window safe-area and keyboard-guide semantics separate.
 
 The HTTPS core-acceptance delegate was interrupted before its device launch.
 Its retained receipt contains artifact verification and a CLI help command,
