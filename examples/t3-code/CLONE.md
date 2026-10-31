@@ -143,8 +143,13 @@ is under `target/t3-mini-coordinator/evidence/table-integration/`.
 Conversation's exact receipt is
 `target/t3-conversation-evidence/tables/native-qa-result.json` in its worktree.
 
-Home's spacing/separator patch is draft
-[PR1191](https://github.com/ccheever/exact2/pull/1191), head `22d8eb348d`.
+Home's spacing/separator patch
+[PR1191](https://github.com/ccheever/exact2/pull/1191), head `22d8eb348d`,
+is squash-merged into PR216 as `757f383d9f`. Independent review passes with
+acceptance notes and verifies the unchanged three-file patch, all 3,245 Release
+inputs and 185 Home tests. The parent repeats those 185 tests on the integrated
+source. The coordinator's table artifact above predates this Home integration;
+a combined native drive remains pending.
 Its signed Release build, 185 focused tests, 4,171 quiet mobile tests, strict
 TypeScript, caps and all six root categories pass. Initial Duo controls and the
 local core flow use this artifact; populated-row parity remains pending.
