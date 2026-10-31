@@ -5221,6 +5221,28 @@ prediction is not met, even though the bar difference is a reduction.
 Native cadence is the probe's display link, not drawable presentation; its
 Core Animation work is not in the process command-buffer GPU rows.
 
+The under-5 ms/s prediction used a workload with timers: the benchmark's
+`every(250, tick)` and `every(1000, second)` fire five times per second,
+each requiring a carrier service pass. The display link also starts and
+stops twice per second. Counting these as seven wake causes against the
+24.661 main-thread ms/s suggests about 3 ms per turn, but is not a trace
+attribution: timer firings can share a wake. M2's rest trace must separate
+service work, link start/stop and the probe. This workload is not at rest
+in M2's sense; `QUEUE.md` names that remaining attribution.
+
+The unchanged native path's literal range misses remain misses. Three samples
+do not define a stable tolerance. For subsequent unchanged-path comparisons,
+use ±5% of the baseline CPU median and ±1 frame/s, with the full spread retained.
+The native deviations above fit that tolerance; this does not revise the
+original prediction or establish an instrument defect.
+
+Known scheduling limits: flat segments of `linear()` still demand every
+display frame; continuous easing is never classified as stepped. A `jump-none`
+iteration edge can wake without changing pixels, and `Property::D` restated
+by an unrelated turn still dirties its row. Neither changes the opacity-caret
+counts. Seconds-to-milliseconds rounding can turn a just-later reverse edge
+into current-frame demand; the carrier samples on the next display period.
+
 ### Bar, after M2b
 
 | Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
