@@ -40,7 +40,7 @@ fn arrow(on: bool, descending: bool): string = on ? (descending ? " ↓" : " ↑
 component App
   state sortKey = "au"
   state descending = false
-  // The `id` the focus is on in a planet's page, which the tests read: opened at `#details`, it is there.
+  // The `id` the focus is on in a planet's page, which a test reads: opened at `#details`, the web puts it there.
   state focused = ""
   resource planets = loadPlanets() as shape Planet[] else empty()
   derive selected = match stack(nav).filter(e => e.name == "planet").at(-1) { case some(e) => e.params.id, case none => "" }

@@ -540,7 +540,8 @@ test('the settings app.ts reads reach the server as the build has them', () => {
     writeFileSync(resolve(dir, 'app.ts'), "export const origin = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080';\\n");
     writeFileSync(resolve(dir, '.env'), 'API_BASE_URL=http://127.0.0.1:8787\\n');
     writeFileSync(resolve(dir, '.env.local'), 'API_BASE_URL=http://127.0.0.1:4790\\n');
-    writeFileSync(resolve(dir, 'server.ts'), "import { writeFileSync } from 'node:fs';\\nwriteFileSync('ready.json', JSON.stringify({ api: process.env.API_BASE_URL, port: process.env.PORT }));\\nsetInterval(() => {}, 1000);\\n");
+    // As site's server.ts does: its address is app.ts's, read through Bun's import.meta.env.
+    writeFileSync(resolve(dir, 'server.ts'), "import { writeFileSync } from 'node:fs';\\nimport { origin } from './app.ts';\\nwriteFileSync('ready.json', JSON.stringify({ api: origin, port: process.env.PORT }));\\nsetInterval(() => {}, 1000);\\n");
     // Discovery read under one environment; the server is given what it read, whatever this process inherited.
     const server = appServer(dir, { ...process.env });
     process.env.API_BASE_URL = 'http://127.0.0.1:8080';

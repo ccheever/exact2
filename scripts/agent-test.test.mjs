@@ -670,3 +670,16 @@ test('a native run resolves a fetch fault under the API a setting names', async 
     expect(nativeFetchOrigins(dir, env)).toEqual(['http://127.0.0.1:4410']);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
+
+// LLP 1103: a fault on a path is the API's. The driver arms it under the one origin the grants name, and the host
+// matches that as a prefix of the whole URL, so `fail fetch "/planets"` fails the site's absolute fetch of a planet.
+test('a fault on a path is armed under the API, and fails that API\'s absolute URL', async () => {
+  const { faultOp, takeFault } = await import('../host/web/faults.js');
+  const [planets] = backendFetchPrefixes([{ steps: [{ op: 'fail-fetch', prefix: '/planets' }] }], ['http://127.0.0.1:4790']);
+  expect(planets.steps[0].prefix).toBe('http://127.0.0.1:4790/planets');
+  try {
+    faultOp({ fail: planets.steps[0].prefix });
+    expect(takeFault('http://127.0.0.1:4790/planets/5')).toBe(true);
+    expect(takeFault('http://127.0.0.1:4791/planets/5')).toBe(false);
+  } finally { delete globalThis.__exactFaults; }
+});
