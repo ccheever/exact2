@@ -1242,7 +1242,8 @@ seeded with `--more-turns --pull-request --limits` and started with `--scratch`,
 the older-server stand-in reporting 0.1.4; the v0.1.5 oracle paired with the same two lane servers). Presses, drags,
 right-clicks and keys from the HID event source; each result read back from the accessibility tree, the lane
 server's API or VoiceOver's caption panel; the oracle driven the same way in the same state. 11 rows hold, 3
-fail (one is the video chip of the chips row) and 2 are not reachable with these fixtures. The oracle's doc.pdf and sample.py
+fail (one is the video chip of the chips row) and 2 are not reachable with these fixtures; two of the three were fixed
+and hold when checked again, and the video chip waits for a ruling (below). The oracle's doc.pdf and sample.py
 chips were not opened under VoiceOver: an XCTest run of another lane took the front window during that step.
 
 Hold:
@@ -1278,18 +1279,35 @@ Hold:
 - The Thread title instructions textarea's grip: a drag of 60 pt from the grip grows the field by 60 pt (1 of 1); the
   oracle's grows the same (1 of 1).
 
-Failed (left as they are; no app change in this round):
+Failed, then fixed and checked again with real input (2026-11-01, bundle of `5954688bbc`, a lane copy on its own
+bundle id and `HOME`, `second` seeded with `--turns --more-turns`, `third` on the 0.1.4 release behind the older-server
+stand-in; the v0.1.5 oracle paired with the same two lane servers; presses, moves and keys from the HID event source).
+Both hold:
 
-- The model picker's "Codex: Unavailable. Could not start Codex CLI …" tooltip stays on screen after Escape closes the
-  picker, and after the pointer moves away (3 s later, 1 of 1). The oracle removes it with the picker (1 of 1).
-- The update dialog (the footer's update pill): the clone lists Lane Third under "1 skipped", "t3@0.1.5 is not on npm
-  yet"; the oracle lists Lane Third as a Server row to update (1 of 1 each). The clone's npm check
-  (`sidebar/npm-release.ts`) answered not published, where `https://registry.npmjs.org/t3/0.1.5` answers from this Mac;
-  the cause is not yet known.
+- The model picker's "Codex: Unavailable. Could not start Codex CLI …" tooltip stayed on screen after Escape closed the
+  picker, and after the pointer moved away. The hover layer draws it at the window level, and the rail button went with
+  no pointer leave. The root's hover surface now counts the picker (`hoverSurface`, app.contract), and its change ends
+  the tip. Checked again: hovering Codex shows the tip, Escape removes it, and 3 s after the pointer moves away it is
+  still gone (3 of 3); the oracle the same (1 of 1).
+- The update dialog listed Lane Third under "1 skipped", "t3@0.1.5 is not on npm yet". The npm check was a fetch the
+  shell's answer made and waited on, and the runner lets that answer go on each revision and each 500 ms tick: a trace
+  of the old bundle shows the request forgotten 85 ms after it was sent, after which the check read "not published"
+  for five minutes. The check is now the `npmRelease` resource's answer, keyed by the version and its five-minute
+  window (`sidebar/npm-release.ts`), outside the ordered fetch queue. Checked again: just after pairing, the footer
+  reads "Update 1 server" within a second, and its dialog lists Lane Third as a Server row; again after a relaunch
+  (2 of 2). The old bundle in the same state shows no pill (1 of 1). The oracle lists Lane Third as a Server row
+  (1 of 1); its own machine adds a Codex provider row, which the clone, with no local server in this lane, has not.
 
-- VO-Space on the clip.mp4 chip opens the playing preview reading "Expanded video preview, dialog", with no control
-  focused; the oracle reads "Expanded video preview, dialog, with 3 items, Close video preview, button", with Close
-  focused (1 of 1 each), as the image preview does in both.
+Left for a ruling:
+
+- VO-Space on the clip.mp4 chip focuses Close: VoiceOver reads "Close video preview, button", and half a second
+  later "Expanded video preview, dialog" (3 of 3; the focus stays on Close, by the accessibility focus read every
+  100 ms). The oracle reads "Expanded video preview, dialog, with 3 items, Close video preview, button" (1 of 1). The
+  image preview reads the same way as the video in the clone ("Close image preview, button", then "Expanded image
+  preview, dialog", 1 of 1). The order is the macOS host's: it names a dialog drawn in the page after the focused
+  control, so VoiceOver does not drop the words (`nameDialog`, host/apple/Sources/ExactKit/Accessibility.swift).
+  The 2026-10-31 "no control focused" was seen once more (the focus stayed on the prompt for 4 s, 1 of 20 opens by
+  VoiceOver, an accessibility press or the pointer).
 
 Not reachable with these fixtures:
 
