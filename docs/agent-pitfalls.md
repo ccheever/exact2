@@ -1176,6 +1176,13 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 ## Driving and testing
 
+- **A production bake does not open an agent socket.** Its baked
+  `embedded.trust="production"` makes the host ignore `EXACT_AGENT` and
+  `EXACT_AGENT_*`, including `EXACT_AGENT_SOCKET` and `EXACT_AGENT_LIVE`,
+  with a message on stderr. Check the binary's `--exact-receipt` and use a
+  development bake for an agent drive. A release benchmark needs its own
+  probe or ordinary input. (LLP 1069.007 D2; M10 cut 2, 2026-10-31.)
+
 - **A temporary import fixture says a sibling `use` leaves the app directory.**
   Canonicalize its directory before passing the entry path to the compiler. On
   macOS, `/var` aliases `/private/var`; mixing those paths makes the containment

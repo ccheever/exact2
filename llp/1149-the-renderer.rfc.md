@@ -1226,6 +1226,25 @@ CPU changes miss the unchanged prediction. No warm glyph upload occurs.
 Before is `b7c52c6d22`, after `75ac7d413b`, on main `4ee50baec5`.
 [Ranges, clocks, misses, raw files and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-7-the-atlas-uploaded-once).
 
+**M10 cut 2, 2026-10-31:** source `8116a09a55` shows the window with the
+root's literal background before runner boot and paints after layout. The
+silver's two four-arm cold-only schedules complete ten attempts per arm,
+hook off, trace off and power off, with ten quiet seconds before each launch.
+Native/GPUI/Ink/egui complete-screen medians are **253.973/194.446/209.576/
+207.425 ms before** and **251.480/200.396/207.710/202.383 ms after**.
+Native, GPUI and Ink each have n=10; egui has n=8 before and n=6 after.
+Its six readiness failures remain without replacement. Native retains its
+snapshot criterion; the painted arms use displayed timestamps, with caches
+retained. During-launch load maxima are reported, not exclusion grounds.
+
+The qualified traced pairing funds no startup saving: Ink's median paired
+difference is −0.262 ms cold and +1.407 ms warm, both ranges crossing zero.
+The cold prediction of 180–195 ms and warm prediction of about 172 ms miss. First-frame parity,
+CPU-first handoff, and live Metal and wgpu display checks pass; the retained
+first-frame loop is removed. D7, D11 and D15, including the dated boot and
+100 ms application obligations, are unchanged.
+[Qualified tables, failures, callbacks and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-2-show-the-window-before-the-first-paint).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms

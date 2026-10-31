@@ -9155,3 +9155,311 @@ during-launch load maxima remain report-only. A failed launch is retained
 and the cohort continues without replacement. Each median uses completed,
 qualified launches and reports n, with every failure beside it. All new
 evidence is retained under `target/m10-c2/`; older raw files stay intact.
+
+### Cut 2 mechanism
+
+The benchmark's root declares `background-color="#ffffff"`. Before runner
+boot, `Config::initial_window_background` reads a single root's opaque literal
+from the plan. Dynamic, transparent or unresolved colours use AppKit's
+`windowBackgroundColor`. The carrier sets both `NSWindow.backgroundColor`
+and the `CAMetalLayer` background, orders the window front, then boots the
+runner, lays out and paints. The ordinary worker presents that frame; chunk
+4's unshown-frame retry remains the backstop.
+
+The retained first-frame API and per-tick copy loop are removed from the
+carrier, presenter and both device paths. The wgpu path keeps its ordinary surface
+submission, with a layer subclass registering the same displayed-timestamp
+callback as Metal. A positive timestamp updates the painter and displayed
+counter; a zero timestamp requests recovery. The callback observes wgpu's
+private drawable without changing its submission or retirement. D7's compose
+target, D11's threads and retirement, and D15's gate are unchanged.
+
+The unpainted window shows the page's white background while its scene is
+prepared. That is the normal AppKit order—show the window, then draw its
+content—and I do not judge the matching empty surface a platform tell. The
+measurements below distinguish frame preparation from actual display; the
+show call alone does not time the background's visibility on the glass.
+
+### Cut 2 confirmation
+
+The signed release is `8116a09a55`, rebased onto main
+`4a165fd466`. Before is the retained M10 carrier
+`9a88c8bead`; GPUI, egui and native retain their prior control executables.
+The dedicated silver M5 Max runs the same 800×768-point content at 2×,
+hook off, trace on and power sampling off. Cold means a fresh process with
+caches retained; warm is its next launch, with another ten-second quiet gate.
+
+All 30 confirmation attempts pass the prelaunch gate. Each row below uses
+completed originals; egui's cold rounds 3 and 4 exit 2 before complete-frame
+readiness, and remain in the record. The cohort continues after each failure.
+
+| Arm | Cold p50, ms (n) | Cold range, ms | Warm p50, ms (n) | Warm range, ms |
+| --- | ---: | ---: | ---: | ---: |
+| ink-after | 207.789 (5) | 199.426–244.058 | 210.881 (5) | 203.993–214.254 |
+| gpui | 206.661 (5) | 201.602–209.430 | 202.728 (5) | 195.786–213.367 |
+| egui | 216.552 (3) | 203.176–225.241 | 209.458 (5) | 204.149–224.225 |
+
+**The warm prediction misses:** 210.881 ms against about 172 ms and the
+160–190 ms range. All ten Ink launches have exactly one zero callback before
+the first positive timestamp. The warm median show call returns at 96.339 ms,
+first present at 152.929 ms and complete display at 210.881 ms. Showing earlier
+does not establish the predicted `show + 90 ms` bound. The separate cold-only
+scoreboard below is the cold prediction's instrument.
+
+One retained warm trace, `confirm/ink-after-1-warm.json.trace.json`, shows
+why the earlier call alone is insufficient: show returns at 97.333 ms,
+first present commits at 155.483 ms, its zero callback arrives at 159.002 ms,
+and the next paint starts at 190.350 ms. That present commits at 192.292 ms;
+complete display is 210.881 ms. The 31.348 ms from zero callback to retry
+paint is observed elapsed time, not an attribution to the compositor.
+The one implementation round ends without changing that scheduling.
+
+### Cut 2 paired launches
+
+All 120 scheduled attempts pass the prelaunch gate; 112 complete. The eight
+failed originals are egui: before cold rounds 1 and 3; before warm rounds
+4, 6, 8 and 10; after warm rounds 1 and 8. Each exits 2 before readiness.
+
+| Arm | Cohort | Before p50, ms (n) | After p50, ms (n) | Paired after−before p50, ms (n) | Paired range, ms |
+| --- | --- | ---: | ---: | ---: | ---: |
+| ink | cold | 211.851 (10) | 213.020 (10) | -0.262 (10) | -17.351–+13.276 |
+| ink | warm | 218.171 (10) | 213.798 (10) | +1.407 (10) | -14.757–+8.821 |
+| gpui | cold | 203.478 (10) | 204.691 (10) | +1.445 (10) | -33.529–+28.541 |
+| gpui | warm | 202.105 (10) | 199.514 (10) | -2.538 (10) | -9.853–+12.112 |
+| egui | cold | 220.498 (8) | 213.177 (10) | -3.843 (8) | -22.181–+2.932 |
+| egui | warm | 211.281 (6) | 210.747 (8) | -0.355 (5) | -15.103–+19.460 |
+
+A paired difference uses only rounds in which both launches complete; it
+is not the difference of the two medians. **No complete-screen saving is
+funded:** Ink's paired ranges cross zero, while the warm after median
+213.798 ms again misses about 172 ms and the 160–190 ms range. Each
+control uses the same executable for its before and after labels.
+
+The warm Ink order, medians of ten launches per variant, is:
+
+| Process age, ms | Before (M10 tip) | Cut 2 |
+| --- | ---: | ---: |
+| window created | 90.152 | 87.607 |
+| window show returned | 125.493 | 93.348 |
+| first commit completed (runner returned) | 115.126 | 120.334 |
+| first layout completed | 116.381 | 121.729 |
+| first paint record | 156.463 | 125.734 |
+| first present committed | 189.650 | 152.877 |
+| complete screen | 218.171 | 213.798 |
+| complete callback observed | 218.458 | 214.038 |
+
+Before shows after layout, then paints on the event-loop redraw. Cut 2 shows
+before runner boot and paints immediately after layout. Each of the forty
+paired Ink launches has one zero callback before its first positive one.
+The earlier show and first present do not establish a complete-screen saving.
+The cut 2 warm medians leave about 60 ms from the show call to first present,
+with the matching white surface while content is prepared, and about 120 ms
+from show to complete display. The background's on-screen duration is not
+measured separately.
+
+### Cut 2 cold scoreboard and verdict
+
+Both `measure.m cold-only` schedules complete all forty attempts and qualify
+under the per-launch gate and successful-launch rule. The probe's GPU hook
+and power sampling are off; tracing is off in these scoreboard cohorts.
+Native uses its complete-screen snapshot criterion; the painted arms use the
+first complete drawable's displayed timestamp. These remain whole-app rows,
+with the existing differences in text, scrolling, caches and presentation.
+
+| Arm | Before p50, ms (n) | Before range, ms | Cut 2 p50, ms (n) | Cut 2 range, ms |
+| --- | ---: | ---: | ---: | ---: |
+| Native | 253.973 (10) | 232.556–281.835 | 251.480 (10) | 238.258–262.092 |
+| GPUI | 194.446 (10) | 185.076–207.128 | 200.396 (10) | 187.968–217.837 |
+| Ink | 209.576 (10) | 204.773–223.966 | 207.710 (10) | 198.497–218.529 |
+| egui | 207.425 (8) | 199.557–231.991 | 202.383 (6) | 195.441–223.930 |
+
+Egui's before rounds 6 and 9 and after rounds 1, 2, 4 and 6 fail startup
+readiness with exit 2. Their records and timeout diagnostics remain; there are no
+replacement launches. All native, GPUI and Ink originals complete.
+
+| Prediction written before the run | Result |
+| --- | --- |
+| Warm about 172 ms, range 160–190 | **Miss:** confirmation 210.881 ms (n=5); paired after 213.798 ms (n=10). The paired warm difference is +1.407 ms, range −14.757 to +8.821. |
+| Cold about 180–195 ms | **Miss:** qualified cold-only Ink 207.710 ms (n=10), against GPUI 200.396 (n=10) and egui 202.383 (n=6). Before Ink is 209.576 ms; the traced cold paired difference is −0.262 ms, range −17.351 to +13.276. |
+| One zero callback or none | **Pass:** exactly one in every one of the thirty traced cut 2 Ink launches; the twenty paired before launches also each have one. |
+| First-frame parity; CPU-first archive miss hands off; live Metal and wgpu keep drawing and report display | **Pass:** exact parity tests, passive CPU-to-Ink handoff, and both release and development live checks below. |
+| Fling, rest and static rows unchanged | Not remeasured in this startup cut. Their existing rows stand; this is not a new equality measurement. |
+
+The warm and cold predictions miss, and the paired observations fund no
+complete-screen saving. The mechanism works and the live wgpu freeze is
+repaired; the first retry's scheduling remains a lead. The matching white
+background is retained as the carrier default on this branch. This is no
+D15 decision: the 100 ms application obligation and dated boot obligation
+are unchanged, as are D7 and D11. No second implementation round was run.
+
+All 230 attempted launches pass ten quiet seconds before launch, with no
+power sampler or monitor error. During-launch maxima are report-only:
+
+| Cohort | Maximum other busy cores | Maximum single user-process cores | Attempts / failed |
+| --- | ---: | ---: | ---: |
+| confirm | 3.764 | 0.365 | 30 / 2 |
+| paired | 2.062 | 1.139 | 120 / 8 |
+| scoreboard-before | 2.382 | 0.327 | 40 / 2 |
+| scoreboard-after | 2.064 | 0.302 | 40 / 4 |
+
+`target/m10-c2/launch-rows.md` lists every original, its complete-screen time
+or failure, and both load maxima. All sixteen failures are egui readiness
+failures. None of those maxima is used to remove a sample.
+
+### Cut 2 functional checks
+
+The passive probe uses a fresh application archive for the CPU-first miss,
+then that retained archive, then wgpu. These are diagnostics without the
+cohort's quiet gate, not startup medians. All three show before presenter
+boot, acquire drawables off main and reach a positive displayed timestamp.
+
+| Launch | First complete display, ms | First complete Ink display, ms | Zero callbacks before first display |
+| --- | ---: | ---: | ---: |
+| Metal, archive miss (CPU first) | 167.188 | 333.854 | 1 |
+| Metal, retained archive | 190.822 | 190.822 | 1 |
+| wgpu | 334.993 | 334.993 | 1 |
+
+`silver/boot-functional/validation.json` is empty. The initial live socket
+attempts are retained under `silver/live/`: both time out waiting for a
+socket because the production bake explicitly ignores `EXACT_AGENT_SOCKET`
+and `EXACT_AGENT_LIVE`. This tests the production boundary, not liveness.
+The subsequent socket check uses a development bake of the same source;
+the release check uses the existing probe and wheel helper.
+
+Both follow-up live instruments pass with `BENCH_LIVE=1`:
+
+| Device | Release displayed count | Development displayed count | Development carrier frames | Displayed painter / API |
+| --- | ---: | ---: | ---: | --- |
+| Metal | 12 → 113 | 7 → 55 | 8 → 56 | `ink` / `direct Metal` |
+| wgpu | 12 → 113 | 2 → 40 | 3 → 41 | `ink` / `wgpu Metal` |
+
+The release probe records 106 wheel events, continued paint walks after the
+first positive callback, 113 positive callbacks and zero dropped trace events
+for each device. The development socket reads both displayed painter flags
+and counters before and after scrolling. Its receipt is development trust;
+the timed bundle remains the production release. Both validation files are
+empty, and all four launches exit zero. The two release window captures,
+`silver/live-release/{metal,wgpu}.png`, were inspected: the live list, text
+and photos draw after scrolling. The development captures are retained too.
+
+### Cut 2 verification and reproduction
+
+The affected suites run locally with this worktree's own `target/`, Metal
+required, and two test threads:
+
+```sh
+env CARGO_BUILD_JOBS=6 RUST_TEST_THREADS=2 EXACT_INK_DEVICE=metal EXACT_REQUIRED=1 \
+  cargo test -p exact-linux -p exact-apple-painted -p exact-ink \
+  --lib --tests --no-fail-fast
+```
+
+`target/m10-c2/checks/affected.log` exits zero. Its suite summaries, including
+nested test processes, are verbatim:
+
+```text
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.94s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 46 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.13s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1716 filtered out; finished in 0.81s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1716 filtered out; finished in 0.62s
+test result: ok. 170 passed; 0 failed; 15 ignored; 0 measured; 1532 filtered out; finished in 3.98s
+test result: ok. 1695 passed; 0 failed; 22 ignored; 0 measured; 0 filtered out; finished in 83.48s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.90s
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.07s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.35s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.89s
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.80s
+test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 13.54s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+```
+
+The pinned `paint`, `borders`, `tint`, `backdrop`, `gradients`, `visual` and
+`materials` cases pass; paint's existing frame-time measurement stays ignored.
+The root-background, first-frame parity, archive-miss handoff and unshown-frame
+retry tests pass. The separate wgpu parity command is:
+
+```sh
+env CARGO_BUILD_JOBS=6 RUST_TEST_THREADS=2 EXACT_INK_DEVICE=wgpu EXACT_REQUIRED=1 \
+  cargo test -p exact-apple-painted --lib \
+  the_first_frame_after_layout_matches_the_display_tick_frame -- --nocapture
+```
+
+`checks/wgpu-parity.log` exits zero:
+
+```text
+test window::tests::the_first_frame_after_layout_matches_the_display_tick_frame ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 1.17s
+```
+
+The unchanged probe's hook-off/trace-on and hook-on self-tests pass:
+
+```text
+probe: painter-specific completeness and one boot-expose wake passed
+probe: lazy trace observes application queues without pre-creating a device or queue
+probe: direct presentation preserves methods, joins preceding commit, excludes buffer path and resets reused drawables
+probe: GPU hook off; three buffers completed, commit-phase accounting passed
+probe: painter-specific completeness and one boot-expose wake passed
+probe: GPU hook on; three buffers completed, commit-phase accounting passed
+```
+
+`checks/qualification.py` checks strict total load, the inclusive user-process
+bound, successful n with retained failures, an empty arm, refusal of failed
+old cohorts, failed gates and power sampling, and report-only launch maxima.
+It passes. All 105 generated assets match `data.sha256`.
+
+The signed release and development carrier build with:
+
+```sh
+EXACT_APP_DIR="$PWD/bench/heavy-list/exact-heavylist" \
+EXACT_PAINTED_PROBE="$PWD/bench/heavy-list/gpui/probe.m" \
+CARGO_TARGET_DIR="$PWD/target" CARGO_BUILD_JOBS=6 \
+  bun host/apple/build.mjs exact-heavylist-apple --painted-benchmark --release
+```
+
+Omit `--release` for the development socket check. The build script supplies
+`--target-dir target` to the benchmark workspace. Its lock was refreshed with
+`cargo metadata --offline --format-version 1` after adding AppKit's colour
+features; `build-benchmark.Cargo.lock` retains it. `checks/release-build-final.log`
+and `checks/live-dev-build.log` record the successful builds. The final timed
+release executable hash is in every cohort's `provenance.json`; signed copies
+of all arms and the development carrier remain under `silver/`.
+
+The probe and driver compile with G4's commands. `prepare.py` copies the retained
+controls and M10 before carrier, installs the same probe and signs every bundle.
+`run-final.py` retains the exact original collection: signature throwaways,
+passive checks, the rejected production socket attempts, confirmation, paired
+launches and both scoreboards. `live-release.py` and `live-dev.py` are the
+successful follow-up checks. All run on silver through `launchctl asuser 501`
+and `caffeinate -u -d -i`. No GO file or development-Mac display input was needed.
+Use a fresh output base when repeating; preserve all recorded originals.
+
+Retained evidence is `target/m10-c2/silver/`, with its remote copy at
+`ccheever@100.76.94.78:~/projects/exact2-measure/target/g0/m10-c2/`.
+`build-context.json` records main `4a165fd466`, source `8116a09a55`, Bun and
+Rust versions; `after-source.patch` retains the source delta against the M10 tip.
+Reproduce the tables and each launch's load maxima without opening a window:
+
+```sh
+python3 -B target/m10-c2/report.py
+python3 -B target/m10-c2/launch-rows.py
+```
+
+`report.json`, `tables.md`, `launch-rows.md` and the four
+`checks/summarize-*.log` files retain the reductions. `raw-sha256.json` hashes
+the retained diagnostics; cohort provenance hashes the executables. No cited
+raw file from an earlier cut was deleted.
+
+The staged caps check passes (`checks/caps-final.log`):
+
+```text
+All budgets within cap. 10 categories inspected.
+```
+
+The changed Rust files pass `rustfmt --check`; `git diff --check` is clean.
+The six broad gates are left for the Mac mini as requested: no root build,
+root test, root clippy/fmt, boot or workspace check is claimed here. Caps,
+the release/development builds and the affected suites above run locally.
+No push is made.
