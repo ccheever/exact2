@@ -55,6 +55,23 @@ fn captures_fonts_and_complete_static_trees_without_following_links() {
     // Nor is the app's `.exact/`: an agent's evidence and runtime files (Depot).
     std::fs::create_dir_all(app.0.join(".exact/evidence")).unwrap();
     std::fs::write(app.0.join(".exact/evidence/results.json"), b"{}").unwrap();
+    // Nor a web build in `dist` and what it keeps beside it (`web-build --out dist`), each a tree of
+    // what the capture would otherwise take; a source whose name only starts so is still one.
+    for name in [
+        "dist",
+        "dist.gen/0123",
+        "dist.leases/0123",
+        "dist.previous",
+        "dist.stage-a1b2c3",
+    ] {
+        std::fs::create_dir_all(app.0.join(name)).unwrap();
+        std::fs::write(app.0.join(name).join("app.js"), b"built").unwrap();
+    }
+    for name in ["dist.gen.reaped", "dist.lock"] {
+        std::fs::write(app.0.join(name), b"0").unwrap();
+    }
+    assert!(super::beside::beside_dist("dist.gen") && !super::beside::beside_dist("dist.stage-"));
+    assert!(!super::beside::beside_dist("dist.config.ts"));
     let captured = sources(&app.0).unwrap();
     assert_eq!(captured.len(), inputs.len());
     for (name, bytes) in inputs {

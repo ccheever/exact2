@@ -3,12 +3,13 @@
 // as the ruling keeps them, and a generation path is checked strictly.
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { takeLock } from './build-lock.mjs';
 import { buildTreeFile, replaceBuild } from './serve.mjs';
-import { GENERATION, generationFile, generationOf, generationPath, leaseGeneration, leasedGenerations, reapGenerations, servedFile } from './generations.mjs';
+import { GENERATION, foreignBeside, generationFile, generationOf, generationPath, leaseGeneration, leasedGenerations, reapGenerations, servedFile } from './generations.mjs';
+import { BESIDE, STAGE, beside } from './beside.mjs';
 
 /** A JS-target build naming `k` in every file: its document (base `/`) and the shell beside it, its module, a lazy
  * chunk named by `k` as a hashed chunk is, its plan; and its receipt. */
@@ -203,5 +204,43 @@ test('no build yet: not found at once, not held for a swap that is not under way
     const at = Date.now();
     expect((await servedFile(join(root, 'dist'), '/', 'text/html')).status).toBe(404);
     expect(Date.now() - at).toBeLessThan(500);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// LLP 1153 D3: what a build keeps beside its directory is the build's to replace and reap, so beside an author's
+// `--out` directory each such name must be absent or a build's own (`foreignBeside`); and the native bake's capture
+// skips the same names as the web's scans (js/bake/src/beside.rs, host/web/beside.mjs).
+test('what a build keeps beside its directory is its own, or the directory is refused; the bake skips the same names', () => {
+  const { root, dist, stage } = workspace();
+  try {
+    expect(foreignBeside(dist)).toBe(null);
+    // A build's own, after it replaced and reaped others: a generation kept, the ones reaped, a lease, a lock.
+    for (const k of [1, 2, 3, 4, 5]) replaceBuild(stage(k), dist);
+    for (const id of readdirSync(`${dist}.gen`)) { const t = new Date(0); utimesSync(join(`${dist}.gen`, id), t, t); }
+    reapGenerations(dist, { newest: 1, ageMs: 0, bytes: 2 ** 30 });
+    const release = leaseGeneration(dist, readdirSync(`${dist}.gen`)[0]);
+    writeFileSync(`${dist}.lock`, String(process.pid));
+    mkdirSync(`${dist}.previous`); writeFileSync(`${dist}.previous/.exact-build.json`, '{}');
+    expect(readFileSync(`${dist}.gen.reaped`, 'utf8').trim().split('\n').every((line) => GENERATION.test(line))).toBe(true);
+    expect(foreignBeside(dist)).toBe(null);
+    // Someone else's, under each name in turn: refused, naming it.
+    for (const [name, make] of [['previous', (p) => { mkdirSync(p); writeFileSync(join(p, 'notes.txt'), 'x'); }],
+      ['gen', (p) => mkdirSync(join(p, 'photos'), { recursive: true })], ['gen.reaped', (p) => writeFileSync(p, 'not an id\n')],
+      ['leases', (p) => mkdirSync(join(p, 'photos'), { recursive: true })], ['lock', (p) => writeFileSync(p, 'mine')]]) {
+      const path = `${dist}.${name}`, aside = `${path}.aside`;
+      renameSync(path, aside);
+      make(path);
+      expect(foreignBeside(dist), name).toStartWith(`${path} is there and is not`);
+      rmSync(path, { recursive: true, force: true });
+      renameSync(aside, path);
+    }
+    expect(foreignBeside(dist)).toBe(null);
+    release();
+    // The two lists of names agree.
+    const rust = readFileSync(new URL('../../js/bake/src/beside.rs', import.meta.url), 'utf8');
+    expect(JSON.parse(/BESIDE: \[&str; \d+\] = (\[[^\]]*\]);/.exec(rust)[1])).toEqual(BESIDE);
+    expect(/STAGE: &str = "([^"]*)";/.exec(rust)[1]).toBe(STAGE);
+    for (const name of [...BESIDE.map((n) => `dist.${n}`), `dist.${STAGE}a1b2c3`]) expect(beside(name), name).toBe(true);
+    for (const name of ['dist', `dist.${STAGE}`, 'dist.config.ts', 'distance.json']) expect(beside(name), name).toBe(false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

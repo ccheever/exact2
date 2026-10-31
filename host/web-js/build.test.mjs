@@ -1,6 +1,6 @@
 import { test, expect, mock, spyOn } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -139,7 +139,7 @@ test('production lazy host modules ignore agent storage and entropy parameters',
 // holding what is not a web build; each leaves the app as it was.
 test('web-build --out refuses a directory it would destroy', () => {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-site-out-')), app = resolve(dir, 'site');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-site-out-'))), app = resolve(dir, 'site');
   try {
     mkdirSync(app);
     writeFileSync(resolve(app, 'app.json'), JSON.stringify({ name: 'Site', app: { id: 'test.site', name: 'Site' } }));
@@ -148,14 +148,30 @@ test('web-build --out refuses a directory it would destroy', () => {
     mkdirSync(resolve(dir, 'notes'));
     writeFileSync(resolve(dir, 'notes/todo.txt'), 'keep');
     writeFileSync(resolve(dir, 'file'), 'keep');
+    // What a build keeps beside its directory (host/web/beside.mjs), each there and someone else's.
+    const foreign = { 'export.previous': 'notes/todo.txt', 'export.gen': 'notes/todo.txt', 'export.leases': 'notes/todo.txt', 'export.gen.reaped': null, 'export.lock': null };
+    for (const [name, inside] of Object.entries(foreign)) {
+      if (inside) { mkdirSync(resolve(dir, name, 'notes'), { recursive: true }); writeFileSync(resolve(dir, name, inside), 'keep'); } else writeFileSync(resolve(dir, name), 'keep');
+    }
     for (const [out, why] of [[app, /it is or holds the app/], [dir, /it is or holds the app/], [resolve(dir, 'link'), /it is or holds the app/],
       [root, /it is or holds this exact2 checkout/], [resolve(root, '..'), /it is or holds this exact2 checkout/], [resolve(app, 'site'), /inside the app, the build goes in dist/], [resolve(app, '.site'), /inside the app/],
-      [resolve(dir, 'notes'), /holds files that are not a web build/], [resolve(dir, 'file'), /is not a directory/]]) {
+      [resolve(dir, 'notes'), /holds files that are not a web build/], [resolve(dir, 'file'), /is not a directory/], [resolve(dir, 'export'), /export\.gen is there and is not builds kept by generation/]]) {
       const r = spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
       expect([out, r.status, why.test(r.stderr)], r.stderr).toEqual([out, 2, true]);
     }
+    // Each such name refused alone, and left as it was.
+    for (const name of Object.keys(foreign)) {
+      const out = resolve(dir, `alone-${name.split('.')[0]}`), moved = resolve(dir, name.replace(/^export/, `alone-${name.split('.')[0]}`));
+      renameSync(resolve(dir, name), moved);
+      const r = spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
+      expect([name, r.status, r.stderr.includes(`${moved} is there and is not`)], r.stderr).toEqual([name, 2, true]);
+      expect(existsSync(out)).toBe(false);
+      renameSync(moved, resolve(dir, name));
+    }
     expect(readdirSync(app).sort()).toEqual(['app.contract', 'app.json']);
-    expect(readFileSync(resolve(dir, 'notes/todo.txt'), 'utf8')).toBe('keep');
+    for (const path of ['notes/todo.txt', 'export.previous/notes/todo.txt', 'export.gen/notes/todo.txt', 'export.leases/notes/todo.txt', 'export.lock', 'export.gen.reaped']) {
+      expect(readFileSync(resolve(dir, path), 'utf8'), path).toBe('keep');
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -230,23 +246,8 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     expect(readFileSync(resolve(out, 'app.js')).equals(script)).toBe(false);
     expect(readdirSync(app).filter((name) => name.startsWith('dist')).sort()).toEqual(['dist', 'dist.gen']);
     // As `serve` serves it: each route's page rendered with its data, the live one per request, the cached one once.
-    const probe = createServer();
-    await new Promise(ok => probe.listen(0, '127.0.0.1', ok));
-    const port = probe.address().port;
-    await new Promise(ok => probe.close(ok));
-    serve = spawnOwned(process.execPath, ['host/web/serve.mjs', out, '--port', String(port), '--loopback'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
-    let said = '';
-    const renders = (path) => (said.match(new RegExp(`render ${path} 200 `, 'g')) ?? []).length;
-    // What serve has said, once `done` holds of it (its output is the event; bounded so a failure names it).
-    const heard = (done) => new Promise((ok, no) => {
-      const timer = setTimeout(() => { serve.stdout.off('data', check); no(new Error(`serve did not say it: ${said}`)); }, 30_000);
-      const check = () => { if (done(said)) { clearTimeout(timer); serve.stdout.off('data', check); ok(); } };
-      serve.stdout.on('data', check); check();
-    });
-    serve.stdout.on('data', (data) => { said += data; });
-    serve.stderr.on('data', (data) => { said += data; });
-    await heard((text) => text.includes(`http://127.0.0.1:${port}/`));
-    const get = async (path) => { const r = await fetch(`http://127.0.0.1:${port}${path}`, { headers: html }); return { status: r.status, cache: r.headers.get('cache-control'), body: await r.text() }; };
+    serve = await serving(root, out);
+    const { get, renders, heard } = serve;
     const feed = [await get('/feed'), await get('/feed')], live = [await get('/live'), await get('/live')];
     for (const r of [...feed, ...live]) expect([r.status, r.body.includes('The note, rendered.'), r.body.includes('<div id="exact-root"></div>')]).toEqual([200, true, false]);
     expect(feed.map((r) => r.cache)).toEqual(['public, max-age=0, s-maxage=60', 'public, max-age=0, s-maxage=60']);
@@ -257,12 +258,84 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     expect(renders('/feed')).toBe(1);
     expect(await get('/item/7')).toMatchObject({ status: 200, body: expect.not.stringContaining('The note, rendered.') });
     expect((await get('/no/such/route')).status).toBe(404);
+    // A rendered page is its build's, as a document from a file is: its base names its generation, whose runtime its
+    // reader loads from there, even once another build replaces it.
+    const rendered = await get('/live'), id = generationIn(rendered.body), runtime = readFileSync(resolve(out, 'app.js'));
+    expect(id).toBe(after);
+    writeFileSync(resolve(app, 'app.contract'), source.replace('text note.text\n', 'text note.text\n      text "Changed again."\n'));
+    const again = build();
+    expect(again.status, again.stdout + again.stderr).toBe(0);
+    const next = await get('/live'), old = await fetch(`http://127.0.0.1:${serve.port}/.exact/gen/${id}/app.js`);
+    expect([generationIn(next.body) === id, next.body.includes('Changed again.'), old.status, Buffer.from(await old.arrayBuffer()).equals(runtime)]).toEqual([false, true, 200, true]);
   } finally {
-    await serve?.stop(5_000);
+    await serve?.stop();
     if (server) { server.closeAllConnections(); await new Promise(ok => server.close(ok)); }
     rmSync(dir, { recursive: true, force: true });
   }
 }, 90000);
+
+// LLP 1153 D3.4: a home route rendered on a server is rendered by `serve`, though every build writes an index.html
+// (the shell, which a static host serves), and so is a notfound route declared so, with 404.
+test.each(['request', 'cached'])('serve renders home "/" render=%s and a notfound route rendered so', async (policy) => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-site-home-')), app = resolve(dir, 'site'), out = resolve(app, 'dist');
+  let serve;
+  try {
+    site(app, `shape Note\n  text: string\n\nroutes nav\n  home "/" render=${policy}\n  item "/item/:id"\n  notfound render=${policy}\n\n`
+      + 'component App\n  resource note = note("rendered") as shape Note\n  view\n    column\n      text top(nav).url\n      text note.text\n');
+    const built = spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
+    expect(built.status, built.stdout + built.stderr).toBe(0);
+    expect(built.stdout).toContain(`notfound: render=${policy}, so serve renders its page`);
+    expect(readFileSync(resolve(out, 'index.html'), 'utf8')).not.toContain('The note, rendered.');
+    serve = await serving(root, out);
+    const home = await serve.get('/'), missing = await serve.get('/no/such/route'), item = await serve.get('/item/7');
+    expect([home.status, home.body.includes('The note, rendered.'), generationIn(home.body) !== undefined]).toEqual([200, true, true]);
+    expect(home.cache).toBe(policy === 'cached' ? 'public, max-age=0, s-maxage=60' : 'no-store');
+    expect([missing.status, missing.body.includes('The note, rendered.'), missing.body.includes('/no/such/route')]).toEqual([404, true, true]);
+    expect([item.status, item.body.includes('The note, rendered.')]).toEqual([200, false]);
+  } finally {
+    await serve?.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 60000);
+
+/** The test app `site` in `app` with `source` as its app.contract and a data source `note`. */
+function site(app, source) {
+  mkdirSync(app, { recursive: true });
+  writeFileSync(resolve(app, 'app.json'), JSON.stringify({ name: 'Site', app: { id: 'test.site', name: 'Site' } }));
+  writeFileSync(resolve(app, 'app.contract'), source);
+  writeFileSync(resolve(app, 'app.ts'), "import type { Answer, Result, Sources } from './app.contract.d.ts';\nexport const appId = 'test.site';\nexport const grants = '';\n"
+    + "const sources: Sources = { note: ([what]): Result<'note'> => ({ text: `The note, ${what}.` }) };\n"
+    + 'export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);\n');
+}
+const generationIn = (body) => /<base href="\/\.exact\/gen\/([0-9a-f]{32})\/">/.exec(body)?.[1];
+
+/** serve.mjs on `out` as the `serve` verb runs it (`--loopback`), on a free port: `get(path)` a navigation's answer,
+ * `renders(path)` how many pages of it serve said it rendered, `heard(done)` once what it said satisfies `done`. */
+async function serving(root, out) {
+  const probe = createServer();
+  await new Promise(ok => probe.listen(0, '127.0.0.1', ok));
+  const port = probe.address().port;
+  await new Promise(ok => probe.close(ok));
+  const child = spawnOwned(process.execPath, ['host/web/serve.mjs', out, '--port', String(port), '--loopback'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+  let said = '';
+  child.stdout.on('data', (data) => { said += data; });
+  child.stderr.on('data', (data) => { said += data; });
+  // Its output is the event; bounded so a failure names what it said.
+  const heard = (done) => new Promise((ok, no) => {
+    const timer = setTimeout(() => { child.stdout.off('data', check); no(new Error(`serve did not say it: ${said}`)); }, 30_000);
+    const check = () => { if (done(said)) { clearTimeout(timer); child.stdout.off('data', check); ok(); } };
+    child.stdout.on('data', check); check();
+  });
+  await heard((text) => text.includes(`http://127.0.0.1:${port}/`));
+  const get = async (path) => {
+    const r = await fetch(`http://127.0.0.1:${port}${path}`, { headers: { accept: 'text/html' } });
+    return { status: r.status, cache: r.headers.get('cache-control'), body: await r.text() };
+  };
+  const renders = (path) => (said.match(new RegExp(`render ${path} 200 `, 'g')) ?? []).length;
+  return { port, get, renders, heard, stop: () => child.stop(5_000) };
+}
 
 test('Snapback mutation success types check final answers through helpers and preserve ordinary resource values', async () => {
   const {configure, check} = await import('../../js/bake/src/typescript.mjs');

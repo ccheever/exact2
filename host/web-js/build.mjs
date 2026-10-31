@@ -26,11 +26,9 @@ import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh,
 import { developmentStore } from '../../scripts/agent-launch.mjs';
 import { settingLines } from '../../js/bake/src/__exact_env.mjs';
 import { withLook } from '../web/look.mjs';
+import { beside as besideDist } from '../web/beside.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-// What is kept beside a build in `dist` (serve.mjs `replaceBuild`, generations.mjs): the builds it replaced, their
-// leases, a swap's lock and the stages builds are made in.
-const DIST_SIBLING = /^dist\.(gen|gen\.reaped|leases|lock|previous|stage-.+)$/;
 const root = resolve(here, '../..');
 const args = process.argv.slice(2);
 // A path names the app as EXACT_APP_DIR does (scripts/app.mjs resolveApp), so
@@ -301,7 +299,7 @@ async function typecheck(checking) {
       // The app's dot directories (`.exact/`: an agent's evidence, logs, runtime files) are no source, as in js/bake's capture.
       if (top && name.startsWith('.') && entry.isDirectory()) continue;
       // Nor is what a build in `dist` keeps beside it (`web-build --out dist`: serve.mjs `replaceBuild`, generations.mjs).
-      if (top && DIST_SIBLING.test(name)) continue;
+      if (top && besideDist(name)) continue;
       if (top && mounts.some(([mount]) => mount === name)) continue;
       // Links are refused, except a document link outside the static trees
       // (CLAUDE.md → AGENTS.md), as js/bake's capture: no build reads one.

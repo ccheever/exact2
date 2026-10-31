@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { BESIDE } from './beside.mjs';
 import { lockHeld } from './build-lock.mjs';
 import { buildTreeFileAsync } from './serve.mjs';
 
@@ -18,7 +19,31 @@ export const GENERATION = /^[0-9a-f]{32}$/;
 export const KEEP = { newest: 3, ageMs: 15 * 60_000, bytes: 2 * 2 ** 30 };
 const PREFIX = '/.exact/gen/';
 const realDirectory = (path) => { try { return lstatSync(path).isDirectory(); } catch { return false; } };
+const realFile = (path) => { try { return lstatSync(path).isFile(); } catch { return false; } };
 const generationsOf = (dist) => `${dist}.gen`, leasesOf = (dist) => `${dist}.leases`, reapedOf = (dist) => `${dist}.gen.reaped`;
+
+/** What beside `dist` a build there would replace, remove or overwrite though it is not one of its own (an author's
+ * `--out` directory may sit beside anything): each name of beside.mjs's `BESIDE` that is there and is not what a build
+ * writes there, with what it should be, else null. A stage is a fresh directory each build makes and removes, so
+ * another is never touched. */
+export function foreignBeside(dist) {
+  const receipt = (dir) => realDirectory(dir) && realFile(resolve(dir, '.exact-build.json'));
+  const entries = (dir, each) => realDirectory(dir) && readdirSync(dir).every((name) => each(name, resolve(dir, name)));
+  const lines = (file, form) => realFile(file) && readFileSync(file, 'utf8').split('\n').every((line) => line === '' || form.test(line));
+  const owned = {
+    previous: [receipt, 'a web build (its .exact-build.json)'],
+    gen: [(dir) => entries(dir, (name, at) => GENERATION.test(name) && receipt(at)), 'builds kept by generation'],
+    'gen.reaped': [(file) => lines(file, GENERATION), 'the generations reaped'],
+    leases: [(dir) => entries(dir, (name, at) => GENERATION.test(name) && entries(at, (lease, file) => /^\d+-\d+$/.test(lease) && realFile(file))), 'leases on kept builds'],
+    lock: [(file) => lines(file, /^\d+$/), 'a build\'s lock'],
+  };
+  for (const name of BESIDE) {
+    const path = `${dist}.${name}`, [ours, what] = owned[name];
+    try { lstatSync(path); } catch { continue; }
+    if (!ours(path)) return `${path} is there and is not ${what}, which a build in ${dist} would replace or remove`;
+  }
+  return null;
+}
 /** The generations reaped at `dist` (the last 256): a page asking for one is told it is gone (410), unlike an id that
  * names nothing here (404). */
 const reapedIds = (dist) => { try { return new Set(readFileSync(reapedOf(dist), 'utf8').split('\n').filter((l) => GENERATION.test(l))); } catch { return new Set(); } };

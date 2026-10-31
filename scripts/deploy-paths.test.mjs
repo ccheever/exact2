@@ -2,11 +2,11 @@
 // Only Contract compiler discovery below runs Cargo; no install, signing, publication or host process is needed here.
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep, toNamespacedPath } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { assertCapturedContractSources, contractCompiler, installedContractPackage, namesNative, nativePlatforms, unrelocatableContractDependency } from './deploy.mjs';
+import { assertCapturedContractSources, contractCompiler, installedContractPackage, namesNative, nativePlatforms, sourcePathspec, unrelocatableContractDependency } from './deploy.mjs';
 import * as asyncLane from './async.mjs';
 import { pinned } from './test-workspace.mjs';
 const {appleTouched, glueTests, retainSkippedFailures} = asyncLane;
@@ -23,6 +23,32 @@ test('a deploy ships the native platforms the manifest names, and a manifest nam
   expect(nativePlatforms({ deploy: { store: { web: '0' }, binaries: { macos: true } } })).toEqual(['macos']);
   for (const manifest of [{ host: { ios: {} } }, { host: { android: {} } }, { deploy: { binaries: { macos: true } } }]) expect(namesNative(manifest)).toBe(true);
   expect(() => nativePlatforms({ deploy: { store: { tvos: '0' } } })).toThrow(/names the platform tvos under deploy/);
+});
+
+// LLP 1153 D3: a deploy's snapshot takes the app's ignored files as source, but not a web build in `dist` nor what it
+// keeps beside it (host/web/beside.mjs), here as a build, its replacements and a reap leave them.
+test('a deploy snapshot leaves out dist and everything a build keeps beside it, after rebuilds and a reap', async () => {
+  const { replaceBuild } = await import('../host/web/serve.mjs');
+  const { leaseGeneration, reapGenerations } = await import('../host/web/generations.mjs');
+  const repo = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-snapshot-dist-'))), dist = resolve(repo, 'dist');
+  try {
+    const write = (path, text) => { mkdirSync(dirname(resolve(repo, path)), { recursive: true }); writeFileSync(resolve(repo, path), text); };
+    write('app.json', '{}'); write('.gitignore', '/dist/\n/dist.*\n/local.json\n'); write('local.json', '{}');
+    const git = (...args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
+    git('init', '-q'); git('add', '-A'); git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'app');
+    for (const k of [1, 2, 3, 4]) {
+      write(`stage-${k}/app.js`, `build ${k}`); write(`stage-${k}/.exact-build.json`, JSON.stringify({ files: [{ name: 'app.js', sha256: String(k) }] }));
+      replaceBuild(resolve(repo, `stage-${k}`), dist);
+    }
+    reapGenerations(dist, { newest: 1, ageMs: 0, bytes: 2 ** 30 });
+    const release = leaseGeneration(dist, readdirSync(`${dist}.gen`)[0]);
+    write('dist.lock', '1'); write('dist.stage-a1b2c3/app.js', 'half a build'); write('dist.previous/app.js', 'aside');
+    const ignored = git('ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--', ...sourcePathspec(repo, { dir: repo, workspace: repo, manifest: {} }, resolve(repo, 'exact2')));
+    expect(ignored.status, ignored.stderr).toBe(0);
+    expect(existsSync(`${dist}.gen.reaped`)).toBe(true);
+    expect(ignored.stdout.split('\0').filter(Boolean)).toEqual(['local.json']);
+    release();
+  } finally { rmSync(repo, { recursive: true, force: true }); }
 });
 
 test('async retains only failures from checks skipped on this commit', () => {

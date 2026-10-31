@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
 import { boundSettings, settingChanges, settingInputs, settingLines } from '../js/bake/src/__exact_env.mjs';
+import { besidePattern } from '../host/web/beside.mjs';
 import { chooseSimulator, phone } from '../host/apple/devices.mjs';
 import { androidDevice } from './agent-android.mjs';
 import { bakeOutput, gpuModules, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
@@ -808,9 +809,9 @@ export function traceLocators(appName) {
 }
 
 // Outputs, fixtures and prose are not what a build is made from.
-// A dist's swap siblings (`dist.gen`, `dist.gen.reaped`, `dist.leases`, `dist.lock`, `dist.previous`,
-// host/web/generations.mjs) are written by builds, never read by one: a later build's reap is no change.
-const NOT_INPUT = /^(target|(web-)?dist(\.(gen|gen\.reaped|leases|lock|previous|stage-[^/]*))?|dist-windows|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.test\.contract$|\.md$/;
+// What a dist keeps beside it (`dist.gen` and the rest, host/web/beside.mjs) is written by builds, never read by one:
+// a later build's reap is no change.
+const NOT_INPUT = new RegExp(String.raw`^(target|(web-)?dist|${besidePattern('dist')}|${besidePattern('web-dist')}|dist-windows|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.test\.contract$|\.md$`);
 /** Files under `roots` modified after `since`; `{shallow}` roots contribute only their own files. */
 export function newerThan(since, roots, skip = () => false) {
   const out = [];

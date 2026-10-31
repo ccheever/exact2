@@ -16,6 +16,7 @@ import vm from 'node:vm';
 import { brotliCompressSync, createBrotliCompress, constants } from 'node:zlib';
 import { createDocument } from './dom.js';
 import { cachingFetch } from './http-cache.mjs';
+import { canonical, matchPattern } from './route-pattern.js';
 
 const DEADLINE = 3000;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -157,6 +158,7 @@ if (import.meta.main) {
   if (args.includes('--serve')) {
     const port = Number(opt('--port', 8830));
     const page = pageServer(dist, render), files = new Map();
+    const routes = existsSync(resolve(dist, 'routes.json')) ? JSON.parse(readFileSync(resolve(dist, 'routes.json'), 'utf8')).routes : [];
     Bun.serve({ port, hostname: '127.0.0.1', async fetch(req) {
       const url = new URL(req.url);
       const file = resolve(dist, '.' + decodeURIComponent(url.pathname));
@@ -169,6 +171,12 @@ if (import.meta.main) {
         }
         return new Response(Bun.file(file), { headers: { 'content-type': type, 'cache-control': 'no-cache' } });
       }
+      // A route drawn in the browser (`render=client`) gets the shell and one rendered at build its page, as
+      // `serve` gives them (LLP 1153.001 D1); the rest are rendered here.
+      const at = matchPattern(routes, canonical(url.pathname)), built = resolve(file, 'index.html');
+      const html = { 'content-type': 'text/html', 'cache-control': 'no-cache' };
+      if (at >= 0 && routes[at].render === 'build' && built.startsWith(dist + '/') && existsSync(built)) return new Response(Bun.file(built), { headers: html });
+      if (at >= 0 && routes[at].render === 'client') return new Response(Bun.file(resolve(dist, 'shell.html')), { headers: html });
       const { status, headers, body } = await page(url.pathname + url.search, name => req.headers.get(name));
       return new Response(body, { status, headers });
     } });

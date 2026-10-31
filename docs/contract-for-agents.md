@@ -2326,15 +2326,17 @@ release build as deploy makes one (no agent mode): a page for each `render=build
 route rendered so, `shell.html`, and `routes.json`, the route table in the plan's order with each
 route's pattern, render policy and `notfound`. Inside the app, `--out` is `dist` (or a path under
 `dist/` or `target/`), which no build reads as source; the build it replaces is kept beside it in
-`dist.gen` while a page sent from it may still ask for its files. `bun exact.mjs serve dist`
-serves it on 127.0.0.1 (`--lan`: every interface), and any static host serves it by the same
-rule: a file at the path; else, for a browser's navigation to a path a route matches,
-`shell.html` with 200; else `404.html` with 404. A host with a single fallback page serves
-`shell.html` for every page it lacks, and the client draws the `notfound` route. For a route
-declared `render=request` or `cached`, `serve` renders the page for the request under Bun
-(a `cached` page kept 60 s), so it arrives with its data; a static host serves its shell.
-`npm start` runs `bun exact.mjs serve`, which with no directory serves the last `web-build`
-without `--out`.
+`dist.gen` while a page sent from it may still ask for its files, and `--out` refuses a directory
+beside which something else holds one of those names (`dist.gen`, `dist.previous`, `dist.lock`).
+`bun exact.mjs serve dist` serves it on 127.0.0.1 (`--lan`: every interface), and any static
+host serves it by the same rule: a file at the path; else, for a browser's navigation to a path
+a route matches, `shell.html` with 200; else `404.html` with 404. A host with a single fallback
+page serves `shell.html` for every page it lacks, and the client draws the `notfound` route. For
+a route declared `render=request` or `cached`, the home route's too, `serve` renders the page for
+the request under Bun from the build it serves (a `cached` page kept 60 s), so it arrives with
+its data; so is a miss, with 404, when the `notfound` route is declared so. A static host serves
+their shell. `npm start` runs `bun exact.mjs serve`, which with no directory serves the last
+`web-build` without `--out`.
 
 A launch that no link starts opens at the manifest's `start_url` (for example
 `"/today"`), as an installed web app does; Apple builds bake it in. A launch

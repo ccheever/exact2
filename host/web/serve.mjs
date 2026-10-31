@@ -23,7 +23,7 @@ import { canonical, matchPattern } from '../web-js/route-pattern.js';
 import { guardFlags } from '../../scripts/help.mjs';
 
 import { INSTALL_FILES, INSTALL_PUBLIC, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
-import { generationOf, keepGeneration, reapGenerations, servedFile } from './generations.mjs';
+import { generationOf, keepGeneration, reapGenerations, servedFile, withGenerationBase } from './generations.mjs';
 
 const PUBLIC_FILES = new Set([
   ...INSTALL_PUBLIC,
@@ -838,8 +838,9 @@ function* treeFile(dist, pathname, accept, miss) {
       try { if (at.startsWith(prefix) && realpathSync(at) === at && statSync(at).isFile()) return { path: at, route }; } catch { /* none */ }
       return null;
     };
-    const found = file(path) ?? file(path.replace(/\/?$/, '/index.html'));
-    if (found) return found;
+    const exact = file(path);
+    if (exact) return exact;
+    const index = file(path.replace(/\/?$/, '/index.html'));
     // Only a navigation gets the shell; a dotted last segment is a page only when it is no file's extension or a
     // route matches it (`appDocumentPath`).
     if (navigation) {
@@ -848,10 +849,17 @@ function* treeFile(dist, pathname, accept, miss) {
       // A route table that cannot be read is no answer yet (503 when serving), never "no route" (a 404 for a page).
       if (routes === null) return miss ? { status: 503 } : null;
       const at = appDocumentPath(pathname, true, routes) ? matchPattern(routes, canonical(pathname)) : -1;
-      // (With the route's render policy: `serve` renders a `request` or `cached` route's page instead.)
-      const shell = at >= 0 && file('/shell.html');
-      if (shell) return { ...shell, render: routes[at].render };
-    }
+      const render = at >= 0 ? routes[at].render : null, shell = file('/shell.html'), served = (policy) => policy === 'request' || policy === 'cached';
+      // The shell, with its route's render policy, which `serve` renders in its place (`render=request` or `cached`):
+      // before a directory's index.html for such a route, since the root's is the shell too; a page built for its
+      // path (`render=build`) is served as built.
+      if (shell && served(render)) return { ...shell, render };
+      if (index) return index;
+      if (shell && at >= 0) return { ...shell, render };
+      // A miss: the notfound route's page, with 404, rendered per request where it is declared so.
+      const notfound = routes.find((r) => r.notfound);
+      if (miss && page && shell && served(notfound?.render)) return { ...shell, status: 404, render: notfound.render };
+    } else if (index) return index;
     const missed = miss && (file('/404.html') ?? (page ? file('/shell.html') : null));
     if (missed) return { ...missed, status: 404 };
     // None there: asked again only if the build moved meanwhile.
@@ -870,33 +878,47 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
   const target = webRequestURL(req.url);
   const r = target ? await servedFile(dist, target.pathname, req.headers.accept, { pinned }) : { status: 404 };
   if (r.status === 410) { res.writeHead(410, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`build generation ${r.id} is no longer kept here: load the page again\n`); return; }
-  if (pages && r.status === 200 && r.route === '/shell.html' && ['request', 'cached'].includes(r.render) && ['GET', 'HEAD'].includes(req.method)) {
+  if (pages && [200, 404].includes(r.status) && r.route === '/shell.html' && ['request', 'cached'].includes(r.render) && ['GET', 'HEAD'].includes(req.method)) {
     let page = null;
-    try { const render = pages(); page = render && await render(target.pathname + target.search, (name) => req.headers[name]); } catch (error) {
+    try { page = await pages(r.id, target.pathname + target.search, (name) => req.headers[name]); } catch (error) {
       console.error(`render ${target.pathname}: ${error.message}`);
       res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('This page could not be rendered.\n'); return;
     }
-    if (page) {
-      res.writeHead(page.status, page.headers);
-      if (typeof page.body === 'string' || page.body instanceof Uint8Array) res.end(req.method === 'HEAD' ? undefined : page.body);
-      else if (req.method === 'HEAD') { page.body.cancel(); res.end(); }
-      else { for await (const chunk of page.body) res.write(chunk); res.end(); }
-      return;
-    }
+    if (page) { sendStaticBody(req, res, page.html, { 'content-type': 'text/html; charset=utf-8', 'cache-control': page.cacheControl }, page.status); return; }
   }
   if (!r.body) { res.writeHead(r.status, { 'cache-control': 'no-store', ...(r.status === 503 ? { 'retry-after': '1' } : {}) }); res.end(); return; }
   sendStaticBody(req, res, r.body, { 'content-type': webContentType(r.route), 'cache-control': 'no-store' }, r.status);
 }
 
-/** `serve`'s `pages` for the JS-target build at `dist`: the page server (`render.mjs` `pageServer`) of the build there
- * now, made again when another build replaces it, which drops the pages it kept; null for a build with no server
- * bundle (`--render none`), whose `render=request` and `cached` routes are then served their shell. */
+/** `serve`'s `pages` for the JS-target build at `dist`: `(id, location, header)`, the page for `location` rendered by
+ * render.mjs's `pageServer` from build generation `id` (`servedFile`'s), wherever that build is (`dist`, or `<dist>.gen`
+ * once another replaced it), and bound to it as a document `servedFile` sends is: its base that generation's, and
+ * rendered again from where the build was kept when another replaced it during the render. Whole, not streamed, so
+ * its head is sent only when all of it is known to be that build's. Null for a build with no server bundle (`--render
+ * none`), whose `render=request` and `cached` routes are then served their shell. */
 function sitePages(dist, pageServer) {
-  let current = { id: undefined, page: null };
-  return () => {
-    const id = generationOf(dist);
-    if (id !== current.id) current = { id, page: existsSync(resolve(dist, '.gen/server.js')) ? pageServer(dist) : null };
-    return current.page;
+  const servers = new Map(); // `${id} ${tree}` -> its page server, a `cached` route's pages kept in it
+  const serverOf = (id, tree) => {
+    const key = `${id} ${tree}`;
+    if (!servers.has(key)) {
+      if (servers.size >= 8) servers.delete(servers.keys().next().value);
+      servers.set(key, existsSync(resolve(tree, '.gen/server.js')) ? pageServer(tree) : null);
+    }
+    return servers.get(key);
+  };
+  return async (id, location, header) => {
+    // The page whole (no `sec-fetch-dest`) and uncompressed (no `accept-encoding`), as every file here is sent.
+    const asked = (name) => (name === 'cache-control' ? header(name) : undefined);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const current = !id || generationOf(dist) === id, tree = current ? dist : resolve(`${dist}.gen`, id);
+      const render = existsSync(tree) && serverOf(id, tree);
+      if (!render) return null;
+      const { status, headers, body } = await render(location, asked);
+      if (current && id && generationOf(dist) !== id) continue;
+      const html = Buffer.from(body).toString('utf8');
+      return { status, cacheControl: headers['cache-control'], html: id ? withGenerationBase(html, id) : html };
+    }
+    return null;
   };
 }
 
@@ -1242,8 +1264,12 @@ function settleBuild(dist) {
     return 2;
   }
   console.error(`${dist}: ${what}: building it again`);
-  // On the target it was built for: the JS target's marker says so; the wasm target's says no target.
-  const built = spawnSync(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app, ...marker.target === 'js' ? [] : ['--wasm']], { stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist } });
+  // On the target it was built for (the JS target's marker says so; the wasm target's says no target), and as what it
+  // was: a release site (`web-build --out`, its marker says so) is built again as one, into its directory; a
+  // development build into its.
+  const target = marker.target === 'js' ? [] : ['--wasm'], release = marker.release ? ['--out', dist] : [];
+  const built = spawnSync(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app, ...target, ...release],
+    { stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: app, ...(marker.release ? {} : { EXACT_WEB_DIST: dist }) } });
   return built.status === 0 ? 0 : built.status ?? 1;
 }
 

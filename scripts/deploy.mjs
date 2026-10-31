@@ -60,6 +60,7 @@ import { appdropPlan, renderAppdrop, runAppdrop } from './deploy-appdrop.mjs';
 import { blobPath, channelOrigin, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
 import { filesystemLock, removePrivateTree } from './filesystem.mjs';
 import { entryPlans, listBuildFiles, listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
+import { BESIDE, STAGE } from '../host/web/beside.mjs';
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const PLATFORMS = ['web', 'ios', 'macos', 'linux'];
 const USAGE = 'usage: bun scripts/deploy.mjs <app> [--origin <dir|url>] [--channel <name>] [--only bundle|origin] [--platform <web|ios|macos|linux>]... [--snapshot <sha>] [--dirty] [--release <id>] [--keys <dir>] [--json] [--yes]\n       bun scripts/deploy.mjs keygen <id> [--keys <dir>] [--json]';
@@ -101,11 +102,11 @@ function canonicalPath(path) {
     return parent === absolute ? absolute : resolve(canonicalPath(parent), basename(absolute));
   }
 }
-/** Only actual build outputs are absent from a source snapshot. These are
- * explicit root paths, not recursive basename patterns: `assets/dist/a.png`
- * and `fixtures/target/input.rs` remain inputs when the app carries them. */
-function sourcePathspec(repo, app, exactRoot) {
+/** Only actual build outputs are absent from a source snapshot: explicit root paths, not recursive basename patterns
+ * (`assets/dist/a.png` and `fixtures/target/input.rs` remain inputs when the app carries them). */
+export function sourcePathspec(repo, app, exactRoot) {
   const workspace = canonicalPath(app.workspace ?? app.dir);
+  const dist = ['dist', ...BESIDE.map((name) => `dist.${name}`), `dist.${STAGE}*`]; // what `dist` keeps beside it: beside.mjs
   const outputs = [resolve(repo, 'target'), resolve(repo, 'node_modules'),
     resolve(repo, '.agent-skill-sources'), resolve(repo, '.agent-skill-backups'), resolve(repo, '.llp/ship-runs'),
     canonicalPath(app.target ?? resolve(workspace, 'target')), resolve(workspace, 'target'), resolve(workspace, 'node_modules'), resolve(workspace, '.shells'), resolve(app.dir, '.shells'),
@@ -121,11 +122,10 @@ function sourcePathspec(repo, app, exactRoot) {
     for (const entry of readdirSync(parent, {withFileTypes:true})) {
       const dir = resolve(parent, entry.name);
       if (!entry.isDirectory() || !existsSync(resolve(dir, 'app.contract'))) continue;
-      for (const output of ['target', '.shells', 'dist', 'dist.previous', 'artifacts']) outputs.push(resolve(dir, output));
+      for (const output of ['target', '.shells', 'artifacts', ...dist]) outputs.push(resolve(dir, output));
     }
   }
-  // An app's web build in `dist` (`web-build --out dist`) and the builds kept beside it are outputs too.
-  for (const output of [...app.manifest?.game ? ['target', '.shells', 'artifacts'] : [], 'dist', 'dist.gen', 'dist.leases', 'dist.previous']) outputs.push(resolve(app.dir, output));
+  for (const output of [...app.manifest?.game ? ['target', '.shells', 'artifacts'] : [], ...dist]) outputs.push(resolve(app.dir, output));
   // Keep the lexical path as well as its canonical alias. In particular,
   // `target -> /shared/cache` is still the declared in-repo output root; if
   // we realpath it first, the symlink itself re-enters the source inventory.
@@ -621,10 +621,9 @@ export function deployRun(target, release) {
 
 // ------------------------------------------------------------------ the bake
 
-/** The web root on the JS target (LLP 1071 §7, delivery): the wasm bake's plan compiled to JavaScript into
- * `<run>/web-js` (`host/web-js/build.mjs --production`) with the bake's origin files, so the root and every stream's
- * bundle share one plan, and a fresh load of the atomic root is current; with no bake (`web` null, LLP 1153 D3.6), the
- * app's own Contract, with no envelope. Returns the directory; a JS build that fails refuses the deploy. */
+/** The web root on the JS target (LLP 1071 §7): the wasm bake's plan compiled into `<run>/web-js` (`host/web-js/build.mjs
+ * --production`) with the bake's origin files, so the root and every stream share one plan; with no bake (`web` null,
+ * LLP 1153 D3.6), the app's own Contract, with no envelope. The directory; a JS build that fails refuses the deploy. */
 function bakeJs(app, run, web, exactRoot, sourceRoot) {
   const out = resolve(run, 'web-js');
   const env = sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_APP_DIR: app.dir });

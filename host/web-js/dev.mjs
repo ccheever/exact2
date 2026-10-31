@@ -21,6 +21,7 @@ import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/ag
 import { builtSettings } from '../../js/bake/src/__exact_env.mjs';
 import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, listenDelay, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { generationFile, generationPath, servedFile } from '../web/generations.mjs';
+import { besidePattern } from '../web/beside.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
 import { pluginOnLoopback } from '../../scripts/tamber-remote.mjs';
@@ -36,7 +37,8 @@ import { DEV_STATUS_TYPE, FAILED, PHASE, gist } from '../web/dev-phase.mjs';
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
-const skipped = /(^|\/)(target|dist(?:\.(?:gen|gen\.reaped|leases|lock|previous|stage-[^/]+))?|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$/;
+// (What a build in `dist` keeps beside it, `dist.gen` and the rest, is no source: beside.mjs.)
+const skipped = new RegExp(String.raw`(^|\/)(target|dist|${besidePattern()}|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$`);
 /** The files beside app.json a setting is read from (`import.meta.env`, LLP 1153 D4): inputs, though dot files. */
 const settingsFile = (name) => /^\.env(?:\.local)?$/.test(String(name));
 /** Whether `path` changed from `since` (ms) until now, by the entry's own times (lstat: a link replaced by one to an older

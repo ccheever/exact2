@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { cpSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Cdp, open } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
@@ -18,8 +18,12 @@ const js = process.env.EXACT_ROUTER_TARGET === 'js';
 const jsBuild = (plan, out) => {
   const b = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', resolve(dir, plan), '--out', out, '--render', 'none'], { encoding: 'utf8' });
   if (b.status !== 0) throw new Error(`${plan}: its JS build failed: ${b.stderr}`);
-  const page = readFileSync(out + '/index.html', 'utf8');
-  writeFileSync(out + '/index.html', page.replace('<script type="module" src="./app.js"></script>', `<script>(${jsFixture})()</script><script type="module" src="./app.js"></script>`));
+  // Into every document a navigation can be answered with: the root's, the shell a declared deep route gets
+  // (serve.mjs `buildTreeFile`), and the miss's, where the build wrote one.
+  for (const name of ['index.html', 'shell.html', '404.html'].filter((name) => existsSync(`${out}/${name}`))) {
+    const page = readFileSync(`${out}/${name}`, 'utf8');
+    writeFileSync(`${out}/${name}`, page.replace('<script type="module" src="./app.js"></script>', `<script>(${jsFixture})()</script><script type="module" src="./app.js"></script>`));
+  }
   cpSync('host/web/navigation.js', out + '/navigation.js'); // the host-seam cases import it
   // A bare plan has no bake to copy `manifest.json` from; the link-file case needs a file there.
   writeFileSync(out + '/manifest.json', '{}\n');

@@ -5,6 +5,7 @@
 #![deny(missing_docs)]
 
 mod android;
+mod beside;
 mod linked;
 #[path = "../../package_tool.rs"]
 mod package_tool;
@@ -762,10 +763,8 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             }
             if matches!(&*name, ".git" | "node_modules" | "target" | "dist")
                 // Outputs: the Windows package (`host/windows/build.mjs`), whose captured
-                // compat.json made every build stale, and the builds kept beside `dist` (serve.mjs).
-                || (at == root
-                    && (matches!(&*name, "dist-windows" | "dist.gen" | "dist.leases" | "dist.previous")
-                        || name.starts_with("dist.stage-")))
+                // compat.json made every build stale, and what a web build keeps beside `dist`.
+                || (at == root && (name == "dist-windows" || beside::beside_dist(&name)))
                 || name.starts_with(".exact-js-bake-")
                 // The app's dot directories hold what no build reads: `.exact/`
                 // keeps an agent's diary, evidence, logs and runtime files

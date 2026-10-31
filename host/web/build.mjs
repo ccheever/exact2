@@ -40,6 +40,7 @@ import { guardFlags } from '../../scripts/help.mjs';
 import { BINARYEN_DOWNLOAD, splitStages, unsplitReason } from './stages.mjs';
 import { withLook } from './look.mjs';
 import { appManifestDigest, buildFileCards, copyStaticTreeIfPresent, listAssets, hostingNotes, publicFileCards, replaceBuild, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
+import { foreignBeside } from './generations.mjs';
 
 guardFlags('web-build', process.argv.slice(2));
 const target = ['--js', '--wasm'].find((flag) => process.argv.includes(flag));
@@ -75,6 +76,9 @@ function outPath(given) {
   if (first !== null && !['dist', 'target'].includes(first)) refuse('inside the app, the build goes in dist (or under dist/ or target/), which no source scan of the app reads');
   if (existsSync(path) && !statSync(path).isDirectory()) refuse('it is not a directory');
   if (existsSync(path) && readdirSync(path).length && !existsSync(resolve(path, '.exact-build.json'))) refuse('it holds files that are not a web build, which the build would replace: name a new or empty directory');
+  // And what a build there keeps beside it, which it would replace or reap: absent, or a build's own (generations.mjs).
+  const foreign = foreignBeside(path);
+  if (foreign) refuse(foreign);
   return path;
 }
 // After resolveApp, which names `bun install` when the packages are missing.
@@ -118,18 +122,20 @@ if (target !== '--wasm' && !game && !bakeOnly) {
     // the build rewrote them, are one line (LLP 1116.001 D4.5).
     for (const line of compiler) console.error(line);
     for (const line of (js.stderr ?? '').split('\n')) if (/^(warning|app\.contract\.d\.ts): /.test(line)) console.error(line);
-    // A site to host holds the site: not the build's intermediates (`.gen`, the app's captured sources among them),
-    // nor the development source map, which delivery leaves out too. It keeps the server bundle `serve` renders a
-    // `render=request` or `cached` route's page with, when it has such a route (LLP 1153 D3.4).
+    // The receipt first, since what it records may come from the build's intermediates. `release`: a site to host
+    // (`--out`), built again (to the same directory, as a release) when what it was built from changes.
+    // `env`: each setting app.ts read, as inlined, and its source (LLP 1153 D4), for the drive's logs and `changedSettings`.
+    writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
+      manifestSha256: appManifestDigest(app), files: buildFileCards(stage), ...(inputs ? { inputs, inputsAt } : {}), ...builtSettings(stage), ...(outDir ? { release: true } : {}) }) + '\n');
+    // A site to host holds the site, not the build's intermediates (`.gen`, the app's captured sources among them;
+    // the receipt's file cards name no dot path), but for the server bundle `serve` renders a `render=request` or
+    // `cached` route's page with, when it has such a route (LLP 1153 D3.4).
     if (outDir) {
       const routes = JSON.parse(readFileSync(resolve(stage, 'routes.json'), 'utf8')).routes, bundle = resolve(stage, '.gen/server.js');
       const server = routes.some((r) => r.render === 'request' || r.render === 'cached') && existsSync(bundle) ? readFileSync(bundle) : null;
-      for (const name of ['.gen', 'app.plan.map.json']) rmSync(resolve(stage, name), { recursive: true, force: true });
+      rmSync(resolve(stage, '.gen'), { recursive: true, force: true });
       if (server) { mkdirSync(dirname(bundle)); writeFileSync(bundle, server); }
     }
-    // `env`: each setting app.ts read, as inlined, and its source (LLP 1153 D4), for the drive's logs and `changedSettings`.
-    writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
-      manifestSha256: appManifestDigest(app), files: buildFileCards(stage), ...(inputs ? { inputs, inputsAt } : {}), ...builtSettings(stage) }) + '\n');
     replaceBuild(stage, dist);
     stage = null;
     if (outDir) console.log(hostingNotes(dist, existsSync(resolve(app.dir, 'exact.mjs')) ? 'bun exact.mjs serve' : 'bun host/web/serve.mjs').join('\n'));
