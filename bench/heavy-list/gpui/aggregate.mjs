@@ -49,6 +49,56 @@ function workCounters(start, end, seconds, path) {
   }
   return result;
 }
+function verifyPowerReport() {
+  const runPath = join(directory, 'run.json');
+  if (!existsSync(runPath)) return false;
+  const run = JSON.parse(readFileSync(runPath, 'utf8'));
+  if (!run.power) return false;
+  assert.equal(run.exit, 0, 'power driver failed');
+  assert(['fling', 'bar'].includes(run.phase), 'power workload');
+  assert.equal(run.hook, '0', 'power series uses the default hook-off configuration');
+  const power = JSON.parse(readFileSync(join(directory, 'power-summary.json'), 'utf8'));
+  assert.equal(power.quiet, run.quiet, 'power qualification differs from its series');
+  assert.equal(power.powerHookEnabled, false);
+  const targets = ['native', 'gpui', 'ink', 'egui'];
+  const phases = run.phase === 'bar' ? ['bar'] : ['fling', 'rest'];
+  for (const arm of targets) for (const phase of phases) {
+    const rows = power.samples[arm].filter(row => row.phase === phase);
+    assert.equal(rows.length, 1, `${arm}/${phase}: one power run`);
+    const row = rows[0], path = join(directory, 'series', row.path);
+    const raw = JSON.parse(readFileSync(path, 'utf8'));
+    assert(raw.accepted && raw.pid === row.pid && raw.gpuHookEnabled === false, `${path}: power PID/hook`);
+    assert(row.samples.length >= 5 && row.samples.every(sample => sample.seconds > 0), `${path}: power intervals`);
+    const { start, end } = raw[phase];
+    assert(Math.abs(end.time - start.time - 10) < 0.05, `${path}: power phase duration`);
+    workCounters(start, end, end.time - start.time, path);
+    for (const key of Object.keys(row.metrics)) {
+      const seconds = row.samples.reduce((total, sample) => total + sample.seconds, 0);
+      const mean = row.samples.reduce((total, sample) => total + sample[key] * sample.seconds, 0) / seconds;
+      assert(Math.abs(mean - row.metrics[key]) < 1e-9, `${path}: weighted ${key}`);
+      const metric = power.metrics[arm][`${phase}_${key}`];
+      assert([metric.median, metric.min, metric.max].every(value => Math.abs(value - mean) < 1e-9), `${path}: one-run ${key}`);
+    }
+  }
+  const lines = ['| Metric | Native | GPUI | Ink | egui |', '|---|---:|---:|---:|---:|'];
+  for (const phase of phases) for (const [key, label, digits] of [
+    ['system_cpu_w', 'system CPU, W', 3], ['system_gpu_w', 'system GPU, W', 3],
+    ['process_energy_impact_per_s', 'process energy impact/s', 2],
+    ['system_gpu_mhz', 'system GPU clock, MHz', 1], ['system_gpu_active_pct', 'system GPU active, %', 2],
+  ]) {
+    const cells = targets.map(arm => {
+      const row = power.metrics[arm][`${phase}_${key}`];
+      assert([row.median, row.min, row.max].every(Number.isFinite));
+      return `${row.median.toFixed(digits)} (${row.min.toFixed(digits)}–${row.max.toFixed(digits)})`;
+    });
+    lines.push(`| ${phase[0].toUpperCase() + phase.slice(1)} interior: ${label} | ${cells.join(' | ')} |`);
+  }
+  const table = lines.join('\n');
+  assert.equal(readFileSync(join(directory, 'power-table.md'), 'utf8').trim(), table);
+  assert(readFileSync(new URL('./RESULTS.md', import.meta.url), 'utf8').includes(table), `power table differs:\n${table}`);
+  console.log(`${hookLabel()} Separate power table reproduced from its retained PID joins; ${run.quiet ? 'quiet' : 'excluded'} series. CPU timing rows are not published.`);
+  return true;
+}
 if (mode === '--sample') {
   const raw = JSON.parse(readFileSync(directory, 'utf8'));
   assert.equal(raw.accepted, true, `${directory}: rejected sample`);
@@ -303,10 +353,11 @@ function staticReport() {
   });
   if (mode === '--json') console.log(JSON.stringify({ ...hookMetadata(), samples: retained, metrics: summary, excluded }, null, 2));
   else if (mode === '--verify') {
+    if (verifyPowerReport()) return;
     const record = readFileSync(new URL('./RESULTS.md', import.meta.url), 'utf8').split('## G5:')[1];
     assert(record, 'missing G5 results');
     for (const table of tables) assert(record.includes(table), `G5 table differs:\n${table}`);
-    console.log(`${hookLabel()} G5 reproduced exactly: ${tables.length === 3 ? 'three' : tables.length} tables; ${excluded.length} excluded samples.`);
+    console.log(`${hookLabel()} G5 reproduced exactly: ${tables.length === 3 ? 'three' : tables.length} table${tables.length === 1 ? '' : 's'}; ${excluded.length} excluded samples.`);
   } else console.log(hookLabel() + '\n\n' + tables.join('\n\n'));
 }
 
@@ -416,7 +467,7 @@ if (!hasSamples('fling')) {
   else if (mode === '--verify') {
     const record = readFileSync(new URL('./RESULTS.md', import.meta.url), 'utf8');
     assert(record.includes(cold), `cold-only table differs:\n${cold}`);
-    console.log(`${hookLabel()} Cold-only table reproduced exactly: ${Object.values(samples).flat().length} retained launches; ${rejected.length} rejected attempts.`);
+    console.log(`${hookLabel()} Cold-only table reproduced exactly: ${Object.values(samples).flat().length} retained launches; ${rejected.length} rejected attempt${rejected.length === 1 ? '' : 's'}.`);
   } else console.log(`${hookLabel()}\n\n${cold}`);
   process.exit(0);
 }
@@ -460,6 +511,7 @@ const gpuTable = table([
 ]);
 
 if (mode === '--verify') {
+  if (verifyPowerReport()) process.exit(0);
     const record = readFileSync(new URL('./RESULTS.md', import.meta.url), 'utf8').replace(/<br>G4: [^|]+/g, ' ');
   assert(record, `missing ${report} results`);
   for (const output of [resources, cadence]) assert(record.includes(output), `${report} table differs:\n${output}`);

@@ -1146,6 +1146,18 @@ Core Animation GPU work is outside the process hook. PID/wall-clock power joins
 and all ranges are in [G5m](../bench/heavy-list/gpui/RESULTS.md#g5m-static-workloads-on-the-measurement-mac).
 The spoiled development-Mac G5 series remains retained and excluded.
 
+**G4q, 2026-10-30:** source `d5429830d2`, with hook and power sampling off,
+does not replace any CPU row. Both five-round fling attempts, both
+ten-launch-per-arm cold cohorts and both attempts at each five-round static CPU
+workload fail the whole-series quiet rule. The largest-non-benchmark-process bound
+includes WindowServer, which accounts for most crossings; the monitor does
+not attribute its work to the benchmark or other windows. These retained
+attempts do not resolve G4→G4m. Both hook-on, power-off attempts at each static
+workload also fail; no quiet Ink GPU value replaces G5m or evaluates M8's 15%
+trigger. These are before-M3 cohorts. A qualified silver baseline and, unless
+it meets G4's ranges, the interleaved two-Mac comparison remain owed.
+[Gates, excluded tables, predictions and reproduction](../bench/heavy-list/gpui/RESULTS.md#g4q-the-quiet-baselines).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms

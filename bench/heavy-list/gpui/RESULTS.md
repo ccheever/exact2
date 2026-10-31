@@ -5475,6 +5475,13 @@ power-mode record and result, is retained in `gate-fling-1/` beneath both raw
 roots above. Every series starts a fresh sixty-second gate; subsequent waits
 count toward the same two-hour allowance.
 
+**Reading the monitor.** The monitor excludes the four application executables, the driver and the wheel
+helper. WindowServer remains a non-benchmark process under this rule. A crossing
+does not establish whether its work came from the benchmark or other windows.
+Whole-machine busy cores use five-second Mach CPU-tick differences; `ps` reports
+each process's recent CPU average. Their time windows differ, so their values
+cannot be subtracted to attribute the load.
+
 ### Fling attempt 1 — excluded
 
 `fling-a-1` completed all twenty launches, five interleaved rounds, hook off
@@ -5582,3 +5589,316 @@ GPU hook: off (gpuHookEnabled=false).
 | Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
 |---|---:|---:|---:|---:|
 | Cold to first complete frame, ms; native snapshot / painted drawable | 263.04 (243.46–282.00) | 215.54 (195.20–231.52) | 240.08 (207.61–273.29) | 242.52 (204.43–263.59) |
+
+### Cold attempt 2 — excluded
+
+`cold-a-2` retains ten cold-only launches per arm, hook off and power off,
+after a **151.809 s** gate. **8 of 37** qualifying-gate/series
+observations fail: **0.686–2.434 busy cores**, with the system `deleted`
+process reaching **0.779 core**. The entire cohort is excluded; neither cold
+attempt replaces G4m's row. There are **1** rejected launch attempts.
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Cold to first complete frame, ms; native snapshot / painted drawable | 275.13 (228.94–290.05) | 220.70 (206.95–249.07) | 254.81 (227.92–282.20) | 235.08 (198.14–256.84) |
+
+### Fling and cold predictions beside the excluded results
+
+Attempt 1 / attempt 2 are shown in that order. These comparisons report the
+misses without qualifying the quiet-machine hypotheses: neither attempt
+passes the monitor. No quiet CPU baseline or causal explanation follows from
+these rows. The instruction reference has only Ink; its other-arm comparisons
+remain unavailable.
+
+| Prediction and instrument | Predicted | Observed, attempts 1 / 2 | Result |
+|---|---|---|---|
+| Fling native, ms/s | 112.39–143.12 | 167.11 / 170.95 | Both miss; both excluded |
+| Fling gpui, ms/s | 82.05–89.05 | 161.49 / 148.07 | Both miss; both excluded |
+| Fling ink, ms/s | 84.98–87.07 | 138.52 / 141.91 | Both miss; both excluded |
+| Fling egui, ms/s | 64.93–71.54 | 121.95 / 121.39 | Both miss; both excluded |
+| Ink full-phase instructions | 5,330,508,726 ±2% | 5,103,010,355 / 5,062,312,607 | Both miss: −4.268% / −5.031%; both excluded |
+| Cold native, ms; G4m 277.67 | 200–250, below G4m | 263.04 / 275.13; Δ -14.63 / -2.54 | Miss / Miss against band; both excluded |
+| Cold gpui, ms; G4m 219.07 | 180–220, below G4m | 215.54 / 220.70; Δ -3.53 / +1.63 | Met / Miss against band; both excluded |
+| Cold ink, ms; G4m 249.78 | 180–230, below G4m | 240.08 / 254.81; Δ -9.70 / +5.03 | Miss / Miss against band; both excluded |
+| Cold egui, ms; G4m 234.43 | 180–220, below G4m | 242.52 / 235.08; Δ +8.09 / +0.65 | Miss / Miss against band; both excluded |
+
+### Bar CPU attempt 1 — excluded
+
+`bar-a-1` retains five rounds of all four arms, hook off and power off, after
+its **202.523 s** gate. **45 of 63** qualifying-gate/series
+observations fail: **0.610–2.643 busy cores**, with `biomesyncd` reaching
+**0.859 core**. Every timed sample overlaps a failing observation, so the
+landed static filter reports no quiet samples. The whole series is excluded.
+The retained captures show all four heavy-list screens at row zero with live
+updates off and a bar visible; Ink's two captures show the bar changing.
+They establish displayed content, not quiet timing.
+
+GPU hook: off (gpuHookEnabled=false).
+
+bar
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Quiet samples | 0 | 0 | 0 | 0 |
+| Process CPU, ms/s | — | — | — | — |
+| Main-thread CPU, ms/s | — | — | — | — |
+| Frames/s; native display link / painted drawables | — | — | — | — |
+| Peak footprint, MiB | — | — | — | — |
+| End footprint, MiB | — | — | — | — |
+| GPU busy time, ms/s; process command buffers | — | — | — | — |
+| GPU ms/frame; native cadence / painted drawables | — | — | — | — |
+| Completed command buffers per sample | — | — | — | — |
+
+### Bar CPU attempt 2 — excluded
+
+`bar-a-2` retains five rounds of all four arms after a **156.920 s**
+gate. **43 of 63** qualifying-gate/series observations fail, with
+**0.718–2.074 busy cores** and WindowServer at **0.341 core**. The whole series
+is excluded. The static filter excludes **20** timed samples;
+its remaining per-arm counts are shown below. No bar CPU row replaces G5m.
+
+GPU hook: off (gpuHookEnabled=false).
+
+bar
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Quiet samples | 0 | 0 | 0 | 0 |
+| Process CPU, ms/s | — | — | — | — |
+| Main-thread CPU, ms/s | — | — | — | — |
+| Frames/s; native display link / painted drawables | — | — | — | — |
+| Peak footprint, MiB | — | — | — | — |
+| End footprint, MiB | — | — | — | — |
+| GPU busy time, ms/s; process command buffers | — | — | — | — |
+| GPU ms/frame; native cadence / painted drawables | — | — | — | — |
+| Completed command buffers per sample | — | — | — | — |
+
+### Caret CPU attempt 1 — excluded
+
+`caret-a-1` is main's before-M2b cohort, five rounds per arm, hook off and
+power off. After a **157.012 s** gate, **16 of 63** qualifying-gate/
+series observations fail. Whole-machine CPU is **0.383–1.884 cores**;
+`corespotlightd` reaches **0.463 core**. The static filter retains two native
+and two GPUI phases, and excludes the other sixteen. Their values below
+reproduce that filter; the whole-series rule excludes all of them from the
+scoreboard. There is no quiet Ink or egui CPU value in this attempt.
+
+GPU hook: off (gpuHookEnabled=false).
+
+caret
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Quiet samples | 2 | 2 | 0 | 0 |
+| Process CPU, ms/s | 11.729 (11.457–12.002) | 18.157 (17.622–18.691) | — | — |
+| Main-thread CPU, ms/s | 10.399 (10.145–10.653) | 14.540 (14.083–14.997) | — | — |
+| Process instructions, million/s | 20.369 (20.249–20.489) | 35.089 (34.954–35.224) | — | — |
+| Process cycles, million/s | 17.035 (17.010–17.060) | 26.489 (24.588–28.391) | — | — |
+| Frames/s; native display link / painted drawables | 119.84 (119.78–119.89) | 2.00 (2.00–2.00) | — | — |
+| Peak footprint, MiB | 128.95 (128.63–129.28) | 299.11 (292.97–305.25) | — | — |
+| End footprint, MiB | 128.62 (128.28–128.95) | 298.56 (292.47–304.66) | — | — |
+| GPU busy time, ms/s; process command buffers | — | — | — | — |
+| GPU ms/frame; native cadence / painted drawables | — | — | — | — |
+| Completed command buffers per sample | — | — | — | — |
+
+### Caret CPU attempt 2 — excluded
+
+`caret-a-2` uses the hook off and power sampling off, after a
+**60.742 s** gate. **18 of 63** qualifying-gate/series observations
+fail: **0.413–1.942 busy cores**, with `hybridsearchd` at
+**0.942 core**. The whole series is excluded.
+The static filter excludes **16** sample/launch records; the individually
+passing phases below do not qualify a scoreboard row.
+This is main's before-M2b carrier, pinned to `d5429830d2`.
+
+GPU hook: off (gpuHookEnabled=false).
+
+caret
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Quiet samples | 3 | 1 | 0 | 0 |
+| Process CPU, ms/s | 10.527 (9.751–10.974) | 17.305 (17.305–17.305) | — | — |
+| Main-thread CPU, ms/s | 9.282 (8.651–9.800) | 13.767 (13.767–13.767) | — | — |
+| Process instructions, million/s | 20.227 (20.205–20.672) | 34.987 (34.987–34.987) | — | — |
+| Process cycles, million/s | 15.224 (13.519–15.451) | 23.793 (23.793–23.793) | — | — |
+| Frames/s; native display link / painted drawables | 119.88 (119.76–119.94) | 2.00 (2.00–2.00) | — | — |
+| Peak footprint, MiB | 126.00 (125.88–127.22) | 292.95 (292.95–292.95) | — | — |
+| End footprint, MiB | 125.59 (125.49–126.78) | 292.42 (292.42–292.42) | — | — |
+| GPU busy time, ms/s; process command buffers | — | — | — | — |
+| GPU ms/frame; native cadence / painted drawables | — | — | — | — |
+| Completed command buffers per sample | — | — | — | — |
+
+### Bar GPU attempt 1 — excluded
+
+Configuration (b) qualifies GPU columns only. The CPU columns printed by the
+aggregator include the hook's cost and are excluded from the CPU baseline.
+
+`bar-b-1` uses the hook on and power sampling off, after a
+**212.581 s** gate. **32 of 63** qualifying-gate/series observations
+fail: **0.476–1.810 busy cores**, with `duetexpertd` at
+**0.686 core**. The whole series is excluded.
+The static filter excludes **20** sample/launch records; the individually
+passing phases below do not qualify a scoreboard row.
+
+GPU hook: on (gpuHookEnabled=true).
+
+bar
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Quiet samples | 0 | 0 | 0 | 0 |
+| Process CPU, ms/s | — | — | — | — |
+| Main-thread CPU, ms/s | — | — | — | — |
+| Frames/s; native display link / painted drawables | — | — | — | — |
+| Peak footprint, MiB | — | — | — | — |
+| End footprint, MiB | — | — | — | — |
+| GPU busy time, ms/s; process command buffers | — | — | — | — |
+| GPU ms/frame; native cadence / painted drawables | — | — | — | — |
+| Completed command buffers per sample | — | — | — | — |
+
+### Bar GPU attempt 2 — excluded
+
+`bar-b-2` uses the hook on and power sampling off, after a
+**60.765 s** gate. **26 of 63** qualifying-gate/series observations
+fail: **0.465–1.785 busy cores**, with `WindowServer` at
+**0.384 core**. The whole series is excluded.
+The static filter excludes **20** sample/launch records; the individually
+passing phases below do not qualify a scoreboard row.
+
+GPU hook: on (gpuHookEnabled=true).
+
+bar
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Quiet samples | 0 | 0 | 0 | 0 |
+| Process CPU, ms/s | — | — | — | — |
+| Main-thread CPU, ms/s | — | — | — | — |
+| Frames/s; native display link / painted drawables | — | — | — | — |
+| Peak footprint, MiB | — | — | — | — |
+| End footprint, MiB | — | — | — | — |
+| GPU busy time, ms/s; process command buffers | — | — | — | — |
+| GPU ms/frame; native cadence / painted drawables | — | — | — | — |
+| Completed command buffers per sample | — | — | — | — |
+
+### Caret GPU attempt 1 — excluded
+
+`caret-b-1` uses the hook on and power sampling off, after a
+**60.771 s** gate. **17 of 64** qualifying-gate/series observations
+fail: **0.532–1.430 busy cores**, with `corespotlightd` at
+**0.559 core**. The whole series is excluded.
+The static filter excludes **17** sample/launch records; the individually
+passing phases below do not qualify a scoreboard row.
+This is main's before-M2b carrier, pinned to `d5429830d2`.
+
+GPU hook: on (gpuHookEnabled=true).
+
+caret
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Quiet samples | 1 | 1 | 0 | 1 |
+| Process CPU, ms/s | 10.986 (10.986–10.986) | 17.534 (17.534–17.534) | — | 15.395 (15.395–15.395) |
+| Main-thread CPU, ms/s | 9.695 (9.695–9.695) | 13.936 (13.936–13.936) | — | 12.525 (12.525–12.525) |
+| Process instructions, million/s | 20.951 (20.951–20.951) | 34.998 (34.998–34.998) | — | 27.750 (27.750–27.750) |
+| Process cycles, million/s | 15.400 (15.400–15.400) | 23.636 (23.636–23.636) | — | 21.394 (21.394–21.394) |
+| Frames/s; native display link / painted drawables | 119.95 (119.95–119.95) | 2.00 (2.00–2.00) | — | 2.00 (2.00–2.00) |
+| Peak footprint, MiB | 128.33 (128.33–128.33) | 305.09 (305.09–305.09) | — | 438.78 (438.78–438.78) |
+| End footprint, MiB | 128.00 (128.00–128.00) | 304.53 (304.53–304.53) | — | 438.41 (438.41–438.41) |
+| GPU busy time, ms/s; process command buffers | — | 0.581 (0.581–0.581) | — | 0.387 (0.387–0.387) |
+| GPU ms/frame; native cadence / painted drawables | — | 0.2907 (0.2907–0.2907) | — | 0.1933 (0.1933–0.1933) |
+| Completed command buffers per sample | 0 (0–0) | 20 (20–20) | — | 140 (140–140) |
+
+### Caret GPU attempt 2 — excluded
+
+`caret-b-2` uses the hook on and power sampling off, after a
+**86.078 s** gate. **19 of 64** qualifying-gate/series observations
+fail: **0.443–2.910 busy cores**, with `fseventsd` at
+**1.031 core**. The whole series is excluded.
+The static filter excludes **13** sample/launch records; the individually
+passing phases below do not qualify a scoreboard row.
+This is main's before-M2b carrier, pinned to `d5429830d2`.
+
+GPU hook: on (gpuHookEnabled=true).
+
+caret
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Quiet samples | 4 | 2 | 0 | 1 |
+| Process CPU, ms/s | 10.388 (10.356–10.569) | 17.558 (16.754–18.362) | — | 15.048 (15.048–15.048) |
+| Main-thread CPU, ms/s | 9.116 (9.066–9.349) | 13.974 (13.232–14.716) | — | 12.343 (12.343–12.343) |
+| Process instructions, million/s | 20.234 (20.151–20.646) | 34.480 (33.983–34.976) | — | 27.659 (27.659–27.659) |
+| Process cycles, million/s | 14.657 (14.347–15.187) | 24.636 (23.010–26.263) | — | 20.969 (20.969–20.969) |
+| Frames/s; native display link / painted drawables | 119.91 (119.83–119.99) | 2.00 (2.00–2.00) | — | 2.00 (2.00–2.00) |
+| Peak footprint, MiB | 129.02 (125.58–133.02) | 292.19 (292.16–292.22) | — | 440.88 (440.88–440.88) |
+| End footprint, MiB | 128.63 (125.24–132.45) | 291.76 (291.74–291.78) | — | 440.36 (440.36–440.36) |
+| GPU busy time, ms/s; process command buffers | — | 0.582 (0.579–0.586) | — | 0.378 (0.378–0.378) |
+| GPU ms/frame; native cadence / painted drawables | — | 0.2912 (0.2894–0.2930) | — | 0.1893 (0.1893–0.1893) |
+| Completed command buffers per sample | 0 (0–0) | 20 (20–20) | — | 140 (140–140) |
+
+### Static predictions beside the excluded results
+
+Attempt 1 / attempt 2 are shown in that order. Values are the individually
+passing phases retained by the static filter, with the counts in the tables
+above. They do not establish a quiet five-round result: every whole cohort is
+excluded. A missing value is untested, not zero or a successful prediction.
+
+| Prediction and instrument | Predicted | Reported result, attempts 1 / 2 | Result |
+|---|---|---|---|
+| Bar process CPU, native / GPUI / Ink / egui, ms/s | 60–95 / 100–160 / 100–170 / 110–180 | No individually passing phase for any arm | Untested; both cohorts excluded |
+| Caret native process CPU, ms/s | 6–15 | 11.729 / 10.527 | Within band in partial phases; cohorts excluded |
+| Caret GPUI process CPU, ms/s | 10–22 | 18.157 / 17.305 | Within band in partial phases; cohorts excluded |
+| Caret Ink process CPU, ms/s | 100–170 | No individually passing phase | Untested; cohorts excluded |
+| Caret egui process CPU, ms/s | 8–20 | No individually passing hook-off phase | Untested; cohorts excluded |
+| Bar cadence, all arms, Hz | 118–121 | No individually passing phase | Untested; cohorts excluded |
+| Caret native display-link cadence, Hz | 118–121 | 119.84 / 119.88, hook off | Within band in partial phases; cohorts excluded |
+| Caret GPUI presented cadence, Hz | 1.9–2.1 | 2.00 / 2.00, hook off | Within band in partial phases; cohorts excluded |
+| Caret Ink / egui presented cadence, Hz | 118–121 / 1.9–2.1 | No individually passing hook-off phase | Untested in the CPU cohorts; hook-on egui phases show 2.00 Hz |
+| Ink GPU time, bar and caret, ms/frame | 1.25–2.5; above 15% of 8.33 ms | No individually passing Ink phase in either workload | Untested; no quiet M8 measurement |
+| GPUI / egui bar GPU time, ms/frame | Below 0.417, or 5% of 8.33 ms | No individually passing phase | Untested; cohorts excluded |
+| GPUI caret GPU time, ms/frame | Below 0.417 | 0.2907 / 0.2912 | Below the bound in partial phases; cohorts excluded |
+| egui caret GPU time, ms/frame | Below 0.417 | 0.1933 / 0.1893 | Below the bound in partial phases; cohorts excluded |
+
+**Scoreboard.** No G4q CPU or GPU row replaces the existing under-background
+rows. The quiet-silver explanation of G4→G4m remains untested; the excluded
+fling medians are above G4, but cannot settle the question. A qualified silver
+retake is owed, followed by the interleaved two-Mac comparison unless that
+retake meets G4's ranges. There is no quiet Ink GPU share to compare with the
+15% trigger. These are before-M3 runs, so they do not earn M8 in any case.
+
+### Separate power: fling attempt 1 — excluded
+
+`fling-power-1` runs one interleaved round with the hook off and
+`powermetrics` on, after a **60.750 s** gate. **1 of 31**
+qualifying-gate/series observations fails: **0.461–1.558 busy cores**, with an
+external `find` process at **0.421 core**. The whole series is excluded.
+
+The join uses each application's PID and paired wall/CACurrentMediaTime
+calibrations. It discards power intervals that could cross either phase edge,
+including one second of plist timestamp uncertainty in each direction, then
+takes duration-weighted means. This run's calibration spread is
+**0.000093460 s**. Every reported arm/phase has at least
+five interior samples. System watts are estimates; process energy impact is
+a proxy, not watts. Each cell is one run's mean; its repeated min/max is not
+a confidence interval. No numerical power saving was predicted.
+
+The sampler exits after its finite sample count. Monitoring covers the gate,
+the driver and its terminal observation; later idle power samples are retained
+but excluded from the join. Power is reported separately from CPU timings.
+
+| Metric | Native | GPUI | Ink | egui |
+|---|---:|---:|---:|---:|
+| Fling interior: system CPU, W | 1.727 (1.727–1.727) | 1.221 (1.221–1.221) | 1.575 (1.575–1.575) | 6.140 (6.140–6.140) |
+| Fling interior: system GPU, W | 0.029 (0.029–0.029) | 0.172 (0.172–0.172) | 0.216 (0.216–0.216) | 0.054 (0.054–0.054) |
+| Fling interior: process energy impact/s | 311.10 (311.10–311.10) | 57.49 (57.49–57.49) | 48.38 (48.38–48.38) | 69.08 (69.08–69.08) |
+| Fling interior: system GPU clock, MHz | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) | 343.6 (343.6–343.6) |
+| Fling interior: system GPU active, % | 4.80 (4.80–4.80) | 11.60 (11.60–11.60) | 11.90 (11.90–11.90) | 6.11 (6.11–6.11) |
+| Rest interior: system CPU, W | 1.038 (1.038–1.038) | 0.987 (0.987–0.987) | 1.264 (1.264–1.264) | 1.240 (1.240–1.240) |
+| Rest interior: system GPU, W | 0.002 (0.002–0.002) | 0.001 (0.001–0.001) | 0.007 (0.007–0.007) | 0.012 (0.012–0.012) |
+| Rest interior: process energy impact/s | 0.39 (0.39–0.39) | 0.97 (0.97–0.97) | 0.60 (0.60–0.60) | 0.17 (0.17–0.17) |
+| Rest interior: system GPU clock, MHz | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) | 371.2 (371.2–371.2) | 386.2 (386.2–386.2) |
+| Rest interior: system GPU active, % | 0.55 (0.55–0.55) | 0.36 (0.36–0.36) | 1.36 (1.36–1.36) | 1.95 (1.95–1.95) |
