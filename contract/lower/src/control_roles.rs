@@ -63,9 +63,12 @@ pub(crate) fn unlowered() {
     crate::theme::forget_roles();
 }
 
-/// Every unreachable override, once a target, control and parameter.
+/// Every unreachable override, once a target, control and parameter, and
+/// one line for each declaration that sets it.
 pub(crate) fn unreachable(view: &[Node], styles: &[StyleDecl], out: &mut Vec<LowerError>) {
-    let targets = crate::icons::shipped();
+    // In the table's host order, so a line names the hosts as the table does.
+    let mut targets = crate::icons::shipped();
+    targets.sort_by_key(|t| CONTROL_HOSTS.iter().position(|h| *h == t.name));
     let roles = crate::theme::overridden_roles();
     let role = |name: &str| roles.iter().find(|(r, _)| r == name).map(|(_, s)| *s);
     let mut used: Vec<Used> = Vec::new();
@@ -140,6 +143,7 @@ pub(crate) fn unreachable(view: &[Node], styles: &[StyleDecl], out: &mut Vec<Low
         });
     }
     let mut said: Vec<(String, String, &str)> = Vec::new();
+    let mut found: Vec<Found> = Vec::new();
     for target in &targets {
         // A target with no column (tvOS, watchOS: not D9's hosts) is not
         // judged; nor the terminal, which draws no colour at all (its
@@ -150,7 +154,6 @@ pub(crate) fn unreachable(view: &[Node], styles: &[StyleDecl], out: &mut Vec<Low
         else {
             continue;
         };
-        let mut found: Vec<Found> = Vec::new();
         for row in CONTROLS {
             let control = match row.state {
                 Some(state) => format!("{}:{state}", row.control),
@@ -188,61 +191,160 @@ pub(crate) fn unreachable(view: &[Node], styles: &[StyleDecl], out: &mut Vec<Low
                 continue;
             }
             said.push(key);
-            // A control and its state that the host leaves alike (a range
-            // and a disabled range) are one line.
-            match found
+            let f = match found
                 .iter_mut()
-                .find(|f| f.parameter == row.parameter && f.why == why)
+                .find(|f| f.parameter == row.parameter && f.span == set)
             {
-                Some(f) => f.controls.push(plural(&control)),
-                None => found.push(Found {
-                    parameter: row.parameter,
+                Some(f) => f,
+                None => {
+                    found.push(Found {
+                        parameter: row.parameter,
+                        span: set,
+                        line: first.line,
+                        parts: Vec::new(),
+                        targets: Vec::new(),
+                    });
+                    found.last_mut().expect("just pushed")
+                }
+            };
+            f.line = f.line.min(first.line);
+            if !f.targets.contains(&target) {
+                f.targets.push(target);
+            }
+            // A control and its state that the host leaves alike (a range
+            // and a disabled range) are one part, and so are the hosts that
+            // leave the same controls alike.
+            let host = host_name(&target.name);
+            let named = plural(&control);
+            if let Some(p) = f
+                .parts
+                .iter_mut()
+                .find(|p| p.why == why && p.hosts == [host])
+            {
+                p.controls.push(named);
+            } else if let Some(p) = f
+                .parts
+                .iter_mut()
+                .find(|p| p.why == why && p.controls == [named.as_str()])
+            {
+                p.hosts.push(host);
+            } else {
+                f.parts.push(Part {
+                    hosts: vec![host],
+                    controls: vec![named],
                     why,
-                    controls: vec![plural(&control)],
-                    line: first.line,
-                    span: set,
-                }),
+                });
             }
         }
-        // An app made by `exact new` ships the Mac without asking for it,
-        // so the line says what ships it and how to stop. The web stays:
-        // it is the dev loop's and the agent's.
-        let stop = match crate::icons::without(&target.name) {
-            _ if target.name == "web" => String::new(),
-            Some(step) => format!(
-                ". The app ships {}; not shipping it? {step} removes it",
-                target.described()
-            ),
-            None => format!(
-                ". The app ships {}; not shipping it? delete those keys",
-                target.described()
-            ),
-        };
-        for f in found {
-            out.push(LowerError {
-                id: "tamber-unreachable",
-                message: format!(
-                    "{} on {} {}: {} (the first at line {}; LLP 1121 D9){stop}",
-                    f.parameter,
-                    host_name(&target.name),
-                    f.controls.join(" and "),
-                    f.why,
-                    f.line,
-                ),
-                span: f.span,
-            });
-        }
+    }
+    // One line a declaration (LLP 1121 D9, amended 2026-10-30): an accent
+    // that six controls leave alone is one thing to know, not six.
+    for f in found {
+        out.push(LowerError {
+            id: "tamber-unreachable",
+            message: f.message(),
+            span: f.span,
+        });
     }
 }
 
-/// One line of `unreachable`: a parameter a host does not honour, for the
-/// controls that reach it for the same reason.
-struct Found {
+/// One line of `unreachable`: a parameter one declaration sets, and every
+/// host and control that does not honour it.
+struct Found<'t> {
     parameter: &'static str,
-    why: &'static str,
-    controls: Vec<String>,
-    line: u32,
     span: Span,
+    line: u32,
+    parts: Vec<Part<'t>>,
+    targets: Vec<&'t crate::icons::Target>,
+}
+
+/// Controls on hosts that leave the parameter alone for one reason.
+struct Part<'t> {
+    hosts: Vec<&'t str>,
+    controls: Vec<String>,
+    why: &'static str,
+}
+
+impl Found<'_> {
+    fn message(&self) -> String {
+        let mut hosts: Vec<&str> = Vec::new();
+        for h in self.parts.iter().flat_map(|p| &p.hosts) {
+            if !hosts.contains(h) {
+                hosts.push(h);
+            }
+        }
+        let body = match &self.parts[..] {
+            [p] => format!(
+                "{} on {} {}: {}",
+                self.parameter,
+                and(&p.hosts),
+                p.controls.join(" and "),
+                p.why
+            ),
+            // One host names itself once; several name each part's.
+            parts => {
+                let each = parts
+                    .iter()
+                    .map(|p| match hosts.len() {
+                        1 => format!("{} ({})", p.controls.join(" and "), p.why),
+                        _ => format!("{} {} ({})", and(&p.hosts), p.controls.join(" and "), p.why),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                format!(
+                    "{} on {}: the platform's look stands on {each}",
+                    self.parameter,
+                    and(&hosts).replace("the web's", "the web")
+                )
+            }
+        };
+        format!(
+            "{body} (the first at line {}; LLP 1121 D9){}",
+            self.line,
+            self.stop()
+        )
+    }
+
+    /// What ships each native target and how to stop. An app made by
+    /// `exact new` ships the Mac once a verb names it, so the line says so.
+    /// The web stays: it is the dev loop's and the agent's.
+    fn stop(&self) -> String {
+        let native: Vec<_> = self.targets.iter().filter(|t| t.name != "web").collect();
+        match &native[..] {
+            [] => String::new(),
+            [t] => match crate::icons::without(&t.name) {
+                Some(step) => format!(
+                    ". The app ships {}; not shipping it? {step} removes it",
+                    t.described()
+                ),
+                None => format!(
+                    ". The app ships {}; not shipping it? delete those keys",
+                    t.described()
+                ),
+            },
+            several => {
+                let ships: Vec<String> = several.iter().map(|t| t.described()).collect();
+                let mut steps: Vec<String> = several
+                    .iter()
+                    .filter_map(|t| {
+                        crate::icons::without(&t.name)
+                            .map(|step| format!("{step} removes {}", t.name))
+                    })
+                    .collect();
+                if steps.len() < several.len() {
+                    steps.push(match steps.is_empty() {
+                        true => "delete its keys".into(),
+                        false => "otherwise delete its keys".into(),
+                    });
+                }
+                format!(
+                    ". The app ships {}; not shipping one? {}",
+                    and(&ships),
+                    steps.join("; ")
+                )
+            }
+        }
+    }
 }
 
 /// A node's rows as they may hold: its own, and each set of classes it
@@ -446,6 +548,18 @@ fn control(tag: &str, positional: &[Expr], rows: &Rows) -> Vec<String> {
         .collect();
     out.dedup();
     out
+}
+
+/// `a`, `a and b`, `a, b and c`.
+fn and<S: AsRef<str>>(names: &[S]) -> String {
+    match names {
+        [one] => one.as_ref().to_string(),
+        [rest @ .., last] => {
+            let rest: Vec<&str> = rest.iter().map(AsRef::as_ref).collect();
+            format!("{} and {}", rest.join(", "), last.as_ref())
+        }
+        [] => String::new(),
+    }
 }
 
 fn host_name(host: &str) -> &str {

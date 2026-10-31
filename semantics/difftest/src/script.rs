@@ -46,6 +46,13 @@ pub enum Item {
     Observe(contract_syntax::Span),
     /// Expanded from live runner tasks before the case is compared.
     Settle { span: contract_syntax::Span },
+    /// Land once, then read state without advancing the clock.
+    Until {
+        path: String,
+        literal: serde_json::Value,
+        within: u64,
+        span: contract_syntax::Span,
+    },
 }
 
 /// A program and its script.
@@ -97,6 +104,8 @@ pub struct Delivery {
     pub settle_events: Option<usize>,
     /// Settles that still had due work after sixteen rounds.
     pub settle_bounds: usize,
+    /// State waits met after their landing.
+    pub until_met: usize,
     /// Advances issued by the device runner's mutation clock.
     pub mutation_events: usize,
     /// Mutation clocks that still issued requests after sixteen rounds.
@@ -196,6 +205,10 @@ pub fn test_case(
                     launch_steps += 1;
                     continue;
                 }
+                Step::Size { .. } => {
+                    launch_steps += 1;
+                    continue;
+                }
                 _ => leading = false,
             }
         }
@@ -228,7 +241,7 @@ pub fn test_case(
         .iter()
         .filter_map(|i| match i {
             Item::Event(e) => Some(e.clone()),
-            Item::Expect(..) | Item::Observe(_) | Item::Settle { .. } => None,
+            _ => None,
         })
         .collect();
     let mut script = Scripted {
@@ -246,12 +259,19 @@ pub fn test_case(
         delivery,
     };
     crate::settle::expand(&mut script, plan)?;
-    if script.delivery.mutation_bounds > 0 {
-        let span = script.delivery.stopped.as_ref().unwrap().0;
+    if let Some((span, kind, _)) = script.delivery.stopped.as_ref().filter(|(_, kind, _)| {
+        matches!(
+            kind.as_str(),
+            "clock (mutation bound)" | "clock until (not met)"
+        )
+    }) {
         script.delivery.taken = t
             .steps
             .iter()
-            .take_while(|step| step.span().line <= span.line)
+            .take_while(|step| {
+                step.span().line < span.line
+                    || (kind == "clock (mutation bound)" && step.span().line == span.line)
+            })
             .count()
             .saturating_sub(launch_steps);
     }
@@ -278,10 +298,11 @@ fn deliver(step: &Step) -> Result<Option<Item>, String> {
             append: false,
             ..
         } => Item::Event(Event::Type(target.clone(), text.clone())),
+        Step::Clock { arg, span } if arg.starts_with("until ") => until(arg, *span)?,
         Step::Clock { arg, .. } if arg == "data" => Item::Event(Event::Land),
         Step::Clock { arg, .. } => match arg.strip_prefix('+').map(str::parse::<f64>) {
             Some(Ok(ms)) if ms.is_finite() && ms >= 0.0 => Item::Event(Event::Clock(ms)),
-            _ => return Err("only clock +ms, data and settle are delivered".into()),
+            _ => return Err("only clock +ms, data, settle and until state are delivered".into()),
         },
         Step::ExpectState { name, value, .. } => match literal(value) {
             Some(v) => Item::Expect(Expect::State(name.clone(), v), step.span()),
@@ -317,6 +338,35 @@ fn deliver(step: &Step) -> Result<Option<Item>, String> {
     }))
 }
 
+fn until(arg: &str, span: contract_syntax::Span) -> Result<Item, String> {
+    let (path, rest) = arg
+        .strip_prefix("until state ")
+        .and_then(|s| s.split_once(" == "))
+        .ok_or("clock until needs a state path and a literal")?;
+    if path.contains('.') {
+        return Err(format!(
+            "clock until: {path} needs a field adapter; expect state reads only top-level observation values"
+        ));
+    }
+    let (literal, within) = rest
+        .rsplit_once(" within ")
+        .ok_or("clock until needs a bound")?;
+    Ok(Item::Until {
+        path: path.into(),
+        literal: serde_json::from_str(literal).map_err(|e| e.to_string())?,
+        within: within.parse::<u64>().map_err(|e| e.to_string())?,
+        span,
+    })
+}
+
+/// The same top-level value for expectations and state waits.
+pub(crate) fn state_value<'a>(step: &'a [String], name: &str) -> Option<&'a str> {
+    ["slot", "derive", "resource"].iter().find_map(|kind| {
+        let prefix = format!("{kind} {name} ");
+        step.iter().find_map(|line| line.strip_prefix(&prefix))
+    })
+}
+
 fn delivered_kind(kind: &str) -> bool {
     matches!(
         kind,
@@ -339,7 +389,10 @@ pub(crate) fn undeliverable_kinds() -> String {
     Step::KINDS
         .iter()
         .filter(|kind| !delivered_kind(kind))
-        .map(|kind| kind_name(kind))
+        .map(|kind| match *kind {
+            "Size" => "size (after launch)".into(),
+            other => kind_name(other),
+        })
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -361,6 +414,14 @@ fn kind_name(kind: &str) -> String {
 
 fn step_kind(step: &Step) -> String {
     match step {
+        Step::Clock { arg, .. }
+            if arg.strip_prefix("until state ").is_some_and(|s| {
+                s.split_once(" == ")
+                    .is_some_and(|(path, _)| path.contains('.'))
+            }) =>
+        {
+            "clock until (field path)".into()
+        }
         Step::Clock { arg, .. } => format!("clock {}", arg.split_whitespace().next().unwrap_or("")),
         Step::Tap {
             form, modifiers, ..
@@ -433,7 +494,6 @@ mod tests {
     fn undeliverable_steps_keep_their_kind_and_location() {
         for (step, kind) in [
             ("request GET \"/items\"", "request"),
-            ("clock until state n == 1 within 100", "clock until"),
             ("fail fetch \"https://example.test\"", "fail fetch"),
             ("pass fetch \"https://example.test\"", "pass fetch"),
             ("back", "back"),
@@ -453,12 +513,106 @@ mod tests {
     }
     #[test]
     fn fixed_launch_facts_precede_the_delivered_prefix() {
-        let source = format!("{APP}\nepoch \"2026-10-22T18:00:00Z\"\ntime-zone \"America/Los_Angeles\"\ntest \"fixed\"\n  clock settle\n  clock until state n == 1 within 100\n");
+        let source = format!("{APP}\nepoch \"2026-10-22T18:00:00Z\"\ntime-zone \"America/Los_Angeles\"\ntest \"fixed\"\n  size 800x600\n  clock settle\n  clock until state n == 1 within 100\n");
         let s = scripted("launch", &source, None).unwrap().remove(0);
         assert_eq!(s.case.launch.time.unwrap().epoch_at_zero, 1792692000000.0);
         assert_eq!(s.case.launch.time.unwrap().utc_offset, -420.0);
         assert_eq!(s.delivery.settle_events, Some(1));
         assert_eq!(s.delivery.taken, 1);
-        assert_eq!(s.delivery.stopped.unwrap().1, "clock until");
+        assert_eq!(s.delivery.stopped.unwrap().1, "clock until (not met)");
+    }
+
+    #[test]
+    fn leading_size_has_no_event_and_a_later_resize_stops() {
+        let source = format!("{APP}\ntest \"launch\"\n  size 800x600\n  tap \"add\"\n  expect state n == 1\ntest \"resize\"\n  tap \"add\"\n  resize 900x700\n  tap \"add\"\n");
+        let scripts = scripted("size", &source, None).unwrap();
+        let launch = &scripts[0];
+        assert_eq!(launch.delivery.taken, 2);
+        assert!(launch.delivery.stopped.is_none());
+        assert_eq!(
+            launch.case.events,
+            [Event::Tap("add".into()), Event::InputLand]
+        );
+        crate::expectations(launch).unwrap();
+        let resize = &scripts[1];
+        assert_eq!(resize.delivery.taken, 1);
+        assert_eq!(resize.delivery.stopped.as_ref().unwrap().1, "resize");
+        assert_eq!(resize.case.events, launch.case.events);
+        let error = scripted(
+            "size",
+            &source.replace("resize 900x700", "size 900x700"),
+            None,
+        )
+        .unwrap_err();
+        assert!(error.contains("`size` leads a test's steps"));
+    }
+
+    #[test]
+    fn until_met_after_then_continues_and_records_its_origin() {
+        let source = "shape Ack\n  ok: bool\ncomponent App\n  state screen = \"lock\"\n  state ticks = 0\n  mutation saved as shape Ack then open\n  action start\n    send saved = save()\n  action open\n    screen = \"home\"\n  action tick\n    ticks = ticks + 1\n  task later mount\n    after(100, tick)\n  view\n    button \"start\" testId=\"start\" press=start\ntest \"met\"\n  tap \"start\"\n  clock until state screen == \"home\" within 1000\n  expect state screen == \"home\"\n  expect state ticks == 0\n";
+        let s = scripted("until", source, None).unwrap().remove(0);
+        assert!(s.delivery.stopped.is_none());
+        assert_eq!(s.delivery.until_met, 1);
+        assert_eq!(s.delivery.taken, 4);
+        assert_eq!(s.case.events.last(), Some(&Event::Land));
+        assert_eq!(s.delivery.events.last().unwrap().line, 19);
+        crate::expectations(&s).unwrap();
+        let text = std::fs::read_to_string(s.delivery.expansion.unwrap()).unwrap();
+        assert!(text.ends_with("# clock until state screen == \"home\" within 1000\nland"));
+    }
+
+    #[test]
+    fn until_not_met_stops_without_firing_a_timer_or_checking_later_expectations() {
+        let source = "component App\n  state screen = \"lock\"\n  action open\n    screen = \"home\"\n  task later mount\n    after(1, open)\n  view\n    text screen\ntest \"not met\"\n  clock until state screen == \"home\" within 1000\n  expect state screen == \"home\"\n  clock +1\n  reload\n";
+        let s = scripted("until", source, None).unwrap().remove(0);
+        assert_eq!(s.case.events, [Event::Land]);
+        assert_eq!(s.delivery.taken, 0);
+        assert_eq!(s.delivery.until_met, 0);
+        assert_eq!(s.delivery.mutation_events, 0);
+        let (span, kind, why) = s.delivery.stopped.as_ref().unwrap();
+        assert_eq!(span.line, 10);
+        assert_eq!(kind, "clock until (not met)");
+        assert_eq!(
+            why,
+            "clock until: screen is \"lock\", not \"home\"; no answer is pending in this world"
+        );
+        crate::expectations(&s).unwrap();
+    }
+
+    #[test]
+    fn until_field_and_index_paths_stop_apart() {
+        for path in ["session.phase", "rows.0"] {
+            let source = format!("{APP}\ntest \"field\"\n  clock data\n  clock until state {path} == \"ready\" within 100\n  tap \"add\"\n");
+            let s = scripted("until", &source, None).unwrap().remove(0);
+            assert_eq!(s.delivery.taken, 1);
+            assert_eq!(s.case.events, [Event::Land]);
+            assert_eq!(
+                s.delivery.stopped.as_ref().unwrap().1,
+                "clock until (field path)"
+            );
+        }
+    }
+
+    #[test]
+    fn until_reads_scalar_literals_in_the_observations_format() {
+        for (initial, literal) in [
+            ("0", "0"),
+            ("-1.5", "-1.5"),
+            ("true", "true"),
+            ("false", "false"),
+            ("none", "null"),
+            (r#""a == b within 5""#, r#""a == b within 5""#),
+        ] {
+            let writer = if initial == "none" {
+                "  action fill\n    value = some(0)\n"
+            } else {
+                ""
+            };
+            let source = format!("component App\n  state value = {initial}\n{writer}  derive copy = true\n  view\n    text \"ok\"\ntest \"literal\"\n  clock until state value == {literal} within 10\n  clock until state copy == true within 10\n");
+            let s = scripted("until", &source, None).unwrap().remove(0);
+            assert!(s.delivery.stopped.is_none(), "{literal}");
+            assert_eq!(s.delivery.until_met, 2);
+            assert_eq!(s.case.events, [Event::Land, Event::Land]);
+        }
     }
 }

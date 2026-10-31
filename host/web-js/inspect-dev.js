@@ -94,7 +94,16 @@ const clears = (name, said) => (CLEARS.test(said) && !(name === "font_family" &&
 /** Whether an expression wrote a clear that inherits (`inherit`, `unset`):
  * the runner keeps it written, so a control's start or a text style does
  * not stand in for it. */
-const writtenClear = (el, name) => /^(inherit|unset|revert|revert-layer)$/i.test(el.style.getPropertyValue(cssName(name)).trim());
+const writtenClear = (el, name) => /^(inherit|unset|revert|revert-layer)$/i.test(written(el, cssName(name)).trim());
+/** What a binding wrote for `prop` on `el`: its inline style, or, on a node whose rows are lowered to an arm class
+ * (lower.js `$lowered`), that class's rule in `#exact-arms`, which holds the very declarations `S` would have. */
+export function written(el, prop) {
+  const own = el.style.getPropertyValue(prop);
+  if (own || !el.$lowered?.includes(prop)) return own;
+  const arm = [...el.classList].find((c) => c.startsWith("xa"));
+  for (const r of document.getElementById("exact-arms")?.sheet?.cssRules ?? []) for (const n of r.cssRules ?? []) if (n.selectorText?.replace(/^&\s+/, "") === `.${arm}`) return n.style.getPropertyValue(prop);
+  return "";
+}
 /** The tokens an inline value names, by their custom properties. */
 const tokensIn = (t, said) => [...new Set([...said.matchAll(/var\((--[\w-]+)/g)].map((m) => t.props?.[m[1]]).filter(Boolean))];
 
@@ -111,7 +120,7 @@ function ownRow(t, el, row, lv) {
   // custom properties in what the page wrote (the text is the one token's
   // name when it names one alone).
   else if (row.d) {
-    const said = el.style.getPropertyValue(cssName(row.n));
+    const said = written(el, cssName(row.n));
     const names = tokensIn(t, said);
     if (names.length) out.token = { names, text: /^var\(--[\w-]+\)$/.test(said.trim()) ? names[0] : said.trim(), modes: text, implied: false };
   }
@@ -149,7 +158,7 @@ function setNow(el, name) {
   if (name === "mode") { const pin = el.getAttribute("data-x-pin")?.trim(); return pin != null && pin !== "" && !CLEARS.test(pin) && el.$xbad === undefined; }
   const j = table?.channels?.indexOf(name) ?? -1;
   if (j >= 0 && el.hasAttribute("data-x-b")) return el.$xi?.[j] !== undefined;
-  const said = el.style.getPropertyValue(cssName(name)).trim();
+  const said = written(el, cssName(name)).trim();
   return said !== "" && !clears(name, said);
 }
 
@@ -245,7 +254,7 @@ function impliedRow(t, el, name, lv) {
     if (row.k) return { ...valueOf(t, el, row, n, lv), token: { names: row.k, text: row.x, modes: text, implied: true } };
     // An expression's row above: the tokens its value names now, read again here.
     if (row.d) {
-      const said = at.style.getPropertyValue(cssName(name)).trim(), names = tokensIn(t, said);
+      const said = written(at, cssName(name)).trim(), names = tokensIn(t, said);
       if (names.length) return { value: computed(el, name), computed: true, token: { names, text: /^var\(--[\w-]+\)$/.test(said) ? names[0] : said, modes: text, implied: true } };
     }
     return null;

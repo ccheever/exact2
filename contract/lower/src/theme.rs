@@ -227,6 +227,7 @@ impl Lowerer<'_> {
         bindable: bool,
         asset_root: Option<&std::path::Path>,
     ) -> exact_kernel::style::theme::ThemeScope {
+        crate::var_tokens::note(file);
         crate::icons::clear(asset_root);
         ROLES.with(|r| r.borrow_mut().clear());
         crate::control_roles::note_accent(None);
@@ -855,7 +856,7 @@ pub(crate) fn theme_decl(file: &File) -> Option<contract_syntax::ThemeDecl> {
 /// The inline `theme` as the crate reads it: one token an entry, a bare
 /// role name (LLP 1095 D4's `"secondary-grouped-background"`) in the crate's
 /// spelling unless an entry is called that.
-fn inline_design(theme: &contract_syntax::ThemeDecl) -> tamber::Design {
+pub(crate) fn inline_design(theme: &contract_syntax::ThemeDecl) -> tamber::Design {
     let names: Vec<&str> = theme.entries.iter().map(|e| e.name.as_str()).collect();
     let mut tokens = Vec::new();
     for (i, entry) in theme.entries.iter().enumerate() {

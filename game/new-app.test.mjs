@@ -2,25 +2,64 @@ import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, statSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, statSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
-import { outsideWorkspaceProblems, pathFrom, readManifest } from '../scripts/app.mjs';
+import { basename, relative, resolve } from 'node:path';
+import { outsideWorkspaceProblems, pathFrom, readManifest, resolveApp } from '../scripts/app.mjs';
+import { bringPlatform, ensureShells, namePlatform, platformOf, shellCrates, withoutPlatformKeys } from '../scripts/app-shells.mjs';
+import { authoredWorkspace } from '../scripts/cargo-check.mjs';
 import { appVerbs } from '../scripts/app-cli.mjs';
-import { applyPattern, createApp, createGame, patternFiles, patterns, rosterSeeds, wireSnapback, withoutMember } from './new.mjs';
+import { namesNative, nativePlatforms } from '../scripts/deploy.mjs';
+import { applyPattern, authoredApp, createApp, createGame, patternFiles, patterns, rosterSeeds, wireSnapback, withoutMember } from './new.mjs';
+
+/** An app that authored its crates, as `exact new` wrote them before LLP 1153 (or one that needs Rust of its own): the
+ * generated workspace copied up beside app.json, each crate's bake path one level up, then `update` to settle its paths. */
+function authorCrates(dir) {
+  const { crates } = ensureShells(dir);
+  const shells = resolve(dir, '.exact/shells');
+  for (const entry of ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo', ...crates]) cpSync(resolve(shells, entry), resolve(dir, entry), { recursive: true });
+  for (const kind of crates) {
+    const script = resolve(dir, kind, 'build.rs');
+    writeFileSync(script, readFileSync(script, 'utf8').replace('Path::new("../../..")', 'Path::new("..")'));
+  }
+  rmSync(shells, { recursive: true, force: true });
+  createApp(dir, { update: true });
+  return crates;
+}
 
 /** A fake exact2 at `sdk` runs the real app-cli.mjs that an app's exact.mjs hands its verb to (LLP 1116.006 D7), and the
- * verify.mjs whose server `test` runs for an app that has one (LLP 1116.007 D2). */
-const withCli = (sdk) => { mkdirSync(resolve(sdk, 'scripts'), { recursive: true }); for (const file of ['app-cli', 'verify', 'help', 'bun', 'port-lock']) copyFileSync(resolve(import.meta.dir, `../scripts/${file}.mjs`), resolve(sdk, `scripts/${file}.mjs`)); };
+ * verify.mjs whose server `test` runs for an app that has one (LLP 1116.007 D2). What verify.mjs imports from outside
+ * scripts/ is linked at its path, so each resolves its own siblings from the checkout. */
+const withCli = (sdk) => {
+  const root = resolve(import.meta.dir, '..');
+  mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
+  const copied = ['app-cli', 'verify', 'help', 'bun', 'port-lock'].map(file => `scripts/${file}.mjs`);
+  for (const file of copied) copyFileSync(resolve(root, file), resolve(sdk, file));
+  // A copy resolves its static relative imports beside itself: each is linked at its path, and a link resolves its own
+  // from the checkout, so one level is enough. A dynamic import (app-cli.mjs's native-verb hook, scripts/app-shells.mjs)
+  // is not linked, so the fixture stays the verbs' and the hook's own tests are below.
+  const link = (target) => { const at = resolve(sdk, target); if (!existsSync(at)) { mkdirSync(resolve(at, '..'), { recursive: true }); symlinkSync(resolve(root, target), at); } };
+  for (const file of copied) {
+    for (const m of readFileSync(resolve(root, file), 'utf8').matchAll(/^(?:import|export) [^;]*? from '(\.{1,2}\/[^']+)'/gm)) link(relative(root, resolve(root, file, '..', m[1])));
+  }
+  // A bare `test` lists the app's authored tests through scripts/app.mjs.
+  link('scripts/app.mjs');
+  // The settings module an app's build imports for `import.meta.env` (LLP 1153 D4).
+  mkdirSync(resolve(sdk, 'js/bake/src'), { recursive: true });
+  copyFileSync(resolve(root, 'js/bake/src/__exact_env.mjs'), resolve(sdk, 'js/bake/src/__exact_env.mjs'));
+};
 
 test('a new outside app passes the checks every run makes, and a drifted one is told what to paste', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
   try {
     const dir = resolve(parent, 'field-log');
     createApp(dir);
-    assert.deepEqual(outsideWorkspaceProblems(dir), []);
+    // Eight files and no Rust (LLP 1153 D1): the platforms are app.json's keys, the web's alone at first.
+    assert.deepEqual(readdirSync(dir).sort(), ['.gitignore', '.vscode', 'AGENTS.md', 'CLAUDE.md', 'app.contract', 'app.json', 'app.test.contract', 'app.ts', 'exact.mjs', 'package.json']);
+    assert.ok(!authoredApp(dir));
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).host, { web: {} });
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).deploy, { store: { web: '0' } });
     assert.ok(existsSync(resolve(dir, 'app.test.contract')));
-    assert.deepEqual(readFileSync(resolve(dir, '.cargo/config.toml')), readFileSync(resolve(import.meta.dir, '../.cargo/config.toml')));
     // The diary is one clause that names `feedback status`, which prints its instructions (LLP 1116 D3), and
     // orders nothing first: builders load this file as instructions, so each order is a step (LLP 1116.012 D1).
     const agents = () => readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
@@ -32,6 +71,11 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.ok(text <= 1536, `AGENTS.md is ${text} bytes besides the checkout's paths`);
     assert.match(agents(), /exact\.mjs setup --check/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
+    // A setting's local value (`import.meta.env`, LLP 1153 D4) stays out of the repository.
+    assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.env\.local$/m);
+    // `npm start` and `bun start` serve the built site (LLP 1153 D3.3).
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'package.json'), 'utf8')).scripts, { start: 'bun exact.mjs serve' });
+    assert.deepEqual(appVerbs('field-log', dir).serve, ['host/web/serve.mjs']);
     // The runner is a few lines a builder can read (LLP 1116.006 D7): where the verbs are, and the checkout's app-cli.mjs.
     const launcher = readFileSync(resolve(dir, 'exact.mjs'), 'utf8');
     assert.ok(launcher.trimEnd().split('\n').length <= 25, `exact.mjs is ${launcher.split('\n').length} lines`);
@@ -113,6 +157,13 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     const logged = readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
     assert.deepEqual(logged.map(c => [c.verb, c.exit]).slice(-3), [['test ios', 2], ['test ios', 7], ['agent macos', 5]], 'each command is logged, without its arguments, a glob that matched nothing and a failed build too');
     assert.ok(logged.some(c => c.verb === 'contract' && c.exit === 0), 'the contract command is logged too');
+    // An app that authored its crates (one `exact new` wrote before LLP 1153) keeps update's Cargo path: a drifted
+    // workspace is told what to paste, and a checkout that moved is followed.
+    namePlatform(dir, 'ios');
+    authorCrates(dir);
+    assert.ok(authoredApp(dir));
+    assert.deepEqual(outsideWorkspaceProblems(dir), []);
+    assert.deepEqual(readFileSync(resolve(dir, '.cargo/config.toml')), readFileSync(resolve(import.meta.dir, '../.cargo/config.toml')));
     const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
     writeFileSync(resolve(dir, 'Cargo.toml'), manifest.replace(/^taffy = .*\n/m, ''));
     writeFileSync(resolve(dir, 'rust-toolchain.toml'), '[toolchain]\nchannel = "1.0.0"\n');
@@ -129,7 +180,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.match(createApp(dir, { update: true }), /\.gitignore, AGENTS\.md, exact2 paths in web\/Cargo\.toml/);
     assert.match(agents(), /^# Mine\n\nAfter\.\n\n<!-- exact:begin[^]*feedback status[^]*<!-- exact:end -->\n$/);
     assert.ok(!agents().includes('stale'));
-    assert.equal(readFileSync(resolve(dir, '.gitignore'), 'utf8'), '/target/\n/.exact/\n');
+    assert.equal(readFileSync(resolve(dir, '.gitignore'), 'utf8'), '/target/\n/.exact/\n/.env.local\n');
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
     assert.deepEqual(readFileSync(resolve(dir, '.cargo/config.toml')), readFileSync(resolve(import.meta.dir, '../.cargo/config.toml')));
     assert.ok(!readFileSync(web, 'utf8').includes('/nowhere'));
@@ -315,30 +366,36 @@ test('paths into the checkout are relative only when the two share a tree', () =
   assert.equal(pathFrom(tmpdir(), root), realpathSync(root));
 });
 
-test('a sibling app resolves every host dependency from its own manifest', () => {
+test('a sibling app\'s generated workspace resolves every host dependency from exact2', () => {
   const root = resolve(import.meta.dir, '..');
   const dir = resolve(tmpdir(), `exact-new-${randomUUID()}`);
   try {
-    // A cold Cargo cache defers the lock to the first build, which resolves it.
-    if (/still exact2's/.test(createApp(dir))) return assert.deepEqual(readFileSync(resolve(dir, 'Cargo.lock')), readFileSync(resolve(root, 'Cargo.lock')));
-    const result = spawnSync('cargo', ['metadata', '--offline', '--locked', '--no-deps', '--format-version', '1'], { cwd: dir, encoding: 'utf8' });
-    assert.equal(result.status, 0, result.stderr);
+    createApp(dir, { with: ['ios', 'linux'] });
+    const { workspace, crates } = ensureShells(dir);
+    assert.deepEqual(crates, ['web', 'apple', 'linux']);
+    const result = spawnSync('cargo', ['metadata', '--offline', '--locked', '--no-deps', '--format-version', '1'], { cwd: workspace, encoding: 'utf8' });
+    // A cold Cargo cache keeps exact2's lock for the first build, which resolves it.
+    if (result.status !== 0) return assert.deepEqual(readFileSync(resolve(workspace, 'Cargo.lock')), readFileSync(resolve(root, 'Cargo.lock')));
     const packages = JSON.parse(result.stdout).packages;
-    assert.equal(packages.length, 3);
+    assert.deepEqual(packages.map(p => p.name).sort(), [`${basename(dir)}-apple`, `${basename(dir)}-linux`, `${basename(dir)}-web`]);
     const paths = { 'exact-logic': 'logic', 'exact-apple': 'host/apple', 'exact-apple-update': 'host/apple-update', 'exact-linux': 'host/linux', 'exact-web': 'host/web', 'exact-web-capabilities': 'host/web-capabilities', 'exact-js': 'js', 'exact-js-web': 'js/web', 'exact-js-bake': 'js/bake' };
     for (const pkg of packages) for (const dep of pkg.dependencies) {
       assert.equal(realpathSync(dep.path), realpathSync(resolve(root, paths[dep.name])), `${pkg.name}: ${dep.name}`);
     }
+    // Each crate's bake names the app, three directories up from the crate.
+    for (const kind of crates) assert.match(readFileSync(resolve(workspace, kind, 'build.rs'), 'utf8'), /Path::new\("\.\.\/\.\.\/\.\."\)/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('offline, with none of exact2\'s crates in Cargo\'s cache, a new app keeps exact2\'s lock for its first build', () => {
+test('offline, with none of exact2\'s crates in Cargo\'s cache, the generated workspace keeps exact2\'s lock for its first build', () => {
   const root = resolve(import.meta.dir, '..'), parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
   const saved = { CARGO_HOME: process.env.CARGO_HOME, CARGO_NET_OFFLINE: process.env.CARGO_NET_OFFLINE };
   Object.assign(process.env, { CARGO_HOME: resolve(parent, 'cargo-home'), CARGO_NET_OFFLINE: 'true' });
   try {
-    assert.match(createApp(resolve(parent, 'field-log')), /Cargo\.lock is still exact2's/);
-    assert.deepEqual(readFileSync(resolve(parent, 'field-log/Cargo.lock')), readFileSync(resolve(root, 'Cargo.lock')));
+    const dir = resolve(parent, 'field-log');
+    createApp(dir, { with: ['ios'] });
+    const { workspace } = ensureShells(dir);
+    assert.deepEqual(readFileSync(resolve(workspace, 'Cargo.lock')), readFileSync(resolve(root, 'Cargo.lock')));
   } finally {
     for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
     rmSync(parent, { recursive: true, force: true });
@@ -349,18 +406,11 @@ test('failed creation removes the half-written app', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
   const dir = resolve(parent, 'field-log');
   try {
-    const result = spawnSync(process.execPath, ['--eval', `import { createApp } from ${JSON.stringify(resolve(import.meta.dir, 'new.mjs'))}; createApp(${JSON.stringify(dir)});`], {
-      env: { ...process.env, PATH: '', CARGO_HOME: resolve(parent, 'no-rustup') }, encoding: 'utf8',
-    });
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /cargo was not found/);
+    assert.throws(() => createApp(dir, { with: ['nope'] }), /--with nope: the platforms are ios, mac, linux, android, windows/);
     assert.equal(existsSync(dir), false);
     // An empty directory the author made stays theirs: emptied, not removed.
     mkdirSync(dir);
-    const again = spawnSync(process.execPath, ['--eval', `import { createApp } from ${JSON.stringify(resolve(import.meta.dir, 'new.mjs'))}; createApp(${JSON.stringify(dir)});`], {
-      env: { ...process.env, PATH: '', CARGO_HOME: resolve(parent, 'no-rustup') }, encoding: 'utf8',
-    });
-    assert.match(again.stderr, /cargo was not found/);
+    assert.throws(() => createApp(dir, { with: ['nope'] }), /--with nope/);
     assert.deepEqual([existsSync(dir), readdirSync(dir)], [true, []]);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
@@ -380,7 +430,7 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     assert.match(notes, /already in your instructions\. Start from the nearest pattern: `bun exact\.mjs\s+pattern` lists them and `pattern <name>` writes one/);
     assert.match(notes, /`bun exact\.mjs contract vocab <name>` answers a\s+name/);
     assert.match(notes, /`bun exact\.mjs docs <heading words>` a guide's\s+section/);
-    assert.match(notes, /`bun exact\.mjs verify`\s+when the features work, and `verify ios` once at the end for an iPhone\s+app/);
+    assert.match(notes, /`bun exact\.mjs verify`\s+when the features work, and `verify ios\|android` at the end for a\s+phone app/);
     assert.match(notes, /`bun exact\.mjs help`\s+lists the verbs/);
     assert.doesNotMatch(notes, /after each edit|milestone/);
     assert.doesNotMatch(notes, /Read\s+these|contract types|no-tells|\.exact\//);
@@ -405,30 +455,84 @@ test('a new app tells its agent where the guides are, and update keeps what the 
 
 // LLP 1086 / LLP 1107: the scaffold writes a Linux host crate (the Android host is the same crate), with
 // `linux` and `android` build verbs; an app made before it gains the crate on update.
-test('a new app has a Linux host crate, and update adds one to an older app', () => {
+test('a native verb names its platform, and the generated workspace follows app.json (LLP 1153 D1)', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
   try {
     const dir = resolve(parent, 'field-log');
     createApp(dir);
+    const manifest = () => JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    assert.deepEqual([platformOf('ios'), platformOf('mac'), platformOf('test', 'ios'), platformOf('agent', 'macos'), platformOf('web'), platformOf('test', 'web')], ['ios', 'macos', 'ios', 'macos', null, null]);
+    assert.deepEqual(namePlatform(dir, 'ios'), ['host.ios', 'deploy.store.ios']);
+    assert.deepEqual(namePlatform(dir, 'ios'), [], 'named once');
+    assert.deepEqual(manifest().host.ios, { minimumOS: '17.0', deviceFamily: ['iphone', 'ipad'] });
+    assert.deepEqual(namePlatform(dir, 'android'), ['host.android'], 'no store for Android');
+    // Windows's host refuses any store level but "0", and an absent key reads as "A" (LLP 1115.004 D15).
+    assert.deepEqual(namePlatform(dir, 'windows'), ['host.windows', 'deploy.store.windows']);
+    assert.deepEqual([manifest().host.windows.painter, manifest().host.windows.window.width, manifest().deploy.store.windows], ['ink', 1024, '0']);
+    const windows = ensureShells(dir).workspace;
+    assert.match(readFileSync(resolve(windows, 'windows/src/main.rs'), 'utf8'), /exact_windows::run_composed::<AppData>\("Field Log", window\(\), PLAN, COMPAT, composed\)/);
+    assert.match(createApp(dir, { update: true, without: 'windows' }), /without windows \(removed host\.windows, deploy\.store\.windows\)/);
+    assert.deepEqual(shellCrates(manifest()), ['web', 'apple', 'linux', 'android']);
+    readManifest(dir, 'field-log');
+    const first = ensureShells(dir);
+    assert.deepEqual([first.wrote, first.crates, ensureShells(dir).wrote], [true, ['web', 'apple', 'linux', 'android'], false]);
+    assert.match(readFileSync(resolve(first.workspace, 'Cargo.toml'), 'utf8'), /^members = \["web", "apple", "linux", "android"\]$/m);
+    assert.match(readFileSync(resolve(first.workspace, 'linux/Cargo.toml'), 'utf8'), /^name = "field-log-linux"$/m);
+    // Android's library for the Canvas reader (LLP 1107): a cdylib, empty off Android, baked by `build_android`.
+    const android = readFileSync(resolve(first.workspace, 'android/Cargo.toml'), 'utf8');
+    assert.match(android, /^name = "field-log-android"$/m);
+    assert.match(android, /^crate-type = \["cdylib"\]$/m);
+    assert.match(android, /^\[target\.'cfg\(target_os = "android"\)'\.dependencies\]\nexact-logic = /m);
+    assert.match(readFileSync(resolve(first.workspace, 'android/build.rs'), 'utf8'), /exact_js_bake::build_android\(std::path::Path::new\("\.\.\/\.\.\/\.\."\)\)/);
+    assert.match(readFileSync(resolve(first.workspace, 'android/src/lib.rs'), 'utf8'), /exact_linux::canvas_jni!\(super::AppData, hatches = crate::android::exact_hatches\(\)\);/);
+    assert.ok(!existsSync(resolve(dir, 'Cargo.toml')) && !existsSync(resolve(dir, 'linux')), 'nothing Rust in the author\'s tree');
+    // resolveApp takes the generated workspace, with the target at the app, when nothing authored one.
+    const was = process.env.EXACT_APP_DIR;
+    process.env.EXACT_APP_DIR = dir;
+    try {
+      const app = resolveApp();
+      assert.deepEqual([app.generated, app.workspace, app.target, app.crate('linux'), app.cargoPackage('linux')?.name], [true, realpathSync(first.workspace), resolve(realpathSync(dir), 'target'), 'field-log-linux', 'field-log-linux']);
+    } finally { if (was === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = was; }
+    // A platform dropped takes its crate with it; the last native one may go (deploy reads none as none, D1.5).
+    assert.match(createApp(dir, { update: true, without: 'android' }), /without android \(removed host\.android\)/);
+    assert.deepEqual(ensureShells(dir).crates, ['web', 'apple']);
+    assert.ok(!existsSync(resolve(first.workspace, 'linux')) && !existsSync(resolve(first.workspace, 'android')));
+    assert.match(createApp(dir, { update: true, without: 'ios' }), /without ios \(removed host\.ios, deploy\.store\.ios\)/);
+    assert.deepEqual([manifest().host, manifest().deploy.store, ensureShells(dir).crates], [{ web: {} }, { web: '0' }, ['web']]);
+    assert.match(createApp(dir, { update: true, without: 'ios' }), /without ios \(it shipped none already\)/);
+    assert.throws(() => createApp(dir, { update: true, without: 'web' }), /the web host is the dev loop's/);
+    assert.throws(() => withoutPlatformKeys(dir, 'tv'), /the platforms are/);
+    assert.match(createApp(dir, { update: true, with: ['linux', 'macos'] }), /with linux \(added host\.linux, deploy\.store\.linux\), with macos \(added host\.macos, deploy\.store\.macos\)/);
+    assert.deepEqual(ensureShells(dir).crates, ['web', 'linux', 'apple']);
+    const verbs = appVerbs('field-log', dir);
+    assert.deepEqual([verbs.linux, verbs.android, verbs.windows], [['scripts/build-linux.mjs', 'field-log'], ['scripts/agent-android.mjs', 'build', 'field-log', '--apk', '--install'], ['host/windows/build.mjs', 'field-log']]);
+    // --with at creation names them before any verb runs; `mac` is the CLI's spelling for macos (scripts/exact.mjs).
+    const named = resolve(parent, 'named');
+    createApp(named, { with: ['ios', 'macos'] });
+    assert.deepEqual(Object.keys(JSON.parse(readFileSync(resolve(named, 'app.json'), 'utf8')).host), ['web', 'ios', 'macos']);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 60_000);
+
+// LLP 1086 / LLP 1107: an app that authored its crates before the scaffold wrote a Linux host gains one on update,
+// and `update --without linux` takes it away again with its workspace member and lock entries.
+test('an authored app gains a Linux crate on update and loses it with --without linux', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'field-log');
+    createApp(dir, { with: ['ios'] });
+    assert.deepEqual(authorCrates(dir), ['web', 'apple']);
+    assert.match(readFileSync(resolve(dir, 'Cargo.toml'), 'utf8'), /^members = \["web", "apple"\]$/m);
+    const manifest = resolve(dir, 'Cargo.toml');
+    assert.doesNotMatch(createApp(dir, { update: true }), /linux\/ host crate/, 'no store, no crate');
+    namePlatform(dir, 'linux');
+    assert.match(createApp(dir, { update: true }), /a linux\/ host crate/);
     const linux = readFileSync(resolve(dir, 'linux/Cargo.toml'), 'utf8');
     assert.match(linux, /^name = "field-log-linux"$/m);
     assert.match(linux, /^exact-linux = \{ path = "[^"]*host\/linux" \}$/m);
-    assert.match(readFileSync(resolve(dir, 'linux/src/main.rs'), 'utf8'), /exact_linux::run::<AppData>\(PLAN, COMPAT\)/);
-    assert.match(readFileSync(resolve(dir, 'Cargo.toml'), 'utf8'), /^members = \["apple", "linux", "web"\]$/m);
-    assert.match(readFileSync(resolve(dir, 'exact.mjs'), 'utf8'), /name: "field-log", exact2/);
-    const verbs = appVerbs('field-log', dir);
-    assert.deepEqual([verbs.linux, verbs.android], [['scripts/build-linux.mjs', 'field-log'], ['scripts/agent-android.mjs', 'build', 'field-log']]);
-    // An older app: no linux/, and a workspace that does not list it.
-    rmSync(resolve(dir, 'linux'), { recursive: true });
-    const manifest = resolve(dir, 'Cargo.toml');
-    writeFileSync(manifest, readFileSync(manifest, 'utf8').replace('members = ["apple", "linux", "web"]', 'members = ["apple", "web"]'));
-    assert.match(createApp(dir, { update: true }), /a linux\/ host crate/);
-    assert.ok(readFileSync(resolve(dir, 'linux/Cargo.toml'), 'utf8').includes('name = "field-log-linux"'));
+    assert.match(readFileSync(resolve(dir, 'linux/build.rs'), 'utf8'), /Path::new\("\.\."\)/);
     assert.match(readFileSync(manifest, 'utf8'), /^members = \["apple", "linux", "web"\]$/m);
     assert.doesNotMatch(createApp(dir, { update: true }), /linux\/ host crate/, 'a second update leaves it');
-    // `update --without linux` (the euxy port: an SF Symbol warned for Linux, and removing it by hand took
-    // app.json, the workspace and Cargo.lock): one step, which the next update keeps.
-    assert.match(createApp(dir, { update: true, without: 'linux' }), /without linux \(removed its workspace member, app\.json deploy\.store\.linux, linux\/\)/);
+    assert.match(createApp(dir, { update: true, without: 'linux' }), /without linux \(removed its workspace member, app\.json host\.linux, app\.json deploy\.store\.linux, linux\/\)/);
     assert.ok(!existsSync(resolve(dir, 'linux')));
     assert.match(readFileSync(manifest, 'utf8'), /^members = \["apple", "web"\]$/m);
     assert.ok(!('linux' in JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).deploy.store));
@@ -436,8 +540,18 @@ test('a new app has a Linux host crate, and update adds one to an older app', ()
     const locked = spawnSync('cargo', ['metadata', '--locked', '--offline', '--no-deps', '--format-version', '1'], { cwd: dir, encoding: 'utf8' });
     assert.equal(locked.status, 0, locked.stderr);
     assert.doesNotMatch(createApp(dir, { update: true }), /linux\/ host crate/);
-    assert.ok(!existsSync(resolve(dir, 'linux')));
+    // Another platform's keys go; the Apple crate iOS shares with macOS stays.
+    assert.match(createApp(dir, { update: true, without: 'ios' }), /without ios \(removed host\.ios, deploy\.store\.ios\)/);
+    assert.ok(existsSync(resolve(dir, 'apple/Cargo.toml')));
     assert.throws(() => createApp(dir, { update: true, without: 'web' }), /the web host is the dev loop's/);
+    // Android alone brings the crate it shares with Linux; removing Android last takes the crate with it.
+    const withAndroid = createApp(dir, { update: true, with: ['android'] });
+    assert.match(withAndroid, /a linux\/ host crate/);
+    assert.match(withAndroid, /with android \(added host\.android\)/);
+    assert.ok(existsSync(resolve(dir, 'linux/Cargo.toml')));
+    assert.match(createApp(dir, { update: true, without: 'android' }), /without android \(removed its workspace member, app\.json host\.android, android\/\); without linux \(removed its workspace member, linux\/\)/);
+    assert.ok(!existsSync(resolve(dir, 'linux')));
+    assert.ok(!('android' in JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).host));
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000);
 
@@ -463,39 +577,43 @@ test('update --without edits any spelling of the workspace member, and a refusal
   ]) assert.throws(() => withoutMember(text, 'linux'), err => why.test(err.message) && /remove "linux" from \[workspace\] members and default-members by hand/.test(err.message), text);
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
   try {
-    // The last native store: deploy would read none as every platform, Linux included.
     const dir = resolve(parent, 'web-log');
-    createApp(dir);
+    createApp(dir, { with: ['ios', 'linux'] });
+    authorCrates(dir);
     const manifest = resolve(dir, 'app.json'), workspace = resolve(dir, 'Cargo.toml'), lock = resolve(dir, 'Cargo.lock');
     const app = JSON.parse(readFileSync(manifest, 'utf8'));
-    app.deploy.store = { web: '0', linux: '0' };
-    writeFileSync(manifest, JSON.stringify(app, null, 2) + '\n');
     const state = () => [manifest, workspace, lock].map(p => readFileSync(p, 'utf8'));
-    const before = state();
-    assert.throws(() => createApp(dir, { update: true, without: 'linux' }), /would name no native platform.*as they were/s);
-    assert.deepEqual(state(), before);
-    assert.ok(existsSync(resolve(dir, 'linux/Cargo.toml')));
     // A resolve that fails once the crate is aside (a member depends on it): the files, the
     // lock and the crate all come back, and nothing is left beside them.
-    app.deploy.store = { web: '0', ios: '0', linux: '0' };
-    writeFileSync(manifest, JSON.stringify(app, null, 2) + '\n');
-    const apple = resolve(dir, 'apple/Cargo.toml');
-    writeFileSync(apple, readFileSync(apple, 'utf8').replace('[dependencies]\n', '[dependencies]\nweb-log-linux = { path = "../linux" }\n'));
+    const apple = resolve(dir, 'apple/Cargo.toml'), appleManifest = readFileSync(apple, 'utf8');
+    writeFileSync(apple, appleManifest.replace('[dependencies]\n', '[dependencies]\nweb-log-linux = { path = "../linux" }\n'));
     const again = state();
     assert.throws(() => createApp(dir, { update: true, without: 'linux' }), /Cargo\.toml, app\.json, Cargo\.lock and linux\/ are as they were/);
     assert.deepEqual(state(), again);
     assert.ok(existsSync(resolve(dir, 'linux/Cargo.toml')));
     assert.deepEqual(readdirSync(dir).filter(f => f.startsWith('.linux')), []);
+    // The last native key may go: with the native hosts gone too, the manifest names no native platform and ships
+    // none (LLP 1153 D1.5).
+    writeFileSync(apple, appleManifest);
+    app.host = { web: {}, linux: {} };
+    app.deploy.store = { web: '0', linux: '0' };
+    writeFileSync(manifest, JSON.stringify(app, null, 2) + '\n');
+    assert.match(createApp(dir, { update: true, without: 'linux' }), /without linux \(removed its workspace member, app\.json host\.linux, app\.json deploy\.store\.linux, linux\/\)/);
+    const left = JSON.parse(readFileSync(manifest, 'utf8'));
+    assert.deepEqual([left.host, left.deploy.store], [{ web: {} }, { web: '0' }]);
+    assert.deepEqual([nativePlatforms(left), namesNative(left)], [[], false]);
+    assert.ok(!existsSync(resolve(dir, 'linux')));
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000);
 
 // Authoring bench (LLP 1087): an app copied into a folder of another name kept its `todo-list-*` crates,
 // and `update` wrote an exact.mjs that asked Cargo for `todo-apple`.
-test('update names the app by its crates, not its folder', () => {
+test('update names an authored app by its crates, and a generated one by its folder', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
   try {
     const made = resolve(parent, 'todo-list'), moved = resolve(parent, 'todo');
-    createApp(made);
+    createApp(made, { with: ['ios'] });
+    authorCrates(made);
     spawnSync('mv', [made, moved]);
     // A hand-edited manifest: a comment after the package name.
     const web = resolve(moved, 'web/Cargo.toml');
@@ -504,10 +622,18 @@ test('update names the app by its crates, not its folder', () => {
     const commands = readFileSync(resolve(moved, 'exact.mjs'), 'utf8');
     assert.match(commands, /name: "todo-list",/);
     assert.doesNotMatch(commands, /name: "todo",/);
+    // A generated workspace is named by the folder, and follows a rename.
+    const plain = resolve(parent, 'note-list'), renamed = resolve(parent, 'notes');
+    createApp(plain, { with: ['ios'] });
+    assert.match(readFileSync(resolve(ensureShells(plain).workspace, 'apple/Cargo.toml'), 'utf8'), /^name = "note-list-apple"$/m);
+    spawnSync('mv', [plain, renamed]);
+    createApp(renamed, { update: true });
+    assert.match(readFileSync(resolve(renamed, 'exact.mjs'), 'utf8'), /name: "notes",/);
+    assert.match(readFileSync(resolve(ensureShells(renamed).workspace, 'apple/Cargo.toml'), 'utf8'), /^name = "notes-apple"$/m);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
-});
+}, 60_000);
 
 // LLP 1116.004 D8: bake-off contacts, round 6, drove an earlier round's contacts.json: both rounds' apps were
 // `com.example.contacts-exact2`, and a store is named by the app's id. A new app's id is its own; an app made
@@ -542,13 +668,14 @@ test('a new app\'s id is its own, and update keeps the id an older app has', () 
 }, 60_000); // Three offline Cargo resolutions.
 
 // LLP 1116.001 D3: a pattern replaces the template's three files with the app's own id and name; a file the
-// author edited is refused unless forced; rest brings its server, test runner and command, which go with it.
+// author edited is refused unless forced; rest and site bring their server, and site its setting and app.json keys,
+// which go with them.
 test('a pattern replaces the template, refuses an edited file unless forced, and takes its extras with it', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-pattern-'));
   try {
     const dir = resolve(parent, 'field-log');
     createApp(dir);
-    assert.deepEqual(patterns().map(p => p.name), ['one-screen', 'list-detail', 'tabs', 'dashboard', 'rest']);
+    assert.deepEqual(patterns().map(p => p.name), ['one-screen', 'list-detail', 'tabs', 'dashboard', 'rest', 'site']);
     for (const { line } of patterns()) assert.ok(line.length > 20 && line.length <= 92 && !line.startsWith('//'), line);
     const read = (file) => readFileSync(resolve(dir, file), 'utf8');
     // The app's own id (LLP 1116.004 D8), which the template's untouched app.ts carries.
@@ -576,6 +703,30 @@ test('a pattern replaces the template, refuses an edited file unless forced, and
     assert.equal(JSON.parse(read('app.json')).app.id, id);
     assert.match(applyPattern(dir, 'one-screen').said, /removed server\.ts$/);
     assert.ok(!existsSync(resolve(dir, 'server.ts')) && JSON.parse(read('app.json')).commands === undefined);
+    // site: its API's stand-in and the setting naming it (LLP 1153 D8), with the keys app.json gains; another
+    // pattern takes them away again, and keeps a key the author changed.
+    assert.match(applyPattern(dir, 'site').said, /^site: wrote app\.contract, app\.ts, app\.test\.contract, \.env, server\.ts as Field Log/);
+    assert.match(read('.env'), /^API_BASE_URL=http:\/\/127\.0\.0\.1:8787$/m);
+    assert.deepEqual([JSON.parse(read('app.json')).env, JSON.parse(read('app.json')).server], [['API_BASE_URL'], { database: false }]);
+    assert.match(applyPattern(dir, 'list-detail').said, /removed \.env, server\.ts$/);
+    assert.deepEqual([JSON.parse(read('app.json')).env, JSON.parse(read('app.json')).server, JSON.parse(read('app.json')).app.id], [undefined, undefined, id]);
+    // A key the author set is refused, named, as an edited file is: nothing is written without --force.
+    applyPattern(dir, 'site');
+    const manifest = JSON.parse(read('app.json'));
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, server: { database: true } }));
+    writeFileSync(resolve(dir, 'app.contract'), `${read('app.contract')}// mine\n`);
+    assert.throws(() => applyPattern(dir, 'site'), /^Error: pattern: app\.contract, app\.json's "server" were edited \(not what exact new or a pattern wrote\); --force replaces them$/);
+    assert.deepEqual(JSON.parse(read('app.json')).server, { database: true });
+    applyPattern(dir, 'site', { force: true });
+    assert.deepEqual(JSON.parse(read('app.json')).server, { database: false });
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, env: ['API_BASE_URL', 'TILE_URL'] }));
+    assert.throws(() => applyPattern(dir, 'site'), /app\.json's "env" was edited/);
+    applyPattern(dir, 'tabs');
+    assert.deepEqual([JSON.parse(read('app.json')).env, JSON.parse(read('app.json')).server], [['API_BASE_URL', 'TILE_URL'], undefined]);
+    // The same values in an app that never applied site (excord's `server`) are the app's: another pattern keeps them.
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, env: ['API_BASE_URL'], server: { database: false } }));
+    applyPattern(dir, 'dashboard');
+    assert.deepEqual([JSON.parse(read('app.json')).env, JSON.parse(read('app.json')).server], [['API_BASE_URL'], { database: false }]);
     // A name with a quote stays one Contract string.
     const quoted = patternFiles('one-screen', { id: 'com.example.q', title: 'Say "Hi" $5' }).files['app.contract'];
     assert.match(quoted, /text "Say \\"Hi\\" \\\$5" role="heading"/);
@@ -817,4 +968,87 @@ test('launchers and generated own commands find pinned Bun with an old PATH', ()
       assert.equal(root.status, 0, root.stderr);
     }
   } finally {rmSync(parent, {recursive: true, force: true});}
+});
+
+// LLP 1153 D1.2: a native verb names its platform only after that platform's setup rows, and writes nothing when one
+// is missing, the report could not be read, or the machine cannot build it at all.
+test('a native verb refuses before writing when its platform\'s setup is missing, and names it otherwise', async () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'field-log');
+    createApp(dir);
+    const manifest = () => readFileSync(resolve(dir, 'app.json'), 'utf8'), before = manifest();
+    const missing = await bringPlatform(dir, 'ios', { report: [{ name: 'Xcode', have: 'missing', want: 'Xcode.app', ok: false, fix: 'install Xcode' }], os: 'darwin' });
+    assert.match(missing.refused, /^bun exact\.mjs ios: this machine lacks what a ios build needs; nothing was written:\n  Xcode: missing \(SDK Xcode\.app\)\n    install Xcode$/);
+    assert.match((await bringPlatform(dir, 'ios', { report: { error: 'no report' }, os: 'darwin' })).refused, /the setup report could not be read, so nothing was written: no report$/);
+    assert.match((await bringPlatform(dir, 'ios', { report: [], os: 'linux' })).refused, /^bun exact\.mjs ios: an Apple build needs a Mac/);
+    assert.match((await bringPlatform(dir, 'windows', { report: [], os: 'darwin' })).refused, /^bun exact\.mjs windows: a Windows build needs Windows/);
+    assert.equal(manifest(), before);
+    assert.ok(!existsSync(resolve(dir, '.exact/shells')), 'a refusal generates nothing');
+    const brought = await bringPlatform(dir, 'macos', { report: [{ name: 'Xcode', ok: true }], os: 'darwin' });
+    assert.match(brought.lines[0], /^app\.json: host\.macos, deploy\.store\.macos added: the app now ships macos \(bun exact\.mjs update --without macos stops it\)$/);
+    assert.match(brought.lines[1], /the native workspace \(web, apple\), generated from app\.json$/);
+    assert.ok(existsSync(resolve(dir, '.exact/shells/apple/Cargo.toml')));
+    // Named already: the report is not read, and a current workspace says nothing.
+    assert.deepEqual(await bringPlatform(dir, 'macos', { report: { error: 'not read' }, os: 'darwin' }), { lines: [] });
+    // An app without app.json had the defaults readManifest supplies; naming a platform writes them down first.
+    rmSync(resolve(dir, 'app.json'));
+    const written = await bringPlatform(dir, 'linux', { report: [], os: 'darwin' });
+    assert.match(written.lines[0], /^app\.json: written with the defaults the app had without one$/);
+    assert.deepEqual(JSON.parse(manifest()).app, { id: 'com.exact.field-log', name: 'Field Log' });
+    assert.deepEqual(Object.keys(JSON.parse(manifest()).host), ['web', 'linux']);
+    // The stamp: a changed input, or a crate's file gone, regenerates; the same inputs do not.
+    const shells = resolve(dir, '.exact/shells');
+    assert.equal(ensureShells(dir).wrote, false);
+    rmSync(resolve(shells, 'linux/Cargo.toml'));
+    assert.equal(ensureShells(dir).wrote, true);
+    rmSync(resolve(shells, 'web/build.rs'));
+    assert.equal(ensureShells(dir).wrote, true, 'every generated file is checked');
+    writeFileSync(resolve(shells, '.stamp.json'), JSON.stringify({ ...JSON.parse(readFileSync(resolve(shells, '.stamp.json'), 'utf8')), inputs: 'stale' }));
+    assert.equal(ensureShells(dir).wrote, true);
+    assert.equal(ensureShells(dir).wrote, false);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 60_000);
+
+// LLP 1153 D1.4, D2.1: the app's files say whether it authored a workspace; a workspace above it owns it only when its
+// members list the app or one of its crates, as Cargo reads them.
+test('an app authored its workspace when its files say so, not because a directory above it has one', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'site');
+    createApp(dir);
+    assert.equal(authoredWorkspace(dir), null);
+    // A site made inside another Rust repository: that repository's workspace does not list it.
+    writeFileSync(resolve(parent, 'Cargo.toml'), '[workspace]\nmembers = ["tool"]\n');
+    mkdirSync(resolve(parent, 'tool'));
+    writeFileSync(resolve(parent, 'tool/Cargo.toml'), '[package]\nname = "tool"\nversion = "0.1.0"\n');
+    assert.equal(authoredWorkspace(dir), null);
+    // A crate beside app.json that the workspace above lists is owned by it; excluded, it is not.
+    mkdirSync(resolve(dir, 'apple'));
+    writeFileSync(resolve(dir, 'apple/Cargo.toml'), '[package]\nname = "site-apple"\nversion = "0.1.0"\n');
+    assert.equal(authoredWorkspace(dir), dir, 'a package of its own, which no workspace lists, is its own root');
+    writeFileSync(resolve(parent, 'Cargo.toml'), '[workspace]\nmembers = ["tool", "site/*"]\n');
+    assert.equal(authoredWorkspace(dir), parent);
+    writeFileSync(resolve(parent, 'Cargo.toml'), '[workspace]\nmembers = ["tool", "site/*"]\nexclude = ["site/apple"]\n');
+    assert.equal(authoredWorkspace(dir), dir);
+    // A member that depends on the crate by path makes it a member too (Cargo's automatic membership), unless excluded;
+    // a dependency inherited from the workspace's table, or declared for one target, counts the same.
+    writeFileSync(resolve(parent, 'Cargo.toml'), '[workspace]\nmembers = ["tool"]\n');
+    writeFileSync(resolve(parent, 'tool/Cargo.toml'), '[package]\nname = "tool"\nversion = "0.1.0"\n[dependencies]\nsite-apple = { path = "../site/apple" }\n');
+    assert.equal(authoredWorkspace(dir), parent);
+    writeFileSync(resolve(parent, 'Cargo.toml'), '[workspace]\nmembers = ["tool"]\n[workspace.dependencies]\nsite-apple = { path = "site/apple" }\n');
+    writeFileSync(resolve(parent, 'tool/Cargo.toml'), '[package]\nname = "tool"\nversion = "0.1.0"\n[dependencies]\nsite-apple = { workspace = true }\n');
+    assert.equal(authoredWorkspace(dir), parent, 'an inherited dependency');
+    writeFileSync(resolve(parent, 'Cargo.toml'), '[workspace]\nmembers = ["tool"]\n');
+    writeFileSync(resolve(parent, 'tool/Cargo.toml'), '[package]\nname = "tool"\nversion = "0.1.0"\n[target.\'cfg(target_os = "macos")\'.dependencies]\nsite-apple = { path = "../site/apple" }\n');
+    assert.equal(authoredWorkspace(dir), parent, 'a target\'s dependency');
+    writeFileSync(resolve(parent, 'tool/Cargo.toml'), '[package]\nname = "tool"\nversion = "0.1.0"\n[dependencies]\nsite-apple = { path = "../site/apple" }\n');
+    writeFileSync(resolve(parent, 'Cargo.toml'), '[workspace]\nmembers = ["tool"]\nexclude = ["site"]\n');
+    assert.equal(authoredWorkspace(dir), dir);
+    // A package that names its workspace, and an app whose own manifest is the workspace.
+    writeFileSync(resolve(dir, 'apple/Cargo.toml'), '[package]\nname = "site-apple"\nversion = "0.1.0"\nworkspace = "../../tool"\n');
+    assert.equal(authoredWorkspace(dir), resolve(parent, 'tool'));
+    writeFileSync(resolve(dir, 'Cargo.toml'), '[workspace]\nmembers = ["apple"]\n');
+    assert.equal(authoredWorkspace(dir), dir);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
 });

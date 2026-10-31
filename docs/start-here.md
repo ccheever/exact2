@@ -7,14 +7,15 @@ The only required reading; the rest is lookup.
 1. **Write the web, ship the platform.** Layout and names are CSS's and HTML's (flex, gap,
    `role`, `aria-*`). Say what a thing *is* (a `header` with a heading and
    buttons, a `tablist`, a `dialog role="alertdialog"`); each host draws its own control.
+   A data table is HTML's `table` (`thead`, `tr`, `th scope="col"`, `td colspan=2`), terms and their descriptions a `dl` (`dt`, `dd`).
 2. **Leave the rest unsaid:** controls, bars, type and dark mode are the platform's, and so
    are a `list`'s rows: its children are rows, so draw no separator and no press. A
    colour or size names a role (`-exact-secondary-label`, `font="-exact-footnote"`; `bun
    <exact2>/scripts/no-tells.mjs .` lists literals). Leave the accent unsaid: it is the
    platform's blue, and a filled button keeps its white label (a pale accent under
    it is warned, `tamber-contrast`). A brand is an `app.tamber`; a colour names a role or
-   one of its tokens (`recipes/tamber.md`). A card is `-exact-secondary-background`
-   (`-exact-secondary-grouped-background` on a grouped page).
+   one of its tokens, `color="ink"` or `color="var(--ink)"` (`recipes/tamber.md`). A card
+   is `-exact-secondary-background` (`-exact-secondary-grouped-background` on a grouped page).
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
    rows, an empty state with its next step in the list's place. A labelled entry or settings
    form is a grouped list (`grouped-form`), not cards of fields; a focal result (a timer, a
@@ -24,7 +25,11 @@ The only required reading; the rest is lookup.
      `"correct"`, `"wrong"`, `"dimmed"` or `"chosen"` (your pick once closed). `SummaryCard`: the one number, shown once
    - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark` done or not; `EmptyState` with your `button` indented under it
 4. **Compose as the platform does:** a row pushes its detail; create and edit are sheets; a
-   phone gets one column, a wide window two (`responsive-columns`). Tabs (a sidebar) and a
+   phone gets one column, a wide window two (`responsive-columns`). Every screen, tab, detail
+   and sheet is a route (`routes`, `push`, a row that is a `link href=path(…)`): on the web
+   that is its URL, so Back, reload, a shared link and a new tab work, and focus moves to the
+   new screen. A screen chosen by `if page == …` over a state has none of these, and the
+   build warns (`lower-screen-by-state`). Tabs (a sidebar) and a
    list whose rows push (beside its detail) need no code. The rows of a list the person deletes from swipe to
    delete and open a menu on a long press (`list-detail`, `contract vocab swipe`).
    `haptic("selection")` marks a choice in your own control, `haptic("success")` a task done.
@@ -36,7 +41,7 @@ The only required reading; the rest is lookup.
 ```sh
 bun <exact2>/scripts/exact.mjs new ~/groceries && cd ~/groceries
 bun exact.mjs pattern      # lists the starters; `pattern <name>` writes one
-bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
+bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background; it names iOS in app.json
 ```
 
 Start from the nearest pattern. The screen `exact new` writes, and its tests in
@@ -48,9 +53,12 @@ which it took. Your shell commands have no such help, so keep one directory.
 |`contract build app.contract --json --errors-only`|A CI gate: `[]` and exit zero mean no errors (omit `--errors-only` to include warnings); it rewrites the types `app.ts` imports and type-checks it.|
 |`verify`, `verify ios`|Builds, runs `app.test.contract` and each other `*.test.contract` beside it, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time, and reads those screens (on the web, also the ones the tests pass through) at the largest text size, where what spills is the app's layout to fix, with a remedy that keeps the text's size (no `line-clamp` in a list's row; `hyphens="auto"` only on a text of one word, which a UILabel breaks between syllables when it is longer than its line); `verify ios` also plays real touches on a long list on the first screen, once per build, and says `scrolling: like UIKit` or what a person would notice, each with UIKit's value and its cause, counting only what the app can fix: one report. A clean run on the app's platform is done.|
 |`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--keep-storage` reopens saved data.|
-|`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
+|`web`, `ios --run`, `windows --run`|For a person watching: its URL, rebuilds on save; a simulator; a window (from SSH, on the signed-in desktop).|
 
-`verify`, `test` and `agent` compile, build and serve their own copy, saying a compile error as `contract build` does: no `contract build` before them, no dev server. `test linux` and `agent linux` do not build: run `bun exact.mjs linux` first and after each edit. Run `verify` when the features work; `verify ios` once at the end for an iPhone app. A screen you
+`verify`, `test` and `agent` compile, build and serve their own copy, saying a compile error as `contract build` does: no `contract build` before them, no dev server. `test linux` and `agent linux` do not build: run `bun exact.mjs linux` first and after each edit; nor do `test android` and `agent android`, which drive the APK `bun exact.mjs android` builds and installs on the device `ANDROID_SERIAL` names (`verify android` builds it). Run `verify` when the features work; `verify ios` or `verify android` once at the end for a phone app. On Windows, `test windows`,
+`agent windows` and `verify windows` build first and drive headless at `app.json`'s `host.windows.window` size, in
+DejaVu Sans with no frame; `verify windows` also captures the app as it opens on the desktop (`windows-window.png`):
+judge the look from that one. A screenshot path with a space is quoted: `"screenshot 'C:\a b\x.png'"`. A screen you
 want checked or captured is a test's end; a drive takes any others (`resize`, `prefer …`, `screenshot`).
 Create seam types once with `bun exact.mjs contract types app.contract -o app.contract.d.ts`.
 `contract build` refreshes that declaration after a successful compile and reports
@@ -87,6 +95,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |`list-detail`|search, a detail, an add sheet, a delete alert, empty states, a file; split when wide|
 |`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
 |`rest`|its own server, polled; a signed-in person (`rest-backend`, `fetch-loading-error`, `after-a-write`)|
+|`site`|a website: a sortable `table` built ahead, a page per item rendered per request with a `dl`, an API's origin as a setting (`website`)|
 
 |Not in a pattern|Look up|
 |---|---|
@@ -97,6 +106,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |a failure the person must acknowledge (an alert with OK)|`error-alert`|
 |tabular digits: numeric columns or values changing in place|`numeric-readout`|
 |a number field, a stepper's `step`|`number-field`, `stepper`|
+|a pick from six or more options (a picker)|`select`|
 |a chat that opens at its newest message|`chat-thread`|
 |a welcome at first launch|`first-launch`|
 |records kept across launches, a saved library (`state` holds values, not records): a JSON file, SQLite, grants|`files-and-grants`|
@@ -107,11 +117,13 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
 |a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
 |sign in with Google, Microsoft, Auth0, Okta or another OAuth provider|`oauth`|
+|a website: serving it (`serve`, which renders a `render=request` page per request), a setting, a deep link|`website`|
 |ports, Bun, Chrome and its stores|`ports-and-browsers`|
 |porting an app, a release build, helpers sharing a port|`porting-and-release`|
 |a metronome, drum machine, sequencer or MIDI app: sound, MIDI, a transport (built in; write no native audio module)|`sequencer`; ["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media); `apps/metronome`|
 |transitions, keyframes, exit and layout animation|`motion`|
 |brand colours, light and dark, icon tokens|`theme`, `tamber`|
+|an icon: in a button, a tab, beside a label (a symbol, never a character such as ▦ ☏ ★ or an emoji)|`symbols`|
 |a module in Swift that `app.ts` asks; launch arguments|`native-module`|
 |app.json keys, `assets/`, the `modules` folder|`app-json`|
 |a section of the long guides, whole, by its heading|`bun exact.mjs docs <heading words>`|
@@ -128,8 +140,13 @@ prints one with its path and line); `apps/shelf` is a whole app.
 
 `app.contract` is the view, `app.ts` its data module, `app.test.contract` its tests. A
 screen is a route: its `header` the iOS navigation bar (the Mac window's title and toolbar) over the `scroll` its
-`navigationScroll` names (`one-screen`; more screens: `contract vocab screen`). This list
-takes the scroll's place:
+`navigationScroll` names (`one-screen`; more screens: `contract vocab screen`). A location's
+fragment is the same screen: `/item/7#moves` opens at its `id="moves"` once its data has arrived,
+and a `link href="#moves"` goes there. Every host, the web
+too, hides a stack's covered routes itself (not the page under a sheet, nor a wide split's list
+beside its detail); `for e in stack(nav)` keeps them mounted with their scroll, which `[top(nav)]`
+loses. A query follows the path:
+`` path("home") + `?q=${v}` ``. This list takes the scroll's place:
 
 ```contract
 shape Item
@@ -216,7 +233,9 @@ component Groceries
 **The data module** answers each source with exactly its declared shape: an extra
 field fails a resource or voids a mutation’s reply, whose slot keeps its old value.
 Type the function returning a reply (`Promise<Result<'post'>>`) so the build names
-an extra field. It reaches only what its `grants` name. A failed read should
+an extra field. It reaches only what its `grants` name. A value fixed at build, such as an
+API's origin, is `const API = import.meta.env.API_BASE_URL` at its top level, the name declared
+in `app.json`'s `env` ([rest-backend](recipes/rest-backend.md)). A failed read should
 fail its resource so Exact can retain its previous answer; a mutation may return
 a shaped domain refusal for its action to handle
 ([fetch-loading-error](recipes/fetch-loading-error.md)). The clock and

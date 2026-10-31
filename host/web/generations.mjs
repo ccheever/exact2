@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { BESIDE } from './beside.mjs';
 import { lockHeld } from './build-lock.mjs';
 import { buildTreeFileAsync } from './serve.mjs';
 
@@ -18,7 +19,31 @@ export const GENERATION = /^[0-9a-f]{32}$/;
 export const KEEP = { newest: 3, ageMs: 15 * 60_000, bytes: 2 * 2 ** 30 };
 const PREFIX = '/.exact/gen/';
 const realDirectory = (path) => { try { return lstatSync(path).isDirectory(); } catch { return false; } };
+const realFile = (path) => { try { return lstatSync(path).isFile(); } catch { return false; } };
 const generationsOf = (dist) => `${dist}.gen`, leasesOf = (dist) => `${dist}.leases`, reapedOf = (dist) => `${dist}.gen.reaped`;
+
+/** What beside `dist` a build there would replace, remove or overwrite though it is not one of its own (an author's
+ * `--out` directory may sit beside anything): each name of beside.mjs's `BESIDE` that is there and is not what a build
+ * writes there, with what it should be, else null. A stage is a fresh directory each build makes and removes, so
+ * another is never touched. */
+export function foreignBeside(dist) {
+  const receipt = (dir) => realDirectory(dir) && realFile(resolve(dir, '.exact-build.json'));
+  const entries = (dir, each) => realDirectory(dir) && readdirSync(dir).every((name) => each(name, resolve(dir, name)));
+  const lines = (file, form) => realFile(file) && readFileSync(file, 'utf8').split('\n').every((line) => line === '' || form.test(line));
+  const owned = {
+    previous: [receipt, 'a web build (its .exact-build.json)'],
+    gen: [(dir) => entries(dir, (name, at) => GENERATION.test(name) && receipt(at)), 'builds kept by generation'],
+    'gen.reaped': [(file) => lines(file, GENERATION), 'the generations reaped'],
+    leases: [(dir) => entries(dir, (name, at) => GENERATION.test(name) && entries(at, (lease, file) => /^\d+-\d+$/.test(lease) && realFile(file))), 'leases on kept builds'],
+    lock: [(file) => lines(file, /^\d+$/), 'a build\'s lock'],
+  };
+  for (const name of BESIDE) {
+    const path = `${dist}.${name}`, [ours, what] = owned[name];
+    try { lstatSync(path); } catch { continue; }
+    if (!ours(path)) return `${path} is there and is not ${what}, which a build in ${dist} would replace or remove`;
+  }
+  return null;
+}
 /** The generations reaped at `dist` (the last 256): a page asking for one is told it is gone (410), unlike an id that
  * names nothing here (404). */
 const reapedIds = (dist) => { try { return new Set(readFileSync(reapedOf(dist), 'utf8').split('\n').filter((l) => GENERATION.test(l))); } catch { return new Set(); } };
@@ -156,11 +181,13 @@ const swapping = (dist) => lockHeld(`${dist}.lock`);
 /** A file of generation `id` of `dist` for a request path, read whole from that build: the current one when it is
  * still `id` after the read, else the kept tree (asked again, for up to a second, while a swap holds `dist.lock`:
  * its rename lands under it); 'gone' for a generation reaped, 'busy' while a swap still holds the lock past that
- * second, null for no such file or an id that names nothing. */
-export async function generationFile(dist, id, pathname, accept = '') {
+ * second, null for no such file or an id that names nothing. With `miss`, no such file is the build's page for a
+ * miss where it has one (`buildTreeFile`). */
+export async function generationFile(dist, id, pathname, accept = '', { miss = false } = {}) {
   for (const end = Date.now() + 1000; ;) {
     if (generationOf(dist) === id) {
-      const found = await buildTreeFileAsync(dist, pathname, accept);
+      const found = await buildTreeFileAsync(dist, pathname, accept, { miss });
+      if (found?.status === 503) return 'busy'; // (its route table unreadable: serve.mjs `buildTreeFile`)
       let body = null;
       try { body = found && readFileSync(found.path); } catch { /* moved */ }
       if (generationOf(dist) === id) return found && body ? { ...found, body, id } : null;
@@ -168,7 +195,8 @@ export async function generationFile(dist, id, pathname, accept = '') {
     }
     const dir = resolve(generationsOf(dist), id);
     if (realDirectory(dir)) {
-      const found = await buildTreeFileAsync(dir, pathname, accept);
+      const found = await buildTreeFileAsync(dir, pathname, accept, { miss });
+      if (found?.status === 503) return 'busy';
       let body = null;
       try { body = found && readFileSync(found.path); } catch { /* reaped meanwhile */ }
       if (body) return { ...found, body, id };
@@ -192,22 +220,26 @@ export function withGenerationBase(html, id, base = '/') {
 
 /** What a server answers for a request path on `dist` (`base`, the path it serves the build under): a generation's
  * file (a path under one, or any path for a drive's `pinned` one), else the current build's, read whole from one
- * build; a document's base set to its generation. `{ status, route?, body?, id? }`: 200, 400 for a malformed
- * generation path, 404, or 410 for a generation kept no more. */
+ * build; a document's base set to its generation. `{ status, route?, body?, id?, render? }`: 200, 400 for a malformed
+ * generation path, 404 (with the build's page for a miss where it has one), or 410 for a generation kept no more;
+ * `render`, for the shell, is the render policy of the route it is served for. */
 export async function servedFile(dist, pathname, accept = '', { base = '/', pinned = null } = {}) {
   const under = generationPath(pathname, base);
   if (under === 'bad') return { status: 400 };
+  // The path in the app: a request under a generation names its page without that prefix.
+  const location = under ? under.path : pathname.slice(base.length - 1) || '/';
   let found;
   if (under || pinned) {
     const id = under ? under.id : pinned, path = under ? under.path : pathname.slice(base.length - 1) || '/';
-    found = await generationFile(dist, id, path, accept);
+    found = await generationFile(dist, id, path, accept, { miss: true });
     if (found === 'gone') return { status: 410, id };
     if (found === 'busy') return { status: 503 };
   } else {
     // Read whole from one build: its generation the same before and after. Between a swap's two renames (no one-step
     // exchange) there is no dist, and `.previous` answers with no generation: asked again until the swap is done.
     for (const end = Date.now() + 1000; found === undefined; ) {
-      const id = generationOf(dist), at = await buildTreeFileAsync(dist, pathname.slice(base.length - 1) || '/', accept);
+      const id = generationOf(dist), at = await buildTreeFileAsync(dist, pathname.slice(base.length - 1) || '/', accept, { miss: true });
+      if (at?.status === 503) return { status: 503 };
       let body = null;
       try { body = at && readFileSync(at.path); } catch { /* moved */ }
       // (No dist and no swap under way: no build yet, or one a killed swap left as `.previous`, served as before.)
@@ -219,5 +251,5 @@ export async function servedFile(dist, pathname, accept = '', { base = '/', pinn
   }
   if (!found) return { status: 404 };
   const body = found.route.endsWith('.html') && found.id ? withGenerationBase(found.body, found.id, base) : found.body;
-  return { status: 200, route: found.route, body, id: found.id };
+  return { status: found.status ?? 200, route: found.route, body, id: found.id, render: found.render, location };
 }

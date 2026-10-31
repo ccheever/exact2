@@ -473,6 +473,9 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     // A finger: a touch's `:active` is the engine's, which a synthesized touch never gets, so this piece marks the
     // innermost pressable while the finger is down, after UIKit's delay for a touch in a scroll view, and lets it go
     // at the lift. Its haptic plays as the press shows.
+    // Every hover look reads which pointer was last used.
+    const input = () => evaluate('document.documentElement.dataset.exactInput');
+    expect(await input()).toBe('mouse');
     await call('Emulation.setTouchEmulationEnabled', { enabled: true });
     const finger = (type, at) => call('Input.dispatchTouchEvent', { type, touchPoints: at ? [{ x: at[0], y: at[1] }] : [] });
     // The delay is judged by the page's clock, so a slow round trip from this test cannot fail it: the page notes when
@@ -496,6 +499,7 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     // A tapped link of text keeps the browser's `:hover`, which underlines it only where a pointer hovers (neutral.css).
     await finger('touchStart', await centre('link'));
     await finger('touchEnd');
+    expect(await input()).toBe('touch');
     // Chrome gives the tapped element `:hover` with the tap's gesture, which can come a frame or more after the
     // touch's end on a loaded machine: wait frames for it (2 s at most), then read.
     expect(await evaluate(`new Promise(ok => { const el = document.getElementById('link'), end = performance.now() + 2000, look = () => { if (el.matches(':hover') || performance.now() > end) ok([matchMedia('(hover: hover)').matches, el.matches(':hover'), getComputedStyle(el).textDecorationLine].join()); else requestAnimationFrame(look); }; look(); })`)).toBe('false,true,none');
@@ -524,19 +528,50 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect(await pressedAfter('bare')).not.toBe(null);
     expect(await bare()).toBe('0.9,1');
     await finger('touchEnd');
-    // A touch that stops a list still moving is no press, and a scroll under a press ends it.
-    await evaluate(`document.getElementById('away').insertAdjacentHTML('beforebegin', '<div id="scroller" style="position:fixed;top:0;left:0;width:300px;height:40px;overflow:auto"><div id="deep" data-exact-on="press" style="height:200px">deep</div></div>')`);
-    const scroll = (to) => evaluate(`new Promise(ok => { const s = document.getElementById('scroller'); s.addEventListener('scroll', ok, { once: true }); s.scrollTop = ${to}; })`);
-    await scroll(10);
-    await finger('touchStart', await centre('scroller'));
+    // A person's scroll under a press ends it (the browser takes the touch to pan: `pointercancel`), and a touch that
+    // stops a list a person set moving is no press.
+    await evaluate(`document.getElementById('away').insertAdjacentHTML('beforebegin', '<div id="scroller" style="position:fixed;top:0;left:0;width:300px;height:40px;overflow:auto"><div id="deep" data-exact-on="press" style="height:200px">deep</div><div id="next" data-exact-on="press" style="height:100px">next</div></div>')`);
+    const scrollTop = () => evaluate(`document.getElementById('scroller').scrollTop`);
+    const [across] = await centre('scroller');
+    await finger('touchStart', [across, 35]);
+    for (const y of [28, 21, 14, 7]) await finger('touchMove', [across, y]);
+    expect([await marked('deep', 'data-pressed'), await scrollTop() > 0]).toEqual([false, true]);
+    await finger('touchEnd');
+    await finger('touchStart', [across, 20]);
     if (await evaluate('at.down - at.scrolled < 150')) expect(await pressedAfter('deep')).toBe(null);
     await finger('touchEnd');
     await released('deep');
-    await finger('touchStart', await centre('scroller'));
+    // The page moving itself (an app's `scrollTop`) is no person's scroll, as UIKit's `setContentOffset` cancels no
+    // touch: a touch just after it presses, and a press it moves goes on, shown while its target is under the finger.
+    await evaluate(`new Promise(ok => { const poll = setInterval(() => { if (performance.now() - at.scrolled > 150) { clearInterval(poll); ok(); } }, 10); })`);
+    const scroll = (to) => evaluate(`new Promise(ok => { const s = document.getElementById('scroller'); s.addEventListener('scroll', ok, { once: true }); s.scrollTop = ${to}; })`);
+    await scroll(0);
+    await finger('touchStart', [across, 20]);
     expect(await pressedAfter('deep')).toBeGreaterThanOrEqual(150);
-    await scroll(20);
-    expect(await marked('deep', 'data-pressed')).toBe(false);
+    const moved = [];
+    for (const to of [20, 190, 20]) { await scroll(to); moved.push(await marked('deep', 'data-pressed')); }
+    expect(moved).toEqual([true, false, true]);
     await finger('touchEnd');
+    // Moved away inside the delay, the press does not show when the delay ends; brought back, it does.
+    await released('deep');
+    await scroll(0);
+    await finger('touchStart', [across, 20]);
+    await scroll(190);
+    expect(await pressedAfter('deep')).toBe(null);
+    await scroll(20);
+    expect(await marked('deep', 'data-pressed')).toBe(true);
+    await finger('touchEnd');
+    // A touch belongs to the target it began on: lifted after the app scrolled another under the finger, it presses
+    // neither, though the browser aims the tap's `click` at the one under the finger then. The next tap presses.
+    await released('deep');
+    await evaluate(`window.clicked = []; for (const id of ['deep', 'next']) document.getElementById(id).addEventListener('click', () => clicked.push(id))`);
+    await scroll(0);
+    await finger('touchStart', [across, 20]);
+    await scroll(200);
+    await finger('touchEnd');
+    await finger('touchStart', [across, 20]);
+    await finger('touchEnd');
+    expect(await evaluate('clicked.join()')).toBe('next');
     await evaluate(`document.getElementById('scroller').remove()`);
     // A pressable nothing scrolls under shows its press at the touch, as a tab bar's item does on iOS: in a fixed bar,
     // or a sticky one, as the route header is in a scrolling document.
@@ -601,6 +636,36 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a nativ
   try {
     for (const finger of [true, false]) {
       const page = await load('/unsaid', finger);
+      // Under a mouse a wash shows at once, fades out over 0.15 s as the pointer leaves, and shows at once again as it
+      // comes back mid-fade. The fade is held where it starts, in the page, so no round trip outlasts it.
+      await page.evaluate(() => {
+        window.fadeOf = (el) => el.getAnimations().find((a) => !a.transitionProperty && a.effect.getKeyframes()[0]?.backgroundColor);
+        addEventListener('pointerout', (e) => { const el = e.target.closest?.('[id]'); if (el) fadeOf(el)?.pause(); });
+      });
+      for (const id of finger ? [] : ['box', 'bordered']) {
+        // Whether it shows the wash (its image while hovered, its ground fading), and the fade's length.
+        const seen = () => page.evaluate((id) => {
+          const el = document.getElementById(id), s = getComputedStyle(el);
+          return [s.backgroundImage !== 'none' || s.backgroundColor !== 'rgba(0, 0, 0, 0)', fadeOf(el)?.effect.getTiming().duration ?? 0];
+        }, id);
+        await page.hover(`#${id}`);
+        const on = await seen();
+        await page.mouse.move(1, 1);
+        const leaving = await seen();
+        await page.hover(`#${id}`);
+        const back = await seen();
+        await page.mouse.move(1, 1);
+        await page.evaluate((id) => document.getElementById(id).getAnimations().forEach((a) => a.finish()), id);
+        expect([engine, id, on, leaving, back, await seen()]).toEqual([engine, id, [true, 0], [true, 150], [true, 0], [false, 0]]);
+      }
+      // A button kept pressed while its popover is open has no fade under its press as the pointer leaves for the popover.
+      if (!finger) {
+        await page.evaluate(() => document.getElementById('bordered').setAttribute('data-exact-open', ''));
+        await page.hover('#bordered');
+        await page.mouse.move(1, 1);
+        expect([engine, await page.evaluate(() => !!fadeOf(document.getElementById('bordered')))]).toEqual([engine, false]);
+        await page.evaluate(() => document.getElementById('bordered').removeAttribute('data-exact-open'));
+      }
       for (const [id, eased] of Object.entries(EASES)) {
         const at = [engine, finger ? 'finger' : 'mouse', id];
         // The button's transitions (WebKit runs one on an `::after` that draws nothing too), and its face's opacity, its
@@ -1215,6 +1280,41 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the pai
   } finally {}
 }, 60_000);
 
+// A dialog a tap opens takes the focus with no ring, as a route does after a pointer's press (WebKit marks that focus
+// `:focus-visible` after a touch); one a key opens shows its ring, after a tap too when a
+// key other than Enter or Space opens it (a shortcut's).
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a dialog a tap opens has no focus ring; a key's has one`, async () => {
+  const browser = await suiteBrowser(engine);
+  const page = await browser.newPage({ viewport: { width: 400, height: 600 }, hasTouch: true });
+  try {
+    await page.goto(`http://127.0.0.1:${server.address().port}/unsaid`);
+    await page.waitForFunction(() => window.ready);
+    await page.evaluate(() => {
+      document.getElementById('exact-root').innerHTML = `
+        <button id="ask" type="button" data-native data-button-style="bordered" commandfor="sure" command="show-modal">Delete something</button>
+        <button id="other" type="button" data-native data-button-style="bordered">Something else</button>
+        <dialog id="sure" role="alertdialog" aria-label="Delete it?"><button id="yes" type="button" data-native data-button-style="bordered" commandfor="sure" command="close">Delete</button></dialog>`;
+      addEventListener('keydown', e => { if (e.key === 'k' && !document.getElementById('sure').open) document.getElementById('sure').showModal(); });
+    });
+    const ring = () => page.evaluate(() => [document.activeElement.id, getComputedStyle(document.activeElement).outlineStyle !== 'none']);
+    await page.tap('#ask');
+    await page.waitForFunction(() => document.getElementById('sure').open);
+    const tapped = await ring();
+    await page.evaluate(() => document.getElementById('sure').close());
+    await page.focus('#ask');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.getElementById('sure').open);
+    const entered = await ring();
+    await page.evaluate(() => document.getElementById('sure').close());
+    await page.tap('#other');
+    await page.keyboard.press('k');
+    await page.waitForFunction(() => document.getElementById('sure').open);
+    expect([engine, tapped, entered, await ring()]).toEqual([engine, ['yes', false], ['yes', true], ['yes', true]]);
+  } finally {
+    await browser.close();
+  }
+}, 30000);
+
 for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: press feedback respects buttons and the scroller that moves the target`, async () => {
   const browser = await suiteBrowser(engine);
   const page = await browser.newPage();
@@ -1235,6 +1335,11 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: press f
         el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType, pointerId: 1, isPrimary: true,
           button: 0, buttons: type === 'pointerdown' ? 1 : 0, clientX: r.x + r.width / 2, clientY: r.y + 10 }));
       };
+      // A person's scroll: another finger the browser took to pan, then the scroll it makes.
+      window.personScroll = target => {
+        target.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerType: 'touch', pointerId: 2 }));
+        target.dispatchEvent(new Event('scroll'));
+      };
     });
     const seen = {};
     seen.authoredButton = await page.evaluate(() => {
@@ -1244,25 +1349,53 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: press f
       pointer('authored', 'pointerup', 'mouse');
       return opacity;
     });
-    // A document's scroll is reported on Document, outside the element ancestor chain
-    await page.evaluate(() => { document.dispatchEvent(new Event('scroll')); pointer('moving', 'pointerdown'); });
+    // A document's scroll is reported on Document, outside the element ancestor chain. The page scrolling itself is
+    // no person's scroll, and takes no press.
+    // A wheel elsewhere makes no other scroller's own scrolling a person's.
+    for (const [name, scroll] of [['movingPage', 'person'], ['appScroll', 'app'], ['wheelElsewhere', 'wheel']]) {
+      await page.evaluate(scroll => {
+        if (scroll === 'person') personScroll(document);
+        else if (scroll === 'wheel') { document.getElementById('authored').dispatchEvent(new WheelEvent('wheel', { bubbles: true })); document.getElementById('port').dispatchEvent(new Event('scroll')); }
+        else document.dispatchEvent(new Event('scroll'));
+        pointer('moving', 'pointerdown');
+      }, scroll);
+      await page.clock.runFor(151);
+      seen[name] = await page.evaluate(() => {
+        const marked = document.getElementById('moving').hasAttribute('data-pressed');
+        pointer('moving', 'pointerup');
+        return marked;
+      });
+      await page.clock.runFor(151);
+    }
+    // A person's scroll ends with its scroller's `scrollend`: the page scrolling that scroller itself every 100 ms after
+    // it is no person's, and a touch then presses.
+    await page.evaluate(() => { const port = document.getElementById('port'); personScroll(port); port.dispatchEvent(new Event('scrollend')); });
+    for (let i = 0; i < 3; i++) { await page.clock.runFor(100); await page.evaluate(() => document.getElementById('port').dispatchEvent(new Event('scroll'))); }
+    await page.evaluate(() => pointer('moving', 'pointerdown'));
     await page.clock.runFor(151);
-    seen.movingPage = await page.evaluate(() => {
-      const marked = document.getElementById('moving').hasAttribute('data-pressed');
-      pointer('moving', 'pointerup');
-      return marked;
-    });
+    seen.afterScrollEnd = await page.evaluate(() => { const marked = document.getElementById('moving').hasAttribute('data-pressed'); pointer('moving', 'pointerup'); return marked; });
+    await page.clock.runFor(151);
     // A fixed bar stays still while its ancestor scrolls
     seen.fixedBar = await page.evaluate(() => {
-      document.getElementById('port').dispatchEvent(new Event('scroll'));
+      personScroll(document.getElementById('port'));
       pointer('fixed', 'pointerdown');
       const el = document.getElementById('fixed'), before = el.hasAttribute('data-pressed');
-      document.getElementById('port').dispatchEvent(new Event('scroll'));
+      personScroll(document.getElementById('port'));
       const after = el.hasAttribute('data-pressed');
       pointer('fixed', 'pointerup');
       return [before, after];
     });
-    expect(seen).toEqual({ authoredButton: '0.4', movingPage: false, fixedBar: [true, true] });
+    // A touch lifted off its target swallows only the browser's click; a script's `click()` still runs.
+    seen.scriptClick = await page.evaluate(() => {
+      const el = document.getElementById('fixed');
+      let clicked = false;
+      el.addEventListener('click', () => { clicked = true; }, { once: true });
+      pointer('fixed', 'pointerdown');
+      el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch', pointerId: 1, isPrimary: true, button: 0, clientX: 2000, clientY: 2000 }));
+      el.click();
+      return clicked;
+    });
+    expect(seen).toEqual({ authoredButton: '0.4', movingPage: false, appScroll: true, wheelElsewhere: true, afterScrollEnd: true, fixedBar: [true, true], scriptClick: true });
     // Ignore delayed feedback if the target is disabled or removed before its timer fires
     await page.clock.runFor(151);
     for (const change of ['disabled', 'removed']) {

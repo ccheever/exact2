@@ -18,12 +18,15 @@ import {resolve} from 'node:path';
 import {acceptsHTML, appDocumentPath, DirectoryOrigin, webRootPath} from '../../scripts/origin.mjs';
 import {publishRoot} from '../../scripts/deploy.mjs';
 import {canonical, locationOf, matchPattern} from '../web-js/route-pattern.js';
-import {buildTreeFile, buildTreeFileAsync, readWebRequest, serveBuildTree} from './serve.mjs';
+import {buildTreeFile, buildTreeFileAsync, planRouteTable, readWebRequest, serveBuildTree} from './serve.mjs';
 
 test('a navigation to a dotted deep link is the document; a fetch of one is not', async () => {
   const dist = mkdtempSync(resolve(tmpdir(), 'exact-deep-link-'));
   try {
     writeFileSync(resolve(dist, 'index.html'), '<!doctype html><title>app</title>');
+    // A JS-target build's shell and route table (host/web-js/build.mjs).
+    writeFileSync(resolve(dist, 'shell.html'), '<!doctype html><title>app</title>');
+    writeFileSync(resolve(dist, 'routes.json'), JSON.stringify({routes: [{pattern: '/', notfound: false}, {pattern: '/profile/:handle', notfound: false}]}));
     mkdirSync(resolve(dist, 'assets'));
     writeFileSync(resolve(dist, 'assets/app.css'), 'body{}');
     const html = 'text/html,application/xhtml+xml,*/*;q=0.8';
@@ -34,9 +37,11 @@ test('a navigation to a dotted deep link is the document; a fetch of one is not'
     expect((await readWebRequest(dist, '/profile/jay.bsky.team', html)).found?.route).toBe('/index.html');
     expect((await readWebRequest(dist, '/profile/jay.bsky.team')).found).toBe(null);
     expect((await readWebRequest(dist, '/assets/app.css', html)).found?.route).toBe('/assets/app.css');
-    expect(buildTreeFile(dist, '/profile/jay.bsky.team', html)?.route).toBe('/index.html');
+    expect(buildTreeFile(dist, '/profile/jay.bsky.team', html)?.route).toBe('/shell.html');
     expect(buildTreeFile(dist, '/profile/jay.bsky.team')).toBe(null);
-    expect(buildTreeFile(dist, '/profile/alice')?.route).toBe('/index.html');
+    // A build tree's shell is a navigation's (LLP 1153 D3.2): a fetch of a route's path, dotted or not, is no page.
+    expect(buildTreeFile(dist, '/profile/alice', html)?.route).toBe('/shell.html');
+    for (const accept of ['', '*/*', 'application/json']) expect(buildTreeFile(dist, '/profile/alice', accept), accept).toBe(null);
     // A missing file a page or an iframe navigates to is still missing.
     expect((await readWebRequest(dist, '/deck/missing.html', html)).found).toBe(null);
     expect((await readWebRequest(dist, '/assets/missing.pdf', html)).found).toBe(null);
@@ -70,12 +75,15 @@ component App
   view
     text top(nav).url
 `;
+// The plan, and the shell and route table a JS-target build writes beside it (host/web-js/build.mjs).
 function plan(dist, pattern) {
   const source = resolve(dist, 'routes.contract');
   writeFileSync(source, sourceFor(pattern));
   const built = spawnSync(resolve(process.env.CARGO_TARGET_DIR ?? 'target', 'debug/contract'),
     ['build', source, '-o', resolve(dist, 'app.plan')], {encoding: 'utf8'});
   if (built.error || built.status !== 0) throw new Error(`build the contract binary first: ${built.error ?? built.stderr}`);
+  writeFileSync(resolve(dist, 'routes.json'), JSON.stringify({routes: planRouteTable(readFileSync(resolve(dist, 'app.plan')))}));
+  writeFileSync(resolve(dist, 'shell.html'), '<!doctype html><title>shell</title>');
 }
 
 test('declared routes disambiguate file extensions on both serving paths and follow rebuilt plans', async () => {
@@ -87,11 +95,12 @@ test('declared routes disambiguate file extensions on both serving paths and fol
     plan(dist, '/profile/:handle');
     const published = resolve(dist, 'origin'), origin = new DirectoryOrigin(published);
     await publishRoot({origin, row: {}, web: dist});
-    for (const read of [async (path, accept) => (await readWebRequest(dist, path, accept)).found,
-      async (path, accept) => buildTreeFile(dist, path, accept),
-      async (path, accept) => (await readWebRequest(published, path, accept)).found]) {
+    // A static origin's document is index.html; a JS-target build's tree serves a route's shell.html.
+    for (const [read, page] of [[async (path, accept) => (await readWebRequest(dist, path, accept)).found, '/index.html'],
+      [async (path, accept) => buildTreeFile(dist, path, accept), '/shell.html'],
+      [async (path, accept) => (await readWebRequest(published, path, accept)).found, '/index.html']]) {
       for (const path of ['/profile/photos.zip', '/profile/photos%2Ezip', '/profile/a%2Fb.zip', '/caf%C3%A9/report.pdf']) {
-        expect((await read(path, 'text/html'))?.route, path).toBe('/index.html');
+        expect((await read(path, 'text/html'))?.route, path).toBe(page);
         expect(await read(path, '*/*'), path).toBe(null);
       }
       for (const path of ['/deck/missing.html', '/missing.pdf', '/profile/photos.zip/', '/profile//photos.zip',
@@ -100,7 +109,7 @@ test('declared routes disambiguate file extensions on both serving paths and fol
         expect(await read(path, 'text/html'), path).toBe(null);
       }
       expect((await read('/assets/real.pdf', 'text/html'))?.route).toBe('/assets/real.pdf');
-      expect((await read('/assets/missing.pdf', 'text/html'))?.route).toBe('/index.html');
+      expect((await read('/assets/missing.pdf', 'text/html'))?.route).toBe(page);
     }
     expect((await readWebRequest(published, '/profile/photos.zip', 'text/html')).found?.immutable).toBe(false);
     plan(dist, '/changed/:handle');
@@ -108,13 +117,49 @@ test('declared routes disambiguate file extensions on both serving paths and fol
     for (const path of ['/profile/photos.zip', '/changed/photos.zip']) {
       const expected = path.startsWith('/changed/') ? '/index.html' : undefined;
       expect((await readWebRequest(dist, path, 'text/html')).found?.route).toBe(expected);
-      expect(buildTreeFile(dist, path, 'text/html')?.route).toBe(expected);
+      expect(buildTreeFile(dist, path, 'text/html')?.route).toBe(expected && '/shell.html');
       expect((await readWebRequest(published, path, 'text/html')).found?.route).toBe(expected);
     }
     writeFileSync(resolve(dist, 'app.plan'), 'invalid plan');
+    writeFileSync(resolve(dist, 'routes.json'), 'invalid route table');
     expect((await readWebRequest(dist, '/changed/photos.zip', 'text/html')).found).toBe(null);
     expect(buildTreeFile(dist, '/changed/photos.zip', 'text/html')).toBe(null);
   } finally { rmSync(dist, {recursive: true, force: true}); }
+});
+
+// LLP 1153 D3: a JS-target build is served as any static host serves it: a file, else for an HTML navigation a declared
+// route's shell with 200, else 404.html with 404. With no 404.html a page's miss gets the shell, whose client draws
+// the notfound route; a request for anything but HTML at a route's path is a miss.
+test('a build tree answers a miss with 404 and its 404.html, or a page with the shell', async () => {
+  const dist = mkdtempSync(resolve(tmpdir(), 'exact-hosting-rule-'));
+  let server;
+  try {
+    plan(dist, '/profile/:handle');
+    writeFileSync(resolve(dist, 'index.html'), '<title>home</title>');
+    writeFileSync(resolve(dist, '404.html'), '<title>not found</title>');
+    server = httpServer((req, res) => serveBuildTree(dist, req, res));
+    await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+    const get = async (path, accept = '*/*') => {
+      const r = await fetch(`http://127.0.0.1:${server.address().port}${path}`, {headers: {accept}});
+      return [r.status, await r.text()];
+    };
+    const shell = '<!doctype html><title>shell</title>', missing = '<title>not found</title>';
+    expect(await get('/')).toEqual([200, '<title>home</title>']);
+    expect(await get('/profile/alice', 'text/html')).toEqual([200, shell]);
+    expect(await get('/profile/alice.png', 'text/html')).toEqual([200, shell]);
+    for (const accept of ['*/*', 'application/json']) expect(await get('/profile/alice', accept), accept).toEqual([404, missing]);
+    for (const path of ['/no/such/route', '/nope.png', '/profile/alice.png', '/profile/alice/']) expect(await get(path), path).toEqual([404, missing]);
+    expect(await get('/no/such/route', 'text/html')).toEqual([404, missing]);
+    rmSync(resolve(dist, '404.html'));
+    expect(await get('/no/such/route', 'text/html')).toEqual([404, shell]);
+    for (const path of ['/nope.png', '/no/such/route']) expect(await get(path, 'application/json'), path).toEqual([404, '']);
+    // Asked without `miss`, a miss is nothing, as before: the dev gallery and the tool serve only what is there.
+    expect(buildTreeFile(dist, '/no/such/route', 'text/html')).toBe(null);
+    expect(buildTreeFile(dist, '/no/such/route', 'text/html', {miss: true})).toMatchObject({route: '/shell.html', status: 404});
+  } finally {
+    if (server) { server.closeAllConnections(); await new Promise(ok => server.close(ok)); }
+    rmSync(dist, {recursive: true, force: true});
+  }
 });
 
 test('the shared pattern matcher retains the route corpus semantics without notfound', () => {
@@ -312,10 +357,11 @@ test('HTTP route caches read each plan asynchronously once and refresh after edi
     const url = `http://127.0.0.1:${server.address().port}`;
     const tree = async path => (await fetch(url + path, {headers: {accept: 'text/html'}})).status;
     const staticRead = async path => (await readWebRequest(dist, path, 'text/html')).found ? 200 : 404;
-    for (const read of [tree, staticRead]) {
+    // A build's tree reads its route table from routes.json; a static origin from the plan.
+    for (const [read, table] of [[tree, 'routes.json'], [staticRead, 'app.plan']]) {
       sync.mockClear(); reads.mockClear();
       expect(await read('/profile/photos.zip')).toBe(200);
-      const planReads = () => reads.mock.calls.filter(([request]) => request.path === 'app.plan').length;
+      const planReads = () => reads.mock.calls.filter(([request]) => request.path === table).length;
       expect(sync.mock.calls.length).toBe(0);
       expect(planReads()).toBe(1);
       expect(await read('/profile/photos.zip')).toBe(200);
@@ -355,12 +401,13 @@ for (const failure of ['published plan', 'published pointer', 'local plan', 'tre
       const published = failure.startsWith('published');
       const root = published ? resolve(dist, 'origin') : dist;
       if (published) await publishRoot({origin: new DirectoryOrigin(root), row: {}, web: dist});
-      // Local static reads retry four times inside one request; published reads fail closed immediately.
-      let remaining = failure === 'local plan' ? 4 : 1, pointers = 0;
+      // Local static reads and a build tree's route table retry four times inside one request; published reads fail
+      // closed immediately.
+      let remaining = failure === 'local plan' || failure === 'tree plan' ? 4 : 1, pointers = 0;
       reads = spyOn(filesystem, 'filesystemRead').mockImplementation(request => {
-        const selected = failure === 'published pointer'
-          ? request.path === webRootPath && ++pointers === 2
-          : request.path === 'app.plan' || request.path.endsWith('/app.plan');
+        const selected = failure === 'published pointer' ? request.path === webRootPath && ++pointers === 2
+          : failure === 'tree plan' ? request.path === 'routes.json'
+            : request.path === 'app.plan' || request.path.endsWith('/app.plan');
         if (remaining && selected) { remaining--; throw new Error('injected EMFILE'); }
         return original(request);
       });
@@ -370,8 +417,18 @@ for (const failure of ['published plan', 'published pointer', 'local plan', 'tre
       expect(await read('/profile/photos.zip')).toBe(undefined);
       expect(remaining).toBe(0);
       expect(await read('/index.html')).toBe('/index.html');
-      expect(await read('/profile/photos.zip')).toBe('/index.html');
+      expect(await read('/profile/photos.zip')).toBe(failure === 'tree plan' ? '/shell.html' : '/index.html');
       expect(await read('/deck/missing.html')).toBe(undefined);
+      if (failure === 'tree plan') {
+        // A route table that stays unreadable is no answer yet when serving (503), never a page's miss; one read that
+        // fails is asked again, and the route's shell served.
+        writeFileSync(resolve(dist, 'routes.json'), readFileSync(resolve(dist, 'routes.json'), 'utf8') + '\n');
+        remaining = 4;
+        expect(await buildTreeFileAsync(root, '/profile/photos.zip', 'text/html', {miss: true})).toEqual({status: 503});
+        writeFileSync(resolve(dist, 'routes.json'), readFileSync(resolve(dist, 'routes.json'), 'utf8') + '\n');
+        remaining = 1;
+        expect([await read('/profile/photos.zip'), remaining]).toEqual(['/shell.html', 0]);
+      }
     } finally {
       reads?.mockRestore();
       rmSync(dist, {recursive: true, force: true});

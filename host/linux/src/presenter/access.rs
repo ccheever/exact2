@@ -17,9 +17,11 @@
 //! control is its platform kind with its state; a text outside any of them
 //! is itself, a heading where its role says so; an image is one only where
 //! it is named; a scroll container that scrolls holds what is in it; a
-//! `tablist` holds its tabs; a live region is kept so that its change is
-//! spoken. Everything else is no node, and its children stand under the
-//! node above. What is hidden, inert, `aria-hidden`, under a route that
+//! `tablist` holds its tabs; a table holds its caption and rows, a row its
+//! cells, and a description list its terms and descriptions; a live region
+//! is kept so that its change is spoken. Everything else is no node, and
+//! its children stand under the node above. What is hidden, inert,
+//! `aria-hidden`, under a route that
 //! does not show, or out of what its scrollers show is left out.
 //!
 //! **Where the bars and the top layer are.** A header the top app bar
@@ -88,6 +90,44 @@ pub mod role {
     pub const TOGGLE: i32 = 17;
     /// The top app bar's Up arrow, which the platform names.
     pub const UP: i32 = 18;
+    /// A `table` (LLP 1153 D7.3): ARIA's `table`.
+    pub const TABLE: i32 = 19;
+    /// A table's `tr`: ARIA's `row`. A row group is no node.
+    pub const ROW: i32 = 20;
+    /// A `td`: ARIA's `cell`.
+    pub const CELL: i32 = 21;
+    /// A `th` heading its column (`scope="col"`, or none): `columnheader`.
+    pub const COLUMN_HEADER: i32 = 22;
+    /// A `th` heading its row (`scope="row"`): `rowheader`.
+    pub const ROW_HEADER: i32 = 23;
+    /// A table's `caption`: ARIA's `caption`.
+    pub const CAPTION: i32 = 24;
+    /// A `dl`, which HTML-AAM maps to a description list.
+    pub const DESCRIPTION_LIST: i32 = 25;
+    /// A `dt`: ARIA's `term`.
+    pub const TERM: i32 = 26;
+    /// A `dd`: ARIA's `definition`.
+    pub const DEFINITION: i32 = 27;
+}
+
+/// A table's or a description list's element as its role (HTML-AAM): a
+/// node that holds what it heads or holds, named by its author, if at all.
+fn structure_role(node: &NodeRef<'_>) -> Option<i32> {
+    if node.node_type != exact_kernel::NodeType::View {
+        return None;
+    }
+    Some(match node.props.str(PropId::SemanticTag)? {
+        "table" => role::TABLE,
+        "caption" => role::CAPTION,
+        "tr" => role::ROW,
+        "td" => role::CELL,
+        "th" if node.props.str(PropId::Scope) == Some("row") => role::ROW_HEADER,
+        "th" => role::COLUMN_HEADER,
+        "dl" => role::DESCRIPTION_LIST,
+        "dt" => role::TERM,
+        "dd" => role::DEFINITION,
+        _ => return None,
+    })
 }
 
 /// A node's flags.
@@ -316,6 +356,8 @@ struct Build {
     item: (i32, i32),
     /// How far each list scrolls, read once.
     limits: BTreeMap<ViewId, f32>,
+    /// An open popover's root, which the page's walk passes over.
+    top: Option<ViewId>,
 }
 
 impl Build {
@@ -696,6 +738,11 @@ impl<D: DataSource> Presenter<D> {
 
     fn access_walk_node(&self, b: &mut Build, node: NodeRef<'_>, mut scope: Scope) {
         let id = node.id;
+        // An open popover is drawn in the top layer: it is walked after the
+        // page, under no clip or scroll of its page ancestors.
+        if b.top == Some(id) {
+            return;
+        }
         let (hidden, inert) = self.host.route_visibility(id);
         if hidden
             || inert
@@ -858,6 +905,13 @@ impl<D: DataSource> Presenter<D> {
                     scope.shift.1 += was.1 - s.offset.1;
                 }
                 scope.parent = own;
+            } else if let Some(role) = structure_role(&node).filter(|_| aria.is_none()) {
+                let words = (label.unwrap_or_default(), String::new());
+                if let Some(own) =
+                    self.access_emit(b, &scope, &node, role, 0, [0.0; 3], || Some(words))
+                {
+                    scope.parent = own;
+                }
             } else if aria == Some("tablist")
                 || Self::access_live(&node) != 0
                 || (label.is_some()
@@ -1076,8 +1130,10 @@ impl<D: DataSource> Presenter<D> {
             origin: (frame[0], frame[1]),
             item: (0, 0),
             limits: self.collection_scroll_limits(),
+            top: None,
         };
-        if let Some(root) = self.alert_root() {
+        // A modal box is the whole tree; under a popover the page is live.
+        if let Some(root) = self.alert_root().filter(|_| self.alert_inert()) {
             let viewport = (0., 0., self.viewport.0, self.viewport.1);
             self.access_walk(
                 &mut b,
@@ -1093,7 +1149,7 @@ impl<D: DataSource> Presenter<D> {
             );
             return (b.out, 0, (0, String::new()));
         }
-        if self.top_open() {
+        if self.page_inert() {
             let serial = self.access_surface(&mut b);
             return (b.out, serial, (0, String::new()));
         }
@@ -1127,8 +1183,15 @@ impl<D: DataSource> Presenter<D> {
             });
             scope.parent = id;
         }
+        b.top = self.alert_root();
         for root in self.host.runner().roots() {
             self.access_walk(&mut b, root, scope);
+        }
+        if let Some(top) = b.top.take() {
+            scope.parent = 0;
+            scope.shift = (0., 0.);
+            scope.clip = (0., 0., self.viewport.0, self.viewport.1);
+            self.access_walk(&mut b, top, scope);
         }
         self.access_bottom(&mut b);
         Self::access_sets(&mut b.out);

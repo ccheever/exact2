@@ -66,13 +66,22 @@ impl<D: DataSource> Presenter<D> {
         if phase != 0 {
             return false;
         }
+        // A press that lands on an open popover is the popover's: no page
+        // scrollbar under it takes it.
+        let on_popover = self.alert.is_some()
+            && !self.alert_inert()
+            && self.hit(x, y).is_some_and(|h| self.alert_holds(h));
         let bar = self
             .brush
             .scrollbars
             .bars
             .iter()
             .rev()
-            .find(|b| self.alert_allows(b.id) && contains(b.track, x, y))
+            .find(|b| {
+                self.alert_allows(b.id)
+                    && (!on_popover || self.alert_holds(b.id))
+                    && contains(b.track, x, y)
+            })
             .copied();
         let Some(bar) = bar else {
             return false;

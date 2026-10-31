@@ -520,23 +520,12 @@ impl Em<'_> {
                 })
                 .collect(),
         };
-        if id == StyleId::Display && parts.css.contains("--exact-progress-justify:") {
-            let normal = self.uses.rt("normal");
-            writes.push(("--exact-progress-justify".into(), String::new(), Some(format!(
-                "v=>[\"flex\",\"grid\",\"none\"].includes({normal}(\"display\",String(v??\"\")))?\"auto\":\"start\""
-            ))));
+        // A progress's or canvas's alignment, and its parent's (sized.rs).
+        let sized = crate::sized::writes(id, parts);
+        if !sized.is_empty() {
+            self.uses.rt("normal");
         }
-        if id == StyleId::PositionType && parts.props.contains_key("data-exact-progress") {
-            let normal = self.uses.rt("normal");
-            writes.push((
-                "justify-self".into(),
-                String::new(),
-                Some(format!(
-                    "v=>{normal}(\"position\",String(v??\"\"))===\"absolute\"?\"auto\":{:?}",
-                    style::PROGRESS_JUSTIFY
-                )),
-            ));
-        }
+        writes.extend(sized);
         if matches!(id, StyleId::FontWeight | StyleId::LineHeight) {
             let normal = self.uses.rt("normal");
             // The marker depends on both rows: either can expose an inherited value.
@@ -571,6 +560,21 @@ impl Em<'_> {
                 writes.push(("--exact-padding-bottom".into(), unit, Some(px)));
             }
         }
+        if id == StyleId::Appearance && b.written {
+            self.said_appearance(e, f, parts.props.get("data-exact-said"));
+        }
+        // Right to left, the sides of a pair different hands say (sides.rs).
+        let other = style::other_side(id).and_then(binding);
+        self.side_writes(
+            i,
+            e,
+            scope,
+            b,
+            other.as_ref(),
+            &parts.css,
+            timeline,
+            &mut writes,
+        )?;
         // A reference (`url(#…)`) names an element by its authored id, which
         // the kernel scopes to the instance (LLP 1055.000 D3): resolved at
         // run time from the node (`Sr`).
@@ -988,6 +992,16 @@ pub(super) fn attributes(
     }
     // Off the page's thread, so an arrival does not hold a frame (LLP 1145 D3).
     attrs.extend((element == "img").then(|| ("decoding".into(), "async".into())));
+    // A role the element has natively is not restated, as the live host leaves it off.
+    let implicit = exact_web::host::implicit_role(element, |name| {
+        attrs
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
+    });
+    if implicit.is_some() {
+        attrs.retain(|(k, v)| !(k == "role" && Some(v.as_str()) == implicit));
+    }
     (attrs, content, css)
 }
 

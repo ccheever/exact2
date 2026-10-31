@@ -202,6 +202,14 @@ pub(crate) fn scale(to: f32, progress: f32) -> f32 {
 }
 
 impl<D: DataSource> Host<D> {
+    /// The value a sample replaces, before hover, focus and press feedback.
+    pub(crate) fn kept_presented(&self, view: ViewId) -> Presented {
+        self.presented
+            .get(&view)
+            .copied()
+            .unwrap_or_else(|| self.unpresented(view))
+    }
+
     /// A node's committed presentation, before a press or a look shows on
     /// it: what the engine's cache starts from (`Host::presented` adds them
     /// at every read, so neither is ever kept).

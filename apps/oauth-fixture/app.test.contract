@@ -10,3 +10,18 @@ test "signs in, reads the person, and stays signed in after a relaunch"
   clock data
   expect text "status" == "Signed in"
   expect text "name" == "Ada Lovelace"
+
+// LLP 1146 D8: the app's own sign-in screens, natively, where a fetch's
+// `redirect: "manual"` answers the redirect and the app's `Cookie` is sent
+test "with its own sign-in screens, it signs in to ForgeRock with no browser and stays signed in" on linux, macos, ios
+  request POST "/control" {"action": "reset"}
+  type "profile" "forgerock"
+  clock data
+  expect text "status" == "Signed out"
+  tap "sign-in-here"
+  clock data
+  expect text "status" == "Signed in"
+  expect text "name" == "Ada Lovelace"
+  reload
+  clock data
+  expect text "status" == "Signed in"

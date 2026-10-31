@@ -126,6 +126,19 @@ fn a_header_with_no_heading_or_two_is_named_as_no_bar() {
         "column navigationKey=`${e.id}` navigationBar=\"none\"",
     );
     assert_eq!(warned(&said), []);
+    // Nor does a header that draws itself, as a site's does (`appearance="none"`, said or
+    // computed): iOS makes no bar of it, not even the system Back alone.
+    for attr in [
+        "appearance=\"none\"",
+        "appearance=(1 > 0 ? \"none\" : \"auto\")",
+    ] {
+        let drawn = none.replace(
+            "header display=\"flex\"",
+            &format!("header {attr} display=\"flex\""),
+        );
+        assert_ne!(drawn, none);
+        assert_eq!(warned(&drawn), [], "{attr}");
+    }
     let two = route("  text \"A\" role=\"heading\" aria-level=1\n  text \"B\" role=\"heading\" aria-level=2\n  image \"symbol:heart\"");
     assert_eq!(warned(&two), [(NO_BAR.to_string(), 11)]);
     let (_, warnings) = contract::compile_warned(&two);

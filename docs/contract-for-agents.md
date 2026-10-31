@@ -122,7 +122,7 @@ role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
 its parent by the padding (`lower-width-padding`), a box whose fixed width ceiling cannot grow
 with its text at accessibility sizes (`lower-text-px-width`; use `rem` for the width and its bounds), a bare
 `line-height=28`, which is 28 times the font size, not 28 points (`lower-line-height-multiplier`),
-screens swapped by an `if` in an app with no `routes` (`lower-screen-by-state`), a
+screens swapped by an `if` over a state, at the top of the view or inside a route (`lower-screen-by-state`), a
 `replace` to another route, pressed on the screen a launch at `/` opens before
 anything else changes the router, which the router refuses (`lower-replace-root`), a count before a plural noun, `${n} cards`
 (`lower-count-plural`), a row of the app's records that searches another table of them,
@@ -1267,19 +1267,62 @@ documentation requires (LLP 1146; the IDs are `packages/oauth/test/PROVIDERS.md`
 | GitHub | `endpoints: { authorization: 'https://github.com/login/oauth/authorize', token: 'https://github.com/login/oauth/access_token' }`, no `openid` (GH-1), `clientSecret` (GH-7), `commaScopes: true` (GH-5), `endedErrors: ['bad_refresh_token']` (GH-4). Its token endpoint does not answer a browser, so a web build needs a server (GH-8) |
 | Salesforce | `issuer: 'https://login.salesforce.com'`, the `refresh_token` scope (SF-14); it sends no `expires_in`, so the expiry is learned from a 401 (SF-1) |
 | Amazon Cognito | the endpoints are on the user pool's domain, not the issuer's: grant both origins (COGNITO-1) |
+| ForgeRock (PingAM) | `issuer`: the realm's, `…/oauth2/realms/root/realms/<realm>`, as its discovery document names it. An app with its own sign-in screens answers the authentication tree (FR-1), then passes `signIn` an `authorize` that POSTs the authorization request with the SSO token (FR-2; below), natively only. A gateway that answers 403 for an expired access token: `expiredStatus: [401, 403]` (FR-4) |
 | Sign in with Apple | not supported: its token exchange needs a server-signed client secret |
 
 Every option, with what it does, is in `@exact/oauth`'s `index.d.ts`.
 
+**An app's own sign-in screens.** A provider that lets an app sign the person
+in with its own screens (ForgeRock's authentication trees) still issues an
+authorization code. The app sends the authorization request as the provider
+documents and answers where it was redirected; the package checks it and does
+the rest. The source that answers the tree's last step keeps its SSO token in
+the module and answers only that the tree is done: an answer is kept and
+shown, and whoever holds the token can sign in as the person.
+
+```ts
+let sso = '';  // the tree's SSO token, set by the source that answers its last step
+const sources: Sources = {
+  signIn: (_a, store) => {
+    const token = sso;
+    sso = '';
+    return provider.signIn(store, {
+      authorize: async ({ endpoint, params, fetch }) => {
+        const reply = await fetch(endpoint, { method: 'POST', redirect: 'manual',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: `iPlanetDirectoryPro=${token}` },
+          body: new URLSearchParams({ ...params, csrf: token, decision: 'allow' }).toString() });
+        return reply.headers.get('Location') ?? '';
+      },
+    });
+  },
+};
+```
+
+This sign-in runs natively. On the web, the browser answers `redirect:
+'manual'` with no status or headers (Fetch's opaque redirect) and drops a
+`Cookie` an app sets, so a web build needs a server to send the authorization
+request, as GitHub's needs one for its token exchange (GH-8). Grant no
+`auth.session` or `auth.callback`, and set `callback` to the redirect URI the
+provider registered. Send with the `fetch` that `authorize` is given, the
+package's transport, and throw an `OAuthError` to say why sign-in failed,
+giving it the failing reply's status. `claims(store)` reads the ID token's
+claims, for an API that wants one of them in a header; the `log` option hears
+what the session did, with no token in it, for a diagnostics screen; the
+`fetch` option carries every request the package makes, for a demo whose
+server is in the app.
+
 **Testing against a fake provider.** Name `<exact2>/packages/oauth/test/fixture.ts`
 as the app's server in `app.json` (`"commands": {"server": ["bun", "<exact2>/packages/oauth/test/fixture.ts", "--port", "4400"]}`,
 `"server": {"database": false}`). Its profiles (`spec`, `google`, `entra`, `auth0`,
-`okta`, `onelogin`, `github`, `salesforce`) behave as those providers do. The
+`okta`, `onelogin`, `github`, `salesforce`, `forgerock`) behave as those providers do. The
 issuer is `http://127.0.0.1:4400/p/<profile>`, except Entra's
 `…/p/entra/common/v2.0`, Auth0's `…/p/auth0/` and OneLogin's
 `…/p/onelogin/oidc/2`. Google's token endpoint is on the next port, `4401`:
 grant it too. GitHub has no discovery: its `endpoints` are `…/p/github/authorize`
 and `…/p/github/token`. `GET /p/<profile>/api/me` answers the person.
+ForgeRock's tree is `POST /p/forgerock/json/authenticate` (the person is
+`ada@example.com`, password `lovelace`), and its API answers 403 for an expired
+access token.
 `authorize` completes the held sign-in against the fixture;
 `authorize cancel` cancels it. `request POST "/control"` changes what the
 fixture does next: `{"action": "expire-access", "profile": "spec"}`, and
@@ -2275,7 +2318,25 @@ tab switching, the same-URL push, external navigation, and route parameters.
 
 Exact's web servers use declared routes for file-like deep links: `/profile/:handle`
 admits a navigation to `/profile/photos.zip`. Existing public files win; unmatched
-file paths stay 404, even with `notfound`. External static hosts need their own rewrites.
+file paths stay 404, even with `notfound`.
+
+**A built site, hosted.** `bun exact.mjs web-build --out dist` writes the site to `dist/`, a
+release build as deploy makes one (no agent mode): a page for each `render=build` route
+(rendered under Bun unless the app has a render entry of its own), `404.html` for a `notfound`
+route rendered so, `shell.html`, and `routes.json`, the route table in the plan's order with each
+route's pattern, render policy and `notfound`. Inside the app, `--out` is `dist` (or a path under
+`dist/` or `target/`), which no build reads as source; the build it replaces is kept beside it in
+`dist.gen` while a page sent from it may still ask for its files, and `--out` refuses a directory
+beside which something else holds one of those names (`dist.gen`, `dist.previous`, `dist.lock`).
+`bun exact.mjs serve dist` serves it on 127.0.0.1 (`--lan`: every interface), and any static
+host serves it by the same rule: a file at the path; else, for a browser's navigation to a path
+a route matches, `shell.html` with 200; else `404.html` with 404. A host with a single fallback
+page serves `shell.html` for every page it lacks, and the client draws the `notfound` route. For
+a route declared `render=request` or `cached`, the home route's too, `serve` renders the page for
+the request under Bun from the build it serves (a `cached` page kept 60 s), so it arrives with
+its data; so is a miss, with 404, when the `notfound` route is declared so. A static host serves
+their shell. `npm start` runs `bun exact.mjs serve`, which with no directory serves the last
+`web-build` without `--out`.
 
 A launch that no link starts opens at the manifest's `start_url` (for example
 `"/today"`), as an installed web app does; Apple builds bake it in. A launch
@@ -2310,9 +2371,9 @@ root or of a `role="tabpanel"` in it — through `for` and `if`, never another
 element: the compiler refuses one behind a wrapper (`lower-route-place`). Make each
 route `position="absolute" inset=0`: the hosts hide a covered route, as
 `visibility: hidden` does, so an in-flow route still takes its room. A covered
-route stays mounted (its nodes are in `tree`, marked `inactive`), so a `testId`
-two screens share names two nodes: give each screen its own (`list-error`,
-`detail-error`).
+route stays mounted (its nodes are in `tree`, marked `[hidden]`, or `[inactive]`
+beneath a sheet, which still shows it), so a `testId` two screens share names
+two nodes: give each screen its own (`list-error`, `detail-error`).
 
 Content taller than a native route is unreachable without an explicit scroll
 container. The exception is an unpresented iOS route under native chrome with
@@ -2682,7 +2743,10 @@ popovertargetaction="hide"`) and `hr` separators are the menu, and one row with
 does (open the conversation). iOS presents UIKit's context menu, with the row
 lifting and the preview popping into the screen its press pushes; macOS an
 `NSMenu` without the preview; the web and the agent open the popover anchored to
-the node. The node's own `contextmenu` action runs first, so one popover can
+the node. The menu needs the popover menu-shaped ([LLP 1021](../llp/1021-menus.rfc.md)
+D3): each row its text and at most one `image`, with `aria-checked` for a checkmark;
+a row with anything else beside its label (an icon box) makes macOS open the
+painted popover anchored to the node instead. The node's own `contextmenu` action runs first, so one popover can
 serve every row of a list. A node inside an open popover opens its menu over
 that popover, which stays open, as HTML nests them. The agent opens it with `tap <node> contextmenu`
 ([LLP 1021](../llp/1021-menus.rfc.md) §5.1).
@@ -3767,7 +3831,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | A `button` inside a `button`, as a React Native `Pressable` in another (`lower-nested-button`): a press is the inner one's alone, but the outer's accessible name reads both ("Note Listen") | A `row` of the outer's content as one `button` (`flex=1`) and the inner one beside it |
 | A heading at the top of a route's content that says its `header` heading again, which shows twice under the iOS bar (`lower-title-twice`) | Drop it; the bar's title names the screen. A heading below names a section: `text "Results" role="heading" aria-level=2` |
 | An SVG `use` whose literal `href="#id"` targets a `foreignObject` or a subtree containing one (`lower-svg-use-foreign-object`). Only unconditional literal SVG ids from one source definition resolve. Repeated copies must all contain a `foreignObject`; a conditional copy, a copy without one, ids from different source definitions, dynamic hrefs and dynamic ids stay quiet. References inside the target are not followed | A `foreignObject` draws nothing through `use`. Place it directly in the SVG for the web; native hosts refuse it. For content on every host, position an ordinary box over the SVG |
-| A list and its detail (or a form) swapped by `if showingDetail` / `else` or complementary sibling `if`s (also with the same viewport-only `or` term), each with its heading, in an app with no `routes` (`lower-screen-by-state`) | Each screen a route: `routes`, a row that `push`es its detail, `back` to return; the web gets Back, reload and links, a wide window the split (`contract vocab screen`) |
+| A list and its detail (or a form) swapped by `if showingDetail` / `else` or complementary sibling `if`s (also with the same viewport-only `or` term), each with its heading, at the top of the view or inside a route; or pages named by one state, `page == "detail"`, in three arms or sibling `if`s or more, with or without headings (`lower-screen-by-state`). A tab bar's state and a radio group's stay quiet | Each screen a route: `routes`, a row that `push`es its detail, `back` to return; the web gets Back, reload and links, a wide window the split (`contract vocab screen`) |
 | `column padding=24 width="100%"`, as wide as its parent's content plus the padding: it runs past the screen's right side (`lower-width-padding`) | Drop the width (a block or a stretched flex item fills its parent), or `box-sizing="border-box"` |
 | An absolute width ceiling containing scalable text stays bounded at accessibility sizes (`lower-text-px-width`). The lint follows `width` and `max-width` through their bounds: a fixed maximum alone caps growth; a minimum alone does not. A fixed minimum can override a smaller cap, but a growing or unknown minimum makes the lint stay silent. Absolute lengths include numbers, px, pt and absolute `calc()`; `em` is fixed against an authored absolute font. Flex can supersede width on a row’s main axis; zero grow with an auto basis keeps its ceiling, and flex does not size a column child’s width. Effective classes, declaration order and parent direction count. Unresolved classes and uncertain sizing stay silent. A computed display leaves the node uncertain but its children are still checked; known-hidden subtrees are skipped. Text in absolute positioning, popovers and dialogs is checked inside that subtree, without counting against enclosing boxes. Text inherits the platform root font. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed. An absolute font size stops scaling within that boundary; `inherit` and `unset` use the parent font even on controls. The warning reads lowering’s grouped-list typography and checks layout boxes containing text runs or text fields, including HTML inside SVG `foreignObject`; an inline run’s own width does not constrain its paragraph | Express the width and its bounds in `rem`, such as `width="3rem"` or `max-width="3rem"`, so they follow the root font, or let the content determine the width |
 | `text "Results" aria-level=2`, a level with no role, which is no heading to a screen reader on any platform, gets no heading style and is not the iOS bar's title (`lower-level-without-heading`) | `text "Results" role="heading" aria-level=2`; `role="heading"` alone is level 2 |
@@ -4104,13 +4168,15 @@ A native control takes `accent-color` and, a field, the design's `Field`,
 schema's control-role table says which, per host
 (`docs/control-roles-measured.md`). For each target the app ships (not the
 terminal, which draws no colour, nor tvOS or watchOS, which have no column), a
-parameter you set that the host there does not honour is warned of once
+parameter you set that the host there does not honour is said once, one line
+for each declaration that sets it, naming every host and control
 (`tamber-unreachable: accent-color on macOS switches: NSSwitch draws the
 system accent (the first at line 12; LLP 1121 D9)`): the platform's look is
 the answer there, or a control of your own (`appearance="none"`, or a styled
-pressable for a disabled prominent button). A field's own `color`,
-`background-color` (or `background`) or `::placeholder color` wins over the
-role, so it is not judged.
+pressable for a disabled prominent button). It is information, not a
+problem: `verify` and `test` say it as a note and do not count it. A field's
+own `color`, `background-color` (or `background`) or `::placeholder color`
+wins over the role, so it is not judged.
 
 A background, border or radius makes it your own box, as in a browser;
 `appearance="none"` says so explicitly. This is decided once after classes

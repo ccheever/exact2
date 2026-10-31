@@ -87,6 +87,8 @@ pub(super) fn declare(file: &File, shapes: &mut Shapes) -> Result<(), TypeError>
                 ("url", Ty::String),
                 ("tab", Ty::String),
                 ("params", record("Params")),
+                // @ref LLP 1153 D5 — beside the url, never part of it.
+                ("fragment", Ty::String),
             ],
         ),
         // @ref LLP 1133.024 D3 — what `sharedFiles(entry, name)` answers.

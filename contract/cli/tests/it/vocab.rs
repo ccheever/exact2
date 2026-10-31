@@ -364,6 +364,9 @@ fn contextual_attributes_are_refused_elsewhere() {
         ("stop", "view", "stop=done"),
         ("seekbackwardOffset", "view", "seekbackwardOffset=15"),
         ("seekforwardOffset", "view", "seekforwardOffset=15"),
+        ("colspan", "view", "colspan=2"),
+        ("rowspan", "view", "rowspan=2"),
+        ("scope", "view", "scope=\"col\""),
         ("partition", "view", "partition=\"persist:work\""),
         ("zoom", "view", "zoom=1.5"),
         ("currententrychange", "view", "currententrychange=done"),
@@ -931,6 +934,7 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
         "loading",
         "plural",
         "choice",
+        "select",
         "screen",
         "modal",
         "confirm",
@@ -956,6 +960,7 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
         "glass",
         "haptics",
         "toast",
+        "var",
     ] {
         let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", name]))).unwrap();
         let blocks = one["concept"]["contract"].as_array().unwrap();

@@ -25,6 +25,7 @@ impl Ink {
                 skew: run.synthetic_italic,
             };
             for (id, x, y) in run.glyphs {
+                self.observe_glyph(x, y, transform);
                 let (x, phase) = subpixel(x);
                 let y = y.trunc() as i32;
                 let Some(glyph) = self.glyphs.get(

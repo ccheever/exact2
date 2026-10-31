@@ -175,7 +175,13 @@ impl<D: DataSource> Presenter<D> {
     /// is enabled by, so that Back with nowhere to go leaves the app with
     /// the system's own animation (D6).
     pub fn back_goes(&mut self) -> bool {
-        self.top_open() || self.back().is_some() || self.remote_back_target().is_some()
+        self.surface_takes_back() || self.back().is_some() || self.remote_back_target().is_some()
+    }
+
+    /// Whether an open surface of the top layer hears Back: not a manual
+    /// popover, whose page keeps Back (HTML: it has no close watcher).
+    fn surface_takes_back(&self) -> bool {
+        self.shape_surface_open() || self.alert_takes_back()
     }
 
     /// The agent's `back` (LLP 1116.006 D4): system Back, as a desktop's
@@ -185,9 +191,9 @@ impl<D: DataSource> Presenter<D> {
     /// control refused it (journaled, as a key's is). `None` with nowhere
     /// to go back to.
     pub(crate) fn agent_back(&mut self, now_ms: f64) -> Option<serde_json::Value> {
-        let (what, refused) = if self.top_open() {
+        let (what, refused) = if self.surface_takes_back() {
             self.system_back(now_ms);
-            ("dialog", self.top_open().then_some("the surface stayed open: its closedby is \"none\", it is a manual popover, or a `cancel` handler prevented the close"))
+            ("dialog", self.surface_takes_back().then_some("the surface stayed open: its closedby is \"none\", it is a manual popover, or a `cancel` handler prevented the close"))
         } else {
             let refused = matches!(self.back()?, Back::Refused);
             self.system_back(now_ms);

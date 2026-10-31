@@ -790,6 +790,11 @@ above.
   per scheme.
 - A citation's comment opens on ⌥-click of its pill, or by itself after Cite; the reference's
   chip has a pencil button inside it, and here a pill is one press target (LLP 1045.000 §6).
+- A composer chip's name does not underline while the pointer is over it, where the reference's
+  `ContextChipLabel` does (`hover:decoration-current`). The chips are atoms of the Markdown field,
+  and an `AtomFace` has no hover state: the macOS field draws the pill and takes its press itself
+  (`TextAreaMac.swift` `atomHit`), so the app hears no hover per atom. Kept as a known difference by
+  the user's ruling (2026-10-31). A chip in a sent message is a view of its own and underlines.
 - With Markdown formatting off a reference shows its source: the editor draws atoms only where
   it styles Markdown (LLP 1045.000 D3). (A literal answer has no chips, as in the reference.)
   Settings › Appearance's prompt sample styles Markdown so its chips draw, where the reference's
@@ -1190,7 +1195,8 @@ Fail (left in place):
 
 - Open diff on a tool call whose change has no recorded patch opens the Diff panel on the Tool call
   scope, as the oracle does, but reads "No net changes in this selection." The oracle reads "No
-  patch available for this selection."
+  patch available for this selection." Fixed since: the panel follows DiffPanel's `hasNoNetChanges`
+  (a patch that resolved blank), so a call with no patch reads the oracle's text (agent driver).
 - Right-clicking the thread details card opens nothing (0 of 3: on its padding and on its Workspace
   row). On its padding the oracle opens Show in thread details; on the Workspace row, Copy full path.
   Sidebar rows' right-clicks open their menus in the same session. Fixed since: the card's menu was
@@ -1204,6 +1210,13 @@ Fail (left in place):
 - A double-click on inline code selects nothing, in an answer or in a user message (0 of 2). A
   double-click on a plain word selects nothing either, though a drag selects text. The oracle selects
   `selectme`.
+- Fixed since, both rows: a Browser tab neither shown nor held left its empty, transparent box over
+  the window (1280 by 800 from the left edge while the panel is closed), which took the hover, the
+  presses and the double-clicks meant for the timeline under it. The session had opened a page in
+  the Browser panel before these rows. The box is no longer displayed (`browser-frames.contract`): with such a
+  tab, the chip shows "Open thread" and underlines, and a double-click selects `selectme` (agent
+  driver). Without one, real input on the earlier bundle already selected the word and the span and
+  showed the tooltip (1 of 1 each).
 - After F2 and then Escape in the sidebar, the focus goes to the window, and F6 never enters the
   sidebar after that: from the composer it stops at the terminal (4 presses). In the oracle, Escape
   returns the focus to the row and F6 reaches it. Fixed since: once the rename field has gone, the

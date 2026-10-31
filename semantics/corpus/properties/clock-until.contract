@@ -1,0 +1,21 @@
+shape Ack
+  ok: bool
+shape Session
+  phase: string
+
+component App
+  state screen = "lock"
+  state ticks = 0
+  state session = Session(phase="ready")
+  mutation saved as shape Ack then opened
+  action start
+    send saved = save()
+  action opened
+    screen = "home"
+  action tick
+    ticks = ticks + 1
+    screen = "home"
+  task later mount
+    after(100, tick)
+  view
+    button "start" testId="start" press=start

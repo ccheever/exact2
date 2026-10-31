@@ -464,11 +464,16 @@ impl D3d11 {
                 composition.creation_ms, composition.swap_ms, composition.visual_ms
             );
         }
+        crate::counters::presentation_support(true, false);
         self.composition = Some(composition);
         Ok(())
     }
     pub fn has_window(&self) -> bool {
         self.composition.is_some()
+    }
+
+    pub fn window(&self) -> Option<Window> {
+        self.composition.as_ref().map(|c| c._window.clone())
     }
     /// Detect removal on a redraw that needs no paint or capacity reservation.
     pub fn device_lost(&self) -> bool {
@@ -607,7 +612,7 @@ impl D3d11 {
                 None,
             )?;
             let status = swap.Present(1, DXGI_PRESENT(0));
-            did_present = presented(status)?;
+            did_present = accepted_present(status)?;
         }
         let s = self.submit()?;
         self.textures.get_mut(&id).unwrap().last = s;
@@ -617,7 +622,7 @@ impl D3d11 {
         if activating && !did_present {
             // A not-yet-attached composition swap chain can return OCCLUDED
             // from the real present too. Retry its populated buffer after Commit.
-            did_present = presented(unsafe { swap.Present(1, DXGI_PRESENT(0)) })?;
+            did_present = accepted_present(unsafe { swap.Present(1, DXGI_PRESENT(0)) })?;
         }
         if !did_present {
             let c = self.composition.as_mut().unwrap();
@@ -718,6 +723,16 @@ fn retry_delay(period: Duration, refused_checks: u32) -> Duration {
 fn capacity_retry_delay(period: Duration, refused_checks: u32, waited: Duration) -> Duration {
     // The wait consumes the first period; repeated timeouts add idle backoff.
     retry_delay(period, refused_checks.saturating_sub(1)).saturating_sub(waited)
+}
+
+// Count the accepted command before submit/activation can fail. TEST presents
+// only query visibility and must continue to use `presented` without counting.
+fn accepted_present(status: windows::core::HRESULT) -> Result<bool> {
+    let accepted = presented(status)?;
+    if accepted {
+        crate::counters::submitted();
+    }
+    Ok(accepted)
 }
 
 fn presented(status: windows::core::HRESULT) -> Result<bool> {
@@ -1161,6 +1176,27 @@ mod tests {
             "completed WARP device must retire"
         );
     }
+    #[test]
+    fn an_accepted_present_survives_later_bookkeeping_failure() {
+        use windows::Win32::Foundation::S_OK;
+        crate::counters::initialize();
+        let index = crate::counters::Counter::Submitted as usize;
+        let before = crate::counters::snapshot().map(|s| s.values[index]);
+        let result: Result<()> =
+            accepted_present(S_OK).and_then(|_| Err(Error::Invalid("bookkeeping".into())));
+        assert!(result.is_err());
+        assert!(!accepted_present(DXGI_STATUS_OCCLUDED).unwrap());
+        assert!(accepted_present(DXGI_ERROR_DEVICE_REMOVED).is_err());
+        // This is the activation retry's accepted-present boundary too.
+        assert!(accepted_present(S_OK).unwrap());
+        if let Some(before) = before {
+            assert_eq!(
+                crate::counters::snapshot().unwrap().values[index],
+                before + 2
+            );
+        }
+    }
+
     #[test]
     fn occluded_present_is_skipped_and_device_removal_is_an_error() {
         use windows::Win32::Foundation::S_OK;

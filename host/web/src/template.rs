@@ -77,7 +77,7 @@ pub fn parts_with(
         super::element::touch_scoped(kernel, &node),
     );
     let holds = child_may_fold && super::element::holds_folded(kernel, &node, &|_| false);
-    let css = super::element::blocks(css, holds);
+    let css = super::element::blocks(css, holds, &node.facts());
     Some(Parts {
         tag: tag.to_string(),
         props,

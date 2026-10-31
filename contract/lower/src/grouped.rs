@@ -31,10 +31,11 @@ mod native;
 mod title;
 mod value;
 
-use cell::{lines as cell_lines, standard, text_lines, text_stack};
+use cell::{lines as cell_lines, one_line, stacks, standard, text_stack};
 use inputs::{column_row, field_beside_label, field_kind, hidden, switch, text_field, Field};
 use native::native_row;
 pub(crate) use native::{margins_said, native_rows};
+use value::{grows, sized};
 
 use crate::{err, swipe_rows, tags, LowerError};
 use contract_syntax::{Attr, Expr, Node, Span, TemplatePart};
@@ -627,6 +628,16 @@ fn section(
     } else {
         m("background-color", "card-fill", span)
     }];
+    // An inset card's edge where the platform draws one (the web's, on the
+    // page's own ground), and a grouped card's at its top and bottom.
+    if style == "inset-grouped" && !cardless {
+        let edge = [
+            ("border-width", "card-edge-width"),
+            ("border-style", "card-edge-style"),
+        ];
+        group.extend(edge.map(|(row, metric)| m(row, metric, span)));
+        group.push(m("border-color", "separator", span));
+    }
     if style == "grouped" && !cardless {
         group.extend([
             m("border-top-width", "edge-width", span),
@@ -648,9 +659,10 @@ fn section(
     if let Some(edge) = edge {
         group.extend([m("margin-left", edge, span), m("margin-right", edge, span)]);
     }
-    // No card, no card corners to clip a header image to.
+    // No card, no card corners to clip a header image to; their curve is the platform's (the Mac's continuous).
     if let Some(corner) = corner.filter(|_| !cardless) {
-        group.push(m("border-radius", corner, span));
+        let shape = m("corner-shape", "card-corner-shape", span);
+        group.extend([m("border-radius", corner, span), shape]);
     }
     // Where a platform's separator stands between two rows and takes no
     // height from either (the Mac's), the rows are that far apart and the
@@ -1472,25 +1484,12 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             child,
             vec![attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)],
         ),
+        // A box its author grows (`flex=1`) before any text is the title, the text after it
+        // the value: as a second title, water-tracker's "Goal met" squeezed its bar (round 33).
+        ("row" | "column" | "view", _) if matches!(texts, Count::Known(0)) && grows(child) => {
+            *texts = Count::Known(1);
+            child.clone()
+        }
         _ => child.clone(),
     }
-}
-
-/// Whether the author wrote how wide `node` is in its row.
-fn sized(node: &Node) -> bool {
-    matches!(node, Node::Element { attrs, .. } if attrs.iter().any(|a| matches!(a.name.as_str(), "flex" | "flex-grow" | "flex-basis" | "width" | "min-width")))
-}
-
-/// Whether a row's part is a column of one shown text.
-fn one_line(node: &Node) -> bool {
-    matches!(node, Node::Element { tag, attrs, children, .. }
-        if !hidden(node) && column_row(tag, attrs) && text_lines(children) == Some((1, 1)))
-}
-
-/// Whether a row's part is lines stacked in the row: a shown element that
-/// lays out as a column around two parts or more (a column with nothing in
-/// it is a box, as a cover's placeholder is). `part` reads an `if` through.
-fn stacks(node: &Node) -> bool {
-    matches!(node, Node::Element { tag, attrs, children, .. }
-        if !hidden(node) && column_row(tag, attrs) && children.iter().filter(|c| !hidden(c)).count() >= 2)
 }

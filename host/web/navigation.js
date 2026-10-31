@@ -120,6 +120,7 @@ function unselectedWithin(nav, keepList) {
   return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...routes.filter(r => r !== top && r !== beside)];
 }
 export function unselected(nav) { return unselectedWithin(nav, true); } export function unselectedForHead(nav) { return unselectedWithin(nav, false); }
+export function routeFlags(root) { const off = new Set([...root.querySelectorAll("[navigationBack]")].flatMap(nav => unselected(nav))), seen = new Map(); const at = el => { if (!el || el === root) return 0; let v = seen.get(el); if (v === undefined) seen.set(el, v = Math.max(off.has(el) ? (el.style.visibility === "hidden" ? 2 : 1) : 0, at(el.parentElement))); return v; }; return at; } // LLP 1153 D8 — both runtimes' agent `tree` flags an element as the projection left the page, for one read: 1 (`inactive`) under a route or panel `unselected` names, which a split's list beside its detail is not; 2 (`hidden` too) where the projection hid that route, every one but a page a sheet covers
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
@@ -127,38 +128,39 @@ const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
 // them on every History entry so a browser reload retains its agent adapter.
 const agentParameters = ['agent', 'seed', 'locale', 'formatLocale', 'timeZone', 'epoch', 'storage', 'failFetch'];
 export function historyURL(path) { // (exported for its test)
-  if (!AGENT_ADMITTED) return location.origin + path;
-  const facts = launched();
-  if (!facts.has('agent')) return location.origin + path;
-  const url = new URL(location.origin + path);
-  for (const key of agentParameters) {
-    if (facts.has(key)) url.searchParams.set(key, facts.get(key));
-  }
+  const facts = AGENT_ADMITTED ? launched() : null;
+  if (!facts?.has('agent')) return location.origin + path;
+  const url = new URL(location.origin + path); for (const key of agentParameters) if (facts.has(key)) url.searchParams.set(key, facts.get(key));
   return url.href;
 }
+/** Whether `e` scrolls the page by the person: a wheel, a touch's move, a key that scrolls, or a press on a scrollbar. A
+ * `scroll` event cannot say: the page's own scrolls (a fragment's, scroll anchoring, a clamp) are trusted events too. */
+const byPerson = (e, el = e.target) => e.type === "keydown" ? /^(Arrow(Up|Down|Left|Right)|Page(Up|Down)|Home|End| )$/.test(e.key) && !el.closest?.("input, textarea, select, [contenteditable]")
+  : e.type !== "pointerdown" || (el instanceof Element && (b => e.clientX - b.left >= el.clientLeft + el.clientWidth || e.clientY - b.top >= el.clientTop + el.clientHeight)(el.getBoundingClientRect()));
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 /** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not: the route's own, else one in no route at all (a header the routes share), as iOS resolves it (NavigationBack.control); another route's is that route's. */
 const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) ?? [...nav.ownerDocument.querySelectorAll(`[id="${CSS.escape(name)}"]`)].find(control => [null, nav].includes(control.closest("[navigationKey]"))) ?? null : undefined;
-// @ref LLP 1116.000 D4 — a pushed route's bar draws Back as iOS draws UIKit's (NavigationBarIOS.swift `projectBack`),
-// with no Back control too: not on a stack's root, a sheet (whose Cancel is its Back) or a route with no bar, nor for a
-// disabled control or one the author made inert. A control that is an item of the bar iOS makes of its header is
-// pressed through it and not shown (index.html). The button is the header's shadow root's, before its slot, so the
-// header's children stay the renderer's.
-const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-bar-accent,var(--exact-accent,AccentColor));cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.13;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15.35 5 8 12l7.35 7"/></svg><span></span></button><slot></slot>`;
+// @ref LLP 1116.000 D4, LLP 1115.000 D4.14 — a pushed route's bar draws a web Back (an arrow and "Back", or the control's
+// words) where iOS draws UIKit's (NavigationBarIOS.swift `projectBack`), with no Back control too; not on a stack's root,
+// a sheet, a route with no bar, or for a disabled or inert control. An item of the bar iOS makes of its header is pressed
+// through it and not shown (index.html). The button is the header's shadow root's, before its slot.
+const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:6px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}svg{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="4 4 16 16" aria-hidden="true"><path d="M19 12H5m6-6-6 6 6 6"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
-const authored = '[data-exact-said~="appearance"]'; // a header whose author wrote `appearance: none` (element.rs)
+const authored = '[data-exact-said~="appearance"]'; // a header or a node in one whose author wrote `appearance: none` (element.rs)
+// @ref LLP 1153 D8 — a route's header holding a `nav` anywhere (a popover's too), or more than one link outside a `popover` or `dialog` in it (a menu's links are its button's, as an app bar's are), is a site's, marked `data-exact-site`: drawn as written (index.html, neutral.css), as one whose author wrote `appearance: none` is, it is no app bar and holds no Back. document_bars.rs `site_header` is the Rust renderer's rule.
+const siteHeader = (header, links = 0) => { const holds = (el, menu) => [...el.children].some(child => { const inMenu = menu || child.matches("[popover], dialog"); return child.localName === "nav" || (!inMenu && child.matches("a[href], [role=link]") && ++links > 1) || holds(child, inMenu); }); return holds(header, false); }, markSites = route => { for (const child of route.children) if (child.localName === "header") child.toggleAttribute("data-exact-site", siteHeader(child)); }, asWritten = header => header.matches(`${authored}, [data-exact-site]`);
 // The items of the bar iOS makes of a shown `header`, or null where it makes none: kernel/src/bars.rs `header_bar`,
 // ported to the elements both runtimes write alike, since the JS target keeps no kernel to ask. `walk` is `Walk::walk`:
-// a bar's header holds one heading, and an item is a pressable it reaches, not the title's, or a disabled button.
+// a bar's header holds one heading, and an item is a pressable it reaches, not the title's, or a disabled button. A header drawn as written is no bar.
 function barItems(route, header) {
-  if (route.getAttribute("data-navigationbar") === "none" || route.firstElementChild !== header || header.matches(authored)) return null;
+  if (route.getAttribute("data-navigationbar") === "none" || route.firstElementChild !== header || asWritten(header)) return null;
   const heading = "[data-exact-text][role=heading]", press = '[data-exact-on~="press"]', layer = el => el.matches("[popover], dialog");
   const holds = el => [...el.children].some(child => !layer(child) && (child.matches(heading) || holds(child)));
   const disabled = el => el.matches("button[disabled]") && !el.hasAttribute("role") && root?.getAttribute("aria-busy") !== "true"; // `fact::DISABLED`, dimmed whether or not it presses; a `button` element carries no `role` unless it has another one (element.rs); until input is ready, the glue disables every control itself (glue.js)
   let headings = 0, tap = null;
   const items = [], walk = node => {
     for (const child of node.children) {
-      if (layer(child) || child.matches('[role=tablist], input[type="search"]')) continue; // a layer, the bar's segments or its search field: no item
+      if (layer(child) || child.matches(`[role=tablist], input[type="search"], ${authored}`)) continue; // a layer, the bar's segments, its search field, or what its author wrote `appearance: none` on (iOS projects none of it): no item
       if (child.matches(heading)) headings++;
       else if (child.matches(press) || opensPopover(child) || (disabled(child) && !holds(child))) { if (!tap && child.matches(press) && holds(child)) walk(tap = child); else items.push(child); } // the first to hold a heading is the title, tapped
       else if (!child.matches("[role=status]") || holds(child)) walk(child); // a readout's face is no item
@@ -167,8 +169,8 @@ function barItems(route, header) {
   walk(header);
   return headings === 1 ? items : null;
 }
-/** Mark every route's bar on a page rendered ahead of time (host/web-js/render.mjs), which runs no projection, as document.rs marks one. */
-export function markBars(node) { for (const child of node.children) { const header = child.hasAttribute("navigationKey") && !child.hasAttribute("navigationBack") && headerOf(child); if (header) header.toggleAttribute("data-exact-bar", !!barItems(child, header)); markBars(child); } }
+/** Mark every route's bar and site header on a page rendered ahead of time (host/web-js/render.mjs), which runs no projection, as document.rs marks them. */
+export function markBars(node) { for (const child of node.children) { if (child.hasAttribute("navigationKey")) markSites(child); const header = child.hasAttribute("navigationKey") && !child.hasAttribute("navigationBack") && headerOf(child); if (header) header.toggleAttribute("data-exact-bar", !!barItems(child, header)); markBars(child); } }
 // Whether a button shows or toggles a popover, a header's menu (kernel/src/invocation.rs `opens_popover`).
 function opensPopover(el) {
   if (el.localName !== "button") return false;
@@ -190,18 +192,16 @@ function appBarBack(nav, routes, index, split, shown) {
   const route = routes[index], header = headerOf(route);
   if (!header) return;
   const headerShown = getComputedStyle(header).display !== "none";
-  // In a split, a detail its list's row pushed has none: the list beside it is its way back (LLP 1116.004 D1). Nor has a
-  // route whose shown header's author wrote `appearance: none`, which keeps the bar they drew (HeaderRule.swift
-  // `keepsAuthoredHeader`).
+  // In a split, a detail its list's row pushed has none: the list beside it is its way back (LLP 1116.004 D1). Nor has a route whose shown header is drawn as written, wherever it stands in the route (LLP 1153 D8): its author wrote `appearance: none`, keeping the bar they drew (HeaderRule.swift `keepsAuthoredHeader`), or it is a site's.
   const pushed = index > 0 && !sheet(route) && route.getAttribute("data-navigationbar") !== "none" && !(split && (index === 1 || rowOf.has(route)))
-    && !(route.firstElementChild === header && header.matches(authored) && headerShown);
+    && !(asWritten(header) && headerShown);
   // A header iOS makes no bar of draws Back when it does not show a visible Back control (iOS draws it either way).
   // Discount the bar's own hiding mark. In a header not shown, the Back stays hidden with it.
   const control = pushed ? backControl(nav, route) : null, inShownHeader = headerShown && !!control && header.contains(control) && !header.contains(control.closest("[popover], dialog"));
   const items = headerShown && (inShownHeader || shown) ? barItems(route, header) : null;
   const held = inShownHeader && !!items?.includes(control);
   for (const el of route.querySelectorAll("[data-exact-bar-back]")) if (el !== control || !held) el.removeAttribute("data-exact-bar-back");
-  const drawn = pushed && (!inShownHeader || !!items || !control.checkVisibility({ visibilityProperty: true }));
+  const drawn = pushed && !(inShownHeader && header.contains(control.closest(authored))) && (!inShownHeader || !!items || !control.checkVisibility({ visibilityProperty: true })); // a control its author wrote `appearance: none` on, or an item holding it, is their Back, with no bar's beside it (iOS's `authoredBack`)
   if (shown) header.toggleAttribute("data-exact-bar", !!items); // a shown bar, whose symbols are the bar's size (neutral.css)
   let button = header.shadowRoot?.querySelector('button[part="back"]');
   if (drawn && !button && !header.shadowRoot && header.attachShadow) { // not a shadow root of someone else's
@@ -215,7 +215,7 @@ function appBarBack(nav, routes, index, split, shown) {
   if (button) button.hidden = !drawn || (control?.matches(":disabled") && !nav.closest('[aria-busy="true"]')) || route.contains(inertAncestor(control)?.parentElement ?? null);
   if (!button || button.hidden) return;
   const words = control ? control.textContent.trim() : titleOf(routes[index - 1]), english = /^en\b/i.test(document.documentElement.lang || "en");
-  const label = words.length <= 14 && (words || control) ? words : english ? "Back" : "", name = control ? control.getAttribute("aria-label") || words || "Back" : !english ? words || "Back" : label === "Back" ? label : `Back to ${label}`;
+  const label = control ? (words.length <= 14 ? words : english ? "Back" : "") : english ? "Back" : "", name = control ? control.getAttribute("aria-label") || words || "Back" : !english ? words || "Back" : words ? `Back to ${words}` : "Back";
   button.lastChild.hidden = !label;
   if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
   if (button.getAttribute("aria-label") !== name) button.setAttribute("aria-label", name);
@@ -231,7 +231,7 @@ function appBack(route) {
   if (!below) return;
   if (backControl(nav)) { const why = pressBack(nav); if (why) log(`app bar: Back refused: ${why}`); return; }
   const entry = written[cursor - 1], known = cursor > first && written[cursor]?.id === id && entry?.id === Number(below.getAttribute("navigationKey"));
-  if (!known || navigate(entry.url) === false) hostBack?.(id);
+  if (!known || navigate(entry.url.split("#")[0]) === false) hostBack?.(id); // without its fragment, which would scroll it again (LLP 1153 D5)
 }
 const closedNone = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none";
 /** Press the Back control wherever it is, shown or not, as UIKit's Back presses it (NavigationBack.swift `control`),
@@ -258,7 +258,7 @@ function commit(op) {
     originIndex = browserIndex();
     written[0] = stamp(0, op);
     history.replaceState(written[0], "", historyURL(op.url));
-  } else if (written[cursor]?.id === op.top) {
+  } else if (written[cursor]?.id === op.top && !(pop === null && written[cursor].url !== op.url && written[cursor].url.split("#")[0] === op.url.split("#")[0])) { // another fragment on the visit shown, or none, is one more browser entry of it, as a same-document link's is (LLP 1153 D5)
     if (written[cursor].url !== op.url) {
       written[cursor] = stamp(cursor, op);
       history.replaceState(written[cursor], "", historyURL(op.url));
@@ -276,7 +276,7 @@ function commit(op) {
     }
     for (const index of Object.keys(written)) if (Number(index) > cursor) delete written[index];
     written.length = Math.max(0, cursor + 1);
-    written[++cursor] = stamp(cursor, op);
+    op.pushed = written[cursor]?.id === op.top; written[++cursor] = stamp(cursor, op); // `pushed`: an entry of the visit shown, whose place fragment.js keeps
     history.pushState(written[cursor], "", historyURL(op.url));
   }
 }
@@ -289,7 +289,7 @@ function popped({ j, state, url }) {
   // A completed pop presses the selected route's Back control; a route with none still goes back by the root's `navigate`
   // with the entry's URL. Unheard, a Back one entry down is the platform's own, as iOS's (NavigationBack.way): the route's
   // control pressed (disabled, or closedby="none", refuses), else the runner's `back` from the visit the entry left (LLP 1115 D5), however routes are keyed. Any other entry unheard (Forward, or more than one away) is the runner's own `go` there (LLP 1115.000 D4.3). An entry given to `navigate` at the URL already shown, which this page did not write or which holds the visit shown, is accepted though nothing changed: a `replace` can give the only entry a reload wrote the URL of the one beneath it, and refusing would hold Back there. An earlier visit at that URL is still refused: accepting it would leave the visits after it on the stack.
-  const step = owned && j === cursor - 1, beneath = step && selected > 0 && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
+  const step = owned && j === cursor - 1 && entry.id !== written[cursor]?.id, beneath = step && selected > 0 && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
   let back = beneath && !!backControl(nav), own = false, why = null;
   pop = {};
   try {
@@ -325,10 +325,10 @@ function drain() {
   try { for (let item; queue.length && echo === null;) { item = queue.shift(); if (item.op) commit(item.op); else popped(item); } } finally { draining = false; }
 }
 const settled = () => { if (echo === null && !queue.length) for (const finish of [...waiters]) finish(); };
-export const navigation = {
+export const navigation = { personScrolls: 0, // the person's scrolls (`byPerson`) from the page's start: one after a navigation asked a fragment's scroll cancels it (fragment.js, LLP 1153 D5)
   /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`, `goTo(location)` its own `go`. */
   connect(hostRoot, dispatch, journal, back = null, goTo = null, matchesRoute = () => false, waitForActivation = false) {
-    root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo; routeMatches = matchesRoute;
+    root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo; routeMatches = matchesRoute; for (const type of ["wheel", "touchmove", "keydown", "pointerdown"]) addEventListener(type, e => { if (byPerson(e)) navigation.personScrolls++; }, { capture: true, passive: true });
     if (waitForActivation) { activationRequired.add(hostRoot); activated.delete(hostRoot); }
     else { activationRequired.delete(hostRoot); activated.add(hostRoot); }
     // Capture before either target's link listener commits. Early replay before connect has no action-row association.
@@ -383,7 +383,7 @@ export const navigation = {
       ? { row: pressedRow.row, list: pressedRow.list, route: pressedRow.route, id: String(op.top), url: op.url } : null;
     pressedRow = null;
     last = op;
-    if (pop) { pop.op = op; for (const id of op.removed) gone.add(id); }
+    if (pop) { pop.op = op; op.traversal = true; for (const id of op.removed) gone.add(id); } // a traversal's scroll puts back the visit's place (fragment.js)
     else { queue.push({ op }); drain(); }
   },
   // @ref LLP 1116.006 D4 — the agent's `back` from a route: the browser's Back where the entry beneath is the route beneath, else (a reload left none) the app bar's.
@@ -402,7 +402,7 @@ export const navigation = {
     });
   },
   project(root, log) {
-    if (activationRequired.has(root) && !activated.has(root)) return;
+    if (activationRequired.has(root) && !activated.has(root)) return; for (const route of root.querySelectorAll("[navigationKey]")) markSites(route); // site headers, under a root with no `navigationBack` too
     for (const nav of root.querySelectorAll("[navigationBack]")) {
       let key = nav.getAttribute("navigationKey"), [list, panels] = tabsOf(nav);
       // The authored placement is read with the sidebar's own rules lifted, which restyles the page (an embedded frame re-centres), so only when what places the bar may have changed: the wide breakpoint, the bar's parent or orientation, or the root's or the bar's class or inline display, flex direction, position or appearance (their class rules and inline style are what place them).
@@ -1105,11 +1105,11 @@ export function timeReporter(params, platform = globalThis) {
 // and not a route's — a driven page numbers its visits as a native host does (feed F16). The JS target launches here
 // too (rt.js re-exports it).
 export function launchLocation(platform = globalThis) {
-  const { pathname, search } = platform.location, q = new URLSearchParams(search);
-  if (!(AGENT_ADMITTED && q.has('agent'))) return pathname + search;
+  const { pathname, search, hash = "" } = platform.location, q = new URLSearchParams(search); // the fragment is the launch's too (LLP 1153 D5)
+  if (!(AGENT_ADMITTED && q.has('agent'))) return pathname + search + hash;
   for (const k of agentParameters) q.delete(k);
   const rest = q.toString();
-  return pathname + (rest ? '?' + rest : '');
+  return pathname + (rest ? '?' + rest : '') + hash;
 }
 // Drive facts use the launch URL after route changes too (storage-environment.js `launchHref`).
 const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams;

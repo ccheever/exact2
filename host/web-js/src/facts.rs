@@ -189,3 +189,51 @@ fn modules(plan: &Plan, body: &mut String) -> String {
     );
     "import{modules as $modules}from\"./modules.js\";".into()
 }
+
+/// The plan's viewport comparisons for the renderers (LLP 1048.007 D2):
+/// `[[query, v => v.<fact> <op> <constant>], …]`, each predicate read
+/// against the viewport a render saw; `[]` for a plan that reads no viewport,
+/// or that reads it in a way no media query tells (`activation`'s `kept`).
+pub fn viewport_media(plan: &Plan) -> String {
+    use exact_plan::Opcode;
+    use exact_runner::viewport_reads::Constant;
+    let Some(media) = exact_runner::activation::wake(plan) else {
+        return "[]".into();
+    };
+    let rows: Vec<String> = media
+        .iter()
+        .map(|m| {
+            let op = match m.op {
+                Opcode::Lt => "<",
+                Opcode::Le => "<=",
+                Opcode::Gt => ">",
+                Opcode::Ge => ">=",
+                Opcode::Eq => "===",
+                _ => "!==",
+            };
+            let constant = match &m.constant {
+                Constant::Number(n) => value_js(&Value::Number(*n)),
+                Constant::Str(s) => serde_json::to_string(s).unwrap(),
+                Constant::Bool(b) => b.to_string(),
+            };
+            format!(
+                "[{},v=>v.{}{op}{constant}]",
+                serde_json::to_string(&m.query).unwrap(),
+                m.fact
+            )
+        })
+        .collect();
+    format!("[{}]", rows.join(","))
+}
+
+/// What an undeclared route's inferred activation asks of a render (LLP
+/// 1048.007 D1, `exact_runner::activation`), for `render.mjs`.
+pub fn activation(plan: &Plan) -> String {
+    use exact_runner::activation::{runtime_kept, REPLAYED};
+    let replayed: Vec<&str> = REPLAYED.iter().map(|k| k.name()).collect();
+    format!(
+        "{{replayed:{},kept:{}}}",
+        serde_json::to_string(&replayed).unwrap(),
+        runtime_kept(plan) || exact_runner::activation::wake(plan).is_none()
+    )
+}

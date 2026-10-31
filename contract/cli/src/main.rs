@@ -23,6 +23,7 @@ mod tamber_export;
 mod tamber_gen;
 mod tamber_history;
 mod tamber_import;
+mod tamber_import_css;
 mod tamber_ops;
 mod tamber_packages;
 mod tamber_param_lines;

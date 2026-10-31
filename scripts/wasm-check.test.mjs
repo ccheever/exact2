@@ -14,9 +14,9 @@ const FOUND = { crates: ['contract', 'exact-kernel', 'exact-web'], bins: [['exac
 test('the crates checked are the libraries the web apps link for wasm32, the apps and vendored crates aside', () => {
   const { crates, bins, roots } = wasmCrates(ROOT);
   expect(bins).toEqual([['exact-textflow', 'textflow-web']]);
-  // An app beside its Snapback backend is a root as every app (Harmony's layout).
   expect(roots).toContain('apps/caltrain/web');
-  expect(roots).toContain('apps/harmony/app/web');
+  // Harmony's crates build in their own workspace, outside the root's members (LLP 1153 D2.4).
+  expect(roots).not.toContain('apps/harmony/app/web');
   // contract: G2's cfg(unix)-only name (5540abbfc0) broke it there; exact-web: the host every web app links
   for (const c of ['contract', 'exact-web', 'exact-runner', 'exact-kernel', 'exact-markdown-editor', 'exact-web-js-motion']) expect(crates).toContain(c);
   expect(crates.some((c) => c.endsWith('-web') && c !== 'exact-web' && c !== 'exact-js-web')).toBe(false);

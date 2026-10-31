@@ -1,0 +1,33 @@
+// A pointerdown action's preventDefault() keeps the focus where it is, places no caret and starts
+// no selection; the press still fires (LLP 1005 §3, as Chrome). Driven by host/web/tests/prevent-focus.test.mjs,
+// PreventFocusMacTests and PreventFocusIOSTests: "a" is focused first; b, box, btn, nbtn (the platform's button, in a row that prevents), t, plain and para prevent; c, free, hear and ctx (which hear pointerdown) do not.
+component App
+  state heard = ""
+  action keep(e: PointerEvent)
+    preventDefault()
+  action hit(name: string)
+    heard = `${heard} press-${name}`
+  action focused(name: string)
+    heard = `${heard} focus-${name}`
+  action changedA(v: string)
+    heard = `${heard} change-a`
+  action noted(e: PointerEvent)
+    heard = `${heard} down-hear`
+  view
+    column padding=20 gap=8 width="100%"
+      input testId="a" value="alpha" width=240 height=28 focus=focused("a") change=changedA
+      input testId="b" value="beta" width=240 height=28 pointerdown=keep focus=focused("b")
+      box testId="box" tabindex=0 width=120 height=32 pointerdown=keep press=hit("box") focus=focused("box")
+      button testId="btn" pointerdown=keep press=hit("btn") focus=focused("btn") width=120 height=32
+        text "Keep"
+      textarea testId="t" value="tea text" width=240 height=48 pointerdown=keep focus=focused("t")
+      input testId="c" value="gamma" width=240 height=28 focus=focused("c")
+      box testId="free" tabindex=0 width=120 height=24 focus=focused("free")
+      box testId="hear" tabindex=0 width=120 height=24 pointerdown=noted focus=focused("hear")
+      box testId="ctx" tabindex=0 width=120 height=24 pointerdown=noted contextmenu=hit("ctx") focus=focused("ctx")
+      row pointerdown=keep
+        button testId="nbtn" appearance="auto" press=hit("nbtn")
+          text "Native"
+      box testId="plain" width=120 height=24 pointerdown=keep press=hit("plain")
+      text "Readable words here" testId="para" user-select="text" pointerdown=keep
+      text heard testId="heard"

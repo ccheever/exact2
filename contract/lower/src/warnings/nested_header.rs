@@ -4,7 +4,8 @@
 //! uses the component is in the root file. iOS makes the bar only of the
 //! route's own first child (`exact_kernel::bars::header_shape`), so this
 //! header is drawn in the page as written. The euxy port's tabs did this.
-//! A header that draws itself (`appearance="none"`) is not warned.
+//! A header that draws itself (`appearance="none"`) is not warned, here or
+//! as the route's first child (`no_bar`).
 
 use super::{computed, literal, NOT_THE_BAR, OR_NO_BAR};
 use crate::LowerError;
@@ -44,10 +45,9 @@ pub(super) fn nested_header(children: &[Node], out: &mut Vec<LowerError>) {
             return;
         }
         if tag == "header" {
-            // A header that keeps its authored bar (`appearance="none"`,
-            // LLP 1075.003 §9.10) is no bar wherever it sits: moving it
-            // would project nothing. A computed one has the benefit.
-            if literal(attrs, "appearance") == Some("none") || computed(attrs, "appearance") {
+            // A header that draws itself is no bar wherever it sits: moving
+            // it would project nothing.
+            if no_bar(attrs) {
                 return;
             }
             out.push(LowerError {
@@ -66,4 +66,11 @@ pub(super) fn nested_header(children: &[Node], out: &mut Vec<LowerError>) {
 
 fn hidden(attrs: &[contract_syntax::Attr]) -> bool {
     literal(attrs, "display") == Some("none") || computed(attrs, "display")
+}
+
+/// A header hidden, or drawing itself (`appearance="none"`, LLP 1075.003
+/// §9.10, as a site's does; a computed one has the benefit): iOS makes no bar
+/// of it, not even a pushed route's system Back alone, so it hides nothing.
+pub(super) fn no_bar(attrs: &[contract_syntax::Attr]) -> bool {
+    hidden(attrs) || literal(attrs, "appearance") == Some("none") || computed(attrs, "appearance")
 }

@@ -83,9 +83,6 @@ fn routes_tabs_loading_empty_disclosure_and_overlays_are_not_named() {
         .replace("\n  ", "\n    ")
         .replacen("  column", "    column", 1);
     let swap = format!("if showingDetail\n  for m in chosen key=m.id\n{detail}else\n{LIST}");
-    // A router's screens are its routes.
-    let routed = finder(&swap).replacen("shape Meal", "routes nav\n  home \"/\"\nshape Meal", 1);
-    assert_eq!(warned(&routed), []);
     for (case, choice) in [
         // Tabs: a state a `tab` reads its selection from.
         ("tabs", format!("row role=\"tablist\"\n  button role=\"tab\" aria-selected=(tab == \"all\") press=pick(\"all\")\n    text \"All\"\n  button role=\"tab\" aria-selected=(tab != \"all\") press=pick(\"saved\")\n    text \"Saved\"\nif tab == \"all\"\n{LIST}else\n{}", LIST.replace("What sounds good today?", "Saved"))),
@@ -189,15 +186,10 @@ fn sibling_swaps_keep_the_screen_exemptions_and_outermost_warning() {
     ] {
         assert_eq!(warned(&finder(&choice)), []);
     }
-    let src = finder(&pair);
     let kept = siblings("tab == \"all\"", "tab != \"all\"")
         .replace("state tab = \"all\"", "state tab = \"all\" persist")
         .replace("press=open(m)", "press=pick(\"saved\")");
     assert_eq!(warned(&kept), []);
-    assert_eq!(
-        warned(&src.replacen("shape Meal", "routes nav\n  home \"/\"\nshape Meal", 1)),
-        []
-    );
     let selected = format!(
         "button role=\"radio\" aria-checked=showingDetail press=back\n  text \"Detail\"\n{pair}"
     );
@@ -271,4 +263,76 @@ fn sibling_comparisons_accept_option_and_list_operands() {
     for ((actual, expected), case) in results.iter().zip(cases) {
         assert_eq!(actual, expected, "{case:?}");
     }
+}
+
+/// A page named by one state, its arms without a heading, as round 34's
+/// classifieds app did: `page == "browse"`, `"detail"`, `"form"`.
+fn pages(choice: &str) -> String {
+    let choice: String = choice.lines().map(|l| format!("      {l}\n")).collect();
+    format!(
+        "component App\n  state page = \"browse\"\n  state draft = \"\"\n  action go(p: string)\n    page = p\n  action edit(v: string)\n    draft = v\n  view\n    column height=\"100%\"\n{choice}"
+    )
+}
+
+const BROWSE: &str = "  column\n    button press=go(\"detail\") testId=\"open\"\n      text \"Chair\"\n    button press=go(\"form\") testId=\"sell\"\n      text \"Sell\"\n";
+const ITEM: &str = "  column\n    button press=go(\"browse\") testId=\"back\"\n      text \"Back to finds\"\n    button press=edit(\"hi\") testId=\"message\"\n      text \"Message seller\"\n";
+const FORM: &str = "  column\n    input value=draft input=edit aria-label=\"Title\"\n    button press=go(\"browse\") testId=\"save\"\n      text \"Publish\"\n";
+
+#[test]
+fn pages_named_by_one_state_are_named_without_headings_and_when_kept() {
+    // An `else if` chain, as classifieds wrote it.
+    let chain = pages(&format!(
+        "if page == \"browse\"\n{BROWSE}else if page == \"detail\"\n{ITEM}else if page == \"form\"\n{FORM}"
+    ));
+    assert_eq!(
+        warned(&chain),
+        [(SCREEN.to_string(), line_of(&chain, "if page == \"browse\""))]
+    );
+    // Sibling `if`s, the state kept across launches and arms also gated on the
+    // width or another state, as the training and notes apps wrote them: named once.
+    let siblings = pages(&format!(
+        "if wide or page == \"browse\"\n{BROWSE}text \"between\"\nif page == \"detail\" and draft == \"\"\n{ITEM}if page == \"form\"\n{FORM}"
+    ))
+    .replace("state page = \"browse\"", "state page = \"browse\" persist\n  state wide = false");
+    assert_eq!(
+        warned(&siblings),
+        [(SCREEN.to_string(), line_of(&siblings, "if wide or page"))]
+    );
+    // Two pages are judged as any swap: no heading, no warning.
+    let two = pages(&format!(
+        "if page == \"browse\"\n{BROWSE}else if page == \"detail\"\n{ITEM}"
+    ));
+    assert_eq!(warned(&two), []);
+}
+
+#[test]
+fn a_swap_inside_a_route_is_named_and_the_routes_are_not() {
+    // Round 34's issue tracker: its detail chosen by `selected` inside the one route.
+    let detail = DETAIL
+        .replace("\n  ", "\n    ")
+        .replacen("  column", "    column", 1);
+    let swap = format!("if showingDetail\n  for m in chosen key=m.id\n{detail}else\n{LIST}");
+    let list = LIST
+        .replace("\n  ", "\n    ")
+        .replacen("  column", "    column", 1);
+    let stack = |home: &str| {
+        let home: String = home.lines().map(|l| format!("    {l}\n")).collect();
+        finder(&format!(
+            "for e in stack(nav) key=e.id\n  if e.name == \"home\"\n{home}  if e.name == \"add\"\n{list}"
+        ))
+        .replacen("shape Meal", "routes nav\n  home \"/\"\n    add \"/add\"\nshape Meal", 1)
+    };
+    let routed = stack(&swap);
+    assert_eq!(
+        warned(&routed),
+        [(SCREEN.to_string(), line_of(&routed, "if showingDetail"))]
+    );
+    // A routed app's swap outside the stack is named too.
+    let top = finder(&swap).replacen("shape Meal", "routes nav\n  home \"/\"\nshape Meal", 1);
+    assert_eq!(
+        warned(&top),
+        [(SCREEN.to_string(), line_of(&top, "if showingDetail"))]
+    );
+    // Screens that are routes: quiet.
+    assert_eq!(warned(&stack(LIST)), []);
 }

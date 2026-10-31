@@ -272,4 +272,22 @@ extension NavigationHost {
         return out
     }
 }
+
+extension RouteController {
+    /// A large title at rest stays open when the text size changes. UIKit
+    /// draws the title at the new size in the bar's old height, which grows
+    /// only when the list is pulled: at the largest size the title ran under
+    /// the bar's buttons (meal-planner, bake-off round 34), and a hand-built
+    /// bar clips it the same way. A scroller at its start is pulled open on
+    /// the next turn, after UIKit's layout, as a title that turns large
+    /// again in place is (`restAtTop`).
+    func reopenTitle() {
+        guard collapseScroll != nil, let host, let sv = host.contentScrollView(of: self), !sv.isTracking, !sv.isDecelerating,
+              sv.contentOffset.y <= 0.5 - sv.adjustedContentInset.top else { return }
+        DispatchQueue.main.async { [weak self, weak sv] in
+            guard let self, let sv, let host = self.host, sv.contentOffset.y <= 0.5 - sv.adjustedContentInset.top else { return }
+            host.restAtTop(sv, in: self)
+        }
+    }
+}
 #endif

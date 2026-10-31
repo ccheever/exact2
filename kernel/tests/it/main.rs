@@ -53,6 +53,7 @@ mod regions;
 mod rem;
 mod symbol;
 mod symbol_color;
+mod table;
 mod support {
     pub mod reader;
 }

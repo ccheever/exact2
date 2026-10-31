@@ -11,11 +11,11 @@ pub(super) struct Command(pub Retained<ProtocolObject<dyn MTLCommandBuffer>>);
 // SAFETY: encoded on its owner thread, then committed once on the render thread.
 // The owner only queries completion after that handoff.
 unsafe impl Send for Command {}
-struct Drawable(Retained<ProtocolObject<dyn CAMetalDrawable>>);
+pub(super) struct Drawable(pub(super) Retained<ProtocolObject<dyn CAMetalDrawable>>);
 // SAFETY: ownership moves from the render thread to the main-thread transaction.
 unsafe impl Send for Drawable {}
 impl Drawable {
-    fn present(self) {
+    pub(super) fn present(self) {
         self.0.present();
     }
 }
@@ -23,6 +23,18 @@ impl Drawable {
 impl Command {
     pub fn commit(self) {
         self.0.commit();
+    }
+
+    pub fn completed(self) -> Result<()> {
+        self.0.waitUntilCompleted();
+        if self.0.status() == MTLCommandBufferStatus::Error {
+            Err(Error::DeviceLost(format!(
+                "CPU present failed: {:?}",
+                self.0.error()
+            )))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -47,6 +59,7 @@ impl Work {
             self.command.commit();
             return Ok(None);
         }
+        crate::device::apple::benchmark_painter(true);
         crate::device::apple::benchmark_present(self.benchmark);
         let result =
             self.renderer
@@ -193,16 +206,30 @@ impl Upload {
 
 impl Metal {
     pub fn attach_layer(&mut self, layer: Layer) -> Result<()> {
+        let _trace = Trace::new(c"boot Metal attach layer");
+        if let Some((pipeline, thread)) = self.prepared_present.take() {
+            return self.attach_prepared_layer(layer, pipeline, thread);
+        }
         self.wait(self.submitted)?;
         let started = Instant::now();
         let pipelines = setup::pipelines(&self.device, MTLPixelFormat::BGRA8Unorm)?;
         self.info.shaders_ms += started.elapsed().as_secs_f64() * 1000.;
         self.info.cached &= pipelines.cached;
         pipelines.save();
+        self.attach_prepared_layer(layer, pipelines.replace, Rc::new(Thread::new()?))
+    }
+
+    pub(super) fn attach_prepared_layer(
+        &mut self,
+        layer: Layer,
+        pipeline: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
+        thread: Rc<Thread>,
+    ) -> Result<()> {
+        let _trace = Trace::new(c"boot Metal attach prepared layer");
         let render_layer = layer.render_layer();
         render_layer.raw.setDevice(Some(&self.device));
-        let thread = Rc::new(Thread::new()?);
         self.thread = Some(thread.clone());
+        crate::counters::presentation_support(true, true);
         self.window = Some(Window {
             thread,
             uploads: std::sync::Arc::new(std::sync::Mutex::new(Uploads {
@@ -212,7 +239,7 @@ impl Metal {
             })),
             renderer: std::sync::Arc::new(std::sync::Mutex::new(Renderer {
                 layer: render_layer,
-                pipeline: pipelines.replace,
+                pipeline,
                 sampler: self.sampler.clone(),
                 white: self.white_alpha.raw.clone(),
                 ring: Ring::default(),
@@ -294,7 +321,7 @@ impl Renderer {
             self.layer.retry();
             return Ok(None);
         };
-        self.layer.track(ProtocolObject::from_ref(&*drawable));
+        self.layer.track(ProtocolObject::from_ref(&*drawable), true);
         if let Err(error) = encode(
             command,
             source,
@@ -318,6 +345,7 @@ impl Renderer {
             None
         };
         trace_mark(c"present committed", || 0.);
+        crate::counters::submitted();
         self.ring.retire(command);
         Ok(pending)
     }
@@ -335,11 +363,28 @@ fn encode(
     let pass = MTLRenderPassDescriptor::new();
     let attachment = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
     attachment.setTexture(Some(target));
-    attachment.setLoadAction(MTLLoadAction::DontCare);
+    let clear = crate::device::apple::benchmark_present_clear();
+    attachment.setLoadAction(if clear {
+        MTLLoadAction::Clear
+    } else {
+        MTLLoadAction::DontCare
+    });
+    if clear {
+        attachment.setClearColor(MTLClearColor {
+            red: 0.,
+            green: 0.,
+            blue: 0.,
+            alpha: 1.,
+        });
+    }
     attachment.setStoreAction(MTLStoreAction::Store);
     let encoder = command
         .renderCommandEncoderWithDescriptor(&pass)
         .ok_or_else(|| Error::Device("drawable encoder".into()))?;
+    if clear {
+        encoder.endEncoding();
+        return Ok(());
+    }
     let width = target.width() as f32;
     let height = target.height() as f32;
     let viewport = [width, height, 0., 0.];

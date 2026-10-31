@@ -1,0 +1,175 @@
+// linux: layout
+// HTML's table and description list (LLP 1153 D7): the browser's table
+// algorithm on the web, a grid of `auto` columns in the kernel, whose boxes
+// conform.mjs compares. Every cell holds sized boxes, so no font decides a
+// width, and the spanned columns are equally wide, where a grid and CSS 2.1
+// §17.5 share a span's extra width alike; `table-widths` holds the cases
+// where they do not. Here: a caption, which follows its table's padding, and
+// a `colspan`, which the step makes 3 and so moves its row's last cell to a
+// fourth column; a `rowspan` whose next row starts in the second column; a
+// short row; a caption's own margin; rows the table holds directly (a
+// `tbody` of their own) with a `rowspan=0` reaching the end of them; the
+// first `thead` above and the first `tfoot` below the other row groups
+// wherever each is written; a table that is a block holding an anonymous
+// table; a table's height as its least, short and tall; a row and a row
+// group moved relatively; a right-to-left table padded on one side, with a
+// caption; a caption's percentage margin; a cell's minimum over its width;
+// cells from a `for`; a table stretched in a flex
+// column (whose `gap`, which CSS does not give a table, moves nothing); and
+// a `dl`'s margins and indent beside a `dd`'s own margin.
+component Tables
+  state wide = false
+  action widen
+    wide = not wide
+  view
+    column testId="root" width=420 box-sizing="border-box" padding=16 gap=12 font-size=16
+      button testId="widen" press=widen width=80 height=24
+        text "widen"
+      view testId="flow"
+        table testId="spans" padding-left=(wide ? 20 : 0) padding-right=(wide ? 20 : 0)
+          caption testId="caption" margin-bottom=6
+            box width=40 height=12
+          thead testId="head"
+            tr testId="head-row"
+              th scope="col" testId="h1"
+                box width=30 height=12
+              th scope="col" testId="h2"
+                box width=30 height=12
+              th scope="col" testId="h3"
+                box width=30 height=12
+          tfoot testId="foot"
+            tr testId="foot-row"
+              td colspan=3 testId="f1"
+                box width=60 height=12
+          tbody testId="body"
+            tr testId="r1"
+              td colspan=(wide ? 3 : 2) testId="c11"
+                box width=90 height=12
+              td testId="c12"
+                box width=20 height=12
+            tr testId="r2"
+              td rowspan=2 testId="c21"
+                box width=20 height=40
+              td testId="c22"
+                box width=30 height=12
+              td testId="c23"
+                box width=30 height=12
+            tr testId="r3"
+              td testId="c31"
+                box width=30 height=12
+              td testId="c32"
+                box width=30 height=12
+            tr testId="r4"
+              td testId="c41"
+                box width=20 height=12
+      view testId="zero-flow"
+        table testId="zero"
+          tr testId="z1"
+            td rowspan=0 testId="z11"
+              box width=20 height=40
+            td testId="z12"
+              box width=20 height=12
+          tr testId="z2"
+            td testId="z21"
+              box width=20 height=12
+      view testId="order-flow"
+        table testId="order"
+          tfoot testId="of1"
+            tr
+              td testId="o-foot1"
+                box width=20 height=12
+          tbody testId="ob1"
+            tr
+              td testId="o-body1"
+                box width=20 height=12
+          thead testId="oh1"
+            tr
+              td testId="o-head1"
+                box width=20 height=12
+          tfoot testId="of2"
+            tr
+              td testId="o-foot2"
+                box width=20 height=12
+          thead testId="oh2"
+            tr
+              td testId="o-head2"
+                box width=20 height=12
+      view testId="block-flow"
+        table testId="block" display="block" padding-left=8
+          thead testId="bh"
+            tr
+              td testId="b11"
+                box width=20 height=12
+              td testId="b12"
+                box width=20 height=12
+          tbody testId="bb"
+            tr
+              td testId="b21"
+                box width=20 height=12
+              td testId="b22"
+                box width=20 height=12
+      view testId="short-flow"
+        table testId="short" height=10
+          tr
+            td testId="s-tall"
+              box width=20 height=40
+        box testId="after-short" width=20 height=10
+      view testId="tall-flow"
+        table testId="tall" height=60
+          tr
+            td testId="t1"
+              box width=20 height=10
+          tr
+            td testId="t2"
+              box width=20 height=10
+      view testId="moved-flow"
+        table testId="moved"
+          tbody testId="mg" position="relative" top=5
+            tr testId="mr" position="relative" left=10
+              td testId="m1"
+                box width=20 height=10
+            tr
+              td testId="m2"
+                box width=20 height=10
+      view testId="rtl-flow" direction="rtl"
+        table testId="rtl" padding-left=10
+          caption testId="rtl-caption"
+            box width=10 height=10
+          tr
+            td testId="rtl-cell"
+              box width=60 height=10
+      view testId="percent-flow"
+        table testId="percent"
+          caption testId="percent-caption" margin-left="10%"
+            box width=10 height=10
+          tr
+            td testId="floor" width=20 min-width=80
+              box width=10 height=10
+      view testId="repeat-flow"
+        table testId="repeat"
+          tr
+            for w in [20, 30, 40] key=w
+              td testId=`rep-${w}`
+                box width=w height=10
+          tr
+            td testId="under-20"
+              box width=10 height=10
+            td testId="under-30"
+              box width=10 height=10
+            td testId="under-40"
+              box width=10 height=10
+      table testId="stretched" gap=10
+        tr testId="s1"
+          td testId="s11"
+            box width=30 height=12
+          td testId="s12"
+            box width=30 height=12
+      dl testId="dl"
+        dt testId="dt1"
+          box width=40 height=12
+        dd testId="dd1"
+          box width=40 height=12
+        dt testId="dt2"
+          box width=40 height=12
+        dd testId="dd2" margin-right=12
+          box width=40 height=12

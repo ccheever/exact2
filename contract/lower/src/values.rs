@@ -176,7 +176,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadTransformOrigin { .. } => "`transform-origin` is one or two of left, center, right, top, bottom, a length or a percentage".into(),
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
-        StyleValueError::BadGridTracks { .. } => "expected at most 10,000 CSS grid tracks the kernel can lay out: px, %, fr, auto, min-content, max-content, calc()/min()/max()/clamp() over px and %, fit-content(px or %), minmax(), repeat() (including auto-fill/auto-fit), and named lines; var() and env() are unsupported".into(),
+        StyleValueError::BadGridTracks { .. } => "expected at most 10,000 CSS grid tracks the kernel can lay out: px, %, fr, auto, min-content, max-content, calc()/min()/max()/clamp() over px and %, fit-content(px or %), minmax(), repeat() (including auto-fill/auto-fit), and named lines; a design token (`var(--name)`, or its name) and env() are not tracks".into(),
         StyleValueError::BadGridPlacement { .. } => "expected `auto`, a nonzero or named line through 10,000, or `span N` through 10,000, optionally followed by `/` and a second line".into(),
         StyleValueError::BadTextStroke { reason, .. } => (*reason).into(),
         StyleValueError::BadSymbolPalette { .. } => "expected none, or one to three colours".into(),
@@ -517,7 +517,10 @@ fn style_value(
             // @ref LLP 1066, LLP 1077 — the kernel's parse says why, by name.
             // A shadow token's name: its values were checked as this row's
             // (`theme::measure_row`), not the name's own text.
-            let why = if crate::theme::measure_named(v).is_some() {
+            // A metric's name in a sheet the compiler wrote is its platform's value (LLP 1115.002 D6).
+            let why = if crate::theme::measure_named(v).is_some()
+                || (!a.written && exact_kernel::style::metrics::named(v).is_some())
+            {
                 None
             } else if rows.contains(&StyleId::BackgroundImage) {
                 exact_kernel::gradient::BackgroundImage::check(v).err()

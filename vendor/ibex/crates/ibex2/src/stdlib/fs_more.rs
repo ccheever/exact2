@@ -125,7 +125,7 @@ fn access(path: &Path, mode: i32) -> Result<(), HostError> {
     use std::os::unix::ffi::OsStrExt;
     let c = std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(|e| failed(path, e))?;
     // SAFETY: a NUL-terminated path.
-    if unsafe { libc::faccessat(libc::AT_FDCWD, c.as_ptr(), mode, libc::AT_EACCESS) } == 0 {
+    if unsafe { libc::faccessat(libc::AT_FDCWD, c.as_ptr(), mode, crate::AT_EACCESS) } == 0 {
         Ok(())
     } else {
         Err(failed(path, std::io::Error::last_os_error()))

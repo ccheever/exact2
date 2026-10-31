@@ -17,7 +17,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 EXACT_UPDATE_TRUST=development cargo test -p messages-stress-data
 EXACT_UPDATE_TRUST=development cargo check -p messages-stress-web -p messages-stress-apple
 EXACT_WEB_DIST=target/messages-stress-dist bun host/web/build.mjs messages-stress-web
-bun host/web/serve.mjs --origin target/messages-stress-dist --loopback 4318
+bun host/web/serve.mjs target/messages-stress-dist --loopback --port 4318
 ```
 
 Open `http://127.0.0.1:4318/`. Use a separate output directory/port for the

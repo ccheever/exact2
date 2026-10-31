@@ -108,6 +108,8 @@ impl<D: DataSource> Presenter<D> {
                 "setRangeText" => self.set_range_text(&c.args),
                 // An element's, by its id (minesweeper F3); a row's is the runner's.
                 "scrollIntoView" => self.scroll_element_into_view(&c.args),
+                // The runner's own, once a fragment's route has its content (LLP 1153 D5).
+                "scrollToFragment" => self.scroll_to_fragment(&c.args),
                 // `Element.scrollBy(x, y)`, by its id.
                 "scrollBy" => self.scroll_element_by(&c.args),
                 // The inverse of `message=`: text into the named surface's

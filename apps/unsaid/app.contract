@@ -174,6 +174,8 @@ component Unsaid
                 text "Delete something"
               button commandfor="three" command="show-modal" testId="ask-three"
                 text "Leave with changes"
+              button popovertarget="about" testId="about-open"
+                text "About this screen"
               row display="flex" align-items="center" gap=12
                 button press=choose("the row") contextmenu=aim("the row") contextPopover="row-menu" flex=1 text-align="start" testId="held"
                   text "A row: hold it, or use its button"
@@ -287,7 +289,8 @@ component Unsaid
                       text `Row ${i}` height=56 display="flex" align-items="center"
       // The top layer's surfaces, declared once at the root: two confirmations
       // (the label is the title, the text the message, Cancel the closing
-      // button with no `press`) and the menu every invoker above names.
+      // button with no `press`), a popover its author left unsaid, and the
+      // menu every invoker above names.
       dialog id="confirm" role="alertdialog" aria-label="Delete it?"
         text "This cannot be undone."
         button press=choose("Delete") destructive=true commandfor="confirm" command="close" testId="confirm-delete"
@@ -302,6 +305,11 @@ component Unsaid
           text "Discard"
         button commandfor="three" command="close" testId="three-cancel"
           text "Cancel"
+      column id="about" popover="auto" gap=8 aria-label="About this screen" testId="about"
+        text "The top layer" role="heading" aria-level=2
+        text "A popover its author placed nowhere and gave no padding: it opens at its button, and its margin, corners and ground are the platform's."
+        button popovertarget="about" popovertargetaction="hide" testId="about-done"
+          text "Done"
       column id="row-menu" popover="auto" role="menu" aria-label="Row"
         button press=choose("Rename") popovertarget="row-menu" popovertargetaction="hide" testId="menu-rename"
           image "symbol:pencil"

@@ -898,8 +898,14 @@ fn made_by_this_user(dir: &std::fs::File, name: &std::ffi::OsStr) -> std::io::Re
         return Ok(true);
     }
     // SAFETY: the descriptor and the terminated name are live for the call.
-    let writable =
-        unsafe { libc::faccessat(dir.as_raw_fd(), c".".as_ptr(), libc::W_OK, libc::AT_EACCESS) };
+    let writable = unsafe {
+        libc::faccessat(
+            dir.as_raw_fd(),
+            c".".as_ptr(),
+            libc::W_OK,
+            crate::AT_EACCESS,
+        )
+    };
     if writable == 0 {
         return Ok(true);
     }

@@ -1,6 +1,7 @@
 //! Instanced UI geometry over a portable device. @ref LLP 1149 D1, D5.
 
 pub mod atlas;
+pub mod counters;
 pub mod device;
 pub mod glyph;
 pub mod image;

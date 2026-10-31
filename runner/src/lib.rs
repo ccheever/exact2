@@ -40,6 +40,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod activation;
 pub mod agent;
 pub mod auth;
 pub mod bridge;
@@ -92,6 +93,7 @@ pub mod transport;
 pub mod upload;
 pub mod uses;
 pub mod viewport;
+pub mod viewport_reads;
 pub mod vm;
 pub mod wakelock;
 

@@ -344,6 +344,9 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
+        // @ref LLP 1153 D7 — HTML's table and description list (`tables.rs`).
+        "table" | "caption" | "thead" | "tbody" | "tfoot" | "tr" | "th" | "td" | "dl" | "dt"
+        | "dd" => crate::tables::tag(name),
         _ => return None,
     })
 }
@@ -746,6 +749,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
         "aria-sort" => AttrTarget::Prop(p("accessibilitySort")),
+        // @ref LLP 1153 D7 — a table cell's, held to its tag by `tables::check`.
+        "colspan" => AttrTarget::Prop(PropId::ColSpan),
+        "rowspan" => AttrTarget::Prop(PropId::RowSpan),
+        "scope" => AttrTarget::Prop(PropId::Scope),
         // @ref LLP 1116 D8 — a range role's value (`progressbar`, `slider`,
         // `meter`, …), numbers written as HTML writes them (`aria_values`).
         "aria-valuenow" => AttrTarget::Prop(p("accessibilityValueNow")),
@@ -1048,21 +1055,7 @@ pub const HEAD_FIELDS: &[&str] = &[
     // LLP 1069.010 D6: the document has unsaved changes (a declared deviation).
     "edited",
 ];
-/// Suggest one unambiguous single-edit spelling from the existing attribute
-/// lookup. No second vocabulary is maintained, and this never admits an alias.
-pub(crate) fn similar_attr(name: &str, style_only: bool) -> Option<String> {
-    similar(name, |candidate| match attr(candidate) {
-        // Lowering's own row for `:active`'s opacity (LLP 1121 D8).
-        _ if candidate == crate::states::PRESS_OPACITY_TO => false,
-        Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand) => true,
-        Some(_) => !style_only,
-        None => false,
-    })
-}
-/// The same for a tag, from the tag lookup.
-pub(crate) fn similar_tag(name: &str) -> Option<String> {
-    similar(name, |candidate| tag(candidate).is_some())
-}
+pub(crate) use crate::spelling::{similar_attr, similar_tag};
 
 /// What Contract calls an HTML element it spells differently.
 pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
@@ -1081,9 +1074,7 @@ pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
         "form" => {
             "there is no `form`: a field's Enter is its `submit` (`input … submit=save`), and a `button`'s `press` acts"
         }
-        "table" | "thead" | "tbody" | "tr" | "td" | "th" | "grid" => {
-            "a table or grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s"
-        }
+        "grid" => "a grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s",
         "details" | "summary" => {
             "there is no `details`: keep `open` in state, show the body `if open`, and toggle it from a `button`"
         }
@@ -1099,62 +1090,6 @@ pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
         "ul" | "ol" | "li" => "a list is `list` (or a `column` of rows)",
         _ => return None,
     })
-}
-
-/// One unambiguous single-edit spelling of `name` that `admitted` accepts,
-/// found by trying every edit against the lookup itself.
-fn similar(name: &str, admitted: impl Fn(&str) -> bool) -> Option<String> {
-    if !name.is_ascii() || !(3..=64).contains(&name.len()) {
-        return None;
-    }
-    let mut found: Option<String> = None;
-    let mut consider = |bytes: &[u8]| {
-        let candidate = std::str::from_utf8(bytes).expect("ASCII spelling edits");
-        if candidate == name {
-            return true;
-        }
-        if admitted(candidate) {
-            if found.as_deref().is_some_and(|old| old != candidate) {
-                return false;
-            }
-            found = Some(candidate.to_owned());
-        }
-        true
-    };
-    const LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
-    let mut candidate = name.as_bytes().to_vec();
-    for index in 0..name.len() {
-        let original = candidate.remove(index);
-        if !consider(&candidate) {
-            return None;
-        }
-        candidate.insert(index, original);
-        for &letter in LETTERS {
-            candidate[index] = letter;
-            if !consider(&candidate) {
-                return None;
-            }
-        }
-        candidate[index] = original;
-        if index + 1 < name.len() {
-            candidate.swap(index, index + 1);
-            if !consider(&candidate) {
-                return None;
-            }
-            candidate.swap(index, index + 1);
-        }
-    }
-    for index in 0..=name.len() {
-        candidate.insert(index, b'a');
-        for &letter in LETTERS {
-            candidate[index] = letter;
-            if !consider(&candidate) {
-                return None;
-            }
-        }
-        candidate.remove(index);
-    }
-    found
 }
 
 /// Exclusions wrap their parent's text and must be positioned by that parent.

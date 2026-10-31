@@ -20,7 +20,7 @@ const check = need('chrome', unavailable);
 const sheet = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0];
 const on = ':not(:disabled,[disabled]:not([disabled="false"]))';
 // As `looks::rules` writes a `:hover` look and a `:focus-visible` one (a yellow face; a green one).
-const rules = `@media (hover:hover){[data-view="3"]:hover${on}{background-color:rgba(255,255,0,1)!important;--exact-hover-wash:none!important;}}[data-view="3"][data-exact-held~=hover]${on}{background-color:rgba(255,255,0,1)!important;--exact-hover-wash:none!important;}`
+const rules = `@media (any-hover:hover){:where(html:not([data-exact-input=touch])) [data-view="3"]:hover${on}{background-color:rgba(255,255,0,1)!important;--exact-hover-wash:none!important;}}[data-view="3"][data-exact-held~=hover]${on}{background-color:rgba(255,255,0,1)!important;--exact-hover-wash:none!important;}`
   + `[data-view="3"]:focus-visible${on},[data-view="3"][data-exact-held~=focus-visible]${on}{background-color:rgba(0,255,0,1)!important;}`;
 const press = '--exact-press-background-color:rgba(0,0,255,1);';
 const page = sheet + `<style id="exact-looks">${rules}</style>

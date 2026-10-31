@@ -1,12 +1,14 @@
-// @exact/oauth (LLP 1146 D5): an OAuth 2.0 and OpenID Connect client for
-// `app.ts`. Authorization code with PKCE through `openAuthSession`, the code
-// exchange, refresh with rotation, authorized requests that refresh on 401,
-// and sign-out. Every decision about what a provider's reply means is here, so
-// an app writes none of them.
+// @exact/oauth (LLP 1146 D5, D8, D9): an OAuth 2.0 and OpenID Connect client
+// for `app.ts`. Authorization code with PKCE through `openAuthSession` or the
+// app's own sign-in (`authorize`), the code exchange, refresh with rotation,
+// authorized requests that refresh on 401 (`expiredStatus`), and sign-out.
+// Every decision about what a provider's reply means is here, so an app
+// writes none of them.
 //
 // Data code reads no clock (LLP 1027.000). The time a token was issued is the
 // token response's `Date` header (RFC 9110 §6.6.1), and an expired access
-// token is learned from the resource server's 401 (RFC 6750 §3.1).
+// token is learned from the resource server's 401 (RFC 6750 §3.1), or the
+// statuses `expiredStatus` names.
 //
 // A session's code exchange, refreshes and sign-out run one at a time
 // (`exclusive`), so a rotated refresh token is spent once. Each is a POST,
@@ -23,6 +25,8 @@ export interface OAuthSession {
   scopes: string[];
   /** Why the next sign-in cannot be prepared or the last session ended, for the person; "" otherwise. */
   error: string;
+  /** The last session ended, by the provider or because the package could not go on with it: `error` says why; false for a sign-in that cannot be prepared. */
+  ended: boolean;
 }
 
 /** What `signIn()` and `signOut()` answer; `OAuthResult` in Contract. */
@@ -34,12 +38,14 @@ export interface OAuthResult {
   error: string;
   /** Trying again later may succeed. */
   retryable: boolean;
+  /** The HTTP status, 400 or over, of the reply that failed; 0 otherwise: no reply came, or the package refused a 2xx or 3xx it could not use. */
+  status: number;
 }
 
 export interface OAuthConfig {
   /** The issuer. Discovery reads `<issuer>/.well-known/openid-configuration`, then RFC 8414's document. */
   issuer?: string;
-  /** Endpoints for a provider without discovery; with `issuer`, these override what discovery found. */
+  /** Endpoints for a provider without discovery. With an exact `issuer` (no `issuerTemplate`), `authorization` and `token` both given make no discovery: the ID token and a callback's `iss` are still checked against `issuer`, a callback without `iss` is taken, and sign-out revokes only at `revocation`. Otherwise they override what discovery found. */
   endpoints?: { authorization?: string; token?: string; revocation?: string };
   clientId: string;
   scopes: string[];
@@ -73,8 +79,49 @@ export interface OAuthConfig {
   cancelCodes?: string[];
   /** Ask the browser for a private session with no shared cookies, to choose another account. */
   ephemeral?: boolean;
-  /** The callback; the default is `authCallback()`. */
+  /** The callback; the default is `authCallback()`. With `signIn`'s `authorize`, the redirect URI the provider registered. */
   callback?: string;
+  /** The statuses an API answers an expired access token with: `[401]` by default (RFC 6750 §3.1); `[401, 403]` for a gateway that answers 403. `fetch` and `json` refresh once on each. A token an API refused right after the refresh that brought it refreshes again only once it has expired by the API's `Date`, or, its expiry unknown, a minute after that refusal; where the app cannot read the API's `Date` (from another origin, a browser shows it only when the API exposes it), each read the API refuses refreshes once, as without this limit. */
+  expiredStatus?: number[];
+  /** The transport of every request the package makes; `fetch` by default. For a demo's server in the app, or a provider's cookies. */
+  fetch?: (url: string, init: RequestInit) => Promise<Response>;
+  /** Hears what the session did, for an app's diagnostics (`OAuthEvent`). */
+  log?: (event: OAuthEvent) => void;
+}
+
+/**
+ * What the session did, for `log`. It carries no token: `token`, `sent` and
+ * `got` are refresh tokens' prints, the first six hex digits of their SHA-256
+ * ("" for none). `refreshed`'s `expiresIn` is in seconds, 0 when unknown.
+ * At `refresh-failed` the session stands; the event carries the reply's
+ * status (400 or over, else 0) and OAuth error, or status 0 and `network`
+ * when none came (`config` when the grants refused the request). At `ended`
+ * the session ended, the provider's refusal or the package's. `refused`: an
+ * API refused the access token again after a refresh.
+ */
+export type OAuthEvent =
+  | { type: 'signed-in'; token: string }
+  | { type: 'refreshed'; sent: string; got: string; expiresIn: number }
+  | { type: 'refresh-failed'; sent: string; status: number; code: string }
+  | { type: 'ended'; sent: string; status: number; code: string }
+  | { type: 'refused'; status: number; url: string }
+  | { type: 'signed-out' };
+
+/** The authorization request a sign-in sends, as `authorize` receives it. */
+export interface OAuthAuthorization {
+  /** The whole request: the endpoint with `params` in its query. */
+  url: string;
+  /** The authorization endpoint. */
+  endpoint: string;
+  /** `response_type`, `client_id`, `redirect_uri`, `scope`, `state`, the PKCE challenge, `nonce` with `openid`, and `authorizationParams`. */
+  params: Record<string, string>;
+  /** The package's transport (`OAuthConfig.fetch`, else `fetch`), to send it with. */
+  fetch: (url: string, init: RequestInit) => Promise<Response>;
+}
+
+export interface OAuthSignIn {
+  /** For an app that signs the person in with its own screens (LLP 1146 D8): sends the authorization request as the provider documents, and answers the URL it redirected to. Throw an `OAuthError` to say why it could not. */
+  authorize?: (request: OAuthAuthorization) => Promise<string>;
 }
 
 /** A failed authorized request. A resource source that throws it keeps its last answer (LLP 1016 D4). */
@@ -106,14 +153,16 @@ export interface OAuthStore {
 export interface OAuthProvider {
   /** The session the store keeps. While signed out it also readies the next sign-in, which may fetch the discovery document. */
   session(store: OAuthStore): Promise<OAuthSession>;
-  /** Opens the provider's sign-in, then exchanges and keeps the tokens. Send it from a press. */
-  signIn(store: OAuthStore): Promise<OAuthResult>;
+  /** Opens the provider's sign-in, then exchanges and keeps the tokens. Send it from a press. With `authorize`, the app's own sign-in sends the authorization request instead. */
+  signIn(store: OAuthStore, options?: OAuthSignIn): Promise<OAuthResult>;
   /** Forgets the session, then asks the provider to revoke it. */
   signOut(store: OAuthStore): Promise<OAuthResult>;
-  /** `fetch` with the access token, to an origin in `apis`; refreshes once on 401. Answers the `Response`. */
+  /** `fetch` with the access token, to an origin in `apis`; refreshes once on 401 (`expiredStatus`). Answers the `Response`. */
   fetch(store: OAuthStore, url: string, init?: RequestInit): Promise<Response>;
   /** As `fetch`, then the parsed JSON body; any status that is not 2xx throws `OAuthError`. */
   json(store: OAuthStore, url: string, init?: RequestInit): Promise<unknown>;
+  /** The kept ID token's claims; `null` while signed out or with none. */
+  claims(store: OAuthStore): Record<string, unknown> | null;
 }
 
 declare function openAuthSession(url: string, options: { callback: string; state: string; ephemeral?: boolean }): Promise<string>;
@@ -150,7 +199,7 @@ interface Transaction {
   state: string;
   verifier: string;
   nonce: string;
-  url: string;
+  params: Record<string, string>;
   callback: string;
   meta: Metadata;
 }
@@ -168,6 +217,12 @@ const RESERVED = ['response_type', 'client_id', 'redirect_uri', 'scope', 'state'
 // not revoked, oldest first, by the key the session is kept under.
 const sessionWork = new Map<string, Promise<unknown>>();
 const unrevoked = new Map<string, Kept[]>();
+// By session key, the access token an API last refused right after the refresh that brought it, and that refusal's
+// `Date` (the API's clock, 0 without one)
+const refusedFresh = new Map<string, { token: string; at: number }>();
+// By session key, its events still to be heard, in the order they happened across every provider made for the key,
+// though a print is made asynchronously
+const logged = new Map<string, Promise<unknown>>();
 
 export function oauth(config: OAuthConfig): OAuthProvider {
   if (!config.clientId) throw new TypeError('oauth: clientId is required');
@@ -179,9 +234,21 @@ export function oauth(config: OAuthConfig): OAuthProvider {
   for (const url of [config.issuer, config.endpoints?.authorization, config.endpoints?.token, config.endpoints?.revocation, ...config.apis]) {
     if (url) secure(url, 'oauth');
   }
+  // The callback is compared whole with where the provider sends the person, its query and fragment the reply's
+  if (config.callback !== undefined && !sessionCallback(config.callback)) {
+    throw new TypeError('oauth: callback is the redirect URI, an absolute URL with no whitespace, userinfo, query or fragment, and for http: or https: a host and no backslash, as the host opens no other and the provider adds its own query');
+  }
   const reserved = Object.keys(config.authorizationParams ?? {}).filter((k) => RESERVED.includes(k));
   if (reserved.length) throw new TypeError(`oauth: authorizationParams may not set ${reserved.join(', ')}; the package sets them, or does not check what they ask for (max_age)`);
+  const expired = config.expiredStatus ?? [401];
+  if (!expired.length || !expired.every((s) => Number.isInteger(s) && s >= 400 && s < 500)) {
+    throw new TypeError('oauth: expiredStatus lists the 4xx statuses an API answers an expired access token with, such as [401, 403]');
+  }
   const apis = config.apis.map(originOf);
+  const note = (event: () => OAuthEvent | Promise<OAuthEvent>): void => {
+    const log = config.log;
+    if (log) logged.set(config.key, (logged.get(config.key) ?? Promise.resolve()).then(event).then(log).catch(() => undefined));
+  };
   // Whether a token endpoint error ends the session (LLP 1146 §5, "Refresh").
   const ends = (reply: TokenReply): boolean => {
     if (reply.error === 'invalid_grant') return !throttled(reply);
@@ -244,8 +311,7 @@ export function oauth(config: OAuthConfig): OAuthProvider {
       ...(nonce ? { nonce } : {}),
       ...config.authorizationParams,
     };
-    const url = meta.authorization + (meta.authorization.includes('?') ? '&' : '?') + form(params);
-    prepared = { state, verifier, nonce, url, callback, meta };
+    prepared = { state, verifier, nonce, params, callback, meta };
     return prepared;
   })().then((tx) => { unprepared = ''; return tx; }, (e) => {
     // A network failure is an `OAuthError` here, so anything else is named as it is
@@ -256,37 +322,49 @@ export function oauth(config: OAuthConfig): OAuthProvider {
   const session = async (store: OAuthStore): Promise<OAuthSession> => {
     const kept = read(store);
     if (kept?.accessToken) {
-      return { signedIn: true, subject: kept.subject ?? '', expiresAt: kept.expiresAt ?? 0, scopes: kept.scopes ?? [], error: '' };
+      return { signedIn: true, subject: kept.subject ?? '', expiresAt: kept.expiresAt ?? 0, scopes: kept.scopes ?? [], error: '', ended: false };
     }
     // Ready the next sign-in now, so that the press opens the browser before
     // awaiting anything: a web popup must open in the press's task
     // (LLP 1069.006 D4), and discovery and the S256 digest are asynchronous.
     await prepare().catch(() => undefined);
-    return { signedIn: false, subject: '', expiresAt: 0, scopes: [], error: kept?.ended ?? unprepared };
+    return { signedIn: false, subject: '', expiresAt: 0, scopes: [], error: kept?.ended ?? unprepared, ended: kept?.ended !== undefined };
   };
 
-  const signIn = async (store: OAuthStore): Promise<OAuthResult> => {
-    let tx = prepared;
-    prepared = null;
+  // The app's own sign-in sends the authorization request (D8): no browser
+  // opens, so it may await. What it answers must be the callback.
+  const sentByApp = async (tx: Transaction | null, authorize: NonNullable<OAuthSignIn['authorize']>): Promise<[Transaction, string] | OAuthResult> => {
+    try {
+      tx ??= await prepare();
+      prepared = null;
+      const back = await authorize({ url: authorizationUrl(tx), endpoint: tx.meta.authorization, params: { ...tx.params }, fetch: transport(config) });
+      if (typeof back === 'string' && isCallback(back, tx.callback)) return [tx, back];
+      return result('invalid_response', 'Sign-in failed: the provider did not send the person back to the app.');
+    } catch (e) {
+      return failure(e);
+    }
+  };
+
+  // The browser sends it. Prepared, `openAuthSession` comes before any
+  // await; otherwise it is prepared first, which on the web may leave the
+  // popup blocked (428).
+  const openedInBrowser = async (tx: Transaction | null): Promise<[Transaction, string] | OAuthResult> => {
     let opened: Promise<string>;
     let readied: Promise<void> = Promise.resolve();
     try {
-      // Prepared: `openAuthSession` comes before any await. Otherwise prepare
-      // first, which on the web may leave the popup blocked (428).
       const fallback = !tx;
       if (!tx) {
         tx = await prepare();
         prepared = null;
       }
-      opened = openAuthSession(tx.url, { callback: tx.callback, state: tx.state, ephemeral: config.ephemeral });
+      opened = openAuthSession(authorizationUrl(tx), { callback: tx.callback, state: tx.state, ephemeral: config.ephemeral });
       // Ready the next press, which then opens at once (a blocked popup's retry).
       if (fallback) readied = prepare().then(() => undefined, () => undefined);
     } catch (e) {
       return failure(e);
     }
-    let back: string;
     try {
-      back = await opened;
+      return [tx, await opened];
     } catch (e) {
       const status = (e as { status?: number }).status;
       if (status === 499) return result('cancelled', 'Sign-in was cancelled.');
@@ -298,6 +376,14 @@ export function oauth(config: OAuthConfig): OAuthProvider {
       if (status === 403 || status === 501) return result('config', `Sign-in cannot open here: ${(e as Error).message}`);
       return result('network', 'Sign-in could not finish. Try again.', true);
     }
+  };
+
+  const signIn = async (store: OAuthStore, options: OAuthSignIn = {}): Promise<OAuthResult> => {
+    const ready = prepared;
+    prepared = null;
+    const reached = options.authorize ? await sentByApp(ready, options.authorize) : await openedInBrowser(ready);
+    if (!Array.isArray(reached)) return reached;
+    const [tx, back] = reached;
     const why = checkCallback(back, tx, config);
     if (why) return why;
     const code = callbackQuery(back).get('code')!;
@@ -311,7 +397,7 @@ export function oauth(config: OAuthConfig): OAuthProvider {
       } catch (e) {
         return failure(e);
       }
-      if (reply.error) return result(reply.error, describe(reply), retryable(reply, ends(reply)));
+      if (reply.error) return result(reply.error, describe(reply), retryable(reply, ends(reply)), reply.status);
       const kept = keep(reply, null, tx.meta, config);
       if (typeof kept === 'string') return result('invalid_response', `Sign-in failed: ${kept}.`, true);
       if (config.scopes.includes('openid') && !kept.idToken) return result('invalid_response', 'Sign-in failed: the provider sent no ID token.');
@@ -338,7 +424,8 @@ export function oauth(config: OAuthConfig): OAuthProvider {
         if (!kept.refreshToken && held?.refreshToken && same) Object.assign(kept, { refreshToken: held.refreshToken, first: held.first });
       }
       store.set(config.key, JSON.stringify(kept));
-      return { ok: true, code: '', error: '', retryable: false };
+      note(async () => ({ type: 'signed-in', token: await print(kept.refreshToken) }));
+      return { ok: true, code: '', error: '', retryable: false, status: 0 };
     });
   };
 
@@ -352,7 +439,7 @@ export function oauth(config: OAuthConfig): OAuthProvider {
     if (now.refreshToken !== seen.refreshToken || now.accessToken !== seen.accessToken) return now;
     const sent = now.refreshToken;
     if (!sent) {
-      end(store, sent, 'The session has expired. Sign in again.');
+      end(store, sent, 'The session has expired. Sign in again.', 0, 'invalid_grant');
       throw new OAuthError('invalid_grant', 'The session has expired. Sign in again.', 401, false, true);
     }
     // What the session keeps is enough: a refresh awaits no discovery,
@@ -373,19 +460,25 @@ export function oauth(config: OAuthConfig): OAuthProvider {
       }
       return r;
     };
-    let reply: TokenReply;
-    try {
-      reply = await attempt();
-    } catch (e) {
-      if (!config.retryLostRefresh || !(e instanceof OAuthError) || e.code !== 'network') throw e;
-      reply = await attempt();
+    // A failure that keeps the session, as `log` hears it
+    const failed = (status: number, code: string): void => note(async () => ({ type: 'refresh-failed', sent: await print(sent), status: failedStatus(status), code }));
+    let reply: TokenReply | undefined;
+    for (let tries = 0; !reply; tries++) {
+      try {
+        reply = await attempt();
+      } catch (e) {
+        if (tries === 0 && config.retryLostRefresh && e instanceof OAuthError && e.code === 'network') continue;
+        failed(e instanceof OAuthError ? e.status : 0, e instanceof OAuthError ? e.code : 'network');
+        throw e;
+      }
     }
     if (reply.error) {
       if (ends(reply)) {
         const reason = SIGN_IN_AGAIN.includes(reply.error) ? 'The provider asks you to sign in again.' : 'The provider ended the session. Sign in again.';
-        end(store, sent, reason);
+        end(store, sent, reason, reply.status, reply.error);
         throw new OAuthError(reply.error, reason, reply.status, false, true);
       }
+      failed(reply.status, reply.error);
       throw new OAuthError(reply.error, describe(reply), reply.status, retryable(reply, false));
     }
     // The person signed out, or in again, while the request was out: what is
@@ -406,7 +499,7 @@ export function oauth(config: OAuthConfig): OAuthProvider {
       const bad = typeof idToken === 'string' && idToken ? checkIdToken(idToken, meta, config, '', reply.date, first) : 'the ID token is unreadable';
       if (bad) {
         const reason = `The session cannot continue: ${bad}. Sign in again.`;
-        end(store, sent, reason);
+        end(store, sent, reason, reply.status, 'invalid_response');
         throw new OAuthError('invalid_response', reason, reply.status, false, true);
       }
     }
@@ -416,17 +509,31 @@ export function oauth(config: OAuthConfig): OAuthProvider {
     const next = keep(reply, now, null, config);
     if (typeof next === 'string') {
       if (rotated) store.set(config.key, JSON.stringify({ ...now, refreshToken: rotated } satisfies Kept));
+      failed(reply.status, 'invalid_response');
       throw new OAuthError('invalid_response', `The provider's reply was unreadable: ${next}.`, reply.status, true);
     }
     store.set(config.key, JSON.stringify(next));
+    note(async () => ({ type: 'refreshed', sent: await print(sent), got: await print(next.refreshToken), expiresIn: lifetime(reply) ?? 0 }));
     return next;
   });
 
   // Ends the session for good, only if the refresh token refused is still
   // the one kept: a newer sign-in or a sign-out already replaced it otherwise.
-  const end = (store: OAuthStore, refused: string | undefined, reason: string): void => {
+  // `status` and `code` are the refusal's, for `log`.
+  const end = (store: OAuthStore, refused: string | undefined, reason: string, status: number, code: string): void => {
     if (read(store)?.refreshToken !== refused) return;
     store.set(config.key, JSON.stringify({ ended: reason } satisfies Kept));
+    note(async () => ({ type: 'ended', sent: await print(refused), status: failedStatus(status), code }));
+  };
+
+  // Until an access token an API refused right after the refresh that brought it has expired by the API's `Date`, or,
+  // its expiry unknown, a minute has passed, its refusals refresh no more: reads a gateway keeps refusing would
+  // otherwise each refresh in turn, spending a rotating refresh token at every round trip.
+  const dateOf = (response: Response): number => Date.parse(response.headers.get('date') ?? '') || 0;
+  const refreshes = (response: Response, kept: Kept): boolean => {
+    const refused = refusedFresh.get(config.key), date = dateOf(response);
+    if (!refused || refused.token !== kept.accessToken || !date) return true;
+    return kept.expiresAt ? date >= kept.expiresAt : date >= refused.at + 60_000;
   };
 
   const authorizedFetch = async (store: OAuthStore, url: string, init: RequestInit = {}): Promise<Response> => {
@@ -441,11 +548,19 @@ export function oauth(config: OAuthConfig): OAuthProvider {
       headers.set('Authorization', `Bearer ${kept.accessToken}`);
       let response: Response;
       try {
-        response = await fetch(url, { ...init, headers, redirect: 'manual' });
+        response = await transport(config)(url, { ...init, headers, redirect: 'manual' });
       } catch (e) {
         throw grantOrNetwork(e, url);
       }
-      if (response.status !== 401 || attempt > 0) return response;
+      if (!expired.includes(response.status)) return response;
+      if (attempt > 0) {
+        // Only while it is the session's token: one a later refresh replaced says nothing of the token in use
+        if (read(store)?.accessToken === kept.accessToken) refusedFresh.set(config.key, { token: kept.accessToken ?? '', at: dateOf(response) });
+        note(() => ({ type: 'refused', status: response.status, url }));
+        return response;
+      }
+      // A refusal of a token the session has since replaced always goes to `refresh`, which takes the newer one
+      if (read(store)?.accessToken === kept.accessToken && !refreshes(response, kept)) return response;
       kept = await refresh(store, kept);
     }
   };
@@ -453,7 +568,7 @@ export function oauth(config: OAuthConfig): OAuthProvider {
   const json = async (store: OAuthStore, url: string, init?: RequestInit): Promise<unknown> => {
     const response = await authorizedFetch(store, url, init);
     if (!response.ok) {
-      throw new OAuthError(response.status === 401 ? 'unauthorized' : 'server', `${originOf(url)} answered ${response.status}.`, response.status, response.status === 429 || response.status >= 500);
+      throw new OAuthError(expired.includes(response.status) ? 'unauthorized' : 'server', `${originOf(url)} answered ${response.status}.`, response.status, response.status === 429 || response.status >= 500);
     }
     try { return await response.json(); } catch {
       throw new OAuthError('invalid_response', `${originOf(url)}'s reply is not JSON.`, response.status, true);
@@ -471,6 +586,7 @@ export function oauth(config: OAuthConfig): OAuthProvider {
     if (kept && token(kept) && !owed.some(k => token(k) === token(kept))) owed.push(kept);
     unrevoked.set(config.key, owed);
     store.forget(config.key);
+    note(() => ({ type: 'signed-out' }));
     while (owed.length) {
       const last = owed[owed.length - 1], endpoint = last.revocationEndpoint;
       // Best effort (RFC 7009 §2.2): the session is already gone here. No
@@ -480,10 +596,15 @@ export function oauth(config: OAuthConfig): OAuthProvider {
       owed.pop();
     }
     if (!owed.length) unrevoked.delete(config.key);
-    return { ok: true, code: '', error: '', retryable: false };
+    return { ok: true, code: '', error: '', retryable: false, status: 0 };
   });
 
-  return { session, signIn, signOut, fetch: authorizedFetch, json };
+  const idClaims = (store: OAuthStore): Record<string, unknown> | null => {
+    const kept = read(store);
+    return kept?.accessToken && kept.idToken ? claims(kept.idToken) : null;
+  };
+
+  return { session, signIn, signOut, fetch: authorizedFetch, json, claims: idClaims };
 }
 
 // --- the callback (RFC 6749 §4.1.2, RFC 9207 §2.4) -------------------------
@@ -511,12 +632,53 @@ function checkCallback(back: string, tx: Transaction, config: OAuthConfig): OAut
   return null;
 }
 
+function authorizationUrl(tx: Transaction): string {
+  return tx.meta.authorization + (tx.meta.authorization.includes('?') ? '&' : '?') + form(tx.params);
+}
+
+// Whether `url` is `callback` with a query or fragment, compared as the host compares a callback (runner/src/auth.rs
+// `accept`): the scheme and host without ASCII case, no userinfo, the path exactly
+function isCallback(url: string, callback: string): boolean {
+  const got = callbackParts(url), want = callbackParts(callback);
+  if (!got || !want || got.authority?.includes('@')) return false;
+  return got.scheme === want.scheme && got.authority === want.authority && got.path === want.path;
+}
+
+// Whether the host takes `callback` as a session's (runner/src/auth.rs `Session::from_json`): read as it reads a callback,
+// with no query, fragment or userinfo, and for http: or https: a host and no backslash
+function sessionCallback(callback: string): boolean {
+  const parts = callbackParts(callback);
+  if (!parts || /[?#]/.test(callback) || parts.authority?.includes('@')) return false;
+  return (parts.scheme !== 'http' && parts.scheme !== 'https') || (parts.authority !== undefined && !callback.includes('\\'));
+}
+
+// ASCII letters lowercased and nothing else, as Rust's `to_ascii_lowercase`
+const asciiLower = (text: string): string => text.replace(/[A-Z]+/g, (letters) => letters.toLowerCase());
+
+// What Rust's `char::is_whitespace` and `char::is_control` match: Unicode's White_Space and the C0 and C1 controls
+const WHITESPACE_OR_CONTROL = /[\u0000-\u0020\u007f-\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/;
+
+// A URL's scheme and authority, their ASCII letters lowercased, and its path, read as the host reads a callback
+// (runner/src/auth.rs `Url::parse`), or null for one the host refuses: a scheme that is not RFC 3986's, whitespace or a control character anywhere, an
+// empty authority, or, without an authority, a path that is not absolute
+function callbackParts(url: string): { scheme: string; authority?: string; path: string } | null {
+  const colon = url.indexOf(':'), given = url.slice(0, colon);
+  if (colon < 0 || !/^[a-z][a-z0-9+.-]*$/i.test(given) || WHITESPACE_OR_CONTROL.test(url)) return null;
+  const scheme = asciiLower(given);
+  const rest = url.slice(colon + 1).split('#')[0].split('?')[0];
+  if (!rest.startsWith('//')) return rest.startsWith('/') ? { scheme, path: rest } : null;
+  const after = rest.slice(2), slash = after.indexOf('/'), end = slash < 0 ? after.length : slash;
+  return end ? { scheme, authority: asciiLower(after.slice(0, end)), path: after.slice(end) } : null;
+}
+
 // --- discovery (OIDC Discovery 1.0 §4, RFC 8414 §3) -----------------------
 
 async function discover(config: OAuthConfig): Promise<Metadata> {
   const fixed = config.endpoints ?? {};
-  if (!config.issuer) {
-    return { issuer: '', authorization: fixed.authorization!, token: fixed.token!, revocation: fixed.revocation ?? '', issInCallback: false };
+  // Fixed endpoints need no discovery; an exact issuer beside them is still what the ID token and the callback's `iss` are
+  // checked against. A template issuer's `{tenantid}` form is the discovery document's, so it still discovers.
+  if (!config.issuer || (fixed.authorization && fixed.token && !config.issuerTemplate)) {
+    return { issuer: config.issuer ?? '', authorization: fixed.authorization!, token: fixed.token!, revocation: fixed.revocation ?? '', issInCallback: false };
   }
   const issuer = config.issuer;
   const origin = originOf(issuer), path = issuer.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]+/i, '').replace(/\/$/, '');
@@ -525,7 +687,7 @@ async function discover(config: OAuthConfig): Promise<Metadata> {
   for (const url of [`${issuer.replace(/\/$/, '')}/.well-known/openid-configuration`, `${origin}/.well-known/oauth-authorization-server${path}`]) {
     let response: Response;
     try {
-      response = await fetch(url, { headers: { Accept: 'application/json' } });
+      response = await transport(config)(url, { headers: { Accept: 'application/json' } });
     } catch (e) {
       throw grantOrNetwork(e, url);
     }
@@ -574,7 +736,7 @@ interface TokenReply {
   /** The reply's `Date`, in epoch milliseconds; 0 without one. */
   date: number;
   fields: Record<string, unknown>;
-  /** The OAuth error code; "server" for 429 or 5xx without one; "invalid_response" for an unreadable reply; "" on success. */
+  /** The OAuth error code; "server" for a 429 or 5xx, whatever its body says; "invalid_response" for an unreadable reply; "" on success. */
   error: string;
 }
 
@@ -591,21 +753,25 @@ async function tokenRequest(config: OAuthConfig, endpoint: string, body: Record<
   try {
     // A deadline: a token request may outlive its answer (LLP 1146 D2), and
     // the session's other work waits for it.
-    response = await fetch(endpoint, { method: 'POST', headers, body: form(fields), redirect: 'error', exactTimeout: TOKEN_TIMEOUT_MS } as RequestInit);
+    response = await transport(config)(endpoint, { method: 'POST', headers, body: form(fields), redirect: 'error', exactTimeout: TOKEN_TIMEOUT_MS } as RequestInit);
   } catch (e) {
     throw grantOrNetwork(e, endpoint, true);
   }
+  // A 429 or 5xx is the server's failure whatever its body says, as an OAuth error response is a 400 or 401 (RFC 6749
+  // §5.2); otherwise an `error` member fails the call under any status, 200 included (GitHub).
+  const unavailable = response.status === 429 || response.status >= 500;
   let text: string;
   try {
     text = await response.text();
   } catch {
-    throw new OAuthError('network', `${originOf(endpoint)}'s reply was cut off.`, 0, true);
+    // Any other reply cut off is as good as none
+    if (!unavailable) throw new OAuthError('network', `${originOf(endpoint)}'s reply was cut off.`, 0, true);
+    text = '';
   }
   const date = Date.parse(response.headers.get('date') ?? '') || 0;
   const parsed = parseBody(text, response.headers.get('content-type') ?? '');
-  // An `error` member fails the call under any status, 200 included (GitHub).
-  const error = typeof parsed?.error === 'string' && parsed.error ? parsed.error
-    : response.status === 429 || response.status >= 500 ? 'server'
+  const error = unavailable ? 'server'
+    : typeof parsed?.error === 'string' && parsed.error ? parsed.error
       : !response.ok || !parsed ? 'invalid_response' : '';
   return { status: response.status, date, fields: parsed ?? {}, error };
 }
@@ -633,12 +799,9 @@ function keep(reply: TokenReply, before: Kept | null, meta: Metadata | null, con
   const tokenType = typeof f.token_type === 'string' ? f.token_type : config.bearerByDefault ? 'Bearer' : '';
   if (!tokenType) return 'no token type';
   if (tokenType.toLowerCase() !== 'bearer') return `token type ${tokenType} is not Bearer`;
-  // `expires_in` may come as a string of digits (Entra v1); without it, or
-  // without a `Date`, the expiry is unknown and the server's 401 says when.
-  const raw = f.expires_in;
-  const seconds = typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 ? raw
-    : typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : NaN;
-  const expiresAt = Number.isFinite(seconds) && reply.date ? reply.date + seconds * 1000 : 0;
+  // Without `expires_in` or a `Date` the expiry is unknown, and the server's 401 says when.
+  const seconds = lifetime(reply);
+  const expiresAt = seconds !== undefined && reply.date ? reply.date + seconds * 1000 : 0;
   // A scope list is space-separated (§3.3); its absence keeps what was held, or what was asked for.
   const scopes = typeof f.scope === 'string' ? f.scope.split(config.commaScopes ? /[\s,]+/ : ' ').filter(Boolean) : before?.scopes ?? (before ? [] : config.scopes);
   const text = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
@@ -656,6 +819,14 @@ function keep(reply: TokenReply, before: Kept | null, meta: Metadata | null, con
     tokenEndpoint: before?.tokenEndpoint ?? meta?.token,
     revocationEndpoint: before?.revocationEndpoint ?? meta?.revocation,
   };
+}
+
+// A token reply's `expires_in` in seconds, undefined when absent or
+// unreadable. It may come as a string of digits (Entra v1).
+function lifetime(reply: TokenReply): number | undefined {
+  const raw = reply.fields.expires_in;
+  return typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 ? raw
+    : typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : undefined;
 }
 
 // --- the ID token (OpenID Connect Core §3.1.3.7, §12.2) --------------------
@@ -703,12 +874,15 @@ function claims(token: string): Record<string, unknown> | null {
 
 // --- results and errors ----------------------------------------------------
 
-function result(code: string, error: string, retry = false): OAuthResult {
-  return { ok: false, code, error, retryable: retry };
+function result(code: string, error: string, retry = false, status = 0): OAuthResult {
+  return { ok: false, code, error, retryable: retry, status: failedStatus(status) };
 }
 
+// A reply's status as `OAuthResult` and `log` give it: 400 or over, else 0
+const failedStatus = (status: number): number => (status >= 400 ? status : 0);
+
 function failure(e: unknown): OAuthResult {
-  if (e instanceof OAuthError) return result(e.code, e.message, e.retryable);
+  if (e instanceof OAuthError) return result(e.code, e.message, e.retryable, e.status);
   return result('network', 'Sign-in could not finish. Try again.', true);
 }
 
@@ -805,6 +979,21 @@ function random(n: number): string {
   return base64url(crypto.getRandomValues(new Uint8Array(n)));
 }
 
+// The package's transport, read at each request, so a test's `fetch` stands in.
+function transport(config: OAuthConfig): (url: string, init: RequestInit) => Promise<Response> {
+  return config.fetch ?? ((url, init) => fetch(url, init));
+}
+
+// A refresh token's print for `log`: the first six hex digits of its SHA-256, "" for none.
+async function print(token: string | undefined): Promise<string> {
+  if (!token) return '';
+  return Array.from((await sha256(token)).slice(0, 3), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function challenge(verifier: string): Promise<string> {
-  return base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
+  return base64url(await sha256(verifier));
+}
+
+async function sha256(text: string): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
 }

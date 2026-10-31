@@ -1,24 +1,22 @@
 import XCTest
 @testable import ExactKit
 
-/// LLP 1097 D10: a quit or a suspension is held while the module's storage
-/// lands, and let go when it has, when the bound passes, or when the
-/// platform takes the hold back (an iOS background task's expiration).
-final class StorageHoldTests: XCTestCase {
+/// LLP 1097 D10: a quit is held while the module's storage lands, and let
+/// go when it has or when the bound passes.
+final class QuitHoldTests: XCTestCase {
     final class Probe {
-        var pending = true, begun = 0, ended = 0
-        var expire: (() -> Void)?
-        func hold(bound: TimeInterval? = nil) -> StorageHold {
-            StorageHold(every: 0.01, bound: bound, pending: { self.pending },
-                        begin: { expired in self.begun += 1; self.expire = expired }, end: { self.ended += 1 })
+        var pending = true, ended = 0
+        func hold(bound: TimeInterval? = nil) -> QuitHold {
+            QuitHold(every: 0.01, bound: bound, pending: { self.pending }, end: { self.ended += 1 })
         }
     }
 
     func testNothingLandingTakesNoHold() {
-        let probe = Probe()
+        let probe = Probe(), hold = probe.hold()
         probe.pending = false
-        XCTAssertFalse(probe.hold().hold())
-        XCTAssertEqual(probe.begun, 0)
+        XCTAssertFalse(hold.hold())
+        XCTAssertFalse(hold.holding)
+        XCTAssertEqual(probe.ended, 0)
     }
 
     func testTheHoldEndsWhenTheStorageLands() {
@@ -40,15 +38,16 @@ final class StorageHoldTests: XCTestCase {
         let ended = expectation(description: "ended at the bound")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if probe.ended == 1 { ended.fulfill() } }
         wait(for: [ended], timeout: 2)
-        XCTAssertEqual(probe.begun, 1)
+        XCTAssertFalse(hold.holding)
     }
 
-    func testTheExpirationEndsTheHoldOnce() {
+    func testTheHoldEndsOnce() {
         let probe = Probe(), hold = probe.hold()
         XCTAssertTrue(hold.hold())
-        probe.expire?()
-        probe.expire?()
         hold.release()
+        hold.release()
+        probe.pending = false
+        hold.check()
         XCTAssertEqual(probe.ended, 1)
         XCTAssertFalse(hold.holding)
     }
@@ -96,7 +95,7 @@ final class ModuleQuitHoldTests: XCTestCase {
         XCTAssertEqual(Self.asked, 1, "a repeated quit asks the module once")
         XCTAssertTrue(natives.quitWorkPending)
         var ended = 0
-        let hold = StorageHold(every: 0.01, bound: 5, pending: { natives.quitWorkPending }, begin: { _ in }, end: { ended += 1 })
+        let hold = QuitHold(every: 0.01, bound: 5, pending: { natives.quitWorkPending }, end: { ended += 1 })
         XCTAssertTrue(hold.hold())
         let finished = expectation(description: "the hold ends after done")
         var turns = 0
@@ -121,7 +120,7 @@ final class ModuleQuitHoldTests: XCTestCase {
         let natives = natives()
         natives.willQuit()
         var ended = 0
-        let hold = StorageHold(every: 0.01, bound: 0.05, pending: { natives.quitWorkPending }, begin: { _ in }, end: { ended += 1 })
+        let hold = QuitHold(every: 0.01, bound: 0.05, pending: { natives.quitWorkPending }, end: { ended += 1 })
         XCTAssertTrue(hold.hold())
         let cut = expectation(description: "cut at the bound")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if ended == 1 { cut.fulfill() } }
@@ -157,6 +156,6 @@ final class ModuleQuitHoldTests: XCTestCase {
         natives.willQuit()
         XCTAssertEqual(Self.asked, 0)
         XCTAssertFalse(natives.quitWorkPending)
-        XCTAssertFalse(StorageHold(pending: { natives.quitWorkPending }, begin: { _ in }, end: {}).hold())
+        XCTAssertFalse(QuitHold(pending: { natives.quitWorkPending }, end: {}).hold())
     }
 }

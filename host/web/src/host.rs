@@ -34,6 +34,9 @@ use fonts::{font_catalog, font_faces, font_names, font_names_for_runner};
 pub mod document;
 #[path = "element.rs"]
 mod element;
+#[path = "roles.rs"]
+mod roles;
+pub use roles::implicit_role;
 #[path = "template.rs"]
 pub mod template;
 use element::{css_style, host_css, in_button, props_for, svg_props, tag_for};
@@ -1311,7 +1314,8 @@ impl<D: DataSource> Host<D> {
                 let css = host_css(kernel, &node, css, tag);
                 let css = element::folded_css(kernel, &node, css, !kinds.is_empty());
                 let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
-                let css = element::blocks(css, element::holds_folded(kernel, &node, &handled));
+                let holds = element::holds_folded(kernel, &node, &handled);
+                let css = element::blocks(css, holds, &node.facts());
                 (props, self.paint_css(&node, css))
             }
         };

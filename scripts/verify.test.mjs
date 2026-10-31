@@ -12,6 +12,7 @@ import { applyPattern, createApp } from '../game/new.mjs';
 import { findings } from '../host/apple/feel/analyze.mjs';
 import { chromium } from './agent-launch.mjs';
 import { ago, appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, recordedServerAddress, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, reusable, savedChanges, screenTexts, serverUrl, shotName, storedTexts, warningsOfBuild } from './verify.mjs';
+import { semanticsSummary } from './verify-semantics.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
 /** A port nothing holds now, put in a rest-pattern app in place of 8787, which another run on this machine may hold. */
@@ -23,6 +24,21 @@ function onPort(dir) {
 }
 const runs = (lines, screen) => SIZES.flatMap((size) => ['light', 'dark'].map((scheme) => ({ ...(screen ? { screen } : {}), size, scheme, asked: scheme, lines: lines(size, scheme), hidden: 0 })));
 const shots = SIZES.flatMap(([w, h]) => ['light', 'dark'].map((scheme) => `/app/.exact/verify/web-${w}x${h}-${scheme}.png`));
+
+test('contract verify beside the run: a line, the receipt; a failure\'s own lines, not the routine ones', () => {
+  const receipt = ['verify receipt — reproduce: contract verify app.contract --walks 20', '  scripts: 2 tests delivered (2 whole; 0 in part: none; 0 skipped: none), 1 explored, 20 walks',
+    '  suggestions: 3 observed candidates; 2 printed; 1 dropped', '    dropped set "q is one of 6 values": `q`: the value is not bounded', '  properties: 0 held, 0 false, 0 counted only, 0 not exercised'];
+  const routine = ['undeliverable parser step kinds: drag, reload', 'WHOLE /app/app.test.contract: adds; kept: /x.events', 'NOTE /app/app.test.contract: adds: with the oracle\'s data, after step 0: Text("n", "1") does not hold',
+    'OUTSIDE walk 1 from "boot": # unsupported: roster entry `toLowerCase`', 'runner: 1.0s; 22 search scripts; 0 findings; 0 shrink candidates', 'properties: 0 held, 0 false, 0 counted only, 0 not exercised; 0 violations, 0 counted-only line steps'];
+  const suggestions = ['Observed over 23 scripts and 400 steps and code-consistent, not proved; keep the ones the app means:', '', 'always "n is a whole number"', '  expect state n whole', '', 'after "add" "add writes only n"', '  only writes n', ''];
+  const clean = semanticsSummary({ exit: 0, output: [...routine, ...suggestions, ...receipt].join('\n'), errors: '' }, '.exact/verify/properties.txt');
+  assert.deepEqual(clean, ['contract verify: done; 2 suggested properties (observed, not proved: keep the ones the app means); every line: .exact/verify/properties.txt',
+    ...receipt.filter((l) => !l.includes('dropped set'))]);
+  const false_ = ['property "n stays small": false', '  after tap "add" at step 3: n = 7'];
+  const failed = semanticsSummary({ exit: 1, output: [...routine, ...false_, ...suggestions, ...receipt].join('\n'), errors: 'cargo: a warning\n' }, 'p.txt');
+  assert.deepEqual(failed.slice(0, 4), ['contract verify: failed (exit 1); 2 suggested properties (observed, not proved: keep the ones the app means); every line: p.txt', ...false_, 'cargo: a warning']);
+  assert.equal(failed.at(-1), receipt.at(-1));
+});
 
 test('the report: clean in four lines; a failed test fails it; a finding is said once, where it was', () => {
   const clean = report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots, ms: 4000, cwd: '/app' });
@@ -191,6 +207,15 @@ test('the compiler\'s warnings: a group before the tests, by rule as findings ar
   assert.equal(many.exit, 0);
 });
 
+// `tamber-unreachable` names where the platform's own look stands: said, never counted (LLP 1121 D9, 2026-10-30).
+test('a compiler warning that is information is said apart and not counted', () => {
+  const note = 'app.contract:32:62 warning [tamber-unreachable] accent-color on macOS switches: NSSwitch draws the system accent (the first at line 34; LLP 1121 D9)';
+  const r = report({ host: 'web', built: null, compiler: [note], tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000 });
+  assert.deepEqual(r.lines.slice(0, 2), ['compiler: 1 note, not counted (the platform\'s own look stands there; LLP 1121 D9)', `  ${note}`]);
+  assert.equal(r.lines.at(-1), 'verify: clean in 4.0 s');
+  assert.equal(r.problems, 0);
+});
+
 // The compiler's text form says the SF Symbols only the web draws blank in one line (the euxy port's 21 hid its header
 // warning); verify reads the build's JSON, so its count is every warning (22, not 2), each in the text form's line.
 test('the compiler\'s warnings are read from the build\'s JSON, every one, in the text form\'s lines', () => {
@@ -354,9 +379,14 @@ test('the report: each test end reloaded; a saved value lost is a finding once a
 test('run-time refusals: found in the journal and the host\'s lines, shown first, counted as findings', () => {
   const swipe = 'swipeContent on #243 is refused: "delete-1" names no one descendant of it; a row needs one full-size descendant and uniquely named descendant press controls with accessible names';
   assert.deepEqual(refusalsOf({
-    lines: ['t=0 boot: 15 nodes, epoch 1', `t=12 ${swipe}`, 't=40 saveFile: refused: no app file to copy', 't=41 saveFile: refused: no app file to copy', 't=50 modal dismissal refused: closedby is none', 't=60 back refused: the Back control is disabled'],
+    lines: ['t=0 boot: 15 nodes, epoch 1', `t=12 ${swipe}`, 't=40 saveFile: refused: no app file to copy', 't=41 saveFile: refused: no app file to copy', 't=50 modal dismissal refused: closedby is none', 't=60 back refused: the Back control is disabled',
+      // A fetch a test's `fail fetch` refused, as the JS target and the runner journal it, is the test's design; a
+      // driver fault that stopped presence is not a fetch, and is still said.
+      't=70 refused reply details; wall 0 ms: fetch failed (driver fault): http://127.0.0.1:8787/planets/5',
+      't=71 fulfil 4 (details) [network: fetch failed (driver fault): http://127.0.0.1:8787/planets/5] refused: Refused("network")',
+      't=72 presence room: join: refused by a driver fault'],
     host: [`app: exact: ${swipe}`, 'console.error: Failed to load resource: net::ERR_CONNECTION_REFUSED', 'app: exact: showModal confirm refused: no dialog or popover has that id'],
-  }), [swipe, 'saveFile: refused: no app file to copy', 'showModal confirm refused: no dialog or popover has that id']);
+  }), [swipe, 'saveFile: refused: no app file to copy', 'presence room: join: refused by a driver fault', 'showModal confirm refused: no dialog or popover has that id']);
   assert.deepEqual(refusalsOf({}), []);
   const refused = [{ line: swipe, where: ['first screen', 'test "adds"', 'relaunch'] }, { line: 'saveFile: refused: no app file to copy', where: ['test "saves"'] }];
   const r = report({ host: 'ios', built: { ms: 900, said: [], warnings: [] }, tested: { passed: 1, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000, refused });
@@ -393,7 +423,7 @@ test('the app\'s server: its entry, the URL app.ts calls, and why it cannot be r
   const reads = "const db = new Database(process.env.DB ?? 'data.db');\n";
   try {
     put({ 'app.ts': "const API = 'http://127.0.0.1:6810'; // a phone reaches http://192.168.1.2:6810\n", 'server/index.ts': reads });
-    assert.deepEqual(appServer(dir), { entry: 'server/index.ts', args: [], database: true, url: 'http://127.0.0.1:6810', port: 6810, why: null, refusal: null });
+    assert.deepEqual(appServer(dir), { entry: 'server/index.ts', args: [], database: true, url: 'http://127.0.0.1:6810', port: 6810, why: null, refusal: null, settings: {} });
     put({ 'app.ts': "export const API = 'http://127.0.0.1:8787';\n", 'server.ts': reads, 'srv/main.ts': reads, 'app.json': JSON.stringify({ commands: { server: ['bun', '--watch', 'srv/main.ts'] } }) });
     assert.equal(appServer(dir).entry, 'srv/main.ts');
     put({ 'app.ts': "import type { Answer } from './app.contract.d.ts';\nimport { API } from './api';\n", 'api.ts': "export const API = 'http://localhost:3000/v1/';\n", 'server/server.ts': 'const DB = Bun.env.DB;\n' });
@@ -408,6 +438,18 @@ test('the app\'s server: its entry, the URL app.ts calls, and why it cannot be r
     assert.match(appServer(dir).why, /^server\.ts is left alone: app\.ts calls no local URL/);
     put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n" });
     assert.equal(appServer(dir), null);
+    // A setting app.ts reads (LLP 1153 D4), as the build inlines it: the environment's, else .env.local's, else .env's,
+    // else the default; a value that is no local URL leaves the server alone, though the default it overrides is one.
+    const setting = { 'app.ts': "export const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080';\nexport const grants = `net.fetch ${API}`;\n", 'app.json': JSON.stringify({ env: ['API_BASE_URL'], server: { database: false } }), 'server.ts': 'Bun.serve({});\n' };
+    put(setting);
+    assert.equal(serverUrl(dir, {}), 'http://127.0.0.1:8080');
+    put({ ...setting, '.env': 'API_BASE_URL=http://127.0.0.1:8787\n' });
+    assert.deepEqual([appServer(dir, {}).url, appServer(dir, {}).refusal], ['http://127.0.0.1:8787', null]);
+    put({ ...setting, '.env': 'API_BASE_URL=http://127.0.0.1:8787\n', '.env.local': 'API_BASE_URL=http://localhost:9000\n' });
+    assert.equal(serverUrl(dir, {}), 'http://localhost:9000');
+    assert.equal(serverUrl(dir, { API_BASE_URL: 'http://127.0.0.1:7000' }), 'http://127.0.0.1:7000');
+    assert.equal(appServer(dir, { API_BASE_URL: 'https://api.example.com' }).url, null);
+    assert.match(appServer(dir, { API_BASE_URL: 'https://api.example.com' }).why, /^server\.ts is left alone: app\.ts calls no local URL/);
     // The spellings of reading DB, and a root shim that only imports the backend that reads it (book-club, polls, event-rsvp).
     for (const spelling of ['Bun.env.DB', 'process.env["DB"]', "process.env['DB'] ?? 'x.db'", 'env.DB', 'process.env?.DB', "const { DB } = process.env;", "const { DB: path = 'x.db', PORT } = Bun.env;", 'start(process.env.DB)']) {
       put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': `${spelling}\n` });
@@ -485,6 +527,28 @@ test('server command arguments reach the child in order, with DB and PORT for a 
     assert.notEqual(await children[0].exited, 0);
     assert.equal(existsSync(resolve(dir, '.exact/test')), false);
     assert.deepEqual([taken, given], [1, 1]);
+  `);
+}, 30_000);
+
+// LLP 1153 D4: a server that imports app.ts (the site pattern's) reads its settings as the build has them, though
+// Bun's own .env loading under NODE_ENV=test skips .env.local, so it listens where discovery looks.
+test('the settings app.ts reads reach the server as the build has them', () => {
+  stubServerRun(`
+    manifest.env = ['API_BASE_URL']; save();
+    delete process.env.API_BASE_URL;
+    process.env.NODE_ENV = 'test';
+    writeFileSync(resolve(dir, 'app.ts'), "export const origin = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080';\\n");
+    writeFileSync(resolve(dir, '.env'), 'API_BASE_URL=http://127.0.0.1:8787\\n');
+    writeFileSync(resolve(dir, '.env.local'), 'API_BASE_URL=http://127.0.0.1:4790\\n');
+    // As site's server.ts does: its address is app.ts's, read through Bun's import.meta.env.
+    writeFileSync(resolve(dir, 'server.ts'), "import { writeFileSync } from 'node:fs';\\nimport { origin } from './app.ts';\\nwriteFileSync('ready.json', JSON.stringify({ api: origin, port: process.env.PORT }));\\nsetInterval(() => {}, 1000);\\n");
+    // Discovery read under one environment; the server is given what it read, whatever this process inherited.
+    const server = appServer(dir, { ...process.env });
+    process.env.API_BASE_URL = 'http://127.0.0.1:8080';
+    assert.equal(server.url, 'http://127.0.0.1:4790');
+    const running = await startServer(dir, server, 'test');
+    assert.deepEqual(record(), { api: 'http://127.0.0.1:4790', port: '4790' });
+    await running.stop();
   `);
 }, 30_000);
 
@@ -585,7 +649,7 @@ test('Excord declares its transcript fixture without a database', async () => {
   assert.deepEqual(appServer(toNamespacedPath(dir), {}), appServer(dir, {}));
   assert.deepEqual(appServer(dir, {}), {
     entry: 'fixture/server.ts', args: ['--world', 'transcript', '--reset-on-identify'], database: false,
-    url: selected.origin, port: Number(new URL(selected.origin).port), why: null, refusal: null, fixture: true,
+    url: selected.origin, port: Number(new URL(selected.origin).port), why: null, refusal: null, settings: {}, fixture: true,
   });
   assert.equal(selected.source, 'checkout fixture port');
   assert.ok(appServer(dir, {}).port >= 4790 && appServer(dir, {}).port <= 5789);
@@ -921,10 +985,10 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
       const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, ...args], { cwd: dir, encoding: 'utf8', timeout: 180_000 });
       return { ...r, lines: r.stdout.trim().split('\n') };
     };
-    // `contract verify`'s report follows verify's own, which ends at its verdict (LLP 1151 D8).
+    // `contract verify`'s summary and receipt come after verify's own report and before its verdict, the last line (LLP 1151 D8).
     const verify = (...args) => {
-      const r = exact('verify', ...args), end = r.lines.findLastIndex((l) => l.startsWith('verify: ')) + 1;
-      return end && !args.includes('--json') ? { ...r, lines: r.lines.slice(0, end), semantics: r.lines.slice(end).join('\n') } : r;
+      const r = exact('verify', ...args), at = r.lines.findIndex((l) => l.startsWith('contract verify: '));
+      return at >= 0 && !args.includes('--json') ? { ...r, lines: [...r.lines.slice(0, at), r.lines.at(-1)], semantics: r.lines.slice(at, -1).join('\n') } : r;
     };
     const warned = (text) => text.split('\n').filter((l) => / warning \[/.test(l));
     // The build `test web` runs first says its count, and here names nothing; its drive's stdout is the tests'.

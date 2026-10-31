@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// `bun exact.mjs verify [web|ios]` (LLP 1116.004 D7, 1116.005 D7): one command a builder can stop on, where test,
+// `bun exact.mjs verify [web|ios|windows|android]` (LLP 1116.004 D7, 1116.005 D7): one command a builder can stop on, where test,
 // drives, check and screenshots were three to five turns. It builds when the build is stale (web: the dist's
 // record against its sources, as the driver checks it; iOS: agent-build.mjs `buildFirst`, the plan fast path
 // included), runs the app's tests (app.test.contract and each other `*.test.contract` beside it, app.mjs
@@ -21,8 +21,9 @@
 // ending "verify: clean" or "verify: N problems" (`--json`: one object). Exit 1 when the build, a test, a launch
 // or the relaunch fails; check's findings, the relaunch's, those at the largest text size and the compiler's warnings
 // (`contract build`'s, whether or not this run built) are counted in the last line but never fail it, since check reads the screen
-// by heuristics and some of either only advise. The web's tests and its two launches run at once; a simulator
-// takes one drive at a time, and runs the tests with UIKit's bars (`--chrome platform`) so their end screens
+// by heuristics and some of either only advise; a warning that is information (`tamber-unreachable`) is said, not
+// counted. The web's tests and its two launches run at once; a simulator takes one drive at a time, and runs the
+// tests with UIKit's bars (`--chrome platform`) so their end screens
 // are what a person sees. An app with a server of its own (the `rest` pattern's) has it run by verify, where the
 // app calls it, on an empty scratch database kept through the run and removed after (LLP 1116.006 D3, `appServer`); a server
 // entry that does not read DB is refused unless app.json declares server.database: false (LLP 1116.008 D1).
@@ -30,21 +31,31 @@
 // size, at the phone's width), and what spills there (past the screen's edge, squeezed to no width, overlapping) is reported
 // with a remedy that keeps the text's size, counted in the last line and never failing the run (LLP 1116.019 D2, LLP
 // 1116.020 D4, `largestText`); the web also runs the tests again at that size and reads screens they only pass through
-// (`largeTour`).
+// (`largeTour`). On Windows the drives are the headless host's, at app.json's window size; then the app is opened once on
+// the console session's desktop and its window captured (`desktopShot`), since that, not the headless picture, is what a
+// person sees there.
 //
-//   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]
+//   bun scripts/verify.mjs [web|ios|windows|android] --app <name> [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]
 import { LAUNCH_MEDIA } from './agent-prefer.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import { availableParallelism, loadavg, networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { findings as feelFindings, summary as feelSummary } from '../host/apple/feel/analyze.mjs';
-import { compilerWarnings } from './app-cli.mjs';
+import { compilerWarnings, information, windowsWindow } from './app-cli.mjs';
 import { guardFlags } from './help.mjs';
 import { holderOf, takePort } from './port-lock.mjs';
 import { backendOriginSelection, privateNetwork } from '../js/bake/src/typescript.mjs';
+import { contractVerify, semanticsSummary } from './verify-semantics.mjs';
+import { byRule, groups, ruleOf } from './verify-findings.mjs';
+export { byRule, groups, ruleOf };
+
+import { declaredSettings, settingValues } from '../js/bake/src/__exact_env.mjs';
+
+import { inlineSettings } from '../js/bake/src/__exact_env.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 /** The web's two widths: a phone's, and a desktop window's. */
@@ -54,7 +65,7 @@ const REAL_MS = 4000, REAL_STEP = 250; // the relaunch's bound on real time for 
 const FIRST = 'first screen', RELAUNCH = 'relaunch';
 // How long a run takes, said when it starts so a builder waits once rather than polling (LLP 1116.021 D3): the app's
 // last run on that host, else these (a run that must build first takes that build's time too).
-const ESTIMATE = { web: 30_000, ios: 60_000 };
+const ESTIMATE = { web: 30_000, ios: 60_000, windows: 60_000, android: 120_000 };
 const lastRuns = (app) => { try { return JSON.parse(readFileSync(resolve(app.dir, '.exact', 'verify', 'last.json'), 'utf8')); } catch { return {}; } };
 let ACCEPT = []; // app.json `verify.accept`: findings the app's design accepts, set by main
 const secs = (ms) => `${(ms / 1000).toFixed(1)} s`;
@@ -84,11 +95,16 @@ export function onThisMachine(origin) {
     || privateNetwork(origin) && Object.values(networkInterfaces()).flat().some(n => n?.address === new URL(origin).hostname.replace(/^\[|\]$/g, ''));
 }
 
-/** The server URL the data module calls: the first local one (`http://127.0.0.1:8787`, or localhost) in app.ts, else in
- * a module of the app's own that it imports (`import { API } from './api'`); null when it calls none. */
-export function serverUrl(dir) {
+/** app.ts as the build has it (LLP 1153 D4), each setting read replaced by what `inlineSettings` gives under `env` (a
+ * default included), and those values; as written, with none, where the bake refuses it. */
+function builtSettings(dir, env, code = readIn(dir, 'app.ts')) {
+  try { const { code: built, record } = inlineSettings(code, dir, createRequire(import.meta.url)('rolldown/utils').parseSync, env); return { code: built, values: Object.fromEntries(Object.entries(record).map(([name, s]) => [name, s.value])) }; } catch { return { code, values: {} }; }
+}
+/** The server URL the data module calls: the first local one (`http://127.0.0.1:8787`, localhost) in app.ts as built (a
+ * setting's value, not a default it overrides), else in a module of its own it imports (`./api`'s `API`); else null. */
+export function serverUrl(dir, env = process.env) {
   const at = (text) => text?.match(LOCAL)?.[0].replace(/\/$/, '') ?? null;
-  return at(readIn(dir, 'app.ts')) ?? importsOf(dir, 'app.ts').map((p) => at(readIn(dir, p))).find(Boolean) ?? null;
+  return at(builtSettings(dir, env).code) ?? importsOf(dir, 'app.ts').map((p) => at(readIn(dir, p))).find(Boolean) ?? null;
 }
 
 /** Whether `entry`, or a module of the app's own it imports (a root shim that only imports the backend), reads the
@@ -122,20 +138,20 @@ export function appServer(dir, env = process.env) {
   const fixture = /(^|[/\\])fixtures?[/\\]/.test(entry);
   const selected = fixture ? backendOriginSelection(dir, env) : null;
   const local = selected && onThisMachine(selected.origin);
-  const url = selected ? local ? selected.origin : null : serverUrl(dir);
+  const url = selected ? local ? selected.origin : null : serverUrl(dir, env);
   const why = !url ? `${entry} is left alone: app.ts calls no local URL (http://127.0.0.1:<port>), so where the app reaches it is unknown` : null;
   const refusal = url && database && !readsDB(dir, entry)
     ? `${entry}${entry === named ? ' (app.json\'s commands.server)' : ''} does not read its database's path from DB, so it cannot be run on an empty one: write new Database(process.env.DB ?? 'data.db') in it or a module it imports, or name the entry that does in app.json: "commands": { "server": ["bun", "server/index.ts"] }`
     : null;
   const port = url ? Number(new URL(url).port || (new URL(url).protocol === 'https:' ? 443 : 80)) : null;
   if (selected && local) { const at = serverArgs.indexOf('--port'); if (at >= 0) serverArgs[at + 1] = String(port); }
-  return { entry, args: entry === named ? serverArgs : [], database, url, port, why, refusal, ...(fixture ? { fixture: true } : {}) };
+  return { entry, args: entry === named ? serverArgs : [], database, url, port, why, refusal, settings: builtSettings(dir, env).values, ...(fixture ? { fixture: true } : {}) };
 }
 
+// app.ts's settings as `appServer` read them: a server importing it (site's) listens where it looked, as Bun's .env loading may not.
 function serverEnv(server, db) {
-  const env = { ...process.env, PORT: String(server.port) };
-  if (server.database) env.DB = db;
-  else delete env.DB;
+  const env = { ...process.env, ...server.settings, PORT: String(server.port) };
+  if (server.database) env.DB = db; else delete env.DB;
   return env;
 }
 
@@ -399,6 +415,24 @@ async function iosBuild(app) {
   return said.length || code ? { ms: Date.now() - started, code, said, warnings: [] } : null;
 }
 
+/** The Windows build a drive needs (agent-build.mjs `windowsBuildFirst`): null when fresh, else what it said. */
+async function windowsBuild(app) {
+  const { windowsBuildFirst } = await import('./agent-build.mjs'), said = [], started = Date.now();
+  const code = await windowsBuildFirst(app, { say: (line) => { said.push(line); if (/^building for/.test(line)) console.error(line); } });
+  return said.length || code ? { ms: Date.now() - started, code, said, warnings: [] } : null;
+}
+/** A drive's own options on a host: iOS shows UIKit's bars; Windows opens at app.json's window size, as a person sees it. */
+const hostOpen = (host, app) => host === 'ios' ? { chrome: 'platform' } : host === 'windows' ? { size: windowsWindow(app.manifest) } : {};
+
+/** The app as it opens on the desktop of the console session, on the store of the person signed in there
+ * (host/windows/build.mjs `openOnDesktop`): the picture a person sees, and a grader beside a WinUI app, with Segoe UI,
+ * the system's title bar and Mica, which a headless drive does not draw. `{ shot, size, foreground }` or `{ error }`. */
+async function desktopShot(app, shots) {
+  const [{ openOnDesktop }, { windowsBuild }] = await Promise.all([import('../host/windows/build.mjs'), import('./agent-build.mjs')]);
+  const shot = resolve(shots, 'windows-window.png'), r = await openOnDesktop(windowsBuild(app).bin, { shot }).catch((e) => ({ error: e.message }));
+  return r.error ? { error: r.error } : { shot, size: r.size, foreground: r.foreground };
+}
+
 /** The compiler's warnings for the app's sources, every one (`contract build --json`: its text form says the
  * SF Symbols only the web draws blank in one line, and this report counts each), each in the line `contract build`
  * prints it as; whatever this run built (a fresh build said them when it was made): this checkout's compiler as
@@ -575,7 +609,7 @@ export function refusalsOf({ lines = [], host = [] } = {}, expected = []) {
   for (const line of expected) accepted.set(line,(accepted.get(line) ?? 0)+1);
   const normalized = raw => String(raw).replace(/^t=\d+(?:\.\d+)?\s+/, '').replace(/^(?:app|console\.\w+|chrome|warning|error): /, '').replace(/^exact: /, '').trim();
   const collect = line => {
-    if (/\brefus(?:ed|es|al)\b/i.test(line) && !/\b(?:dismissal|back|back gesture|drag) refused\b|connection[ _]refused/i.test(line) && !found.includes(line)) found.push(line);
+    if (/\brefus(?:ed|es|al)\b/i.test(line) && !/\b(?:dismissal|back|back gesture|drag) refused\b|connection[ _]refused|fetch failed \(driver fault\)/i.test(line) && !found.includes(line)) found.push(line);
   };
   for (const raw of lines) {
     const line=normalized(raw), count=accepted.get(String(raw)) ?? 0;
@@ -623,7 +657,14 @@ async function reloadEnd(s, t, persisted = []) {
 async function checkHere(s, { screen, sizes = [null], shot, state }) {
   const { checkOp } = await import('./agent-check.mjs');
   const failed = Object.entries(state?.failed ?? {}).map(([name, why]) => `  failed   resource ${name}: ${why}; the screen shows its placeholder or last value`);
+  // The Windows host has no `check` observation yet: the screen's capture alone, `unchecked`, its failed resources still said.
+  if (s.host === 'windows') {
+    const vp = (await s.layout().catch(() => null))?.viewport ?? {}, kept = shot?.(vp, 'light');
+    if (kept) await s.screenshot(kept);
+    return [{ screen, size: [vp.w, vp.h], scheme: 'light', unchecked: true, ...(kept ? { shot: kept } : {}), findings: [], accepted: [], lines: failed, hidden: 0, advice: [] }];
+  }
   const runs = [];
+  if (s.host === 'android') return (await import('./agent-android.mjs')).androidCaptures(s, { screen, shot, failed });
   for (const size of sizes) {
     if (size) { await s.resize(...size); await s.clock('settle'); }
     const r = await checkOp(s, ['both'], { shots: shot, accept: ACCEPT });
@@ -636,6 +677,10 @@ async function checkHere(s, { screen, sizes = [null], shot, state }) {
   }
   return runs;
 }
+
+
+/** What verify android does not do yet (agent-android.mjs `androidCaptures`), said in its report. */
+const ANDROID = 'not on Android yet: check\'s findings (each screen is captured unjudged, light and dark: look at them), the largest text size, the scrolling probe (iOS\'s), a test end\'s reload (the web\'s)';
 
 // LLP 1116.019 D2: each screen verify visits is read again at the largest text size, and what spills is reported, counted
 // and never failing the run (LLP 1116.020 D4: uncounted, half of the builders who saw them stopped at "verify: clean"): the
@@ -789,7 +834,7 @@ async function tests(host, app, shots) {
   for (const [i, file] of files.entries()) {
     const first = out.results.length;
     try {
-      const r = await runTests({ host, file, app: app.name, atEnd: (s, t) => atEnd(s, { ...t, index: first + t.index }), ...(i ? { storage: `test${i}` } : {}), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
+      const r = await runTests({ host, file, app: app.name, atEnd: (s, t) => atEnd(s, { ...t, index: first + t.index }), ...(i ? { storage: `test${i}` } : {}), ...hostOpen(host, app) });
       out.passed += r.passed; out.failed += r.failed;
       // A failure the test did not arrange is a finding (LLP 1146 D4): `runTests` says it in a note.
       out.results.push(...r.results.map(({ name, failures, notes = [], end, store, shots }) => ({ name, file: basename(file), failures, unarranged: notes.filter((n) => n.startsWith('unarranged: ')).map((n) => n.slice(12)), ...(shots ? { shots } : {}), ...(end ? { end } : {}), ...(store ? { store } : {}) })));
@@ -844,7 +889,7 @@ export function tourNews(visited, toured) {
 async function checkAt(host, app, size, store, shots) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
   const fresh = { EXACT_AGENT_STORAGE_FRESH: '1' };
-  const s = await open({ host, app: app.name, storage: store, env: fresh, ...(size ? { size } : {}), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
+  const s = await open({ host, app: app.name, storage: store, env: fresh, ...(size ? { size } : hostOpen(host, app)) });
   try {
     await s.clock('data');
     await s.clock('settle');
@@ -1014,7 +1059,7 @@ export function pinnedLaunch(test, defaults) {
 /** What a fresh launch shows under `launch`'s facts on an empty scratch store, for `seen`'s comparison. */
 async function freshUnder(host, app, launch, store) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
-  const s = await open({ host, app: app.name, storage: store, env: { EXACT_AGENT_STORAGE_FRESH: '1' }, ...launchOf(launch), ...(host === 'web' ? { size: WEB_SIZES[0] } : { chrome: 'platform' }) });
+  const s = await open({ host, app: app.name, storage: store, env: { EXACT_AGENT_STORAGE_FRESH: '1' }, ...launchOf(launch), ...(host === 'web' ? { size: WEB_SIZES[0] } : hostOpen(host, app)) });
   try {
     for (const [name, value] of Object.entries(launch?.media ?? {})) await s.prefer({ [name]: value });
     await s.clock('data');
@@ -1032,7 +1077,7 @@ async function freshUnder(host, app, launch, store) {
  * end; then `check both` (the web: at both widths, one capture kept). */
 async function relaunch(host, app, test, fresh, shots) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
-  const s = await open({ host, app: app.name, storage: test.store, ...launchOf(relaunchFacts(test)), ...(host === 'web' ? { size: WEB_SIZES[0], ...(test.end.port ? { port: test.end.port } : {}) } : { chrome: 'platform' }) });
+  const s = await open({ host, app: app.name, storage: test.store, ...launchOf(relaunchFacts(test)), ...(host === 'web' ? { size: WEB_SIZES[0], ...(test.end.port ? { port: test.end.port } : {}) } : hostOpen(host, app)) });
   try {
     for (const [name, value] of Object.entries(test.end?.launch?.media ?? {})) await s.prefer({ [name]: value });
     const started = performance.now(), b = (st) => (st.background?.queued ?? 0) + (st.background?.inFlight ?? 0);
@@ -1052,20 +1097,6 @@ async function relaunch(host, app, test, fresh, shots) {
   }
 }
 
-/** check's text by scheme: each header's finding lines, how many its "… and N more" left out, and its advice
- * (LLP 1116.004 D1.3), which is never a finding. */
-export function groups(text) {
-  const out = [];
-  for (const line of String(text ?? '').split('\n')) {
-    if (/^check /.test(line)) { out.push({ head: line, lines: [], hidden: 0, advice: [] }); continue; }
-    const g = out.at(-1), more = line.match(/^\s+… and (\d+) more/);
-    if (!g || !line.trim()) continue;
-    if (more) g.hidden += Number(more[1]);
-    else if (/^\s+advice\s/.test(line)) g.advice.push(line);
-    else g.lines.push(line);
-  }
-  return out;
-}
 
 const BOX = /\s*\[-?\d+,-?\d+ \d+×\d+\]/g;
 const sizeOf = (r) => r.size.join('x'), schemeOf = (r) => r.asked ?? r.scheme, screenOf = (r) => r.screen ?? FIRST;
@@ -1090,38 +1121,11 @@ export function distinctFindings(runs) {
   });
 }
 
-const PLACES = 4; // where a rule's findings are, named after its first in full
 const KINDS_FROM = 10; // findings from which the closing line says their kinds
-
-/** A finding line's rule: a compiler warning's id, else its first word after any `(… only)` tag (`contrast`). */
-export function ruleOf(line) {
-  const t = line.trim(), id = /^\S+:\d+:\d+ warning \[([\w-]+)\]/.exec(t);
-  return id ? id[1] : t.replace(/^\([^)]*\) /, '').split(/\s+/)[0];
-}
-
-/** Where a finding line points: a compiler warning's `file:line:col`, else what follows its rule, up to its first `: `. */
-function placeOf(line) {
-  const t = line.trim(), id = /^(\S+:\d+:\d+) warning \[/.exec(t);
-  if (id) return id[1];
-  const body = t.replace(/^\([^)]*\) /, '').replace(/^\S+\s+/, ''), at = body.indexOf(': ');
-  return at < 0 ? body : body.slice(0, at);
-}
-
-/** `lines` (each indented two) by rule, the commonest first: a rule's one finding as it is; several as the rule and
- *  their count, the first in full, then where the next PLACES are and how many more. */
-export function byRule(lines) {
-  const rules = new Map();
-  for (const l of lines) rules.set(ruleOf(l), [...(rules.get(ruleOf(l)) ?? []), l]);
-  return [...rules].sort((a, b) => b[1].length - a[1].length).flatMap(([rule, all]) => {
-    if (all.length === 1) return all;
-    const rest = all.slice(1), more = rest.length - PLACES;
-    return [`  ${rule} ×${all.length}`, `    ${all[0].trim()}`, `    also ${rest.slice(0, PLACES).map(placeOf).join('; ')}${more > 0 ? ` and ${more} more` : ''}`];
-  });
-}
 
 /** The report's lines and its problem count, from what each stage gave; `full`, every finding of each group, one a line,
  *  which verify writes to `listed` (a path the report names when the groups leave any line out). */
-export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], large = [], fixed = { lines: [], accepted: [] }, scrolled = null, shots, copied, own = [], accept = [], ms, cwd = process.cwd(), listed = null }) {
+export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], large = [], fixed = { lines: [], accepted: [] }, scrolled = null, desktop = null, shots, copied, own = [], accept = [], ms, cwd = process.cwd(), listed = null }) {
   const out = [], full = [];
   const all = listed ? `${listed} lists them all` : 'verify --json lists them all';
   let failedTests = 0, findings = 0, broken = 0;
@@ -1147,12 +1151,19 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     if (built.warnings.length > WARNINGS) out.push(`  … and ${built.warnings.length - WARNINGS} more (bun exact.mjs web-build prints them all)`);
     findings += built.warnings.length; counted('build warning', built.warnings.length);
   }
-  // The compiler's warnings, each as `contract build` says it (LLP 1116.004 D7): findings, never a failure.
-  if (compiler.length) {
-    const lines = compiler.map((w) => `  ${w}`);
-    out.push(`compiler: ${plural(compiler.length, 'warning')}`, ...byRule(lines));
-    full.push(`compiler: ${plural(compiler.length, 'warning')} (bun exact.mjs contract build app.contract quotes each line)`, ...lines);
-    findings += compiler.length; for (const w of compiler) counted(ruleOf(w));
+  // The compiler's warnings, each as `contract build` says it (LLP 1116.004 D7): findings, never a failure. Those that
+  // are information (`information`: the platform's look stands) are said apart and not counted.
+  const warned = compiler.filter((w) => !information(w)), noted = compiler.filter(information);
+  if (warned.length) {
+    const lines = warned.map((w) => `  ${w}`);
+    out.push(`compiler: ${plural(warned.length, 'warning')}`, ...byRule(lines));
+    full.push(`compiler: ${plural(warned.length, 'warning')} (bun exact.mjs contract build app.contract quotes each line)`, ...lines);
+    findings += warned.length; for (const w of warned) counted(ruleOf(w));
+  }
+  if (noted.length) {
+    const head = `compiler: ${plural(noted.length, 'note')}, not counted (the platform's own look stands there; LLP 1121 D9)`, lines = noted.map((w) => `  ${w}`);
+    out.push(head, ...byRule(lines));
+    full.push(head, ...lines);
   }
   if (tested?.none) out.push('tests: none (no *.test.contract)');
   if (tested?.error) {
@@ -1172,7 +1183,8 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   }
   // Every screen, launch and scheme in one group: each finding once, said where unless it was everywhere.
   for (const e of checks.filter((c) => c.error)) { broken++; out.push(`check ${e.label}: could not drive: ${firstLine(e.error)}`); }
-  const runs = checks.filter((c) => !c.error);
+  const runs = checks.filter((c) => !c.error && !c.unchecked);
+  for (const l of new Set(checks.filter((c) => c.unchecked).flatMap((c) => c.lines))) { out.push(l); findings++; counted('failed resource'); }
   if (runs.length) {
     const shown = distinctFindings(runs), count = shown.length + Math.max(0, ...runs.map((r) => r.hidden));
     const kept = runs.some((r) => r.asked && r.asked !== r.scheme) ? '; the app keeps its own scheme' : '';
@@ -1274,8 +1286,12 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     const more = [ends.length && `test ends: ${ends.map(name).join(' ')}`, again.length && `relaunch: ${again.map(name).join(' ')}`, own.length && `its own: ${own.join(' ')}`].filter(Boolean);
     if (more.length) out.push(`  ${more.join('; ')}`);
   }
+  // Windows: the drives above are headless (DejaVu Sans, no frame); the desktop's picture is one more, never counted.
+  if (desktop) out.push(desktop.error ? `window: not captured (${firstLine(desktop.error)})` : `window: ${relative(cwd, desktop.shot)}, the app opened on the desktop at ${desktop.size?.join('x')} with the system's font, title bar and theme${desktop.foreground ? '' : ' (not the foreground window: its title bar is drawn inactive)'}`,
+    '  not on Windows yet: check\'s findings (the host has no check observation; each screen is captured unjudged), the largest text size, the scrolling probe (iOS\'s), a test end\'s reload (the web\'s)');
   // How a person opens what ran (LLP 1116.008 D2): the dev loop serves the web app, the simulator build launches on iOS.
-  if (!failedTests && !broken) out.push(host === 'ios' ? 'open it: bun exact.mjs ios --run (launches what verify checked)' : 'open it: bun exact.mjs web (serves what verify checked)');
+  if (host === 'android') out.push(ANDROID);
+  if (!failedTests && !broken) out.push(host === 'ios' ? 'open it: bun exact.mjs ios --run (launches what verify checked)' : host === 'windows' ? 'open it: bun exact.mjs windows --run (opens what verify checked)' : host === 'android' ? 'open it: bun exact.mjs android --run (installs and launches what verify checked)' : 'open it: bun exact.mjs web (serves what verify checked)');
   // Every finding, one a line, where the groups above left any out.
   const grouped = full.length && out.some((l) => /^ {4}also |^ {2}… and \d+ more/.test(l));
   if (grouped && listed) out.push(`every finding, one a line: ${listed}`);
@@ -1293,14 +1309,17 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   return { lines: out, problems, exit: failedTests || broken ? 1 : 0, full: grouped ? full : [] };
 }
 
-async function deviceMain(argv, emitJSON, declined) {
+// `ended` takes the report's last line, which `main` prints last, after `contract verify`'s summary.
+async function deviceMain(argv, emitJSON, declined, ended) {
   const args = guardFlags('verify', argv);
   const value = (flag) => args.indexOf(flag) >= 0 ? args[args.indexOf(flag) + 1] : undefined;
   const json = args.includes('--json'), sim = value('--sim'), copyTo = value('--shots');
   const flagged = new Set([args.indexOf('--app') + 1, args.indexOf('--sim') + 1, args.indexOf('--shots') + 1].filter((i) => i > 0));
   if (args.includes('--shots') && (!copyTo || copyTo.startsWith('-'))) { console.error('verify: --shots takes a directory: the screenshots are copied there, under the names in .exact/verify/'); return declined(2); }
   const host = args.find((a, i) => !a.startsWith('-') && !flagged.has(i)) ?? 'web';
-  if (!['web', 'ios'].includes(host)) { console.error(`verify: web or ios, not ${host} (test ${host} runs the tests there)`); return declined(2); }
+  if (!['web', 'ios', 'windows', 'android'].includes(host)) { console.error(`verify: web, ios, windows or android, not ${host} (test ${host} runs the tests there)`); return declined(2); }
+  if (host === 'windows' && process.platform !== 'win32') { console.error('verify windows runs on Windows (bun exact.mjs verify windows there)'); return declined(2); }
+  if (host === 'android') process.env.EXACT_ANDROID_READER = '1'; // the APK, as `test android` drives it
   if (sim) process.env.EXACT_SIM = sim; // as the driver names it (devices.mjs `simulator`)
   const started = Date.now();
   const { resolveApp } = await import('./app.mjs');
@@ -1318,9 +1337,9 @@ async function deviceMain(argv, emitJSON, declined) {
 
   const last = lastRuns(app)[host];
   console.error(`verify ${host}: about ${Math.round((last ?? ESTIMATE[host]) / 1000)} s${last ? ', as its last run took' : ''}; one report when it ends`);
-  const built = host === 'web' ? await webBuild(app) : await iosBuild(app);
+  const built = host === 'web' ? await webBuild(app) : host === 'windows' ? await windowsBuild(app) : host === 'android' ? await (await import('./agent-android.mjs')).apkBuildFirst(app) : await iosBuild(app);
   // The build said the compiler's warnings when it ran; the report's own group says them whether it ran or not.
-  if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length && !/^compiler: \d+ warnings?[,;]/.test(line)); }
+  if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length && !/^compiler: \d+ (?:warnings?|notes?)\b/.test(line)); }
   if (built?.code) {
     const tail = host === 'web' ? built.output.split('\n').filter((l) => l.trim()).slice(-20) : built.said;
     if (json) emitJSON({ host, built: { ms: built.ms, code: built.code, said: tail }, problems: 1, exit: built.code });
@@ -1339,7 +1358,7 @@ async function deviceMain(argv, emitJSON, declined) {
   }
   const launch = (size, n) => checkAt(host, app, size, host === 'web' ? `verify.${tag}.t${n}` : 'verify', shots)
     .catch((e) => [{ size: null, label: size ? size.join('x') : host, error: e.message }]);
-  let tested, firsts, relaunched = null, scrolled = null, results = [], running = null, toured = [], serverSaid = server?.why ? { said: `${server.why}; the tests use whatever answers there` } : null;
+  let tested, firsts, relaunched = null, scrolled = null, desktop = null, results = [], running = null, toured = [], serverSaid = server?.why ? { said: `${server.why}; the tests use whatever answers there` } : null;
   const compiling = compilerWarningsOf(app);
   if (owned) {
     try { running = await startServer(app.dir, server, 'verify'); }
@@ -1374,6 +1393,7 @@ async function deviceMain(argv, emitJSON, declined) {
       const key = await scrollKey(app, { udid: firsts.find((runs) => runs.udid)?.udid, server: owned ? server : null }).catch(() => null);
       scrolled = await scrolling(app, shots, { key, force: args.includes('--rescroll') });
     }
+    if (host === 'windows') desktop = await desktopShot(app, shots);
   } finally {
     if (host === 'web') {
       const { driveStore, removeBrowserProfile } = await import('./agent-launch.mjs');
@@ -1389,7 +1409,7 @@ async function deviceMain(argv, emitJSON, declined) {
   const ends = results.flatMap((t) => (t.end?.error ? (t.failures.length ? [] : [{ size: null, label: `${quoted(t.name)} end`, error: t.end.error }]) : t.end?.runs ?? []));
   const checks = [...firsts.flat(), ...ends, ...(relaunched?.runs ?? [])];
   const compiler = await compiling;
-  const kept = [...new Set([...checks.map((c) => c.shot), relaunched?.shot])].filter((p) => p && existsSync(p));
+  const kept = [...new Set([...checks.map((c) => c.shot), relaunched?.shot, desktop?.shot])].filter((p) => p && existsSync(p));
   // `--shots <dir>`: every capture of this run copied out, under its own name (LLP 1116.008 D2).
   // The screenshots a test took itself (its `screenshot` steps) come too, named by the test as the ends are.
   const own = [];
@@ -1410,14 +1430,14 @@ async function deviceMain(argv, emitJSON, declined) {
   const large = [...visited, ...tourNews(visited, toured)];
   const fixed = await fixedType(app.dir, host);
   const findingsFile = resolve(shots, `${host}-findings.txt`), listed = relative(process.cwd(), findingsFile);
-  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, scrolled, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started, listed: listed.startsWith('..') ? findingsFile : listed });
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, scrolled, desktop, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started, listed: listed.startsWith('..') ? findingsFile : listed });
   if (r.full.length) writeFileSync(findingsFile, r.full.join('\n') + '\n'); else rmSync(findingsFile, { force: true });
   writeFileSync(resolve(shots, 'last.json'), JSON.stringify({ ...lastRuns(app), [host]: Date.now() - started }) + '\n');
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, file, failures, end }) => ({ name, file, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, large, ...rest }) => rest)(relaunched);
-    emitJSON({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, ...(scrolled ? { scrolling: scrollingOut(scrolled) } : {}), screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started });
-  } else say(r.lines);
+    emitJSON({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, ...(scrolled ? { scrolling: scrollingOut(scrolled) } : {}), ...(desktop ? { window: desktop } : {}), screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started });
+  } else { say(r.lines.slice(0, -1)); ended(r.lines.at(-1)); }
   // The run, against the build it used (LLP 1146 D2: `bun scripts/evidence.mjs`).
   (await import('./evidence.mjs')).recordRun(app.name, { host, what: 'verify', result: r.problems ? `${r.problems} problem${r.problems === 1 ? '' : 's'}${tested?.failed ? `, ${tested.failed} failed test${tested.failed === 1 ? '' : 's'}` : ''}` : 'clean', timing: 'agent', sim });
   return r.exit;
@@ -1429,23 +1449,20 @@ async function main(argv) {
   const args = guardFlags('verify', argv), json = args.includes('--json');
   const { resolveApp } = await import('./app.mjs');
   const app = resolveApp(args.includes('--app') ? args[args.indexOf('--app') + 1] : undefined);
-  let device = null, code, refused = false;
-  try { code = await deviceMain(args, result => { device = result; }, (exit) => { refused = true; return exit; }); }
+  const semantics = contractVerify(app, json);
+  let device = null, code, refused = false, verdict = null;
+  try { code = await deviceMain(args, result => { device = result; }, (exit) => { refused = true; return exit; }, line => { verdict = line; }); }
   catch (e) { code = 1; device = { error: e.message, exit: 1 }; if (!json) console.error(`verify: ${e.message}`); }
-  if (refused) { if (json && device) console.log(JSON.stringify(device)); return code; }
-  console.error('verify: checking properties and scripts with contract verify');
-  const semantics = await new Promise(resolveResult => {
-    let output = '';
-    const child = spawn('cargo', ['run', '-q', '-p', 'contract', '--', 'verify', resolve(app.dir, 'app.contract')], { cwd: ROOT, stdio: ['ignore', 'pipe', 'inherit'] });
-    const pass = signal => child.kill(signal), signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
-    for (const signal of signals) process.on(signal, pass);
-    child.stdout.on('data', data => { output += data; if (!json) process.stdout.write(data); });
-    const finish = exit => { for (const signal of signals) process.off(signal, pass); resolveResult({ exit, output }); };
-    child.on('error', e => { output += e.message; finish(1); });
-    child.on('exit', exit => finish(exit ?? 1));
-  });
-  const exit = code || semantics.exit;
-  if (json) console.log(JSON.stringify({ ...device, semantics, exit }));
+  if (refused) { semantics.stop(); if (json && device) console.log(JSON.stringify(device)); return code; }
+  const done = await semantics.done;
+  const exit = code || done.exit;
+  if (json) { console.log(JSON.stringify({ ...device, semantics: { exit: done.exit, output: done.output }, exit })); return exit; }
+  const kept = resolve(app.dir, '.exact', 'verify', 'properties.txt');
+  mkdirSync(dirname(kept), { recursive: true });
+  writeFileSync(kept, `${done.output}${done.errors}`);
+  const listed = relative(process.cwd(), kept);
+  console.log(semanticsSummary(done, listed.startsWith('..') ? kept : listed).join('\n'));
+  if (verdict) console.log(done.exit ? `${verdict}; contract verify failed (exit ${done.exit}), as above` : verdict);
   return exit;
 }
 

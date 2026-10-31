@@ -212,6 +212,7 @@ fn dimension(name: &str, default: f32) -> f32 {
 }
 
 fn main() -> eframe::Result {
+    picture::boot_mark(c"boot main");
     picture::diagnostic(format_args!("main"));
     assert_ne!(
         std::env::var("BENCH_LIVE").as_deref(),
@@ -233,6 +234,7 @@ fn main() -> eframe::Result {
     )
     .expect("heavy-list data");
     assert_eq!(file.messages.len(), 10_000);
+    picture::boot_mark(c"boot data ready");
     let motion = std::env::var("BENCH_MOTION").unwrap_or_default();
     assert!(
         matches!(motion.as_str(), "" | "bar" | "caret"),
@@ -273,7 +275,9 @@ fn main() -> eframe::Result {
         "Heavy list · egui",
         options,
         Box::new(move |cc| {
+            picture::boot_mark(c"boot app creation");
             fonts(&cc.egui_ctx);
+            picture::boot_mark(c"boot fonts ready");
             cc.egui_ctx.set_theme(egui::Theme::Light);
             cc.egui_ctx.style_mut_of(egui::Theme::Light, |style| {
                 style.visuals = egui::Visuals::light();

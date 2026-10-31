@@ -222,3 +222,13 @@ fn translated_layer_respects_stationary_outer_clip_or_refuses_lowering() {
     assert_eq!(pixels.pixel(45, 25).unwrap().green(), 0);
     assert_eq!(pixels.pixel(55, 25).unwrap().green(), 255);
 }
+
+#[test]
+fn a2_counter_rejects_truncation_boundary_and_sign_crossings() {
+    assert!(super::zero_interval(-0.25, 0., 0.));
+    assert!(super::zero_interval(1.25, 0., 2.));
+    assert!(super::zero_interval(-2.25, 3., 0.));
+    assert!(!super::zero_interval(5.25, 0.25, 2.25));
+    assert!(!super::zero_interval(-5.25, 0.25, 2.25));
+    assert!(!super::zero_interval(0., 0., 0.));
+}

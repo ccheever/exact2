@@ -74,6 +74,9 @@ impl<D: DataSource> Presenter<D> {
         .into_iter()
         .filter(|_| changed)
         {
+            if let Some(e) = dispatched.then(|| self.blur_disabled_now()).flatten() {
+                eprintln!("exact: {e}");
+            }
             if self.host.runner().handlers_of(id).contains(&kind) {
                 if let Some(e) = self.host.dispatch_at(id, event, now_ms) {
                     eprintln!("exact: {e}");

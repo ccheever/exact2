@@ -69,6 +69,7 @@ mod scale;
 mod shorthands;
 mod sites;
 mod sounds;
+mod spelling;
 mod states;
 mod stmts;
 mod strings;
@@ -76,12 +77,14 @@ pub mod style_names;
 mod svg;
 mod swipe_rows;
 mod symbols;
+mod tables;
 pub mod tags;
 mod theme;
 mod timers;
 mod tools;
 mod type_tokens;
 mod values;
+pub mod var_tokens;
 pub mod warning_rank;
 pub use shorthands::style_values;
 pub mod vocab;
@@ -1153,6 +1156,7 @@ impl<'a> Lowerer<'a> {
         let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));
         };
+        crate::var_tokens::carried(a)?;
         // @ref LLP 1021 §5.3, LLP 1133.025 D11 item 4 — stable menu ids,
         // never localized titles.
         if a.name == "-exact-menu" {

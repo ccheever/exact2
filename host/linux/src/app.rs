@@ -338,11 +338,19 @@ thread_local! {
 }
 
 /// Process-clock phases for the carrier's explicit startup measurement.
-#[cfg(windows)]
-pub(crate) fn boot_phase(name: &str) {
-    if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
-        if let Ok(ms) = exact_ink::device::process_ms() {
-            eprintln!("exact-windows: boot {name} at {ms:.3} ms (process)");
+#[cfg(any(windows, target_os = "macos"))]
+pub(crate) fn boot_phase(name: &'static core::ffi::CStr) {
+    #[cfg(target_os = "macos")]
+    exact_ink::device::apple::trace_mark(name, || 0.);
+    #[cfg(windows)]
+    {
+        let at = std::time::Instant::now();
+        let name = name.to_string_lossy();
+        exact_ink::device::d3d11::startup_watchdog::phase(&name, at);
+        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+            if let Ok(ms) = exact_ink::device::process_ms_at(at) {
+                eprintln!("exact-windows: boot {name} at {ms:.3} ms (process)");
+            }
         }
     }
 }
@@ -361,6 +369,42 @@ pub fn boot_presenter_with_device<D: DataSource + Default>(
         PainterBoot::selected(crate::presenter::PainterChoice::Cpu),
     )?;
     presenter.install_prepared_painter(preparing)?;
+    Ok((presenter, warning))
+}
+
+#[cfg(windows)]
+/// Measurement arm: prepare the device only after the ordinary first layout.
+pub fn boot_presenter_after_layout_device<D: DataSource + Default>(
+    config: &mut Config,
+    viewport: (f32, f32),
+) -> Result<(Presenter<D>, Option<String>), String> {
+    let (mut presenter, warning) = boot_presenter_with_painter(
+        config,
+        viewport,
+        PainterBoot::selected(crate::presenter::PainterChoice::Cpu),
+    )?;
+    let device = std::env::var("EXACT_INK_DEVICE").ok();
+    let preparing = exact_ink::device::d3d11::Startup::start(
+        exact_ink::device::direct_d3d11(device.as_deref()).unwrap_or(false),
+    )
+    .map_err(|error| error.to_string())?;
+    presenter.install_prepared_painter(preparing)?;
+    Ok((presenter, warning))
+}
+
+/// Metal archive misses keep the CPU painter until an entire ink frame is ready.
+#[cfg(target_os = "macos")]
+pub fn boot_presenter_with_metal<D: DataSource + Default>(
+    config: &mut Config,
+    viewport: (f32, f32),
+    preparing: exact_ink::device::apple::Startup,
+) -> Result<(Presenter<D>, Option<String>), String> {
+    let (mut presenter, warning) = boot_presenter_with_painter(
+        config,
+        viewport,
+        PainterBoot::selected(crate::presenter::PainterChoice::Cpu),
+    )?;
+    presenter.install_apple_painter(preparing)?;
     Ok((presenter, warning))
 }
 
@@ -465,7 +509,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
         Some(assets) => crate::delivery::Module::resolve(assets),
         None => config.module.clone(),
     };
-    let admitted = D::default();
+    let admitted = crate::traced(c"boot data construction", D::default);
     let source = module
         .as_ref()
         .map_err(Clone::clone)
@@ -879,9 +923,10 @@ mod tests {
     #[test]
     fn launch_arguments_share_url_interpretation_with_other_hosts() {
         for (args, expected) in [
+            // The fragment rides on the launch location (LLP 1153 D5).
             (
-                vec!["--agent", "s2b://post/42?q=a b#ignored", "/later"],
-                "/post/42?q=a%20b",
+                vec!["--agent", "s2b://post/42?q=a b#moves", "/later"],
+                "/post/42?q=a%20b#moves",
             ),
             (vec!["--flag", "https://example.com/post/7"], "/post/7"),
             (vec!["/post/../post/8", "s2b://later"], "/post/8"),

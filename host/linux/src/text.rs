@@ -35,6 +35,8 @@ mod shaping;
 pub(crate) mod transfer;
 #[cfg(test)]
 mod transfer_tests;
+#[cfg(all(test, windows))]
+mod windows_audit;
 use shaping::ShapedSource;
 mod ink;
 mod inline;
@@ -825,6 +827,7 @@ impl TextEngine {
 
     fn source(&mut self, key: (u64, u64)) -> Rc<ShapedSource> {
         if let Some(source) = self.paragraphs.source(key) {
+            exact_ink::counters::add(exact_ink::counters::Counter::ShapeHits, 1);
             return source;
         }
         let spec = self.paragraphs.spec(key).expect("current identity");
@@ -834,6 +837,9 @@ impl TextEngine {
     }
 
     fn build_source(&mut self, spec: Arc<Spec>) -> Rc<ShapedSource> {
+        #[cfg(target_os = "macos")]
+        let _trace = exact_ink::device::apple::Trace::new(c"text shape");
+        exact_ink::counters::add(exact_ink::counters::Counter::ShapeMisses, 1);
         self.shape_calls += 1;
         #[cfg(test)]
         identified_tests::shaped(&spec);
@@ -874,6 +880,8 @@ impl TextEngine {
         width: Option<f32>,
         hold: bool,
     ) -> Paragraph {
+        #[cfg(target_os = "macos")]
+        let _trace = exact_ink::device::apple::Trace::new(c"text width layout");
         #[cfg(test)]
         if let Some(callback) = &mut self.before_layout {
             callback();
@@ -971,7 +979,9 @@ impl TextEngine {
         };
         if self.layout_calls == before {
             self.hits += 1;
+            exact_ink::counters::add(exact_ink::counters::Counter::MeasureHits, 1);
         } else {
+            exact_ink::counters::add(exact_ink::counters::Counter::MeasureMisses, 1);
             self.shaping += started.elapsed();
         }
         metrics

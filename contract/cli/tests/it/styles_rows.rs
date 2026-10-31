@@ -480,10 +480,9 @@ fn calculated_grid_tracks_lower_in_attributes_and_styles() {
     contract::compile(&src).unwrap();
     let src = format!("style Cards\n  grid-template-columns=\"{value}\"\ncomponent App\n  view\n    view class=Cards\n");
     contract::compile(&src).unwrap();
-    let errors = contract::compile(
-        "component App\n  view\n    view grid-template-columns=\"var(--track)\"\n",
-    )
-    .unwrap_err();
+    let errors =
+        contract::compile("component App\n  view\n    view grid-template-columns=\"10em 1fr\"\n")
+            .unwrap_err();
     let message = format!("{errors:?}");
     assert!(
         message.contains("calc()") && message.contains("min()"),

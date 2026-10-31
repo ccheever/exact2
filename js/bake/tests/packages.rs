@@ -402,6 +402,11 @@ fn package_code_no_executor_runs_is_refused_by_package_and_file() {
             "module.exports = (name) => import(name);\n",
             "bad@3.1.0 (index.js:2:28) loads code from a string ('import()')",
         ),
+        // A setting is app.ts's to read (LLP 1153 D4), not a package function's.
+        (
+            "export default () => import.meta.env.API_BASE_URL;\n",
+            "bad@3.1.0 (index.js:2:22) reads import.meta.env, which only app.ts may",
+        ),
     ];
     app.put(
         "node_modules/bad/package.json",
