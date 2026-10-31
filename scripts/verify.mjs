@@ -41,6 +41,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import { availableParallelism, loadavg, networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { findings as feelFindings, summary as feelSummary } from '../host/apple/feel/analyze.mjs';
@@ -51,6 +52,8 @@ import { backendOriginSelection, privateNetwork } from '../js/bake/src/typescrip
 import { contractVerify, semanticsSummary } from './verify-semantics.mjs';
 
 import { declaredSettings, settingValues } from '../js/bake/src/__exact_env.mjs';
+
+import { inlineSettings } from '../js/bake/src/__exact_env.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 /** The web's two widths: a phone's, and a desktop window's. */
@@ -90,15 +93,16 @@ export function onThisMachine(origin) {
     || privateNetwork(origin) && Object.values(networkInterfaces()).flat().some(n => n?.address === new URL(origin).hostname.replace(/^\[|\]$/g, ''));
 }
 
-/** The server URL the data module calls: a setting app.ts reads (`import.meta.env.API_BASE_URL`, LLP 1153 D4) whose
- * value, as its sources give it now, is a local one; else the first local one (`http://127.0.0.1:8787`, or localhost) in
- * app.ts, else in a module of the app's own that it imports (`import { API } from './api'`); null when it calls none. */
+/** app.ts as the build has it (LLP 1153 D4), each setting read replaced by what `inlineSettings` gives under `env` (a
+ * default included), and those values; as written, with none, where the bake refuses it. */
+function builtSettings(dir, env, code = readIn(dir, 'app.ts')) {
+  try { const { code: built, record } = inlineSettings(code, dir, createRequire(import.meta.url)('rolldown/utils').parseSync, env); return { code: built, values: Object.fromEntries(Object.entries(record).map(([name, s]) => [name, s.value])) }; } catch { return { code, values: {} }; }
+}
+/** The server URL the data module calls: the first local one (`http://127.0.0.1:8787`, localhost) in app.ts as built (a
+ * setting's value, not a default it overrides), else in a module of its own it imports (`./api`'s `API`); else null. */
 export function serverUrl(dir, env = process.env) {
   const at = (text) => text?.match(LOCAL)?.[0].replace(/\/$/, '') ?? null;
-  const code = readIn(dir, 'app.ts');
-  const read = declaredSettings(dir).filter((name) => /^[A-Z][A-Z0-9_]*$/.test(name) && new RegExp(`\\bimport\\.meta\\.env\\.${name}\\b`).test(code ?? ''));
-  const setting = Object.values(settingValues(dir, read, env)).map((s) => s && at(s.value)).find(Boolean);
-  return setting ?? at(code) ?? importsOf(dir, 'app.ts').map((p) => at(readIn(dir, p))).find(Boolean) ?? null;
+  return at(builtSettings(dir, env).code) ?? importsOf(dir, 'app.ts').map((p) => at(readIn(dir, p))).find(Boolean) ?? null;
 }
 
 /** Whether `entry`, or a module of the app's own it imports (a root shim that only imports the backend), reads the
@@ -142,10 +146,10 @@ export function appServer(dir, env = process.env) {
   return { entry, args: entry === named ? serverArgs : [], database, url, port, why, refusal, ...(fixture ? { fixture: true } : {}) };
 }
 
-function serverEnv(server, db) {
-  const env = { ...process.env, PORT: String(server.port) };
-  if (server.database) env.DB = db;
-  else delete env.DB;
+// With app.ts's settings as the build has them, a server importing it (site's) listens where `serverUrl` looks, as Bun's .env loading may not.
+function serverEnv(server, db, dir) {
+  const env = { ...process.env, ...builtSettings(dir, process.env).values, PORT: String(server.port) };
+  if (server.database) env.DB = db; else delete env.DB;
   return env;
 }
 
@@ -233,7 +237,7 @@ async function started(dir, server, name, forward, give) {
   mkdirSync(runDir, { recursive: true });
   clear();
   writeFileSync(owner, `${process.pid}\n`);
-  const child = Bun.spawn([process.execPath, server.entry, ...server.args], { cwd: dir, env: serverEnv(server, db), stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, server.entry, ...server.args], { cwd: dir, env: serverEnv(server, db, dir), stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' });
   let said = '';
   (async () => { for await (const chunk of child.stderr) { said = (said + new TextDecoder().decode(chunk)).slice(-4000); if (forward) process.stderr.write(chunk); } })().catch(() => {});
   const tail = () => lastError(said);
@@ -336,7 +340,7 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
     if (db) mkdirSync(dirname(db), { recursive: true });
     if (db && (!storage || fresh)) for (const end of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${end}`, { force: true });
     const log = openSync(resolve(lease, 'log'), 'a');
-    const child = Bun.spawn([process.execPath, server.entry, ...server.args], { cwd: dir, env: serverEnv(server, db), stdin: 'ignore', stdout: 'ignore', stderr: log });
+    const child = Bun.spawn([process.execPath, server.entry, ...server.args], { cwd: dir, env: serverEnv(server, db, dir), stdin: 'ignore', stdout: 'ignore', stderr: log });
     spawned = child;
     closeSync(log);
     writeFileSync(resolve(lease, `server-${child.pid}`), JSON.stringify({ directory: realpathSync(dir), origin: server.url, db }));
@@ -603,7 +607,7 @@ export function refusalsOf({ lines = [], host = [] } = {}, expected = []) {
   for (const line of expected) accepted.set(line,(accepted.get(line) ?? 0)+1);
   const normalized = raw => String(raw).replace(/^t=\d+(?:\.\d+)?\s+/, '').replace(/^(?:app|console\.\w+|chrome|warning|error): /, '').replace(/^exact: /, '').trim();
   const collect = line => {
-    if (/\brefus(?:ed|es|al)\b/i.test(line) && !/\b(?:dismissal|back|back gesture|drag) refused\b|connection[ _]refused|\(driver fault\)/i.test(line) && !found.includes(line)) found.push(line);
+    if (/\brefus(?:ed|es|al)\b/i.test(line) && !/\b(?:dismissal|back|back gesture|drag) refused\b|connection[ _]refused|fetch failed \(driver fault\)/i.test(line) && !found.includes(line)) found.push(line);
   };
   for (const raw of lines) {
     const line=normalized(raw), count=accepted.get(String(raw)) ?? 0;

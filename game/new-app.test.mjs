@@ -710,10 +710,23 @@ test('a pattern replaces the template, refuses an edited file unless forced, and
     assert.deepEqual([JSON.parse(read('app.json')).env, JSON.parse(read('app.json')).server], [['API_BASE_URL'], { database: false }]);
     assert.match(applyPattern(dir, 'list-detail').said, /removed \.env, server\.ts$/);
     assert.deepEqual([JSON.parse(read('app.json')).env, JSON.parse(read('app.json')).server, JSON.parse(read('app.json')).app.id], [undefined, undefined, id]);
+    // A key the author set is refused, named, as an edited file is: nothing is written without --force.
     applyPattern(dir, 'site');
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...JSON.parse(read('app.json')), env: ['API_BASE_URL', 'TILE_URL'] }));
+    const manifest = JSON.parse(read('app.json'));
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, server: { database: true } }));
+    writeFileSync(resolve(dir, 'app.contract'), `${read('app.contract')}// mine\n`);
+    assert.throws(() => applyPattern(dir, 'site'), /^Error: pattern: app\.contract, app\.json's "server" were edited \(not what exact new or a pattern wrote\); --force replaces them$/);
+    assert.deepEqual(JSON.parse(read('app.json')).server, { database: true });
+    applyPattern(dir, 'site', { force: true });
+    assert.deepEqual(JSON.parse(read('app.json')).server, { database: false });
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, env: ['API_BASE_URL', 'TILE_URL'] }));
+    assert.throws(() => applyPattern(dir, 'site'), /app\.json's "env" was edited/);
     applyPattern(dir, 'tabs');
     assert.deepEqual([JSON.parse(read('app.json')).env, JSON.parse(read('app.json')).server], [['API_BASE_URL', 'TILE_URL'], undefined]);
+    // The same values in an app that never applied site (excord's `server`) are the app's: another pattern keeps them.
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, env: ['API_BASE_URL'], server: { database: false } }));
+    applyPattern(dir, 'dashboard');
+    assert.deepEqual([JSON.parse(read('app.json')).env, JSON.parse(read('app.json')).server], [['API_BASE_URL'], { database: false }]);
     // A name with a quote stays one Contract string.
     const quoted = patternFiles('one-screen', { id: 'com.example.q', title: 'Say "Hi" $5' }).files['app.contract'];
     assert.match(quoted, /text "Say \\"Hi\\" \\\$5" role="heading"/);

@@ -380,9 +380,13 @@ test('run-time refusals: found in the journal and the host\'s lines, shown first
   const swipe = 'swipeContent on #243 is refused: "delete-1" names no one descendant of it; a row needs one full-size descendant and uniquely named descendant press controls with accessible names';
   assert.deepEqual(refusalsOf({
     lines: ['t=0 boot: 15 nodes, epoch 1', `t=12 ${swipe}`, 't=40 saveFile: refused: no app file to copy', 't=41 saveFile: refused: no app file to copy', 't=50 modal dismissal refused: closedby is none', 't=60 back refused: the Back control is disabled',
-      't=70 refused reply details; wall 0 ms: fetch failed (driver fault): http://127.0.0.1:8787/planets/5'],
+      // A fetch a test's `fail fetch` refused, as the JS target and the runner journal it, is the test's design; a
+      // driver fault that stopped presence is not a fetch, and is still said.
+      't=70 refused reply details; wall 0 ms: fetch failed (driver fault): http://127.0.0.1:8787/planets/5',
+      't=71 fulfil 4 (details) [network: fetch failed (driver fault): http://127.0.0.1:8787/planets/5] refused: Refused("network")',
+      't=72 presence room: join: refused by a driver fault'],
     host: [`app: exact: ${swipe}`, 'console.error: Failed to load resource: net::ERR_CONNECTION_REFUSED', 'app: exact: showModal confirm refused: no dialog or popover has that id'],
-  }), [swipe, 'saveFile: refused: no app file to copy', 'showModal confirm refused: no dialog or popover has that id']);
+  }), [swipe, 'saveFile: refused: no app file to copy', 'presence room: join: refused by a driver fault', 'showModal confirm refused: no dialog or popover has that id']);
   assert.deepEqual(refusalsOf({}), []);
   const refused = [{ line: swipe, where: ['first screen', 'test "adds"', 'relaunch'] }, { line: 'saveFile: refused: no app file to copy', where: ['test "saves"'] }];
   const r = report({ host: 'ios', built: { ms: 900, said: [], warnings: [] }, tested: { passed: 1, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000, refused });
@@ -434,16 +438,18 @@ test('the app\'s server: its entry, the URL app.ts calls, and why it cannot be r
     assert.match(appServer(dir).why, /^server\.ts is left alone: app\.ts calls no local URL/);
     put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n" });
     assert.equal(appServer(dir), null);
-    // A setting app.ts reads (LLP 1153 D4), as its sources give it: the environment's, else .env.local's, else .env's,
-    // over the default's literal; one that names no local URL leaves the server alone.
-    const setting = { 'app.ts': "export const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080';\n", 'app.json': JSON.stringify({ env: ['API_BASE_URL'], server: { database: false } }), 'server.ts': 'Bun.serve({});\n' };
+    // A setting app.ts reads (LLP 1153 D4), as the build inlines it: the environment's, else .env.local's, else .env's,
+    // else the default; a value that is no local URL leaves the server alone, though the default it overrides is one.
+    const setting = { 'app.ts': "export const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080';\nexport const grants = `net.fetch ${API}`;\n", 'app.json': JSON.stringify({ env: ['API_BASE_URL'], server: { database: false } }), 'server.ts': 'Bun.serve({});\n' };
+    put(setting);
+    assert.equal(serverUrl(dir, {}), 'http://127.0.0.1:8080');
     put({ ...setting, '.env': 'API_BASE_URL=http://127.0.0.1:8787\n' });
     assert.deepEqual([appServer(dir, {}).url, appServer(dir, {}).refusal], ['http://127.0.0.1:8787', null]);
     put({ ...setting, '.env': 'API_BASE_URL=http://127.0.0.1:8787\n', '.env.local': 'API_BASE_URL=http://localhost:9000\n' });
     assert.equal(serverUrl(dir, {}), 'http://localhost:9000');
     assert.equal(serverUrl(dir, { API_BASE_URL: 'http://127.0.0.1:7000' }), 'http://127.0.0.1:7000');
-    put({ ...setting, 'app.ts': 'export const API = import.meta.env.API_BASE_URL;\n', '.env': 'API_BASE_URL=https://api.example.com\n' });
-    assert.match(appServer(dir, {}).why, /^server\.ts is left alone: app\.ts calls no local URL/);
+    assert.equal(appServer(dir, { API_BASE_URL: 'https://api.example.com' }).url, null);
+    assert.match(appServer(dir, { API_BASE_URL: 'https://api.example.com' }).why, /^server\.ts is left alone: app\.ts calls no local URL/);
     // The spellings of reading DB, and a root shim that only imports the backend that reads it (book-club, polls, event-rsvp).
     for (const spelling of ['Bun.env.DB', 'process.env["DB"]', "process.env['DB'] ?? 'x.db'", 'env.DB', 'process.env?.DB', "const { DB } = process.env;", "const { DB: path = 'x.db', PORT } = Bun.env;", 'start(process.env.DB)']) {
       put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': `${spelling}\n` });
@@ -521,6 +527,25 @@ test('server command arguments reach the child in order, with DB and PORT for a 
     assert.notEqual(await children[0].exited, 0);
     assert.equal(existsSync(resolve(dir, '.exact/test')), false);
     assert.deepEqual([taken, given], [1, 1]);
+  `);
+}, 30_000);
+
+// LLP 1153 D4: a server that imports app.ts (the site pattern's) reads its settings as the build has them, though
+// Bun's own .env loading under NODE_ENV=test skips .env.local, so it listens where discovery looks.
+test('the settings app.ts reads reach the server as the build has them', () => {
+  stubServerRun(`
+    manifest.env = ['API_BASE_URL']; save();
+    delete process.env.API_BASE_URL;
+    process.env.NODE_ENV = 'test';
+    writeFileSync(resolve(dir, 'app.ts'), "export const origin = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080';\\n");
+    writeFileSync(resolve(dir, '.env'), 'API_BASE_URL=http://127.0.0.1:8787\\n');
+    writeFileSync(resolve(dir, '.env.local'), 'API_BASE_URL=http://127.0.0.1:4790\\n');
+    writeFileSync(resolve(dir, 'server.ts'), "import { writeFileSync } from 'node:fs';\\nwriteFileSync('ready.json', JSON.stringify({ api: process.env.API_BASE_URL, port: process.env.PORT }));\\nsetInterval(() => {}, 1000);\\n");
+    const server = appServer(dir);
+    assert.equal(server.url, 'http://127.0.0.1:4790');
+    const running = await startServer(dir, server, 'test');
+    assert.deepEqual(record(), { api: 'http://127.0.0.1:4790', port: '4790' });
+    await running.stop();
   `);
 }, 30_000);
 

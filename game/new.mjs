@@ -736,24 +736,36 @@ export function applyPattern(dir, pattern, { force = false } = {}) {
   const { files, keys } = patternFiles(pattern, { id, title });
   const read = path => existsSync(resolve(dir, path)) ? readFileSync(resolve(dir, path), 'utf8') : null;
   const edited = Object.entries(files).filter(([path, text]) => { const now = read(path); return now !== null && now !== text && !untouched(path, now); }).map(([path]) => path);
+  // An app.json key it writes is refused as an edited file is, when the author set it to what no pattern writes.
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const wroteKey = (value, of) => [keys, ...others.map(o => o.keys)].some(k => same(of(k), value));
+  for (const [key, value] of Object.entries(keys)) {
+    if (key === 'commands') for (const verb of Object.keys(value)) {
+      const now = manifest.commands?.[verb];
+      if (now !== undefined && !wroteKey(now, k => k.commands?.[verb])) edited.push(`app.json's commands.${verb}`);
+    } else if (manifest[key] !== undefined && !wroteKey(manifest[key], k => k[key])) edited.push(`app.json's "${key}"`);
+  }
   if (edited.length && !force) throw new Error(`pattern: ${edited.join(', ')} ${edited.length > 1 ? 'were' : 'was'} edited (not what exact new or a pattern wrote); --force replaces ${edited.length > 1 ? 'them' : 'it'}`);
+  // The patterns this replaces: each with a file here still as it wrote it. Only theirs give up app.json keys, since a
+  // key's value (`server: { database: false }`) may be one the app wrote with no pattern.
+  const leaving = others.filter(o => Object.entries(o.files).some(([path, text]) => read(path) === text));
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(resolve(dir, path)), { recursive: true });
     writeFileSync(resolve(dir, path), text);
   }
-  // Another pattern's files and commands the author left as written go with it.
+  // A replaced pattern's files, commands and keys the author left as written go with it.
   const gone = [];
-  for (const other of others) for (const [path, text] of Object.entries(other.files)) {
+  for (const other of leaving) for (const [path, text] of Object.entries(other.files)) {
     if (!(path in files) && read(path) === text) { rmSync(resolve(dir, path)); gone.push(path); }
   }
   const commands = { ...(manifest.commands ?? {}) };
-  for (const other of others) for (const [verb, argv] of Object.entries(other.keys.commands ?? {})) {
+  for (const other of leaving) for (const [verb, argv] of Object.entries(other.keys.commands ?? {})) {
     if (!keys.commands?.[verb] && JSON.stringify(commands[verb]) === JSON.stringify(argv)) delete commands[verb];
   }
   Object.assign(commands, keys.commands ?? {});
-  // Its other keys (site's `env` and `server`) are written whole, and another pattern's still as it wrote them go.
+  // Its other keys (site's `env` and `server`) are written whole.
   const next = { ...manifest, commands };
-  for (const other of others) for (const [key, value] of Object.entries(other.keys)) {
+  for (const other of leaving) for (const [key, value] of Object.entries(other.keys)) {
     if (key !== 'commands' && !(key in keys) && JSON.stringify(next[key]) === JSON.stringify(value)) delete next[key];
   }
   for (const [key, value] of Object.entries(keys)) if (key !== 'commands') next[key] = value;

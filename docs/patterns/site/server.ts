@@ -1,6 +1,7 @@
-// A stand-in for the site's API, so the dev loop, `test` and `verify` need no network: `bun server.ts` listens at
-// API (.env's API_BASE_URL), where `test` and `verify` run it themselves. Its figures are in memory, so a restart
-// undoes a PATCH. With API_BASE_URL naming the real API (.env.local or the environment), the site needs none of it.
+// A stand-in for the site's API, so the dev loop, `serve`, `test` and `verify` need no network. `bun server.ts`
+// listens at API as Bun reads .env.local and .env; `test` and `verify` run it themselves, given the value the build
+// inlines. Its figures are in memory, so a restart undoes a PATCH. With API_BASE_URL naming the real API (.env.local
+// or the environment), the site needs none of it.
 import { API } from './app.ts';
 
 const PLANETS: Record<string, { summary: string; moons: number; day: string; year: string }> = {
