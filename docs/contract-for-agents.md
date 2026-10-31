@@ -2296,32 +2296,35 @@ web implementation, Kotlin `ExactExtension.view`; `id` is the node's. A view dec
 prop marked `"binds": true` `bound(id, prop, origin)` when it changes; `origin` is `app`,
 `tool` or `wake`, that of the commit that did it. `packages/fixtures/swatch` is a whole one.
 
-### A package's native module
+### A package's native module, library and web assets
 
-A package fills the data module's one native module (`native.call` in `app.ts`) by
-declaring `"native": {"rust": "native/lib.rs", "class": "Vault"}` in its `exact.json`
-(LLP 1154 D3): `rust` is the shim's root file, its path relative to `exact.json`, and
-`class` a type in it that implements `exact_js::NativeModule` and has `fn new(app: &str) ->
-Self`. A native build joins the shim to the app's crate and attaches it; an app that writes
-its own `Cargo.toml` attaches `.with_native(exact_native)` in `embedded_data`. The shim
-names only `exact_js` and `std`. Its `configure_storage` gets the app's roots and
-`sqlite(path)`, which admits `sqlite.open` under the app's grants and answers a `SqliteFile`
-guard. The module holds the guard while it uses the file, closes its own SQLite before
-dropping it, and meanwhile the app's own `storage.sqlite` is refused the file; the
-reservation ends when the guard drops. Two dependencies declaring `native` refuse the build
-(`bake-native-twice`). `packages/fixtures/vault` is a whole one.
+A package fills the data module's one native module (`native.call` in `app.ts`) from the
+`exact.json` at its root, whatever its `exports` "." names (LLP 1154 D2, D3):
 
-### A package's library and web assets
+```json
+"native": {
+  "rust": "native/lib.rs", "class": "Vault", "link": "vault",
+  "library": { "aarch64-apple-darwin": { "url": "https://…/vault.xcframework.zip", "sha256": "…" } }
+},
+"web": { "assets": ["web/device.wasm"] }
+```
 
-A package whose root `exact.json` declares `native` may carry a prebuilt dynamic library
-(LLP 1154 D3): `native.link` is its name and `native.library` pins one `{"url", "sha256"}`
-per Rust target, for Linux a shared object whose SONAME is exactly `lib<link>.so`, and for
-Apple a zip of one `.xcframework` whose slice for the target is `<link>.framework`,
-installed as `@rpath/<link>.framework/…`. A native build fetches the target's file by its
-hash before Cargo runs, links it, and puts it beside a Linux executable or, signed, in an
-Apple bundle's `Frameworks`. A wrong hash, or a target the declaration does not name, fails
-the build by name. `web.assets` lists files in the package that the web build serves at
-`/assets/<package>/<path>`, captured with the package's code.
+`rust` is the shim's root file, relative to `exact.json`, and `class` a type in it that
+implements `exact_js::NativeModule` and has `fn new(app: &str) -> Self`; the shim names only
+`exact_js` and `std`. A native build joins it to the app's crate and attaches it (an app with
+its own `Cargo.toml` writes `.with_native(exact_native)` in `embedded_data`). Its
+`configure_storage` gets the app's roots and `sqlite(path)`, which admits `sqlite.open` under
+the app's grants and answers a `SqliteFile` guard: while the module holds it, the app's own
+`storage.sqlite` is refused the file, so the module closes its own SQLite before dropping it.
+`library` pins one `{url, sha256}` per Rust target of a dynamic library named `link`: for
+Linux a shared object whose SONAME is `lib<link>.so`, for Apple a zip of one `.xcframework`
+whose slice is `<link>.framework`, installed as `@rpath/<link>.framework/…`. The build
+fetches it by its hash before Cargo, links it from the shim's `#[link(name = "<link>")]`, and
+carries it beside a Linux executable or, signed, in an Apple bundle's `Frameworks`.
+`web.assets` are served at `/assets/<package>/<path>`, captured with the package's code when
+`app.ts` imports it. A wrong hash, a target `library` does not name and two dependencies
+declaring `native` (`bake-native-twice`) each fail the build by name.
+`packages/fixtures/vault` is a whole one, its library built by `test/library.mjs`.
 
 ## Routes and web documents
 

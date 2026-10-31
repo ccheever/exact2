@@ -1,57 +1,66 @@
-// @fixture/vault on the Linux host, headless (LLP 1154 §3 item 4, as far as
-// the shim goes): the fixture app made outside the repo, its generated Linux
-// crate built with the package's shim on the data module's native slot, and
-// driven.
+// @fixture/vault on the Linux host, headless, and on the web (LLP 1154 §6 M5): the package built with its library
+// (library.mjs) and the fixture app depending on it (fixture.mjs). On a Mac the Linux host is built for the Mac's
+// target and links the xcframework's macOS framework, as `bun exact.mjs linux` builds it.
 //
-// - The bake wrote the factory into module.rs, and the generated shell
-//   attached it: the shim's own answer is shown.
-// - `open` of a path the app's grants do not cover is refused, naming the
-//   grant that would admit it; of a granted one, it is admitted.
-// - While the shim holds the file, the app's own `storage.sqlite.open` of
-//   it is refused; after `close` it is admitted, and while the app holds it
-//   the shim's `open` is refused.
+// - A copy of the package that declares a wrong hash is refused by the build, both hashes named.
+// - The bake joined the shim and wrote the factory; the build carries the library beside the executable.
+// - With the fetched library deleted, the drive (fixture.mjs STEPS) gets the library's answer, an ungranted path
+//   refused with the grant named, the file opened by the library's SQLite with its row count, and the app's own open
+//   of it refused while the library holds it and admitted after; and nothing fetched the library again.
+// - The web build serves the declared asset at /assets/@fixture/vault/web/device.wasm as application/wasm.
 //
-// usage: bun packages/fixtures/vault/test/linux.mjs [<app dir>]
-//   (an app already made by fixture.mjs is reused, and built again)
+// usage: bun packages/fixtures/vault/test/linux.mjs [<dir>]   (a directory a run made is reused, its apps built again)
+import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { checker, makeFixture, run } from './fixture.mjs';
+import { TARGET } from './library.mjs';
+import { checker, drive, fetched, forget, makeFixture, refused, root, run, workDir, wrongHash } from './fixture.mjs';
 
-const given = process.argv[2] && resolve(process.argv[2]);
-const app = given && existsSync(given) ? given : makeFixture(...(given ? [given] : []));
+const given = process.argv[2], dir = workDir(given);
+const { pkg, library, app, wrongApp } = makeFixture(dir);
 const { check, failed } = checker();
-run('bun', ['exact.mjs', 'linux'], app);
+const target = process.platform === 'darwin' ? 'aarch64-apple-darwin' : TARGET;
 
-// The bake's module.rs for the Linux crate, wherever Cargo put its OUT_DIR; the bake writes the shim's canonical path.
+const wrong = refused('bun', ['exact.mjs', 'linux'], wrongApp) ?? '';
+check('linux', 'a declared hash the library does not have is refused, both named', wrong.includes(`@fixture/vault: ${wrongHash(library, target)}`) && wrong.includes('nothing was linked'), wrong.slice(0, 2000));
+
+const built = run('bun', ['exact.mjs', 'linux'], app).trim().split('\n');
+const binary = built.at(-2);
+// The bake's module.rs for the Linux crate, wherever Cargo put its OUT_DIR; the bake writes the installed shim's
+// canonical path.
 const modules = [];
-const walk = (dir, depth) => {
-  for (const entry of (() => { try { return readdirSync(dir, { withFileTypes: true }); } catch { return []; } })()) {
-    const at = join(dir, entry.name);
-    if (entry.isDirectory() && depth > 0) walk(at, depth - 1);
-    else if (entry.name === 'module.rs' && at.includes('-linux-') && at.endsWith(join('out', 'module.rs'))) modules.push(at);
+const walk = (at, depth) => {
+  for (const entry of (() => { try { return readdirSync(at, { withFileTypes: true }); } catch { return []; } })()) {
+    const path = join(at, entry.name);
+    if (entry.isDirectory() && depth > 0) walk(path, depth - 1);
+    else if (entry.name === 'module.rs' && path.endsWith(join('out', 'module.rs'))) modules.push(path);
   }
 };
 walk(join(app, 'target'), 5);
 const module = modules.map(file => readFileSync(file, 'utf8')).find(text => text.includes('exact_native')) ?? '';
-check('bake', 'module.rs joins the shim and writes the factory', module.includes(`#[path = "${realpathSync(resolve(import.meta.dir, '../native/lib.rs'))}"]`) && module.includes('Box::new(exact_native_shim::Vault::new(APP))'), modules.join(', ') || 'no module.rs found');
+check('linux', 'module.rs joins the shim and writes the factory', module.includes(`#[path = "${realpathSync(join(app, 'node_modules/@fixture/vault/native/lib.rs'))}"]`) && module.includes('Box::new(exact_native_shim::Vault::new(APP))'), modules.join(', ') || 'no module.rs found');
+const carried = process.platform === 'darwin' ? 'vault.framework/Versions/A/vault' : 'libvault.so';
+check('linux', `the build carries the library beside the executable (${carried})`, !!binary && existsSync(join(dirname(binary), carried)), binary);
 
-const drive = (...args) => run('bun', ['exact.mjs', 'agent', 'linux', '--reset-storage', '--json', ...args], app).trim().split('\n').map(l => JSON.parse(l));
-const last = (tree) => (tree.nodes ?? []).find(n => n.props?.testId === 'last')?.props?.text ?? '';
-const steps = [
-  ['ping', 'the shim answers, through the factory the shell attached', t => t.startsWith('vault 7f3a for ')],
-  ['open-ungranted', 'an ungranted path is refused, naming the grant', t => t.includes('app:/data/other.sqlite: no grant covers it; grant `sqlite.open app:/data/other.sqlite`')],
-  ['open', 'a granted path is admitted at its real path, made new', t => t === 'opened vault.sqlite (new)'],
-  ['own-open', 'while the shim holds it, the app\'s own open is refused', t => t.startsWith('refused: ') && t.includes('vault.sqlite is reserved for another SQLite library')],
-  ['close', 'the shim lets it go', t => t === 'closed'],
-  ['own-open', 'after close the app\'s own open is admitted', t => t === 'own opened'],
-  ['open', 'while the app holds it, the shim\'s open is refused', t => t.includes('app:/data/vault.sqlite is open in the app\'s own storage')],
-  ['own-close', 'the app lets it go', t => t === 'own closed'],
-  ['open', 'then the shim\'s open is admitted, and the file was there', t => t === 'opened vault.sqlite (kept)'],
-];
-const out = drive('clock settle', ...steps.flatMap(([id]) => [`tap ${id}`, 'clock settle', 'tree']));
-steps.forEach(([id, name, ok], i) => {
-  const text = last(out[1 + i * 3 + 2]);
-  check('linux', `${id}: ${name}`, ok(text), text);
-});
-if (!given) rmSync(dirname(app), { recursive: true, force: true });
+forget(library);
+drive(check, 'linux', app);
+check('linux', 'the drive loaded the library the build carries: nothing fetched it again', !fetched(library), 'the cache holds it again');
+
+// The web: the declared asset, captured with the package app.ts imports, served from the build.
+run('bun', ['exact.mjs', 'web-build', '--out', 'dist'], app);
+const asset = join(app, 'dist/assets/@fixture/vault/web/device.wasm'), bytes = readFileSync(join(pkg, 'web/device.wasm'));
+check('web', 'the build holds the declared asset with the package\'s bytes', existsSync(asset) && readFileSync(asset).equals(bytes), asset);
+const port = 20000 + Math.floor(Math.random() * 20000);
+const server = spawn('bun', [resolve(root, 'host/web/serve.mjs'), join(app, 'dist'), '--port', String(port), '--loopback'], { stdio: 'ignore' });
+try {
+  let response;
+  for (let i = 0; i < 200 && !response; i++) {
+    response = await fetch(`http://127.0.0.1:${port}/assets/@fixture/vault/web/device.wasm`).catch(() => null);
+    if (!response) await Bun.sleep(50);
+  }
+  const served = response?.ok ? Buffer.from(await response.arrayBuffer()) : null;
+  check('web', 'serve.mjs serves it at /assets/<package>/<path> as application/wasm, a module the browser compiles', response?.headers.get('content-type') === 'application/wasm' && served?.equals(bytes) && WebAssembly.validate(served), `${response?.status} ${response?.headers.get('content-type')}`);
+} finally { server.kill(); }
+
+if (!given) rmSync(dir, { recursive: true, force: true });
 process.exit(failed() ? 1 : 0);

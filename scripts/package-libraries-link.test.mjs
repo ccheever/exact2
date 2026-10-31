@@ -1,35 +1,30 @@
 // LLP 1154 D3: a package's prebuilt library, linked into an app `exact new` made outside the repo and carried with
-// it, found where the product is at run time. The library is a cdylib built here from a few lines of Rust whose one
-// function answers a number nothing else knows; the package is a copy of @fixture/tally whose Linux implementation
-// shows that number in its status, with a shim on the native slot that answers it too, and whose exact.json declares
-// the library for this machine's target by a file: URL and its hash. The tests share one app, and each builds it for
-// its host, which takes minutes, so none runs in a lane. Run the file by name:
+// it, found where the product is at run time: how each product links and carries it. The package is
+// @fixture/vault built with its library (packages/fixtures/vault/test/library.mjs); what the app then does with it, on
+// each host, is that fixture's own suites' (packages/fixtures/vault/test/linux.mjs, apple.mjs). The tests share one
+// app, and each builds it for its host, which takes minutes, so none runs in a lane. Run the file by name:
 //   bun test scripts/package-libraries-link.test.mjs
 //
 // - The Linux host (on a Mac, the Linux host built for the Mac's target, as `bun exact.mjs linux` builds it): the
-//   library sits beside the executable, which loads it by its run path alone; with the cache's copy removed, a drive
-//   bound to the implementation shows the library's number, through the Linux implementation and through the shim
-//   on the data module's native slot.
-// - The web: the package's declared asset, captured with the package app.ts imports, is in the build at
-//   /assets/<package>/<path> with the package's bytes, and serve.mjs serves it there; delivery's wasm-target bake of
-//   the same app links no library and succeeds.
+//   library sits beside the executable, which names it by its run path alone.
+// - The web: the package's declared asset, captured with the package app.ts imports, is in the build with the
+//   package's bytes; delivery's wasm-target bake of the same app links no library and succeeds.
 // - The macOS app (a Mac only): the framework is in the bundle's Frameworks, signed, loaded by the executable through
 //   `@rpath` and a run path inside the bundle; launched with the cache's copy removed, dyld loads it from there. Its
 //   `--embed` output carries the framework and names it in capabilities.json.
 // - The iOS app on a simulator of the test's own (a Mac only): the same, from the installed app's container.
 import { afterAll, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { LIBRARY_CACHE } from './package-libraries.mjs';
+import { forget, makeApp } from '../packages/fixtures/vault/test/fixture.mjs';
+import { buildPackage } from '../packages/fixtures/vault/test/library.mjs';
 
-const root = resolve(import.meta.dir, '..'), tally = resolve(root, 'packages/fixtures/tally');
+const root = resolve(import.meta.dir, '..');
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'exact-package-library-')));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }), 300_000);
-const ANSWER = 4217, mac = process.platform === 'darwin';
+const mac = process.platform === 'darwin';
 const target = /^host: (.+)$/m.exec(spawnSync('rustc', ['-vV'], { encoding: 'utf8' }).stdout)[1];
 
 const run = (cmd, args, cwd, env = process.env) => {
@@ -38,143 +33,16 @@ const run = (cmd, args, cwd, env = process.env) => {
   return r.stdout;
 };
 
-/** The library for this machine's target: on a Mac a zipped xcframework of a macOS framework and an iOS simulator's,
- * declared for both targets, else `libvault.so`. Returns the declaration's `native.library`. */
-function buildLibrary() {
-  const dir = join(scratch, 'library');
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'lib.rs'), `#[no_mangle]\npub extern "C" fn vaultlib_answer() -> i32 {\n    ${ANSWER}\n}\n`);
-  const cdylib = (out, ...flags) => run('rustc', ['--edition', '2021', '--crate-type', 'cdylib', '-O', '--target', target, 'lib.rs', '-o', out, ...flags], dir);
-  const plist = (keys = '') => `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict><key>CFBundleExecutable</key><string>vault</string><key>CFBundleIdentifier</key><string>dev.exact.fixture.vault</string><key>CFBundlePackageType</key><string>FMWK</string><key>CFBundleVersion</key><string>1</string>${keys}</dict></plist>
-`;
-  let file;
-  if (mac) {
-    const fw = join(dir, 'mac/vault.framework');
-    mkdirSync(join(fw, 'Versions/A/Resources'), { recursive: true });
-    cdylib(join(fw, 'Versions/A/vault'), '-C', 'link-arg=-Wl,-install_name,@rpath/vault.framework/Versions/A/vault');
-    symlinkSync('A', join(fw, 'Versions/Current'));
-    symlinkSync('Versions/Current/vault', join(fw, 'vault'));
-    symlinkSync('Versions/Current/Resources', join(fw, 'Resources'));
-    writeFileSync(join(fw, 'Versions/A/Resources/Info.plist'), plist());
-    // An iOS framework is flat (Apple's "Bundle Programming Guide", "Anatomy of Framework Bundles").
-    const sim = join(dir, 'sim/vault.framework');
-    mkdirSync(sim, { recursive: true });
-    run('rustc', ['--edition', '2021', '--crate-type', 'cdylib', '-O', '--target', 'aarch64-apple-ios-sim', 'lib.rs', '-o', join(sim, 'vault'), '-C', 'link-arg=-Wl,-install_name,@rpath/vault.framework/vault'], dir);
-    writeFileSync(join(sim, 'Info.plist'), plist('<key>MinimumOSVersion</key><string>17.0</string>'));
-    for (const f of [fw, sim]) run('codesign', ['--force', '--sign', '-', f], dir);
-    run('xcodebuild', ['-create-xcframework', '-framework', fw, '-framework', sim, '-output', join(dir, 'vault.xcframework')], dir);
-    file = join(dir, 'vault.xcframework.zip');
-    run('ditto', ['-c', '-k', '--keepParent', 'vault.xcframework', file], dir);
-  } else cdylib(file = join(dir, 'libvault.so'), '-C', 'link-arg=-Wl,-soname,libvault.so');
-  const entry = { url: pathToFileURL(file).href, sha256: createHash('sha256').update(readFileSync(file)).digest('hex') };
-  return { [target]: entry, ...(mac ? { 'aarch64-apple-ios-sim': entry } : {}) };
-}
-
-const WASM = Buffer.concat([Buffer.from([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]), Buffer.from(`only the package has these bytes ${ANSWER}`)]);
-/** @fixture/tally with the library declared and two callers of it: its Linux implementation's status names the
- * library's answer, and a shim on the data module's native slot (LLP 1154 D3) answers `{op: "answer"}` with it. And a
- * module app.ts imports beside a declared web asset. */
-function makePackage(library) {
-  const pkg = join(scratch, 'tally');
-  cpSync(tally, pkg, { recursive: true, filter: (from) => !from.includes(`${tally}/test`) });
-  const declaration = JSON.parse(readFileSync(join(pkg, 'exact.json'), 'utf8'));
-  declaration.native = { rust: 'native/lib.rs', class: 'VaultShim', link: 'vault', library };
-  mkdirSync(join(pkg, 'native'));
-  writeFileSync(join(pkg, 'native/lib.rs'), `//! The test's shim: it names exact_js and std alone, and asks the library.
-use exact_js::{json, Json, NativeModule, NativeStorage};
-
-#[link(name = "vault")]
-extern "C" {
-    fn vaultlib_answer() -> i32;
-}
-
-pub struct VaultShim;
-
-impl VaultShim {
-    pub fn new(_app: &str) -> Self {
-        VaultShim
-    }
-}
-
-impl NativeModule for VaultShim {
-    fn configure_storage(&mut self, _storage: NativeStorage) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn call(&mut self, request: &Json) -> Result<Json, String> {
-        match request["op"].as_str() {
-            Some("answer") => Ok(json!({ "text": format!("{}", unsafe { vaultlib_answer() }) })),
-            _ => Err("the shim answers answer".into()),
-        }
-    }
-}
-`);
-  declaration.web = { assets: ['web/device.wasm'] };
-  mkdirSync(join(pkg, 'web'));
-  writeFileSync(join(pkg, 'web/device.wasm'), WASM);
-  writeFileSync(join(pkg, 'driver.js'), "export const driver = 'tally driver';\n");
-  writeFileSync(join(pkg, 'driver.d.ts'), 'export declare const driver: string;\n');
-  const manifest = JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8'));
-  manifest.exports['./driver'] = { types: './driver.d.ts', default: './driver.js' };
-  writeFileSync(join(pkg, 'package.json'), JSON.stringify(manifest, null, 2));
-  writeFileSync(join(pkg, 'exact.json'), JSON.stringify(declaration, null, 2));
-  const source = readFileSync(join(pkg, 'linux/lib.rs'), 'utf8');
-  writeFileSync(join(pkg, 'linux/lib.rs'), source.replace('"platform": std::env::consts::OS,', '"platform": format!("{} {}", std::env::consts::OS, unsafe { vaultlib_answer() }),')
-    + '\nextern "C" {\n    fn vaultlib_answer() -> i32;\n}\n');
-  return pkg;
-}
-
-/** The fixture app, as packages/fixtures/tally/test/fixture.mjs makes it, depending on `pkg`. */
-function makeApp(pkg) {
-  const app = join(scratch, 'vaultfixture');
-  run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app], root);
-  // tally's fixture, with a button that asks the native slot and the answer shown under it.
-  writeFileSync(join(app, 'app.contract'), readFileSync(join(tally, 'test/fixture/app.contract'), 'utf8')
-    .replace('component Fixture\n', 'shape Asked\n  text: string\n\ncomponent Fixture\n  mutation asked as shape Asked\n  action ask\n    send asked = vault()\n')
-    .replace('      button press=add testId="add"\n', `      button press=ask testId="ask"
-        text "Ask the library"
-      match asked
-        case some(a)
-          text a.text testId="asked"
-        case none
-          text "none" testId="asked"
-      button press=add testId="add"
-`));
-  rmSync(join(app, 'app.test.contract'), { force: true });
-  const id = JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).app.id;
-  writeFileSync(join(app, 'app.ts'), `import { driver } from '@fixture/tally/driver';
-import type { Answer, Sources } from './app.contract.d.ts';
-
-void driver;
-export const appId = '${id}';
-export const grants = '';
-
-const sources: Sources = {
-  vault: async (_args, _store, _storage, native) => ({ text: native?.available ? String(native.call({ op: 'answer' }).text) : 'no native module' }),
-};
-
-export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
-`);
-  const manifest = JSON.parse(readFileSync(join(app, 'package.json'), 'utf8'));
-  manifest.dependencies = { ...manifest.dependencies, '@fixture/tally': `file:${pkg}` };
-  writeFileSync(join(app, 'package.json'), JSON.stringify(manifest, null, 2));
-  run('bun', ['install'], app);
-  return app;
-}
-
 let made;
 const fixture = () => {
   if (made) return made;
-  const library = buildLibrary();
-  return made = { library, app: makeApp(makePackage(library)) };
+  const { pkg, library } = buildPackage(join(scratch, 'build'));
+  return made = { pkg, library, app: makeApp(join(scratch, 'vaultfixture'), pkg) };
 };
-const forget = (library) => rmSync(join(LIBRARY_CACHE, library[target].sha256), { recursive: true, force: true });
 const rpaths = (binary) => [...run('otool', ['-l', binary], scratch).matchAll(/cmd LC_RPATH\n\s+cmdsize \d+\n\s+path (\S+)/g)].map(m => m[1]);
 
-test('the Linux host links the library, carries it beside its executable, and answers with it', () => {
-  const { app, library } = fixture();
+test('the Linux host links the library and carries it beside its executable, which finds it by its run path', () => {
+  const { app } = fixture();
   const built = run('bun', ['exact.mjs', 'linux'], app).trim().split('\n');
   const binary = built.at(-2);
   if (mac) {
@@ -187,36 +55,16 @@ test('the Linux host links the library, carries it beside its executable, and an
     expect(dynamic).toContain('Shared library: [libvault.so]');
     expect(dynamic).toMatch(/R(UN)?PATH.*\[\$ORIGIN\]/);
   }
-  // Only the copy beside the executable is left to load.
-  forget(library);
-  const lines = run('bun', ['exact.mjs', 'agent', 'linux', '--reset-storage', '--json', '--bind', 'tally', 'clock settle', 'tap ask', 'clock settle', 'tree'], app).trim().split('\n').map(l => JSON.parse(l));
-  const text = (id) => lines.at(-1).nodes.find(n => n.props?.testId === id)?.props.text;
-  // Through the native slot: the bake's generated factory, the shim, and the library.
-  expect(text('asked')).toBe(String(ANSWER));
-  const status = text('status');
-  expect(status).toBe(`true ${{ darwin: 'macos', linux: 'linux' }[process.platform]} ${ANSWER} 0 true`);
 }, 3_600_000);
 
-test('the web build serves the package\'s declared asset at /assets/<package>/<path>', async () => {
-  const { app } = fixture();
+test('the web build carries the package\'s declared asset, and delivery\'s web bake links no library', () => {
+  const { app, pkg } = fixture();
   run('bun', ['exact.mjs', 'web-build', '--out', 'dist'], app);
+  expect(readFileSync(join(app, 'dist/assets/@fixture/vault/web/device.wasm'))).toEqual(readFileSync(join(pkg, 'web/device.wasm')));
   // Delivery's bake of the web crate (scripts/deploy.mjs `bake`) links no native library, whatever the package declares.
   const baked = join(scratch, 'web-bake');
   run('bun', [resolve(root, 'host/web/build.mjs'), 'vaultfixture-web', '--bake'], root, { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: baked });
   expect(existsSync(join(baked, 'exact.json'))).toBe(true);
-  expect(readFileSync(join(app, 'dist/assets/@fixture/tally/web/device.wasm'))).toEqual(WASM);
-  const port = 20000 + Math.floor(Math.random() * 20000);
-  const server = spawn('bun', [resolve(root, 'host/web/serve.mjs'), join(app, 'dist'), '--port', String(port), '--loopback'], { stdio: 'ignore' });
-  try {
-    let response;
-    for (let i = 0; i < 200 && !response; i++) {
-      response = await fetch(`http://127.0.0.1:${port}/assets/@fixture/tally/web/device.wasm`).catch(() => null);
-      if (!response) await Bun.sleep(50);
-    }
-    expect(response?.status).toBe(200);
-    expect(response.headers.get('content-type')).toBe('application/wasm');
-    expect(Buffer.from(await response.arrayBuffer())).toEqual(WASM);
-  } finally { server.kill(); }
 }, 3_600_000);
 
 test.skipIf(!mac)('the macOS app embeds the framework, signed, and dyld loads it from the bundle', async () => {
@@ -251,7 +99,7 @@ test.skipIf(!mac)('the macOS app embeds the framework, signed, and dyld loads it
   const embed = /^host\/apple: (\S+) — /m.exec(embedded)?.[1];
   const at = embed.startsWith('/') ? embed : resolve(root, embed);
   expect(existsSync(join(at, 'Frameworks/vault.framework/Versions/A/vault'))).toBe(true);
-  expect(JSON.parse(readFileSync(join(at, 'capabilities.json'), 'utf8')).frameworks).toEqual([{ path: 'Frameworks/vault.framework', package: '@fixture/tally', sha256: library[target].sha256, linkerFlags: ['-F', 'Frameworks', '-framework', 'vault', '-Xlinker', '-rpath', '-Xlinker', '@executable_path/../Frameworks'], embed: true }]);
+  expect(JSON.parse(readFileSync(join(at, 'capabilities.json'), 'utf8')).frameworks).toEqual([{ path: 'Frameworks/vault.framework', package: '@fixture/vault', sha256: library[target].sha256, linkerFlags: ['-F', 'Frameworks', '-framework', 'vault', '-Xlinker', '-rpath', '-Xlinker', '@executable_path/../Frameworks'], embed: true }]);
 }, 3_600_000);
 
 test.skipIf(!mac)('the iOS app on a simulator embeds the framework, signed, and dyld loads it from the bundle', async () => {

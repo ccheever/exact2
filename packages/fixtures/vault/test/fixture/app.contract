@@ -9,8 +9,8 @@ component Fixture
     send last = vault(op, path)
   view
     column gap=8 padding=16
-      button press=ask("ping", "") testId="ping"
-        text "Ping"
+      button press=ask("answer", "") testId="answer"
+        text "Ask the library"
       button press=ask("open", "app:/data/vault.sqlite") testId="open"
         text "Open the vault"
       button press=ask("open", "app:/data/other.sqlite") testId="open-ungranted"

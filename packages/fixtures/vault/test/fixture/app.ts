@@ -1,4 +1,8 @@
+import { deviceUrl } from '@fixture/vault';
 import type { Answer, Sources } from './app.contract.d.ts';
+
+// The package's driver: importing it is what captures the package and its declared web asset.
+void deviceUrl;
 
 // The suite writes the id `exact new` gave the app.
 export const appId = '__APP_ID__';
