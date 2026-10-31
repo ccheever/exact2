@@ -207,6 +207,15 @@ test('the compiler\'s warnings: a group before the tests, by rule as findings ar
   assert.equal(many.exit, 0);
 });
 
+// `tamber-unreachable` names where the platform's own look stands: said, never counted (LLP 1121 D9, 2026-10-30).
+test('a compiler warning that is information is said apart and not counted', () => {
+  const note = 'app.contract:32:62 warning [tamber-unreachable] accent-color on macOS switches: NSSwitch draws the system accent (the first at line 34; LLP 1121 D9)';
+  const r = report({ host: 'web', built: null, compiler: [note], tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000 });
+  assert.deepEqual(r.lines.slice(0, 2), ['compiler: 1 note, not counted (the platform\'s own look stands there; LLP 1121 D9)', `  ${note}`]);
+  assert.equal(r.lines.at(-1), 'verify: clean in 4.0 s');
+  assert.equal(r.problems, 0);
+});
+
 // The compiler's text form says the SF Symbols only the web draws blank in one line (the euxy port's 21 hid its header
 // warning); verify reads the build's JSON, so its count is every warning (22, not 2), each in the text form's line.
 test('the compiler\'s warnings are read from the build\'s JSON, every one, in the text form\'s lines', () => {

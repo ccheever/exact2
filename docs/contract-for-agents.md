@@ -4165,13 +4165,15 @@ A native control takes `accent-color` and, a field, the design's `Field`,
 schema's control-role table says which, per host
 (`docs/control-roles-measured.md`). For each target the app ships (not the
 terminal, which draws no colour, nor tvOS or watchOS, which have no column), a
-parameter you set that the host there does not honour is warned of once
+parameter you set that the host there does not honour is said once, one line
+for each declaration that sets it, naming every host and control
 (`tamber-unreachable: accent-color on macOS switches: NSSwitch draws the
 system accent (the first at line 12; LLP 1121 D9)`): the platform's look is
 the answer there, or a control of your own (`appearance="none"`, or a styled
-pressable for a disabled prominent button). A field's own `color`,
-`background-color` (or `background`) or `::placeholder color` wins over the
-role, so it is not judged.
+pressable for a disabled prominent button). It is information, not a
+problem: `verify` and `test` say it as a note and do not count it. A field's
+own `color`, `background-color` (or `background`) or `::placeholder color`
+wins over the role, so it is not judged.
 
 A background, border or radius makes it your own box, as in a browser;
 `appearance="none"` says so explicitly. This is decided once after classes

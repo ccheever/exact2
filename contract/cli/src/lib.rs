@@ -822,6 +822,12 @@ pub fn web_only(warning: &CompileError) -> bool {
     contract_lower::warning_rank::web_only(&warning.id, &warning.message)
 }
 
+/// A warning that is information, not a problem
+/// ([`contract_lower::warning_rank::information`]).
+pub fn information(warning: &CompileError) -> bool {
+    contract_lower::warning_rank::information(&warning.id)
+}
+
 /// [`web_only`] for a warning as it is said (`file:line:col warning [id] message`).
 pub fn web_only_said(said: &str) -> bool {
     said.split_once(" warning [")

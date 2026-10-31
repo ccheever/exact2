@@ -21,8 +21,9 @@
 // ending "verify: clean" or "verify: N problems" (`--json`: one object). Exit 1 when the build, a test, a launch
 // or the relaunch fails; check's findings, the relaunch's, those at the largest text size and the compiler's warnings
 // (`contract build`'s, whether or not this run built) are counted in the last line but never fail it, since check reads the screen
-// by heuristics and some of either only advise. The web's tests and its two launches run at once; a simulator
-// takes one drive at a time, and runs the tests with UIKit's bars (`--chrome platform`) so their end screens
+// by heuristics and some of either only advise; a warning that is information (`tamber-unreachable`) is said, not
+// counted. The web's tests and its two launches run at once; a simulator takes one drive at a time, and runs the
+// tests with UIKit's bars (`--chrome platform`) so their end screens
 // are what a person sees. An app with a server of its own (the `rest` pattern's) has it run by verify, where the
 // app calls it, on an empty scratch database kept through the run and removed after (LLP 1116.006 D3, `appServer`); a server
 // entry that does not read DB is refused unless app.json declares server.database: false (LLP 1116.008 D1).
@@ -43,7 +44,7 @@ import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { availableParallelism, loadavg, networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { findings as feelFindings, summary as feelSummary } from '../host/apple/feel/analyze.mjs';
-import { compilerWarnings, windowsWindow } from './app-cli.mjs';
+import { compilerWarnings, information, windowsWindow } from './app-cli.mjs';
 import { guardFlags } from './help.mjs';
 import { holderOf, takePort } from './port-lock.mjs';
 import { backendOriginSelection, privateNetwork } from '../js/bake/src/typescript.mjs';
@@ -1179,12 +1180,19 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     if (built.warnings.length > WARNINGS) out.push(`  … and ${built.warnings.length - WARNINGS} more (bun exact.mjs web-build prints them all)`);
     findings += built.warnings.length; counted('build warning', built.warnings.length);
   }
-  // The compiler's warnings, each as `contract build` says it (LLP 1116.004 D7): findings, never a failure.
-  if (compiler.length) {
-    const lines = compiler.map((w) => `  ${w}`);
-    out.push(`compiler: ${plural(compiler.length, 'warning')}`, ...byRule(lines));
-    full.push(`compiler: ${plural(compiler.length, 'warning')} (bun exact.mjs contract build app.contract quotes each line)`, ...lines);
-    findings += compiler.length; for (const w of compiler) counted(ruleOf(w));
+  // The compiler's warnings, each as `contract build` says it (LLP 1116.004 D7): findings, never a failure. Those that
+  // are information (`information`: the platform's look stands) are said apart and not counted.
+  const warned = compiler.filter((w) => !information(w)), noted = compiler.filter(information);
+  if (warned.length) {
+    const lines = warned.map((w) => `  ${w}`);
+    out.push(`compiler: ${plural(warned.length, 'warning')}`, ...byRule(lines));
+    full.push(`compiler: ${plural(warned.length, 'warning')} (bun exact.mjs contract build app.contract quotes each line)`, ...lines);
+    findings += warned.length; for (const w of warned) counted(ruleOf(w));
+  }
+  if (noted.length) {
+    const head = `compiler: ${plural(noted.length, 'note')}, not counted (the platform's own look stands there; LLP 1121 D9)`, lines = noted.map((w) => `  ${w}`);
+    out.push(head, ...byRule(lines));
+    full.push(head, ...lines);
   }
   if (tested?.none) out.push('tests: none (no *.test.contract)');
   if (tested?.error) {
@@ -1360,7 +1368,7 @@ async function deviceMain(argv, emitJSON, declined, ended) {
   console.error(`verify ${host}: about ${Math.round((last ?? ESTIMATE[host]) / 1000)} s${last ? ', as its last run took' : ''}; one report when it ends`);
   const built = host === 'web' ? await webBuild(app) : host === 'windows' ? await windowsBuild(app) : host === 'android' ? await (await import('./agent-android.mjs')).apkBuildFirst(app) : await iosBuild(app);
   // The build said the compiler's warnings when it ran; the report's own group says them whether it ran or not.
-  if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length && !/^compiler: \d+ warnings?[,;]/.test(line)); }
+  if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length && !/^compiler: \d+ (?:warnings?|notes?)\b/.test(line)); }
   if (built?.code) {
     const tail = host === 'web' ? built.output.split('\n').filter((l) => l.trim()).slice(-20) : built.said;
     if (json) emitJSON({ host, built: { ms: built.ms, code: built.code, said: tail }, problems: 1, exit: built.code });

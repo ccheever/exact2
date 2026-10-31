@@ -35,7 +35,8 @@ export function warningLines(dir, host, warnings) {
   if (!warnings.length) return [];
   const fresh = before ? warnings.filter((w) => !before.has(w)) : warnings;
   const where = shown.startsWith('..') ? file : shown;
-  const count = `compiler: ${warnings.length} warning${warnings.length === 1 ? '' : 's'}`;
+  const noted = warnings.filter(information).length, counted = warnings.length - noted;
+  const count = `compiler: ${[(counted || !noted) && `${counted} warning${counted === 1 ? '' : 's'}`, noted && `${noted} note${noted === 1 ? '' : 's'} (not counted)`].filter(Boolean).join(' and ')}`;
   if (!fresh.length) return [`${count}, as before (${where} lists them; bun exact.mjs contract build quotes each line)`];
   // In the compiler's order (`contract::warning_rank`), the symbols only the web draws blank one line: 21 of them hid
   // the euxy port's header warning.
@@ -43,6 +44,11 @@ export function warningLines(dir, host, warnings) {
   const group = web.length ? [`${web[0].split(' warning [')[0]} warning [lower-symbol-platform] ${web.length} SF Symbol use${one ? '' : 's'} draw${one ? 's' : ''} blank on the web, here first: an icon token or a role draws on every host (${where} lists each, and how)`] : [];
   return [...fresh.filter((w) => !webOnly(w)), ...group, `${count}${fresh.length < warnings.length ? `, ${fresh.length} new (above)` : ''}; ${where} lists them all`];
 }
+
+/** A compiler warning that is information, not a problem: `tamber-unreachable` names a control whose host draws the
+ *  platform's own look, which the author should know of and cannot change (LLP 1121 D9, amended 2026-10-30). A drive
+ *  and verify say it but do not count it. contract's `warning_rank::information` is the same test. */
+export const information = (w) => / warning \[tamber-unreachable\] /.test(w);
 
 /** A compiler warning only the web's picture shows: an SF Symbol drawn blank where the web is the one target besides
  *  Apple's (contract's `web_only`). Its first use names the targets, `ships web (…), where it is blank`; a later one,
