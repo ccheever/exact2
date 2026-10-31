@@ -8366,3 +8366,9 @@ worker acquires and copies only after show returns, and returns the scheduled
 drawable to the main thread for presentation in the same turn. Subsequent
 frames keep their existing worker presentation. The compose target, resource
 retirement, archive-miss compilation and positive-timestamp retry remain.
+
+The trace reducer joins Ink's copy encoding to the following commit on that
+worker and retains the main-thread drawable-present request separately. The
+probe's thread-local preceding-commit marker can name the earlier compose
+pass on main; it remains the join for GPUI's same-thread transaction path.
+Presentation-to-display intervals below start at the actual present request.

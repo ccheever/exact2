@@ -218,7 +218,7 @@ def run(args):
                                 trace = read(Path(str(output) + '.trace.json'))
                                 assert trace['dropped'] == 0
                                 names = {e['name'] for e in trace['traceEvents']}
-                                assert names & {'probe present commit', 'probe direct present preceding commit'}, 'presentation commit not observed'
+                                assert names & {'probe present commit', 'probe direct present request'}, 'presentation request not observed'
                                 assert 'probe presented' in names
                             record['accepted'] = True
                         except BaseException as error:
@@ -275,6 +275,16 @@ def sample(path, traced=True):
         values = [e['end' if finish else 'start'] - start for e in events
                   if e['name'] == name and start <= e['start'] <= end]
         return min(values) if values else None
+    present_commit = min((v for v in [first('probe present commit', True),
+                         first('probe direct present preceding commit', True)] if v is not None), default=None)
+    if result['arm'] == 'ink' and first('probe direct present request') is not None:
+        # The copy commits on the worker; the direct present is on main. Its
+        # thread-local preceding-commit marker can name the earlier compose pass.
+        encodes = [e for e in events if e['name'] == 'present encode' and start <= e['start'] <= end]
+        encode = min(encodes, key=lambda e: e['start'], default=None)
+        present_commit = min((e['end'] - start for e in events if encode
+            and e['thread'] == encode['thread'] and encode['end'] <= e['start'] <= end
+            and e['name'] in {'probe command commit', 'probe present commit'}), default=None)
     milestones = {'constructor': result['preMainMs'], 'main': first('boot main'), 'host entry': first('boot host entry'),
                   'AppKit finished launching': first('AppKit did finish launching'),
                   'window created': first('boot window created'),
@@ -292,8 +302,9 @@ def sample(path, traced=True):
                   'window show returned': first('boot window shown'),
                   'first paint record': first('paint walk'),
                   'first paint record completed': first('paint walk', True),
-                  'first present committed': min((v for v in [first('probe present commit', True),
-                       first('probe direct present preceding commit', True)] if v is not None), default=None),
+                  'first present committed': present_commit,
+                  'first drawable present request': min((v for v in [first('probe present commit', True),
+                       first('probe direct present request')] if v is not None), default=None),
                   'first presented': result['firstDrawableMs'], 'complete screen': result['coldMs']}
     startup = result['startup']
     clocks = launch_clocks(startup)
