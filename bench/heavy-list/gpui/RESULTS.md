@@ -5924,3 +5924,37 @@ Each cell is one run's duration-weighted mean, with the singleton min/max.
 | Rest interior: process energy impact/s | 0.34 (0.34–0.34) | 1.23 (1.23–1.23) | 0.47 (0.47–0.47) | 0.09 (0.09–0.09) |
 | Rest interior: system GPU clock, MHz | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) |
 | Rest interior: system GPU active, % | 0.50 (0.50–0.50) | 0.83 (0.83–0.83) | 0.41 (0.41–0.41) | 0.39 (0.39–0.39) |
+
+### Separate power: bar attempt 1 — excluded
+
+`bar-power-1` runs one round with the hook off and power sampling on, after
+a **475.678 s** gate. **11 of 24** qualifying-gate/series observations
+fail: **0.641–2.398 busy cores**, with `duetexpertd` at
+**0.788 cores**. The whole series is excluded.
+The same interior PID join has **0.000072241 s** calibration spread.
+Each cell is one run's duration-weighted mean, with the singleton min/max.
+
+| Metric | Native | GPUI | Ink | egui |
+|---|---:|---:|---:|---:|
+| Bar interior: system CPU, W | 2.009 (2.009–2.009) | 1.884 (1.884–1.884) | 2.332 (2.332–2.332) | 1.834 (1.834–1.834) |
+| Bar interior: system GPU, W | 0.431 (0.431–0.431) | 0.700 (0.700–0.700) | 1.149 (1.149–1.149) | 0.661 (0.661–0.661) |
+| Bar interior: process energy impact/s | 19.23 (19.23–19.23) | 58.70 (58.70–58.70) | 57.62 (57.62–57.62) | 48.96 (48.96–48.96) |
+| Bar interior: system GPU clock, MHz | 342.7 (342.7–342.7) | 349.3 (349.3–349.3) | 371.1 (371.1–371.1) | 341.3 (341.3–341.3) |
+| Bar interior: system GPU active, % | 32.34 (32.34–32.34) | 46.68 (46.68–46.68) | 49.44 (49.44–49.44) | 45.01 (45.01–45.01) |
+
+### Separate power: bar attempt 2 — excluded
+
+`bar-power-2` runs one round with the hook off and power sampling on, after
+a **131.687 s** gate. **11 of 24** qualifying-gate/series observations
+fail: **0.680–2.565 busy cores**, with `WindowServer` at
+**0.439 cores**. The whole series is excluded.
+The same interior PID join has **0.000084162 s** calibration spread.
+Each cell is one run's duration-weighted mean, with the singleton min/max.
+
+| Metric | Native | GPUI | Ink | egui |
+|---|---:|---:|---:|---:|
+| Bar interior: system CPU, W | 1.758 (1.758–1.758) | 1.662 (1.662–1.662) | 1.902 (1.902–1.902) | 2.147 (2.147–2.147) |
+| Bar interior: system GPU, W | 0.530 (0.530–0.530) | 0.678 (0.678–0.678) | 1.151 (1.151–1.151) | 0.665 (0.665–0.665) |
+| Bar interior: process energy impact/s | 19.88 (19.88–19.88) | 57.62 (57.62–57.62) | 54.72 (54.72–54.72) | 53.01 (53.01–53.01) |
+| Bar interior: system GPU clock, MHz | 362.7 (362.7–362.7) | 338.2 (338.2–338.2) | 369.7 (369.7–369.7) | 361.2 (361.2–361.2) |
+| Bar interior: system GPU active, % | 38.63 (38.63–38.63) | 46.48 (46.48–46.48) | 49.22 (49.22–49.22) | 48.86 (48.86–48.86) |
