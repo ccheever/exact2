@@ -12,23 +12,30 @@
 //                                       a drive with This machine and both paired, opened at
 //                                       Settings › Connections, then the ops
 //   bun machines.mjs down [--many]      stops the selected servers
+//   bun machines.mjs older <name> [--version V] [--port N]
+//                                       the older-server stand-in in front of a running environment (default: on the
+//                                       server's port + 40, reporting OLDER.version)
 import { spawn } from "node:child_process";
 import { openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { drive } from "../second-environment/env.mjs";
-import { checkPort, envDir, fixturePaths, routeFile, routeOf, seed, startServer, stopServer } from "../second-environment/lib.mjs";
+import { checkPort, envDir, fixturePaths, recorded, routeFile, routeOf, seed, startServer, stopServer } from "../second-environment/lib.mjs";
 
 export const MACHINES = ["second", "third"];
 /** Seven saved environments plus This machine exercise searchable settings scope menus. */
 export const MANY_MACHINES = [...MACHINES, "fourth", "fifth", "sixth", "seventh", "eighth"];
-/** The environment `up --older` fronts with the older-server stand-in, its version, and the stand-in's port (the server's + 40). */
-export const OLDER = { name: "third", version: "0.0.46-nightly.20261001.1", portOffset: 40 };
+/**
+ * The environment `up --older` fronts with the older-server stand-in, its version, and the stand-in's port (the
+ * server's + 40). The version is on the client's channel (stable): the update dialog skips a server on another
+ * channel ("on the nightly channel", update-everything-logic.ts collectServerUpdateTargets).
+ */
+export const OLDER = { name: "third", version: "0.1.4", portOffset: 40 };
 
 /** Starts the older-server stand-in in front of a running environment (detached, recorded in its route.json); returns { pid, port }. */
-export async function startOlder(paths, server, { name = OLDER.name, version = OLDER.version } = {}) {
+export async function startOlder(paths, server, { name = OLDER.name, version = OLDER.version, port = server.port + OLDER.portOffset } = {}) {
   const running = routeOf(paths, name);
   if (running) return running;
-  const port = checkPort(server.port + OLDER.portOffset);
+  checkPort(port);
   const log = openSync(join(envDir(paths, name), "older-server.log"), "a");
   const child = spawn(process.execPath, [join(import.meta.dir, "older-server.mjs"), String(port), String(server.port), "--version", version], { stdio: ["ignore", log, log], detached: true });
   child.unref();
@@ -59,12 +66,19 @@ if (import.meta.main) {
           console.log(`${name}: older-server stand-in pid ${older.pid} port ${older.port}, reporting ${OLDER.version}`);
         }
       }
+    } else if (command === "older") {
+      const name = process.argv[3], server = recorded(paths, name);
+      if (!server) throw new Error(`${name}: no fixture server running`);
+      const flag = (key) => { const at = process.argv.indexOf(key); return at >= 0 ? process.argv[at + 1] : undefined; };
+      const version = flag("--version") ?? OLDER.version, port = flag("--port");
+      const older = await startOlder(paths, server, { name, version, ...(port ? { port: Number(port) } : {}) });
+      console.log(`${name}: older-server stand-in pid ${older.pid} port ${older.port}, reporting ${version}`);
     } else if (command === "down") {
       for (const name of machines) { const stopped = await stopServer(paths, name); console.log(`${name}: ${stopped ? `stopped pid ${stopped.pid}` : "not running"}`); }
     } else if (command === "drive") {
       const argv = process.argv.slice(3), split = argv.indexOf("--");
       const options = split >= 0 ? argv.slice(0, split) : argv, ops = split >= 0 ? argv.slice(split + 1) : [];
       process.exitCode = drive(["--local", "--pair", machines.join(","), ...options, "--", ...OPEN_CONNECTIONS, ...ops]);
-    } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 16).join("\n")); process.exitCode = command ? 2 : 0; }
+    } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 19).join("\n")); process.exitCode = command ? 2 : 0; }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
