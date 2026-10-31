@@ -185,6 +185,9 @@ not instantaneous process CPU. Power sampling remains off. The first launch
 of each freshly signed arm is a throwaway. `measure.m`'s `G1_ONLY_ARM` lets
 the startup driver gate each cold-only launch separately and forbids replacing
 a failed original with a retry. Fling, rest and static qualification is unchanged.
+**M10 cut 2:** a failed launch is retained and the cohort continues without
+replacement. Each arm's median uses completed launches, with n and failures
+reported beside it; an incomplete schedule still fails qualification.
 `gpui/run-hook.py` retains CPU-tick deltas, the five largest other processes,
 and power source/mode. Its `--single` mode retains an instrument sample even
 when loaded and produces no scoreboard table. See

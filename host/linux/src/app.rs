@@ -145,6 +145,35 @@ pub struct Config {
 }
 
 impl Config {
+    /// The root's literal opaque colour, available before the runner or layout.
+    /// A dynamic or unresolved colour leaves the carrier's platform background.
+    #[cfg(target_os = "macos")]
+    pub fn initial_window_background(&self) -> Option<[u8; 4]> {
+        use exact_plan::{BindingKind, Opcode, Plan, StrId};
+        let plan = Plan::decode(&self.plan).ok()?;
+        let mut roots = plan
+            .nodes
+            .iter()
+            .filter(|n| n.parent.is_none() && n.arm.is_none());
+        let root = roots.next()?;
+        if roots.next().is_some() {
+            return None;
+        }
+        let binding = root.bindings.iter().map(|id| plan.binding(id)).find(|b| {
+            b.kind == BindingKind::Style && b.id == exact_kernel::StyleId::BackgroundColor as u16
+        })?;
+        let mut code = exact_runner::vm::instructions(plan.code(binding.expr));
+        let literal = code.next()?.ok()?;
+        if literal.op != Opcode::Str
+            || code.next()?.ok()?.op != Opcode::Return
+            || code.next().is_some()
+        {
+            return None;
+        }
+        let color = exact_kernel::Color::parse(plan.str(StrId(literal.args[0] as u32)))?;
+        (color.a() == 255).then_some([color.r(), color.g(), color.b(), color.a()])
+    }
+
     /// The manifest's painter with `EXACT_PAINTER` applied, also used to open the window.
     pub fn painter(&self) -> crate::presenter::PainterChoice {
         use crate::presenter::PainterChoice;
@@ -920,6 +949,34 @@ mod scale_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_window_background_comes_from_the_literal_root_before_boot() {
+        for (source, expected) in [
+            (
+                "component App\n  view\n    main background-color=\"#23394f\"\n",
+                Some([35, 57, 79, 255]),
+            ),
+            (
+                "component App\n  view\n    main\n      box background-color=\"red\"\n",
+                None,
+            ),
+            (
+                "component App\n  state color = \"red\"\n  view\n    main background-color=color\n",
+                None,
+            ),
+            (
+                "component App\n  view\n    main background-color=\"transparent\"\n",
+                None,
+            ),
+        ] {
+            let plan = contract::compile(source).unwrap().encode();
+            let mut config = Config::from_env(&plan, "{}");
+            config.plan = plan.into();
+            assert_eq!(config.initial_window_background(), expected, "{source}");
+        }
+    }
+
     #[test]
     fn launch_arguments_share_url_interpretation_with_other_hosts() {
         for (args, expected) in [

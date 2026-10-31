@@ -31,6 +31,7 @@ impl Wgpu {
     pub fn attach_layer(&mut self, layer: Layer) -> Result<()> {
         let _trace = crate::device::apple::Trace::new(c"boot wgpu attach layer");
         self.wait(self.submitted)?;
+        layer.track_wgpu_drawables();
         let render_layer = layer.render_layer();
         // SAFETY: the window owner and its retained CAMetalLayer outlive the
         // surface and the joined render thread. This is the layer itself, not NSView.
@@ -118,7 +119,7 @@ impl Wgpu {
                 None,
             )
         });
-        crate::counters::presentation_support(false, false);
+        crate::counters::presentation_support(false, true);
         self.window = Some(Window {
             thread: Thread::new()?,
             renderer: Arc::new(Mutex::new(Renderer {
@@ -143,7 +144,7 @@ impl Wgpu {
         self.window.is_some()
     }
 
-    pub fn present(&mut self, texture: TextureId, transaction: bool) -> Result<f64> {
+    pub fn present(&mut self, texture: TextureId) -> Result<f64> {
         let started = Instant::now();
         failure(&self.errors)?;
         let source = self.texture(texture)?;
@@ -157,7 +158,7 @@ impl Wgpu {
         let done = self.done.clone();
         let errors = self.errors.clone();
         let benchmark = crate::device::apple::benchmark_scene();
-        let transaction = transaction || window._layer.live_resize();
+        let transaction = window._layer.live_resize();
         self.submitted.0 += 1;
         let submission = self.submitted;
         let work = move |show| {

@@ -6,12 +6,15 @@ pub use super::metal::startup::Startup;
 #[path = "apple/startup_unavailable.rs"]
 mod startup_unavailable;
 use super::{Error, Result};
-use objc2::{rc::Retained, MainThreadMarker};
-use objc2_app_kit::{NSApplication, NSView};
+use objc2::{
+    define_class, msg_send, rc::Retained, runtime::ProtocolObject, AnyThread, DefinedClass,
+    MainThreadMarker,
+};
+use objc2_app_kit::{NSApplication, NSColor, NSView};
 use objc2_core_foundation::CGSize;
 use objc2_core_graphics::CGColorSpace;
 use objc2_metal::{MTLDrawable, MTLPixelFormat};
-use objc2_quartz_core::CAMetalLayer;
+use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 #[cfg(not(exact_ink_metal))]
 pub use startup_unavailable::Startup;
@@ -23,9 +26,38 @@ use std::{
     },
 };
 
+// wgpu owns its drawable privately. Observe acquisition on this layer alone so
+// both device paths report display, rather than treating GPU completion as display.
+define_class!(
+    #[unsafe(super = CAMetalLayer)]
+    #[ivars = Mutex<Option<DrawableTracker>>]
+    struct TrackedMetalLayer;
+
+    impl TrackedMetalLayer {
+        #[unsafe(method_id(nextDrawable))]
+        fn next_drawable(&self) -> Option<Retained<ProtocolObject<dyn CAMetalDrawable>>> {
+            // SAFETY: this is CAMetalLayer's unchanged nextDrawable signature.
+            let drawable: Option<Retained<ProtocolObject<dyn CAMetalDrawable>>> =
+                unsafe { msg_send![super(self), nextDrawable] };
+            if let (Some(drawable), Some(tracker)) = (&drawable, &*self.ivars().lock().unwrap()) {
+                tracker.track(ProtocolObject::from_ref(&**drawable), true);
+            }
+            drawable
+        }
+    }
+);
+
+#[derive(Clone)]
+struct DrawableTracker {
+    retry: Arc<Retry>,
+    wake: Arc<dyn Fn() + Send + Sync>,
+    presentation: Arc<Presentation>,
+    generation: u64,
+}
+
 struct Inner {
     view: Retained<NSView>,
-    layer: Retained<CAMetalLayer>,
+    layer: Retained<TrackedMetalLayer>,
     retry: Arc<Retry>,
     presentation: Arc<Presentation>,
     wake: Arc<dyn Fn() + Send + Sync>,
@@ -54,7 +86,9 @@ impl Layer {
         };
         // SAFETY: the handle borrows this retained window owner, on the main thread.
         let view = unsafe { Retained::retain(handle.ns_view.as_ptr().cast::<NSView>()).unwrap() };
-        let layer = CAMetalLayer::new();
+        let allocated = TrackedMetalLayer::alloc().set_ivars(Mutex::new(None));
+        // SAFETY: the ivars are initialized before CAMetalLayer's initializer.
+        let layer: Retained<TrackedMetalLayer> = unsafe { msg_send![super(allocated), init] };
         layer.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
         layer.setMaximumDrawableCount(3);
         layer.setFramebufferOnly(true);
@@ -77,6 +111,27 @@ impl Layer {
         result.register_boot_expose();
         result.resize(size, scale);
         Ok(result)
+    }
+
+    /// Fill the unpainted window with its known root colour or AppKit's surface.
+    pub fn set_background(&self, color: Option<[u8; 4]>) {
+        let color = color.map_or_else(NSColor::windowBackgroundColor, |rgba| {
+            let [r, g, b, a] = rgba.map(|v| f64::from(v) / 255.);
+            NSColor::colorWithSRGBRed_green_blue_alpha(r, g, b, a)
+        });
+        if let Some(window) = self.0.view.window() {
+            window.setBackgroundColor(Some(&color));
+        }
+        self.0.layer.setBackgroundColor(Some(&color.CGColor()));
+    }
+
+    pub(crate) fn track_wgpu_drawables(&self) {
+        *self.0.layer.ivars().lock().unwrap() = Some(DrawableTracker {
+            retry: self.0.retry.clone(),
+            wake: self.0.wake.clone(),
+            presentation: self.0.presentation.clone(),
+            generation: self.0.presentation.0.lock().unwrap().generation,
+        });
     }
 
     pub fn resize(&self, size: [u32; 2], scale: f64) {
@@ -159,7 +214,7 @@ impl Layer {
 
     pub(crate) fn render_layer(&self) -> RenderLayer {
         RenderLayer {
-            raw: self.0.layer.clone(),
+            raw: self.0.layer.clone().into_super(),
             retry: self.0.retry.clone(),
             wake: self.0.wake.clone(),
             presentation: self.0.presentation.clone(),
@@ -188,6 +243,24 @@ impl RenderLayer {
         trace_mark(c"drawable framebuffer only", || {
             f64::from(self.raw.framebufferOnly())
         });
+        DrawableTracker {
+            retry: self.retry.clone(),
+            wake: self.wake.clone(),
+            presentation: self.presentation.clone(),
+            generation: self.generation,
+        }
+        .track(drawable, ink);
+    }
+
+    pub fn retry(&self) {
+        if self.retry.failed() {
+            (self.wake)();
+        }
+    }
+}
+
+impl DrawableTracker {
+    fn track(&self, drawable: &ProtocolObject<dyn MTLDrawable>, ink: bool) {
         let retry = self.retry.clone();
         let wake = self.wake.clone();
         let presentation = self.presentation.clone();
@@ -216,11 +289,6 @@ impl RenderLayer {
         // SAFETY: Metal copies the block and supplies a live drawable to it.
         unsafe {
             drawable.addPresentedHandler(block2::RcBlock::as_ptr(&block));
-        }
-    }
-    pub fn retry(&self) {
-        if self.retry.failed() {
-            (self.wake)();
         }
     }
 }

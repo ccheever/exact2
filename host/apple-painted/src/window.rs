@@ -40,7 +40,6 @@ struct App<D: DataSource> {
     layer: Option<Layer>,
     display: Option<DisplayLink>,
     presenter: Option<Presenter<D>>,
-    prepared: Option<exact_linux::presenter::PreparedAppleFrame>,
     agent: Option<super::agent::Agent>,
     started: Instant,
     tick_pending: Arc<AtomicBool>,
@@ -144,7 +143,6 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         layer: None,
         display: None,
         presenter: None,
-        prepared: None,
         agent: None,
         started,
         tick_pending: Default::default(),
@@ -201,17 +199,9 @@ impl<D: DataSource + Default + 'static> App<D> {
             return;
         };
         let size = window.inner_size();
-        let old_scale = self.scale;
         self.scale = window.scale_factor();
         if size.width == 0 || size.height == 0 {
             return;
-        }
-        let viewport = (
-            size.width as f32 / self.scale as f32,
-            size.height as f32 / self.scale as f32,
-        );
-        if old_scale != self.scale || p.host().viewport() != viewport {
-            self.prepared = None;
         }
         layer.resize([size.width, size.height], self.scale);
         if let Some(e) = p.resize_scaled(
@@ -234,19 +224,13 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
         }
     }
-    fn draw(
-        &mut self,
-        prepare: bool,
-    ) -> Result<Option<exact_linux::presenter::PreparedAppleFrame>, String> {
+    fn draw(&mut self) -> Result<(), String> {
         let _trace = Trace::new(c"carrier draw");
         if self.hidden {
-            return Ok(None);
-        }
-        if !prepare && self.prepared.is_some() {
-            return Ok(None);
+            return Ok(());
         }
         let Some(p) = &mut self.presenter else {
-            return Ok(None);
+            return Ok(());
         };
         let now = if !self.live {
             p.host().now()
@@ -258,7 +242,6 @@ impl<D: DataSource + Default + 'static> App<D> {
         let service_trace = Trace::with_value(c"draw service", f64::from(counters::DRAW) + 1.);
         prepare_draw(p, now, self.live)?;
         drop(service_trace);
-        let mut prepared = None;
         if p.dirty() && p.apple_painter_can_draw() {
             if std::env::var_os("G1_OUTPUT").is_some() {
                 self.benchmark_complete = !p.images().pending() && !p.images().has_refusals();
@@ -272,11 +255,7 @@ impl<D: DataSource + Default + 'static> App<D> {
                     .map_or(0., |node| p.scroll_of(node.id).1);
                 exact_ink::device::apple::benchmark_frame(self.benchmark_complete, offset);
             }
-            if prepare {
-                prepared = p.prepare_apple_window_frame()?;
-            } else {
-                p.apple_window_frame()?;
-            }
+            p.apple_window_frame()?;
             self.paint_ms += started.elapsed().as_secs_f64() * 1000.;
             let submitted = p.last_frame_succeeded();
             self.frames += u64::from(submitted);
@@ -285,7 +264,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
         }
         p.sync_surfaces();
-        Ok(prepared)
+        Ok(())
     }
 }
 
@@ -335,6 +314,19 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 size.width as f32 / self.scale as f32,
                 size.height as f32 / self.scale as f32,
             );
+            let proxy = self.proxy.clone();
+            let layer = Layer::new(
+                window.clone(),
+                [size.width, size.height],
+                self.scale,
+                move || {
+                    let _ = proxy.send_event(Event::Wake);
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            layer.set_background(self.config.initial_window_background());
+            window.set_visible(true);
+            trace_mark(c"boot window shown", || 0.);
             let presenter_trace = Trace::new(c"boot presenter");
             let (mut p, warning) = if self.config.painter()
                 == exact_linux::presenter::PainterChoice::Ink
@@ -357,16 +349,6 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             if self.live {
                 p.set_live_clock(Some(exact_linux::presenter::wall_since(self.started)));
             }
-            let proxy = self.proxy.clone();
-            let layer = Layer::new(
-                window.clone(),
-                [size.width, size.height],
-                self.scale,
-                move || {
-                    let _ = proxy.send_event(Event::Wake);
-                },
-            )
-            .map_err(|e| e.to_string())?;
             p.attach_apple_layer(layer.clone())?;
             trace_mark(c"boot layer attached", || 0.);
             trace_mark(c"boot device milliseconds", || p.painter.device_ms);
@@ -392,12 +374,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             self.layer = Some(layer);
             self.presenter = Some(p);
             self.window = Some(window.clone());
-            let prepared = self.draw(true)?;
-            window.set_visible(true);
-            trace_mark(c"boot window shown", || 0.);
-            // Winit's first redraw is inside AppKit's drawRect. Present the
-            // prepared scene in the first display callback outside that draw.
-            self.prepared = prepared;
+            self.draw()?;
             window.request_redraw();
             if self.config.agent {
                 let ready = serde_json::json!({"ready":true,"boot":self.started.elapsed().as_secs_f64()*1000.,"views":self.presenter.as_ref().unwrap().node_count(),"error":null,"benchmarkCarrier":true}).to_string();
@@ -417,26 +394,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 }
                 trace_mark(c"display wake", || 0.);
                 self.tick_pending.store(false, Ordering::Release);
-                if !self.awaiting_first_present() {
-                    self.prepared = None;
-                }
                 if self.hidden {
-                    return;
-                }
-                if let Some(frame) = &self.prepared {
-                    // A redraw waits for AppKit's next transaction. Retry the
-                    // same pixels here until the compositor selects a drawable.
-                    if let Err(e) = self
-                        .presenter
-                        .as_mut()
-                        .unwrap()
-                        .present_prepared_apple_frame(frame)
-                    {
-                        self.fail(events, e);
-                    }
-                    if !self.presenter.as_ref().unwrap().last_frame_succeeded() {
-                        self.prepared = None;
-                    }
                     return;
                 }
                 let unshown = self.awaiting_first_present();
@@ -552,7 +510,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             WindowEvent::Resized(_) => {
                 self.resized();
                 if self.layer.as_ref().is_some_and(Layer::live_resize) {
-                    if let Err(e) = self.draw(false) {
+                    if let Err(e) = self.draw() {
                         self.fail(events, e);
                     }
                 }
@@ -570,7 +528,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                         self.resized();
                     }
                 }
-                if let Err(e) = self.draw(false) {
+                if let Err(e) = self.draw() {
                     self.fail(events, e);
                 }
                 return;
@@ -845,7 +803,7 @@ mod tests {
     use exact_linux::presenter::PainterChoice;
 
     #[test]
-    fn the_first_frame_before_visibility_matches_the_display_tick_frame() {
+    fn the_first_frame_after_layout_matches_the_display_tick_frame() {
         let plan = contract::compile(
             r##"component App
   view

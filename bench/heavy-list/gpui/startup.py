@@ -152,8 +152,19 @@ def run(args):
                         child = None
                         output = Path(record['output'])
                         record['accepted'] = output.exists() and read(output).get('accepted') is True
-                        assert record['exit'] == 0 and record['accepted'], 'failed original launch; no replacement table'
+                        if record['exit'] != 0 or not record['accepted']:
+                            record.update(accepted=False, error='original launch failed; retained without replacement')
+                    except Exception as error:
+                        record.update(accepted=False, error=str(error))
                     finally:
+                        if child and child.poll() is None:
+                            child.terminate()
+                            try:
+                                child.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                child.kill()
+                                child.wait()
+                        child = None
                         record['end'] = monitor.now()
                         monitor.end_launch()
                         record['duringLoad'] = quiet.launch_load(monitor.rows[first_sample:])
@@ -225,16 +236,23 @@ def run(args):
                                 assert names & {'probe present commit', 'probe direct present request'}, 'presentation request not observed'
                                 assert 'probe presented' in names
                             record['accepted'] = True
-                        except BaseException as error:
+                        except Exception as error:
                             record.update(accepted=False, error=str(error))
-                            raise
                         finally:
+                            if child.poll() is None:
+                                child.terminate()
+                                try:
+                                    child.wait(timeout=5)
+                                except subprocess.TimeoutExpired:
+                                    child.kill()
+                                    child.wait()
+                            record['exit'] = child.returncode
                             record['end'] = monitor.now()
                             monitor.end_launch()
                             record['duringLoad'] = quiet.launch_load(monitor.rows[first_sample:])
                             write(out / 'schedule.json', schedule)
                     child = None
-                    print('LAUNCH', name, result['coldMs'], flush=True)
+                    print('LAUNCH', name, 'complete' if record['accepted'] else 'failed', flush=True)
     finally:
         if child and child.poll() is None:
             child.terminate()
@@ -244,7 +262,7 @@ def run(args):
                 child.kill()
                 child.wait()
         write(out / 'run.json', dict(launches=len(schedule),
-              qualification='m10-cut1d-prelaunch',
+              qualification='m10-cut2-prelaunch',
               arms=arms, cohorts=['cold'] if args.scoreboard else ['cold', 'warm'],
               expectedLaunches=args.rounds * len(arms) * (1 if args.scoreboard else 2),
               quiet=bool(schedule) and all(r['gate']['passed'] for r in schedule),
@@ -361,11 +379,14 @@ def summarize(args):
     expected = {(arm, cohort, r) for arm in arms
                 for cohort in cohorts for r in range(1, len(schedule) // (len(arms) * len(cohorts)) + 1)}
     assert {(r['arm'], r['cohort'], r['round']) for r in schedule} == expected, 'unbalanced cohort'
-    assert all(r.get('accepted') and r.get('exit') == 0 for r in schedule), 'failed attempts retained; incomplete cohort'
-    if run_record.get('qualification') == 'm10-cut1d-prelaunch':
+    successes = [r for r in schedule if r.get('accepted') and r.get('exit') == 0]
+    failures = [r for r in schedule if r not in successes]
+    if run_record.get('qualification') != 'm10-cut2-prelaunch':
+        assert not failures, 'failed attempts retained; incomplete cohort'
+    if run_record.get('qualification') in ['m10-cut1d-prelaunch', 'm10-cut2-prelaunch']:
         assert run_record['powerAbsent'], 'power sampler overlapped cohort'
         assert all(r['gate']['passed'] and r['gate']['seconds'] >= 10 and r['duringLoad']['observations'] for r in schedule)
-    samples = [dict(sample(directory / Path(r['output']).name, r['trace']), arm=r['arm'], cohort=r['cohort'], round=r['round'], duringLoad=r.get('duringLoad')) for r in schedule]
+    samples = [dict(sample(directory / Path(r['output']).name, r['trace']), arm=r['arm'], cohort=r['cohort'], round=r['round'], duringLoad=r.get('duringLoad')) for r in successes]
     tables = {}
     for arm in arms:
         for cohort in cohorts:
@@ -384,16 +405,18 @@ def summarize(args):
             tables[f'{arm} {cohort}']['clocks'] = {
                 phase: {metric: distribution([s['clocks'][phase][metric] for s in selected])
                         for metric in selected[0]['clocks'][phase]}
-                for phase in selected[0].get('clocks', {})}
+                for phase in (selected[0].get('clocks', {}) if selected else {})}
     paired = {}
     for arm in arms if 'warm' in cohorts else []:
         cold = {s['round']: s for s in samples if s['arm'] == arm and s['cohort'] == 'cold'}
         warm = {s['round']: s for s in samples if s['arm'] == arm and s['cohort'] == 'warm'}
         paired[arm] = {name: distribution([cold[r]['milestones'][name]-warm[r]['milestones'][name]
-                                          for r in cold if cold[r]['milestones'][name] is not None
+                                          for r in cold.keys() & warm.keys() if cold[r]['milestones'][name] is not None
                                           and warm[r]['milestones'][name] is not None])
-                       for name in cold[next(iter(cold))]['milestones']}
-    write(directory / 'summary.json', dict(samples=samples, tables=tables, coldMinusWarm=paired))
+                       for name in (cold[next(iter(cold))]['milestones'] if cold else {})}
+    write(directory / 'summary.json', dict(samples=samples, failures=failures, tables=tables, coldMinusWarm=paired))
+    for failure in failures:
+        print('Failed launch (retained):', failure['arm'], failure['round'], failure['cohort'], failure.get('error'))
     for row in samples:
         if row.get('duringLoad'):
             print('During-launch load (cores):', row['arm'], row['round'], row['cohort'], json.dumps(row['duringLoad']))
