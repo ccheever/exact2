@@ -144,15 +144,11 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.start(tries: tries - 1) }
     }
 
-    /// The holder and the layer at `size`, in whole points: the panel mirrors nothing from a layer
-    /// whose frame is fractional when picture in picture starts (a 1280 × 1776 picture fitted into
-    /// 640 points is 461.18 wide), and stays blank after it is resized.
     private func fit(_ size: NSSize) {
-        let whole = NSSize(width: size.width.rounded(), height: size.height.rounded())
-        guard whole.width > 0, whole.height > 0 else { return }
-        holder.setContentSize(whole)
+        guard size.width > 0, size.height > 0 else { return }
+        holder.setContentSize(size)
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        layer.frame = holder.contentView?.bounds ?? CGRect(origin: .zero, size: whole)
+        layer.frame = CGRect(origin: .zero, size: size)
         CATransaction.commit()
     }
 
