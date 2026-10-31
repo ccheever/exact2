@@ -152,6 +152,7 @@ mod pedometer;
 mod persist;
 mod photos;
 mod picker;
+mod picture_in_picture;
 mod placeholder;
 mod pointer;
 mod popover_surface;

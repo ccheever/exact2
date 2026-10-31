@@ -26,12 +26,7 @@ mod android {
     /// (`live.ts` `hostOf`, as `modules/apple/Host.swift` answers on Apple).
     struct Host;
     impl exact_js::NativeModule for Host {
-        fn configure_storage(
-            &mut self,
-            _data: std::path::PathBuf,
-            _cache: std::path::PathBuf,
-            _temporary: std::path::PathBuf,
-        ) -> Result<(), String> {
+        fn configure_storage(&mut self, _storage: exact_js::NativeStorage) -> Result<(), String> {
             Ok(())
         }
         fn call(&mut self, request: &serde_json::Value) -> Result<serde_json::Value, String> {

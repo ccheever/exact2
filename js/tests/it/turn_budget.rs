@@ -9,14 +9,13 @@ use super::storage::{args, call, Root, APP, GRANTS, HBC};
 use exact_js::{Module, NativeModule};
 use exact_kernel::Kernel;
 use exact_runner::{DataError, DataSource, Runner, Store};
-use std::path::PathBuf;
 use std::time::Duration;
 
 /// A native module whose synchronous call waits `WAIT` without working, as
 /// a hosted call that hops to another thread does.
 struct Waits<const MS: u64>;
 impl<const MS: u64> NativeModule for Waits<MS> {
-    fn configure_storage(&mut self, _: PathBuf, _: PathBuf, _: PathBuf) -> Result<(), String> {
+    fn configure_storage(&mut self, _: exact_js::NativeStorage) -> Result<(), String> {
         Ok(())
     }
     fn call(&mut self, request: &serde_json::Value) -> Result<serde_json::Value, String> {

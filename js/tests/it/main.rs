@@ -20,6 +20,7 @@ mod interrupt;
 mod kept_json;
 mod listen;
 mod native_later;
+mod native_storage;
 mod no_store;
 mod outlive;
 mod overlay;

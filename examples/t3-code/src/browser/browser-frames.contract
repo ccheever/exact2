@@ -14,6 +14,7 @@ use BrowserFrames from "./browser-shapes.contract"
 use BrowserMini from "./browser-shapes.contract"
 use ChatCanvasMini from "../shell/chat-canvas.contract"
 use BrowserMiniPlayer from "./browser-capture.contract"
+use ServerBrowserPip from "./server-browser.contract"
 
 // ZoomIndicator: in 200 ms, held to 1.5 s, out in 200 ms.
 keyframes bfZoomPill
@@ -119,6 +120,9 @@ component BrowserFrameLayer
       BrowserFrame(f=f, left=(f.place == "mini" ? miniFrame.originX + miniFrame.x : slotWidth > 0 ? slotLeft : 0), top=(f.place == "mini" ? miniFrame.originY + miniFrame.top : slotTop), width=(f.place == "mini" ? miniFrame.width : f.place == "" ? f.heldWidth : slotWidth), height=(f.place == "mini" ? miniFrame.height : f.place == "" ? f.heldHeight : slotHeight), shown=(f.place == "mini" ? miniShown : f.place == "panel" and slotWidth > 0 and not covered), behind=(f.place == "" and f.held), radius=(f.place == "mini" ? miniFrame.radius : 0), label="Browser page", testId=(f.place == "panel" ? "browser-page" : f.place == "mini" ? "browser-mini-page" : f.frameId), local=local)
         if f.place == "mini" and miniShown
           BrowserMiniPlayer(mini=mini, frame=miniFrame, canvasWidth=canvasWidth, local=local, gesture=gesture, outside=outside, framed=true)
+    // A server tab's picture-in-picture window: the hidden image its stream paints (server-browser.contract).
+    if frames.pip.show
+      ServerBrowserPip(pip=frames.pip, local=local)
     for n in frames.namers key=n.frameId
       iframe id=n.frameId src=n.src partition=n.partition load=named(n.frameId) aria-hidden=true tabindex=-1 position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" border-width=0
     if panelShown and note != ""

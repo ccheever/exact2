@@ -266,7 +266,7 @@ fn authored_isolation_auto_yields_to_required_isolation() {
 }
 
 #[test]
-fn z_index_is_an_exact_integer_below_the_ghost_and_lift() {
+fn z_index_is_an_exact_integer_below_the_hosts_own_values() {
     use exact_kernel::{paint_order::Z_MAX, StyleProps, StyleValue};
     for z in [
         0,

@@ -1367,6 +1367,10 @@ impl Em<'_> {
                 | EventKind::Volumechange
                 // @ref LLP 1042 — through `media.js`, a bool payload.
                 | EventKind::Fullscreenchange
+                // @ref LLP 1042 §9 — an image's, which picture-in-picture.js dispatches on it.
+                | EventKind::Enterpictureinpicture
+                | EventKind::Leavepictureinpicture
+                | EventKind::Pictureinpictureerror
                 // @ref LLP 1098 D6 — the media session's, through `media.js`.
                 | EventKind::Seekbackward
                 | EventKind::Seekforward

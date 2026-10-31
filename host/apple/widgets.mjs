@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { plistFile, wrapFramework, frameworkLayout, frameworkInstallName } from './assets.mjs';
 import { assertCapabilityFrameworks } from './link.mjs';
 import { linkedPlanArgs } from '../../scripts/linked-plan.mjs';
+import { appleLinkArgs } from '../../scripts/package-libraries.mjs';
 import { appexArgs, keepMain } from './extensions.mjs';
 import { installedProfiles, decodeProfile, profilesFor, profileMisfit, byExpiry, METHODS, iosProfile } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname), pkg = resolve(root, 'host/apple');
@@ -156,7 +157,7 @@ export function prepareWidgetCore({ app, directory, swiftBuildRoot, swiftArgs, s
   const base = resolve(directory, key.digest('hex').slice(0, 20));
   return { base, scratch, args, triple, device, platform, framework: resolve(base, 'ExactCore.framework'), xcframework: resolve(base, 'ExactCore.xcframework') };
 }
-export function sharedWidgetCore({ app, prepared, libDir, crate, env, runApple, linkedPlan = null }) {
+export function sharedWidgetCore({ app, prepared, libDir, crate, env, runApple, linkedPlan = null, library = null }) {
   const { base, args, framework, xcframework, device, platform } = prepared;
   mkdirSync(base, { recursive: true });
   const coreEnv = { ...env, EXACT_WIDGET_CORE: '1' };
@@ -170,12 +171,14 @@ export function sharedWidgetCore({ app, prepared, libDir, crate, env, runApple, 
   }
   const dylib = resolve(bin, 'libExactCore.dylib');
   const archive = resolve(libDir, `lib${crate.replaceAll('-', '_')}.a`);
-  const digest = createHash('sha256').update(readFileSync(archive)).update(linkedPlan?.digest ?? '').digest('hex');
+  const digest = createHash('sha256').update(readFileSync(archive)).update(linkedPlan?.digest ?? '').update(library?.sha256 ?? '').digest('hex');
+  // A package's framework (LLP 1154 D3), which the archive's shim calls, found beside this one in Frameworks.
+  const linkLibrary = appleLinkArgs(library, platform !== 'macos', platform === 'macos' ? '@loader_path/../../..' : '@loader_path/..');
   const stamp = resolve(base, 'archive');
   // SwiftPM tracks neither an external archive nor the linked plan. Invalidate only its link;
   // the objects/module stay incremental, including on a kernel-only edit.
   if (!existsSync(stamp) || readFileSync(stamp, 'utf8') !== digest) rmSync(dylib, { force: true });
-  runApple('swift', [...args, ...linkedPlanArgs(linkedPlan?.dir), '--product', 'ExactCore'], options);
+  runApple('swift', [...args, ...linkLibrary, ...linkedPlanArgs(linkedPlan?.dir), '--product', 'ExactCore'], options);
   // Only the extension links the snapshot target. Keeping it out of the shared
   // runtime keeps SwiftUI and WidgetKit out of an ordinary app launch.
   runApple('swift', [...args, ...linkedPlanArgs(linkedPlan?.dir), '--product', 'ExactSnapshot'], options);

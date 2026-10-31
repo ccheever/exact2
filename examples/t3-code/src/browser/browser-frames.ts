@@ -13,6 +13,7 @@
 // named by a hash of the environment and the profile, since a partition name is at most 64 of [A-Za-z0-9._-];
 // Incognito is an in-memory partition per environment. The framework derives the stores from the app and the name,
 // so they are not the stores the module kept before: a person signs in again once.
+import { emptyBrowserPip, type BrowserPipView } from './server-browser-pip';
 import type { T3Client } from '../client/client';
 import { letGo } from '../client/let-go';
 // The bake binds the package from its exact.json (`__exact_modules`); a bare tsc and Bun read the exact.json itself, so
@@ -322,10 +323,10 @@ export type BrowserFrameView = {
   /** The dialog it holds for the person (`FramePrompt`), "" when none. */
   promptType: string; promptTitle: string; promptMessage: string; promptDefault: string;
 };
-export type BrowserFramesView = { frames: BrowserFrameView[]; namers: BrowserFrameView[]; command: FrameCommand };
+export type BrowserFramesView = { frames: BrowserFrameView[]; namers: BrowserFrameView[]; command: FrameCommand; pip: BrowserPipView };
 export const EMPTY_FRAME: BrowserFrameView = { frameId: '', src: 'about:blank', partition: '', zoom: 1, colorScheme: 'system', environment: '', profile: '', place: '', pageWidth: 0, pageHeight: 0,
   held: false, heldWidth: 0, heldHeight: 0, promptType: '', promptTitle: '', promptMessage: '', promptDefault: '' };
-export const emptyFramesView = (): BrowserFramesView => ({ frames: [], namers: [], command: NO_COMMAND });
+export const emptyFramesView = (): BrowserFramesView => ({ frames: [], namers: [], command: NO_COMMAND, pip: emptyBrowserPip() });
 /** A hidden page that must keep drawing, and the size it last laid out at. */
 export type FrameHold = (runtimeId: string) => { width: number; height: number } | null;
 /** The layer's frames: the panel's tab placed in its slot (`panel`: its runtime id and fixed viewport, if it shows one), the
@@ -343,5 +344,5 @@ export function frameLayerView(owner: object, panel: { runtimeId: string; pageWi
     });
   }
   const namers = [...store.namers.keys()].map(partition => ({ ...EMPTY_FRAME, frameId: namerIdOf(partition), partition }));
-  return { frames: layer, namers, command: frameCommandView(owner) };
+  return { frames: layer, namers, command: frameCommandView(owner), pip: emptyBrowserPip() };
 }

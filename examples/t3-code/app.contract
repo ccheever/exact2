@@ -180,6 +180,7 @@ component T3Code
     threadFind
     serverMiniFrame
     serverFrame
+    serverPipFrame
     streamPainted
     streamControl
     streamMouse

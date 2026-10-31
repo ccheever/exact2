@@ -185,7 +185,16 @@ component BrowserMiniPlayer
     gy = 0
     gesture("")
   derive pill = dotOver or pillFocus != "" or dragging != ""
-  derive pillWidth = bcPillWidth(rem, mini.recording ? 4 : 3)
+  // canPopOut: a server tab floats in picture in picture, unless it shows a PDF, which the server's stream lacks.
+  // toggleNativePictureInPicture: a server tab's window closes as HTML's document.exitPictureInPicture() closes it,
+  // and its `leavepictureinpicture` tells the panel (server-browser.contract ServerBrowserPip).
+  action popOut
+    if mini.server and mini.separateWindow
+      exitPictureInPicture()
+    else
+      local("surface-browser-mini-window", mini.runtimeId, mini.server ? "server" : "")
+  derive canPopOut = not mini.server or mini.separateWindow or mini.pdfUrl == ""
+  derive pillWidth = bcPillWidth(rem, (mini.recording ? 1 : 0) + (canPopOut ? 3 : 2))
   derive tipAlign = frame.x + frame.width > canvasWidth - 7.5 * rem ? "end" : "center"
   derive edge = 0.25 * rem
   derive corner = 0.5 * rem
@@ -221,8 +230,8 @@ component BrowserMiniPlayer
               box width="1.5rem" height="1.5rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 aria-hidden=true
                 box width="0.5rem" height="0.5rem" border-radius="0.25rem" background-color="light-dark(#fb2c36, #fb414a)" animation=(still ? "none" : "bcStatusPulse 2s infinite")
             BcPillButton(icon="panel-right", label="Open preview in right panel", tip="Open in right panel", on=false, shown=pill, align=tipAlign, hot=(tipAt == "restore"), tipShown=(pill and tipAt == "restore" and tipShut != "restore"), press=local("surface-browser-mini-restore", mini.runtimeId, ""), shut=shutTip("restore"), focusChange=focusPill("restore"), testId="browser-mini-restore")
-            if not mini.server
-              BcPillButton(icon="picture-in-picture-2", label=(mini.separateWindow ? "Close popped-out preview" : "Pop preview into separate window"), tip=(mini.separateWindow ? "Close separate window" : "Pop into separate window"), on=mini.separateWindow, shown=pill, align=tipAlign, hot=(tipAt == "window"), tipShown=(pill and tipAt == "window" and tipShut != "window"), press=local("surface-browser-mini-window", mini.runtimeId, ""), shut=shutTip("window"), focusChange=focusPill("window"), testId="browser-mini-window")
+            if canPopOut
+              BcPillButton(icon="picture-in-picture-2", label=(mini.separateWindow ? "Close popped-out preview" : "Pop preview into separate window"), tip=(mini.separateWindow ? "Close separate window" : "Pop into separate window"), on=mini.separateWindow, shown=pill, align=tipAlign, hot=(tipAt == "window"), tipShown=(pill and tipAt == "window" and tipShut != "window"), press=popOut, shut=shutTip("window"), focusChange=focusPill("window"), testId="browser-mini-window")
             BcPillButton(icon="x", label="Close floating preview", tip="Close floating preview", on=false, shown=pill, align=tipAlign, hot=(tipAt == "close"), tipShown=(pill and tipAt == "close" and tipShut != "close"), press=local("surface-browser-mini-close", mini.runtimeId, ""), shut=shutTip("close"), focusChange=focusPill("close"), testId="browser-mini-close")
       box position="absolute" left=0 right=0 top=(0 - edge) height=(2 * edge) pan=pan("north") panrelease=release touch-action="none" cursor="ns-resize" pointer-events="auto" role="presentation" testId="browser-mini-resize-north"
       box position="absolute" left=0 right=0 bottom=(0 - edge) height=(2 * edge) pan=pan("south") panrelease=release touch-action="none" cursor="ns-resize" pointer-events="auto" role="presentation" testId="browser-mini-resize-south"

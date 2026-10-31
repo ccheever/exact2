@@ -2106,6 +2106,18 @@ call `fastSeek(id, seconds)`, which seeks each time it runs. `load(id)` loads th
 source again: a retry after an `error`, or a file written since. Both name the
 element by its `id`, as `focus` does.
 
+Pictures that are not a video (a page a server streams as JPEG frames, a
+camera's stills) float in the platform's picture-in-picture window with
+`requestPictureInPicture("id")` on the `image` that shows them: the window
+shows each picture its `src` names next, and the image hears
+`enterpictureinpicture` and `leavepictureinpicture`;
+`exitPictureInPicture()` closes the window. A request that fails is the
+image's `pictureinpictureerror(message)`, on every host that cannot float it
+too, so handle it where a press asked: a toast, the control unpressed. The
+image may be a hidden 1-point one that a stream of its own paints; removing it
+closes the window. macOS and the web's JS target float it
+([LLP 1042 §9](../llp/1042-video.spec.md)).
+
 To be the system's Now Playing app (the media keys, the lock screen, Control
 Center, a headset's buttons, the browser's media hub), give the player the Media
 Session's `metadata=MediaMetadata(…)` and bind its actions as the element's events
@@ -2295,6 +2307,37 @@ web implementation, Kotlin `ExactExtension.view`; `id` is the node's. A view dec
 `"displayed": true` is told `displayed(id, shown, origin)` when it shows or hides, and a
 prop marked `"binds": true` `bound(id, prop, origin)` when it changes; `origin` is `app`,
 `tool` or `wake`, that of the commit that did it. `packages/fixtures/swatch` is a whole one.
+
+### A package's native module, library and web assets
+
+A package fills the data module's one native module (`native.call` in `app.ts`) from the
+`exact.json` at its root, whatever its `exports` "." names (LLP 1154 D2, D3):
+
+```json
+"native": {
+  "rust": "native/lib.rs", "class": "Vault", "link": "vault",
+  "library": { "aarch64-apple-darwin": { "url": "https://…/vault.xcframework.zip", "sha256": "…" } }
+},
+"web": { "assets": ["web/device.wasm"] }
+```
+
+`rust` is the shim's root file, relative to `exact.json`, and `class` a type in it that
+implements `exact_js::NativeModule` and has `fn new(app: &str) -> Self`; the shim names only
+`exact_js` and `std`. A native build joins it to the app's crate and attaches it (an app with
+its own `Cargo.toml` writes `.with_native(exact_native)` in `embedded_data`). Its
+`configure_storage` gets the app's roots and `sqlite(path)`, which admits `sqlite.open` under
+the app's grants and answers a `SqliteFile` guard: while the module holds it, the app's own
+`storage.sqlite` is refused the file, so a shim closes its own SQLite before dropping the guard,
+on its close operation and in `Drop` (the host drops the module on reload).
+`library` pins one `{url, sha256}` per Rust target of a dynamic library named `link`: for
+Linux a shared object whose SONAME is `lib<link>.so`, for Apple a zip of one `.xcframework`
+whose slice is `<link>.framework`, installed as `@rpath/<link>.framework/…`. The build
+fetches it by its hash before Cargo, links it from the shim's `#[link(name = "<link>")]`, and
+carries it beside a Linux executable or, signed, in an Apple bundle's `Frameworks`.
+`web.assets` are served at `/assets/<package>/<path>`, captured with the package's code when
+`app.ts` imports it. Each of these fails the build by name: a wrong hash; a target `library`
+does not list; two dependencies declaring `native` (`bake-native-twice`).
+`packages/fixtures/vault` is a whole one, its library built by `test/library.mjs`.
 
 ## Routes and web documents
 

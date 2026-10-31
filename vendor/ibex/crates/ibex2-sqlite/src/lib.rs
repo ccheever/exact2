@@ -17,6 +17,9 @@ use std::sync::{
     Arc, Mutex,
 };
 
+mod held;
+pub use held::{reserve, Refused, Reservation};
+
 const MAX_RESULT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ROWS: usize = 100_000;
 const MAX_COMMANDS: usize = 10_000;
@@ -25,6 +28,8 @@ pub struct SqliteProvider;
 struct Session {
     connection: Mutex<Option<Connection>>,
     internal_transaction: Arc<AtomicBool>,
+    /// After the connection, so a dropped session closes its file first.
+    held: held::Count,
 }
 fn error(e: impl std::fmt::Display) -> HostError {
     HostError::Failed(format!("SQLite: {e}"))
@@ -66,6 +71,14 @@ impl sqlite::Provider for SqliteProvider {
                 }
             }
         }
+        // Counted before SQLite opens it: a reserved file is never opened here.
+        let held = held::open(&path).map_err(|refused| match refused {
+            held::Refused::Create(why) => error(why),
+            _ => error(format!(
+                "{} is reserved for another SQLite library in this process, such as a native module's, until it lets it go; a file is open in one SQLite at a time",
+                path.display()
+            )),
+        })?;
         let connection = Connection::open_with_flags(
             path,
             OpenFlags::SQLITE_OPEN_READ_WRITE
@@ -139,6 +152,7 @@ impl sqlite::Provider for SqliteProvider {
         Ok(Arc::new(Session {
             connection: Mutex::new(Some(connection)),
             internal_transaction,
+            held,
         }))
     }
 }
@@ -314,6 +328,7 @@ impl sqlite::Connection for Session {
                 return Err(error(e));
             }
         }
+        self.held.release();
         Ok(())
     }
 }

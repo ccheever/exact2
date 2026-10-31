@@ -2,6 +2,7 @@
 // Page pixels use Exact's ordinary image leaf. Inputs keep page CSS coordinates.
 use ViewerFrame from "../panel/viewer-frame.contract"
 use ViewerFrameView from "../panel/viewer-frame.contract"
+use BrowserPip from "./browser-shapes.contract"
 shape ServerBrowserFrame
   decoding: bool
   decodeSequence: number
@@ -176,3 +177,29 @@ component ServerBrowserPage
             if frame.dialogType != "alert" and frame.controlled
               button "Cancel" press=dialog(false) commandfor=`server-browser-dialog-${runtimeId}` command="close"
             button "OK" disabled=(not frame.controlled) press=dialog(true) commandfor=`server-browser-dialog-${runtimeId}` command="close"
+
+// serverPictureInPicture.ts's hidden video: the tab's own stream (server-browser-members.contract `serverPipFrame`)
+// paints a 1-point image that `requestPictureInPicture` floats; the window shows each picture it names next. The
+// window's close, or the pill's `exitPictureInPicture()`, is `leavepictureinpicture`; a failure is
+// `pictureinpictureerror`; the image unmounted closes the window.
+component ServerBrowserPip
+  props
+    pip: BrowserPip
+    local: action
+  inject
+    serverPipFrame: ServerBrowserFrame
+    streamPainted: action
+  derive streamed = serverPipFrame.runtimeId == pip.runtimeId and serverPipFrame.image != ""
+  action painted
+    if streamed
+      streamPainted(pip.runtimeId, serverPipFrame.image)
+  action broken(message: string)
+    painted()
+  action left
+    local("surface-browser-pip-left", pip.runtimeId, "")
+  // The platform could not float it (LLP 1042 §9's `pictureinpictureerror`): the reference's rejected open.
+  action failed(message: string)
+    local("surface-browser-pip-failed", pip.runtimeId, message)
+  view
+    if streamed or pip.seed != ""
+      image (streamed ? serverPipFrame.image : pip.seed) id="server-browser-pip" load=painted error=broken leavepictureinpicture=left pictureinpictureerror=failed aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId="server-browser-pip"

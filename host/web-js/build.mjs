@@ -541,7 +541,7 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   "import { viewportFacts } from './facts.js';",
   "import { answers } from './checkpoint.js';",
   "import { markBars } from './navigation.js';",
-  "import { markRoutes } from './document.js';",
+  "import { markRoutes, markDocument } from './document.js';",
   ...(ts ? ["import { install as ts } from './ts-data.js';", "import { answering } from './ts-fetch.js'; import { heldReply, looseFetch } from './held.js'; Object.assign(answering, { loose: looseFetch, heldReply });"] : []),
   ...(rust ? ["import { install } from './rust-data.js';"] : []),
   // Two steps, so a server can send the page's head between them
@@ -554,14 +554,18 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   '  app();',
   '  route = routeAt(location.pathname + location.search);',
   '  const [render, activate] = pages[route] ?? ["build", "inferred"];',
-  '  return { activate: ["idle", "interaction", "never"].includes(activate) ? activate : "inferred", policy: render, notfound: !!pages[route]?.[2] };',
+  '  return { activate: ["idle", "interaction", "never"].includes(activate) ? activate : "inferred", policy: render, notfound: !!pages[route]?.[2], readsViewport: activation.viewport };',
   '};',
   'globalThis.__render = async deadline => {',
   '  const end = t0 + deadline;',
   '  do await new Promise(r => setTimeout(r, 1)); while (inflight.n && performance.now() < end);',
   '  markBars(document.getElementById("exact-root")); // the bars the glue marks, so their symbols are the size they will be',
-  '  markRoutes(document.getElementById("exact-root"));',
-  '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, status: Head.headStatus ?? null, time: clock.now, answers: answers(Resources, types[2], sourceTypes),',
+  '  markRoutes(document.getElementById("exact-root")); markDocument(); // a hidden route\'s page scroller is off the page',
+  '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, image: Head.headImage, canonical: Head.headCanonical, robots: Head.headRobots,',
+  // The manifest's origin, against which a crawler's URLs are made absolute (page.rs `page_head`).
+  `    origin: ${JSON.stringify(manifest.app?.origin ?? null)}, status: Head.headStatus ?? null, time: clock.now, answers: answers(Resources, types[2], sourceTypes),`,
+  // Each resource whose source failed, with its message: the server's log names it (render.mjs), as the page cannot.
+  '    failed: Resources.filter(r => r.failed).map(r => `${r.name}: ${r.error}`),',
   '    pending: Resources.filter(r => r.ticket).map(r => r.name), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0,',
   // What an inferred activation reads (LLP 1048.007 D1): what is still due, the sources read, the viewport's comparisons as the render saw them.
   '    due: clock.timers.length > 0 || Mutations.some(m => m.due < Infinity || m.next < Infinity), activation, zoned: !!globalThis.__exactZone,',
@@ -805,6 +809,12 @@ if (existsSync(gpuLib)) {
 }
 if (pageModules) cpSync(moduleDirectory(appDir, 'web'), resolve(out, 'modules'), { recursive: true });
 if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), resolve(out, 'assets'), { recursive: true });
+// Copy each imported package's declared web assets from the capture, to /assets/<package>/<path> (LLP 1154 D2;
+// js/bake/src/typescript.mjs `capturedSources`).
+if (ts) for (const { name, path, file } of (await import(resolve(root, 'js/bake/src/typescript.mjs'))).capturedAssets(tsStage)) {
+  mkdirSync(dirname(resolve(out, 'assets', name, path)), { recursive: true });
+  cpSync(file, resolve(out, 'assets', name, path));
+}
 if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve(out, 'deck'), { recursive: true });
 if (devReload) writeFileSync(resolve(out, '.exact-dev-logic.json'), JSON.stringify({ version: 1, modules: devLogic.sort(([a], [b]) => a.localeCompare(b)) }) + '\n');
 // The web host's own picker and storage adapters beside the page, fetched on

@@ -1,4 +1,5 @@
 import { threadDetailsItemsLocal } from '../details/thread-details-items';
+import { browserPipView } from '../browser/server-browser-pip';
 import { threadServerLocal } from '../details/thread-servers';
 import { captureClosedView, rememberClosedView, reopenClosedView, rememberPagePullRequest } from './closed-views';
 import { can } from '../connections/command-permissions';
@@ -496,7 +497,8 @@ function withPdfViewer<View extends { runtimeId: string; pdfUrl: string; pdfView
 function browserFramesOf(client: T3Client, browser: BrowserView, mini: BrowserMiniView): { browser: BrowserView; browserMini: BrowserMiniView; frames: BrowserFramesView } {
   const fixed = browser.viewportMode !== 'fill';
   const panel = browser.live && !browser.server && browser.runtimeId ? { runtimeId: browser.runtimeId, pageWidth: fixed ? browser.viewportWidth : 0, pageHeight: fixed ? browser.viewportHeight : 0 } : null;
-  return { browser, browserMini: mini, frames: frameLayerView(client, panel, mini.show && !mini.server ? mini.runtimeId : null, runtimeId => heldFrame(client, runtimeId)) };
+  // The server tab's picture-in-picture image rides with the frames: the layer is always there (server-browser-pip.ts).
+  return { browser, browserMini: mini, frames: { ...frameLayerView(client, panel, mini.show && !mini.server ? mini.runtimeId : null, runtimeId => heldFrame(client, runtimeId)), pip: browserPipView(client) } };
 }
 /** The Browser tab the rendered right panel shows, if any (shouldRenderPreviewMiniPlayer). */
 export function shownBrowserTab(client: T3Client): string | null {

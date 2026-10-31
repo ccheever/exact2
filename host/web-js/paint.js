@@ -9,13 +9,15 @@ const get = (e, n) => e.getAttribute("data-exact-" + n);
 const record = e => e.$paint ??= { z: false, level0: false, isolated: false, cz: false, c0: false };
 // src/paint.rs folds literals and emits only each binding's contribution.
 // A row clearing its flag never clears another row's stacking contribution.
-const facts = e => e.$paintWaiting ? record(e).bits : e.$paintFacts ??= e.getAttributeNames().reduce((bits, k) =>
-  k === "data-exact-f" || k.startsWith("data-exact-f-") ? bits | Number(e.getAttribute(k)) : bits, 0);
+const said = e => e.getAttributeNames().reduce((bits, k) => k === "data-exact-f" || k.startsWith("data-exact-f-") ? bits | Number(e.getAttribute(k)) : bits, 0);
+const facts = e => e.$paintWaiting ? record(e).bits : e.$paintFacts ??= said(e);
 
 /** Keep authored inputs and descendant potentials while bindings wait for
- * adoption. Parent display and sibling exclusions remain live inputs. */
+ * adoption. Parent display and sibling exclusions remain live inputs. A
+ * summary that is the element's template facts with no z-index is not
+ * written (paintFlush, document.rs). */
 export function paintWait(e) {
-  const [bits, zi] = JSON.parse(get(e, "paint"));
+  const summary = get(e, "paint"), [bits, zi] = summary ? JSON.parse(summary) : [said(e), null];
   Object.assign(record(e), { z: Z && !!(bits & 16), level0: !!(bits & 32), bits, zi });
   e.$paintWaiting = true;
 }
@@ -83,9 +85,11 @@ export function paintFlush() {
       changed ||= r.isolated !== isolated || r.policy !== o.policy || r.cz !== cz || r.c0 !== c0;
       Object.assign(r, { own: o, isolated, policy: o.policy, cz, c0 });
       if (globalThis.__exactRender) {
-        // Same compact summary as the Rust document emitter.
-        const bits = facts(c) | (+r.z << 4) | (+r.level0 << 5) | (+holdsLayout(c) << 2);
-        c.setAttribute("data-exact-paint", JSON.stringify([bits, Z ? get(c, "zi") : null]));
+        // Same compact summary as the Rust document emitter, which paintWait
+        // reads; left out when it says only the template facts.
+        const bits = facts(c) | (+r.z << 4) | (+r.level0 << 5) | (+holdsLayout(c) << 2), zi = Z ? get(c, "zi") : null;
+        if (bits === said(c) && zi === null) c.removeAttribute("data-exact-paint");
+        else c.setAttribute("data-exact-paint", JSON.stringify([bits, zi]));
       }
       z ||= cz; level0 ||= c0;
     }

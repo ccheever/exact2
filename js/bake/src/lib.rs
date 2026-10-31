@@ -6,6 +6,7 @@
 
 mod android;
 mod beside;
+mod library;
 mod linked;
 #[path = "../../package_tool.rs"]
 mod package_tool;
@@ -59,8 +60,13 @@ impl std::error::Error for BakeError {}
 /// script takes the files Rust compiles from it and watches only those, so
 /// an edit that changes the plan alone leaves the archive as it was, and the
 /// link carries the plan (`exact_apple::baked`).
+///
+/// Either way it links the library a package the app depends on declares
+/// (`library`), which the native build fetched before Cargo ran, as the
+/// mixed entries below do.
 pub fn build(app: &Path, platform: &str) -> Result<(), BakeError> {
     println!("cargo:rerun-if-env-changed=EXACT_BAKED");
+    library::link(app, platform).map_err(BakeError)?;
     match std::env::var_os("EXACT_BAKED") {
         Some(baked) => std::env::var_os("OUT_DIR")
             .ok_or_else(|| "build requires OUT_DIR".to_string())
@@ -93,6 +99,7 @@ pub const APP_BYTECODE: &[u8] = {
 /// never invoke or activate the Rust implementation; first-frame values bake
 /// through TypeScript alone.
 pub fn build_mixed(app: &Path, platform: &str, rust: &dyn DataSource) -> Result<(), BakeError> {
+    library::link(app, platform).map_err(BakeError)?;
     build_sources(app, platform, Some(rust), None, false).map_err(BakeError)
 }
 
@@ -108,6 +115,7 @@ pub fn build_mixed_with(
     rust_sources: &[&str],
     compose: impl Fn(Module) -> Box<dyn DataSource>,
 ) -> Result<(), BakeError> {
+    library::link(app, platform).map_err(BakeError)?;
     let composer = Composer {
         rust_sources: rust_sources.iter().map(|s| s.to_string()).collect(),
         compose: Box::new(compose),
@@ -195,12 +203,14 @@ fn mixed_grants<'a>(
 /// bake, the module's hash (`REVISION`, which the web's entry passes on); on
 /// a native platform the bytecode, embedded, or in a linked bake the
 /// section the link adds, so that an edit to the module's code leaves the
-/// file as it was.
+/// file as it was; and there, when a package fills the native slot, its
+/// shim and the factory `embedded_data` attaches (LLP 1154 D3).
 fn module_constants(
     meta: &serde_json::Value,
     rust_updates: bool,
     platform: &str,
     linked: bool,
+    native: Option<&contract::native::NativeSlot>,
 ) -> Result<String, String> {
     let mut metadata = format!(
         "pub const APP: &str = {:?};\npub const GRANTS: &str = {:?};\n",
@@ -220,6 +230,14 @@ fn module_constants(
         } else {
             APP_BYTECODE
         });
+        if let Some(slot) = native {
+            metadata.push_str(&format!(
+                "// {package}'s native module, from its exact.json `native` (LLP 1154 D3).\n#[path = {root:?}]\n#[allow(dead_code, missing_docs, unused_imports, clippy::all)]\nmod exact_native_shim;\n/// The app's native module, for `embedded_data`'s `.with_native(exact_native)`.\npub fn exact_native(_grants: &str) -> Box<dyn exact_js::NativeModule> {{\n    Box::new(exact_native_shim::{class}::new(APP))\n}}\n",
+                package = slot.package,
+                root = slot.root.display().to_string(),
+                class = slot.class,
+            ));
+        }
     }
     Ok(metadata)
 }
@@ -308,7 +326,12 @@ fn build_sources(
         && compat.inputs["rustModule"]
             .as_str()
             .is_some_and(|module| !module.is_empty());
-    let mut metadata = module_constants(&meta, rust_updates, platform, outside)?;
+    let native = contract::native::native_slot(app)?;
+    for file in &native.watched {
+        println!("cargo:rerun-if-changed={}", file.display());
+    }
+    let mut metadata =
+        module_constants(&meta, rust_updates, platform, outside, native.slot.as_ref())?;
     if platform == "windows" {
         metadata.push_str(&format!(
             "/// The window the app opens in (`host.windows.window`).\npub fn window() -> exact_windows::Window {{ {} }}\n",
