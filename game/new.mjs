@@ -796,7 +796,8 @@ function writeApp(dir, name, { title = titleOf(name), id = newAppId(name) } = {}
     // Contract libraries come through node_modules (LLP 1091 D9): `bun add`
     // one, or `"name": "file:../path"` for a local library.
     // `npm start` and `bun start` serve the built site (LLP 1153 D3.3).
-    'package.json': JSON.stringify({ name, private: true, scripts: { start: 'bun exact.mjs serve' }, dependencies: {} }, null, 2) + '\n',
+    // A host's convention (LLP 1153.001 D3): `npm run build` makes the release in dist/, `npm start` serves it on $PORT.
+    'package.json': JSON.stringify({ name, private: true, scripts: { build: 'bun exact.mjs web-build --out dist', start: 'bun exact.mjs serve dist' }, dependencies: {} }, null, 2) + '\n',
     'AGENTS.md': agentNotes(dir, name),
     // The web alone; a native platform's keys come with its first verb or `--with` (scripts/app-shells.mjs).
     'app.json': JSON.stringify({

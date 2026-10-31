@@ -12,7 +12,8 @@ use std::sync::Mutex;
 /// runtime nothing to do before the reader acts (LLP 1048.007 D1, as
 /// `render.mjs` `infer` decides it): nothing in the plan only the runtime
 /// keeps (`exact_runner::activation`), no answer pending, nothing due on
-/// the clock, no handler the capture script cannot replay.
+/// the clock, no handler the capture script can neither replay nor wake
+/// for.
 pub(crate) fn activation(
     plan: &Plan,
     location: &str,
@@ -21,7 +22,7 @@ pub(crate) fn activation(
     clocked: bool,
     viewport: &exact_runner::Viewport,
 ) -> (exact_plan::ActivatePolicy, String) {
-    use exact_runner::activation::REPLAYED;
+    use exact_runner::activation::{REPLAYED, WOKEN};
     let mut activation = route_at(plan, location)
         .map_or(exact_plan::ActivatePolicy::Inferred, |route| route.activate);
     if activation == exact_plan::ActivatePolicy::Inferred {
@@ -32,7 +33,7 @@ pub(crate) fn activation(
             && handlers
                 .values()
                 .flatten()
-                .all(|kind| REPLAYED.contains(kind));
+                .all(|kind| REPLAYED.contains(kind) || WOKEN.contains(kind));
         if let Some(media) = inference.media.as_deref().filter(|_| waits) {
             let wake = if media.is_empty() {
                 String::new()

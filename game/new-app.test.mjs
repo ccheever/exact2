@@ -74,7 +74,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     // A setting's local value (`import.meta.env`, LLP 1153 D4) stays out of the repository.
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.env\.local$/m);
     // `npm start` and `bun start` serve the built site (LLP 1153 D3.3).
-    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'package.json'), 'utf8')).scripts, { start: 'bun exact.mjs serve' });
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'package.json'), 'utf8')).scripts, { build: 'bun exact.mjs web-build --out dist', start: 'bun exact.mjs serve dist' });
     assert.deepEqual(appVerbs('field-log', dir).serve, ['host/web/serve.mjs']);
     // The runner is a few lines a builder can read (LLP 1116.006 D7): where the verbs are, and the checkout's app-cli.mjs.
     const launcher = readFileSync(resolve(dir, 'exact.mjs'), 'utf8');
@@ -169,7 +169,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     writeFileSync(resolve(dir, 'rust-toolchain.toml'), '[toolchain]\nchannel = "1.0.0"\n');
     writeFileSync(resolve(dir, '.cargo/config.toml'), '[env]\nHERMES_LEAN_SYS_OFFLINE = "0"\n');
     const [patches, toolchain] = outsideWorkspaceProblems(dir);
-    assert.match(patches, /must name exact2's vendored taffy\. Use .*:\n\[patch\.crates-io\]\ntaffy = /);
+    assert.match(patches, /must name exact2's vendored taffy\. Use .*:\n\[patch\.crates-io\]\n(?:.*\n)*taffy = /);
     assert.match(toolchain, /pins 1\.0\.0; exact2 builds with /);
     // A checkout that moved: every exact2 path in the app is wrong.
     const web = resolve(dir, 'web/Cargo.toml');

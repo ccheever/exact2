@@ -229,11 +229,11 @@ pub fn viewport_media(plan: &Plan) -> String {
 /// What an undeclared route's inferred activation asks of a render (LLP
 /// 1048.007 D1, `exact_runner::activation`), for `render.mjs`.
 pub fn activation(plan: &Plan) -> String {
-    use exact_runner::activation::{runtime_kept, REPLAYED};
-    let replayed: Vec<&str> = REPLAYED.iter().map(|k| k.name()).collect();
+    use exact_runner::activation::{runtime_kept, REPLAYED, WOKEN};
+    let waits: Vec<&str> = REPLAYED.iter().chain(&WOKEN).map(|k| k.name()).collect();
     format!(
-        "{{replayed:{},kept:{}}}",
-        serde_json::to_string(&replayed).unwrap(),
+        "{{waits:{},kept:{}}}",
+        serde_json::to_string(&waits).unwrap(),
         runtime_kept(plan) || exact_runner::activation::wake(plan).is_none()
     )
 }

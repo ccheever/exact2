@@ -123,7 +123,7 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
     line: 'serve a built site, as a static host would (npm start)',
     usage: 'bun exact.mjs serve [<dir>] [--port <n>] [--lan]',
     flags: [
-      ['--port <n>', 'listen on <n> (default 8765)'],
+      ['--port <n>', 'listen on <n> (default: PORT from the environment, else 8765)'],
       ['--lan', 'bind every interface, so another device on this network opens it'],
       ['--origin <dir>', 'a directory deploy published to, in place of a build'],
     ],

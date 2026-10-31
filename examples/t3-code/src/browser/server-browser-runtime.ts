@@ -20,7 +20,9 @@ function runtime(client: T3Client, id: string): Runtime {
 }
 export const serverStreamUrl = (client: T3Client, id: string): string => { const state = runtime(client, id); return state.id === id ? state.url : ''; };
 export const serverStreamFrame = (client: T3Client, id: string): StreamFrame => { const state = runtime(client, id); return state.id === id ? state.stream.frame : emptyStreamFrame(); };
-export async function prepareServerStream(client: T3Client, native: Native, id: string, threadId: string, tabId: string): Promise<void> {
+/** `pip`: the picture-in-picture window's own stream (server-browser-pip.ts), which watches and never operates: the
+ *  reference's `interactive: false` client at 1280 × 1280 (serverPictureInPicture.ts). */
+export async function prepareServerStream(client: T3Client, native: Native, id: string, threadId: string, tabId: string, pip = false): Promise<void> {
   const state = runtime(client, id), now = composerNow(client);
   if (!id) { await retainServerStreams(client, []); return; }
   if (client.connection !== 'connected') { state.request++; state.pending = ''; state.stream.stop(); state.id = state.url = ''; return; }
@@ -47,7 +49,8 @@ export async function prepareServerStream(client: T3Client, native: Native, id: 
   finally { if (state.request === request) state.pending = ''; }
   if (client.generation !== generation || state.request !== request) return;
   const url = new URL(`${str(access.wsBase)}/ws`);
-  for (const [key, value] of Object.entries({ threadId, tabId, maxWidth: String(state.maxWidth * 2), maxHeight: String(state.maxHeight * 2), wsTicket: str(access.ticket) })) url.searchParams.set(key, value);
+  const size = pip ? { maxWidth: '1280', maxHeight: '1280', interactive: 'false' } : { maxWidth: String(state.maxWidth * 2), maxHeight: String(state.maxHeight * 2) };
+  for (const [key, value] of Object.entries({ threadId, tabId, ...size, wsTicket: str(access.ticket) })) url.searchParams.set(key, value);
   if (state.id !== id) { state.stream.stop(); state.buttons = 0; }
   state.stream.frame.runtimeId = id;
   state.id = id; state.threadId = threadId; state.tabId = tabId; state.generation = generation; state.url = url.href; state.stream.begin(state.url);

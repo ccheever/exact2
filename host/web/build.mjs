@@ -128,13 +128,16 @@ if (target !== '--wasm' && !game && !bakeOnly) {
     writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
       manifestSha256: appManifestDigest(app), files: buildFileCards(stage), ...(inputs ? { inputs, inputsAt } : {}), ...builtSettings(stage), ...(outDir ? { release: true } : {}) }) + '\n');
     // A site to host holds the site, not the build's intermediates (`.gen`, the app's captured sources among them;
-    // the receipt's file cards name no dot path), but for the server bundle `serve` renders a `render=request` or
-    // `cached` route's page with, when it has such a route (LLP 1153 D3.4).
+    // the receipt's file cards name no dot path), but for what `serve` renders a `render=request` or `cached` route's
+    // page with, when it has such a route: the server bundle (LLP 1153 D3.4) and the analyzed sheet a page selects
+    // its rules from (LLP 1048.007 D4).
     if (outDir) {
-      const routes = JSON.parse(readFileSync(resolve(stage, 'routes.json'), 'utf8')).routes, bundle = resolve(stage, '.gen/server.js');
-      const server = routes.some((r) => r.render === 'request' || r.render === 'cached') && existsSync(bundle) ? readFileSync(bundle) : null;
+      const routes = JSON.parse(readFileSync(resolve(stage, 'routes.json'), 'utf8')).routes;
+      const kept = routes.some((r) => r.render === 'request' || r.render === 'cached')
+        ? ['server.js', 'page-style.json'].filter((name) => existsSync(resolve(stage, '.gen', name))).map((name) => [name, readFileSync(resolve(stage, '.gen', name))]) : [];
       rmSync(resolve(stage, '.gen'), { recursive: true, force: true });
-      if (server) { mkdirSync(dirname(bundle)); writeFileSync(bundle, server); }
+      if (kept.length) mkdirSync(resolve(stage, '.gen'));
+      for (const [name, bytes] of kept) writeFileSync(resolve(stage, '.gen', name), bytes);
     }
     replaceBuild(stage, dist);
     stage = null;

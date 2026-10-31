@@ -42,6 +42,7 @@ import { pushToast } from '../shell/toast';
 import { miniStoreOf, deviceThreadId } from '../device/device-session';
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
 import { primaryEnvironmentId } from '../connections/local-primary';
+import { closeServerPictureInPicture, serverPipOf, settleServerPictureInPicture } from './server-browser-pip';
 import { drainServerNotices, prepareServerStream, retainServerStreams, serverStreamUrl, serverStreamFrame, sendServerCommand } from './server-browser-runtime';
 import { adoptAutomationTabs, automationOverlay, automationPrepare, toggleFrameMute } from './browser-automation';
 import { openExternal } from '../client/external-open';
@@ -465,7 +466,12 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
     const shown = active?.browser && ref ? effectiveNav(client, ref, active.browser.tabId) : null;
     const floatingId = floatingTabOf(client), floating = ref && floatingId && floatingId !== shown?.snapshot?.tabId ? effectiveNav(client, ref, floatingId) : null;
     const slots = (read ? [shown, floating] : []).filter((slot): slot is NonNullable<typeof shown> => !!slot && slot.snapshot?.runtime === 'server');
-    await retainServerStreams(client, slots.map(slot => slot.runtimeId));
+    // The picture-in-picture window's stream lives while it floats, whichever thread shows (server-browser-pip.ts).
+    const pipTab = serverPipOf(client), pipNav = pipTab ? effectiveNav(client, { environmentId: pipTab.environmentId, threadId: pipTab.threadId }, pipTab.tabId).nav : null;
+    settleServerPictureInPicture(client, pipNav && { pdf: pipNav._tag === 'Success' && previewPdfAssetUrl(pipNav.url, pipNav.url) !== null });
+    const pip = read ? serverPipOf(client) : null;
+    await retainServerStreams(client, [...slots.map(slot => slot.runtimeId), ...(pip ? [pip.runtimeId] : [])]);
+    if (pip) await prepareServerStream(client, native, pip.runtimeId, pip.threadId, pip.tabId, true);
     for (const slot of slots) {
       await drainServerNotices(client, native, slot.runtimeId, tabId => {
         if (!ref) return; host.listed.delete(scopedThreadKey(ref));
@@ -505,7 +511,14 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
   if (op === 'open') return addBrowserSurface(client, native, state, value || undefined);
   // Part 3: a toast's artifact buttons (id = the file) and the floating player's pill (id = its runtime tab).
   if (op.startsWith('artifact-')) return artifactLocal(client, native, op.slice(9), id, value);
-  if (op.startsWith('mini-')) return browserMiniLocal(client, native, op.slice(5), id, tabId => reopenBrowserTab(client, state, tabId));
+  if (op.startsWith('mini-')) return browserMiniLocal(client, native, op.slice(5), id, value, tabId => reopenBrowserTab(client, state, tabId));
+  if (op === 'pip-left') { closeServerPictureInPicture(client); return ''; } // the picture-in-picture window's close
+  // toggleNativePictureInPicture's catch: the platform could not float the tab (`value`, its reason).
+  if (op === 'pip-failed') {
+    closeServerPictureInPicture(client);
+    pushToast(client, { kind: 'error', title: 'Unable to pop out preview', description: value || 'An error occurred.' });
+    return '';
+  }
   if (op === 'annotation-held') return annotationAttachedToDraft(client); // an annotation's ⌘Return the window could not send
   if (op === 'show') return showPreview(client, native, state); // ⇧⌘J (browser-navigation.ts)
   const surface = state.surfaces.find(entry => entry.id === browserSurfaceId(id) && entry.kind === 'browser');

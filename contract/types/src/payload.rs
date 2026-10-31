@@ -26,6 +26,11 @@ fn payload(event: &str, control: Option<&str>) -> Vec<(&'static str, &'static st
         ("key" | "keycapture" | "keyup", _) => one("key", "string", "the key's name, `key`"),
         ("message", _) => one("data", "string", "the message's `data`"),
         ("error", _) => one("message", "string", "the error's `message`"),
+        ("pictureinpictureerror", _) => one(
+            "message",
+            "string",
+            "why the platform's window did not open or ended",
+        ),
         ("hover", _) => one("hovered", "bool", "whether the pointer is over, `hovered`"),
         ("timeupdate", _) => one("currentTime", "number", "the media's `currentTime`"),
         ("durationchange", _) => one("duration", "number", "the media's `duration`"),

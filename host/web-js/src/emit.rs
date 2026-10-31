@@ -977,6 +977,9 @@ impl Em<'_> {
             self.symbols.1 |= bound;
         }
         let (mut attrs, content, extra) = rows::attributes(element, &parts.props);
+        if element == "img" && exact_runner::rows::repeated(plan, exact_plan::NodesId(i)) {
+            attrs.push(("loading".into(), "lazy".into()));
+        }
         let mut css = parts.css.clone();
         css.push_str(&extra);
         // @ref LLP 1063 — `-exact-layout-transition` and `-exact-exit-animation` are custom
@@ -1364,6 +1367,10 @@ impl Em<'_> {
                 | EventKind::Volumechange
                 // @ref LLP 1042 — through `media.js`, a bool payload.
                 | EventKind::Fullscreenchange
+                // @ref LLP 1042 §9 — an image's, which picture-in-picture.js dispatches on it.
+                | EventKind::Enterpictureinpicture
+                | EventKind::Leavepictureinpicture
+                | EventKind::Pictureinpictureerror
                 // @ref LLP 1098 D6 — the media session's, through `media.js`.
                 | EventKind::Seekbackward
                 | EventKind::Seekforward

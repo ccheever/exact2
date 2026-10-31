@@ -463,7 +463,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// and original intrinsic geometry until a matching new backing is accepted.
     func loadImage(_ source: String) {
         let previousSource = imageSource, previousGeneration = loadGeneration
-        imageSource = source
+        imageSource = source; PictureInPictureHost.changed(self)
         loadGeneration += 1
         if source.hasPrefix("symbol:") { presenter?.session?.rasters.cancel(id); raster = nil; updateSymbol(); return }
         clearSymbol(); image = nil
@@ -497,7 +497,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         loadGeneration += 1
         presenter?.session?.rasters.cancel(id)
         raster = nil
-        imageSource = nil
+        imageSource = nil; PictureInPictureHost.gone(self)
         clearSymbol()
         image = nil
         video?.invalidate(); video = nil

@@ -3,6 +3,8 @@ use ServerBrowserFrame from "./server-browser.contract"
 members T3Code
   resource serverBrowserLive = serverBrowserFrame(shell.panel.browser.runtimeId, shell.panel.browser.streamUrl) as shape ServerBrowserFrame
   resource serverBrowserMiniLive = serverBrowserFrame(shell.panel.browserMini.runtimeId, shell.panel.browserMini.streamUrl) as shape ServerBrowserFrame
+  // The picture-in-picture window's own stream (server-browser-pip.ts).
+  resource serverBrowserPipLive = serverBrowserFrame(shell.panel.frames.pip.runtimeId, shell.panel.frames.pip.streamUrl) as shape ServerBrowserFrame
   mutation serverBrowserChanged as shape ServerBrowserFrame queue
   mutation serverBrowserMaintained as shape ServerBrowserFrame queue
   mutation serverBrowserMiniMaintained as shape ServerBrowserFrame queue
@@ -13,7 +15,8 @@ members T3Code
   derive serverMiniFrame0 = match serverBrowserChanged { case some(value) => value.runtimeId == shell.panel.browserMini.runtimeId and value.seq > serverBrowserMiniLive.seq ? value : serverBrowserMiniLive, case none => serverBrowserMiniLive }
   derive serverMiniFrame1 = match serverBrowserMiniMaintained { case some(value) => value.runtimeId == shell.panel.browserMini.runtimeId and value.seq > serverMiniFrame0.seq ? value : serverMiniFrame0, case none => serverMiniFrame0 }
   derive serverMiniFrame = match serverBrowserUploaded { case some(value) => value.runtimeId == shell.panel.browserMini.runtimeId and value.seq > serverMiniFrame1.seq ? value : serverMiniFrame1, case none => serverMiniFrame1 }
-  task streamMaintenance when serverFrame.attention or serverMiniFrame.attention key=`${serverFrame.runtimeId}:${serverMiniFrame.runtimeId}`
+  derive serverPipFrame = match serverBrowserChanged { case some(value) => value.runtimeId == shell.panel.frames.pip.runtimeId and value.seq > serverBrowserPipLive.seq ? value : serverBrowserPipLive, case none => serverBrowserPipLive }
+  task streamMaintenance when serverFrame.attention or serverMiniFrame.attention or serverPipFrame.attention key=`${serverFrame.runtimeId}:${serverMiniFrame.runtimeId}:${serverPipFrame.runtimeId}`
     every(250, streamMaintain)
   action streamMaintain
     shellClock = performanceNow()
@@ -28,6 +31,15 @@ members T3Code
     after(1, streamDecodeMiniFrame)
   action streamDecodeMiniFrame
     send serverBrowserChanged = serverBrowserDecode(serverMiniFrame.runtimeId)
+  task streamPipDecode when serverPipFrame.decoding key=`${serverPipFrame.runtimeId}:${serverPipFrame.decodeSequence}`
+    after(1, streamDecodePipFrame)
+  action streamDecodePipFrame
+    send serverBrowserChanged = serverBrowserDecode(serverPipFrame.runtimeId)
+  // openServerPictureInPicture: the hidden image floats once it has a picture, the seed or the stream's first.
+  task streamPipFloat when shell.panel.frames.pip.request > 0 and (shell.panel.frames.pip.seed != "" or serverPipFrame.image != "") key=shell.panel.frames.pip.request
+    after(1, streamPipFloatNow)
+  action streamPipFloatNow
+    requestPictureInPicture("server-browser-pip")
   state streamWidth = 0
   state streamHeight = 0
   state streamFollowSize = false
