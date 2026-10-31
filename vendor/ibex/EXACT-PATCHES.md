@@ -466,10 +466,13 @@ POSIX lock the process holds on it (sqlite.org/howtocorrupt.html §2.2.1).
 `ibex2-sqlite`'s `held.rs` keeps the process's registry: `SqliteProvider::open`
 counts each connection's file before SQLite opens it and refuses one that
 `reserve(path)` has reserved; `reserve` refuses a file a connection has open,
-and its `Reservation` ends the reservation when dropped; a connection's count
-ends at a successful close or when it drops. A file is one entry by its name
-under its canonical directory and, once it exists, by its device and inode,
-so a case alias or a hard link is the same file. `stdlib/app_fs_unix.rs`
+and its `Reservation` ends the reservation when dropped and says whether the
+file `existed()`; a connection's count ends at a successful close or when it
+drops. A file is one entry by its name under its canonical directory and by
+its device and inode, so a case alias or a hard link is the same file: an
+absent file is created empty (`O_EXCL`) under the registry's lock when its
+entry is made, by either side, and each check reads every entry's identity
+again from its name, so a name unlinked and made again is the new file. `stdlib/app_fs_unix.rs`
 `AppDirectories::sqlite_path` checks that the database is a regular file with
 `fstatat(AT_SYMLINK_NOFOLLOW)` beneath the pinned parent instead of opening
 and closing it, so resolving a path, a refused one's included, never touches

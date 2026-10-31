@@ -9,22 +9,28 @@
 //! the connections it opens; [`reserve`] refuses a file a connection has open.
 //!
 //! A file is one entry however it is named: by its name with the directory
-//! canonicalized (`/tmp` and `/private/tmp`), and once it exists by its
-//! device and inode too, so a case alias on a case-insensitive volume or a
-//! hard link is the same file. An entry made before its file existed learns
-//! the file's identity at the next check. Nothing here opens the file.
+//! canonicalized (`/tmp` and `/private/tmp`), and by its device and inode,
+//! so a case alias on a case-insensitive volume or a hard link is the same
+//! file. An absent file is created, empty, when its entry is made, under the
+//! registry's lock, so every entry has an identity from the start (SQLite
+//! takes an empty file as a new database); each check reads it again from
+//! the entry's name, so a name unlinked and made again is the new file.
+//! Nothing here opens an existing file: closing that descriptor would drop
+//! the other library's locks.
 use std::{
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard},
 };
 
-/// Who holds a file another party asked for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Holder {
+/// Why a file was not given to the party that asked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refused {
     /// It is reserved for the embedder's other SQLite library.
     Reserved,
     /// A connection of this provider has it open.
     Open,
+    /// It did not exist, and could not be created.
+    Create(String),
 }
 
 enum Hold {
@@ -77,14 +83,14 @@ fn identity(path: &Path) -> Option<(u64, u64)> {
 }
 
 impl Files {
-    /// The entry for the file at `path`, if one holds it.
+    /// The entry for the file at `path`, if one holds it. Each entry's
+    /// identity is read again from its name: one whose name was unlinked, or
+    /// now names another file, follows what the name names now.
     fn find(&mut self, path: &Path) -> (PathBuf, Option<usize>) {
         let name = name(path);
         let identity = identity(&name);
         for entry in &mut self.entries {
-            if entry.identity.is_none() {
-                entry.identity = self::identity(&entry.name);
-            }
+            entry.identity = self::identity(&entry.name);
         }
         let found = self.entries.iter().position(|entry| {
             entry.name == name || (identity.is_some() && entry.identity == identity)
@@ -92,7 +98,22 @@ impl Files {
         (name, found)
     }
 
-    fn insert(&mut self, name: PathBuf, hold: Hold) -> u64 {
+    /// An entry for the file `name` names, which no entry holds, creating it
+    /// empty when it is absent; and whether it existed.
+    fn insert(&mut self, name: PathBuf, hold: Hold) -> Result<(u64, bool), Refused> {
+        let existed = std::fs::symlink_metadata(&name).is_ok();
+        if !existed {
+            // `create_new` (O_EXCL) follows no link and fails on a file made meanwhile.
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&name)
+            {
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(Refused::Create(format!("{}: {e}", name.display()))),
+            }
+        }
         self.next += 1;
         let identity = identity(&name);
         self.entries.push(Entry {
@@ -101,7 +122,7 @@ impl Files {
             identity,
             hold,
         });
-        self.next
+        Ok((self.next, existed))
     }
 
     fn remove(&mut self, serial: u64) {
@@ -109,29 +130,42 @@ impl Files {
     }
 }
 
-/// Reserve the file at `path` for the embedder's other SQLite library;
-/// refused, naming who holds it, while a connection of this provider has it
-/// open or it is already reserved. The reservation lasts until its
-/// [`Reservation`] drops, which that library's holder does only after
-/// closing the file.
-pub fn reserve(path: &Path) -> Result<Reservation, Holder> {
+/// Reserve the file at `path` for the embedder's other SQLite library,
+/// creating it empty when it is absent; refused, saying why, while a
+/// connection of this provider has it open, it is already reserved, or it
+/// cannot be created. The reservation lasts until its [`Reservation`]
+/// drops, which that library's holder does only after closing the file.
+pub fn reserve(path: &Path) -> Result<Reservation, Refused> {
     let mut files = files();
     match files.find(path) {
         (_, Some(at)) => Err(match files.entries[at].hold {
-            Hold::Reserved => Holder::Reserved,
-            Hold::Open(_) => Holder::Open,
+            Hold::Reserved => Refused::Reserved,
+            Hold::Open(_) => Refused::Open,
         }),
-        (name, None) => Ok(Reservation(files.insert(name, Hold::Reserved))),
+        (name, None) => {
+            let (serial, existed) = files.insert(name, Hold::Reserved)?;
+            Ok(Reservation { serial, existed })
+        }
     }
 }
 
 /// A file reserved by [`reserve`]; dropping it ends the reservation.
 #[derive(Debug)]
-pub struct Reservation(u64);
+pub struct Reservation {
+    serial: u64,
+    existed: bool,
+}
+
+impl Reservation {
+    /// Whether the file existed before [`reserve`]; else it made it, empty.
+    pub fn existed(&self) -> bool {
+        self.existed
+    }
+}
 
 impl Drop for Reservation {
     fn drop(&mut self) {
-        files().remove(self.0);
+        files().remove(self.serial);
     }
 }
 
@@ -140,18 +174,20 @@ impl Drop for Reservation {
 pub(crate) struct Count(Mutex<Option<u64>>);
 
 /// Count a connection to the file at `path`, refused while it is reserved.
-pub(crate) fn open(path: &Path) -> Result<Count, Holder> {
+/// An absent file is created here, empty, so its identity is known before
+/// SQLite opens it and no alias can be reserved meanwhile.
+pub(crate) fn open(path: &Path) -> Result<Count, Refused> {
     let mut files = files();
     let serial = match files.find(path) {
         (_, Some(at)) => {
             let entry = &mut files.entries[at];
             match &mut entry.hold {
-                Hold::Reserved => return Err(Holder::Reserved),
+                Hold::Reserved => return Err(Refused::Reserved),
                 Hold::Open(count) => *count += 1,
             }
             entry.serial
         }
-        (name, None) => files.insert(name, Hold::Open(1)),
+        (name, None) => files.insert(name, Hold::Open(1))?.0,
     };
     Ok(Count(Mutex::new(Some(serial))))
 }

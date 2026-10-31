@@ -40,13 +40,13 @@ const last = (tree) => (tree.nodes ?? []).find(n => n.props?.testId === 'last')?
 const steps = [
   ['ping', 'the shim answers, through the factory the shell attached', t => t.startsWith('vault 7f3a for ')],
   ['open-ungranted', 'an ungranted path is refused, naming the grant', t => t.includes('app:/data/other.sqlite: no grant covers it; grant `sqlite.open app:/data/other.sqlite`')],
-  ['open', 'a granted path is admitted at its real path', t => t === 'opened vault.sqlite'],
+  ['open', 'a granted path is admitted at its real path, made new', t => t === 'opened vault.sqlite (new)'],
   ['own-open', 'while the shim holds it, the app\'s own open is refused', t => t.startsWith('refused: ') && t.includes('vault.sqlite is reserved for another SQLite library')],
   ['close', 'the shim lets it go', t => t === 'closed'],
   ['own-open', 'after close the app\'s own open is admitted', t => t === 'own opened'],
   ['open', 'while the app holds it, the shim\'s open is refused', t => t.includes('app:/data/vault.sqlite is open in the app\'s own storage')],
   ['own-close', 'the app lets it go', t => t === 'own closed'],
-  ['open', 'then the shim\'s open is admitted', t => t === 'opened vault.sqlite'],
+  ['open', 'then the shim\'s open is admitted, and the file was there', t => t === 'opened vault.sqlite (kept)'],
 ];
 const out = drive('clock settle', ...steps.flatMap(([id]) => [`tap ${id}`, 'clock settle', 'tree']));
 steps.forEach(([id, name, ok], i) => {

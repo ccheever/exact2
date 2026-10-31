@@ -52,7 +52,8 @@ impl NativeStorage {
     /// ([`SqliteFile::path`]) with its own SQLite, and closes that before
     /// dropping the guard; meanwhile the app's own `storage.sqlite.open` of
     /// the file is refused. The reservation ends when the guard drops.
-    /// Neither this nor the refusal opens the file.
+    /// An absent file is created empty, so that it is one file under every
+    /// name from the start. Neither this nor a refusal opens an existing file.
     pub fn sqlite(&self, app_path: &str) -> Result<SqliteFile, String> {
         // Admitted before even the roots are created.
         admit(
@@ -76,17 +77,18 @@ impl NativeStorage {
             .map_err(|e| e.to_string())?;
         let path = resolve_sqlite(&self.grants, Some(&directories), app_path)
             .map_err(|e| e.to_string())?;
-        let reservation = ibex2_sqlite::reserve(&path).map_err(|holder| match holder {
-            ibex2_sqlite::Holder::Reserved => {
+        let reservation = ibex2_sqlite::reserve(&path).map_err(|refused| match refused {
+            ibex2_sqlite::Refused::Reserved => {
                 format!("{app_path} is already open in the app's native module")
             }
-            ibex2_sqlite::Holder::Open => format!(
+            ibex2_sqlite::Refused::Open => format!(
                 "{app_path} is open in the app's own storage; a file is open in one SQLite at a time, so close it there first"
             ),
+            ibex2_sqlite::Refused::Create(why) => format!("{app_path}: {why}"),
         })?;
         Ok(SqliteFile {
             path,
-            _reservation: reservation,
+            reservation,
             _directories: directories,
         })
     }
@@ -97,7 +99,7 @@ impl NativeStorage {
 /// resolved, while it lives; dropping it ends the reservation.
 pub struct SqliteFile {
     path: PathBuf,
-    _reservation: ibex2_sqlite::Reservation,
+    reservation: ibex2_sqlite::Reservation,
     _directories: AppDirectories,
 }
 
@@ -105,5 +107,11 @@ impl SqliteFile {
     /// The file's real path, for the module's own SQLite to open.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Whether the file existed before [`NativeStorage::sqlite`]; else the
+    /// host made it, empty, which SQLite opens as a new database.
+    pub fn existed(&self) -> bool {
+        self.reservation.existed()
     }
 }

@@ -151,53 +151,83 @@ fn a_native_modules_sqlite_file_is_granted_and_held_by_one_sqlite_at_a_time() {
     assert_eq!(ask("native", "close"), "closed");
 }
 
-/// A reservation follows the file, not its name: another name of an
-/// existing file (a hard link, and a case alias where the volume ignores
-/// case) is the same file to every Exact SQLite connection, the TypeScript
-/// storage's and a Rust source's alike, in either order.
+/// A reservation follows the file, not its name: another name of the file
+/// (a hard link, and a case alias where the volume ignores case) is the same
+/// file to every Exact SQLite connection, the TypeScript storage's and a Rust
+/// source's alike, in either order, from before the file exists; and a
+/// reserved name unlinked and made again names the new file.
 #[test]
 fn a_reserved_file_is_known_by_its_identity_under_any_name() {
     use ibex2::stdlib::sqlite::{Location, Provider};
+    use ibex2_sqlite::{reserve, Refused};
     let root = Root::new();
     std::fs::create_dir_all(&root.0).unwrap();
     // SQLite refuses a path through a link (macOS's `/var`).
     let dir = std::fs::canonicalize(&root.0).unwrap();
-    let file = dir.join("vault.sqlite");
-    let link = dir.join("vault-link.sqlite");
+    let (file, upper) = (dir.join("vault.sqlite"), dir.join("VAULT.sqlite"));
+    let (link, fresh) = (dir.join("vault-link.sqlite"), dir.join("fresh-link.sqlite"));
     let open = |path: &Path| {
         ibex2_sqlite::SqliteProvider.open(Location {
             path: path.to_path_buf(),
         })
     };
-    // Reserved before the file exists, by name; it learns the file's identity once made.
-    let reserved = ibex2_sqlite::reserve(&file).unwrap();
-    std::fs::File::create(&file).unwrap();
-    std::fs::hard_link(&file, &link).unwrap();
-    let upper = dir.join("VAULT.sqlite");
-    let aliased = upper.exists();
-    let mut names = vec![&link];
-    if aliased {
-        names.push(&upper);
-    }
-    for name in &names {
-        let refused = open(name).err().map(|e| e.to_string()).unwrap_or_default();
+    let refused = |path: &Path| {
+        let refused = open(path).err().map(|e| e.to_string()).unwrap_or_default();
         assert!(
             refused.contains("is reserved for another SQLite library"),
             "{}: {refused:?}",
-            name.display()
+            path.display()
         );
+    };
+    std::fs::write(dir.join("probe"), "").unwrap();
+    let ignores_case = dir.join("PROBE").exists();
+
+    // Absent, the file is made when reserved, so an alias is the same file at once.
+    let reserved = reserve(&file).unwrap();
+    assert!(!reserved.existed() && file.exists());
+    if ignores_case {
+        refused(&upper);
     }
     drop(reserved);
-    // Open through one name, the file is refused to a reservation by another.
+    std::fs::remove_file(&file).unwrap();
+    // Absent, the file is made before SQLite opens it, so a reservation by an alias is refused.
+    if ignores_case {
+        let connection = open(&upper).unwrap();
+        assert_eq!(reserve(&file).unwrap_err(), Refused::Open);
+        connection.close().unwrap();
+        std::fs::remove_file(&file).unwrap();
+    }
+
+    // An existing file, under a hard link and a case alias, in both orders.
+    let reserved = reserve(&file).unwrap();
+    std::fs::hard_link(&file, &link).unwrap();
+    let mut names = vec![&link];
+    if ignores_case {
+        names.push(&upper);
+    }
+    for name in &names {
+        refused(name);
+    }
+    drop(reserved);
     let connection = open(&file).unwrap();
     for name in &names {
         assert_eq!(
-            ibex2_sqlite::reserve(name).unwrap_err(),
-            ibex2_sqlite::Holder::Open,
-            "{} was reserved while open",
+            reserve(name).unwrap_err(),
+            Refused::Open,
+            "{}",
             name.display()
         );
     }
     connection.close().unwrap();
-    drop(ibex2_sqlite::reserve(&link).unwrap());
+
+    // The reserved name unlinked and made again: the entry follows the new
+    // file (`link` keeps the old one, so the new one has another inode).
+    let reserved = reserve(&file).unwrap();
+    assert!(reserved.existed());
+    std::fs::remove_file(&file).unwrap();
+    std::fs::write(&file, "").unwrap();
+    std::fs::hard_link(&file, &fresh).unwrap();
+    open(&link).unwrap().close().unwrap();
+    refused(&fresh);
+    drop(reserved);
 }

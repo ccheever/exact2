@@ -18,7 +18,7 @@ use std::sync::{
 };
 
 mod held;
-pub use held::{reserve, Holder, Reservation};
+pub use held::{reserve, Refused, Reservation};
 
 const MAX_RESULT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ROWS: usize = 100_000;
@@ -72,11 +72,12 @@ impl sqlite::Provider for SqliteProvider {
             }
         }
         // Counted before SQLite opens it: a reserved file is never opened here.
-        let held = held::open(&path).map_err(|_| {
-            error(format!(
+        let held = held::open(&path).map_err(|refused| match refused {
+            held::Refused::Create(why) => error(why),
+            _ => error(format!(
                 "{} is reserved for another SQLite library in this process, such as a native module's, until it lets it go; a file is open in one SQLite at a time",
                 path.display()
-            ))
+            )),
         })?;
         let connection = Connection::open_with_flags(
             path,

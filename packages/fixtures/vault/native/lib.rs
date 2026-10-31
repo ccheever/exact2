@@ -3,8 +3,8 @@
 //! storage, so it reads no grants.
 //!
 //! `{op: "ping"}` answers `PING`, which nothing else knows. `{op: "open",
-//! path}` asks the host for `path` and creates the file at its real path,
-//! holding it as a module's own SQLite would, until `{op: "close"}`.
+//! path}` asks the host for `path`, says whether the file was there before,
+//! and holds it open as a module's own SQLite would, until `{op: "close"}`.
 
 use exact_js::{json, Json, NativeModule, NativeStorage, SqliteFile};
 
@@ -43,7 +43,6 @@ impl NativeModule for Vault {
                 let storage = self.storage.as_ref().ok_or("the host gave no storage")?;
                 let file = storage.sqlite(path)?;
                 let handle = std::fs::OpenOptions::new()
-                    .create(true)
                     .append(true)
                     .open(file.path())
                     .map_err(|e| format!("{}: {e}", file.path().display()))?;
@@ -51,8 +50,10 @@ impl NativeModule for Vault {
                     .path()
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned());
+                // Whether there was a database to keep, or the host made the file new.
+                let kept = if file.existed() { "kept" } else { "new" };
                 self.open = Some((handle, file));
-                Ok(json!({ "text": format!("opened {}", name.unwrap_or_default()) }))
+                Ok(json!({ "text": format!("opened {} ({kept})", name.unwrap_or_default()) }))
             }
             Some("close") => {
                 self.open = None;
