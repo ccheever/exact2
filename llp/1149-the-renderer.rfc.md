@@ -1427,6 +1427,58 @@ failures remain reported, and the mini owns the six-check gate. The
 100 ms obligation and D7, D11 and D15 are unchanged.
 [Review dispositions, predictions, raw rows and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-the-cuts-reviews-folded).
 
+**M10 combined landing, 2026-10-31:** the six cuts and their review fixes
+on cut 7, before `bc45470708`, after `1502f94f54`. Session `m10-landed`
+on the silver M5 Max uses `measure.m` cold-only, ten originals per arm
+and label, interleaved, with throwaway launches and retained caches.
+Every original passes ten quiet seconds; launch maxima are report-only.
+Hook, trace and power are off. Native retains its snapshot endpoint;
+painted arms use the first complete displayed drawable. Qualified n is
+in Native/GPUI/egui/Ink order. Earlier rows retain their own qualification
+and failures as recorded above; the trace cohorts are marked separately.
+All cells are cold medians in ms.
+
+| Session / instrument | Qualified n | Native | GPUI | egui | Ink |
+| --- | --- | ---: | ---: | ---: | ---: |
+| G4 historical / measure.m, seven monitored per arm | 10/10/10/10 | 354.140 | 313.130 | 337.450 | 352.130 |
+| Cut 7 alone / measure.m cold-only | 9/9/9/9 | 253.071 | 218.309 | 214.707 | 215.080 |
+| Cut 2 / measure.m cold-only | 10/10/6/10 | 251.480 | 200.396 | 202.383 | 207.710 |
+| Cut 3 / measure.m cold-only | 10/10/10/10 | 248.680 | 204.925 | 214.842 | 244.322 |
+| Cut 4 / measure.m cold-only | 10/10/10/10 | 253.631 | 209.354 | 218.137 | 224.299 |
+| Cut 5 / measure.m cold-only | 10/10/10/10 | 254.012 | 209.626 | 223.863 | 219.046 |
+| Cut 6, session 1 / measure.m cold-only | 10/10/10/10 | 257.581 | 209.308 | 222.489 | 200.874 |
+| Cut 6, five-run trace cohort / startup.py | —/5/5/5 | — | 208.944 | 227.444 | 214.282 |
+| Cut 6, ten-pair trace cohort / startup.py | —/10/8/10 | — | 208.293 | 224.601 | 217.607 |
+| Confirmation, session 2 / measure.m cold-only | 10/10/7/10 | 242.379 | 197.920 | 203.609 | 201.766 |
+| Review fixes / measure.m cold-only | 10/10/7/10 | 241.759 | 198.280 | 201.296 | 189.055 |
+| Review fixes, traced / measure.m cold-only | 5/5/5/5 | 250.120 | 205.837 | 205.812 | 194.959 |
+| Combined, before / measure.m cold-only | 10/10/9/10 | 239.284 | 195.449 | 204.924 | 187.214 |
+| Combined, after / measure.m cold-only | 10/10/9/10 | 239.689 | 197.134 | 203.295 | **159.679** |
+
+All 80 combined-session originals remain. Egui-before round 6 and
+egui-after round 8 time out without replacement. Ink's paired change is
+−29.634 ms [−52.353, +17.985], n=10. After is 37.455 ms below GPUI and
+43.616 below egui, meeting the ≥10 ms margins. Before is within 10 ms of
+GPUI but not egui. The 210–215 ms before and 185 ms after predictions
+both miss on the faster side. The observed difference between median
+rows is 27.535 ms; it does not isolate the hypothesized 9 ms of extra
+overlap. Six-cut carrier revisions are below both controls in **3 of 4
+qualified untraced sessions**; this combined revision has **1 of 1**.
+The table preserves the contrary confirmation and traced observations.
+The 100 ms obligation remains unmet, and the mini owns the six-check gate.
+
+The five-launch timeline gives first-paint work 5.285 → 3.721 ms,
+complete commit 173.468 → 150.278 ms and complete display 196.315 →
+166.537 ms; the first wrapper launches' pre-main delays remain in the
+ranges. All five after launches first display complete content, retire the
+boot observer once, and make no later retries. The six cost launches qualify; CPU/cycles
+stay within ±5% in all four phases, but fling instructions rise 32.095
+million/s, missing the ≤30 allowance. Rest displays zero frames; bar and
+caret meet cadence, with zero warm glyph upload in rest/bar/caret. These
+single pairs leave the instruction finding open. All affected suites and
+structural caps pass; the six broad checks remain assigned to the mini.
+[Predictions, ranges, timeline, counters and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-landed-the-six-cuts-over-cut-7).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms

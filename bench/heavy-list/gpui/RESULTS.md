@@ -11468,7 +11468,7 @@ the required path and are re-signed; the original bundles and failures
 remain. Both corrected throwaways exit successfully. Native and GPUI's
 throwaways succeed; egui's times out waiting for a complete frame and is
 retained without another throwaway. No measured original precedes this
-repair. No renderer source changes to repair the package.
+repair. The packaging repair changes no renderer source.
 
 **Affected suites.** All twelve invocations pass on the rebased source,
 with `EXACT_REQUIRED=1`, two test threads and this worktree's `target/`.
@@ -11482,3 +11482,173 @@ exit statuses are in `checks/`.
 The broad six-check gate is assigned to the Mac mini and is not run in
 this worktree. The local caps invocation is structural only
 (`EXACT_CAPS_WASM=0`), as in cut 7's landing record.
+
+**Combined cold session.** The uninterrupted `m10-landed` collection on
+the silver M5 Max completes all 80 originals: 78 qualify. Egui-before
+round 6 and egui-after round 8 time out waiting for readiness; both remain
+without replacement. Every launched original passes ten quiet seconds
+(minimum 10.112 s). The table gives medians [minimum, maximum], with
+qualified n. Native's endpoint is its settled-layer snapshot; the painted
+arms use the first complete drawable's displayed timestamp.
+
+| Arm | Before ms [range], n | After ms [range], n |
+| --- | ---: | ---: |
+| Native | 239.284 [226.097, 259.262], n=10 | 239.689 [229.061, 252.924], n=10 |
+| GPUI | 195.449 [184.662, 208.277], n=10 | 197.134 [187.733, 206.894], n=10 |
+| egui | 204.924 [199.402, 225.221], n=9 | 203.295 [194.295, 214.803], n=9 |
+| Ink | 187.214 [165.532, 202.727], n=10 | 159.679 [148.594, 188.900], n=10 |
+
+Ink's median row falls 27.535 ms. The ten paired after-minus-before
+changes have median **−29.634 ms [−52.353, +17.985]**; individual pairs
+are not uniformly faster. After is **37.455 ms below GPUI** and
+**43.616 ms below egui**, meeting the predicted margins of at least 10 ms.
+Before is 8.235 ms below GPUI but 17.710 ms below egui, missing the
+prediction that it would be within 10 ms of both.
+
+Both absolute predictions **miss on the faster side**: before is
+187.214 ms against 210–215 ms; after is 159.679 ms against 185 ms
+(estimated band 180–190). The observed 27.535 ms difference between the
+median rows is close to the predicted 27.5 ms, but this does not isolate
+the hypothesized extra 9 ms of overlap. The first-paint and presentation
+timeline below measures the combined path. The 100 ms obligation remains
+unmet.
+
+During-launch maxima are report-only: 1.669 non-benchmark busy cores,
+0.328 core for the largest user process and 6.960 whole-machine busy
+cores. `cold-launches.md` gives each original's gate, load, result and
+failure. Both four-arm distributions match unchanged `aggregate.mjs`
+exactly, including ranges and counts (`aggregate-check.txt`).
+
+**Timeline.** Five traced originals per Ink carrier qualify, with no
+replacement or trace drops. Values are medians [minimum, maximum], n=5;
+ages start at process creation. First complete commit means the first
+present commit whose captured scene is complete; that drawable may be
+dropped. Complete display is the probe's first positive complete-drawable
+timestamp. Medians of different events are not additive phase durations.
+
+| Event | Before, ms [range] | After, ms [range] |
+| --- | ---: | ---: |
+| First paint begins, process age | 158.152 [154.051, 424.448] | 128.988 [112.478, 342.391] |
+| First paint ends, process age | 163.437 [159.176, 429.767] | 132.846 [116.103, 346.112] |
+| First paint work, duration | 5.285 [4.993, 5.583] | 3.721 [3.605, 3.857] |
+| First complete commit, process age | 173.468 [169.966, 440.546] | 150.278 [133.797, 370.765] |
+| First complete display, process age | 196.315 [188.224, 458.866] | 166.537 [150.097, 388.334] |
+
+Before's 5.285 ms paint is near the predicted 5 ms; after's 3.721 ms is
+faster than predicted. The
+150–160 ms complete-commit prediction is met at 150.278 ms. The
+180–190 ms display prediction misses on the faster side at 166.537 ms.
+Each after launch first displays complete content, retires its boot
+observer once, and has zero retries after retirement, meeting those
+predictions. Retirement occurs 17.201–33.871 ms after complete display.
+Both carriers make zero drawable acquisitions on main in every trace.
+
+The first traced wrapper launch has 258.385 ms pre-main before and
+207.074 ms after; later launches have 7.857–8.718 ms before and
+8.220–11.342 ms after. All ten originals remain in the table. These
+pre-constructor delays, and the separate placement of the trace cohort,
+prevent a pure tracing-overhead claim. The first-paint work itself is
+4.993–5.583 ms before and 3.605–3.857 ms after even in those launches.
+The timeline locates the combined saving; it does not isolate an
+additional 9 ms overlap term. During-launch maxima are 1.653 non-benchmark
+busy cores, 0.188 user-process core and 7.688 whole-machine busy cores,
+report-only. `timeline-launches.md` and `summary.json` retain every trace
+join and qualification result.
+
+**After boot.** All six original cost launches qualify: one fling/rest,
+bar and caret sample per carrier, counters enabled, hook/trace/power off.
+The cost collection starts with sixty quiet seconds and each launch passes
+its ten-second gate; phase observations pass the existing sustained-load
+rule. These are single pairs, not replacements for G4's CPU scoreboard
+or a repeated no-regression test.
+
+| Phase | Process CPU ms/s, before → after | Mcycles/s, before → after | Minstructions/s, before → after | CPU / cycles change |
+| --- | ---: | ---: | ---: | ---: |
+| fling | 136.065 → 136.173 | 244.343 → 242.610 | 508.660 → 540.755 | +0.079% / -0.709% |
+| rest | 3.091 → 3.189 | 4.360 → 4.568 | 4.299 → 4.472 | +3.147% / +4.769% |
+| bar | 182.297 → 186.226 | 260.839 → 265.321 | 438.282 → 439.603 | +2.155% / +1.718% |
+| caret | 31.740 → 30.163 | 44.860 → 42.986 | 98.564 → 92.716 | -4.971% / -4.178% |
+
+All four phases meet the ±5% CPU and cycle prediction. Fling instructions
+rise **32.095 million/s (+6.310%)**, missing the ≤30 million/s allowance.
+This keeps the instruction regression open; this chunk changes no source
+to attempt a fourth fix. Cumulative instructions are 258.231 million lower
+before fling but 63.499 million higher through fling's end in this pair
+(`phase-boundary.json`). Thus this pair does not establish pure displacement
+of boot work. The earlier five-pair diagnosis and three failed fix rounds
+remain in the preceding record.
+
+Both rest phases display zero frames. Bar runs at 119.784 → 119.878
+frames/s and caret at 2.000 → 1.999, meeting their ±2% cadence predictions.
+Rest, bar and caret each upload zero glyph batches, copies and bytes.
+The phase-end counter differences are:
+
+| Phase | Arm | Paints / submissions / displays | Service passes | Glyph batches / copies / bytes |
+| --- | --- | ---: | ---: | ---: |
+| fling | ink-before | 347 / 347 / 338 | 3718 | 18 / 34 / 578243 |
+| fling | ink-after | 348 / 348 / 336 | 3693 | 18 / 35 / 575994 |
+| rest | ink-before | 0 / 0 / 0 | 97 | 0 / 0 / 0 |
+| rest | ink-after | 0 / 0 / 0 | 102 | 0 / 0 / 0 |
+| bar | ink-before | 1200 / 1199 / 1198 | 6013 | 0 / 0 / 0 |
+| bar | ink-after | 1200 / 1198 / 1199 | 6011 | 0 / 0 / 0 |
+| caret | ink-before | 20 / 20 / 20 | 2553 | 0 / 0 / 0 |
+| caret | ink-after | 20 / 20 / 20 | 2248 | 0 / 0 / 0 |
+
+`summary.json` also retains main CPU, effective clock, IPC, peak/end
+footprints, displayed cadence and the complete counter vector for each
+sample. The committed reducer's `--sample` validation passes all six raw
+records. Stable CPU/cycles and cadence in one pair do not close the
+instruction finding or establish a stable absence of regression.
+
+**Predictions beside results.**
+
+| Prediction | Result | Verdict |
+| --- | --- | --- |
+| Before cold p50 210–215 ms | 187.214 ms, n=10 | Miss, faster |
+| After cold p50 185 ms, band 180–190 | 159.679 ms, n=10 | Miss, faster |
+| After ≥10 ms below GPUI and egui | 37.455 / 43.616 ms below | Met |
+| Before within 10 ms of both controls | 8.235 / 17.710 ms below | Miss for egui |
+| First paint about 5 ms in both | 5.285 / 3.721 ms | Before near 5; after misses faster |
+| After complete commit at 150–160 ms | 150.278 ms, n=5 | Met |
+| After complete display at 180–190 ms | 166.537 ms, n=5 | Miss, faster |
+| After first positive display complete, one retirement, no retries after retirement | All five traces meet all three | Met |
+| Fling/rest/bar/caret CPU and cycles within ±5% | All four pairs within ±5% | Met for these single pairs |
+| Fling instruction increase ≤30 million/s | +32.095 million/s | Miss |
+| Zero rest frames; bar 120/s and caret 2/s within ±2%; no warm glyph upload in rest/bar/caret | 0; 119.878/s; 1.999/s; zero uploads | Met |
+| Pixel parity and CPU-to-Ink transition survive | All affected suites pass | Met |
+
+**Reproduction and limits.** Raw originals, quiet observations, ownership
+checks, throwaways, source/build receipts, signed bundles and instruments
+remain at `target/m10-landed/` in this worktree and, for the collected
+session, `target/g0/m10-landed/` on the silver. The local `silver/` directory
+mirrors that session. `run-session.py` retains the exact schedule and
+invocations; `launch-repaired.json` records the GUI-session launch. The
+measure command is the unchanged `measure.m` binary with `cold-only`,
+one original at a time, `G1_GPU_HOOK=0`, `EXACT_INK_DEVICE=metal` and the
+selected arm. Traced wrappers enable `G1_TRACE=1`; cost launches enable
+`EXACT_INK_COUNTERS=1` and select bar/caret with `BENCH_MOTION`.
+
+From this worktree, reproduce the tables and audit with:
+
+```sh
+python3 target/m10-landed/reduce.py
+python3 target/m10-landed/aggregate-check.py
+python3 target/m10-landed/audit.py
+```
+
+`audit.txt` verifies all 80 cold, ten timeline and six cost originals,
+adjacent before/after startup pairs, ten-second gates, matching instrument
+hashes and Ink bundle signatures. Power sampling is absent in all 1,206
+observations. `raw-sha256.json` hashes the retained session tree;
+`analysis-sha256.json` hashes the reducers and their reports. Complete test
+logs and verbatim result lines remain in `checks/`; staged structural caps
+passes. The six broad checks, including the WASM size gate, remain the
+Mac mini's work.
+
+The combined carrier is below both controls in **1 of 1 qualified
+sessions**. Across the four qualified untraced sessions of six-cut carrier
+revisions, the count is **3 of 4**; the confirmation and cut 6's traced
+cohorts remain contrary observations. This tip has not had a second
+independent combined session. The 100 ms obligation remains unmet, and
+the fling instruction increase remains queued. The branch is committed
+for the mini's gate; it has not been pushed.
