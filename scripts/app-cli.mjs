@@ -63,6 +63,7 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     mac: ['host/apple/build.mjs', `${name}-apple`],
     linux: ['scripts/build-linux.mjs', name],
     android: ['scripts/agent-android.mjs', 'build', name],
+    ...game ? {} : { windows: ['host/windows/build.mjs', name] },
     update: ['scripts/exact.mjs', 'new', dir, '--update'],
     lock: ['scripts/app-cli.mjs', '--lock', dir],
     contract: ['scripts/exact.mjs', 'contract'],
@@ -131,6 +132,18 @@ export async function run({ dir, name, game = false, exact2, args }) {
   if (!verbs[verb] && !own[verb]) {
     console.error(`Usage: bun exact.mjs <${[...Object.keys(verbs), ...Object.keys(own)].join('|')}> [arguments for that script]\nbun exact.mjs help says what each does.`);
     return 2;
+  }
+  // A native verb names its platform in app.json the first time, after that platform's setup rows, and keeps the
+  // generated workspace current unless the app authored one (LLP 1153 D1.2; scripts/app-shells.mjs). A drive's
+  // host counts (`test ios`). Absent from a checkout that lacks the module (the scaffold's test SDK), it is skipped.
+  const platform = game || rest.includes('--help') || rest.includes('-h') ? null : (await import(resolve(exact2, 'scripts/app-shells.mjs')).catch(() => null))?.platformOf(verb, host);
+  if (platform) {
+    const shells = await import(resolve(exact2, 'scripts/app-shells.mjs'));
+    const named = shells.namesPlatform(existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')) : {}, platform);
+    const report = named ? null : await import(resolve(exact2, 'scripts/exact.mjs')).then(({ sdkReport, platformReport }) => platformReport(platform, sdkReport(process.env, { only: platform, device: rest.includes('--device') }), { device: rest.includes('--device') })).catch((error) => ({ error: String(error?.message ?? error) }));
+    const brought = await shells.bringPlatform(dir, platform, { report });
+    if (brought.refused) { console.error(brought.refused); return 1; }
+    for (const line of brought.lines) console.error(line);
   }
   // The automatic build reports on stderr, so a drive's stdout stays its reply (`--json`).
   // The child ends with this process: a signal here is passed on, and a dev server
@@ -271,10 +284,12 @@ async function webBuildQuiet(spawned, args, dir) {
 /** Explicit app lock repair: preserve selected versions and resolve only manifest drift. */
 export async function lockApp(dir) {
   const { cargoEnvironment } = await import('./app.mjs');
+  const { authoredWorkspace, shellsDir } = await import('./cargo-check.mjs');
   const options = { cwd: dir, env: cargoEnvironment(), encoding: 'utf8', maxBuffer: 1 << 26 };
-  const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain', '--manifest-path', resolve(dir, 'Cargo.toml')], options);
-  if (located.status !== 0) throw new Error(`cannot find the app's Cargo workspace: ${located.stderr || located.error?.message}`);
-  const workspace = resolve(located.stdout.trim(), '..'), lock = resolve(workspace, 'Cargo.lock');
+  // An app that authored no workspace has the generated one once a native verb wrote it (LLP 1153 D1.3), else no Rust.
+  const workspace = authoredWorkspace(dir) ?? (existsSync(resolve(shellsDir(dir), 'Cargo.toml')) ? shellsDir(dir) : null);
+  if (!workspace) return `${dir}: no Rust here yet; a native verb (bun exact.mjs ios, mac, linux, android, windows) brings it`;
+  const lock = resolve(workspace, 'Cargo.lock');
   const before = existsSync(lock) ? readFileSync(lock, 'utf8') : '';
   let result = spawnSync('cargo', ['metadata', '--offline', '--format-version', '1'], { ...options, cwd: workspace });
   if (result.status !== 0 && /no matching package named|--offline was specified|attempting to make an HTTP request|in the offline mode|offline mode \(via `--offline`\)/.test(result.stderr ?? '')) {

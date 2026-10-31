@@ -1,5 +1,5 @@
 import { asyncContext, bundleOptions, developmentLocalNetwork, lowered, packageConfig, webImplementations } from '../../js/bake/src/typescript.mjs';
-import { bakeWatchEnv, hatchWords, moduleDirectory, webAppManifest } from '../../scripts/app.mjs';
+import { bakeWatchEnv, hatchWords, moduleDirectory, resolveApp, webAppManifest } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
 // 1. `exact-web-js js` compiles the plan (the app's Contract, or a baked
@@ -239,7 +239,9 @@ const orientationlock = existsSync(resolve(gen, 'orientationlock.flag'));
 const webScript = resolve(appDir, 'web/build.rs');
 if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build\w*\(/m.test(readFileSync(webScript, 'utf8'))) {
   // With what its bake watches named, as every baking build is (`bakeWatchEnv`): unset, a check reruns it every time.
-  const r = spawnSync('cargo', ['check', '-q', '--manifest-path', resolve(appDir, 'web/Cargo.toml')], { cwd: root, stdio: 'inherit', env: { ...process.env, ...bakeWatchEnv({ dir: appDir, manifest }) } });
+  // The workspace's lock is checked first, as every build's is, and `--locked` keeps the check from rewriting it (LLP 1153 D2.1).
+  resolveApp(appDir).rust();
+  const r = spawnSync('cargo', ['check', '-q', '--locked', '--manifest-path', resolve(appDir, 'web/Cargo.toml')], { cwd: root, stdio: 'inherit', env: { ...process.env, ...bakeWatchEnv({ dir: appDir, manifest }) } });
   if (r.status !== 0) { console.error(`${app}: its web build script failed`); process.exit(1); }
 }
 // `app.ts` is captured and type-checked as the native bake does it: the

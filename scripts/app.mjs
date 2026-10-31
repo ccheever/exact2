@@ -38,7 +38,8 @@ import { bakeOutside, linkable, recordRustBake } from './linked-plan.mjs';
 import { throwContractErrors } from './contract-diagnosis.mjs';
 import { filesystem, installedModules, removePrivateTree, withHostDeployment } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
-import { knownWorkspace, rememberWorkspace } from './cargo-check.mjs';
+import { authoredWorkspace, knownWorkspace, rememberWorkspace, shellsDir } from './cargo-check.mjs';
+import { ensureShells } from './app-shells.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
 import { shareTargetProblems, webShareTarget } from './share-target.mjs';
@@ -510,7 +511,7 @@ export function resolveApp(nameOrCrate) {
   if (dirname(dir) === resolve(ROOT, 'game/games') && manifest.game === undefined) {
     throw new Error(`${dir}/app.json: game is required for an app under game/games/`);
   }
-  let workspace = ROOT;
+  let workspace = ROOT, checkLock = null;
   if (manifest.game === undefined) {
     // Cargo's package.workspace can put an in-repo app in a separate lock
     // without moving its sources. Look at authored member manifests rather
@@ -529,15 +530,14 @@ export function resolveApp(nameOrCrate) {
     if (known) workspace = known;
     else {
       if (declared.length) workspace = declared[0];
-      else if (outside) {
-        const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain'], {cwd:dir, env:cargoEnvironment(), encoding:'utf8'});
-        workspace = located.status === 0 && located.stdout?.trim() ? realpathSync(dirname(located.stdout.trim())) : dir;
-      }
-      // EXACT_APP_DIR may name an app of this repo; only another workspace is checked.
-      if (workspace !== ROOT && existsSync(resolve(workspace, 'Cargo.toml'))) {
+      // From the files, never `cargo locate-project`: a web verb runs no Cargo in the app (LLP 1153 D2.1). An app that
+      // authored no workspace builds in the generated one (scripts/app-shells.mjs), written when a build asks (`rust`).
+      else if (outside) workspace = authoredWorkspace(dir) ?? shellsDir(dir);
+      // EXACT_APP_DIR may name an app of this repo; only another workspace is checked, its lock when a build asks.
+      if (workspace !== ROOT && workspace !== shellsDir(dir) && existsSync(resolve(workspace, 'Cargo.toml'))) {
         const problems = outsideWorkspaceProblems(workspace);
         if (problems.length) throw new Error(problems.join('\n'));
-        rememberWorkspace(dir, !!outside, manifests, workspace, () => checkOutsideLock(workspace));
+        checkLock = () => { checkLock = null; rememberWorkspace(dir, !!outside, manifests, workspace, () => checkOutsideLock(workspace)); };
       }
     }
   }
@@ -545,8 +545,18 @@ export function resolveApp(nameOrCrate) {
     name = manifest.game.crate.slice(0, -'-logic'.length);
     workspace = resolve(dir, '.shells');
   }
-  const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(manifest.game ? dir : workspace, 'target');
-  assertOwnTarget(target, manifest.game ? dir : workspace);
+  const generated = !!outside && workspace === shellsDir(dir), own = manifest.game || generated ? dir : workspace;
+  const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(own, 'target');
+  assertOwnTarget(target, own);
+  // What a build asks for before it runs Cargo in the workspace, once: a generated workspace written current with the
+  // manifest (LLP 1153 D1.3) and its copied lock resolved (the first build fetches what the cache lacks), or an
+  // authored workspace's lock checked. Every build helper reads `workspace`, so every build passes here; a web
+  // verb reads `dir` and `target` and runs no Cargo (D2.1).
+  let rusted = false;
+  const rust = () => {
+    if (!rusted) { rusted = true; if (generated) { ensureShells(dir, manifest); checkOutsideLock(workspace); } else checkLock?.(); }
+    return workspace;
+  };
   startSweep(target);
   let packages;
   const prepare = (refresh = false, options) => {
@@ -561,6 +571,7 @@ export function resolveApp(nameOrCrate) {
   const cargoPackage = kind => {
     prepare();
     if (!packages) {
+      rust();
       const result = lockedMetadata(workspace, true);
       if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr || result.error?.message}`);
       packages = JSON.parse(result.stdout).packages;
@@ -568,7 +579,8 @@ export function resolveApp(nameOrCrate) {
     return packages.find(pkg => pkg.name === crate(kind));
   };
   return {
-    name, dir, workspace, target, crate,
+    name, dir, target, crate, generated, rust,
+    get workspace() { return rust(); },
     cargoPackage, prepare,
     get hasGpu() {
       if (manifest.game !== undefined) return true;
@@ -632,32 +644,9 @@ export function readManifest(dir, name) {
   return { host: {}, deploy: {}, ...parsed };
 }
 
-// The UTI each `file_handlers` MIME type names on Apple platforms (LLP 1033
-// D1). `inode/directory` is the one deviation from IANA's registry —
-// freedesktop's spelling for a folder, because the web has no MIME type for
-// one and an app that opens a directory (the LLP reader) must be able to say
-// so. An unmapped type is refused rather than guessed (LLP 0382: fail
-// closed, loudly), when any build reads the manifest: the web's too, so a
-// manifest the web accepts is one every host builds (files diary F12). The
-// common document and image types are here (ledger diary F9), and IANA's
-// generic binary is Apple's generic data (files diary F12: `.bin`, `.dat`).
-export const DOCUMENT_UTIS = {
-  'text/markdown': 'net.daringfireball.markdown',
-  'text/plain': 'public.plain-text',
-  'text/html': 'public.html',
-  'text/csv': 'public.comma-separated-values-text',
-  'text/tab-separated-values': 'public.tab-separated-values-text',
-  'application/json': 'public.json',
-  'application/pdf': 'com.adobe.pdf',
-  'application/zip': 'public.zip-archive',
-  'application/octet-stream': 'public.data',
-  'image/png': 'public.png',
-  'image/jpeg': 'public.jpeg',
-  'image/gif': 'com.compuserve.gif',
-  'image/webp': 'org.webmproject.webp',
-  'image/svg+xml': 'public.svg-image',
-  'inode/directory': 'public.folder',
-};
+import { DOCUMENT_UTIS } from './document-utis.mjs';
+export { DOCUMENT_UTIS };
+;
 
 // The icon the Apple bundles are drawn from (host/apple/build.mjs
 // `appIcon`): the first square one of at least 512 px, which must be there,

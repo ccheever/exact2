@@ -981,7 +981,7 @@
           "additionalProperties": { "type": "boolean" }
         },
         "store": {
-          "description": "Per platform (web, macos, ios, linux), whether an installed app has an update store: \"0\" links none, so every change ships as a new binary; \"A\" links the store, so signed plans and assets update over the air (LLP 1030 D4). `exact new` writes \"0\" everywhere: signed TypeScript and Rust module delivery isn't implemented.",
+          "description": "Per platform (web, macos, ios, linux), whether an installed app has an update store: \"0\" links none, so every change ships as a new binary; \"A\" links the store, so signed plans and assets update over the air (LLP 1030 D4). `exact new` writes the web's; a native verb writes its platform's the first time it runs (LLP 1153 D1). Signed TypeScript and Rust module delivery isn't implemented.",
           "type": "object",
           "additionalProperties": {
             "type": "string",

@@ -36,7 +36,7 @@ The only required reading; the rest is lookup.
 ```sh
 bun <exact2>/scripts/exact.mjs new ~/groceries && cd ~/groceries
 bun exact.mjs pattern      # lists the starters; `pattern <name>` writes one
-bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
+bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background; it names iOS in app.json
 ```
 
 Start from the nearest pattern. The screen `exact new` writes, and its tests in

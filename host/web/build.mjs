@@ -61,6 +61,12 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   // An app outside apps/ reaches it through EXACT_APP_DIR, as here. It builds in a stage of its own beside the
   // output, which replaces the output only when complete (`replaceBuild`), so builds run at once never mix.
   const dist = webDist();
+  // The JS build runs Cargo in an authored workspace in two cases (LLP 1153 D2.1): a web crate whose build script is
+  // the author's, and pages rendered by the app's own render entry (`--render rust`, the default when it has one).
+  // Its lock is checked before either, as every other build's is.
+  const authoredScript = (path) => existsSync(path) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build\w*\(/m.test(readFileSync(path, 'utf8'));
+  const renderEntry = ['linux', 'web'].some((dir) => existsSync(resolve(app.dir, dir, 'src/bin', `${app.name}-render.rs`)));
+  if (!app.generated && (authoredScript(resolve(app.dir, 'web/build.rs')) || (renderEntry && !render.some((r) => r === 'js' || r === 'none')))) app.rust();
   mkdirSync(dirname(dist), { recursive: true });
   let stage = mkdtempSync(`${dist}.stage-`);
   process.on('exit', () => { if (stage) rmSync(stage, { recursive: true, force: true }); });

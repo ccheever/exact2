@@ -398,14 +398,16 @@ Ports    none. Runs to completion.`,
   },
   update: {
     line: 'after exact2 moves: rewrite exact.mjs, patches, toolchain and exact2 paths',
-    usage: 'bun exact.mjs update [--without linux]',
+    usage: 'bun exact.mjs update [--with <platforms>] [--without <platform>]',
     flags: [
-      ['--without <platform>', 'stop building and shipping linux (which Android builds too) or android: removes its crate, workspace member and app.json keys, and re-resolves Cargo.lock'],
+      ['--with <platforms>', 'name native platforms in app.json (ios, mac, linux, android, windows), as their verbs do on first use'],
+      ['--without <platform>', 'stop shipping a platform: its app.json keys go; in an app that authored its crates, linux or android also lose their crate, workspace member and lock entries'],
     ],
     internal: ['--update'],
     body: `Also rewrites AGENTS.md's generated block and adds the use lines the app's files lack;
 app.json commands and your files are kept. EXACT2=<path> names another exact2 checkout.
-An app without app.json deploy.store.linux gets no linux/ crate back.
+An app that authored no Cargo workspace has none to rewrite: its native workspace is
+generated under .exact/ by the verb that builds it.
 Ports    none. Runs to completion.`,
     example: 'bun exact.mjs update',
   },
@@ -452,7 +454,7 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     example: 'bun exact.mjs lock',
   },
   windows: {
-    line: 'build the Windows game into dist-windows/ (on Windows)',
+    line: 'build for Windows into dist-windows/ (on Windows)',
     usage: 'bun exact.mjs windows [--run] [--release] [--out <dir>]',
     flags: [['--run', 'launch it when built'], ['--release', 'the release profile (default gpu-dev)'], ['--out <dir>', 'package into <dir> instead of dist-windows/, e.g. beside a copy still running']],
     body: 'Needs Windows and the MSVC Rust target.\nPorts    none. Runs to completion; with --run, until the game quits.',
@@ -478,22 +480,25 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
   // exact2's own verb that makes an app (scripts/exact.mjs new), not one of an app's.
   new: {
     line: 'a new app outside this repo, using this checkout',
-    usage: 'bun <exact2>/scripts/exact.mjs new <path> [--name <name>] [--bundle-id <id>] [--game [--assets]]',
+    usage: 'bun <exact2>/scripts/exact.mjs new <path> [--name <name>] [--bundle-id <id>] [--with ios,mac,linux,android,windows] [--game [--assets]]',
     flags: [
       ['--name <name>', 'the name people see (app.json app.name); default: the path\'s last part, capitalised'],
       ['--bundle-id <id>', 'the reverse-DNS id (app.json app.id, app.ts appId); default: com.example.<name>-<hex>'],
+      ['--with <platforms>', 'name native platforms in app.json now (a native verb names its own the first time it runs)'],
       ['--online', 'use the server without a local device'],
       ['--snapback', 'write a guestbook wired to the Snapback backend above the app'],
       ['--port <n>', 'the Snapback origin’s port with --snapback (default 4400)'],
       ['--game', 'a game (game/README.md): a Rust world under Contract\'s menus'],
       ['--assets', 'with --game: declare game.assets'],
       ['--update', 'rewrite an existing app\'s generated files (its exact.mjs update runs this)'],
-      ['--without <platform>', 'with --update: stop building and shipping linux or android'],
+      ['--without <platform>', 'with --update: stop shipping a platform'],
     ],
-    body: `The path's last part names the app's crates. Give --name and --bundle-id here, before the
-first build: a later change to the id makes the next build cold and leaves the old app installed.
-Then cd there: its exact.mjs runs everything, and bun exact.mjs help lists its verbs. Read
-docs/start-here.md first.
+    body: `The app is eight files and no Rust: app.contract, app.ts, app.test.contract, app.json, exact.mjs,
+AGENTS.md, package.json and .gitignore. A native verb (ios, mac, linux, android, windows) names its platform
+in app.json the first time it runs and builds in a workspace generated under .exact/ (LLP 1153 D1). Give
+--name and --bundle-id here, before the first build: a later change to the id makes the next build cold
+and leaves the old app installed. Then cd there: its exact.mjs runs everything, and bun exact.mjs help
+lists its verbs. Read docs/start-here.md first.
 Ports    none. Runs to completion.`,
     example: 'bun scripts/exact.mjs new ~/notes --name Notes --bundle-id com.yourcompany.notes && cd ~/notes && bun exact.mjs test web',
   },

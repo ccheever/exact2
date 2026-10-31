@@ -42,6 +42,10 @@ export const APPLE_BUILD_SCRIPT = `fn main() {
 }
 `;
 
+/** APPLE_BUILD_SCRIPT with the app at `app` from the crate: `..` for an authored crate beside app.json, `../../..` for
+ * one generated under `.exact/shells/` (scripts/app-shells.mjs, LLP 1153 D1). */
+export const appleBuildScript = (app = '..') => APPLE_BUILD_SCRIPT.replace('std::path::Path::new("..")', `std::path::Path::new(${JSON.stringify(app)})`);
+
 /** The one `exact new` wrote before, which mapped iOS alone; `update`
  * replaces it with APPLE_BUILD_SCRIPT. */
 export const EARLIER_APPLE_BUILD_SCRIPT = `fn main() {
@@ -69,7 +73,7 @@ export function linkable(app, pkg) {
   if (!script || !entry) return false;
   if (read(script)?.includes('exact_bake::take_linked(')) return !/^(?:pub )?const (?:PLAN|COMPAT):/m.test(read(entry) ?? '');
   if (!existsSync(resolve(app.dir, 'app.ts')) || existsSync(resolve(app.dir, 'data/Cargo.toml'))) return false;
-  if (![APPLE_BUILD_SCRIPT, EARLIER_APPLE_BUILD_SCRIPT].includes(read(script))) return false;
+  if (![APPLE_BUILD_SCRIPT, EARLIER_APPLE_BUILD_SCRIPT, appleBuildScript('../../..')].includes(read(script))) return false;
   const source = read(entry) ?? '';
   if (!/^const PLAN:/m.test(source) || !/^const COMPAT:/m.test(source)) return true;
   console.error(`host/apple: ${entry.src_path} declares PLAN and COMPAT, so the plan is compiled into the archive and a Contract edit compiles it again; \`bun exact.mjs update\` drops them, and the link then carries the plan`);
