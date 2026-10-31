@@ -82,6 +82,7 @@ shape BrowserPanel
   canGoForward: bool
   refreshDisabled: bool
   hasWebContents: bool
+  devTools: bool
   empty: bool
   failed: bool
   failHost: string

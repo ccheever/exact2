@@ -102,11 +102,12 @@ and both variables set) runs the development binary, which carries no bundle res
 no server: build the bundle, then point `EXACT_MAC_BIN` at its `Contents/MacOS/T3 Code (Exact)`
 (the driver then skips its stale-build check, so rebuild after every source change).
 
-Safari's Web Inspector (exact2 #101): every web view the clone shows is an Exact `iframe` (a Browser tab, a
-rendered HTML preview, the terminal, a Mermaid diagram), which main #309 makes `isInspectable` in a development
-build, so Safari's Develop menu lists it, and never in a production-trust bake or a distributed bundle. A Browser tab's
-⋮ › Open DevTools opens its page's inspector in any build (`openDevTools`, LLP 1020.002 D11). There is no
-View › Toggle Developer Tools: an inspector for the app's own UI stays out of exact2 (#101).
+Safari's Web Inspector: every web view the clone shows is an Exact `iframe` (a Browser tab, a rendered HTML
+preview, the terminal, a Mermaid diagram). Unasked, the web arm makes these `isInspectable` in a development build
+only (main #309), so Safari's Develop menu lists them there. A Browser tab's ⋮ › Open DevTools opens that tab's
+inspector, and makes it inspectable, in any build, a distributed bundle included (`openDevTools`, LLP 1020.002 D11,
+ruled 2026-10-31). There is no View › Toggle Developer Tools: an inspector for the app's own UI stays out of exact2
+(#101).
 
 ## Desktop command
 
@@ -777,6 +778,12 @@ above.
 - The Show in thread details menu, on the thread details card and in Settings › Appearance, closes
   after a choice, as a Mac menu does. The reference's is a Base UI menu whose checkbox items keep it
   open, so several items can be turned on or off in one visit.
+- The Browser tab's ⋮ › Open DevTools is missing on this Mac's own tabs, the common case. The reference
+  draws those tabs natively in Electron and offers the row there; the clone opens them as server tabs, the
+  pinned server's headless browser drawn from its frames, which have no web view to inspect. Only a tab of a
+  paired environment, or of a server without a browser, is a web view in the clone and has the row. The web
+  build has no row, as the reference offers it only through the desktop bridge. What the row opens is Safari's
+  Web Inspector, not Chrome DevTools.
 - A server-rendered Browser tab has no picture-in-picture window: Exact has no source that turns its
   JPEG frames into a video, which the reference's `canvas.captureStream()` does. Its in-app
   floating preview works.

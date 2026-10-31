@@ -530,19 +530,31 @@ describe('PreviewView handleMoveTab (the More menu\'s move row)', () => {
   });
 });
 
-// PreviewMoreMenu: Open DevTools under Hard reload, enabled with the tab's web contents, on a tab whose page is a web view
-// here (a server tab is drawn from the server's frames; the reference offers it there only when it renders natively).
-// The root runs the frame command as `openDevTools`, the platform's inspector for that frame (LLP 1020.002 D11).
+// PreviewMoreMenu: Open DevTools under Hard reload, enabled with the tab's web contents. PreviewView offers it through
+// the desktop bridge only, and on a server tab only one Electron renders natively; here a server tab is the server's
+// headless page, so the row is a desktop tab's in the macOS app (`devTools`). The root runs the frame command as
+// `openDevTools`, the platform's inspector for that frame (LLP 1020.002 D11).
 describe('Open DevTools', () => {
-  it('is the More menu\'s second row on a desktop tab and opens the frame\'s inspector', async () => {
+  it('is the More menu\'s second row where the view offers it, and opens the frame\'s inspector', async () => {
     const { readFileSync } = await import('node:fs');
     const { appPath } = await import('../support/app-files');
     const menu = readFileSync(appPath('browser-surface.contract'), 'utf8'), root = readFileSync(appPath('shell-members.contract'), 'utf8');
     const rows = [...menu.matchAll(/BsMenuItem\(keysId="browser-more-keys", id="([\w-]+)"/g)].map(match => match[1]);
     expect(rows.slice(0, 3)).toEqual(['browser-more-hard-reload', 'browser-more-devtools', 'browser-more-window']);
     expect(menu).toContain('id="browser-more-devtools", label="Open DevTools", note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-devtools", view.tabId, ""))');
-    expect(menu).toMatch(/if not view\.server\n\s+BsMenuItem\(keysId="browser-more-keys", id="browser-more-devtools"/);
-    expect(menu).toContain('(not view.server or (item.id != "browser-more-window" and item.id != "browser-more-devtools"))');
+    expect(menu).toMatch(/if view\.devTools\n\s+BsMenuItem\(keysId="browser-more-keys", id="browser-more-devtools"/);
+    expect(menu).toContain('(view.devTools or item.id != "browser-more-devtools")');
     expect(root).toContain('else if c.kind == "devtools"\n      openDevTools(c.id)');
+  });
+
+  it('is offered on a desktop tab in the macOS app, not on a server tab or the web', () => {
+    const view = (available: boolean, runtime: 'desktop' | 'server') => {
+      const { client } = fakeClient(() => ({}));
+      client.available = available;
+      const state = emptyPanel();
+      browserHost(client).store.reconcileServerSessions(threadRef, { sessions: [{ ...idle('tab-1'), runtime }], serverEpoch: 'epoch-1', revision: 1 });
+      return browserView(client, openBrowserIn(state, 'tab-1', 'local:thread-1')).devTools;
+    };
+    expect([view(true, 'desktop'), view(true, 'server'), view(false, 'desktop')]).toEqual([true, false, false]);
   });
 });

@@ -235,7 +235,7 @@ component BrowserMore
     if on
       hidePopover("browser-appearance-menu")
   derive allMenuItems = (view.hasWebContents ? [KmItem(id="browser-more-hard-reload", label="Hard reload"), KmItem(id="browser-more-devtools", label="Open DevTools"), KmItem(id="browser-more-window", label=(view.capture.separateWindow ? "Close separate preview window" : "Open separate preview window")), KmItem(id="browser-more-move", label=view.moveLabel), KmItem(id="browser-more-device-toolbar", label=(view.viewportMode != "fill" ? "Hide device toolbar" : "Show device toolbar")), KmItem(id="browser-more-appearance", label="Appearance"), KmItem(id="browser-more-clear-cookies", label="Clear cookies"), KmItem(id="browser-more-clear-cache", label="Clear cache")] : [KmItem(id="browser-more-move", label=view.moveLabel), KmItem(id="browser-more-clear-cookies", label="Clear cookies"), KmItem(id="browser-more-clear-cache", label="Clear cache")])
-  derive menuItems = allMenuItems.filter(item => (not view.server or (item.id != "browser-more-window" and item.id != "browser-more-devtools")) and (view.moveTarget != "" or item.id != "browser-more-move"))
+  derive menuItems = allMenuItems.filter(item => (not view.server or item.id != "browser-more-window") and (view.devTools or item.id != "browser-more-devtools") and (view.moveTarget != "" or item.id != "browser-more-move"))
   action triggerKey(k: string, e: KeyboardEvent)
     if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
       preventDefault()
@@ -255,9 +255,10 @@ component BrowserMore
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Preview menu" testId="browser-more-popup"
           KeyMenu(menuId="browser-more-keys", items=menuItems, keyed=0, gap="0px", modal=true)
             BsMenuItem(keysId="browser-more-keys", id="browser-more-hard-reload", label="Hard reload", note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-hard-reload", view.tabId, ""))
-            // A server tab is the server's page, drawn from its frames: there is no web view here to inspect.
-            if not view.server
+            // Only a web view in the macOS app has an inspector to open (a server tab is the server's page).
+            if view.devTools
               BsMenuItem(keysId="browser-more-keys", id="browser-more-devtools", label="Open DevTools", note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-devtools", view.tabId, ""))
+            if not view.server
               BsMenuItem(keysId="browser-more-keys", id="browser-more-window", label=(view.capture.separateWindow ? "Close separate preview window" : "Open separate preview window"), note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-window", view.tabId, ""))
             // The move row is never disabled: it opens a new tab rather than acting on this page.
             if view.moveTarget != ""
