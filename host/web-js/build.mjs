@@ -565,6 +565,8 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   '    pending: Resources.filter(r => r.ticket).map(r => r.name), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0,',
   // What an inferred activation reads (LLP 1048.007 D1): what is still due, the sources read, the viewport's comparisons as the render saw them.
   '    due: clock.timers.length > 0 || Mutations.some(m => m.due < Infinity || m.next < Infinity), activation, zoned: !!globalThis.__exactZone,',
+  // Only a TypeScript source is held to no clock and no Math.random (ts-fetch.js): a Rust module's page is never kept.
+  `    rust: ${!!rust},`,
   '    wake: viewportMedia.map(([query, holds]) => [query, holds(viewportFacts())]) };',
   '};',
 ].join('\n'));

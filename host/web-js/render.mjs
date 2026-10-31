@@ -15,7 +15,7 @@ import { resolve, dirname, extname } from 'node:path';
 import vm from 'node:vm';
 import { brotliCompressSync, createBrotliCompress, constants } from 'node:zlib';
 import { createDocument } from './dom.js';
-import { cachingFetch } from './http-cache.mjs';
+import { cachingFetch, FRESH } from './http-cache.mjs';
 import { canonical, matchPattern } from './route-pattern.js';
 import { select, tokens } from './page-style.mjs';
 
@@ -86,6 +86,12 @@ export function renderer(dist) {
     // base is the shell's `<base href="/">`, against which the runtime checks that a link navigates (rt.js `navigable`).
     Object.assign(document, { visibilityState: 'visible', hasFocus: () => true, baseURI: 'http://render.invalid/' });
     const location = { pathname: '/', search: '', href: 'http://render.invalid/', origin: '' };
+    // What the render read that another render may not read alike: how long its answers stay fresh for any reader
+    // (http-cache.mjs `FRESH`), and whether a source drew a random number (its only other reading the clock and
+    // `Math.random` refuse, ts-fetch.js) — so how long its page may be given again (`keep`).
+    const read = { fresh: Infinity, random: false };
+    const noted = response => { read.fresh = Math.min(read.fresh, response?.[FRESH] ?? 0); return response; };
+    const drew = f => (...args) => { read.random = true; return f(...args); };
     const ctx = vm.createContext({
       document, location,
       navigator: { onLine: true, language },
@@ -95,13 +101,17 @@ export function renderer(dist) {
       // No reader's device facts: use runner/src/viewport.rs's default size and media bits.
       innerWidth: 390, innerHeight: 844,
       matchMedia: media => ({ media, matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
-      setTimeout, clearTimeout, queueMicrotask, performance, console, fetch: fetched, Request, Response, Headers, URL, URLSearchParams, TextEncoder, TextDecoder,
-      WebAssembly, atob, btoa, Event: class {}, CustomEvent: class {}, crypto, __exactRender: true, __files: files,
+      setTimeout, clearTimeout, queueMicrotask, performance, console, Request, Response, Headers, URL, URLSearchParams, TextEncoder, TextDecoder,
+      fetch: (input, init) => fetched(input, init).then(noted, error => { read.fresh = 0; throw error; }),
+      crypto: { subtle: crypto.subtle, getRandomValues: drew(a => crypto.getRandomValues(a)), randomUUID: drew(() => crypto.randomUUID()) },
+      WebAssembly, atob, btoa, Event: class {}, CustomEvent: class {}, __exactRender: true, __files: files,
     });
     ctx.globalThis = ctx; ctx.self = ctx;
     utcIntl.runInContext(ctx);
     script.runInContext(ctx);
-    return { ctx, location };
+    // What loading the bundle read is every render's alike.
+    Object.assign(read, { fresh: Infinity, random: false });
+    return { ctx, location, read };
   };
   // The next render's realm, made once the last render is done and nothing waits (`render.ahead` false turns it off).
   let ahead = null, making = false;
@@ -116,7 +126,7 @@ export function renderer(dist) {
     const url = new URL(location, 'http://render.invalid');
     const made = ahead ?? realm();
     ahead = null;
-    const { ctx } = made;
+    const { ctx, read } = made;
     Object.assign(made.location, { pathname: url.pathname, search: url.search, href: url.href });
     const info = await ctx.__start();
     // The capture script imports the entry by the policy; an interaction
@@ -140,7 +150,12 @@ export function renderer(dist) {
       const markedHead = out.scrollDocument ? whole.replace('<html ', '<html data-scrolldocument ') : whole;
       const mark = out.scrollDocument ? '<script>document.documentElement.setAttribute("data-scrolldocument","")</script>\n' : '';
       makeAhead();
-      return { html: markedHead + body(''), rest: mark + body(late), status: info.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location, policy: info.policy, activate };
+      // A page made only of answers any reader may still be given (one at least), by a render that drew nothing at
+      // random and read no clock or reader's device (the plan's `kept`), from TypeScript sources alone, is the page
+      // another render would make until the first of those answers goes stale: it may be given again until then, for
+      // at most 60 s (LLP 1048.007 D8).
+      const keep = !info.notfound && !out.pending.length && out.activation?.kept === false && !out.rust && !read.random && read.fresh > 0 && read.fresh < Infinity ? Math.min(read.fresh, 60000) : 0;
+      return { html: markedHead + body(''), rest: mark + body(late), status: info.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location, policy: info.policy, activate, keep };
     } };
   }
   const render = async (location, deadline = DEADLINE) => (await begin(location)).finish(deadline);
@@ -167,10 +182,12 @@ export function pageServer(dist, render = renderer(dist), log = console.log) {
   return async function page(key, header) {
     const t = performance.now(), hit = cache.get(key);
     const revalidate = /no-cache|no-store|max-age=0/.test(header('cache-control') ?? '');
-    if (hit && hit.until > Date.now() && !revalidate) return send(header, hit.html, hit.status, 'public, max-age=0, s-maxage=60');
+    if (hit && hit.until > Date.now() && !revalidate) return send(header, hit.html, hit.status, hit.cacheControl);
     const begun = await render.begin(key);
     const keep = page => {
-      if (page.policy === 'cached' && page.status === 200) { if (cache.size >= 64) cache.delete(cache.keys().next().value); cache.set(key, { html: page.html, status: page.status, until: Date.now() + 60000 }); }
+      // A `cached` route's page is kept 60 s; a `request` route's, as long as what it was made of (`keep`).
+      const ms = page.status !== 200 ? 0 : page.policy === 'cached' ? 60000 : page.policy === 'request' ? page.keep : 0;
+      if (ms > 0) { if (cache.size >= 64) cache.delete(cache.keys().next().value); cache.set(key, { html: page.html, status: page.status, until: Date.now() + ms, cacheControl: page.policy === 'cached' ? 'public, max-age=0, s-maxage=60' : 'no-store' }); }
       log(`render ${page.location} ${page.status} ${(performance.now() - t).toFixed(1)}ms bytes=${page.html.length}${page.flushed ? ' flushed' : ''}`);
     };
     // A browser's navigation gets the head now and the rest after the

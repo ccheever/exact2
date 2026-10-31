@@ -959,6 +959,49 @@ component App
   });
 }, 60000);
 
+// LLP 1048.007 D8: a request route's page made only of answers any reader may still be given, by TypeScript sources
+// that drew nothing at random, is given again until the first answer goes stale; any other is made for each request.
+test('serve gives a page again while every answer it was made of is fresh', async () => {
+  const api = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+    const path = new URL(req.url).pathname;
+    return new Response(`from ${path}`, { headers: { 'cache-control': path === '/never' ? 'no-store' : 'public, max-age=60' } });
+  } });
+  try {
+    const origin = `http://127.0.0.1:${api.port}`;
+    await renderedPages(`shape Note
+  text: string
+
+routes nav
+  fresh "/" render=request
+  never "/never" render=request
+  seed "/seed" render=request
+
+component App
+  resource note = note(top(nav).name) as shape Note
+  view
+    main
+      text note.text
+`, async (_, html, dist) => {
+      const { pageServer } = await import('./render.mjs');
+      const said = [];
+      const page = pageServer(dist, undefined, line => said.push(line));
+      const header = () => undefined;
+      for (const at of ['/', '/', '/never', '/never', '/seed', '/seed']) expect(Buffer.from((await page(at, header)).body).toString()).toContain('from /');
+      const renders = at => said.filter(l => l.startsWith(`render ${at} 200`)).length;
+      expect([renders('/'), renders('/never'), renders('/seed')]).toEqual([1, 2, 2]);
+    }, { 'app.ts': `import type { Answer, Result } from './app.contract.d.ts';
+export const appId = 'test.heads';
+const API = '${origin}';
+export const grants = \`net.fetch \${API}\`;
+export const answer: Answer = async (_source, [name]): Promise<Result<'note'>> => {
+  if (name === 'seed') crypto.getRandomValues(new Uint8Array(1));
+  const response = await fetch(\`\${API}/\${name === 'fresh' ? 'fresh' : name}\`);
+  return { text: await response.text() };
+};
+` });
+  } finally { api.stop(true); }
+}, 60000);
+
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {
   const doc = createDocument(), root = doc.getElementById('exact-root');
