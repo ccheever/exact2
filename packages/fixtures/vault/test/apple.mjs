@@ -33,17 +33,21 @@ function loadsFromBundle(binary, framework, frameworks) {
  * null; the launch is stopped once it is printed. */
 async function dyldLoaded(command, args, env) {
   const child = spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
-  let printed = '';
   const line = await new Promise((done) => {
     const bound = setTimeout(() => done(null), 120_000);
-    const heard = (chunk) => {
-      printed += chunk;
-      const found = printed.split('\n').find(l => l.includes('vault.framework'));
-      if (found) { clearTimeout(bound); done(found.trim()); }
+    const found = (lines) => lines.find(l => l.includes('vault.framework'));
+    // Each stream's text after its last newline, which a later chunk completes.
+    const pending = { stdout: '', stderr: '' };
+    const heard = (stream) => (chunk) => {
+      const lines = (pending[stream] + chunk).split('\n');
+      pending[stream] = lines.pop();
+      const line = found(lines);
+      if (line) { clearTimeout(bound); done(line.trim()); }
     };
-    child.stdout.on('data', heard);
-    child.stderr.on('data', heard);
-    child.on('exit', () => { clearTimeout(bound); done(printed.split('\n').find(l => l.includes('vault.framework'))?.trim() ?? null); });
+    child.stdout.on('data', heard('stdout'));
+    child.stderr.on('data', heard('stderr'));
+    // At exit each stream's last text is a whole line.
+    child.on('exit', () => { clearTimeout(bound); done(found(Object.values(pending))?.trim() ?? null); });
   });
   child.kill();
   return line?.split(' ').at(-1) ?? null;
