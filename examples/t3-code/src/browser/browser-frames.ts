@@ -1,6 +1,6 @@
 // Every Browser tab's page as a partitioned `iframe` (LLP 1020.002; MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/web/src/browser/ElectronBrowserHost.tsx, BrowserSurfaceSlot.tsx; apps/desktop/src/preview/Manager.ts
-// `computeNavStatus`, `failed`, `refresh`, `hardReload`; BrowserSession.ts's partitions).
+// `computeNavStatus`, `failed`, `refresh`, `hardReload`, `openDevTools`; BrowserSession.ts's partitions).
 //
 // The reference mounts a `<webview>` per live preview session at the app root and positions the one a slot shows.
 // Here the window's frame layer (browser-frames.contract) mounts an `iframe` per live session with the session's
@@ -55,7 +55,7 @@ export type FrameEntry = {
 };
 export type FramePrompt = { type: string; title: string; message: string; defaultValue: string };
 /** `window`: the window's own View command a preview chord fell through to, `reload()` (`flag`) or the zoom step `delta`. */
-export type FrameCommand = { serial: number; kind: 'navigate' | 'traverse' | 'reload' | 'stop' | 'window' | ''; id: string; url: string; delta: number; flag: boolean };
+export type FrameCommand = { serial: number; kind: 'navigate' | 'traverse' | 'reload' | 'stop' | 'devtools' | 'window' | ''; id: string; url: string; delta: number; flag: boolean };
 const NO_COMMAND: FrameCommand = { serial: 0, kind: '', id: '', url: '', delta: 0, flag: false };
 
 type Waiter = { frameId: string; test: (entry: FrameEntry, event: string) => boolean; done: (ok: boolean) => void };
@@ -215,7 +215,7 @@ function settle(owner: object, waiter: Waiter, ok: boolean): void {
   if (frames(owner).waiters.delete(waiter)) waiter.done(ok);
 }
 
-// ── Commands (Manager.ts navigate / goBack / goForward / refresh / hardReload) ──────────────────
+// ── Commands (Manager.ts navigate / goBack / goForward / refresh / hardReload / openDevTools) ────
 export function enqueue(owner: object, command: Omit<FrameCommand, 'serial'>): void {
   const store = frames(owner);
   store.queue.push({ ...command, serial: ++store.serial });
@@ -234,7 +234,8 @@ export function navigateFrame(owner: object, runtimeId: string, url: string): bo
   enqueue(owner, { kind: 'navigate', id: entry.frameId, url, delta: 0, flag: false });
   return true;
 }
-/** back, forward, refresh, hard-reload and stop. Refresh restarts a load in flight and retries a failed one at its own URL
+/** back, forward, refresh, hard-reload, stop and devtools (the platform's inspector for the page, opened or brought
+ *  forward). Refresh restarts a load in flight and retries a failed one at its own URL
  *  (Electron's reload restarts the pending entry; Chromium's error page sits at the failed URL). */
 export function commandFrame(owner: object, runtimeId: string, name: string): boolean {
   const entry = frameEntry(owner, runtimeId);
@@ -252,6 +253,9 @@ export function commandFrame(owner: object, runtimeId: string, name: string): bo
       return true;
     case 'stop':
       enqueue(owner, { kind: 'stop', id: entry.frameId, url: '', delta: 0, flag: false });
+      return true;
+    case 'devtools':
+      enqueue(owner, { kind: 'devtools', id: entry.frameId, url: '', delta: 0, flag: false });
       return true;
   }
   return false;

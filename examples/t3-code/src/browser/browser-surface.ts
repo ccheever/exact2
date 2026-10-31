@@ -545,7 +545,7 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
       if (overlay) await toggleFrameMute(client, native, runtimeId, !overlay.audioMuted);
       return '';
     }
-    case 'back': case 'forward': case 'refresh': case 'hard-reload':
+    case 'back': case 'forward': case 'refresh': case 'hard-reload': case 'devtools':
       frameOp(client); commandFrame(client, runtimeId, op);
       return '';
     case 'external': {

@@ -104,7 +104,8 @@ no server: build the bundle, then point `EXACT_MAC_BIN` at its `Contents/MacOS/T
 
 Safari's Web Inspector (exact2 #101): every web view the clone shows is an Exact `iframe` (a Browser tab, a
 rendered HTML preview, the terminal, a Mermaid diagram), which main #309 makes `isInspectable` in a development
-build, so Safari's Develop menu lists it, and never in a production-trust bake or a distributed bundle. There is no
+build, so Safari's Develop menu lists it, and never in a production-trust bake or a distributed bundle. A Browser tab's
+⋮ › Open DevTools opens its page's inspector in any build (`openDevTools`, LLP 1020.002 D11). There is no
 View › Toggle Developer Tools: an inspector for the app's own UI stays out of exact2 (#101).
 
 ## Desktop command
@@ -776,8 +777,6 @@ above.
 - The Show in thread details menu, on the thread details card and in Settings › Appearance, closes
   after a choice, as a Mac menu does. The reference's is a Base UI menu whose checkbox items keep it
   open, so several items can be turned on or off in one visit.
-- The Browser tab's ⋮ menu has no "Open DevTools": macOS has no public API that opens Web Inspector
-  from code. A development build's page is inspectable from Safari › Develop.
 - A server-rendered Browser tab has no picture-in-picture window: Exact has no source that turns its
   JPEG frames into a video, which the reference's `canvas.captureStream()` does. Its in-app
   floating preview works.
