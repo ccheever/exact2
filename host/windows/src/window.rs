@@ -467,7 +467,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             || self
                 .presenter
                 .as_ref()
-                .is_some_and(|p| p.wants_display_frames() || p.host().motion());
+                .is_some_and(|p| p.wants_display_frames() || p.needs_animation_frame());
         let unpaced =
             self.frame_limit.is_some() && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some();
         let schedule = FrameSchedule {
@@ -818,7 +818,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         let (Some(window), Some(p)) = (&self.window, &mut self.presenter) else {
             return Ok(());
         };
-        if p.dirty() || p.wants_display_frames() || p.host().motion() {
+        if p.dirty() || p.wants_display_frames() || p.needs_animation_frame() {
             return Ok(());
         }
         if !self.caret.advance(now) {
@@ -1412,7 +1412,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             events.set_control_flow(ControlFlow::Wait);
         }
         let continuous =
-            self.frame_limit.is_some() || p.wants_display_frames() || p.host().motion();
+            self.frame_limit.is_some() || p.wants_display_frames() || p.needs_animation_frame();
         let unpaced =
             self.frame_limit.is_some() && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some();
         let (retry, present) = deadlines(p);
@@ -1458,7 +1458,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             && !self.minimized
             && !p.dirty()
             && !p.wants_display_frames()
-            && !p.host().motion()
+            && !p.needs_animation_frame()
         {
             if let Some(soon) = self.caret.deadline() {
                 if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= soon) {
