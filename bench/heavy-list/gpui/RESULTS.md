@@ -9130,3 +9130,28 @@ The other broad checks are left for the Mac mini as requested: no root
 build, root test, root clippy/fmt, boot or workspace check is claimed here.
 The release benchmark build and affected suites above run locally. No push
 is made.
+
+
+## M10, cut 2: show the window before the first paint
+
+**Predictions before the run, 2026-10-31.** Order the window front as soon
+as it exists, before runner boot and layout. Set its background from the
+plan's literal root background, or AppKit's window background when no colour
+is known yet. Paint after layout and submit through the ordinary worker path.
+Remove cuts 1b/1d's retained-frame copy and present-every-tick loop; keep
+chunk 4's retry until a positive displayed timestamp. D7, D11 and D15 stay.
+
+| Prediction | Instrument |
+| --- | --- |
+| Warm complete screen about 172 ms, range 160–190: max(show at about 82 + 90, present + composite) | `startup.py`, hook off, trace on, power off; five cold/warm launches per arm, then ten paired before/after launches per arm |
+| Cold complete screen about 180–195 ms, against prior single GPUI 190–204 and egui 214–226 ms | `measure.m` cold-only, ten launches per arm before and after, native/GPUI/Ink/egui |
+| One zero callback or none before the first positive timestamp | The same traced launches, with callback observation separate from display time |
+| First-frame pixels identical; CPU archive miss hands off; live Metal and wgpu continue drawing and report the displayed painter | First-frame parity, archive transition, affected suites and live launches on silver |
+| Fling, rest and static rows unchanged | Existing scoreboard instruments; this startup cut does not remeasure those rows |
+
+Before is M10 tip `9a88c8bead`'s retained carrier. Each freshly signed arm
+gets a throwaway launch. Ten quiet seconds precede each measured launch;
+during-launch load maxima remain report-only. A failed launch is retained
+and the cohort continues without replacement. Each median uses completed,
+qualified launches and reports n, with every failure beside it. All new
+evidence is retained under `target/m10-c2/`; older raw files stay intact.
