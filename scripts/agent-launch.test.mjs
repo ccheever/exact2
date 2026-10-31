@@ -895,11 +895,15 @@ test('a setting is read from the environment, then .env.local, then .env, and wh
     expect(settingValues(dir,names,{})).toEqual(files);
     // Bun put the files in the environment before any script ran: each value is still the file's, and
     // `.env.development`, which Bun reads and this does not, sets nothing.
-    const loaded=launched({}), exported=launched({A:'a-env',C:'c-shell'});
+    const loaded=launched({}), exported=launched({A:'a-env',C:'c-shell',D:'d-development'});
     expect(loaded.A).toBe('a-env');
     expect(settingValues(dir,names,loaded)).toEqual(files);
     // A variable the command was given is the environment's, though a file holds the same value.
-    expect(settingValues(dir,names,exported)).toEqual({...files,A:{value:'a-env',source:'environment'},C:{value:'c-shell',source:'environment'}});
+    expect(settingValues(dir,names,exported)).toEqual({...files,A:{value:'a-env',source:'environment'},C:{value:'c-shell',source:'environment'},D:{value:'d-development',source:'environment'}});
+    // And so it reaches the module, though `.env.development`, the one file that holds it, is not read.
+    writeFileSync(resolve(dir,'app.json'),JSON.stringify({env:['D']}));
+    const {parseSync}=await import('rolldown/utils'), {inlineSettings}=await import('../js/bake/src/__exact_env.mjs');
+    expect(inlineSettings('const D_ = import.meta.env.D;\n',dir,parseSync,exported)).toEqual({code:'const D_ = "d-development";\n',record:{D:{value:'d-development',source:'environment'}}});
     // An edit after the command started: the given value still wins; the one Bun loaded gives way to the file.
     writeFileSync(resolve(dir,'.env'),'A=a-edited\nC=c-env\n');
     expect(settingValues(dir,['A'],exported)).toEqual({A:{value:'a-env',source:'environment'}});
@@ -942,6 +946,13 @@ test('import.meta.env inlines each declared setting in app.ts, its grant follows
       `import.meta.env.UNREAD: app.json's "env" declares it, and app.ts reads it nowhere: read it as const X = import.meta.env.UNREAD, or remove it from "env"`,
       "app.ts:1:13: import.meta.env.API_BASE_URL's default after ?? must be a string literal",
     ].join('\n'));
+    // One name read twice takes one default.
+    declare('API_BASE_URL');
+    expect(inline("const A = import.meta.env.API_BASE_URL ?? 'http://a';\nconst B = import.meta.env.API_BASE_URL ?? 'http://a';\n").code).toBe('const A = "http://a";\nconst B = "http://a";\n');
+    expect(() => inline("const A = import.meta.env.API_BASE_URL ?? 'http://a';\nconst B = import.meta.env.API_BASE_URL ?? 'http://b';\nconst C = import.meta.env.API_BASE_URL;\n")).toThrow([
+      'app.ts:2:11: import.meta.env.API_BASE_URL is read again with "http://b", and at app.ts:1:11 with "http://a": read it once, or give every read the same default',
+      'app.ts:3:11: import.meta.env.API_BASE_URL is read again with no default, and at app.ts:1:11 with "http://a": read it once, or give every read the same default',
+    ].join('\n'));
     // Another module's read is found where the bundle captures it.
     expect(strayReads(resolve(dir,'api.ts'),'export const API = import.meta.env.API_BASE_URL;\n',(c,o)=>parseSync('api.ts',c,o),at=>`api.ts${at}`))
       .toEqual(["api.ts:1:20: import.meta.env is read only in a top-level const of app.ts: const API = import.meta.env.API_BASE_URL, with ?? 'a default' or without, then API where it is used"]);
@@ -974,8 +985,11 @@ test('a setting is a web build input by value and source, and serve finds one ch
     // A build copied away from its sources: only the environment changes a value, and an unset name keeps the build's.
     expect(changedSettings(dist,{})).toEqual([]);
     expect(changedSettings(dist,{[name]:'http://c.example'})).toEqual([{name,built:{value:'http://a.example',source:'.env'},now:{value:'http://c.example',source:'environment'}}]);
-    // A default stands until a source sets a value.
+    // A default stands until a source sets a value, and the digest records it as the bake inlines it.
     rmSync(resolve(dir,'.env'));
+    writeFileSync(resolve(dir,'app.json'),JSON.stringify({env:[name]}));
+    writeFileSync(resolve(dir,'app.ts'),`const API = import.meta.env.${name} ?? 'http://default.example';\n`);
+    expect(webInputDigests(app,true)[key]).toBe(JSON.stringify({value:'http://default.example',source:'default'}));
     bake({[name]:{value:'http://default.example',source:'default'}});
     expect(webChanges(dist,app).all).toEqual([]);
     expect(changedSettings(dist,{},dir)).toEqual([]);

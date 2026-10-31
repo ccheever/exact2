@@ -81,9 +81,14 @@ export function settingValues(app, names, env = process.env) {
 }
 
 /** The web build's input digest entries for the app `app` (its directory and manifest): each declared name, keyed
- * `import.meta.env.NAME`, with its value and source as JSON, or null when unset. */
-export const settingInputs = (app, env = process.env) => Object.fromEntries(Object.entries(settingValues(app.dir, [...new Set(app.manifest?.env ?? [])], env))
-  .map(([name, setting]) => [`import.meta.env.${name}`, setting && JSON.stringify(setting)]));
+ * `import.meta.env.NAME`, with what the bake inlines for it (its value and source, a default included) as JSON, or
+ * null where it would refuse. `parse` (Rolldown's) reads app.ts's defaults; without it, a default is not seen. */
+export function settingInputs(app, env = process.env, parse = null) {
+  const names = [...new Set(app.manifest?.env ?? [])], values = settingValues(app.dir, names, env);
+  let record = {};
+  try { if (parse && names.length) record = inlineSettings(readFileSync(resolve(app.dir, 'app.ts'), 'utf8'), app.dir, parse, env).record; } catch { /* refused, or no app.ts: what the sources give */ }
+  return Object.fromEntries(names.map(name => { const setting = record[name] ?? values[name]; return [`import.meta.env.${name}`, setting ? JSON.stringify(setting) : null]; }));
+}
 
 const WRAPPERS = ['TSNonNullExpression', 'ParenthesizedExpression', 'ChainExpression', 'TSAsExpression', 'TSSatisfiesExpression', 'TSTypeAssertion'];
 const bare = node => { while (node && WRAPPERS.includes(node.type)) node = node.expression; return node; };
@@ -131,6 +136,13 @@ export function inlineSettings(code, app, parse, env = process.env) {
     }
   }
   for (const node of metaEnvs(parsed.program)) if (!allowed.has(node.start)) refusals.push(`app.ts:${at(node.start)}: ${READ}`);
+  // Read twice, a name takes the one default: else the record would say one value and the module hold two.
+  const said = (fallback) => (fallback ? JSON.stringify(literal(fallback)) : 'no default'), first = new Map();
+  for (const read of reads) {
+    const seen = first.get(read.name);
+    if (!seen) first.set(read.name, read);
+    else if (said(seen.fallback) !== said(read.fallback)) refusals.push(`app.ts:${read.at}: import.meta.env.${read.name} is read again with ${said(read.fallback)}, and at app.ts:${seen.at} with ${said(seen.fallback)}: read it once, or give every read the same default`);
+  }
   for (const { name, at } of reads) if (!declared.includes(name)) refusals.push(`app.ts:${at}: import.meta.env.${name} is not declared: add "${name}" to app.json's "env" (every declared value is public: it ships in the module on every host)`);
   for (const name of declared) if (NAME.test(name) && !reads.some(r => r.name === name)) refusals.push(`import.meta.env.${name}: app.json's "env" declares it, and app.ts reads it nowhere: read it as const X = import.meta.env.${name}, or remove it from "env"`);
   const values = settingValues(app, declared.filter(name => reads.some(r => r.name === name)), env), record = {}, edits = [];

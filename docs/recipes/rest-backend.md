@@ -42,6 +42,7 @@ and stop it after; start none of your own for them. They find it this way:
   An origin fixed at build (a deployed API's) is a setting: `"env": ["API_BASE_URL"]` in `app.json`,
   `const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080'` in `app.ts`, its value from the
   environment, `.env.local` or `.env`, in that order. Keep the local server's address as the default.
+  The value is inlined into the module on every host, so a secret does not belong there.
 - **Its database:** the path in `DB`, which the entry or a module it imports reads:
   `new Database(process.env.DB ?? 'data.db')`.
   If the server keeps no database, set `"server": { "database": false }` beside

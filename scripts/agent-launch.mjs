@@ -992,9 +992,12 @@ const contentDigest = path => { try { return createHash('sha1').update(readFileS
  * (`import.meta.env.NAME`: its value and source, LLP 1153 D4). */
 export function webInputDigests(app, js) {
   const { app: own, shared } = webInputs(app, js);
-  return {...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), EXACT_BACKEND_ORIGIN: process.env.EXACT_BACKEND_ORIGIN ?? null, PORT: process.env.PORT ?? null, ...settingInputs(app)};
+  return {...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), EXACT_BACKEND_ORIGIN: process.env.EXACT_BACKEND_ORIGIN ?? null, PORT: process.env.PORT ?? null, ...settingsOf(app)};
 }
 const setting = key => key.startsWith('import.meta.env.');
+// Each declared setting as the bake would inline it, app.ts's defaults read with Rolldown's parser (loaded only then).
+let parseSettings;
+const settingsOf = app => settingInputs(app, process.env, app.manifest?.env?.length ? parseSettings ??= createRequire(import.meta.url)('rolldown/utils').parseSync : null);
 /** What the web build in `dist` inlined of each setting (its marker's `env`): a drive's first lines of host output. */
 export const builtSettingLines = dist => { try { return settingLines(JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')).env); } catch { return []; } };
 /** Inputs whose content changed since the build in `dist`. Modification times only
@@ -1015,7 +1018,7 @@ export function webChanges(dist, app) {
   if ((built.inputs?.EXACT_BACKEND_ORIGIN ?? null) !== (process.env.EXACT_BACKEND_ORIGIN ?? null)) appChanges.push('EXACT_BACKEND_ORIGIN');
   if ((built.inputs?.PORT ?? null) !== (process.env.PORT ?? null)) appChanges.push('PORT');
   // A setting whose value or source moved, one the build read and is no longer declared, or one declared since.
-  const settings = settingInputs(app);
+  const settings = settingsOf(app);
   for (const key of new Set([...Object.keys(settings), ...Object.keys(built.inputs ?? {}).filter(setting)])) if ((built.inputs?.[key] ?? null) !== (settings[key] ?? null)) appChanges.push(key);
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }

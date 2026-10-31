@@ -1,7 +1,6 @@
 # Recipe: app.json, assets and modules
 
-`app.json` names the app and what it ships; its `$schema` gives an editor every key. Files
-the app carries are folders beside it.
+`app.json` names the app and what it ships; its `$schema` gives an editor every key.
 
 ```json
 {
@@ -22,7 +21,7 @@ component App
   action tick
     playSound("assets/tick.wav")
   view
-    column padding=16 gap=8
+    column
       image "assets/logo.png" width=96 object-fit="contain" aria-label="Euxy"
       button press=tick testId="tick"
         text "Tick"
@@ -46,9 +45,10 @@ component App
   A cold launch opens it in its route's tab: declare it (`p "/p/:d"`). Running, `go`
   pushes it on the selected tab; `open` uses its route's (`vocab navigate`).
 - **Other keys:** `icons`, `data` (the `data-*` words a hatch reads), `tamber` (the design's
-  file), `strings` (string tables), `typescript.sources` (directories `app.ts` imports from
-  outside the app), `commands` (the app's own `exact.mjs` verbs), `env` (public settings
-  read at build: [rest-backend](rest-backend.md)).
+  file), `strings` (string tables), `typescript.sources` (outside directories `app.ts`
+  imports), `commands` (the app's own `exact.mjs` verbs), `env` (settings read at build and
+  inlined into the module on every host, so a secret does not belong there:
+  [rest-backend](rest-backend.md)).
 - **`host.ios.appClip`** `{}`: the app as an App Clip too (`id` defaults to `<app id>.Clip`;
   each `applinks:` domain is its `appclips:` one).
 - **Not here:** grants (in `app.ts`), fonts and sounds (Contract).
