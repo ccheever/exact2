@@ -102,11 +102,9 @@ split sidebar and right rail; the clone still shows full-width Home. Add
 environment presentation also differs. Home completed populated controls in its
 own session and closed it without shutdown.
 
-Conversation's draft [PR1190](https://github.com/ccheever/exact2/pull/1190)
-contains bounded Markdown reuse commit `43d669d337` and separate automatic
-older-history commit `9a8dce92b3`. The final focused suite passes 283 tests and
-3,912 assertions; Contract compilation, strict TypeScript and caps pass.
-The coordinator integrates the cache unit alone as `740519f43c`. All five files
+Conversation's [PR1190](https://github.com/ccheever/exact2/pull/1190) is
+squash-merged into PR216 as `d09f377143`. The coordinator first integrates
+the Markdown cache alone as `740519f43c`. All five files
 match the reviewed worker commit. The parent repeats 136 focused tests, strict
 app TypeScript and caps. Reuse is bounded to 128 entries, 512 Ki UTF-16 units
 and 32,768 block and token objects. Oversized content remains complete and
@@ -114,15 +112,39 @@ uncached. These are allocation bounds, not a measured performance advantage.
 The signed pre-refinement native artifact matches all 3,289 recorded inputs.
 The final normal artifact includes history and the first-run fix. All required
 root categories pass at clean `a9981950a3`, including 7,383 root tests with 84
-ignored. Automatic history still needs normal app acceptance. Six numbered QA
-turns have completed through ordinary UI; a separate seventh draft is preserved.
-The launcher's advised snapshot recovery ended with a daemon timeout, so that
-target is stopped and paging remains unqualified. Keyboard-visible Send overlaps the outer
-Duo system rail. Normal Back and reopening preserve the draft and expose Send
-without the keyboard; this does not qualify keyboard-visible reachability.
-Loaded raw history remains unbounded; resident bounds, native storage, stable
-anchors and selection are not complete.
-Conversation's separate table unit `116eedc7ae` is also in draft PR1190.
+ignored. Those root receipts retain their original source identity.
+
+The remaining automatic-history delta receives independent PASS+NOTES review
+at exact head `124af97418ad28de8e3a24415609bfcbbd4da375` and base `ef3a139f34`.
+All 400 focused tests, strict TypeScript, Contract compilation and caps pass.
+The full mobile suite passes 4,220 tests with 37,599 assertions and both actual
+native bridges enabled. The final normal development build matches all 3,289
+recorded inputs and 92 bundle files and passes strict signature verification.
+Its executable SHA-256 is
+`16c551abbb02021b9a0c3b62388c3f562f356d622db91066a39adf97b0c73f3b`.
+The squash-merged source tree matches this reviewed head before documentation
+updates. Build evidence is under `target/t3-conversation-evidence/reconciliation-native/`
+in the Conversation worktree.
+
+On actual Duo `A44BE88B-1AA7-40A0-8FC1-25DA9CBC3214`, the coordinator completes
+12 harmless QA turns through ordinary UI. Normal relaunch and reopen produce
+`hasMoreHistory=true`, a cursor and initial markers 03 through 12. Upward drags
+automatically reveal 02 and 01 without a Load more action. The same completed
+03 text remains near the reader through the observed prepend. The first row
+is reachable without a jump to the latest turn. Gesture motion prevents an
+exact offset-preservation claim. The owned launcher and panel close without
+shutdown. Prior core drafts and transcripts remain untouched. Evidence is under
+`target/t3-mini-coordinator/evidence/history-native-acceptance/`, including the
+read-only QA cache boundary, trees, screenshots, recording and hashed receipt.
+
+Live error and Retry presentation, filtered-page continuation, selection during
+paging and reflow, exact anchors and bounded transcript residency remain open.
+Keyboard-visible Send overlaps the outer Duo system rail. Normal Back and
+reopening preserve the draft and expose Send without the keyboard.
+This does not qualify keyboard-visible reachability. The earlier stopped 8AE
+session is not resumed. No Release performance or complete Duo acceptance is claimed.
+
+Conversation's separate table unit `116eedc7ae` is integrated as `84dbeb6bdd`.
 It passes 152 focused tests, strict types, Contract compilation, and caps.
 The normal artifact matches all 3,289 inputs and passes strict signature
 verification. On the actual Duo outer panel, QA04 renders all three headers
@@ -148,12 +170,12 @@ Home's spacing/separator patch
 is squash-merged into PR216 as `757f383d9f`. Independent review passes with
 acceptance notes and verifies the unchanged three-file patch, all 3,245 Release
 inputs and 185 Home tests. The parent repeats those 185 tests on the integrated
-source. The coordinator's table artifact above predates this Home integration;
-a combined native drive remains pending.
+source. The final Conversation history artifact includes this Home integration;
+its ordinary Home navigation and conversation drive pass. Combined Home visual
+parity remains pending.
 Its signed Release build, 185 focused tests, 4,171 quiet mobile tests, strict
 TypeScript, caps and all six root categories pass. Initial Duo controls and the
 local core flow use this artifact; populated-row parity remains pending.
-The new Duo history target is stopped after the failed advised recovery.
 Home completed populated controls and preserved the QA draft.
 A trailing swipe action opened Control Center beneath the Duo system rail;
 reserved-region reachability remains open. Home owns the original Release at
@@ -202,8 +224,9 @@ remain machine-local; use committed sources and rebuild on the Mini as needed.
 The current priority is iOS. Desktop feature work is deferred. Continue in this
 order, with small verified commits and normal pushes to PR216:
 
-1. Drive the conversation cache and automatic-history units. First-run editor
-   admission and new-task draft recovery now pass on the final normal artifact.
+1. Complete the remaining history timing, anchor, selection and bounded-residency
+   work. Ordinary automatic paging, first-run editor admission and new-task draft
+   recovery pass on their recorded normal artifacts.
 2. Verify reconnect, offline recovery, retries and duplicate-send prevention.
 3. Complete Photos and Files selection, cancellation, preview, removal and Undo.
 4. Verify keyboard focus, Return behavior, IME, hardware shortcuts and voice.
