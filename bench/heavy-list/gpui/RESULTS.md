@@ -8619,3 +8619,26 @@ The staged caps check (`checks/caps-completion.log`) exits zero:
 ```text
 All budgets within cap. 10 categories inspected.
 ```
+
+## M10, cut 1c: diagnose the dropped first present
+
+**Predictions before the diagnosis, 2026-10-31.** One diagnostic round on
+the silver Mac, with no product fix until a cause is established. The unchanged
+cut 1b carrier and GPUI run with `G1_FIRST_PRESENT=1`, hook off and trace on.
+The probe retains drawable sequence numbers, layer/texture dimensions,
+main-thread window facts with their sampling times, explicit CA flush/commit
+events and submission/callback ordering. CA exposes no public pending-flush
+query; explicit flush observations are not proof that an implicit commit ran.
+
+| Hypothesis, in test order | Predicted observation that settles it |
+| --- | --- |
+| (a) Size or scale invalidates the first drawable | Its texture disagrees with the layer at presentation, or a size/scale assignment intervenes before its zero callback; sizing from the window before acquisition removes the zero. |
+| (b) A second submission replaces the first | Submission 2 precedes callback 1; holding subsequent submissions until callback 1 removes the zero. A zero while submission count is 1 rules this out for that launch. |
+| (c) The layer has not joined a committed window tree | An explicit main-thread flush before acquisition changes the first callback from zero to positive, with dimensions and submission count held fixed. |
+| (d) Presentation must share the show transaction | Showing and presenting inside one explicit transaction changes the first callback to positive where the later-transaction control drops. |
+
+The carrier's small window fixture varies those conditions and retains every
+callback, including zero. Expected unchanged-carrier result: at least one zero;
+expected GPUI result: a positive first callback. No millisecond saving is
+predicted before this instrument establishes a cause. Raw files and commands
+are retained in `target/m10-c1c/`; no earlier evidence is removed.
