@@ -1,10 +1,14 @@
 #!/usr/bin/env bun
 // Extra T3 environments for drives of the clone. README.md has the recipe.
 //
-//   bun env.mjs start <name> [--port N]   an offline lane server for second | third (16510, 16511)
-//   bun env.mjs seed <name> [--turns] [--limits] [--pull-request]
+//   bun env.mjs start <name> [--port N] [--runtime <version>] [--scratch]
+//                                         an offline lane server for second | third (16510, 16511); --runtime runs
+//                                         another release from .runtime-cache (an older server), --scratch lets it
+//                                         offer a folder for threads without a project
+//   bun env.mjs seed <name> [--turns] [--more-turns] [--limits] [--pull-request]
 //                                         its projects and threads (idempotent); --turns adds the
-//                                         threads with a turn, answered by the ACP stand-in; --limits
+//                                         threads with a turn, answered by the ACP stand-in (--more-turns: a second
+//                                         approval, an italic answer and a held turn too); --limits
 //                                         starts the usage hub stand-in and makes it a source;
 //                                         --pull-request the gh and GitHub API stand-ins (the server
 //                                         restarts behind the latter) and a thread on its branch
@@ -15,9 +19,12 @@
 //                                         each named environment paired in the welcome wizard (fresh
 //                                         tokens, kept off the terminal), the wizard finished, then the ops
 //   bun env.mjs forget <name> [--app ID]  removes what a normal launch of the app ID (default com.exact.t3code.macos) saved for it
+//   bun env.mjs no-scratch <t3 home>      the same for This machine's home (T3_LOCAL_HOME), before the app starts
+//   bun env.mjs samples <dir>             sample.py, doc.pdf and clip.mp4, to attach as chips
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { withoutScratch, writeSamples } from "./lib.mjs";
 import { ENVIRONMENTS, LOCAL_PORT, offlineEnv, checkPort, checkout, envDir, example, fixturePaths, forgetKeychain, localHome, pairingUrl, welcomeWait, recorded, routeOf, seed, shellOf, startServer, stopGithubApi, stopHub, stopServer } from "./lib.mjs";
 
 const paths = fixturePaths();
@@ -92,9 +99,9 @@ if (import.meta.main) {
   try {
     if (command === "start") {
       const name = nameArg();
-      const port = flag(process.argv, "--port");
-      console.log(JSON.stringify(await startServer(paths, name, port ? { port: Number(port) } : {})));
-    } else if (command === "seed") console.log(JSON.stringify(await seed(paths, nameArg(), undefined, { turns: process.argv.includes("--turns"), limits: process.argv.includes("--limits"), pullRequest: process.argv.includes("--pull-request") }), null, 2));
+      const port = flag(process.argv, "--port"), runtime = flag(process.argv, "--runtime");
+      console.log(JSON.stringify(await startServer(paths, name, { ...(port ? { port: Number(port) } : {}), ...(runtime ? { runtime } : {}), scratch: process.argv.includes("--scratch") })));
+    } else if (command === "seed") console.log(JSON.stringify(await seed(paths, nameArg(), undefined, { turns: process.argv.includes("--turns"), moreTurns: process.argv.includes("--more-turns"), limits: process.argv.includes("--limits"), pullRequest: process.argv.includes("--pull-request") }), null, 2));
     else if (command === "stop") {
       const names = process.argv[3] === "all" ? Object.keys(ENVIRONMENTS) : [nameArg()];
       for (const name of names) { const stopped = await stopServer(paths, name); console.log(`${name}: ${stopped ? `stopped pid ${stopped.pid}` : "not running"}`); }
@@ -112,6 +119,8 @@ if (import.meta.main) {
         }
       }
     } else if (command === "drive") process.exitCode = drive(process.argv.slice(3));
+    else if (command === "no-scratch") console.log(withoutScratch(process.argv[3] ?? (() => { throw new Error("name the T3 home"); })()));
+    else if (command === "samples") console.log(writeSamples(process.argv[3] ?? (() => { throw new Error("name a directory"); })()).join("\n"));
     else if (command === "forget") {
       const name = nameArg();
       const file = join(envDir(paths, name), "environment.json");
@@ -121,6 +130,6 @@ if (import.meta.main) {
       const route = routeOf(paths, name), origins = [origin, ...(route ? [`http://127.0.0.1:${route.port}`] : [])];
       const app = flag(process.argv.slice(3), "--app") ?? "com.exact.t3code.macos";
       console.log(forgetKeychain(app, origins, environmentId) ? "removed" : "none saved");
-    } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 16).join("\n")); process.exitCode = command ? 2 : 0; }
+    } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 23).join("\n")); process.exitCode = command ? 2 : 0; }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

@@ -32,7 +32,7 @@ Stage the runtime and build the bundle first (the app README's Build and run). F
 `examples/t3-code/tools/second-environment`:
 
 ```sh
-bun env.mjs start second && bun env.mjs seed second [--turns] [--limits] [--pull-request]
+bun env.mjs start second [--runtime <version>] [--scratch] && bun env.mjs seed second [--turns] [--more-turns] [--limits] [--pull-request]
 bun env.mjs status                       # pid, port, label; projects and threads with their ids
 bun env.mjs drive --local --pair second --storage s1 -- "tree sidebar" "screenshot /abs/out.png window"
 bun env.mjs stop all
@@ -59,6 +59,13 @@ composer's `$` menu offers the stand-in's skill, Frontend Design:
   waits on the stand-in's permission request (Allow once, Always allow, Reject; what the card
   does not show as buttons is in its `approval-more-<id>` menu). The request lives in the
   stand-in's process, so a server restart drops it; seed again for a new one.
+
+`seed second --more-turns` adds to `agent-edits`, besides the `--turns` threads: "Second edit awaiting approval" (a
+second approval, so one can be approved and one declined), "Italic answer" (emphasis in prose and a list, for a font's
+italic face) and "Turn held open", whose turn the stand-in holds running until `bun ../acp-standin/install.mjs release
+--home <its t3home>` or a steer or Stop cancels it (for a send while a turn runs). The stand-in's sessions offer a
+reasoning effort select (Low, Medium, High, Max), so its composer shows effort as a word or bars, and "Which effort?"
+replies with the one the turn ran at.
 
 Run again, the seed skips a thread that has its turn (or its pending approval) and gives one to a
 thread an interrupted seed left without.
@@ -90,8 +97,11 @@ listing (the search, a repository's list and the counts read after them)
 detail with four checks (passed, skipped, running, and a status without a link), an issue comment
 and a review, a review thread on `README.md` line 3 (its first comment links `notes/plan.md`) with a reply, the files viewed, each file's line
 counts (the change breakdown: code, and docs for the Markdown), and a patch
-long enough to scroll (`GET pulls/7` as a diff). Comment and Close (and Reopen) change what the
-next read answers until the stand-in stops; Merge, reactions, edits and the rest are not answered.
+long enough to scroll (`GET pulls/7` as a diff). The pull request comes from the viewer's own fork, so the
+0.1.5 server offers Allow edits from maintainers (`maintainerCanModify`, `UpdatePullRequest`), and the activity names its
+commit by node id with its stats (`PullRequestCommitStats`). Comment, Close (and Reopen), Viewed (`SetFileViewed`, one
+alias per file) and Allow edits from maintainers change what the next read answers until the stand-in stops; Merge,
+reactions, title and description edits and the rest are not answered.
 The
 stand-in answers the calls the reference server makes for these (`GitHubCli.ts`,
 `GitHubPullRequestCli.ts`; `gh auth token` gets a placeholder, which the server hands back only to
@@ -107,6 +117,16 @@ finishing the wizard. A drive waits 5 s for the wizard, 20 s while the local hom
 the pinned runtime yet (its first start). Agent runs keep pairings and credentials in memory, so every drive pairs
 again and nothing reaches the Keychain. A background row's thread is
 `thread-fleet:<environment id>:<thread id>` (ids from `status`).
+
+`start --runtime <version>` runs another release than the pin: `examples/t3-code/.runtime-cache/t3-<version>-darwin-arm64.tar.gz`,
+which stage-runtime keeps (`--runtime 0.1.4-nightly.20261027.3770`, a server older than the client). A plain older
+server has no self-update, so the update dialog lists it under "needs a manual update"; for one it offers to update, put
+the older-server stand-in in front (`../machines/`, `older`). `start --scratch` lets the server offer a folder for threads
+without a project: the fixture root is inside this checkout, a Git work tree, and the server refuses one there
+(reference `ManagedProjectFolders.ts`), so a lane offers none unless Git's search stops at its directory. `no-scratch
+<t3 home>` does the opposite for This machine's home (`T3_LOCAL_HOME`, outside the checkout): its server then offers no
+folder, and the palette's New thread without a project goes to a machine that does. `samples <dir>` writes `sample.py`,
+a one-page `doc.pdf` and `clip.mp4` (from `apps/video-player`) to attach as chips.
 
 Another lane's ports: `T3_FIXTURE_PORTS=16300-16399 T3_FIXTURE_OFFLINE_PORT=16399
 T3_FIXTURE_LOCAL_PORT=16300`, and `start <name> --port 16310`.

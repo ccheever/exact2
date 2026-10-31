@@ -1227,19 +1227,71 @@ source, each result read back from the accessibility tree or the clipboard). All
   unchanged and the focus on the row (2 of 2). F6 from the composer then reaches the row first (2 of
   2); further presses go Conversation, composer, row.
 
-Not checked:
+The rows the first session left (below, the second session) were checked on 2026-10-31 too.
 
-- Effort words and bars: no provider has reasoning traits, and the lane's Codex is unavailable.
-- Shift-click Viewed and Allow edits from maintainers: the fixture's pull request has no files. The
-  oracle cannot load its detail either ("GitHub returned an unreadable getPullRequestDetail response").
-- The update dialog, which needs a server older than 0.1.5.
-- ⌘-click send, which needs a running turn.
-- The fallback model notice.
-- A palette move to another machine's scratch project.
-- Decline.
+**Checked with real input (2026-10-31, second session)** (bundle of `7656e94b94`, a lane copy on its own bundle id
+and its own `HOME`, This machine on the fixture's local home with no folder for threads without a project, `second`
+seeded with `--more-turns --pull-request --limits` and started with `--scratch`, `third` on the 0.1.4 release behind
+the older-server stand-in reporting 0.1.4; the v0.1.5 oracle paired with the same two lane servers). Presses, drags,
+right-clicks and keys from the HID event source; each result read back from the accessibility tree, the lane
+server's API or VoiceOver's caption panel; the oracle driven the same way in the same state. 11 rows hold, 3
+fail (one is the video chip of the chips row) and 2 are not reachable with these fixtures. The oracle's doc.pdf and sample.py
+chips were not opened under VoiceOver: an XCTest run of another lane took the front window during that step.
 
-Also seen: the model picker's "Codex: Unavailable…" tooltip stayed on screen after the picker closed,
-until another tooltip replaced it.
+Hold:
+
+- Effort words and bars. The stand-in's effort menu lists Low, Medium, High and Max; High reads "Effort: High" on
+  the composer control and the next turn replies "effort high" (1 of 1). Appearance › Effort display › Bars draws
+  rising bars: Low fills one of three, Max is named (1 of 1 each). The oracle draws the same and its turn replied
+  "effort medium" after Medium (1 of 1).
+- Shift-click Viewed on the pull request's Code tab: Viewed on the first file, then Shift on the last, marks all
+  three, and the server's `pullRequests.filesViewed` reads all three viewed (1 of 1). The oracle does the same (1 of 1).
+- Allow edits from maintainers, in the pull request's actions menu, unchecks and checks again; the server's detail
+  reads `maintainerCanModify` false, then true (1 of 1). The oracle's menu offers the same item and its toggle reads
+  back the same (1 of 1).
+- Settings › Environments › Update all on Lane Third (0.1.4) shows "Downloading…" and leaves the row with no version
+  once the stand-in reports 0.1.5 (1 of 1).
+- ⌘-click send while a turn runs: the send tooltip reads "Click to steer, ⌘-click or ⌘Enter to queue", and ⌘-click
+  queues the message (the queue reads "2 queued") (1 of 1). The oracle queues it the same way (1 of 1).
+- Decline on an approval: the turn ends with "Stand-in reply: left the notes as they were" and no notes/approved.md
+  (1 of 1); the oracle the same (1 of 1).
+- The palette's New thread without a project, with This machine offering no folder: the thread starts in No project
+  on Lane Second, whose scratch project the server lists (1 of 1). The oracle the same (1 of 1).
+- The Usage page's bars under VoiceOver: interacting with the page reads, per window, "Session", "58%", "left", the
+  pace ("Under pace: headroom left for the rest of the window, image"), the reset credit line and each account's
+  segment ("ST: 20% left, resets in 38m, 13% of the window left, dialog pop up collapsed, button"; with "2 reset credits
+  banked" where it has them), for Codex and Claude (1 of 1). The oracle speaks the same strings, as one group per
+  window.
+- VO-Space on composer chips: sample.py opens its file preview with Disable word wrap focused, and doc.pdf the PDF
+  preview reading "1 / 1 pages" (1 of 1 each). VO-Right from Message reads the three chips in text order, and Escape
+  gives the prompt back with the chip selected. In the oracle the chips are reached by interacting with Message
+  (VO-Right from it goes to Attach files); doc.pdf and sample.py were not opened there (below).
+- An italic face: with Interface font Georgia, the stand-in's answer draws its emphasis in Georgia Italic, and bold
+  with italic in Georgia Bold Italic (1 of 1). The oracle the same (1 of 1).
+- The Thread title instructions textarea's grip: a drag of 60 pt from the grip grows the field by 60 pt (1 of 1); the
+  oracle's grows the same (1 of 1).
+
+Failed (left as they are; no app change in this round):
+
+- The model picker's "Codex: Unavailable. Could not start Codex CLI …" tooltip stays on screen after Escape closes the
+  picker, and after the pointer moves away (3 s later, 1 of 1). The oracle removes it with the picker (1 of 1).
+- The update dialog (the footer's update pill): the clone lists Lane Third under "1 skipped", "t3@0.1.5 is not on npm
+  yet"; the oracle lists Lane Third as a Server row to update (1 of 1 each). The clone's npm check
+  (`sidebar/npm-release.ts`) answered not published, where `https://registry.npmjs.org/t3/0.1.5` answers from this Mac;
+  the cause is not yet known.
+
+- VO-Space on the clip.mp4 chip opens the playing preview reading "Expanded video preview, dialog", with no control
+  focused; the oracle reads "Expanded video preview, dialog, with 3 items, Close video preview, button", with Close
+  focused (1 of 1 each), as the image preview does in both.
+
+Not reachable with these fixtures:
+
+- The fallback model notice. The 0.1.5 server sets `usageLimits` only on providers that read an account's usage
+  (Codex app-server, Claude, Cursor, Grok, OpenCode, Antigravity), each signed in to a real account; the ACP stand-in
+  reports none, so no default provider is ever out of usage.
+- Escape on the Merge confirmation over the thread-details popover, and the narrow-window Merge row: the window
+  resizes through AX, but the pull request thread's details show no Git actions with Merge (its branch is not checked
+  out in the lane), so there is no Merge to press there.
 
 Also seen on the `7656e94b94` bundle: with the Diff panel open, the header's thread details button opens
 the details as a popover, as upstream's `PanelLayoutControls` does in that layout. An agent drive
@@ -1254,9 +1306,6 @@ it) and Settings › Appearance behave as before.
   want of a credential connects and its row stops saying 'Connection failed'. Before, it kept the
   failure (`connections-repair.test.ts`). Checked by that test only: no fixture makes the failed
   credential cheap.
-- The Thread title instructions textarea's grip (`resize: vertical`). Not checked: `orca computer
-  drag` delivered nothing in this app (the grip twice, a drag-select in the prompt twice), and its
-  scroll did not move a page either.
 
 **Checked with real keys** (2026-10-16):
 
@@ -1306,13 +1355,11 @@ Real-input sessions should type IME rows with held keys: orca's zero-dwell press
 input method commit a jamo at once. They should switch input sources with the system shortcut or
 menu, not TISSelectInputSource, before they judge IME rows.
 
-**Not checked yet:** the Usage page's progress bars under VoiceOver (the 2026-10-30 session had no
-`--limits` seed), and an italic font face (no fixture has italic text). Also:
+**Not checked yet:**
 
-- Escape on the Merge confirmation over the thread-details popover in a narrow window. Not checked on
-  2026-10-30: `orca computer` cannot resize the window, and its drags deliver nothing here.
-- VO-Space on the chip kinds the 2026-10-31 session did not press (sample.py, a video, doc.pdf, the
-  citation and the thread chip), and the terminal output as a chip's focus target.
+- VO-Space on the citation and the thread chip, and a terminal excerpt's details as a chip's focus target: the second
+  2026-10-31 session ran out of its real-input time before them.
+- The fallback model notice and the narrow-window Merge rows (above, "Not reachable with these fixtures").
 
 **Out of scope** (decided 2026-10-17): the device player and the device menus, a tailnet, Screen
 Recording and other OS grants (FN24, the permission helper's real grant), provider installs and
@@ -1320,26 +1367,30 @@ sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and G
 
 **Next real-input session:**
 
-- Decline on an approval.
-- Effort words and bars, with a provider that has reasoning traits.
-- Shift-click Viewed, with a pull request fixture whose files the 0.1.5 server can read.
-- VO-Space on the chip kinds not yet pressed, and a terminal excerpt's details.
-- The textarea grip and the narrow-window Merge row. Drags from the HID event source reach the app,
-  and the window can be resized through AX.
-- The Usage page's bars under VoiceOver.
+- VO-Space on the citation and the thread chip, and a terminal excerpt's details.
+- The fallback model notice, once a fixture provider reports usage limits.
+- The narrow-window Merge row, with a pull request thread whose branch is checked out in the lane.
 
-Open native context menus with a HID right-click, not `orca computer`'s. While VoiceOver runs,
+Open native context menus with a HID right-click, not `orca computer`'s. VoiceOver's keys need the modifier keys'
+own events (Control and Option down, then the key), not only the flags on the key's event, and ⌘F5 from the HID
+source needs the Fn flag. Every copy of this bundle keeps its preferences and drafts in `~/Library/Application
+Support/Exact/com.exact.t3code.macos/data/t3-code.json` whatever its bundle id (the host names the data root by the
+app's id), so a lane copy needs its own `HOME`, with a `Library/Keychains` link to the user's keychains or macOS asks
+to reset the keychain. While VoiceOver runs,
 its caption panel covers the composer of a window 840 pt tall, and `orca computer` refuses a click
 there (`window_not_focused`): make the window shorter first.
 
 **Fixtures.** `tools/second-environment`, `tools/machines` and `tools/acp-standin` (each has its
 README) give This machine plus two lane environments, a machines list, and an ACP agent stand-in.
 `seed second --limits` adds pooled usage limits from a CLIProxyAPI hub stand-in; `seed second
+--more-turns` a second approval, an italic answer and a turn held open, besides `--turns`' threads; `seed second
 --turns` threads on the stand-in with a completed turn, a turn that edits files (a turn diff), an
 approval waiting and a context meter, and its `$frontend-design` skill; the seed itself an empty
 project and a project action; `seed second --pull-request` a thread whose branch has an open pull
-request, with checks, comments, a review thread and a patch, from `gh` and GitHub API stand-ins; and `machines.mjs up --older` a
-server older than the client that streams a scripted self-update.
+request, with checks, comments, a review thread and a patch, from `gh` and GitHub API stand-ins; `machines.mjs up --older` (or `older <name>`) a
+server older than the client that streams a scripted self-update; `env.mjs start --runtime <version>` an older release
+from `.runtime-cache`, `--scratch` a lane that offers a folder for threads without a project, `no-scratch <home>` This
+machine without one; and `env.mjs samples <dir>` a Python file, a PDF and a video to attach.
 
 **Framework issues opened by this app:** open on main is
 [`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md)
