@@ -561,7 +561,9 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   '  do await new Promise(r => setTimeout(r, 1)); while (inflight.n && performance.now() < end);',
   '  markBars(document.getElementById("exact-root")); // the bars the glue marks, so their symbols are the size they will be',
   '  markRoutes(document.getElementById("exact-root"));',
-  '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, status: Head.headStatus ?? null, time: clock.now, answers: answers(Resources, types[2], sourceTypes),',
+  '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, image: Head.headImage, canonical: Head.headCanonical, robots: Head.headRobots,',
+  // The manifest's origin, against which a crawler's URLs are made absolute (page.rs `page_head`).
+  `    origin: ${JSON.stringify(manifest.app?.origin ?? null)}, status: Head.headStatus ?? null, time: clock.now, answers: answers(Resources, types[2], sourceTypes),`,
   // Each resource whose source failed, with its message: the server's log names it (render.mjs), as the page cannot.
   '    failed: Resources.filter(r => r.failed).map(r => `${r.name}: ${r.error}`),',
   '    pending: Resources.filter(r => r.ticket).map(r => r.name), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0,',

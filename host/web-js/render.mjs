@@ -21,6 +21,14 @@ import { select, tokens } from './page-style.mjs';
 
 const DEADLINE = 3000;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const unesc = s => s.replace(/&(amp|lt|gt|quot);/g, (_, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"' })[e]);
+
+/** `url` if it navigates (document_url.rs `navigable`), made absolute against the manifest's origin (page.rs `absolute`). */
+function crawlable(url, origin) {
+  try { if (!['http:', 'https:', 'mailto:', 'tel:'].includes(new URL(url, 'https://render.invalid/').protocol)) return null; } catch { return null; }
+  if (!origin || /^[a-z0-9+.-]+:/i.test(url) || url.startsWith('//')) return url;
+  return origin.replace(/\/+$/, '') + (url.startsWith('/') ? '' : '/') + url;
+}
 // Use Place's default zone inside each realm, keeping Intl prototypes and exceptions local to that render.
 // A render that formats in the default zone notes it: its page then waits for no interaction (\`infer\`).
 const utcIntl = new vm.Script(`{
@@ -57,7 +65,20 @@ export function renderer(dist) {
   const files = p => { let v = cache.get(p); if (!v) { v = readFileSync(resolve(dist, p.replace(/^\.?\//, ''))); if (p.endsWith('.wasm')) v = new WebAssembly.Module(v); cache.set(p, v); } return v; };
   // Every render's fetches share one HTTP cache, for as long as each answer's headers allow (http-cache.mjs).
   const fetched = cachingFetch(fetch);
-  const name = /<title>([^<]*)<\/title>/.exec(shell)?.[1] ?? '';
+  const name = unesc(/<title>([^<]*)<\/title>/.exec(shell)?.[1] ?? '');
+  // The head's fields a crawler reads after the title and viewport, as page.rs `page_head` writes them.
+  const crawled = (out, location) => {
+    const meta = (key, n, v) => `<meta ${key}="${n}" content="${esc(v)}">`, title = out.title || name;
+    const canonical = out.canonical ? crawlable(out.canonical, out.origin) : null, image = out.image ? crawlable(out.image, out.origin) : null;
+    const url = canonical ?? (out.origin ? crawlable(location, out.origin) : null);
+    return (out.description ? meta('name', 'description', out.description) : '') + (out.robots ? meta('name', 'robots', out.robots) : '')
+      + (canonical ? `<link rel="canonical" href="${esc(canonical)}">` : '')
+      + meta('property', 'og:type', 'website') + meta('property', 'og:site_name', name) + meta('property', 'og:title', title)
+      + (out.description ? meta('property', 'og:description', out.description) : '') + (url ? meta('property', 'og:url', url) : '')
+      + (image ? meta('property', 'og:image', image) : '')
+      + meta('name', 'twitter:card', image ? 'summary_large_image' : 'summary') + meta('name', 'twitter:title', title)
+      + (out.description ? meta('name', 'twitter:description', out.description) : '') + (image ? meta('name', 'twitter:image', image) : '');
+  };
   // The shell's places, as page.rs `head_js`/`body_js` compose them: what
   // comes before anything the render decides (the head a server flushes as
   // a request arrives), then the head's fields, the document and its
@@ -142,7 +163,7 @@ export function renderer(dist) {
       const activate = info.activate === 'inferred' ? infer(out) : info.activate;
       const late = info.activate === 'inferred' && activate !== 'interaction' ? preloads : '';
       const wake = activate === 'interaction' && out.wake.length ? ` data-wake="${esc(JSON.stringify(out.wake))}"` : '';
-      const fields = `<title>${esc(out.title || name)}</title><meta name="viewport" content="${viewport}">${out.description ? `<meta name="description" content="${esc(out.description)}">` : ''}`;
+      const fields = `<title>${esc(out.title || name)}</title><meta name="viewport" content="${viewport}">${crawled(out, url.pathname + url.search)}`;
       const checkpoint = `{"location":${JSON.stringify(url.pathname + url.search)},"time":${JSON.stringify(out.time)},"logic":null,"answers":${out.answers},"pending":${JSON.stringify(out.pending)}}`;
       const digest = createHash('sha256').update(out.root).digest('hex').slice(0, 16);
       const style = rules ? `<style data-exact-page>${select(rules, tokens(out.root + shell.slice(root)))}</style>\n` : '';
