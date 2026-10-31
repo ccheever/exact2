@@ -751,13 +751,16 @@ export function replaceBuild(stage, dist) {
   });
 }
 
-/** The lines `web-build --out` ends with (LLP 1153 D3): each route a static root cannot render on request, which
- * `serve` renders, then the directory and the rule any static host serves it by, which `serve` applies
+/** The lines `web-build --out` ends with (LLP 1153 D3): the routes the browser draws, each route a static root
+ * cannot render on request, which `serve` renders, then the directory and the rule any static host serves it by, which `serve` applies
  * (`buildTreeFile`). */
 export function hostingNotes(dist, serve = 'bun exact.mjs serve') {
   const shown = relative(process.cwd(), dist) || '.', routes = JSON.parse(readFileSync(resolve(dist, 'routes.json'), 'utf8')).routes;
   const missing = existsSync(resolve(dist, '404.html')) ? '404.html with status 404' : 'status 404, a page with shell.html as its body (the client draws the notfound route)';
+  // A public page left at the default reaches its reader last, after the runtime and then its data.
+  const client = routes.filter((r) => r.render === 'client' && !r.notfound).map((r) => r.pattern);
   return [
+    ...client.length ? [`${client.join(', ')}: render=client, the default, so the browser draws the page only once app.js and its data have loaded; a page every reader sees alike arrives whole sooner as render=request, which serve renders with the API's answer at each request (docs/recipes/website.md)`] : [],
     ...routes.filter((r) => r.render === 'request' || r.render === 'cached').map((r) => `${r.notfound ? 'notfound' : r.pattern}: render=${r.render}, so serve renders its page ${r.render === 'cached' ? 'and keeps it 60 s' : 'for each request'}; a static host serves its shell, and the client draws it`),
     `${shown}: the site, for any static host. ${serve} ${shown} serves it by the rule a host applies:`,
     `  a file at the path; else, for a browser's navigation to a path a route in routes.json matches, shell.html with status 200; else ${missing}.`,
