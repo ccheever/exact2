@@ -18,22 +18,22 @@
 // while they are the bake of the sources as they now are, on the build they
 // were made for: any other edit, or a real build since, retires them.
 //
-//   bun scripts/agent-build.mjs <ios|macos> --app <name>
+//   bun scripts/agent-build.mjs <ios|macos|windows> --app <name>
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, createWriteStream, existsSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
-import { compilerWarnings, warningLines, CONFIG_JSON, DECLARATIONS, depInfoInputs, moduleGraph, newerThan, notBuildInput, receiptChanges, refuseStale } from './agent-launch.mjs';
-import { bakeOutput, claimLive, developmentBuildEnv, linuxBuild, resolveApp, shaderWatchRoots } from './app.mjs';
+import { compilerWarnings, warningLines, CONFIG_JSON, DECLARATIONS, depInfoInputs, moduleGraph, newerThan, notBuildInput, packagedBuildChanges, receiptChanges, refuseStale } from './agent-launch.mjs';
+import { bakeOutput, bakeTarget, claimLive, developmentBuildEnv, executableName, linuxBuild, resolveApp, shaderWatchRoots } from './app.mjs';
 import { bakeTool, linkedBakeDir } from './linked-plan.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const label = host => host === 'ios' ? 'iOS' : 'macOS';
+const label = host => host === 'ios' ? 'iOS' : host === 'windows' ? 'Windows' : 'macOS';
 /** A path as receiptChanges names it, from the app's directory when it is in it. */
-const near = (app, path) => { const at = resolve(ROOT, path); return app?.dir && at.startsWith(`${app.dir}/`) ? relative(app.dir, at) : path; };
+const near = (app, path) => { const at = resolve(ROOT, path); return app?.dir && at.startsWith(`${app.dir}${sep}`) ? relative(app.dir, at) : path; };
 const named = (app, paths) => paths.slice(0, 3).map(path => near(app, path)).join(', ') + (paths.length > 3 ? ` and ${paths.length - 3} more` : '');
 /** A file as a line names it: from the current directory when it is below it. */
 const shown = file => relative(process.cwd(), file).startsWith('..') ? file : relative(process.cwd(), file);
@@ -382,6 +382,32 @@ export async function buildFirst(host, app, { say = line => console.error(line),
   return code;
 }
 
+/** What a Windows drive of `app` launches, `dist-windows/<name>.exe`, and its changes since the build that packaged it
+ * (`changed`, null when there is none): what the build's receipt records (agent-launch.mjs `packagedBuildChanges`, on
+ * which the driver refuses it), and the app's own files edited since, which that receipt does not name (the plan's
+ * sources and the crate's), other hosts' crates aside. */
+export function windowsBuild(app) {
+  const bin = resolve(app.dir, 'dist-windows', `${executableName(app)}.exe`);
+  if (!existsSync(bin)) return { bin, changed: null };
+  const own = newerThan(statSync(bin).mtimeMs, [app.dir], path => /[\\/](apple|ios|macos|linux|web|android)$/.test(path) && dirname(path) === app.dir);
+  return { bin, changed: [...packagedBuildChanges(resolve(bakeOutput(app), `windows-${bakeTarget('windows')}.build.json`), dirname(bin), app), ...own] };
+}
+
+/** `buildFirst` for Windows: host/windows/build.mjs when the packaged build is missing or stale, said in one line, its
+ * output in the app's `.exact/windows-build.log`; the exit code. The plan is in the executable, so an edit to the
+ * Contract alone rebuilds too (incremental: about 30 s on the NucBox). */
+export async function windowsBuildFirst(app, { say = line => console.error(line) } = {}) {
+  if (process.env.EXACT_WINDOWS_BIN) return 0; // the caller's own binary: the driver says it did not check
+  const { changed } = windowsBuild(app);
+  if (changed && !changed.length) return 0;
+  const log = resolve(app.dir, '.exact', 'windows-build.log');
+  say(`building for Windows: ${changed ? `the build is older than its sources (${named(app, changed)} changed)` : 'there is no build yet'}; its log: ${shown(log)}`);
+  const { code, output } = await logged(process.execPath, [resolve(ROOT, 'host/windows/build.mjs'), app.name], log, { env: { ...process.env, EXACT_APP_DIR: app.dir } });
+  if (code) say(failureSummary(output, { host: 'windows', code, log: shown(log) }));
+  else for (const line of warningLines(app.dir, 'windows', compilerWarnings(output))) say(line);
+  return code;
+}
+
 /** `bun exact.mjs ios --prebuild` (LLP 1116.003 D1.2): the build host/apple/build.mjs's `args` name,
  * then the bake tool a plan-only edit needs, started in a session of their own, so a shell that ends
  * what it started when a command returns (round 5: seven builders lost a first build put in the
@@ -434,10 +460,10 @@ if (import.meta.main && process.argv[2] === '--tool') { // the bake tool, after 
   child.on('exit', code => process.exit(code ?? 1));
 } else if (import.meta.main) {
   const args = process.argv.slice(2), value = flag => args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined;
-  if (!['ios', 'macos', 'mac'].includes(args[0])) {
-    console.error('usage: bun scripts/agent-build.mjs <ios|macos> --app <name>');
+  if (!['ios', 'macos', 'mac', 'windows'].includes(args[0])) {
+    console.error('usage: bun scripts/agent-build.mjs <ios|macos|windows> --app <name>');
     process.exit(2);
   }
-  Promise.resolve().then(() => buildFirst(args[0], resolveApp(value('--app'))))
+  Promise.resolve().then(() => args[0] === 'windows' ? windowsBuildFirst(resolveApp(value('--app'))) : buildFirst(args[0], resolveApp(value('--app'))))
     .then(code => process.exit(code), error => { console.error(error.message); process.exit(1); });
 }

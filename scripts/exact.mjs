@@ -520,7 +520,8 @@ export function sdkReport(env = process.env, { only = null, device = false } = {
     const opt = binaryenVersion(output('wasm-opt', ['--version']));
     rows.push(row('wasm-opt', opt, BINARYEN, opt === BINARYEN, 'exact setup'));
   }
-  const modules = existsSync(resolve(ROOT, 'node_modules/.bin/rolldown'));
+  // Bun on Windows writes `rolldown.exe` and `rolldown.bunx` there.
+  const modules = ['rolldown', 'rolldown.exe'].some(bin => existsSync(resolve(ROOT, 'node_modules/.bin', bin)));
   if (want('node_modules')) rows.push(row('node_modules', modules ? 'installed' : '', 'bun.lock', modules, `bun install --frozen-lockfile in ${ROOT}`));
   if (want('Chrome')) {
     const browser = chromium({ environment: env });
@@ -1318,6 +1319,7 @@ async function main(argv) {
     const web = spawnSync(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', outsideDir, ...rest], { stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: outsideDir } });
     process.exit(web.status ?? 1);
   }
+  if (process.platform === 'win32') { console.error(`exact ${verb} is macOS's; on Windows, bun exact.mjs windows --run in the app builds and opens it (--release for the build that ships)`); process.exit(2); }
   if (process.platform !== 'darwin') { console.error(`exact ${verb} is macOS's; on Linux build the app's own executable (cargo build --profile host-dev -p ${name}-linux to drive it, --release to ship it)`); process.exit(2); }
   if (outsideApp) {
     const { bringPlatform, namesPlatform } = await import('./app-shells.mjs'), manifest = outsideManifest;

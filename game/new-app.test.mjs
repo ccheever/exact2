@@ -457,6 +457,12 @@ test('a native verb names its platform, and the generated workspace follows app.
     assert.deepEqual(namePlatform(dir, 'ios'), [], 'named once');
     assert.deepEqual(manifest().host.ios, { minimumOS: '17.0', deviceFamily: ['iphone', 'ipad'] });
     assert.deepEqual(namePlatform(dir, 'android'), ['host.android'], 'no store for Android');
+    // Windows's host refuses any store level but "0", and an absent key reads as "A" (LLP 1115.004 D15).
+    assert.deepEqual(namePlatform(dir, 'windows'), ['host.windows', 'deploy.store.windows']);
+    assert.deepEqual([manifest().host.windows.painter, manifest().host.windows.window.width, manifest().deploy.store.windows], ['ink', 1024, '0']);
+    const windows = ensureShells(dir).workspace;
+    assert.match(readFileSync(resolve(windows, 'windows/src/main.rs'), 'utf8'), /exact_windows::run_composed::<AppData>\("Field Log", window\(\), PLAN, COMPAT, composed\)/);
+    assert.match(createApp(dir, { update: true, without: 'windows' }), /without windows \(removed host\.windows, deploy\.store\.windows\)/);
     assert.deepEqual(shellCrates(manifest()), ['web', 'apple', 'linux']);
     readManifest(dir, 'field-log');
     const first = ensureShells(dir);

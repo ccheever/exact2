@@ -48,6 +48,10 @@ export function warningLines(dir, host, warnings) {
  *  `blank on web too`. */
 export const webOnly = (w) => /warning \[lower-symbol-platform\] /.test(w) && (/ blank on web too/.test(w) || /ships web \((?:(?!\) and ).)*?, where it is blank/.test(w));
 
+/** The window a Windows app opens in, `[width, height]`: app.json's `host.windows.window`, else the host's default
+ * (exact_windows::Window). A drive of an app on Windows is that size, as a person first sees it. */
+export const windowsWindow = (manifest) => [manifest?.host?.windows?.window?.width ?? 1280, manifest?.host?.windows?.window?.height ?? 720];
+
 /** exact2's verbs for the app `name` in `dir`: each the script it runs, from the checkout, and its
  * first arguments. `host` is a drive's (`test ios`); a game has its own and no `verify` or `pattern`. */
 export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
@@ -62,8 +66,8 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     ios: ['host/apple/build.mjs', '--ios', `${name}-apple`],
     mac: ['host/apple/build.mjs', `${name}-apple`],
     linux: ['scripts/build-linux.mjs', name],
+    windows: ['host/windows/build.mjs', name],
     android: ['scripts/agent-android.mjs', 'build', name],
-    ...game ? {} : { windows: ['host/windows/build.mjs', name] },
     update: ['scripts/exact.mjs', 'new', dir, '--update'],
     lock: ['scripts/app-cli.mjs', '--lock', dir],
     contract: ['scripts/exact.mjs', 'contract'],
@@ -81,7 +85,6 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
       'test-rust': ['game/app/shells.mjs', dir, '--test'],
       shells: ['game/app/shells.mjs', dir],
       lock: ['game/app/shells.mjs', dir, '--lock'],
-      windows: ['host/windows/build.mjs', name],
       prove: ['game/prove.mjs', dir],
     } : {},
   };
@@ -207,7 +210,12 @@ if (verb === 'contract') {
     rest.splice(backendFlag, 2);
   }
   const drivesWeb = (verb === 'test' || verb === 'agent') && host === 'web' && !rest.some((a) => a === '--url' || a === '--web-dist');
-  const drivesNative = (verb === 'test' || verb === 'agent') && ['ios', 'macos', 'mac'].includes(host) && !rest.includes('--device');
+  // Xcode's builds are a Mac's: on Windows, the verbs that need one say what Windows has instead.
+  if (process.platform === 'win32' && (['ios', 'mac'].includes(verb) || ['test', 'agent', 'verify'].includes(verb) && ['ios', 'macos', 'mac'].includes(host))) {
+    console.error(`${verb}${verb === 'ios' || verb === 'mac' ? '' : ` ${host}`} needs a Mac (Xcode); on Windows: bun exact.mjs windows --run opens the app, test windows and verify windows check it`);
+    return log(2);
+  }
+  const drivesNative = (verb === 'test' || verb === 'agent') && ['ios', 'macos', 'mac', 'windows'].includes(host) && !rest.includes('--device');
   // `test [host] [file|glob …]`: the test files named (each `.contract`, a glob or `--test <file>`, from the
   // current directory), else app.test.contract and every other `*.test.contract` beside it (an app's tests split
   // by area under the line cap); each runs in turn and any failure fails the command.
@@ -247,6 +255,7 @@ if (verb === 'contract') {
   const drivesApple = (verb === 'test' || verb === 'agent') && ['ios', 'macos', 'mac'].includes(host);
   if (drivesApple && !rest.includes('--chrome') && host === 'ios') rest.push('--chrome', 'platform');
   if (drivesApple && verb === 'agent' && !rest.includes('--scale')) rest.push('--scale', '1');
+  if ((verb === 'test' || verb === 'agent') && host === 'windows' && !rest.includes('--size') && existsSync(manifest)) rest.push('--size', windowsWindow(JSON.parse(readFileSync(manifest, 'utf8'))).join('x'));
   if (verb !== 'test') return log(await script(verbs[verb], rest));
   // An app with a server of its own (the rest pattern's) has it run for the tests, where app.ts calls it, on an empty
   // database kept through them: as verify runs it, by the same code (LLP 1116.007 D2).

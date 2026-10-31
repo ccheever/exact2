@@ -777,7 +777,7 @@ function writeApp(dir, name, { title = titleOf(name), id = newAppId(name) } = {}
     'exact.mjs': commandsFor(dir, name),
     // Out of git: builds, the scratch directory (the generated native workspace is under it, LLP 1153 D1) and a
     // setting's local values (LLP 1153 D4).
-    '.gitignore': '/target/\n/dist/\n/dist.*\n/node_modules/\n/app.contract.d.ts\n/.exact/\n/.env.local\n',
+    '.gitignore': '/target/\n/dist/\n/dist.*\n/dist-windows/\n/node_modules/\n/app.contract.d.ts\n/.exact/\n/.env.local\n',
     // Contract libraries come through node_modules (LLP 1091 D9): `bun add`
     // one, or `"name": "file:../path"` for a local library.
     'package.json': JSON.stringify({ name, private: true, dependencies: {} }, null, 2) + '\n',
@@ -810,6 +810,7 @@ function writeApp(dir, name, { title = titleOf(name), id = newAppId(name) } = {}
   ${run} ios --run    build and launch on an iOS simulator (the first run names iOS in app.json)
   ${run} mac --run    build and launch on this Mac
   ${run} linux        build the Linux host (then test linux / agent linux, headless anywhere)
+  ${run} windows --run  on Windows: build and open it (then test windows, verify windows)
   ${run} update --without <platform>  stop shipping a platform a verb named
   ${run} help         every verb; ${run} <verb> --help gives its flags and an example`;
 }

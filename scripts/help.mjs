@@ -119,7 +119,7 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
   },
   test: {
     line: 'run *.test.contract (or the files named) on a host: web by default',
-    usage: 'bun exact.mjs test [web|ios|macos|linux|android] [<file.test.contract>|<glob>]… [flags]',
+    usage: 'bun exact.mjs test [web|ios|macos|linux|windows|android] [<file.test.contract>|<glob>]… [flags]',
     common: ['test [web|ios] [<file>…] [--size <w>x<h>] [--sim <name>]'],
     flags: DRIVE.filter(naming(['--size', '--sim'], true)),
     more: [
@@ -129,8 +129,8 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
     ],
     internal: [...TEST_IGNORES, ...DRIVE_INTERNAL],
     body: `Compiles first, a compile error said as contract build says it, so no contract build before
-it: web builds the app (web-build); ios and macos build when the build is missing or
-older than its sources, saying so on stderr. Each test launches the app fresh with its own
+it: web builds the app (web-build); ios, macos and windows build when the build is missing or
+older than its sources, saying so on stderr; windows drives at app.json's window size. Each test launches the app fresh with its own
 store, after its first data has landed; its leading lines (size, epoch, fail fetch …)
 override flags.
 Server   runs server.ts on DB=.exact/test/db.sqlite; refuses a live server or an entry ignoring DB.
@@ -148,7 +148,7 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
   },
   agent: {
     line: 'drive an app: tree, tap, type, state, screenshot, clock …',
-    usage: 'bun exact.mjs agent [web|ios|macos|linux|android] [flags] <op> [<op> …]',
+    usage: 'bun exact.mjs agent [web|ios|macos|linux|windows|android] [flags] <op> [<op> …]',
     common: ['agent [web|ios] [--storage <name>] [--size <w>x<h>] [--sim <name>] <op> …',
       '  each op one quoted argument: "tap <target>" "type <target> <text>" "clock data|settle|+<ms>" "state [<name>]" tree "check [both]" "screenshot <png>" "resize <w>x<h>" "prefer <feature> <value>" back'],
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
@@ -454,10 +454,10 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     example: 'bun exact.mjs lock',
   },
   windows: {
-    line: 'build for Windows into dist-windows/ (on Windows)',
+    line: 'build for Windows into dist-windows/ (--run opens it)',
     usage: 'bun exact.mjs windows [--run] [--release] [--out <dir>]',
-    flags: [['--run', 'launch it when built'], ['--release', 'the release profile (default gpu-dev)'], ['--out <dir>', 'package into <dir> instead of dist-windows/, e.g. beside a copy still running']],
-    body: 'Needs Windows and the MSVC Rust target.\nPorts    none. Runs to completion; with --run, until the game quits.',
+    flags: [['--run', 'open it when built: here, until it quits; from SSH, on the signed-in desktop, returning once its window is up'], ['--release', 'the release profile (default gpu-dev)'], ['--out <dir>', 'package into <dir> instead of dist-windows/, e.g. beside a copy still running']],
+    body: 'Needs Windows and the MSVC Rust target; test windows and agent windows build first when the build is stale, and\ndrive it headless. A build closes the copy the last --run opened from the same directory.\nPorts    none. Runs to completion; with --run here, until the app quits.',
     example: 'bun exact.mjs windows --run',
   },
   prove: {

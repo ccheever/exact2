@@ -18,8 +18,9 @@ const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 /** The platforms a manifest can name, each with the crate that serves it. */
 export const PLATFORMS = { ios: 'apple', macos: 'apple', tvos: 'apple', linux: 'linux', android: 'linux', windows: 'windows' };
-/** The platforms that hold an update store, so a stream (scripts/deploy.mjs). */
-const STORED = ['ios', 'macos', 'linux'];
+/** The platforms that hold an update store, so a stream (scripts/deploy.mjs), and Windows, whose host refuses every
+ * store level but "0" (it has no update store yet, LLP 1115.004 D15) while an absent key reads as "A". */
+const STORED = ['ios', 'macos', 'linux', 'windows'];
 
 /** A verb's platform (`ios`, `mac`, `linux`, `android`, `windows`), or a drive's host (`test ios`); null for the web and
  * every other verb. */
@@ -29,10 +30,12 @@ export function platformOf(verb, host = 'web') {
 }
 
 /** What `host.<platform>` holds when a verb names the platform: the scaffold's defaults for the two Apple platforms,
- * nothing for the others (each key may be empty, scripts/app.schema.json). */
+ * Shelf's for Windows (ink's composition swap chain, with Mica, LLP 1149 D12, and a desktop window's size), nothing
+ * for the others (each key may be empty, scripts/app.schema.json). */
 const hostDefaults = (platform) => ({
   ios: { minimumOS: '17.0', deviceFamily: ['iphone', 'ipad'] },
   macos: { minimumOS: '14.0', window: { width: 900, height: 700 } },
+  windows: { painter: 'ink', window: { width: 1024, height: 720, minWidth: 360, minHeight: 500 } },
 }[platform] ?? {});
 
 const readManifest = (dir) => JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
@@ -183,25 +186,24 @@ fn main() {
   if (kind === 'windows') return {
     'Cargo.toml': `${header(`[[bin]]\nname = "${name}-windows"\npath = "src/main.rs"\ntest = false\nbench = false`)}exact-logic = ${dep('logic')}
 exact-windows = ${dep('host/windows')}
+# The packages' Windows implementations name \`exact_linux::package\` (LLP 1133.022 D10 item 5).
+exact-linux = ${dep('host/linux')}
 exact-js = ${dep('js')}
 
 ${build}`,
     'build.rs': bake('windows'),
+    // A GUI executable in every profile, as Excord's: opened from Explorer or the desktop, a development build shows
+    // no console window beside its own; a parent's handles still carry its stderr.
     'src/main.rs': `//! ${title} on Windows: the host's window over the app's TypeScript data module and its baked plan.
-#![cfg_attr(
-    all(target_os = "windows", not(debug_assertions)),
-    windows_subsystem = "windows"
-)]
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 ${includes(true)}
 ${module(false)}include!(concat!(env!("OUT_DIR"), "/logic.rs"));
+// The packages' Windows implementations the build composes (exact_packages()).
+include!(concat!(env!("OUT_DIR"), "/packages.rs"));
 fn main() {
-    std::process::exit(exact_windows::run::<AppData>(
-        ${JSON.stringify(title)},
-        window(),
-        PLAN,
-        COMPAT,
-    ));
+    let composed = exact_linux::Composed { packages: exact_packages(), ..Default::default() };
+    std::process::exit(exact_windows::run_composed::<AppData>(${JSON.stringify(title)}, window(), PLAN, COMPAT, composed));
 }
 `,
   };
