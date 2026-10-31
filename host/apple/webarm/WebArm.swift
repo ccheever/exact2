@@ -747,8 +747,9 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     func command(_ op: [String: Any]) {
         guard !invalidated else { return }
         checkOwned()
-        // Any frame's, a PDF one's too (@ref LLP 1020.002 D7).
+        // Any frame's, a PDF one's too (@ref LLP 1020.002 D7); the inspector any web view's (D11).
         if op["op"] as? String == "captureScreenshot" { return capture(op) }
+        if op["op"] as? String == "openDevTools" { return openDevTools() }
         guard let browser else {
             // An unpartitioned frame may be a child of a wrapper document
             // (a sandboxed page; a remote one on iOS): only a partitioned
@@ -1413,7 +1414,8 @@ public func exactWebEndSession(_ bytes: UnsafePointer<UInt8>?, _ length: UInt32)
 /// A frame command (@ref LLP 1020.002 D3): `{op: "navigate", url}`,
 /// `{op: "traverseHistory", delta}`, `{op: "reload", ignoreCache}`,
 /// `{op: "stopLoading"}`; or a picture of the guest (D7), `{op:
-/// "captureScreenshot", path, file, clip}`.
+/// "captureScreenshot", path, file, clip}`; or its inspector (D11), `{op:
+/// "openDevTools"}`.
 @_cdecl("exact_web_command")
 public func exactWebCommand(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32) {
     arm(handle)?.command(json(bytes, length))
