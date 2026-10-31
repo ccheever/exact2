@@ -1,14 +1,15 @@
 // LLP 1154 D3: a package's prebuilt library, linked into an app `exact new` made outside the repo and carried with
 // it, found where the product is at run time. The library is a cdylib built here from a few lines of Rust whose one
 // function answers a number nothing else knows; the package is a copy of @fixture/tally whose Linux implementation
-// shows that number in its status, and whose exact.json declares the library for this machine's target by a file:
-// URL and its hash. The tests share one app, and each builds it for its host, which takes minutes, so none runs in a
-// lane. Run the file by name:
+// shows that number in its status, with a shim on the native slot that answers it too, and whose exact.json declares
+// the library for this machine's target by a file: URL and its hash. The tests share one app, and each builds it for
+// its host, which takes minutes, so none runs in a lane. Run the file by name:
 //   bun test scripts/package-libraries-link.test.mjs
 //
 // - The Linux host (on a Mac, the Linux host built for the Mac's target, as `bun exact.mjs linux` builds it): the
 //   library sits beside the executable, which loads it by its run path alone; with the cache's copy removed, a drive
-//   bound to the implementation shows the library's number.
+//   bound to the implementation shows the library's number, through the Linux implementation and through the shim
+//   on the data module's native slot.
 // - The web: the package's declared asset, captured with the package app.ts imports, is in the build at
 //   /assets/<package>/<path> with the package's bytes, and serve.mjs serves it there; delivery's wasm-target bake of
 //   the same app links no library and succeeds.
@@ -72,13 +73,44 @@ function buildLibrary() {
 }
 
 const WASM = Buffer.concat([Buffer.from([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]), Buffer.from(`only the package has these bytes ${ANSWER}`)]);
-/** @fixture/tally with the library declared and its Linux status naming the library's answer, and a module app.ts
- * imports beside a declared web asset. */
+/** @fixture/tally with the library declared and two callers of it: its Linux implementation's status names the
+ * library's answer, and a shim on the data module's native slot (LLP 1154 D3) answers `{op: "answer"}` with it. And a
+ * module app.ts imports beside a declared web asset. */
 function makePackage(library) {
   const pkg = join(scratch, 'tally');
   cpSync(tally, pkg, { recursive: true, filter: (from) => !from.includes(`${tally}/test`) });
   const declaration = JSON.parse(readFileSync(join(pkg, 'exact.json'), 'utf8'));
-  declaration.native = { link: 'vault', library };
+  declaration.native = { rust: 'native/lib.rs', class: 'VaultShim', link: 'vault', library };
+  mkdirSync(join(pkg, 'native'));
+  writeFileSync(join(pkg, 'native/lib.rs'), `//! The test's shim: it names exact_js and std alone, and asks the library.
+use exact_js::{json, Json, NativeModule, NativeStorage};
+
+#[link(name = "vault")]
+extern "C" {
+    fn vaultlib_answer() -> i32;
+}
+
+pub struct VaultShim;
+
+impl VaultShim {
+    pub fn new(_app: &str) -> Self {
+        VaultShim
+    }
+}
+
+impl NativeModule for VaultShim {
+    fn configure_storage(&mut self, _storage: NativeStorage) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn call(&mut self, request: &Json) -> Result<Json, String> {
+        match request["op"].as_str() {
+            Some("answer") => Ok(json!({ "text": format!("{}", unsafe { vaultlib_answer() }) })),
+            _ => Err("the shim answers answer".into()),
+        }
+    }
+}
+`);
   declaration.web = { assets: ['web/device.wasm'] };
   mkdirSync(join(pkg, 'web'));
   writeFileSync(join(pkg, 'web/device.wasm'), WASM);
@@ -98,10 +130,33 @@ function makePackage(library) {
 function makeApp(pkg) {
   const app = join(scratch, 'vaultfixture');
   run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app], root);
-  for (const f of ['app.contract', 'app.ts']) cpSync(join(tally, 'test/fixture', f), join(app, f));
+  // tally's fixture, with a button that asks the native slot and the answer shown under it.
+  writeFileSync(join(app, 'app.contract'), readFileSync(join(tally, 'test/fixture/app.contract'), 'utf8')
+    .replace('component Fixture\n', 'shape Asked\n  text: string\n\ncomponent Fixture\n  mutation asked as shape Asked\n  action ask\n    send asked = vault()\n')
+    .replace('      button press=add testId="add"\n', `      button press=ask testId="ask"
+        text "Ask the library"
+      match asked
+        case some(a)
+          text a.text testId="asked"
+        case none
+          text "none" testId="asked"
+      button press=add testId="add"
+`));
   rmSync(join(app, 'app.test.contract'), { force: true });
   const id = JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).app.id;
-  writeFileSync(join(app, 'app.ts'), `import { driver } from '@fixture/tally/driver';\nvoid driver;\n` + readFileSync(join(app, 'app.ts'), 'utf8').replace('__APP_ID__', id));
+  writeFileSync(join(app, 'app.ts'), `import { driver } from '@fixture/tally/driver';
+import type { Answer, Sources } from './app.contract.d.ts';
+
+void driver;
+export const appId = '${id}';
+export const grants = '';
+
+const sources: Sources = {
+  vault: async (_args, _store, _storage, native) => ({ text: native?.available ? String(native.call({ op: 'answer' }).text) : 'no native module' }),
+};
+
+export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
+`);
   const manifest = JSON.parse(readFileSync(join(app, 'package.json'), 'utf8'));
   manifest.dependencies = { ...manifest.dependencies, '@fixture/tally': `file:${pkg}` };
   writeFileSync(join(app, 'package.json'), JSON.stringify(manifest, null, 2));
@@ -134,8 +189,11 @@ test('the Linux host links the library, carries it beside its executable, and an
   }
   // Only the copy beside the executable is left to load.
   forget(library);
-  const lines = run('bun', ['exact.mjs', 'agent', 'linux', '--reset-storage', '--json', '--bind', 'tally', 'clock settle', 'tree'], app).trim().split('\n').map(l => JSON.parse(l));
-  const status = lines[1].nodes.find(n => n.props?.testId === 'status')?.props.text;
+  const lines = run('bun', ['exact.mjs', 'agent', 'linux', '--reset-storage', '--json', '--bind', 'tally', 'clock settle', 'tap ask', 'clock settle', 'tree'], app).trim().split('\n').map(l => JSON.parse(l));
+  const text = (id) => lines.at(-1).nodes.find(n => n.props?.testId === id)?.props.text;
+  // Through the native slot: the bake's generated factory, the shim, and the library.
+  expect(text('asked')).toBe(String(ANSWER));
+  const status = text('status');
   expect(status).toBe(`true ${{ darwin: 'macos', linux: 'linux' }[process.platform]} ${ANSWER} 0 true`);
 }, 3_600_000);
 
