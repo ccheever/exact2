@@ -61,7 +61,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   const length = (name) => { const v = value.get(name); return typeof v === 'number' ? `${v}px` : v.replace(/^0\./, '.'); };
   // The properties each length is written on.
   const WHERE = {
-    'control-height': ['min-height', 'min-width', 'height'], 'control-height-coarse': ['min-height', 'min-width', 'height'],
+    'control-height': ['min-height', 'min-width', 'height', 'padding-inline-end'], 'control-height-coarse': ['min-height', 'min-width', 'height'],
     'control-radius': ['border-radius'], 'surface-radius': ['border-radius'], 'mark-radius': ['border-radius'], 'segment-radius': ['border-radius'],
     'control-line': ['border', 'border-top', 'border-bottom', 'border-inline-end', '--exact-raised', '--exact-modal', 'box-shadow'], // a list row's separator is a line in its box
     'focus-ring-offset': ['outline-offset'],
@@ -81,7 +81,8 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'alert-title': ['font-size'], 'alert-message-gap': ['margin-bottom', 'margin-top'], 'alert-scroll-gutter': ['padding-inline-end'],
     'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'], 'popover-padding': ['padding'], 'popover-margin': ['margin', 'margin-left'],
     'menu-row-height': ['min-height'], 'menu-row-padding-block': ['padding'], 'menu-row-padding-inline': ['padding'], 'menu-row-gap': ['--exact-button-space-width'],
-    'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-height': ['height'], 'sheet-margin': ['width', 'height'], 'sheet-top': ['inset'],
+    'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-height': ['height', 'max-height'], 'sheet-margin': ['width', 'height', 'max-height'], 'sheet-top': ['inset'],
+    'sheet-padding': ['padding', 'margin', 'margin-inline-end', 'padding-inline-end'], 'sheet-gap': ['padding', 'margin'], 'sheet-action-gap': ['margin'],
     'list-row-inset': ['padding-left', 'padding-right'],
     'raised-shadow-y': ['--exact-raised'], 'raised-shadow-blur': ['--exact-raised'], 'modal-shadow-y': ['--exact-modal'], 'modal-shadow-blur': ['--exact-modal'],
   };

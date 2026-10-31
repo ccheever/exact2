@@ -302,43 +302,60 @@ check('the bar says its own word, "Back", only on a page in English; elsewhere t
   for (const lang of ['en-GB', 'EN', '']) expect([lang, await evaluate(`document.documentElement.lang = ${JSON.stringify(lang)}; select('2'); backs()`)]).toEqual([lang, english]);
 }), 60000);
 
-// LLP 1116.009 D4 (the neutral look's): a sheet's bar centres its title whatever flanks it, as UIKit's does; a page's stays leading. The
-// author's flow wins: a header with its own `justify-content` (the host names it, `data-exact-said`) and a title with a
-// margin of its own are left where they were written. Buttons 60 px wide, so what is centred is exact.
+// LLP 1115.000 D4.8: a sheet whose header holds its heading and buttons is a web dialog: the title at the start of its
+// top, the buttons its actions at the end of its foot in the order written, whatever flow its author gave the header
+// (an iOS bar's). Any other header stays a bar, its title leading, and so does a page's. Buttons 60 px wide, so the
+// edges are exact.
 const bars = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0] + `<div id="exact-root">
   ${[
-    ['s1', 'modal', '', '', '<button>Cancel</button>', '', '<button>Save</button>'],
-    ['s2', 'modal', '', '', '<button>Back</button>', '', ''],
-    ['s3', 'modal', '', '', '', '', ''],
-    ['p1', null, '', '', '<button>Back</button>', '', ''],
-    ['s4', 'modal', 'data-exact-said="justify-content"', 'justify-content:space-between', '<button>Back</button>', '', ''],
-    ['s5', 'modal', '', '', '<button>Back</button>', 'style="margin:0"', ''],
-  ].map(([id, how, mark, flow, before, title, after]) => `<div navigationKey="${id}" id="${id}"${how ? ` navigationPresentation="${how}"` : ''}>
-    <header style="display:flex;align-items:center;${flow}" ${mark}>${before.replace('<button>', '<button style="flex:none;width:60px">')}<h2 id="${id}-title" ${title}>Create an event</h2>${after.replace('<button>', '<button style="flex:none;width:60px">')}</header></div>`).join('\n  ')}
+    ['s1', 'modal', '', '', '<button id="s1-cancel">Cancel</button>', '<button id="s1-save">Save</button>'],
+    ['s2', 'modal', 'data-exact-said="justify-content"', 'justify-content:space-between', '<button id="s2-cancel">Cancel</button>', ''],
+    ['s3', 'modal', '', '', '', ''],
+    ['s4', 'modal', '', '', '<button>Back</button>', '<input aria-label="Search">'],
+    ['s5', 'modal', '', '', '', '<button id="s5-close" aria-label="Close" data-button-style="plain"><img alt="" data-symbol-source="symbol:close"></button>'],
+    ['p1', null, '', '', '<button>Back</button>', ''],
+  ].map(([id, how, mark, flow, before, after]) => `<div navigationKey="${id}" id="${id}"${how ? ` navigationPresentation="${how}"` : ''} style="display:flex;flex-direction:column">
+    <header style="display:flex;align-items:center;padding:8px 16px;${flow}" ${mark}>${before.replace('<button', '<button style="flex:none;width:60px"')}<h2 id="${id}-title">Create an event</h2>${after.replace('<button', '<button style="flex:none;width:60px"')}</header><div style="height:100px"><input id="${id}-field" aria-label="Field"></div></div>`).join('\n  ')}
 </div>
 <script>
-  window.edges = id => { const h = document.querySelector('#' + id + ' > header').getBoundingClientRect(), t = document.getElementById(id + '-title').getBoundingClientRect(); return { left: Math.round(t.left - h.left), right: Math.round(h.right - t.right), centre: Math.round((t.left + t.right) / 2 - (h.left + h.right) / 2), width: Math.round(t.width) }; };
+  // Where each part is in the route: a title by its words, which its padding moves, a button by its box.
+  window.place = id => {
+    const r = document.getElementById(id).getBoundingClientRect(), range = document.createRange();
+    const b = el => {
+      const n = document.getElementById(el);
+      if (!n) return undefined;
+      if (n.localName === 'h2') range.selectNodeContents(n);
+      const e = (n.localName === 'h2' ? range : n).getBoundingClientRect();
+      return { left: Math.round(e.left - r.left), right: Math.round(r.right - e.right), top: Math.round(e.top - r.top), bottom: Math.round(e.bottom - r.top) };
+    };
+    return { title: b(id + '-title'), cancel: b(id + '-cancel'), save: b(id + '-save'), close: b(id + '-close') };
+  };
   window.ready = true;
 </script>`;
 
-check('a sheet\'s bar centres its title, a page\'s stays leading, and the author\'s flow wins', () => inChrome(async (evaluate) => {
-  // The padding is 16 px a side. Cancel and Save the same width: the title is on the bar's centre.
-  const s1 = await evaluate(`edges('s1')`);
-  expect(Math.abs(s1.centre)).toBeLessThanOrEqual(1);
-  // A lone Back: centred between it and the bar's end, nowhere near the end (the free space is the same either side).
-  const s2 = await evaluate(`edges('s2')`);
-  expect(Math.abs((s2.left - 16 - 60) - (s2.right - 16))).toBeLessThanOrEqual(1);
-  expect(s2.right).toBeGreaterThan(100);
-  // Nothing flanking it.
-  expect(Math.abs((await evaluate(`edges('s3')`)).centre)).toBeLessThanOrEqual(1);
-  // A page's title stays leading: right after the Back, with its end free.
-  const p1 = await evaluate(`edges('p1')`);
-  expect(p1.left).toBe(16 + 60);
-  // A header flowing its own items (space-between, the title last) and a title with its own margin are the author's.
-  expect((await evaluate(`edges('s4')`)).right).toBe(16);
-  expect((await evaluate(`edges('s5')`)).left).toBe(16 + 60);
-  // Centred in its own text where it fills the space (a title the author grew).
-  expect(await evaluate(`document.getElementById('s3-title').style.flexGrow = '1'; getComputedStyle(document.getElementById('s3-title')).textAlign`)).toBe('center');
+check('a sheet\'s header is a dialog\'s title and actions; any other stays a bar, its title leading', () => inChrome(async (evaluate, call) => {
+  // Cancel then Save at the foot's end, under the content; the title's words at the top's start.
+  const s1 = await evaluate(`place('s1')`);
+  expect([s1.title.left, s1.title.top]).toEqual([24, 24]);
+  expect(s1.save.right).toBe(24);
+  expect(s1.cancel.right).toBe(24 + 60 + 8);
+  expect(s1.cancel.top).toBeGreaterThan(s1.title.bottom + 100);
+  expect(s1.cancel.top).toBe(s1.save.top);
+  // A header its author laid out as an iOS bar (`space-between`) is a dialog all the same.
+  const s2 = await evaluate(`place('s2')`);
+  expect([s2.title.left, s2.cancel.right, s2.cancel.top > s2.title.bottom + 100]).toEqual([24, 24, true]);
+  // No buttons, or something beside them that is no button: a bar, its title leading.
+  expect((await evaluate(`place('s3')`)).title.left).toBe(16);
+  expect((await evaluate(`place('s4')`)).title.left).toBe(16 + 60);
+  expect((await evaluate(`place('p1')`)).title.left).toBe(16 + 60);
+  // A close symbol after the title is a web dialog's close button: at the top's end, still a symbol.
+  const s5 = await evaluate(`[place('s5'), getComputedStyle(document.querySelector('#s5-close > img')).display, getComputedStyle(document.getElementById('s5-close'), '::after').content]`);
+  expect([s5[0].title.left, s5[0].close.top, s5[0].close.right, s5[1], s5[2]]).toEqual([24, 12, 12, 'block', 'none']);
+  // The keyboard reaches the actions after the content, as it sees them (Chrome's `reading-order`).
+  await evaluate(`document.getElementById('s1-field').focus()`);
+  await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+  await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+  expect(await evaluate('document.activeElement.id')).toBe('s1-cancel');
 }, bars), 60000);
 
 check('an app bar Back control remains live inside a modal beneath an inert ancestor', () => inChrome(async evaluate => {
