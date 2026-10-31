@@ -220,8 +220,12 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
         NSApp.activate(ignoringOtherApps: true)
         done(true)
     }
+    /// The panel's own close brings the app forward, as a press on Chromium's window, which is
+    /// the browser's own, activates the browser. `exitPictureInPicture()` and the image's removal
+    /// end the window from the app, which `invalid` marks, and leave the app where it is.
     func pictureInPictureControllerDidStopPictureInPicture(_ c: AVPictureInPictureController) {
         holder.orderOut(nil)
+        if !invalid { NSApp.activate(ignoringOtherApps: true) }
         say("leave")
     }
 

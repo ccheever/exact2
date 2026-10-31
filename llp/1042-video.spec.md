@@ -456,7 +456,9 @@ window then shows each picture the image's `src` names, as it changes: a
 live source, with no timeline, never paused. The image hears HTML's
 `enterpictureinpicture` when the window shows and `leavepictureinpicture`
 when the person closes it (its close button, or the button that returns to
-the app, which brings the app forward). An image that leaves the document
+the app). Either brings the app forward, as a press on Chromium's window
+activates the browser; on macOS the panel is the system's, so a press
+elsewhere on it does not. An image that leaves the document
 closes the window, with no event, as no node is left to hear it. One image
 floats at a time, as one element per document does: a request for another
 moves the window to it, and the first hears `leavepictureinpicture`. Neither
