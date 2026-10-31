@@ -126,6 +126,81 @@ and this checkout's toolchains for the exact2 app (Bun, Rust, `bun install --fro
 The Expo app also needs Node, npm and CocoaPods. No TCC permission is needed: the probe scrolls
 from inside the app, and devicectl only launches and copies files.
 
+## The measurement Mac
+
+Mac measurement series use the silver M5 Max at `ccheever@100.76.94.78`:
+Mac17,6, 18 CPU cores, 40 GPU cores, 128 GiB, built-in 3456×2234 display,
+macOS 27.0.1 (26A434), Xcode 27.2, Bun 1.4.2 and Rust 1.97.0.
+Build only the benchmark arms in `~/projects/exact2-measure`, a detached
+worktree made from fetched `origin/main`. Leave the main clone and the old
+worktrees alone. Every Cargo invocation uses this worktree's `target/`,
+including `--target-dir target` for the separate benchmark workspaces.
+Nothing else may build there; no other work may run during a series.
+
+The G4 driver and its four signed bundles are prepared under `target/g0/`.
+`build.sh`, `bundle.py` and the build logs retain the commands; the data must pass
+`data.sha256` before any run. Keep all raw attempts, quiet observations,
+power samples and provenance in that directory. Use a fresh series directory
+for each later run; never replace evidence cited by `gpui/RESULTS.md`.
+The native benchmark build uses `EXACT_IDENTITY=-` for ad-hoc signing over
+SSH. Xcode's optional Metal Toolchain is required (`xcodebuild
+-downloadComponent MetalToolchain`); without it, Ink can build with direct
+Metal unavailable. It was installed and both Exact arms rebuilt on 2026-10-30.
+
+GUI runs must join the signed-in user's Aqua session. `launchctl asuser`
+needs privilege over SSH; it changes the bootstrap session, not the Unix
+user. Enter that session with sudo, then drop back to `ccheever` before
+running the driver. Every SSH command needs the PATH below, including the
+Homebrew Rust shims. Start the one-arm qualification from the development Mac:
+
+```sh
+ssh ccheever@100.76.94.78 '
+  export PATH="$HOME/.bun/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/opt/homebrew/opt/rustup/bin:$PATH"
+  cd ~/projects/exact2-measure
+  sudo -n /bin/launchctl asuser $(id -u) /usr/bin/sudo -u ccheever \
+    /usr/bin/env PATH="$PATH" /usr/bin/caffeinate -u -d -i \
+    python3 target/g0/run-42d5066572/run-series.py qualify target/g0/run-42d5066572/qualification-repeat
+'
+```
+
+This opens Ink with `G1_COLD_ONLY=1`, checks the probe's ready and focus
+reports, captures its window with `screencapture -l`, then exits without
+gestures. Inspect the new capture; the qualified original is
+`target/g0/run-42d5066572/qualification/ink.png`.
+For another series, use a fresh result directory. In the same command,
+replace `qualify target/g0/run-42d5066572/qualification-repeat` with
+`series target/g0/run-42d5066572/g4m-repeat` to run
+five rotating fling/rest rounds and five further cold-only rounds, with
+five-second quiet observations and one-second power samples. The wrapper
+requires a successful qualification first. Use `static` instead of `series`
+with a fresh `g5m-repeat` directory for the three-round fling/bar/caret series.
+For Stage 0b, the same launch chain runs `run-boot.py retained <fresh-directory>`
+and then `run-boot.py miss <fresh-directory>`, from the refreshed directory.
+G4m's first qualification passed activation, key-window, readiness and capture.
+
+On this dedicated measurement Mac there is **no GO file** (Charlie,
+2026-10-30): nothing else runs there, and its session stays unlocked and awake.
+The development Mac's display-ownership rule does not apply here. The
+wrapper in `target/g0/run-42d5066572/run-series.py` runs without a GO wait.
+Its `qualify`, `series` and `static` modes use the refreshed signed arms beside
+it. Keep `launchctl asuser`, the user switch and `caffeinate -d -i` above.
+Accessibility and Screen Recording must be granted
+to `/usr/libexec/sshd-keygen-wrapper`, the responsible process for SSH-launched
+programs. Power collection needs passwordless sudo for `/usr/bin/powermetrics`:
+`--samplers cpu_power,gpu_power,tasks --show-process-energy --show-process-gpu
+-i 1000`. Do not work around a missing TCC grant.
+
+The rebuilt arms use `origin/main` `42d5066572`; G4m's quiet series completed.
+The wrapper reads Core Animation time for phase joins, since this Mac's Python
+3.9 monotonic clock uses a different epoch. It stops its recorded sampler PID
+through privileged `launchctl asuser`; an unprivileged SIGINT did not stop G4m's
+sudo wrapper.
+
+The Aqua-session preflight returned UID 501; Accessibility, event posting and
+Screen Recording checks passed. Passwordless `powermetrics` sampled throughout
+G4m. See [G4m](gpui/RESULTS.md#g4m-the-four-arms-on-the-measurement-mac) for
+the measured source, qualification and retained evidence.
+
 ## Last standings
 
 From the series of 2026-09-29 and 2026-09-30; the numbers come from `probe/summarize.py` and

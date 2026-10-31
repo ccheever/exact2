@@ -376,6 +376,13 @@ package final class Presenter {
     var onCommand: ((String, [Any], UInt32?) -> Void)?
     /// A `key` handler called `preventDefault()` (`keyDown(at:_:)`, KeyEvents.swift).
     var defaultPrevented = false
+    /// The touches whose `pointerdown` an action prevented, a finger each:
+    /// the view each went down on takes no focus from it (LLP 1005 §3;
+    /// `keepsFocus(from:)`).
+    let preventedTouches = NSHashTable<UITouch>.weakObjects()
+    /// An action's `focus()` (or the agent's) is being delivered: a prevented
+    /// touch's view takes it all the same, as on the web and the Mac.
+    var authoredFocus = false
     /// A `key` handler called `stopPropagation()` (`keyDown(at:_:)`, KeyEvents.swift).
     var propagationStopped = false
 
@@ -489,6 +496,8 @@ package final class Presenter {
     /// The node an action's `focus()` last named, delivered yet or not: a field's Return reads it to learn whether its `submit` asked for the keyboard back (LLP 1115.000 D9.2).
     weak var focusAsked: NodeView?
     private func focus(_ target: NodeView, selectText: Bool) {
+        authoredFocus = true
+        defer { authoredFocus = false }
         focusAsked = target
         let name = target.props["id"] ?? "#\(target.id)"
         let shown: UIView = target.headerField ?? target

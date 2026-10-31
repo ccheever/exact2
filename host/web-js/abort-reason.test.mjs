@@ -29,14 +29,17 @@ test('an aborted fetch rejects with its signal\'s reason; an exactTimeout is sti
     expect(run.status).toBe(0);
     writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replace(/'\.\.\/web\/([a-z-]+\.js)'/g, "'./$1'"));
     for (const name of ['grant-admission.js', 'faults.js', 'address-space.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+    // Data code's fetch over it, with the same grants
+    cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), resolve(dir, 'ts-fetch.js'));
+    writeFileSync(resolve(dir, 'admission-data.js'), `import { createGrantSet } from './admission.js'; export const tsGrantSet = createGrantSet(${run.stdout});\n`);
     const { createGrantSet, fetchWith, FetchError } = await import(resolve(dir, 'admission.js'));
     const set = createGrantSet(JSON.parse(run.stdout));
     // The rejection of a fetch made with `init`. With `abort`, it is called once the request has arrived (or the fetch
     // has already settled, which the assertions then catch), within a bound; a timeout's fetch is simply awaited.
-    const rejection = async (init, abort) => {
+    const rejection = async (init, abort, decided = false) => {
       const before = arrived.length;
       let settled = false;
-      const fetched = fetchWith(set, `${server.url.origin}/held`, init).then(() => null, e => e).finally(() => { settled = true; });
+      const fetched = fetchWith(set, `${server.url.origin}/held`, init, null, undefined, undefined, 'app', decided).then(() => null, e => e).finally(() => { settled = true; });
       if (abort) {
         const bound = performance.now() + 10_000;
         while (arrived.length === before && !settled) {
@@ -64,6 +67,45 @@ test('an aborted fetch rejects with its signal\'s reason; an exactTimeout is sti
     const beside = new AbortController();
     const first = await rejection({ signal: beside.signal, exactTimeout: 30 });
     expect([first.name, first.kind]).toEqual(['FetchError', 'Timeout']);
+    // The request arms the deadline its `AbortSignal.timeout` gives it (ts-fetch.js) with the signal it reads, reading
+    // it once, and ends the deadline when it is done (LLP 1146 §2.1).
+    const { signalDeadline } = await import(resolve(dir, 'admission.js'));
+    const seen = [], carried = new AbortController();
+    let reads = 0, armedWith;
+    signalDeadline.arm = signal => { armedWith = signal; seen.push('armed'); return { cancel: () => seen.push('ended'), overdue() {} }; };
+    const read = await rejection({ get signal() { reads++; return carried.signal; } }, () => carried.abort());
+    expect([read, seen, reads, armedWith === carried.signal]).toEqual([carried.signal.reason, ['armed', 'ended'], 1, true]);
+    // An inherited signal is the request's too, as `fetch` reads its init's members
+    const inherited = new AbortController();
+    seen.length = 0;
+    expect(await rejection(Object.create({ signal: inherited.signal }), () => inherited.abort())).toBe(inherited.signal.reason);
+    expect([seen, armedWith === inherited.signal]).toEqual([['armed', 'ended'], true]);
+    // A body file's request, its deadline decided before its file work (`decided`), is not armed again
+    const filed = new AbortController();
+    seen.length = 0;
+    expect(await rejection({ signal: filed.signal }, () => filed.abort(), true)).toBe(filed.signal.reason);
+    expect(seen).toEqual([]);
+    // Data code's fetch, ts-fetch.js over this admission.js: beside an `exactTimeout` as long, the signal's deadline is
+    // the request's, and beside an earlier one it is not, as natively (js/tests/it/timers.rs, "equal").
+    const tsf = await import(resolve(dir, 'ts-fetch.js'));
+    tsf.answering.page = { clock: { now: 0, timers: [], agent: true }, journal: [], drive() {} };
+    tsf.answering.call = {};
+    const tied = tsf.AbortSignal.timeout(30), longer = tsf.AbortSignal.timeout(60_000);
+    tsf.answering.call = null;
+    const fetched = init => tsf.fetch(`${server.url.origin}/held`, init).then(() => null, e => e);
+    const equal = await fetched({ signal: tied, exactTimeout: 30 });
+    expect([equal, equal.name, tied.aborted]).toEqual([tied.reason, 'TimeoutError', true]);
+    const earlier = await fetched({ signal: longer, exactTimeout: 30 });
+    expect([earlier.kind, longer.aborted]).toEqual(['Timeout', false]);
+    // A `Request`'s own signal is the browser's, made to follow the one it was given, so no timeout is known for it: the
+    // request's `exactTimeout` stands (native data code has no `Request`). Bun's Request keeps the signal it is given,
+    // so the one here follows the timeout as a browser's does, through the platform's own `AbortSignal.any`.
+    tsf.answering.call = {};
+    const followed = tsf.AbortSignal.timeout(30);
+    tsf.answering.call = null;
+    const following = new Request(`${server.url.origin}/held`, { signal: AbortSignal.any([followed]) });
+    const requested = await tsf.fetch(following, { exactTimeout: 60 }).then(() => null, e => e);
+    expect([requested.kind, followed.aborted]).toEqual(['Timeout', false]);
   } finally {
     for (const wake of arrived) wake();
     server.stop(true);

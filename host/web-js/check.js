@@ -25,11 +25,12 @@ export function observe(views, inactive = () => false) {
     const d = ctx.getImageData(0, 0, 1, 1).data;
     return d[3] ? [d[0], d[1], d[2], Math.round(d[3] / 255 * 1000) / 1000] : null;
   };
-  // What the author wrote on an element's classes: its platform colour role, and whether it set a size.
+  // What the author wrote on an element's classes: its platform colour role, and whether it set a size. The last class
+  // first: a lowered node's arm class (lower.js) stands over its static class, as its rule does.
   const rules = new Map();
   const gather = (list) => { for (const r of list) { const m = r.selectorText && /\.([\w-]+)$/.exec(r.selectorText.trim()); if (m) { if (!rules.has(m[1])) rules.set(m[1], []); rules.get(m[1]).push(r.style); } if (r.cssRules) gather(r.cssRules); } };
   for (const sheet of document.styleSheets) { try { gather(sheet.cssRules); } catch { /* another origin's sheet */ } }
-  const authored = (el, prop) => { for (const c of el.classList ?? []) for (const st of rules.get(c) ?? []) { const v = st.getPropertyValue(prop); if (v) return v; } return el.style?.getPropertyValue(prop) ?? ''; };
+  const authored = (el, prop) => { for (const c of [...(el.classList ?? [])].reverse()) for (const st of rules.get(c) ?? []) { const v = st.getPropertyValue(prop); if (v) return v; } return el.style?.getPropertyValue(prop) ?? ''; };
   const role = (el, prop) => /^var\(--exact-([\w-]+)/.exec(authored(el, prop))?.[1];
   const W = innerWidth, H = innerHeight, r2 = (x) => Math.round(x * 100) / 100;
   const modal = document.querySelector('dialog:modal');

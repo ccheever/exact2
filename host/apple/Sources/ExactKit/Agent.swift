@@ -134,14 +134,15 @@ public final class Agent {
                 completed.wait()
             }
         }
-        DispatchQueue.main.async { exitAfterStorage() }
+        DispatchQueue.main.async { exitAfterLanding() }
     }
 
-    /// The drive ended: storage an answer started lands first, as a quit's
-    /// does (LLP 1097 D10), within the driver's patience (it kills at 2 s).
-    nonisolated(unsafe) static var exiting: StorageHold?
-    static func exitAfterStorage() {
-        let hold = StorageHold(bound: 1.5, pending: { routes.contains { $0.1.storageOperations > 0 } }, begin: { _ in }, end: { exit(0) })
+    /// The drive ended: storage an answer started and requests with effects
+    /// land first, as a quit's do (LLP 1097 D10, LLP 1146 D2), within the
+    /// driver's patience (it kills at 2 s).
+    nonisolated(unsafe) static var exiting: QuitHold?
+    static func exitAfterLanding() {
+        let hold = QuitHold(bound: 1.5, pending: { routes.contains { $0.1.mustFinish } }, end: { exit(0) })
         if hold.hold() { exiting = hold } else { exit(0) }
     }
 
@@ -153,7 +154,7 @@ public final class Agent {
               let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let op = req["op"] as? String
         else { reply(["malformed": true, "error": "unreadable request: \(line)"]); return }
-        if op == "quit" { exitAfterStorage(); return }
+        if op == "quit" { exitAfterLanding(); return }
         // A slice building off main lands before the agent reads or acts
         // (LLP 1072 T9); under the agent slices are synchronous, so this is
         // for a carrier attached to an ordinary run.

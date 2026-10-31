@@ -364,6 +364,22 @@ pub fn boot_presenter_with_device<D: DataSource + Default>(
     Ok((presenter, warning))
 }
 
+/// Metal archive misses keep the CPU painter until an entire ink frame is ready.
+#[cfg(target_os = "macos")]
+pub fn boot_presenter_with_metal<D: DataSource + Default>(
+    config: &mut Config,
+    viewport: (f32, f32),
+    preparing: exact_ink::device::apple::Startup,
+) -> Result<(Presenter<D>, Option<String>), String> {
+    let (mut presenter, warning) = boot_presenter_with_painter(
+        config,
+        viewport,
+        PainterBoot::selected(crate::presenter::PainterChoice::Cpu),
+    )?;
+    presenter.install_apple_painter(preparing)?;
+    Ok((presenter, warning))
+}
+
 /// Keep the carrier's constructor through selected-plan refusal and baked fallback.
 pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     config: &mut Config,

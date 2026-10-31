@@ -934,6 +934,11 @@ fn generate_item_list(
             BlockItem {
                 node_id: child_node_id,
                 order: order as u32,
+                // Patch 66. The web hosts write `justify-self: start` over a canvas and an
+                // indeterminate progress except where this alignment applies
+                // (host/web/src/sized_css.rs `aligns`; host/web-js/src/sized.rs, its static CSS
+                // and bound writers): a change to which `justify-items` values align a block
+                // child changes them too.
                 justify_self: child_style.justify_self().or(justify_items).map(|alignment| {
                     alignment.resolve_self_relative(child_style.direction(), direction, true)
                 }),

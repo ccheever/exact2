@@ -1,0 +1,14 @@
+// Excord's login switch calls a runner-owned module substitute. Its reply
+// never enters the data oracle used by Lean (LLP 1151 lane G).
+use loginItemStatus, registerLoginItem, LoginItemStatus from "@exact/login-item"
+
+component App
+  resource login = loginItemStatus() as shape LoginItemStatus
+  mutation loginSet as shape LoginItemStatus
+  action setLogin
+    send loginSet = registerLoginItem(hidden=false)
+  view
+    button "Start at login" press=setLogin testId="login-switch"
+
+test "register the login item"
+  tap "login-switch"

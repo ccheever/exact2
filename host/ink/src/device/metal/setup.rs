@@ -44,6 +44,8 @@ pub(super) struct Pipelines {
 
 impl Pipelines {
     pub fn save(&self) {
+        #[cfg(target_os = "macos")]
+        let _trace = Trace::new(c"pipeline archive save");
         let Some((archive, path)) = &self.archive else {
             return;
         };
@@ -53,6 +55,10 @@ impl Pipelines {
         if let Some(dir) = path.parent() {
             if std::fs::create_dir_all(dir).is_err() {
                 return;
+            }
+            #[cfg(target_os = "macos")]
+            if let Some(started) = process_started() {
+                sweep_temporary_archives(dir, path, started);
             }
         }
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -65,63 +71,174 @@ impl Pipelines {
     }
 }
 
-pub(super) fn pipelines(
-    device: &ProtocolObject<dyn MTLDevice>,
-    format: MTLPixelFormat,
-) -> Result<Pipelines> {
-    let library = library(device)?;
-    let vertex = library
-        .newFunctionWithName(&NSString::from_str(VERTEX))
-        .ok_or_else(|| Error::Device("ink vertex entry".into()))?;
-    let fragment = library
-        .newFunctionWithName(&NSString::from_str(FRAGMENT))
-        .ok_or_else(|| Error::Device("ink fragment entry".into()))?;
-    let vertex_layout = MTLVertexDescriptor::new();
-    // SAFETY: twelve attributes fit Metal's table; buffer 1 is separate from
-    // naga's viewport at buffer 0. Every attribute occupies 16 bytes of Instance.
-    unsafe {
-        let layout = vertex_layout.layouts().objectAtIndexedSubscript(1);
-        layout.setStride(size_of::<Instance>());
-        layout.setStepFunction(MTLVertexStepFunction::PerInstance);
-        layout.setStepRate(1);
-        for i in 0..12 {
-            let attribute = vertex_layout.attributes().objectAtIndexedSubscript(i);
-            attribute.setFormat(if i == 2 || i == 7 {
-                MTLVertexFormat::UInt4
-            } else {
-                MTLVertexFormat::Float4
-            });
-            attribute.setOffset(i * 16);
-            attribute.setBufferIndex(1);
+#[cfg(target_os = "macos")]
+fn process_started() -> Option<std::time::SystemTime> {
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    let size = size_of::<libc::proc_bsdinfo>();
+    // SAFETY: libproc writes exactly this record for our own PID.
+    let written = unsafe {
+        libc::proc_pidinfo(
+            std::process::id() as i32,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size as i32,
+        )
+    };
+    if written != size as i32 {
+        return None;
+    }
+    let info = unsafe { info.assume_init() };
+    Some(
+        std::time::UNIX_EPOCH
+            + std::time::Duration::from_secs(info.pbi_start_tvsec)
+            + std::time::Duration::from_micros(info.pbi_start_tvusec),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn sweep_temporary_archives(dir: &Path, archive: &Path, started: std::time::SystemTime) {
+    let prefix = format!(
+        "{}.",
+        archive.file_stem().unwrap_or_default().to_string_lossy()
+    );
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !(name.starts_with(&prefix) || name.starts_with("pipelines-ink-metal-v2-"))
+            || !name.ends_with(".tmp")
+        {
+            continue;
+        }
+        let Some((_, serial)) = name.trim_end_matches(".tmp").rsplit_once('.') else {
+            continue;
+        };
+        let Some((pid, count)) = serial.split_once('-') else {
+            continue;
+        };
+        if pid.parse::<u32>().is_err() || count.parse::<u64>().is_err() {
+            continue;
+        }
+        if entry
+            .metadata()
+            .is_ok_and(|m| m.is_file() && m.modified().is_ok_and(|t| t < started))
+        {
+            let _ = std::fs::remove_file(entry.path());
         }
     }
-    let path = cache_path(device).map(|p| {
-        if format == MTLPixelFormat::RGBA8Unorm {
-            p
+}
+
+pub(super) struct Builder {
+    vertex: Retained<ProtocolObject<dyn MTLFunction>>,
+    fragment: Retained<ProtocolObject<dyn MTLFunction>>,
+    layout: Retained<MTLVertexDescriptor>,
+    archive: Option<Retained<ProtocolObject<dyn MTLBinaryArchive>>>,
+    path: Option<PathBuf>,
+    strict: bool,
+}
+
+// SAFETY: creation has finished before handoff; only the compiler worker uses
+// this builder thereafter. Metal functions, descriptors and archives are retained.
+unsafe impl Send for Builder {}
+
+impl Builder {
+    pub fn open(
+        device: &ProtocolObject<dyn MTLDevice>,
+        path: Option<PathBuf>,
+        strict: bool,
+    ) -> Result<Self> {
+        if strict && !path.as_ref().is_some_and(|p| p.is_file()) {
+            return Err(Error::Device("Metal archive absent".into()));
+        }
+        #[cfg(target_os = "macos")]
+        let load = Trace::new(if strict {
+            c"boot metallib load"
         } else {
-            p.with_extension("bgra.bin")
+            c"pipeline metallib load"
+        });
+        let library = library(device)?;
+        #[cfg(target_os = "macos")]
+        drop(load);
+        let vertex = library
+            .newFunctionWithName(&NSString::from_str(VERTEX))
+            .ok_or_else(|| Error::Device("ink vertex entry".into()))?;
+        let fragment = library
+            .newFunctionWithName(&NSString::from_str(FRAGMENT))
+            .ok_or_else(|| Error::Device("ink fragment entry".into()))?;
+        let layout = MTLVertexDescriptor::new();
+        // SAFETY: twelve attributes fit Metal's table; buffer 1 is separate
+        // from naga's viewport at buffer 0. Each attribute occupies 16 bytes.
+        unsafe {
+            let slot = layout.layouts().objectAtIndexedSubscript(1);
+            slot.setStride(size_of::<Instance>());
+            slot.setStepFunction(MTLVertexStepFunction::PerInstance);
+            slot.setStepRate(1);
+            for i in 0..12 {
+                let attribute = layout.attributes().objectAtIndexedSubscript(i);
+                attribute.setFormat(if i == 2 || i == 7 {
+                    MTLVertexFormat::UInt4
+                } else {
+                    MTLVertexFormat::Float4
+                });
+                attribute.setOffset(i * 16);
+                attribute.setBufferIndex(1);
+            }
         }
-    });
-    let archive_desc = MTLBinaryArchiveDescriptor::new();
-    if let Some(path) = path.as_ref().filter(|p| p.exists()) {
-        archive_desc.setUrl(Some(&url(path)));
-    }
-    let mut cached = archive_desc.url().is_some();
-    let archive = device
-        .newBinaryArchiveWithDescriptor_error(&archive_desc)
-        .or_else(|_| {
-            cached = false;
-            archive_desc.setUrl(None);
-            device.newBinaryArchiveWithDescriptor_error(&archive_desc)
+        #[cfg(target_os = "macos")]
+        let _open = Trace::new(if strict {
+            c"boot archive open"
+        } else {
+            c"pipeline archive open"
+        });
+        let desc = MTLBinaryArchiveDescriptor::new();
+        if let Some(path) = path.as_ref().filter(|p| p.is_file()) {
+            desc.setUrl(Some(&url(path)));
+        }
+        let archive = match device.newBinaryArchiveWithDescriptor_error(&desc) {
+            Ok(archive) => Some(archive),
+            Err(e) if strict => return Err(Error::Device(e.to_string())),
+            Err(_) => {
+                desc.setUrl(None);
+                device.newBinaryArchiveWithDescriptor_error(&desc).ok()
+            }
+        };
+        Ok(Self {
+            vertex,
+            fragment,
+            layout,
+            archive,
+            path,
+            strict,
         })
-        .ok();
-    cached &= archive.is_some();
-    let make = |blend| -> Result<_> {
+    }
+
+    pub fn make(
+        &self,
+        device: &ProtocolObject<dyn MTLDevice>,
+        format: MTLPixelFormat,
+        blend: bool,
+    ) -> Result<Retained<ProtocolObject<dyn MTLRenderPipelineState>>> {
+        #[cfg(target_os = "macos")]
+        let _trace = Trace::new(
+            match (self.strict, format == MTLPixelFormat::RGBA8Unorm, blend) {
+                (true, true, true) => c"boot RGBA blend",
+                (true, true, false) => c"boot RGBA replace",
+                (true, false, true) => c"boot BGRA blend",
+                (true, false, false) => c"boot BGRA replace",
+                (false, true, true) => c"pipeline RGBA blend",
+                (false, true, false) => c"pipeline RGBA replace",
+                (false, false, true) => c"pipeline BGRA blend",
+                (false, false, false) => c"pipeline BGRA replace",
+            },
+        );
         let desc = MTLRenderPipelineDescriptor::new();
-        desc.setVertexFunction(Some(&vertex));
-        desc.setFragmentFunction(Some(&fragment));
-        desc.setVertexDescriptor(Some(&vertex_layout));
-        // SAFETY: attachment zero exists; its format matches the render target.
+        desc.setVertexFunction(Some(&self.vertex));
+        desc.setFragmentFunction(Some(&self.fragment));
+        desc.setVertexDescriptor(Some(&self.layout));
+        // SAFETY: attachment zero exists; its format matches the target.
         let color = unsafe { desc.colorAttachments().objectAtIndexedSubscript(0) };
         color.setPixelFormat(format);
         color.setBlendingEnabled(blend);
@@ -129,37 +246,72 @@ pub(super) fn pipelines(
         color.setSourceAlphaBlendFactor(MTLBlendFactor::One);
         color.setDestinationRGBBlendFactor(MTLBlendFactor::OneMinusSourceAlpha);
         color.setDestinationAlphaBlendFactor(MTLBlendFactor::OneMinusSourceAlpha);
-        if let Some(archive) = &archive {
+        if let Some(archive) = &self.archive {
             desc.setBinaryArchives(Some(&NSArray::from_slice(&[&**archive])));
-            if !cached {
+            if !self.strict {
                 archive
                     .addRenderPipelineFunctionsWithDescriptor_error(&desc)
                     .map_err(|e| Error::Device(e.to_string()))?;
             }
         }
-        device
-            .newRenderPipelineStateWithDescriptor_error(&desc)
-            .map_err(|e| Error::Device(e.to_string()))
+        if self.strict {
+            device
+                .newRenderPipelineStateWithDescriptor_options_reflection_error(
+                    &desc,
+                    MTLPipelineOption::FailOnBinaryArchiveMiss,
+                    None,
+                )
+                .map_err(|e| Error::Device(e.to_string()))
+        } else {
+            device
+                .newRenderPipelineStateWithDescriptor_error(&desc)
+                .map_err(|e| Error::Device(e.to_string()))
+        }
+    }
+
+    pub fn rgba(&self, device: &ProtocolObject<dyn MTLDevice>) -> Result<Pipelines> {
+        Ok(Pipelines {
+            blend: self.make(device, MTLPixelFormat::RGBA8Unorm, true)?,
+            replace: self.make(device, MTLPixelFormat::RGBA8Unorm, false)?,
+            cached: self.strict,
+            archive: self.archive.clone().zip(self.path.clone()),
+        })
+    }
+}
+
+pub(super) fn pipelines(
+    device: &ProtocolObject<dyn MTLDevice>,
+    format: MTLPixelFormat,
+) -> Result<Pipelines> {
+    let path = cache_path(device);
+    let create = |strict| {
+        let builder = Builder::open(device, path.clone(), strict)?;
+        if format == MTLPixelFormat::RGBA8Unorm {
+            builder.rgba(device)
+        } else {
+            let replace = builder.make(device, format, false)?;
+            Ok(Pipelines {
+                blend: replace.clone(),
+                replace,
+                cached: strict,
+                archive: builder.archive.zip(builder.path),
+            })
+        }
     };
-    Ok(Pipelines {
-        blend: make(true)?,
-        replace: make(false)?,
-        cached,
-        archive: archive.zip(path),
-    })
+    create(true).or_else(|_| create(false))
 }
 
 fn url(path: &Path) -> Retained<NSURL> {
     NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()))
 }
 
-fn cache_path(device: &ProtocolObject<dyn MTLDevice>) -> Option<PathBuf> {
+pub(super) fn cache_path(device: &ProtocolObject<dyn MTLDevice>) -> Option<PathBuf> {
     let dir = std::env::var_os("EXACT_CACHE")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(|p| PathBuf::from(p).join("exact")))
         .or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".cache/exact")))?;
     // Metal's driver ships with the OS. The key includes its build, the device
-    // and AIR; v1 identifies this pipeline and vertex layout. @ref LLP 1149 D14.
+    // and AIR; v2 identifies this pipeline and vertex layout. @ref LLP 1149 D14.
     let os = NSProcessInfo::processInfo()
         .operatingSystemVersionString()
         .to_string();
@@ -168,7 +320,7 @@ fn cache_path(device: &ProtocolObject<dyn MTLDevice>) -> Option<PathBuf> {
         hash = (hash ^ u64::from(b)).wrapping_mul(0x100000001b3);
     }
     Some(dir.join(format!(
-        "pipelines-ink-metal-v1-{}-{hash:016x}.bin",
+        "pipelines-ink-metal-v2-{}-{hash:016x}.bin",
         device.registryID()
     )))
 }
@@ -191,4 +343,42 @@ pub(super) fn sampler(
     device
         .newSamplerStateWithDescriptor(&desc)
         .ok_or_else(|| Error::Device("sampler allocation".into()))
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn archive_sweep_removes_only_temporary_files_older_than_this_process() {
+        struct Directory(PathBuf);
+        impl Drop for Directory {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let dir = Directory(
+            std::env::temp_dir().join(format!("ink-archive-sweep-{}", std::process::id())),
+        );
+        std::fs::create_dir_all(&dir.0).unwrap();
+        let started = process_started().unwrap();
+        let archive = dir.0.join("pipelines-ink-metal-v2-test.bin");
+        let stale = dir.0.join("pipelines-ink-metal-v2-old.123-0.tmp");
+        let current = dir.0.join("pipelines-ink-metal-v2-test.124-0.tmp");
+        let unrelated = dir.0.join("another.123-0.tmp");
+        for path in [&archive, &stale, &current, &unrelated] {
+            let file = std::fs::File::create(path).unwrap();
+            file.set_modified(if path == &current {
+                started
+            } else {
+                started - std::time::Duration::from_secs(1)
+            })
+            .unwrap();
+        }
+        sweep_temporary_archives(&dir.0, &archive, started);
+        assert!(!stale.exists());
+        for path in [&archive, &current, &unrelated] {
+            assert!(path.is_file(), "{}", path.display());
+        }
+    }
 }

@@ -303,8 +303,9 @@ final class BoxFilterTests: XCTestCase {
         let job = TextRasterJob(source: source, ranges: [CFRange(location: 0, length: 4)], baselines: [28],
             flush: 0, box: text.bounds, size: text.bounds.size, scale: 2)
         let result = try XCTUnwrap(job.render())
-        text.textRasterKey = key; text.textRasterReady = false
+        text.textRasterKey = key
         #if os(macOS)
+        text.textRasterReady = false
         text.showTextRaster(result.surface, for: key, frame: result.frame)
         #else
         text.showTextRaster(result, for: key)

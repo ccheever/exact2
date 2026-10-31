@@ -164,7 +164,7 @@ describe('the Filters menu pickers (PrFiltersMenu, PrFilterSub)', () => {
   });
 });
 
-describe("the root's picker search (pull-requests-members.contract)", () => {
+describe("the root's picker search (app.contract)", () => {
   const root = contractComponent('app.contract', 'T3Code');
   const lines = appText('app.contract').split('\n').map(line => line.trim());
   test('a picker opening clears its search; keystrokes settle 250 ms after the last one, never as a command', () => {

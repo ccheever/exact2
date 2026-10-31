@@ -225,6 +225,18 @@ final class MouseChain {
     /// takes it, is the monitor's. Held until one of them takes it, as
     /// AppKit may let the event go first.
     var early: NSEvent?
+    /// The press whose `pointerdown` an action prevented (`preventDefault()`):
+    /// it keeps the focus where it is, places no caret and starts no
+    /// selection; its press still fires (LLP 1005 §3, as Chrome).
+    weak var prevented: NSEvent?
+    /// The left button's contact had its `pointerdown` prevented: its drags
+    /// extend no selection. Said again at each left down (`pointerPressed`),
+    /// the only way to a left drag.
+    var preventedContact = false
+    /// The down being handled (its view's `mouseDown`, `rightMouseDown` or
+    /// `otherMouseDown`, while it runs) had its `pointerdown` prevented: a
+    /// canvas or surface control takes no focus from it (`focusSurfacePointer`).
+    var keepingFocus = false
     /// Early presses released before their tracking began (the session's
     /// view left its window, or a loop took the up first): their up is
     /// gone, so no tracking runs for them. The last few, each until then.
@@ -321,6 +333,8 @@ extension NodeView {
     func pointerPressed(_ event: NSEvent?) {
         presenter?.focusByPointer = true
         presenter?.flushHoverMove()
+        // A down a view forwards to its superview's `mouseDown` (an inline atom's) is the same contact, said already.
+        if event?.type == .leftMouseDown, presenter?.mouseChain.prevented !== event { presenter?.mouseChain.preventedContact = false }
         guard let presenter, presenter.pointerHeld == nil, presenter.pointerPath.isEmpty else { return }
         var path: [NodeView] = []
         var next: NSView? = self
@@ -337,12 +351,28 @@ extension NodeView {
         presenter.pointerPath = path.map(\.id)
         // A handler may remove or disable a node further up before its turn,
         // or stop this down there; the up's path and the hold stay.
+        presenter.defaultPrevented = false
         presenter.propagating {
             for node in path where node.handlers.contains("pointerdown") && presenter.views[node.id] === node && !node.disabled {
                 presenter.pointer(node.id, .down, node.pointerSample(event))
                 if presenter.propagationStopped { break }
             }
         }
+        // One that prevented it keeps the focus where it is (`MouseChain.prevented`).
+        if presenter.defaultPrevented, let event {
+            presenter.mouseChain.prevented = event
+            if event.type == .leftMouseDown { presenter.mouseChain.preventedContact = true }
+        }
+        presenter.defaultPrevented = false
+    }
+    /// Says `MouseChain.keepingFocus` for the handling of the down `event`,
+    /// which ends when the returned closure runs (the outer down's value
+    /// again), on the chain it was said on, though the node is gone by then.
+    func keepingFocus(for event: NSEvent) -> () -> Void {
+        guard let chain = presenter?.mouseChain else { return {} }
+        let outer = chain.keepingFocus
+        chain.keepingFocus = chain.prevented === event
+        return { chain.keepingFocus = outer }
     }
     /// `pointerdown` and `pointerup` around the tracking loop of a text
     /// area or an input's editor, which keeps the button's drags and up from
@@ -492,8 +522,11 @@ extension Presenter {
     /// (`tracksPress`), in a window that takes the click (key, or the editor
     /// takes the first click), and not a control-click, AppKit's contextual
     /// click. Anything else goes its way as before.
-    func pressEditorFirst(_ event: NSEvent) {
-        guard event.type == .leftMouseDown else { return }
+    /// True when its `pointerdown` was prevented: the window does not get the
+    /// down, so the editor takes no focus, no caret and no selection; the
+    /// button's up releases it as any early press (LLP 1005 §3).
+    @discardableResult func pressEditorFirst(_ event: NSEvent) -> Bool {
+        guard event.type == .leftMouseDown else { return false }
         // A new press: an early one whose up nothing saw (a loop took it) is over; one still
         // bubbling is not (this press is a click in its handler's loop, and goes its way).
         if mouseChain.early != nil, !mouseChain.earlyBubbling { releaseEarlyPress(nil) }
@@ -503,7 +536,7 @@ extension Presenter {
               let node = Self.editorOwner(hit), views[node.id] === node, node.tracksPress(hit),
               // A window under a sheet (an alert's too) or another's modal session takes no click.
               window.attachedSheet == nil, NSApp.modalWindow.map({ $0 === window }) ?? true,
-              (NSApp.isActive && window.isKeyWindow) || hit.acceptsFirstMouse(for: event) else { return }
+              (NSApp.isActive && window.isKeyWindow) || hit.acceptsFirstMouse(for: event) else { return false }
         mouseChain.early = event
         mouseChain.earlyBubbling = true
         node.pointerPressed(event)
@@ -513,6 +546,7 @@ extension Presenter {
             NSApp.postEvent(up, atStart: true) // for the editor's tracking, else the monitor's release
         }
         if mouseChain.releaseAfterBubbling { mouseChain.releaseAfterBubbling = false; releaseEarlyPress(nil) }
+        return mouseChain.prevented === event
     }
     /// The node whose editor `hit` is, as each editor's `mouseDown` finds it
     /// (TextAreaMac.swift): a text area's, an input's field (the page's, or

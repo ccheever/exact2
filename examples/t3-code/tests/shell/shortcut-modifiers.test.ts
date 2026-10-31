@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import { contractFns } from '../support/contract-fn-fixture';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
 import { readFileSync } from 'node:fs';
-import { appFiles, appPath, appText } from '../support/app-files';
+import { appText, appFiles, appPath } from '../support/app-files';
 import { threadJumpModifiers } from '../../src/sidebar/sidebar-view';
 import type { T3Client } from '../../src/client/client';
 

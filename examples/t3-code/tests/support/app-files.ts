@@ -3,7 +3,7 @@
 // and appPath finds src/composer/composer.contract; a name with a slash is a path from the app's root
 // (`modules/apple/T3Composer.swift`).
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 export const APP = join(import.meta.dir, '..', '..');
 
@@ -35,15 +35,22 @@ export function appFiles(): string[] {
   return [...files().keys()];
 }
 
-/** The text of app file `name` with each `members "./x.contract"` line replaced by that file's `members` block,
- *  as the loader splices it (LLP 1091.002): app.contract reads as the one-file root it compiles to. */
-export function appText(name: string): string {
-  const path = appPath(name);
-  return readFileSync(path, 'utf8').replace(/^ +members "(\.\.?\/[^"]+\.contract)"$/gm, (_, file: string) => {
-    const lines = readFileSync(join(dirname(path), file), 'utf8').split('\n');
-    const from = lines.findIndex(line => /^members \w+$/.test(line));
-    if (from < 0) throw new Error(`${file}: no members block`);
-    const to = lines.findIndex((line, i) => i > from && line !== '' && !line.startsWith(' '));
-    return lines.slice(from + 1, to < 0 ? undefined : to).join('\n').replace(/\n+$/, '');
-  });
+/** Members join their component at the listing, with paths relative to the listing file. */
+export function appText(file: string): string {
+  const path = appPath(file);
+  let owner = '';
+  return readFileSync(path, 'utf8').split('\n').flatMap(line => {
+    const component = /^component (\w+)$/.exec(line);
+    if (component) owner = component[1]!;
+    const listing = /^  members "([^"]+)"(?:\s*\/\/.*)?$/.exec(line);
+    if (!listing) return [line];
+    const memberPath = resolve(dirname(path), listing[1]!);
+    const source = readFileSync(memberPath, 'utf8').split('\n');
+    const from = source.indexOf(`members ${owner}`);
+    if (!owner || from < 0) throw new Error(`${memberPath}: no members ${owner}`);
+    const to = source.findIndex((text, i) => i > from && /^\S/.test(text) && !text.startsWith('//'));
+    const body = source.slice(from + 1, to < 0 ? undefined : to);
+    if (to < 0 && body.at(-1) === '') body.pop();
+    return body;
+  }).join('\n');
 }

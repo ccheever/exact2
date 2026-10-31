@@ -105,9 +105,11 @@ final class HiddenTextRasterIOSTests: XCTestCase {
         ctx.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
         let image = try XCTUnwrap(ctx.makeImage())
-        node.textRaster = image
-        node.textRasterReady = true
-        node.textRasterFrame = node.bounds
+        let key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size, box: node.bounds, scale: 1)
+        let result = TextRasterImage(image, frame: node.bounds,
+            coverage: TextRasterCoverage(support: node.bounds, answered: node.bounds, ink: node.bounds, shadows: .null), headroom: 0)
+        node.textRasterKey = key
+        node.textMore.accepted = AcceptedTextRaster(key: key, result: result, namespace: node.text?.namespace ?? 0)
         let ink = CALayer()
         ink.frame = node.bounds
         ink.contents = image

@@ -18,7 +18,7 @@ import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
 import { toasts } from '../../src/shell/toast';
-import { appPath, appText } from '../support/app-files';
+import { appText, appPath } from '../support/app-files';
 import { adoptFrameEvent, frameEntry, frameIdOf, frames, syncFrames } from '../../src/browser/browser-frames';
 
 const ref = { environmentId: 'local', threadId: 'thread-1' };
@@ -376,7 +376,7 @@ describe('the preview keys and ⇧⌘J', () => {
     const pressed: unknown[][] = [];
     value(row.trim().match(/press=(panel\(.*\))\)$/)![1]!, { panel: (...args: unknown[]) => pressed.push(args) });
     expect(pressed).toEqual([['close', '']]);
-    const app = (await appText('app.contract')).split('\n');
+    const app = (appText('app.contract')).split('\n');
     const at = app.findIndex(line => line.startsWith('  action panelUi(what: string, id: string)'));
     const send = app.slice(at, at + 8).find(line => line.includes('send localChanged = command('))!;
     const sent: unknown[][] = [];

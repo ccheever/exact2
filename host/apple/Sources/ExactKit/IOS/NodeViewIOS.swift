@@ -20,9 +20,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var paintGhost = false
     /// The box is `draw(_:)`'s to paint: Core Animation cannot say it (`applyBoxLayer`).
     var boxDrawn = false
-    /// The key is set and paints the whole paragraph (not a band of it).
-    private(set) var textRasterWhole = false
-    var textRasterReady = false
     var textRasterFailed = false
     var textLayoutValid = false
     /// The last frame showed it: Core Animation committed it in a window, not hidden (`Presenter.unshown`).
@@ -81,7 +78,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         get { specs?.rasterKey }
         set {
             if newValue != nil || specs != nil { textMore.rasterKey = newValue }
-            textRasterWhole = newValue.map { $0.clip == nil } ?? false
         }
     }
     package var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
@@ -379,7 +375,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var focusesOnPress: Bool { canBecomeFirstResponder && asksForFocus }
     package override var canBecomeFirstResponder: Bool { !formDisabled && !inert && !cssVisibilityHidden && !isHidden && field == nil && textArea == nil && (kind == "button" || isNativeButton || isRadio || asksForFocus) }
     package override func becomeFirstResponder() -> Bool {
-        guard !formDisabled, !inert, !cssVisibilityHidden else { return false }
+        guard !formDisabled, !inert, !cssVisibilityHidden, !keepsFocus(from: self) else { return false }
         let ok = super.becomeFirstResponder()
         if ok { presenter?.collections.pinsChanged(); inputCanvas?.canvasInput?.focused() }
         if ok, presenter?.menus.focus.quiet != true { presenter?.focus(id) } // a menu's set-aside focus returns quietly (MenuFocusIOS)
@@ -1384,7 +1380,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if let outer = v as? ScrollView, !(outer is Viewport) { nested = outer.scrollsY }
             up = v.superview
         }
-        sv.alwaysBounceVertical = sv.scrollsY && !nested && (!fits || !carousel)
+        sv.alwaysBounceVertical = sv.scrollsY && !nested && (handlers.contains("refresh") || !fits || !carousel)
     }
 
     /// Its parts move with its frame: in an animation UIKit has open only if the last frame showed it (`Presenter.moveOrPlace`).

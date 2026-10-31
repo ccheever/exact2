@@ -8,8 +8,7 @@
 // by driving each dialog on macOS: a source read cannot press Tab.
 import { describe, expect, test } from 'bun:test';
 import { contractComponent, value } from '../support/contract-action-fixture';
-import { appFiles, appText } from '../support/app-files';
-
+import { appText, appFiles } from '../support/app-files';
 
 const files = appFiles().filter(name => name.endsWith('.contract')).sort();
 const sources = new Map<string, string>(await Promise.all(files.map(async file => [file, appText(file)] as const)));

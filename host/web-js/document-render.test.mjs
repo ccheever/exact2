@@ -725,11 +725,61 @@ component ProgressDocument
       const e = document.querySelector('[data-testid="'+id+'"]'), r = e.getBoundingClientRect(), p = e.parentElement.getBoundingClientRect();
       return { x: r.x - p.x, width: r.width };
     })`);
-    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 0, width: 20 }]);
+    // A block parent's `justify-items: center` centres the sized one, as the kernel's block layout does.
+    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 110, width: 20 }]);
     await browser.tap('toggle');
     expect(await frames()).toEqual([{ x: 0, width: 240 }, { x: 110, width: 20 }]);
     await browser.tap('toggle');
-    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 0, width: 20 }]);
+    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 110, width: 20 }]);
+  } finally {
+    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
+  }
+}, 180000);
+
+test('Rust-rendered canvases follow a bound parent justify-items after adoption, a nested one its own parent', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/canvas-document-agent-test-'));
+  let browser, server;
+  try {
+    const source = resolve(dir, 'app.contract'), dist = resolve(dir, 'dist');
+    writeFileSync(source, `routes nav
+  home "/" render=build
+
+component CanvasDocument
+  state items = "normal"
+  action toggle
+    items = items == "normal" ? "center" : "normal"
+  view
+    column
+      button "Toggle" testId="toggle" press=toggle width=100 height=24
+      box justify-items=items width=240 height=40
+        canvas testId="bound" height=40
+      box justify-items="center" width=240 height=60
+        canvas testId="outer" height=50 justify-items="normal"
+          canvas testId="inner" height=20
+`);
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'caltrain', '--contract', source, '--out', dist, '--render', 'rust'], {
+      cwd: root, env: process.env, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    browser = await open({ host: 'web', url: server.url.href });
+    expect(await browser.carrier.evaluate(`globalThis.exact.journal.some(l => l.endsWith('adopted the document'))`)).toBe(true);
+    const frames = () => browser.carrier.evaluate(`['bound','outer','inner'].map(id => {
+      const e = document.querySelector('[data-testid="'+id+'"]'), r = e.getBoundingClientRect(), p = e.parentElement.getBoundingClientRect();
+      return { x: r.x - p.x, width: r.width };
+    })`);
+    // The server render's inline justify-self: start goes at adoption, so the bound value applies;
+    // the outer canvas is centred by its box although it sets its own child's alignment.
+    expect(await frames()).toEqual([{ x: 0, width: 80 }, { x: 70, width: 100 }, { x: 0, width: 40 }]);
+    await browser.tap('toggle');
+    expect(await frames()).toEqual([{ x: 80, width: 80 }, { x: 70, width: 100 }, { x: 0, width: 40 }]);
+    await browser.tap('toggle');
+    expect(await frames()).toEqual([{ x: 0, width: 80 }, { x: 70, width: 100 }, { x: 0, width: 40 }]);
   } finally {
     await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
   }

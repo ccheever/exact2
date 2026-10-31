@@ -1,0 +1,387 @@
+import { mobileQueuedEditCurrent } from './queued-edit-state';
+import { pendingRequests } from './shared/requests';
+import { mobileFaviconQueries } from './mobile-favicon-query';
+import { watchLive } from './shared/live-streams';
+import { mobileThreadSelection } from './thread-selection';
+import { mobileThreadHeaderEvents } from './thread-header';
+import { mobileGrantRequest, mobileSessionRead, type MobileSessionTarget } from './mobile-grants';
+import { mobileComposerTargetRequire } from './composer-target';
+import { mobileQueuedEditSave, mobileQueuedEditCancel, mobileQueuedEditRetry, mobileQueuedEditRefresh } from './queued-edit';
+import { mobileOpenAnswerFile } from './thread-answer-files';
+import { mobileGitEvents } from './git-overview';
+import { mobileGitFeedbackMetadata, mobileGitFeedbackObserve } from './git-feedback';
+import { mobileDevicesEvents } from './devices-mobile-data';
+import { mobileBrowserEvents } from './browser-mobile-data';
+import { mobileVoiceObserveDraft } from './voice-data';
+// upstream 365aa87982 mobile pairing.ts and connection/platform.ts; shared reducers remain unchanged.
+// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#mobile-adaptations
+import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
+import { mobileNewTaskEditorRefresh } from './new-task-editor';
+import { mobileSend } from './composer-behavior';
+import { mobileDraftChanged } from './draft';
+import { mobilePendingInputCommand, mobilePendingInputRetry } from './pending-input';
+import { decodePrefs, environmentSources, machineKind, savedStatus } from './shared/connections';
+import { connectionRouteAddress, connectionRouteKind, connectionRouteLabel, gitHubRoutingConnectionKey, hasRelayRoute } from './shared/connection-routes';
+import { arr, obj, str, type Obj } from './shared/domain';
+import { letGo, letGoAware } from './shared/let-go';
+import { bridgeReply, ClientError, nativeFiles, parsePairing, type Files, type Native } from './shared/protocol';
+import { pairingFields } from './shared/r10-connect-pairing';
+import { EnvironmentFleet, fleet, trimOrigin } from './shared/settings-b-fleet';
+import type { T3Client } from './shared/client';
+
+export const mobileClient = new MobileDraftClient();
+
+/** Mobile QR links wrap a normal hosted/direct pairing URL. The normal parser still validates it. */
+export function mobilePairingUrl(input: string): string {
+  const trimmed = input.trim();
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol === 't3code:') return url.searchParams.get('pairingUrl')?.trim() || trimmed;
+  } catch { /* Raw host text is also accepted by the form. */ }
+  return trimmed;
+}
+
+export function mobilePairingFields(input: string): { source: string; host: string; code: string } {
+  const raw = mobilePairingUrl(input);
+  if (!raw) return { source: input, host: '', code: '' };
+  const shared = pairingFields(raw);
+  if (shared.host) return { ...shared, source: input };
+  try {
+    const url = new URL(raw);
+    url.hash = ''; url.search = ''; url.pathname = '/';
+    return { source: input, host: url.toString().replace(/\/$/, ''), code: '' };
+  } catch { return { source: input, host: raw, code: '' }; }
+}
+
+/** Reference mobile form prefill, independent of native pairing target validation. */
+export function mobilePairingPrefill(kind: string, host: string, code: string, generation: number, visit: string, editRevision: number) {
+  const url = kind === 'scan' ? mobilePairingUrl(host) : mobilePairingFormUrl(host, code);
+  const fields = mobilePairingFormFields(url);
+  return { url, ...fields, generation, visit, editRevision, scanned: kind === 'scan' };
+}
+
+// ConnectionsNewRouteScreen retains buildPairingUrl's value, including when connect fails.
+function mobilePairingFormUrl(host: string, code: string): string {
+  const h = host.trim(), c = code.trim();
+  if (!h || !c) return h;
+  try {
+    const url = new URL(h.includes('://') ? h : `${isIpLiteral(h) ? 'http' : 'https'}://${h}`);
+    url.hash = new URLSearchParams([['token', c]]).toString();
+    return url.toString();
+  } catch { return `${h}#token=${c}`; }
+}
+
+// The reference's display parser preserves an unhosted token's whitespace.
+function mobilePairingFormFields(input: string): { host: string; code: string } {
+  const trimmed = input.trim();
+  if (!trimmed) return { host: '', code: '' };
+  try {
+    const url = new URL(trimmed);
+    const hash = new URLSearchParams(url.hash.slice(1)).get('token') ?? '', query = url.searchParams.get('token') ?? '';
+    const hosted = url.searchParams.get('host')?.trim() ?? '', hostedCode = hash.trim() || query.trim();
+    if (hosted && hostedCode) return { host: hosted.replace(/\/$/, ''), code: hostedCode };
+    url.hash = ''; url.search = ''; url.pathname = '/';
+    return { host: url.toString().replace(/\/$/, ''), code: hash || query };
+  } catch { return { host: trimmed, code: '' }; }
+}
+
+function isIpLiteral(host: string): boolean {
+  try {
+    const name = new URL(`http://${host}`).hostname.replace(/^\[|\]$/g, '');
+    if (name.includes(':')) return true;
+    const parts = name.split('.');
+    return parts.length === 4 && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255);
+  } catch { return false; }
+}
+
+/** The same host+code rule as upstream buildPairingUrl, followed by the shared validation. */
+export function mobilePairingTarget(host: string, code: string): { origin: string; credential: string } {
+  const credentialInput = mobilePairingUrl(code);
+  const input = /^(https?|wss?|t3code):\/\//i.test(code.trim()) ? mobilePairingUrl(credentialInput) : mobilePairingUrl(host);
+  const fields = mobilePairingFields(input);
+  let address = fields.host || input;
+  const credential = fields.code || (/^[a-z]+:\/\//i.test(code.trim()) ? '' : code.trim());
+  if (credential && address && !address.includes('://')) address = `${isIpLiteral(address) ? 'http' : 'https'}://${address}`;
+  try { return parsePairing(address, credential); }
+  catch { throw new ClientError('Enter a valid T3 server address or pairing link.', 'Address'); }
+}
+
+/**
+ * Mobile adapts standard pairing scopes and the creation source of newly authored work,
+ * preserving the shared reducer, command IDs, replay ownership and other native operations.
+ */
+export function mobileNative(native: Native, focused: T3Client = mobileClient, background: EnvironmentFleet = fleet): Native {
+  return { available: native.available, watch: topic => native.watch(topic), later: request => {
+    mobileVoiceObserveDraft(mobileClient);
+    const operation = obj(request), payload = obj(operation.payload);
+    if (operation.op === 'events') return bridgeReply(native, request).then(response => {
+      if (response.ok) {
+        mobileBrowserEvents(obj(response.value).events, mobileClient);
+        mobileDevicesEvents(obj(response.value).events, mobileClient);
+        mobileGitEvents(obj(response.value).events, mobileClient);
+        mobileGitFeedbackMetadata(obj(response.value).events, Number(operation.after) || 0, mobileClient);
+        mobileThreadHeaderEvents(obj(response.value).events, mobileClient);
+      }
+      return response;
+    });
+    const mobileWrite = operation.op === 'request' && payload.creationSource === 'web'
+      && (operation.method === 'orchestration.launchThread'
+        || (operation.method === 'orchestration.dispatchCommand'
+          && ['message.dispatch', 'thread.fork', 'thread.merge_back'].includes(str(payload.type))));
+    const requestValue = mobileGrantRequest(mobileWrite ? { ...operation, payload: { ...payload, creationSource: 'mobile' } } : request);
+    if (operation.op === 'http' && operation.path === '/api/auth/session') {
+      const key = typeof operation.fleet === 'string' ? operation.fleet : null;
+      const entry = key === null ? null : background.entries.get(key);
+      const subject = key === null ? focused : entry;
+      let target: MobileSessionTarget | null = null;
+      if (subject && operation.generation === subject.generation) {
+        const { generation, origin, environmentId } = subject, local = key === null ? focused.local : null;
+        const current = () => subject.generation === generation && subject.origin === origin && subject.environmentId === environmentId
+          && (key === null ? focused.local === local && focused.connection === 'connected'
+            : background.entries.get(key) === entry && entry?.phase === 'connected'
+              && background.wanted(focused).some(saved => saved.environmentId === environmentId && saved.origin === origin));
+        if (current()) target = { subject, identity: [generation, origin, environmentId, local], current,
+          changed: () => { if (key === null) focused.revision++; else background.revision++; }, fleet: key !== null };
+      }
+      return mobileSessionRead(native, requestValue, target);
+    }
+    const result = native.later(requestValue);
+    if (!['setConnectionPreferences', 'setRoutes', 'setEnvironmentEnabled', 'forgetEnvironment'].includes(str(operation.op))) return result;
+    // These successful native metadata writes can be silent (no active transport).
+    // Publish through the existing watched topic; never refresh the history reader
+    // by arguments or keep a metadata mutation's native ticket in another answer.
+    return result.then(async response => {
+      if (obj(response).ok === true) {
+        snapshotReadStarted++; // A preceding metadata read must not undo this accepted write.
+        try { await native.later({ op: 'r10Wake', topic: 't3.notify' }); }
+        catch (error) { if (letGo(error)) throw error; }
+      }
+      return response;
+    });
+  } };
+}
+
+function answerHandles(native: Native | null | undefined, suppliedStorage: Files) {
+  const handle = native?.available ? letGoAware(mobileNative(native)) : native;
+  return mobileDraftRecoveryHandles(mobileClient, handle, handle?.available ? nativeFiles(handle) : suppliedStorage);
+}
+
+/** Upstream lists every saved environment, including one environment and switched-off ones. */
+export function mobileRoutingRows(sources: ReturnType<typeof environmentSources>, saved: Obj[], preferencesText: string, ready: boolean) {
+  const prefs = decodePrefs(preferencesText);
+  return sources.filter(source => saved.some(entry => entry.environmentId === source.environmentId)).map(source => {
+    const key = gitHubRoutingConnectionKey(source);
+    const label = str(saved.find(entry => entry.environmentId === source.environmentId)?.mobileLabel) || source.label;
+    return { id: source.key, label, url: source.routes.map(connectionRouteAddress).find(address => address !== null) || 'T3 Connect',
+      permission: key ? prefs.githubRouting[key] || 'off' : 'off', disabled: !ready || key === null };
+  });
+}
+
+// This owner keeps only catalog/status/preferences metadata. The canonical
+// client is the sole transcript owner; a reader never caches its raw projection.
+let snapshotReadStarted = 0, snapshotReadPublished = 0;
+let snapshotMetadata = { catalogLoaded: false, nativeAvailable: false, focusedStatus: {} as Obj, focusedGeneration: -1,
+  focusedOrigin: '', focusedEnvironmentId: '', preferencesText: '{}', routingReady: false };
+export function mobileConnectionSources(client: T3Client = mobileClient, background: EnvironmentFleet = fleet) {
+  const facts = client === mobileClient && snapshotMetadata.focusedGeneration === client.generation
+    && snapshotMetadata.focusedOrigin === client.origin && snapshotMetadata.focusedEnvironmentId === client.environmentId
+    ? snapshotMetadata.focusedStatus : {};
+  const saved = background.saved, homeOrigin = str(facts.homeOrigin);
+  const opening = !client.environmentId && client.connection !== 'disconnected' && homeOrigin
+    ? saved.filter(entry => trimOrigin(str(entry.origin)) === trimOrigin(homeOrigin)) : [];
+  const environmentId = client.environmentId || (opening.length === 1 ? str(opening[0]!.environmentId) : '');
+  return environmentSources({ connection: client.connection, origin: client.origin, environmentId,
+    statusMessage: client.statusMessage, config: client.config, scopes: client.scopes }, saved, background.entries, facts);
+}
+/** The stable root resource owns each native read/drain invocation. */
+export async function mobileSnapshotRead(nativeInput: Native | null | undefined, suppliedStorage: Files, now = 0) {
+  const reading = ++snapshotReadStarted;
+  const { native, storage } = answerHandles(nativeInput, suppliedStorage);
+  const fleetRevision = fleet.revision;
+  mobileGitFeedbackObserve(mobileClient, now);
+  await mobileNewTaskEditorRefresh(mobileClient, native, storage);
+  mobileGitFeedbackObserve(mobileClient, now);
+  // A disconnected foreground skips the shared client's event drain. Background
+  // connection/config changes must still invalidate root outbox scheduling.
+  if (fleet.revision !== fleetRevision) mobileClient.revision++;
+  // Mobile renders its own shell; initialize the existing shared clone/task streams here.
+  await watchLive(mobileClient, native);
+  await mobileQueuedEditRefresh(native, mobileClient);
+  mobileVoiceObserveDraft(mobileClient);
+  let catalogSucceeded = false;
+  let focusedStatus = {}, focusedGeneration = -1, focusedOrigin = '', focusedEnvironmentId = '', preferencesText = '{}', routingReady = false;
+  if (native?.available) {
+    try {
+      const catalogBefore = fleet.saved;
+      const metadata = async (op: string) => {
+        try { return await bridgeReply(native, { op }); }
+        catch (error) { if (letGo(error)) throw error; return null; }
+      };
+      const [status, catalog, preferences] = await Promise.all([
+        metadata('status'), metadata('environments'), metadata('connectionPreferences'),
+      ]);
+      if (reading !== snapshotReadStarted) return { serial: snapshotReadPublished };
+      if (status?.ok) {
+        const value = obj(status.value);
+        focusedStatus = { homeOrigin: str(value.homeOrigin), failureKind: str(value.failureKind), traceId: str(value.traceId), activeRouteId: str(value.activeRouteId) };
+        focusedGeneration = status.generation; focusedOrigin = str(value.origin); focusedEnvironmentId = str(value.environmentId);
+      }
+      // A newer fleet/command adoption owns the catalog even while this read waits.
+      if (catalog?.ok && Array.isArray(obj(catalog.value).saved)) {
+        catalogSucceeded = true;
+        if (fleet.saved === catalogBefore) fleet.saved = arr(obj(catalog.value).saved);
+      }
+      if (preferences?.ok) preferencesText = str(obj(preferences.value).text, '{}');
+      routingReady = catalogSucceeded && preferences?.ok === true;
+    } catch (error) { if (letGo(error)) throw error; }
+  }
+  if (reading === snapshotReadStarted) {
+    snapshotMetadata = { catalogLoaded: snapshotMetadata.catalogLoaded || catalogSucceeded, nativeAvailable: native?.available === true, focusedStatus, focusedGeneration,
+      focusedOrigin, focusedEnvironmentId, preferencesText, routingReady };
+    snapshotReadPublished++;
+  }
+  return { serial: snapshotReadPublished };
+}
+/** Pure rendering projection; never issues native IO or retains a prior graph. */
+export function mobileSnapshotProjection(now = 0) {
+  mobileGitFeedbackObserve(mobileClient, now);
+  const { catalogLoaded, nativeAvailable, preferencesText, routingReady } = snapshotMetadata;
+  const savedCatalog = fleet.saved;
+  const sources = mobileConnectionSources();
+  const environments = sources.map(source => {
+    const status = savedStatus(source.enabled, source.phase, source.error);
+    const saved = savedCatalog.find(entry => str(entry.environmentId) === source.environmentId);
+    return {
+      key: source.key, environmentId: source.environmentId, origin: source.origin, label: str(saved?.mobileLabel) || source.label,
+      machine: machineKind(source.config, source.machine), relayManaged: hasRelayRoute(source),
+      enabled: source.enabled, active: source.focused, state: source.phase, status: status.text,
+      error: source.error, traceId: source.traceId, routeCount: source.routes.length,
+      routes: source.routes.map(route => ({ id: route.id, label: connectionRouteLabel(route),
+        address: connectionRouteAddress(route) || '', kind: connectionRouteKind(route), active: route.id === source.activeRouteId })),
+    };
+  });
+  return {
+    catalogLoaded, nativeAvailable, revision: mobileClient.revision, faviconRevision: mobileFaviconQueries.version,
+    connection: mobileClient.connection, statusMessage: mobileClient.statusMessage, error: mobileClient.error,
+    ready: mobileClient.ready, writable: mobileClient.writable, busy: mobileClient.busy,
+    environmentId: mobileClient.environmentId, environmentLabel: str(obj(mobileClient.config.environment).label),
+    origin: mobileClient.environmentId ? mobileClient.origin : '', environments,
+    routing: mobileRoutingRows(sources, savedCatalog, preferencesText, routingReady),
+    shellLoaded: mobileClient.shellLoaded, projectId: mobileClient.projectId, threadId: mobileClient.threadId,
+    projects: mobileClient.shell.projects, threads: mobileClient.shell.threads,
+    projection: mobileClient.projection, draft: mobileClient.draft,
+    scopes: [...mobileClient.scopes], generation: mobileClient.generation,
+    configLive: mobileClient.configLive, shellLive: mobileClient.shellLive, threadLive: mobileClient.threadLive,
+  };
+}
+
+/** Root mutation arguments are [operation, id/host, value/code, numericValue]. */
+export async function mobileCommand(args: unknown[], nativeInput: Native | null | undefined, suppliedStorage: Files) {
+  try { return await runMobileCommand(args, nativeInput, suppliedStorage); }
+  finally { mobileVoiceObserveDraft(mobileClient); }
+}
+
+/** One ordinary button's stamp stays inside its command's answer lifetime. */
+export async function mobileMessageCopyCommand(client: T3Client, id: string, stamp: string, now: number, native: Native, storage: Files) {
+  let wrote = false;
+  const handle: Native = { available: native.available, watch: topic => native.watch(topic), async later(request) {
+    const fields = obj(request);
+    if (fields.op !== 'copyText') return native.later(request);
+    const response = await native.later({ ...fields, messageCopyStamp: stamp, messageCopyId: id });
+    const envelope = obj(response);
+    wrote = envelope.ok === true && envelope.generation === fields.generation && obj(envelope.value).copied === true;
+    return response;
+  } };
+  const result = await client.command('chatlocal:copy', id, stamp, now, handle, storage);
+  return wrote && result.message === 'Copied message' ? { ...result, message: '' } : result;
+}
+async function runMobileCommand(args: unknown[], nativeInput: Native | null | undefined, suppliedStorage: Files) {
+  const { native, storage } = answerHandles(nativeInput, suppliedStorage);
+  if (!native?.available) return { revision: mobileClient.revision, message: 'Open T3 Code on your iPhone or iPad to connect.' };
+  let op = str(args[0]), id = str(args[1]), value = str(args[2]);
+  if (op.startsWith('pending-input:')) {
+    const { revision, message } = await mobilePendingInputCommand(mobileClient, native, storage, id, op.slice('pending-input:'.length), value, str(args[3]));
+    return { revision, message };
+  }
+  if (op === 'retry') { const result = await mobilePendingInputRetry(mobileClient, native, storage); if (result) return result; }
+  if (op === 'select-thread') return mobileThreadSelection(mobileClient, id, native, storage);
+  if (op === 'thread-answer-file') return mobileOpenAnswerFile(mobileClient, id, native, Number(args[3]));
+  if (op === 'send' || op === 'send-alternate' || op === 'queued-edit-cancel') {
+    try {
+      // Ordinary Send requires the root's captured preferences, route and recovery admission.
+      // Refuse the old entry before target readers can normalize malformed draft stores.
+      if (op !== 'queued-edit-cancel' && mobileClient.threadId && !mobileClient.threadId.startsWith('new:')
+        && !mobileQueuedEditCurrent(mobileClient) && !pendingRequests(mobileClient.projection).inputs.length)
+        return { revision: mobileClient.revision, message: 'Send this draft from its current thread composer.' };
+      const target = mobileComposerTargetRequire(mobileClient, id);
+      if (op === 'queued-edit-cancel') return mobileQueuedEditCancel(target.editOwner, native, mobileClient);
+      if (target.kind === 'queued-edit') return mobileQueuedEditSave(target.editOwner, native, mobileClient);
+      return mobileSend(mobileClient, op === 'send-alternate', native, storage);
+    } catch (error) {
+      if (letGo(error)) throw error;
+      return { revision: mobileClient.revision, message: error instanceof Error ? error.message : 'The composer changed.' };
+    }
+  }
+  if (op === 'queued-edit-retry') return mobileQueuedEditRetry(id, native, mobileClient);
+  if (op === 'draft') return mobileDraftChanged(mobileClient, value, native, storage, id);
+  if (op === 'environment-reconnect') {
+    try {
+      const catalog = await bridgeReply(native, { op: 'environments' });
+      if (!catalog.ok) throw new ClientError(catalog.error!.message, catalog.error!.kind);
+      const saved = arr(obj(catalog.value).saved).find(entry => `${str(entry.origin)}\n${str(entry.environmentId)}` === id);
+      if (!saved || saved.enabled === false) throw new ClientError('Switch on a saved environment before reconnecting.');
+      if (saved.environmentId === mobileClient.environmentId)
+        return mobileClient.command('reconnect', str(saved.origin), '', 0, native, storage);
+      // A row's retry belongs to its fleet transport, never to the focused client.
+      const response = await bridgeReply(EnvironmentFleet.native(native, id), { op: 'retry' });
+      if (!response.ok) throw new ClientError(response.error!.message, response.error!.kind);
+      return { revision: ++mobileClient.revision, message: '' };
+    } catch (error) {
+      if (letGo(error)) throw error;
+      return { revision: mobileClient.revision, message: error instanceof Error ? error.message : 'The environment could not reconnect.' };
+    }
+  }
+  if (['connect', 'reconnect', 'environment-add', 'environment-add-route'].includes(op)) {
+    try { const target = mobilePairingTarget(id || mobileClient.origin, value); id = target.origin; value = target.credential; }
+    catch (error) { return { revision: mobileClient.revision, message: error instanceof Error ? error.message : 'The pairing link is invalid.' }; }
+  }
+  if (op === 'environment-add-route') {
+    const environmentId = str(args[3]).trim();
+    if (!environmentId || /\s/.test(environmentId)) return { revision: mobileClient.revision, message: 'Choose a saved environment.' };
+    // Shared route pairing checks the descriptor before spending the code, then places
+    // the new route without replacing the focused connection.
+    return mobileClient.command('environment-route-add', `${environmentId} ${id}`, value, 0, native, storage);
+  }
+  if (op === 'save-environment') {
+    try {
+      const input = obj(JSON.parse(value)), label = str(input.label).trim(), url = str(input.url).trim();
+      if (!label) throw new ClientError('Environment label cannot be empty.');
+      const target = mobilePairingTarget(url, '');
+      if (target.credential) throw new ClientError('Enter the environment URL without a pairing code.');
+      const saved = fleet.saved.find(entry => str(entry.environmentId) === id);
+      const response = await bridgeReply(native, { op: 'mobileUpdateEnvironment', environmentId: id, label, origin: target.origin });
+      if (!response.ok) throw new ClientError(response.error!.message, response.error!.kind);
+      // A background lease also has to reconnect with its edited profile.
+      if (saved && id !== mobileClient.environmentId) {
+        const key = `${str(saved.origin)}\n${id}`;
+        fleet.forget(key);
+        await native.later({ op: 'fleetStop', fleet: key });
+      }
+      return { revision: ++mobileClient.revision, message: '' };
+    } catch (error) {
+      if (letGo(error)) throw error;
+      return { revision: mobileClient.revision, message: error instanceof SyntaxError ? 'The environment settings are invalid.' : error instanceof Error ? error.message : 'The environment could not be saved.' };
+    }
+  }
+  // Mobile's remove-row action carries its saved origin and environment identity.
+  if (op === 'forget' && id && value) op = 'environment-forget';
+  // Persist the disabled state too, so fleet sync does not reopen a manually disconnected environment.
+  if (op === 'disconnect' && mobileClient.environmentId) {
+    const saved = fleet.saved.find(entry => str(entry.environmentId) === mobileClient.environmentId);
+    if (saved) { op = 'environment-enabled'; id = `${str(saved.origin)}\n${mobileClient.environmentId}`; value = 'off'; }
+  }
+  // Do not expose desktop host capabilities through a mobile command source.
+  if (op.startsWith('ssh') || op.startsWith('environment-ssh')) return { revision: mobileClient.revision, message: 'SSH environments are only available in the desktop app.' };
+  if (op === 'chatlocal:copy' && value) return mobileMessageCopyCommand(mobileClient, id, value, Number(args[3]) || 0, native, storage);
+  return mobileClient.command(op, id, value, Number(args[3]) || 0, native, storage);
+}

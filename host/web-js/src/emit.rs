@@ -21,6 +21,8 @@ use std::fmt::Write as _;
 mod answers;
 #[path = "list_options.rs"]
 mod list_options;
+#[path = "lower.rs"]
+pub(crate) mod lower;
 #[path = "motion.rs"]
 mod motion;
 #[path = "named_records.rs"]
@@ -1197,6 +1199,10 @@ impl Em<'_> {
             self.markdown = true;
         }
         self.editor(i, element, &e)?;
+        let (lowers, mut seen) = (
+            self.lower_candidate(i, &parts, element, !kinds.is_empty(), markdown),
+            Vec::new(),
+        );
         for (k, b) in row.bindings.iter().enumerate() {
             let b = plan.binding(b);
             if self.named_record(i, &b, &e, scope)? {
@@ -1262,11 +1268,17 @@ impl Em<'_> {
                 }
                 BindingKind::Style => self.style_row(i, &b, &parts, &e, &f, scope)?,
             }
+            let raw = (lowers && b.kind == BindingKind::Style).then(|| self.out[at..].to_string());
             // Include dependencies added by lowering, such as a text row's shorthand.
             if let Some(m) = crate::reads::field_mask(&self.out[at..]) {
                 let (fm, stmt) = (self.uses.rt("fm"), self.out.split_off(at));
                 let _ = write!(self.out, "{fm}({m},()=>{{{stmt}}});");
             }
+            let end = self.out.len();
+            seen.extend(raw.map(|raw| lower::Seen { b, f, raw, at, end }));
+        }
+        if !seen.is_empty() {
+            self.lower(&e, &class, &parts, scope, seen)?;
         }
         self.motion_node(i, &e, scope)?;
         self.height_owner(i, &e, scope)?;

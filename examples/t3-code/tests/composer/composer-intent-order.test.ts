@@ -1,7 +1,6 @@
 import {describe, expect, test} from 'bun:test';
 import {contractComponent, contractFns, value, type Env} from '../support/contract-action-fixture';
 import { appText } from '../support/app-files';
-
 import {composerIntentAnswer} from '../../src/composer/composer-intent-source';
 import {composerRichProjection} from '../../src/composer/composer-rich-projection';
 import {composerSourceSession} from '../../src/composer/composer-rich-state';

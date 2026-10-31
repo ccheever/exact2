@@ -520,23 +520,12 @@ impl Em<'_> {
                 })
                 .collect(),
         };
-        if id == StyleId::Display && parts.css.contains("--exact-progress-justify:") {
-            let normal = self.uses.rt("normal");
-            writes.push(("--exact-progress-justify".into(), String::new(), Some(format!(
-                "v=>[\"flex\",\"grid\",\"none\"].includes({normal}(\"display\",String(v??\"\")))?\"auto\":\"start\""
-            ))));
+        // A progress's or canvas's alignment, and its parent's (sized.rs).
+        let sized = crate::sized::writes(id, parts);
+        if !sized.is_empty() {
+            self.uses.rt("normal");
         }
-        if id == StyleId::PositionType && parts.props.contains_key("data-exact-progress") {
-            let normal = self.uses.rt("normal");
-            writes.push((
-                "justify-self".into(),
-                String::new(),
-                Some(format!(
-                    "v=>{normal}(\"position\",String(v??\"\"))===\"absolute\"?\"auto\":{:?}",
-                    style::PROGRESS_JUSTIFY
-                )),
-            ));
-        }
+        writes.extend(sized);
         if matches!(id, StyleId::FontWeight | StyleId::LineHeight) {
             let normal = self.uses.rt("normal");
             // The marker depends on both rows: either can expose an inherited value.

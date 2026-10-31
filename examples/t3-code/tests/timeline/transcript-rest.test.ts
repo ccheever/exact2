@@ -94,8 +94,7 @@ describe('the composer rests on a reader\'s movement away from the end', () => {
 
 describe('the composer never rests (T3 Code v0.1.5 #25869)', () => {
   test('the root never lets it rest, and the prompt region needs no press to expand it', () => {
-    expect(appText('src/timeline/cite-members.contract')).toContain('derive canRest = false');
+    expect(appText('app.contract')).toContain('derive canRest = false');
     expect(appText('src/composer/composer.contract')).not.toContain('pointerdown=composerPressed');
   });
 });
-

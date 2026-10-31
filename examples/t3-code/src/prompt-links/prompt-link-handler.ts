@@ -192,7 +192,7 @@ async function openWebLink(client: T3Client, native: Native, storage: Files, url
   const ref = shown ?? await startLinkThread(client, native, storage, report);
   if (!ref) return '';
   try {
-    if (isFile) await openFileInPreview(client, native, ref, decodeURIComponent(new URL(url).pathname), '');
+    if (isFile) await openFileInPreview(client, native, ref, { path: decodeURIComponent(new URL(url).pathname), workspace: null });
     else await openUrlInPreview(client, native, ref, url);
   } catch (error) {
     if (letGo(error)) throw error;

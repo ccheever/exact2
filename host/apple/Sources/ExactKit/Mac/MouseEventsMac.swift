@@ -203,6 +203,11 @@ extension Presenter {
 }
 
 extension NodeView {
+    package override var mouseDownCanMoveWindow: Bool {
+        if isButton || takesPress || hasPressableAncestor(crossingPresentations: false) { return false }
+        return super.mouseDownCanMoveWindow
+    }
+
     package override func mouseDown(with event: NSEvent) {
         HeldState.input(at: self) // a press on a held node lets its hold go (HeldState.swift; the window's monitor, ExactViewMac)
         let chain = holdPresenter?.mouseChain
@@ -212,8 +217,16 @@ extension NodeView {
             if contact.reaches(self) { contact.down(on: self); return }
         }
         guard !inert else { return }
-        if contextClick(event) { return rightMouseDown(with: event) }
+        // A control-click focuses as it did before its menu, whatever its `pointerdown` says (its own way, LLP 1005).
+        if contextClick(event) { if pointerdownHeard, takesClickFocus, !focusInside(event) { takeClickFocus() }; return rightMouseDown(with: event) }
         pointerPressed(event)
+        // A prevented `pointerdown` keeps the focus where it is and starts no selection; the press still goes on.
+        let keepsFocus = presenter?.mouseChain.prevented === event
+        let endKeeping = keepingFocus(for: event)
+        defer { endKeeping() }
+        // One AppKit did not focus before its `mouseDown` (a `pointerdown` handler hears it:
+        // `needsPanelToBecomeKey`) takes the click focus now, after that handler, unless it prevented it.
+        if pointerdownHeard, takesClickFocus, !keepsFocus, !focusInside(event) { takeClickFocus() }
         if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "down") == true { return }
         presenter?.leaves.pressed(self) // a held leaf's box was clicked: made now (LLP 1068 §5.1)
@@ -224,16 +237,26 @@ extension NodeView {
         if let target = presenter?.svg.target(id, at: local(event.locationInWindow)) { svgPressed = target; return }
         if isParagraph, let run = inlineTarget(at: local(event.locationInWindow), handler: "press") {
             inlinePressed = run.id
-            window?.makeFirstResponder(self)
-            presenter?.selection.begin(self, event: event)
+            if !keepsFocus { window?.makeFirstResponder(self); presenter?.selection.begin(self, event: event) }
             return
         }
-        if selectsText { presenter?.selection.press(self, event: event); return }
+        if selectsText { if !keepsFocus { presenter?.selection.press(self, event: event) }; return }
         // A descendant that took focus keeps it (LLP 1088 D7.3). Forward
         // through the responder chain: NSView's default retries covered siblings.
-        let inner = (window?.firstResponder as? NodeView).map { $0 !== self && ($0.tabbable || $0.explicitTabIndex != nil) && (window?.contentView?.hitTest(event.locationInWindow)?.isDescendant(of: $0) ?? false) } ?? false
-        if takesClickFocus, !inner { window?.makeFirstResponder(self) }
+        let inner = focusInside(event)
+        if takesClickFocus, !inner, !keepsFocus { window?.makeFirstResponder(self) }
         if pressable { pressed = true } else { (chain?.responder(from: self, event: event) ?? (chain == nil ? nextResponder : nil))?.mouseDown(with: event) }
+    }
+    /// A descendant that took focus keeps it (LLP 1088 D7.3): the click is in it.
+    func focusInside(_ event: NSEvent) -> Bool {
+        (window?.firstResponder as? NodeView).map { $0 !== self && ($0.tabbable || $0.explicitTabIndex != nil) && (window?.contentView?.hitTest(event.locationInWindow)?.isDescendant(of: $0) ?? false) } ?? false
+    }
+    /// The click focus, as AppKit gives it before a `mouseDown`: first
+    /// responder, its window made key (a popover's, a panel that becomes key
+    /// only if needed).
+    func takeClickFocus() {
+        window?.makeFirstResponder(self)
+        if let window, !window.isKeyWindow, window.canBecomeKey { window.makeKey() }
     }
     /// A paragraph's drag selects its text unless a press takes it: its
     /// own handler (a `<span onClick>`, spreadsheet F12) or an ancestor's.
@@ -265,7 +288,7 @@ extension NodeView {
         // A gesture that engages ends the press (the chain clears `pressed`).
         if presenter?.mouseChain.drag(event) == true { return }
         pressFollows(inside: pressInside(event.locationInWindow))
-        if selectsText { presenter?.selection.drag(event) }
+        if selectsText, presenter?.mouseChain.preventedContact != true { presenter?.selection.drag(event) } // a prevented contact selects nothing
         else { (chain?.responder(from: self, event: event) ?? (chain == nil ? nextResponder : nil))?.mouseDragged(with: event) }
     }
     package override func rightMouseUp(with event: NSEvent) {
@@ -467,6 +490,8 @@ extension NodeView {
     }
     package override func otherMouseDown(with event: NSEvent) {
         pointerPressed(event)
+        let endKeeping = keepingFocus(for: event)
+        defer { endKeeping() }
         if canvasInput?.pointer(event, phase: "down") != true { super.otherMouseDown(with: event) }
     }
     package override func otherMouseDragged(with event: NSEvent) {

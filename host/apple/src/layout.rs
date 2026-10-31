@@ -52,6 +52,7 @@ impl<D: DataSource> Host<D> {
         batch.landing = self.runner.data_timer_landing();
         batch.wakelock = self.wakelock_moved();
         batch.orientationlock = self.orientation_moved();
+        batch.must_finish = self.finish_moved();
         // A package view's displayed state, by the same rule, now the
         // presenter's covers are set (LLP 1133.008 D8 item 2).
         self.runner.report_views();

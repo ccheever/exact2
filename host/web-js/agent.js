@@ -60,7 +60,8 @@ function streamTiming(start) {
 import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
 import { inertAncestor, displayMode, environment, navigation, unselected, foldEnv, preferFold, typedControl, settleValue, animationClocks, pageReporter } from './navigation.js';
-import { guestOutline, guestTap, guestType, backButton, viewBox, reveal, selectAll, scrollRange, typeControl, watchGlides, glidesSettled, scrollsSeen } from './input-glue.js';
+import { backButton } from './input-glue.js';
+import { guestOutline, guestTap, guestType, viewBox, reveal, selectAll, scrollRange, typeControl, watchGlides, glidesSettled, scrollsSeen } from './agent-input.js';
 watchGlides();
 // How long `clock settle` waits for a scroller gliding on its own, as a native host waits (agent.mjs reason `scroll`).
 const GLIDE_BOUND_MS = 4000;
@@ -194,13 +195,16 @@ export function install(exact) {
     ?? prop.replace(/^border-(top|right|bottom|left)-(color|style|width)$/, 'border-$2-$1').replace(/^border-(top|bottom)-(left|right)-radius$/, 'border-radius-$1-$2').replace(/^-+/, '').replace(/-/g, '_');
   // A class's rule may be nested: the build wraps them all in
   // `#exact-root#exact-root { & .cN { … } }` for specificity (emit.rs).
+  // A lowered node's arm class (lower.js, its rule in `#exact-arms`, last) stands where its rows were inline: a later
+  // rule's declaration wins over an earlier one's, and the inline style over both.
   const declared = el => {
-    const out = new Map([...el.style].map(p => [p, el.style.getPropertyValue(p)])), classes = new Set([...el.classList].map(c => '.' + c));
+    const out = new Map([...el.style].map(p => [p, el.style.getPropertyValue(p)])), classes = new Set([...el.classList].map(c => '.' + c)), ruled = new Map();
     const walk = rules => { for (const r of rules) {
-      if (r.style && classes.has(r.selectorText?.replace(/^&\s+/, ''))) for (const p of r.style) if (!out.has(p)) out.set(p, r.style.getPropertyValue(p));
+      if (r.style && classes.has(r.selectorText?.replace(/^&\s+/, ''))) for (const p of r.style) ruled.set(p, r.style.getPropertyValue(p));
       if (r.cssRules) walk(r.cssRules);
     } };
     for (const sheet of document.styleSheets) { let rules; try { rules = sheet.cssRules; } catch { continue; } walk(rules); }
+    for (const [p, v] of ruled) if (!out.has(p)) out.set(p, v);
     return out;
   };
   const r2 = x => Math.round(x * 100) / 100;
@@ -214,7 +218,7 @@ export function install(exact) {
     // (an svg's written width, though flex shrinks it), as the runner's are.
     const typed = el.computedStyleMap?.();
     const computedOf = p => { try { return typed?.get(p)?.toString(); } catch { return undefined; } };
-    for (const [p, text] of own) if (!p.startsWith('--') || SPELLED[p]) { const token = exact.modes?.token(el, p, text), computed = computedOf(p); style[rowOf(p)] = { value: cs.getPropertyValue(p), ...(computed !== undefined ? { computed } : {}), ...(token ? { token } : {}), source: el.$css?.[p] !== undefined ? 'dynamic' : 'authored' }; }
+    for (const [p, text] of own) if (!p.startsWith('--') || SPELLED[p]) { const token = exact.modes?.token(el, p, text), computed = computedOf(p); style[rowOf(p)] = { value: cs.getPropertyValue(p), ...(computed !== undefined ? { computed } : {}), ...(token ? { token } : {}), source: el.$css?.[p] !== undefined || el.$lowered?.includes(p) ? 'dynamic' : 'authored' }; }
     for (const [row, prop] of Object.entries(INHERITED)) {
       if (own.has(prop)) continue;
       let from = null;
@@ -463,7 +467,7 @@ export function install(exact) {
           const glide = { ms: GLIDE_BOUND_MS };
           let moved = false;
           for (let round = 0; round < 16; round++) {
-            // A scroller still gliding from the last input moves on its own: it ends first (input-glue.js).
+            // A scroller still gliding from the last input moves on its own: it ends first (agent-input.js).
             if (!(await glidesSettled(glide))) return { clock: exact.clock.now, settled: false, reason: 'scroll' };
             const scrolled = scrollsSeen();
             lastRound = exact.lists?.scrollsFired?.() ?? 0;

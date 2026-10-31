@@ -288,6 +288,7 @@ void *exact_js_create(uint32_t max_heap_bytes, HostFn host, BytesFn bytes, void 
     state->adapter = std::make_unique<ibex2::jsi_adapter::Adapter>(*state->rt, queue);
     ibex2::jsi_adapter::InstallOptions options;
     options.abort_hooks = "__exact_ibex2_abort_hooks";
+    options.headers_hooks = "__exact_ibex2_headers_hooks";
     options.defer_intrinsic_snapshot = true;
     constexpr auto groups = ibex2::jsi_adapter::GROUP_PURE |
                             ibex2::jsi_adapter::GROUP_CRYPTO |

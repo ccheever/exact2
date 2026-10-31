@@ -245,3 +245,8 @@ section binds (`rules/RULES.md`, "Agents").
 Snapback4 consumers use published `snapback4@0.4.33` and the matching immutable
 Rust revision in `snapback4/Cargo.toml`; rebuild an app’s device with
 `bun exact.mjs snapback --rebuild` after changing these pins.
+
+## T3 Code clone
+
+Before resuming clone work, read `examples/t3-code/CLONE.md` for the current
+state and basic next steps.

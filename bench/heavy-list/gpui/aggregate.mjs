@@ -5,7 +5,91 @@ import { join } from 'node:path';
 import assert from 'node:assert/strict';
 
 const [directory = 'target/g3c', mode] = process.argv.slice(2);
-assert([undefined, '--verify', '--json'].includes(mode), 'expected --verify or --json');
+assert([undefined, '--verify', '--json', '--boot'].includes(mode), 'expected --verify, --json or --boot');
+if (mode === '--boot') {
+  const samples = [];
+  for (const file of readdirSync(directory).filter(f => /^(metal|wgpu)-\d+\.run\.json$/.test(f)).sort()) {
+    const stem = file.replace('.run.json', '');
+    const read = suffix => JSON.parse(readFileSync(join(directory, stem + suffix), 'utf8'));
+    const run = read('.run.json');
+    const raw = existsSync(join(directory, stem + '.json')) ? read('.json') : {};
+    if (!existsSync(join(directory, stem + '.json.trace.json'))) {
+      assert(run.timeout || run.exit !== 0, `${stem}: successful launch without trace`);
+      samples.push({sample: stem, arm: stem.split('-')[0], exit: run.exit ?? 'timeout', quiet: false, phaseMs: null,
+        archiveOpenMs: null, compileMs: null, firstPixelMs: null, firstCpuMs: null, firstInkMs: null,
+        firstCpuCompleteMs: null, firstInkCompleteMs: null});
+      continue;
+    }
+    if (run.cacheMode === 'miss') {
+      assert.equal(run.cachePresentAtLaunch, false, `${stem}: cache not removed`);
+    }
+    if (run.cacheMode === 'retained' && run.exit === 0) {
+      assert.equal(raw.cpuSubmitted, false, `${stem}: retained archive missed`);
+    }
+    const trace = read('.json.trace.json');
+    assert.equal(trace.dropped, 0, `${stem}: dropped trace spans`);
+    const events = trace.traceEvents;
+    const window = existsSync(join(directory, stem + '.json.window')) ? read('.json.window') : {};
+    const compile = events.find(e => e.name === 'worker compile pipelines');
+    const firstShown = Math.min(...events.filter(e => e.name === 'presented' && e.ts > 0).map(e => e.ts));
+    if (run.cacheMode === 'miss' && run.exit === 0) {
+      assert(compile, `${stem}: miss without a compiler span`);
+      if (!raw.cpuSubmitted) assert(compile.ts + compile.dur <= firstShown,
+        `${stem}: ink presented before the miss finished compiling`);
+    }
+    const arm = stem.split('-')[0];
+    const names = arm === 'metal'
+      ? ['boot Metal constructor', 'boot Metal attach layer', 'boot samplers buffers white textures']
+      : ['boot wgpu constructor', 'boot wgpu attach layer'];
+    const spans = events.filter(e => names.includes(e.name)).map(e => [e.ts, e.ts + e.dur]).sort((a,b) => a[0]-b[0]);
+    assert(spans.length >= 2, `${stem}: missing startup spans`);
+    // Inclusive spans overlap in the old constructor. Count their union once.
+    let elapsed = 0, start = spans[0][0], end = spans[0][1];
+    for (const [a,b] of spans.slice(1)) {
+      if (a <= end) end = Math.max(end,b);
+      else { elapsed += end-start; start=a; end=b; }
+    }
+    elapsed += end-start;
+    const phase = name => events.filter(e => e.name === name).reduce((n,e) => n + e.dur / 1000, 0);
+    const value = name => events.find(e => e.name === name)?.args?.value ?? null;
+    const constructor = events.find(e => names[0] === e.name);
+    const compiledOnBoot = events.filter(e => e.name === 'worker compile pipelines' && e.tid === constructor.tid).length;
+    assert.equal(compiledOnBoot, 0, `${stem}: compilation on boot thread`);
+    samples.push({sample: stem, arm, exit: run.exit, quiet: run.before.quiet && run.after.quiet,
+      phaseMs: elapsed/1000, archiveOpenMs: phase('boot archive open'),
+      compileMs: phase('worker compile pipelines'),
+      firstPixelMs: raw.firstDrawableMs ?? null, firstCpuMs: raw.firstCpuMs ?? null,
+      firstInkMs: raw.firstInkMs ?? null, cpuSubmitted: raw.cpuSubmitted ?? null,
+      // Older probes did not establish completeness for each painter. Keep it missing.
+      firstCpuCompleteMs: raw.firstCpuCompleteMs ?? null,
+      firstInkCompleteMs: raw.firstInkCompleteMs ?? null,
+      thermal: [raw.thermalStart ?? null, raw.thermalEnd ?? null],
+      activeAtStart: raw.activeAtStart ?? null, windowActive: window.active ?? null, keyWindow: window.keyWindow ?? null,
+      activationSuppressed: raw.activationSuppressed ?? null, compiledOnBoot,
+      deviceMs: value('boot device milliseconds'), shadersMs: value('boot shaders milliseconds'),
+      cpuWhileCompiling: Boolean(raw.cpuSubmitted && compile && compile.ts <= firstShown && firstShown < compile.ts + compile.dur),
+      spans: Object.fromEntries(events.filter(e => e.name.startsWith('boot ')).map(e => [e.name, e.dur / 1000])),
+    });
+  }
+  const medians = {};
+  for (const arm of ['metal', 'wgpu']) {
+    const rows = samples.filter(s => s.arm === arm);
+    if (!rows.length) continue;
+    medians[arm] = {count: rows.length, quiet: rows.filter(s => s.quiet).length,
+      displayed: rows.filter(s => s.firstPixelMs !== null).length,
+      cpuCompleteSamples: rows.filter(s => s.firstCpuCompleteMs !== null).length,
+      inkCompleteSamples: rows.filter(s => s.firstInkCompleteMs !== null).length,
+      phaseSamples: rows.filter(s => s.phaseMs !== null).length,
+      activated: rows.filter(s => s.activeAtStart || s.windowActive || s.keyWindow).length,
+      cpuWhileCompiling: rows.filter(s => s.cpuWhileCompiling).length};
+    for (const key of ['phaseMs', 'archiveOpenMs', 'compileMs', 'firstPixelMs', 'firstCpuMs', 'firstInkMs', 'firstCpuCompleteMs', 'firstInkCompleteMs']) {
+      const values = rows.map(s => s[key]).filter(v => v !== null).sort((a,b) => a-b);
+      medians[arm][key] = values.length ? (values[Math.floor((values.length-1)/2)] + values[Math.floor(values.length/2)])/2 : null;
+    }
+  }
+  console.log(JSON.stringify({instrument: 'probe CACurrentMediaTime startup span union; MTLDrawable.presentedTime first pixels and per-painter complete scenes', medians, samples}, null, 2));
+  process.exit(0);
+}
 const fourArms = readdirSync(join(directory, 'series', 'fling')).some(file => /^egui-/.test(file));
 const arms = ['native', 'gpui', 'ink', ...(fourArms ? ['egui'] : [])];
 const report = fourArms ? 'G4' : 'G3c';

@@ -121,4 +121,3 @@ describe('a background environment\'s grants (sessionStateAtom)', () => {
     expect(entry.scopes).not.toContain('orchestration:operate');
   });
 });
-

@@ -1,7 +1,6 @@
 import {describe, expect, test} from 'bun:test';
-import { appText } from '../support/app-files';
-
 import {contractComponent, value, type Env} from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 
 const root = contractComponent('app.contract', 'T3Code');
 const lines = appText('app.contract').split('\n');

@@ -726,6 +726,19 @@ threshold; D15 is.
 The numbers land in this section as each chunk and stage does; a stage with no numbers has
 not landed.
 
+**Stage 0b, measurement Mac, 2026-10-30.** Chunk 4 fixes the retained-launch
+stall: a submitted but unshown window keeps
+its display link running until a positive presented timestamp, suspended while
+hidden. All **30/30** corrected silver Mac launches display: ten retained Metal,
+ten wgpu and ten archive misses. Complete-screen p50 is **202.050 ms** on Metal
+against **230.850 ms** on wgpu, meeting D15 part one's limit of at most 5 ms
+slower on the same carrier and probe. The warm phases are **5.715**
+and **6.069 ms**; P3 remains within 2 ms of the original 6.581 ms. Misses show
+CPU at **169.629 ms** and complete Ink at **343.322 ms**, with no boot-thread
+compilation. The **100 ms application budget remains unmet**. The first Metal
+launch's **669.576 ms** tail and every earlier failure remain in the record.
+[Cohorts, predictions and retained files](../host/ink/MEASUREMENTS.md#chunk-4--retained-launches-with-no-displayed-frame).
+
 ### 4.1 The GPUI arm
 
 Charlie (2026-10-28): "we are going to need a measurement vs a GPUI based solution at some
@@ -1092,18 +1105,26 @@ and disclose their freshly copied images; desktop captures use input attachment
 or UI Automation focus without a client click. See [G6d’s before/after tables
 and retained trials](../bench/heavy-list/gpui/RESULTS.md#g6d-the-windows-reviews-lifecycle-fixes).
 
-**G5, prepared 2026-10-29; run set aside 2026-10-30**: all four arms have
-bar and caret workloads, and the shared probe records Metal command-buffer
-GPU spans by phase. The development-Mac series on 2026-10-30, 09:30–09:38
-PDT, was spoiled: only 44 of 91 monitor observations were quiet, load reached
-170 as other lanes built, nearly every fling and bar sample had a focus-loss
-sidecar, and only 14 power samples were collected in eight minutes. Raw files
-remain under `target/g5/series` on that Mac; no row is taken from the run.
-G5 stays **prepared**, with its workload expectations untested by a qualified
-run. Measurement moves to **G5m** on the dedicated silver M5 Max once it is
-set up. All four arms launched in both modes after the rebase; egui's
-blinking remains unverified after three inactive or focus-lost observations
-(`bench/heavy-list/gpui/RESULTS.md`, “G5”).
+**G4m and G5m, measured 2026-10-30**, source `42d5066572`, on the dedicated
+silver M5 Max. G4m's five interleaved fling/rest rounds and ten successful
+launches per arm become LLP 1149.001 §4's Mac baseline. Native/GPUI/Ink/egui
+fling process CPU is **156.91/129.79/110.90/108.28 ms/s**; all four ranges exceed
+G4's. All p95 intervals remain **8.33 ms**. Source, probe and power sampling
+changed, so this does not isolate hardware. [G4m's paired tables and power](../bench/heavy-list/gpui/RESULTS.md#g4m-the-four-arms-on-the-measurement-mac).
+
+**G5:** three quiet rounds each of fling, bar and caret complete, **36/36**
+samples, **114/114** quiet observations, no focus losses. Native bar main-thread
+CPU is **84.487 ms/s**, missing the below-10 prediction. Ink and GPUI present
+bar at **119.76 frames/s**; egui at **119.59**. GPUI and egui present caret
+exactly twice per second; Ink stays at **119.74 frames/s** and **154.320 process
+ms/s**, falsifying the idle-between-blinks expectation. All four blinks are
+captured with focus held, including egui. Ink's summed GPU spans per presented
+frame are **2.3090 ms fling / 1.6398 bar / 1.7741 caret**, or **27.7% / 19.7% /
+21.3%** of an 8.33 ms refresh. **M8 is not earned:** these are before M3, include
+the compose/present path and do not isolate plain-pipeline savings. Native's
+Core Animation GPU work is outside the process hook. PID/wall-clock power joins
+and all ranges are in [G5m](../bench/heavy-list/gpui/RESULTS.md#g5m-static-workloads-on-the-measurement-mac).
+The spoiled development-Mac G5 series remains retained and excluded.
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and

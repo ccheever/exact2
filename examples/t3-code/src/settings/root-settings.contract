@@ -1,0 +1,412 @@
+use Change from "../shared/shapes.contract"
+use providerLinkVisit from "../shell/app-settings.contract"
+use KeybindingDraft from "./settings-keybindings.contract"
+use PickerTarget from "../composer/composer-shapes.contract"
+
+members T3Code
+  action editKeybindingQuery(value: string)
+    keybindingQuery = value
+  action newKeybinding
+    let others = keybindingDrafts.filter((d) => d.row != "new" and d.row != keybindingPrevious)
+    keybindingDrafts = keybindingPrevious == "" or keybindingPrevious == "new" ? others : others.concat([KeybindingDraft(row=keybindingPrevious, command=keybindingCommand, key=keybindingKey, when=keybindingWhen)])
+    keybindingPrevious = "new"
+    keybindingCommand = ""
+    keybindingKey = ""
+    keybindingWhen = ""
+    keybindingRecording = false
+    keybindingOpen = true
+    modalError = ""
+  // Editing another row holds this row's draft (KeybindingsSettings.tsx: one editor per row) and takes up that row's,
+  // which its caller passes as the row shows it.
+  action editKeybinding(previous: string, commandName: string, shortcut: string, condition: string)
+    if keybindingPrevious != previous
+      let others = keybindingDrafts.filter((d) => d.row != previous and d.row != keybindingPrevious and (d.row == "new" or bindings.ids.includes(d.row)))
+      keybindingDrafts = keybindingPrevious == "" ? others : others.concat([KeybindingDraft(row=keybindingPrevious, command=keybindingCommand, key=keybindingKey, when=keybindingWhen)])
+      keybindingPrevious = previous
+      keybindingCommand = commandName
+      keybindingKey = shortcut
+      keybindingWhen = condition
+      keybindingRecording = false
+  action recordKeybinding(previous: string, commandName: string, shortcut: string, condition: string)
+    editKeybinding(previous, commandName, shortcut, condition)
+    keybindingRecording = true
+  // The New keybinding row's command picker: that row's draft, taken up first when another row is being edited.
+  action chooseKeybindingCommand(value: string)
+    let held = keybindingDrafts.filter((d) => d.row == "new")
+    editKeybinding("new", value, held.map((d) => d.key).join(""), held.map((d) => d.when).join(""))
+    keybindingCommand = value
+  action keybindingRest(row: string, value: string)
+    let idle = not commandPending
+    restRaw("rest:keybinding", `${settingsEnvironmentId}:${settingsProjectId}`, value)
+    if idle
+      keybindingSaving = row
+  action editKeybindingKey(value: string)
+    keybindingKey = value
+    keybindingRecording = false
+  action editKeybindingWhen(value: string)
+    keybindingWhen = value
+  action captureKeybinding(original: string, value: string) // the recorder's chord; "escape" restores, "blur" keeps the draft
+    keybindingKey = value == "escape" ? original : (value == "blur" ? keybindingKey : value)
+    keybindingRecording = false
+  action cancelKeybinding
+    keybindingOpen = false
+    keybindingDrafts = keybindingDrafts.filter((d) => d.row != "new")
+    keybindingPrevious = keybindingPrevious == "new" ? "" : keybindingPrevious
+    keybindingRecording = keybindingRecording and keybindingPrevious != "new"
+    modalError = ""
+  action settingsCommand(op: string, id: string, value: string)
+    if not commandPending
+      commandPending = true
+      pendingModal = "settings"
+      modalError = ""
+      settingsRestores = settingsRestores + (op == "settings-core" and id == `restore-device-defaults:|${settingsCore.scopeKey}` ? 1 : 0)
+      send changed = command(op, id, value, 0)
+  action previewSnapshotSound(sound: string)
+    if not commandPending
+      commandPending = true
+      pendingModal = ""
+      send changed = command("snapshot-preview-sound", "", sound, 0)
+  action removeSnapshot(imageId: string)
+    send changed = command("remove-snapshot", imageId, "", 0)
+  action clearModalError // SnapShot's setup dialog (T3Window toggleSnapshots, showSnapshotSetup)
+    modalError = ""
+  action openProviderSettings(id: string)
+    let machine = settingsOpen ? settingsCore.scopeEnvironment : settings.environmentId // a setup link names its environment: Settings' own the scope's representative (ProjectDefaultsSettings.tsx:168-173), none without one; the chat's its thread's (ChatView.tsx:5217-5223)
+    if not settingsOpen or machine != ""
+      providerVisit = providerLinkVisit(providerVisit, settingsOpen and settingsRoute == "providers", settingsMachine, providerLinkTarget, id == "" ? "" : machine, id == "" ? "" : `target:${id}`)
+      openSettings() // retainSettingsScope: a link from outside Settings starts with no scope
+      settingsRoute = "providers"
+      settingsMachine = id == "" ? "" : machine
+      providerSelected = id == "" ? "" : `target:${id}`
+      providerLinkTarget = id == "" ? "" : `target:${id}`
+  action openSettings
+    sidebarHoverId = "" // the Settings button's tooltip closes on its press
+    settingsEnvironmentId = settings.environmentId
+    settingsOpen = true
+    settingsRoute = "general"
+    settingsFocusTarget = "" // a jump left from the last visit; a caller that jumps sets its own after this
+    settingsJumpOpened = ""
+    settingsMenu = ""
+    settingsMachine = ""
+    settingsProjectKey = ""
+    settingsCheckout = ""
+    settingsProjectId = ""
+    modalError = ""
+  // The search jump's target page has its data: the jump scrolls once that page is laid out (the list is settings-search.ts
+  // CORE_ROUTES, the pages drawn from settings-core's sections, less Worktrees, whose rows the storage panel draws), the
+  // settings answer is for this target (its fold), and no scope notice stands in for the page (SettingsScopeBoundary: the
+  // jump lands once a scope that has the row is chosen). Providers' answer is the open page's once it names an
+  // environment: the one it gives while the page is closed has none, and no Advanced rows.
+  derive settingsJumpReady = settingsOpen and settingsFocusTarget != "" and ((settingsRoute != "maintenance" and settingsRoute != "worktrees") or storageSettings.available) and (settingsRoute != "archived" or archives.available) and (settingsRoute != "diagnostics" or diagnostics.available) and (settingsRoute != "keybindings" or bindings.available) and (settingsRoute != "scheduled-tasks" or scheduled.available) and (settingsRoute != "source-control" or sourceControl.available) and (settingsRoute != "providers" or (providerPage.available and providerPage.environment != "")) and (settingsRoute != "projects" or projectsSettings.ready) and (not settingsFocusTarget.startsWith("keybinding-") or keybindingQuery == "") and ((settingsRoute != "browser" and settingsRoute != "devices") or integrations.available) and (not ["general", "appearance", "chat", "diffs", "threads", "maintenance", "about", "labs"].includes(settingsRoute) or (settingsCore.ready and settingsCore.route == settingsRoute and settingsCore.sections.length > 0)) and settingsCore.jumpTarget == settingsFocusTarget and settingsCore.notice == ""
+  // A jump lands on the row or section its target names (SettingsRow's own id, settings-search.ts searchTarget), once
+  // the row is drawn, as the reference lands from the row's ref when it mounts (useSettingsSearchTarget). A target a
+  // fold names (an Advanced fold's `targetIds`, a source control host's details) opens the fold first, as
+  // AdvancedSettings opens it before the row mounts: the first pass focuses the fold's reveal stop, which opens it
+  // (settings-advanced.contract), and keeps the target; the passes after it wait for the open fold to draw the row, then
+  // scroll to the row and focus it, as scrollAndFocusSettingsTarget lands on the row once the panel has its height. A
+  // row that is not drawn yet is waited for the same way. A fold that has not drawn the row after a second keeps the
+  // focus on its stop, and a row not drawn by then is landed on as it is. A fold not drawn here leaves the target as it
+  // is. The scroll centres what scrollAndFocusSettingsTarget centres (settingsLayout.tsx): a section's header, its
+  // `<id>-scroll-target`, else the target itself.
+  state settingsJumpOpened = "" // `<target>|<page>` once the jump's first pass has run; a new jump, or leaving one, clears it
+  state settingsJumpWaits = 0 // the passes since, while the row is not drawn
+  action focusSettingsTarget
+    if settingsJumpReady
+      let stop = settingsCore.jumpStop != "" and querySelectorAll("[data-focus-stop~=\"reveal\"]").includes(settingsCore.jumpStop) ? settingsCore.jumpStop : ""
+      let drawn = frame(settingsFocusTarget).height > 0
+      if settingsJumpOpened != `${settingsFocusTarget}|${settingsPage}` and (stop != "" or not drawn)
+        if stop != ""
+          focus(stop)
+        settingsJumpOpened = `${settingsFocusTarget}|${settingsPage}`
+        settingsJumpWaits = 0
+      else if not drawn and settingsJumpWaits < 20
+        settingsJumpWaits = settingsJumpWaits + 1
+      else
+        let target = stop != "" and not drawn ? stop : settingsFocusTarget
+        let anchor = frame(`${target}-scroll-target`).height > 0 ? `${target}-scroll-target` : target
+        settingsScrollPage = settingsPage
+        settingsScrollTop = max(0, frame(anchor).y - frame("settings-content-column").y + frame(anchor).height / 2 - frame("settings-content-scroll").height / 2) + (settingsScrollTop == floor(settingsScrollTop) ? 0.25 : 0)
+        focus(target)
+        settingsFocusTarget = ""
+        settingsJumpOpened = ""
+  // As scrollToSettingsTarget runs once the hash target mounts: a native `after(1, …)` runs after the layout the
+  // change made. A fold the jump opened, or a row not drawn yet, is waited for every 50 ms, a second at most; the poll
+  // below is a backstop.
+  task settingsJump when settingsJumpReady key=`${settingsFocusTarget}|${settingsPage}`
+    after(1, focusSettingsTarget)
+  task settingsJumpFold when settingsJumpReady and settingsJumpOpened != "" key=settingsJumpOpened
+    every(50, focusSettingsTarget)
+  task settingsSearchFocus mount
+    every(1000, focusSettingsTarget)
+  // KeybindingsSettings: a keybinding result clears the page's filter, so the row it names is listed.
+  task keybindingJumpFilter when settingsOpen and settingsFocusTarget.startsWith("keybinding-") and keybindingQuery != ""
+    after(1, clearKeybindingFilter)
+  action clearKeybindingFilter
+    keybindingQuery = ""
+  action editSettingsQuery(value: string)
+    settingsFocusTarget = ""
+    settingsJumpOpened = ""
+    settingsQuery = value
+    settingsResultIndex = 0
+  action deviceSetting(id: string, value: string)
+    send localChanged = command("device-setting", id, value, 0)
+  action coreChange(row: string, part: string, value: string)
+    settingsMenu = ""
+    if part == "picker"
+      openModels()
+      modelTarget = PickerTarget(id=`${row}:|${settingsCore.scopeKey}`, top=frame(`setting-${row}`).y, bottom=frame(`setting-${row}`).y + frame(`setting-${row}`).height, left=frame(`setting-${row}`).x)
+    else if row == "background-activity" and value == "advanced"
+      settingsThemeDialog = "background-activity"
+      modalError = ""
+    else
+      settingsCommand("settings-core", `${row}:${part}|${settingsCore.scopeKey}`, value)
+  action coreMenu(section: string, id: string)
+    settingsMenu = (id == "" or settingsMenu == id) ? "" : id
+  action coreMenuClose
+    settingsMenu = ""
+  action coreScope(project: bool, id: string, member: string)
+    settingsMenu = ""
+    modalError = ""
+    providerSelected = "" // routes/settings.tsx keys the page on its scope: Providers starts over on the new environment's first row
+    providerLinkTarget = ""
+    settingsProjectKey = project ? id : settingsProjectKey
+    settingsCheckout = project ? "" : settingsCheckout
+    settingsProjectId = project ? member : settingsProjectId
+    settingsMachine = project ? settingsMachine : id
+  action coreNoticeScope(project: string, machine: string, member: string)
+    settingsMenu = ""
+    modalError = ""
+    providerSelected = ""
+    providerLinkTarget = ""
+    settingsProjectKey = project
+    settingsCheckout = ""
+    settingsProjectId = member
+    settingsMachine = machine
+  action coreNavigate(route: string)
+    settingsRoute = route
+    providerLinkTarget = "" // a route reached without a provider link names no instance
+    settingsFocusTarget = "" // a jump belongs to its page, as the reference's hash does
+    settingsJumpOpened = ""
+    if route == "diagnostics" and settings.environmentId != ""
+      settingsMachine = settings.environmentId
+      settingsProjectKey = ""
+      settingsCheckout = ""
+      settingsProjectId = ""
+    settingsMenu = ""
+    settingsQuery = ""
+    modalError = ""
+  action corePick(route: string, target: string, scope: string, id: string)
+    settingsRoute = route
+    providerLinkTarget = ""
+    settingsFocusTarget = target
+    settingsJumpOpened = ""
+    settingsQuery = ""
+    settingsMenu = ""
+    modalError = ""
+  action coreSearchKey(k: string)
+    if k == "/"
+      focus("settings-search")
+    if k == "Escape"
+      settingsQuery = ""
+      settingsResultIndex = 0
+    if k == "ArrowDown"
+      settingsResultIndex = settingsResultIndex + 1
+    if k == "ArrowUp"
+      settingsResultIndex = settingsResultIndex + settingsNavigation.count - 1
+    if k == "Enter" and settingsNavigation.firstRoute != ""
+      settingsRoute = settingsNavigation.firstRoute
+      providerLinkTarget = ""
+      settingsFocusTarget = settingsNavigation.firstTarget
+      settingsJumpOpened = ""
+      settingsQuery = ""
+      settingsMenu = ""
+      modalError = ""
+  action coreClearSearch
+    settingsQuery = ""
+    focus("settings-search")
+  action coreThemeDialog(kind: string, theme: string)
+    settingsThemeDialog = kind
+    settingsThemeRequest = settingsThemeRequest + 1
+    settingsThemeSubject = kind == "create" or kind == "edit" or kind == "duplicate" ? `${theme}#${settingsThemeRequest + 1}` : theme
+    modalError = ""
+  action coreThemeChange(row: string, part: string, value: string)
+    if not commandPending
+      commandPending = true
+      pendingModal = "theme-dialog"
+      modalError = ""
+      send changed = command("settings-core", `${row}:${part}|${settingsCore.scopeKey}`, value, 0)
+  mutation automationRecordingServed0 as shape Change queue refreshes data // the agent's recordings: four sends, each queued (automationRecording)
+  mutation automationRecordingServed1 as shape Change queue refreshes data
+  mutation automationRecordingServed2 as shape Change queue refreshes data
+  mutation automationRecordingServed3 as shape Change queue refreshes data
+  mutation themeLive as shape Change refreshes data // the colour picker's own, so no other local op forgets its reply (the picker waits for it)
+  action coreThemeLive(part: string, id: string, value: string, n: number) // the colour picker's draft ops (theme-color-picker.contract), never behind another command
+    send themeLive = command(`themelocal:${part}`, id, value, n)
+  state restEditor = ""
+  state restSubject = ""
+  state taskBase = "" // the scheduled editor's picker: its project, base and search (settings-scheduled.contract taskPicker), new with each editor
+  action restTaskBase(value: string)
+    taskBase = value
+  action restOpen(editor: string, subject: string) // the window's half: the dialog label, the row menu
+    sbQuery = ""
+    sbThumbs = ""
+    sbLettersEdited = false
+    sbEmoji = ""
+    restEditor = editor
+    restSubject = subject
+    modalError = ""
+    taskModelPick = ""
+    taskBase = ""
+  action restClose
+    restEditor = ""
+    modalError = ""
+    taskModelPick = ""
+    taskBase = ""
+  action restLocal(op: string, value: string)
+    send localChanged = command(`restlocal:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, value, 0)
+  // ProjectDetail removeMembers: removing a whole project returns to the Projects overview, on the same machine.
+  action projectRemoved
+    settingsProjectKey = ""
+    settingsProjectId = ""
+    settingsCheckout = ""
+  action restRaw(op: string, id: string, value: string) // a settings editor's command, also as rest and restInput (T3Window)
+    // A link row the storage panel draws (Maintenance's Diagnostics) opens its page as the core pages' links do.
+    if op == "rest:navigate"
+      coreNavigate(value)
+    else if not commandPending
+      commandPending = true
+      pendingModal = "rest"
+      modalError = ""
+      keybindingSaving = ""
+      send changed = command(op, id, value, 0)
+  action refreshSettings
+    settingsRefresh = settingsRefresh + 1
+  action editLicenseQuery(value: string)
+    licenseQuery = value
+  action toggleLicense(id: string)
+    licenseExpanded = licenseExpanded == id ? "" : id
+  action retryLicenses
+    licenseRetry = licenseRetry + 1
+  action selectDiagnosticPeriod(value: string)
+    diagnosticPeriod = value
+  action copyDiagnostic(value: string)
+    send localChanged = command("copy-diagnostic", "", value, 0)
+  action providerUi(what: string, value: string) // the window's half: whether the wizard tried to go on
+    modalError = ""
+    providerSelected = what == "select" ? value : providerSelected
+    if what == "open"
+      providerDialog = value
+      providerSerial = providerSerial + 1
+      wizardDriver = "codex"
+      wizardLabel = ""
+      wizardLabelSet = false
+      wizardId = ""
+      wizardIdSet = false
+      wizardStep = 0
+      wizardManual = false
+      acpQuery = ""
+    if what == "close"
+      providerDialog = ""
+    if what == "hub-remove" or what == "setup-logout" or what == "setup-remove" or what == "codex-picker" or what == "acp-delete" or what == "acp-disable"
+      providerDialog = what
+      providerTarget = value
+    // Enter manually keeps the ACP Registry (handleManualAcpConfiguration), and so does Search registry, whose inline
+    // onClick (AddProviderInstanceDialog.tsx:517-520) only leaves the configuration by hand. A configuration by hand,
+    // the local command's too, drops an agent added before it (selectedAcp = null), which the wizard's answer forgets.
+    if what == "driver" or what == "manual"
+      wizardDriver = what == "driver" ? value : "acpRegistry"
+      wizardManual = what == "manual" and value == "true"
+      wizardLabelSet = false
+      wizardIdSet = false
+    if (what == "manual" and value == "true") or what == "local"
+      wizardAgentEpoch = wizardAgentEpoch + 1
+    if what == "local" // AcpRegistrySearchStep's Local ACP command: configured by hand, labelled "Local ACP"
+      wizardDriver = "acpRegistry"
+      wizardManual = true
+      wizardLabel = "Local ACP"
+      wizardLabelSet = true
+      wizardIdSet = false
+    if what == "label"
+      wizardLabel = value
+      wizardLabelSet = true
+    if what == "id"
+      wizardId = value
+      wizardIdSet = true
+    if what == "acp"
+      acpQuery = value
+    if what == "step"
+      let target = value == "back" ? max(0, wizardStep - 1) : min(wizardManual ? 1 : 2, value == "next" ? wizardStep + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
+      wizardStep = wizardStep <= 1 and target > 1 and providerWizard.idError != "" ? 1 : target // the window's half marks the attempt
+  action providerOp(op: string, id: string, field: string, value: string, apply: bool)
+    if op == "setup:auth-ticket" // the sign-in terminal page's socket ticket, then its other messages: the terminals' mutations
+      send terminalTicketChanged = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
+    else if op == "setup:auth-event"
+      send terminalChanged = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
+    else if op.startsWith("upkeep:update") and apply
+      send providerUpdateRun = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
+    else if (op.startsWith("setup:") or op.startsWith("upkeep:")) and apply
+      send providerAuthChanged = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
+    else if op == "settings-core" // Providers › Advanced's core rows (providers.contract coreChange)
+      settingsCommand(op, id, value)
+    else if apply and not commandPending
+      commandPending = true
+      pendingModal = op == "acp-prepare" ? "provider-acp" : (op == "provider-hub-add" or op == "provider-hub-remove" or (op == "provider-chatgpt" and welcome.show) ? "provider-close" : "provider")
+      modalError = ""
+      send changed = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
+  action providerAccent(id: string, hex: string, vx: number, vy: number)
+    if not commandPending
+      commandPending = true
+      pendingModal = "provider"
+      modalError = ""
+      send changed = providerChange("provider-accent", id, "", hex, providerPage.environment, "")
+  action providerAdd(driver: string, label: string, id: string, accent: string, fields: string[], commandArgs: string[], environment: string[]) // the window's half marks the attempt
+    if not commandPending
+      commandPending = true
+      pendingModal = driver == "acpRegistry" and fields.slice(0, 1).join("") == "local" ? "provider-add-local" : "provider-add"
+      providerCreated = id
+      modalError = ""
+      send changed = providerAdd(driver, label, id, accent, fields, providerPage.environment, commandArgs, environment)
+  action connectionOp(op: string, id: string, value: string)
+    if not commandPending
+      sshReturnToConnect = op == "environment-ssh-add" or op == "environment-ssh-pick"
+      draftOwner = "__unset__"
+      commandPending = true
+      pendingModal = (op == "environment-add" or op == "environment-route-add" or op == "environment-ssh-add" or op == "environment-ssh-pick") ? (data.connected ? "connect" : "connect-first") : "connection"
+      modalError = ""
+      connectionRemove = ""
+      send changed = command(op, id, value, 0)
+  action connectionAskRemove(target: string)
+    connectionRemove = target
+    connectionMenu = ""
+  action connectionToggleMenu(target: string)
+    connectionMenu = connectionMenu == target ? "" : target
+  action openConnection // and Add a route (T3Window openRoute); the window's half: the credential, the route target
+    modalError = ""
+    connecting = true
+    sbSshHost = ""
+  action closeConnection
+    modalError = "" // closing Add Environment clears its error (setSavedBackendError(null))
+    pendingModal = ""
+    connecting = false
+    origin = ""
+    originEdited = false
+  action closeModal
+    pendingModal = ""
+    connecting = false
+    projectsOpen = false
+    paletteOpen = false
+    settingsOpen = false
+    keybindingOpen = false
+    keybindingPrevious = ""
+    keybindingRecording = false
+    keybindingDrafts = []
+    providerDialog = ""
+    connectionRemove = ""
+    modelsOpen = false
+    origin = ""
+    originEdited = false
+  action editOrigin(value: string) // the window's half fills the credential from a pasted pairing URL
+    origin = value
+    originEdited = true
+  action editCredential // the window's half keeps the typed credential
+    origin = pairFields.host != "" and pairFields.source == origin ? pairFields.host : origin

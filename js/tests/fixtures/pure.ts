@@ -114,6 +114,119 @@ export function exercise(source: string): string {
     return JSON.stringify([said(()=>AbortSignal.any(once as unknown as AbortSignal[])),reads,said(()=>AbortSignal.any(lateThrow())),said(()=>AbortSignal.any(badStep as unknown as AbortSignal[])),
       said(()=>AbortSignal.any(nextOnce as unknown as AbortSignal[])),nexts,said(()=>AbortSignal.any(valueOnce as unknown as AbortSignal[])),gets,said(()=>AbortSignal.any(ownCall as unknown as AbortSignal[])),said(()=>AbortSignal.any(methodCall as unknown as AbortSignal[]))]);
   }
+  if(source==='response') {
+    // `new Response(body, init)`, as an app's own server makes one (Fetch, "Response class")
+    const bytes=new Uint8Array([0,104,195,169,0]);
+    const made=[new Response('{"a":1}',{status:201,statusText:'Created',headers:{'Content-Type':'application/json','X-A':'b','Set-Cookie':'a=1'}}),
+      new Response(null,{status:302,headers:{Location:'app:/back?code=1'}}), new Response('hi'), new Response(new URLSearchParams({a:'1 2'})), new Response(),
+      new Response(new Uint8Array(bytes.buffer,1,3)), new Response(new DataView(bytes.buffer,1,3)), new Response({} as unknown as string),
+      new Response('\uFEFF{"b":2}'), new Response('a\uD800b'), new Response('',{statusText:'OK\tfine \u00e9'}),
+      Response.json({a:[1]},{status:202}), Response.redirect('https://example.test/x?y=1',303)];
+    const shapes=made.map(r=>[r.status,r.ok,r.statusText,r.headers.get('content-type'),r.headers.get('location'),r.headers.get('x-a'),r.headers.get('set-cookie')]);
+    const said=(f:()=>unknown)=>{try{return f();}catch(e){return (e as Error).name;}};
+    const statuses=[99,600,200.5,65736,NaN].map(status=>said(()=>new Response('x',{status}).status));
+    const refused=[said(()=>new Response('x',{status:204})), said(()=>new Response('x',{status:205})), said(()=>new Response('x',{status:304})), said(()=>new Response(null,{status:204}).status),
+      said(()=>new Response('x',{statusText:'Done \u2713'})), said(()=>new Response('x',{statusText:'a\nb'})),
+      said(()=>Response.json(undefined)), said(()=>Response.redirect('https://example.test/x',200)), said(()=>Response.redirect('http://[',200)), said(()=>Response.redirect('/relative')),
+      Response.redirect('https://example.test/x',301.9).status];
+    const original=new Response('copied',{headers:{'X-A':'b'}}), copy=original.clone();
+    copy.headers.set('X-A','c');
+    // Headers: a cookie a server sets is refused, a redirect's take no change, and a clone keeps its original's guard
+    const guarded=new Response('g'), redirect=Response.redirect('https://example.test/',301);
+    guarded.headers.set('Set-Cookie','a=1'); guarded.headers.append('set-cookie2','b'); guarded.headers.set('X-B','c');
+    const guardedCopy=guarded.clone();
+    guardedCopy.headers.set('set-cookie','z');
+    const guards=[guarded.headers.has('set-cookie'),guarded.headers.has('set-cookie2'),guarded.headers.get('x-b'),guardedCopy.headers.has('set-cookie'),
+      said(()=>redirect.headers.set('X','y')),said(()=>redirect.clone().headers.delete('location')),redirect.headers.get('location')];
+    // A clone copies the response, not what an app gave it
+    const odd=new Response('e',{status:203,statusText:'Odd'}) as Response&{extra?:number};
+    odd.extra=1;
+    Object.defineProperty(odd,'trap',{get(){throw new Error('read');},enumerable:true});
+    const oddCopy=odd.clone() as Response&{extra?:number};
+    const clones=[oddCopy.status,oddCopy.statusText,oddCopy.ok,oddCopy.extra===undefined,'trap' in oddCopy,Object.keys(new Response('k')).length];
+    // Web IDL's conversions: a BigInt status, a symbol body and an init that is no dictionary refused; each member read
+    // once, in the dictionary's order
+    let reads=0;
+    const order:string[]=[];
+    const init={get statusText(){order.push('statusText');return 'Made';},get status(){order.push('status');return 201;},get headers(){order.push('headers');return {'X-A':'b'};}};
+    // A status converted once: one whose second conversion throws is still the range's error
+    const once600=()=>{let n=0;return {valueOf(){if(n++)throw new Error('converted twice');return 600;}} as unknown as number;};
+    let redirectStatus=0;
+    const converted=[said(()=>new Response(null,{status:BigInt(200) as unknown as number})),said(()=>new Response(Symbol('s') as unknown as string)),
+      said(()=>new Response(null,7 as unknown as ResponseInit)),said(()=>new Response('x',init).status),order.join(),
+      said(()=>new Response(null,{status:once600()})),said(()=>Response.redirect('https://example.test/',once600())),
+      // A redirect's status converted before its URL is parsed
+      said(()=>Response.redirect('http://[',{valueOf(){redirectStatus++;return 301;}} as unknown as number)),redirectStatus,
+      // Each member converted as it is read: the BigInt status refused before the next member's getter runs
+      said(()=>new Response(null,{status:BigInt(200) as unknown as number,get statusText():string{throw new Error('read');}})),
+      // Headers converted as strings, checked as headers only after the status: the status's RangeError first, and a
+      // later member's getter still run
+      said(()=>new Response(null,{headers:{'bad name':'x'},status:600})),said(()=>new Response(null,{headers:{'bad name':'x'},get status(){reads++;return 200;}})),reads,
+      // HeadersInit as Web IDL converts it: an iterator method read once and one that is no function refused, a pair
+      // that is no sequence refused as it is yielded (before the status), and a record's keys read one at a time, a
+      // symbol refused and one a getter deletes skipped
+      said(()=>{let n=0;return new Response(null,{headers:{get [Symbol.iterator](){return n++?undefined:function*(){yield ['X-A','1'];};}} as unknown as HeadersInit}).headers.get('x-a');}),
+      said(()=>new Response(null,{headers:{[Symbol.iterator]:1} as unknown as HeadersInit})),said(()=>new Response(null,{headers:[42] as unknown as HeadersInit,status:600})),
+      said(()=>new Response(null,{headers:{[Symbol('s')]:'x'} as unknown as HeadersInit})),
+      said(()=>{const h:Record<string,string>={get 'x-a'(){delete h['x-b'];return '1';},'x-b':'2'};return [...new Response(null,{headers:h}).headers].join();}),
+      // and its `next` read once, the iterator method called without its own `call`
+      said(()=>{let nexts=0,k=0;const h={[Symbol.iterator]:()=>({get next(){nexts++;return ()=>k++?{done:true}:{done:false,value:['X-N','1']};}})};
+        return new Response(null,{headers:h as unknown as HeadersInit}).headers.get('x-n')+nexts;}),
+      said(()=>new Response(null,{headers:{[Symbol.iterator]:Object.defineProperty(function*(){yield ['X-C','1'];},'call',{value:()=>({next:()=>({done:true})})})} as unknown as HeadersInit}).headers.get('x-c'))];
+    // The body extracted after the init: a form an init getter changes is sent as changed; `Response.json` converts its
+    // init before it serializes the data
+    const params=new URLSearchParams({a:'1'}), changed=new Response(params,{get status(){params.set('b','2');return 200;}});
+    const data={x:1}, factored=Response.json(data,{get status(){data.x=2;return 200;}});
+    // and a buffer's bytes taken after the init, an init getter's write among them
+    const changing=new Uint8Array([1,2]), extracted=new Response(changing,{get status(){changing[0]=9;return 200;}});
+    // What an app gives the objects changes nothing: a buffer's own `slice`, a view's own `buffer`, a form's own
+    // `toString`, and a response's headers' own iterator and `forEach`
+    const kept=new Uint8Array([1,2]).buffer;
+    Object.defineProperty(kept,'slice',{value:()=>kept});
+    const sliced=new Response(kept);
+    new Uint8Array(kept)[0]=9;
+    const lying=new Uint8Array([3,4]);
+    Object.defineProperty(lying,'buffer',{value:new Uint8Array([7]).buffer});
+    const viewed=new Response(lying), form=new URLSearchParams({a:'1'});
+    Object.defineProperty(form,'toString',{value:()=>'z=9'});
+    const formed=new Response(form), iterated=new Response('i',{headers:{'X-A':'1'}});
+    Object.defineProperty(iterated.headers,Symbol.iterator,{value:function*(){yield ['x-b','2'];}});
+    Object.defineProperty(iterated.headers,'forEach',{value:()=>{throw new Error('forEach');}});
+    const iteratedCopy=said(()=>iterated.clone()) as Response;
+    const ownHeaders=typeof iteratedCopy==='string'?iteratedCopy:[iteratedCopy.headers.get('x-a'),iteratedCopy.headers.get('x-b')];
+    // `json()` reads the response's own body, not a `text` an app gives it, and only a Response's
+    const overridden=new Response('{"a":1}');
+    Object.defineProperty(overridden,'text',{value:()=>Promise.resolve('2')});
+    const ownJson=Promise.all([overridden.json(),Response.prototype.json.call({text:()=>Promise.resolve('1')}).then(()=>'read',e=>(e as Error).name)]);
+    // The constructor copies a BufferSource's bytes: a later write changes nothing
+    const written=new Uint8Array([1,2,3]), snapshot=new Response(written);
+    written[0]=9;
+    // A body reads once, a clone of a read one refused; no body reads empty as often as asked
+    const once=new Response('once'), empty=new Response();
+    const bytesOf=(r:Response)=>r.arrayBuffer().then(b=>Array.from(new Uint8Array(b)));
+    const readOnce=Promise.all([once.text(),once.text().then(()=>'read again',e=>(e as Error).name),empty.text(),empty.text()])
+      .then(read=>[...read,once.bodyUsed,empty.bodyUsed,said(()=>once.clone())]);
+    // A body is used as soon as a read starts
+    const started=new Response('s');
+    started.text();
+    const startedNow=[started.bodyUsed,said(()=>started.clone())];
+    const nameOf=(e:unknown)=>(e as Error).name, lengthOr=(v:unknown)=>typeof v==='string'?v:(v as ArrayBuffer).byteLength;
+    // The BOM's JSON, the view's and the form's bytes from clones made before the bodies below are read
+    return Promise.all([made[0].json(),made[8].clone().json(),bytesOf(made[5].clone()),bytesOf(made[6].clone()),bytesOf(made[3].clone()),...made.slice(1).map(r=>r.text()),
+      bytesOf(new Response('hé')),bytesOf(new Response(new Uint8Array([1,2,255]).buffer)),copy.text(),bytesOf(snapshot),readOnce,changed.text(),ownJson,
+      factored.text(),bytesOf(sliced),bytesOf(viewed),formed.text(),
+      // A body is read in a later turn, as Fetch reads one, so a value already there wins a race with it; no body is
+      // read at once, so it wins
+      Promise.race([new Response('x').text(),Promise.resolve('fallback')]),Promise.race([new Response().text(),Promise.resolve('fallback')]),
+      Promise.race([new Response().arrayBuffer(),Promise.resolve('fallback')]).then(lengthOr),
+      Promise.race([new Response(new Uint8Array([1])).arrayBuffer(),Promise.resolve('fallback')]).then(lengthOr),
+      // JSON is parsed as the body is read: a body's loses the race, and no body's rejects at once, as do a used
+      // body's and a read of what is no Response
+      Promise.race([new Response('{"a":1}').json(),Promise.resolve('fallback')]),Promise.race([new Response().json(),Promise.resolve('fallback')]).then(v=>v,nameOf),
+      Promise.race([(()=>{const used=new Response('u');used.text();return used.json();})(),Promise.resolve('fallback')]).then(v=>v,nameOf),
+      Promise.race([Response.prototype.json.call({}),Promise.resolve('fallback')]).then(v=>v,nameOf),bytesOf(extracted)])
+      .then(bodies=>JSON.stringify({shapes,bodies,statuses,refused,guards,clones,converted,ownHeaders,startedNow,headers:[original.headers.get('x-a'),copy.headers.get('x-a')]})) as unknown as string;
+  }
   if(source==='abort') {
     // A fetch's `signal`, before and after the request starts; the reply of
     // the aborted one is never awaited.
@@ -132,7 +245,8 @@ export function exercise(source: string): string {
   }
   if(source==='hooks') {
     const hook=(globalThis as any).__exact_ibex2_abort_hooks;
-    return JSON.stringify({present:'__exact_ibex2_abort_hooks' in globalThis,own:typeof hook?.own,subscribe:typeof hook?.subscribe});
+    return JSON.stringify({present:'__exact_ibex2_abort_hooks' in globalThis,own:typeof hook?.own,subscribe:typeof hook?.subscribe,
+      headersHooks:['__exact_ibex2_headers_hooks','__ibex2_headers_hooks'].some(name=>name in globalThis)});
   }
   // Intl.NumberFormat as the browser formats it (x2apps stocks #3: Hermes
   // on macOS printed `9,274,743` for compact): compact in its displays,

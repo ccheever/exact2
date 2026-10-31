@@ -36,7 +36,7 @@ use CoreNav, SettingsCore from "./src/settings/settings-core.contract"
 use AboutDelivery from "./src/settings/settings-a-about.contract"
 use ProjectsPage from "./src/settings/settings-projects.contract"
 use SbPicker from "./src/settings/settings-b-icons.contract"
-use PickerCatalog, PickerTarget, ComposerBranches from "./src/composer/composer-shapes.contract"
+use PickerCatalog, PickerTarget, ComposerBranches, ComposerUpload from "./src/composer/composer-shapes.contract"
 use ComposerEditorView from "./src/composer/composer-editor.contract"
 use ComposerRichView, ComposerIntentReply, ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldCommand, ComposerFieldResult, ComposerFieldAcknowledgement, composerSurrounds from "./src/composer/composer-rich.contract"
 use promptPreviewSample from "./src/appearance/settings-prompt-preview.contract"
@@ -123,7 +123,14 @@ component T3Code
     after(20000, disconnectDelayElapsed)
   action disconnectDelayElapsed
     disconnectDelayKey = data.serverUpdate.unavailable
-  members "./src/transport/transport-members.contract"
+  // The server connections (src/transport/transport.ts). Each session slot (0: the focused environment, 1 to 8: the
+  // background ones) has an answer for the attempts no other answer runs (the ladder's) and its better-route checks,
+  // and a socket resource for the URL the tick publishes; each update slot (an outdated host's self-update) has a step and a bare
+  // socket. transportInbox resolves the replies whenever any of them, or the tick, has news. An answer sends its own
+  // requests (LLP 1016.000 D7, amended 2026-10-18). The tick is a mutation: every 250 ms while a backoff, a stream retry, a
+  // debounced activity report or an update is near, every second while connected (deadlines and Pings), and once to
+  // publish a changed table (below).
+  members "./src/transport/root-transport.contract"
   task rootFont key=`${data.look.fontSize}|${zoomStep}` // Interface font size (appearanceFonts.ts applyAppearanceFontVariables): the root font size every rem follows, set at launch and on every change; `rem` is provided for lengths computed in px at 16.
     after(1, rootFontApply)
   action rootFontApply // the reference's 16 before the data's first answer (the Mac host's own size is 13 since LLP 1115), times View's zoom
@@ -210,7 +217,138 @@ component T3Code
     frameMoved
     optionsAnchorX
     optionsAnchorWidth
-  members "./src/timeline/cite-members.contract"
+  // AssistantCitationSource: View source brings the cited answer's text to min(120pt, a third of the transcript) under
+  // its top (the answer's column, `cite-<row>`, has 2pt of padding above it). A row the list has not built is approached
+  // by its key first; each later pass places the built answer again until it holds (rows measured as they mount move
+  // it), the scroll cannot take it further, or 40 passes have run. The first placement is smooth unless reduced motion
+  // asks otherwise, and the next pass waits for it. The reader's wheel or a minimap jump ends it.
+  state citeKey = ""
+  state citeNonce = 0
+  state citeDone = 0
+  state citeTries = 0
+  state citeSmooth = false
+  state citeMiss = 0
+  task citeRequested when data.citeJump.nonce > citeNonce key=data.citeJump.nonce
+    after(1, citeBegin)
+  action citeBegin
+    citeKey = data.citeJump.key
+    citeNonce = data.citeJump.nonce
+    citeTries = 0
+    citeSmooth = false
+    citeMiss = 1000000
+  task citePass when citeNonce > citeDone and not citeSmooth and citeTries < 40 key=`${citeNonce}|${citeTries}|${citeSmooth}`
+    after(50, citePlace)
+  task citeSmoothPass when citeNonce > citeDone and citeSmooth key=`${citeNonce}|${citeTries}`
+    after(400, citeAfterSmooth)
+  action citeAfterSmooth
+    citeSmooth = false
+  action citeEnd
+    citeDone = citeNonce
+  // The transcript's viewport, read from its own scroll, wheel and keys, never estimated from message lengths: whether
+  // it is at its end, and the pulls toward the end made while already there, which let a grown composer's reservation
+  // through (composer-overlay.ts). The snapshot reads them (transcript-facts.ts). The composer never rests (T3 Code
+  // v0.1.5 removed Collapse composer on scroll), so the resting state below stays off.
+  derive canRest = false
+  state restOwner = ""
+  state restResting = false
+  // The prompt as the composer came to rest: any edit after it expands the composer (expandComposerForEditorChange).
+  state restText = ""
+  task restTyped when restResting and composerText != restText
+    after(1, restLapse)
+  // useComposerRestingTransition: with panel animations on (Settings › Appearance) and motion not reduced, the card
+  // resizes and its controls arrive over the panel duration. The motion holds from the rest until 450 ms after it ends
+  // (the longest duration, 400 ms, and the hook's 50 ms cleanup buffer), so the expansion animates too and a card that
+  // grows as it is typed into later does not.
+  state restRecent = false
+  task restMotionArm when restResting and not restRecent
+    after(1, restMotionOn)
+  task restMotionEnd when restRecent and not restResting
+    after(450, restMotionOff)
+  action restMotionOn
+    restRecent = true
+  action restMotionOff
+    restRecent = false
+  derive restMotion = (restResting or restRecent) and data.look.panelMs > 0 and not viewport.prefersReducedMotion
+  state restAtEnd = true
+  state restPulls = 0
+  state restGestureUntil = -1
+  state restLastPull = -1000000
+  state findViewport = ""
+  state restTop = -1
+  state restHeight = -1
+  state restContent = -1
+  state restWidth = -1
+  state restMovement = 0
+  task restLapsed when restResting and not canRest key=restResting
+    after(1, restLapse)
+  action restLapse
+    restResting = false
+  action restScrolled(owner: string, e: ScrollEvent)
+    match e.firstVisibleKey
+      case some(key)
+        findViewport = key
+      case none
+        findViewport = ""
+    let fresh = owner != restOwner
+    let end = e.scrollHeight <= e.clientHeight + 2 or e.scrollTop >= e.scrollHeight - e.clientHeight - 2
+    let still = not fresh and restHeight >= 0 and max(restHeight - e.clientHeight, e.clientHeight - restHeight) < 0.5 and max(restContent - e.scrollHeight, e.scrollHeight - restContent) < 0.5 and max(restWidth - e.clientWidth, e.clientWidth - restWidth) < 0.5
+    let moved = restMovement + max(e.scrollTop - restTop, restTop - e.scrollTop)
+    if end
+      restResting = false
+      restMovement = 0
+    else if canRest and still and performanceNow() <= restGestureUntil
+      restMovement = moved
+      if moved >= 24 and not restResting
+        restText = composerText
+        restResting = true
+    else
+      restMovement = 0
+      restGestureUntil = -1
+      if fresh
+        restResting = false
+    restOwner = owner
+    restTop = e.scrollTop
+    restHeight = e.clientHeight
+    restContent = e.scrollHeight
+    restWidth = e.clientWidth
+    restAtEnd = end
+  // A wheel over the transcript or a scroll key inside it: toward the end, while there, is a pull (one each 0.5 s);
+  // either way it opens the 0.8 s in which movement may rest the composer.
+  action restGesture(towardEnd: bool)
+    let now = performanceNow()
+    if towardEnd and restAtEnd and now - restLastPull > 500
+      restLastPull = now
+      restPulls = restPulls + 1
+    if canRest
+      restGestureUntil = now + 800
+  // Save file and the media menu's Save (save-file.ts): the host's Save panel, a sheet on the window, copies the app
+  // file out under its name (the hidden `save-file` field, app-window.contract, hears its change and cancel).
+  state saveNonce = 0
+  task saveRequested when data.saveRequest.nonce > saveNonce key=data.saveRequest.nonce
+    after(1, saveNow)
+  action saveNow
+    saveNonce = data.saveRequest.nonce
+    saveFile("save-file", data.saveRequest.from, data.saveRequest.name)
+  action citePlace
+    let target = frame(`cite-${citeKey}`)
+    let row = frame(`row-${citeKey}`)
+    let port = frame("transcript")
+    let lead = min(120, port.height / 3)
+    if target.unavailable or row.unavailable
+      scrollIntoView("transcript", citeKey, offset=0 - lead, behavior="instant")
+      citeTries = citeTries + 1
+    else
+      let miss = target.y + 2 - port.y - lead
+      if (miss > 1 or miss < -1) and (citeMiss - miss > 0.5 or miss - citeMiss > 0.5)
+        if citeTries == 0 and not viewport.prefersReducedMotion
+          scrollIntoView("transcript", citeKey, offset=target.y - row.y + 2 - lead, behavior="smooth")
+          citeSmooth = true
+        else
+          scrollIntoView("transcript", citeKey, offset=target.y - row.y + 2 - lead, behavior="instant")
+        citeMiss = miss
+        citeTries = citeTries + 1
+      else
+        citeDone = citeNonce
   mutation balanceLoaded as shape Change queue refreshes data // auto-balance.ts (issues/closed/20261009-typescript-failure-parity.md, issues/20261009-runner-owned-bidirectional-streams.md): an unresolved Auto draft asks its machines' host resources, at the window's time. Queued: its move to another machine holds `moving` across polls on its own timers, which a newer send would let go.
   task balanceLoad when branches.balanceFetch != "" key=branches.balanceFetch
     after(1, balanceLoadNow)
@@ -343,7 +481,124 @@ component T3Code
     usageBreakdown = value
   action usageRefreshNow
     usageRefresh = usageRefresh + 1
-  members "./src/pull-requests/pull-requests-members.contract"
+  state prQuery = ""
+  state prApplied = ""
+  state prTyped = false
+  state prSelected = ""
+  state prPanelOpen = true
+  state prRefresh = 0
+  state prTab = "summary"
+  // Filters › Author and Labels search the host (useHostedFilterOptions): the open picker ("authors", "labels" or none)
+  // and its search, sent to the list 250 ms after the last keystroke (OPTION_SEARCH_DEBOUNCE_MS), which asks the servers
+  // in the list's scope. A picker opening starts with an empty search.
+  state prOptionKind = ""
+  state prOptionTyped = ""
+  state prOptionSent = ""
+  task prOptionSettle when prOptionKind != "" and prOptionSent != prOptionTyped key=prOptionTyped
+    after(250, prOptionSettled)
+  action prOptionSettled
+    prOptionSent = prOptionTyped
+  resource prList = prList(utilityPage == "pull-requests", prRefresh, wallTime.epochAtZero + elapsed, prSelected, prApplied, prTyped, data.revision, page.visibilityState == "visible", windowReturns, prOptionKind, prOptionSent) as shape PrListView
+  // usePullRequestChecksRefresh: while the open pull request's checks are read again (prDetail.checksPoll), a tick every
+  // 45 s while runs are pending and 60 s once they settle moves the clock prDetail reads, as providerNow does in app.contract.
+  // The timer runs only while the detail is drawn: the page's panel open and Settings not over the page, or a thread's
+  // surface, which Settings leaves mounted (PullRequestsPage unmounts the panel, _chat.tsx the page). It starts again for
+  // another pull request (useLiveRefresh's key).
+  derive prChecksShown = (utilityPage == "pull-requests" and prPanelOpen and not settingsOpen) or (utilityPage == "" and shell.panel.open and shell.panel.kind == "pull-request")
+  state prChecksNow = 0
+  action prChecksTick
+    prChecksNow = performanceNow()
+  task prChecksPending when prDetail.checksPoll == "pending" and prChecksShown key=prDetail.ref
+    every(45000, prChecksTick)
+  task prChecksSettled when prDetail.checksPoll == "settled" and prChecksShown key=prDetail.ref
+    every(60000, prChecksTick)
+  resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + max(elapsed, prChecksNow), data.revision, page.visibilityState == "visible", windowReturns, prTab, utilityPage == "pull-requests", floor(liveNow / 5000), page.visibilityState == "visible" and not settingsOpen and ((utilityPage == "pull-requests" and prPanelOpen) or (utilityPage == "" and shell.panel.open and shell.panel.kind == "pull-request")), prChecksShown) as shape PrDetailView // the page, the linked threads' 10 s tick
+  task guideDisabled when prDetail.phase == "content" and prTab == "guide" and not prDetail.guide.enabled
+    after(1, guideFallback)
+  // An unavailable tab falls back to the Summary without becoming the surface's remembered tab.
+  action guideFallback
+    prTab = "summary"
+  state guideFinishHandled = ""
+  task guideFinishRequested when prDetail.guide.finishNonce > 0 and guideFinishHandled != `${prDetail.guide.key}:${prDetail.guide.finishNonce}` key=`${prDetail.guide.key}:${prDetail.guide.finishNonce}`
+    after(1, guideFinishOpen)
+  action guideFinishOpen
+    guideFinishHandled = `${prDetail.guide.key}:${prDetail.guide.finishNonce}`
+    showPopover(utilityPage == "pull-requests" ? "pr-page-scroll-composer" : "pr-surface-scroll-composer")
+  state codeRevealHandled = ""
+  task codeRevealRequested when prTab == "code" and prDetail.codeTab.revealPath != "" and prDetail.codeTab.revealNonce > 0 and codeRevealHandled != `${prDetail.guide.key}:${prDetail.codeTab.revealNonce}` key=`${prDetail.guide.key}:${prDetail.codeTab.revealNonce}`
+    after(1, codeRevealOpen)
+  action codeRevealOpen
+    codeRevealHandled = `${prDetail.guide.key}:${prDetail.codeTab.revealNonce}`
+    if utilityPage == "pull-requests"
+      scrollIntoView("pr-page-scroll-code", `file:${prDetail.codeTab.revealPath}`, block="start")
+    else
+      scrollIntoView("pr-surface-scroll-code", `file:${prDetail.codeTab.revealPath}`, block="start")
+  resource prMarkdown = renderPullRequestMarkdown(prDetail.bodies) as shape TranscriptMarkdown
+  action prType(value: string)
+    prQuery = value
+    prTyped = true
+  task prSearchSettle when utilityPage == "pull-requests" and prTyped and prApplied != prQuery key=prQuery // SEARCH_DEBOUNCE_MS: 250 ms after the last keystroke (exact2 #192)
+    after(250, prSettle)
+  action prSettle
+    prApplied = prQuery
+    send localChanged = command("pageslocal:pr-query", "", prQuery, 0)
+  action prControl(op: string, value: string)
+    if op == "option-kind"
+      prOptionKind = value
+      prOptionTyped = ""
+      prOptionSent = ""
+    else if op == "option-query"
+      prOptionTyped = value
+    else
+      if op == "query"
+        prQuery = value
+        prApplied = value
+        prTyped = true
+      send localChanged = command(`pageslocal:pr-${op}`, "", value, 0)
+  action prSelect(ref: string)
+    prSelected = ref
+    prPanelOpen = true
+    prTab = "summary"
+  action prClose
+    if prSelected != ""
+      send localChanged = command("shelllocal:surface-remember-pr", prSelected, "", 0)
+    prSelect("")
+  action prOpenGuide(ref: string)
+    openPage("pull-requests")
+    prSelected = ref
+    prPanelOpen = true
+    prTab = "guide"
+    settingsOpen = false
+  action prTogglePanel
+    prPanelOpen = not prPanelOpen
+  action prReload
+    prRefresh = prRefresh + 1
+  // A thread's pull request surface remembers its tab (rightPanelStore setPullRequestDetailTab):
+  // a choice there is kept with the surface, and showing that surface again, in its thread, shows it.
+  action prSetTab(value: string)
+    prTab = value
+    if utilityPage == "" and shell.panel.kind == "pull-request" and shell.panel.pr.surface != ""
+      send prTabSaved = command("shelllocal:surface-pr-tab", shell.panel.pr.surface, value, 0)
+  task prSurfaceTab when utilityPage == "" and shell.panel.open and shell.panel.kind == "pull-request" and shell.panel.pr.surface != "" key=`${shell.panel.key}|${shell.panel.pr.surface}`
+    after(1, prSurfaceTabShown)
+  action prSurfaceTabShown
+    prTab = shell.panel.pr.tab
+  action prAct(op: string, value: string)
+    if op == "guide-write" and not prDetail.guide.hasGuide
+      prSetTab("guide")
+    if op == "quick" or op == "close-batch"
+      send prQuickChanged = command(`pageslocal:pr-act-${op == "quick" ? "queue" : op}`, "", value, 0)
+    else if not commandPending
+      commandPending = true
+      send changed = command(`pageslocal:pr-act-${op}`, utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, value, 0)
+  action prCopy(label: string, text: string)
+    send localChanged = command("pageslocal:copy", label, text, 0)
+  task prConfirmLapse when prDetail.actions.armedSerial > 0 key=prDetail.actions.armedSerial // useInlineActionConfirm: an armed confirmation lapses after 3 s, or as the window loses the focus
+    after(3000, prConfirmLapsed)
+  task prConfirmBlur when prDetail.actions.armedSerial > 0 and not page.hasFocus key=prDetail.actions.armedSerial
+    after(1, prConfirmLapsed)
+  action prConfirmLapsed
+    chatLocal("pr-ui-disarm", prDetail.ref, `serial:${prDetail.actions.armedSerial}`)
   state welcomeStep = "connect"
   state welcomeLink = ""
   // "Add a computer" as the person left it; "" is as the Connect step starts it (ConnectionStep's expandPairingInitially).
@@ -518,7 +773,7 @@ component T3Code
     every(16, highlightStep)
   resource viewport = exactViewport() as shape Viewport
   derive scheme = (data.look.mode == "light" or data.look.mode == "dark") ? data.look.mode : (viewport.prefersColorScheme == "dark" ? "dark" : "light") // Palettes use the resolved Appearance scheme; viewport.prefersColorScheme is only the underlying system preference.
-  members "./src/palette/palette-members.contract"
+  members "./src/palette/root-palette.contract"
   mutation providerAuthChanged as shape Change queue refreshes data, providerPage, providerWizard
   mutation providerUpdateRun as shape Change queue refreshes providerPage
   mutation changed as shape Change refreshes data then commandCompleted
@@ -748,144 +1003,190 @@ component T3Code
     if which == "thumb" and not `\n${sbThumbs}\n`.includes(`\n${value}\n`)
       sbThumbs = sbThumbs == "" ? value : `${sbThumbs}\n${value}`
   resource sbPicker = settingsBPicker(restEditor, sbQuery, (sbLettersEdited ? sbLetters : projectsSettings.iconLetters), sbEmoji, projectsSettings.iconCwd, projectsSettings.name, data.revision, sbThumbs) as shape SbPicker
-  members "./src/composer/composer-members.contract"
-  // useShortcutModifierState(): the modifiers held, for the sidebar's thread-jump hints; and
-  // useShortcutModifierState(true): the Pull Requests route's, which a key or a focus at a field empties
-  // (shortcut-modifiers.contract). T3Window's
-  // `keycapture` and `keyup` hear every key. Losing the window's focus forgets both, since a key let go while
-  // another app has the focus sends no keyup.
-  state shortcutModifiers = ShortcutModifierState(metaKey=false, ctrlKey=false, altKey=false, shiftKey=false)
-  state speedModifierState = ShortcutModifierState(metaKey=false, ctrlKey=false, altKey=false, shiftKey=false)
-  derive speedModeHeld = speedModifiers(speedModifierState)
-  action modifierKey(down: bool, e: KeyboardEvent, editable: bool)
-    quitHoldKey(down, e)
-    // DesktopWindow.ts: a held ⌘W closes one tab or terminal, not each one behind it, so its repeats are dropped. W by
-    // its key, or by its physical key where the source types no Latin character there (Korean 2-Set's ㅈ); AZERTY's W
-    // key types Z.
-    if down and e.repeat and e.metaKey and not e.altKey and not e.shiftKey and (e.key.toLowerCase() == "w" or (e.code == "KeyW" and e.key.length == 1 and not quitTypesLatin(e.key)))
-      preventDefault()
-    // ThreadUndoShortcut: a held undo chord undoes once, so its repeats are cancelled even after the notice is gone,
-    // where they would reach the composer's own undo; any other key but a modifier hands the chord back to fields.
-    if down and e.repeat and undoHeldKey != "" and (e.metaKey or e.ctrlKey) and e.key.toLowerCase() == undoHeldKey
-      preventDefault()
-      stopPropagation()
-    else if down and not e.repeat and e.key != "Alt" and e.key != "Control" and e.key != "Meta" and e.key != "Shift"
-      undoHeldKey = ""
-      releaseUndoClaim()
-    let held = shortcutModifierStateAfterKeyboardEvent(shortcutModifiers, down, e)
-    if not areShortcutModifierStatesEqual(held, shortcutModifiers)
-      shortcutModifiers = held
-    // isEditableFocused: the window's field focus (T3Window's focusin), or the composer's own `focus`, which a launch
-    // that seats the focus in the composer fires even when the window's focusin is not heard.
-    let speed = (editable or composerFocused) ? emptyShortcutModifierState() : shortcutModifierStateAfterKeyboardEvent(speedModifierState, down, e)
-    if not areShortcutModifierStatesEqual(speed, speedModifierState)
-      speedModifierState = speed
-  // showThreadUndoNotice's claim: each new notice owns the undo chord even in the composer, until another key or an
-  // edit releases it (modifierKey, write); a collapsed sidebar shows no notice, so the composer keeps its own undo.
-  state undoReleasedUntil = 0
-  state undoHeldKey = ""
-  derive undoClaimed = data.sidebarOpen and data.sidebar.undoUntil > undoReleasedUntil
-  action releaseUndoClaim
-    if data.sidebar.undoUntil > undoReleasedUntil
-      undoReleasedUntil = data.sidebar.undoUntil
-  action modifierEditableFocus
-    if anyShortcutModifier(speedModifierState)
-      speedModifierState = emptyShortcutModifierState()
-  // Also a paste's: a dictation tool's synthetic ⌘V can send no Meta keyup, which would keep the hints up.
-  action modifiersForget
-    shortcutModifiers = emptyShortcutModifierState()
-    speedModifierState = emptyShortcutModifierState()
-  task modifiersBlur when not page.hasFocus and (anyShortcutModifier(shortcutModifiers) or anyShortcutModifier(speedModifierState))
-    after(1, modifiersForget)
-  // The quit shortcut's hold (quit-hold.contract): each key event and each watchdog tick is one step of its
-  // record, applied by `quitApply`. QuitHoldOverlay shows `quitHintMode`; a released hold's hint lingers
-  // HOLD_HINT_LINGER_MS (1.2 s), a double press's goes at once.
-  state quitHold = quitHoldIdle()
-  state quitHintMode = ""
-  state quitHintPressed = "hold"
-  state quitHintLingers = false
-  state quitHintSerial = 0
-  task quitWatchdog when quitHold.watchUntil > 0
-    every(20, quitWatchTick)
-  task quitHintLinger when quitHintLingers key=quitHintSerial
-    after(1200, quitHintHide)
-  action quitHoldKey(down: bool, e: KeyboardEvent)
-    let next = down ? quitKeyDown(quitHold, e, performanceNow(), settingsCore.quitMode) : quitKeyUp(quitHold, e, performanceNow())
-    if next.consumed
-      preventDefault()
-    quitApply(next)
-  action quitWatchTick
-    if quitHold.watchUntil > 0 and performanceNow() >= quitHold.watchUntil
-      quitApply(quitWatchFired(quitHold))
-  action quitHintHide
-    quitHintLingers = false
-    quitHintMode = ""
-  // notify(): the overlay's QUIT_SHORTCUT_CHANNEL listener. concealPendingQuitWindow turns the window transparent until
-  // the keys are let go; Contract has no window opacity, so only the hint goes. `close()` ends the one-window app.
-  action quitApply(next: QuitHoldState)
-    quitHold = next
-    if next.signal == "down"
-      quitHintPressed = next.mode
-      quitHintMode = next.mode
-      quitHintLingers = false
-    else if next.signal == "conceal" or (next.signal == "up" and quitHintPressed == "double-click")
-      quitHintMode = ""
-      quitHintLingers = false
-    else if next.signal == "up"
-      quitHintSerial = quitHintSerial + 1
-      quitHintLingers = true
-    if next.quit
-      close()
-  // useThreadJumpHintVisibility: the hints show THREAD_JUMP_HINT_SHOW_DELAY_MS after a thread.jump.N shortcut's
-  // modifiers are held alone and hide at once when they are not (shouldShowThreadJumpHintsForModifiers; the
-  // sidebar's view lists those modifiers, none while the terminal has the focus or a search is open).
-  // useShortcutModifierState's ⌘ or Control: Send shows the follow-up alternate (queue or steer) while one is held.
-  derive composerSendHeld = shortcutModifiers.metaKey or shortcutModifiers.ctrlKey
-  derive threadJumpsHeld = (data.legacy.enabled ? data.legacy.jumpModifiers : data.sidebar.jumpModifiers).includes(heldModifiers(shortcutModifiers.metaKey, shortcutModifiers.ctrlKey, shortcutModifiers.altKey, shortcutModifiers.shiftKey))
-  state threadJumpHintsShown = false
-  derive threadJumpHints = threadJumpHintsShown and threadJumpsHeld
-  task threadJumpHintDelay when threadJumpsHeld and not threadJumpHintsShown
-    after(200, threadJumpHintsShow)
-  task threadJumpHintReset when threadJumpHintsShown and not threadJumpsHeld
-    after(1, threadJumpHintsHide)
-  // The sidebar's Working shelf on the window's clock (thread-inbox.ts): a grace's start or a return owed its time
-  // reads it at once, and the soonest grace ends 2 s after it started. Root timers, so they run with the sidebar closed.
-  task workingGraceOwed when data.sidebar.graceOwed > 0 key=data.sidebar.graceOwed
-    after(1, workingGraceClock)
-  task workingGraceEnds when data.sidebar.graceUntil > 0 key=data.sidebar.graceUntil
-    after(2000, workingGraceClock)
-  action workingGraceClock
-    send localChanged = command("sidebarlocal:working-grace", "", `${wallTime.epochAtZero + performanceNow()}`, 0)
-  action threadJumpHintsShow
-    threadJumpHintsShown = true
-  action threadJumpHintsHide
-    threadJumpHintsShown = false
-  // ChatView's thread effect: the composer takes the focus a frame after a thread opens while the terminal is closed.
-  task composerOnThread when data.threadId != "" and not terminalDrawer.open key=data.threadId
-    after(1, composerOnThreadFocus)
-  action composerOnThreadFocus
-    focus("composer")
-  action scrollToEnd
-    jumpRequest = jumpRequest + 1
-    foldHold = false
-  derive modal = connecting or projectsOpen or paletteOpen or settingsOpen or providerDialog != "" or restEditor != "" or welcome.show
-  resource sidebarLaunch = sidebarLaunchWidth(viewport.width, data.revision) as shape number // threadSidebarWidth.ts (sidebar-width.ts): no stored width sizes the sidebar once at load
-  derive sidebarWidth = draggedWidth == 0 and sidebarLaunch > 0 ? sidebarLaunch : min(max(max(208, data.sidebarMinWidth), draggedWidth > 0 ? draggedWidth : data.sidebarWidth), max(max(208, data.sidebarMinWidth), viewport.width - 640)) // a stored width: at least the minimum (13rem, or the brand at the Interface font size: sidebar-min-width.ts), leaving 40rem of main content
-  derive narrowDiff = viewport.width <= 980
-  state diffUserWidth = 540
-  derive diffWidth = narrowDiff ? (viewport.width <= 760 ? min(viewport.width * 0.88, 384) : min(448, max(320, viewport.width * 0.42))) : max(360, min(diffUserWidth, min(floor(viewport.width * 0.7), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 360)))
-  action resizeDiff(dx: number, dy: number)
-    diffUserWidth = max(360, min(diffWidth - dx, min(floor(viewport.width * 0.7), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 360)))
-  action finishDiffResize(vx: number, vy: number)
-    diffUserWidth = diffWidth
-  derive conversationWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - ((data.diffOpen or rightPanel or shell.panel.open) and not narrowDiff ? diffWidth : 0)
-  members "./src/composer/composer-controls-members.contract"
-  members "./src/settings/settings-members.contract"
-  action editOrigin(value: string) // the window's half fills the credential from a pasted pairing URL
-    origin = value
-    originEdited = true
-  action editCredential // the window's half keeps the typed credential
-    origin = pairFields.host != "" and pairFields.source == origin ? pairFields.host : origin
+  members "./src/composer/root-composer.contract"
+  action commandCompleted
+    noticeExit = ""
+    match changed
+      case some(result)
+        routeKeyboard = routeKeyboardComplete(routeKeyboard, result.routeReorder, result.message, routeKeyboardOwned)
+        if result.relaunch
+          relaunch()
+        if pendingModal != ""
+          modalError = result.message == "task-webhook-keep" or result.message.startsWith("toasted:") ? "" : result.message
+        if result.message == "" or result.message == "task-webhook-keep"
+          if pendingModal == "connect-first" or pendingModal == "connect"
+            connecting = false
+            origin = ""
+            originEdited = false
+          if pendingModal == "welcome-pair"
+            welcomeLink = ""
+            welcomePairFold = "closed"
+            welcomePaired = welcomePaired + 1
+          if pendingModal == "provider-add" or pendingModal == "provider-add-local"
+            providerDialog = pendingModal == "provider-add-local" ? "" : wizardManual or wizardDriver == "acpRegistry" ? providerDialog : ""
+            providerSelected = providerCreated
+          if pendingModal == "provider-close"
+            providerDialog = ""
+          if pendingModal == "provider-acp"
+            wizardManual = false
+            wizardDriver = "acpRegistry"
+            wizardStep = 1
+          if pendingModal == "rest" and keybindingSaving != ""
+            // The written row's draft ends; the other rows keep theirs (buildKeybindingRows' stable row ids).
+            keybindingDrafts = keybindingDrafts.filter((d) => d.row != keybindingSaving and (d.row == "new" or bindings.ids.includes(d.row)))
+            keybindingOpen = keybindingOpen and keybindingSaving != "new"
+            keybindingPrevious = keybindingPrevious == keybindingSaving ? "" : keybindingPrevious
+            keybindingRecording = keybindingRecording and keybindingPrevious != keybindingSaving
+          if pendingModal == "rest"
+            if restEditor == "project-remove" and restSubject == ""
+              projectRemoved()
+            if result.message != "task-webhook-keep"
+              restEditor = ""
+            settingsRefresh = settingsRefresh + 1
+          if pendingModal == "settings"
+            settingsRefresh = settingsRefresh + 1
+          if pendingModal == "theme-dialog"
+            settingsThemeDialog = ""
+        if result.message.startsWith("branch-restore-confirm:")
+          confirmTitle = `Switch to ${result.message.slice(23)}?`
+          confirmBody = "You have uncommitted changes. They'll carry over to the other branch, or block the switch if they conflict."
+          confirmDestructive = false
+          confirmOp = "cc:branch-restore-confirmed"
+          confirmTarget = ""
+          confirmValue = ""
+          focus("app-confirm-cancel")
+        if result.message == "terminal:focus-composer"
+          focus("composer")
+        if result.message.startsWith("focus:") and (result.message != "focus:composer" or (data.sidebar.renameId == "" and renameAfterOp == "" and not data.sidebar.renameHeld)) // an opening rename owns focus over its row's late thread-open result
+          focus(result.message.slice(6))
+        if result.message.startsWith("sidebar:pr-page:") // with no thread open, the pull request on the Pull Requests page (before any branch below sets utilityPage: openPage reads it)
+          openPage("pull-requests")
+          prSelect(result.message.slice(16))
+        if result.message == "pr-guide:asked"
+          prTab = "guide"
+          draftOwner = "__unset__"
+          jumpRequest = jumpRequest + 1
+          utilityPage = ""
+          focus("composer")
+        if result.message == "sidebar:new-thread" or result.message == "pr-handoff-next"
+          draftOwner = "__unset__"
+          jumpRequest = jumpRequest + 1
+          utilityPage = ""
+          focus("composer")
+        if result.message.startsWith("sidebar:opened") // a row's pull request or port went to its thread first (openThread's own effects); `:focus`, ChatView's composer focus on a thread change
+          draftOwner = "__unset__"
+          jumpRequest = jumpRequest + 1
+          utilityPage = ""
+          if result.message == "sidebar:opened:focus"
+            focus("composer")
+        if result.message == "pr-handoff-next" // the thread shows first, then its checkout runs (pages-pr-handoffs.ts)
+          send prHandoffChanged = command("pageslocal:pr-act-handoff-run", "", "", 0)
+        if result.message == "sidebar:palette-new-thread" or result.message.startsWith("palette:") // `palette:<page>` (the linked threads, on the pull request's URL; the thread picker)
+          paletteOpen = true
+          paletteMode = "command"
+          palettePage = result.message == "sidebar:palette-new-thread" ? "new-thread-in" : result.message.slice(8)
+          paletteQuery = result.message.startsWith("palette:pr-linked|") ? result.message.slice(18) : ""
+          paletteTrailPages = []
+          paletteTrailQueries = []
+          paletteReturnQuery = ""
+          paletteRestore = false
+          paletteCursor = -1
+          paletteScroll = 0
+          modelsOpen = false
+          optionsOpen = ""
+          focus("palette-input")
+        if result.message.startsWith("pr-select:") // a pull request link opens on the page
+          prSelect(result.message.slice(10))
+        if result.message.startsWith("sidebar:project-settings:")
+          openSettings() // a project link replaces the whole scope (retainSettingsScope)
+          settingsProjectId = result.message.slice(25)
+          settingsRoute = "projects"
+        if result.message.startsWith("sidebar:settings:") // a settings page by its route (Custom snooze's Edit snooze options)
+          openSettings()
+          settingsRoute = result.message.slice(17)
+      case none
+    pendingModal = ""
+    commandPending = false
+    lineageStopping = ""
+    if renameAfterOp != ""
+      send localChanged = command(`sidebarlocal:${renameAfterOp}`, renameAfterId, "", 0)
+      renameAfterOp = ""
+  action attachFiles(origin: string, files: string[], picked: Picked[], asText: bool, target: string)
+    send filesAdded = composerAttach(origin, files, picked, asText, target)
+  // ChatComposer's drop and Attach files focus the prompt; a legacy row's drop opens its thread (handleThreadFileDrop).
+  action filesAddedDone
+    match filesAdded
+      case some(result)
+        if result.message == "focus:composer"
+          focus("composer")
+        if result.message.startsWith("open:")
+          openThread(result.message.slice(5), "click")
+      case none
+  action chooseAttachments
+    showPicker("composer-attach-input")
+  // attachmentUploadQueue.ts: a draft image uploads as it joins the draft, three at once on each machine, each in one of
+  // these streams, whose fetch tells the bytes it has sent (composer-uploads.ts), so no answer waits on one. An image
+  // keeps its resource until its upload ends, since new arguments let a running upload go.
+  resource composerUpload0 = composerUpload(0, data.composer.uploads.u0.id, data.composer.uploads.u0.attachmentId) as shape ComposerUpload
+  resource composerUpload1 = composerUpload(1, data.composer.uploads.u1.id, data.composer.uploads.u1.attachmentId) as shape ComposerUpload
+  resource composerUpload2 = composerUpload(2, data.composer.uploads.u2.id, data.composer.uploads.u2.attachmentId) as shape ComposerUpload
+  resource composerUpload3 = composerUpload(3, data.composer.uploads.u3.id, data.composer.uploads.u3.attachmentId) as shape ComposerUpload
+  resource composerUpload4 = composerUpload(4, data.composer.uploads.u4.id, data.composer.uploads.u4.attachmentId) as shape ComposerUpload
+  resource composerUpload5 = composerUpload(5, data.composer.uploads.u5.id, data.composer.uploads.u5.attachmentId) as shape ComposerUpload
+  derive composerUploads = [composerUpload0, composerUpload1, composerUpload2, composerUpload3, composerUpload4, composerUpload5]
+  // An upload that ended, by its resource's answer for the attachment it carries now; one cut off on its way fails
+  // with no answer. The root's `cclocal:uploads` lands or fails them and starts the images waiting for a resource.
+  derive composerUploadEnd0 = composerUpload0.attachmentId != "" and composerUpload0.attachmentId == data.composer.uploads.u0.attachmentId and (composerUpload0.status == "ready" or composerUpload0.status == "failed")
+  derive composerUploadEnd1 = composerUpload1.attachmentId != "" and composerUpload1.attachmentId == data.composer.uploads.u1.attachmentId and (composerUpload1.status == "ready" or composerUpload1.status == "failed")
+  derive composerUploadEnd2 = composerUpload2.attachmentId != "" and composerUpload2.attachmentId == data.composer.uploads.u2.attachmentId and (composerUpload2.status == "ready" or composerUpload2.status == "failed")
+  derive composerUploadEnd3 = composerUpload3.attachmentId != "" and composerUpload3.attachmentId == data.composer.uploads.u3.attachmentId and (composerUpload3.status == "ready" or composerUpload3.status == "failed")
+  derive composerUploadEnd4 = composerUpload4.attachmentId != "" and composerUpload4.attachmentId == data.composer.uploads.u4.attachmentId and (composerUpload4.status == "ready" or composerUpload4.status == "failed")
+  derive composerUploadEnd5 = composerUpload5.attachmentId != "" and composerUpload5.attachmentId == data.composer.uploads.u5.attachmentId and (composerUpload5.status == "ready" or composerUpload5.status == "failed")
+  derive composerUploadsCut = [(data.composer.uploads.u0.id != "" and failed(composerUpload0) ? "0" : ""), (data.composer.uploads.u1.id != "" and failed(composerUpload1) ? "1" : ""), (data.composer.uploads.u2.id != "" and failed(composerUpload2) ? "2" : ""), (data.composer.uploads.u3.id != "" and failed(composerUpload3) ? "3" : ""), (data.composer.uploads.u4.id != "" and failed(composerUpload4) ? "4" : ""), (data.composer.uploads.u5.id != "" and failed(composerUpload5) ? "5" : "")].filter((slot) => slot != "").join(" ")
+  derive composerUploadsDue = data.composer.uploads.pending != "" or data.composer.uploads.settle > 0 or composerUploadEnd0 or composerUploadEnd1 or composerUploadEnd2 or composerUploadEnd3 or composerUploadEnd4 or composerUploadEnd5 or composerUploadsCut != ""
+  mutation uploadsChanged as shape Change queue refreshes data
+  task composerUploadsRun when composerUploadsDue key=`${data.composer.uploads.pending}|${data.composer.uploads.settle}|${composerUploadEnd0}:${data.composer.uploads.u0.attachmentId}|${composerUploadEnd1}:${data.composer.uploads.u1.attachmentId}|${composerUploadEnd2}:${data.composer.uploads.u2.attachmentId}|${composerUploadEnd3}:${data.composer.uploads.u3.attachmentId}|${composerUploadEnd4}:${data.composer.uploads.u4.attachmentId}|${composerUploadEnd5}:${data.composer.uploads.u5.attachmentId}|${composerUploadsCut}`
+    after(1, composerUploadsNow)
+  action composerUploadsNow
+    send uploadsChanged = command("cclocal:uploads", "", composerUploadsCut, 0)
+  // A send kept while its images uploaded (useComposerSend's await) goes once they have landed, as a command of its own,
+  // whichever thread is shown: no answer waits for them, so none let go meanwhile is left waiting (composer-uploads.ts).
+  task sendResume when data.composer.sendResume != "" and not commandPending key=data.composer.sendResume
+    after(1, sendResumeNow)
+  action sendResumeNow
+    if not commandPending and data.composer.sendResume != ""
+      commandPending = true
+      send changed = command("send-resume", data.composer.sendResume, "", 0)
+  // The pump's requests (an upload URL, an attachment let go) wait on a server reply, so the tick publishes the
+  // transport's table as it starts and ends, as transportAnswered does for the answers it names.
+  task composerUploadsAnswered key=`${pending(uploadsChanged)}`
+    after(1, transportPump)
+  action command(op: string, id: string, value: string, n: number)
+    if op == "sidebar:undo" and id != ""
+      undoHeldKey = id // the undo chord's key (keyboard-dispatch.ts chordKey), whose repeats modifierKey cancels
+    if op.startsWith("secretlocal:")
+      send secretAnswered = command(op, id, value, n)
+    else if op == "chatlocal:item-detail"
+      send timelineDisclosureChanged = command(op, id, value, n)
+    else if op == "diffreview" and (id.startsWith("drag:") or id.startsWith("gutter:") or id.startsWith("comment:") or id == "to" or id == "end")
+      // A gutter drag sends at its press, on each line and at its release; a click's press and
+      // release come within a few ms, so they queue on their own send (a later send on one mutation would replace the
+      // press before it ran, and `changed` takes one command at a time). The "+"'s press queues behind its drag.
+      send lineDragChanged = command(op, id, value, n)
+    else
+      if op.endsWith(":ticket")
+        send terminalTicketChanged = command(op, id, value, n)
+      else if op.startsWith("terminallocal:") or op.startsWith("terminalpanellocal:") or op.startsWith("pageslocal:welcome-terminal-page")
+        send terminalChanged = command(op, id, value, n)
+      else if op == "draft" or op == "search" or op == "sidebar" or op == "answer" or op == "choice" or op == "dismiss-error" or op == "close-diff" or op == "diff-view" or op == "favorite-model"
+        send localChanged = command(op, id, value, n)
+      else if op == "chatlocal:diagram-frame" or op == "chatlocal:math-frame"
+        send frameReported = command(op, id, value, n) // a page's report is never dropped while a command runs
+      else
+        if not commandPending
+          commandPending = true
+          send changed = command(op, id, value, (n == 0 and op.startsWith("chat:")) ? wallTime.epochAtZero + performanceNow() : n)
+  members "./src/settings/root-settings.contract"
   action resizeSidebar(dx: number, dy: number)
     draggedWidth = min(max(max(208, data.sidebarMinWidth), viewport.width - 640), max(max(208, data.sidebarMinWidth), sidebarWidth + dx))
   action openProjects
@@ -1143,7 +1444,7 @@ component T3Code
       if data.hasMore and not data.historyLoading
         commandPending = true
         send changed = command("chatlocal:history", "", "", 0)
-  members "./src/shell/shell-members.contract"
+  members "./src/shell/root-panels.contract"
   state citeWaitAsked = 0
   state citeWaitDone = 0
   state citeDismissals = 0

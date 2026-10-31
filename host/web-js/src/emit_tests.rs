@@ -525,6 +525,41 @@ fn a_native_button_marks_bound_size_and_padding() {
 }
 
 #[test]
+fn a_capsule_control_takes_no_curve() {
+    // Written, the capsule's round corner is in the node's CSS beside its radius.
+    let plan = contract::compile(
+        r#"component App
+  view
+    button "Go" -exact-corner-style="capsule" testId="go"
+"#,
+    )
+    .unwrap();
+    let sites = crate::emit::Sites::new(&plan).unwrap();
+    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
+    let go = parts
+        .iter()
+        .flatten()
+        .find(|part| part.props.get("data-testid").is_some_and(|id| id == "go"))
+        .unwrap();
+    assert!(
+        go.css.contains("--exact-control-curve:round;"),
+        "{}",
+        go.css
+    );
+    // Bound, the module writes the curve with the radius.
+    let plan = contract::compile(
+        r#"component App
+  state round = true
+  view
+    button "Go" -exact-corner-style=(round ? "capsule" : "medium")
+"#,
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("--exact-control-curve"), "{js}");
+}
+
+#[test]
 fn static_authored_clears_keep_inline_css_over_platform_rules() {
     let plan = contract::compile(
         r##"component App
@@ -971,5 +1006,109 @@ fn a_bound_side_stays_its_authors_right_to_left_and_the_sheets_mirror() {
     assert!(
         !all.contains("padding-inline-start") && !all.contains("padding-inline-end"),
         "{all}"
+    );
+}
+
+/// A progress in block flow keeps its width with `justify-self: start` only where its parent's
+/// `justify-items` doesn't align it: a parent's own `start`, `center` or `end`, written or bound,
+/// aligns the progress, as the kernel's block layout does.
+#[test]
+fn a_progress_follows_its_block_parents_justify_items() {
+    let program = |items: &str, inner: &str| {
+        let source = format!("component App\n  state alignment = \"center\"\n  view\n    box justify-items={items} width=240 height=80\n      progress testId=\"outer\"\n      box width=240 height=40{inner}\n        progress testId=\"inner\"\n");
+        let out = crate::emit::emit(&contract::compile(&source).unwrap(), false, false).unwrap();
+        format!("{}\n{}", out.css, out.js)
+    };
+    let written = program("\"center\"", "");
+    assert!(
+        written.contains("--exact-progress-aligned:auto"),
+        "{written}"
+    );
+    assert!(
+        written.contains("var(--exact-progress-aligned,var(--exact-progress-justify,start))"),
+        "{written}"
+    );
+    // A plain block inside an aligning one cuts the inheritance: its progress keeps `start`.
+    assert!(
+        written.contains("--exact-progress-aligned:initial"),
+        "{written}"
+    );
+    let normal = program("\"normal\"", "");
+    assert!(
+        !normal.contains("--exact-progress-aligned:auto"),
+        "{normal}"
+    );
+    // A bound justify-items writes the property, `initial` for a value that aligns nothing.
+    let bound = program("alignment", "");
+    assert!(bound.contains("\"--exact-progress-aligned\""), "{bound}");
+    assert!(
+        bound.contains("?\"auto\":\"initial\""),
+        "the bound writer: {bound}"
+    );
+    assert!(!normal.contains("?\"auto\":\"initial\""), "{normal}");
+    // A server render's DOM keeps the bound string unparsed (dom.js): spaces are collapsed first.
+    let mapper = bound
+        .split("\"--exact-progress-aligned\"")
+        .nth(1)
+        .unwrap_or_default();
+    let mapper = &mapper[..mapper.find("\"auto\":\"initial\"").unwrap_or(0)];
+    assert!(mapper.contains(".trim()"), "{mapper}");
+}
+
+/// A canvas follows the same rule as a progress, written or bound: its `justify-self: start`
+/// gives way to an aligning parent's `justify-items` and stays where the parent would stretch it.
+#[test]
+fn a_canvas_follows_its_parents_justify_items() {
+    let program = |items: &str| {
+        let source = format!("component App\n  state alignment = \"center\"\n  view\n    box justify-items={items} width=240 height=80\n      canvas testId=\"c\" height=40\n");
+        let out = crate::emit::emit(&contract::compile(&source).unwrap(), false, false).unwrap();
+        format!("{}\n{}", out.css, out.js)
+    };
+    let written = program("\"center\"");
+    assert!(
+        written.contains("--exact-progress-aligned:auto"),
+        "{written}"
+    );
+    assert!(
+        written.contains("justify-self:var(--exact-progress-aligned,start)"),
+        "{written}"
+    );
+    assert!(!written.contains("justify-self:start"), "{written}");
+    let normal = program("\"normal\"");
+    assert!(
+        normal.contains("--exact-progress-aligned:initial"),
+        "{normal}"
+    );
+    let bound = program("alignment");
+    assert!(
+        bound.contains("\"--exact-progress-aligned\"") && bound.contains("?\"auto\":\"initial\""),
+        "the bound writer: {bound}"
+    );
+}
+
+/// A canvas that parents a canvas writes its child's alignment under the pair's other name, so its
+/// own `justify-self` still reads what its parent wrote.
+#[test]
+fn a_canvas_inside_a_canvas_reads_the_other_name() {
+    let source = "component App\n  view\n    box justify-items=\"center\" width=240 height=60\n      canvas testId=\"outer\" height=50 justify-items=\"normal\"\n        canvas testId=\"inner\" height=20\n";
+    let out = crate::emit::emit(&contract::compile(source).unwrap(), false, false).unwrap();
+    let css = out.css;
+    for want in [
+        "--exact-progress-aligned:auto",
+        "justify-self:var(--exact-progress-aligned,start)",
+        "--exact-progress-aligned-2:initial",
+        "justify-self:var(--exact-progress-aligned-2,start)",
+    ] {
+        assert!(css.contains(want), "{want}: {css}");
+    }
+    assert!(!css.contains("--exact-progress-aligned:initial"), "{css}");
+    // A component's root inside the canvas reads the canvas's names: uses are inlined.
+    let source = "component App\n  view\n    box justify-items=\"center\" width=240 height=60\n      canvas height=50\n        Inner()\n\ncomponent Inner\n  view\n    canvas height=20\n";
+    let out = crate::emit::emit(&contract::compile(source).unwrap(), false, false).unwrap();
+    assert!(
+        out.css
+            .contains("justify-self:var(--exact-progress-aligned-2,start)"),
+        "{}",
+        out.css
     );
 }

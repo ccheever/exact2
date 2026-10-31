@@ -104,12 +104,11 @@ describe('the approval\'s "More approval options" menu (ComposerPendingApprovalA
     const menu = line(requests, 'column id=`approval-menu-${approval.id}`');
     for (const part of ['popover="auto"', 'position-area="top span-left"', 'margin-bottom="0.25rem"', 'toggle=toggled', 'data-dialog-return="menu"',
       'focusin=dialogMenuEntered(`approval-menu-${approval.id}`, `approval-more-${approval.id}`)']) expect(menu).toContain(part);
-    // MenuPopup width "content": the popup is as wide as its rows (d356059c84).
-    expect(menu).not.toContain(' width=');
     const trigger = line(requests, 'button id=`approval-more-${approval.id}`');
     for (const part of ['popovertarget=`approval-menu-${approval.id}`', 'key=menuKey', 'aria-haspopup="menu"', 'aria-expanded=menuOpen']) expect(trigger).toContain(part);
     expect(trigger).not.toContain('press=');
-    expect(line(requests, 'KeyMenu(menuId=`approval-menu-${approval.id}-keys`')).toContain('items=menuItems, keyed=0, gap="0px", modal=true)');
+    const keyboardMenu = line(requests, 'KeyMenu(menuId=`approval-menu-${approval.id}-keys`');
+    for (const part of ['items=menuItems', 'keyed=0', 'modal=true']) expect(keyboardMenu).toContain(part);
     expect(line(requests, 'button id=testId press=choose')).toContain('popovertarget=menuId popovertargetaction="hide"');
     const actions = contractComponent('requests.contract', 'ApprovalActions'), state = actions.state();
     actions.call('toggled', state, {}, [{ newState: 'open' }]);

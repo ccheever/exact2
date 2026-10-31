@@ -112,8 +112,8 @@ final class TextPlaceIOSTests: XCTestCase {
     func testATallParagraphsBandMovesWithItsBox() throws {
         let text = String(repeating: "The measured page draws its words once and moves them as a label moves. ", count: 260)
         let (p, node) = try paragraph("text-box-band", text: text, height: 6000, box: [16, 0, 360, 6000])
-        let key = try XCTUnwrap(node.textRasterKey)
-        XCTAssertNotNil(key.clip, "a band")
+        let coverage = try XCTUnwrap(node.specs?.accepted?.result.coverage)
+        XCTAssertFalse(coverage.whole, "a band")
         let pixels = try XCTUnwrap(node.textRaster), before = try words(node)
         UIView.animate(withDuration: 0.5) {
             p.apply(wireBatch([["op": "fieldContent", "id": 2, "rect": [36.0, 0.0, 360.0, 6000.0]]]))
@@ -122,8 +122,8 @@ final class TextPlaceIOSTests: XCTestCase {
         _ = p.refreshVisibleText()
         p.textRasters.settleVisible([node])
         XCTAssertTrue(node.textRaster === pixels, "the band is kept")
-        XCTAssertEqual(node.textRasterKey?.clip?.minY, key.clip?.minY, "its rows")
-        XCTAssertEqual(node.textRasterKey?.clip?.maxY, key.clip?.maxY, "its rows")
+        XCTAssertEqual(node.specs?.accepted?.result.coverage.answered.minY, coverage.answered.minY, "its rows")
+        XCTAssertEqual(node.specs?.accepted?.result.coverage.answered.maxY, coverage.answered.maxY, "its rows")
         XCTAssertEqual(try words(node).minX - before.minX, 20, accuracy: 0.01)
         XCTAssertNotNil(slide(node), "it moves inside the animation")
     }
@@ -134,12 +134,10 @@ final class TextPlaceIOSTests: XCTestCase {
     func testABandOfOnlyPaddingIsPaintedNotFailed() throws {
         let text = String(repeating: "Words far below the port. ", count: 200)
         let (_, node) = try paragraph("text-box-padding-band", text: text, height: 6000, box: [16, 5000, 360, 1000])
-        XCTAssertNotNil(node.textRasterKey?.clip, "a band")
+        XCTAssertFalse(node.textRasterWhole, "a band")
         XCTAssertFalse(node.textRasterFailed, "pixels for the band, not UIKit's backing store")
     }
 
-    /// A kept image whose ink a narrow view cut does not keep a wider view's,
-    /// which it cannot serve, out of the cache: the wider one replaces it.
     func testAWiderViewsLabelReplacesANarrowOnesInTheCache() throws {
         let session = ExactApp.shared.makeSession(label: "text-box-kept")
         self.session = session
@@ -149,7 +147,6 @@ final class TextPlaceIOSTests: XCTestCase {
         window.addSubview(p.viewport)
         window.makeKeyAndVisible()
         self.window = window
-        // About 440 points of ink: past a 20-point view's limit (its bounds and 256 points), within a 400-point one's
         let label = String(repeating: "M", count: 60), style: [String: Any] = ["font_size": 10.0, "white_space": "nowrap"]
         var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"]]
         for (id, width) in [(2, 20.0), (3, 400.0), (4, 400.0)] {
@@ -166,7 +163,7 @@ final class TextPlaceIOSTests: XCTestCase {
             p.textRasters.ensure(node, urgent: true)
             XCTAssertTrue(node.textRasterReady)
         }
-        XCTAssertLessThan(try words(narrow).maxX, try words(wide).maxX - 100, "the narrow view cut its ink")
+        XCTAssertEqual(try words(narrow).maxX, try words(wide).maxX, accuracy: 0.01, "allocation width does not cut affordable ink")
         again.dropTextRaster()
         RegionTextExecutor.queue.isSuspended = true
         defer { RegionTextExecutor.queue.isSuspended = false }
@@ -180,7 +177,7 @@ final class TextPlaceIOSTests: XCTestCase {
     func testATallParagraphsBandHoldsALineInItsPadding() throws {
         let text = String(repeating: "The measured page draws its words once and moves them as a label moves. ", count: 260)
         let (_, node) = try paragraph("text-box-indent", text: text, style: ["text_indent": -100.0], height: 6000, box: [100, 0, 280, 6000])
-        XCTAssertNotNil(node.textRasterKey?.clip, "a band")
+        XCTAssertFalse(node.textRasterWhole, "a band")
         XCTAssertLessThan(try words(node).minX, 4, "its first line starts in the padding, at the view's edge")
     }
 
@@ -193,7 +190,7 @@ final class TextPlaceIOSTests: XCTestCase {
         XCTAssertLessThan(try words(node).minX, 4, "its first line starts at the view's edge")
         let text = String(repeating: "Tight lines of large type. ", count: 400)
         let (_, tall) = try paragraph("text-box-tight", text: text, style: ["font_size": 200.0, "line_height": "20px"], height: 6000, box: [16, 100, 360, 5900])
-        XCTAssertNotNil(tall.textRasterKey?.clip, "a band")
+        XCTAssertFalse(tall.textRasterWhole, "a band")
         XCTAssertLessThan(try words(tall).minY, 100 - 40, "its first glyphs rise well above its box")
     }
 
@@ -205,7 +202,7 @@ final class TextPlaceIOSTests: XCTestCase {
         XCTAssertGreaterThan(try words(node).maxX, 340, "its line's ink, past the box")
         let text = String(repeating: "The measured page draws its words once and moves them as a label moves. ", count: 260)
         let (_, tall) = try paragraph("text-box-band-far", text: text, style: ["text_indent": -320.0], height: 6000, box: [320, 0, 80, 6000])
-        XCTAssertNotNil(tall.textRasterKey?.clip, "a band")
+        XCTAssertFalse(tall.textRasterWhole, "a band")
         XCTAssertLessThan(try words(tall).minX, 4, "its first line starts at the view's edge")
     }
 
@@ -222,21 +219,17 @@ final class TextPlaceIOSTests: XCTestCase {
         XCTAssertLessThanOrEqual(CGFloat(pixels.width), (400 + 2 * TextRasterJob.maxInkOverflow) * scale + 2, "bounded across")
     }
 
-    /// Ink the view's bounds cut (a line running past them) is painted again,
-    /// in the frame that shows it, when the view grows to show more of it:
-    /// the old pixels do not answer for the larger view, and kept pixels cut
-    /// so serve no larger view. A box that only moves in its view keeps its
-    /// pixels (`testAParagraphWhoseBoxMovesKeepsItsPixelsAndMovesInTheAnimation`).
-    /// The type is small enough for the cut line's pixels to be kept.
     func testInkTheViewCutIsPaintedAgainWhenTheViewGrows() throws {
         let (p, node) = try paragraph("text-box-grows", text: String(repeating: "M", count: 175), style: ["white_space": "nowrap", "font_size": 7.0], box: [0, 0, 80, 40])
-        XCTAssertLessThanOrEqual(try words(node).maxX, 400 + TextRasterJob.maxInkOverflow + 1, "cut past the view")
+        let pixels = try XCTUnwrap(node.textRaster)
+        XCTAssertTrue(node.textRasterWhole, "the affordable complete line is retained")
         let window = try XCTUnwrap(self.window)
         window.frame.size.width = 1000
         p.viewport.frame = window.bounds
         p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 1000.0, "h": 400.0], ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 800.0, "h": 40.0]]))
         p.paintVisibleText()
-        XCTAssertGreaterThan(try words(node).maxX, 400 + TextRasterJob.maxInkOverflow + 100, "more of the line, before any worker")
+        XCTAssertTrue(node.textRaster === pixels, "a wider view reuses the complete line")
+        XCTAssertTrue(node.textRasterAnswers(p.textScrollportRect(node)))
     }
 
     /// Flex text's lines move down their box (`textOffset`) with no frame or

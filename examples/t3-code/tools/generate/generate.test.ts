@@ -2,6 +2,9 @@ import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkGfm from 'remark-gfm';
 
 // The generated sources are built, not committed: the ones on disk are what the generator makes from
 // the pinned packages and the committed inputs (`generate.mjs` writes them; this fails until it has).
@@ -33,6 +36,12 @@ test('assets/vendor/highlights/ holds the pinned @pierre/highlights licence and 
 test('the generator pins its packages at the integrity values the reference locks', () => {
   const lock = readFileSync(join(import.meta.dir, 'bun.lock'), 'utf8');
   for (const [name, integrity] of [
+    ['@shikijs/langs@4.2.0', 'bwrVRlJ0wUhZxAbVdvBbv2TTC9yLsh4C/IO5Ofz0T8MQntgDvyVnkbjw9vi50r1kx7RCIJdnJnjZAwmAsXFLZQ=='],
+    ['@pierre/theme@2.0.0', 'yNDd9GYLQl1mEUJR8AneJ5e4ohLIHQd/wZLWr4fagt78vS2RwwZNW530vVgHqXFAyFVcFlRmGUD5ramXH46OXw=='],
+    ['oniguruma-to-es@4.3.6', 'csuQ9x3Yr0cEIs/Zgx/OEt9iBw9vqIunAPQkx19R/fiMq2oGVTgcMqO/V3Ybqefr1TBvosI6jU539ksaBULJyA=='],
+    ['oniguruma-parser@0.12.2', '6HVa5oIrgMC6aA6WF6XyyqbhRPJrKR02L20+2+zpDtO5QAzGHAUGw5TKQvwi5vctNnRHkJYmjAhRVQF2EKdTQw=='],
+    ['regex@6.1.0', '6VwtthbV4o/7+OaAF9I5L5V3llLEsoPyq9P1JVXkedTP33c7MfCG0/5NOPcSJn0TzXcG9YUrR0gQSWioew3LDg=='],
+    ['regex-recursion@6.0.2', '0YCaSCq2VRIebiaUviZNs0cBz1kg5kVS2UKUfNIx8YVs1cN3AV7NTctO5FOKBA+UT2BPJIWZauYHPqJODG50cg=='],
     ['@pierre/highlights@0.2.0', 'hTpcOU1EzDAP4bYtEhxmMu2jwMvtkUydRUBUpWMSHTs3dw0IaC3Ld5ansMy18L0GE3b6Vfl2OGkLK+pWWpnBmw=='],
     ['lucide@0.564.0', 'FasyXKHWon773WIl3HeCQpd5xS6E0aLjqxiQStlHNKktni+HDncc1sqY+6vRUbCfmDsIaKQz43EEQLAUDLZO0g=='],
     ['lucide-react@0.564.0', 'JJ8GVTQqFwuliifD48U6+h7DXEHdkhJ/E87kksGByII3qHxtPciVb8T8woQONHBQgHVOl7rSMrrip3SeVNy7Fg=='],
@@ -59,6 +68,32 @@ test('the generator pins its packages at the integrity values the reference lock
   }
 });
 
+test.each(['**', '*'])('table admission rejects malformed positioned children within %s', delimiter => {
+  const source = `| A |\n| --- |\n| ${delimiter}ready${delimiter} |`;
+  const parsed = unified().use(remarkParse).use(remarkGfm).parse(source);
+  const adapter = readFileSync(join(import.meta.dir, 'minimap-preview-text.mjs'), 'utf8');
+  const boundary: (node: unknown, start: number, end: number) => unknown = new Function(
+    adapter.slice(adapter.indexOf('function fileNodeRange('), adapter.indexOf('function fileSegments(')) + '\nreturn fileTableSlice;')();
+  const table = parsed.children[0];
+  if (table?.type !== 'table') throw new Error('Expected a parsed table');
+  expect(boundary(table, 0, source.length)).not.toBeNull();
+  for (const [start, end] of [[-1, 1], [source.length, source.length + 1], [20, 19], [NaN, 23], [1.5, 23]]) {
+    const changed = structuredClone(table), run = changed.children[1]?.children[0]?.children[0];
+    if (run?.type !== 'strong' && run?.type !== 'emphasis') throw new Error('Expected a formatted run');
+    const child = run.children[0];
+    if (!child?.position) throw new Error('Expected a positioned child');
+    child.position.start.offset = start; child.position.end.offset = end;
+    expect(boundary(changed, 0, source.length)).toBeNull();
+  }
+  const changed = structuredClone(table), run = changed.children[1]?.children[0]?.children[0];
+  if (run?.type !== 'strong' && run?.type !== 'emphasis') throw new Error('Expected a formatted run');
+  const child = run.children[0];
+  if (child?.type !== 'text') throw new Error('Expected a text child');
+  child.value = '';
+  expect(boundary(changed, 0, source.length)).toBeNull();
+  run.children = [];
+  expect(boundary(changed, 0, source.length)).toBeNull();
+});
 // A prebuilt file carries its dependencies' code (jszip.min.js holds pako, lie, immediate and setimmediate), so the
 // viewer page's notices follow each shipped package's dependencies, as the reference's third-party-licenses.ts does,
 // less what a browser build replaces or leaves out: jszip's readable-stream (its `browser` field), pdfjs-dist's

@@ -28,7 +28,7 @@ import { threadOps } from '../../src/client/client-ops-threads';
 import type { OpOut } from '../../src/client/client-ops';
 import { terminalUiStore } from '../../src/terminal/terminal-ui-state';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
-import { appPath, appText } from '../support/app-files';
+import { appText, appPath } from '../support/app-files';
 import { acceptComposerEdit, observeComposer } from '../support/composer-field-fixture';
 import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 

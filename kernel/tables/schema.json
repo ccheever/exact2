@@ -6303,6 +6303,8 @@
     ["menu-row-padding-block", "length", "0.25em"],
     ["menu-row-padding-inline", "length", "0.625em"],
     ["menu-row-gap", "length", "0.5em"],
+    ["popover-padding", "length", "1rem"],
+    ["popover-margin", "length", 16],
     ["sheet-wide", "length", 900],
     ["sheet-width", "length", "35rem"],
     ["sheet-height", "length", "45rem"],

@@ -10,7 +10,7 @@ import { DEFAULT_SEND_RULES, pressGesture, sendIntent } from '../../src/composer
 import { contractComponent } from '../support/contract-action-fixture';
 import { contractFns } from '../support/contract-fn-fixture';
 import { toasts } from '../../src/shell/toast';
-import { appPath, appText } from '../support/app-files';
+import { appText, appPath } from '../support/app-files';
 import { obj } from '../../src/client/domain';
 import { contextId, contextLink } from '../../src/composer/composer-editor-menu';
 import { ATTACHMENT_ONLY_PROMPT } from '../../src/composer/queued-edit-attachments';
@@ -196,7 +196,7 @@ describe('a Send press carries its own pointer modifiers', () => {
     // The reference resolves its send chords only in the composer's editor (composerSubmissionIntentForKey): with the
     // composer unfocused ⌘↩ sends nothing, so Send declares no chord (the composer's key action takes them).
     expect(controls.split('\n').filter(line => line.includes('button press=sendPress ') && line.includes('aria-keyshortcuts='))).toEqual([]);
-    const app = await appText('app.contract');
+    const app = appText('app.contract');
     expect(app).toContain('  action send(held: string)');
     expect(app).toContain('    submit(held == "" ? "" : `pointer:${held}`)');
     expect(app).toContain('send changed = command("send", gesture, composerText, 0)');

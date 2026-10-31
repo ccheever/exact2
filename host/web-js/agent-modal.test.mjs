@@ -115,7 +115,7 @@ test.each(['tap', 'pan', 'reveal', 'pointer', 'hover', 'wheel', 'check', 'contex
       expect(await scroll()).toBe(0);
       // The standalone default keeps its DOM-ancestry refusal; both agents supply inertAncestor.
       expect(await browser.carrier.evaluate(`(async () => {
-        const { reveal } = await import('/shared/input-glue.js');
+        const { reveal } = await import('/shared/agent-input.js');
         return reveal(document.querySelector('[data-testid="below"]'), 0).scrolled;
       })()`)).toBe(false);
       expect(await scroll()).toBe(0);

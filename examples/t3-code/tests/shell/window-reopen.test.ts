@@ -6,7 +6,7 @@ import { expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { shellLocal } from '../../src/shell/shell-commands';
-import { appPath, appText } from '../support/app-files';
+import { appText, appPath } from '../support/app-files';
 import { contractComponent, type Env } from '../support/contract-action-fixture';
 
 test('the reopen opens the most recent project\'s draft, and the closed thread keeps its draft', async () => {
@@ -48,7 +48,7 @@ test('reopening leaves Settings, utility pages and the palette, then loads and f
 });
 
 test('the reopen task keys each restored page, independently of visibility and focus', async () => {
-  const app = await appText('app.contract');
+  const app = appText('app.contract');
   const shapes = await Bun.file(appPath('app-shapes.contract')).text();
   expect(shapes).toMatch(/shape Page\n(  \w+: \w+\n)*  restores: number/);
   expect(app).toMatch(/task windowReopen when page\.restores > 0 key=page\.restores\n    after\(1, windowReopened\)/);

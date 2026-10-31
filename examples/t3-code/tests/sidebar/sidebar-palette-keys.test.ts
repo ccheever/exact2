@@ -3,6 +3,7 @@
 // chords, the header's facts, the month). The keys as a person presses them, through the Contract handlers, are
 // sidebar-palette-keys.test.contract, which the agent runs against the app (`agent.mjs macos --test`); the few
 // source reads below only pin the wiring between the two, as dialog-focus.test.ts does.
+import { appText } from '../support/app-files';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
@@ -15,10 +16,8 @@ import { newThreadInItems, threadJumpChords } from '../../src/palette/palette';
 import { paletteView } from '../../src/palette/palette-view';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
 import { calendarMove, dateLabel, snoozeCalendar } from '../../src/sidebar/snooze-calendar';
-import { appText } from '../support/app-files';
 
-
-const source = async (file: string) => appText(file);
+const source = (file: string) => appText(file);
 const NOW = new Date(2026, 9, 9, 21, 37).getTime(); // Friday, October 9, 2026, local time
 beforeEach(() => setRuntimeClock(() => NOW));
 afterEach(() => setRuntimeClock(() => Number.NaN));

@@ -6,7 +6,9 @@
 // what opened it: the button, or the node a context menu opened on, as the
 // menu's `beforetoggle` said (navigation.js `popoverSource`). A popover
 // written inside the menu stays nested by where it is (HTML), whatever its
-// source. Loaded after the first paint (glue.js), the JS target at boot.
+// source. It also closes a popover whose control left the screen, and marks
+// the button that opened a popover while the popover is open (below). Loaded
+// after the first paint (glue.js), the JS target at boot.
 import { popoverSource } from "./navigation.js";
 
 /** HTML's popover commands, and what each does. */
@@ -60,6 +62,7 @@ function menuRows() {
   if (globalThis.exactMenuRows) return;
   globalThis.exactMenuRows = true;
   addEventListener("click", e => {
+    if (globalThis.exact?.strayClick?.(e)) return; // the input glue swallows it: a lift off the target the touch began on
     const row = e.target.closest?.("button[popovertarget], button[commandfor]");
     const menu = row?.closest('[popover][role="menu"]');
     // Only a row that opens a popover at the click: every other keeps HTML's own activation (a press
@@ -70,6 +73,40 @@ function menuRows() {
     // HTML would act on what the row names before its own press; this acts after it, on the popover it names then.
     e.preventDefault();
     setTimeout(() => act(row, menu, clicked));
+  }, true);
+  // An open popover belongs to the screen of the control that opened it (its `beforetoggle` source, navigation.js
+  // `popoverSource`), as UIKit dismisses a menu with the screen that presented it: when that control leaves the page
+  // or is no longer shown (its route popped, or switched away from), the popover closes. HTML ties a popover's life to
+  // its own element only, so this is the one place that says it; while any is open, each frame looks. A popover
+  // removed while open is forgotten there too, since HTML's removing steps hide it with no `toggle`.
+  const opened = new Map(); // popover -> the control that opened it
+  // While its popover is open a button stays pressed (neutral.css reads the mark as it reads a press); not for a
+  // context menu, which the Mac opens on a button without highlighting it. A popover hidden and shown again from
+  // another button in one task fires a single `toggle`, open to open, which moves the mark; a button two open popovers
+  // marked keeps it until both close.
+  const marks = (pop, source) => source.matches("button") && !pop.matches('[style*="--exact-context-x"]');
+  const forget = pop => {
+    const source = opened.get(pop);
+    opened.delete(pop);
+    if (source && ![...opened].some(([p, s]) => s === source && marks(p, s))) source.removeAttribute("data-exact-open");
+  };
+  // A route switched away from is `visibility: hidden` (navigation.js), so visibility counts as not shown.
+  let sweeping = false;
+  const sweep = () => {
+    for (const [pop, source] of opened) {
+      if (!pop.isConnected || !pop.matches(":popover-open")) forget(pop);
+      else if (!source.checkVisibility({ visibilityProperty: true })) pop.hidePopover(); // its `toggle` forgets it
+    }
+    sweeping = opened.size > 0;
+    if (sweeping) requestAnimationFrame(sweep);
+  };
+  addEventListener("toggle", e => {
+    const pop = e.target, source = popoverSource(pop);
+    forget(pop);
+    if (e.newState !== "open" || !source) return;
+    if (marks(pop, source)) source.setAttribute("data-exact-open", "");
+    opened.set(pop, source);
+    if (!sweeping) { sweeping = true; requestAnimationFrame(sweep); }
   }, true);
 }
 

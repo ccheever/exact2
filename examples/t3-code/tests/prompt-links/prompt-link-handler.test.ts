@@ -291,6 +291,15 @@ test('an HTML file opens from its signed asset URL, and a link the browser refus
     await open('file:///Users/me/My%20Page.html');
     expect(native.calls.find(call => call.method === 'assets.createUrl')?.payload).toMatchObject({ resource: { _tag: 'media-file', path: '/Users/me/My Page.html' } });
     expect(previewOpens(native).at(-1)?.url).toBe('http://127.0.0.1:3773/api/assets/token/page.html');
+    const browserId = str(previewOpens(native).at(-1)?.threadId);
+    expect(client.threadId).toBe('');
+    await open('file:///scratch/standalone.html');
+    expect(native.calls.filter(call => call.method === 'assets.createUrl').at(-1)?.payload).toEqual({
+      resource: { _tag: 'media-file', threadId: browserId, path: '/scratch/standalone.html' },
+    });
+    expect(previewOpens(native).at(-1)?.threadId).toBe(browserId);
+    expect(native.calls.filter(call => call.method === 'projects.ensureScratch')).toHaveLength(1);
+    expectNotSent(native);
     native.previewRefusal = 'Preview is unavailable.';
     await open('https://example.com/');
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not open the link', description: 'Preview is unavailable.' });
@@ -357,4 +366,3 @@ test('a t3code://pair link asks to add the backend, spends its code only once co
   expect(promptLinkView(client).pairing).toBe('');
   expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not add backend', description: 'Pairing URL is missing its token.' });
 });
-

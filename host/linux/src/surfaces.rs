@@ -27,6 +27,8 @@ pub(crate) use android::acquire_fd;
 pub use android::{buffer_frame, window_ready};
 #[cfg(target_os = "android")]
 pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepare_gpu, sensors};
+#[cfg(target_os = "macos")]
+pub(crate) mod apple;
 #[path = "surface_controls.rs"]
 pub(crate) mod controls;
 mod pixels;
@@ -420,6 +422,10 @@ impl Canvas {
 }
 #[derive(Default)]
 pub(crate) struct Surfaces {
+    #[cfg(target_os = "macos")]
+    pub(crate) apple_layer: Option<exact_ink::device::apple::Layer>,
+    #[cfg(target_os = "macos")]
+    pub(crate) apple_boot: Option<apple::Boot>,
     #[cfg(windows)]
     window_layers: Option<window::Layers>,
     #[cfg(windows)]

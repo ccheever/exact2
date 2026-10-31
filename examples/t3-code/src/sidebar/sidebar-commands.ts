@@ -32,7 +32,8 @@ import { archiveBackground, backgroundThreadPath, backgroundWorktreePlan, envAcc
 import { openBranchDraft, revealRowTerminal, rowThread } from './legacy-sidebar-links';
 import { dropHeldRename, startHeldRename, startRename } from './sidebar-rename-wait';
 import { openPendingPort, watchRowPorts } from './legacy-sidebar-ports';
-import { closeThreadTerminals, detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup';
+import { detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup';
+import { closeThreadTerminals } from '../terminal/thread-terminal-cleanup';
 import { deleteSelectedThreadEntries, getFallbackThreadIdAfterDelete } from './sidebar-delete-logic';
 import { openHome } from '../pages/home-landing';
 import { focusFleetThread, parseFleetThreadId } from '../connections/settings-b-fleet';

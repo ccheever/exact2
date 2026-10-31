@@ -15,7 +15,7 @@ import { surfaceLocal, surfaceStore } from '../../src/panel/panel-surfaces';
 import { adoptCaptureNative } from '../../src/browser/browser-capture';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
-import { appPath, appText } from '../support/app-files';
+import { appText, appPath } from '../support/app-files';
 
 const STARTED_AT = '2026-10-11T12:00:00.000Z';
 function fakeRecordings(options: { size?: number } = {}) {

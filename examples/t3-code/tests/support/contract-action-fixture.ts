@@ -133,7 +133,6 @@ function run(nodes: Node[], outer: Env, slots: Set<string>, writes: Env, owner: 
       if (m[1]! in env) throw new Error(`a local cannot shadow ${m[1]}`);
       env[m[1]!] = value(m[2]!, env);
     } else if ((m = /^send (\w+) = (.+)$/.exec(line))) {
-      // A mutation's send: its command, a call the scope records, and the mutation it goes on, told to the scope's `sent`.
       const command = value(m[2]!, env);
       if (typeof env.sent === 'function') env.sent(m[1]!, command);
     } else if ((m = /^refresh (\w+)$/.exec(line))) {
@@ -164,10 +163,9 @@ function uncommented(line: string): string {
   return line;
 }
 
-/** `component name` of `file` (next to this module): its state, its actions and its derives. */
+/** `component name` of `file`: its assembled state, actions and derives. */
 export function contractComponent(file: string, name: string) {
   const source = appText(file).split('\n');
-  // A component, or a members file of one (`members T3Code`), whose members read as the component's.
   const from = source.includes(`component ${name}`) ? source.indexOf(`component ${name}`) : source.indexOf(`members ${name}`);
   if (from < 0) throw new Error(`${file}: no component ${name}`);
   const to = source.findIndex((line, i) => i > from && line.startsWith('component '));
@@ -198,7 +196,6 @@ export function contractComponent(file: string, name: string) {
     return { params, body: tree(0, 4)[0] };
   };
 
-  /** The first line of the view containing `marker`. */
   const viewLine = (marker: string): string => {
     const line = lines.slice(lines.indexOf('  view') + 1).find(entry => entry.includes(marker));
     if (!line) throw new Error(`${file}: no view line of ${name} has ${marker}`);

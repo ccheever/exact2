@@ -27,6 +27,8 @@ mod inspect;
 mod inspect_tests;
 #[cfg(test)]
 mod layout_transition_tests;
+#[cfg(test)]
+mod lower_tests;
 mod measures;
 #[cfg(test)]
 mod measures_tests;
@@ -37,6 +39,7 @@ mod paint;
 #[cfg(test)]
 mod paint_tests;
 mod reads;
+mod sized;
 mod style;
 mod symbols;
 

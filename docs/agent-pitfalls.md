@@ -481,6 +481,18 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `EXACT_AGENT=1` and `EXACT_AGENT_FAIL_FETCH`, no socket) shows the native bars
   and menus, its fetches still failing. (Signal Clone, builds 5 and 10; Splitter,
   rough 4 and 11; Recipe Finder, round 27.)
+- **An external touch needs a second tap under the agent.** `timing: 'platform'`
+  keeps UIKit animations natural; the agent still controls runner scheduling.
+  External gestures can leave mutation continuations or tasks waiting for a
+  clock advance. Use the driver's clock for a diagnostic, then compare an
+  ordinary launch without `EXACT_AGENT` before calling this an app defect.
+  T3 Code's first Home tap worked in that ordinary comparison.
+- **The iOS app renders but the agent handshake times out.** A deeply nested
+  task-private `TMPDIR` can make the agent's Unix socket path exceed the host's
+  length limit. Use a short, task-owned temporary directory, such as
+  `/private/tmp/exact-<task-id>`, and retain its ownership and cleanup record.
+  Shortening that path restored the handshake without rebuilding the app.
+  (T3 Code Review qualification, ENG-28508.)
 - **An `EmptyState`'s button sits at the bottom of the screen.** Cause: the part
   takes the free height it is given, so a `button` written after it lands at that
   space's foot. Fix: indent the button under the `EmptyState` call, its slot.
@@ -813,6 +825,10 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   `length`). Fix: another
   word (`count`, `steps`, `empty`). (euxy port, 2026-10-15.)
 
+- **An action call also names a host command.** `setMode(value)` is ambiguous
+  when an action is also named `setMode` (`syntax-call-ambiguous`). Rename the
+  action and its bindings, for example to `chooseMode`.
+
 - **`nav` read after it is assigned in the same action is the old value.** State
   writes land when the action ends (`analyze-read-after-assign`), so `nav = push(nav,
   "/d")` then `top(nav)` still sees the route before it. Fix: `let next = push(nav,
@@ -856,6 +872,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   `Aborted` (it would send twice); declare the mutation `queue` when every
   send's reply matters (LLP 1092). Until 2026-10-05 the continuation vanished
   natively, which held the Signal clone's sends forever (build 35).
+
+- **`redirect: 'manual'` shows a redirect natively and hides it on the web.**
+  Natively a fetch with `redirect: 'manual'` answers the 3xx with its
+  `Location`; in a browser it answers an opaque redirect (status 0, no headers),
+  and a `Cookie` header the app sets is dropped. An app's own OAuth sign-in
+  that reads the authorization step's `Location` therefore works natively only:
+  a web build sends that request from a server (`docs/contract-for-agents.md`,
+  "An app's own sign-in screens").
 
 - **Resetting a mutation beside its send can discard the new reply.** For a
   mutation without `queue`, `saved = none` in the action that sends `saved`
@@ -1145,10 +1169,39 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 ## Driving and testing
 
+- **`bun test` reports that a test is outside the test runner.**
+  Importing `scripts/app.mjs` calls `ensureBun()`. If it selects another Bun
+  executable, re-execution carries the script arguments but loses Bun's `test`
+  mode. Set `BUN` to the pinned executable you invoke, even when both paths
+  report the same version. (Main integration, 2026-10-28;
+  [executable selection](../scripts/bun.mjs), `ensureBun`.)
+
+- **An iOS release simulator build keeps a separate version stamp.**
+  `EXACT_VERSION` and `EXACT_BUILD_NUMBER` enter the iOS bundle through
+  `distributionKeys` only when `--archive` writes an IPA. A `--ios --release`
+  build can still report `0.1.0 (1)` with those variables set. Inspect each
+  artifact's `Info.plist` separately before claiming its version or source.
+  (T3 release verification, 2026-10-28;
+  [bundle assembly](../host/apple/bundle.mjs), `assembleIOS`.)
+
 - **A temporary import fixture says a sibling `use` leaves the app directory.**
   Canonicalize its directory before passing the entry path to the compiler. On
   macOS, `/var` aliases `/private/var`; mixing those paths makes the containment
   check reject the sibling. (`contract-property-cone`, 2026-10-28.)
+
+- **A private preview fixture cannot import an app's components.**
+  The entry file's parent is its app root. An unnamed relative `use` must stay
+  inside that root. Put the temporary entry beside the app's components,
+  compile its plan into private output, and remove the entry in `finally`.
+  [Source boundary](../contract/cli/src/lib.rs), `app_root`.
+
+- **Restored app sources still report implicit `any` in callbacks.**
+  A temporary Contract entry can replace the ignored `app.contract.d.ts` with
+  fixture signatures. Restore the original entry and data files, then regenerate
+  declarations with `target/debug/contract types <app>/app.contract -o
+  <app>/app.contract.d.ts` before strict TypeScript checking. Restoring tracked
+  bytes alone does not restore these generated signatures. (T3 preview fixture,
+  2026-10-29.)
 
 - **A timer has fired before the next assertion although the test has no clock line.**
   The test driver advances one millisecond per mutation request after each step,
@@ -1856,6 +1909,15 @@ are in [game-pitfalls.md](game-pitfalls.md).
 
 
 ## Access hatches
+
+- **A native view stays in `error` after its resource becomes ready.** A cold
+  startup can supply an empty resource placeholder to the factory. A refused
+  create has no handle, so `NativeViews.update` cannot apply later props
+  (`host/apple/Sources/ExactKit/NativeModule.swift`). Mount the tag only when
+  its required configuration and route key are present, as T3 Code's
+  `mobile/home-chrome.contract` and `mobile/mobile-keyboard.contract` do.
+  On EAS, their empty configurations caused factory refusals; conditional
+  mounts let both factories reach `ready` after the resources completed.
 
 - **Published diagnostics stop gaining keys, or repeated elements overwrite
   one another.** `element.diagnostics` is scoped to the hatch word. The session

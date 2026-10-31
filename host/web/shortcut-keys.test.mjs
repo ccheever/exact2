@@ -21,7 +21,7 @@ function page(chords, { shown = true, marked = false } = {}) {
     hasAttribute: name => marked && name === 'data-exact-bar-back', getAttribute: () => chord, click() { clicks.push(chord); } }));
   const context = {
     document: { addEventListener(kind, fn, capture) { if (kind === 'keydown' && capture) listeners.push(fn); }, activeElement: { closest: () => null },
-      getElementById: id => (id === 'exact-snap' ? {} : null), styleSheets: [] },
+      getElementById: id => (id === 'exact-snap' ? {} : null), styleSheets: [], documentElement: { dataset: {} } },
     getComputedStyle: () => ({ visibility: 'visible' }),
     // What the input glue reads as it starts that no chord here touches: its sheets' observers, hover, looks.
     MutationObserver: class { observe() {} disconnect() {} takeRecords() { return []; } },

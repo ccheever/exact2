@@ -9,8 +9,7 @@
 // packages/client-runtime/src/operations/commands.ts stopThreadSession.
 // Changes: the confirmation is the sidebar's dialog (kind "delete-worktree"),
 // answered by a later command instead of an awaited promise, so the deletion
-// that asked is resumed from `worktreePrompt`; closing terminals with their
-// history is one hook (`closeThreadTerminals`), set by terminal-drawer-view.ts.
+// that asked is resumed from `worktreePrompt`.
 import { arr, effectiveWorktreeRules, obj, str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { Files, Native } from '../client/protocol';
@@ -95,14 +94,6 @@ export async function detachThreadSessions(client: T3Client, native: Native, thr
     }
   } catch { /* the reference awaits the detach and ignores its result */ }
 }
-
-/**
- * closeTerminal({ threadId, deleteHistory: true }) before the delete. The terminal
- * drawer (terminal-drawer-view.ts) sets this hook to its `terminal.close` call; until
- * it does, nothing is closed.
- */
-export let closeThreadTerminals: (client: T3Client, native: Native, threadId: string) => Promise<void> = async () => undefined;
-export function setCloseThreadTerminals(hook: typeof closeThreadTerminals): void { closeThreadTerminals = hook; }
 
 /**
  * After the thread is gone: vcs.removeWorktree (forced), then vcs.refreshStatus

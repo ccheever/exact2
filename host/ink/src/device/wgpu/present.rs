@@ -29,6 +29,7 @@ struct Renderer {
 
 impl Wgpu {
     pub fn attach_layer(&mut self, layer: Layer) -> Result<()> {
+        let _trace = crate::device::apple::Trace::new(c"boot wgpu attach layer");
         self.wait(self.submitted)?;
         let render_layer = layer.render_layer();
         // SAFETY: the window owner and its retained CAMetalLayer outlive the
@@ -161,6 +162,7 @@ impl Wgpu {
         let work = move |show| {
             let mut renderer = renderer.lock().unwrap();
             let result = if show {
+                crate::device::apple::benchmark_painter(true);
                 crate::device::apple::benchmark_present(benchmark);
                 renderer.present(view, size, transaction)
             } else {

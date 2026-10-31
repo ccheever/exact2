@@ -1,0 +1,226 @@
+use PaletteView, PaletteResult from "./palette.contract"
+
+members T3Code
+  state paletteOpen = false
+  state paletteMode = "command"
+  state palettePage = ""
+  state paletteQuery = ""
+  state paletteCursor = -1
+  state paletteScroll = 0
+  state paletteCase = false
+  state paletteWord = false
+  state paletteRegex = false
+  state paletteBusy = false
+  // The pages left for a deeper one, outermost first, with the query each had: going back restores it
+  // (CommandPalette.logic.ts reduceCommandPaletteSearchState). The file picker and content search opened from the
+  // command list keep its query for Escape (OpenChildSearch, BackToCommand).
+  state paletteTrailPages: string[] = []
+  state paletteTrailQueries: string[] = []
+  state paletteReturnQuery = ""
+  // The closing palette returns the focus it took (PaletteFinalFocus): no composer is shown to take it.
+  state paletteRestore = false
+  // Focus Next or Previous Workspace Area moves once the palette has closed (restoreWorkspaceFocusFromPalette).
+  state paletteWorkspaceMove = 0
+  state paletteWorkspaceSerial = 0
+  task paletteWorkspaceMoved when paletteWorkspaceMove != 0 and not paletteOpen key=paletteWorkspaceSerial
+    after(1, paletteWorkspaceRun)
+  action paletteWorkspaceRun
+    let direction = paletteWorkspaceMove
+    paletteWorkspaceMove = 0
+    workspaceMove(direction, "")
+  resource palette = paletteView(paletteOpen, paletteMode, palettePage, paletteQuery, `${paletteCase ? "case " : ""}${paletteWord ? "word " : ""}${paletteRegex ? "regex" : ""}`, paletteCursor >= 0, wallTime.epochAtZero + elapsed, scheme, data.revision) as shape PaletteView
+  mutation paletteChanged as shape PaletteResult refreshes data then paletteDone
+  derive paletteHighlight = palette.count == 0 ? -1 : (paletteCursor >= 0 ? min(paletteCursor, palette.count - 1) : (palette.autoHighlight and (paletteCursor == -1 or palette.panel == "picker") ? 0 : -1))
+  derive paletteListHeight = min(330, min(448, viewport.height * 0.7))
+  // The query a thread row was found by (CommandPalette.tsx threadSearchQuery): the root page's. A pull request's linked
+  // threads, listed while the query is its URL, only navigate, and a submenu's rows have none: "" for both.
+  derive paletteThreadQuery = (palettePage == "" or (palettePage.startsWith("pr-linked|") and palettePage != `pr-linked|${paletteQuery}`)) ? paletteQuery : ""
+  action paletteShow(mode: string, page: string)
+    let show = page != "" or not (paletteOpen and paletteMode == mode)
+    let shownPage = palettePage
+    paletteOpen = show
+    paletteMode = mode
+    palettePage = page
+    paletteQuery = ""
+    paletteCursor = mode == "files" or page != "" ? -2 : -1
+    paletteScroll = 0
+    modelsOpen = false
+    optionsOpen = ""
+    projectsOpen = false
+    modalError = ""
+    paletteTrailPages = []
+    paletteTrailQueries = []
+    paletteReturnQuery = ""
+    if show
+      paletteRestore = false
+      focus("palette-input")
+    else
+      paletteFocusBack(shownPage)
+  action paletteClose
+    if paletteMode != "command"
+      paletteMode = "command"
+      palettePage = ""
+      paletteQuery = paletteReturnQuery
+      paletteReturnQuery = ""
+      paletteTrailPages = []
+      paletteTrailQueries = []
+      paletteCursor = -1
+      paletteScroll = 0
+      focus("palette-input")
+    else
+      paletteOpen = false
+      paletteFocusBack(palettePage)
+  // finalFocus: back to the pull request control that opened the page, else the composer when one is shown, else
+  // the focus the palette took (PaletteFinalFocus).
+  action paletteFocusBack(page: string)
+    let composerShown = not settingsOpen and not pageCover and not promptLinkPage.show and frame("composer").width > 0
+    paletteRestore = page != "pr-link-thread" and not page.startsWith("pr-linked|") and not composerShown
+    if page == "pr-link-thread"
+      focus("pull-request-more")
+    else if page.startsWith("pr-linked|")
+      focus("pull-request-linked-threads")
+    else if composerShown
+      focus("composer")
+  // A page in the trail is an ancestor: going to it pops the deeper pages and restores its query. Back with no
+  // trail (a page opened directly) leaves the query empty; any other page is pushed, keeping this one's query.
+  action paletteGo(page: string, query: string, back: bool)
+    let at = paletteTrailPages.indexOf(page)
+    let saved = paletteTrailQueries.at(at)
+    let pushed = paletteTrailPages.concat([palettePage])
+    let pushedQueries = paletteTrailQueries.concat([paletteQuery])
+    let deeper = page != palettePage
+    if at >= 0
+      paletteTrailPages = paletteTrailPages.slice(0, at)
+      paletteTrailQueries = paletteTrailQueries.slice(0, at)
+      match saved
+        case some(text)
+          paletteQuery = text
+        case none
+          paletteQuery = ""
+    else if back
+      paletteTrailPages = []
+      paletteTrailQueries = []
+      paletteQuery = ""
+    else if deeper
+      paletteTrailPages = pushed
+      paletteTrailQueries = pushedQueries
+      paletteQuery = query
+    else
+      paletteQuery = query
+    palettePage = page
+  action paletteEdit(value: string)
+    paletteCursor = paletteMode == "content" ? -1 : -2
+    paletteScroll = 0
+    if value == "" and palette.popOnEmpty
+      paletteGo(palette.parent, "", true)
+    else
+      paletteQuery = value
+  action paletteKey(name: string)
+    if name == "ArrowDown" and palette.count > 0
+      let next = (paletteHighlight < 0 or paletteHighlight + 1 >= palette.count) ? 0 : paletteHighlight + 1
+      paletteCursor = next
+      match first(palette.rows.filter((r) => r.index == next))
+        case some(r)
+          paletteScroll = next == 0 ? 0 : max(paletteScroll, r.top + r.height + 24 - paletteListHeight)
+        case none
+    if name == "ArrowUp" and palette.count > 0
+      let previous = paletteHighlight <= 0 ? palette.count - 1 : paletteHighlight - 1
+      paletteCursor = previous
+      match first(palette.rows.filter((r) => r.index == previous))
+        case some(r)
+          paletteScroll = paletteHighlight <= 0 ? max(0, r.top + r.height + 24 - paletteListHeight) : min(paletteScroll, max(0, r.top - 24))
+        case none
+    if (name == "Back" or (name == "Backspace" and paletteQuery == "")) and palette.back
+      paletteGo(palette.parent, "", true)
+      paletteCursor = paletteCursor >= 0 ? -1 : -2
+      paletteScroll = 0
+      focus("palette-input")
+  action paletteHover(index: number, over: bool)
+    paletteCursor = over and index >= 0 ? index : paletteCursor
+  action paletteFlag(name: string)
+    paletteCursor = -1
+    paletteScroll = 0
+    paletteCase = name == "case" ? not paletteCase : paletteCase
+    paletteWord = name == "word" ? not paletteWord : paletteWord
+    paletteRegex = name == "regex" ? not paletteRegex : paletteRegex
+  action paletteRun(op: string, arg: string, arg2: string)
+    if op == "page" or op == "browse"
+      paletteGo(arg, op == "browse" ? arg2 : "", false)
+    if op == "browse-to"
+      paletteQuery = arg
+    if op == "mode"
+      paletteReturnQuery = paletteMode == "command" ? paletteQuery : ""
+      palettePage = ""
+      paletteMode = arg
+      paletteQuery = ""
+      paletteTrailPages = []
+      paletteTrailQueries = []
+    if op == "page" or op == "browse" or op == "browse-to" or op == "mode"
+      paletteCursor = op == "mode" and arg == "content" ? -1 : -2
+      paletteScroll = 0
+      focus("palette-input") // a clicked row takes the focus on its mouse down (NSWindow), so the field takes it back
+    // A command that goes nowhere gives the focus back as closing the palette does; one that navigates leaves it to
+    // where it went (getCommandPaletteReturnFocus).
+    if op == "device"
+      paletteOpen = false
+      paletteFocusBack(palettePage)
+      send localChanged = command("device-setting", arg, arg2, 0)
+    if op == "copy-thread"
+      paletteOpen = false
+      paletteFocusBack(palettePage)
+      send localChanged = command("restlocal:copy-thread", ":", "", 0)
+    if op == "workspace-focus"
+      paletteOpen = false
+      paletteWorkspaceMove = arg == "next" ? 1 : -1
+      paletteWorkspaceSerial = paletteWorkspaceSerial + 1
+    let editing = settingsThemeDialog == "create" or settingsThemeDialog == "edit" or settingsThemeDialog == "duplicate"
+    if op == "theme-editor"
+      paletteOpen = false
+      settingsThemeDialog = editing ? "" : "create"
+      settingsThemeSubject = ""
+      modalError = ""
+    if op == "settings" or op == "project-settings"
+      paletteOpen = false
+      providerLinkTarget = ""
+      settingsEnvironmentId = settings.environmentId
+      settingsOpen = true
+      settingsRoute = op == "project-settings" ? "projects" : arg
+      settingsFocusTarget = op == "settings" ? arg2 : ""
+      settingsJumpOpened = "" // a new jump starts with its first pass (settings-members.contract focusSettingsTarget)
+      settingsThemeDialog = editing ? settingsThemeDialog : ""
+      settingsThemeSubject = editing ? settingsThemeSubject : ""
+      settingsQuery = ""
+      settingsMenu = ""
+      settingsMachine = ""
+      settingsProjectKey = ""
+      settingsCheckout = ""
+      settingsProjectId = op == "project-settings" ? arg : ""
+      modalError = ""
+    if op == "usage" or op == "pull-requests" or op == "thread-pull-requests"
+      paletteOpen = false
+      settingsOpen = op == "thread-pull-requests" and settingsOpen // ⌘U from Settings leaves it, as the /usage route does
+      if op != "thread-pull-requests"
+        pageTrailNote(op)
+      utilityPage = op == "thread-pull-requests" ? utilityPage : op
+      rightPanelAt = op == "thread-pull-requests" ? shell.panel.key : rightPanelAt
+    if (op == "flow" or op == "open-project" or op == "finder" or op == "open-file" or op == "thread" or op == "new-thread" or op == "thread-pull-requests") and not paletteBusy
+      paletteBusy = true
+      send paletteChanged = paletteCommand(op == "flow" ? arg : (op == "finder" ? "pick-folder" : op), op == "flow" ? arg2 : arg, op == "open-file" ? arg2 : (op == "thread" ? `${wallTime.epochAtZero + performanceNow()} ${paletteThreadQuery}` : palettePage))
+  action paletteDone
+    paletteBusy = false
+    match paletteChanged
+      case some(result)
+        if result.close
+          paletteOpen = false
+        if result.page != "-"
+          paletteGo(result.page, result.query, false)
+          paletteCursor = -2
+          paletteScroll = 0
+        if (result.thread != "" or result.project != "") and not commandPending
+          draftOwner = "__unset__"
+          commandPending = true
+          send changed = command(result.thread != "" ? "select-thread" : "new-thread", result.thread != "" ? result.thread : result.project, "", 0)
+          jumpRequest = jumpRequest + 1
+          utilityPage = ""
+          focus("composer")
+      case none

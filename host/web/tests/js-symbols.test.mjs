@@ -10,13 +10,13 @@ import { withLook } from '../look.mjs';
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-symbols-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 copyFileSync(resolve(new URL('../../web-js/symbols.js', import.meta.url).pathname), resolve(dir, 'symbols.js'));
-writeFileSync(resolve(dir, 'rt.js'), 'export const { After, PropHooks, inflight, journal, clock, data } = globalThis.rtStandIn;\n');
+writeFileSync(resolve(dir, 'rt.js'), 'export const { After, PropHooks, Hooks, onEnd, inflight, journal, clock, data } = globalThis.rtStandIn;\n');
 writeFileSync(resolve(dir, 'picker-glue.js'), '');
 const After = [], PropHooks = {}, inflight = { n: 0 };
-globalThis.rtStandIn = { After, PropHooks, inflight, journal: [], clock: { now: 0 }, data: { appId: 'com.example' } };
+globalThis.rtStandIn = { After, PropHooks, Hooks: {}, onEnd() {}, inflight, journal: [], clock: { now: 0 }, data: { appId: 'com.example' } };
 
 class Img {
-  constructor() { this.localName = 'img'; this.attrs = new Map(); this.props = new Map(); this.classList = [];
+  constructor() { this.localName = 'img'; this.isConnected = true; this.attrs = new Map(); this.props = new Map(); this.classList = [];
     this.style = { setProperty: (k, v) => this.props.set(k, v), removeProperty: (k) => this.props.delete(k), getPropertyValue: (k) => this.props.get(k) ?? '' }; }
   setAttribute(k, v) { this.attrs.set(k, String(v)); }
   getAttribute(k) { return this.attrs.get(k) ?? null; }
@@ -31,16 +31,24 @@ class Img {
 const el = new Img();
 globalThis.document = {
   head: { append() {} }, createElement: () => ({}), styleSheets: [],
+  getElementById: () => ({}),
   querySelectorAll: (sel) => (sel.includes('data-symbol-path') ? el.hasAttribute('data-symbol-path') : sel.includes('data-app-src') ? el.hasAttribute('data-app-src') : el.hasAttribute('data-symbol-source')) ? [el] : [],
 };
 globalThis.getComputedStyle = () => ({ fontSize: '17px', fontWeight: '400', objectFit: 'contain', paddingLeft: '0', paddingRight: '0', paddingTop: '0', paddingBottom: '0', getPropertyValue: () => '' });
 globalThis.exact = { appURL: async (path) => `blob:test/${path}` };
+globalThis.window = {};
+globalThis.matchMedia = () => ({ addEventListener() {} });
+globalThis.MutationObserver = class { observe() {} };
+async function refreshSymbols() {
+  for (const f of After) f();
+  await Promise.resolve();
+}
 
 test('an image that leaves a symbol for an app:/ file keeps the file', async () => {
   const { symbols } = await import(resolve(dir, 'symbols.js'));
   symbols({ photo: ['M0 0L24 24', false] });
   expect(PropHooks.src(el, 'symbol:photo')).toBe(true);
-  for (const f of After) f();
+  await refreshSymbols();
   expect(el.getAttribute('data-symbol-path')).toBe('M0 0L24 24');
   expect(el.getAttribute('src')).toStartWith('data:image/svg+xml');
   expect(PropHooks.src(el, 'app:/data/photo.png')).toBe(true);
@@ -50,7 +58,7 @@ test('an image that leaves a symbol for an app:/ file keeps the file', async () 
   while (inflight.n) await Bun.sleep(1);
   expect(el.getAttribute('src')).toBe('blob:test/app:/data/photo.png');
   // A later commit's refresh leaves it there.
-  for (const f of After) f();
+  await refreshSymbols();
   expect(el.getAttribute('src')).toBe('blob:test/app:/data/photo.png');
 });
 
@@ -78,7 +86,7 @@ test('a symbol keeps its aspect under object-fit: fill', async () => {
       const wide = new Img();
       document.querySelectorAll = (sel) => sel.includes('data-symbol-path') && wide.hasAttribute('data-symbol-path') ? [wide] : [];
       expect(PropHooks.src(wide, 'symbol:chevron')).toBe(true);
-      for (const f of After) f();
+      await refreshSymbols();
       expect(wide.style.getPropertyValue('--exact-symbol-fit')).toBe(size);
     }
   } finally { globalThis.getComputedStyle = was; document.querySelectorAll = query; }
@@ -97,13 +105,14 @@ test('symbol axes follow the current projected title and root font without anoth
     <div style="flex:1">${panels}</div><div role="tablist" style="display:flex;flex-direction:row">${tabs}</div></div>
     <button id="larger">Root 125%</button><button id="reset">Root medium</button><button id="title">Title 30/600</button><button id="inherit">Inherited title</button>`;
   const boot = `import { symbols } from '/symbols.js';
-    import { After, commit, C, sig, W, S } from '/rt.js';
+    import { After, Hooks, commit, C, sig, W, S } from '/rt.js';
     import { projectRoots } from '/document.js';
     import { navigation } from '/navigation.js';
     const size = sig(null), weight = sig(null);
     for (const e of document.querySelectorAll('[data-exact-text]')) {
       S(e, 'font-size', 'px', () => size()); S(e, 'font-weight', '', () => weight());
     }
+    for (const image of document.querySelectorAll('img[data-symbol-source]')) Hooks.image(image);
     symbols({ book: ['M0 0L24 24', false] });
     commit(() => {});
     projectRoots(navigation, () => false, console.error, After);
@@ -196,9 +205,10 @@ test('a symbol under a bound colour follows whether it has a value', async () =>
     <div id="implied" data-exact-ink="0">${img('unwritten', '10')}</div></div>
     <button id="off">Off</button><button id="on">On</button>`;
   const boot = `import { symbols } from '/symbols.js';
-    import { commit, sig, W, S } from '/rt.js';
+    import { Hooks, commit, sig, W, S } from '/rt.js';
     const c = sig('rgb(255, 0, 0)');
     for (const id of ['bound', 'inner', 'implied']) S(document.getElementById(id), 'color', '', () => c());
+    for (const image of document.querySelectorAll('img[data-symbol-source]')) Hooks.image(image);
     symbols({ book: ['M0 0L24 24', false] });
     commit(() => {});
     document.getElementById('off').onclick = () => commit(() => W(c, null));
@@ -249,7 +259,8 @@ test('a symbol on a button follows its title across a colour scheme change', asy
   const content = `<button type="button" data-native data-button-style="bordered" style="display:grid;color:light-dark(rgb(1, 2, 3), rgb(4, 5, 6))">
     <img id="symbol" data-symbol-source="symbol:book" data-symbol-path="M0 0L24 24"><span data-exact-text>Library</span></button>`;
   const boot = `import { symbols } from '/symbols.js';
-    import { commit } from '/rt.js';
+    import { Hooks, commit } from '/rt.js';
+    for (const image of document.querySelectorAll('img[data-symbol-source]')) Hooks.image(image);
     symbols({ book: ['M0 0L24 24', false] });
     commit(() => {});
     globalThis.ready = true;`;
@@ -302,10 +313,11 @@ test('a symbol under a mode boundary follows its implied row and its binding', a
     <button id="none">None</button><button id="red">Red</button><button id="bad">Bad</button><button id="paint">Paint</button>`;
   const boot = `import { symbols } from '/symbols.js';
     import { modes, Sx } from '/modes.js';
-    import { commit, sig, W, S } from '/rt.js';
+    import { Hooks, commit, sig, W, S } from '/rt.js';
     modes([], { c1: [0] }, ['color:rgb(0, 128, 0)'], {}, [], {});
     const c = sig('inherit');
     for (const id of ['bound', 'bare']) { const e = document.getElementById(id); Sx(S, e, 'color', '', () => { const v = c(); e.$ink = v != null; return v; }, 0); }
+    for (const image of document.querySelectorAll('img[data-symbol-source]')) Hooks.image(image);
     symbols({ book: ['M0 0L24 24', false] });
     commit(() => {});
     document.getElementById('none').onclick = () => commit(() => W(c, null));

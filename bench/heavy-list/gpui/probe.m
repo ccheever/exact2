@@ -1,4 +1,5 @@
 // Linked into the native, GPUI, ink and egui benchmark copies. @ref LLP 1149 §4.1.
+#include <assert.h>
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <Metal/Metal.h>
@@ -10,6 +11,20 @@
 #include <stdatomic.h>
 
 static double processStart, loaded, firstDrawable, firstComplete;
+static double firstCpu, firstInk;
+static double firstCpuComplete, firstInkComplete;
+static void (^bootExpose)(void);
+void g1_boot_expose(void (^callback)(void));
+static void firstBootTick(void) {
+    if (bootExpose) {
+        void (^callback)(void) = bootExpose;
+        bootExpose = nil;
+        callback();
+    }
+}
+static atomic_int painterKind = 1;
+static atomic_bool cpuSubmitted;
+void g1_painter(int ink) { atomic_store(&painterKind, ink); }
 static mach_port_t mainThread;
 static atomic_bool completeScene;
 static atomic_uint drawableCalls, mainThreadDrawableCalls, drawableCount;
@@ -123,10 +138,55 @@ void g1_interval(const char *name, double start, double end, double value) {
     pthread_mutex_unlock(&traceLock);
 }
 
+void g1_boot_expose(void (^callback)(void)) {
+    bootExpose = [callback copy];
+    if (tracing && !CATransaction.completionBlock) {
+        [CATransaction setCompletionBlock:^{
+            double now = CACurrentMediaTime();
+            g1_interval("layer first transaction completed", now, now, 0);
+        }];
+    }
+}
+
 void g1_ready(int complete, size_t item, float offset) {
+    g1_interval("scene ready", CACurrentMediaTime(), CACurrentMediaTime(), complete);
     atomic_store(&completeScene, complete != 0);
     topItem = item;
     topOffset = offset;
+}
+
+// winit activates NSApplication even with activateIgnoringOtherApps=false, and
+// set_visible(true) makes the window key. Boot-only measurements suppress both.
+static atomic_uint activationSuppressed, keySuppressed;
+static void passiveActivate(id app, SEL selector) { atomic_fetch_add(&activationSuppressed, 1); }
+static void passiveActivateIgnoring(id app, SEL selector, BOOL ignoring) { passiveActivate(app, selector); }
+static void passiveKey(id window, SEL selector) { atomic_fetch_add(&keySuppressed, 1); }
+static void passiveOrderFront(id window, SEL selector, id sender) {
+    atomic_fetch_add(&keySuppressed, 1);
+    [(NSWindow *)window orderFrontRegardless];
+}
+static void suppressBootFocus(void) {
+    method_setImplementation(class_getInstanceMethod(NSApplication.class, @selector(activate)), (IMP)passiveActivate);
+    method_setImplementation(class_getInstanceMethod(NSApplication.class, @selector(activateIgnoringOtherApps:)), (IMP)passiveActivateIgnoring);
+    method_setImplementation(class_getInstanceMethod(NSWindow.class, @selector(makeKeyAndOrderFront:)), (IMP)passiveOrderFront);
+    method_setImplementation(class_getInstanceMethod(NSWindow.class, @selector(makeKeyWindow)), (IMP)passiveKey);
+    method_setImplementation(class_getInstanceMethod(NSWindow.class, @selector(makeMainWindow)), (IMP)passiveKey);
+    if (![[NSApplication sharedApplication] setActivationPolicy:NSApplicationActivationPolicyAccessory]) {
+        fprintf(stderr, "probe: passive activation policy refused\n"); exit(2);
+    }
+}
+
+static void recordPresented(double time, BOOL ready, int painter) {
+    if (time <= 0) return;
+    pthread_mutex_lock(&lock);
+    if ((firstDrawable == 0 || time < firstDrawable)) firstDrawable = time;
+    if (painter && (firstInk == 0 || time < firstInk)) firstInk = time;
+    if (!painter && (firstCpu == 0 || time < firstCpu)) firstCpu = time;
+    if (ready && (firstComplete == 0 || time < firstComplete)) firstComplete = time;
+    if (ready && painter && (firstInkComplete == 0 || time < firstInkComplete)) firstInkComplete = time;
+    if (ready && !painter && (firstCpuComplete == 0 || time < firstCpuComplete)) firstCpuComplete = time;
+    [presented addObject:@(time)];
+    pthread_mutex_unlock(&lock);
 }
 
 static id nextDrawable(id layer, SEL selector) {
@@ -136,15 +196,11 @@ static id nextDrawable(id layer, SEL selector) {
     static IMP original;
     if (!original) original = class_getMethodImplementation([CAMetalLayer class], @selector(g1_originalDrawable));
     id<MTLDrawable> drawable = ((id (*)(id, SEL))original)(layer, selector);
+    int painter = atomic_load(&painterKind);
+    if (!painter) atomic_store(&cpuSubmitted, true);
     BOOL ready = atomic_load(&completeScene) || getenv("G1_ALLOW_IMAGE_REFUSALS");
     if (drawable) [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
-        double time = shown.presentedTime;
-        if (time <= 0) return;
-        pthread_mutex_lock(&lock);
-        if (!firstDrawable) firstDrawable = time;
-        if (ready && !firstComplete) firstComplete = time;
-        [presented addObject:@(time)];
-        pthread_mutex_unlock(&lock);
+        recordPresented(shown.presentedTime, ready, painter);
     }];
     return drawable;
 }
@@ -283,10 +339,11 @@ static NSData *signature(NSView *view) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1000000), dispatch_get_main_queue(), ^{ [self attach]; });
         return;
     }
-    if (!getenv("EXACT_AGENT_LIVE")) {
+    if (!getenv("EXACT_AGENT_LIVE") && !getenv("G1_BOOT_ONLY")) {
         [NSApp activate];
         [self.window makeKeyAndOrderFront:nil];
     }
+    if (getenv("G1_BOOT_ONLY")) [self.window orderFrontRegardless];
     self.windowAt = CACurrentMediaTime();
     self.ticks = [NSMutableArray array];
     self.coldPixels = [NSMutableArray array];
@@ -333,6 +390,7 @@ static NSData *signature(NSView *view) {
 }
 - (void)tick:(CADisplayLink *)link {
     double now = CACurrentMediaTime();
+    firstBootTick();
     if (!NSApp.active || !self.window.keyWindow || !self.hadFocus) [self observeFocus];
     if (self.phase == 0) {
         if (!painted) {
@@ -340,10 +398,10 @@ static NSData *signature(NSView *view) {
             [self.coldTimes addObject:@(link.timestamp)];
         }
         pthread_mutex_lock(&lock);
-        BOOL ready = firstComplete > 0;
+        BOOL ready = firstComplete > 0 && (!getenv("G1_BOOT_ONLY") || !atomic_load(&cpuSubmitted) || firstInkComplete > 0);
         pthread_mutex_unlock(&lock);
-        if (now - self.windowAt >= 2 && (!painted || ready)) [self ready];
-        if (now - processStart > 30) { fprintf(stderr, "probe: first complete frame timed out\n"); exit(2); }
+        if ((getenv("G1_BOOT_ONLY") || now - self.windowAt >= 2) && (!painted || ready)) [self ready];
+        if (now - processStart > 30) { fprintf(stderr, "probe: first complete frame timed out\n"); if (tracing) saveTrace(); exit(2); }
     } else if (self.phase == 1) {
         if (!NSApp.active || !self.window.keyWindow) self.inactiveTicks++;
         [self.ticks addObject:@{@"timestamp": @(link.timestamp), @"delivered": @(now),
@@ -391,6 +449,20 @@ static NSData *signature(NSView *view) {
     self.result[@"lowPower"] = @(NSProcessInfo.processInfo.lowPowerModeEnabled);
     self.result[@"activeAtStart"] = @(NSApp.active && self.window.keyWindow);
     self.result[@"screenHz"] = @(self.window.screen.maximumFramesPerSecond);
+    if (getenv("G1_BOOT_ONLY")) {
+        self.result[@"passiveStartup"] = @YES;
+        self.result[@"activationSuppressed"] = @(atomic_load(&activationSuppressed));
+        self.result[@"keySuppressed"] = @(atomic_load(&keySuppressed));
+        self.result[@"cpuSubmitted"] = @(atomic_load(&cpuSubmitted));
+        if (firstCpu) self.result[@"firstCpuMs"] = @((firstCpu - processStart) * 1000);
+        if (firstInk) self.result[@"firstInkMs"] = @((firstInk - processStart) * 1000);
+        if (firstCpuComplete) self.result[@"firstCpuCompleteMs"] = @((firstCpuComplete - processStart) * 1000);
+        if (firstInkComplete) self.result[@"firstInkCompleteMs"] = @((firstInkComplete - processStart) * 1000);
+        self.result[@"thermalEnd"] = @(NSProcessInfo.processInfo.thermalState);
+        writeJSON(self.result, output);
+        if (tracing) saveTrace();
+        exit(0);
+    }
     self.coldPixels = nil;
     self.coldTimes = nil;
     self.link.paused = YES;
@@ -477,6 +549,7 @@ __attribute__((constructor)) static void initialize(void) {
         mach_timebase_info(&timebase);
         tickSeconds = (double)timebase.numer / timebase.denom / 1e9;
         output = @(path);
+        if (getenv("G1_BOOT_ONLY")) suppressBootFocus();
         arm = @(getenv("G1_ARM") ?: "native");
         workload = @(getenv("BENCH_MOTION") ?: "fling");
         if (![@[@"fling", @"bar", @"caret"] containsObject:workload]) {
@@ -500,3 +573,29 @@ __attribute__((constructor)) static void initialize(void) {
         dispatch_async(dispatch_get_main_queue(), ^{ static G1Probe *probe; probe = [G1Probe new]; [probe attach]; });
     }
 }
+
+#ifdef G1_PROBE_TEST
+int main(void) {
+    @autoreleasepool {
+        presented = [NSMutableArray array];
+        recordPresented(0, YES, 0);
+        recordPresented(1, NO, 0);
+        recordPresented(2, NO, 1);
+        assert(firstComplete == 0 && firstCpuComplete == 0 && firstInkComplete == 0);
+        recordPresented(3, YES, 0);
+        recordPresented(4, YES, 1);
+        recordPresented(5, YES, 1);
+        assert(firstCpu == 1 && firstInk == 2 && firstComplete == 3);
+        assert(firstCpuComplete == 3 && firstInkComplete == 4 && presented.count == 5);
+        recordPresented(3.5, YES, 1);
+        assert(firstInkComplete == 3.5 && firstComplete == 3);
+        __block int wakes = 0;
+        g1_boot_expose(^{ wakes++; });
+        firstBootTick();
+        firstBootTick();
+        assert(wakes == 1);
+        puts("probe: painter-specific completeness and one boot-expose wake passed");
+    }
+    return 0;
+}
+#endif

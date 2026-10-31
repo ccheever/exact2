@@ -60,7 +60,7 @@ atom file link="relative" color="light-dark(#18181b, #f5f5f5)" background-color=
 atom mention prefix="@" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000"
 atom skill prefix="$¢£¤¥֏؋߾߿৲৳৻૱௹฿៛₠₡₢₣₤₥₦₧₨₩₪₫€₭₮₯₰₱₲₳₴₵₶₷₸₹₺₻₼₽₾₿⃀⃁꠸﷼﹩＄￠￡￥￦𑿝𑿞𑿟𑿠𞋿𞲰" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000"
 
-// A chip's pill: its label, its suffix and an image's upload state (`upload`, composer-editor.contract
+// A chip's face: its label, its suffix and an image's upload state (`upload`, composer-editor.contract
 // uploadChipStatus), its kind's glyph as the nearest SF Symbol (the Apple host draws only `symbol:sf/` icons), its
 // tooltip, which names how a citation's comment opens (the reference's chip has a pencil for it), its accessible name
 // (the reference chip's aria-label: an image's names its size, not its upload state), and its ink. A file mention keeps its icon before its path in a

@@ -1,3 +1,4 @@
+import { appText } from '../support/app-files';
 import { observeComposer } from '../support/composer-field-fixture';
 // Remove-image focus return, prompt undo and background-environment Snoozed state.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
@@ -13,10 +14,8 @@ import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { sidebarLocal } from '../../src/sidebar/sidebar-commands';
 import { setRuntimeClock } from '../../src/sidebar/sidebar-state';
 import { sidebarSnapshot } from '../../src/sidebar/sidebar-view';
-import { appText } from '../support/app-files';
 
-
-const source = async (file: string) => appText(file);
+const source = (file: string) => appText(file);
 // A draft with two images on thread t, the disk and the native module answering every call.
 function removalFixture() {
   const client = new Client();

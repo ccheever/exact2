@@ -241,6 +241,3 @@ function moveDraft(client: T3Client, to: string): () => void {
     moveDraftSelection(client, to, from, previous);
   };
 }
-
-/** For tests: the dialog's state. */
-export const addMachineState = (client: T3Client) => stateOf(client);

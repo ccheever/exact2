@@ -2,14 +2,13 @@
 // session and update slot the transport keeps, the tick publishing the table as each answer that may wait on a
 // reply starts or ends and as the delivering answer reports a newer table, and the grants a server named at run
 // time needs.
-import { describe, test, expect } from 'bun:test';
 import { appText } from '../support/app-files';
-
+import { describe, test, expect } from 'bun:test';
 import { SESSION_SLOTS, Transport } from '../../src/transport/transport';
 import { UPDATE_SLOTS } from '../../src/transport/transport-outdated';
 import { answer, grants } from '../../app';
 
-const contract = await appText('app.contract');
+const contract = appText('app.contract');
 const declared = (kind: string) => [...contract.matchAll(new RegExp(`^  ${kind} ([A-Za-z0-9]+) `, 'gm'))].map(match => match[1]!);
 
 describe('app.contract', () => {
@@ -40,7 +39,7 @@ describe('app.contract', () => {
     expect(contract).toMatch(/task transportRepublish when transportInbox\.table > transportTable\.rev key=transportInbox\.table\n    after\(1, transportPump\)/);
     expect(contract).not.toMatch(/every\(16, transportPump\)/);
     // An area may tell the tick about its own answers in a task of its own, keyed on their pending
-    // (composer-controls-members.contract composerUploadsAnswered).
+    // (app.contract composerUploadsAnswered).
     const own = [...contract.matchAll(/task [A-Za-z0-9]+ key=`((?:\$\{pending\([A-Za-z0-9]+\)\})+)`\n    after\(1, transportPump\)/g)].map(match => match[1]!);
     expect(own.length).toBeGreaterThan(0);
     const waiting = new Set([/derive transportAnswering = (.*)/.exec(contract)?.[1] ?? '', ...own].flatMap(key => [...key.matchAll(/pending\(([A-Za-z0-9]+)\)/g)].map(match => match[1]!)));

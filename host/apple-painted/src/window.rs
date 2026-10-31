@@ -19,7 +19,7 @@ use winit::{
     event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, PhysicalKey},
-    platform::macos::MonitorHandleExtMacOS,
+    platform::macos::{EventLoopBuilderExtMacOS, MonitorHandleExtMacOS},
     window::{Window, WindowId},
 };
 
@@ -113,7 +113,11 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
     if live {
         config.clock_started = Some(started);
     }
-    let events = match EventLoop::<Event>::with_user_event().build() {
+    let mut builder = EventLoop::<Event>::with_user_event();
+    if std::env::var_os("G1_BOOT_ONLY").is_some() {
+        builder.with_activate_ignoring_other_apps(false);
+    }
+    let events = match builder.build() {
         Ok(e) => e,
         Err(e) => {
             eprintln!("{e}");
@@ -169,6 +173,14 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
 }
 
 impl<D: DataSource + Default + 'static> App<D> {
+    fn awaiting_first_present(&self) -> bool {
+        self.frames > 0
+            && self
+                .layer
+                .as_ref()
+                .is_some_and(|layer| layer.presented_painter().is_none())
+    }
+
     fn fail(&mut self, events: &ActiveEventLoop, error: impl std::fmt::Display) {
         eprintln!("exact-apple-painted: {error}");
         self.failed = true;
@@ -227,7 +239,8 @@ impl<D: DataSource + Default + 'static> App<D> {
         p.poll_images();
         p.set_pointer(None);
         p.tick(now);
-        if p.dirty() {
+        p.poll_apple_painter()?;
+        if p.dirty() && p.apple_painter_can_draw() {
             if std::env::var_os("G1_OUTPUT").is_some() {
                 self.benchmark_complete = !p.images().pending() && !p.images().has_refusals();
                 let target = std::env::var("EXACT_BENCH_SCROLL_TARGET")
@@ -242,8 +255,9 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
             p.apple_window_frame()?;
             self.paint_ms += started.elapsed().as_secs_f64() * 1000.;
-            self.frames += 1;
-            if self.frames == 1 {
+            let submitted = p.last_frame_succeeded();
+            self.frames += u64::from(submitted);
+            if submitted && self.frames == 1 {
                 eprintln!("exact-apple-painted: first submission {:.3} ms; device {:.3}, shaders {:.3} ms; {}x{} at {}x (not a displayed timestamp)", self.started.elapsed().as_secs_f64() * 1000., p.painter.device_ms, p.painter.shaders_ms, p.viewport().0, p.viewport().1, self.scale);
             }
         }
@@ -267,6 +281,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                                 self.config.size.0,
                                 self.config.size.1,
                             ))
+                            .with_active(std::env::var_os("G1_BOOT_ONLY").is_none())
                             .with_visible(false),
                     )
                     .map_err(|e| e.to_string())?,
@@ -278,7 +293,19 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 size.width as f32 / self.scale as f32,
                 size.height as f32 / self.scale as f32,
             );
-            let (mut p, warning) = app::boot_presenter::<D>(&mut self.config, viewport)?;
+            let (mut p, warning) = if self.config.painter()
+                == exact_linux::presenter::PainterChoice::Ink
+                && std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("metal")
+            {
+                let proxy = self.proxy.clone();
+                let preparing = exact_ink::device::apple::Startup::start(Arc::new(move || {
+                    let _ = proxy.send_event(Event::Wake);
+                }))
+                .map_err(|e| e.to_string())?;
+                app::boot_presenter_with_metal::<D>(&mut self.config, viewport, preparing)?
+            } else {
+                app::boot_presenter::<D>(&mut self.config, viewport)?
+            };
             if let Some(warning) = warning {
                 return Err(warning);
             }
@@ -297,6 +324,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             )
             .map_err(|e| e.to_string())?;
             p.attach_apple_layer(layer.clone())?;
+            trace_mark(c"boot device milliseconds", || p.painter.device_ms);
+            trace_mark(c"boot shaders milliseconds", || p.painter.shaders_ms);
             let proxy = self.proxy.clone();
             let pending = self.tick_pending.clone();
             let active = self.display_active.clone();
@@ -335,18 +364,34 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             Event::Tick => {
                 trace_mark(c"display wake", || 0.);
                 self.tick_pending.store(false, Ordering::Release);
+                let unshown = self.awaiting_first_present();
                 let dirty = self
                     .presenter
                     .as_ref()
-                    .is_some_and(|p| p.dirty() || self.live && p.needs_animation_frame());
+                    .is_some_and(|p| display_needed(p, self.live, self.hidden, unshown));
                 self.scrolling.tick(dirty);
                 if dirty {
+                    if unshown {
+                        // GPU completion does not prove the compositor showed a frame.
+                        self.presenter.as_mut().unwrap().repaint();
+                    }
+                    if let Some(window) = &self.window {
+                        trace_mark(c"display requests redraw", || 0.);
+                        window.request_redraw();
+                    }
+                }
+            }
+            Event::Wake => {
+                if self
+                    .presenter
+                    .as_ref()
+                    .is_some_and(|p| p.apple_painter_starting())
+                {
                     if let Some(window) = &self.window {
                         window.request_redraw();
                     }
                 }
             }
-            Event::Wake => {}
             Event::Closed => events.exit(),
             Event::Request(line, reply) => {
                 let _trace = Trace::new(c"agent request");
@@ -540,6 +585,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 }
             }
             WindowEvent::Occluded(hidden) => {
+                trace_mark(c"window hidden", || f64::from(hidden));
                 self.hidden = hidden;
                 p.surface_lifecycle(hidden, false);
                 if !hidden {
@@ -550,6 +596,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         }
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
+        let unshown = self.awaiting_first_present();
         let Some(p) = &mut self.presenter else {
             return;
         };
@@ -562,6 +609,14 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             self.started.elapsed().as_secs_f64() * 1000.
         };
         service(p, now, self.live, D::default);
+        if p.apple_painter_retry_deadline()
+            .is_some_and(|due| Instant::now() >= due)
+        {
+            if let Err(e) = p.poll_apple_painter() {
+                self.fail(events, e);
+                return;
+            }
+        }
         // Offscreen metadata can finish after the last visible image. Submit a
         // complete scene for the probe even when that completion owes no damage.
         if std::env::var_os("G1_OUTPUT").is_some()
@@ -574,7 +629,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         if self.live {
             p.admit_idle_timer(now);
         }
-        let active = !self.hidden && (p.dirty() || self.live && p.needs_animation_frame());
+        let active = display_needed(p, self.live, self.hidden, unshown);
         let running = !self.hidden && (active || self.scrolling.active);
         self.display_active.store(running, Ordering::Release);
         if let Some(display) = &mut self.display {
@@ -584,10 +639,25 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             }
         }
         let wake = if !self.live { None } else { p.wake_due_ms() };
-        events.set_control_flow(wake.map_or(ControlFlow::Wait, |due| {
-            ControlFlow::WaitUntil(self.started + Duration::from_secs_f64(due.max(now) / 1000.))
-        }));
+        let wake = wake.map(|due| self.started + Duration::from_secs_f64(due.max(now) / 1000.));
+        events.set_control_flow(
+            wake.into_iter()
+                .chain(p.apple_painter_retry_deadline())
+                .min()
+                .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
+        );
     }
+}
+
+fn display_needed<D: DataSource>(
+    p: &Presenter<D>,
+    live: bool,
+    hidden: bool,
+    unshown: bool,
+) -> bool {
+    !hidden
+        && p.apple_painter_can_draw()
+        && (unshown || p.dirty() || live && p.needs_animation_frame())
 }
 
 #[derive(Default)]
@@ -650,6 +720,39 @@ fn service<D: DataSource>(p: &mut Presenter<D>, now: f64, live: bool, data: impl
 mod tests {
     use super::*;
     use exact_linux::presenter::PainterChoice;
+
+    #[test]
+    fn an_unshown_boot_keeps_display_demand_after_two_completed_drawables() {
+        let plan = contract::compile("component App\n  view\n    text \"Still\"\n")
+            .unwrap()
+            .encode();
+        let (mut p, warning) =
+            Presenter::boot_with(&plan, (), (80., 80.), 1., ".".into(), PainterChoice::Cpu)
+                .unwrap();
+        assert!(warning.is_none(), "{warning:?}");
+        // Neither of the first two completed frames was selected for display.
+        for _ in 0..2 {
+            p.repaint();
+            p.frame();
+        }
+        assert!(!p.dirty());
+        for period in 2..8 {
+            assert!(
+                display_needed(&p, true, false, true),
+                "stopped at period {period}"
+            );
+            assert!(
+                !display_needed(&p, true, true, true),
+                "hidden windows must sleep"
+            );
+            p.repaint();
+            p.frame();
+        }
+        // A positive presented timestamp ends retries; the clean scene stays idle.
+        assert!(!display_needed(&p, true, false, false));
+        p.repaint();
+        assert!(display_needed(&p, true, false, false));
+    }
 
     #[test]
     fn agent_reads_leave_an_idle_window_clean_and_input_leaves_damage() {

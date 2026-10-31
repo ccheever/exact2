@@ -74,6 +74,9 @@ pub struct Batch {
     /// The session's orientation lock, JSON, when it changed
     /// (`Host::orientation_moved`, LLP 1133.029 D3).
     pub orientationlock: Option<String>,
+    /// Whether the app must finish work an answer started, when that
+    /// changed (`Host::finish_moved`).
+    pub must_finish: Option<bool>,
 }
 
 pub use exact_runner::agent::quote;
@@ -952,6 +955,9 @@ impl Batch {
         }
         if let Some(lock) = &self.orientationlock {
             let _ = write!(s, ",\"orientationlock\":{lock}");
+        }
+        if let Some(must) = self.must_finish {
+            let _ = write!(s, ",\"mustFinish\":{must}");
         }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");

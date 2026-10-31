@@ -34,7 +34,7 @@ import { insertContext } from '../composer/composer-editor';
 import { composerNow } from '../composer/composer-controls';
 import { terminalLinkAction } from './terminal-integrations';
 import { subscriptionSerial } from '../details/shell-vcs';
-import { setCloseThreadTerminals } from '../sidebar/worktree-cleanup';
+import { setCloseThreadTerminals } from './thread-terminal-cleanup';
 import { commandShortcut } from '../shell/shell';
 import { uuid } from '../transport/transport-wire'; // drawn ahead: code resumed by a server reply may not draw
 import { terminalCloseConfirmMessage } from './terminal-close';

@@ -8,7 +8,7 @@ import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
-import { closeThreadTerminals as cleanupCloseThreadTerminals } from '../../src/sidebar/worktree-cleanup';
+import { closeThreadTerminals as cleanupCloseThreadTerminals } from '../../src/terminal/thread-terminal-cleanup';
 import { closeThreadTerminals, terminalRows, terminalKeybindings, terminalDrawerView, terminalMetadataEvent, terminalOps, terminalAvailable, terminalOpen, TERMINAL_METADATA_KEY } from '../../src/terminal/terminal-drawer-view';
 import { surfaceStore } from '../../src/panel/panel-surfaces';
 import { focusedTerminal, recordTerminalFocus } from '../../src/terminal/terminal-focus';
@@ -17,7 +17,7 @@ import { contractComponent } from '../support/contract-action-fixture';
 import { terminalFrameId } from '../../src/terminal/terminal-frames';
 
 type Call = { method: string; payload: Obj };
-function fixture(options: { fail?: string[]; connected?: boolean } = {}) {
+function fixture(options: { fail?: string[]; connected?: boolean; closing?: Promise<void> } = {}) {
   const calls: Call[] = [], native: Obj[] = [];
   const client = {
     scopes: [...AUTH_STANDARD_CLIENT_SCOPES],
@@ -27,6 +27,7 @@ function fixture(options: { fail?: string[]; connected?: boolean } = {}) {
     async request(_native: Native, method: string, payload: Obj) {
       calls.push({ method, payload });
       if (options.fail?.includes(method)) throw new Error(`${method} refused`);
+      if (method === 'terminal.close') await options.closing;
       return {};
     },
     async call(_native: Native, request: Obj) {
@@ -182,16 +183,21 @@ describe('terminal drawer commands', () => {
     expect(calls[0]?.payload.terminalId).toBe('term-2');
   });
 
-  test('thread delete closes every session of the thread with its history, then forgets its drawer', async () => {
-    const { client, calls } = fixture();
+  test('the installed thread-delete hook awaits closing every session with its history before forgetting its drawer', async () => {
+    let release!: () => void;
+    const closing = new Promise<void>(resolve => { release = resolve; });
+    const { client, calls } = fixture({ closing });
     await run(client, 'toggle');
-    await closeThreadTerminals(client, {} as Native, 'thread-1');
+    const cleanup = cleanupCloseThreadTerminals(client, {} as Native, 'thread-1');
     expect(calls[1]).toEqual({ method: 'terminal.close', payload: { threadId: 'thread-1', deleteHistory: true } });
+    expect(terminalUiStore(client).getState().terminalUiStateByThreadKey['env-a:thread-1']).toBeDefined();
+    release();
+    await cleanup;
     expect(terminalUiStore(client).getState().terminalUiStateByThreadKey['env-a:thread-1']).toBeUndefined();
   });
 });
 
-test('the sidebar delete hook (worktree-cleanup) closes terminals through the drawer', () => {
+test('the sidebar delete hook keeps the drawer registration after the import cycle completes', () => {
   expect(cleanupCloseThreadTerminals).toBe(closeThreadTerminals);
 });
 
