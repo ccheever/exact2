@@ -77,16 +77,17 @@ export function renderer(dist) {
   const headOf = preload => shell.slice(0, title).replace(/<html[^>]*>/, `<html lang="${language}" dir="ltr">`) + `<script>${capture}</script>\n`
     + shell.slice(stop, root).replace(sheet, '').replace(/(<link rel="modulepreload" href="[^"]*")>\n/g, preload ? '$1 fetchpriority="low">\n' : '');
   const preloads = (shell.slice(stop, root).match(/<link rel="modulepreload" href="[^"]*">\n/g) ?? []).map(l => l.replace('>', ' fetchpriority="low">')).join('');
-  /** A render begun: its route's policy and the page's head, known before
-   * any data is asked; `finish` settles it and composes the rest. */
-  async function begin(location) {
+  // A realm for one render: a document, a context with the server bundle run in it, and its location, which `begin`
+  // fills in. Nothing has run in it but the bundle's own loading, so making it ahead takes that off a request's path
+  // and every render still has a realm of its own (LLP 1048.000 D10, as the render host's `make_realm`).
+  const realm = () => {
     const document = createDocument(shell);
-    const url = new URL(location, 'http://render.invalid');
     // The bake's page facts (runner/src/page.rs): visible, online, focused, no share sheet or pickers. The
     // base is the shell's `<base href="/">`, against which the runtime checks that a link navigates (rt.js `navigable`).
-    Object.assign(document, { visibilityState: 'visible', hasFocus: () => true, baseURI: `${url.origin}/` });
+    Object.assign(document, { visibilityState: 'visible', hasFocus: () => true, baseURI: 'http://render.invalid/' });
+    const location = { pathname: '/', search: '', href: 'http://render.invalid/', origin: '' };
     const ctx = vm.createContext({
-      document, location: { pathname: url.pathname, search: url.search, href: url.href, origin: '' },
+      document, location,
       navigator: { onLine: true, language },
       getComputedStyle: () => ({ fontSize: '16px' }), devicePixelRatio: 1,
       history: { replaceState() {}, pushState() {}, go() {} }, localStorage: { length: 0, key() {}, getItem() { return null; } },
@@ -100,6 +101,23 @@ export function renderer(dist) {
     ctx.globalThis = ctx; ctx.self = ctx;
     utcIntl.runInContext(ctx);
     script.runInContext(ctx);
+    return { ctx, location };
+  };
+  // The next render's realm, made once the last render is done and nothing waits (`render.ahead` false turns it off).
+  let ahead = null, making = false;
+  const makeAhead = () => {
+    if (ahead || making || render.ahead === false) return;
+    making = true;
+    setImmediate(() => { making = false; if (!ahead && render.ahead !== false) ahead = realm(); });
+  };
+  /** A render begun: its route's policy and the page's head, known before
+   * any data is asked; `finish` settles it and composes the rest. */
+  async function begin(location) {
+    const url = new URL(location, 'http://render.invalid');
+    const made = ahead ?? realm();
+    ahead = null;
+    const { ctx } = made;
+    Object.assign(made.location, { pathname: url.pathname, search: url.search, href: url.href });
     const info = await ctx.__start();
     // The capture script imports the entry by the policy; an interaction
     // page drops the head's modulepreloads, and an undeclared one adds them
@@ -121,6 +139,7 @@ export function renderer(dist) {
       const whole = late ? headOf(true) : head;
       const markedHead = out.scrollDocument ? whole.replace('<html ', '<html data-scrolldocument ') : whole;
       const mark = out.scrollDocument ? '<script>document.documentElement.setAttribute("data-scrolldocument","")</script>\n' : '';
+      makeAhead();
       return { html: markedHead + body(''), rest: mark + body(late), status: info.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location, policy: info.policy, activate };
     } };
   }

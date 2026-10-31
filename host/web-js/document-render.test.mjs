@@ -936,6 +936,29 @@ component Page
   });
 }, 30000);
 
+// A render's realm made ahead, while the server was idle, renders the page a fresh one does (LLP 1048.000 D10).
+test('a realm made ahead renders the page a fresh one does', async () => {
+  await renderedPages(`routes nav
+  home "/" render=request
+  item "/items/:id" render=request
+
+component App
+  view
+    main
+      text \`at \${top(nav).url}\`
+      link href=path("item", "b")
+        text "B"
+`, async (_, html, dist) => {
+    const { renderer } = await import('./render.mjs');
+    const fresh = renderer(dist), ahead = renderer(dist);
+    fresh.ahead = false;
+    const page = async (r, at) => (await r(at)).html.replace(/"time":[\d.]+/, '"time":0');
+    await page(ahead, '/');
+    await new Promise(r => setTimeout(r, 1500));
+    for (const at of ['/items/b', '/']) expect([at, await page(ahead, at)]).toEqual([at, await page(fresh, at)]);
+  });
+}, 60000);
+
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {
   const doc = createDocument(), root = doc.getElementById('exact-root');
