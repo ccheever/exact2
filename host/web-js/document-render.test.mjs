@@ -1094,6 +1094,66 @@ export const answer: Answer = async (_source, [name]): Promise<Result<'note'>> =
   } finally { api.stop(true); }
 }, 60000);
 
+// LLP 1048.007 D10: a request route's page that waits for the reader names its answers past 1 KB rather than holding
+// them; the capture script fetches them with the runtime, and the page adopts. Answers no longer kept build it afresh.
+test('a waiting page names its answers past 1 KB, adopts once they come, and builds afresh without them', async () => {
+  const api = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => Response.json(
+    Array.from({ length: 80 }, (_, i) => ({ name: `Item number ${i}` })), { headers: { 'cache-control': 'no-store', 'access-control-allow-origin': '*' } }) });
+  try {
+    const origin = `http://127.0.0.1:${api.port}`;
+    await renderedPages(`shape Item
+  name: string
+
+routes nav
+  home "/" render=request
+
+component App
+  state n = 0
+  resource items = items() as shape Item[]
+  action more
+    n = n + 1
+  view
+    main
+      button press=more testId="more"
+        text \`pressed \${n}\`
+      for it in items key=it.name
+        text it.name testId=\`item-\${it.name}\`
+`, async (_, html, dist) => {
+      const { pageServer, deferredAnswers, deferredPath } = await import('./render.mjs');
+      const page = pageServer(dist, undefined, () => {});
+      let keep = true;
+      const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
+        const path = new URL(req.url).pathname, hash = deferredPath(path);
+        if (hash) { const body = keep ? deferredAnswers(hash) : undefined; return new Response(body ?? 'gone', { status: body ? 200 : 404 }); }
+        if (path === '/') { const r = await page('/', name => req.headers.get(name) ?? undefined); return new Response(r.body, { status: r.status, headers: r.headers }); }
+        return new Response(Bun.file(resolve(dist, path.slice(1))));
+      } });
+      const browser = await suiteBrowser();
+      try {
+        for (const kept of [true, false]) {
+          keep = kept;
+          const tab = await browser.newPage({ viewport: { width: 390, height: 800 } });
+          await tab.goto(server.url.href);
+          const named = await tab.evaluate(() => { const c = document.querySelector('script[type="application/vnd.exact.checkpoint"]'); return [/^\/\.exact\/checkpoint\/[0-9a-f]{32}\.json$/.test(c.dataset.src), c.textContent, !!globalThis.exact?.ready]; });
+          expect([kept, named]).toEqual([kept, [true, '', false]]);
+          await tab.evaluate(() => { document.querySelector('[data-testid="item-Item number 3"]').$mark = true; });
+          await tab.click('[data-testid="more"]');
+          await tab.waitForFunction(() => document.querySelector('[data-testid="more"]')?.textContent === 'pressed 1', null, { timeout: 10000 });
+          // Adopted, its elements are the rendered ones; built afresh, they are new, and show the answers asked again.
+          const after = await tab.evaluate(() => { const e = document.querySelector('[data-testid="item-Item number 3"]'); return [!!e, !!e?.$mark]; });
+          expect([kept, after]).toEqual([kept, [true, kept]]);
+          await tab.close();
+        }
+      } finally { await browser.close(); server.stop(true); }
+    }, { 'app.ts': `import type { Answer, Result } from './app.contract.d.ts';
+export const appId = 'test.heads';
+const API = '${origin}';
+export const grants = \`net.fetch \${API}\`;
+export const answer: Answer = async (): Promise<Result<'items'>> => (await fetch(API, { cache: 'no-store' })).json();
+` });
+  } finally { api.stop(true); }
+}, 120000);
+
 // A page's head status is its HTTP status under Bun, as under the render host (LLP 1048.000 D11): a found route whose
 // data names no item says 404 itself.
 test('a JavaScript-rendered page answers with its head status', async () => {

@@ -471,8 +471,12 @@ writeFileSync(resolve(gen, 'main.js'), [
   // then the page's goes, before the first render (one that fails to load leaves the page's, and the render goes on).
   "const page = typeof document === 'object' && document.querySelector('style[data-exact-page]');",
   "const sheet = page && new Promise(r => { const l = Object.assign(document.createElement('link'), { rel: 'stylesheet', href: './style.css' }); l.onload = () => { page.remove(); r(); }; l.onerror = r; page.before(l); });",
-  "const waits = [fonts, sheet].filter(Boolean);",
-  "if (sheet && !fonts) { (globalThis.exact ??= {}).ready = new Promise(r => { booted = r; }); clock.agent = agentMode(); }",
+  // A waiting page's answers past 1 KB are named, not held (LLP 1048.007 D10): the capture script fetched them as it
+  // imported this; the first render waits for them. Ones no longer kept are none, and the boot builds afresh.
+  "const named = typeof document === 'object' && document.querySelector('script[type=\"application/vnd.exact.checkpoint\"][data-src]');",
+  "const answers = named && (globalThis.exact?.answers ?? fetch(named.dataset.src).then(r => r.ok ? r.text() : null, () => null)).then(t => { named.textContent = t ?? '{\"time\":0,\"answers\":[]}'; });",
+  "const waits = [fonts, sheet, answers].filter(Boolean);",
+  "if ((sheet || answers) && !fonts) { (globalThis.exact ??= {}).ready = new Promise(r => { booted = r; }); clock.agent = agentMode(); }",
   "const go = f => waits.length ? Promise.all(waits).then(f) : f();",
   // Under the agent, an animation the first renders start (an indeterminate progress's turn) is held at the clock it
   // began at after each commit, before a frame shows it, until agent.js, which loads after the first render, takes it
