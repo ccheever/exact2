@@ -111,6 +111,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   // down (swipe) marks its pointer 'pending' until it claims or refuses; an
   // ancestor's recognizer that would capture waits for that verdict.
   const contacts=()=>(globalThis.exact??={}).contacts??=new Map();
+  const lifts=()=>(globalThis.exact??={}).lifts??=new Map();
   const deferred=d=>{
     if(!d.deferred)return false;
     const state=contacts().get(d.pointer??[...d.pointers.keys()][0]);
@@ -278,7 +279,10 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   function overlay(id) {
     const el=views.get(id); if(!el) return;
     const active=properties.map(p=>held.get(key(id,p))).filter(local);
-    if(raised.has(id)){el.style.zIndex='2147483647';if(getComputedStyle(el).position==='static')el.style.position='relative';}
+    // Keep each lifted view's own `z-index` and `position`, which the lift overwrites, so that presence can put them
+    // back if the view leaves (presence-glue.js `unlift`)
+    if(raised.has(id)){lifts().set(el,[el.style.zIndex,el.style.position]);el.style.zIndex='2147483647';if(getComputedStyle(el).position==='static')el.style.position='relative';}
+    else lifts().delete(el);
     if(!active.length) return;
     const transition=el.style.transition;
     el.style.transition=[...(transition && transition!=='none'?[transition]:[]), ...active.map(h=>`${cssProperty(el,h.property)} 0s linear 0s`)].join(',');
@@ -460,6 +464,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       h.value=value;h.el.style.translate=css('translate',value);return true;
     },
     raiseReorder(id,enabled) {
+      // Drop the kept values of lifted views no longer in the page, so the registry holds no removed element
+      for(const lifted of lifts().keys())if(!lifted.isConnected)lifts().delete(lifted);
       const el=views.get(id);if(!el)return;
       if(enabled){if(!authored.has(id))authored.set(id,el.style.cssText);raised.add(id);}else raised.delete(id);
       restore(id);
@@ -615,7 +621,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       // need explicit cancellation; querying getAnimations here flushes styles
       // once per retired list row while the DOM batch is still being applied.
       for(const property of properties) { cancelProperty(id,property,null); held.delete(key(id,property)); }
-      raised.delete(id);authored.delete(id);
+      raised.delete(id);authored.delete(id);lifts().delete(views.get(id));
     },
     reset() {
       for(const stop of drags.values()) stop(); drags.clear();

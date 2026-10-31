@@ -13,6 +13,18 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Layout
 
+- **In the web build, a view that leaves with an exit animation can jump as it starts
+  to fade.** Symptom: the leaving view starts its exit higher or lower than it was,
+  when the same action also changes its parent's layout, such as a top padding that is
+  there only while the view shows. iOS and macOS keep it in place. Cause: the web
+  build (the JS target) reads a leaving view's box during its page update, after it
+  has already applied the action's other changes; iOS and macOS read it before any
+  change ([LLP 1063](../llp/1063-presence-and-layout-motion.rfc.md), "Known gaps"). What to
+  do: give the space to the leaving view instead of its parent, for example a
+  `margin-top` on a banner in place of a column's `padding-top` that follows whether a
+  banner shows, so the action that removes the view does not also change its
+  parent's layout. (A vehicle app's offline banner, 2026-10-30.)
+
 - **An unknown-size image stays blank after disclosure.** On Windows, an auto-height
   wrapper around a percentage-width image can leave the image at zero height before
   decoding. The lazy loader then sees no visible area to load. Give the image a fallback
