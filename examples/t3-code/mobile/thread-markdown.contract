@@ -28,14 +28,14 @@ component ThreadMarkdown
               padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5
               text font-family="Menlo" font-size=13 line-height="19px" white-space="pre"
                 for token in block.tokens key=token.id
-                  text token.text color=token.color font-weight=token.weight font-style=token.slant
+                  text token.text user-select="text" color=token.color font-weight=token.weight font-style=token.slant
         else if block.kind == "table"
           view display="flex" align-items="flex-start" min-width=0 max-width="100%" overflow-x="auto" overflow-y="hidden" margin-top=4 margin-bottom=12
-            view display="grid" flex="none" min-width=(block.columns * 60) grid-template-columns=`repeat(${block.columns}, fit-content(320px))`
+            view display="grid" role="table" flex="none" min-width=(block.columns * 60) grid-template-columns=`repeat(${block.columns}, fit-content(320px))`
               border-radius=8 border-width="-exact-hairline" border-style="solid" border-color=colors.borderSubtle
               for item in block.rows key=item.id
                 for cell, index in item.cells key=cell.id
-                  view min-width=60 max-width=320 box-sizing="border-box" padding-left=10 padding-right=10 padding-top=7 padding-bottom=7
+                  view role=(item.header ? "columnheader" : "cell") min-width=60 max-width=320 box-sizing="border-box" padding-left=10 padding-right=10 padding-top=7 padding-bottom=7
                     border-top-width=(item.header ? 0 : "-exact-hairline") border-top-style="solid" border-top-color=colors.borderSubtle
                     border-left-width=(index == 0 ? 0 : "-exact-hairline") border-left-style="solid" border-left-color=colors.borderSubtle
                     background-color=(item.header ? user ? colors.userCodeBackground : colors.codeBackground : "transparent")
@@ -46,5 +46,5 @@ component ThreadMarkdown
                         text run.text font-weight=(run.kind == "strong" ? 700 : item.header ? 700 : 400) font-style=(run.kind == "emphasis" ? "italic" : "normal")
                           font-family=(run.kind == "code" ? "Menlo" : "DM Sans") font-size=(run.kind == "code" ? 14.4 : 16)
         else
-          text block.text markup="markdown" font-size=16 line-height="23px"
+          text block.text markup="markdown" user-select="text" font-size=16 line-height="23px"
             color=(user ? colors.userForeground : colors.foreground)
