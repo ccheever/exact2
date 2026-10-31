@@ -390,18 +390,21 @@ impl<D: DataSource> Presenter<D> {
                 .map_err(|e| HostError::Painter(format!("content raster context: {e:?}")))?;
         }
         let t = std::time::Instant::now();
-        let decoded = plan.decode().map_err(HostError::Plan)?;
-        #[cfg(windows)]
-        crate::app::boot_phase("plan-ready");
+        let decoded =
+            crate::traced(c"boot plan decode", || plan.decode()).map_err(HostError::Plan)?;
+        #[cfg(any(windows, target_os = "macos"))]
+        crate::app::boot_phase(c"plan-ready");
         #[cfg(windows)]
         let preparing = painter.prepare_direct();
-        let text = TextEngine::shared_for_assets(&decoded, &assets);
+        let text = crate::traced(c"boot fonts", || {
+            TextEngine::shared_for_assets(&decoded, &assets)
+        });
         if let Some(reason) = assets.take_refusal() {
             return Err(HostError::Asset(reason));
         }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
-        #[cfg(windows)]
-        crate::app::boot_phase("fonts-ready");
+        #[cfg(any(windows, target_os = "macos"))]
+        crate::app::boot_phase(c"fonts-ready");
         #[cfg(windows)]
         let opened = preparing
             .is_none()

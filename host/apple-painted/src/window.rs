@@ -66,6 +66,8 @@ impl<D: DataSource> Drop for App<D> {
 }
 
 pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &str) -> i32 {
+    trace_mark(c"boot host entry", || 0.);
+    let entry_trace = Trace::new(c"boot configuration and event loop");
     let started = Instant::now();
     app::prepare_environment(compat);
     counters::initialize();
@@ -157,6 +159,7 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         benchmark_complete: false,
         service_causes: 0,
     };
+    drop(entry_trace);
     if let Err(error) = events.run_app(&mut state) {
         eprintln!("{error}");
         state.failed = true;
@@ -295,6 +298,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             return;
         }
         let setup = (|| -> Result<(), String> {
+            let window_trace = Trace::new(c"boot create window");
             exact_ink::device::apple::benchmark_counters();
             let window = Rc::new(
                 events
@@ -310,6 +314,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                     )
                     .map_err(|e| e.to_string())?,
             );
+            drop(window_trace);
+            trace_mark(c"boot window created", || 0.);
             self.scale = window.scale_factor();
             self.config.scale = self.scale as f32;
             let size = window.inner_size();
@@ -317,6 +323,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 size.width as f32 / self.scale as f32,
                 size.height as f32 / self.scale as f32,
             );
+            let presenter_trace = Trace::new(c"boot presenter");
             let (mut p, warning) = if self.config.painter()
                 == exact_linux::presenter::PainterChoice::Ink
                 && std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("metal")
@@ -330,6 +337,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             } else {
                 app::boot_presenter::<D>(&mut self.config, viewport)?
             };
+            drop(presenter_trace);
             if let Some(warning) = warning {
                 return Err(warning);
             }
@@ -348,6 +356,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             )
             .map_err(|e| e.to_string())?;
             p.attach_apple_layer(layer.clone())?;
+            trace_mark(c"boot layer attached", || 0.);
             trace_mark(c"boot device milliseconds", || p.painter.device_ms);
             trace_mark(c"boot shaders milliseconds", || p.painter.shaders_ms);
             let proxy = self.proxy.clone();
@@ -372,6 +381,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             self.presenter = Some(p);
             self.window = Some(window.clone());
             window.set_visible(true);
+            trace_mark(c"boot window shown", || 0.);
             window.request_redraw();
             if self.config.agent {
                 let ready = serde_json::json!({"ready":true,"boot":self.started.elapsed().as_secs_f64()*1000.,"views":self.presenter.as_ref().unwrap().node_count(),"error":null,"benchmarkCarrier":true}).to_string();

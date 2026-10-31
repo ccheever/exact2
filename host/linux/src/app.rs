@@ -338,13 +338,19 @@ thread_local! {
 }
 
 /// Process-clock phases for the carrier's explicit startup measurement.
-#[cfg(windows)]
-pub(crate) fn boot_phase(name: &str) {
-    let at = std::time::Instant::now();
-    exact_ink::device::d3d11::startup_watchdog::phase(name, at);
-    if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
-        if let Ok(ms) = exact_ink::device::process_ms_at(at) {
-            eprintln!("exact-windows: boot {name} at {ms:.3} ms (process)");
+#[cfg(any(windows, target_os = "macos"))]
+pub(crate) fn boot_phase(name: &'static core::ffi::CStr) {
+    #[cfg(target_os = "macos")]
+    exact_ink::device::apple::trace_mark(name, || 0.);
+    #[cfg(windows)]
+    {
+        let at = std::time::Instant::now();
+        let name = name.to_string_lossy();
+        exact_ink::device::d3d11::startup_watchdog::phase(&name, at);
+        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+            if let Ok(ms) = exact_ink::device::process_ms_at(at) {
+                eprintln!("exact-windows: boot {name} at {ms:.3} ms (process)");
+            }
         }
     }
 }
@@ -503,7 +509,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
         Some(assets) => crate::delivery::Module::resolve(assets),
         None => config.module.clone(),
     };
-    let admitted = D::default();
+    let admitted = crate::traced(c"boot data construction", D::default);
     let source = module
         .as_ref()
         .map_err(Clone::clone)

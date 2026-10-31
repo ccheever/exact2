@@ -255,6 +255,8 @@ impl<D: DataSource> Host<D> {
             .iter()
             .filter(|_| carried.is_none())
             .for_each(|p| store_snapshot.extend(p.snapshot.clone()));
+        #[cfg(target_os = "macos")]
+        let boot_trace = exact_ink::device::apple::Trace::new(c"boot runner through first commit");
         let mut runner = Runner::boot_with_delivery(
             plan,
             data,
@@ -266,8 +268,10 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
-        #[cfg(windows)]
-        crate::app::boot_phase("runner-ready");
+        #[cfg(target_os = "macos")]
+        drop(boot_trace);
+        #[cfg(any(windows, target_os = "macos"))]
+        crate::app::boot_phase(c"runner-ready");
         if let Some(p) = presence {
             runner.install_presence(p.backend, p.keystore);
         }
@@ -356,10 +360,10 @@ impl<D: DataSource> Host<D> {
                 .map_err(HostError::Layout)?,
             );
         }
-        let error = host.layout().err();
+        let error = crate::traced(c"boot first layout", || host.layout()).err();
         host.observe_layout();
-        #[cfg(windows)]
-        crate::app::boot_phase("layout-ready");
+        #[cfg(any(windows, target_os = "macos"))]
+        crate::app::boot_phase(c"layout-ready");
         host.present();
         Ok((host, error))
     }

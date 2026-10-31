@@ -13,8 +13,18 @@
 #include <dlfcn.h>
 #include <sys/resource.h>
 #include <sys/sysctl.h>
+#include <mach-o/dyld.h>
+#include <sys/resource.h>
 
 static double processStart, loaded, firstDrawable, firstComplete;
+static BOOL tracing;
+static struct rusage constructorUsage;
+static struct rusage_info_v4 constructorRusage;
+static struct rusage completeUsage;
+static struct rusage_info_v4 completeRusage;
+static double completeObserved;
+static struct proc_bsdinfo processInfo;
+void g1_interval(const char *name, double start, double end, double value);
 static double firstCpu, firstInk;
 static double firstCpuComplete, firstInkComplete;
 static void (^bootExpose)(void);
@@ -49,22 +59,48 @@ static int gpuPhase;
 static BOOL gpuHookEnabled;
 static NSString *queueClass, *bufferClass;
 static IMP originalCommit, originalBuffer, originalUnretainedBuffer, originalDescriptorBuffer;
+static _Thread_local double lastCommitEnd;
 
 static void commitBuffer(id<MTLCommandBuffer> buffer, SEL selector) {
-    pthread_mutex_lock(&gpuLock);
-    int phase = gpuPhase;
-    gpu[phase].committed++;
-    pthread_mutex_unlock(&gpuLock);
-    [buffer addCompletedHandler:^(id<MTLCommandBuffer> done) {
-        double start = done.GPUStartTime, end = done.GPUEndTime;
+    double start = tracing ? CACurrentMediaTime() : 0;
+    if (!gpuHookEnabled) {
+        ((void (*)(id, SEL))originalCommit)(buffer, selector);
+    } else {
         pthread_mutex_lock(&gpuLock);
-        gpu[phase].completed++;
-        if (done.status == MTLCommandBufferStatusCompleted && start > 0 && end >= start)
-            gpu[phase].seconds += end - start;
-        else gpu[phase].invalid++;
+        int phase = gpuPhase;
+        gpu[phase].committed++;
         pthread_mutex_unlock(&gpuLock);
-    }];
-    ((void (*)(id, SEL))originalCommit)(buffer, selector);
+        [buffer addCompletedHandler:^(id<MTLCommandBuffer> done) {
+            double start = done.GPUStartTime, end = done.GPUEndTime;
+            pthread_mutex_lock(&gpuLock);
+            gpu[phase].completed++;
+            if (done.status == MTLCommandBufferStatusCompleted && start > 0 && end >= start)
+                gpu[phase].seconds += end - start;
+            else gpu[phase].invalid++;
+            pthread_mutex_unlock(&gpuLock);
+        }];
+        ((void (*)(id, SEL))originalCommit)(buffer, selector);
+    }
+    if (tracing) {
+        lastCommitEnd = CACurrentMediaTime();
+        g1_interval(objc_getAssociatedObject(buffer, @selector(g1_present))
+            ? "probe present commit" : "probe command commit", start, lastCommitEnd, 0);
+    }
+}
+
+static void presentDrawable(id buffer, SEL selector, id drawable) {
+    objc_setAssociatedObject(drawable, @selector(g1_bufferPresent), @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(buffer, @selector(g1_present), @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    IMP original = class_getMethodImplementation(object_getClass(buffer), @selector(g1_presentDrawable:));
+    ((void (*)(id, SEL, id))original)(buffer, selector, drawable);
+}
+static void presentDrawableAtTime(id buffer, SEL selector, id drawable, double time) {
+    objc_setAssociatedObject(drawable, @selector(g1_bufferPresent), @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(buffer, @selector(g1_present), @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    SEL saved = selector == @selector(presentDrawable:atTime:)
+        ? @selector(g1_presentDrawable:atTime:) : @selector(g1_presentDrawable:afterMinimumDuration:);
+    IMP original = class_getMethodImplementation(object_getClass(buffer), saved);
+    ((void (*)(id, SEL, id, double))original)(buffer, selector, drawable, time);
 }
 
 static id watchBuffer(id buffer) {
@@ -78,6 +114,16 @@ static id watchBuffer(id buffer) {
         bufferClass = NSStringFromClass(concrete);
         pthread_mutex_unlock(&gpuLock);
         class_replaceMethod(concrete, @selector(commit), (IMP)commitBuffer, method_getTypeEncoding(method));
+        if (tracing) {
+            SEL selectors[] = {@selector(presentDrawable:), @selector(presentDrawable:atTime:), @selector(presentDrawable:afterMinimumDuration:)};
+            SEL saved[] = {@selector(g1_presentDrawable:), @selector(g1_presentDrawable:atTime:), @selector(g1_presentDrawable:afterMinimumDuration:)};
+            for (int i = 0; i < 3; i++) {
+                Method present = class_getInstanceMethod(concrete, selectors[i]);
+                if (!present) continue;
+                class_addMethod(concrete, saved[i], method_getImplementation(present), method_getTypeEncoding(present));
+                class_replaceMethod(concrete, selectors[i], i ? (IMP)presentDrawableAtTime : (IMP)presentDrawable, method_getTypeEncoding(present));
+            }
+        }
     });
     if (![buffer isKindOfClass:NSClassFromString(bufferClass)]) {
         fprintf(stderr, "probe: uninstrumented command-buffer class %s\n", object_getClassName(buffer));
@@ -96,21 +142,86 @@ static id descriptorCommandBuffer(id queue, SEL selector, id descriptor) {
     return watchBuffer(((id (*)(id, SEL, id))originalDescriptorBuffer)(queue, selector, descriptor));
 }
 
+static void watchQueue(id<MTLCommandQueue> queue) {
+    if (!queue) return;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class concrete = object_getClass(queue);
+        queueClass = NSStringFromClass(concrete);
+        SEL selectors[] = {@selector(commandBuffer), @selector(commandBufferWithUnretainedReferences), @selector(commandBufferWithDescriptor:)};
+        IMP replacements[] = {(IMP)commandBuffer, (IMP)unretainedCommandBuffer, (IMP)descriptorCommandBuffer};
+        IMP *originals[] = {&originalBuffer, &originalUnretainedBuffer, &originalDescriptorBuffer};
+        for (int i = 0; i < 3; i++) {
+            Method method = class_getInstanceMethod(concrete, selectors[i]);
+            if (!method) { fprintf(stderr, "probe: missing queue method\n"); abort(); }
+            *originals[i] = method_getImplementation(method);
+            class_replaceMethod(concrete, selectors[i], replacements[i], method_getTypeEncoding(method));
+        }
+    });
+    if (![queue isKindOfClass:NSClassFromString(queueClass)]) abort();
+}
+typedef id (*RetainedQueue)(id, SEL) __attribute__((ns_returns_retained));
+typedef id (*RetainedQueueLimit)(id, SEL, NSUInteger) __attribute__((ns_returns_retained));
+static id newQueue(id device, SEL selector) NS_RETURNS_RETAINED;
+static id newQueue(id device, SEL selector) {
+    IMP original = class_getMethodImplementation(object_getClass(device), @selector(g1_newCommandQueue));
+    id queue = ((RetainedQueue)original)(device, selector);
+    watchQueue(queue);
+    return queue;
+}
+static id newQueueWithLimit(id device, SEL selector, NSUInteger count) NS_RETURNS_RETAINED;
+static id newQueueWithLimit(id device, SEL selector, NSUInteger count) {
+    IMP original = class_getMethodImplementation(object_getClass(device), @selector(g1_newCommandQueueWithMaxCommandBufferCount:));
+    id queue = ((RetainedQueueLimit)original)(device, selector, count);
+    watchQueue(queue);
+    return queue;
+}
+static void watchDevice(id<MTLDevice> device) {
+    if (!device) return;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class concrete = object_getClass(device);
+        SEL selectors[] = {@selector(newCommandQueue), @selector(newCommandQueueWithMaxCommandBufferCount:)};
+        SEL saved[] = {@selector(g1_newCommandQueue), @selector(g1_newCommandQueueWithMaxCommandBufferCount:)};
+        IMP replacements[] = {(IMP)newQueue, (IMP)newQueueWithLimit};
+        for (int i = 0; i < 2; i++) {
+            Method method = class_getInstanceMethod(concrete, selectors[i]);
+            if (!method) abort();
+            class_addMethod(concrete, saved[i], method_getImplementation(method), method_getTypeEncoding(method));
+            class_replaceMethod(concrete, selectors[i], replacements[i], method_getTypeEncoding(method));
+        }
+    });
+}
+// Observe the application's device calls; never create one to discover its class.
+static id<MTLDevice> traceDevice(void) NS_RETURNS_RETAINED;
+static id<MTLDevice> traceDevice(void) {
+    double start = tracing ? CACurrentMediaTime() : 0;
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    if (tracing) {
+        watchDevice(device);
+        g1_interval("probe device creation", start, CACurrentMediaTime(), 0);
+    }
+    return device;
+}
+static NSArray<id<MTLDevice>> *traceDevices(void) NS_RETURNS_RETAINED;
+static NSArray<id<MTLDevice>> *traceDevices(void) {
+    double start = tracing ? CACurrentMediaTime() : 0;
+    NSArray<id<MTLDevice>> *devices = MTLCopyAllDevices();
+    if (tracing) {
+        for (id<MTLDevice> device in devices) watchDevice(device);
+        g1_interval("probe enumerate devices", start, CACurrentMediaTime(), 0);
+    }
+    return devices;
+}
+__attribute__((used, section("__DATA,__interpose")))
+static const struct { const void *replacement, *original; } deviceObservers[] = {
+    {(const void *)traceDevice, (const void *)MTLCreateSystemDefaultDevice},
+    {(const void *)traceDevices, (const void *)MTLCopyAllDevices},
+};
 static void watchCommandQueues(void) {
-    // A queue discovers the device's concrete class without creating a buffer or submitting work.
     id<MTLCommandQueue> queue = [MTLCreateSystemDefaultDevice() newCommandQueue];
     if (!queue) { fprintf(stderr, "probe: no Metal queue\n"); abort(); }
-    Class concrete = object_getClass(queue);
-    queueClass = NSStringFromClass(concrete);
-    SEL selectors[] = {@selector(commandBuffer), @selector(commandBufferWithUnretainedReferences), @selector(commandBufferWithDescriptor:)};
-    IMP replacements[] = {(IMP)commandBuffer, (IMP)unretainedCommandBuffer, (IMP)descriptorCommandBuffer};
-    IMP *originals[] = {&originalBuffer, &originalUnretainedBuffer, &originalDescriptorBuffer};
-    for (int i = 0; i < 3; i++) {
-        Method method = class_getInstanceMethod(concrete, selectors[i]);
-        if (!method) { fprintf(stderr, "probe: missing queue method\n"); abort(); }
-        *originals[i] = method_getImplementation(method);
-        class_replaceMethod(concrete, selectors[i], replacements[i], method_getTypeEncoding(method));
-    }
+    watchQueue(queue);
 }
 
 static void configureGPUHook(void) {
@@ -142,7 +253,6 @@ static NSDictionary *gpuUsage(int phase) {
 static struct { const char *name, *caller; double start, end, value; mach_port_t thread; } intervals[131072];
 static size_t intervalCount, intervalDropped;
 static unsigned traceSaves;
-static BOOL tracing;
 static BOOL dispatchTracing;
 static BOOL wakeTracing;
 static pthread_mutex_t traceLock = PTHREAD_MUTEX_INITIALIZER;
@@ -273,15 +383,61 @@ static void suppressBootFocus(void) {
 
 static void recordPresented(double time, BOOL ready, int painter) {
     if (time <= 0) return;
+    g1_interval("probe presented", time, time, ready);
     pthread_mutex_lock(&lock);
     if ((firstDrawable == 0 || time < firstDrawable)) firstDrawable = time;
     if (painter && (firstInk == 0 || time < firstInk)) firstInk = time;
     if (!painter && (firstCpu == 0 || time < firstCpu)) firstCpu = time;
-    if (ready && (firstComplete == 0 || time < firstComplete)) firstComplete = time;
+    if (ready && (firstComplete == 0 || time < firstComplete)) {
+        firstComplete = time;
+        if (tracing) {
+            completeObserved = CACurrentMediaTime();
+            if (getrusage(RUSAGE_SELF, &completeUsage) ||
+                proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&completeRusage)) abort();
+        }
+    }
     if (ready && painter && (firstInkComplete == 0 || time < firstInkComplete)) firstInkComplete = time;
     if (ready && !painter && (firstCpuComplete == 0 || time < firstCpuComplete)) firstCpuComplete = time;
     [presented addObject:@(time)];
     pthread_mutex_unlock(&lock);
+}
+
+// GPUI's transaction path commits, waits until scheduled, then presents directly.
+// Retain both events so that the same-thread preceding-commit join is inspectable.
+static void directPresentMark(id drawable) {
+    if (objc_getAssociatedObject(drawable, @selector(g1_bufferPresent))) return;
+    double now = CACurrentMediaTime();
+    g1_interval("probe direct present request", now, now, 0);
+    if (lastCommitEnd > 0 && lastCommitEnd <= now)
+        g1_interval("probe direct present preceding commit", lastCommitEnd, lastCommitEnd, 0);
+}
+static void directPresent(id drawable, SEL selector) {
+    directPresentMark(drawable);
+    IMP original = class_getMethodImplementation(object_getClass(drawable), @selector(g1_directPresent));
+    ((void (*)(id, SEL))original)(drawable, selector);
+}
+static void directPresentAtTime(id drawable, SEL selector, double time) {
+    directPresentMark(drawable);
+    SEL saved = selector == @selector(presentAtTime:)
+        ? @selector(g1_directPresentAtTime:) : @selector(g1_directPresentAfterMinimumDuration:);
+    IMP original = class_getMethodImplementation(object_getClass(drawable), saved);
+    ((void (*)(id, SEL, double))original)(drawable, selector, time);
+}
+static void watchDrawable(id drawable) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class concrete = object_getClass(drawable);
+        SEL selectors[] = {@selector(present), @selector(presentAtTime:), @selector(presentAfterMinimumDuration:)};
+        SEL saved[] = {@selector(g1_directPresent), @selector(g1_directPresentAtTime:), @selector(g1_directPresentAfterMinimumDuration:)};
+        for (int i = 0; i < 3; i++) {
+            Method method = class_getInstanceMethod(concrete, selectors[i]);
+            if (!method) continue;
+            class_addMethod(concrete, saved[i], method_getImplementation(method), method_getTypeEncoding(method));
+            class_replaceMethod(concrete, selectors[i], i ? (IMP)directPresentAtTime : (IMP)directPresent, method_getTypeEncoding(method));
+        }
+    });
+    // Metal can reuse a drawable object after its previous presentation.
+    objc_setAssociatedObject(drawable, @selector(g1_bufferPresent), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 static id nextDrawable(id layer, SEL selector) {
@@ -291,6 +447,7 @@ static id nextDrawable(id layer, SEL selector) {
     static IMP original;
     if (!original) original = class_getMethodImplementation([CAMetalLayer class], @selector(g1_originalDrawable));
     id<MTLDrawable> drawable = ((id (*)(id, SEL))original)(layer, selector);
+    if (drawable && tracing) watchDrawable(drawable);
     int painter = atomic_load(&painterKind);
     if (!painter) atomic_store(&cpuSubmitted, true);
     BOOL ready = atomic_load(&completeScene) || getenv("G1_ALLOW_IMAGE_REFUSALS");
@@ -357,6 +514,7 @@ static NSDictionary *usage(void) {
             @"userInteractive": @(r.ri_cpu_time_qos_user_interactive * tickSeconds)};
         sample[@"forcedInteractiveDiagnostic"] = @(getenv("G1_CLOCK_QOS") != NULL);
     }
+             @"pageins": @(r.ri_pageins), @"footprint": @(r.ri_phys_footprint), @"lifetimePeak": @(r.ri_lifetime_max_phys_footprint)} mutableCopy];
     if (counterName && counterValue) {
         NSMutableDictionary *values = [NSMutableDictionary dictionary], *high = [NSMutableDictionary dictionary];
         size_t i = 0;
@@ -537,6 +695,7 @@ static NSData *signature(NSView *view) {
     }
     if (getenv("G1_BOOT_ONLY")) [self.window orderFrontRegardless];
     self.windowAt = CACurrentMediaTime();
+    g1_interval("probe visible window", self.windowAt, self.windowAt, 0);
     self.ticks = [NSMutableArray array];
     self.coldPixels = [NSMutableArray array];
     self.coldTimes = [NSMutableArray array];
@@ -639,6 +798,27 @@ static NSData *signature(NSView *view) {
     }
     self.result[@"coldMs"] = @((firstComplete - processStart) * 1000);
     self.result[@"preMainMs"] = @((loaded - processStart) * 1000);
+    if (tracing) {
+        struct rusage finalUsage = {0};
+        if (getrusage(RUSAGE_SELF, &finalUsage)) abort();
+        self.result[@"startup"] = @{@"processStart": @(processStart), @"constructor": @(loaded),
+            @"windowObserved": @(self.windowAt), @"firstPresented": @(firstDrawable), @"complete": @(firstComplete),
+            @"firstCpuPresented": @(firstCpu), @"firstInkPresented": @(firstInk),
+            @"firstCpuComplete": @(firstCpuComplete), @"firstInkComplete": @(firstInkComplete),
+            @"constructorMinorFaults": @(constructorUsage.ru_minflt), @"constructorMajorFaults": @(constructorUsage.ru_majflt),
+            @"endMinorFaults": @(finalUsage.ru_minflt), @"endMajorFaults": @(finalUsage.ru_majflt),
+            @"loadedImages": @(_dyld_image_count()), @"registeredObjcClasses": @(objc_getClassList(NULL, 0)),
+            @"constructorPageins": @(constructorRusage.ri_pageins),
+            @"constructorInstructions": @(constructorRusage.ri_instructions),
+            @"constructorCycles": @(constructorRusage.ri_cycles),
+            @"completeObserved": @(completeObserved),
+            @"completeMinorFaults": @(completeUsage.ru_minflt), @"completeMajorFaults": @(completeUsage.ru_majflt),
+            @"completePageins": @(completeRusage.ri_pageins),
+            @"completeInstructions": @(completeRusage.ri_instructions), @"completeCycles": @(completeRusage.ri_cycles),
+            @"completeCpuSeconds": @((completeRusage.ri_user_time + completeRusage.ri_system_time) * tickSeconds),
+            @"processStartWallSeconds": @(processInfo.pbi_start_tvsec + processInfo.pbi_start_tvusec / 1e6),
+            @"lazyQueueObserver": @(queueClass != nil), @"usageAtReport": usage()};
+    }
     if (firstDrawable) self.result[@"firstDrawableMs"] = @((firstDrawable - processStart) * 1000);
     self.result[@"arm"] = arm;
     self.result[@"workload"] = workload;
@@ -700,6 +880,7 @@ static NSData *signature(NSView *view) {
             self.result[@"focusLosses"] = self.focusLosses;
             self.result[@"coldOnly"] = @YES;
             writeJSON(self.result, output);
+            if (tracing) saveTrace();
             exit(0);
         }
         self.start = endpointUsage(); self.peak = [self.start[@"footprint"] unsignedLongLongValue]; self.peakSample = self.start;
@@ -780,8 +961,14 @@ __attribute__((constructor)) static void initialize(void) {
             fprintf(stderr, "clock diagnostic: clear background=%d; interactive QoS=%d\n", role, qos);
             if (role || qos) abort();
         }
+        loaded = CACurrentMediaTime();
+        if (getrusage(RUSAGE_SELF, &constructorUsage)) abort();
         if (getenv("G1_AGENT_CPU_ONLY") && !getenv("EXACT_AGENT_LIVE")) abort();
         tracing = getenv("G1_TRACE") != NULL;
+        if (tracing) {
+            if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&constructorRusage)) abort();
+            if (proc_pidinfo(getpid(), PROC_PIDTBSDINFO, 0, &processInfo, sizeof(processInfo)) != sizeof(processInfo)) abort();
+        }
         dispatchTracing = tracing && getenv("G1_DISPATCH_TRACE");
         wakeTracing = tracing && getenv("G1_WAKE_TRACE");
         if (dispatchTracing) {
@@ -795,7 +982,6 @@ __attribute__((constructor)) static void initialize(void) {
             method_setImplementation(class_getInstanceMethod(NSApplication.class, @selector(activateIgnoringOtherApps:)), (IMP)backgroundActivateIgnoring);
             method_setImplementation(class_getInstanceMethod(NSWindow.class, @selector(makeKeyAndOrderFront:)), (IMP)backgroundOrder);
         }
-        loaded = CACurrentMediaTime();
         mach_timebase_info_data_t timebase;
         mach_timebase_info(&timebase);
         tickSeconds = (double)timebase.numer / timebase.denom / 1e9;
@@ -815,6 +1001,24 @@ __attribute__((constructor)) static void initialize(void) {
         if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&initial) || !initial.ri_proc_start_abstime) abort();
         processStart = initial.ri_proc_start_abstime * tickSeconds;
         presented = [NSMutableArray array];
+        if (tracing) {
+            g1_interval("probe constructor entry", loaded, loaded, 0);
+            [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidFinishLaunchingNotification
+                object:nil queue:nil usingBlock:^(NSNotification *note) {
+                    double now = CACurrentMediaTime();
+                    g1_interval("AppKit did finish launching", now, now, 0);
+                }];
+            [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidUpdateNotification
+                object:nil queue:nil usingBlock:^(NSNotification *note) {
+                    static BOOL recorded;
+                    NSWindow *window = note.object;
+                    if (!recorded && window.contentView.bounds.size.height > 400) {
+                        recorded = YES;
+                        double now = CACurrentMediaTime();
+                        g1_interval("probe first window update", now, now, 0);
+                    }
+                }];
+        }
         configureGPUHook();
         {
             Method method = class_getInstanceMethod(CAMetalLayer.class, @selector(nextDrawable));
@@ -822,10 +1026,20 @@ __attribute__((constructor)) static void initialize(void) {
             method_setImplementation(method, (IMP)nextDrawable);
         }
         dispatch_async(dispatch_get_main_queue(), ^{ static G1Probe *probe; probe = [G1Probe new]; [probe attach]; });
+        g1_interval("probe constructor", loaded, CACurrentMediaTime(), 0);
     }
 }
 
 #ifdef G1_PROBE_TEST
+@interface G1TestDrawable : NSObject
+@property unsigned calls;
+@end
+@implementation G1TestDrawable
+- (void)present { self.calls++; }
+- (void)presentAtTime:(double)time { self.calls++; }
+- (void)presentAfterMinimumDuration:(double)duration { self.calls++; }
+@end
+
 int main(void) {
     @autoreleasepool {
         presented = [NSMutableArray array];
@@ -846,8 +1060,12 @@ int main(void) {
         firstBootTick();
         assert(wakes == 1);
         puts("probe: painter-specific completeness and one boot-expose wake passed");
+        tracing = getenv("G1_TRACE") != NULL;
+        assert(!queueClass && !bufferClass && !originalCommit);
         configureGPUHook();
-        id<MTLCommandQueue> queue = [MTLCreateSystemDefaultDevice() newCommandQueue];
+        id<MTLDevice> device = traceDevice();
+        if (!gpuHookEnabled) assert(!queueClass && !bufferClass && !originalCommit);
+        id<MTLCommandQueue> queue = [device newCommandQueue];
         assert(queue);
         NSArray<id<MTLCommandBuffer>> *buffers = @[[queue commandBuffer],
             [queue commandBufferWithUnretainedReferences],
@@ -871,7 +1089,25 @@ int main(void) {
         assert([usage[@"invalid"] intValue] == 0);
         assert(fabs([usage[@"seconds"] doubleValue] - (gpuHookEnabled ? seconds : 0)) < 1e-9);
         assert([gpuUsage(2)[@"committed"] intValue] == 0);
-        if (!gpuHookEnabled) assert(!queueClass && !bufferClass && !originalCommit);
+        if (!gpuHookEnabled && !tracing) assert(!queueClass && !bufferClass && !originalCommit);
+        if (tracing) {
+            assert(queueClass && bufferClass && originalCommit && intervalCount >= 4);
+            puts("probe: lazy trace observes application queues without pre-creating a device or queue");
+            G1TestDrawable *drawable = [G1TestDrawable new];
+            watchDrawable(drawable);
+            size_t before = intervalCount;
+            [drawable present];
+            [drawable presentAtTime:0];
+            assert(intervalCount == before + 4 && drawable.calls == 2);
+            assert(intervals[before + 1].start == lastCommitEnd);
+            objc_setAssociatedObject(drawable, @selector(g1_bufferPresent), @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [drawable presentAfterMinimumDuration:0];
+            assert(intervalCount == before + 4 && drawable.calls == 3);
+            watchDrawable(drawable);
+            [drawable presentAfterMinimumDuration:0];
+            assert(intervalCount == before + 6 && drawable.calls == 4);
+            puts("probe: direct presentation preserves methods, joins preceding commit, excludes buffer path and resets reused drawables");
+        }
         printf("probe: GPU hook %s; three buffers completed, commit-phase accounting passed\n",
             gpuHookEnabled ? "on" : "off");
     }

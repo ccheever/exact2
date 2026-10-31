@@ -6706,3 +6706,52 @@ against 0/100 supplies no support. A queued channel completion suppresses a
 capture, never delays it. Ordinary journeys and the Python driver no longer
 arm snapshots. The observer redesign and corrected A/B are queued; this chunk
 reruns neither the series nor the scoreboard.
+
+## M10, the first screen's phases
+
+**Predictions, before measurement, 2026-10-30.** This chunk instruments boot
+and makes no startup cut. The silver Mac's other lane owns the session while
+`run-plan.py` or `run-boot.py` runs; M10 waits at most ninety minutes from
+02:55 UTC on October 31. No window or cohort runs during that ownership.
+
+G4's cold row is a fresh process with application, filesystem and driver
+caches retained. Here a cold launch is followed immediately by a second fresh
+process of the same arm, called the warm repeat; no cache is purged in either.
+Ten pairs rotate Ink, GPUI and egui each round. The probe uses process creation
+as zero, Core Animation's clock for spans and `MTLDrawable.presentedTime`
+for complete screens. Constructor entry is **not main**. Ink has separate main
+and host-entry marks; the other arms retain
+constructor as a coarse boundary. Hook-off, power-off, trace-on is the primary
+instrument; its lazy command-buffer observer does not create a Metal device.
+GPUI's transaction path commits a buffer, waits until it is scheduled and calls
+`drawable.present()`. For that path the probe joins the direct present request
+to the preceding commit on the same thread; it retains both events and all
+command commits. The ordinary path tags the buffer passed a drawable directly.
+Binary facts and constructor/completion fault counters test the loader hypothesis.
+The local OS emits no `DYLD_PRINT_STATISTICS` output for a runnable CLI control;
+a separate App Launch diagnostic will attempt the dyld breakdown and retain
+stderr from the statistics attempt. Primary cohorts set no `DYLD_*` variables.
+No output is not a zero-duration loader. Completion counters are read
+in the presented callback, with its observation time retained; the two-second
+readiness report's counters cannot stand in for boot work.
+
+| Prediction | Instrument and decision | Result |
+| --- | --- | --- |
+| Ink warm repeat complete screen 210 ms, range of the median estimate 180–240 ms | Process start to complete presented drawable | Pending |
+| Ink warm: process to constructor 15 ms; remaining entry/AppKit/window 75 ms; plan/data/runner 30 ms; fonts 25 ms; layout and shaping 25 ms; painter/device/encode 15 ms; presentation and image completion 25 ms | Per-launch disjoint timeline, 210 ms estimate; nested shaping and device spans also reported separately | Pending |
+| Ink cold exceeds warm repeats by at most 25 ms at p50 | Ten within-pair differences, no cache purge | Pending |
+| At least half of the cold-minus-warm excess is before host entry, with increased page-ins rather than runner instructions | Constructor boundary, dyld statistics and fault counters; absent attribution stays unknown | Pending |
+| Of the historical roughly 30 ms Ink/CPU difference, at least 15 ms is renderer preparation or waiting to present, and under 10 ms is extra shaping/layout | Hook-off device and paint spans; historical hook-on CPU samples are not a paired control | Pending |
+| GPUI/egui complete-screen p50 is 190–240 / 210–260 ms; Ink's positive gap to GPUI lies mainly after constructor | Same probe and rotating launch pairs | Pending |
+| Trace-on adds at most 5 ms to each arm's complete-screen p50 | Three trace-off pairs per arm after the primary cohort, same hook-off launch path; between-series drift remains a limit | Pending |
+
+The seven warm estimates are an additive hypothesis, not a sum of marginal
+medians. The analysis assigns each launch's nested main-thread spans once,
+then reports distributions; asynchronous decode and GPU work are not added
+to that timeline. An event after readiness or an unshown drawable is never
+substituted for the complete screen. Startup failures remain failed attempts.
+
+**Check prediction:** the six checks, the Linux host tests, the painted-carrier
+tests and the probe tests exit zero. Checks run serially with Bun 1.4.2, starting
+at one-minute load below 30 with no Rust, Swift or Clang compiler. Artifact builds
+on the development Mac supply no timing result.

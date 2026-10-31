@@ -837,6 +837,8 @@ impl TextEngine {
     }
 
     fn build_source(&mut self, spec: Arc<Spec>) -> Rc<ShapedSource> {
+        #[cfg(target_os = "macos")]
+        let _trace = exact_ink::device::apple::Trace::new(c"text shape");
         exact_ink::counters::add(exact_ink::counters::Counter::ShapeMisses, 1);
         self.shape_calls += 1;
         #[cfg(test)]
@@ -878,6 +880,8 @@ impl TextEngine {
         width: Option<f32>,
         hold: bool,
     ) -> Paragraph {
+        #[cfg(target_os = "macos")]
+        let _trace = exact_ink::device::apple::Trace::new(c"text width layout");
         #[cfg(test)]
         if let Some(callback) = &mut self.before_layout {
             callback();
