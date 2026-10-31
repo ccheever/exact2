@@ -462,16 +462,30 @@ fn a_package_declaring_native_writes_the_factory_and_a_second_refuses() {
         refused.starts_with("bake-native-missing: the app depends on absent, which is not installed: run bun install"),
         "{refused}"
     );
-    // A dependency with no exact.json declares nothing, and its absence is not watched.
+    // A dependency with no exact.json declares nothing, and its directory is
+    // watched, where the file would appear.
     let bare = package("bare", "{}");
     std::fs::remove_file(bare.join("exact.json")).unwrap();
     manifest(r#""@fixture/vault": "1.0.0", "bare": "1.0.0""#);
     let selection = contract::native::native_slot(&app.0).unwrap();
     assert_eq!(selection.slot.unwrap().package, "@fixture/vault");
-    assert!(!selection
-        .watched
-        .iter()
-        .any(|file| file.ends_with("bare/exact.json")));
+    let bare = std::fs::canonicalize(&bare).unwrap();
+    assert!(selection.watched.contains(&bare), "{:?}", selection.watched);
+    // One whose package.json exports an exact.json that is not there is refused.
+    let exporting = package("exporting", "{}");
+    std::fs::write(
+        exporting.join("package.json"),
+        r#"{"exports": {".": "./exact.json"}}"#,
+    )
+    .unwrap();
+    std::fs::remove_file(exporting.join("exact.json")).unwrap();
+    manifest(r#""@fixture/vault": "1.0.0", "exporting": "1.0.0""#);
+    let refused = contract::native::native_slot(&app.0).unwrap_err();
+    assert!(
+        refused.starts_with("bake-native-declaration: exporting's package.json exports ")
+            && refused.ends_with("exact.json, which does not exist"),
+        "{refused}"
+    );
     package("unread", r#"{"native": "#);
     manifest(r#""@fixture/vault": "1.0.0", "unread": "1.0.0""#);
     let refused = contract::native::native_slot(&app.0).unwrap_err();

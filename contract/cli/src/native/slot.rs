@@ -10,7 +10,7 @@
 //! `native.link` (`js/bake/src/library.rs`). This is the one place that
 //! chooses the package, so the one place that refuses two.
 
-use crate::package_views::dependencies;
+use crate::package_views::{dependencies, export, read};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -38,7 +38,8 @@ pub struct NativeSelection {
     /// The package that fills the slot, if one does.
     pub slot: Option<NativeSlot>,
     /// The app's `package.json`, each direct dependency's `package.json` and
-    /// its `exact.json` where it has one, and the chosen shim's root.
+    /// its `exact.json`, or its directory where it has none, and the chosen
+    /// shim's root.
     pub watched: Vec<PathBuf>,
 }
 
@@ -46,11 +47,10 @@ pub struct NativeSelection {
 /// if one does; refused by name when two do (`bake-native-twice`: the slot
 /// is one per app), when the declaration lacks what the bake writes, when a
 /// dependency is not installed (`bake-native-missing`), and when an
-/// `exact.json` that is there cannot be read (`bake-native-declaration`).
-/// Cargo cannot watch a missing file without running the script on every
-/// build, so only files that exist are watched: a dependency that gains an
-/// `exact.json` is seen when its `package.json` changes, as installing
-/// another version changes it.
+/// `exact.json` that is there cannot be read or one its `exports` "." names
+/// is not there (`bake-native-declaration`). Cargo cannot watch a missing
+/// file without running the script on every build, so a dependency with no
+/// `exact.json` has its directory watched instead (below).
 pub fn native_slot(app_root: &Path) -> Result<NativeSelection, String> {
     // Absolute, so the search walks past a relative root (`../../..`).
     let app_root =
@@ -72,9 +72,26 @@ pub fn native_slot(app_root: &Path) -> Result<NativeSelection, String> {
             })?;
         watched.push(dir.join("package.json"));
         let declaration = dir.join("exact.json");
+        let exported = (read(&dir.join("package.json")).as_ref())
+            .and_then(|manifest| export(&manifest["exports"], ".").map(|main| dir.join(main)))
+            .filter(|main| main.ends_with("exact.json") && !main.is_file());
+        if let Some(missing) = exported {
+            return Err(format!(
+                "bake-native-declaration: {name}'s package.json exports {}, which does not exist",
+                missing.display()
+            ));
+        }
         let text = match std::fs::read_to_string(&declaration) {
             Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // Cargo scans a watched directory for a newer file, so the
+                // declaration appearing there (`bun install` links it) asks
+                // for the choice again. The scan stats every file in the
+                // package on each build: a large package costs that walk, and
+                // an edit to any of its files reruns the bake.
+                watched.push(dir);
+                continue;
+            }
             Err(e) => {
                 return Err(format!(
                     "bake-native-declaration: {name}'s exact.json ({}) cannot be read: {e}",
