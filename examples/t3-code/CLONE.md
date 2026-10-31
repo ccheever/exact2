@@ -10,19 +10,43 @@ The clone is incomplete. The desktop app is in `examples/t3-code`; the separate
 iPhone and iPad app is in `examples/t3-code/mobile`.
 
 Continue on `t3/t3-clone-pr216-poc`, which pushes to PR216's remote branch
-`feat(example)/t3-code-ios`. It includes remote main through `d0910f93df` and the
-verified iPhone POC. The independent native NewTask editor is now active. Its
-normal iPhone build creates a real thread, receives `FINAL_NATIVE_OK`, and
-restores the reply and environment after restart. Full phone parity remains open.
-The older checkpoints below are provenance, not the current starting point.
+`feat(example)/t3-code-ios`. It includes Exact main through
+`43e0d93b858143f85c93c729057fd601d0f8fba2`. The earlier independent native
+NewTask POC created a real thread, received `FINAL_NATIVE_OK`, and restored the
+reply and environment after restart. That phone UI checkpoint has not been
+requalified on this main refresh. The older checkpoints below are provenance.
 
-The pinned Exact main refresh is merged in `8be77acc64` from
-`d0910f93df67925681cd16a49de58d300b7eeb7f`. The compatibility change supplies
-three empty AtomFace style fields; the full desktop plan failed before it and
-built after it. A stale menu test now checks the two required tab removals while
-allowing the window's other authored removals. All six root checks, locked clone
-Rust tests, Clippy, formatting and the quick semantics comparison pass. The
-44 selected shared native tests, UIKit test compilation and tvOS no-install build pass.
+The pinned main merge is `358dce46d1`. Its sole conflict passes `whiteSpace` to
+the existing UIKit raster job while preserving finite coverage, bounded retention
+and distant shadow handling. The clone supplies the required empty AtomFace
+`ariaLabel` and locks the existing `exact-grants` dependency. Main raises the
+TypeScript runtime from 5 to 7 for `storage.fs` and Response semantics; C ABI 18
+and native ABI 3 remain unchanged. App identities and the server runtime pin stay
+unchanged. The Mac titlebar press override and upstream focus ordering coexist.
+
+All six root checks, the quick semantics comparison, 3,086 affected nondefault
+tests, 76 locked clone Rust tests, clone Clippy and formatting, 6,921 desktop and
+4,170 mobile tests, strict application TypeScript, and 379 native tests pass.
+The native tests include the original 96 header, focus and selection tests.
+UIKit tests compile, and the tvOS and normal iPhone no-install builds pass.
+
+The clean standard Mac bundle from the merge verifies all 156 files, 3,529 inputs
+and its strict signature. Through the supported controller with `context.agent=true`,
+the original header opens, closes and reopens the panel. Thread details open and
+dismiss, and body Add Project opens its palette. Six contacts each have one
+intended press, complete zero-drop journals and matching state; seven native
+captures were inspected. No conversation is created and the composer stays empty.
+Normal Quit stops the app and backend before controller close. The original
+listener and window defaults remain unchanged; owned processes exit and the
+isolated port is free.
+
+The clean iPhone bundle verifies 92 files, 3,289 inputs and its strict signature.
+It was neither installed nor launched. Mobile UI remains stopped after the EAS
+and external driver failures; no new mobile UI parity or release checkpoint is
+qualified. Ordinary Mac mouse input, physical dragging and normal-app Keychain
+restart also remain unqualified. Evidence is under
+`target/t3-poc-evidence/main-refresh-20261030-43e0d93b/`. Independent review and
+push are pending; the PR-base update is separate work.
 
 The desktop manifest's unused `t3-browser` native tag is removed in `859f7b8676`.
 Browser already uses an iframe and the separate `t3-browser-page` hatch.
