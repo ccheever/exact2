@@ -81,6 +81,11 @@ the presentation cache's existing object and text budgets.
 - coordinator integration: the table unit stays separate from automatic
   history. Parent verification passes 193 focused tests, all 4,192 mobile
   tests with both native bridges enabled, strict TypeScript and Contract
-  compilation. A normal build and drive of the combined coordinator source
-  remain pending. Release comparisons, bounded resident history and full
-  Duo acceptance remain open.
+  compilation. The normal coordinator `84dbeb6bdd` bundle matches all 3,289
+  inputs and passes strict signature verification. The parent repeats the
+  complete table, cell selection during adjacent code scrolling, and Copied
+  state on the actual Duo outer panel. Reopening the interrupted core thread
+  preserves the exact Unicode draft. Its session closes without shutdown.
+  Evidence is under `target/t3-mini-coordinator/evidence/table-integration/`.
+  Release comparisons, bounded resident history and full Duo acceptance remain
+  open.

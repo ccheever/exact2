@@ -23,8 +23,12 @@ Home belongs to
 on `t3/t3-home-parity-performance`. Conversation belongs to
 <t3-thread://v2/382c4b25-df00-4a33-a517-979b0d92c1cc/b0b6d3d6-7f14-4930-9c24-c7b3e2ccee16>,
 on `nate/t3-ios-conversation`. Workers open PRs against
-`feat(example)/t3-code-ios` while PR216 is unmerged. The coordinator controls
-integration and eventual retargeting to main. Home owns its Contract and data,
+`feat(example)/t3-code-ios` while PR216 is unmerged. The coordinator automatically
+squash-merges verified child PRs into this branch after independent review and
+current checks. GitHub auto-merge is disabled for the repository, so the
+coordinator performs each merge with an explicit destination and head check.
+Keep PR216 draft with auto-merge disabled. Never automatically merge PR216 or
+any child PR into `main` or `daehyeon/t3-code-main`. Home owns its Contract and data,
 Home-local UIKit, and the original app's dependency and Release build outputs.
 Conversation owns its Contract, data, composer and conversation-local UIKit.
 The coordinator owns core pairing and persistence acceptance, this handoff,
@@ -127,9 +131,17 @@ message Copy returns Copied. The table fits this panel. Oversized-table
 scrolling, selection during recycling or reflow, reference width parity and
 animation remain unqualified. The coordinator isolates this table unit from
 automatic history. Parent verification passes 193 focused tests, all 4,192
-mobile tests, strict types and Contract compilation. The combined coordinator
-artifact still needs its normal build and drive. Conversation's exact receipt
-is `target/t3-conversation-evidence/tables/native-qa-result.json` in its worktree.
+mobile tests, strict types and Contract compilation. Coordinator commit
+`84dbeb6bdd` builds normally, matches all 3,289 recorded inputs and passes
+strict signature verification. Its executable SHA-256 is
+`a14718e1f69e787bb53f2b44706a16580e11c828b83ff1abf308660fec318ce1`.
+The parent repeats complete QA04 table rendering, native cell selection during
+adjacent code scrolling, and the Copied button state on the actual Duo outer
+panel. It then reopens the interrupted core transcript and verifies the exact
+prior Unicode draft. Both owned sessions close without shutdown. Parent evidence
+is under `target/t3-mini-coordinator/evidence/table-integration/`.
+Conversation's exact receipt is
+`target/t3-conversation-evidence/tables/native-qa-result.json` in its worktree.
 
 Home's spacing/separator patch is draft
 [PR1191](https://github.com/ccheever/exact2/pull/1191), head `22d8eb348d`.
