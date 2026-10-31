@@ -1,0 +1,30 @@
+build:
+  name: T3 Code iOS production
+  steps:
+    - eas/checkout
+    - eas/install_node_modules
+    - eas/resolve_build_config
+    - t3_archive:
+        inputs:
+          credentials: ${ eas.job.secrets.buildCredentials }
+          build_number: ${ eas.job.version.buildNumber }
+    - eas/upload_artifact:
+        name: Upload T3 Code IPA
+        inputs:
+          type: application-archive
+          path: .exact/t3-production/T3Code.ipa
+    - eas/upload_artifact:
+        name: Upload T3 Code provenance
+        inputs:
+          type: build-artifact
+          path: .exact/t3-production/*.json
+
+functions:
+  t3_archive:
+    name: Build and inspect signed T3 Code archive
+    path: ./t3-archive
+    inputs:
+      - name: credentials
+        type: json
+      - name: build_number
+        type: string
