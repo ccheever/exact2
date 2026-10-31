@@ -46,7 +46,8 @@ final class IframeInspectorTests: XCTestCase {
         defer { destroy(handle) }
         post(["partition": "inspector-test"], configure, handle)
         let web = try XCTUnwrap(Unmanaged<AnyObject>.fromOpaque(view(handle)!).takeUnretainedValue() as? WKWebView)
-        web.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
+        // Large enough that WebKit would dock the inspector in it, as it does in an app's window.
+        web.frame = CGRect(x: 0, y: 0, width: 1200, height: 800)
         let window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView!.addSubview(web)
@@ -66,13 +67,16 @@ final class IframeInspectorTests: XCTestCase {
 
         XCTAssertFalse(visible())
         post(["op": "openDevTools"], command, handle)
-        spin { visible() && inspectorWindow() != nil }
+        spin { visible() && inspectorWindow().map { $0 !== window } == true }
         XCTAssertTrue(web.isInspectable)
         XCTAssertTrue(visible())
         let first = try XCTUnwrap(inspectorWindow(), "the inspector has no window")
         XCTAssertFalse(first === window, "the inspector is docked in the frame's window, not detached")
 
-        // Open already: the same window again, none added.
+        // Open already: the same window again, none added. The inspector
+        // makes a window of its own a moment after it shows, so the count is
+        // read once it has settled.
+        spin(until: { false }, 0.5)
         let windows = NSApplication.shared.windows.count
         post(["op": "openDevTools"], command, handle)
         spin(until: { false }, 0.5)
