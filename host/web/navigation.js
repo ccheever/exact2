@@ -128,15 +128,15 @@ const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
 // them on every History entry so a browser reload retains its agent adapter.
 const agentParameters = ['agent', 'seed', 'locale', 'formatLocale', 'timeZone', 'epoch', 'storage', 'failFetch'];
 export function historyURL(path) { // (exported for its test)
-  if (!AGENT_ADMITTED) return location.origin + path;
-  const facts = launched();
-  if (!facts.has('agent')) return location.origin + path;
-  const url = new URL(location.origin + path);
-  for (const key of agentParameters) {
-    if (facts.has(key)) url.searchParams.set(key, facts.get(key));
-  }
+  const facts = AGENT_ADMITTED ? launched() : null;
+  if (!facts?.has('agent')) return location.origin + path;
+  const url = new URL(location.origin + path); for (const key of agentParameters) if (facts.has(key)) url.searchParams.set(key, facts.get(key));
   return url.href;
 }
+/** Whether `e` scrolls the page by the person: a wheel, a touch's move, a key that scrolls, or a press on a scrollbar. A
+ * `scroll` event cannot say: the page's own scrolls (a fragment's, scroll anchoring, a clamp) are trusted events too. */
+const byPerson = (e, el = e.target) => e.type === "keydown" ? /^(Arrow(Up|Down|Left|Right)|Page(Up|Down)|Home|End| )$/.test(e.key) && !el.closest?.("input, textarea, select, [contenteditable]")
+  : e.type !== "pointerdown" || (el instanceof Element && (b => e.clientX - b.left >= el.clientLeft + el.clientWidth || e.clientY - b.top >= el.clientTop + el.clientHeight)(el.getBoundingClientRect()));
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 /** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not: the route's own, else one in no route at all (a header the routes share), as iOS resolves it (NavigationBack.control); another route's is that route's. */
 const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) ?? [...nav.ownerDocument.querySelectorAll(`[id="${CSS.escape(name)}"]`)].find(control => [null, nav].includes(control.closest("[navigationKey]"))) ?? null : undefined;
@@ -325,10 +325,10 @@ function drain() {
   try { for (let item; queue.length && echo === null;) { item = queue.shift(); if (item.op) commit(item.op); else popped(item); } } finally { draining = false; }
 }
 const settled = () => { if (echo === null && !queue.length) for (const finish of [...waiters]) finish(); };
-export const navigation = {
+export const navigation = { personScrolls: 0, // the person's scrolls (`byPerson`) from the page's start: one after a navigation asked a fragment's scroll cancels it (fragment.js, LLP 1153 D5)
   /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`, `goTo(location)` its own `go`. */
   connect(hostRoot, dispatch, journal, back = null, goTo = null, matchesRoute = () => false, waitForActivation = false) {
-    root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo; routeMatches = matchesRoute;
+    root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo; routeMatches = matchesRoute; for (const type of ["wheel", "touchmove", "keydown", "pointerdown"]) addEventListener(type, e => { if (byPerson(e)) navigation.personScrolls++; }, { capture: true, passive: true });
     if (waitForActivation) { activationRequired.add(hostRoot); activated.delete(hostRoot); }
     else { activationRequired.delete(hostRoot); activated.add(hostRoot); }
     // Capture before either target's link listener commits. Early replay before connect has no action-row association.

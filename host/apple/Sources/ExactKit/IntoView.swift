@@ -278,6 +278,7 @@ extension Presenter {
 
     /// `given`: the node to align, found by its caller (a fragment's, in its route: `Fragment.swift`).
     func scrollElementIntoView(_ args: [Any], target given: NodeView? = nil) {
+        if given == nil, let fragment = fragmentHeld { elementScrolls.drop(fragment); fragmentHeld = nil } // the author's scroll wins over a fragment's still held
         guard let name = args.first as? String,
               let target = given ?? views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else {
             session?.log("scrollIntoView \"\(args.first ?? "")\" refused: no live node with that id")

@@ -319,6 +319,8 @@ impl Batch {
         } else {
             ",\"scroll\":false"
         });
+        s.push_str(",\"activation\":");
+        s.push_str(&change.activation.to_string());
         s.push_str(",\"removed\":[");
         for (i, id) in change.removed.iter().enumerate() {
             if i > 0 {

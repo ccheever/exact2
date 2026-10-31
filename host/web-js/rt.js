@@ -151,7 +151,7 @@ export const useSchedule = s => { Sched = s; }, refused = () => Refused;
 export const journal = Object.assign([], { start: 0, push(...l) { const over = Array.prototype.push.apply(this, l) - 4096; if (over > 0) this.start += this.splice(0, over).length; return this.length; } }); // the runner's ring (JOURNAL_RING): `start` is the oldest line's index
 export const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
-export function W(s, v) { Writes.push([s.n, v]); }
+export function W(s, v) { Writes.push([s.n, v]); if (s.n === Assigned.n) Assigned.v = v; } export const Assigned = { n: null, v: undefined }; // the router slot's last value written (router.js `assigned`)
 /** A host command inside an action: run after the commit. */
 export function C(name, args) { Commands.push([name, args, Origin.now()]); Rev++; } export const Origin = { now: () => "app" }; // who caused the commit (modules.js, LLP 1133.002 D12), taken as a command is queued, so a deferred tail runs it under its own commit's origin
 /** `refresh r`: forced at this commit's settlement (merged, LLP 1054.000.000 D2). */

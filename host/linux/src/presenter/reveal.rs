@@ -189,6 +189,9 @@ impl<D: DataSource> Presenter<D> {
     /// with that HTML `id`, aligned in each scroll container above it, then
     /// the page. `behavior="smooth"` lands at once here (no animation).
     pub(super) fn scroll_element_into_view(&mut self, args: &[exact_plan::Value]) {
+        // The author's scroll wins over a fragment's, held or still armed.
+        self.fragment_anchor = None;
+        self.fragment_armed = None;
         let text = |i: usize| args.get(i).and_then(exact_plan::Value::as_str);
         let name = text(0).unwrap_or_default();
         let kernel = self.host.kernel();
@@ -212,27 +215,32 @@ impl<D: DataSource> Presenter<D> {
         });
     }
 
-    /// The runner's `scrollToFragment(visit, fragment)`, once a route's
-    /// data has arrived (LLP 1153 D5): the node with that HTML `id` in the
-    /// visit's own route (a route beneath may hold the same id) at the start
-    /// of each scroll container above it, as `scrollIntoView` with
+    /// The runner's `scrollToFragment(visit, fragment, activation)`, once a
+    /// route's data has arrived (LLP 1153 D5): the node with that HTML `id`
+    /// in the visit's own route (a route beneath may hold the same id) at
+    /// the start of each scroll container above it, as `scrollIntoView` with
     /// `block="start"`, then the starting point of the next Tab, and held
     /// there while the pictures load (`hold_fragment`); `top`, or no such
     /// node, the route's scrollers at their tops and the route's start in
-    /// view. A scroll by the person since the router asked for it cancels
-    /// it.
+    /// view. A scroll by the person since the router change that made the
+    /// activation arrived cancels it.
     pub(super) fn scroll_to_fragment(&mut self, args: &[exact_plan::Value]) {
         let visit = args.first().and_then(exact_plan::Value::as_number);
         let fragment = args
             .get(1)
             .and_then(exact_plan::Value::as_str)
             .unwrap_or_default();
+        let activation = args.get(2).and_then(exact_plan::Value::as_number);
         self.fragment_anchor = None;
-        if self
+        // The activation this command makes, armed when its router change
+        // arrived; taken once.
+        let armed = self
             .fragment_armed
-            .take()
-            .is_some_and(|(_, scrolls)| scrolls != self.person_scrolls)
-        {
+            .filter(|(a, _)| Some(*a as f64) == activation);
+        if armed.is_some() {
+            self.fragment_armed = None;
+        }
+        if armed.is_some_and(|(_, scrolls)| scrolls != self.person_scrolls) {
             self.host.log(format!(
                 "fragment #{fragment}: the person scrolled first; the route stays where it is"
             ));
@@ -318,6 +326,7 @@ impl<D: DataSource> Presenter<D> {
     /// `Element.scrollBy`; an element that does not scroll does not move.
     pub(super) fn scroll_element_by(&mut self, args: &[exact_plan::Value]) {
         self.restore_scroll_anchors();
+        self.fragment_anchor = None;
         let name = args
             .first()
             .and_then(exact_plan::Value::as_str)

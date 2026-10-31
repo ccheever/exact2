@@ -168,6 +168,61 @@ fn sweep(js: bool) {
     )
     .unwrap();
     std::fs::write(dir.join("no-root.plan"), no_root.encode()).unwrap();
+    // A visit whose `#moves` and `#other` are far down its navigation root,
+    // which scrolls, beside a picture the server is slow to send, and a bar
+    // stuck at its top: links to its fragments, a `go` only computed, one
+    // in a commit that is refused, and the app's own `scrollIntoView` (LLP
+    // 1153 D5).
+    let rows = |from: usize| -> String {
+        (from..from + 20)
+            .map(|i| format!("            box id=\"row-{i}\" height=100\n"))
+            .collect()
+    };
+    let fragment = r##"routes nav
+  home "/"
+    item "/item/:id"
+
+component App
+  state peeked = ""
+  state blank = ""
+  action follow(url: string)
+    nav = go(nav, url)
+  action back
+    nav = back(nav)
+  action peek
+    peeked = fragment(top(go(nav, "/item/7#moves")))
+  action refused
+    nav = go(nav, "/item/7#moves")
+    nav = push(nav, path("item", blank))
+  action aim
+    scrollIntoView("row-3")
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="port" width="100%" height="100%" overflow-y="auto"
+      row position="sticky" top=0 height=40 gap=8 z-index=1 background-color="#ffffff"
+        link href="#moves" testId="to-moves"
+          text "Moves"
+        link href="#other" testId="to-other"
+          text "Other"
+        link href="#top" testId="to-top"
+          text "Top"
+        button press=peek testId="peek"
+          text "Peek"
+        button press=refused testId="refused"
+          text "Refused"
+        button press=aim testId="aim"
+          text "Aim"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}`
+          if e.name == "item"
+            image "/__test-slow.png" id="first" width=10 height=10 display="block"
+ROWS0            box id="moves" height=100
+ROWS20            box id="other" height=100
+ROWS40"##
+        .replace("ROWS0", &rows(0))
+        .replace("ROWS20", &rows(20))
+        .replace("ROWS40", &rows(40));
+    let fragment = contract::bake(contract::compile(&fragment).unwrap(), Empty).unwrap();
+    std::fs::write(dir.join("fragment.plan"), fragment.encode()).unwrap();
     let accessibility = contract::compile(include_str!(
         "../../../../contract/corpus/accessibility.contract"
     ))

@@ -25,9 +25,14 @@ pub struct RouterChange {
     /// Its fragment, `""` when it has none (LLP 1153 D5).
     pub fragment: String,
     /// Whether the host scrolls to that fragment once the route's content
-    /// has arrived: the top is a new visit with a fragment, or its fragment
-    /// changed. A return to a visit (Back, a tab switch) keeps its place.
+    /// has arrived: the top is a new visit with a fragment, its fragment
+    /// changed, or the router was assigned a navigation to it. A return to a
+    /// visit (Back, a tab switch) keeps its place.
     pub scroll: bool,
+    /// That scroll's activation, counted from 1 for the router's life, `0`
+    /// with none: the third argument of the `scrollToFragment` that makes
+    /// it, so a host matches the two and takes each once.
+    pub activation: u64,
     /// Removed ids, in the old value's tab/stack order.
     pub removed: Vec<u64>,
     /// Every retained visit's canonical location, in tab/stack order.
@@ -82,8 +87,8 @@ pub trait Routing {
     /// Whether a committed change asked for a scroll to its top's fragment
     /// that no host has been told to make yet (LLP 1153 D5).
     fn fragment_due(&self) -> bool;
-    /// That visit's id and fragment, once.
-    fn take_fragment(&mut self) -> Option<(u64, String)>;
+    /// That visit's id, fragment and activation, once.
+    fn take_fragment(&mut self) -> Option<(u64, String, u64)>;
     /// Whether a verb in the commit being made navigated, by a location
     /// with a fragment, to the visit it left on top.
     fn activated(&self) -> bool;
@@ -107,13 +112,19 @@ pub struct RouterContext {
     table: Table,
     committed: Option<Value>,
     pending: Option<RouterChange>,
-    /// The visit and fragment a host scrolls to once the content settles.
-    fragment: Option<(u64, String)>,
-    /// The visit and fragment the commit being made's last `open`, `push`,
-    /// `replace` or `go` with a fragment arrived at: an explicit navigation,
-    /// which scrolls even to a fragment the visit already shows, where a
-    /// return by `back` or `select` does not (LLP 1153 D5).
-    activated: RefCell<Option<(u64, String)>>,
+    /// The visit, fragment and activation a host scrolls to once the
+    /// content settles.
+    fragment: Option<(u64, String, u64)>,
+    /// The activations made so far.
+    activations: u64,
+    /// What each `open`, `push`, `replace` or `go` to a location with a
+    /// fragment returned in the commit being made, with the visit and
+    /// fragment it left on top: an explicit navigation, which scrolls even
+    /// to a fragment the visit already shows, where a return by `back` or
+    /// `select` does not. It counts only when the router is assigned that
+    /// very value (`compare::same`), never for a value merely computed
+    /// (LLP 1153 D5; LLP 1038's verbs stay pure).
+    navigations: RefCell<Vec<(Value, u64, String)>>,
     refusals: RefCell<Vec<String>>,
     /// The last router value a call read, checked and converted once, with
     /// the reads made of it: a binding that calls `stack(nav)` or `top(nav)`
@@ -190,7 +201,8 @@ impl RouterContext {
             committed: None,
             pending: None,
             fragment: None,
-            activated: RefCell::new(None),
+            activations: 0,
+            navigations: RefCell::new(Vec::new()),
             refusals: RefCell::new(Vec::new()),
             reads: RefCell::new(None),
             // A cold share's tokens arrive with the boot's other facts.
@@ -437,19 +449,23 @@ impl RouterContext {
             self.refuse_once(f.name(), &reason.message);
             return Some(first.clone());
         }
+        let value = self.value(&after);
         if f != Stdlib::Back && f != Stdlib::Select && !exact_route::fragment_of(arg()?).is_empty()
         {
-            *self.activated.borrow_mut() =
-                exact_route::top(&after).map(|e| (e.id, e.fragment.clone()));
+            if let Some(top) = exact_route::top(&after) {
+                let navigation = (value.clone(), top.id, top.fragment.clone());
+                self.navigations.borrow_mut().push(navigation);
+            }
         }
-        Some(self.value(&after))
+        Some(value)
     }
 
-    /// Whether the commit being made navigated to `top` by a location with
-    /// its fragment.
-    fn activates(&self, top: &Entry) -> bool {
-        (self.activated.borrow().as_ref())
-            .is_some_and(|(id, fragment)| *id == top.id && *fragment == top.fragment)
+    /// Whether the router was assigned `value`, a navigation to `top` by a
+    /// location with its fragment, in the commit being made.
+    fn activates(&self, value: &Value, top: &Entry) -> bool {
+        (self.navigations.borrow().iter()).any(|(v, id, fragment)| {
+            crate::compare::same(v, value) && *id == top.id && *fragment == top.fragment
+        })
     }
 }
 
@@ -633,7 +649,7 @@ impl Routing for RouterContext {
         // @ref LLP 1153 D5 — a new visit with a fragment, a fragment that
         // changed, or a navigation to the top's fragment scrolls; a visit
         // returned to keeps its place.
-        let scroll = self.activates(top)
+        let scroll = self.activates(value, top)
             || match before.iter().find(|e| e.id == top.id) {
                 Some(old) => old.fragment != top.fragment,
                 None => !top.fragment.is_empty(),
@@ -648,6 +664,7 @@ impl Routing for RouterContext {
             url: top.url.clone(),
             fragment: top.fragment.clone(),
             scroll,
+            activation: 0,
             removed,
             visits: r
                 .tabs
@@ -660,16 +677,24 @@ impl Routing for RouterContext {
 
     fn commit(&mut self, value: Value, change: Option<RouterChange>) {
         // A navigation to the fragment the top already shows changes no
-        // value, and scrolls again, as a browser's link to it does.
-        if change.is_none() {
-            let top = self
-                .router(&value)
-                .and_then(|r| exact_route::top(&r).cloned());
-            if let Some(top) = top.filter(|top| self.activates(top)) {
-                self.fragment = Some((top.id, top.fragment));
-            }
-        }
-        self.activated.take();
+        // value, and scrolls again, as a browser's link to it does: it is
+        // published as a change of its own, so a host arms it as any other.
+        let change = change.or_else(|| {
+            let r = self.router(&value)?;
+            let top = exact_route::top(&r)?;
+            self.activates(&value, top).then(|| RouterChange {
+                top: top.id,
+                url: top.url.clone(),
+                fragment: top.fragment.clone(),
+                scroll: true,
+                activation: 0,
+                removed: Vec::new(),
+                visits: (r.tabs.iter().flat_map(|t| &t.stack))
+                    .map(|e| (e.id, e.url.clone()))
+                    .collect(),
+            })
+        });
+        self.navigations.borrow_mut().clear();
         self.committed = Some(value);
         if let Some(mut change) = change {
             if let Some(pending) = self.pending.take() {
@@ -683,16 +708,25 @@ impl Routing for RouterContext {
                     }
                 }
                 change.removed = removed;
-                change.scroll |= pending.scroll
+                if !change.scroll
+                    && pending.scroll
                     && pending.top == change.top
-                    && pending.fragment == change.fragment;
+                    && pending.fragment == change.fragment
+                {
+                    change.scroll = true;
+                    change.activation = pending.activation;
+                }
+            }
+            if change.scroll && change.activation == 0 {
+                self.activations += 1;
+                change.activation = self.activations;
             }
             if change.scroll {
-                self.fragment = Some((change.top, change.fragment.clone()));
+                self.fragment = Some((change.top, change.fragment.clone(), change.activation));
             } else if self
                 .fragment
                 .as_ref()
-                .is_some_and(|(id, _)| *id != change.top)
+                .is_some_and(|(id, ..)| *id != change.top)
             {
                 self.fragment = None;
             }
@@ -704,16 +738,16 @@ impl Routing for RouterContext {
         self.fragment.is_some()
     }
 
-    fn take_fragment(&mut self) -> Option<(u64, String)> {
+    fn take_fragment(&mut self) -> Option<(u64, String, u64)> {
         self.fragment.take()
     }
 
     fn activated(&self) -> bool {
-        self.activated.borrow().is_some()
+        !self.navigations.borrow().is_empty()
     }
 
     fn forget_activation(&self) {
-        self.activated.take();
+        self.navigations.borrow_mut().clear();
     }
 
     fn take_refusals(&self) -> Vec<String> {
@@ -830,10 +864,12 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The host's scroll to the selected visit's fragment, as the command
-    /// `scrollToFragment(visit, fragment)`, once the content it waits for
-    /// has arrived: the data source is ready and no request is in flight
-    /// (LLP 1153 D5, LLP 1113). The host finds the element in that visit's
-    /// route. An author's own `scrollIntoView` before then wins.
+    /// `scrollToFragment(visit, fragment, activation)`, once the content it
+    /// waits for has arrived: the data source is ready and no request is in
+    /// flight, a mutation's included and a held one not (`has_pending`; LLP
+    /// 1153 D5, LLP 1113). The host finds the element in that visit's route
+    /// and holds it in place while pictures load. An author's own
+    /// `scrollIntoView` before then wins.
     pub(super) fn fragment_command(&mut self) {
         if !self.router.as_ref().is_some_and(|r| r.fragment_due()) {
             return;
@@ -842,7 +878,9 @@ impl<D: DataSource> Runner<D> {
         if !authored && (!self.data.ready() || self.has_pending()) {
             return;
         }
-        let Some((visit, fragment)) = self.router.as_mut().and_then(|r| r.take_fragment()) else {
+        let Some((visit, fragment, activation)) =
+            self.router.as_mut().and_then(|r| r.take_fragment())
+        else {
             return;
         };
         if authored {
@@ -853,7 +891,11 @@ impl<D: DataSource> Runner<D> {
         }
         self.commands.push(super::Command {
             name: "scrollToFragment".into(),
-            args: vec![Value::Number(visit as f64), Value::str(&fragment)],
+            args: vec![
+                Value::Number(visit as f64),
+                Value::str(&fragment),
+                Value::Number(activation as f64),
+            ],
             source: None,
         });
     }

@@ -390,7 +390,7 @@ package final class Presenter {
     /// Replacing a node with the same HTML id cannot inherit it.
     private var pendingFocus: (node: NodeView, name: String?, selectText: Bool, reason: String)?
     private var deliveringFocus = false; lazy var elementScrolls = ElementScrolls(self) // held `scrollIntoView` requests (IntoView.swift)
-    var personScrolls = 0, fragmentArm: Int? // the person's drags of a scroller, and their count when a router change asked for a fragment's scroll, which one since cancels (Fragment.swift)
+    var personScrolls = 0, fragmentArm: (activation: Int, scrolls: Int)?, fragmentSeen = 0, fragmentHeld: String? // the person's drags of a scroller; the activation a router change asked a fragment's scroll for and their count then, which one since cancels; the last armed; the fragment's request held (Fragment.swift)
     var pendingFocusObservation: [String: String]? {
         guard let pending = pendingFocus else { return nil }
         return ["target": pending.name ?? "#\(pending.node.id)", "reason": pending.reason]

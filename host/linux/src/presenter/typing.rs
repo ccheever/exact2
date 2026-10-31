@@ -500,7 +500,7 @@ impl<D: DataSource> Presenter<D> {
     /// in ascending order; from the focus to the next (Shift: the previous),
     /// wrapping, and from no focus, or one out of the order, to the first
     /// (Shift: the last), or from the starting point a fragment set, to the
-    /// first stop after it (Shift: the last before it; LLP 1153 D5). A
+    /// next stop in tree order (Shift: the one before it; LLP 1153 D5). A
     /// `key` handler's `preventDefault()` keeps Tab.
     pub(crate) fn move_focus(&mut self, backward: bool, now_ms: f64) -> Option<String> {
         self.move_focus_filtered(backward, now_ms, |_, _| true)
@@ -556,8 +556,19 @@ impl<D: DataSource> Presenter<D> {
         let placed = self
             .focus
             .filter(|f| !self.tabbable(*f, boxed) && self.in_popover(*f));
-        let after = |s: usize| order.iter().position(|o| o.0 == i64::MAX && o.1 > s);
-        let before = |s: usize| order.iter().rposition(|o| o.0 == i64::MAX && o.1 < s);
+        // From a starting point out of the order, the stop nearest it in tree
+        // order, whatever its tabindex, as browsers search (HTML's
+        // "sequential navigation search algorithm").
+        let after = |s: usize| {
+            (0..n)
+                .filter(|&i| order[i].1 > s)
+                .min_by_key(|&i| order[i].1)
+        };
+        let before = |s: usize| {
+            (0..n)
+                .filter(|&i| order[i].1 < s)
+                .max_by_key(|&i| order[i].1)
+        };
         let next = match self.focus.and_then(|f| order.iter().position(|o| o.2 == f)) {
             _ if n == 0 || n == 1 && placed.is_some() => return None,
             Some(i) if backward => (i + n - 1) % n,

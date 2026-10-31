@@ -1048,7 +1048,7 @@ fn router_batches_follow_launch_and_committed_actions() {
         ])]]
     );
     assert_eq!(batch.matches("\"op\":\"router\"").count(), 1);
-    assert!(batch.contains(r#""url":"/prompt/5/write","fragment":"","scroll":false,"removed":[]"#));
+    assert!(batch.contains(r#"/write","fragment":"","scroll":false,"activation":0,"removed":[]"#));
     println!("launch batch: {batch}");
     let unchanged = host.resize(exact_runner::Viewport::sized(1280.0, 900.0), 0.0);
     assert!(!unchanged.contains("\"op\":\"router\""));
@@ -1056,7 +1056,7 @@ fn router_batches_follow_launch_and_committed_actions() {
     let id = host.runner().kernel().node_by_key(key).unwrap().id;
     let batch = host.dispatch_at(id, Event::Press, 0.0);
     assert_eq!(batch.matches("\"op\":\"router\"").count(), 1);
-    assert!(batch.contains(r#""url":"/","fragment":"","scroll":false,"removed":[]"#));
+    assert!(batch.contains(r#""url":"/","fragment":"","scroll":false,"activation":0,"removed":[]"#));
     assert_eq!(host.location(), "/");
     let (home, _) = Host::boot(
         &plan.encode(),

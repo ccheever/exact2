@@ -311,12 +311,14 @@ pub struct Presenter<D: DataSource> {
     updates: Option<Box<dyn crate::delivery::Store>>,
     /// Commands from the last commits, consumed by `run_commands`.
     commands: Vec<exact_runner::Command>,
-    /// The router change that asked for a scroll to its fragment, and the
-    /// person's scrolls by then (`person_scrolls`: a wheel, a key, a
-    /// scrollbar, the reader's drag): one since cancels the scroll; then the
-    /// target held in place while the pictures load (LLP 1153 D5;
+    /// The activation a router change asked a fragment's scroll for, and
+    /// the person's scrolls by then (`person_scrolls`: a wheel, a key, a
+    /// scrollbar, the reader's drag): one since cancels that scroll; the
+    /// last activation armed, so a router change seen again arms nothing;
+    /// then the target held in place while the pictures load (LLP 1153 D5;
     /// `reveal.rs`).
-    fragment_armed: Option<(exact_runner::RouterChange, u64)>,
+    fragment_armed: Option<(u64, u64)>,
+    fragment_seen: u64,
     fragment_anchor: Option<(ViewId, u64)>,
     person_scrolls: u64,
     /// HTML's sequential focus navigation starting point: where Tab starts
@@ -566,6 +568,7 @@ impl<D: DataSource> Presenter<D> {
             updates: None,
             commands: Vec::new(),
             fragment_armed: None,
+            fragment_seen: 0,
             fragment_anchor: None,
             person_scrolls: 0,
             focus_start: None,
@@ -900,14 +903,12 @@ impl<D: DataSource> Presenter<D> {
             .runner_mut()
             .publish_sockets(|batch| executor.socket(batch));
         let commands = self.host.take_commands();
-        if let Some(op) = (self.host.router_op()).filter(|op| {
-            op.scroll
-                && self
-                    .fragment_armed
-                    .as_ref()
-                    .is_none_or(|(armed, _)| armed != *op)
-        }) {
-            self.fragment_armed = Some((op.clone(), self.person_scrolls));
+        if let Some(activation) = (self.host.router_op())
+            .map(|op| op.activation)
+            .filter(|a| *a > self.fragment_seen)
+        {
+            self.fragment_seen = activation;
+            self.fragment_armed = Some((activation, self.person_scrolls));
         }
         if !commands.is_empty() {
             self.commands.extend(commands);

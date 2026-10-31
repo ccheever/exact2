@@ -2,17 +2,18 @@
 //! that id in the visit's own route, though the route beneath holds one too,
 //! at the start of its scroller; no such element, the route's top and a line
 //! in the journal; a scroll by the person first (a wheel, a key's or a
-//! scrollbar's `scroll_to`), no scroll; the next Tab from the target; and a
-//! link to a fragment of the visit shown.
+//! scrollbar's `scroll_to`), no scroll; the next Tab from the target; a link
+//! to a fragment of the visit shown, again after the person scrolled; and an
+//! author's `scrollIntoView` over the fragment's hold.
 use super::*;
 
 /// A list route that holds an `id="moves"` of its own, beneath a detail with
-/// a link to its `#moves` and a scroller of ten 50 px rows, the `moves` box,
-/// a button, then ten more.
+/// a link to its `#moves`, buttons that commit or scroll, and a scroller of
+/// ten 50 px rows, the `moves` box, a button, then ten more.
 fn boot() -> Presenter<()> {
     let rows = |from: usize| -> String {
         (from..from + 10)
-            .map(|i| format!("                box height=50 testId=\"row-{i}\"\n"))
+            .map(|i| format!("                box height=50 id=\"row-{i}\"\n"))
             .collect()
     };
     let source = format!(
@@ -20,6 +21,11 @@ fn boot() -> Presenter<()> {
   home "/"
     detail "/detail"
 component App
+  state count = 0
+  action bump
+    count = count + 1
+  action aim
+    scrollIntoView("row-0", block="start")
   action open(url: string)
     nav = push(nav, url)
   action follow(url: string)
@@ -39,10 +45,14 @@ component App
           if e.name == "detail"
             link href="#moves" testId="to-moves"
               text "Moves"
+            button press=bump tabindex=1 testId="bump"
+              text "Bump"
+            button press=aim testId="aim"
+              text "Aim"
             scroll testId="port" height=100
               column
-{}                box id="moves" height=50
-                button testId="after"
+{}                box id="moves" testId="target" height=50
+                button tabindex=2 testId="after"
                   text "After"
 {}"##,
         rows(0),
@@ -100,9 +110,41 @@ fn a_fragment_scrolls_its_own_routes_element_to_the_start() {
     let mut p = boot();
     let port = open(&mut p, "moves", None);
     assert_eq!(p.scroll_of(port).1, 500., "ten 50 px rows above it");
-    // The next Tab starts from the target, not from the list's button.
+    // The next Tab starts from the target, not from the list's button: the
+    // stop after it in tree order, though a lower tabindex comes first in
+    // the order (HTML's sequential navigation search algorithm).
     p.move_focus(false, 1.);
     assert_eq!(p.focus, Some(id(&p, "after")));
+    let _ = open(&mut p, "to-moves", None);
+    p.move_focus(true, 2.);
+    assert_eq!(
+        p.focus,
+        Some(id(&p, "aim")),
+        "Shift-Tab: the stop before it"
+    );
+}
+
+#[test]
+fn a_link_to_the_fragment_shown_scrolls_again_after_the_person_scrolled() {
+    let mut p = boot();
+    let port = open(&mut p, "moves", None);
+    let _ = open(&mut p, "bump", None);
+    p.wheel(port, 0., -100.).unwrap();
+    settle(&mut p);
+    assert_eq!(p.scroll_of(port).1, 400.);
+    let _ = open(&mut p, "to-moves", None);
+    assert_eq!(p.scroll_of(port).1, 500., "a new activation, armed now");
+}
+
+#[test]
+fn the_authors_scroll_into_view_ends_the_fragments_hold() {
+    let mut p = boot();
+    let port = open(&mut p, "moves", None);
+    // As while the route's pictures load.
+    p.fragment_anchor = Some((id(&p, "target"), p.person_scrolls));
+    let _ = open(&mut p, "aim", None);
+    assert!(!p.hold_fragment(), "nothing held");
+    assert_eq!(p.scroll_of(port).1, 0., "where the author put it");
 }
 
 #[test]

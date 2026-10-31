@@ -103,6 +103,7 @@ let served = dist;
 const server = createServer((req, res) => {
   if (req.url === '/__test-mirror') { res.setHeader('content-type', 'text/html'); res.end('<main id="host"></main>'); return; }
   if (req.url === '/__test-guest') { res.setHeader('content-type', 'text/html'); res.end('<script>parent.postMessage("h","*")</script>'); return; }
+  if (req.url === '/__test-slow.png') { setTimeout(() => { res.setHeader('content-type', 'image/png'); res.setHeader('cache-control', 'no-store'); res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64')); }, 2500); return; } // a picture that keeps a fragment's hold (fragment.js)
   (js && served !== published ? serveBuildTree : serveStatic)(served, req, res);
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -723,6 +724,66 @@ try {
       assert.equal((await session.state()).navigation.url, '/');
       assert.equal((await session.state()).slots.backPresses, 1);
     } finally { await session.close(); }
+  });
+  // @ref LLP 1153 D5 — a fragment's scroll, in a navigation root that scrolls: at launch; again by a link to the
+  // fragment shown, though the person scrolled since; never for a navigation a refused commit made, or one only
+  // computed. Back to an entry whose router is the router shown puts back the place it had; a newer destination and the
+  // app's own scrollIntoView win over the hold while a picture loads.
+  await run('a fragment scrolls once per navigation the router is assigned, and gives way to the person, the app and Back', async () => {
+    const original = js ? null : readFileSync(dist + '/index.html', 'utf8');
+    if (js) { served = dir + '/fragment'; jsBuild('fragment.plan', served); }
+    else writeFileSync(dist + '/index.html', readFileSync(process.env.EXACT_ROUTER_DIST + '/index.html', 'utf8').replace('<script type="module" src="./glue.js"></script>',
+      `<script>(${fixture})(${JSON.stringify([...readFileSync(dir + '/fragment.plan')])})</script><script type="module" src="./glue.js"></script>`));
+    try {
+      const port = () => evaluate(`document.querySelector('[data-testid="port"]').scrollTop`);
+      const offset = id => evaluate(`(()=>{const p=document.querySelector('[data-testid="port"]'),e=document.getElementById('${id}');return Math.round(e.getBoundingClientRect().top-p.getBoundingClientRect().top+p.scrollTop);})()`);
+      const centre = id => evaluate(`(()=>{const r=document.querySelector('[data-testid="${id}"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+      const pause = ms => evaluate(`new Promise(r => setTimeout(r, ${ms}))`);
+      const press = async id => { const at = await centre(id); for (const type of ['mousePressed', 'mouseReleased']) await call('Input.dispatchMouseEvent', { type, button: 'left', clickCount: 1, ...at }); };
+      const wheel = async dy => { await call('Input.dispatchMouseEvent', { type: 'mouseWheel', deltaX: 0, deltaY: dy, ...await centre('port') }); await pause(400); };
+      const at = (to, why) => until(`Math.round(document.querySelector('[data-testid="port"]').scrollTop) === ${to}`).catch(async () => assert.fail(`${why}: the port is at ${await port()}, not ${to}`));
+      const launch = async () => {
+        const before = await evaluate('globalThis.fixtureBoot ?? null');
+        await call('Page.resetNavigationHistory');
+        await call('Page.navigate', { url: 'about:blank' }); // else, at that URL, only a fragment's navigation
+        await call('Page.navigate', { url: url + '/item/7?agent=1#moves' });
+        await until(`globalThis.fixtureBoot !== ${JSON.stringify(before)} && document.getElementById('exact-root')?.dataset.bootMs && globalThis.exact?.${js ? 'ready' : 'agent'}`);
+        await evaluate('exact.ready');
+        if (js) await evaluate(`(exact.agent = exact.agentSettled, true)`);
+        const moves = await offset('moves');
+        await at(moves, 'the launch at #moves');
+        return moves;
+      };
+      const moves = await launch();
+      await wheel(-300);
+      const scrolled = await port();
+      assert.ok(scrolled < moves, `the wheel scrolled: ${scrolled}`);
+      await press('refused'); await pause(300);
+      assert.equal(await port(), scrolled, 'a navigation in a refused commit scrolls nothing');
+      await press('peek'); await pause(300);
+      assert.equal(await port(), scrolled, 'a navigation only computed scrolls nothing');
+      assert.equal((await state()).slots.peeked, 'moves');
+      await press('to-moves'); await at(moves, 'a link to the fragment shown, after the person scrolled');
+      await wheel(-300);
+      const kept = await port();
+      await press('to-other'); await at(await offset('other'), '#other');
+      await press('to-moves'); await at(moves, '#moves again');
+      // Loaded: while its document loads, Chrome holds its own fragment's element in view after a traversal.
+      await until('[...document.images].every(image => image.complete)');
+      await evaluate('history.go(-2)');
+      await at(kept, 'Back two entries, to #moves as it was left');
+      await launch();
+      const start = await offset('first'); // the route's, below the bar
+      await press('to-top'); await at(start, '#top');
+      await pause(3000);
+      assert.equal(await port(), start, 'the picture landed, and #top stands');
+      await launch();
+      await press('aim');
+      const row = await offset('row-3');
+      await at(row, "the app's scrollIntoView");
+      await pause(3000);
+      assert.equal(await port(), row, "the picture landed, and the app's place stands");
+    } finally { served = dist; if (original !== null) writeFileSync(dist + '/index.html', original); }
   });
   await run('autofocus preserves existing focus, and a reload keeps it at its place', async () => {
     served = dist;

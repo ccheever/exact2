@@ -99,12 +99,18 @@ fn shapes_round_trip_launch_precedes_initializers_and_state_is_named_json() {
     assert_eq!(r.slot("encoded"), Some(&Value::str("a%2Fb%20%3F%C3%A9")));
 }
 
-/// The scroll commands a drain carries: `scrollToFragment(visit, fragment)`.
+/// The scroll commands a drain carries: `scrollToFragment(visit, fragment,
+/// activation)`.
 fn fragment_scrolls(r: &mut Runner<Data>) -> Vec<Vec<Value>> {
     (r.take_commands().into_iter())
         .filter(|c| c.name == "scrollToFragment")
         .map(|c| c.args)
         .collect()
+}
+
+fn scroll(visit: &Value, fragment: &str, activation: u64) -> Vec<Value> {
+    let activation = Value::Number(activation as f64);
+    vec![visit.clone(), Value::str(fragment), activation]
 }
 
 /// @ref LLP 1153 D5 — the fragment rides on the visit; a host is told to
@@ -125,27 +131,20 @@ fn a_fragment_rides_on_the_visit_and_asks_one_scroll_per_activation() {
     );
     assert_eq!(launched.location(), "/t/7#moves");
     let visit = Value::Number(launched.top as f64);
-    assert_eq!(
-        fragment_scrolls(&mut r),
-        [vec![visit.clone(), Value::str("moves")]]
-    );
+    assert_eq!(launched.activation, 1);
+    assert_eq!(fragment_scrolls(&mut r), [scroll(&visit, "moves", 1)]);
     assert!(fragment_scrolls(&mut r).is_empty(), "asked once");
 
     // A fragment-only change is the same visit, and scrolls again.
     let change = act(&mut r, "push", "/t/7#stats").unwrap();
     assert_eq!((change.top, change.scroll), (launched.top, true));
     assert_eq!(nav(&r).tabs[0].stack.len(), 2);
-    assert_eq!(
-        fragment_scrolls(&mut r),
-        [vec![visit.clone(), Value::str("stats")]]
-    );
+    assert_eq!(fragment_scrolls(&mut r), [scroll(&visit, "stats", 2)]);
     // The same fragment again changes no value and scrolls again, as a
-    // browser's link to it does.
-    assert!(act(&mut r, "go", "/t/7#stats").is_none());
-    assert_eq!(
-        fragment_scrolls(&mut r),
-        [vec![visit.clone(), Value::str("stats")]]
-    );
+    // browser's link to it does: a change of its own, a new activation.
+    let repeated = act(&mut r, "go", "/t/7#stats").unwrap();
+    assert_eq!((repeated.scroll, repeated.activation), (true, 3));
+    assert_eq!(fragment_scrolls(&mut r), [scroll(&visit, "stats", 3)]);
 
     // A new visit without one asks nothing; the return to /t/7 by Back, or
     // by a location without a fragment, keeps its fragment and its place.
@@ -170,17 +169,38 @@ fn a_fragment_rides_on_the_visit_and_asks_one_scroll_per_activation() {
     act(&mut r, "push", "/t/7/details");
     let again = act(&mut r, "go", "/t/7#stats").unwrap();
     assert_eq!((again.top, again.scroll), (launched.top, true));
-    assert_eq!(
-        fragment_scrolls(&mut r),
-        [vec![visit.clone(), Value::str("stats")]]
-    );
+    assert_eq!(fragment_scrolls(&mut r), [scroll(&visit, "stats", 4)]);
 
     // `go` to the shown visit without a fragment clears it, and its route
     // goes to its top (the host's `top` or no match).
     let cleared = act(&mut r, "go", "/t/7").unwrap();
     assert_eq!((cleared.fragment.as_str(), cleared.scroll), ("", true));
-    assert_eq!(fragment_scrolls(&mut r), [vec![visit, Value::str("")]]);
+    assert_eq!(fragment_scrolls(&mut r), [scroll(&visit, "", 5)]);
     assert_eq!(r.derive("fragment"), Some(&Value::str("")));
+}
+
+/// @ref LLP 1153 D5 — a navigation is a router value assigned to the
+/// router's slot by a commit that lands: a `go` merely computed, or one
+/// whose commit is refused, scrolls nothing and spends no activation.
+#[test]
+fn only_a_navigation_assigned_to_the_router_scrolls() {
+    let mut r = boot(fixture::plan(&table()), "/t/7#moves");
+    let visit = Value::Number(r.take_router_change().unwrap().top as f64);
+    assert_eq!(fragment_scrolls(&mut r), [scroll(&visit, "moves", 1)]);
+    assert!(act(&mut r, "peek", "/t/7#moves").is_none());
+    assert_eq!(r.slot("peeked"), Some(&Value::str("moves")));
+    assert!(
+        fragment_scrolls(&mut r).is_empty(),
+        "computed, not assigned"
+    );
+    let before = r.slot("nav").cloned();
+    let refused = r.act("goAndTrap", vec![Value::str("/t/7#moves")]);
+    assert!(refused.is_err(), "{refused:?}");
+    assert_eq!(r.slot("nav"), before.as_ref());
+    assert!(r.take_router_change().is_none());
+    assert!(fragment_scrolls(&mut r).is_empty(), "refused");
+    assert_eq!(act(&mut r, "go", "/t/7#moves").unwrap().activation, 2);
+    assert_eq!(fragment_scrolls(&mut r), [scroll(&visit, "moves", 2)]);
 }
 
 #[test]

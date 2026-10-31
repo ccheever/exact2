@@ -1,6 +1,7 @@
 // The router on the JS target (LLP 1038; route/src), re-exported by rt.js: the verbs and reads, the route table, and the
 // router slot's changes to the browser's history.
-import { Refusal, effect, After, journal, clock, commit, W, pressFeedback, fact, Hosts, Resources } from "./rt.js";
+import { Refusal, effect, After, journal, clock, commit, W, pressFeedback, fact, Hosts, Resources, Assigned, refused } from "./rt.js";
+import { Counting } from "./held.js";
 import { projectRoots } from "./document.js";
 import { canonical, locationOf, fragmentOf, enc, dec, matchPattern } from "./route-pattern.js";
 export { canonical, locationOf };
@@ -153,44 +154,62 @@ function hostBack(id) { const r = RouterSlot?.n.v; if (r && validRouter(r) && to
  * the router as it is. */
 function hostGo(location) {
   const r = RouterSlot?.n.v; if (!r || !validRouter(r)) return;
-  const next = navigating(go_)(r, location); if (next !== r) commit(() => W(RouterSlot, next), "host go"); else afterCommit();
+  const next = navigating(go_)(r, location); if (next !== r) commit(() => W(RouterSlot, next), "host go");
 }
 // @ref LLP 1153 D5 — the scroll to a fragment, the browser's own step made once the route's data has arrived (the
-// runner's `fragment_command`): no resource asked, in flight or waiting for its source. `fragment.js` finds and
-// scrolls, then holds the target while the route's pictures load; it loads at first use. `Activated`: the visit and
-// fragment an explicit navigation (an `open`, `push`, `replace` or `go` to a location with a fragment) arrived at in
-// the commit being made, which scrolls even to the fragment the visit already shows, where a return by `back` or
-// `select` keeps its place. `Due` waits for the data; `Scheduled` waits for the module, and either is let go when its
-// visit stops showing that fragment or the app scrolls into view itself.
-let Activated = null, Due = null, Scheduled = null, Fragments = null;
+// runner's `fragment_command`): no resource waiting for its source and no request in flight, a mutation's included and
+// a held one not (held.js `Counting`, the runner's `has_pending`). `fragment.js` finds and scrolls, then holds the
+// target while the route's pictures load; it loads at first use. `Navigations`: what each `open`, `push`, `replace`
+// or `go` to a location with a fragment returned, with the visit and fragment it left on top: an explicit navigation,
+// which scrolls even to the fragment the visit already shows, where a return by `back` or `select` keeps its place.
+// It counts only when a commit that lands writes that very value to the router (`assigned`), never for a value merely
+// computed. `Due` waits for the data; `Scheduled` waits for the module, and either is let go when its visit stops
+// showing that fragment or the app scrolls into view itself.
+let Navigations = [], Due = null, Scheduled = null, Fragments = null, Activations = 0;
 const fragments = () => Fragments ??= import("./fragment.js");
 const pageRoot = () => document.getElementById("exact-root");
 function navigating(f) {
   return (r, location) => {
-    const next = f(r, location), fragment = fragmentOf(location), t = top_(next);
-    if (fragment && t[2] === canonical(location) && t[5] === fragment) Activated = [t[0], fragment];
+    let next = f(r, location); const fragment = fragmentOf(location), t = top_(next);
+    // A new value even where nothing changed, so that assigning it is told from assigning the router itself (`assigned`).
+    if (fragment && t[2] === canonical(location) && t[5] === fragment) { if (next === r) next = copy(r); Navigations.push([next, t[0], fragment]); }
     return next;
   };
+}
+/** The navigation the commit just made assigned the router, once: none when the commit was refused. */
+function assigned() {
+  const v = Assigned.v, found = v !== undefined && !refused() ? Navigations.find(n => n[0] === v) : null;
+  Assigned.v = undefined; Navigations = [];
+  return found ?? null;
 }
 const shows = ({ visit, fragment }) => { const r = RouterSlot?.n?.v, t = r && validRouter(r) && top_(r); return !!t && t[0] === visit && t[5] === fragment; };
 function fragmentDue() {
   if (Due && !shows(Due)) Due = null;
-  if (!Due || Resources.some(r => r.waiting || r.ticket?.waiting)) return;
+  if (!Due || Counting.size || Resources.some(r => r.waiting)) return;
   const due = Scheduled = Due; Due = null;
-  fragments().then(f => { if (Scheduled !== due || !shows(due)) return; Scheduled = null; f.scroll(pageRoot(), due.visit, due.fragment, say); }, e => say(`fragment: ${e.message}`));
+  fragments().then(f => { if (Scheduled !== due || !shows(due)) return; Scheduled = null; f.scroll(pageRoot(), due.visit, due.fragment, say, due.activation); }, e => say(`fragment: ${e.message}`));
 }
-function wantScroll(op) { Due = { visit: op.top, fragment: op.fragment }; Scheduled = null; fragments().then(f => f.arm(pageRoot(), op)); queueMicrotask(fragmentDue); }
-/** After a commit's tree update: a navigation to the fragment the top already shows changes no value, and scrolls again.
+/** The scroll `op` asks for, armed now: a scroll by the person from here cancels it (navigation.js `personScrolls`). */
+function wantScroll(op) {
+  op.activation = ++Activations; op.since = History?.personScrolls;
+  Due = { visit: op.top, fragment: op.fragment, activation: op.activation }; Scheduled = null;
+  fragments().then(f => f.arm(pageRoot(), op, History)); queueMicrotask(fragmentDue);
+}
+const changeOf = (r, top, scroll, removed = []) => ({ top: top[0], url: top[5] ? `${top[2]}#${top[5]}` : top[2], fragment: top[5], scroll, removed, visits: r[1].flatMap(t => t[1].map(e => [e[0], e[2]])) });
+/** After a commit's tree update: a navigation to the fragment the top already shows changes no value, and scrolls
+ * again, a change of its own to the history as the runner's (a Back or Forward to it restores its place, fragment.js).
  * The check waits a microtask, for the commit's requests to go out and its commands to run. */
 function afterCommit() {
-  const t = Activated && RouterSlot?.n?.v && top_(RouterSlot.n.v);
-  if (t && t[0] === Activated[0] && t[5] === Activated[1]) wantScroll({ top: t[0], fragment: t[5] });
-  Activated = null; queueMicrotask(fragmentDue);
+  const n = assigned(), r = RouterSlot?.n?.v, t = n && r && validRouter(r) && top_(r);
+  if (t && t[0] === n[1] && t[5] === n[2]) { const op = changeOf(r, t, true); History.apply(op); wantScroll(op); }
+  queueMicrotask(fragmentDue);
 }
 export function router(slot, history) {
-  RouterSlot = slot; navigationRoots(history); After.push(afterCommit);
-  // An author's own `scrollIntoView` wins over a fragment's scroll not yet made.
-  const own = Hosts.scrollIntoView; Hosts.scrollIntoView = (...a) => { const d = Due ?? Scheduled; if (d) { say(`fragment #${d.fragment}: the app's own scrollIntoView took its place`); Due = Scheduled = null; } return own(...a); };
+  RouterSlot = slot; Assigned.n = slot.n; navigationRoots(history); After.push(afterCommit);
+  // An author's own `scrollIntoView` wins over a fragment's scroll not yet made, or held while pictures load; its
+  // `scrollBy` over one held.
+  const own = Hosts.scrollIntoView; Hosts.scrollIntoView = (...a) => { const d = Due ?? Scheduled; if (d) { say(`fragment #${d.fragment}: the app's own scrollIntoView took its place`); Due = Scheduled = null; } globalThis.exact?.fragment?.cancel(); return own(...a); };
+  const by = Hosts.scrollBy; Hosts.scrollBy = (...a) => { globalThis.exact?.fragment?.cancel(); return by(...a); };
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document, as input-glue.js's rule for the wasm host:
   // a link with its own `press` navigates by it; any other goes to the
@@ -222,8 +241,8 @@ export function router(slot, history) {
     Shown = r;
     // A navigation to a fragment, a new visit with one, or a fragment that changed scrolls (LLP 1153 D5); a visit
     // returned to keeps its place. The history mirrors the visit's url with its fragment.
-    const activated = Activated?.[0] === top[0] && Activated[1] === top[5]; Activated = null;
-    const op = { top: top[0], url: top[5] ? `${top[2]}#${top[5]}` : top[2], fragment: top[5], scroll: activated || (was ? was[5] !== top[5] : !!top[5]), removed, visits: r[1].flatMap(t => t[1].map(e => [e[0], e[2]])) };
+    const n = assigned(), activated = !!n && n[1] === top[0] && n[2] === top[5];
+    const op = changeOf(r, top, activated || (was ? was[5] !== top[5] : !!top[5]), removed);
     history.apply(op);
     if (op.scroll) wantScroll(op);
   });

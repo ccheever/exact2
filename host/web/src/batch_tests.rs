@@ -76,6 +76,7 @@ fn cases() -> Vec<(&'static str, String)> {
                     url: "/tag/\"x\"?q=1".into(),
                     fragment: "moves".into(),
                     scroll: true,
+                    activation: 3,
                     removed: vec![],
                     visits: vec![(1, "/".into()), (5, "/tag/\"x\"?q=1".into())],
                 })
@@ -89,6 +90,7 @@ fn cases() -> Vec<(&'static str, String)> {
                     url: "/".into(),
                     fragment: String::new(),
                     scroll: false,
+                    activation: 0,
                     removed: vec![1, 22, 333],
                     visits: vec![(18_446_744_073_709_551_615, "/".into())],
                 })
@@ -307,11 +309,11 @@ fn cases() -> Vec<(&'static str, String)> {
 const GOLDEN: &[(&str, &str)] = &[
     (
         "router",
-        r#"{"ops":[{"op":"router","top":5,"url":"/tag/\"x\"?q=1#moves","fragment":"moves","scroll":true,"removed":[],"visits":[[1,"/"],[5,"/tag/\"x\"?q=1"]]}],"timers":false,"clock":0,"error":null}"#,
+        r#"{"ops":[{"op":"router","top":5,"url":"/tag/\"x\"?q=1#moves","fragment":"moves","scroll":true,"activation":3,"removed":[],"visits":[[1,"/"],[5,"/tag/\"x\"?q=1"]]}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "router-removed",
-        r#"{"ops":[{"op":"router","top":18446744073709551615,"url":"/","fragment":"","scroll":false,"removed":[1,22,333],"visits":[[18446744073709551615,"/"]]}],"timers":false,"clock":0,"error":null}"#,
+        r#"{"ops":[{"op":"router","top":18446744073709551615,"url":"/","fragment":"","scroll":false,"activation":0,"removed":[1,22,333],"visits":[[18446744073709551615,"/"]]}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "collections",
