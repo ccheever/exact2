@@ -2,6 +2,7 @@
 //! `fastSeek(id, seconds)` seeks every time it runs, where the bound
 //! `currentTime` seeks only when its value changes, and `load(id)` loads the
 //! source again (a retry after an `error`, or a file that changed).
+//! `requestPictureInPicture(id)` floats an `image` (LLP 1042 §9).
 use super::{err, infer, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};
 
@@ -17,12 +18,13 @@ pub(super) fn command_args(
             "`fastSeek(\"element-id\", seconds)`",
             &[Ty::String, Ty::Number],
         ),
+        "requestPictureInPicture" => ("`requestPictureInPicture(\"element-id\")`", &[Ty::String]),
         _ => ("`load(\"element-id\")`", &[Ty::String]),
     };
     let wrong = |at| {
         err(
             "type-media-command",
-            format!("{usage}: a media element's `id`, as `focus` takes one"),
+            format!("{usage}: the element's `id`, as `focus` takes one"),
             at,
         )
     };

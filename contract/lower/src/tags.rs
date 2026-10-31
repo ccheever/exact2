@@ -429,6 +429,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // A `video` entered or left full screen (`requestFullscreen`, the
         // platform's own controls); the payload says which.
         "fullscreenchange" => AttrTarget::Handler("fullscreenchange"),
+        // An `image` floated or stopped floating in picture in picture
+        // (`requestPictureInPicture`, LLP 1042 §9).
+        "enterpictureinpicture" => AttrTarget::Handler("enterpictureinpicture"),
+        "leavepictureinpicture" => AttrTarget::Handler("leavepictureinpicture"),
         "canplay" => AttrTarget::Handler("canplay"),
         // @ref LLP 1098 D1, D2 — the media session: `metadata=` claims it,
         // the six actions by `setActionHandler`'s names, and the seconds a

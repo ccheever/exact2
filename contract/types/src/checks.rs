@@ -953,7 +953,7 @@ pub(super) fn check_command(
         }
         return Ok(());
     }
-    if name == "fastSeek" || name == "load" {
+    if name == "fastSeek" || name == "load" || name == "requestPictureInPicture" {
         return super::media::command_args(name, args, scope, shapes, span);
     }
     if name == "removeAllRanges" && !args.is_empty() {

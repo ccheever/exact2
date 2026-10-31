@@ -14,7 +14,9 @@ private final class VideoModule {
     typealias Update = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void
     typealias Handle = @convention(c) (UnsafeMutableRawPointer?) -> Void
     let create: Create, view: View, update: Update, destroy: Handle, state: Handle, fullscreen: Handle, toggle: Handle
+    fileprivate let library: UnsafeMutableRawPointer
     private init(_ library: UnsafeMutableRawPointer) {
+        self.library = library
         func symbol<T>(_ name: String, _: T.Type) -> T { unsafeBitCast(dlsym(library, name)!, to: T.self) }
         create = symbol("exact_video_create", Create.self)
         view = symbol("exact_video_view", View.self)
@@ -43,6 +45,9 @@ private final class VideoModule {
         return VideoModule(library)
     }()
 }
+
+/// The loaded video arm, for its picture-in-picture exports (PictureInPicture.swift).
+enum VideoArmLibrary { static var handle: UnsafeMutableRawPointer? { VideoModule.shared?.library } }
 
 /// Chrome's rule for a muted video its `autoplay` attribute started, with
 /// `paused` unbound (LLP 1042 §3, ruled 2026-09-28): it plays only while some
@@ -373,6 +378,7 @@ extension Presenter {
     /// `fastSeek(id, seconds)` and `load(id)` on the video or audio with that
     /// HTML `id`, as `focus(id)` names one.
     func mediaCommand(_ name: String, _ args: [Any]) {
+        if name == "requestPictureInPicture" { return pictureInPicture(args) }
         let id = args.first as? String ?? ""
         let node = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == id })
         guard let video = node?.video else {

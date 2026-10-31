@@ -160,9 +160,9 @@ impl<D: DataSource> Presenter<D> {
                 "openURL" if self.has_shell() || self.url_opener.is_some() => self.open_url(&c.args),
                 // With no shell there is no clipboard or browser; and no
                 // editor, dev menu or window to close on any Linux host, and
-                // no media player (LLP 1042 §8): known, and named so.
+                // no media player (LLP 1042 §8) or floating window (§9): known, and named so.
                 name @ ("copyText" | "openURL" | "format" | "reload" | "close" | "fastSeek"
-                | "load") => {
+                | "load" | "requestPictureInPicture") => {
                     eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
                 // Recording a trace is the Apple hosts'

@@ -666,6 +666,8 @@ pub(crate) fn handler_attr(name: &str) -> bool {
             | "loadedmetadata"
             | "durationchange"
             | "fullscreenchange"
+            | "enterpictureinpicture"
+            | "leavepictureinpicture"
             | "timeupdate"
             | "play"
             | "playing"

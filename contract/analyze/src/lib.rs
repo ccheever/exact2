@@ -387,7 +387,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 79] = [
+pub const HANDLERS: [&str; 81] = [
     "press",
     "change",
     "input",
@@ -461,6 +461,8 @@ pub const HANDLERS: [&str; 79] = [
     "loadedmetadata",
     "durationchange",
     "fullscreenchange",
+    "enterpictureinpicture",
+    "leavepictureinpicture",
     "timeupdate",
     "play",
     "playing",
