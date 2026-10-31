@@ -315,9 +315,7 @@ impl RenderLayer {
     }
 
     pub(crate) fn cancel_repeat(&self, scene: Scene) {
-        if scene.repeat {
-            self.presentation.0.lock().unwrap().repeat_pending = false;
-        }
+        self.presentation.cancel_repeat(scene);
     }
 
     pub fn retry(&self) {
@@ -409,6 +407,11 @@ impl Presentation {
         }
         shown.repeat_pending = true;
         true
+    }
+    fn cancel_repeat(&self, scene: Scene) {
+        if scene.repeat {
+            self.0.lock().unwrap().repeat_pending = false;
+        }
     }
     fn record(&self, generation: u64, scene: Scene, time: f64, ink: bool) -> bool {
         let mut shown = self.0.lock().unwrap();
@@ -808,6 +811,11 @@ mod tests {
             repeat: true,
             ..scene
         };
+        presented.cancel_repeat(repeat);
+        assert!(
+            presented.begin_repeat(),
+            "coalescing releases the reservation"
+        );
         assert!(presented.record(0, repeat, 0., true));
         assert!(presented.begin_repeat());
         assert!(presented.record(0, repeat, 1., true));

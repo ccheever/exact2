@@ -168,9 +168,11 @@ impl Wgpu {
                 crate::device::apple::benchmark_present(benchmark);
                 renderer.present(view, size, transaction)
             } else {
+                renderer.layer.cancel_repeat(benchmark);
                 Ok((renderer.queue.submit([]), None))
             };
             if let Err(error) = &result {
+                renderer.layer.cancel_repeat(benchmark);
                 *errors.lock().unwrap() = Some(error.clone());
             }
             renderer.queue.on_submitted_work_done(move || {
@@ -184,7 +186,10 @@ impl Wgpu {
                             submission_index: Some(index.clone()),
                             timeout: Some(std::time::Duration::from_secs(30)),
                         })
-                        .map_err(|e| Error::Device(e.to_string()))?;
+                        .map_err(|e| {
+                            renderer.layer.cancel_repeat(benchmark);
+                            Error::Device(e.to_string())
+                        })?;
                 }
             }
             result
