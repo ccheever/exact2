@@ -70,5 +70,22 @@ the presentation cache's existing object and text budgets.
 - table stress fixture: rough; 8,201 rows exceeded the existing five-second
   limit. A denser 1,301-row, eight-column fixture still exceeds the object
   budget and verifies complete uncached output without changing the timeout.
-- driving tables: pending a new native artifact and device window. Release
-  comparisons, automatic bounded history and full Duo acceptance remain open.
+- driving tables: the normal `116eedc7ae` artifact matches all 3,289 inputs and
+  passes strict signature verification. On the actual Duo outer panel, QA04
+  shows all three headers and nine data cells with right-aligned counts.
+  Native cell selection remains visible while the adjacent code scrolls to
+  its closing quote. Message Copy changes to Copied. No clipboard bytes were
+  read. The table fits the panel, so oversized-table scrolling and reference
+  width parity remain unqualified. Evidence is in Conversation's
+  `target/t3-conversation-evidence/tables/native-qa-result.json`.
+- coordinator integration: the table unit stays separate from automatic
+  history. Parent verification passes 193 focused tests, all 4,192 mobile
+  tests with both native bridges enabled, strict TypeScript and Contract
+  compilation. The normal coordinator `84dbeb6bdd` bundle matches all 3,289
+  inputs and passes strict signature verification. The parent repeats the
+  complete table, cell selection during adjacent code scrolling, and Copied
+  state on the actual Duo outer panel. Reopening the interrupted core thread
+  preserves the exact Unicode draft. Its session closes without shutdown.
+  Evidence is under `target/t3-mini-coordinator/evidence/table-integration/`.
+  Release comparisons, bounded resident history and full Duo acceptance remain
+  open.

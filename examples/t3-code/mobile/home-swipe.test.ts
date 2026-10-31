@@ -278,6 +278,20 @@ function authoredDismissal(reducedMotion = false, f = fixture(), surface = 'comp
   return { ...f, item, scope, state, derives, event, packet, retired };
 }
 
+test('thread card separators appear between screen rows and never inside sidebar cards', () => {
+  for (const surface of ['compact', 'sidebar']) {
+    const f = authoredDismissal(false, fixture(), surface);
+    const item = f.scope.item as ReturnType<typeof mobileHomeView>['items'][number];
+    item.trailingDivider = true;
+    expect(dismissalRow.drawn('testId=`home-thread-divider-', f.state, f.scope)).toBe(surface === 'compact');
+    item.trailingDivider = false;
+    expect(dismissalRow.drawn('testId=`home-thread-divider-', f.state, f.scope)).toBe(false);
+    item.trailingDivider = true;
+    item.card = false;
+    expect(dismissalRow.drawn('testId=`home-thread-divider-', f.state, f.scope)).toBe(false);
+  }
+});
+
 test('authored dismissal reaches the exact 220/180ms phase boundaries with cubic-out geometry', () => {
   const f = authoredDismissal();
   f.scope.dragToken = (f.scope.item as { swipe: { token: string } }).swipe.token; f.scope.dragOffset = -58;

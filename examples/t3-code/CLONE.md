@@ -23,57 +23,174 @@ Home belongs to
 on `t3/t3-home-parity-performance`. Conversation belongs to
 <t3-thread://v2/382c4b25-df00-4a33-a517-979b0d92c1cc/b0b6d3d6-7f14-4930-9c24-c7b3e2ccee16>,
 on `nate/t3-ios-conversation`. Workers open PRs against
-`feat(example)/t3-code-ios` while PR216 is unmerged. The coordinator controls
-integration and eventual retargeting to main. Home owns its Contract and data,
+`feat(example)/t3-code-ios` while PR216 is unmerged. The coordinator automatically
+squash-merges verified child PRs into this branch after independent review and
+current checks. GitHub auto-merge is disabled for the repository, so the
+coordinator performs each merge with an explicit destination and head check.
+Keep PR216 draft with auto-merge disabled. Never automatically merge PR216 or
+any child PR into `main` or `daehyeon/t3-code-main`. Home owns its Contract and data,
 Home-local UIKit, and the original app's dependency and Release build outputs.
 Conversation owns its Contract, data, composer and conversation-local UIKit.
 The coordinator owns core pairing and persistence acceptance, this handoff,
 shared workspace layout, Root and the manifest. Shared transport, cache,
 generator and framework edits require coordination before implementation.
 
-The Mini's normal development iOS bundle from `22e5f5c807` builds and signs with
-`--no-install`. Its 90 files pass deep strict signature verification; all 3,289
-recorded source inputs match. C ABI 18, TypeScript runtime 7 and native ABI 3
-are unchanged. The normal app installed and launched on the local iPhone 18 Pro,
-iOS 27.2, through the T3 device launcher. Home and Add environment rendered.
-Connected acceptance remains open. The bundle and receipts are local to this
-worktree under `examples/t3-code/target/` and
-`target/t3-mini-coordinator/evidence/normal-artifact.json`.
+The normal local iPhone core flow passes on an actual Duo. The older Home
+Release needed a first-run editor relaunch workaround; the separate fix below
+now passes without it. The signed production simulator Release contains
+Home patch `27964196a0222969a9d316ff9d9f29c920af7f12` on base `66ea5fefc4`.
+Its binary SHA-256 is
+`94cf5b812f7338e41acedf55b9c979e749ed6e74ce5c9c58e67bd315ee176351`.
+Strict signature verification and all 3,245 recorded source inputs pass.
+This artifact does not contain the conversation cache or history units.
+
+Fresh pairing used the supported bundled owner command
+`/Users/nate/.t3/bin/t3 pair --base-dir /Users/nate/.t3 --ttl 5m` and ordinary
+Host/code UI to the Mini at `http://127.0.0.1:3773`, server
+`0.1.6-nightly.20261030.3940`. Pass the grant directly from subprocess memory
+to `fill <fresh-ref> --text-stdin --no-record`. Never capture the visible code
+or save the grant. The earlier recording-option failure is superseded by this
+successful private-stdin flow; its stopped phone remains shut down.
+
+The normal app created QA project `exact-mini-core-qa-20261031` and thread
+<t3-thread://v2/382c4b25-df00-4a33-a517-979b0d92c1cc/3d383690-7f5c-4d79-afb2-7b55aebffac1>.
+A harmless no-tools prompt produced one assistant row that grew from 3,306 to
+3,899 characters while Stop remained active. Pressing **Stop agent** interrupted
+the run. Normal relaunch recovered the environment. Reopening the thread from
+Home recovered the exact 4,073-character transcript and unsent Unicode draft.
+Preserve this QA draft. Raw trees, hashes and the result are under
+`target/t3-mini-coordinator/evidence/duo-core/`. Local HTTP acceptance does not
+qualify the separate MacBook Pro HTTPS cloud route, reading-position recovery,
+fold/rotation transitions or performance.
+
+The first-run NewTask admission defect is fixed in Conversation commit
+`a9981950a3e3c909214dd5d1846c5c5d812766aa`, integrated independently into PR216
+as `4736ba42b0`. The coordinator repeats all 89 native checks and 133 editor
+bridge tests, then passes caps and boot. The framework sources match the
+Conversation checkpoint that passes all required root categories. A genuinely absent, empty preference
+document receives version 1 only when the mutex-protected inventory has no
+bound pins. Existing invalid documents remain refused. The native regression
+fails before the fix and passes 89 checks after it. The editor bridge passes
+133 tests using the actual native first-read JSON. The full mobile suite passes
+4,204 tests with one optional native bridge skip. Strict TypeScript and caps pass.
+
+Its normal development artifact independently matches all 3,289 source inputs
+and 92 bundle files, with strict signature verification. The executable SHA-256 is
+`b1e492fc323e8d06aa5cc6334aa91620993c3e21d4df837a8d0f2c96be8512fa`.
+On a second genuinely fresh actual Duo,
+`8AE91541-FA45-4707-89E1-43DB980A2985`, ordinary pairing, project selection and
+editable Unicode text succeed on the first normal launch without relaunching.
+This closes the held-editor reproduction. After Cancel and normal relaunch,
+ordinary Home Search finds the existing Unsent row. Opening that row restores
+the exact 68-UTF-16-unit Unicode draft in an editable composer with Send enabled.
+The initial visible-only Home snapshot hid rows below the viewport and did not
+prove absence. No persistence patch was needed. The original Duo's ordinary-thread
+transcript and draft remain intact. Admission evidence is under
+`target/t3-mini-coordinator/evidence/first-run-final/`; Conversation's recovery
+evidence is under `target/t3-conversation-evidence/new-task-recovery/` in its
+worktree. The coordinator closed its session without shutdown before handing
+the new device to Conversation for live history acceptance.
 
 The user now requests local simulators. EAS project association is no longer a
-prerequisite for local acceptance. Home restored actual Duo discovery through
-the user-authorized Xcode DeviceHub New Simulator UI. Its owned Duo is
-`A44BE88B-1AA7-40A0-8FC1-25DA9CBC3214`, type `iPhone-Duo`, runtime
-`iOS-27-2-iPhone19-4`. T3 lists and opens it, and its screenshot shows SpringBoard.
-App interaction and folded/unfolded qualification remain open. Home owns the
-next device window after conversation's native build drains.
+prerequisite. Home restored actual Duo discovery through the user-authorized
+Xcode DeviceHub UI. Device `A44BE88B-1AA7-40A0-8FC1-25DA9CBC3214` has type
+`iPhone-Duo` and runtime `iOS-27-2-iPhone19-4`. Both normal Releases launch.
+Panel captures changed from 466×678 to 951×669 and back, but hinge readback
+failed. Orientation commands succeeded without a confirmed layout change in
+either app. Fold angle and rotation remain unqualified. Upstream has an inner
+split sidebar and right rail; the clone still shows full-width Home. Add
+environment presentation also differs. Home completed populated controls in its
+own session and closed it without shutdown.
 
-The documented owner flow `/Users/nate/.t3/bin/t3 pair --base-dir /Users/nate/.t3`
-successfully issued a fresh ordinary grant for the Mini's running server
-`0.1.6-nightly.20261030.3940`. No saved bearer was copied. Secret entry failed
-because `--record-as` requires an armed recording; the prescribed
-`open --save-script` recovery then refused remote-daemon recording. The owned
-iPhone session was closed with shutdown. No grant reached the app or evidence.
-Installed launcher source supports `fill <ref> --text-stdin --no-record` with
-stdin redaction; this corrected invocation remains untried. Keep credentials in
-private stdin and avoid captures while a code is visible. The attempt and exact
-errors are recorded in `target/t3-mini-coordinator/evidence/local-core-attempt.json`.
-Do not repeat the stopped target without changed setup or explicit steering.
+Conversation's draft [PR1190](https://github.com/ccheever/exact2/pull/1190)
+contains bounded Markdown reuse commit `43d669d337` and separate automatic
+older-history commit `9a8dce92b3`. The final focused suite passes 283 tests and
+3,912 assertions; Contract compilation, strict TypeScript and caps pass.
+The coordinator integrates the cache unit alone as `740519f43c`. All five files
+match the reviewed worker commit. The parent repeats 136 focused tests, strict
+app TypeScript and caps. Reuse is bounded to 128 entries, 512 Ki UTF-16 units
+and 32,768 block and token objects. Oversized content remains complete and
+uncached. These are allocation bounds, not a measured performance advantage.
+The signed pre-refinement native artifact matches all 3,289 recorded inputs.
+The final normal artifact includes history and the first-run fix. All required
+root categories pass at clean `a9981950a3`, including 7,383 root tests with 84
+ignored. Automatic history still needs normal app acceptance. Six numbered QA
+turns have completed through ordinary UI; a separate seventh draft is preserved.
+The launcher's advised snapshot recovery ended with a daemon timeout, so that
+target is stopped and paging remains unqualified. Keyboard-visible Send overlaps the outer
+Duo system rail. Normal Back and reopening preserve the draft and expose Send
+without the keyboard; this does not qualify keyboard-visible reachability.
+Loaded raw history remains unbounded; resident bounds, native storage, stable
+anchors and selection are not complete.
+Conversation's separate table unit `116eedc7ae` is also in draft PR1190.
+It passes 152 focused tests, strict types, Contract compilation, and caps.
+The normal artifact matches all 3,289 inputs and passes strict signature
+verification. On the actual Duo outer panel, QA04 renders all three headers
+and nine data cells. Cell selection survives adjacent code scrolling, and
+message Copy returns Copied. The table fits this panel. Oversized-table
+scrolling, selection during recycling or reflow, reference width parity and
+animation remain unqualified. The coordinator isolates this table unit from
+automatic history. Parent verification passes 193 focused tests, all 4,192
+mobile tests, strict types and Contract compilation. Coordinator commit
+`84dbeb6bdd` builds normally, matches all 3,289 recorded inputs and passes
+strict signature verification. Its executable SHA-256 is
+`a14718e1f69e787bb53f2b44706a16580e11c828b83ff1abf308660fec318ce1`.
+The parent repeats complete QA04 table rendering, native cell selection during
+adjacent code scrolling, and the Copied button state on the actual Duo outer
+panel. It then reopens the interrupted core transcript and verifies the exact
+prior Unicode draft. Both owned sessions close without shutdown. Parent evidence
+is under `target/t3-mini-coordinator/evidence/table-integration/`.
+Conversation's exact receipt is
+`target/t3-conversation-evidence/tables/native-qa-result.json` in its worktree.
 
-Conversation's bounded Markdown reuse unit is draft
-[PR1190](https://github.com/ccheever/exact2/pull/1190), commit `43d669d337`.
-Its 136 focused tests, strict application TypeScript and caps pass. A changed-source
-native build and drive remain pending. Automatic older-history paging is the
-next separately approved unit, with 281 focused tests, Contract compilation and
-strict application TypeScript passing after review. Its changed-source normal
-native build is running. Resident history bounds, native storage and selection
-retention remain open. Home's narrow spacing/separator patch is draft
-[PR1191](https://github.com/ccheever/exact2/pull/1191), head `137d49b2ff`.
+Home's spacing/separator patch
+[PR1191](https://github.com/ccheever/exact2/pull/1191), head `22d8eb348d`,
+is squash-merged into PR216 as `757f383d9f`. Independent review passes with
+acceptance notes and verifies the unchanged three-file patch, all 3,245 Release
+inputs and 185 Home tests. The parent repeats those 185 tests on the integrated
+source. The coordinator's table artifact above predates this Home integration;
+a combined native drive remains pending.
 Its signed Release build, 185 focused tests, 4,171 quiet mobile tests, strict
-TypeScript, caps and all six root categories pass. Native interaction remains
-pending. Home owns the original Release bundle at the shared reference pin
-below. Conversation owns the next serial changed-source build window.
-Neither worker claims measured performance or native parity.
+TypeScript, caps and all six root categories pass. Initial Duo controls and the
+local core flow use this artifact; populated-row parity remains pending.
+The new Duo history target is stopped after the failed advised recovery.
+Home completed populated controls and preserved the QA draft.
+A trailing swipe action opened Control Center beneath the Duo system rail;
+reserved-region reachability remains open. Home owns the original Release at
+the frozen reference below. Its normally signed simulator Release now builds
+and reaches settled empty Home. The binary SHA-256 is
+`d16a4b8c59985693725e3a2b66834539efc3a847689e299e43c0b2b95de51031`.
+The prior pairing used an unrelated port from the version string. A corrected
+attempt discarded its single grant before submission because an address-string
+guard rejected equivalent loopback and LAN origins. Both public descriptors
+identify the same Mini and protocol 2. Connected reference parity remains open;
+future pairing must compare descriptor identity, not raw origin equality.
+Neither worker qualifies visual parity or a performance advantage.
+
+The coordinator's ordinary iPhone target `FD6F1599-5E3C-4D86-AF69-22FBD6596F6B`
+is held by another project's device session. Installation and launch were refused.
+The coordinator removed only its own panel without shutdown. Do not use this
+target for app acceptance or builder roster probes until its owner releases it.
+The coordinator currently has no open device session. Its passive local geometry
+unit builds normally and passes a clean ordinary A44 smoke. All 3,289 recorded
+inputs match; the binary SHA-256 is
+`3187df2abad885203132c7327f892d879ba91a2e950f566bcc0b35c4c67d460f`.
+A direct native outer-thread sample and the typed Root resource agree on
+466-by-562-point bounds, zero residual safe-area insets, a right-side bar, and
+an 84-by-92-point occlusion at local origin (382, 0). The owner-thread debugger
+inspection was followed by a libdispatch trap, so later lifecycle measurements
+are unqualified. A separate clean normal relaunch passes thread reopening,
+Back, Settings, panel reflow, and exact prior Unicode draft recovery. Fold
+commands still lack angle samples. The outer panel is restored and the owned
+session is closed without shutdown. Receipts are under
+`target/t3-mini-coordinator/evidence/content-geometry/`.
+
+The full mobile suite passes 4,184 tests with both native bridges enabled.
+Contract, strict TypeScript, caps, and boot pass. Root sources match the
+all-green `a9981950a3` gate checkpoint; those root checks were not repeated.
+The local observer changes no inset or keyboard policy. Home consumption stays
+held until route, keyboard, and panel-update measurements qualify. Keep window
+safe-area and keyboard-guide semantics separate.
 
 The HTTPS core-acceptance delegate was interrupted before its device launch.
 Its retained receipt contains artifact verification and a CLI help command,
@@ -85,17 +202,16 @@ remain machine-local; use committed sources and rebuild on the Mini as needed.
 The current priority is iOS. Desktop feature work is deferred. Continue in this
 order, with small verified commits and normal pushes to PR216:
 
-1. Pair the normal local iPhone app through the fresh owner-grant flow above.
-   The existing MacBook Pro HTTPS cloud route below remains a separate target.
-2. Open a project, create a thread, send, observe streaming, Stop, then restart
-   and recover the environment, transcript and unsent draft.
-3. Verify reconnect, offline recovery, retries and duplicate-send prevention.
-4. Complete Photos and Files selection, cancellation, preview, removal and Undo.
-5. Verify keyboard focus, Return behavior, IME, hardware shortcuts and voice.
-6. Complete connected file previews, Markdown, selection, Copy and cache recovery.
-7. Compare iPhone navigation, layout, accessibility and performance with the pin.
-8. Deliver the phone checkpoint as a signed production build through TestFlight.
-9. Complete iPad layout and the same working flows, then deliver its TestFlight build.
+1. Drive the conversation cache and automatic-history units. First-run editor
+   admission and new-task draft recovery now pass on the final normal artifact.
+2. Verify reconnect, offline recovery, retries and duplicate-send prevention.
+3. Complete Photos and Files selection, cancellation, preview, removal and Undo.
+4. Verify keyboard focus, Return behavior, IME, hardware shortcuts and voice.
+5. Complete connected file previews, Markdown, selection, Copy and cache recovery.
+6. Compare iPhone navigation, layout, accessibility and performance with the pin,
+   including actual Duo folds and rotations with the draft and reading position intact.
+7. Deliver the phone checkpoint as a signed production build through TestFlight.
+8. Complete iPad layout and the same working flows, then deliver its TestFlight build.
 
 Home and thread-detail workers now also target current upstream mobile UI,
 including iPhone Duo improvements. The original repository is cloned locally at

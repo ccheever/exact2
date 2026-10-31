@@ -45,3 +45,12 @@ delivery independent of Send and Stop.
   passed; no app installation or drive was performed.
 - driving the app: pending. No visual, anchor, selection, streaming, Stop, Duo
   or release-performance acceptance is claimed by these source checks.
+- reconciling with PR216 `ef3a139f34`: smooth; the remaining 14-file delta is
+  automatic history. Integrated tables, Markdown reuse, first-read preferences,
+  Home and passive geometry are preserved. All 400 focused tests pass with
+  4,541 assertions. Strict TypeScript initially rejects the stale generated
+  geometry declaration; Contract compilation regenerates it and strict types
+  then pass. The failed log is retained with the successful checks under
+  `target/t3-conversation-evidence/reconciliation/`. Earlier native and root
+  receipts retain their original source identities. This merged source still
+  needs a normal native build and actual automatic paging beyond ten user turns.
