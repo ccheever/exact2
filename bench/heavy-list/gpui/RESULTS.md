@@ -11447,3 +11447,38 @@ retry reservations and complete-display tracking merge automatically.
 The original branch bundle and per-commit conflict record are retained
 under `target/m10-landed/`. The six broad checks stay with the Mac mini;
 this chunk runs the affected suites and staged structural caps locally.
+
+**Builds and instrument.** Both release carriers build in this worktree
+with `--target-dir target` and `MACOSX_DEPLOYMENT_TARGET=14.0`: before
+`bc454707081019b881e3c2340f71fa31e2cd529a`, after
+`1502f94f541376c05312b5f2f40adfa4712648db` (the prediction commit;
+its renderer is `cb7b01e228`). The controls retain native `d16c84ee03`
+and GPUI/egui `a91fd38b4d`. Every arm loads the same probe bytes,
+SHA-256 `956fa19e69c1eb98619c1e476bf1f818b9f77f1c6fdcafd1cd1b09771b938dcc`.
+The driver and wheel poster are unchanged from the review cohort.
+`provenance.json`, `build-{before,after}.json` and the build logs retain
+sources, commands, hashes and deployment target; `repaired-hashes.txt`
+verifies the measured bundles and their signatures on the silver.
+
+The first throwaway attempt exposes a packaging error: the Ink template
+places the probe in `Resources`, while the library's install name names
+`Frameworks/probe.dylib`. Both Ink processes abort in dyld. The retained
+`InkBeforeReady.app` and `InkAfterReady.app` add those identical bytes at
+the required path and are re-signed; the original bundles and failures
+remain. Both corrected throwaways exit successfully. Native and GPUI's
+throwaways succeed; egui's times out waiting for a complete frame and is
+retained without another throwaway. No measured original precedes this
+repair. No renderer source changes to repair the package.
+
+**Affected suites.** All twelve invocations pass on the rebased source,
+with `EXACT_REQUIRED=1`, two test threads and this worktree's `target/`.
+The full Linux library and integration run has no timing failure in this
+collection. The pinned, text, image and first-frame checks run on both
+Metal and wgpu. The archive-miss transition test covers the CPU first
+frame and its replacement by a complete Ink frame. Verbatim result
+lines and commands are in `checks/result-lines.txt`; complete logs and
+exit statuses are in `checks/`.
+
+The broad six-check gate is assigned to the Mac mini and is not run in
+this worktree. The local caps invocation is structural only
+(`EXACT_CAPS_WASM=0`), as in cut 7's landing record.
