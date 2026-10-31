@@ -1283,6 +1283,7 @@ async function main() {
     let served = '';
     try { const { app } = JSON.parse(readFileSync(resolve(dist, js ? '.exact-build.json' : 'exact.json'), 'utf8')); served = ` ${app.name} (${app.id})${js ? ', the JS target' : ''}`; } catch { /* an older build has no envelope */ }
     console.log(urls.join('\n') + `\n  (serving${served} from ${dist}; ctrl-c to stop)`);
+    if (rebuild) console.log('  (an edit to the app builds it again before the next page: leave this running and reload)');
     warming.then(n => console.log(`  (${n} files compressed: brotli and gzip)`));
     let rendered = [];
     try { rendered = JSON.parse(readFileSync(resolve(dist, 'routes.json'), 'utf8')).routes.filter((r) => r.render === 'request' || r.render === 'cached'); } catch { /* no route table */ }

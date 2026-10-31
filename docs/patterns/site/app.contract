@@ -6,8 +6,8 @@
 // The API's origin is a setting: app.json's `env`, `import.meta.env.API_BASE_URL` in app.ts, and its
 // value in `.env`: the address of server.ts, a stand-in for the API that `test` and `verify` run themselves.
 // `bun exact.mjs web-build --out dist` builds the site and `bun exact.mjs serve dist` serves it, with
-// `bun server.ts` running for its API; `npm start` (package.json's `start`) serves the last `web-build`
-// made without `--out` (recipes/website.md).
+// `bun server.ts` running for its API, and builds it again when you edit: leave it running and reload.
+// `npm start` (package.json's `start`) serves the last `web-build` made without `--out` (recipes/website.md).
 // The header holds a `nav` and says `appearance="none"`, so every host draws it as written, not as a bar.
 // Each page's `scroll document` is the web page's own scroll: the browser's toolbar collapses, `#details`
 // and printing work, and each page keeps its place when the reader comes back to it.
