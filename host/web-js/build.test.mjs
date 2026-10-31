@@ -264,6 +264,8 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     const sent = await raw('/live');
     expect([sent.headers['content-encoding'], sent.headers.vary, brotliDecompressSync(sent.body).toString().includes('The note, rendered.')]).toEqual(['br', 'Accept-Encoding', true]);
     const file = await raw('/app.js');
+    const hosted = await serving(root, out, { fromEnv: true });
+    try { expect((await hosted.get('/live')).body).toContain('The note, rendered.'); } finally { await hosted.stop(); }
     expect([file.headers['cache-control'], /^"[\w-]+"$/.test(file.headers.etag ?? '')]).toEqual(['no-cache', true]);
     expect(await get('/item/7')).toMatchObject({ status: 200, body: expect.not.stringContaining('The note, rendered.') });
     expect((await get('/no/such/route')).status).toBe(404);
@@ -325,12 +327,14 @@ const generationIn = (body) => /<base href="\/\.exact\/gen\/([0-9a-f]{32})\/">/.
 
 /** serve.mjs on `out` as the `serve` verb runs it (`--loopback`), on a free port: `get(path)` a navigation's answer,
  * `renders(path)` how many pages of it serve said it rendered, `heard(done)` once what it said satisfies `done`. */
-async function serving(root, out) {
+async function serving(root, out, { fromEnv = false } = {}) {
   const probe = createServer();
   await new Promise(ok => probe.listen(0, '127.0.0.1', ok));
   const port = probe.address().port;
   await new Promise(ok => probe.close(ok));
-  const child = spawnOwned(process.execPath, ['host/web/serve.mjs', out, '--port', String(port), '--loopback'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+  // `fromEnv`: the port as a host gives `npm start` one, in `PORT` (LLP 1153.001 D3).
+  const child = spawnOwned(process.execPath, ['host/web/serve.mjs', out, ...(fromEnv ? [] : ['--port', String(port)]), '--loopback'],
+    { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PORT: fromEnv ? String(port) : '' } });
   let said = '';
   child.stdout.on('data', (data) => { said += data; });
   child.stderr.on('data', (data) => { said += data; });

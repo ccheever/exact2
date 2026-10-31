@@ -1247,8 +1247,10 @@ async function main() {
   }
   // TODO(LLP 1153 D4): compare each setting app.json declares with the value the build inlined before serving.
   const loopback = !argv.includes('--lan') && (argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1');
-  const port = portFlag === null ? 8765 : Number(portFlag);
-  if (!Number.isInteger(port) || port < 0 || port > 65535) { console.error(`serve: --port ${portFlag} is not a port`); return 2; }
+  // `--port`, else `PORT`, which a host sets for `npm start` (LLP 1153.001 D3), else 8765.
+  const portText = portFlag ?? process.env.PORT ?? null;
+  const port = portText === null || portText === '' ? 8765 : Number(portText);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) { console.error(`serve: ${portFlag === null ? 'PORT' : '--port'} ${portText} is not a port`); return 2; }
   const host = loopback ? '127.0.0.1' : '0.0.0.0';
   const compression = compressionCache();
   const warming = warmCompression(dist, compression, js);
