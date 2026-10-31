@@ -319,7 +319,11 @@ fn build_sources(
             .as_str()
             .is_some_and(|module| !module.is_empty());
     let native = contract::native::native_slot(app)?;
-    let mut metadata = module_constants(&meta, rust_updates, platform, outside, native.as_ref())?;
+    for file in &native.watched {
+        println!("cargo:rerun-if-changed={}", file.display());
+    }
+    let mut metadata =
+        module_constants(&meta, rust_updates, platform, outside, native.slot.as_ref())?;
     if platform == "windows" {
         metadata.push_str(&format!(
             "/// The window the app opens in (`host.windows.window`).\npub fn window() -> exact_windows::Window {{ {} }}\n",

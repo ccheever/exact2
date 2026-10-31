@@ -6,7 +6,7 @@
 //! The other fields of `native`, and `web`, are the library's and the web
 //! build's: nothing here reads them.
 
-use crate::package_views::{dependencies, export, located, read};
+use crate::package_views::{dependencies, export, read};
 use std::path::{Path, PathBuf};
 
 /// The package that fills the app's native slot.
@@ -21,39 +21,60 @@ pub struct NativeSlot {
     pub class: String,
 }
 
+/// What [`native_slot`] chose, and every file it read to choose: a change to
+/// any of them asks for the choice again (`cargo:rerun-if-changed`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSelection {
+    /// The package that fills the slot, if one does.
+    pub slot: Option<NativeSlot>,
+    /// The app's `package.json`, each installed direct dependency's
+    /// `package.json` and the `exact.json` its `exports` "." names, and the
+    /// chosen shim's root.
+    pub watched: Vec<PathBuf>,
+}
+
 /// The package among the app's direct dependencies that declares `native`,
 /// if one does; refused by name when two do (the slot is one per app) or
-/// when the declaration lacks what the bake writes. Says to Cargo the files
-/// whose change asks for another bake.
-pub fn native_slot(app_root: &Path) -> Result<Option<NativeSlot>, String> {
+/// when the declaration lacks what the bake writes. A dependency that is not
+/// installed is not read, and not watched: Cargo reruns a script that
+/// watches a missing file on every build.
+pub fn native_slot(app_root: &Path) -> Result<NativeSelection, String> {
     // Absolute, so the search walks past a relative root (`../../..`).
     let app_root =
         std::fs::canonicalize(app_root).map_err(|e| format!("{}: {e}", app_root.display()))?;
-    if let Some(manifest) = (app_root.ancestors())
+    let mut watched: Vec<PathBuf> = (app_root.ancestors())
         .map(|dir| dir.join("package.json"))
         .find(|file| file.is_file())
-    {
-        println!("cargo:rerun-if-changed={}", manifest.display());
-    }
-    let mut found: Vec<NativeSlot> = Vec::new();
+        .into_iter()
+        .collect();
+    let mut slot: Option<NativeSlot> = None;
     for name in dependencies(&app_root) {
-        let Some((dir, json)) = located(&app_root, &name) else {
+        let Some(dir) = (app_root.ancestors())
+            .map(|a| a.join("node_modules").join(&name))
+            .find(|candidate| candidate.join("package.json").is_file())
+        else {
             continue;
         };
+        watched.push(dir.join("package.json"));
+        // The declaration `exports` "." names; its paths are relative to it.
+        let Some(declared) = (read(&dir.join("package.json")).as_ref())
+            .and_then(|manifest| export(&manifest["exports"], ".").map(|main| dir.join(main)))
+            .filter(|main| main.ends_with("exact.json") && main.is_file())
+        else {
+            continue;
+        };
+        watched.push(declared.clone());
+        let json = read(&declared).unwrap_or_default();
         let native = &json["native"];
         if native.is_null() {
             continue;
         }
-        if let Some(first) = found.first() {
+        if let Some(first) = &slot {
             return Err(format!(
                 "bake-native-twice: {} and {name} each declare a native module (exact.json \"native\"), and an app has one: depend on one of them",
                 first.package
             ));
         }
-        // The declaration `exports` "." names; its paths are relative to it.
-        let declared = (read(&dir.join("package.json")).as_ref())
-            .and_then(|manifest| export(&manifest["exports"], ".").map(|main| dir.join(main)))
-            .unwrap_or_else(|| dir.join("exact.json"));
         let base = declared.parent().unwrap_or(&dir);
         let file = native["rust"].as_str().ok_or_else(|| {
             format!(
@@ -81,13 +102,12 @@ pub fn native_slot(app_root: &Path) -> Result<Option<NativeSlot>, String> {
                 declared.display()
             )
         })?;
-        println!("cargo:rerun-if-changed={}", declared.display());
-        println!("cargo:rerun-if-changed={}", root.display());
-        found.push(NativeSlot {
+        slot = Some(NativeSlot {
             package: name,
             root,
             class: class.to_owned(),
         });
     }
-    Ok(found.pop())
+    watched.extend(slot.as_ref().map(|slot| slot.root.clone()));
+    Ok(NativeSelection { slot, watched })
 }

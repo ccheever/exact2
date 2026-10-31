@@ -2300,14 +2300,16 @@ prop marked `"binds": true` `bound(id, prop, origin)` when it changes; `origin` 
 
 A package fills the data module's one native module (`native.call` in `app.ts`) by
 declaring `"native": {"rust": "native/lib.rs", "class": "Vault"}` in its `exact.json`
-(LLP 1154 D3): `rust` is the shim's root file, beside `exact.json`, and `class` a type in
-it that implements `exact_js::NativeModule` and has `fn new(app: &str) -> Self`. A native
-build joins the shim to the app's crate and attaches it; an app that writes its own
-`Cargo.toml` attaches `.with_native(exact_native)` in `embedded_data`. The shim names only
-`exact_js` and `std`. Its `configure_storage` gets the app's roots and `sqlite(path)`,
-which admits `sqlite.open` under the app's grants and keeps the file from the app's own
-`storage.sqlite` until the answer drops. Two dependencies declaring `native` refuse the
-build (`bake-native-twice`). `packages/fixtures/vault` is a whole one.
+(LLP 1154 D3): `rust` is the shim's root file, its path relative to `exact.json`, and
+`class` a type in it that implements `exact_js::NativeModule` and has `fn new(app: &str) ->
+Self`. A native build joins the shim to the app's crate and attaches it; an app that writes
+its own `Cargo.toml` attaches `.with_native(exact_native)` in `embedded_data`. The shim
+names only `exact_js` and `std`. Its `configure_storage` gets the app's roots and
+`sqlite(path)`, which admits `sqlite.open` under the app's grants and answers a `SqliteFile`
+guard. The module holds the guard while it uses the file, closes its own SQLite before
+dropping it, and meanwhile the app's own `storage.sqlite` is refused the file; the
+reservation ends when the guard drops. Two dependencies declaring `native` refuse the build
+(`bake-native-twice`). `packages/fixtures/vault` is a whole one.
 
 ## Routes and web documents
 

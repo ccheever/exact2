@@ -13,7 +13,7 @@
 //
 // usage: bun packages/fixtures/vault/test/linux.mjs [<app dir>]
 //   (an app already made by fixture.mjs is reused, and built again)
-import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { checker, makeFixture, run } from './fixture.mjs';
 
@@ -22,7 +22,7 @@ const app = given && existsSync(given) ? given : makeFixture(...(given ? [given]
 const { check, failed } = checker();
 run('bun', ['exact.mjs', 'linux'], app);
 
-// The bake's module.rs for the Linux crate, wherever Cargo put its OUT_DIR.
+// The bake's module.rs for the Linux crate, wherever Cargo put its OUT_DIR; the bake writes the shim's canonical path.
 const modules = [];
 const walk = (dir, depth) => {
   for (const entry of (() => { try { return readdirSync(dir, { withFileTypes: true }); } catch { return []; } })()) {
@@ -33,7 +33,7 @@ const walk = (dir, depth) => {
 };
 walk(join(app, 'target'), 5);
 const module = modules.map(file => readFileSync(file, 'utf8')).find(text => text.includes('exact_native')) ?? '';
-check('bake', 'module.rs joins the shim and writes the factory', module.includes(`#[path = "${resolve(import.meta.dir, '../native/lib.rs')}"]`) && module.includes('Box::new(exact_native_shim::Vault::new(APP))'), modules.join(', ') || 'no module.rs found');
+check('bake', 'module.rs joins the shim and writes the factory', module.includes(`#[path = "${realpathSync(resolve(import.meta.dir, '../native/lib.rs'))}"]`) && module.includes('Box::new(exact_native_shim::Vault::new(APP))'), modules.join(', ') || 'no module.rs found');
 
 const drive = (...args) => run('bun', ['exact.mjs', 'agent', 'linux', '--reset-storage', '--json', ...args], app).trim().split('\n').map(l => JSON.parse(l));
 const last = (tree) => (tree.nodes ?? []).find(n => n.props?.testId === 'last')?.props?.text ?? '';
@@ -41,7 +41,7 @@ const steps = [
   ['ping', 'the shim answers, through the factory the shell attached', t => t.startsWith('vault 7f3a for ')],
   ['open-ungranted', 'an ungranted path is refused, naming the grant', t => t.includes('app:/data/other.sqlite: no grant covers it; grant `sqlite.open app:/data/other.sqlite`')],
   ['open', 'a granted path is admitted at its real path', t => t === 'opened vault.sqlite'],
-  ['own-open', 'while the shim holds it, the app\'s own open is refused', t => t.startsWith('refused: ') && t.includes('vault.sqlite is open in the app\'s native module')],
+  ['own-open', 'while the shim holds it, the app\'s own open is refused', t => t.startsWith('refused: ') && t.includes('vault.sqlite is reserved for another SQLite library')],
   ['close', 'the shim lets it go', t => t === 'closed'],
   ['own-open', 'after close the app\'s own open is admitted', t => t === 'own opened'],
   ['open', 'while the app holds it, the shim\'s open is refused', t => t.includes('app:/data/vault.sqlite is open in the app\'s own storage')],

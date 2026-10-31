@@ -375,7 +375,8 @@ fn a_linked_module_leaves_its_bytecode_to_the_link() {
 /// LLP 1154 D3: the one direct dependency whose `exact.json` declares
 /// `native` fills the slot. On a native platform `module.rs` joins its shim
 /// by an absolute `#[path]` and writes the factory; the web gets neither; a
-/// second such dependency refuses the bake, naming both.
+/// second such dependency refuses the bake, naming both. Every package file
+/// the choice read is watched.
 #[test]
 fn a_package_declaring_native_writes_the_factory_and_a_second_refuses() {
     let app = Scratch::new(&std::env::temp_dir()).unwrap();
@@ -404,7 +405,25 @@ fn a_package_declaring_native_writes_the_factory_and_a_second_refuses() {
         .unwrap()
     };
     manifest(r#""@fixture/vault": "1.0.0", "@fixture/plain": "1.0.0""#);
-    let slot = contract::native::native_slot(&app.0).unwrap().unwrap();
+    let selection = contract::native::native_slot(&app.0).unwrap();
+    // Every declaration read is watched, the one without `native` too: adding
+    // it there asks for the choice again, and so for `bake-native-twice`.
+    let plain = app.0.join("node_modules/@fixture/plain");
+    for file in [
+        app.0.join("package.json"),
+        plain.join("package.json"),
+        plain.join("exact.json"),
+        vault.join("exact.json"),
+    ] {
+        let file = std::fs::canonicalize(file).unwrap();
+        assert!(
+            selection.watched.contains(&file),
+            "{} is not watched: {:?}",
+            file.display(),
+            selection.watched
+        );
+    }
+    let slot = selection.slot.unwrap();
     assert_eq!(
         (slot.package.as_str(), slot.class.as_str()),
         ("@fixture/vault", "Vault")
