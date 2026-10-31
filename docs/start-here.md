@@ -120,6 +120,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |a metronome, drum machine, sequencer or MIDI app: sound, MIDI, a transport (built in; write no native audio module)|`sequencer`; ["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media); `apps/metronome`|
 |transitions, keyframes, exit and layout animation|`motion`|
 |brand colours, light and dark, icon tokens|`theme`, `tamber`|
+|an icon: in a button, a tab, beside a label (a symbol, never a character such as ▦ ☏ ★ or an emoji)|`symbols`|
 |a module in Swift that `app.ts` asks; launch arguments|`native-module`|
 |app.json keys, `assets/`, the `modules` folder|`app-json`|
 |a section of the long guides, whole, by its heading|`bun exact.mjs docs <heading words>`|

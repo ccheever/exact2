@@ -44,7 +44,7 @@ the role, with a warning that names it (`lower-symbol-alias`).
 - `activity` is an ECG trace (heart, workouts). Done or not done is `DoneMark` (`exact:content`).
 - Leave a symbol's colour unsaid: in a button it is the tint, and it follows dark mode.
   A `color` written on the symbol is its colour, as `currentcolor` paints an icon on the
-  web; a row's trailing `forward-chevron` is already the platform's grey.
-  Emoji aren't icons: they ignore the tint, the weight and the theme.
+  web; a row's `forward-chevron` is already grey.
+  Emoji and characters (▦ ☏) aren't icons: they ignore the tint and differ by browser.
 - A symbol takes its text's size. Use `font="-exact-title1"` to follow the reader's
   text size; `width` does not size its glyph.

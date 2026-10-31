@@ -1,5 +1,13 @@
 # Queue
 
+- **The web's iOS idioms round 34 left** (2026-10-31, LLP 1115.000 D4.8, D4.14, D4.16). Graders still named: the
+  segmented control's grey track and raised chip (four web pairs; a web button group or tabs may read better); the
+  split's 320 px list column beside a mostly empty detail at 1440 px (shop-inventory, support-inbox); the phone's
+  bottom tab bar; an unstyled bar button that opens a menu showing no affordance ("Ada"); and link rows that are
+  `user-select: none`. A switch in a sheet looks like a checkbox but keeps `role="switch"`; Firefox and Safari reach
+  a sheet's actions before its fields (no `reading-order`); the Linux painter's empty split still says "No
+  Selection". `neutral-look.test.mjs`'s "route header geometry" reads a selector LLP 1153 D8 renamed and fails on
+  origin/main.
 - **A box over a navigation root sits under the iOS status bar** (2026-10-30, bake-off r34 gradebook-ios). With a native stack the session's viewport is the whole view and `env()` is 0 (`ExactViewIOS.swift` `fit`, `wantsWholeView`), so a child of the navigation root that is no route, an overlay at `position="absolute" inset=0`, is laid out from the screen's top: its first row is under the status bar, where iOS gives it no touches, and the author has no inset to pad. On the web, the layout oracle, the same box starts below the browser's chrome. The compiler now refuses the case the bake-off hit (`navigationPresentation` off a route); lay such a box out in the safe area, or give it `env()`'s insets, for the rest.
 - **Contract cannot label a day a date input picked** (2026-10-30, bake-off r34 gradebook-ios and tasks). `input type="date"` answers `2026-10-16`, `formatDate` and `formatDay` take epoch milliseconds, and nothing converts one to the other, so a due date showed as written; the dates recipe now routes it through the data module (`Date.UTC`). A day key accepted by `formatDate` (runner, web JS target and the Lean semantics alike) would make that unnecessary.
 - **Caltrain, Expose and Typetour swap screens by state** (2026-10-30, `lower-screen-by-state` now walks routes and pages named by one state). `apps/caltrain` chooses its stations picker and deck fixture with `screen`, and `apps/expose` and `apps/typetour` their lock, home, settings and messages screens, so each build warns and on the web none of those screens has a URL. Make them routes (`contract vocab screen`), or delete a screen nobody drives.

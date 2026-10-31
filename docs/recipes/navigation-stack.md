@@ -5,8 +5,8 @@ A second screen is a route (`if` over state gets no Back, links or split).
 
 A route's first `header` with one heading is its bar (title large at `aria-level=1`,
 inline at 2); buttons before it lead, after it trail. A pushed route has
-UIKit's Back, a bare chevron from iOS 26; a `button id="back"` (the root's
-`navigationBack`) with `text "Notes"` titles it "‹ Notes".
+Back; a `button id="back"` (the root's `navigationBack`) with `text "Notes"`
+titles it "Notes".
 
 <!-- check: app -->
 ```contract
@@ -99,7 +99,7 @@ column navigationKey=`${e.id}` navigationScroll="note-list" position="absolute" 
 ```
 
 The sheet: `navigationPresentation="modal"`; its Cancel's `id` is the root's `navigationBack`,
-which a swipe down presses.
+which a swipe down presses. On the web: a dialog, its actions below.
 
 <!-- check: route add -->
 ```contract
