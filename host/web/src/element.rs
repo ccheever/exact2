@@ -137,10 +137,6 @@ pub(super) fn holds_folded(
     let children = node.children();
     let outer = node.parent.and_then(|o| kernel.node(o)).map(|o| o.facts());
     children.len() == 1
-        && !node
-            .props
-            .str(PropId::SemanticTag)
-            .is_some_and(semantic::not_block)
         && kernel.node(children[0]).is_some_and(|c| {
             c.node_type == NodeType::Text
                 && c.looks().is_empty()
@@ -155,9 +151,14 @@ pub(super) fn holds_folded(
 }
 
 /// A box holding a folded text ([`folds`]) is a block, which wraps no
-/// anonymous item around its text.
-pub fn blocks(mut css: String, holds_folded: bool) -> String {
-    if holds_folded {
+/// anonymous item around its text; a table's element keeps the display
+/// HTML's UA sheet gives it (`table-cell`, `table-caption`).
+pub fn blocks(mut css: String, holds_folded: bool, node: &NodeFacts<'_>) -> String {
+    let table = node
+        .props
+        .str(PropId::SemanticTag)
+        .is_some_and(semantic::not_block);
+    if holds_folded && !table {
         css.push_str("display:block;");
     }
     css
@@ -1366,7 +1367,7 @@ impl<D: exact_runner::DataSource> super::Host<D> {
         );
         let css = folded_css(kernel, node, css, m.is_some_and(|m| m.handled));
         let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
-        let css = blocks(css, holds_folded(kernel, node, &handled));
+        let css = blocks(css, holds_folded(kernel, node, &handled), &node.facts());
         self.paint_css(node, css)
     }
 

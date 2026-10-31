@@ -17,9 +17,11 @@
 //! control is its platform kind with its state; a text outside any of them
 //! is itself, a heading where its role says so; an image is one only where
 //! it is named; a scroll container that scrolls holds what is in it; a
-//! `tablist` holds its tabs; a table holds its rows and a row its cells;
-//! a live region is kept so that its change is spoken. Everything else is no node, and its children stand under the
-//! node above. What is hidden, inert, `aria-hidden`, under a route that
+//! `tablist` holds its tabs; a table holds its caption and rows, a row its
+//! cells, and a description list its terms and descriptions; a live region
+//! is kept so that its change is spoken. Everything else is no node, and
+//! its children stand under the node above. What is hidden, inert,
+//! `aria-hidden`, under a route that
 //! does not show, or out of what its scrollers show is left out.
 //!
 //! **Where the bars and the top layer are.** A header the top app bar
@@ -98,20 +100,32 @@ pub mod role {
     pub const COLUMN_HEADER: i32 = 22;
     /// A `th` heading its row (`scope="row"`): `rowheader`.
     pub const ROW_HEADER: i32 = 23;
+    /// A table's `caption`: ARIA's `caption`.
+    pub const CAPTION: i32 = 24;
+    /// A `dl`, which HTML-AAM maps to a description list.
+    pub const DESCRIPTION_LIST: i32 = 25;
+    /// A `dt`: ARIA's `term`.
+    pub const TERM: i32 = 26;
+    /// A `dd`: ARIA's `definition`.
+    pub const DEFINITION: i32 = 27;
 }
 
-/// A table's element as its ARIA role (HTML-AAM): a node that holds what
-/// it heads or holds, named by its author, if at all.
-fn table_role(node: &NodeRef<'_>) -> Option<i32> {
+/// A table's or a description list's element as its role (HTML-AAM): a
+/// node that holds what it heads or holds, named by its author, if at all.
+fn structure_role(node: &NodeRef<'_>) -> Option<i32> {
     if node.node_type != exact_kernel::NodeType::View {
         return None;
     }
     Some(match node.props.str(PropId::SemanticTag)? {
         "table" => role::TABLE,
+        "caption" => role::CAPTION,
         "tr" => role::ROW,
         "td" => role::CELL,
         "th" if node.props.str(PropId::Scope) == Some("row") => role::ROW_HEADER,
         "th" => role::COLUMN_HEADER,
+        "dl" => role::DESCRIPTION_LIST,
+        "dt" => role::TERM,
+        "dd" => role::DEFINITION,
         _ => return None,
     })
 }
@@ -891,7 +905,7 @@ impl<D: DataSource> Presenter<D> {
                     scope.shift.1 += was.1 - s.offset.1;
                 }
                 scope.parent = own;
-            } else if let Some(role) = table_role(&node).filter(|_| aria.is_none()) {
+            } else if let Some(role) = structure_role(&node).filter(|_| aria.is_none()) {
                 let words = (label.unwrap_or_default(), String::new());
                 if let Some(own) =
                     self.access_emit(b, &scope, &node, role, 0, [0.0; 3], || Some(words))

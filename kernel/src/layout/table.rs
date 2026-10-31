@@ -143,18 +143,29 @@ fn shown_in(arena: &NodeArena, slot: u32) -> Option<u32> {
     Some(table)
 }
 
-/// A cell's `colspan` and `rowspan`, as HTML's parser reads them: unset or
-/// below 1 is 1, and each at most HTML's limit.
+/// A cell's `colspan` and `rowspan`, as HTML reads them (HTML §4.9.11): unset
+/// or negative is 1, a `colspan` of 0 is 1, a `rowspan` of 0 is 0, the rest
+/// of the cell's row group, and each at most HTML's limit.
 fn spans(arena: &NodeArena, slot: u32, part: Part) -> (u32, u32) {
     if part != Part::Cell {
         return (1, 1);
     }
-    let read = |id, most: i64| match arena.props(slot).get(id) {
-        Some(PropValue::Int(n)) => (*n).clamp(1, most) as u32,
-        Some(PropValue::Float(n)) if n.is_finite() => (*n as i64).clamp(1, most) as u32,
-        _ => 1,
+    let read = |id, least: i64, most: i64| {
+        let n = match arena.props(slot).get(id) {
+            Some(PropValue::Int(n)) => *n,
+            Some(PropValue::Float(n)) if n.is_finite() => *n as i64,
+            _ => 1,
+        };
+        if n < 0 {
+            1
+        } else {
+            n.clamp(least, most) as u32
+        }
     };
-    (read(PropId::ColSpan, 1000), read(PropId::RowSpan, 65534))
+    (
+        read(PropId::ColSpan, 1, 1000),
+        read(PropId::RowSpan, 0, 65534),
+    )
 }
 
 fn place(area: Area, s: &mut taffy::style::Style) {
@@ -186,7 +197,9 @@ type Item = (u32, Area, (u32, u32));
 
 /// HTML's table-forming algorithm (HTML §4.9.12.1) over `table`'s shown
 /// parts, as the browser lays it out: the captions first, each in a row of
-/// its own; then the row groups and runs of rows in order, a `tfoot` last; a
+/// its own; then the row groups and runs of rows in order, but the first
+/// `thead` before them and the first `tfoot` after them (CSS 2.1 §17.2's
+/// header and footer groups; a later one is a row group where it stands); a
 /// cell's rows end with its row group's, where CSS's rendering ends them.
 fn form(arena: &NodeArena, table: u32) -> (Formed, Vec<Item>) {
     let of =
@@ -207,7 +220,7 @@ fn form(arena: &NodeArena, table: u32) -> (Formed, Vec<Item>) {
     // Each group: its node, if it is one, and its rows; a run of rows the
     // table holds itself is a group of its own.
     let mut groups: Vec<(Option<u32>, Vec<u32>)> = Vec::new();
-    let mut feet = Vec::new();
+    let (mut head, mut foot) = (None, None);
     let mut run = Vec::new();
     for &c in children {
         if of(c, Part::Row) {
@@ -219,18 +232,18 @@ fn form(arena: &NodeArena, table: u32) -> (Formed, Vec<Item>) {
         }
         if of(c, Part::Group) {
             let rows = arena.children(c).iter().copied();
-            let rows = rows.filter(|r| of(*r, Part::Row)).collect();
-            if arena.props(c).str(PropId::SemanticTag) == Some("tfoot") {
-                feet.push((Some(c), rows));
-            } else {
-                groups.push((Some(c), rows));
+            let group = (Some(c), rows.filter(|r| of(*r, Part::Row)).collect());
+            match arena.props(c).str(PropId::SemanticTag) {
+                Some("thead") if head.is_none() => head = Some(group),
+                Some("tfoot") if foot.is_none() => foot = Some(group),
+                _ => groups.push(group),
             }
         }
     }
     if !run.is_empty() {
         groups.push((None, run));
     }
-    groups.extend(feet);
+    let groups = head.into_iter().chain(groups).chain(foot);
     let mut columns = 0;
     for (group, rows) in groups {
         if let Some(g) = group {
@@ -246,7 +259,12 @@ fn form(arena: &NodeArena, table: u32) -> (Formed, Vec<Item>) {
                     x += 1;
                 }
                 let (colspan, rowspan) = spans(arena, cell, Part::Cell);
-                let covers = rowspan.min((rows.len() - r) as u32);
+                let left = (rows.len() - r) as u32;
+                let covers = if rowspan == 0 {
+                    left
+                } else {
+                    rowspan.min(left)
+                };
                 let end = (x + colspan) as usize;
                 for slots in taken.iter_mut().skip(r).take(covers as usize) {
                     if slots.len() < end {

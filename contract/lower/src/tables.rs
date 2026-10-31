@@ -117,13 +117,14 @@ pub(crate) fn check(
     Ok(())
 }
 
-/// `colspan` and `rowspan` on a cell, a positive whole number up to HTML's
-/// limit; `scope` on a `th`, `col` or `row`.
+/// `colspan` on a cell, a whole number from 1 to HTML's limit, and
+/// `rowspan` one from 0, which is the rest of the cell's row group (HTML
+/// §4.9.11); `scope` on a `th`, `col` or `row`.
 fn attribute(tag: &str, a: &Attr) -> Result<(), LowerError> {
     let cell = matches!(tag, "th" | "td");
-    let limit = match a.name.as_str() {
-        "colspan" => 1000.0,
-        "rowspan" => 65534.0,
+    let (least, most, said) = match a.name.as_str() {
+        "colspan" => (1.0, 1000.0, "columns from 1"),
+        "rowspan" => (0.0, 65534.0, "rows from 0 (the rest of its row group)"),
         "scope" => {
             if tag != "th" {
                 return err("lower-attr-tag", "`scope` belongs to `th`", a.span);
@@ -148,20 +149,73 @@ fn attribute(tag: &str, a: &Attr) -> Result<(), LowerError> {
             a.span,
         );
     }
-    let whole = |n: f64| n.fract() == 0.0 && (1.0..=limit).contains(&n);
+    let whole = |n: f64| n.fract() == 0.0 && (least..=most).contains(&n);
     match &a.value {
         Expr::Number(n, _) if whole(*n) => Ok(()),
         Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) => err(
             "lower-attr-value",
             format!(
-                "`{}` is a whole number of {} from 1 to {limit} (HTML's limit), written as a number: `{}=2`",
-                a.name,
-                if a.name == "colspan" { "columns" } else { "rows" },
-                a.name
+                "`{}` is a whole number of {said} to {most} (HTML's limit), written as a number: `{}=2`",
+                a.name, a.name
             ),
             a.span,
         ),
         _ => Ok(()),
+    }
+}
+
+/// A table's children with each run of rows it holds directly in a `tbody`
+/// of its own, as HTML's parser puts them (HTML §13.2.6.4.9): the DOM a
+/// page rendered ahead is parsed into is then the one the runtime builds,
+/// and every host has the row group HTML's table model has. `None` where
+/// there is no such run. The `tbody` has the table's place in the source.
+pub(crate) fn implied_bodies(
+    tag: &str,
+    children: &[Node],
+    span: Span,
+    instance: u32,
+) -> Option<Vec<Node>> {
+    if tag != "table" || !children.iter().any(rows) {
+        return None;
+    }
+    let body = |run: Vec<Node>| Node::Element {
+        tag: "tbody".into(),
+        positional: Vec::new(),
+        attrs: Vec::new(),
+        children: run,
+        span,
+        instance,
+    };
+    let mut out = Vec::with_capacity(children.len());
+    let mut run = Vec::new();
+    for c in children {
+        if rows(c) {
+            run.push(c.clone());
+            continue;
+        }
+        if !run.is_empty() {
+            out.push(body(std::mem::take(&mut run)));
+        }
+        out.push(c.clone());
+    }
+    if !run.is_empty() {
+        out.push(body(run));
+    }
+    Some(out)
+}
+
+/// Whether `n` is a `tr`, or a `for`, `if` or `match` that makes nothing
+/// else.
+fn rows(n: &Node) -> bool {
+    let all = |nodes: &[Node]| nodes.iter().all(rows);
+    match n {
+        Node::Element { tag, .. } => tag == "tr",
+        Node::When {
+            then, otherwise, ..
+        } => all(then) && all(otherwise),
+        Node::Each { body, .. } => all(body),
+        Node::Match { some, none, .. } => all(&some.1) && all(none),
+        _ => false,
     }
 }
 
@@ -179,28 +233,29 @@ fn repeated(children: &[Node]) -> Option<Span> {
 }
 
 /// HTML's groups in a `dl` (HTML §4.4.9): one or more `dt`, then one or
-/// more `dd`. Checked where the list is written out; with a `for` or an
-/// `if` among its children the groups are the data's.
+/// more `dd`. Any run of them that starts with a `dt` and ends with a `dd`
+/// is such groups, so what is written must start the list with a `dt` and
+/// end it with a `dd`; between, a `for` or an `if` makes groups of the
+/// data's, which the written ones before and after it join.
 fn grouped(children: &[Node]) -> Result<(), LowerError> {
-    let mut tags = Vec::with_capacity(children.len());
-    for c in children {
-        match c {
-            Node::Element { tag, span, .. } => tags.push((tag.as_str(), *span)),
-            _ => return Ok(()),
+    fn tag(n: Option<&Node>) -> Option<(&str, Span)> {
+        match n {
+            Some(Node::Element { tag, span, .. }) => Some((tag.as_str(), *span)),
+            _ => None,
         }
     }
-    if let Some((_, span)) = tags.first().filter(|(t, _)| *t == "dd") {
+    if let Some((_, span)) = tag(children.first()).filter(|(t, _)| *t == "dd") {
         return err(
             "lower-dl-content",
             "a `dl`'s first group starts with its `dt`: each group is one or more `dt` (the terms) then one or more `dd` (their descriptions)",
-            *span,
+            span,
         );
     }
-    if let Some((_, span)) = tags.last().filter(|(t, _)| *t == "dt") {
+    if let Some((_, span)) = tag(children.last()).filter(|(t, _)| *t == "dt") {
         return err(
             "lower-dl-content",
             "a `dt` is followed by its `dd`: each group in a `dl` is one or more `dt` then one or more `dd`",
-            *span,
+            span,
         );
     }
     Ok(())

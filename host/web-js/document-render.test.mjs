@@ -151,6 +151,60 @@ test('blank text rows clear a shorthand start through adoption', async () => {
   });
 }, 60000);
 
+// @ref LLP 1153 D7.2 — the HTML parser puts a table's own rows in a `tbody`, and the plan has it, so
+// the parsed page is the one construction walks; a cell holding one text stays a `table-cell`.
+test('a table rendered ahead adopts without a rebuild, its cells still cells', async () => {
+  const source = `routes nav
+  home "/" render=build
+
+component Moves
+  state count = 0
+  action add
+    count = count + 1
+  view
+    column
+      button testId="add" press=add
+        text "Add"
+      table testId="moves"
+        caption testId="caption"
+          text "Moves"
+        tr
+          th scope="col" testId="name"
+            text "Name"
+          th scope="col"
+            text "Power"
+        tr
+          td testId="tackle"
+            text "Tackle"
+          td testId="count"
+            text \`\${count}\`
+`;
+  const cells = `[...document.querySelectorAll('caption, th, td')].map(e => getComputedStyle(e).display)`;
+  const shape = `[...document.querySelector('table').children].map(e => e.localName + ':' + e.children.length)`;
+  const want = ['table-caption', 'table-cell', 'table-cell', 'table-cell', 'table-cell'];
+  for (const renderer of ['rust', 'js']) await renderedPages(source, async (_, html, dist) => {
+    const displayed = html('').match(/<(?:caption|t[dh])\b[^>]*>/g).filter(tag => tag.includes('display:'));
+    expect([renderer, displayed]).toEqual([renderer, []]);
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    let suite, browser;
+    try {
+      suite = await suiteBrowser();
+      const page = await suite.newPage({ javaScriptEnabled: false });
+      await page.goto(server.url.href);
+      expect([renderer, await page.evaluate(cells), await page.evaluate(shape)]).toEqual([renderer, want, ['caption:1', 'tbody:2']]);
+      browser = await open({ host: 'web', url: server.url.href });
+      const journal = await browser.carrier.evaluate('globalThis.exact.journal');
+      expect([renderer, journal.some(l => l.endsWith('adopted the document')), journal.filter(l => /afresh|abandoned/.test(l))]).toEqual([renderer, true, []]);
+      expect([renderer, await browser.carrier.evaluate(cells), await browser.carrier.evaluate(shape)]).toEqual([renderer, want, ['caption:1', 'tbody:2']]);
+      await browser.tap('add');
+      expect(await browser.carrier.evaluate(`document.querySelector('[data-testid="count"]').textContent`)).toBe('1');
+    } finally { await browser?.close(); await suite?.close(); server.stop(true); }
+  }, {}, {}, renderer);
+}, 180000);
+
 test('select and date text styles preserve shell leading only under a said row', async () => {
   const ids = ['select-said','select-bound-said','date-said','time-bound-said','select-unsaid','select-bound-unsaid','date-unsaid','time-bound-unsaid'];
   for (const weighted of [false, true]) await textStylePage(ids, async (before, read, tap, browser) => {

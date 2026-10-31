@@ -110,3 +110,39 @@ fn a_table_and_a_description_list_are_their_elements() {
         "{name}"
     );
 }
+
+/// The page rendered ahead (LLP 1048.000) is the DOM the runtime builds:
+/// the rows a table holds directly are in the `tbody` the plan has, where
+/// HTML's parser would put them, and a cell or caption holding one text
+/// keeps the display HTML's UA sheet gives it.
+#[test]
+fn a_table_renders_ahead_as_its_elements() {
+    let plan = contract::compile(
+        "component App\n  view\n    table\n      caption\n        text \"Moves\"\n      tr\n        th scope=\"col\"\n          text \"Name\"\n      tr\n        td\n          text \"Tackle\"\n",
+    )
+    .unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
+    let (host, _) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let doc = host.document().unwrap().root;
+    let at = |tag: &str| {
+        doc.find(&format!("<{tag} "))
+            .unwrap_or_else(|| panic!("no <{tag}> in {doc}"))
+    };
+    assert!(
+        at("table") < at("caption") && at("caption") < at("tbody") && at("tbody") < at("tr"),
+        "{doc}"
+    );
+    assert_eq!(doc.matches("<tbody ").count(), 1, "{doc}");
+    for tag in ["<caption ", "<th ", "<td "] {
+        for (i, _) in doc.match_indices(tag) {
+            let start = &doc[i..i + doc[i..].find('>').unwrap()];
+            assert!(!start.contains("display:"), "{start}");
+        }
+    }
+}

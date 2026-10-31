@@ -5,8 +5,11 @@
 // grid (55 and 35) and in proportion to the columns' widths in Chrome (55.70
 // and 34.30); a table 120 px wide over columns of 22 to 62 and 22 to 82 px
 // shares what is above their least equally in the grid (57 and 57) and in
-// proportion to what each could grow in Chrome (50 and 64). The kernel's
-// `a_narrow_tables_columns_share_the_rest_equally` holds the grid's.
+// proportion to what each could grow in Chrome (50 and 64). A `layout`
+// comparison would fail the lane's strict run on every commit, and
+// conform.mjs keeps no list of known Linux differences, so the kernel's
+// `a_spans_extra_width_is_shared_equally` and
+// `a_narrow_tables_columns_share_the_rest_equally` assert these distances.
 component TableWidths
   view
     column testId="root" width=420 box-sizing="border-box" padding=16 gap=12 font-size=16

@@ -996,6 +996,10 @@ impl Lowerer<'_> {
             std::borrow::Cow::Owned(face)
         } else if let Some(parts) = parted {
             std::borrow::Cow::Owned(parts)
+        } else if let Some(bodies) =
+            crate::tables::implied_bodies(tag, authored_children, *span, *instance)
+        {
+            std::borrow::Cow::Owned(bodies)
         } else {
             std::borrow::Cow::Borrowed(authored_children.as_slice())
         };

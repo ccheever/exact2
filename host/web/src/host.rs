@@ -1314,7 +1314,8 @@ impl<D: DataSource> Host<D> {
                 let css = host_css(kernel, &node, css, tag);
                 let css = element::folded_css(kernel, &node, css, !kinds.is_empty());
                 let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
-                let css = element::blocks(css, element::holds_folded(kernel, &node, &handled));
+                let holds = element::holds_folded(kernel, &node, &handled);
+                let css = element::blocks(css, holds, &node.facts());
                 (props, self.paint_css(&node, css))
             }
         };

@@ -1779,7 +1779,7 @@
       "id": 296,
       "name": "rowSpan",
       "kind": "int",
-      "_comment": "@ref LLP 1153 D7: HTML's `rowspan` on a `th` or `td`, the rows the cell covers; unset is 1, a value below 1 is 1 and above 65534 is 65534. As `colSpan`."
+      "_comment": "@ref LLP 1153 D7: HTML's `rowspan` on a `th` or `td`, the rows the cell covers; unset or negative is 1, 0 is the rest of its row group (HTML §4.9.11) and above 65534 is 65534. As `colSpan`."
     },
     {
       "id": 297,

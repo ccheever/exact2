@@ -667,6 +667,7 @@ impl<S: Source> Walk<'_, '_, S> {
                 self.touch > 0,
             ),
             holds,
+            &node,
         );
         let mut style = layers::with_isolation(css, isolated);
         let kept = self.computed.is_some().then(|| style.clone());

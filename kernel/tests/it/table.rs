@@ -337,11 +337,39 @@ fn a_hidden_row_leaves_the_grid_and_comes_back() {
     assert_eq!(frame(&k, 7), [2.0, 16.0, 62.0, 12.0]);
 }
 
-/// The declared deviation (LLP 1153 D7.3): a table narrower than its
-/// content gives each column its least and shares the rest equally, as a
-/// grid's `auto` tracks do, where Chrome's table shares it in proportion to
-/// what each column could still grow (50 and 64 px here; the conformance
-/// fixture `table-widths` measures it).
+/// The distance of the kernel's columns from Chrome's, which conformance
+/// measured on the fixture `table-widths` (Chrome 156, 2026-10-30), to the
+/// hundredth of a pixel: what the declared deviation is (LLP 1153 D7.3).
+fn from_chrome(grid: [f32; 2], chrome: [f32; 2]) -> [f32; 2] {
+    [0, 1].map(|i| ((grid[i] - chrome[i]) * 100.0).round() / 100.0)
+}
+
+/// The declared deviation: a spanning cell wider than the columns it spans
+/// gives them its extra width equally, as a grid's `auto` tracks do, where
+/// Chrome's table gives it in proportion to their widths.
+#[test]
+fn a_spans_extra_width_is_shared_equally() {
+    // 2 table, 3 tbody, 4 tr, 5 th, 6 box (50), 7 th, 8 box (30), 9 tr, 10 td (colspan 2), 11 box (90).
+    let th = |w: f64| N::Tag("th", Vec::new(), Vec::new(), vec![N::Box(w, 12.0)]);
+    let k = lay_out(tag(
+        "table",
+        vec![tag(
+            "tbody",
+            vec![
+                tag("tr", vec![th(50.0), th(30.0)]),
+                tag("tr", vec![cell(&[(COLSPAN, 2)], 90.0, 12.0)]),
+            ],
+        )],
+    ));
+    let grid = [frame(&k, 5)[2], frame(&k, 7)[2]];
+    assert_eq!(grid, [55.0, 35.0], "52 and 32, and 3 each");
+    assert_eq!(from_chrome(grid, [55.70, 34.30]), [-0.70, 0.70]);
+}
+
+/// The declared deviation: a table narrower than its content gives each
+/// column its least and shares the rest equally, as a grid's `auto` tracks
+/// do, where Chrome's table shares it in proportion to what each column
+/// could still grow.
 #[test]
 fn a_narrow_tables_columns_share_the_rest_equally() {
     // 2 table (120 wide), 3 tr, 4 td, 5 a wrapping row of three 20 px boxes,
@@ -381,4 +409,134 @@ fn a_narrow_tables_columns_share_the_rest_equally() {
     );
     assert_eq!(frame(&k, 4), [2.0, 2.0, 57.0, 22.0], "22 + 35");
     assert_eq!(frame(&k, 9), [61.0, 2.0, 57.0, 22.0], "22 + 35");
+    let grid = [frame(&k, 4)[2], frame(&k, 9)[2]];
+    assert_eq!(from_chrome(grid, [50.0, 64.0]), [7.0, -7.0]);
+}
+
+/// The first `thead` is above the other row groups and the first `tfoot`
+/// below them wherever each is written; a later one is a row group where it
+/// stands (CSS 2.1 §17.2, as the browser lays them out).
+#[test]
+fn the_first_header_and_footer_go_first_and_last() {
+    // 2 table; then each group, its row, its cell and its box: 3 tfoot,
+    // 7 tbody, 11 thead, 15 tfoot, 19 thead (the cells 5, 9, 13, 17, 21).
+    let group = |name: &'static str| tag(name, vec![tag("tr", vec![cell(&[], 20.0, 10.0)])]);
+    let k = lay_out(tag(
+        "table",
+        ["tfoot", "tbody", "thead", "tfoot", "thead"]
+            .map(group)
+            .into(),
+    ));
+    let y = |id| frame(&k, id)[1];
+    assert_eq!([13, 9, 17, 21, 5].map(y), [2.0, 16.0, 30.0, 44.0, 58.0]);
+}
+
+/// A `rowspan` of 0 is the rest of its row group (HTML §4.9.11), however
+/// many rows that comes to: a row the group gains is spanned too.
+#[test]
+fn a_rowspan_of_0_reaches_the_end_of_its_row_group() {
+    // 2 table, 3 tbody, 4 tr, 5 td (rowspan 0), 6 box, 7 td, 8 box, 9 tr,
+    // 10 td, 11 box; then 12 tr, 13 td, 14 box.
+    let mut k = lay_out(tag(
+        "table",
+        vec![tag(
+            "tbody",
+            vec![
+                tag(
+                    "tr",
+                    vec![cell(&[(ROWSPAN, 0)], 20.0, 10.0), cell(&[], 20.0, 10.0)],
+                ),
+                tag("tr", vec![cell(&[], 20.0, 10.0)]),
+            ],
+        )],
+    ));
+    assert_eq!(frame(&k, 5), [2.0, 2.0, 22.0, 26.0], "two rows");
+    assert_eq!(
+        frame(&k, 10),
+        [26.0, 16.0, 22.0, 12.0],
+        "in the second column"
+    );
+    let (mut ops, mut next) = (Vec::new(), 12);
+    let added = make(&tag("tr", vec![cell(&[], 20.0, 10.0)]), &mut next, &mut ops);
+    ops.push(Op::SetChildren {
+        id: 3,
+        children: vec![4, 9, added],
+    });
+    k.apply(0, 2, &ops).unwrap();
+    k.compute_layout(1, Offer::definite(400.0, 400.0)).unwrap();
+    assert_eq!(frame(&k, 5), [2.0, 2.0, 22.0, 40.0], "three rows");
+    assert_eq!(
+        frame(&k, 13),
+        [26.0, 30.0, 22.0, 12.0],
+        "in the second column"
+    );
+}
+
+/// A caption keeps what its author said: a width, and a margin, which is
+/// from the table's edge as CSS's caption's is.
+#[test]
+fn a_caption_keeps_its_authors_width_and_margin() {
+    // 2 table, 3 caption (30 wide, 12 below), 4 box, 5 tr, 6 td, 7 box.
+    let k = lay_out(tag(
+        "table",
+        vec![
+            N::Tag(
+                "caption",
+                vec![(StyleId::Width, 30.0), (StyleId::MarginBottom, 12.0)],
+                Vec::new(),
+                vec![N::Box(10.0, 10.0)],
+            ),
+            tag("tr", vec![cell(&[], 60.0, 10.0)]),
+        ],
+    ));
+    assert_eq!(frame(&k, 3), [0.0, 0.0, 30.0, 10.0], "the caption");
+    assert_eq!(
+        frame(&k, 6),
+        [2.0, 24.0, 62.0, 12.0],
+        "12 below it, then the spacing"
+    );
+    assert_eq!(frame(&k, 2), [0.0, 0.0, 66.0, 38.0]);
+}
+
+/// A `dd` keeps its 40 px start margin beside an end margin its author said.
+#[test]
+fn a_dds_start_margin_stays_beside_its_end_margin() {
+    // 2 dl, 3 dt, 4 box, 5 dd (12 at its end), 6 box.
+    let k = lay_out(tag(
+        "dl",
+        vec![
+            tag("dt", vec![N::Box(30.0, 10.0)]),
+            N::Tag(
+                "dd",
+                vec![(StyleId::MarginRight, 12.0)],
+                Vec::new(),
+                vec![N::Box(30.0, 10.0)],
+            ),
+        ],
+    ));
+    assert_eq!(frame(&k, 5), [40.0, 26.0, 348.0, 10.0]);
+}
+
+/// A table whose author says `display: block` is a block, as the browser
+/// makes it: it fills its container, where a table shrinks to its columns.
+#[test]
+fn a_table_whose_author_says_block_is_a_block() {
+    // 2 table, 3 tr, 4 td, 5 box.
+    let mut k = lay_out(tag("table", vec![tag("tr", vec![cell(&[], 20.0, 10.0)])]));
+    assert_eq!(frame(&k, 2)[2], 26.0, "a table");
+    let mut s = StyleProps::default();
+    s.set_dynamic(StyleId::Display, &StyleValue::Text("block".into()))
+        .unwrap();
+    s.written.set(StyleId::Display);
+    k.apply(
+        0,
+        2,
+        &[Op::SetStyle {
+            id: 2,
+            patch: Box::new(s),
+        }],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(400.0, 400.0)).unwrap();
+    assert_eq!(frame(&k, 2)[2], 400.0, "a block");
 }

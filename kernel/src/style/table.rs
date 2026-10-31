@@ -19,7 +19,7 @@
 //! to 0.5 px (fixture `table`).
 
 use crate::arena::NodeArena;
-use crate::generated::{Display, NodeType, PropId, StyleId, VerticalAlign};
+use crate::generated::{Direction, NodeType, PropId, StyleId, VerticalAlign};
 use crate::style::Dimension;
 use taffy::prelude::{auto, length, zero, Rect};
 
@@ -73,10 +73,10 @@ pub(crate) fn styled(arena: &NodeArena, slot: u32) -> bool {
 }
 
 /// Whether `table` lays out as a table: CSS's `display: table`, which a
-/// node with no `display` of its own is (an authored `flex` or `grid` makes
-/// it that container, as in the browser).
+/// node whose author said no `display` is. One that says `block`, `flex`
+/// or `grid` is that box, as the browser makes it.
 pub(crate) fn lays_out(arena: &NodeArena, table: u32) -> bool {
-    arena.style(table).display == Display::Block
+    !arena.style(table).mask.has(StyleId::Display)
 }
 
 /// The table that lays `slot` out among its grid items, when `slot` is a
@@ -112,10 +112,19 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
             }
             return;
         }
-        // The start side, which right to left mirrors (`sides::mirror_unsaid`).
+        // `margin-inline-start`, where its author said none. With neither
+        // side said it is the left, which right to left mirrors
+        // (`sides::mirror_unsaid`); with one said, the start side itself.
         Some("dd") if arena.node_type(slot) == NodeType::View => {
-            if !style.mask.has(StyleId::MarginLeft) && !style.mask.has(StyleId::MarginRight) {
-                s.margin.left = length(DD_INDENT);
+            let (left, right) = (
+                style.mask.has(StyleId::MarginLeft),
+                style.mask.has(StyleId::MarginRight),
+            );
+            let rtl = arena.computed_source(slot, StyleId::Direction).direction == Direction::Rtl;
+            match (left, right, rtl) {
+                (false, false, _) | (false, true, false) => s.margin.left = length(DD_INDENT),
+                (true, false, true) => s.margin.right = length(DD_INDENT),
+                _ => {}
             }
             return;
         }
@@ -154,26 +163,58 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
             };
         }
         Part::Caption => {
-            // Above the rows, across the table's padding box: outside its
+            // Above the rows, from the table's padding box: outside its
             // spacing and padding, as CSS's caption is outside the table box,
             // but inside a border the table has, where CSS's is outside it
-            // too. Its width follows the table's and asks the columns for
-            // none of it, so a long caption wraps where CSS's does.
+            // too. An authored margin is from that box's edge, as CSS's is
+            // from the table's.
             let t = arena.style(table);
             let inset = |d: Dimension| match d.resolve(env) {
                 Dimension::Points(v) => v.max(0.0) + SPACING,
                 _ => SPACING,
             };
             let (left, right) = (inset(t.padding_left), inset(t.padding_right));
-            s.margin = Rect {
-                left: length(-left),
-                right: length(-right),
-                top: length(-inset(t.padding_top)),
-                bottom: zero(),
+            // Writes a side's engine margin, from that box's edge, and gives
+            // the points its author said there (0 where none).
+            let from = |side: StyleId,
+                        said: Dimension,
+                        at: f32,
+                        m: &mut taffy::style::LengthPercentageAuto| {
+                match said.resolve(env) {
+                    Dimension::Points(v) if style.mask.has(side) => {
+                        *m = length(v - at);
+                        v
+                    }
+                    _ if style.mask.has(side) => 0.0,
+                    _ => {
+                        *m = length(-at);
+                        0.0
+                    }
+                }
             };
-            s.size.width = length(0.0);
-            s.min_size.width = Dimension::Calc(100.0, left + right).floor_lpa(env);
-            s.max_size.width = auto();
+            let start = from(
+                StyleId::MarginLeft,
+                style.margin_left,
+                left,
+                &mut s.margin.left,
+            );
+            let end = from(
+                StyleId::MarginRight,
+                style.margin_right,
+                right,
+                &mut s.margin.right,
+            );
+            let top = inset(t.padding_top);
+            from(StyleId::MarginTop, style.margin_top, top, &mut s.margin.top);
+            // Unsized, it is as wide as that box less its margins and asks the
+            // columns for none of its width, so a long caption wraps where
+            // CSS's does.
+            let sized = [StyleId::Width, StyleId::MinWidth, StyleId::MaxWidth];
+            if !sized.iter().any(|id| style.mask.has(*id)) {
+                let wider = left + right - start - end;
+                s.size.width = length(0.0);
+                s.min_size.width = Dimension::Calc(100.0, wider).floor_lpa(env);
+            }
         }
         Part::Group | Part::Row => {
             // No padding, margin or border (CSS 2.1 §17.5.3, §17.6.1), no

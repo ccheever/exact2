@@ -365,6 +365,16 @@ fn map_node(
         role::EDIT | role::FIELD => Role::TextInput,
         role::TABLIST => Role::TabList,
         role::DROPDOWN => Role::ComboBox,
+        // @ref LLP 1153 D7 — HTML's table and description list (HTML-AAM).
+        role::TABLE => Role::Table,
+        role::CAPTION => Role::Caption,
+        role::ROW => Role::Row,
+        role::CELL => Role::Cell,
+        role::COLUMN_HEADER => Role::ColumnHeader,
+        role::ROW_HEADER => Role::RowHeader,
+        role::DESCRIPTION_LIST => Role::DescriptionList,
+        role::TERM => Role::Term,
+        role::DEFINITION => Role::Definition,
         _ => Role::GenericContainer,
     };
     let mut node = Node::new(role);
@@ -531,6 +541,26 @@ mod tests {
         source.role = role::TEXT;
         let text = map_node(&source, (0., 0.), false, false, false);
         assert_eq!(text.value(), Some("Message"));
+    }
+
+    /// LLP 1153 D7: the Linux tree's table and description-list roles are
+    /// UI Automation's, through AccessKit's.
+    #[test]
+    fn accessibility_tables_and_description_lists_are_their_roles() {
+        for (from, to) in [
+            (role::TABLE, Role::Table),
+            (role::CAPTION, Role::Caption),
+            (role::ROW, Role::Row),
+            (role::CELL, Role::Cell),
+            (role::COLUMN_HEADER, Role::ColumnHeader),
+            (role::ROW_HEADER, Role::RowHeader),
+            (role::DESCRIPTION_LIST, Role::DescriptionList),
+            (role::TERM, Role::Term),
+            (role::DEFINITION, Role::Definition),
+        ] {
+            let node = map_node(&source(from), (0., 0.), false, false, false);
+            assert_eq!(node.role(), to, "role {from}");
+        }
     }
 
     #[test]

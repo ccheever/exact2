@@ -180,6 +180,16 @@ fn the_content_model_and_the_cell_attributes_are_held() {
             "a `dt` is followed by its `dd`",
         ),
         (
+            "    dl\n      dd\n        text \"a\"\n      for x in xs key=x\n        dt\n          text \"t\"\n        dd\n          text \"d\"\n",
+            "lower-dl-content",
+            "a `dl`'s first group starts with its `dt`",
+        ),
+        (
+            "    dl\n      for x in xs key=x\n        dt\n          text \"t\"\n        dd\n          text \"d\"\n      dt\n        text \"last\"\n",
+            "lower-dl-content",
+            "a `dt` is followed by its `dd`",
+        ),
+        (
             "    table\n      tr\n        for x in xs key=x\n          td\n            text \"a\"\n",
             "lower-table-cells",
             "a `for` inside a `tr` makes the row's cell count vary",
@@ -197,7 +207,7 @@ fn the_content_model_and_the_cell_attributes_are_held() {
         (
             "    table\n      tr\n        td rowspan=\"2\"\n          text \"a\"\n",
             "lower-attr-value",
-            "`rowspan` is a whole number of rows from 1 to 65534",
+            "`rowspan` is a whole number of rows from 0 (the rest of its row group) to 65534",
         ),
         (
             "    table\n      tr\n        td colspan=1.5\n          text \"a\"\n",
@@ -234,6 +244,43 @@ fn rows_may_repeat_and_a_cell_may_come_and_go() {
         "component App\n  state xs = [1, 2]\n  state on = true\n  view\n    column\n      table\n        for x in xs key=x\n          tr\n            td\n              text \"a\"\n            if on\n              td\n                text \"b\"\n      dl\n        for x in xs key=x\n          dt\n            text \"t\"\n          dd\n            text \"d\"\n      dl\n        dt\n          text \"one\"\n        dt\n          text \"two\"\n        dd\n          text \"both\"\n",
     )
     .unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// The rows a table holds directly are in a `tbody` of their own, as
+/// HTML's parser puts them, one for each run (the rows from a `for` among
+/// them); a `rowspan` of 0 is HTML's, the rest of the cell's row group.
+#[test]
+fn a_tables_own_rows_are_a_tbody_and_rowspan_0_is_admitted() {
+    let r = boot(
+        "component App\n  state xs = [1, 2]\n  view\n    table testId=\"t\"\n      caption\n        text \"Moves\"\n      tr testId=\"first\"\n        td rowspan=0\n          text \"a\"\n      for x in xs key=x\n        tr\n          td\n            text \"b\"\n      tfoot\n        tr testId=\"foot\"\n          td\n            text \"c\"\n      tr testId=\"last\"\n        td\n          text \"d\"\n",
+    );
+    let kernel = r.kernel();
+    let node = |id: &str| {
+        let key = kernel.find_by_test_id(id)[0];
+        kernel.node_by_key(key).unwrap()
+    };
+    let tag = |id: u32| {
+        kernel
+            .node(id)
+            .and_then(|n| n.props.str(PropId::SemanticTag).map(str::to_string))
+    };
+    let children: Vec<_> = node("t").children().iter().map(|c| tag(*c)).collect();
+    let said = |t: &str| Some(t.to_string());
+    assert_eq!(
+        children,
+        [said("caption"), said("tbody"), said("tfoot"), said("tbody")]
+    );
+    let first = node("first");
+    let body = kernel.node(first.parent.unwrap()).unwrap();
+    assert_eq!(
+        body.children().len(),
+        3,
+        "the written row and the two from the `for`"
+    );
+    assert_eq!(tag(node("foot").parent.unwrap()), said("tfoot"));
+    assert_eq!(tag(node("last").parent.unwrap()), said("tbody"));
+    let cell = kernel.node(first.children()[0]).unwrap();
+    assert_eq!(cell.props.get(PropId::RowSpan), Some(&PropValue::Int(0)));
 }
 
 /// `contract vocab` answers for the elements and the cell attributes.
