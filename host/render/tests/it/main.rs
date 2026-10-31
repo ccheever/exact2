@@ -442,12 +442,21 @@ fn a_document_whose_ids_nobody_keeps_is_the_settled_tree_projected() {
         });
         assert_eq!(strip(&runtime.document.root), strip(&any.document.root));
         assert_eq!(
-            (
-                runtime.settled,
-                runtime.checkpoint.clone(),
-                runtime.activate
-            ),
-            (any.settled, any.checkpoint.clone(), any.activate)
+            (runtime.settled, runtime.checkpoint.clone()),
+            (any.settled, any.checkpoint.clone())
+        );
+        // Only a JavaScript page infers its activation (LLP 1048.007 D1): the
+        // answered post waits for the reader, the one held at the deadline
+        // runs its runtime at once to finish it.
+        assert_eq!(runtime.activate, exact_plan::ActivatePolicy::Inferred);
+        let waits = matches!(post, Post::Soon);
+        assert_eq!(
+            any.activate,
+            if waits {
+                exact_plan::ActivatePolicy::Interaction
+            } else {
+                exact_plan::ActivatePolicy::Inferred
+            }
         );
     }
     assert!(exact_render::projects_as_booted(&plan()));

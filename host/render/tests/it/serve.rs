@@ -1318,13 +1318,11 @@ fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
     stream.read_to_end(&mut bytes).unwrap();
     assert!(started.elapsed() >= Duration::from_millis(1400));
     let text = String::from_utf8_lossy(&bytes).into_owned();
-    // A 103 names the entry's preload, then the page is a chunked 200.
-    assert!(
-        text.starts_with("HTTP/1.1 103 Early Hints\r\nLink: </app.js>; rel=modulepreload; fetchpriority=low\r\n\r\nHTTP/1.1 200 OK\r\n"),
-        "{text}"
-    );
-    let head_end = text.find("\r\n\r\nHTTP/1.1 200").unwrap() + 4;
-    let rest = &bytes[head_end..];
+    // A chunked 200, with no 103: this plan's undeclared routes may wait for
+    // the reader, so nothing names the runtime before the render decides
+    // (LLP 1048.007 D1).
+    assert!(text.starts_with("HTTP/1.1 200 OK\r\n"), "{text}");
+    let rest = &bytes[..];
     let at = rest.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
     let headers = String::from_utf8_lossy(&rest[..at]).to_ascii_lowercase();
     assert!(headers.contains("transfer-encoding: chunked"), "{headers}");
@@ -1335,13 +1333,16 @@ fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
     assert!(!headers.contains("etag"), "{headers}");
     assert!(headers.contains("content-security-policy: "), "{headers}");
     let page = String::from_utf8(unchunk(&rest[at + 4..])).unwrap();
-    // The first chunk was the head: the capture script, the preload and the
-    // stylesheet, before the render's title.
+    // The first chunk was the head: the capture script and the stylesheet,
+    // before the render's title. A page held at its deadline runs its
+    // runtime at once, so the preload follows the head's fields.
+    let preload = "<link rel=\"modulepreload\" href=\"./app.js\" fetchpriority=\"low\">";
     assert!(first_chunk.contains(exact_render::capture_js()));
-    assert!(first_chunk
-        .contains("<link rel=\"modulepreload\" href=\"./app.js\" fetchpriority=\"low\">"));
+    assert!(!first_chunk.contains(preload));
     assert!(first_chunk.contains("<style>p{margin:0}</style>"));
     assert!(!first_chunk.contains("<title>"));
+    assert!(page.find("<title>") < page.find(preload), "{page}");
+    assert!(page.contains("data-activate=\"eager\""), "{page}");
     // The rest: at the deadline, the document with what is pending, which
     // the runtime asks again once it adopts the page. Its language is the
     // shell's, the manifest's: this plan has no strings table to name one

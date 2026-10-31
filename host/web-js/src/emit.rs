@@ -733,9 +733,11 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         })
         .collect();
     let names_js = format!(
-        "{names_js}export const sourceTypes={{{}}};export const pages=[{}];\n",
+        "{names_js}export const sourceTypes={{{}}};export const pages=[{}];export const viewportMedia={};export const activation={};\n",
         source_types.join(","),
-        pages.join(",")
+        pages.join(","),
+        crate::facts::viewport_media(plan),
+        crate::facts::activation(plan)
     );
     let imports: Vec<String> = em.uses.names.iter().cloned().collect();
     let budget: Vec<String> = em.uses.budget.iter().cloned().collect();

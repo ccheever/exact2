@@ -21,13 +21,30 @@ import { canonical, matchPattern } from './route-pattern.js';
 const DEADLINE = 3000;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 // Use Place's default zone inside each realm, keeping Intl prototypes and exceptions local to that render.
+// A render that formats in the default zone notes it: its page then waits for no interaction (\`infer\`).
 const utcIntl = new vm.Script(`{
-  const argsInUTC = ([locales, options]) => [locales, options === null || options?.timeZone !== undefined ? options : Object.create(Object(options), { timeZone: { value: 'UTC' } })];
+  const argsInUTC = ([locales, options]) => [locales, options === null || options?.timeZone !== undefined ? options : (globalThis.__exactZone = true, Object.create(Object(options), { timeZone: { value: 'UTC' } }))];
   Intl.DateTimeFormat = new Proxy(Intl.DateTimeFormat, {
     apply: (target, receiver, args) => Reflect.apply(target, receiver, argsInUTC(args)),
     construct: (target, args, derived) => Reflect.construct(target, argsInUTC(args), derived),
   });
 }`);
+
+/** An undeclared route's activation (LLP 1048.007 D1), as the render host
+ * infers it (`exact_runner::activation`, whose rules the build wrote in
+ * `out.activation`): `interaction` when the render left the runtime nothing
+ * to do before the reader acts — nothing in the plan only the runtime
+ * keeps, no answer pending, nothing due on the clock, no handler the
+ * capture script cannot replay — else `eager`. A render that formatted in
+ * the default zone does not wait either. The page carries the plan's
+ * viewport comparisons as it was laid out by them, which the capture
+ * script checks (`wake`). */
+function infer(out) {
+  const { replayed, kept } = out.activation;
+  const kinds = [...out.root.matchAll(/ data-exact-on="([^"]*)"/g)].flatMap(m => m[1].split(' '));
+  const waits = !kept && !out.pending.length && !out.due && !out.zoned && kinds.every(k => replayed.includes(k));
+  return waits ? 'interaction' : 'eager';
+}
 
 /** The renderer for one built dist: its server bundle compiled once. */
 export function renderer(dist) {
@@ -54,6 +71,7 @@ export function renderer(dist) {
   // A rendered page paints without the runtime, which only adopts it, so its preloads are low priority (page.rs `push_low`).
   const headOf = preload => shell.slice(0, title).replace(/<html[^>]*>/, `<html lang="${language}" dir="ltr">`) + `<script>${capture}</script>\n`
     + shell.slice(stop, root).replace(/(<link rel="modulepreload" href="[^"]*")>\n/g, preload ? '$1 fetchpriority="low">\n' : '');
+  const preloads = (shell.slice(stop, root).match(/<link rel="modulepreload" href="[^"]*">\n/g) ?? []).map(l => l.replace('>', ' fetchpriority="low">')).join('');
   /** A render begun: its route's policy and the page's head, known before
    * any data is asked; `finish` settles it and composes the rest. */
   async function begin(location) {
@@ -79,19 +97,25 @@ export function renderer(dist) {
     script.runInContext(ctx);
     const info = await ctx.__start();
     // The capture script imports the entry by the policy; an interaction
-    // page drops the head's modulepreloads (page.rs `head_js`).
-    const head = headOf(info.activate !== 'interaction');
+    // page drops the head's modulepreloads, and an undeclared one adds them
+    // after its head once its render chose `eager` (page.rs `head_js`).
+    const head = headOf(info.activate !== 'interaction' && info.activate !== 'inferred');
     return { ...info, location, head, async finish(deadline = DEADLINE) {
       const out = await ctx.__render(deadline);
+      const activate = info.activate === 'inferred' ? infer(out) : info.activate;
+      const late = info.activate === 'inferred' && activate !== 'interaction' ? preloads : '';
+      const wake = activate === 'interaction' && out.wake.length ? ` data-wake="${esc(JSON.stringify(out.wake))}"` : '';
       const fields = `<title>${esc(out.title || name)}</title><meta name="viewport" content="${viewport}">${out.description ? `<meta name="description" content="${esc(out.description)}">` : ''}`;
       const checkpoint = `{"location":${JSON.stringify(url.pathname + url.search)},"time":${JSON.stringify(out.time)},"logic":null,"answers":${out.answers},"pending":${JSON.stringify(out.pending)}}`;
       const digest = createHash('sha256').update(out.root).digest('hex').slice(0, 16);
-      const rest = `${fields}\n<div id="exact-root"${rootAttrs}>${out.root}</div>${shell.slice(root + ROOT[0].length, entry)}`
-        + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${info.activate}">${checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entry + ENTRY.length)}`;
-      // A complete page marks html; a streamed head has gone already, so mark it before the body, as page.rs does.
-      const markedHead = out.scrollDocument ? head.replace('<html ', '<html data-scrolldocument ') : head;
+      const body = late => `${fields}\n${late}<div id="exact-root"${rootAttrs}>${out.root}</div>${shell.slice(root + ROOT[0].length, entry)}`
+        + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${activate}"${wake}>${checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entry + ENTRY.length)}`;
+      // A complete page marks html and names the preloads in its head; a streamed head has gone already, so the rest
+      // marks it before the body and names them after the head's fields, as page.rs does.
+      const whole = late ? headOf(true) : head;
+      const markedHead = out.scrollDocument ? whole.replace('<html ', '<html data-scrolldocument ') : whole;
       const mark = out.scrollDocument ? '<script>document.documentElement.setAttribute("data-scrolldocument","")</script>\n' : '';
-      return { html: markedHead + rest, rest: mark + rest, status: info.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location, policy: info.policy };
+      return { html: markedHead + body(''), rest: mark + body(late), status: info.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location, policy: info.policy, activate };
     } };
   }
   const render = async (location, deadline = DEADLINE) => (await begin(location)).finish(deadline);

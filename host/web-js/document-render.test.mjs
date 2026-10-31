@@ -637,8 +637,8 @@ test('pages rendered ahead of time scroll the selected route before they adopt, 
   try {
     const source = resolve(dir, 'app.contract');
     writeFileSync(source, `routes nav
-  tab first "/" render=build
-  tab second "/second" render=build
+  tab first "/" render=build activate=idle
+  tab second "/second" render=build activate=idle
 
 component Tabs
   derive current = top(nav)
@@ -712,7 +712,7 @@ component Tabs
 
 test('JavaScript prerender keeps every sheet and its underlying page visible through adoption', async () => {
   await renderedPages(`routes nav
-  home "/" render=build
+  home "/" render=build activate=idle
 
 component Sheets
   view
@@ -794,13 +794,69 @@ component Page
 // which cannot paint until the runtime runs, keeps the default.
 test('both document renderers preload the runtime at low priority, and the shell at the default', async () => {
   for (const how of ['js', 'rust']) {
-    await renderedPages('routes nav\n  home "/" render=build\n\ncomponent Page\n  view\n    text "Home"\n', (_, html, dist) => {
+    await renderedPages('routes nav\n  home "/" render=build activate=idle\n\ncomponent Page\n  view\n    text "Home"\n', (_, html, dist) => {
       const preloads = page => page.match(/<link rel="modulepreload"[^>]*>/g);
       expect([how, preloads(html(''))]).toEqual([how, ['<link rel="modulepreload" href="./app.js" fetchpriority="low">']]);
       expect([how, preloads(readFileSync(resolve(dist, 'shell.html'), 'utf8'))]).toEqual([how, ['<link rel="modulepreload" href="./app.js">']]);
     }, {}, {}, how);
   }
 }, 180000);
+
+// LLP 1048.007 D1: an undeclared route waits for the reader when its render left the runtime nothing to do, and runs it
+// at once when something is due; a page laid out by the viewport carries its comparisons, which wake it elsewhere.
+test('both document renderers infer an undeclared route\'s activation from its render', async () => {
+  const activation = page => [/data-activate="([a-z]+)"/.exec(page)?.[1], page.match(/<link rel="modulepreload"[^>]*>/g) ?? [], /data-wake="([^"]*)"/.exec(page)?.[1]?.replace(/&(quot|gt|lt|amp);/g, (_, e) => ({ quot: '"', gt: '>', lt: '<', amp: '&' })[e])];
+  const low = '<link rel="modulepreload" href="./app.js" fetchpriority="low">';
+  for (const how of ['js', 'rust']) {
+    await renderedPages(`routes nav
+  home "/" render=build
+  clock "/clock" render=build
+  wide "/wide" render=build
+
+shape Viewport
+  width: number
+
+component App
+  state n = 0
+  state ticks = 0
+  resource viewport = exactViewport() as shape Viewport
+  derive wide = viewport.width >= 640
+  action add
+    n = n + 1
+  action tick
+    ticks = ticks + 1
+  task ticker when top(nav).name == "clock"
+    every(1000, tick)
+  view
+    main
+      if top(nav).name == "home"
+        button "Add" press=add
+      if top(nav).name == "clock"
+        text \`\${ticks}\`
+      if top(nav).name == "wide"
+        text (wide ? "wide" : "narrow")
+`, async (_, html, dist) => {
+      const wake = '[["(width >= 640px)",false]]';
+      expect([how, activation(html(''))]).toEqual([how, ['interaction', [], wake]]);
+      expect([how, activation(html('clock'))]).toEqual([how, ['eager', [low], undefined]]);
+      expect([how, activation(html('wide'))]).toEqual([how, ['interaction', [], wake]]);
+      // The capture script wakes the runtime where the comparison differs, and only there.
+      const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+        const path = new URL(req.url).pathname;
+        return new Response(Bun.file(resolve(dist, path === '/wide' ? 'wide/index.html' : path.slice(1))));
+      } });
+      const browser = await suiteBrowser();
+      try {
+        for (const [width, woken] of [[390, false], [1280, true]]) {
+          const page = await browser.newPage({ viewport: { width, height: 800 } });
+          await page.goto(new URL('/wide', server.url).href);
+          await page.waitForTimeout(500);
+          expect([how, width, await page.evaluate(() => !!globalThis.exact?.ready)]).toEqual([how, width, woken]);
+        }
+      } finally { await browser.close(); server.stop(true); }
+    }, {}, {}, how);
+  }
+}, 240000);
 
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {

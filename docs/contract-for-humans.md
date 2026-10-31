@@ -1403,7 +1403,10 @@ A `head` element declares document metadata: `title`, `description`, `canonical`
 declaration wins field by field. Use `scroll document` for document scrolling and
 ordinary `scroll` for an inner scrollport; both need a bound. Route rows can
 declare `render`, `activate`, `paint` and `pages` policies; these interact with
-the site's build/render pipeline, not just its client-side view. Follow
+the site's build/render pipeline, not just its client-side view. Leave `activate`
+unsaid unless a page needs otherwise: a rendered page then loads no script until
+the reader acts, when nothing on it needs the runtime sooner
+([LLP 1048.007](../llp/1048.007-pages-that-wait-for-the-reader.rfc.md)). Follow
 [the document corpus](../contract/corpus/document.contract),
 [the document tests](../contract/cli/tests/it/document.rs) and
 [LLP 1048.003](../llp/1048.003-documents-in-contract.spec.md) for accepted policy

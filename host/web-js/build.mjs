@@ -529,8 +529,9 @@ cpSync(resolve(here, 'midi.js'), resolve(gen, 'midi.js'));
 writeFileSync(resolve(gen, 'main-server.js'), [
   `import app${rust ? ', { sources }' : ''} from './app.js';`,
   ...(soundTable ? [`import { install as sounds } from './sounds.js'; sounds(${soundTable});`] : []),
-  "import { data, clock, inflight, Resources, routeAt, Head } from './rt.js';",
-  "import { types, sourceTypes, pages } from './names.js';",
+  "import { data, clock, inflight, Resources, Mutations, routeAt, Head } from './rt.js';",
+  "import { types, sourceTypes, pages, viewportMedia, activation } from './names.js';",
+  "import { viewportFacts } from './facts.js';",
   "import { answers } from './checkpoint.js';",
   "import { markBars } from './navigation.js';",
   "import { markRoutes } from './document.js';",
@@ -546,7 +547,7 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   '  app();',
   '  route = routeAt(location.pathname + location.search);',
   '  const [render, activate] = pages[route] ?? ["build", "inferred"];',
-  '  return { activate: ["idle", "interaction", "never"].includes(activate) ? activate : "eager", policy: render, notfound: !!pages[route]?.[2] };',
+  '  return { activate: ["idle", "interaction", "never"].includes(activate) ? activate : "inferred", policy: render, notfound: !!pages[route]?.[2] };',
   '};',
   'globalThis.__render = async deadline => {',
   '  const end = t0 + deadline;',
@@ -554,7 +555,10 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   '  markBars(document.getElementById("exact-root")); // the bars the glue marks, so their symbols are the size they will be',
   '  markRoutes(document.getElementById("exact-root"));',
   '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, time: clock.now, answers: answers(Resources, types[2], sourceTypes),',
-  '    pending: Resources.filter(r => r.ticket).map(r => r.name), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0 };',
+  '    pending: Resources.filter(r => r.ticket).map(r => r.name), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0,',
+  // What an inferred activation reads (LLP 1048.007 D1): what is still due, the sources read, the viewport's comparisons as the render saw them.
+  '    due: clock.timers.length > 0 || Mutations.some(m => m.due < Infinity || m.next < Infinity), activation, zoned: !!globalThis.__exactZone,',
+  '    wake: viewportMedia.map(([query, holds]) => [query, holds(viewportFacts())]) };',
   '};',
 ].join('\n'));
 cpSync(resolve(here, 'checkpoint.js'), resolve(gen, 'checkpoint.js'));
