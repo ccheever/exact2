@@ -172,7 +172,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn paint_over(&mut self, view: ViewId, property: Property, value: Option<Value>) -> bool {
-        if self.presented(view).colors.value(property) == value {
+        if self.kept_presented(view).colors.value(property) == value {
             return false;
         }
         if let Some(n) = self.runner.kernel().node(view) {
@@ -270,7 +270,7 @@ impl<D: DataSource> Host<D> {
     /// A step sampler can restate its value on unrelated timer turns. Such a
     /// sample changes neither the kept row nor the next painted frame.
     fn presents_nothing(&self, view: ViewId, p: &exact_motion::Presentation) -> bool {
-        let s = self.presented(view);
+        let s = self.kept_presented(view);
         let v = p.value;
         match p.property {
             Property::Translate => {

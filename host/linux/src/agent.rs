@@ -1230,7 +1230,7 @@ fn clock_hatched<D: DataSource>(
     to: f64,
     deadline: std::time::Instant,
 ) -> (f64, Option<String>) {
-    for _ in 0..4096 {
+    for steps in 0..=4096 {
         let motion = p
             .host()
             .motion_due_ms()
@@ -1241,8 +1241,14 @@ fn clock_hatched<D: DataSource>(
             .chain(motion)
             .reduce(f64::min)
         else {
-            break;
+            return clock_stepped(p, to, deadline);
         };
+        if steps == 4096 {
+            return (
+                p.host().now(),
+                Some("clock seek exceeds 4096 discrete instants".into()),
+            );
+        }
         let (landed, e) = clock_stepped(p, instant.max(p.host().now()), deadline);
         if e.is_some() || landed < instant {
             return (landed, e);
@@ -1251,7 +1257,7 @@ fn clock_hatched<D: DataSource>(
             return (landed, Some(limit.into()));
         }
     }
-    clock_stepped(p, to, deadline)
+    unreachable!("the last iteration returns at the discrete-instant limit")
 }
 
 /// To `to`, and what is in flight lands before a timer fires — the runner
