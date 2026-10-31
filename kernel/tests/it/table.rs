@@ -157,6 +157,30 @@ fn a_colspan_covers_two_columns_and_the_table_shrinks_to_them() {
     assert_eq!(frame(&k, 13), [56.0, 16.0, 32.0, 12.0]);
 }
 
+/// A table's own `border-spacing` replaces the UA sheet's 2px, between its
+/// cells and around them (CSS 2.1 §17.6.1): 0 sets them flush, as a ruled
+/// table wants, and 6 spaces them as Chrome does.
+#[test]
+fn a_tables_border_spacing_replaces_the_ua_sheets() {
+    for (spacing, table, second) in [
+        (0.0, [0.0, 0.0, 44.0, 12.0], [22.0, 0.0, 22.0, 12.0]),
+        (6.0, [0.0, 0.0, 62.0, 24.0], [34.0, 6.0, 22.0, 12.0]),
+    ] {
+        // 2 table, 3 tr, 4 td, 5 box, 6 td.
+        let k = lay_out(N::Tag(
+            "table",
+            vec![(StyleId::BorderSpacing, spacing)],
+            Vec::new(),
+            vec![tag(
+                "tr",
+                vec![cell(&[], 20.0, 10.0), cell(&[], 20.0, 10.0)],
+            )],
+        ));
+        assert_eq!(frame(&k, 2), table, "the table at {spacing}");
+        assert_eq!(frame(&k, 6), second, "its second cell at {spacing}");
+    }
+}
+
 /// A `rowspan=2` cell covers its column in the next row, so that row's
 /// first cell lands in the second column, as HTML's algorithm puts it. The
 /// rows share the height it needs beyond them equally, as a grid's tracks

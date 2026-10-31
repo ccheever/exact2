@@ -150,6 +150,8 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     // hyphenation (`manual` honours soft hyphens; `auto` adds the
     // language's own points where the host has a dictionary).
     ("text-indent", "css CSS Text 3", AttrTarget::Styles(&[StyleId::TextIndent])),
+    // A table's cell spacing, one length (kernel style/table.rs; HTML's UA 2px unsaid).
+    ("border-spacing", "css CSS 2.1 §17.6.1", AttrTarget::Styles(&[StyleId::BorderSpacing])),
     ("hyphens", "css CSS Text 3", AttrTarget::Styles(&[StyleId::Hyphens])),
     ("line-height", "css CSS Inline 3", AttrTarget::Styles(&[StyleId::LineHeight])),
     ("text-align", "css CSS Text 3", AttrTarget::Styles(&[StyleId::TextAlign])),

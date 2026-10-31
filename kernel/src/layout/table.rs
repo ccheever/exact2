@@ -59,22 +59,25 @@ struct Formed {
 
 /// The engine style of an anonymous table (CSS 2.2 §17.2.1): a grid of
 /// `columns` `auto` tracks, shrink-to-fit, spaced as HTML's UA sheet
-/// spaces a table's cells.
-fn anonymous(columns: u32, direction: taffy::style::Direction) -> taffy::style::Style {
-    use crate::style::table::SPACING;
+/// spaces a table's cells, or as the table's `border-spacing` does.
+fn anonymous(
+    columns: u32,
+    direction: taffy::style::Direction,
+    spacing: f32,
+) -> taffy::style::Style {
     let mut s = taffy::style::Style {
         display: taffy::style::Display::Grid,
         item_is_table: true,
         direction,
         padding: taffy::geometry::Rect {
-            left: length(SPACING),
-            right: length(SPACING),
-            top: length(SPACING),
-            bottom: length(SPACING),
+            left: length(spacing),
+            right: length(spacing),
+            top: length(spacing),
+            bottom: length(spacing),
         },
         gap: taffy::geometry::Size {
-            width: length(SPACING),
-            height: length(SPACING),
+            width: length(spacing),
+            height: length(spacing),
         },
         ..Default::default()
     };
@@ -461,7 +464,11 @@ impl LayoutTree {
                 None
             }
             (false, anon) => {
-                let grid = anonymous(formed.columns, style.direction);
+                let grid = anonymous(
+                    formed.columns,
+                    style.direction,
+                    crate::style::table::spacing(arena.style(table)),
+                );
                 let anon = match anon {
                     Some(anon) => {
                         self.write_style(anon, grid);
