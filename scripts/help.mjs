@@ -169,7 +169,7 @@ Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else
   },
   verify: {
     line: 'build if stale, run *.test.contract, check each screen it reaches light and dark, relaunch once',
-    usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]',
+    usage: 'bun exact.mjs verify [web|ios|windows] [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]',
     common: ['verify [ios] [--shots <dir>] [--sim <name>]    done when it says "verify: clean"'],
     flags: [
       ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
@@ -195,6 +195,7 @@ Large    each of those screens again at the largest text size (ios: the simulato
          smaller or fixed font is the tell, and so is a line-clamp in a list's row or hyphens="auto"
          on a text of several words (a UILabel hyphenates only a word longer than its line; a
          grouped list's rows hyphenate as cells do). Counted ("3 at the largest text size"), never failing.
+Windows  headless drives at app.json's window size, then the window as it opens on the signed-in desktop (windows-window.png); no largest-text pass or scrolling probe yet.
 Scroll   ios: ~15 s of real touches on a long first-screen list, once per build (host/apple/feel): "like UIKit", or
          a counted finding per metric the app can fix; Exact's own one uncounted line; load > cores: physics only.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the

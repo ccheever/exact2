@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// `bun exact.mjs verify [web|ios]` (LLP 1116.004 D7, 1116.005 D7): one command a builder can stop on, where test,
+// `bun exact.mjs verify [web|ios|windows]` (LLP 1116.004 D7, 1116.005 D7): one command a builder can stop on, where test,
 // drives, check and screenshots were three to five turns. It builds when the build is stale (web: the dist's
 // record against its sources, as the driver checks it; iOS: agent-build.mjs `buildFirst`, the plan fast path
 // included), runs the app's tests (app.test.contract and each other `*.test.contract` beside it, app.mjs
@@ -30,9 +30,11 @@
 // size, at the phone's width), and what spills there (past the screen's edge, squeezed to no width, overlapping) is reported
 // with a remedy that keeps the text's size, counted in the last line and never failing the run (LLP 1116.019 D2, LLP
 // 1116.020 D4, `largestText`); the web also runs the tests again at that size and reads screens they only pass through
-// (`largeTour`).
+// (`largeTour`). On Windows the drives are the headless host's, at app.json's window size; then the app is opened once on
+// the console session's desktop and its window captured (`desktopShot`), since that, not the headless picture, is what a
+// person sees there.
 //
-//   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]
+//   bun scripts/verify.mjs [web|ios|windows] --app <name> [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]
 import { LAUNCH_MEDIA } from './agent-prefer.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -41,7 +43,7 @@ import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { availableParallelism, loadavg, networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { findings as feelFindings, summary as feelSummary } from '../host/apple/feel/analyze.mjs';
-import { compilerWarnings } from './app-cli.mjs';
+import { compilerWarnings, windowsWindow } from './app-cli.mjs';
 import { guardFlags } from './help.mjs';
 import { holderOf, takePort } from './port-lock.mjs';
 import { backendOriginSelection, privateNetwork } from '../js/bake/src/typescript.mjs';
@@ -54,7 +56,7 @@ const REAL_MS = 4000, REAL_STEP = 250; // the relaunch's bound on real time for 
 const FIRST = 'first screen', RELAUNCH = 'relaunch';
 // How long a run takes, said when it starts so a builder waits once rather than polling (LLP 1116.021 D3): the app's
 // last run on that host, else these (a run that must build first takes that build's time too).
-const ESTIMATE = { web: 30_000, ios: 60_000 };
+const ESTIMATE = { web: 30_000, ios: 60_000, windows: 60_000 };
 const lastRuns = (app) => { try { return JSON.parse(readFileSync(resolve(app.dir, '.exact', 'verify', 'last.json'), 'utf8')); } catch { return {}; } };
 let ACCEPT = []; // app.json `verify.accept`: findings the app's design accepts, set by main
 const secs = (ms) => `${(ms / 1000).toFixed(1)} s`;
@@ -399,6 +401,24 @@ async function iosBuild(app) {
   return said.length || code ? { ms: Date.now() - started, code, said, warnings: [] } : null;
 }
 
+/** The Windows build a drive needs (agent-build.mjs `windowsBuildFirst`): null when fresh, else what it said. */
+async function windowsBuild(app) {
+  const { windowsBuildFirst } = await import('./agent-build.mjs'), said = [], started = Date.now();
+  const code = await windowsBuildFirst(app, { say: (line) => { said.push(line); if (/^building for/.test(line)) console.error(line); } });
+  return said.length || code ? { ms: Date.now() - started, code, said, warnings: [] } : null;
+}
+/** A drive's own options on a host: iOS shows UIKit's bars; Windows opens at app.json's window size, as a person sees it. */
+const hostOpen = (host, app) => host === 'ios' ? { chrome: 'platform' } : host === 'windows' ? { size: windowsWindow(app.manifest) } : {};
+
+/** The app as it opens on the desktop of the console session, on the store of the person signed in there
+ * (host/windows/build.mjs `openOnDesktop`): the picture a person sees, and a grader beside a WinUI app, with Segoe UI,
+ * the system's title bar and Mica, which a headless drive does not draw. `{ shot, size, foreground }` or `{ error }`. */
+async function desktopShot(app, shots) {
+  const [{ openOnDesktop }, { windowsBuild }] = await Promise.all([import('../host/windows/build.mjs'), import('./agent-build.mjs')]);
+  const shot = resolve(shots, 'windows-window.png'), r = await openOnDesktop(windowsBuild(app).bin, { shot }).catch((e) => ({ error: e.message }));
+  return r.error ? { error: r.error } : { shot, size: r.size, foreground: r.foreground };
+}
+
 /** The compiler's warnings for the app's sources, every one (`contract build --json`: its text form says the
  * SF Symbols only the web draws blank in one line, and this report counts each), each in the line `contract build`
  * prints it as; whatever this run built (a fresh build said them when it was made): this checkout's compiler as
@@ -623,6 +643,12 @@ async function reloadEnd(s, t, persisted = []) {
 async function checkHere(s, { screen, sizes = [null], shot, state }) {
   const { checkOp } = await import('./agent-check.mjs');
   const failed = Object.entries(state?.failed ?? {}).map(([name, why]) => `  failed   resource ${name}: ${why}; the screen shows its placeholder or last value`);
+  // The Windows host has no `check` observation yet: the screen's capture alone, `unchecked`, its failed resources still said.
+  if (s.host === 'windows') {
+    const vp = (await s.layout().catch(() => null))?.viewport ?? {}, kept = shot?.(vp, 'light');
+    if (kept) await s.screenshot(kept);
+    return [{ screen, size: [vp.w, vp.h], scheme: 'light', unchecked: true, ...(kept ? { shot: kept } : {}), findings: [], accepted: [], lines: failed, hidden: 0, advice: [] }];
+  }
   const runs = [];
   for (const size of sizes) {
     if (size) { await s.resize(...size); await s.clock('settle'); }
@@ -789,7 +815,7 @@ async function tests(host, app, shots) {
   for (const [i, file] of files.entries()) {
     const first = out.results.length;
     try {
-      const r = await runTests({ host, file, app: app.name, atEnd: (s, t) => atEnd(s, { ...t, index: first + t.index }), ...(i ? { storage: `test${i}` } : {}), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
+      const r = await runTests({ host, file, app: app.name, atEnd: (s, t) => atEnd(s, { ...t, index: first + t.index }), ...(i ? { storage: `test${i}` } : {}), ...hostOpen(host, app) });
       out.passed += r.passed; out.failed += r.failed;
       // A failure the test did not arrange is a finding (LLP 1146 D4): `runTests` says it in a note.
       out.results.push(...r.results.map(({ name, failures, notes = [], end, store, shots }) => ({ name, file: basename(file), failures, unarranged: notes.filter((n) => n.startsWith('unarranged: ')).map((n) => n.slice(12)), ...(shots ? { shots } : {}), ...(end ? { end } : {}), ...(store ? { store } : {}) })));
@@ -844,7 +870,7 @@ export function tourNews(visited, toured) {
 async function checkAt(host, app, size, store, shots) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
   const fresh = { EXACT_AGENT_STORAGE_FRESH: '1' };
-  const s = await open({ host, app: app.name, storage: store, env: fresh, ...(size ? { size } : {}), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
+  const s = await open({ host, app: app.name, storage: store, env: fresh, ...(size ? { size } : hostOpen(host, app)) });
   try {
     await s.clock('data');
     await s.clock('settle');
@@ -1014,7 +1040,7 @@ export function pinnedLaunch(test, defaults) {
 /** What a fresh launch shows under `launch`'s facts on an empty scratch store, for `seen`'s comparison. */
 async function freshUnder(host, app, launch, store) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
-  const s = await open({ host, app: app.name, storage: store, env: { EXACT_AGENT_STORAGE_FRESH: '1' }, ...launchOf(launch), ...(host === 'web' ? { size: WEB_SIZES[0] } : { chrome: 'platform' }) });
+  const s = await open({ host, app: app.name, storage: store, env: { EXACT_AGENT_STORAGE_FRESH: '1' }, ...launchOf(launch), ...(host === 'web' ? { size: WEB_SIZES[0] } : hostOpen(host, app)) });
   try {
     for (const [name, value] of Object.entries(launch?.media ?? {})) await s.prefer({ [name]: value });
     await s.clock('data');
@@ -1032,7 +1058,7 @@ async function freshUnder(host, app, launch, store) {
  * end; then `check both` (the web: at both widths, one capture kept). */
 async function relaunch(host, app, test, fresh, shots) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
-  const s = await open({ host, app: app.name, storage: test.store, ...launchOf(relaunchFacts(test)), ...(host === 'web' ? { size: WEB_SIZES[0], ...(test.end.port ? { port: test.end.port } : {}) } : { chrome: 'platform' }) });
+  const s = await open({ host, app: app.name, storage: test.store, ...launchOf(relaunchFacts(test)), ...(host === 'web' ? { size: WEB_SIZES[0], ...(test.end.port ? { port: test.end.port } : {}) } : hostOpen(host, app)) });
   try {
     for (const [name, value] of Object.entries(test.end?.launch?.media ?? {})) await s.prefer({ [name]: value });
     const started = performance.now(), b = (st) => (st.background?.queued ?? 0) + (st.background?.inFlight ?? 0);
@@ -1121,7 +1147,7 @@ export function byRule(lines) {
 
 /** The report's lines and its problem count, from what each stage gave; `full`, every finding of each group, one a line,
  *  which verify writes to `listed` (a path the report names when the groups leave any line out). */
-export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], large = [], fixed = { lines: [], accepted: [] }, scrolled = null, shots, copied, own = [], accept = [], ms, cwd = process.cwd(), listed = null }) {
+export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], large = [], fixed = { lines: [], accepted: [] }, scrolled = null, desktop = null, shots, copied, own = [], accept = [], ms, cwd = process.cwd(), listed = null }) {
   const out = [], full = [];
   const all = listed ? `${listed} lists them all` : 'verify --json lists them all';
   let failedTests = 0, findings = 0, broken = 0;
@@ -1172,7 +1198,8 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   }
   // Every screen, launch and scheme in one group: each finding once, said where unless it was everywhere.
   for (const e of checks.filter((c) => c.error)) { broken++; out.push(`check ${e.label}: could not drive: ${firstLine(e.error)}`); }
-  const runs = checks.filter((c) => !c.error);
+  const runs = checks.filter((c) => !c.error && !c.unchecked);
+  for (const l of new Set(checks.filter((c) => c.unchecked).flatMap((c) => c.lines))) { out.push(l); findings++; counted('failed resource'); }
   if (runs.length) {
     const shown = distinctFindings(runs), count = shown.length + Math.max(0, ...runs.map((r) => r.hidden));
     const kept = runs.some((r) => r.asked && r.asked !== r.scheme) ? '; the app keeps its own scheme' : '';
@@ -1274,8 +1301,11 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     const more = [ends.length && `test ends: ${ends.map(name).join(' ')}`, again.length && `relaunch: ${again.map(name).join(' ')}`, own.length && `its own: ${own.join(' ')}`].filter(Boolean);
     if (more.length) out.push(`  ${more.join('; ')}`);
   }
+  // Windows: the drives above are headless (DejaVu Sans, no frame); the desktop's picture is one more, never counted.
+  if (desktop) out.push(desktop.error ? `window: not captured (${firstLine(desktop.error)})` : `window: ${relative(cwd, desktop.shot)}, the app opened on the desktop at ${desktop.size?.join('x')} with the system's font, title bar and theme${desktop.foreground ? '' : ' (not the foreground window: its title bar is drawn inactive)'}`,
+    '  not on Windows yet: check\'s findings (the host has no check observation; each screen is captured unjudged), the largest text size, the scrolling probe (iOS\'s), a test end\'s reload (the web\'s)');
   // How a person opens what ran (LLP 1116.008 D2): the dev loop serves the web app, the simulator build launches on iOS.
-  if (!failedTests && !broken) out.push(host === 'ios' ? 'open it: bun exact.mjs ios --run (launches what verify checked)' : 'open it: bun exact.mjs web (serves what verify checked)');
+  if (!failedTests && !broken) out.push(host === 'ios' ? 'open it: bun exact.mjs ios --run (launches what verify checked)' : host === 'windows' ? 'open it: bun exact.mjs windows --run (opens what verify checked)' : 'open it: bun exact.mjs web (serves what verify checked)');
   // Every finding, one a line, where the groups above left any out.
   const grouped = full.length && out.some((l) => /^ {4}also |^ {2}… and \d+ more/.test(l));
   if (grouped && listed) out.push(`every finding, one a line: ${listed}`);
@@ -1300,7 +1330,8 @@ async function deviceMain(argv, emitJSON, declined) {
   const flagged = new Set([args.indexOf('--app') + 1, args.indexOf('--sim') + 1, args.indexOf('--shots') + 1].filter((i) => i > 0));
   if (args.includes('--shots') && (!copyTo || copyTo.startsWith('-'))) { console.error('verify: --shots takes a directory: the screenshots are copied there, under the names in .exact/verify/'); return declined(2); }
   const host = args.find((a, i) => !a.startsWith('-') && !flagged.has(i)) ?? 'web';
-  if (!['web', 'ios'].includes(host)) { console.error(`verify: web or ios, not ${host} (test ${host} runs the tests there)`); return declined(2); }
+  if (!['web', 'ios', 'windows'].includes(host)) { console.error(`verify: web, ios or windows, not ${host} (test ${host} runs the tests there)`); return declined(2); }
+  if (host === 'windows' && process.platform !== 'win32') { console.error('verify windows runs on Windows (bun exact.mjs verify windows there)'); return declined(2); }
   if (sim) process.env.EXACT_SIM = sim; // as the driver names it (devices.mjs `simulator`)
   const started = Date.now();
   const { resolveApp } = await import('./app.mjs');
@@ -1318,7 +1349,7 @@ async function deviceMain(argv, emitJSON, declined) {
 
   const last = lastRuns(app)[host];
   console.error(`verify ${host}: about ${Math.round((last ?? ESTIMATE[host]) / 1000)} s${last ? ', as its last run took' : ''}; one report when it ends`);
-  const built = host === 'web' ? await webBuild(app) : await iosBuild(app);
+  const built = host === 'web' ? await webBuild(app) : host === 'windows' ? await windowsBuild(app) : await iosBuild(app);
   // The build said the compiler's warnings when it ran; the report's own group says them whether it ran or not.
   if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length && !/^compiler: \d+ warnings?[,;]/.test(line)); }
   if (built?.code) {
@@ -1339,7 +1370,7 @@ async function deviceMain(argv, emitJSON, declined) {
   }
   const launch = (size, n) => checkAt(host, app, size, host === 'web' ? `verify.${tag}.t${n}` : 'verify', shots)
     .catch((e) => [{ size: null, label: size ? size.join('x') : host, error: e.message }]);
-  let tested, firsts, relaunched = null, scrolled = null, results = [], running = null, toured = [], serverSaid = server?.why ? { said: `${server.why}; the tests use whatever answers there` } : null;
+  let tested, firsts, relaunched = null, scrolled = null, desktop = null, results = [], running = null, toured = [], serverSaid = server?.why ? { said: `${server.why}; the tests use whatever answers there` } : null;
   const compiling = compilerWarningsOf(app);
   if (owned) {
     try { running = await startServer(app.dir, server, 'verify'); }
@@ -1374,6 +1405,7 @@ async function deviceMain(argv, emitJSON, declined) {
       const key = await scrollKey(app, { udid: firsts.find((runs) => runs.udid)?.udid, server: owned ? server : null }).catch(() => null);
       scrolled = await scrolling(app, shots, { key, force: args.includes('--rescroll') });
     }
+    if (host === 'windows') desktop = await desktopShot(app, shots);
   } finally {
     if (host === 'web') {
       const { driveStore, removeBrowserProfile } = await import('./agent-launch.mjs');
@@ -1389,7 +1421,7 @@ async function deviceMain(argv, emitJSON, declined) {
   const ends = results.flatMap((t) => (t.end?.error ? (t.failures.length ? [] : [{ size: null, label: `${quoted(t.name)} end`, error: t.end.error }]) : t.end?.runs ?? []));
   const checks = [...firsts.flat(), ...ends, ...(relaunched?.runs ?? [])];
   const compiler = await compiling;
-  const kept = [...new Set([...checks.map((c) => c.shot), relaunched?.shot])].filter((p) => p && existsSync(p));
+  const kept = [...new Set([...checks.map((c) => c.shot), relaunched?.shot, desktop?.shot])].filter((p) => p && existsSync(p));
   // `--shots <dir>`: every capture of this run copied out, under its own name (LLP 1116.008 D2).
   // The screenshots a test took itself (its `screenshot` steps) come too, named by the test as the ends are.
   const own = [];
@@ -1410,13 +1442,13 @@ async function deviceMain(argv, emitJSON, declined) {
   const large = [...visited, ...tourNews(visited, toured)];
   const fixed = await fixedType(app.dir, host);
   const findingsFile = resolve(shots, `${host}-findings.txt`), listed = relative(process.cwd(), findingsFile);
-  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, scrolled, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started, listed: listed.startsWith('..') ? findingsFile : listed });
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, scrolled, desktop, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started, listed: listed.startsWith('..') ? findingsFile : listed });
   if (r.full.length) writeFileSync(findingsFile, r.full.join('\n') + '\n'); else rmSync(findingsFile, { force: true });
   writeFileSync(resolve(shots, 'last.json'), JSON.stringify({ ...lastRuns(app), [host]: Date.now() - started }) + '\n');
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, file, failures, end }) => ({ name, file, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, large, ...rest }) => rest)(relaunched);
-    emitJSON({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, ...(scrolled ? { scrolling: scrollingOut(scrolled) } : {}), screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started });
+    emitJSON({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, ...(scrolled ? { scrolling: scrollingOut(scrolled) } : {}), ...(desktop ? { window: desktop } : {}), screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started });
   } else say(r.lines);
   // The run, against the build it used (LLP 1146 D2: `bun scripts/evidence.mjs`).
   (await import('./evidence.mjs')).recordRun(app.name, { host, what: 'verify', result: r.problems ? `${r.problems} problem${r.problems === 1 ? '' : 's'}${tested?.failed ? `, ${tested.failed} failed test${tested.failed === 1 ? '' : 's'}` : ''}` : 'clean', timing: 'agent', sim });
