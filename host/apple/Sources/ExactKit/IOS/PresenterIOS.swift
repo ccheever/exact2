@@ -421,11 +421,17 @@ package final class Presenter {
     /// with focus, blur or key handlers, never plain text; tree order, with a
     /// positive `tabIndex` first; nothing hidden, inert, disabled or unmounted.
     /// UIKit hosts routes in its own controllers, so the order is the window's
-    /// view order. From no focused node, Tab takes the first. `fields`: the
-    /// next text field only, never wrapping (the keyboard's Next); false
-    /// when there is none.
+    /// view order, kept to the topmost presentation as UIKit's focus system
+    /// keeps it in a modal sheet. From no focused node, Tab takes the first,
+    /// and the node it reaches is scrolled into view, as a browser's is.
+    /// `fields`: the next text field only, never wrapping (the keyboard's
+    /// Next); false when there is none.
     @discardableResult func moveFocus(backward: Bool, fields: Bool = false) -> Bool {
         guard let window = root.window else { return false }
+        var top = window.rootViewController
+        while let next = top?.presentedViewController, !next.isBeingDismissed { top = next }
+        let scope: UIView? = top === window.rootViewController ? window : top?.presentationController?.containerView ?? top?.view
+        guard let scope else { return false }
         var listed: [NodeView] = []
         func walk(_ view: UIView) {
             if view.isHidden || (view as? NodeView)?.props["inert"] == "true" { return }
@@ -433,7 +439,7 @@ package final class Presenter {
                !fields || node.field != nil || node.textArea != nil { listed.append(node) }
             view.subviews.forEach(walk)
         }
-        walk(window)
+        walk(scope)
         let order = listed.enumerated().sorted { a, b in
             let ia = a.element.tabOrder, ib = b.element.tabOrder
             let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
@@ -448,6 +454,7 @@ package final class Presenter {
         chooseFocus(target)
         let became = responder.becomeFirstResponder()
         if became, responder === target { target.showFocusRing(true) }
+        if became { reveal(target) }
         return became
     }
     /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is one
