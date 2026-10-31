@@ -2315,13 +2315,13 @@ reservation ends when the guard drops. Two dependencies declaring `native` refus
 
 A package whose root `exact.json` declares `native` may carry a prebuilt dynamic library
 (LLP 1154 D3): `native.link` is its name and `native.library` pins one `{"url", "sha256"}`
-per Rust target, a `lib<link>.so` for Linux, and for Apple a zip of one `.xcframework` whose
-slice for the target is `<link>.framework`, installed as `@rpath/<link>.framework/…`. A
-native build fetches the target's file by its hash before Cargo runs, links it, and puts it
-beside a Linux executable or, signed, in an Apple bundle's `Frameworks`. A wrong hash, or a
-target the declaration does not name, fails the build by name. `web.assets` lists files in
-the package that the web build serves at `/assets/<package>/<path>`, captured with the
-package's code.
+per Rust target, for Linux a shared object whose SONAME is exactly `lib<link>.so`, and for
+Apple a zip of one `.xcframework` whose slice for the target is `<link>.framework`,
+installed as `@rpath/<link>.framework/…`. A native build fetches the target's file by its
+hash before Cargo runs, links it, and puts it beside a Linux executable or, signed, in an
+Apple bundle's `Frameworks`. A wrong hash, or a target the declaration does not name, fails
+the build by name. `web.assets` lists files in the package that the web build serves at
+`/assets/<package>/<path>`, captured with the package's code.
 
 ## Routes and web documents
 

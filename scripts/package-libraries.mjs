@@ -174,7 +174,9 @@ function layOut(lib, file, view, placed) {
     for (let attempt = 0; attempt < 3; attempt++) {
       if (valid()) return;
       stage ??= fresh();
+      // Staging takes time, and another build may have published a view meanwhile: only one that fails goes aside.
       if (existsSync(view)) {
+        if (valid()) return;
         const aside = mkdtempSync(join(parent, `.stale-${process.pid}-`));
         try { renameSync(view, join(aside, 'view')); } catch (e) { if (e.code !== 'ENOENT') throw e; }
         rmSync(aside, { recursive: true, force: true });

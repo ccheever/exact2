@@ -172,8 +172,17 @@ test.skipIf(process.platform !== 'darwin')('an Apple view is checked against a l
   prepareLibrary(big, 'aarch64-apple-darwin', { cache, ...quiet });
   const first = performance.now(); prepareLibrary(big, 'aarch64-apple-darwin', { cache, ...quiet });
   console.log(`a 30 MB framework: laid out in ${Math.round(first - started)} ms, checked in ${Math.round(performance.now() - first)} ms`);
-  // `up` leads back to the xcframework on disk, so the link through it leaves the archive, though its path read
-  // lexically stays inside.
-  const chained = xcframework('chained', { edit: (fw) => { mkdirSync(join(fw, 'a/b/c'), { recursive: true }); symlinkSync('../../..', join(fw, 'a/b/c/up')); symlinkSync('a/b/c/up/../../../../../outside', join(fw, 'l')); } });
-  expect(refusal(() => prepareLibrary(chained, 'aarch64-apple-darwin', { cache, ...quiet }))).toBe('vault: chained.xcframework.zip holds a link that leaves it (vault.xcframework/l -> a/b/c/up/../../../../../outside)');
+  // `up` leads back to the xcframework on disk, so `l`, through it, leads four levels above the xcframework, out of
+  // the extraction into the cache's own directory, though its path read lexically ends at the xcframework's top.
+  // Both places exist, so a resolver that normalized the path first would find the inside one and pass it.
+  const chained = xcframework('chained', { edit: (fw) => {
+    mkdirSync(join(fw, 'a/b/c'), { recursive: true });
+    symlinkSync('../../..', join(fw, 'a/b/c/up'));
+    symlinkSync('a/b/c/up/../../../../outside', join(fw, 'l'));
+    writeFileSync(join(fw, 'outside'), 'the lexical destination, inside the archive');
+  } });
+  const outside = join(cache, sha256(readFileSync(join(scratch, 'chained.xcframework.zip'))), 'outside');
+  mkdirSync(join(outside, '..'), { recursive: true });
+  writeFileSync(outside, 'the destination on disk, outside the extraction');
+  expect(refusal(() => prepareLibrary(chained, 'aarch64-apple-darwin', { cache, ...quiet }))).toBe('vault: chained.xcframework.zip holds a link that leaves it (vault.xcframework/l -> a/b/c/up/../../../../outside)');
 });
