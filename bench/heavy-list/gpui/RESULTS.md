@@ -10678,7 +10678,7 @@ silver Mac with the GPU queue hook, tracing and power sampling off.
 
 | Prediction | Instrument and cohort | Result |
 | --- | --- | --- |
-| Ink after is 5–12 ms below GPUI and 15–25 ms below egui; Ink before is 8–15 ms above GPUI | `measure.m`, cold-only; ten launches of each control under each before/after label, ten of each Ink carrier, interleaved in one session | Pending |
+| Ink after is 5–12 ms below GPUI and 15–25 ms below egui; Ink before is 8–15 ms above GPUI | `measure.m`, cold-only; ten launches of each control under each before/after label, ten of each Ink carrier, interleaved in one session | **Miss:** Ink after is 3.847 ms above GPUI and only 1.843 ms below egui; Ink before is 17.131 ms above GPUI. |
 | Ink after and before have a paired range crossing zero for process/main CPU ms/s, cycles/s, frames/s, late intervals/s and peak footprint in fling, rest, bar and caret | G4's posted fling and rest; G5's bar and caret; five interleaved rounds of native, GPUI, egui and adjacent Ink before/after | Pending |
 | Ink rest submits zero frames | Presented timestamps in the same five fling/rest samples | Pending |
 
@@ -10688,3 +10688,31 @@ Fling and static samples keep the amended five-second quiet rule and clock
 columns. Failed originals remain, without replacement. Raw files, signed
 bundles, commands and reductions will remain in `target/m10-confirmed/`
 and the silver's `target/g0/m10-confirmed/`. No renderer code changes.
+
+**Cold confirmation: the lead does not repeat.** All 80 original slots
+were attempted. Native, GPUI and both Ink carriers complete all ten launches
+per label; egui completes 9/10 before and 7/10 after. Its four readiness
+timeouts remain without replacement. Every launch passes the per-launch
+quiet gate. During-launch maxima are report-only: 1.855 non-benchmark
+cores, 0.521 for one user process and 8.375 whole-machine busy cores.
+
+Medians in milliseconds (successful n). Session 1 is cut 6's retained
+series; its before carrier is cut 5. Session 2 uses main `bc9da74a4b`
+before and `c7a9596585` after. The controls are unchanged binaries.
+
+| Arm | Session 1 before | Session 1 after | Session 2 before | Session 2 after |
+| --- | ---: | ---: | ---: | ---: |
+| Native | 255.063 (10) | 257.581 (10) | 250.780 (10) | 242.379 (10) |
+| GPUI | 208.224 (10) | 209.308 (10) | 201.212 (10) | 197.920 (10) |
+| egui | 219.400 (9) | 222.489 (10) | 207.824 (9) | 203.609 (7) |
+| Ink | 221.986 (10) | 200.874 (10) | 218.343 (10) | 201.766 (10) |
+
+The second session’s paired Ink change is **−19.836 ms [−44.145,
++16.012]**, n=10. Its range crosses zero. Ink’s after median is 0.892 ms
+above session 1, while the controls’ after medians fall by 15.202 ms
+(native), 11.388 ms (GPUI) and 18.880 ms (egui). The repeated ordering
+required to promote the cold row is absent; the 100 ms obligation remains.
+
+The fling/rest and static series are running. Their predictions remain
+unresolved. `target/m10-confirmed/session1.json` and `summary.json`
+retain the values and original filenames; `reduce.py` reproduces session 2.
