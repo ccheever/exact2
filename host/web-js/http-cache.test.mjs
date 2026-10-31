@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { cachingFetch } from './http-cache.mjs';
+import { cachingFetch, FRESH } from './http-cache.mjs';
 
 // An origin that answers from `routes` (URL → headers), numbering its answers, with the cache's clock in the test's hands.
 function origin(routes, options = {}) {
@@ -33,6 +33,8 @@ test('an answer is kept for the lifetime its headers give, and given again with 
   o.advance(59);
   expect(await o.get('http://api.test/a')).toEqual({ body: 'answer 3', age: '59' });
   expect((await o.fetch('http://api.test/a')).url).toBe('http://api.test/a');
+  // What a render reads of each answer: how long any reader may still be given it (LLP 1048.007 D8).
+  expect((await o.fetch('http://api.test/a'))[FRESH]).toBe(1000);
   o.advance(1);
   expect((await o.get('http://api.test/a')).body).toBe('answer 4');
   // A shared cache reads s-maxage before max-age.
@@ -62,6 +64,7 @@ test('what a shared cache must not keep is fetched every time', async () => {
   for (const path of ['no-store', 'private', 'no-cache', 'no-lifetime', 'vary-star', 'error', 'redirected']) {
     const url = `http://api.test/${path}`;
     expect((await o.get(url)).body).not.toBe((await o.get(url)).body);
+    expect([path, (await o.fetch(url))[FRESH]]).toEqual([path, 0]);
   }
   // A request with credentials, unless the answer says any reader may have it (RFC 9111 §3.5).
   const auth = { headers: { authorization: 'Bearer t' } };

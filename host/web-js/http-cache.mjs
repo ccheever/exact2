@@ -14,6 +14,9 @@
 // URL a redirect led to against the app's grants (admission.js).
 
 const SHAREABLE = new Set([200, 203, 204, 404, 405, 410, 414, 501]);
+/** On each response the cached fetch gives: how many ms it stays fresh for any reader (0: not shareable, or stale). */
+export const FRESH = Symbol.for('exact.fresh');
+const fresh = (response, ms) => Object.defineProperty(response, FRESH, { value: Math.max(0, ms), configurable: true });
 const directives = value => {
   const out = new Map();
   for (const part of (value ?? '').toLowerCase().split(',')) {
@@ -35,11 +38,12 @@ export function cachingFetch(outbound, { entries = 256, bytes = 64 << 20, entryB
   const answer = (url, e) => {
     const headers = new Headers(e.headers);
     headers.set('age', String(Math.floor(age(e))));
-    return Object.defineProperty(new Response(e.status === 204 ? null : e.body, { status: e.status, statusText: e.statusText, headers }), 'url', { value: url });
+    return fresh(Object.defineProperty(new Response(e.status === 204 ? null : e.body, { status: e.status, statusText: e.statusText, headers }), 'url', { value: url }), (e.lifetime - age(e)) * 1000);
   };
 
   // Stores `response` once its body has been read, beside the caller's own read.
   function keep(url, request, response, sent) {
+    fresh(response, 0);
     if (response.redirected || !SHAREABLE.has(response.status)) return;
     const cc = directives(response.headers.get('cache-control'));
     if (cc.has('no-store') || cc.has('private') || cc.has('no-cache')) return;
@@ -59,6 +63,7 @@ export function cachingFetch(outbound, { entries = 256, bytes = 64 << 20, entryB
     const vary = varyNames.map(name => [name, request.headers.get(name)]);
     const length = Number(response.headers.get('content-length'));
     if (length > entryBytes) return;
+    fresh(response, (lifetime - initialAge) * 1000);
     const stored = response.clone().arrayBuffer().then(body => {
       if (body.byteLength > entryBytes) return;
       drop(url);
@@ -79,11 +84,12 @@ export function cachingFetch(outbound, { entries = 256, bytes = 64 << 20, entryB
   function fetch(input, init) {
     // Only a GET is looked at; anything else goes out untouched (a Request made of it would take its body).
     const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
-    if (String(method).toUpperCase() !== 'GET') return outbound(input, init);
+    const around = () => outbound(input, init).then(r => fresh(r, 0));
+    if (String(method).toUpperCase() !== 'GET') return around();
     let request;
-    try { request = new Request(input, init); } catch { return outbound(input, init); }
+    try { request = new Request(input, init); } catch { return around(); }
     const asked = directives(request.headers.get('cache-control'));
-    if (request.cache === 'no-store' || asked.has('no-store')) return outbound(input, init);
+    if (request.cache === 'no-store' || asked.has('no-store')) return around();
     const url = request.url, e = cache.get(url);
     const past = request.cache === 'reload' || request.cache === 'no-cache' || asked.has('no-cache') || asked.get('max-age') === '0';
     if (e && !past && e.vary.every(([name, value]) => request.headers.get(name) === value)) {

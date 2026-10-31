@@ -11,7 +11,7 @@
 //! digest, which is over the runtime's form of the root (the JavaScript
 //! runtime never reads it).
 
-use crate::page::{body_close_js, body_open_js, runtime_style_of, Js};
+use crate::page::{body_close_js, body_open_js, runtime_style_of, Js, Sheet};
 use crate::{activation, direct_for, encoded, retire, settle_at, Ids, Projection, Rendered};
 use exact_plan::{ActivatePolicy, PaintPolicy, Plan};
 use exact_runner::DataSource;
@@ -75,7 +75,7 @@ pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
                 return;
             };
             let (keyframes, scroll) = before_root(&tree);
-            let lead = body_open_js(shell, js, &head, scroll, false, false);
+            let lead = body_open_js(shell, js, &head, scroll, false, false, Sheet::Whole);
             let open = crate::page::root_open(shell);
             let lead = lead.strip_suffix(open).unwrap_or(&lead);
             // The shell's root with its attributes (LLP 1096 D7), marked.
@@ -148,7 +148,7 @@ pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
     };
     let late = late(activate);
     // The page as a cache keeps it: the settled head, no boot document.
-    let open = body_open_js(shell, js, &head, scroll, late, false);
+    let open = body_open_js(shell, js, &head, scroll, late, false, Sheet::Whole);
     match &boot {
         // After a boot document, the head's fields went with it: what the
         // settled page adds is the `@keyframes` its elements name beyond the
@@ -165,6 +165,7 @@ pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
                 scroll && !b.scroll,
                 late,
                 false,
+                Sheet::Sent,
             ));
             hand(more.as_bytes());
         }

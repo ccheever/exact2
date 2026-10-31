@@ -80,6 +80,7 @@ pub use runner::picker as picker_support;
 pub use runner::picker::shared as share_in;
 pub mod machine;
 pub mod midi;
+pub mod rows;
 pub mod share;
 pub mod sound;
 pub mod stdlib;

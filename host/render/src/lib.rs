@@ -27,6 +27,7 @@ mod files;
 mod generations;
 mod linger;
 mod page;
+mod page_style;
 mod pages;
 mod requests;
 mod serve;
@@ -36,7 +37,7 @@ mod viewport;
 
 pub use direct::boot_swap_js;
 pub use executor::Executor;
-pub use page::{capture, capture_js, page, scroll_document_js};
+pub use page::{capture, capture_js, page, page_with_rules, scroll_document_js};
 pub use pages::pages;
 pub use serve::{expire_renders, Serve, Server, Stopper};
 pub use source::Anonymous;
@@ -915,7 +916,7 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
     let mut build = false;
     let mut compare = false;
     let mut deadline = DEADLINE;
-    let mut shell = None::<String>;
+    let (mut shell, mut rules) = (None::<String>, None::<String>);
     let (mut serve, mut planned) = (None::<std::path::PathBuf>, false);
     let mut generations = None::<std::path::PathBuf>;
     let (mut port, mut renders, mut queue, mut lifetime) = (0u16, 4usize, 32usize, 60u64);
@@ -958,7 +959,12 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
                 Some(ms) => deadline = Duration::from_millis(ms),
                 None => return usage(),
             },
-            "--shell" => match args.next().map(std::fs::read_to_string) {
+            "--shell" => match args.next().map(|path| {
+                // The build's analyzed sheet beside it (LLP 1048.007 D4).
+                let beside = std::path::Path::new(&path).with_file_name(".gen/page-style.json");
+                rules = std::fs::read_to_string(beside).ok();
+                std::fs::read_to_string(path)
+            }) {
                 Some(Ok(text)) => shell = Some(text),
                 Some(Err(e)) => {
                     eprintln!("render: --shell: {e}");
@@ -1098,7 +1104,10 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
         .and_then(|rendered| {
             let page = shell
                 .as_deref()
-                .map(|shell| page(shell, &rendered))
+                .map(|shell| match &rules {
+                    Some(rules) => page_with_rules(shell, rules, &rendered),
+                    None => page(shell, &rendered),
+                })
                 .transpose()?;
             Ok((rendered, page))
         });

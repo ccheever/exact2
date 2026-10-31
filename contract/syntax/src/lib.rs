@@ -119,6 +119,11 @@ pub const HOST_COMMANDS: &[&str] = &[
     // screen, as HTML's Element.requestFullscreen(); `fullscreenchange` says
     // when it did and when it left.
     "requestFullscreen",
+    // `requestPictureInPicture("id")`: the `image` with that HTML id floats
+    // in the platform's picture-in-picture window, which shows each picture
+    // its `src` names next; `enterpictureinpicture` and
+    // `leavepictureinpicture` say when it did and when it left (LLP 1042 §9).
+    "requestPictureInPicture",
     // `reload()`: the development host boots the app again, as its dev
     // menu's Reload does; a host without a dev menu refuses it.
     // `reload(id)`, `reload(id, ignoreCache=true)`: that iframe's page

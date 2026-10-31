@@ -1,8 +1,9 @@
 import { test, expect, mock, spyOn } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, get as httpGet } from 'node:http';
 import { tmpdir } from 'node:os';
+import { brotliDecompressSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { moduleGrants, webCompiler } from './module.mjs';
@@ -211,7 +212,7 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     ]);
     const files = readdirSync(out);
     for (const name of ['index.html', 'shell.html', '404.html', 'routes.json', '.exact-build.json']) expect(files).toContain(name);
-    expect(readdirSync(resolve(out, '.gen'))).toEqual(['server.js']);
+    expect(readdirSync(resolve(out, '.gen')).sort()).toEqual(['page-style.json', 'server.js']);
     expect(files).not.toContain('app.plan.map.json');
     expect(JSON.parse(readFileSync(resolve(out, '.exact-build.json'), 'utf8')).inputs).toBeUndefined();
     // A site to host is a release, as delivery builds one: no file of it admits agent mode, and its install pages say so.
@@ -256,6 +257,16 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     // Each render is said before its page is sent: once the second live one is said, the cached page was rendered once.
     await heard(() => renders('/live') === 2);
     expect(renders('/feed')).toBe(1);
+    // A site's server compresses what it sends (LLP 1048.007 D6): a page made for the request as it goes, a file by its
+    // variant, which a reader revalidates by its ETag.
+    const raw = (path) => new Promise((ok, no) => httpGet({ host: '127.0.0.1', port: serve.port, path, headers: { accept: 'text/html', 'accept-encoding': 'br, gzip' } },
+      (r) => { const chunks = []; r.on('data', (c) => chunks.push(c)); r.on('end', () => ok({ headers: r.headers, body: Buffer.concat(chunks) })); }).on('error', no));
+    const sent = await raw('/live');
+    expect([sent.headers['content-encoding'], sent.headers.vary, brotliDecompressSync(sent.body).toString().includes('The note, rendered.')]).toEqual(['br', 'Accept-Encoding', true]);
+    const file = await raw('/app.js');
+    const hosted = await serving(root, out, { fromEnv: true });
+    try { expect((await hosted.get('/live')).body).toContain('The note, rendered.'); } finally { await hosted.stop(); }
+    expect([file.headers['cache-control'], /^"[\w-]+"$/.test(file.headers.etag ?? '')]).toEqual(['no-cache', true]);
     expect(await get('/item/7')).toMatchObject({ status: 200, body: expect.not.stringContaining('The note, rendered.') });
     expect((await get('/no/such/route')).status).toBe(404);
     // A rendered page is its build's, as a document from a file is: its base names its generation, whose runtime its
@@ -316,12 +327,14 @@ const generationIn = (body) => /<base href="\/\.exact\/gen\/([0-9a-f]{32})\/">/.
 
 /** serve.mjs on `out` as the `serve` verb runs it (`--loopback`), on a free port: `get(path)` a navigation's answer,
  * `renders(path)` how many pages of it serve said it rendered, `heard(done)` once what it said satisfies `done`. */
-async function serving(root, out) {
+async function serving(root, out, { fromEnv = false } = {}) {
   const probe = createServer();
   await new Promise(ok => probe.listen(0, '127.0.0.1', ok));
   const port = probe.address().port;
   await new Promise(ok => probe.close(ok));
-  const child = spawnOwned(process.execPath, ['host/web/serve.mjs', out, '--port', String(port), '--loopback'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+  // `fromEnv`: the port as a host gives `npm start` one, in `PORT` (LLP 1153.001 D3).
+  const child = spawnOwned(process.execPath, ['host/web/serve.mjs', out, ...(fromEnv ? [] : ['--port', String(port)]), '--loopback'],
+    { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PORT: fromEnv ? String(port) : '' } });
   let said = '';
   child.stdout.on('data', (data) => { said += data; });
   child.stderr.on('data', (data) => { said += data; });

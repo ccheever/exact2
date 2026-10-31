@@ -160,11 +160,18 @@ impl Event {
         let session = super::media_session::ACTIONS.contains(&kind);
         // `fullscreenchange` (LLP 1042) is listed after them too: a boolean.
         let fullscreen = kind == EventKind::Fullscreenchange;
+        // An image's picture in picture (LLP 1042 §9), later still, has none.
+        let floating = matches!(
+            kind,
+            EventKind::Enterpictureinpicture | EventKind::Leavepictureinpicture
+        );
         if !session
             && !fullscreen
+            && !floating
             && !(EventKind::Loadedmetadata as u8..=EventKind::Canplay as u8).contains(&(kind as u8))
             || session && super::media_session::details(value).is_none()
             || fullscreen && !matches!(value, "true" | "false")
+            || floating && !value.is_empty()
         {
             return None;
         }

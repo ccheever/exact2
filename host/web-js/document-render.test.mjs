@@ -812,6 +812,7 @@ test('both document renderers infer an undeclared route\'s activation from its r
   home "/" render=build
   clock "/clock" render=build
   wide "/wide" render=build
+  seen "/seen" render=build
 
 shape Viewport
   width: number
@@ -819,12 +820,15 @@ shape Viewport
 component App
   state n = 0
   state ticks = 0
+  state shown = 0
   resource viewport = exactViewport() as shape Viewport
   derive wide = viewport.width >= 640
   action add
     n = n + 1
   action tick
     ticks = ticks + 1
+  action saw(entry: IntersectionObserverEntry)
+    shown = shown + 1
   task ticker when top(nav).name == "clock"
     every(1000, tick)
   view
@@ -835,15 +839,22 @@ component App
         text \`\${ticks}\`
       if top(nav).name == "wide"
         text (wide ? "wide" : "narrow")
+      if top(nav).name == "seen"
+        column height="3000px"
+          text "Above"
+        column intersect=saw
+          text \`\${shown}\`
 `, async (_, html, dist) => {
       const wake = '[["(width >= 640px)",false]]';
       expect([how, activation(html(''))]).toEqual([how, ['interaction', [], wake]]);
       expect([how, activation(html('clock'))]).toEqual([how, ['eager', [low], undefined]]);
       expect([how, activation(html('wide'))]).toEqual([how, ['interaction', [], wake]]);
+      // An intersect handler waits for its element to show, or for a scroll (LLP 1048.001 D4's `visible`).
+      expect([how, activation(html('seen'))]).toEqual([how, ['interaction', [], wake]]);
       // The capture script wakes the runtime where the comparison differs, and only there.
       const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
         const path = new URL(req.url).pathname;
-        return new Response(Bun.file(resolve(dist, path === '/wide' ? 'wide/index.html' : path.slice(1))));
+        return new Response(Bun.file(resolve(dist, /^\/(wide|seen)$/.test(path) ? `${path.slice(1)}/index.html` : path.slice(1))));
       } });
       const browser = await suiteBrowser();
       try {
@@ -853,10 +864,167 @@ component App
           await page.waitForTimeout(500);
           expect([how, width, await page.evaluate(() => !!globalThis.exact?.ready)]).toEqual([how, width, woken]);
         }
+        const page = await browser.newPage({ viewport: { width: 390, height: 800 } });
+        await page.goto(new URL('/seen', server.url).href);
+        await page.waitForTimeout(500);
+        const before = await page.evaluate(() => !!globalThis.exact?.ready);
+        await page.mouse.wheel(0, 4000);
+        await page.waitForFunction(() => !!globalThis.exact?.ready, null, { timeout: 5000 });
+        expect([how, before]).toEqual([how, false]);
       } finally { await browser.close(); server.stop(true); }
     }, {}, {}, how);
   }
 }, 240000);
+
+// LLP 1048.007 D4: a rendered page carries only the rules its document can match, and the runtime puts the whole sheet
+// back before its first render, so what it then shows is styled as on the shell.
+test('both document renderers give a page its own rules, and the runtime restores the whole sheet', async () => {
+  for (const how of ['js', 'rust']) await renderedPages(`routes nav
+  home "/" render=build
+
+component Page
+  state shown = false
+  state pick = "a"
+  action show
+    shown = true
+  action choose(v: string)
+    pick = v
+  view
+    main
+      button "Show" press=show testId="show"
+      if shown
+        select value=pick change=choose aria-label="Pick" testId="pick"
+          option "A" value="a"
+          option "B" value="b"
+`, async (_, html, dist) => {
+    const page = html(''), full = readFileSync(resolve(dist, 'style.css'), 'utf8');
+    const own = /<style data-exact-page>([\s\S]*?)<\/style>/.exec(page)?.[1];
+    expect([how, own?.length < full.length / 2, page.match(/<style[ >]/g)?.length, own?.includes('select:not([multiple])')]).toEqual([how, true, 1, false]);
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    const browser = await suiteBrowser();
+    try {
+      const tab = await browser.newPage({ viewport: { width: 390, height: 844 } });
+      await tab.goto(server.url.href);
+      await tab.click('[data-testid="show"]');
+      await tab.waitForSelector('[data-testid="pick"]');
+      expect([how, await tab.evaluate(() => [!!document.querySelector('style[data-exact-page]'), !!document.querySelector('link[rel=stylesheet][href="./style.css"]'),
+        getComputedStyle(document.querySelector('[data-testid="pick"]')).appearance])]).toEqual([how, [false, true, 'none']]);
+    } finally { await browser.close(); server.stop(true); }
+  }, {}, {}, how);
+}, 240000);
+
+// LLP 1048.007 D5: an image a `for` repeats loads as its row comes into view, as a platform list's cells load theirs.
+test('both document renderers lazy-load the images a for repeats, and load a lone one at once', async () => {
+  for (const how of ['js', 'rust']) await renderedPages(`routes nav
+  home "/" render=build
+
+component Page
+  state ids: string[] = ["a", "b"]
+  view
+    main
+      for e in stack(nav) key=e.id
+        for page in [e] key=page.id
+          image "https://example.com/hero.png" width=200 alt="Hero"
+          for id in ids key=id
+            image \`https://example.com/\${id}.png\` width=96 alt=id
+`, (_, html) => {
+    // A page's own image, though a stack's `for` and a page-keying `for [e]` hold it, is no row.
+    expect([how, html('').match(/<img [^>]*>/g)?.map(img => /loading="([^"]*)"/.exec(img)?.[1] ?? null)]).toEqual([how, [null, 'lazy', 'lazy']]);
+  }, {}, {}, how);
+}, 180000);
+
+// A render's realm made ahead, while the server was idle, renders the page a fresh one does (LLP 1048.000 D10).
+test('a realm made ahead renders the page a fresh one does', async () => {
+  await renderedPages(`routes nav
+  home "/" render=request
+  item "/items/:id" render=request
+
+component App
+  view
+    main
+      text \`at \${top(nav).url}\`
+      link href=path("item", "b")
+        text "B"
+`, async (_, html, dist) => {
+    const { renderer } = await import('./render.mjs');
+    const fresh = renderer(dist), ahead = renderer(dist);
+    fresh.ahead = false;
+    const page = async (r, at) => (await r(at)).html.replace(/"time":[\d.]+/, '"time":0');
+    await page(ahead, '/');
+    await new Promise(r => setTimeout(r, 1500));
+    for (const at of ['/items/b', '/']) expect([at, await page(ahead, at)]).toEqual([at, await page(fresh, at)]);
+  });
+}, 60000);
+
+// LLP 1048.007 D8: a request route's page made only of answers any reader may still be given, by TypeScript sources
+// that drew nothing at random, is given again until the first answer goes stale; any other is made for each request.
+test('serve gives a page again while every answer it was made of is fresh', async () => {
+  const api = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+    const path = new URL(req.url).pathname;
+    return new Response(`from ${path}`, { headers: { 'cache-control': path === '/never' ? 'no-store' : 'public, max-age=60' } });
+  } });
+  try {
+    const origin = `http://127.0.0.1:${api.port}`;
+    await renderedPages(`shape Note
+  text: string
+
+routes nav
+  fresh "/" render=request
+  never "/never" render=request
+  seed "/seed" render=request
+
+component App
+  resource note = note(top(nav).name) as shape Note
+  view
+    main
+      text note.text
+`, async (_, html, dist) => {
+      const { pageServer } = await import('./render.mjs');
+      const said = [];
+      const page = pageServer(dist, undefined, line => said.push(line));
+      const header = () => undefined;
+      for (const at of ['/', '/', '/never', '/never', '/seed', '/seed']) expect(Buffer.from((await page(at, header)).body).toString()).toContain('from /');
+      const renders = at => said.filter(l => l.startsWith(`render ${at} 200`)).length;
+      expect([renders('/'), renders('/never'), renders('/seed')]).toEqual([1, 2, 2]);
+    }, { 'app.ts': `import type { Answer, Result } from './app.contract.d.ts';
+export const appId = 'test.heads';
+const API = '${origin}';
+export const grants = \`net.fetch \${API}\`;
+export const answer: Answer = async (_source, [name]): Promise<Result<'note'>> => {
+  if (name === 'seed') crypto.getRandomValues(new Uint8Array(1));
+  const response = await fetch(\`\${API}/\${name === 'fresh' ? 'fresh' : name}\`);
+  return { text: await response.text() };
+};
+` });
+  } finally { api.stop(true); }
+}, 60000);
+
+// A page's head status is its HTTP status under Bun, as under the render host (LLP 1048.000 D11): a found route whose
+// data names no item says 404 itself.
+test('a JavaScript-rendered page answers with its head status', async () => {
+  await renderedPages(`routes nav
+  home "/" render=request
+  item "/items/:id" render=request
+  notfound
+
+component App
+  view
+    main
+      if top(nav).name == "item" and top(nav).params.id == "gone"
+        head title="Not found" status=404
+        text "No such item"
+      else
+        head title="Item"
+        text "An item"
+`, async (_, html, dist) => {
+    const { renderer } = await import('./render.mjs');
+    const render = renderer(dist);
+    expect([(await render('/items/gone')).status, (await render('/items/kept')).status, (await render('/no/such/page')).status]).toEqual([404, 200, 404]);
+  });
+}, 60000);
 
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {
