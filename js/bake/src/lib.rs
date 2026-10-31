@@ -4,12 +4,14 @@
 
 #![deny(missing_docs)]
 
+mod android;
 mod linked;
 #[path = "../../package_tool.rs"]
 mod package_tool;
 mod resident;
 #[cfg(test)]
 mod sources_tests;
+pub use android::build_android;
 pub use resident::Producer;
 
 use contract::DataSource;

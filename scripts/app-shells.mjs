@@ -17,7 +17,7 @@ import { APPLE_BUILD_SCRIPT, appleBuildScript } from './linked-plan.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 /** The platforms a manifest can name, each with the crate that serves it. */
-export const PLATFORMS = { ios: 'apple', macos: 'apple', tvos: 'apple', linux: 'linux', android: 'linux', windows: 'windows' };
+export const PLATFORMS = { ios: 'apple', macos: 'apple', tvos: 'apple', linux: 'linux', android: 'android', windows: 'windows' };
 /** The platforms that hold an update store, so a stream (scripts/deploy.mjs), and Windows, whose host refuses every
  * store level but "0" (it has no update store yet, LLP 1115.004 D15) while an absent key reads as "A". */
 const STORED = ['ios', 'macos', 'linux', 'windows'];
@@ -73,9 +73,10 @@ export function withoutPlatformKeys(dir, platform) {
 }
 
 /** The crates the shells hold for a manifest: `web/` always (delivery's bake and the resident loop a native window
- * live-reloads from), and one per crate the named platforms share. */
+ * live-reloads from), and one per crate the named platforms share. Android has two: `android/`, the library the
+ * Canvas reader's APK loads, and `linux/`, the Linux host built for Android, which `--headless` drives under adb. */
 export function shellCrates(manifest) {
-  return ['web', ...new Set(Object.keys(manifest.host ?? {}).filter(p => p in PLATFORMS).map(p => PLATFORMS[p]))];
+  return ['web', ...new Set(Object.keys(manifest.host ?? {}).filter(p => p in PLATFORMS).flatMap(p => p === 'android' ? ['linux', 'android'] : [PLATFORMS[p]]))];
 }
 
 /** A host crate's files, keyed by path under the crate's directory. `dep(path)` is a dependency's path from there and
@@ -180,6 +181,41 @@ include!(concat!(env!("OUT_DIR"), "/packages.rs"));
 fn main() {
     let composed = exact_linux::Composed { packages: exact_packages(), ..Default::default() };
     std::process::exit(exact_linux::run_composed::<AppData>(PLAN, COMPAT, composed));
+}
+`,
+  };
+  // The library the Canvas reader loads (LLP 1107, host/android/README.md), in Shelf's shape: empty off Android.
+  if (kind === 'android') return {
+    'Cargo.toml': `${header('[lib]\ncrate-type = ["cdylib"]\ntest = false\nbench = false').replace(/\n\[dependencies\]\n$/, '')}
+[target.'cfg(target_os = "android")'.dependencies]
+exact-logic = ${dep('logic')}
+exact-linux = ${dep('host/linux')}
+exact-js = ${dep('js')}
+
+${build}`,
+    'build.rs': `fn main() {
+    exact_js_bake::build_android(std::path::Path::new(${JSON.stringify(app)})).unwrap_or_else(|error| {
+        // What the bake found (tsc's and the compiler's diagnostics), as it is: no panic around it.
+        eprintln!("{error}");
+        std::process::exit(1);
+    });
+}
+`,
+    'src/lib.rs': `//! ${title} on Android: the Contract UI and the TypeScript data module, in the library
+//! exact2's Canvas reader loads (\`bun exact.mjs android\` builds the APK).
+
+#[cfg(target_os = "android")]
+mod android {
+    #[allow(dead_code)]
+    mod baked {
+        include!(concat!(env!("OUT_DIR"), "/module.rs"));
+    }
+    use baked::*;
+
+    ${module(false).replace(/\n(?=.)/g, '\n    ')}    include!(concat!(env!("OUT_DIR"), "/logic.rs"));
+    include!(concat!(env!("OUT_DIR"), "/hatches.rs"));
+
+    exact_linux::canvas_jni!(super::AppData, hatches = crate::android::exact_hatches());
 }
 `,
   };

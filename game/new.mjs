@@ -860,8 +860,8 @@ This file is already in your instructions. Start from the nearest pattern: \`bun
 pattern\` lists them and \`pattern <name>\` writes one, tested. ${doc('start-here.md')} is the guide,
 the only required reading (LLP 1115 D7). \`bun exact.mjs contract vocab <name>\` answers a
 name (none: the card, ${doc('card.md')}); \`bun exact.mjs docs <heading words>\` a guide's
-section. Run \`bun exact.mjs verify\` when the features work, and \`verify ios\` once at the end for an iPhone
-app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
+section. Run \`bun exact.mjs verify\` when the features work, and \`verify ios|android\` at the end for a
+phone app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
 \`bun exact.mjs update\` refreshes files.${authoredApp(dir) ? ` \`bun exact.mjs lock\` repairs Cargo lock drift.
 \`bun exact.mjs update --without linux\` stops shipping Linux.` : ` A native verb (\`ios\`, \`mac\`, \`linux\`, \`android\`,
 \`windows\`) names its platform in app.json the first time it runs and builds it in a generated
@@ -1238,11 +1238,10 @@ function updateApp(dir, name, { without = null, with: platforms = [] } = {}) {
   writeFileSync(resolve(dir, '.cargo/config.toml'), readFileSync(resolve(ROOT, '.cargo/config.toml')));
   writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name));
   chmodSync(resolve(dir, 'exact.mjs'), 0o755);
-  // The `linux/` crate serves Linux and Android: it goes with the last of the two, with its workspace member and lock
-  // entries; otherwise a platform's keys go and the crate it shares (`apple/` too) stays.
-  const sharer = { linux: 'android', android: 'linux' };
+  // `android/` is Android's alone and goes with it. The `linux/` crate serves Linux and Android's headless drive: it goes
+  // with Linux unless Android is named; otherwise a platform's keys go and the crate it shares (`apple/`) stays.
   const named = (p) => { try { return p in (JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).host ?? {}); } catch { return false; } };
-  const edits = platformEdits(dir, platforms, without, (d, p) => p in sharer && !named(sharer[p]) ? dropPlatform(d, p) : withoutPlatformKeys(d, p));
+  const edits = platformEdits(dir, platforms, without, (d, p) => p === 'android' || (p === 'linux' && !named('android')) ? dropPlatform(d, p) : withoutPlatformKeys(d, p));
   // An app made before the scaffold wrote a Linux host gains one (LLP 1086), unless it has its own
   // or ships no Linux: app.json deploy.store.linux, which the scaffold wrote and `--without linux`
   // removes, says it does.
@@ -1258,6 +1257,18 @@ function updateApp(dir, name, { without = null, with: platforms = [] } = {}) {
     const workspace = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
     writeFileSync(resolve(dir, 'Cargo.toml'), workspace.replace(/^members\s*=\s*\[([^\]]*)\]/m, (line, list) =>
       /"linux"/.test(list) ? line : `members = [${[...list.split(',').map(m => m.trim()).filter(Boolean), '"linux"'].sort().join(', ')}]`));
+  }
+  // And one that names Android gains the library its APK loads (LLP 1107), as the generated workspace has it.
+  const addedAndroid = named('android') && !existsSync(resolve(dir, 'android'));
+  if (addedAndroid) {
+    mkdirSync(resolve(dir, 'android'));
+    for (const [path, text] of Object.entries(authoredCrate(dir, 'android', name, titleOf(name)))) {
+      mkdirSync(dirname(resolve(dir, path)), { recursive: true });
+      writeFileSync(resolve(dir, path), text);
+    }
+    const workspace = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
+    writeFileSync(resolve(dir, 'Cargo.toml'), workspace.replace(/^members\s*=\s*\[([^\]]*)\]/m, (line, list) =>
+      /"android"/.test(list) ? line : `members = [${[...list.split(',').map(m => m.trim()).filter(Boolean), '"android"'].sort().join(', ')}]`));
   }
   const notes = updateNotes(dir, name);
   if (editorTasks(dir)) notes.push('.vscode/tasks.json');
@@ -1286,7 +1297,7 @@ function updateApp(dir, name, { without = null, with: platforms = [] } = {}) {
   }
   const checked = lockedMetadata(dir);
   const drift = checked.status !== 0 ? `\n${dir}/Cargo.lock: ${/cannot update the lock file|needs to be updated/.test(checked.stderr ?? '') ? 'does not match the app manifests; run \`bun exact.mjs lock\`' : `could not check lock: ${checked.stderr || checked.error?.message}`}` : '';
-  return `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${edits.length ? `, ${edits.join(', ')}` : ''}${without && ['linux', 'android'].includes(without) ? ', Cargo.lock' : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}${drift}`;
+  return `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${addedAndroid ? ', an android/ crate (bun exact.mjs android builds the APK)' : ''}${edits.length ? `, ${edits.join(', ')}` : ''}${without && ['linux', 'android'].includes(without) ? ', Cargo.lock' : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}${drift}`;
 }
 
 if (import.meta.main) {

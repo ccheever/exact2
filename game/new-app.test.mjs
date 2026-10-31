@@ -421,7 +421,7 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     assert.match(notes, /already in your instructions\. Start from the nearest pattern: `bun exact\.mjs\s+pattern` lists them and `pattern <name>` writes one/);
     assert.match(notes, /`bun exact\.mjs contract vocab <name>` answers a\s+name/);
     assert.match(notes, /`bun exact\.mjs docs <heading words>` a guide's\s+section/);
-    assert.match(notes, /`bun exact\.mjs verify`\s+when the features work, and `verify ios` once at the end for an iPhone\s+app/);
+    assert.match(notes, /`bun exact\.mjs verify`\s+when the features work, and `verify ios\|android` at the end for a\s+phone app/);
     assert.match(notes, /`bun exact\.mjs help`\s+lists the verbs/);
     assert.doesNotMatch(notes, /after each edit|milestone/);
     assert.doesNotMatch(notes, /Read\s+these|contract types|no-tells|\.exact\//);
@@ -463,12 +463,19 @@ test('a native verb names its platform, and the generated workspace follows app.
     const windows = ensureShells(dir).workspace;
     assert.match(readFileSync(resolve(windows, 'windows/src/main.rs'), 'utf8'), /exact_windows::run_composed::<AppData>\("Field Log", window\(\), PLAN, COMPAT, composed\)/);
     assert.match(createApp(dir, { update: true, without: 'windows' }), /without windows \(removed host\.windows, deploy\.store\.windows\)/);
-    assert.deepEqual(shellCrates(manifest()), ['web', 'apple', 'linux']);
+    assert.deepEqual(shellCrates(manifest()), ['web', 'apple', 'linux', 'android']);
     readManifest(dir, 'field-log');
     const first = ensureShells(dir);
-    assert.deepEqual([first.wrote, first.crates, ensureShells(dir).wrote], [true, ['web', 'apple', 'linux'], false]);
-    assert.match(readFileSync(resolve(first.workspace, 'Cargo.toml'), 'utf8'), /^members = \["web", "apple", "linux"\]$/m);
+    assert.deepEqual([first.wrote, first.crates, ensureShells(dir).wrote], [true, ['web', 'apple', 'linux', 'android'], false]);
+    assert.match(readFileSync(resolve(first.workspace, 'Cargo.toml'), 'utf8'), /^members = \["web", "apple", "linux", "android"\]$/m);
     assert.match(readFileSync(resolve(first.workspace, 'linux/Cargo.toml'), 'utf8'), /^name = "field-log-linux"$/m);
+    // Android's library for the Canvas reader (LLP 1107): a cdylib, empty off Android, baked by `build_android`.
+    const android = readFileSync(resolve(first.workspace, 'android/Cargo.toml'), 'utf8');
+    assert.match(android, /^name = "field-log-android"$/m);
+    assert.match(android, /^crate-type = \["cdylib"\]$/m);
+    assert.match(android, /^\[target\.'cfg\(target_os = "android"\)'\.dependencies\]\nexact-logic = /m);
+    assert.match(readFileSync(resolve(first.workspace, 'android/build.rs'), 'utf8'), /exact_js_bake::build_android\(std::path::Path::new\("\.\.\/\.\.\/\.\."\)\)/);
+    assert.match(readFileSync(resolve(first.workspace, 'android/src/lib.rs'), 'utf8'), /exact_linux::canvas_jni!\(super::AppData, hatches = crate::android::exact_hatches\(\)\);/);
     assert.ok(!existsSync(resolve(dir, 'Cargo.toml')) && !existsSync(resolve(dir, 'linux')), 'nothing Rust in the author\'s tree');
     // resolveApp takes the generated workspace, with the target at the app, when nothing authored one.
     const was = process.env.EXACT_APP_DIR;
@@ -480,7 +487,7 @@ test('a native verb names its platform, and the generated workspace follows app.
     // A platform dropped takes its crate with it; the last native one may go (deploy reads none as none, D1.5).
     assert.match(createApp(dir, { update: true, without: 'android' }), /without android \(removed host\.android\)/);
     assert.deepEqual(ensureShells(dir).crates, ['web', 'apple']);
-    assert.ok(!existsSync(resolve(first.workspace, 'linux')));
+    assert.ok(!existsSync(resolve(first.workspace, 'linux')) && !existsSync(resolve(first.workspace, 'android')));
     assert.match(createApp(dir, { update: true, without: 'ios' }), /without ios \(removed host\.ios, deploy\.store\.ios\)/);
     assert.deepEqual([manifest().host, manifest().deploy.store, ensureShells(dir).crates], [{ web: {} }, { web: '0' }, ['web']]);
     assert.match(createApp(dir, { update: true, without: 'ios' }), /without ios \(it shipped none already\)/);
@@ -489,7 +496,7 @@ test('a native verb names its platform, and the generated workspace follows app.
     assert.match(createApp(dir, { update: true, with: ['linux', 'macos'] }), /with linux \(added host\.linux, deploy\.store\.linux\), with macos \(added host\.macos, deploy\.store\.macos\)/);
     assert.deepEqual(ensureShells(dir).crates, ['web', 'linux', 'apple']);
     const verbs = appVerbs('field-log', dir);
-    assert.deepEqual([verbs.linux, verbs.android, verbs.windows], [['scripts/build-linux.mjs', 'field-log'], ['scripts/agent-android.mjs', 'build', 'field-log'], ['host/windows/build.mjs', 'field-log']]);
+    assert.deepEqual([verbs.linux, verbs.android, verbs.windows], [['scripts/build-linux.mjs', 'field-log'], ['scripts/agent-android.mjs', 'build', 'field-log', '--apk', '--install'], ['host/windows/build.mjs', 'field-log']]);
     // --with at creation names them before any verb runs; `mac` is the CLI's spelling for macos (scripts/exact.mjs).
     const named = resolve(parent, 'named');
     createApp(named, { with: ['ios', 'macos'] });
