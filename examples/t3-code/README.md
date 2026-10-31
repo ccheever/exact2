@@ -1307,7 +1307,8 @@ Also seen in this session, then fixed and checked again (bundle of `d9bb57b588`,
   the pointer resting on the pill show no tooltip, then or after the pointer moves away (4 of 4); opening and
   cancelling the update dialog leaves none (1 of 1). The previous bundle keeps "Check for updates" (1 of 1). The
   oracle shows the update pill's own tooltip, "Update 1 server and 1 provider", while the pointer rests there, and none
-  once it moves away (1 of 1); the clone's update pill shows its title only after the pointer moves onto it again.
+  once it moves away (1 of 1); the clone's update pill shows no tooltip while the pointer rests where the idle pill
+  was.
 
 Left for a ruling:
 
