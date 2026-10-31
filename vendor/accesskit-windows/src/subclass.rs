@@ -235,3 +235,7 @@ pub fn embed_windowless(
     let context = state.adapter.embedding_context().ok_or_else(Error::empty)?;
     crate::embedded::set(context, node, provider)
 }
+
+#[cfg(test)]
+#[path = "tests/embedded.rs"]
+mod embedded_tests;

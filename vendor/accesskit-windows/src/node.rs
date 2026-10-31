@@ -1135,6 +1135,11 @@ impl IRawElementProviderFragment_Impl for PlatformNode_Impl {
     }
 
     fn GetEmbeddedFragmentRoots(&self) -> Result<*mut SAFEARRAY> {
+        if let (Some(context), Some(id)) = (self.context.upgrade(), self.node_id) {
+            if let Some(provider) = crate::embedded::get(&context, id)? {
+                return Ok(crate::util::safe_array_from_com_slice(&[provider.cast()?]));
+            }
+        }
         Ok(std::ptr::null_mut())
     }
 
@@ -1169,11 +1174,11 @@ impl IRawElementProviderFragmentRoot_Impl for PlatformNode_Impl {
         })?;
         let context = self.context.upgrade().ok_or_else(Error::empty)?;
         if let Some(provider) = crate::embedded::get(&context, id)? {
-            return unsafe {
-                provider
-                    .cast::<IRawElementProviderFragmentRoot>()?
-                    .ElementProviderFromPoint(x, y)
-            };
+            if let Ok(root) = provider.cast::<IRawElementProviderFragmentRoot>() {
+                if let Ok(hit) = unsafe { root.ElementProviderFromPoint(x, y) } {
+                    return Ok(hit);
+                }
+            }
         }
         Ok(context.get_or_create_platform_node(id).into_interface())
     }

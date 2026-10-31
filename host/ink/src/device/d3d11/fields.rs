@@ -54,6 +54,9 @@ pub fn enabled() -> bool {
 }
 
 pub fn clear() {
+    if !enabled() {
+        return;
+    }
     FIELDS.with(|fields| *fields.borrow_mut() = Fields::default());
 }
 
@@ -73,6 +76,12 @@ pub fn end(device: &mut D3d11) -> Result<()> {
     }
     FIELDS.with(|f| {
         let mut f = f.borrow_mut();
+        // Texture IDs belong to one device. A replacement with no eligible
+        // field has not adopted these editors; their owner releases its map.
+        if f.device.as_ref() != Some(&device.device) {
+            *f = Fields::default();
+            return Ok(());
+        }
         let dead: Vec<_> = f
             .editors
             .iter()
@@ -359,4 +368,52 @@ fn message(raw: *const std::ffi::c_void) -> bool {
         }
         handled || confirming
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "Stage 1w field lifecycle; Windows desktop, isolated process"]
+    fn field_retirement_and_window_teardown() {
+        std::env::set_var("EXACT_INK_RICHEDIT", "1");
+        let window = Window::fixture([400, 100]).unwrap();
+        let hwnd = window.hwnd;
+        let mut owner = D3d11::new().unwrap();
+        let field = Field {
+            id: 1,
+            generation: 0,
+            rect: [0., 0., 200., 40.],
+            size: 16.,
+            color: [0, 0, 0, 255],
+            value: "retained",
+            placeholder: "",
+            selection: [0, 0],
+            focused: false,
+            multiline: false,
+            readonly: false,
+        };
+        let id = paint(&mut owner, window.clone(), &field).unwrap().unwrap();
+        begin();
+        end(&mut owner).unwrap();
+        assert!(!owner.textures.contains_key(&id));
+        assert_eq!(owner.retired.len(), 1);
+
+        paint(&mut owner, window.clone(), &field).unwrap().unwrap();
+        let mut replacement = D3d11::new().unwrap();
+        let target = replacement.create_target(2, 2).unwrap();
+        begin();
+        end(&mut replacement).unwrap();
+        assert!(replacement.textures.contains_key(&target));
+        assert!(FIELDS.with(|f| f.borrow().editors.is_empty()));
+
+        paint(&mut replacement, window.clone(), &field)
+            .unwrap()
+            .unwrap();
+        drop(window);
+        assert!(unsafe { IsWindow(Some(hwnd)) }.as_bool());
+        clear();
+        assert!(!unsafe { IsWindow(Some(hwnd)) }.as_bool());
+    }
 }

@@ -127,7 +127,7 @@ fn directwrite_audit() {
                                 let mut scaler = sw
                                     .builder_with_id(face, font.id)
                                     .size(size * scale)
-                                    .hint(true)
+                                    .hint(false)
                                     .normalized_coords(font.coords.iter().copied())
                                     .build();
                                 let mut render = Render::new(&[

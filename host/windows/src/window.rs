@@ -77,6 +77,7 @@ impl<D: DataSource> Drop for App<D> {
         }
         self.timers.clear();
         self.accessibility.take();
+        exact_ink::device::d3d11::fields::clear();
         // The module's GPU swapchain must release its HWND before the window.
         self.presenter.take();
         self.caret.clear();

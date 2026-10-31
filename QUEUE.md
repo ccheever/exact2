@@ -1668,4 +1668,51 @@ and the Linux headless CPU renderer without claiming display frame timing.
 
 - **macOS live trackpad replay (LLP 1079.000, 2026-10-28).** Add a reliable completion acknowledgement for synthetic phased wheels before admitting them under platform timing. Immediate layout reads exposed zero or partial motion; posting the later phases first did not resolve it. The carrier currently refuses with `platform-trackpad-replay-unqualified`; ordinary wheels and frozen-clock functional replay remain available.
 
-- **Windows startup tail: the instrument is not qualified** (LLP 1149.001 Stage 1w, 2026-10-30). The same Shelf binary ran 100 interleaved launches per arm: device-at-entry had 2 runner/layout gaps over 50 ms (138.547 and 77.718 ms); device-after-layout had 0. Neither tail has a stack; one 2.646 ms interval produced a late capture. The injected 200 ms hold resolves application symbols, but the ordinary observer disagrees with the logged phases. Three qualification rounds stop here. Repair the observer before attributing the loader lock; these two events do not establish a cause or earn a startup-policy change. The 100 ms first-screen budget remains open. Raw evidence and reproduction: `host/ink/MEASUREMENTS.md`, “Stage 1w”.
+- **Stage 1w chunk B: native-field pointer delivery** (Claude review 3,
+  `target/review-claude-s1w.md`, `98cff0bdfa`). RichEdit's handled mouse messages
+  make winit skip dispatch, so field and ancestor clicks never reach the page.
+  Keep the native edit and let the pointer sequence reach the presenter.
+- **Stage 1w chunk B: app keys from native fields** (Claude review 10).
+  Forward a known editing set to RichEdit; let Escape, function keys and
+  app chords outside that set reach winit regardless of RichEdit's answer.
+- **Stage 1w chunk B: composition ownership** (Claude review 4). `SES_USECTF`
+  enables TSF while the host tracks IMM messages. Drop it and qualify IMM,
+  or track composition from the editor before claiming app updates cannot
+  overwrite a composition.
+- **Stage 1w chunk B: UIA focus and accessible name** (Sol review 7,
+  `target/review-sol-s1w.md`, `98cff0bdfa`). `TxSetFocus` focuses only the
+  HWND; bridge it to logical field focus. Pass the computed accessible name
+  to `EM_SETUIANAME`, separately from the placeholder.
+- **Stage 1w chunk B: input event causes** (Sol review 4; Claude review 15).
+  Carry `deleteByCut`, `insertFromPaste`, `historyUndo` and
+  `deleteContentBackward`, including composition commits, from the message
+  that caused the edit. Every native edit currently becomes `insertText`.
+- **Stage 1w chunk B: selection direction** (Sol review 5). `EM_EXGETSEL`
+  normalizes endpoints; use TOM to retain the active end through programmatic
+  backward selection and Shift+Arrow continuation.
+- **Stage 1w chunk B: field message and paint churn** (Claude review 15).
+  Avoid per-frame `EM_SETUIANAME` and setting `changed` on every routed
+  message, including key-up and mouse movement with no edit.
+- **Stage 1w chunk B: product qualification** (Sol review 7 and checked
+  IME path; Claude reviews 3, 4, 10, 11). Complete Shelf's native UIA tree,
+  Japanese IME placement/reconversion and Narrator journeys, then Excord's
+  composer, focus traversal and growing/wrapping text. The flag stays off
+  until those drives pass; Unicode insertion is not an IME drive.
+- **Stage 1w chunk B: startup observer and corrected A/B** (Claude reviews
+  1, 7, 8; Sol review 8). The old log and observer bracket different writes:
+  2/100 logged entry-arm intervals exceed 50 ms (138.547 and 77.718 ms),
+  versus 0/100 after layout, with two-sided Fisher p = 0.4975. Neither tail
+  has a stack; one 2.646 ms interval has a late capture. These are not yet
+  established as runner-to-layout work. A queued completion suppresses capture.
+  Pre-spawn a helper blocked on an event, or capture threads and contexts
+  in-process without a VA clone and symbolize offline; the measured VA clone
+  pauses threads for about 6.026 ms and process spawning adds latency. Probe
+  `LdrLockLoaderLock` with `TRY_ONLY` on the watchdog thread at timeout to
+  test loader-lock ownership without snapshotting. Rerun the A/B on corrected
+  marks only after that redesign, retaining first-pixel differences between
+  arms and marking captured launches as perturbed. No startup fix is earned.
+- **Stage 1w chunk B: M9 axis mapping** (Claude review 13; Sol's checked
+  DirectWrite path). The candidate maps no axes. Use
+  `IDWriteFontResource::CreateFontFace` with design-space values, obtained by
+  un-normalizing Parley's coordinates (including `avar` and `fvar`) or carrying
+  the requested values. Repeat the audit before admitting variable faces.
