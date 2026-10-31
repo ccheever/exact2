@@ -5328,3 +5328,42 @@ process and power tables match the published tables; Python versions differ
 in the power JSON's floating-point sums by at most 1.8e-13. The original JSON
 and the recomputation are both retained. `target/m2b/integrated/reproduction.log`
 records these checks.
+
+
+### M2b review fixes and integrated verification
+
+The review fixes are integrated at `d15f40e145`, on Stage 0's `942b409559`.
+Android and the Canvas reader include sampled motion in their wake deadline
+and advance the host clock before reading demand. Their production clock turns
+are driven headlessly with a real presenter and no runner timer. Windows uses
+current-frame demand at all four lifetime checks; its three after samples per
+device each redraw twice per second. See
+[M2b-Windows](../../../host/ink/MEASUREMENTS.md#m2b-windows--step-demand) for
+the before counts, instruments and limits.
+
+The filter compares against the kept entry before hover, focus and press
+feedback. The painted hover regression passes. Agent seeks exceeding 4,096
+discrete instants return the named limit error and can resume. The tighter
+motion tests check immediately before each deadline and cover holds,
+alternate repeats, retargeting, competing deadlines and a finite final change.
+They exposed a reverse boundary losing an ULP when adding its iteration;
+crossing the boundary after converting it to time fixes that case. Flat
+`linear()` spans remain continuous demand deliberately.
+
+All six integrated Mac checks pass, including Clippy and fmt, staged caps,
+boot and workspace compilation. The root command emits 113 passing result
+summaries: 7,390 passes and 83 ignored, including nested child reruns. The
+explicit Linux command emits 2,123 passes and 38 ignored on the same counting
+basis; motion has 213 passes and the painted carrier has five. Root tests
+started at a quiet observation (load 26.9, no competing compiler); no test
+or timing threshold was relaxed. All 46 Windows suite and journey commands
+pass, as recorded in M2b-Windows.
+
+`target/m2b-fix/` retains predictions, commands, individual logs,
+`CHECKS.txt` (every result line), `FULL-OUTPUT.txt` (verbatim output), the
+rebase range diff and native evidence under `nucbox/`. The first complete
+Mac pass is retained separately in `pre-stage0/`. Both RESULTS records and
+both lanes' QUEUE items survived the rebase. No retained raw file was deleted.
+No silver-Mac series was run in this fix chunk. Android's physical carrier
+was not run; the clock fragments used by both Android loops are covered by
+the headless tests. The timer-workload CPU attribution remains queued.

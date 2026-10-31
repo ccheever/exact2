@@ -4150,8 +4150,8 @@ The two-redraw prediction is met in all six after samples. Painter snapshots
 match successful frames in every process (after: 47/47/46 for D3D11,
 46/45/45 for wgpu); no paint walk continues between the step frames. All
 processes exit zero, with no focus loss or lost ETW events. These are redraw
-counts, not a quiet-qualified CPU comparison: the 10% machine-CPU threshold
-was exceeded in 19/32, 28/33 and 16/33 observations in the three cohorts,
+counts. They do not qualify a CPU comparison: the below-10% machine-CPU
+condition failed in 19/32, 28/33 and 16/33 observations in the three cohorts,
 respectively. Another build overlaps seven recount observations; neither the
 first before cohort nor the after cohort overlaps a compiler. The fixture's
 five app timer firings per second also prevent it qualifying M2's rest row.
@@ -4163,3 +4163,12 @@ and adapted driver are beside it. The NucBox retains the same cohorts under
 `~/projects/exact2/target/m2b-fix/`, with both executables in `before-bin/` and
 `after-bin/` and the isolated source snapshot in `source/`. The shared
 mirror's pending edits were not overwritten.
+
+Both devices pass the S2.8b renderer suites and all six desktop journeys,
+including idle caret, two DPI round trips, forced device loss and sleep/wake.
+The ten fault fixtures also pass: 46 native commands, each with a positive
+passing test count. Shelf uses `gpu-dev`; the Linux test crate alone uses
+`profile.gpu-dev.package.exact-linux.opt-level=0`, as in S2.8b. DPI captures
+show correctly scaled text; Settings returns to 100%. Native logs and captures
+are under `target/m2b-fix/nucbox/native/`. `target/m2b-fix/CHECKS.txt` retains
+all result lines; `FULL-OUTPUT.txt` retains complete verbatim check output.
