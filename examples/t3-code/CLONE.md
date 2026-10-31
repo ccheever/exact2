@@ -9,6 +9,27 @@ disabled. Use this handoff when taking over the work.
 The clone is incomplete. The desktop app is in `examples/t3-code`; the separate
 iPhone and iPad app is in `examples/t3-code/mobile`.
 
+The requested production release `1.0.0 (20261031003812)` is available in internal
+TestFlight. Its clean source is `358dce46d1defe3260c401cde377b7dd8aefa4f9`, including
+Exact main `43e0d93b85` and the prior native NewTask and preview corrections.
+The exact signed IPA was submitted through
+[EAS](https://expo.dev/accounts/exponathan/projects/t3-code/submissions/22b77f7f-db38-48ca-85e0-d4c33e898c13).
+Its SHA-256 is `62ce7464d0e147fedc7272603718938d4b06bda37ca53170fa46cdfdb57c3132`.
+
+EAS reports FINISHED. Apple build `93e6a664-3609-4cfc-82a2-7c6b792216e0` is VALID,
+IN_BETA_TESTING internally and unexpired. The existing Team (Expo) group explicitly
+includes this build and retains its two testers. The accepted tester has group
+access; the other existing invitation remains pending. Installation of this exact
+build is unverified. The existing encryption declaration is accepted as false.
+No external beta review or public release was requested, and no new invitation
+was sent. No human-only release action remains.
+
+Release evidence is under `target/t3-poc-evidence/testflight-20261031003812/`;
+the archive and its build receipt are in the isolated `t3-f9c706fa` worktree at
+`target/t3-testflight-release-20261031003812/`. This requested release does not
+complete phone or iPad parity. Historical notes below about the older POC build
+refer to `20261029015732` unless another build is named.
+
 Continue on `t3/t3-clone-pr216-poc`, which pushes to PR216's remote branch
 `feat(example)/t3-code-ios`. It includes Exact main through
 `43e0d93b858143f85c93c729057fd601d0f8fba2`. The earlier independent native
