@@ -423,7 +423,7 @@ test('the app\'s server: its entry, the URL app.ts calls, and why it cannot be r
   const reads = "const db = new Database(process.env.DB ?? 'data.db');\n";
   try {
     put({ 'app.ts': "const API = 'http://127.0.0.1:6810'; // a phone reaches http://192.168.1.2:6810\n", 'server/index.ts': reads });
-    assert.deepEqual(appServer(dir), { entry: 'server/index.ts', args: [], database: true, url: 'http://127.0.0.1:6810', port: 6810, why: null, refusal: null });
+    assert.deepEqual(appServer(dir), { entry: 'server/index.ts', args: [], database: true, url: 'http://127.0.0.1:6810', port: 6810, why: null, refusal: null, settings: {} });
     put({ 'app.ts': "export const API = 'http://127.0.0.1:8787';\n", 'server.ts': reads, 'srv/main.ts': reads, 'app.json': JSON.stringify({ commands: { server: ['bun', '--watch', 'srv/main.ts'] } }) });
     assert.equal(appServer(dir).entry, 'srv/main.ts');
     put({ 'app.ts': "import type { Answer } from './app.contract.d.ts';\nimport { API } from './api';\n", 'api.ts': "export const API = 'http://localhost:3000/v1/';\n", 'server/server.ts': 'const DB = Bun.env.DB;\n' });
@@ -541,7 +541,9 @@ test('the settings app.ts reads reach the server as the build has them', () => {
     writeFileSync(resolve(dir, '.env'), 'API_BASE_URL=http://127.0.0.1:8787\\n');
     writeFileSync(resolve(dir, '.env.local'), 'API_BASE_URL=http://127.0.0.1:4790\\n');
     writeFileSync(resolve(dir, 'server.ts'), "import { writeFileSync } from 'node:fs';\\nwriteFileSync('ready.json', JSON.stringify({ api: process.env.API_BASE_URL, port: process.env.PORT }));\\nsetInterval(() => {}, 1000);\\n");
-    const server = appServer(dir);
+    // Discovery read under one environment; the server is given what it read, whatever this process inherited.
+    const server = appServer(dir, { ...process.env });
+    process.env.API_BASE_URL = 'http://127.0.0.1:8080';
     assert.equal(server.url, 'http://127.0.0.1:4790');
     const running = await startServer(dir, server, 'test');
     assert.deepEqual(record(), { api: 'http://127.0.0.1:4790', port: '4790' });

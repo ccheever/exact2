@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { churnLines, disabledExpectation, NO_FAILURES, perfExpectation, propertyHolds, testMutationClock, refusalExpectation, refuseDisabled, runTests, serverRequest, testScope, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
+import { backendFetchPrefixes, churnLines, disabledExpectation, nativeFetchOrigins, NO_FAILURES, perfExpectation, propertyHolds, testMutationClock, refusalExpectation, refuseDisabled, runTests, serverRequest, testScope, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
 import { axFindings } from './agent-ax.mjs';
 import { withEpoch } from './agent-launch.mjs';
 import { serveBuildTree } from '../host/web/serve.mjs';
@@ -648,4 +648,25 @@ test('always observes each mutation-clock configuration, including the sixteenth
   };
   expect(await clock.advance(session, async state => { seen.push(state.slots.ticks); })).toBe(16);
   expect(seen).toEqual(Array.from({ length: 17 }, (_, i) => i));
+});
+
+// LLP 1153 D4: a native run has no web build's grants to read. The site pattern's API is a setting, so its `/planets`
+// fault resolves against the grant app.ts names as the build evaluates it, `.env.local`'s port over `.env`'s.
+test('a native run resolves a fetch fault under the API a setting names', async () => {
+  const { createApp, applyPattern } = await import('../game/new.mjs');
+  const parent = mkdtempSync(join(tmpdir(), 'exact-native-origins-'));
+  try {
+    const dir = join(parent, 'site'), env = { EXACT_BUN_LOADED: '' };
+    createApp(dir);
+    applyPattern(dir, 'site');
+    expect(nativeFetchOrigins(dir, env)).toEqual(['http://127.0.0.1:8787']);
+    writeFileSync(join(dir, '.env.local'), 'API_BASE_URL=http://127.0.0.1:9123\n');
+    const faults = () => [{ steps: [{ op: 'fail-fetch', prefix: '/planets' }, { op: 'pass-fetch', prefix: '/planets' }] }];
+    expect(backendFetchPrefixes(faults(), nativeFetchOrigins(dir, env))[0].steps.map((s) => s.prefix)).toEqual(['http://127.0.0.1:9123/planets', 'http://127.0.0.1:9123/planets']);
+    expect(nativeFetchOrigins(dir, { ...env, API_BASE_URL: 'http://127.0.0.1:7000' })).toEqual(['http://127.0.0.1:7000']);
+    // The backend a build selected, and a scaffold's literal origin, still come first.
+    expect(nativeFetchOrigins(dir, { ...env, EXACT_BACKEND_ORIGIN: 'http://127.0.0.1:4411' })).toEqual(['http://127.0.0.1:4411']);
+    writeFileSync(join(dir, 'app.ts'), "const origin = 'http://127.0.0.1:4410';\n");
+    expect(nativeFetchOrigins(dir, env)).toEqual(['http://127.0.0.1:4410']);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
 });

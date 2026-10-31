@@ -623,14 +623,14 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
-  // Native runs use the origin their build selected (LLP 1142 D13), else the scaffold's declared one, when no web
-  // admission file exists.
-  const appOrigin = host !== 'web' && existsSync(resolve(resolveApp(app).dir, 'app.ts')) ? backendOrigin(resolveApp(app).dir, { ...process.env, ...(env ?? {}) }) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(readFileSync(resolve(resolveApp(app).dir, 'app.ts'), 'utf8'))?.[1] : null;
+  // Native runs use the origin their build selected (LLP 1142 D13), else the scaffold's declared one, else the grants
+  // app.ts names as the build evaluates them, when no web admission file exists.
+  const appOrigins = host !== 'web' ? nativeFetchOrigins(resolveApp(app).dir, { ...process.env, ...(env ?? {}) }) : [];
   const authored = JSON.parse(c.stdout), properties = authored.properties.filter(p => p.kind === 'always');
   const unchecked = authored.properties.filter(p => p.kind !== 'always').reduce((n, p) => n + Math.max(1, p.lines.length), 0);
   if (unchecked) console.error(`properties on ${host}: ${unchecked} lines not checked (after, its frames and commands, and never refuses); the driver exposes no commit trace`);
   let propertyChecks = 0, propertyFalse = 0;
-  const tests = backendFetchPrefixes(authored.tests, granted.length ? granted : appOrigin ? [appOrigin] : []);
+  const tests = backendFetchPrefixes(authored.tests, granted.length ? granted : appOrigins);
   const reseeded = tests.filter(t => t.steps.some(s => s.op === 'fresh')).length;
   if (reseeded) console.error(`fresh: reseeding before each of ${reseeded} tests`);
   const results = [];
@@ -1095,6 +1095,18 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   return { passed: results.length - failed - skipped, failed, skipped, results };
 }
 
+/** The origins a native run's fetch faults resolve against, with no web build's admission data to read: the backend its
+ * build selected (LLP 1142 D13), else app.ts's literal `const origin`, else the origins its `net.fetch` grants name as the
+ * build evaluates them, a setting's value (`import.meta.env.API_BASE_URL`, LLP 1153 D4) in place of its read. */
+export function nativeFetchOrigins(dir, env = process.env) {
+  let code; try { code = readFileSync(resolve(dir, 'app.ts'), 'utf8'); } catch { return []; }
+  const origin = backendOrigin(dir, env) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(code)?.[1];
+  if (origin) return [origin];
+  let grants = '';
+  try { const parse = createRequire(import.meta.url)('rolldown/utils').parseSync; grants = staticFacts(inlineSettings(code, dir, parse, env).code, parse).grants ?? ''; }
+  catch { return []; } // the bake refuses it, and says why when it builds
+  return [...new Set(grants.split('\n').map(line => /^\s*(?:development\s+)?net\.fetch\s+(https?:\/\/[^/\s]+)/.exec(line)?.[1]).filter(Boolean))];
+}
 /** Resolve the built grant alias and diagnose a fault that cannot meet a granted URL. */
 export function resolveFaultPrefix(prefix, origins, say=console.warn) {
   const unique=[...new Set(origins.map(o=>o.replace(/\/+$/,'')))];

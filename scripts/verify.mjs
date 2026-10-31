@@ -143,12 +143,12 @@ export function appServer(dir, env = process.env) {
     : null;
   const port = url ? Number(new URL(url).port || (new URL(url).protocol === 'https:' ? 443 : 80)) : null;
   if (selected && local) { const at = serverArgs.indexOf('--port'); if (at >= 0) serverArgs[at + 1] = String(port); }
-  return { entry, args: entry === named ? serverArgs : [], database, url, port, why, refusal, ...(fixture ? { fixture: true } : {}) };
+  return { entry, args: entry === named ? serverArgs : [], database, url, port, why, refusal, settings: builtSettings(dir, env).values, ...(fixture ? { fixture: true } : {}) };
 }
 
-// With app.ts's settings as the build has them, a server importing it (site's) listens where `serverUrl` looks, as Bun's .env loading may not.
-function serverEnv(server, db, dir) {
-  const env = { ...process.env, ...builtSettings(dir, process.env).values, PORT: String(server.port) };
+// app.ts's settings as `appServer` read them: a server importing it (site's) listens where it looked, as Bun's .env loading may not.
+function serverEnv(server, db) {
+  const env = { ...process.env, ...server.settings, PORT: String(server.port) };
   if (server.database) env.DB = db; else delete env.DB;
   return env;
 }
@@ -237,7 +237,7 @@ async function started(dir, server, name, forward, give) {
   mkdirSync(runDir, { recursive: true });
   clear();
   writeFileSync(owner, `${process.pid}\n`);
-  const child = Bun.spawn([process.execPath, server.entry, ...server.args], { cwd: dir, env: serverEnv(server, db, dir), stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, server.entry, ...server.args], { cwd: dir, env: serverEnv(server, db), stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' });
   let said = '';
   (async () => { for await (const chunk of child.stderr) { said = (said + new TextDecoder().decode(chunk)).slice(-4000); if (forward) process.stderr.write(chunk); } })().catch(() => {});
   const tail = () => lastError(said);
@@ -340,7 +340,7 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
     if (db) mkdirSync(dirname(db), { recursive: true });
     if (db && (!storage || fresh)) for (const end of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${end}`, { force: true });
     const log = openSync(resolve(lease, 'log'), 'a');
-    const child = Bun.spawn([process.execPath, server.entry, ...server.args], { cwd: dir, env: serverEnv(server, db, dir), stdin: 'ignore', stdout: 'ignore', stderr: log });
+    const child = Bun.spawn([process.execPath, server.entry, ...server.args], { cwd: dir, env: serverEnv(server, db), stdin: 'ignore', stdout: 'ignore', stderr: log });
     spawned = child;
     closeSync(log);
     writeFileSync(resolve(lease, `server-${child.pid}`), JSON.stringify({ directory: realpathSync(dir), origin: server.url, db }));
