@@ -87,7 +87,7 @@ export function renderer(dist) {
   const ROOT = /<div id="exact-root"( data-audio-session="[a-z-]+")?><\/div>/.exec(shell), ENTRY = '<script type="module" src="./app.js"></script>';
   const title = shell.indexOf('<title>'), stop = shell.indexOf('>\n', shell.indexOf('<meta name="viewport"', title)) + 2;
   const root = ROOT?.index ?? -1, entry = shell.indexOf(ENTRY), rootAttrs = ROOT?.[1] ?? '';
-  const viewport = esc(/<meta name="viewport" content="([^"]*)"/.exec(shell)?.[1] ?? 'width=device-width, initial-scale=1');
+  const viewportMeta = esc(/<meta name="viewport" content="([^"]*)"/.exec(shell)?.[1] ?? 'width=device-width, initial-scale=1');
   // The document's language is the shell's, which the build wrote from the manifest's `lang` (LLP 1115.000 D4.6).
   const language = /<html[^>]* lang="([^"]*)"/.exec(shell)?.[1] || 'en-US';
   // The shell's sheet as rules, when the build analyzed it: a page then carries only those its document can match, after
@@ -163,7 +163,7 @@ export function renderer(dist) {
       const activate = info.activate === 'inferred' ? infer(out) : info.activate;
       const late = info.activate === 'inferred' && activate !== 'interaction' ? preloads : '';
       const wake = activate === 'interaction' && out.wake.length ? ` data-wake="${esc(JSON.stringify(out.wake))}"` : '';
-      const fields = `<title>${esc(out.title || name)}</title><meta name="viewport" content="${viewport}">${crawled(out, url.pathname + url.search)}`;
+      const fields = `<title>${esc(out.title || name)}</title><meta name="viewport" content="${viewportMeta}">${crawled(out, url.pathname + url.search)}`;
       const checkpoint = `{"location":${JSON.stringify(url.pathname + url.search)},"time":${JSON.stringify(out.time)},"logic":null,"answers":${out.answers},"pending":${JSON.stringify(out.pending)}}`;
       const digest = createHash('sha256').update(out.root).digest('hex').slice(0, 16);
       const style = rules ? `<style data-exact-page>${select(rules, tokens(out.root + shell.slice(root)))}</style>\n` : '';

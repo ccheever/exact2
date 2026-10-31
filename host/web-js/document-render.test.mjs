@@ -507,7 +507,8 @@ component SequenceRender
   }, { 'assets/kick.wav': readFileSync(new URL('./conformance/transport/assets/kick.wav', import.meta.url)) });
 }, 30000);
 
-// Both renderers write the head a crawler reads, its URLs absolute against the manifest's origin (page.rs `page_head`).
+// Both renderers write the head a crawler reads, its URLs absolute against the manifest's origin, after the viewport
+// meta (page.rs `page_head`).
 test('both document renderers write the same crawler head', async () => {
   const source = `routes nav
   home "/" render=build
@@ -520,12 +521,13 @@ component Crawled
         head title="Pikachu & co" description="An electric \\"mouse\\"" image="/art/25.png" canonical="/pokemon/25" robots="noindex"
       text "page"
 `;
-  const crawled = page => [...page.matchAll(/<meta (?:name|property)="(?:description|robots|og:[a-z_]+|twitter:[a-z]+)" content="[^"]*">|<link rel="canonical"[^>]*>/g)].map(m => m[0]);
+  const crawled = page => [...page.matchAll(/<meta (?:name|property)="(?:viewport|description|robots|og:[a-z_]+|twitter:[a-z]+)" content="[^"]*">|<link rel="canonical"[^>]*>/g)].map(m => m[0]);
   const heads = {};
   for (const renderer of ['rust', 'js']) await renderedPages(source, (_, html) => { heads[renderer] = ['', 'art'].map(path => crawled(html(path))); },
     {}, { name: 'Caltrain', app: { id: 'test.heads', name: 'Caltrain', origin: 'https://caltrain.exact.invalid' } }, renderer);
   expect(heads.js).toEqual(heads.rust);
   expect(heads.js[1]).toEqual([
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<meta name="description" content="An electric &quot;mouse&quot;">', '<meta name="robots" content="noindex">',
     '<link rel="canonical" href="https://caltrain.exact.invalid/pokemon/25">', '<meta property="og:type" content="website">',
     '<meta property="og:site_name" content="Caltrain">', '<meta property="og:title" content="Pikachu &amp; co">',
