@@ -11,7 +11,7 @@ static const char *callerName(void *address) {
     Dl_info info;
     return dladdr(address, &info) ? (info.dli_sname ?: info.dli_fname) : "unresolved";
 }
-#include "../../../bench/heavy-list/gpui/first-present.m"
+#include "first-present.m"
 
 @interface FirstPresent : NSObject <NSApplicationDelegate>
 @property NSWindow *window;

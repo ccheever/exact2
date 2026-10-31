@@ -10914,3 +10914,81 @@ hashes and all five bundle signatures. The final caps output is retained in
 test changes in this chunk. The six broad suites and blind code reviews
 remain the separate runs assigned in the brief; this records-only chunk
 does not claim their results. No push.
+
+## M10, the cuts' reviews folded
+
+**Predictions before the fixes and collection (2026-10-31).** The
+retained confirmation carriers supply one traced fling each, hook and
+power off, with phase counters, to test whether the picture-arrival tick
+adds service work after boot. The proposed restriction to boot predicts
+no such direct draws after retirement and an after-minus-main fling
+instruction change within ±10 million/s in five qualified pairs, against
+the confirmation's +24.934 [15.612, 28.720] million/s. CPU, cycles and
+cadence are reported beside instructions; they are not proxies for work.
+
+The fixed carrier predicts complete cold p50 in 195–215 ms and a paired
+change of −15 to −25 ms against origin/main. Instrument: unchanged
+`measure.m` cold-only and drawable probe, ten original launches per arm
+and label, one silver session, hook/trace/power off. Five additional
+traced launches per arm and label predict trace overhead below 10 ms
+per arm; ordering against GPUI is an open measurement, not a promised
+lead. The five traced slots are adjacent to the same arm and label's
+untraced slots, alternating which runs first, before taking the remaining
+five untraced slots. Each freshly signed arm gets a throwaway launch, each original
+passes the ten-second prelaunch gate, launch maxima are report-only, and
+failures remain without substitution.
+
+Functional predictions: acquisition or CPU-blit refusal requests a fresh
+paint despite a retained frame; an incomplete positive then a settled
+zero callback retains the newer frame; stale callbacks cannot retire it;
+a refused visible picture permits retirement. At most one retry is in
+flight, retries stop within 120 delivered visible ticks, nested run-loop
+entries consume no carrier ticks, and off-screen images have zero source
+or decode requests before first paint. The affected Rust suites test
+these conditions. Literal, light/dark and role backgrounds match the
+resolved first screen; unresolved bindings remain hidden until drawable acquisition.
+
+Raw files and commands are retained under `target/m10-review-fix/`. The
+six repository checks are assigned to the mini after this chunk and are
+not run here; staged caps is run as requested.
+
+**Review fixes.** Frame identity now governs the retained source, dropped
+callbacks and boot retirement. Only the current frame can change retry
+state; a positive callback with no pending visible picture retires boot,
+including a terminal image refusal; symbols have no picture request to
+wait for. One repeat may await acquisition or
+display. After 120 visible ticks without completion, retention and the
+early observer stop; exposure, resize and input rearm ordinary recovery.
+Acquisition and CPU-blit failures clear retention and request fresh paint.
+The unavailable-Metal stub has the same CPU submission signature.
+
+The observer counts run-loop entries and exits and consumes ticks only
+at the outer boundary. Its owner retains the block through invalidation.
+The early image path belongs only to the painted Mac carrier: before
+layout it binds sources, and both post-layout syncs use the viewport
+until paint supplies boxes. Ordinary hosts keep their mounted-image
+policy. The root background is read from the presenter's decoded plan;
+literals, roles and light/dark pairs resolve against the window's
+appearance, while an unresolved authored value delays showing the window
+until drawable acquisition. The standalone first-present window fixture
+is now `bench/heavy-list/gpui/first-present-window.m`. The LLP records the
+boot observer's input-ordering limit, and the queue's stray blank is gone.
+
+**Local verification.** The eight named suites pass; their verbatim result
+lines and commands are retained under `target/m10-review-fix/checks/`.
+The current parity test is
+`the_first_frame_after_layout_matches_the_display_tick_frame`. Ink's
+51 tests pass (one ignored), the carrier's eight pass, and the nine
+focused Apple lifecycle tests pass, including an actual nested Core
+Foundation run loop and compilation of the Metal-unavailable stub. The
+60-image offscreen test passes with every image below the viewport and
+no source or decode request before paint. The plain-color fallback and
+the two pre-paint image syncs are covered by the corrected tests.
+
+The combined affected run is **not green**: the existing
+`agent::tests::exit::an_orderly_exit_waits_for_a_request_with_effects`
+fails in both full runs and passes alone. The earlier offscreen and
+plain-color failures remain in those logs; the corrected tests pass in
+the focused runs. No change to the exit test or its implementation is
+included. `caps.log` passes all ten categories; the six broad repository
+checks remain assigned to the mini.

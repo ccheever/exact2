@@ -142,15 +142,20 @@ pub struct Config {
     /// slow start (a plan fetched from a URL) does not fire the boot's
     /// timers at the first frame. `None`: a driver's clock, from zero.
     pub clock_started: Option<std::time::Instant>,
+    /// Painted Mac carrier only: use the decoded plan before fonts and layout,
+    /// and request the first screen's pictures at layout.
+    #[cfg(target_os = "macos")]
+    pub painted_boot: Option<Box<dyn Fn(&exact_plan::Plan)>>,
 }
 
 impl Config {
-    /// The root's literal opaque colour, available before the runner or layout.
-    /// A dynamic or unresolved colour leaves the carrier's platform background.
+    /// None means an authored value needs the runner; Some(None) is the platform background.
     #[cfg(target_os = "macos")]
-    pub fn initial_window_background(&self) -> Option<[u8; 4]> {
-        use exact_plan::{BindingKind, Opcode, Plan, StrId};
-        let plan = Plan::decode(&self.plan).ok()?;
+    pub fn initial_window_background(
+        plan: &exact_plan::Plan,
+        dark: bool,
+    ) -> Option<Option<[u8; 4]>> {
+        use exact_plan::{BindingKind, Opcode, StrId};
         let mut roots = plan
             .nodes
             .iter()
@@ -159,9 +164,11 @@ impl Config {
         if roots.next().is_some() {
             return None;
         }
-        let binding = root.bindings.iter().map(|id| plan.binding(id)).find(|b| {
+        let Some(binding) = root.bindings.iter().map(|id| plan.binding(id)).find(|b| {
             b.kind == BindingKind::Style && b.id == exact_kernel::StyleId::BackgroundColor as u16
-        })?;
+        }) else {
+            return Some(None);
+        };
         let mut code = exact_runner::vm::instructions(plan.code(binding.expr));
         let literal = code.next()?.ok()?;
         if literal.op != Opcode::Str
@@ -170,8 +177,11 @@ impl Config {
         {
             return None;
         }
-        let color = exact_kernel::Color::parse(plan.str(StrId(literal.args[0] as u32)))?;
-        (color.a() == 255).then_some([color.r(), color.g(), color.b(), color.a()])
+        let value = plan.str(StrId(literal.args[0] as u32));
+        let color = exact_kernel::ColorValue::parse_light_dark(value)
+            .map(|pair| pair.resolve(dark))
+            .or_else(|| exact_kernel::Color::parse(value))?;
+        (color.a() == 255).then_some(Some([color.r(), color.g(), color.b(), color.a()]))
     }
 
     /// The manifest's painter with `EXACT_PAINTER` applied, also used to open the window.
@@ -317,6 +327,8 @@ impl Config {
             hatches: None,
             packages: Vec::new(),
             clock_started: None,
+            #[cfg(target_os = "macos")]
+            painted_boot: None,
         }
     }
 
@@ -555,6 +567,16 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
             };
             exact_runner::time::launching_with(launch, || {
                 Presenter::boot_selected(
+                    #[cfg(target_os = "macos")]
+                    if let Some(ready) = config.painted_boot.as_deref() {
+                        PlanBytes::Painted(&config.plan, ready)
+                    } else {
+                        match &config.plan {
+                            std::borrow::Cow::Borrowed(lent) => PlanBytes::Static(lent),
+                            std::borrow::Cow::Owned(plan) => PlanBytes::Copied(plan),
+                        }
+                    },
+                    #[cfg(not(target_os = "macos"))]
                     match &config.plan {
                         std::borrow::Cow::Borrowed(lent) => PlanBytes::Static(lent),
                         std::borrow::Cow::Owned(plan) => PlanBytes::Copied(plan),
@@ -601,6 +623,14 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
             };
             exact_runner::time::launching_with(launch, || {
                 Presenter::boot_selected(
+                    #[cfg(target_os = "macos")]
+                    config
+                        .painted_boot
+                        .as_deref()
+                        .map_or(PlanBytes::Copied(baked), |ready| {
+                            PlanBytes::Painted(baked, ready)
+                        }),
+                    #[cfg(not(target_os = "macos"))]
                     PlanBytes::Copied(baked),
                     D::default(),
                     viewport,
@@ -955,11 +985,11 @@ mod tests {
         for (source, expected) in [
             (
                 "component App\n  view\n    main background-color=\"#23394f\"\n",
-                Some([35, 57, 79, 255]),
+                Some(Some([35, 57, 79, 255])),
             ),
             (
                 "component App\n  view\n    main\n      box background-color=\"red\"\n",
-                None,
+                Some(None),
             ),
             (
                 "component App\n  state color = \"red\"\n  view\n    main background-color=color\n",
@@ -970,10 +1000,30 @@ mod tests {
                 None,
             ),
         ] {
-            let plan = contract::compile(source).unwrap().encode();
-            let mut config = Config::from_env(&plan, "{}");
-            config.plan = plan.into();
-            assert_eq!(config.initial_window_background(), expected, "{source}");
+            let plan = contract::compile(source).unwrap();
+            assert_eq!(
+                Config::initial_window_background(&plan, false),
+                expected,
+                "{source}"
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn early_background_resolves_pairs_and_roles_in_the_windows_appearance() {
+        for value in ["light-dark(#ffffff, #111111)", "-exact-background"] {
+            let source = format!("component App\n  view\n    main background-color=\"{value}\"\n");
+            let plan = contract::compile(&source).unwrap();
+            for dark in [false, true] {
+                let color = exact_kernel::ColorValue::parse_light_dark(value)
+                    .unwrap()
+                    .resolve(dark);
+                assert_eq!(
+                    Config::initial_window_background(&plan, dark),
+                    Some(Some([color.r(), color.g(), color.b(), color.a()]))
+                );
+            }
         }
     }
 

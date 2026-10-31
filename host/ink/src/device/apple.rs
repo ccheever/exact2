@@ -2,7 +2,8 @@
 //! @ref LLP 1149 D7, D11, D12.
 #[cfg(exact_ink_metal)]
 pub use super::metal::startup::Startup;
-#[cfg(not(exact_ink_metal))]
+#[cfg(any(not(exact_ink_metal), test))]
+#[cfg_attr(all(exact_ink_metal, test), allow(dead_code))]
 #[path = "apple/startup_unavailable.rs"]
 mod startup_unavailable;
 use super::{Error, Result};
@@ -12,7 +13,7 @@ use objc2::{
     define_class, msg_send, rc::Retained, runtime::ProtocolObject, AnyThread, DefinedClass,
     MainThreadMarker,
 };
-use objc2_app_kit::{NSApplication, NSColor, NSView};
+use objc2_app_kit::{NSAppearanceCustomization, NSApplication, NSColor, NSView};
 use objc2_core_foundation::CGSize;
 use objc2_core_graphics::CGColorSpace;
 use objc2_metal::{MTLDrawable, MTLPixelFormat};
@@ -124,7 +125,29 @@ impl Layer {
         if let Some(window) = self.0.view.window() {
             window.setBackgroundColor(Some(&color));
         }
-        self.0.layer.setBackgroundColor(Some(&color.CGColor()));
+        if let Some(window) = self.0.view.window() {
+            window
+                .effectiveAppearance()
+                .performAsCurrentDrawingAppearance(&block2::RcBlock::new(|| {
+                    self.0.layer.setBackgroundColor(Some(&color.CGColor()));
+                }));
+        }
+    }
+
+    pub fn dark_appearance(&self) -> bool {
+        use objc2_app_kit::{NSAppearanceNameAqua, NSAppearanceNameDarkAqua};
+        let appearance = self.0.view.effectiveAppearance();
+        let names =
+            objc2_foundation::NSArray::from_slice(&[unsafe { NSAppearanceNameAqua }, unsafe {
+                NSAppearanceNameDarkAqua
+            }]);
+        appearance
+            .bestMatchFromAppearancesWithNames(&names)
+            .is_some_and(|name| &*name == unsafe { NSAppearanceNameDarkAqua })
+    }
+
+    pub fn drawable_ready(&self) -> bool {
+        self.0.presentation.0.lock().unwrap().acquired
     }
 
     pub(crate) fn track_wgpu_drawables(&self) {
@@ -202,7 +225,34 @@ impl Layer {
     /// A zero callback before this generation's first displayed frame.
     pub fn first_present_dropped(&self) -> bool {
         let shown = self.0.presentation.0.lock().unwrap();
-        shown.dropped && shown.painter.is_none()
+        shown.dropped && !shown.complete
+    }
+
+    /// A new paint replaces the retained source and its presentation callbacks.
+    pub fn begin_frame(&self, settled: bool) {
+        let frame = self.0.presentation.begin_frame();
+        BENCHMARK.set(Scene {
+            frame,
+            settled,
+            repeat: false,
+            ..BENCHMARK.get()
+        });
+    }
+
+    /// Reserve before enqueueing: one repeat may await acquisition or display.
+    pub fn begin_repeat(&self) -> bool {
+        if !self.0.presentation.begin_repeat() {
+            return false;
+        }
+        BENCHMARK.set(Scene {
+            repeat: true,
+            ..BENCHMARK.get()
+        });
+        true
+    }
+
+    pub fn cancel_repeat(&self) {
+        self.0.presentation.0.lock().unwrap().repeat_pending = false;
     }
 
     pub fn live_resize(&self) -> bool {
@@ -264,7 +314,14 @@ impl RenderLayer {
         .track(drawable, ink);
     }
 
+    pub(crate) fn cancel_repeat(&self, scene: Scene) {
+        if scene.repeat {
+            self.presentation.0.lock().unwrap().repeat_pending = false;
+        }
+    }
+
     pub fn retry(&self) {
+        self.cancel_repeat(PRESENTING.get());
         if self.retry.failed() {
             (self.wake)();
         }
@@ -277,7 +334,14 @@ impl DrawableTracker {
         let wake = self.wake.clone();
         let presentation = self.presentation.clone();
         let generation = self.generation;
-        let complete = PRESENTING_COMPLETE.get();
+        let scene = PRESENTING.get();
+        {
+            let mut shown = presentation.0.lock().unwrap();
+            if !shown.acquired {
+                shown.acquired = true;
+                wake();
+            }
+        }
         let block = block2::RcBlock::new(
             move |shown: std::ptr::NonNull<
                 objc2::runtime::ProtocolObject<dyn objc2_metal::MTLDrawable>,
@@ -288,13 +352,15 @@ impl DrawableTracker {
                 let time = unsafe { shown.as_ref().presentedTime() };
                 trace_mark(c"presented handler", || time);
                 trace_interval(c"presented", || (time, time, 0.));
-                if !presentation.record(generation, time, ink, complete) {
+                if time > 0. {
+                    crate::counters::displayed();
+                }
+                if !presentation.record(generation, scene, time, ink) {
                     return;
                 }
                 if time == 0. && retry.failed() {
                     wake();
                 } else if time != 0. {
-                    crate::counters::displayed();
                     retry.reset();
                 }
             },
@@ -315,6 +381,9 @@ struct Shown {
     painter: Option<&'static str>,
     dropped: bool,
     complete: bool,
+    frame: u64,
+    repeat_pending: bool,
+    acquired: bool,
 }
 impl Presentation {
     fn painter(&self) -> Option<&'static str> {
@@ -327,19 +396,38 @@ impl Presentation {
             ..Shown::default()
         };
     }
-    fn record(&self, generation: u64, time: f64, ink: bool, complete: bool) -> bool {
+    fn begin_frame(&self) -> u64 {
+        let mut shown = self.0.lock().unwrap();
+        shown.frame += 1;
+        shown.dropped = false;
+        shown.frame
+    }
+    fn begin_repeat(&self) -> bool {
+        let mut shown = self.0.lock().unwrap();
+        if !shown.dropped || shown.complete || shown.repeat_pending {
+            return false;
+        }
+        shown.repeat_pending = true;
+        true
+    }
+    fn record(&self, generation: u64, scene: Scene, time: f64, ink: bool) -> bool {
         let mut shown = self.0.lock().unwrap();
         if shown.generation != generation {
             return false;
         }
-        shown.dropped |= time == 0.;
-        shown.complete |= time > 0. && complete;
+        if scene.repeat {
+            shown.repeat_pending = false;
+        }
+        if scene.frame == shown.frame {
+            shown.complete |= time > 0. && scene.settled;
+            shown.dropped = !shown.complete && time == 0.;
+        }
         // Completion callbacks can arrive in a different order from display.
         if time > shown.time {
             shown.time = time;
             shown.painter = Some(if ink { "ink" } else { "cpu" });
         }
-        true
+        scene.frame == shown.frame && (time > 0. || !shown.complete)
     }
 }
 
@@ -588,17 +676,33 @@ impl Drop for DisplayLink {
     }
 }
 
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Scene {
+    complete: bool,
+    offset: f32,
+    frame: u64,
+    settled: bool,
+    repeat: bool,
+}
 thread_local! {
-    static BENCHMARK: std::cell::Cell<(bool, f32)> = const { std::cell::Cell::new((false, 0.)) };
-    static PRESENTING_COMPLETE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static BENCHMARK: std::cell::Cell<Scene> = const { std::cell::Cell::new(Scene {
+        complete: false, offset: 0., frame: 0, settled: false, repeat: false,
+    }) };
+    static PRESENTING: std::cell::Cell<Scene> = const { std::cell::Cell::new(Scene {
+        complete: false, offset: 0., frame: 0, settled: false, repeat: false,
+    }) };
 }
 
-/// Frame readiness retires boot on display; the optional probe also reads its offset.
+/// Benchmark readiness excludes refusals; boot retirement only needs settled content.
 pub fn benchmark_frame(complete: bool, offset: f32) {
-    BENCHMARK.set((complete, offset));
+    BENCHMARK.set(Scene {
+        complete,
+        offset,
+        ..BENCHMARK.get()
+    });
 }
 
-pub(crate) fn benchmark_scene() -> (bool, f32) {
+pub(crate) fn benchmark_scene() -> Scene {
     BENCHMARK.get()
 }
 
@@ -654,8 +758,11 @@ pub fn benchmark_present_clear() -> bool {
 }
 
 /// Carry readiness to the drawable callback and metadata to the optional probe.
-pub(crate) fn benchmark_present((complete, offset): (bool, f32)) {
-    PRESENTING_COMPLETE.set(complete);
+pub(crate) fn benchmark_present(scene: Scene) {
+    PRESENTING.set(scene);
+    let Scene {
+        complete, offset, ..
+    } = scene;
     type Ready = unsafe extern "C" fn(i32, usize, f32);
     static READY: std::sync::OnceLock<Option<Ready>> = std::sync::OnceLock::new();
     let ready = READY.get_or_init(|| unsafe {
@@ -678,46 +785,200 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_unavailable_startup_has_the_same_cpu_submission_signature() {
+        let _: fn(&mut startup_unavailable::Startup, Arc<tiny_skia::Pixmap>) -> Result<bool> =
+            startup_unavailable::Startup::present_cpu;
+        assert!(startup_unavailable::Startup::start(Arc::new(|| {})).is_err());
+    }
+
+    #[test]
+    fn only_one_repeat_can_wait_for_a_drawable_callback() {
+        let presented = Presentation::default();
+        let frame = presented.begin_frame();
+        let scene = Scene {
+            frame,
+            settled: true,
+            ..Scene::default()
+        };
+        assert!(!presented.begin_repeat());
+        assert!(presented.record(0, scene, 0., true));
+        assert!(presented.begin_repeat());
+        assert!(!presented.begin_repeat());
+        let repeat = Scene {
+            repeat: true,
+            ..scene
+        };
+        assert!(presented.record(0, repeat, 0., true));
+        assert!(presented.begin_repeat());
+        assert!(presented.record(0, repeat, 1., true));
+        assert!(!presented.begin_repeat());
+        assert!(!presented.record(0, repeat, 0., true));
+    }
+
+    #[test]
     fn painter_identity_follows_display_and_rejects_a_lost_generations_callbacks() {
         let presented = Presentation::default();
         assert_eq!(presented.painter(), None);
         assert!(!presented.0.lock().unwrap().dropped);
-        presented.record(0, 0., true, false);
+        presented.record(
+            0,
+            Scene {
+                settled: false,
+                ..Scene::default()
+            },
+            0.,
+            true,
+        );
         assert_eq!(presented.painter(), None);
         assert!(presented.0.lock().unwrap().dropped);
-        presented.record(0, 1., false, false);
+        presented.record(
+            0,
+            Scene {
+                settled: false,
+                ..Scene::default()
+            },
+            1.,
+            false,
+        );
         assert_eq!(presented.painter(), Some("cpu"));
-        presented.record(0, 0., true, false);
+        presented.record(
+            0,
+            Scene {
+                settled: false,
+                ..Scene::default()
+            },
+            0.,
+            true,
+        );
         assert_eq!(presented.painter(), Some("cpu"));
-        presented.record(0, 2., true, false);
+        presented.record(
+            0,
+            Scene {
+                settled: false,
+                ..Scene::default()
+            },
+            2.,
+            true,
+        );
         assert_eq!(presented.painter(), Some("ink"));
-        presented.record(0, 1.5, false, false);
+        presented.record(
+            0,
+            Scene {
+                settled: false,
+                ..Scene::default()
+            },
+            1.5,
+            false,
+        );
         assert_eq!(presented.painter(), Some("ink"));
         presented.invalidate();
-        assert!(!presented.record(0, 3., true, false));
-        assert!(!presented.record(0, 0., true, false));
+        assert!(!presented.record(
+            0,
+            Scene {
+                settled: false,
+                ..Scene::default()
+            },
+            3.,
+            true
+        ));
+        assert!(!presented.record(
+            0,
+            Scene {
+                settled: false,
+                ..Scene::default()
+            },
+            0.,
+            true
+        ));
         assert!(!presented.0.lock().unwrap().dropped);
         assert_eq!(presented.painter(), None);
-        presented.record(1, 4., false, false);
+        presented.record(
+            1,
+            Scene {
+                settled: false,
+                ..Scene::default()
+            },
+            4.,
+            false,
+        );
         assert_eq!(presented.painter(), Some("cpu"));
         assert!(!presented.0.lock().unwrap().complete);
-        presented.record(1, 0., true, true);
+        presented.record(
+            1,
+            Scene {
+                settled: true,
+                ..Scene::default()
+            },
+            0.,
+            true,
+        );
         assert!(
             !presented.0.lock().unwrap().complete,
             "a complete dropped frame is not displayed"
         );
-        presented.record(0, 5., true, true);
+        presented.record(
+            0,
+            Scene {
+                settled: true,
+                ..Scene::default()
+            },
+            5.,
+            true,
+        );
         assert!(
             !presented.0.lock().unwrap().complete,
             "an old generation cannot retire boot"
         );
-        presented.record(1, 5., false, true);
+        presented.record(
+            1,
+            Scene {
+                settled: true,
+                ..Scene::default()
+            },
+            5.,
+            false,
+        );
         assert!(
             presented.0.lock().unwrap().complete,
             "a complete CPU frame retires boot too"
         );
         presented.invalidate();
         assert!(!presented.0.lock().unwrap().complete);
+    }
+
+    #[test]
+    fn an_incomplete_display_does_not_strand_a_newer_settled_frame() {
+        let p = Presentation::default();
+        let first = Scene {
+            frame: p.begin_frame(),
+            ..Scene::default()
+        };
+        p.record(0, first, 1., true);
+        assert!(!p.0.lock().unwrap().complete);
+        let settled = Scene {
+            frame: p.begin_frame(),
+            settled: true,
+            ..Scene::default()
+        };
+        p.record(0, settled, 0., true);
+        assert!(p.0.lock().unwrap().dropped);
+        p.record(
+            0,
+            Scene {
+                settled: true,
+                ..first
+            },
+            2.,
+            true,
+        );
+        assert!(!p.0.lock().unwrap().complete, "stale complete callback");
+        p.record(0, settled, 3., true);
+        p.record(0, settled, 0., true);
+        assert!(p.0.lock().unwrap().complete);
+        assert!(
+            !p.0.lock().unwrap().dropped,
+            "late zero cannot undo display"
+        );
     }
 
     #[test]

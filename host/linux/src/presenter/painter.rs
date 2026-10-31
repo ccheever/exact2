@@ -419,7 +419,14 @@ impl<D: DataSource> Presenter<D> {
                 .as_mut()
                 .ok_or("CPU presentation device changed")?;
             match preparing.present_cpu(pixels.clone()) {
-                Ok(_) => Ok(true), // A full CPU queue keeps the retained frame for the next tick.
+                Ok(accepted) => {
+                    if !accepted {
+                        if let Some(layer) = &self.surfaces.apple_layer {
+                            layer.cancel_repeat();
+                        }
+                    }
+                    Ok(true)
+                }
                 Err(error) => {
                     boot.refused(error, std::time::Instant::now());
                     self.repaint();
@@ -795,6 +802,8 @@ mod tests {
         ] {
             OPENED.with(|n| n.set(0));
             let mut config = crate::app::Config {
+                #[cfg(target_os = "macos")]
+                painted_boot: None,
                 content_region: None,
                 launch: "/".into(),
                 plan: selected.into(),

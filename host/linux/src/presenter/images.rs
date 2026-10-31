@@ -13,6 +13,12 @@ static AT_MOUNT: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::var("EXACT_PICTURES_AT_MOUNT").is_ok_and(|v| v != "0"));
 
 impl<D: DataSource> Presenter<D> {
+    /// Restore the ordinary image policy after the painted carrier retires boot.
+    #[cfg(target_os = "macos")]
+    pub fn finish_boot_images(&mut self) {
+        self.images.finish_boot();
+    }
+
     /// A landed picture needs the next display tick, without waiting for a
     /// window-system redraw. Painting consumes this demand.
     pub fn pictures_need_paint(&self) -> bool {
@@ -184,11 +190,22 @@ impl<D: DataSource> Presenter<D> {
         self.images.paint_with(self.brush.text.clone());
         // Where its painted box is in the viewport: None for a picture with no
         // painted box (not painted yet, or under `display: none`).
+        let boot_visible_only = self.images.boot_visible_only;
         let placed = |id: ViewId| -> Option<bool> {
             if host.route_visibility(id).0 {
                 return Some(false);
             }
-            let (i, b) = boxes(&id)?;
+            let Some((i, b)) = boxes(&id) else {
+                return boot_visible_only.then(|| {
+                    host.kernel().node(id).is_some_and(|n| {
+                        let f = n.frame;
+                        f.x < viewport.0
+                            && f.y < viewport.1
+                            && f.x + f.width.max(1.) > 0.
+                            && f.y + f.height.max(1.) > 0.
+                    })
+                });
+            };
             let (mut x, mut y, mut w, mut h) = b.rect;
             let mut clip = b.clip;
             if let Some((_, _, d, port)) = shifts.iter().find(|(a, e, _, _)| (*a..*e).contains(&i))

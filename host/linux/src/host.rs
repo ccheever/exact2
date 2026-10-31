@@ -68,6 +68,8 @@ use system::{physical_memory, store_snapshot};
 pub(crate) enum PlanBytes<'a> {
     Copied(&'a [u8]),
     Static(&'static [u8]),
+    #[cfg(target_os = "macos")]
+    Painted(&'a [u8], &'a dyn Fn(&Plan)),
 }
 
 impl PlanBytes<'_> {
@@ -75,6 +77,12 @@ impl PlanBytes<'_> {
         match self {
             PlanBytes::Copied(bytes) => Plan::decode(bytes),
             PlanBytes::Static(bytes) => Plan::decode_static(bytes),
+            #[cfg(target_os = "macos")]
+            PlanBytes::Painted(bytes, ready) => {
+                let plan = Plan::decode(bytes)?;
+                ready(&plan);
+                Ok(plan)
+            }
         }
     }
 }
@@ -370,7 +378,16 @@ impl<D: DataSource> Host<D> {
         crate::app::boot_phase(c"layout-ready");
         if let Some((images, scale)) = boot_images {
             images.enable_decode();
-            let reports = images.sync_visible(host.kernel(), &host.preorder(), scale, |_| true);
+            let reports = images.sync_visible(host.kernel(), &host.preorder(), scale, |id| {
+                !host.route_visibility(id).0
+                    && host.kernel().node(id).is_some_and(|n| {
+                        let f = n.frame;
+                        f.x < width
+                            && f.y < height
+                            && f.x + f.width.max(1.) > 0.
+                            && f.y + f.height.max(1.) > 0.
+                    })
+            });
             error = error.or(host.set_intrinsics(reports));
         }
         host.present();

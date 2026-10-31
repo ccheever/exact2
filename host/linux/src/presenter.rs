@@ -406,6 +406,10 @@ impl<D: DataSource> Presenter<D> {
                 .map_err(|e| HostError::Painter(format!("content raster context: {e:?}")))?;
         }
         let t = std::time::Instant::now();
+        #[cfg(target_os = "macos")]
+        let painted_boot = matches!(plan, PlanBytes::Painted(..));
+        #[cfg(not(target_os = "macos"))]
+        let painted_boot = false;
         let decoded =
             crate::traced(c"boot plan decode", || plan.decode()).map_err(HostError::Plan)?;
         #[cfg(any(windows, target_os = "macos"))]
@@ -442,7 +446,7 @@ impl<D: DataSource> Presenter<D> {
             launch,
             region,
             Some(text.clone()),
-            (!assets.is_selected()).then_some((&mut images, scale)),
+            (painted_boot && !assets.is_selected()).then_some((&mut images, scale)),
         )?;
         // @ref LLP 1115.000 D10.3 — a hairline is one device pixel of this.
         let error = error.or(host.set_display_scale(f64::from(scale)));
