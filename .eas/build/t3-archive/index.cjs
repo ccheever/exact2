@@ -41,18 +41,25 @@ function installSigning(credentials, directory) {
 
   const keychain = join(directory, 'T3Code-signing.keychain-db');
   const keychainPassword = `${uuid}-${Date.now()}`;
-  run('security', ['create-keychain', '-p', keychainPassword, keychain]);
-  run('security', ['set-keychain-settings', '-lut', '21600', keychain]);
-  run('security', ['unlock-keychain', '-p', keychainPassword, keychain]);
-  run('security', ['import', p12, '-k', keychain, '-P', certificate.password, '-T', '/usr/bin/codesign']);
-  run('security', ['set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', keychainPassword, keychain]);
   const keychains = run('security', ['list-keychains', '-d', 'user'])
     .split('\n').map(value => value.trim().replace(/^"|"$/g, '')).filter(Boolean);
-  run('security', ['list-keychains', '-d', 'user', '-s', ...keychains, keychain]);
-  const identities = run('security', ['find-identity', '-v', '-p', 'codesigning', keychain]);
-  const identity = identities.match(/([0-9A-F]{40})/i)?.[1];
-  if (!identity) fail('The EAS distribution certificate did not produce a codesigning identity');
-  return { identity, keychain, keychainPassword, profile: mobileprovision, profileDestination, uuid, keychains };
+  try {
+    run('security', ['create-keychain', '-p', keychainPassword, keychain]);
+    run('security', ['set-keychain-settings', '-lut', '21600', keychain]);
+    run('security', ['unlock-keychain', '-p', keychainPassword, keychain]);
+    run('security', ['import', p12, '-k', keychain, '-P', certificate.password, '-T', '/usr/bin/codesign']);
+    run('security', ['set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', keychainPassword, keychain]);
+    run('security', ['list-keychains', '-d', 'user', '-s', ...keychains, keychain]);
+    const identities = run('security', ['find-identity', '-v', '-p', 'codesigning', keychain]);
+    const identity = identities.match(/([0-9A-F]{40})/i)?.[1];
+    if (!identity) fail('The EAS distribution certificate did not produce a codesigning identity');
+    return { identity, keychain, keychainPassword, profile: mobileprovision, profileDestination, uuid, keychains };
+  } catch (error) {
+    run('security', ['list-keychains', '-d', 'user', '-s', ...keychains], { stdio: 'ignore' });
+    run('security', ['delete-keychain', keychain], { stdio: 'ignore' });
+    rmSync(profileDestination, { force: true });
+    throw error;
+  }
 }
 
 function cleanupSigning(signing) {
