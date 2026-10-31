@@ -101,14 +101,14 @@ export function scroll(root, visit, fragment, log) {
   if (target) {
     target.scrollIntoView({ block: "start", inline: "nearest" });
     hold(r, target);
-    // The starting point: the target takes the focus, as the next Tab and a screen reader start from it. A field the
-    // person is typing in keeps it.
+    // The starting point: the target takes the focus, as the next Tab and a screen reader start from it, with no focus
+    // ring, as a browser's own scroll to a fragment draws none. A field the person is typing in keeps it.
     if (document.activeElement?.matches?.("input, textarea, select, [contenteditable]")) return;
     if (!target.matches("a[href], button, input, select, textarea, [tabindex], [contenteditable]")) {
       target.setAttribute("tabindex", "-1");
       target.addEventListener("blur", () => target.removeAttribute("tabindex"), { once: true });
     }
-    target.focus({ preventScroll: true });
+    target.focus({ preventScroll: true, focusVisible: false });
     return;
   }
   if (fragment && id?.toLowerCase() !== "top") log(`fragment #${fragment}: no element in the route of visit ${visit} has that id; the route goes to its top`);
