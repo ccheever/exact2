@@ -10374,3 +10374,296 @@ are excluded from performance cohorts. Raw diagnosis is retained under
 `target/m10-c6/diagnosis/`; all failed attempts remain there. The requested
 six broad checks are deferred to the Mac mini; affected suites and caps run
 in this worktree. No push.
+
+**Outcome.** Cold complete display is **200.874 ms**, below GPUI's
+209.308 and egui's 222.489 ms. The cold prediction is met. The renderer
+commits the complete warm frame at 170.573 ms, but it displays at
+212.754 ms: the warm display prediction misses. Early delivery removes
+winit's long queue delay; it cannot preempt the first paint or force the
+window's first composite. The 100 ms application obligation remains unmet.
+
+| Prediction | Result |
+| --- | --- |
+| First delivered tick within 8.33 ms of its callback, about 156 ms | **Miss:** warm delivery 163.213 ms; per-launch callback-to-delivery median 20.038 ms, range 16.572–28.119. None of the thirty candidate launches meets one period. |
+| Final upload by about 170 ms | **Met:** issued at 162.223 ms warm. |
+| Complete-frame commit by about 175 ms | **Met:** 170.573 ms warm. |
+| Warm complete display 190–200 ms | **Miss:** 212.754 ms. |
+| Cold complete display 195–205 ms, below GPUI and egui | **Met:** 200.874 ms, against 209.308 and 222.489 ms; n=10 each. |
+| Matching-backend pixels unchanged; CPU-first handoff and live Metal/wgpu pass | **Met:** zero changed full-window RGBA pixels on both backends; handoff, release wheel and development socket drives pass. |
+| Fling, rest and bar unchanged | **Not established from n=1:** CPU is lower and idle remains stopped, but fling late intervals rise from 0.537 to 1.053/s. Qualified samples and clock counters are below. |
+
+**Cause and change.** Winit 0.30.13 puts proxy events in a channel,
+signals a run-loop source and wakes the loop. The source's callback does
+no work. Winit drains the channel at its last-priority `BeforeWaiting`
+observer, then handles redraws and `about_to_wait`. Signalling the source
+does not invoke the carrier's tick.
+
+In the two diagnostic launches, the first `BeforeWaiting` is 208.342 and
+214.249 ms. No other run-loop mode is observed before tick delivery.
+AppKit's first entry-observer interval is 14.161 and 19.067 ms; its later
+`updateWindows` spans are 4.674 and 7.390 ms. The source can run before
+winit delivers its queued tick: in the second launch it runs at 188.586 ms,
+25.665 ms before delivery. This is not a source wake lost in another mode.
+The sample names AppKit's UpdateCycle, transaction flush, native window
+layout and SwiftUI chrome layout. It also contains earlier menu/Writing
+Tools initialization and later probe saving; neither is charged to this
+delivery interval. The sample does not provide an exclusive CPU breakdown
+of every millisecond of the gap.
+
+GPUI 0.2.2 coalesces its CVDisplayLink callbacks into a dispatch source on
+the main queue and calls its frame callback there. It has no winit channel
+to drain. Dispatch alone is not the earliest usable boundary for this
+carrier: the diagnostic main-queue checkpoints arrive at 206.452 and
+191.123 ms, after run-loop entry at 171.041 and 168.922 ms. The carrier can
+paint at that entry without calling AppKit's `drawRect` or forcing a
+transaction flush.
+
+Source `54929835ce` installs a boot-only observer at priority −1, in common
+modes, for entry, after-waiting, before-sources and before-waiting. It
+consumes the pending tick on main. A checked mutable borrow defers a tick
+when AppKit enters a nested loop inside a carrier callback. The existing
+proxy still supplies the wake; its later queued event does nothing if the
+tick was already consumed. A positive presented timestamp for a complete
+frame retires the observer. Dropped frames and callbacks from an old layer
+generation cannot retire it. A boot latch keeps later resize generations
+on ordinary delivery. Frame readiness reaches the presentation callback
+without requiring the probe. Drawable acquisition and final presentation
+remain on the worker; CPU-first handoff and cuts 1–5 remain.
+
+**Affected suites.** The release and development bundles build. With
+`EXACT_INK_DEVICE=metal EXACT_REQUIRED=1 RUST_TEST_THREADS=2`,
+`cargo test -p exact-linux -p exact-apple-painted -p exact-ink --lib --tests
+--no-fail-fast` exits 0: six carrier tests, 46 Ink tests, 1,697 Linux
+library tests and every Linux integration binary pass. The presentation
+regression checks dropped complete frames, stale generations, a displayed
+complete CPU frame and invalidation. Full output is retained in
+`target/m10-c6/checks/affected.log`; `suite-results.txt` retains its status
+lines, including the nested Linux processes. The named filters print:
+
+```text
+paint: test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 48 filtered out; finished in 5.06s
+borders: test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.98s
+tint: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.75s
+backdrop: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 1.23s
+gradients: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 0.75s
+visual: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 2.39s
+materials: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 1.61s
+image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.08s
+```
+
+Changed Rust files pass formatting. Staged caps passes all ten categories.
+The six broad checks are deferred to the Mac mini as requested.
+
+**Cold scoreboard.** The retained `measure.m` driver runs cold-only,
+hook, trace and power off, ten original launches per arm before and after
+in this session. Before is cut 5's `94638ea2d8` carrier; after is
+`54929835ce`. Controls and the linked probe match cut 5's hashes. Both
+schedules qualify. Before egui round 5 fails startup readiness; all forty
+after originals succeed. No failure is replaced.
+
+| Arm | Before, ms (n) | After, ms (n) |
+| --- | ---: | ---: |
+| Native | 255.063 (10) | 257.581 (10) |
+| GPUI | 208.224 (10) | 209.308 (10) |
+| egui | 219.400 (9) | 222.489 (10) |
+| Ink | 221.986 (10) | 200.874 (10) |
+
+The Ink row improves by 21.112 ms. Cold means a fresh process without
+file-cache eviction, as in G4 and cut 5; it does not mean an empty Metal
+system cache. The root scoreboard's other workloads retain their existing
+cohorts.
+
+**Five-run confirmation.** Every one of the thirty originals succeeds.
+
+| Arm | Cold, ms (range; n) | Warm, ms (range; n) |
+| --- | --- | --- |
+| ink-after | 214.282 (205.017–226.387; n=5) | 213.078 (195.573–219.112; n=5) |
+| gpui | 208.944 (208.529–216.683; n=5) | 210.508 (202.630–213.741; n=5) |
+| egui | 227.444 (221.157–240.162; n=5) | 220.717 (213.622–227.863; n=5) |
+
+**Ten-pair comparison.** All 120 original attempts remain. Three egui-after
+attempts time out before the first complete frame: cold rounds 5 and 7, and
+warm round 6. The successful sample counts and matched-pair counts are below.
+
+| Arm/cohort | Before, ms (range; n) | After, ms (range; n) | Paired after − before, ms (range; n) |
+| --- | --- | --- | --- |
+| ink cold | 230.340 (216.102–246.372; n=10) | 217.607 (194.755–226.479; n=10) | -14.447 (-26.912–1.120; n=10) |
+| ink warm | 228.469 (216.711–241.373; n=10) | 212.754 (196.368–225.433; n=10) | -18.499 (-33.161–0.839; n=10) |
+| gpui cold | 209.653 (201.735–217.496; n=10) | 208.293 (195.271–224.344; n=10) | -6.894 (-10.865–22.609; n=10) |
+| gpui warm | 213.216 (205.207–228.227; n=10) | 210.138 (199.144–222.274; n=10) | -3.924 (-21.865–8.120; n=10) |
+| egui cold | 222.250 (208.823–247.199; n=10) | 224.601 (206.372–237.280; n=8) | 0.097 (-21.006–14.319; n=8) |
+| egui warm | 224.523 (210.435–238.911; n=10) | 217.930 (205.569–266.593; n=9) | -10.190 (-33.342–53.843; n=9) |
+
+**Warm phase trace.** Ten successful launches per Ink arm. Each column
+contains medians of its own observations; differences of column medians are
+not phase-duration medians.
+
+| Event, process-relative ms unless labelled | Cut 5 | Cut 6 |
+| --- | --- | --- |
+| Window show returns | 99.201 | 102.890 |
+| First layout completes | 128.262 | 130.261 |
+| First paint starts | 132.534 | 132.963 |
+| First display-link callback | 143.717 | 142.843 |
+| Last picture decode ends | 160.929 | 160.422 |
+| First tick delivered | 205.700 | 163.213 |
+| Final picture upload is issued | 205.844 | 162.223 |
+| Complete frame commits | 206.386 | 170.573 |
+| Complete frame displays | 228.469 | 212.754 |
+| Last decode to last upload end, per-launch interval | 43.913 | 1.890 |
+
+The callback-to-delivery interval falls from 61.495 to 20.038 ms (per-launch
+medians). Every candidate launch still exceeds one 8.33 ms period. Final
+upload follows the first delivered tick in all ten cold launches and seven
+warm launches; the immediate successor already uploads the last picture in the
+other three warm launches. The warm median last-decode-to-upload interval
+falls from 43.913 to 1.890 ms.
+
+The warm per-launch complete-commit-to-display interval grows from 23.389 to
+45.991 ms. Earlier commit does not force AppKit's first display cycle to
+composite sooner. The first displayed frame is complete in all thirty
+candidate launches, and every observer retires once, after that display, with
+no later boot tick. Warm zero callbacks before positive display rise from a
+median one to two. The paired Ink median improves by 14.447 ms cold and 18.499
+ms warm, but both ranges cross zero; neither is an all-launch win.
+
+**Qualification.** All 230 startup attempts are retained: 226 successes
+and four egui failures. The prelaunch gate is unchanged. During-launch
+load is reported, not used to discard a launch. All four schedules pass
+their ten-second prelaunch gates and observe no power sampler. Successful
+samples meet the focus, geometry, thermal and power-mode checks. Accepted traced
+samples lose no trace events.
+
+| Cohort | Minimum quiet seconds | Maximum non-benchmark cores during launch | Maximum user-process cores during launch | Maximum whole-machine cores during launch |
+| --- | ---: | ---: | ---: | ---: |
+| confirm | 10.111 | 1.356 | 0.285 | 6.750 |
+| paired | 10.106 | 1.529 | 0.671 | 8.518 |
+| scoreboard-before | 10.104 | 2.029 | 0.666 | 8.914 |
+| scoreboard-after | 10.101 | 1.401 | 0.260 | 7.029 |
+
+**Functional drives and pixels.** On an empty application archive, the
+complete CPU frame displays at 195.595 ms and the complete Ink frame at
+337.262 ms. Retained Metal displays at 182.238 ms and wgpu at 230.484 ms.
+All three checks pass with zero main-thread drawable acquisition. These
+are single functional observations, not qualified startup medians.
+
+The release wheel drive advances displayed frames from 14 to 116 on Metal
+and 13 to 114 on wgpu. Both observers retire once. Their subsequent idle
+intervals, 1.132 and 1.142 seconds, contain zero display callbacks, tick
+deliveries, paints, present commits or first-frame repeats. The development
+socket drives advance carrier frames from 4 to 41 on each backend, keep
+the Ink painter and exit 0. All four validation records report no failures.
+
+Matching-backend first screens have **zero changed RGBA pixels**, both
+for the 1600×1536 content and the full 1600×1600 windows. Every after capture
+records that the complete screen was its first display. Both after first
+screens and both live release captures were inspected. The predictions
+for pixels, handoff and live drawing pass.
+
+**Fling, rest and bar.** One original fling/rest and one bar sample per
+arm; hook, trace and power off, CPU clock counters retained. All eight
+samples pass the prelaunch gate, every five-second quiet observation,
+focus, geometry, thermal and power-mode checks. Each phase lasts ten
+seconds. There are no replacements. Native's display-link counts are its
+existing cadence proxy; native rest has no comparable presented-frame
+count.
+
+| Arm | Phase | Qualified | CPU ms/s | Main ms/s | Mcycles/s | Minstructions/s | GHz | IPC | Frames/s |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| native | fling | True | 169.395 | 116.670 | 476.660 | 1300.196 | 2.814 | 2.728 | 118.252 |
+| native | rest | True | 3.233 | 1.862 | 4.715 | 3.601 | 1.458 | 0.764 | — |
+| gpui | fling | True | 163.403 | 84.367 | 321.988 | 500.704 | 1.971 | 1.555 | 88.955 |
+| gpui | rest | True | 5.149 | 3.418 | 7.293 | 9.157 | 1.416 | 1.256 | 0.000 |
+| ink | fling | True | 139.451 | 69.338 | 265.256 | 527.308 | 1.902 | 1.988 | 33.287 |
+| ink | rest | True | 3.493 | 3.340 | 5.221 | 5.013 | 1.494 | 0.960 | 0.000 |
+| egui | fling | True | 123.658 | 60.666 | 245.925 | 369.970 | 1.989 | 1.504 | 41.679 |
+| egui | rest | True | 1.304 | 1.163 | 1.826 | 2.160 | 1.401 | 1.183 | 0.000 |
+| native | bar | True | 12.110 | 10.851 | 17.089 | 23.087 | 1.411 | 1.351 | 119.953 |
+| gpui | bar | True | 180.632 | 126.720 | 310.281 | 473.059 | 1.718 | 1.525 | 119.495 |
+| ink | bar | True | 189.846 | 96.948 | 295.141 | 410.774 | 1.555 | 1.392 | 119.553 |
+| egui | bar | True | 203.871 | 110.044 | 350.268 | 331.316 | 1.718 | 0.946 | 119.705 |
+
+| Arm | Fling p95, ms | Late intervals/s | Fling peak, MiB | End of rest, MiB | Bar peak, MiB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| native | 8.333 | 1.699 | 231.611 | 216.923 | 131.407 |
+| gpui | 8.333 | 1.877 | 421.970 | 215.673 | 301.892 |
+| ink | 8.333 | 1.053 | 599.876 | 241.892 | 353.548 |
+| egui | 8.333 | 0.268 | 515.767 | 181.954 | 439.157 |
+
+Compared with cut 5's retained single Ink samples, fling/rest/bar CPU is
+146.319/3.552/206.719 → 139.451/3.493/189.846 ms/s. Fling instructions are
+528.330 → 527.308 million/s and bar instructions 414.774 → 410.774
+million/s. Effective clocks and IPC also change; these points do not
+establish a new CPU saving. Fling p95 stays 8.333 ms, but late intervals
+rise from 0.537 to 1.053/s. Rest presents zero frames in both sessions,
+and bar cadence is 119.524 → 119.553/s. The unchanged-cost prediction is
+not established by these one-sample checks. The ordinary idle stop and
+post-boot drawing behavior pass their separate drives.
+
+**Reproduction and retained files.** Work stays in
+`/Users/ccheever/projects/exact2-wt-1149-c1`, branch
+`lane/1149-001-m10-c1`. The lane rebased onto `ab50634c87` before the fix;
+`rebase.txt` and `rebase-code.diff` retain that boundary. Prediction commit
+`50d2444b49` precedes the candidate run; implementation `54929835ce` is the
+only measured renderer configuration. No push is made.
+
+Local `target/m10-c6/` retains the release/development bundles, build
+context, logs, tests and reducers. The silver's
+`~/projects/exact2-measure/target/g0/m10-c6/` retains all five measurement
+bundles, the development bundle, original drivers and every startup,
+cost and functional run. Its raw records are mirrored locally under
+`target/m10-c6/silver/`. `provenance.json`, `instrument-identity.json` and
+`probe-hashes.json` identify the exact before/after executables and verify
+that the controls and probe match cut 5. `collection-final.json` records
+every collector command, PID and exit. The silver is dedicated; no go
+file is required.
+
+The diagnostic injection, binaries, traces, sample, run records and source
+excerpts are retained under `target/m10-c6/diagnosis/` and the silver's
+`target/g0/m10-c6-diagnosis/`. Two passive diagnostic Ink launches have
+large startup perturbations; their sample is stack evidence only. An
+early-initialization diagnostic GPUI launch aborts before its custom
+application class is ready. All remain excluded. The two ordinary Ink
+traces and ordinary GPUI trace supply the run-loop observations. Diagnostic
+injection and sampling are absent from every performance cohort.
+
+Build from the worktree's own target directory:
+
+```sh
+cargo metadata --offline --format-version 1 \
+  --manifest-path bench/heavy-list/exact-heavylist/Cargo.toml > /dev/null
+EXACT_APP_DIR="$PWD/bench/heavy-list/exact-heavylist" \
+EXACT_PAINTED_PROBE="$PWD/bench/heavy-list/gpui/probe.m" \
+CARGO_TARGET_DIR="$PWD/target" \
+bun host/apple/build.mjs exact-heavylist-apple --painted-benchmark --release
+```
+
+The build script passes `--target-dir` to this worktree's `target/`.
+Omitting `--release` builds the development socket fixture. Prepare a
+fresh artifact directory with the retained `prepare.py`; run
+`run-final.py` under `caffeinate` in the silver's GUI session. Its cost
+collector includes cut 5's corrected initial CPU observation interval.
+Use a new directory rather than overwriting any retained original.
+
+Reproduce the reductions without opening a window:
+
+```sh
+python3 -B target/m10-c6/report.py
+python3 -B target/m10-c6/picture-spans.py
+python3 -B target/m10-c6/wake-spans.py
+python3 -B target/m10-c6/boot-observer.py
+python3 -B target/m10-c6/paired-intervals.py
+python3 -B target/m10-c6/launch-rows.py
+python3 -B target/m10-c6/cost-report.py
+python3 -B target/m10-c6/record-tables.py
+python3 -B target/m10-c6/diagnosis/timing.py
+bun target/m10-c6/first-screen-compare.mjs
+```
+
+The JSON and table files retain every reduced value and its original
+filename. `raw-sha256.json` hashes the retained records and
+`analysis-sha256.json` hashes the reducers. `checks/verbatim-output.txt`
+retains the full affected and named-suite stdout/stderr. All requested
+collection is complete. The six broad checks remain deferred to the Mac
+mini. One implementation and measurement round; no second renderer change
+is made to pursue the missed warm targets. D7, D11 and D15, including the
+dated device and 100 ms application obligations, remain unchanged.

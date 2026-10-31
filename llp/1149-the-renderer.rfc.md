@@ -1332,6 +1332,35 @@ CPU-first handoff and live Metal/wgpu pass. This one implementation round
 leaves the boot dispatch delay unresolved; D7, D11 and D15 are unchanged.
 [Tables, predictions, wake spans and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-5-paint-landed-pictures-on-the-display-tick).
 
+**M10 cut 6, 2026-10-31:** source `54929835ce` consumes pending boot
+ticks in an early main-run-loop observer, before AppKit's display-cycle
+observers and winit's last-priority user-event drain. A positive display
+timestamp for a complete frame retires it. Both four-arm cold schedules
+qualify on the silver, hook, trace and power off, with ten quiet seconds
+before each launch. All forty after originals succeed; the before egui
+readiness failure is retained without replacement.
+
+| Arm | Before, ms (n) | After, ms (n) |
+| --- | ---: | ---: |
+| Native | 255.063 (10) | 257.581 (10) |
+| GPUI | 208.224 (10) | 209.308 (10) |
+| egui | 219.400 (9) | 222.489 (10) |
+| Ink | 221.986 (10) | 200.874 (10) |
+
+Ink meets 195–205 ms and is below both contemporaneous controls. Traced
+warm delivery is 163.213 ms, final upload 162.223 ms, complete-frame commit
+170.573 ms and display 212.754 ms. Upload and commit meet their predictions;
+delivery within one period and warm display at 190–200 ms miss. Per-launch
+callback-to-delivery falls from 61.495 to 20.038 ms. The first paint still
+holds main; complete-commit-to-display grows from 23.389 to 45.991 ms.
+Median paired Ink changes are −14.447 ms cold and −18.499 ms warm, with
+both ranges crossing zero. All thirty candidate traced first displays are
+complete and retire the observer once. Matching-backend first screens have
+zero changed RGBA pixels; CPU-first handoff and live Metal/wgpu pass.
+All 230 originals remain, including three traced egui failures and the
+before cold failure. One implementation round; the 100 ms application obligation and D7, D11 and D15 remain.
+[Predictions, qualification and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-6-the-boot-ticks-reach-the-carrier-when-they-fire).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms
