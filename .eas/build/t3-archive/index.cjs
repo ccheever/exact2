@@ -12,7 +12,13 @@ const run = (command, args, options = {}) => {
   return result.stdout?.trim() ?? '';
 };
 const digest = path => createHash('sha256').update(readFileSync(path)).digest('hex');
-const plistValue = (profile, key) => run('plutil', ['-extract', key, 'raw', '-o', '-', profile]);
+const plistValue = (profile, key) => {
+  const plist = run('security', ['cms', '-D', '-i', profile]);
+  const decoded = join(tmpdir(), `t3-code-profile-${process.pid}.plist`);
+  writeFileSync(decoded, plist);
+  try { return run('plutil', ['-extract', key, 'raw', '-o', '-', decoded]); }
+  finally { rmSync(decoded, { force: true }); }
+};
 
 function credentialParts(value) {
   const credentials = value?.ios ?? value;
@@ -40,15 +46,18 @@ function installSigning(credentials, directory) {
   run('security', ['unlock-keychain', '-p', keychainPassword, keychain]);
   run('security', ['import', p12, '-k', keychain, '-P', certificate.password, '-T', '/usr/bin/codesign']);
   run('security', ['set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', keychainPassword, keychain]);
-  run('security', ['list-keychains', '-d', 'user', '-s', keychain]);
+  const keychains = run('security', ['list-keychains', '-d', 'user'])
+    .split('\n').map(value => value.trim().replace(/^"|"$/g, '')).filter(Boolean);
+  run('security', ['list-keychains', '-d', 'user', '-s', ...keychains, keychain]);
   const identities = run('security', ['find-identity', '-v', '-p', 'codesigning', keychain]);
   const identity = identities.match(/([0-9A-F]{40})/i)?.[1];
   if (!identity) fail('The EAS distribution certificate did not produce a codesigning identity');
-  return { identity, keychain, keychainPassword, profile: mobileprovision, profileDestination, uuid };
+  return { identity, keychain, keychainPassword, profile: mobileprovision, profileDestination, uuid, keychains };
 }
 
 function cleanupSigning(signing) {
   if (!signing) return;
+  run('security', ['list-keychains', '-d', 'user', '-s', ...signing.keychains], { stdio: 'ignore' });
   run('security', ['delete-keychain', signing.keychain], { stdio: 'ignore' });
   if (existsSync(signing.profileDestination)) rmSync(signing.profileDestination, { force: true });
 }
