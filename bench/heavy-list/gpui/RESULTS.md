@@ -7506,3 +7506,37 @@ and native builds pass; no Mac six-check gate is claimed.
 The clean rebase onto `c83a5c1d97` brings in kernel table layout/style/schema
 changes. These rows and native results remain attached to measured source
 `6d501215b7`; no post-rebase performance or native qualification is claimed.
+
+## A7, measured and parked
+
+A7 (`parked/a7-glyph-workers`, `15b1735142`) bought no cold-start saving.
+Its first paint still issued 250 uploads: summed staging waits were 27.205 ms,
+against 3.094 ms of pure swash work. First paint changed from 33.676 to
+31.624 ms; qualified cold medians were 241.452 and 242.751 ms. One fling
+sample used 3.2% more CPU and one bar sample 6.9% more; bar peak footprint
+rose 6.109 MiB. The worker amendment is not adopted. The full report remains
+on that branch and every raw file remains in this worktree's `target/a7/`.
+
+## M10, cut 7: the atlas uploaded once
+
+Predictions recorded before implementation and collection, 2026-10-31.
+Baseline: main at `4ee50baec5`, plus the benchmark workspace's required
+AccessKit patch in both builds. No M10 startup cuts or A7 workers are included.
+One paired session on the dedicated silver M5 Max, retained caches, GPU hook
+and power sampling off; first launches after signing excluded and retained.
+Each launch is qualified separately under §4's quiet, focus, viewport and
+thermal rules. Failed launches remain counted; maxima are report-only.
+
+| Prediction | Instrument |
+| --- | --- |
+| First-paint uploads about 27 → 2 ms; first paint about 31 → 8 ms | Five traced launches per carrier; upload CPU spans and GPU copies reported separately |
+| Complete-frame commit about 20 ms earlier | The same traces, process start to first complete-scene commit |
+| Cold complete scene 15–20 ms earlier, about 220 → 200 ms without M10's other cuts | `measure.m` cold-only, ten launches per arm, four-arm before and after |
+| Fling CPU unchanged within 5%, with upload work lower as about 70 new glyphs arrive | Five posted fling rounds per carrier, counters and cycles/instructions beside CPU |
+| Rest, bar and caret CPU unchanged within 5%; warm atlas uploads zero | One sample per carrier and workload, same probe and counters; single samples cannot establish a distribution |
+| Peak footprint changes by at most 2 MiB | The same probe's phase peaks |
+| Glyph masks and rendered pixels remain identical | Atlas byte comparison, pinned and text suites on Metal and wgpu |
+
+The six-check gate is assigned to the Mac mini. This lane runs the affected
+suites, formatting and staged caps locally. Raw files for this cut are retained
+under `target/m10-cut7/`; `target/a7/` is unchanged.
