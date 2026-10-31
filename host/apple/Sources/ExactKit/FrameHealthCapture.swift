@@ -13,6 +13,7 @@ extension FrameHealth {
 
     func setInspectorVisible(_ visible: Bool) {
         inspectorCapture = visible
+        if !visible { window.close() }
         nativeHealth?.setInspectorVisible(visible)
         updateCapture(at: CACurrentMediaTime())
     }

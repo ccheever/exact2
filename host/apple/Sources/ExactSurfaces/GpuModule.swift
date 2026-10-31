@@ -154,6 +154,8 @@ final class GpuModule {
     /// Whether a canvas's last render went without a drawable (the module
     /// acquires off the main thread and says when one arrives).
     var starved: WantsFn?
+    /// Whether a canvas's last render drew into the frame the next flush submits.
+    var drew: WantsFn?
     /// Whether a canvas's first frame has been handed to the compositor: a
     /// presenter that reuses a layer keeps it hidden until then.
     var seen: WantsFn?
@@ -320,6 +322,7 @@ final class GpuModule {
         module.carry = sym("gpu_carry", WantsFn.self); module.restore = sym("gpu_restore", RestoreFn.self)
         sym("gpu_seekable", SeekableFn.self)?(ExactEnv.agentFreezes)
         module.starved = sym("gpu_starved", WantsFn.self)
+        module.drew = sym("gpu_drew", WantsFn.self)
         module.highDynamicRange = sym("gpu_high_dynamic_range", WantsFn.self)
         module.headroom = sym("gpu_headroom", HeadroomFn.self)
         module.landed = sym("gpu_landed", WantsFn.self)

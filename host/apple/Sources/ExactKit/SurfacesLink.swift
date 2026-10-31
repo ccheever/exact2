@@ -53,6 +53,12 @@ package protocol Canvases: AnyObject {
     var isEmpty: Bool { get }
     var status: String { get }
     var wantsFrames: Bool { get }
+    /// Renders that drew since launch, so a display-link callback can tell whether it drew one.
+    var drawn: Int { get }
+    /// Whether a canvas render drew nothing, as without its drawable, and has not drawn since. Each
+    /// waiting render draws when a drawable lands; once none waits, `Frames.canvasDrawn` says so,
+    /// and a waiting canvas that leaves first calls `Frames.canvasLost`.
+    var awaitingDrawable: Bool { get }
     var frameNow: Double? { get set }
     func reset()
     func surface(view: NodeView, name: String, values: Any)
@@ -182,6 +188,8 @@ final class NoCanvases: Canvases {
     var isEmpty: Bool { true }
     var status: String { "not linked" }
     var wantsFrames: Bool { false }
+    var drawn: Int { 0 }
+    var awaitingDrawable: Bool { false }
     var frameNow: Double?
     func reset() {}
     func surface(view: NodeView, name: String, values: Any) {}

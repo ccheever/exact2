@@ -32,7 +32,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 18
+#define EXACT_ABI_VERSION 19
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,23 +41,43 @@ extern "C" {
 /* A runtime handle (LLP 1031 D2). 0 is never a runtime. */
 typedef uint32_t ExactRuntime;
 
-/* UI-thread callback proxies, not presented-frame counts. Storage and lookup
- * are bounded to 16 collectors; create returns 0 at capacity. */
+/* UI-thread callback proxies, not presented-frame counts (LLP 1079.000 §4.6). Storage and
+ * lookup are bounded to 16 collectors; create returns 0 at capacity. */
 typedef struct ExactFrameHealthSnapshot {
-    uint64_t generation, callbacks, intervals, active_ns, period_ns, max_gap_ns;
-    uint64_t work_overruns, cadence_changes, last_arrival_ns, running;
-    uint64_t applies, target_applies, apply_overruns, interval_through_ns, apply_through_ns, histogram_overflows;
+    uint64_t generation, callbacks, held, intervals, active_ns, period_ns, max_interval_ns;
+    uint64_t cadence_changes, pacing_changes, last_arrival_ns, running, worked, late;
+    uint64_t interval_through_ns, work_through_ns, histogram_overflows;
+    uint64_t requested_slots, missed_frames, restricted_intervals, skipped_refreshes, schedule_epochs;
+    uint64_t unclassified_intervals, out_of_order;
 } ExactFrameHealthSnapshot;
 uint32_t exact_frame_health_create(void);
-void exact_frame_health_record(uint32_t id, uint64_t arrival, uint64_t target, uint64_t period, uint64_t finished, uint64_t flags);
+/* outcome: 0 complete, 1 pending (its finish arrives through worked), 2 held (it started no
+ * frame work because earlier work was in flight) and 3 idle (no frame work due; it ends the run).
+ * Held and idle callbacks are not frames. */
+/* Returns 1 when recorded and 0 for an observation the collector rejected; drop its pending work. */
+uint32_t exact_frame_health_record(uint32_t id, uint64_t arrival, uint64_t target, uint64_t period, uint64_t finished, uint32_t outcome, uint64_t flags);
+void exact_frame_health_worked(uint32_t id, uint64_t start, uint64_t deadline, uint64_t finished);
+typedef struct ExactFrameHealthMaxima { uint64_t longest_ns, slowest_ns, budget_ns; } ExactFrameHealthMaxima;
+/* Returns and resets the per-read maxima; only the card's sampler calls it. */
+ExactFrameHealthMaxima exact_frame_health_take_maxima(uint32_t id);
 typedef struct ExactFrameHealthWork {
     uint64_t capture, began_ns, finished_ns, target_ns, queued_ns;
     uint64_t owner_began_ns, owner_finished_ns, landed_ns, operations;
 } ExactFrameHealthWork;
+/* A retained hitch: microsecond offsets from at_ns (INT32_MIN when unobserved) and durations. */
+typedef struct ExactFrameHealthHitchWork {
+    uint32_t capture;
+    int32_t began_us, finished_us, target_us, queued_us, owner_began_us, owner_finished_us, landed_us;
+    uint32_t operations;
+} ExactFrameHealthHitchWork;
 typedef struct ExactFrameHealthHitch {
-    uint64_t sequence, capture, generation, at_ns, target_ns, period_ns, requested_period_ns, gap_ns, callback_ns;
-    uint64_t before_gap_ns, before_callback_ns, after_at_ns, after_gap_ns, after_callback_ns, flags;
-    ExactFrameHealthWork work;
+    uint64_t at_ns, flags;
+    uint32_t sequence, capture, generation;
+    int32_t target_us;
+    uint32_t period_us, requested_period_us, gap_us, callback_us, before_gap_us, before_callback_us;
+    int32_t after_at_us;
+    uint32_t after_gap_us, after_callback_us;
+    ExactFrameHealthHitchWork work;
 } ExactFrameHealthHitch;
 typedef struct ExactFrameHealthHistoryStatus {
     uint64_t capture, active, segments, started_ns, changed_ns, callbacks;
@@ -71,6 +91,7 @@ ExactFrameHealthHitch exact_frame_health_hitch(uint32_t id, uint32_t index);
 void exact_frame_health_applied(uint32_t id, ExactFrameHealthWork work, uint64_t flags);
 void exact_frame_health_requested_period(uint32_t id, uint64_t period);
 void exact_frame_health_context(uint32_t id, ExactFrameHealthWork work);
+/* Kinds: 0 frame intervals, 1 work, 2 refreshes (32 bins) and 3 lateness (32 bins). */
 typedef struct ExactFrameHealthDistribution { uint32_t bins[64]; } ExactFrameHealthDistribution;
 ExactFrameHealthDistribution exact_frame_health_distribution(uint32_t id, uint32_t kind);
 ExactFrameHealthSnapshot exact_frame_health_snapshot(uint32_t id);

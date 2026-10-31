@@ -44,6 +44,12 @@ impl Module {
             .is_some_and(|o| o.canvases.iter().any(|c| c.id == id))
     }
 
+    /// Whether `id`'s last render drew into the frame not yet submitted. A render that went without
+    /// a drawable, or whose drawable request timed out or found its window occluded, drew nothing.
+    pub fn drew(&self, id: u32) -> bool {
+        self.in_open_frame(id)
+    }
+
     /// Flush the open frame when `id` is in it: a call about that canvas
     /// sees it submitted and its present issued (on Android, perhaps still
     /// queued on the canvas's acquiring thread), as without batching.

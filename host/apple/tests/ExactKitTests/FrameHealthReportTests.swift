@@ -38,12 +38,11 @@ final class FrameHealthReportTests: XCTestCase {
         XCTAssertGreaterThan(events.count, 0)
         XCTAssertEqual(events.last?[0] as? String, "39")
         XCTAssertEqual((decoded["retention"] as? [String: Any])?["omittedForBudget"] as? Int, 16 - events.count)
-        // 24 ms between arrivals that are CACurrentMediaTime() plus multiples of 0.024 s: the doubles' difference lands
-        // a nanosecond either side of it, depending on the clock's magnitude when the test starts
-        let gap = try XCTUnwrap(events.first?[columns.firstIndex(of: "gap_ns")!] as? UInt64)
-        XCTAssertEqual(Double(gap), 24_000_000, accuracy: 1)
-        XCTAssertEqual(events.first?[columns.firstIndex(of: "requested_period_ns")!] as? UInt64, 8_333_333)
-        XCTAssertTrue(events.first?[columns.firstIndex(of: "owner_queued_offset_ns")!] is NSNull)
+        // Retained hitches keep microseconds: 24 ms between arrivals, and the 120 Hz request
+        XCTAssertEqual(events.first?[columns.firstIndex(of: "gap_us")!] as? UInt64, 24_000)
+        XCTAssertEqual(events.first?[columns.firstIndex(of: "requested_period_us")!] as? UInt64, 8_333)
+        XCTAssertTrue(events.first?[columns.firstIndex(of: "owner_queued_offset_us")!] is NSNull)
+        XCTAssertEqual((decoded["time"] as? [String: Any])?["unit"] as? String, "us")
         XCTAssertEqual((decoded["retention"] as? [String: Any])?["overwrittenSinceClear"] as? String, "23")
         XCTAssertEqual((decoded["retention"] as? [String: Any])?["automaticDiskBytes"] as? Int, 0)
         XCTAssertTrue((decoded["unobserved"] as? [String])?.contains("presentation") == true)
@@ -163,12 +162,14 @@ final class FrameHealthReportTests: XCTestCase {
         XCTAssertGreaterThan(health.historyStatus().apply_deadlines, 0)
         let events = (0..<UInt32(health.historyStatus().retained)).map { health.hitch($0) }
         let event = try XCTUnwrap(events.first { $0.flags & 4 != 0 })
-        XCTAssertGreaterThan(event.work.queued_ns, 0)
-        XCTAssertGreaterThanOrEqual(event.work.owner_began_ns, event.work.queued_ns)
-        XCTAssertGreaterThanOrEqual(event.work.owner_finished_ns, event.work.owner_began_ns)
-        XCTAssertGreaterThanOrEqual(event.work.landed_ns, event.work.owner_finished_ns)
-        XCTAssertGreaterThanOrEqual(event.work.began_ns, event.work.landed_ns)
-        XCTAssertGreaterThan(event.work.finished_ns, event.work.target_ns)
+        // Offsets from the event, which an apply deadline places at the apply's end
+        XCTAssertNotEqual(event.work.queued_us, Int32.min)
+        XCTAssertGreaterThanOrEqual(event.work.owner_began_us, event.work.queued_us)
+        XCTAssertGreaterThanOrEqual(event.work.owner_finished_us, event.work.owner_began_us)
+        XCTAssertGreaterThanOrEqual(event.work.landed_us, event.work.owner_finished_us)
+        XCTAssertGreaterThanOrEqual(event.work.began_us, event.work.landed_us)
+        XCTAssertEqual(event.work.finished_us, 0)
+        XCTAssertGreaterThan(event.work.finished_us, event.work.target_us)
     }
 
     func testFrameCaptureAgentRequestDoesNotEnableTheLegacySampler() throws {
