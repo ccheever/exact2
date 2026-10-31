@@ -1694,16 +1694,33 @@ and the Linux headless CPU renderer without claiming display frame timing.
 
 - **macOS live trackpad replay (LLP 1079.000, 2026-10-28).** Add a reliable completion acknowledgement for synthetic phased wheels before admitting them under platform timing. Immediate layout reads exposed zero or partial motion; posting the later phases first did not resolve it. The carrier currently refuses with `platform-trackpad-replay-unqualified`; ordinary wheels and frozen-clock functional replay remain available.
 
-- **NucBox: disable AMD Software's In-Game Overlay and qualify the change**
+- **NucBox: qualify an AMD overlay diagnostic if the paint crash recurs**
   (LLP 1149.001 Stage 1w). The retained wgpu paint crash is an execution
   access violation in `amdihk64.dll_unloaded` 2.0.0.1788 at `0x648d`;
   a post-reboot module inventory finds the hook in many desktop processes.
-  Disable the overlay through [AMD Software's Preferences](https://www.amd.com/en/resources/support-articles/faqs/DH3-001.html), verify whether
+  G7's single isolated rerun passes 56 tests with the hook loaded in the arm
+  and pinned process, and captures no new fault. If it recurs, test disabling
+  the overlay through [AMD Software's Preferences](https://www.amd.com/en/resources/support-articles/faqs/DH3-001.html), verify whether
   the hook leaves newly launched arms, then requalify paint. This is a
   proposed machine remedy, not a demonstrated fix. Keep the later
   sleep/wake hang separate: chunk A reached `shelf_sleep_wake` at 18:39:46,
   after the 18:32 paint crash, and the next boot's Kernel-Power 41 reports
   `SleepInProgress=5`, `BugcheckCode=0`. Retain both investigations.
+- **G7 Windows cadence needs foreground qualification** (2026-10-31,
+  LLP 1149.001). The display is 5120×1440 at 120 Hz, verified by PresentMon,
+  but two egui diagnostics each record 683 focus losses after the native DPI
+  journeys. Minimizing Settings and the native field driver's input-attachment
+  fallback do not grant foreground ownership; the third diagnostic stops
+  before its timed fling. The three-round repair limit is reached. Resolve
+  foreground acquisition, then collect all three arms' five quiet rounds;
+  do not promote the unfocused diagnostics into 120 Hz cadence or CPU rows.
+- **NucBox sleep/wake needs a verified wake-timer design** (2026-10-31,
+  LLP 1149.001 G7). The unattended October 30 sleep journey never woke;
+  G7 skips sleep/wake on both devices. Before another unattended attempt,
+  verify a resume-capable timer is armed and permitted by the active power
+  plan, retain its due time and wake-source evidence, and provide an
+  independent recovery path. A timer handle alone does not prove the machine
+  or physical display will wake. Keep this separate from the AMD-hook crash.
 - **Stage 1w chunk B: native-field pointer delivery** (Claude review 3,
   `target/review-claude-s1w.md`, `98cff0bdfa`). RichEdit's handled mouse messages
   make winit skip dispatch, so field and ancestor clicks never reach the page.

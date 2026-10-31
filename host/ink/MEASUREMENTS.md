@@ -609,9 +609,13 @@ the console-session mode query at 11:20:32 PDT reports **5120×1440,
 lower bound is Charlie's hardware report, not measured by this mode query.
 Raw mode enumeration is `target/g7/mode.json` in the NucBox mirror; the
 local console-query copy is `target/g7/mode-ssh.log`. PresentMon verification
-of actual compositor cadence is pending the G7 diagnostic.
-C: had 305,256,144,896
-bytes free before building. Rust is the repository's pinned 1.97.0 MSVC
+of actual compositor cadence is affirmative: the retained egui G7 diagnostic
+records an 8.3374 ms median displayed interval and 8.5314 ms p99, with no
+lost ETW events. PresentMon reports composed and hardware-composed flip.
+Its focus losses exclude it from the cadence scoreboard; it establishes
+the active display rate, not a qualified five-round benchmark.
+
+For C6, C: had 305,256,144,896 bytes free before building. Rust is the repository's pinned 1.97.0 MSVC
 toolchain; Bun is 1.4.2. DXBC was compiled by Windows SDK 10.0.26100.0
 `fxc` during the build. No Direct3D shader source is compiled by the app.
 
@@ -5313,25 +5317,24 @@ the headless M9 audit and offscreen wgpu suites moved ahead of the held
 desktop work. No correctness-test wall time is promoted to a performance
 claim.
 
-| Prediction or required collection | Result on this revision |
+| Prediction or required collection | Original collection and G7 follow-up |
 | --- | --- |
 | Zero eager imports of the three candidate DLLs | Met: all three absent from the complete 42-DLL list. |
-| Zero D3D11 suite and desktop-journey failures | Met for the 22 collected filters; six desktop journeys held. |
-| Native field fixtures and type/select/cut/paste/undo at 100/150% | Current-source run held. Recovered AccessKit/edit/lifetime fixtures pass on chunk A's source; they are not this revision's qualification. |
-| UIA discovers the native fragment within 30 seconds | Unrun on this revision; the one requested attempt remains available. The recovered third rejection tree is identified above. |
+| Zero D3D11 suite and desktop-journey failures | Met for the 22 collected filters. G7 below adds five passing desktop journeys on `6d501215b7`; sleep/wake is skipped. |
+| Native field fixtures and type/select/cut/paste/undo at 100/150% | G7 below passes the edit/lifetime fixtures and both visual journeys on `6d501215b7`. |
+| UIA discovers the native fragment within 30 seconds | G7 below consumes the single attempt: discovery fails after 30 seconds; the complete rejected tree is retained. |
 | Static advance difference below 0.02 px | Met for Inter and Segoe UI. |
 | Inter coverage below 4.589/255 | Miss: 5.295/255. |
 | Segoe UI coverage below 12.335/255 | Met: 5.473/255. |
-| Zero non-paint wgpu suite and journey failures | Met for nine offscreen filters; native surfaces, composition, ten startup/fallback fixtures and six desktop journeys held. |
-| Isolated candidate-off wgpu paint, with module and fault capture | Unrun: the machine is still serving other work. Current-arm hook loading and candidate-off reproduction remain unknown. |
+| Zero non-paint wgpu suite and journey failures | Met for nine offscreen filters. G7 below adds passing surfaces, composition, ten startup/fallback filters and five desktop journeys; sleep/wake is skipped. |
+| Isolated candidate-off wgpu paint, with module and fault capture | G7 below passes 56 tests, with one measurement ignored. The hook loads in both the preflight arm and pinned process; the prior crash does not recur. |
 
-The held desktop journeys are resize, minimize/restore, idle caret,
-forced device loss, two DPI round trips and sleep/wake, on each arm.
-No additional field/UIA attempt, paint rerun, overlay-setting change or
-Rust edit is made. Both candidates remain disabled. The native executables,
-Shelf/PDB and prepared `run.ps1`, `dpi-operator.ps1`, `field-150.py` and
-`paint.ps1` remain in this lane's NucBox mirror. Paint is still last and
-alone; a repeated AMD-hook access violation must not be rerun.
+At the original collection's cutoff, resize, minimize/restore, idle caret,
+forced device loss, two DPI round trips and sleep/wake were held on each
+arm. G7 below collects the first five, the field/UIA attempt and paint;
+sleep/wake remains skipped. Both candidates remain disabled. This older
+mirror retains its native executables, Shelf/PDB and prepared scripts;
+G7 uses its own mirror and rebuilt executables.
 
 The final retained archive is
 `target/stage-1w-native/stage-1w-native-collected.tgz`, SHA-256
@@ -5381,3 +5384,126 @@ event and `tasklist /m amdihk64.dll` captured before it and fault events
 captured immediately afterward. No pass is predicted for that unresolved
 access violation; a repeated AMD-hook fault ends the attempt without retry.
 No AMD setting is changed.
+
+### Stage 1w desktop qualification at 120 Hz — results
+
+The zero-failure prediction is met for the ten allowed desktop journeys,
+native edit/lifetime fixtures, both visual field journeys, wgpu surfaces,
+composition and ten startup/fallback filters. These filters can select
+devices internally; the `wgpu-` log prefix records the environment,
+not proof that every fixture path uses wgpu. These are correctness
+runs, some alongside release compilation; their wall times are not speed
+measurements. Shelf and the test executables were rebuilt on the NucBox
+from `6d501215b7`, using `gpu-dev` and this mirror's own `target/`.
+
+RichEdit is enabled only for the D3D11 field fixtures. The retained captures show
+`Piranesi`, its selection, an empty field after cut, restored text after
+paste and an empty field after undo, at 100% and 150%. Each capture was
+inspected. The DPI journeys return to 100%; the display remains 5120×1440
+at 120 Hz. Sleep/wake is skipped on both devices; QUEUE requires a verified
+wake timer and an independent recovery path before another unattended run.
+
+The single UIA discovery attempt fails as predicted, after 30.19 seconds.
+Its rejected Search node still reports
+`Unidentified Provider (unmanaged:combase.dll)` with an empty class name.
+The test never reaches its Value/Text-pattern assertions. This does not
+establish that a native fragment is absent: discovery by the existing
+class/provider-name detector remains unresolved. No retry is made. The
+full tree is `target/g7/nucbox/field-uia/field-uia.txt` locally.
+Both candidates remain disabled by default; IME, Narrator and Excord are
+not qualified by these field fixtures.
+
+Verbatim native result lines (the labels identify retained log names):
+
+```text
+d3d11-shelf_device_loss: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 6.17s
+d3d11-shelf_dpi_roundtrip: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 11.51s
+d3d11-shelf_idle_caret: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 2.69s
+d3d11-shelf_minimize_restore: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 2.09s
+d3d11-shelf_resize: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 10.43s
+field-lifetime: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.12s
+field-uia: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 81 filtered out; finished in 30.19s
+field-unit: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.12s
+field-visual: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 11.48s
+wgpu-composition: test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 67 filtered out; finished in 0.50s
+wgpu-shelf_both_late_devices_measure_the_first_pixel_trade: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.36s
+wgpu-shelf_device_loss: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 6.65s
+wgpu-shelf_device_preparation_overlaps_slow_configuration: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.69s
+wgpu-shelf_dpi_roundtrip: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 6.84s
+wgpu-shelf_exhausted_devices_exit_with_both_refusals: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.30s
+wgpu-shelf_hardware_attach_refusal_uses_warp: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.89s
+wgpu-shelf_hardware_open_refusal_uses_warp: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.83s
+wgpu-shelf_hardware_recovers_while_startup_warp_is_pending: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.95s
+wgpu-shelf_idle_caret: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 3.71s
+wgpu-shelf_minimize_restore: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 3.19s
+wgpu-shelf_quit_does_not_join_a_pending_shell_call: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.22s
+wgpu-shelf_refused_warp_waits_for_prepared_hardware: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.40s
+wgpu-shelf_resize: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 6.97s
+wgpu-shelf_slow_preparation_displays_cpu_before_hardware: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.28s
+wgpu-shelf_unavailable_mica_still_presents: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.73s
+wgpu-surfaces: test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 1627 filtered out; finished in 0.42s
+```
+
+
+The candidate-off wgpu pinned-paint suite ran **last and alone**, once.
+`tasklist /m amdihk64.dll` identifies the hook in the preflight Shelf arm
+(PID 22628) before the suite, and in the pinned test process (PID 61944)
+during it. The prior application fault was captured before launch. The
+suite passes with the hook loaded; the previous access violation does not
+recur. No pass was predicted for this unresolved failure.
+
+```text
+wgpu-pinned-paint: test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 48.06s
+```
+
+The ignored test is `paint::caltrain_ink_and_vello_frame_times`, an opt-in
+measurement. Immediate and follow-up Application-event queries find no new
+1000/1001 event; the follow-up covers 11:51:50–11:53:51 PDT. The collector's
+`Start-Process.ExitCode` read produces an empty file, so no numeric paint
+exit code is claimed: the verbatim harness summary is the passing evidence.
+The task completed and the process ended. No second attempt was made.
+
+Disabling [AMD Software's In-Game Overlay](https://www.amd.com/en/resources/support-articles/faqs/DH3-001.html)
+remains a proposed controlled diagnostic if the hook crash recurs. This pass
+with the hook loaded does not demonstrate an overlay remedy or establish
+the prior crash's cause. No AMD setting changed. The sleep/wake hang remains
+a separate, skipped qualification.
+
+The final local archive is `target/g7/final-evidence.zip`, SHA-256
+`f7609d5a6b970047f5085a2f79e583d40dc358aeb5f0dc00c0450c1caf96289c`,
+extracted at `target/g7/nucbox/`. The identical archive, build outputs and
+raw files remain in the own NucBox mirror. It includes `run.ps1`,
+`qualify.ps1`, the DPI operator, field driver, `paint.ps1`, the source/binary
+provenance, exact test result lines, preflight and pinned module inventories,
+the prior fault, event queries and UIA rejection tree. All app and test
+builds used this mirror's `target/`; no other checkout was touched. The
+lane's completed scheduled tasks were removed after collection; their
+states and the removal record are retained.
+
+### G7 checks and limits
+
+`EXACT_CAPS_WASM=0 bun scripts/caps.mjs` passes; the complete output is
+`target/g7/caps.log`:
+
+```text
+wasm32: skipped (EXACT_CAPS_WASM=0)
+All budgets within cap. 10 categories inspected.
+```
+
+`git diff --check` passes. All heavy builds and native suites ran on the
+NucBox. The Mac six-check gate and implicit wasm build were not run under
+this chunk's no-heavy-Mac-work instruction. The only source-file change is
+the existing Windows summary's refresh-rate option; its retained reproduction
+checks pass. The standalone heavy-list manifest adds the root's existing
+AccessKit patch so its release can build against this source.
+
+The incomplete work is the five-round 120 Hz fling series, stopped at the
+three-attempt foreground limit, and the explicitly skipped sleep/wake
+journeys. UIA discovery remains a failed qualification; the native field
+captures and passing paint suite do not admit either Stage 1w candidate.
+
+The branch rebases cleanly onto `c83a5c1d97`. Incoming main changes the
+kernel's table layout/style/schema; the measured binaries still come from
+`6d501215b7`. No timing or native-suite result is claimed for the rebased
+source. Final structural caps pass on the rebased tree, with the same wasm
+skip (`target/g7/caps-final.log`).
