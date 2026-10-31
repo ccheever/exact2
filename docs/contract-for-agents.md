@@ -3200,20 +3200,34 @@ written, up to 16 KB; no file, no section. A deploy script that publishes the
 build under a revision sets `EXACT_DISTRIBUTION_REVISION` for the build to show
 it. Copy (iOS and macOS) takes all of it as text.
 
-On iOS, **Show Frame Health** opens a draggable native card below sheets and alerts.
-Move it by its heading or accessibility actions; use Close or **Hide Frame Health**
-to dismiss it. It starts hidden, preserves its position within the window and passes
-body touches through to the app.
+On iOS, **Show Frame Health** opens a native card below sheets and alerts; the Mac's
+Develop menu has the same item. It starts hidden and takes the touches within its
+bounds: drag it from anywhere, and on release it springs to the window corner nearest
+where its momentum would carry it; accessibility actions move it to a corner. Close,
+at its top left, or **Hide Frame Health** dismisses it. Touches outside it reach the
+app. LLP 1079.000 §7.2 describes its rows: Live, Paused or Idle; the requested rate
+and any system limit; frame rate and missed frames for the last 0.5 s and 5 s; pacing;
+and charts of frame rate and frame time, or a table of work time, late frames, maximum
+frame time and pacing changes. A tap on a chart expands it; a tap on the title defines
+each figure; Copy puts text and a picture on the clipboard. The card states no pass or
+fail of its own; Details lists `perf frames health`'s results with their reasons.
+These are timing proxies; actual presentation and native-only animation cadence are
+unmeasured. While the card is shown, bounded hitch capture also records matching
+asynchronous owner and apply timestamps. Idle time never becomes a frame time.
 
-The card shows average callback FPS and p50/p95/p99 pacing bounds. Details include
-requested and scheduled periods, callback overruns and apply overruns. These are
-timing proxies; actual presentation and native-only animation cadence are unmeasured.
-While the card is shown, bounded hitch capture also records matching asynchronous
-owner and apply timestamps. Idle time never becomes a callback gap.
+The card's charts take each frame and show the last 30 seconds: the frame rate's
+moving average over the last half second against the request, and each frame's frame
+time and work, the longest in each tenth of a second, against that frame's deadline.
+Within a run of frames the lines reach across tenths of a second without frames; an
+idle app, a pause and a reset leave gaps. The charts take the frames the app's clock
+already runs, start no timer or display link and store no file. The figures update
+every half second, and at once when the source stops, on the existing bounded
+publication pass in common run-loop modes, so touch tracking does not suspend them.
+The reader creates no display link or polling timer, reads nothing while the card is
+hidden, paused or detached, and keeps at most 60 half-second samples. During native
+scrolling the card stays on the app callback source; the separate experimental scroll
+source is available in Details.
 
-Active updates are coalesced at half-second intervals, with an immediate update when
-the source stops. The reader creates no display link or polling timer. Scrolling
-keeps the chart on the app callback source and refreshes in tracking mode.
 `perf frames health` exposes the metrics. `state.frameHealthUI` contains only the
 card's visibility and window-local bounds, marked as host controls outside app nodes.
 Embedders opt in by passing a host view as `DevMenu.install`'s `frameHealthContainer`.
@@ -3232,15 +3246,6 @@ before building. Open the four-finger menu and choose **Show Frame Health**, rep
 the hitch, then choose **Share Frame Health…**. Share or Copy supplies JSON text;
 Exact creates no report file or automatic upload. A person can send that text to an
 agent. The system share destination controls any storage it creates.
-
-The iOS UI is a provisional first pass. Its chart retains at most 60 reader samples over 30 seconds, with a dashed
-120 Hz reference, a blue bucket average and an orange conservative rate from the
-longest interval bin. Unknown cadence, idle boundaries and resets leave gaps.
-Actual presentation FPS remains unmeasured. Updates use the existing bounded
-publication pass in common run-loop modes, so touch tracking does not suspend it.
-The card stays on the app callback source during native scrolling; the separate
-experimental scroll source is available in Details. The chart starts no timer or
-display link and stores no file.
 
 For controlled device checks, `scripts/fixtures/frame-health-app` is a minimal fixture:
 one Start/Stop button, one moving canvas tile and 32 static rows. It starts paused;
@@ -3296,22 +3301,63 @@ it, and `otherSources` names retained evidence in other sources. Counts and gene
 belong to their named source. Forwarded apply context does not count an app apply or
 its deadline again as a native-scroll event.
 
-`perf frames health [app|scroll]` reads `exact.frame-health.metrics/1` without starting
-the legacy sampler. The same response supplies the card and native details panels.
-It includes callback/apply counts, p50/p95/p99 bounds, requested and scheduled periods,
-coverage, generation and an explicit cursor. Send that cursor unchanged as `cursor` in
-a subsequent health request to read a delta. A producer/generation mismatch, malformed
-cursor or impossible histogram population returns `baseline-required`; retry without
-it. Read timestamps differ from the timestamps through which intervals and applies are
-finalized. Each completed interval or apply enters the next finalized window, even
-if it began before that window’s initial read. Never subtract lifetime maxima or assume a wall-time clipping rule.
-The card keeps at most eleven typed snapshots for an approximate five-second view.
+`perf frames health [app|scroll]` reads `exact.frame-health.metrics/2` without starting
+the legacy sampler. It reports frames as LLP 1079.000 §4.6 defines them: a display-link
+callback that started frame work is a frame, and one held by earlier work in flight, or
+with no frame work due, is not. `frames` gives callbacks, held callbacks, frame
+intervals, their total time and rate, frame-time median, p99 and maximum bounds, pacing
+and schedule changes, intervals across a schedule change, callbacks whose timestamp went
+backwards (`outOfOrder`; each ends a run), and the requested slots and missed frames on
+the requested-rate grid.
+`work` gives one record per frame, from its timestamp until its callback returned and the
+owner work it sent had landed, with late frames (finished after `targetTimestamp`),
+median, p99 and maximum bounds, and the frames whose work is still in flight (`pending`)
+and already past their deadline (`overdue`). Where the deadline carries no information,
+as on the iOS simulator, `late` and `overdue` are null and `latenessUnknown` says why.
+The cursor carries the frame-time and work bins. The reply also carries requested
+and scheduled periods, coverage, generation and an explicit cursor. Send that cursor
+unchanged as `cursor` in a subsequent health request to read a delta. A
+producer/generation mismatch, malformed cursor or impossible histogram population
+returns `baseline-required`; retry without it. Read timestamps differ from the
+timestamps through which intervals and work are finalized. Each completed interval or
+work record enters the next finalized window, even if it began before that window's
+initial read. Never subtract lifetime maxima or assume a wall-time clipping rule.
 
-Histograms use 64 saturating 32-bit bins per population: 48 bins of 500000 ns over
-[0,24 ms), 15 doubling tails beginning at 24 ms, and overflow. Quantiles are half-open
-bounds; a null upper endpoint means overflow, and null quantiles mean no samples or
-invalid distribution accounting. Saturation is explicit. `histogram.valid` describes
-accounting, not health. All metric responses fit the same 4000-byte wire envelope.
+`assessments` judges the same window under `exact-frame-health-policy/2`, with one
+result for each question and no overall pass:
+
+| Assessment | Question | Decided from |
+|---|---|---|
+| `cadence` | Did frames keep to the platform's schedule? | `frameIntervals` and `skippedRefreshes`, the scheduled periods frame intervals spanned beyond each interval's first; `lateFrames`, work that finished after its frame's `targetTimestamp`, and `overdueFrames`, work still in flight past it; `unclassifiedIntervals`, frame intervals across a schedule change, which have no refresh count |
+| `target` | Did frames arrive at the requested rate? | `requestedSlots` and `missedFrames` on a grid at the requested period (spatial motion and canvases ask for the display's maximum, paint-only motion for 60 Hz); `restrictedIntervals`, frame intervals with either end scheduled more than 0.1 ms slower than the request that governed it. `context` lists conditions at the read (`simulator`, `low-power-mode`, `thermal-serious`, `thermal-critical`) without naming them as the cause |
+| `contentLatency` | Did content appear when it was meant to? | Unobserved on Apple |
+
+Each result is one of `fail`, `restricted`, `proxy-pass`, `insufficient-evidence` or
+`not-applicable`, and `reason` names the predicate that decided it. An observed
+skipped refresh, late frame (or frame still in flight past its deadline) or missed
+frame is `fail` even when the rest of the window is unobserved; a restricted schedule
+makes `target` `restricted` instead. `proxy-pass` means frames kept to schedule; it is
+never a presentation pass, and without presentation feedback target delivery is at
+best `insufficient-evidence` (`presentation-unobserved`). Other insufficient reasons
+are `virtual-clock`, the collector's unavailable code (`collection-disabled`,
+`collector-capacity`, `wrong-thread`), `schedule-unknown` (the scroll source),
+`no-frame-intervals`, `no-callbacks` (the source runs but sent none in the window),
+`stale` (the source runs but has sent no callback for over a second, as through a
+blocked main thread; `status` is `stale` too), `out-of-order` (a callback's timestamp
+went backwards and ended a run), `schedule-changed` (an interval across a schedule
+change has no single period, so no refresh count; it counts in the window where it
+finalizes) and `simulator-deadlines`. The iOS simulator dispatches display-link
+callbacks after their own `targetTimestamp`, so there lateness is unknown and only
+skipped refreshes can fail cadence. `not-applicable` is `idle`, or for `target`,
+`no-rate-request`: timers and frame tasks run at the platform's default rate without a
+request, so they have a schedule to keep but no requested rate.
+
+Frame times and work times use 64 saturating 32-bit bins: 48 of 500000 ns over [0,24
+ms), 15 doubling tails from 24 ms, and an open last bin. Quantiles are half-open
+bounds; a null upper endpoint means the open bin, and null quantiles mean no samples
+or invalid distribution accounting. Saturation is explicit. `histogram.valid`
+describes accounting, not health. All metric responses fit the same 4000-byte wire
+envelope.
 
 Apple `perf frames live <1–30000 ms>` waits in the driver with a bounded capture lease,
 then reads a cursor delta and releases its lease. During that lease the host refuses
@@ -3402,27 +3448,29 @@ process. Lifecycle changes may publish immediately; there is no idle publication
 motion, canvases and press feedback request the current display maximum, including
 above 120 Hz; press clocks are per window and update when its screen changes.
 
-`exact.frame-health/1` is a versioned JSON schema. Field explanations stay here to
+`exact.frame-health/2` is a versioned JSON schema. Field explanations stay here to
 leave bytes for evidence. `columns` names each field in a `hitches` row. Export keeps
 the newest rows that fit, in chronological order, with `retention.omittedForBudget`;
 it never reduces timing precision to fit. Sequences, captures and generations are
 decimal strings; other numbers are safe JSON integers. `time.clamped` invalidates
 precision claims for values beyond that range. `capturedAt` is wall-clock export
-context only. All intervals use `CACurrentMediaTime`, in nanoseconds.
+context only. All intervals use `CACurrentMediaTime`, in microseconds: a retained
+hitch keeps one absolute timestamp and stores its other times as 32-bit microsecond
+offsets (35 minutes either way) and durations (71 minutes).
 
 | Row fields | Meaning |
 |---|---|
 | `sequence`, `capture`, `generation` | Event sequence since clear, capture ID, and reload/clock generation. Identity names the installed binary, not the source of every hot reload |
-| `age_ns` | Age at the export snapshot, measured from callback arrival or late apply end |
+| `age_us` | Age at the export snapshot, measured from callback arrival or late apply end |
 | `flags` | Evidence, workload and power bits below |
-| `target_offset_ns` | This callback/tick's platform prediction relative to the event; it is not intended content presentation |
-| `period_ns`, `requested_period_ns` | Scheduled callback interval and this session's preferred host interval at the event; zero is unknown/default. Other owners may request a higher rate |
-| `gap_ns`, `callback_ns` | Callback-arrival gap and synchronous callback duration. Gap requires a stable predecessor; zero means no comparable evidence. Apply-only events have no callback duration |
-| `before_gap_ns`, `before_callback_ns` | Previous callback's observed gap/duration in the same segment; zero without evidence |
-| `after_offset_ns`, `after_gap_ns`, `after_callback_ns` | First observed following callback's arrival offset, gap and duration; null if unavailable. At most two pending events receive this context |
-| `owner_queued_offset_ns`, `owner_began_offset_ns`, `owner_finished_offset_ns` | Matching asynchronous frame-update submission, owner start and owner completion, including decoding and host callbacks |
-| `main_landed_offset_ns`, `apply_began_offset_ns`, `apply_finished_offset_ns` | Main arrival and outermost presenter-apply boundaries. Apply excludes legacy sampler bookkeeping |
-| `work_target_offset_ns`, `operations` | Captured frame update's target and batch operation count; an apply without a frame target has no work target |
+| `target_offset_us` | This callback/tick's platform prediction relative to the event; it is not intended content presentation |
+| `period_us`, `requested_period_us` | Scheduled callback interval and this session's preferred host interval at the event; zero is unknown/default. Other owners may request a higher rate |
+| `gap_us`, `callback_us` | Callback-arrival gap and synchronous callback duration. Gap requires a stable predecessor; zero means no comparable evidence. Apply-only events have no callback duration |
+| `before_gap_us`, `before_callback_us` | Previous callback's observed gap/duration in the same segment; zero without evidence |
+| `after_offset_us`, `after_gap_us`, `after_callback_us` | First observed following callback's arrival offset, gap and duration; null if unavailable. At most two pending events receive this context |
+| `owner_queued_offset_us`, `owner_began_offset_us`, `owner_finished_offset_us` | Matching asynchronous frame-update submission, owner start and owner completion, including decoding and host callbacks |
+| `main_landed_offset_us`, `apply_began_offset_us`, `apply_finished_offset_us` | Main arrival and outermost presenter-apply boundaries. Apply excludes legacy sampler bookkeeping |
+| `work_target_offset_us`, `operations` | Captured frame update's target and batch operation count; an apply without a frame target has no work target |
 
 Offsets are relative to the event's origin; negative means before it. Null boundaries
 are unavailable, never zero-cost work. Callback events attach the largest apply since

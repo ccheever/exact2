@@ -664,6 +664,9 @@ public final class ExactSession {
             if case .advance = next.kind { applyUnlessEmpty(batch) } else if !(changesNothing(batch) && clockUnchanged(batch)) {
                 apply(batch)
             }
+            // A frame's owner work finishes when it lands, applied or skipped (LLP 1079.000 §4.6), and the card's charts show it
+            if case .tick = next.kind { frameHealth.landed(FrameHealth.tick) } else if case .advance = next.kind { frameHealth.landed(FrameHealth.advance) }
+            frameHealth.chart?.present()
             if case .reply = next.kind {
                 sampler?.replyPump(main: submitted + (CACurrentMediaTime() - began) * 1000)
                 retryActivation(generation: next.generation)

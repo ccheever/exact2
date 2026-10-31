@@ -13,7 +13,7 @@ enum FrameHealthReport {
     static let maximumBytes = 4000
     static let maximumAgeNs: UInt64 = 120_000_000_000
     private static let maximumInteger: UInt64 = 9_007_199_254_740_991
-    static let format = "exact.frame-health/1"
+    static let format = "exact.frame-health/2"
     fileprivate static var encoding = false
     fileprivate static var nextAgentReport: Double = 0
 
@@ -32,26 +32,30 @@ enum FrameHealthReport {
             guard value != 0 else { return NSNull() }
             return value >= origin ? Int64(integer(value - origin)) : -Int64(integer(origin - value))
         }
+        /// A hitch's stored microsecond offset; `INT32_MIN` was not observed.
+        func stored(_ value: Int32) -> Any { value == Int32.min ? NSNull() : Int(value) }
         for index in 0..<min(history.retained, 16) {
             let event = health.hitch(UInt32(index))
             guard event.sequence != 0 else { continue }
             guard event.at_ns <= timestamp, timestamp - event.at_ns <= maximumAgeNs else { expired += 1; continue }
+            // A boundary or identity that did not fit its packed field invalidates precision claims
+            if event.flags & 64 != 0 { clamped = true }
             let work = event.work
             let hasWork = event.flags & 16 != 0, hasAfter = event.flags & 8 != 0
             rows.append([
-                String(event.sequence), String(event.capture), String(event.generation), integer(timestamp - event.at_ns), integer(event.flags),
-                offset(event.target_ns, from: event.at_ns), integer(event.period_ns), integer(event.requested_period_ns), integer(event.gap_ns), integer(event.callback_ns),
-                integer(event.before_gap_ns), integer(event.before_callback_ns),
-                hasAfter ? offset(event.after_at_ns, from: event.at_ns) : NSNull(),
-                hasAfter && event.after_gap_ns != 0 ? integer(event.after_gap_ns) as Any : NSNull(), hasAfter ? integer(event.after_callback_ns) as Any : NSNull(),
-                hasWork ? offset(work.queued_ns, from: event.at_ns) : NSNull(),
-                hasWork ? offset(work.owner_began_ns, from: event.at_ns) : NSNull(),
-                hasWork ? offset(work.owner_finished_ns, from: event.at_ns) : NSNull(),
-                hasWork ? offset(work.landed_ns, from: event.at_ns) : NSNull(),
-                hasWork ? offset(work.began_ns, from: event.at_ns) : NSNull(),
-                hasWork ? offset(work.finished_ns, from: event.at_ns) : NSNull(),
-                hasWork ? offset(work.target_ns, from: event.at_ns) : NSNull(),
-                hasWork ? integer(work.operations) as Any : NSNull()])
+                String(event.sequence), String(event.capture), String(event.generation), integer((timestamp - event.at_ns) / 1000), integer(event.flags),
+                stored(event.target_us), event.period_us, event.requested_period_us, event.gap_us, event.callback_us,
+                event.before_gap_us, event.before_callback_us,
+                hasAfter ? stored(event.after_at_us) : NSNull(),
+                hasAfter && event.after_gap_us != 0 ? event.after_gap_us as Any : NSNull(), hasAfter ? event.after_callback_us as Any : NSNull(),
+                hasWork ? stored(work.queued_us) : NSNull(),
+                hasWork ? stored(work.owner_began_us) : NSNull(),
+                hasWork ? stored(work.owner_finished_us) : NSNull(),
+                hasWork ? stored(work.landed_us) : NSNull(),
+                hasWork ? stored(work.began_us) : NSNull(),
+                hasWork ? stored(work.finished_us) : NSNull(),
+                hasWork ? stored(work.target_us) : NSNull(),
+                hasWork ? work.operations as Any : NSNull()])
         }
         let metadata = ExactEnv.appMetadata
         var identity: [String: Any] = ["app": limited(Bundle.main.bundleIdentifier ?? "embedded", 160),
@@ -81,7 +85,7 @@ enum FrameHealthReport {
             "qualification": "unqualified", "evidence": "callback-and-apply-timing-proxies",
             "available": health.enabled && !health.virtual,
             "unavailableReason": health.unavailableCode as Any? ?? (health.virtual ? "virtual-clock" : NSNull()),
-            "time": ["clock": "CACurrentMediaTime", "unit": "ns", "clamped": clamped],
+            "time": ["clock": "CACurrentMediaTime", "unit": "us", "clamped": clamped],
             "scope": ["generation": String(snapshot.generation), "capture": String(history.capture),
                 "armed": history.active != 0, "callbackSourceRunning": snapshot.running != 0,
                 "segments": String(history.segments), "observedCallbacks": String(history.callbacks),
@@ -92,15 +96,16 @@ enum FrameHealthReport {
                 "expiredAtRead": expired, "overwrittenSinceClear": String(history.overwritten),
                 "eventsSinceClear": String(history.total), "automaticDiskBytes": 0, "maximumReportBytes": maximumBytes,
                 "omittedForBudget": 0, "selection": "newest"],
-            "coreSinceReload": ["callbacks": String(snapshot.callbacks), "comparableIntervals": String(snapshot.intervals),
-                "activeNs": String(snapshot.active_ns), "maximumCallbackGapNs": String(snapshot.max_gap_ns),
-                "scheduledPeriodNs": snapshot.period_ns, "synchronousCallbackOverruns": String(snapshot.work_overruns),
-                "detailMayHaveBeenOff": true],
+            "coreSinceReload": ["callbacks": String(snapshot.callbacks), "heldCallbacks": String(snapshot.held),
+                "frameIntervals": String(snapshot.intervals), "activeNs": String(snapshot.active_ns),
+                "maximumFrameIntervalNs": String(snapshot.max_interval_ns), "scheduledPeriodNs": snapshot.period_ns,
+                "missedFrames": String(snapshot.missed_frames),
+                "lateFrames": FrameHealthAssessment.deadlinesObserved ? String(snapshot.late) as Any : NSNull(), "detailMayHaveBeenOff": true],
             "unobserved": ["presentation", "GPU execution", "CPU-versus-descheduled time", "other main-thread work", "native-only animations", "uncaptured owner work", "app input latency"],
-            "columns": ["sequence", "capture", "generation", "age_ns", "flags", "target_offset_ns", "period_ns", "requested_period_ns", "gap_ns", "callback_ns",
-                "before_gap_ns", "before_callback_ns", "after_offset_ns", "after_gap_ns", "after_callback_ns",
-                "owner_queued_offset_ns", "owner_began_offset_ns", "owner_finished_offset_ns", "main_landed_offset_ns",
-                "apply_began_offset_ns", "apply_finished_offset_ns", "work_target_offset_ns", "operations"],
+            "columns": ["sequence", "capture", "generation", "age_us", "flags", "target_offset_us", "period_us", "requested_period_us", "gap_us", "callback_us",
+                "before_gap_us", "before_callback_us", "after_offset_us", "after_gap_us", "after_callback_us",
+                "owner_queued_offset_us", "owner_began_offset_us", "owner_finished_offset_us", "main_landed_offset_us",
+                "apply_began_offset_us", "apply_finished_offset_us", "work_target_offset_us", "operations"],
             "hitches": rows]
         if let root = session?.frameHealth {
             let others = [root, root.nativeHealth].compactMap { $0 }.filter { $0 !== health }
@@ -114,7 +119,7 @@ enum FrameHealthReport {
     static func encode(_ packet: [String: Any]) -> Data {
         // Reserve the carrier's newline. Explanations live in the versioned schema documentation.
         let budget = maximumBytes - 1
-        let failure = Data("{\"format\":\"exact.frame-health/1\",\"available\":false,\"error\":\"report-size-or-encoding-budget\"}".utf8)
+        let failure = Data("{\"format\":\"exact.frame-health/2\",\"available\":false,\"error\":\"report-size-or-encoding-budget\"}".utf8)
         guard let rows = packet["hitches"] as? [[Any]], rows.count <= 16,
               var retention = packet["retention"] as? [String: Any] else { return failure }
         var packet = packet
@@ -144,7 +149,7 @@ enum FrameHealthReport {
     /// Allow one export at a time to prevent an encoding backlog.
     static func prepare(health: FrameHealth, session: ExactSession?, now: Double = CACurrentMediaTime(), completion: @escaping (Data) -> Void) {
         guard !health.reportInFlight, !encoding else {
-            completion(Data("{\"format\":\"exact.frame-health/1\",\"available\":false,\"error\":\"report-busy\",\"retryAfterMs\":1000}".utf8))
+            completion(Data("{\"format\":\"exact.frame-health/2\",\"available\":false,\"error\":\"report-busy\",\"retryAfterMs\":1000}".utf8))
             return
         }
         health.reportInFlight = true
@@ -169,7 +174,7 @@ extension FrameHealth {
     func agentReport(session: ExactSession?, source: FrameHealth? = nil, now: Double = CACurrentMediaTime(), completion: @escaping (Data) -> Void) {
         guard now >= FrameHealthReport.nextAgentReport else {
             let delay = Int(ceil((FrameHealthReport.nextAgentReport - now) * 1000))
-            completion(Data("{\"format\":\"exact.frame-health/1\",\"available\":false,\"error\":\"report-rate-limit\",\"retryAfterMs\":\(delay)}".utf8))
+            completion(Data("{\"format\":\"exact.frame-health/2\",\"available\":false,\"error\":\"report-rate-limit\",\"retryAfterMs\":\(delay)}".utf8))
             return
         }
         let selected = source ?? reportSource

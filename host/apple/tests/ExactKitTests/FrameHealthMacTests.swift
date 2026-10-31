@@ -43,7 +43,7 @@ final class FrameHealthMacTests: XCTestCase {
         window.close()
         XCTAssertEqual(node.press.to, 1)
     }
-    func testDesktopCardUsesHostSlotPassesBodyAndClampsWithoutResizingTheApp() throws {
+    func testDesktopCardUsesHostSlotTakesClicksWithinItsBoundsAndClampsWithoutResizingTheApp() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "desktop-frame-health")
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 480), styleMask: [.titled], backing: .buffered, defer: false)
@@ -61,7 +61,8 @@ final class FrameHealthMacTests: XCTestCase {
         XCTAssertTrue(session.frameHealth.hudVisible)
         overlay.place(at: CGPoint(x: -10_000, y: -10_000))
         XCTAssertGreaterThanOrEqual(try XCTUnwrap(session.frameHealth.hudBounds).minX, 8)
-        XCTAssertNil(overlay.hitTest(CGPoint(x: 600, y: 400)))
+        XCTAssertNil(overlay.hitTest(CGPoint(x: 600, y: 400)), "outside the card, clicks reach the app")
+        XCTAssertNotNil(overlay.hitTest(CGPoint(x: 100, y: 100)), "the opaque card takes the clicks within its bounds")
         let item = NSMenuItem(title: "Show Frame Health", action: #selector(ExactView.toggleFrameHealth(_:)), keyEquivalent: "")
         XCTAssertTrue(exact.validateMenuItem(item))
         XCTAssertEqual(item.title, "Hide Frame Health")
