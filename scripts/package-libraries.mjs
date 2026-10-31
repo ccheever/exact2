@@ -9,10 +9,11 @@
 //   the xcframework's Info.plist, is a dynamic framework named `<link>.framework` whose install name is
 //   `@rpath/<link>.framework/…`, so an app that embeds it in `Frameworks` finds it by its run path.
 // - a Linux target: the shared object itself, whose SONAME is `lib<link>.so`, the name it is carried by beside the
-//   executable. An Android target is refused: the APK carries no package library yet.
+//   executable. Only a 64-bit little-endian ELF file is read, and any other is refused. An Android target is refused:
+//   the APK carries no package library yet.
 //
-// Each target's link inputs are laid out under `<sha256>/<target>/<link>/`, with a digest of what was laid out, which
-// every build checks before it links (a view that differs is laid out again). A Rust link (the Linux host's
+// Each target's link inputs are laid out under `<sha256>/<target>/<link>/`, which every build checks against the
+// hash-checked download before it links (`layOut`), and lays out again when they differ. A Rust link (the Linux host's
 // executable) takes `-L <that directory> -l<link>` from the bake's build script (js/bake/src/library.rs); on an Apple
 // target `-l` finds `lib<link>.dylib`, a link to the framework's binary, so the link records the framework's install
 // name. An Apple app's Swift link takes the framework itself (`appleLinkArgs`).
@@ -48,7 +49,7 @@ export function nativePackages(appDir) {
     const root = located(name), path = root && join(root, 'exact.json');
     if (!path || !existsSync(path)) return [];
     let declaration;
-    try { declaration = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${name}'s exact.json (${path}) is not JSON: ${e.message}`); }
+    try { declaration = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${name}'s exact.json (${path}) cannot be read as JSON: ${e.message}`); }
     return declaration?.native && typeof declaration.native === 'object' ? [{ name, root, native: declaration.native }] : [];
   });
 }
@@ -134,32 +135,16 @@ export function fetchLibrary(lib, { cache = LIBRARY_CACHE, log = (line) => conso
     renameSync(temporary, file);
   }
   const view = join(dir, lib.target, lib.link), placed = join(view, lib.kind === 'apple' ? `${lib.link}.framework` : `lib${lib.link}.so`);
-  if (!laidOut(view)) {
-    mkdirSync(dirname(view), { recursive: true });
-    const stage = mkdtempSync(join(dirname(view), '.view-'));
-    try {
-      if (lib.kind === 'apple') appleView(lib, file, stage);
-      else linuxView(lib, file, stage);
-      writeFileSync(join(stage, VIEW_DIGEST), treeDigest(stage));
-      // A view that differs from its digest goes aside first; one another build laid out meanwhile is kept if whole.
-      if (existsSync(view)) renameSync(view, mkdtempSync(join(dirname(view), '.stale-')) + '/view');
-      try { renameSync(stage, view); } catch (e) { if (!laidOut(view)) throw e; }
-    } finally {
-      rmSync(stage, { recursive: true, force: true });
-      for (const name of readdirSync(dirname(view)).filter(n => n.startsWith('.stale-'))) rmSync(join(dirname(view), name), { recursive: true, force: true });
-    }
-  }
+  layOut(lib, file, view, placed);
   return { ...lib, view, placed };
 }
 
-/** The view's digest, written into it as it is laid out: each path, link target and file's bytes under it. */
-const VIEW_DIGEST = '.view-sha256';
+/** The view's tree: each path, link target and file's bytes under `root`, for comparing two layouts. */
 function treeDigest(root) {
   const hash = createHash('sha256');
   const walk = (dir) => {
     for (const name of readdirSync(dir).sort()) {
       const path = join(dir, name), at = relative(root, path), info = lstatSync(path);
-      if (dir === root && name === VIEW_DIGEST) continue;
       if (info.isSymbolicLink()) hash.update(`L ${at} ${readlinkSync(path)}\n`);
       else if (info.isDirectory()) { hash.update(`D ${at}\n`); walk(path); }
       else hash.update(`F ${at} ${digest(readFileSync(path))}\n`);
@@ -168,10 +153,42 @@ function treeDigest(root) {
   walk(root);
   return hash.digest('hex');
 }
-const laidOut = (view) => { try { return readFileSync(join(view, VIEW_DIGEST), 'utf8') === treeDigest(view); } catch { return false; } };
+
+/** Check the view at `view` against the hash-checked download, on every build, and lay it out again when it
+ * differs. Nothing kept beside the view vouches for it: a Linux view's one file is the download's bytes, so its hash
+ * is the declared one; an Apple view is compared, file by file, with a layout made now from the zip, which is then
+ * discarded. Each invocation stages and sets aside under names of its own and removes only those, and publishes
+ * with a rename that leaves a view another build published in place when that one checks out. */
+function layOut(lib, file, view, placed) {
+  const parent = dirname(view);
+  mkdirSync(parent, { recursive: true });
+  const fresh = () => { const stage = mkdtempSync(join(parent, `.view-${process.pid}-`)); try { (lib.kind === 'apple' ? appleView : linuxView)(lib, file, stage); return stage; } catch (e) { rmSync(stage, { recursive: true, force: true }); throw e; } };
+  let stage = null;
+  try {
+    const valid = () => {
+      if (!existsSync(placed)) return false;
+      if (lib.kind === 'linux') return lstatSync(placed).isFile() && readdirSync(view).length === 1 && digest(readFileSync(placed)) === lib.sha256;
+      stage ??= fresh();
+      return treeDigest(stage) === treeDigest(view);
+    };
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (valid()) return;
+      stage ??= fresh();
+      if (existsSync(view)) {
+        const aside = mkdtempSync(join(parent, `.stale-${process.pid}-`));
+        try { renameSync(view, join(aside, 'view')); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+        rmSync(aside, { recursive: true, force: true });
+      }
+      try { renameSync(stage, view); stage = null; return; } catch (e) { if (!['ENOTEMPTY', 'EEXIST'].includes(e.code)) throw e; }
+      // Another build published a view meanwhile: it is checked as this one's was.
+    }
+    throw new Error(`${lib.package}: its ${lib.target} library's link inputs at ${view} keep changing while this build lays them out`);
+  } finally { if (stage) rmSync(stage, { recursive: true, force: true }); }
+}
 
 /** A Linux view: the shared object, carried as `lib<link>.so`, which its SONAME must be: the linker records the
- * SONAME as the executable's need, and without one the name it was found by. */
+ * SONAME as the executable's need. One without a SONAME is refused, since what the linker records for it then
+ * depends on how it found the file, which can be a path on the build machine. */
 function linuxView(lib, file, stage) {
   const name = `lib${lib.link}.so`, found = sharedObjectName(readFileSync(file));
   if (found.error) throw new Error(`${lib.package}: its ${lib.target} library ${lib.file} is ${found.error}`);
@@ -200,12 +217,17 @@ export function sharedObjectName(bytes) {
   } catch { return { error: 'a malformed ELF file' }; }
 }
 
-/** The first symbolic link under `root` whose target is absolute or leads outside `within`, or null. */
-function escapingLink(root, within = root) {
+/** The first symbolic link under `root` whose real target, every link on the way followed on disk, is outside
+ * `within` or is not there, or null. */
+function escapingLink(root, within = realpathSync(root)) {
+  const here = realpathSync(root);
   for (const name of readdirSync(root)) {
     const path = join(root, name), info = lstatSync(path);
-    if (info.isSymbolicLink()) { const to = readlinkSync(path); if (isAbsolute(to) || !inside(within, resolve(root, to))) return `${relative(within, path)} -> ${to}`; }
-    else if (info.isDirectory()) { const found = escapingLink(path, within); if (found) return found; }
+    if (info.isSymbolicLink()) {
+      let real = null;
+      try { real = realpathSync(path); } catch { /* it leads nowhere */ }
+      if (!real || !inside(within, real)) return `${relative(within, join(here, name))} -> ${readlinkSync(path)}`;
+    } else if (info.isDirectory()) { const found = escapingLink(path, within); if (found) return found; }
   }
   return null;
 }
@@ -224,18 +246,20 @@ function appleView(lib, zip, stage) {
   let at;
   try { at = xcframeworkSlice(fw, slice); } catch (e) { throw new Error(`${lib.package}: its ${lib.target} library: ${e.message}`); }
   if (at.lib.LibraryPath !== `${lib.link}.framework`) throw new Error(`${lib.package}: its ${lib.target} slice is ${at.lib.LibraryPath}, and native.link names ${lib.link}: the slice is ${lib.link}.framework, a dynamic framework`);
-  const source = join(at.dir, at.lib.LibraryPath);
-  if (!lstatSync(source, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`${lib.package}: its ${lib.target} slice has no ${at.lib.LibraryPath} directory`);
+  // Each place resolved on disk, with every link followed, before anything is copied out of the archive.
+  const root = realpathSync(unzipped), named = join(at.dir, at.lib.LibraryPath);
+  let source = null;
+  try { source = realpathSync(named); } catch { /* not there */ }
+  if (!source || !inside(root, source) || !lstatSync(source).isDirectory()) throw new Error(`${lib.package}: its ${lib.target} slice's ${at.lib.LibraryPath} is ${source ? `outside ${lib.file}` : 'not there'}`);
   const leaves = escapingLink(source);
   if (leaves) throw new Error(`${lib.package}: its ${lib.target} framework holds a link that leaves it (${leaves})`);
-  const framework = join(stage, `${lib.link}.framework`);
+  let real = null;
+  try { real = realpathSync(join(source, lib.link)); } catch { /* not there */ }
+  if (!real || !inside(source, real) || !lstatSync(real).isFile()) throw new Error(`${lib.package}: its ${lib.target} framework has no binary ${lib.link}.framework/${lib.link} inside it`);
+  const framework = join(stage, `${lib.link}.framework`), binary = join(framework, lib.link), inner = relative(source, real);
   cpSync(source, framework, { recursive: true, verbatimSymlinks: true });
-  const binary = join(framework, lib.link);
-  if (!existsSync(binary)) throw new Error(`${lib.package}: its ${lib.target} framework has no binary ${lib.link}.framework/${lib.link}`);
-  const real = relative(realpathSync(framework), realpathSync(binary));
-  if (!inside(realpathSync(framework), realpathSync(binary))) throw new Error(`${lib.package}: its ${lib.target} framework's binary leads outside it (${real})`);
   const id = spawnSync('otool', ['-D', binary], { encoding: 'utf8' }).stdout?.trim().split('\n').slice(1).join('').trim();
-  const expected = `@rpath/${lib.link}.framework/${real}`;
+  const expected = `@rpath/${lib.link}.framework/${inner}`;
   if (id !== expected) throw new Error(`${lib.package}: its ${lib.target} framework's install name is ${id || 'missing (not a dynamic library)'}; an embedded framework is named ${expected} (link it with -install_name ${expected})`);
   symlinkSync(`${lib.link}.framework/${lib.link}`, join(stage, `lib${lib.link}.dylib`));
   rmSync(unzipped, { recursive: true, force: true });
@@ -267,9 +291,11 @@ export const appleLinkArgs = (lib, ios, rpath = ios ? '@executable_path/Framewor
   : ['-Xlinker', `-F${lib.view}`, '-Xlinker', '-framework', '-Xlinker', lib.link, ...(rpath ? ['-Xlinker', '-rpath', '-Xlinker', rpath] : [])];
 
 /** The framework in an `--embed` output (host/apple/build.mjs), at `Frameworks/<link>.framework`, and what its
- * `capabilities.json` tells the consumer's link: none without a library. */
-export function embedLibrary(lib, embed) {
+ * `capabilities.json` tells the consumer's link: the framework, and the run path to the bundle's `Frameworks`,
+ * where the consumer embeds it, since its install name is `@rpath/…`. None without a library. */
+export function embedLibrary(lib, embed, ios) {
   if (!lib) return {};
   placeLibrary(lib, join(embed, 'Frameworks'));
-  return { frameworks: [{ path: `Frameworks/${lib.link}.framework`, package: lib.package, sha256: lib.sha256, linkerFlags: ['-F', 'Frameworks', '-framework', lib.link], embed: true }] };
+  const runPath = ios ? '@executable_path/Frameworks' : '@executable_path/../Frameworks';
+  return { frameworks: [{ path: `Frameworks/${lib.link}.framework`, package: lib.package, sha256: lib.sha256, linkerFlags: ['-F', 'Frameworks', '-framework', lib.link, '-Xlinker', '-rpath', '-Xlinker', runPath], embed: true }] };
 }

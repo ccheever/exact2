@@ -61,14 +61,20 @@ test('a library is fetched from a file: URL by its hash, laid out for the link, 
   rmSync(join(scratch, 'fetch-libvault.so'));
   const again = prepareLibrary(app, TARGET, { cache, log: line => said.push(line) });
   expect([again.placed, statSync(again.placed).mtimeMs, said.length]).toEqual([lib.placed, at, 1]);
-  // A laid-out file that changed is laid out again from the checked download, and a removed one too.
+  // A laid-out file that changed is laid out again from the checked download, and a removed one too; what another
+  // build is staging or setting aside beside it is left alone.
+  const others = ['.view-1-other', '.stale-1-other'].map(name => join(cache, sha256(bytes), TARGET, name));
+  for (const other of others) mkdirSync(other);
   writeFileSync(lib.placed, 'other bytes');
   expect(readFileSync(prepareLibrary(app, TARGET, { cache, ...quiet }).placed)).toEqual(bytes);
   rmSync(lib.placed);
   expect(readFileSync(prepareLibrary(app, TARGET, { cache, ...quiet }).placed)).toEqual(bytes);
-  // The same bytes under another link name are another view, not a collision with this one.
-  const renamed = fixture('renamed', { vault: { native: { link: 'vault2', library: { [TARGET]: { url: library('renamed', elf('libvault2.so')), sha256: sha256(elf('libvault2.so')) } } } } });
-  expect(prepareLibrary(renamed, TARGET, { cache, ...quiet }).placed).toBe(join(cache, sha256(elf('libvault2.so')), TARGET, 'vault2', 'libvault2.so'));
+  expect(others.map(existsSync)).toEqual([true, true]);
+  // The same bytes under another link name are laid out apart (by link name) and refused there, since their SONAME
+  // names the first link; nothing collides with the view above, which stays.
+  const renamed = fixture('renamed', declares(library('renamed', bytes), bytes, 'vault2'));
+  expect(refusal(() => prepareLibrary(renamed, TARGET, { cache, ...quiet }))).toBe(`vault: its ${TARGET} library's SONAME is libvault.so, and it is carried beside the executable as libvault2.so; link it with -Wl,-soname,libvault2.so`);
+  expect(readFileSync(lib.placed)).toEqual(bytes);
 });
 
 test('bytes with another hash are refused by package, target and both hashes, and leave nothing in the cache', () => {
@@ -103,7 +109,7 @@ test('a target the declaration does not name, one exact2 cannot link, an http: U
   expect(refusal(() => libraryFor(fixture('http', declares('http://example.com/libvault.so', bytes)), TARGET))).toBe(`vault's exact.json: native.library.${TARGET}.url is a file: or https: URL, not http:`);
   expect(refusal(() => libraryFor(fixture('apple-file', declares(url, bytes, 'vault', 'aarch64-apple-darwin')), 'aarch64-apple-darwin'))).toContain('native.library.aarch64-apple-darwin is a zip holding the .xcframework');
   expect(refusal(() => libraryFor(fixture('newline', declares(url, bytes, 'vault\ncargo:rustc-link-arg=-x')), TARGET))).toStartWith("vault's exact.json: native.link names the library");
-  expect(refusal(() => libraryFor(fixture('unparsed', { vault: '{"native": ' }), TARGET))).toStartWith("vault's exact.json (");
+  expect(refusal(() => libraryFor(fixture('unparsed', { vault: '{"native": ' }), TARGET))).toMatch(/^vault's exact\.json \(.+\) cannot be read as JSON: /);
   const two = fixture('two', { vault: { native: { rust: 'native/lib.rs', class: 'Vault' } }, safe: { native: { rust: 'native/lib.rs', class: 'Safe' } } });
   expect(refusal(() => libraryFor(two, TARGET))).toStartWith('bake-native-twice: safe and vault each declare `native`');
   // A native module without a library, an app with none, and a web target link nothing.
@@ -131,4 +137,43 @@ test.skipIf(process.platform !== 'darwin')('an xcframework whose slice or links 
   expect(at(zipped('absolute', '/System/Library/Frameworks'))).toBe('vault: its aarch64-apple-darwin library: vault.xcframework\'s macos slice names /System/Library/Frameworks/vault.framework, outside the xcframework');
   expect(at(zipped('escape', 'macos-arm64', '../../../../outside'))).toBe('vault: escape.xcframework.zip holds a link that leaves it (vault.xcframework/macos-arm64/vault.framework/vault -> ../../../../outside)');
   expect(at(zipped('framework-escape', 'macos-arm64', '../../Info.plist'))).toBe('vault: its aarch64-apple-darwin framework holds a link that leaves it (vault -> ../../Info.plist)');
+});
+
+/** A zipped xcframework holding one macOS framework, `vault.framework`, with `edit(fw)` to change its tree first;
+ * its binary a dylib clang links, with `@rpath` install name and `bytes` padding it to that size. */
+function xcframework(name, { bytes = 0, edit = () => {} } = {}) {
+  const dir = join(scratch, `xcf-${name}`), fw = join(dir, 'vault.xcframework'), framework = join(fw, 'macos-arm64/vault.framework');
+  mkdirSync(join(framework, 'Versions/A'), { recursive: true });
+  writeFileSync(join(dir, 'vault.c'), `int vaultlib_answer(void) { return 4217; }\nconst char vault_padding[${Math.max(bytes, 1)}] = {1};\n`);
+  expect(spawnSync('clang', ['-dynamiclib', '-arch', 'arm64', '-install_name', '@rpath/vault.framework/Versions/A/vault', join(dir, 'vault.c'), '-o', join(framework, 'Versions/A/vault')]).status).toBe(0);
+  symlinkSync('A', join(framework, 'Versions/Current'));
+  symlinkSync('Versions/Current/vault', join(framework, 'vault'));
+  writeFileSync(join(fw, 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>AvailableLibraries</key><array><dict><key>LibraryIdentifier</key><string>macos-arm64</string><key>LibraryPath</key><string>vault.framework</string><key>SupportedArchitectures</key><array><string>arm64</string></array><key>SupportedPlatform</key><string>macos</string></dict></array><key>CFBundlePackageType</key><string>XFWK</string></dict></plist>
+`);
+  edit(fw);
+  const zip = join(scratch, `${name}.xcframework.zip`);
+  expect(spawnSync('ditto', ['-c', '-k', '--keepParent', 'vault.xcframework', zip], { cwd: dir }).status).toBe(0);
+  const zipped = readFileSync(zip);
+  return fixture(`xcf-app-${name}`, declares(pathToFileURL(zip).href, zipped, 'vault', 'aarch64-apple-darwin'));
+}
+
+test.skipIf(process.platform !== 'darwin')('an Apple view is checked against a layout made now from the zip, and a link chain is followed on disk', () => {
+  const cache = join(scratch, 'cache-provenance'), app = xcframework('provenance');
+  const lib = prepareLibrary(app, 'aarch64-apple-darwin', { cache, ...quiet }), binary = join(lib.placed, 'Versions/A/vault'), good = readFileSync(binary);
+  // A view swapped for another version's, whole, is laid out again from the hash-checked zip.
+  writeFileSync(binary, Buffer.concat([good, Buffer.from('another version')]));
+  writeFileSync(join(lib.view, 'stray'), 'left by someone else');
+  prepareLibrary(app, 'aarch64-apple-darwin', { cache, ...quiet });
+  expect([readFileSync(binary).equals(good), existsSync(join(lib.view, 'stray'))]).toEqual([true, false]);
+  // What the check costs on a framework of 30 MB: said, not bounded, as the machine's load decides it.
+  const big = xcframework('big', { bytes: 30 << 20 }), started = performance.now();
+  prepareLibrary(big, 'aarch64-apple-darwin', { cache, ...quiet });
+  const first = performance.now(); prepareLibrary(big, 'aarch64-apple-darwin', { cache, ...quiet });
+  console.log(`a 30 MB framework: laid out in ${Math.round(first - started)} ms, checked in ${Math.round(performance.now() - first)} ms`);
+  // `up` leads back to the xcframework on disk, so the link through it leaves the archive, though its path read
+  // lexically stays inside.
+  const chained = xcframework('chained', { edit: (fw) => { mkdirSync(join(fw, 'a/b/c'), { recursive: true }); symlinkSync('../../..', join(fw, 'a/b/c/up')); symlinkSync('a/b/c/up/../../../../../outside', join(fw, 'l')); } });
+  expect(refusal(() => prepareLibrary(chained, 'aarch64-apple-darwin', { cache, ...quiet }))).toBe('vault: chained.xcframework.zip holds a link that leaves it (vault.xcframework/l -> a/b/c/up/../../../../../outside)');
 });
