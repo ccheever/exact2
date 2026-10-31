@@ -23,6 +23,12 @@ adding the history mutation. Existing action fixtures read the extracted
 member without a harness change. A separate queued mutation keeps history
 delivery independent of Send and Stop.
 
+The reader now captures the first visible row and its offset at the Root-owned
+scroll boundary. An accepted history page advances a client revision, and the
+Root restores that keyed row with the captured offset only when the route and
+selected environment/thread still match. A same-route thread replacement
+therefore cannot inherit an older reader position.
+
 ### Needed
 
 - pagination: by hand; full request identity and settled-page observation keys
