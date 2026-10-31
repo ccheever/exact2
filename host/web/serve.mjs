@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { createServer as createSocketServer } from 'node:net';
 import { brotliCompress, brotliCompressSync, constants as zlib, gzip, gzipSync } from 'node:zlib';
 import { createHash, randomBytes } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { arch, cpus, networkInterfaces, platform } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
@@ -1264,7 +1264,14 @@ async function main() {
   const compression = compressionCache();
   const warming = warmCompression(dist, compression, js);
   const pages = js ? sitePages(dist, (await import('../web-js/render.mjs')).pageServer) : null;
-  const server = createServer((req, res) => js ? serveBuildTree(dist, req, res, { pages, compression }) : serveStatic(dist, req, res, {host,port}, compression));
+  const rebuild = rebuildOnChange(dist);
+  const server = createServer(async (req, res) => {
+    if (rebuild && acceptsHTML(req.headers.accept)) {
+      const failed = await rebuild();
+      if (failed) { res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`The app's build failed, so this is the last build's page no more:\n\n${failed.slice(-6000)}`); return; }
+    }
+    return js ? serveBuildTree(dist, req, res, { pages, compression }) : serveStatic(dist, req, res, {host,port}, compression);
+  });
   server.on('error', (error) => { console.error(error.code === 'EADDRINUSE' ? `serve: port ${port} is in use; --port <n> names another` : `serve: ${error.message}`); process.exit(1); });
   server.listen(port, host, () => {
     const urls = [`http://127.0.0.1:${server.address().port}/`];
@@ -1314,6 +1321,48 @@ function settleBuild(dist) {
   const built = spawnSync(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app, ...target, ...release],
     { stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: app, ...(marker.release ? {} : { EXACT_WEB_DIST: dist }) } });
   return built.status === 0 ? 0 : built.status ?? 1;
+}
+
+/** For a build whose app's sources are beside it, as `settleBuild` builds a changed setting again: a function a
+ * browser's navigation awaits, which builds the site again once a source changed since the build (newer than its
+ * receipt), as a framework's dev server does, and answers the build's output when it failed (null when it built or
+ * nothing changed). Null for a build without its sources (a site copied to a host), which is served as it is. */
+function rebuildOnChange(dist) {
+  let marker;
+  try { marker = JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')); } catch { return null; }
+  const app = sourcesOf(dist, marker.app?.id);
+  if (!app || (!marker.release && resolve(dist) !== webDist())) return null;
+  const out = resolve(dist), receipt = () => { try { return statSync(resolve(dist, '.exact-build.json')).mtimeMs; } catch { return 0; } };
+  // What a build reads: the app's files, but for what builds and tools write (its outputs, dependencies, dot
+  // directories but `.env`s, generated types, test reports).
+  const SKIP = new Set(['node_modules', 'target', 'test-results', 'playwright-report']);
+  const newest = (dir, depth = 0) => {
+    let at = 0;
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const path = resolve(dir, e.name);
+      if (SKIP.has(e.name) || (e.name.startsWith('.') && !e.name.startsWith('.env')) || e.name.endsWith('.d.ts') || path === out || path.startsWith(`${out}.`)) continue;
+      if (e.isDirectory()) { if (depth < 4) at = Math.max(at, newest(path, depth + 1)); } else if (e.isFile()) at = Math.max(at, statSync(path).mtimeMs);
+    }
+    return at;
+  };
+  let since = receipt(), checked = 0, running = null;
+  const target = marker.target === 'js' ? [] : ['--wasm'], release = marker.release ? ['--out', dist] : [];
+  return () => {
+    if (running) return running;
+    if (Date.now() - checked < 300) return null;
+    checked = Date.now();
+    if (newest(app) <= Math.max(since, receipt())) return null;
+    const started = Date.now();
+    console.log(`${app}: a source changed since the build: building it again`);
+    running = new Promise((done) => {
+      const child = spawn(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app, ...target, ...release],
+        { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, EXACT_APP_DIR: app, ...(marker.release ? {} : { EXACT_WEB_DIST: dist }) } });
+      let said = '';
+      for (const stream of [child.stdout, child.stderr]) stream.on('data', (d) => { said += d; });
+      child.on('close', (code) => { if (code === 0) since = started; else console.error(said.trimEnd()); done(code === 0 ? null : said); });
+    }).finally(() => { running = null; });
+    return running;
+  };
 }
 
 /** The directory of the app whose sources made the build in `dist` (its marker's app `id`), when they are beside it:
