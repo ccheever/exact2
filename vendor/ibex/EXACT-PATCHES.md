@@ -453,7 +453,9 @@ reads `mode` and `isSymbolicLink`; `fs_more.rs` adds `lstat`, `readlink`,
 `bindings/install.cc` and `storage.d.ts`; a lock moves to the
 `RuntimeState` that asked, whose `unlock` alone releases it and whose
 shutdown releases them all. The process lines are exact2's own and never
-reach `grant.rs`. Replay on a refresh.
+reach `grant.rs`. Bionic's `faccessat` refuses every flag, so on Android
+`crate::AT_EACCESS` is none and `access` checks its leaf without
+`AT_SYMLINK_NOFOLLOW`, after the `fstatat` that found it no link. Replay on a refresh.
 
 ## Qualification boundaries
 

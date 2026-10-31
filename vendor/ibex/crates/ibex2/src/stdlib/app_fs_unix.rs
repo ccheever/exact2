@@ -722,8 +722,12 @@ fn at_parent(op: FsOp, parent: &File, leaf: &str, data: &[u8]) -> Result<FsResul
                     return Err(error(io::Error::from_raw_os_error(libc::ELOOP)));
                 }
                 // `AT_SYMLINK_NOFOLLOW`: a link swapped in after the fstatat is
-                // checked as itself, never what it names.
+                // checked as itself, never what it names. Bionic refuses the flag
+                // (`crate::AT_EACCESS`), so there the fstatat alone keeps a link out.
+                #[cfg(not(target_os = "android"))]
                 let flags = libc::AT_EACCESS | libc::AT_SYMLINK_NOFOLLOW;
+                #[cfg(target_os = "android")]
+                let flags = 0;
                 last(libc::faccessat(fd, c.as_ptr(), mode, flags)).map(|()| FsResult::Done)
             }
             FsOp::Chmod => {
