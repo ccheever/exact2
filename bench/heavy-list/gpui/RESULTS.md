@@ -11301,3 +11301,28 @@ after. `trace-cohort-summary.json` retains this completed trace comparison;
 its untraced headline rows are provisional because rounds 6–10 were still
 running. Both traced four-arm distributions, ranges and counts match
 unchanged `aggregate.mjs` (`aggregate-cold.py cold-traced`).
+
+**Collection pauses.** The untraced cohort stopped after 49 originals
+when `mediaanalysisd` kept the machine above the existing quiet limit.
+The next slot, egui-after round 7, exhausted its 300-second gate before
+launching an app; it is not a measured failure. Its gate log and schedule
+are retained in `cold/egui-after/quiet-7-before-gate-resume.jsonl` and
+`cold/schedule-before-gate-resume.json`. `cold-resume-provenance.json`
+hashes those files and both coordinator versions. The resume skips every
+completed original, including the readiness failures.
+
+A five-second `caffeinate -u` user-activity assertion predicted load at
+or below one non-benchmark core within 120 seconds, sustained for the
+existing resume check. The prediction holds: the first quiet observation
+is 20.407 seconds later at 0.186 cores, followed by 61.389 seconds of
+quiet observations. `quiet-wake-prediction.json`, `quiet-wake-result.json`
+and `cold-resume-wait.jsonl` retain the prediction and result. No system
+process was stopped and no sleep preference changed.
+
+After two more originals, another collector started between Ink-before
+and Ink-after round 7. This lane released its own idle collector;
+`cold-owner-handoff.json` preserves all 51 completed originals. The
+primary row retains all ten rounds. A sensitivity excluding round 7 was
+declared before its Ink-after launch in `cold-handoff-sensitivity.json`.
+This is one logical cohort with recorded pauses, not an uninterrupted
+session or two independent sessions.
