@@ -116,7 +116,7 @@ Contract has no `Intl.PluralRules`: a language with more forms gets its strings 
 data module.
 
 ## choice: one value from two to five (a preset, units, a period)
-names: segment, segments, radiogroup, radio, segmented, segmented-control, segmentedcontrol, UISegmentedControl
+names: segment, segments, radiogroup, radio, segmented, segmented-control, segmentedcontrol, UISegmentedControl, checklist, multi-select, multiselect
 
 A `row role="radiogroup"` of `button role="radio" aria-checked=…`, each pressing its value, is
 the platform's segmented control: UIKit's `UISegmentedControl`, AppKit's segmented control,
@@ -140,8 +140,13 @@ component App
 - Each option is one short `text` (or a symbol `image` with an `aria-label`); leave its
   look unsaid. A radio that paints itself (its own `background-color`, `border` or
   `border-radius`, LLP 1104 D2) makes the group your drawn control on every host, keys
-  and all; `appearance="none"` on the `radiogroup` says so whatever the radios write. Six or more options, or long labels: a `select` (`contract vocab select`). On or off: `input
+  and all; `appearance="none"` on the `radiogroup` says so whatever the radios write. Six or more options, or long labels: a `select` (`contract vocab select`). A setting on or off: `input
   type="checkbox" switch`.
+- An item checked off (a to-do, a shopping list) is a plain `input type="checkbox"`: on iOS
+  the checklist's circle, as Reminders draws it, never a switch. Several of a fixed set (a
+  recipe's tags) is a list row each, a `button role="checkbox" aria-checked=…` that ends, when
+  chosen, in `image "symbol:checkmark"` under an `if`: UIKit's checkmark. A state is the
+  control's, never its label's (`✓ Dinner`).
 - `state tip = 18 persist` keeps the choice across launches.
 
 More: docs/recipes/persisted-setting.md

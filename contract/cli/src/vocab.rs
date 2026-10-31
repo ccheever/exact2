@@ -638,11 +638,11 @@ fn refused(name: &str) -> String {
 const MEANS: &[(&[&str], &str)] = &[
     (
         &["checkbox", "check-box", "UISwitch"],
-        "a checkbox is `input type=\"checkbox\" checked=… change=…`, a switch the same with `switch` (`contract vocab input`)",
+        "a checkbox is `input type=\"checkbox\" checked=… change=…`, an item checked off (on iOS the checklist's circle); a setting on or off is a switch, the same with `switch` (`contract vocab input`, `contract vocab checklist`)",
     ),
     (
         &["switch", "Toggle"],
-        "a switch is `input type=\"checkbox\" switch checked=… change=…` (`contract vocab input`)",
+        "a switch is `input type=\"checkbox\" switch checked=… change=…`, a setting on or off; an item checked off is a plain checkbox (`contract vocab input`, `contract vocab checklist`)",
     ),
     (
         &["range", "slider", "Slider", "UISlider"],
