@@ -47,6 +47,12 @@ describe('bounded transcript Markdown reuse', () => {
     expect(source).toContain('text block.text markup="markdown" user-select="text"');
   });
 
+  test('thread Markdown tables expose table and header or body cell roles', () => {
+    const source = appText('mobile/thread-markdown.contract');
+    expect(source).toContain('view display="grid" role="table"');
+    expect(source).toContain('view role=(item.header ? "columnheader" : "cell")');
+  });
+
   test('completed Duo table response presents cells and alignment without changing Copy or adjacent code', () => {
     const code = '"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx"';
     const body = ['T3-CONVERSATION-QA-04', '', '| Plant | Count | Note |', '|---|---:|---|',
