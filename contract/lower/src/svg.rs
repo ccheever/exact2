@@ -520,17 +520,15 @@ impl Lowerer<'_> {
         errors
     }
 
-    /// The content model, where SVG attributes go, and the `animation` names
-    /// a node names, checked before its attributes lower.
+    /// SVG attribute placement and animation names, after the content check.
     pub(crate) fn check_svg(
         &self,
         tag: &str,
         parent_tag: Option<&str>,
         attrs: &[Attr],
-        span: Span,
     ) -> Result<(), LowerError> {
         let in_svg = in_svg(self.svg_depth > 0, parent_tag);
-        check_svg_with(tag, in_svg, parent_tag, attrs, span, &|a| {
+        check_svg_attrs_with(tag, in_svg, attrs, &|a| {
             if matches!(a.name.as_str(), "animation" | "-exact-exit-animation") {
                 self.check_animation_names(tag, &a.value)?;
             }
@@ -763,11 +761,7 @@ impl Lowerer<'_> {
     }
 }
 
-/// [`Lowerer::check_svg`]'s content model and attribute placement, for a
-/// node `in_svg` or not under `parent_tag`, each attribute's motion checks
-/// by `animation` (the keyframes' own): the design server's write check
-/// calls it too (`theme::scan`), so it keeps no row of an element lowering
-/// refuses here.
+/// SVG content and attribute checks shared with the design server's write check.
 pub(crate) fn check_svg_with(
     tag: &str,
     in_svg: bool,
@@ -775,6 +769,17 @@ pub(crate) fn check_svg_with(
     attrs: &[Attr],
     span: Span,
     animation: &dyn Fn(&Attr) -> Result<(), LowerError>,
+) -> Result<(), LowerError> {
+    check_svg_content(tag, in_svg, parent_tag, span)?;
+    check_svg_attrs_with(tag, in_svg, attrs, animation)
+}
+
+/// Refuse an invalid SVG structure before checking its attributes.
+pub(crate) fn check_svg_content(
+    tag: &str,
+    in_svg: bool,
+    parent_tag: Option<&str>,
+    span: Span,
 ) -> Result<(), LowerError> {
     // A nested `svg` is an SVG element (a new viewport, LLP 1055.000 D4),
     // and so is `text` inside one (D11).
@@ -804,6 +809,16 @@ pub(crate) fn check_svg_with(
             span,
         );
     }
+    Ok(())
+}
+
+fn check_svg_attrs_with(
+    tag: &str,
+    in_svg: bool,
+    attrs: &[Attr],
+    animation: &dyn Fn(&Attr) -> Result<(), LowerError>,
+) -> Result<(), LowerError> {
+    let element = is_element(tag) || (matches!(tag, "svg" | "text") && in_svg);
     for a in attrs {
         // A module tag's own prop named like an SVG attribute (`fx`)
         // is the module's (LLP 1024 D1).
