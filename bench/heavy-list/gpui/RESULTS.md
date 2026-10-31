@@ -11216,3 +11216,43 @@ python3 target/m10-review-fix/landing/trace-summary.py
 python3 target/m10-review-fix/landing/background-summary.py
 python3 target/m10-review-fix/landing/audit.py
 ```
+
+**Landing fling result: the instruction prediction misses.** All ten
+originals qualify, giving five pairs at `c2bbac1010`. Ranges below are
+the minimum and maximum paired differences, not confidence intervals.
+
+| Metric | After − main median [range], n=5 |
+| --- | ---: |
+| Process CPU, ms/s | +0.016 [−8.697, +6.365] |
+| Cycles, million/s | +8.018 [−7.705, +11.352] |
+| Instructions, million/s | +26.352 [+10.743, +28.312] |
+| Late intervals/s | −0.021159 [−0.246291, +0.804901] |
+
+The predicted ±10 million instructions/s is missed in all five pairs.
+The four uninterrupted pairs give +26.958 [+21.346, +28.312] million/s,
+so the first pair's ownership gap does not explain the increase. CPU's
+range crosses zero; cycles' range crosses zero in the primary five pairs
+but not in the uninterrupted four (+9.347 [+1.990, +11.352] million/s).
+All five after launches have zero rest frames. The third fix attempt
+does not remove the fling regression, and the queue retains it.
+
+| Cumulative process work | After − main, million instructions, n=5 |
+| --- | ---: |
+| Before fling begins | −283.961 [−291.771, −181.035] |
+| During fling | +264.017 [+108.953, +284.770] |
+| Through fling's end | −19.944 [−72.082, −3.988] |
+
+These counters support work moving across the boot/fling boundary;
+the final source still does less total work through fling's end. The
+traces independently locate two decodes moved into fling, with no
+post-boot observer and no direct picture-arrival draws. They do not
+assign every extra instruction to those two decodes. `phase-work.py`
+reproduces the cumulative comparison, and `reduce.py` reproduces both
+the primary and uninterrupted-pair distributions.
+
+The unchanged four-arm reducer refuses an Ink-only series because its
+other arms are absent; that failed check is retained under
+`landing/aggregate/before/fling/`. Each original instead passes its
+`--sample` instrument check, and `aggregate-check.py` verifies the CPU
+and instruction/cycle distributions against those outputs within their
+printed precision. The cold cohorts use its full four-arm mode.
