@@ -13,10 +13,11 @@
 //! so a case alias on a case-insensitive volume or a hard link is the same
 //! file. An absent file is created, empty, when its entry is made, under the
 //! registry's lock, so every entry has an identity from the start (SQLite
-//! takes an empty file as a new database); each check reads it again from
-//! the entry's name, so a name unlinked and made again is the new file.
-//! Nothing here opens an existing file: closing that descriptor would drop
-//! the other library's locks.
+//! takes an empty file as a new database). The identity is kept for the
+//! entry's life: the holder's open descriptor keeps the inode from reuse,
+//! and a name unlinked and made again names another file, which the entry
+//! does not hold. Nothing here opens an existing file: closing that
+//! descriptor would drop the other library's locks.
 use std::{
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard},
@@ -83,34 +84,35 @@ fn identity(path: &Path) -> Option<(u64, u64)> {
 }
 
 impl Files {
-    /// The entry for the file at `path`, if one holds it. Each entry's
-    /// identity is read again from its name: one whose name was unlinked, or
-    /// now names another file, follows what the name names now.
+    /// The entry for the file at `path`, if one holds it: by device and
+    /// inode where both are known, else by name.
     fn find(&mut self, path: &Path) -> (PathBuf, Option<usize>) {
         let name = name(path);
         let identity = identity(&name);
-        for entry in &mut self.entries {
-            entry.identity = self::identity(&entry.name);
-        }
-        let found = self.entries.iter().position(|entry| {
-            entry.name == name || (identity.is_some() && entry.identity == identity)
-        });
+        let found = self
+            .entries
+            .iter()
+            .position(|entry| match (entry.identity, identity) {
+                (Some(held), Some(asked)) => held == asked,
+                _ => entry.name == name,
+            });
         (name, found)
     }
 
     /// An entry for the file `name` names, which no entry holds, creating it
     /// empty when it is absent; and whether it existed.
     fn insert(&mut self, name: PathBuf, hold: Hold) -> Result<(u64, bool), Refused> {
-        let existed = std::fs::symlink_metadata(&name).is_ok();
+        let mut existed = std::fs::symlink_metadata(&name).is_ok();
         if !existed {
-            // `create_new` (O_EXCL) follows no link and fails on a file made meanwhile.
+            // `create_new` (O_EXCL) follows no link and fails on a file made
+            // meanwhile, by another process, which then existed before.
             match std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&name)
             {
                 Ok(_) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => existed = true,
                 Err(e) => return Err(Refused::Create(format!("{}: {e}", name.display()))),
             }
         }

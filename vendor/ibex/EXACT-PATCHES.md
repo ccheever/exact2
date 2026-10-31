@@ -471,8 +471,10 @@ file `existed()`; a connection's count ends at a successful close or when it
 drops. A file is one entry by its name under its canonical directory and by
 its device and inode, so a case alias or a hard link is the same file: an
 absent file is created empty (`O_EXCL`) under the registry's lock when its
-entry is made, by either side, and each check reads every entry's identity
-again from its name, so a name unlinked and made again is the new file. `stdlib/app_fs_unix.rs`
+entry is made, by either side, and an entry keeps the identity it learned
+then for its life, matching by name only where an identity is unknown: the
+holder's descriptor keeps the inode from reuse, and a name unlinked and made
+again names another file. `stdlib/app_fs_unix.rs`
 `AppDirectories::sqlite_path` checks that the database is a regular file with
 `fstatat(AT_SYMLINK_NOFOLLOW)` beneath the pinned parent instead of opening
 and closing it, so resolving a path, a refused one's included, never touches

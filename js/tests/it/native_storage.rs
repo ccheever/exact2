@@ -155,7 +155,8 @@ fn a_native_modules_sqlite_file_is_granted_and_held_by_one_sqlite_at_a_time() {
 /// (a hard link, and a case alias where the volume ignores case) is the same
 /// file to every Exact SQLite connection, the TypeScript storage's and a Rust
 /// source's alike, in either order, from before the file exists; and a
-/// reserved name unlinked and made again names the new file.
+/// reserved file keeps its reservation when its name is unlinked and made
+/// again, which names another file.
 #[test]
 fn a_reserved_file_is_known_by_its_identity_under_any_name() {
     use ibex2::stdlib::sqlite::{Location, Provider};
@@ -165,7 +166,7 @@ fn a_reserved_file_is_known_by_its_identity_under_any_name() {
     // SQLite refuses a path through a link (macOS's `/var`).
     let dir = std::fs::canonicalize(&root.0).unwrap();
     let (file, upper) = (dir.join("vault.sqlite"), dir.join("VAULT.sqlite"));
-    let (link, fresh) = (dir.join("vault-link.sqlite"), dir.join("fresh-link.sqlite"));
+    let link = dir.join("vault-link.sqlite");
     let open = |path: &Path| {
         ibex2_sqlite::SqliteProvider.open(Location {
             path: path.to_path_buf(),
@@ -220,14 +221,22 @@ fn a_reserved_file_is_known_by_its_identity_under_any_name() {
     }
     connection.close().unwrap();
 
-    // The reserved name unlinked and made again: the entry follows the new
-    // file (`link` keeps the old one, so the new one has another inode).
+    // The reserved file held open and locked, its name unlinked and made
+    // again: the entry keeps the file it reserved, still reachable through
+    // `link`, whose open is refused and leaves the lock; the new file at the
+    // name is another file, and is admitted.
     let reserved = reserve(&file).unwrap();
     assert!(reserved.existed());
+    let holder = locked(&file);
     std::fs::remove_file(&file).unwrap();
     std::fs::write(&file, "").unwrap();
-    std::fs::hard_link(&file, &fresh).unwrap();
-    open(&link).unwrap().close().unwrap();
-    refused(&fresh);
+    refused(&link);
+    #[cfg(unix)]
+    assert!(
+        locked_here(&link),
+        "the refused open dropped the holder's lock"
+    );
+    open(&file).unwrap().close().unwrap();
+    drop(holder);
     drop(reserved);
 }
