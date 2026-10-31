@@ -925,10 +925,13 @@ component Page
   state ids: string[] = ["a", "b"]
   view
     main
-      image "https://example.com/hero.png" width=200 alt="Hero"
-      for id in ids key=id
-        image \`https://example.com/\${id}.png\` width=96 alt=id
+      for e in stack(nav) key=e.id
+        for page in [e] key=page.id
+          image "https://example.com/hero.png" width=200 alt="Hero"
+          for id in ids key=id
+            image \`https://example.com/\${id}.png\` width=96 alt=id
 `, (_, html) => {
+    // A page's own image, though a stack's `for` and a page-keying `for [e]` hold it, is no row.
     expect(html('').match(/<img [^>]*>/g)?.map(img => /loading="([^"]*)"/.exec(img)?.[1] ?? null)).toEqual([null, 'lazy', 'lazy']);
   });
 }, 30000);
