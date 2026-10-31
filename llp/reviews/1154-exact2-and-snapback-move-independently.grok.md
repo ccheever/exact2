@@ -129,3 +129,88 @@ Exact should stop compiling Snapback and let an app pin `snapback4-exact`. r2 is
 Judging from the diff alone, r2 does take the round-1 findings a reviewer would have raised: the shim moves off `Package` onto `exact_js::NativeModule` with bake-generated `with_native` wiring; grants stay in Exact; the library is a per-target dynamic library named `{url, sha256}`; Android drops out of the first list; the deletion list grows to the backend verb, the docs, and the mount check; step 2 copies and publishes while exact2 waits for every ask of §4; M1, M3, and M6 become real measures. Those edits answer the earlier review. The new text is where it breaks: the trait change is justified by a single consumer this tree does not have, step 1 freezes the impls the change compiles against, the link citation does not match an rlib plus `build.mjs`, §4 never receives the NativeStorage shim D3 just invented, and M1's `0.4.x` grep cannot come back empty in this repo.
 
 NOT READY — the native slot is the right seam, but the trait change cannot land while Snapback stays frozen, the Apple link is not the one this tree uses, and the proof measures cannot pass as written.
+## r3 (2026-10-31, delta round, the last)
+
+**Provenance.** Family: xAI, `grok-4.7`, reasoning effort `xhigh`, session `01a19183-42df-7df1-984d-827c121d70c1`, 29 turns, headless with the terminal ban, in the round-3 capsule: a `git archive` of `9cc57a3f47` with `llp/reviews/1154-*` removed, capsule hash `e3b0c44298fc1c14…`. Target: r3, sha256 `fbc7c28d2ad9…`. Brief sha256 `501085394b94be59…` (the r2→r3 diff, IN-DELTA/PRE-EXISTING classification, and that this is the last round). Blind as before. Not redacted. The text below is the reviewer's final message, unedited, from its first verdict line.
+
+---
+
+NOT READY. The end state generates a native factory and then deletes the only call that attaches it, and the shim's compile depends on a `serde_json` dependency app crates do not have.
+
+## Direction
+
+The ownership decision is right. exact2 should stop compiling Snapback's private crates, and the driver's door is `exact_js::NativeModule` (`js/src/native.rs:44-56`, `js/src/lib.rs:456-461`), not `exact_linux::package::Package` (`host/linux/src/package.rs:39-43`, `host/apple/modules/ExactPackage.swift:355`). Admitted storage, a dynamic library per target, and a package Snapback publishes are the right shape. r3 ties the trait change to its implementors, names the Swift embed, and requires §4's shim to be D3's rather than today's `Module`. Two decisions in that end state still do not work.
+
+## MATERIAL concerns
+
+1. **IN-DELTA. The generated factory is never attached.**
+
+   D3 and the §3 deletion say Harmony's `struct Snapback`, `fn snapback`, and the `.with_native(snapback)` in `embedded_data` go, and that an app crate then writes nothing for the slot. §3 item 2 puts the factory in `module.rs` via `module_constants`.
+
+   `module_constants` writes constants only (`js/bake/src/lib.rs:199-225`). Generated `logic.rs` calls `embedded_data()` (`js/bake/src/lib.rs:361-363`). That function is hand-written app source. A TypeScript app builds `Module::new(...).placed(...)` with no native factory (`apps/listen-fixture/apple/src/lib.rs:7-8`). Harmony is the one caller (`apps/harmony/app/apple/src/lib.rs:31-36`, `apps/harmony/app/linux/src/main.rs:32-36`). The host runs only the factory `with_native` stored (`js/src/lib.rs:665-666`). Step 1 can keep that call while the wrappers change for the new trait. Step 3, as written, removes it, and the generated function has no caller.
+
+   Resolve it by putting `.with_native(...)` on a path `embedded_data` already is, or by having the bake emit that call into `embedded_data`. A factory sitting in `module.rs` attaches nothing once the app's call is gone.
+
+2. **PRE-EXISTING. The shim does not compile on the crates that would host it.**
+
+   D3 says the shim names `exact_js`, `serde_json`, and the standard library, "which every app's crate has," so no Cargo manifest is generated. A `#[path]` module is part of the app crate and can name only that crate's direct dependencies.
+
+   `apps/listen-fixture/apple/Cargo.toml:14-17` and `apps/excord/apple/Cargo.toml:14-17` depend on `exact-js` and not on `serde_json`. `apps/hello/apple/Cargo.toml:16-19` has neither. Harmony's apple crate lists `serde_json` (`apps/harmony/app/apple/Cargo.toml:20`) because its wrapper names the type. `exact_js` re-exports `NativeModule` and does not re-export `serde_json::Value` (`js/src/lib.rs:82`). The trait's `call` takes that type (`js/src/native.rs:56`). LLP 1133.001's built Rust row already hit this and re-exports JSON from `exact_linux::package` so a `#[path]` module names no extra crate.
+
+   Resolve it by having the shim name `exact_js` and `std` only, with `exact_js` exporting the JSON type the trait uses. Drop the claim that every app crate depends on `serde_json`.
+
+## Minor concerns
+
+1. **IN-DELTA.** "Nine implementors (Excord's two, Harmony's two, four test fakes)" does not add. The nine impls are Excord's two, Harmony's two, and five test impls: `js/tests/it/native_later.rs:18` and `:79`, `storage.rs:106`, `turn_budget.rs:18`, `interrupt.rs:76`. §7's "seven call sites" undercounts the `with_native(` expressions (those tests, `render.rs:26`, both Harmony crates, both Excord crates). Excord's two ignore the paths (`apps/excord/windows/src/main.rs:21-27`, `apps/excord/android/src/lib.rs:29-35`). The compiler forces every impl to change. The inventory is wrong.
+
+2. **IN-DELTA.** The artifact the Swift link consumes is a staticlib from `cargo rustc --crate-type staticlib` (`host/apple/build.mjs:1421`), linked with `-L` and `-l` (`host/apple/Package.swift:60`). Cargo.toml says rlib (`apps/harmony/app/apple/Cargo.toml:10`). The search path belongs on that Swift link. On Linux, nothing sets `$ORIGIN` (no rpath under `host/linux`); a `.so` beside the binary is not on the default search path. M5's launch with no build-tree path is what forces the rpath. Two SQLites stay distinct only if the cdylib hides its SQLite and Rust symbols and the caller frees with the library's free. `ibex2-sqlite` bundles rusqlite (`vendor/ibex/crates/ibex2-sqlite/Cargo.toml:12`). Today's `OpenPartition._directories` holds directory authority (`snapback4/src/lib.rs:34-36`); it does not stop another SQLite in the process from opening the same path.
+
+3. **IN-DELTA.** M1's third pattern needs the version within 60 characters after `snapback` on the same line. `QUEUE.md:487` places `0.4.17` farther away, so the grep can pass while D1's "no version" still fails. `docs/start-here.md:68` links `../snapback4/README.md`, and §3 only removes versions from that file.
+
+4. **PRE-EXISTING.** D6's "mark the module optional" is LLP 1133 D8's switch. D2 says this package is not a module (`kind`, `names`, and `implements` do not apply) and names no other field for a missing target.
+
+5. **IN-DELTA.** D1 states `backendPreflight` as already reading `package.json`. Today it keys off `mountsSnapback` (`scripts/agent-test.mjs:204`) and the mount regex at line 615. The deletion list is the change. `devicePreflight` reads the stamp from `assets/snapback4.wasm` (`snapback4/web/device-build.mjs:59`). §4's preflight ask does not say that path changes when the wasm becomes a package asset.
+
+6. **IN-DELTA.** Status recounts both review rounds. `rules/DEFERRED.md` ("No refine loops") forbids revision ledgers. §R is gone, and the ledger now sits in Status.
+
+## Claims checked
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| `snapback4/Cargo.toml` pins three `github.com/expo/snapback` crates at one rev, `=0.4.33` | true | `snapback4/Cargo.toml:15-17` |
+| Upstream crates are `publish = false` | unverifiable | Local `exact-snapback4` is `publish = false` (`Cargo.toml:27`). Snapback's repository is not here. The design depends on there being no registry copy. |
+| Root and Harmony `package.json` install `snapback4@0.4.33` | true | `package.json:13`, `apps/harmony/package.json:6` |
+| README, `AGENTS.md`, `CLAUDE.md`, the reference, a recipe, `QUEUE.md`, and two test scripts name a number | true | `README.md:755`, `AGENTS.md:245`, `CLAUDE.md:245`, `docs/reference.md:60`, `docs/recipes/snapback-tests.md:10`, `QUEUE.md:487` (`0.4.17`), `scripts/agent-test.mjs:255`, `scripts/agent-launch.test.mjs:386` |
+| `readme-tested.json` hashes nineteen files; the retest runs four apps and the auth recipe | true | `snapback4/readme-tested.json:34-54` has nineteen keys; `examples` is four apps plus auth |
+| Six repins from 0.4.13 to 0.4.33; seven later releases, latest 0.4.49; floor 0.4.24 | unverifiable | Current pin is 0.4.33. `devicePreflight` reads the server's `minimum_version` (`snapback4/web/device-build.mjs:63-66`). The history and the floor number are not in this tree. |
+| Snapback's README defines the device as one JSON call and a C ABI; the Expo module exports four functions | unverifiable | The design depends on that ABI (caller frees, one caller, nothing unwinds) staying the shim's private edge. |
+| Host calls `configure_storage` with three roots before `call`; admission is `ibex2`; `_directories` is held for the connection | true | `js/src/lib.rs:665-671`; `snapback4/src/lib.rs:152-199` |
+| The factory argument is the grants text | true | `js/src/lib.rs:666`. Harmony names the parameter `_source` (`apps/harmony/app/apple/src/lib.rs:23`). |
+| `Package::call` on Apple and Linux answers `NotSupportedError` | true | `host/linux/src/package.rs:39-43`; `host/apple/modules/ExactPackage.swift:355` |
+| Nine implementors, four of them test fakes; §7's seven call sites | false as broken down | Nine impls, five of them tests (minor 1). `with_native(` appears in those tests, `render.rs`, both Harmony crates, and both Excord crates. |
+| Excord's impls take the roots from the handle | false | They ignore the three paths (`apps/excord/windows/src/main.rs:21-27`, `apps/excord/android/src/lib.rs:29-35`). |
+| Every app crate already depends on `exact_js` and `serde_json` | false | Material concern 2. |
+| The app crate is an rlib the host links, and the Swift link assembles the bundle | misleading | rlib in `Cargo.toml`; the linked artifact is a staticlib (`host/apple/build.mjs:1421`, `Package.swift:60`). |
+| Harmony's manifest names iOS, macOS, and the web | true | `apps/harmony/app/app.json:12-28`. `deploy.store` also lists linux (`:34`). |
+| `backendPreflight` reads the package dependency from `package.json` | false of today's code | `scripts/agent-test.mjs:199-205` and `:615` use the mount. §3 is the change. |
+| `fresh` is `POST /dev/reset` and names the door flag; equal-to-floor passes | true | `scripts/agent-test.mjs:239-256`; `device-build.mjs:64` treats older as strict `<`. |
+| `devicePreflight` compares a wasm stamp, not the npm pin | true | `snapback4/web/device-build.mjs:59-66` reads `assets/snapback4.wasm`. |
+| The Rust `DataSource` shape has no consumer but the adapter's tests | true | `impl DataSource for Module` at `snapback4/src/lib.rs:262`; uses in `snapback4/tests/client.rs` and `device.rs`. Harmony wraps `Module` as `NativeModule`. |
+| Glue is generated and never committed today | true | `js/bake/src/lib.rs:675-678`; `docs/reference.md:77-80`. "Committed by Snapback" is the future package. |
+| `module_constants` is the bake site for the factory; it does not emit `with_native` today | true | `js/bake/src/lib.rs:199-225` |
+| Web build copies the app's assets and does not carry arbitrary package files | true | `host/web-js/build.mjs:126` warns on a missing `assets/snapback4.wasm`. |
+| `bun exact.mjs test web\|ios\|linux` exists in `apps/harmony/app` | true | `apps/harmony/app/exact.mjs:1-2`; `scripts/app-cli.mjs:70` routes `test` to `agent.mjs`. The verb does not start the server. |
+| The lane's `harmony` step is `memory-backend-test.mjs`; `harmony-check` compiles Harmony's workspace | true | `scripts/async.mjs:160-166` |
+| LLP 1027 D8 says both native SQLite users share one linked library | true, narrower than the sentence | `llp/1027-typescript-data-sources.rfc.md:1519-1520` also requires the same rusqlite version. |
+| LLP 1086 D12 is `exact new --snapback` and the `snapback` verb | true | `llp/1086-building-with-exact2.rfc.md:439-455` |
+| `ibex2-sqlite` bundles rusqlite | true | `vendor/ibex/crates/ibex2-sqlite/Cargo.toml:12` |
+| The Cargo-fetch step already downloads `{url, sha256}` blobs | false | `scripts/app.mjs` runs `cargo fetch --locked`. §3 correctly lists the hash fetch as new work. D9 describes the step. |
+| Charlie's request is the apparatus approval | unverifiable | Status asserts it. The request is not in the tree. |
+
+The design depends most on Snapback claims this tree cannot check: no published crates (`publish = false`), the C ABI (JSON the caller frees with the library's free, one caller, no unwind), a cdylib whose Rust runtime and SQLite stay private, and the server floor plus the engine stamp. Those match the adapter that is here: it already opens Snapback's SQLite on a resolved path while holding ibex directory authority (`snapback4/src/lib.rs:176-199`).
+
+## Delta assessment
+
+From the diff, r3 answers a round-2 review of the trait, the bundle, the Snapback asks, the deletion list, and M1 and M3. One commit updates the implementors, Harmony passes roots through until step 3, and a second `configure_storage` is rejected. §4 ask 1 requires D3's shim, `NativeStorage`, no `ibex2` or `exact-runner`, and library-owned entropy plus `partition::bind`. The library paragraph names the Swift search path, the embedded framework, `@rpath`, and the ExactCore signing order, and it amends the shared-SQLite sentence. The deletion list adds the `devicePreflight` import, the `new --snapback` test, the projection test, the glue test, harmony-seed's server, and `QUEUE.md`. M1 is three greps. M3 is `snapback4 upgrade`, a rebuild, `engine_info`, and `git status` limited to `apps/harmony`. The same edit deletes `.with_native` from hand-written `embedded_data` without giving the generated factory a caller, and it leaves the pre-existing `serde_json` claim standing. The new inventory ("four test fakes", "seven call sites") is wrong. What remains is a defective wiring decision and a false compile claim, not implementation-phase detail. `rules/DEFERRED.md` allows no further refine loop, and `rules/RULES.md` stops a fix loop at three rounds, so the next step is a human amending those two decisions or explicitly accepting them.
+
+NOT READY. The end state generates a native factory and then deletes the only call that attaches it, and the shim's compile depends on a `serde_json` dependency app crates do not have.

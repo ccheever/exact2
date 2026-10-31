@@ -220,3 +220,77 @@ The ownership decision and revised native boundary are sound. `NativeModule` is 
 Judging from the supplied diff alone, r2 resolves the main seam mistake: it replaces `Package` composition with the existing `NativeModule` slot, centralizes storage admission, makes the library declaration concrete, and requires fetching and hash verification. Shipping wasm glue and deferring Android are coherent improvements. Copying before deletion and waiting for all five Snapback asks repairs the cross-repository ordering. The deletion list is substantially better but remains incomplete; that is a material pre-existing concern. The measures improve through rebuilding and retained-partition reopening, but M1 introduces an impossible pass condition. The trait change also introduces an unacknowledged caller migration. The round therefore has not converged.
 
 NOT READY — r2 fixes the native seam, but the transition omits existing consumers and M1 cannot pass as written.
+## r3 (2026-10-31, delta round, the last)
+
+**Provenance.** Family: OpenAI, codex `gpt-6.1-sol`, reasoning effort `ultra`, session `01a19183-2f8c-7d81-8e49-0c9663d5971a`, read-only in the round-3 capsule: a `git archive` of `9cc57a3f47` with `llp/reviews/1154-*` removed, capsule hash `e3b0c44298fc1c14…`. Target: r3, sha256 `fbc7c28d2ad9…`. Brief sha256 `4c3ab8c8eeaed117…` (the r2→r3 diff, IN-DELTA/PRE-EXISTING classification, and that this is the last round). Blind as before. Not redacted. The text below is the reviewer's final message, unedited.
+
+---
+
+NOT READY — D3 relies on exclusive SQLite file ownership that the specified storage guard does not establish.
+
+## Direction
+
+The ownership decision and native seam are right. `NativeModule` is the slot the driver already uses; generated wiring and host-owned admission let the package avoid `ibex2` and `exact-runner`. A package-owned C boundary and private dynamic library are feasible. The transition order is sound, and §4 now covers the wider client ABI, identity binding, entropy and callable preflight that step 3 needs. Status records approval for §3’s apparatus, consistent with `rules/RULES.md:63–66`. I verified the requested SHA-256 and reviewed only local sources; this capsule has no `.git`, so I could not execute M1 as written. Tags below follow the supplied r2→r3 diff.
+
+## MATERIAL concerns
+
+1. **[IN-DELTA] Directory authority does not establish exclusive database ownership.**
+
+   **Where:** `llp/1154-exact2-and-snapback-move-independently.rfc.md:195–205`, `221–228`; §3 item 2.
+
+   **What:** D3 defines `SqliteFile` as retaining directory authority and naming an admitted path, then says that guard ensures Exact’s SQLite never opens the partition. Those are different guarantees. The same `sqlite.open app:/data` grant can admit the partition through ordinary TypeScript storage while the package’s independent SQLite has it open. That violates the condition on which D3 justifies two SQLite libraries.
+
+   **Evidence:** The existing `_directories` field retains directory capabilities (`snapback4/src/lib.rs:31–35`). `AppDirectories` pins directory handles (`vendor/ibex/crates/ibex2/src/stdlib/app_fs_unix.rs:17–23`); `resolve_sqlite` admits and resolves a filename (`:960–988`). Ordinary storage independently resolves that filename and calls its provider (`vendor/ibex/crates/ibex2/src/sqlite_abi.rs:172–189`), which opens it (`vendor/ibex/crates/ibex2-sqlite/src/lib.rs:69–75`). None of these operations establishes the exclusion D3 attributes to the guard.
+
+   **Resolution:** Make exclusive file ownership an explicit `NativeStorage` contract shared with Exact’s ordinary SQLite admission, held until the library closes its connection. Specify refusal in either opening order and prove it in the fixture, including release after close. This is a defective safety invariant as written, not a request to specify its implementation algorithm.
+
+## Minor concerns
+
+1. **[IN-DELTA] Correct the implementor breakdown.** RFC `:203–205` and `:280–282` correctly say nine implementors but enumerate only eight. There are **five** test implementations: `js/tests/it/native_later.rs:18,79`, `storage.rs:106`, `turn_budget.rs:18`, and `interrupt.rs:76`. The same-commit migration decision is otherwise sufficient.
+
+2. **[IN-DELTA] Finish the deletion inventory’s dependent imports and tests.** Besides the named preflight test, survivors include:
+   - `game/new.mjs:7`, importing the deleted device helper;
+   - `scripts/agent-launch.test.mjs:221`, importing that helper in the retained backend test;
+   - `scripts/agent-launch.test.mjs:318–337`, testing Firefox/WebKit preflight through both the helper and `wireSnapback`.
+
+   RFC `:307–321` should explicitly cover these. Rewrite the backend test around package dependency detection; remove the device-specific carrier test. These are routine deletion consequences, not a different design.
+
+3. **[PRE-EXISTING] M1’s first grep also rejects permitted historical mentions.** RFC `:384` searches every occurrence of `expo/snapback`, while D1 `:111` prohibits dependencies on it. Closed issue explanations match at `issues/closed/20260924-root-lock-pins-private-snapback.md:11` and `20260928-apple-build-offline-metadata-on-fresh-clone.md:14`. Restrict that check to dependency inputs or distinguish historical matches. The supplied r2 side already has this mismatch.
+
+4. **[IN-DELTA] M3 still needs an observation point.** RFC `:386` names an `engine_info` answer in drive state without saying how it gets there. The current driver’s call method is private (`snapback4/ts/snapback.ts:388`), and its engine probe supplies a request header (`:998–1000`). Name a Harmony-owned diagnostic source or a package-supported probe that Harmony exposes. Updating the lock before frozen installation fixes the earlier procedural problem.
+
+5. **[IN-DELTA] Final linking needs more than a search path.** RFC `:229–234` correctly identifies the final Apple link, but implementation must carry the framework/library link arguments as well as search paths. The existing Swift target explicitly links the Rust archive (`host/apple/Package.swift:55–60`), and the product link has its own arguments and reuse fingerprint (`host/apple/build.mjs:1230–1247`). Include the package library in those inputs. Export isolation, deployment compatibility, install names, run paths and signing are implementation work that M5’s packaged launch should qualify.
+
+6. **[PRE-EXISTING] Narrow the release claim.** RFC `:16–18` says every Snapback release needs an exact2 commit. Updating Exact’s compiled device needs that commit; merely publishing or consuming a compatible server release does not, as D4 itself recognizes. The current preflight compares a compatibility floor and capabilities rather than equality (`snapback4/web/device-build.mjs:63–66`).
+
+7. **[IN-DELTA] Shorten Status’s review narrative.** RFC `:4` retains reviewer names and prior verdict history. Keep the current revision, approval and implementation assignment; the narrative adds little to the decision and conflicts with the sparse-prose guidance in `AGENTS.md:51–55` and the revision-ledger prohibition in `rules/DEFERRED.md:1704–1708`.
+
+## Claims checked
+
+| Claim | True / false / unverifiable | Evidence |
+|---|---|---|
+| Three Snapback crates are pinned to one immutable revision and exact version. | True | `snapback4/Cargo.toml:15–17`. |
+| Root and Harmony install `snapback4@0.4.33`. | True | `package.json:13`; `apps/harmony/package.json:6`. |
+| The receipt hashes nineteen files and records four README examples plus the auth example. | True | `scripts/check-snapback-readme.mjs:8–12,29–32`; `snapback4/readme-tested.json:7–53`. |
+| Native Harmony uses `with_native` wrappers around the adapter. | True | `apps/harmony/app/apple/src/lib.rs:9–35`; `apps/harmony/app/linux/src/main.rs:10–36`. |
+| The factory receives grants text; storage configuration occurs during activation. | True | `js/src/lib.rs:665–686`; `js/src/native.rs:44–56`. |
+| The current adapter admits SQLite access and retains directory authority. | True | `snapback4/src/lib.rs:151–179,195–199`. |
+| That retained authority prevents Exact’s SQLite opening the same file. | False | Directory authority and ordinary SQLite opening are independent; evidence in material concern 1. |
+| There are nine trait implementors, including four test fakes. | False as stated | Nine total, five test implementations; minor concern 1. |
+| `Package` is the wrong existing synchronous seam. | True | Its default synchronous call returns `NotSupportedError`: `host/linux/src/package.rs:29–43`. |
+| Existing Rust package composition requires a generated Cargo manifest. | False if inferred | The built path uses `#[path]` modules and app-provided crates: `contract/cli/src/native/packages.rs:13–17,83–117`; LLP 1133.001 `:442–469`. RFC §3 can use that model for this shim. |
+| `tally` proves source composition rather than prebuilt-library loading. | True | `packages/fixtures/tally/linux/exact.json:9–10`; `test/linux.mjs:21–35`. |
+| Arbitrary package web assets need additional capture/serving work. | True | Package capture is import-driven: LLP 1027 `:1034–1040`; current asset copying is app-owned: `host/web-js/build.mjs:805`. |
+| Harmony’s Apple crate is an rlib and final Apple linking needs host build integration. | True | `apps/harmony/app/apple/Cargo.toml:9–10`; `host/apple/Package.swift:55–60`. |
+| Exact bundles SQLite. | True | `vendor/ibex/crates/ibex2-sqlite/Cargo.toml:12`. |
+| Harmony’s manifest names iOS, macOS and web; its lane separately compiles its workspace. | True | `apps/harmony/app/app.json:12–29`; `scripts/async.mjs:163–166`. |
+| Current Harmony test helpers build the device and install only when missing. | True | `scripts/memory-backend-test.mjs:106–110`; `packages/background/test/harmony.mjs:59–62`. D5 intentionally changes this. |
+| Snapback’s upstream crates are unpublished; its existing xcframework, C ABI, compatibility floor, release count and publication qualification have the described properties. | Unverifiable | Their authoritative implementation and release records are absent. Local pins and consumers corroborate usage, not those upstream guarantees. |
+
+The design most depends on Snapback delivering **§4 item 3’s expanded module-and-client ABI**, rather than only its existing four device functions, and preserving retained partition identities and queued writes. The local behavior to preserve is concrete: `snapback4/client/src/partition.rs:6–40`, `snapback4/src/lib.rs:180–200`, and web persistence in `snapback4/web/src/lib.rs:74–94,154–172`. M6 appropriately tests both persistence paths.
+
+## Delta assessment
+
+From the diff alone, r3 resolves the trait-migration omission in substance, with the minor counting error above. It identifies the final bundle/link/signing work and explicitly amends the shared-SQLite decision, but introduces the unsupported exclusivity claim that remains material. The Snapback asks now cover the shim, app identity, partition binding, entropy and callable preflight; I found no additional external deliverable step 3 clearly requires. The deletion list substantially improves but leaves dependent imports/tests. M1 still has historical false positives; M3 fixes lock-update ordering but needs a concrete state observation. M2, M5 and M6 otherwise measure the intended behavior. **No pre-existing MATERIAL concern remains in this review.** The SQLite ownership invariant requires a targeted design correction; the other findings are implementation or editorial details. As this is the last permitted round, that distinction should guide the author’s decision without another review loop.
+
+NOT READY — D3 relies on exclusive SQLite file ownership that the specified storage guard does not establish.
