@@ -5010,7 +5010,7 @@ predictions remain chunk A's: zero eager optional DLL imports, static-face
 advance error below 0.02 device pixels, unhinted mean coverage error below
 4.589/255 for Inter and 12.335/255 for Segoe UI, and UIA discovery within
 30 seconds. New native results require the NucBox to answer its one SSH
-check; elapsed time or uncollected output cannot qualify a candidate.
+check; elapsed time or missing output cannot qualify a candidate.
 
 Rebase differences, the SSH output and quiet observations are retained under
 `target/stage-1w-landing/`.
@@ -5249,6 +5249,88 @@ machine setting and the separate sleep/wake investigation.
 The raw WER, application events, System event XML, module inventory and
 preceding test sequence are in `target/stage-1w-native/nucbox/prior-*`.
 
+### Native collection — offscreen wgpu results
+
+The nine offscreen suites below pass, each with exit zero. They run before
+the held desktop journeys because the NucBox is also serving an active
+`C:\bake\rounds\r35w` bakeoff. They change neither display scale nor focus.
+Their wall times are correctness-test output, not quiet performance data.
+Composition, native surfaces and startup fixtures that create visible
+windows remain separate from this collection. The paint filter is not run.
+
+```text
+wgpu-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.69s
+wgpu-ink: test result: ok. 48 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 4.73s
+wgpu-pinned-backdrop: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 3.43s
+wgpu-pinned-borders: test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 4.10s
+wgpu-pinned-gradients: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 1.07s
+wgpu-pinned-materials: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 1.04s
+wgpu-pinned-tint: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 1.26s
+wgpu-pinned-visual: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 8.78s
+wgpu-windows: test result: ok. 39 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.12s
+```
+
+The combined evidence archive is
+`target/stage-1w-native/stage-1w-native-offscreen.tgz`, SHA-256
+`69b3cf9d5af9274405eda02fe0f843e8c0a9e818753987c4fab852880038819c`.
+It contains the earlier imports/D3D11 logs, the current unhinted audit,
+these wgpu logs and the recovered third UIA tree. Copies are extracted
+under `target/stage-1w-native/nucbox/`. `runs.jsonl` records the commands,
+executables, flags and UTC start times; `result-lines.txt` and `exits.json`
+record each completion. The native test build and executable paths are
+in `native-build.jsonl` and `executables.json`.
+
+The recovered UIA tree is earlier-source evidence, not a new attempt:
+
+```text
+name=Ok(Search) class=Ok() provider=Ok([pid:167640,providerId:0x0 Main(parent link):Unidentified Provider (unmanaged:combase.dll)])
+```
+
+Its full rejected enumeration is
+`target/stage-1w-native/nucbox/prior-uia/field-journey-3/field-uia.txt`.
+The fixture's class/provider-name check rejects that identity; it does
+not establish whether the child supports the required Value/Text patterns.
+
+### Native collection — remaining qualification
+
+The NucBox was not dedicated during this collection. Its separate
+`C:\bake\rounds\r35w` bakeoff built apps, drove clicks and keyboard input,
+and started new Codex agents at 22:13 PDT. Three five-minute observations
+still find active work. GPU reset, display-scale changes and sleep remain
+held to avoid interrupting it. The hold concerns the active bakeoff; no
+NucBox GO file is required. The import check and D3D11 suites ran first;
+the headless M9 audit and offscreen wgpu suites moved ahead of the held
+desktop work. No correctness-test wall time is promoted to a performance
+claim.
+
+| Prediction or required collection | Result on this revision |
+| --- | --- |
+| Zero eager imports of the three candidate DLLs | Met: all three absent from the complete 42-DLL list. |
+| Zero D3D11 suite and desktop-journey failures | Met for the 22 collected filters; six desktop journeys held. |
+| Native field fixtures and type/select/cut/paste/undo at 100/150% | Current-source run held. Recovered AccessKit/edit/lifetime fixtures pass on chunk A's source; they are not this revision's qualification. |
+| UIA discovers the native fragment within 30 seconds | Unrun on this revision; the one requested attempt remains available. The recovered third rejection tree is identified above. |
+| Static advance difference below 0.02 px | Met for Inter and Segoe UI. |
+| Inter coverage below 4.589/255 | Miss: 5.295/255. |
+| Segoe UI coverage below 12.335/255 | Met: 5.473/255. |
+| Zero non-paint wgpu suite and journey failures | Met for nine offscreen filters; native surfaces, composition, ten startup/fallback fixtures and six desktop journeys held. |
+| Isolated candidate-off wgpu paint, with module and fault capture | Unrun: the machine is still serving other work. Current-arm hook loading and candidate-off reproduction remain unknown. |
+
+The held desktop journeys are resize, minimize/restore, idle caret,
+forced device loss, two DPI round trips and sleep/wake, on each arm.
+No additional field/UIA attempt, paint rerun, overlay-setting change or
+Rust edit is made. Both candidates remain disabled. The native executables,
+Shelf/PDB and prepared `run.ps1`, `dpi-operator.ps1`, `field-150.py` and
+`paint.ps1` remain in this lane's NucBox mirror. Paint is still last and
+alone; a repeated AMD-hook access violation must not be rerun.
+
+The final retained archive is
+`target/stage-1w-native/stage-1w-native-collected.tgz`, SHA-256
+`7195083f61351503adb37028f323dca4e38e8ff3545103c61ed0158c8c5dfb0c`.
+It adds all three availability observations (`bake-wait.jsonl`), the active
+process inventory at cutoff and the lane's completed-task states to the
+combined evidence above. This lane's three scheduled tasks were idle and
+removed; another task's processes and settings were not changed.
+
 ### Native collection — caps
 
 `EXACT_CAPS_WASM=0 bun scripts/caps.mjs` exits zero:
@@ -5262,5 +5344,6 @@ The first unqualified caps invocation began its implicit Mac wasm build
 because the inherited branch differs from `origin/main` in Rust. It was
 interrupted (exit 130), and no check result is claimed from it. The scoped
 invocation skips that build under this chunk's no-Mac-check instruction;
-its complete output is `target/stage-1w-native/caps.log`. No other Mac
+its complete outputs are `target/stage-1w-native/caps.log` and
+`target/stage-1w-native/caps-final.log`. No other Mac
 build or test is run. `git diff --check` passes.
