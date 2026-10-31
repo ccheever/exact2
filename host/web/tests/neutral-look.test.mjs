@@ -24,7 +24,7 @@ test('route header geometry is the schema\'s neutral default', () => {
   const rows = JSON.parse(read('../../../kernel/tables/schema.json')).metrics;
   const value = (name) => rows.find(([n]) => n === `header-${name}`).at(-1);
   const px = (name) => value(name) === 0 ? '0' : `${value(name)}px`;
-  const rule = shell.match(/:where\(#exact-root \[navigationkey\] > header\) \{([^}]+)\}/)[1];
+  const rule = shell.match(/:where\(#exact-root \[navigationkey\] > header:not\(\[data-exact-said~="appearance"\]\)\) \{([^}]+)\}/)[1];
   const declarations = Object.fromEntries([...rule.matchAll(/([\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2]]));
   expect(declarations).toEqual({ position: value('position'), top: px('top'), 'min-height': px('min-height'), padding: `${px('padding-block')} ${px('padding-inline')}` });
 });

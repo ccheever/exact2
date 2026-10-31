@@ -321,8 +321,9 @@
   /* A route's `header` is a plain bar: the page's ground, opaque, over a 1 px line, in the label's ink whatever the
      page's `color` (its own, written, wins). Its title is the route's heading at its level's size; nothing collapses.
      A button nobody styled is the bar's: no outline, and the Back button the bar draws is one of them, though in its
-     navigation root's accent, as UIKit tints its Back (index.html). */
-  :where(#exact-root [navigationkey] > header) { background-color: var(--exact-background); backdrop-filter: none; box-shadow: none; border-bottom: 1px solid var(--exact-separator); color: var(--exact-label); }
+     navigation root's accent, as UIKit tints its Back (index.html). A header whose author wrote `appearance: none` is
+     no bar, as on iOS (`data-exact-said`, element.rs; LLP 1075.003 §9.10): none of the bar's rules reach it. */
+  :where(#exact-root [navigationkey] > header:not([data-exact-said~="appearance"])) { background-color: var(--exact-background); backdrop-filter: none; box-shadow: none; border-bottom: 1px solid var(--exact-separator); color: var(--exact-label); }
   /* A level-1 heading in a route's bar stands where iOS draws its large title, in a bar that collapses as the page
      scrolls. The web's bar never collapses, so the title keeps its level's size (`title1`, LLP 1115 D3) and takes at
      least the large title's line, centred in it by equal margins: the bar is as tall as with the large title, and the
@@ -336,8 +337,8 @@
      title, as in UIKit (LLP 1116.020 D2): the presented route, a route pushed after it while it is not leaving, and a
      route leaving with it. Naming `h1`–`h6` gives the rule the specificity of the shell's heading reset (`margin: 0`),
      which it beats by coming later. */
-  :where(#exact-root [navigationkey]:not(:is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]), :is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]):not([data-exiting]) ~ *, :is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]) ~ [data-exiting]) > header:first-child) :is(h1, h2, h3, h4, h5, h6, span):where([role="heading"][aria-level="1"]:not([popover] *, dialog *)) { min-height: 1lh; margin-block: max(0px, (2.0625rem * 1.2 - 1lh) / 2); }
-  #exact-root [navigationkey] > header button[data-button-style="bordered"]:not([role="tab"], [role="radio"]) { border-color: transparent; }
+  :where(#exact-root [navigationkey]:not(:is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]), :is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]):not([data-exiting]) ~ *, :is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]) ~ [data-exiting]) > header:first-child:not([data-exact-said~="appearance"])) :is(h1, h2, h3, h4, h5, h6, span):where([role="heading"][aria-level="1"]:not([popover] *, dialog *)) { min-height: 1lh; margin-block: max(0px, (2.0625rem * 1.2 - 1lh) / 2); }
+  #exact-root [navigationkey] > header:not([data-exact-said~="appearance"]) button[data-button-style="bordered"]:not([role="tab"], [role="radio"]) { border-color: transparent; }
   #exact-root [navigationkey] > header::part(back) { box-sizing: border-box; min-height: 2.25em; padding: 0 .625em 0 .375em; font-weight: 500; --exact-said-font-weight: ; cursor: default; --exact-back-press: 1; }
   #exact-root [navigationkey] > header::part(back):focus-visible { outline: revert; outline-offset: 2px; }
   @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { #exact-root [navigationkey] > header::part(back):hover { background-color: var(--exact-quaternary-fill); } } }
@@ -364,8 +365,8 @@
      to the shell's press dim, at once as a press does, so a press shows nothing more. The rule weighs no more than
      the shell's reset of a `button` (`button:where()`), which it follows, so an opacity the author wrote wins; an
      author's hover look replaces the dim (looks.rs sets it to 1). */
-  :where(#exact-root [navigationkey] > header) :is(button, a[data-view][href], [data-exact-on~="press"]):not([data-button-style], [data-native]) { --exact-hover-wash: none; }
-  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { button:where(#exact-root [navigationkey] > header :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover))), :where(#exact-root [navigationkey] > header :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover))) { opacity: var(--exact-hover-dim, .65); } } }
+  :where(#exact-root [navigationkey] > header:not([data-exact-said~="appearance"])) :is(button, a[data-view][href], [data-exact-on~="press"]):not([data-button-style], [data-native]) { --exact-hover-wash: none; }
+  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { button:where(#exact-root [navigationkey] > header:not([data-exact-said~="appearance"]) :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover))), :where(#exact-root [navigationkey] > header:not([data-exact-said~="appearance"]) :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover))) { opacity: var(--exact-hover-dim, .65); } } }
 
   /* LLP 1116.009 D4: a sheet's bar centres its title, as UIKit's does, whatever flanks it (a Cancel, a Save, both,
      neither); a page's title stays leading. The title's auto side margins share the bar's free space on either side of
