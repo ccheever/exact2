@@ -57,6 +57,12 @@ test('serve builds a changed setting again beside its sources, and refuses a cop
     const refused = spawnSync(process.execPath, [serve, '--port', String(port), '--loopback', '--origin', copy], { env: { ...env, API_BASE_URL: 'http://b.example' }, encoding: 'utf8', timeout: 60_000 });
     expect(refused.status).toBe(2);
     expect(refused.stderr).toContain(`${changed}, and the app's sources are not beside this build`);
+    // Beside them but not in the app's build directory: refused too; only that directory is built again in place.
+    const aside = join(app, 'aside');
+    cpSync(dist, aside, { recursive: true });
+    const kept = spawnSync(process.execPath, [serve, '--port', String(port), '--loopback', '--origin', aside], { env: { ...env, API_BASE_URL: 'http://b.example' }, encoding: 'utf8', timeout: 60_000 });
+    expect(kept.status).toBe(2);
+    expect(kept.stderr).toContain("a development build is built again only in its app's build directory");
     // Beside them: built again with the new value, then served.
     server = await served(dist, port, { ...env, API_BASE_URL: 'http://b.example' });
     expect(server.listening, server.log()).toBe(true);

@@ -110,8 +110,8 @@ export function sourcePathspec(repo, app, exactRoot) {
   const outputs = [resolve(repo, 'target'), resolve(repo, 'node_modules'),
     resolve(repo, '.agent-skill-sources'), resolve(repo, '.agent-skill-backups'), resolve(repo, '.llp/ship-runs'),
     canonicalPath(app.target ?? resolve(workspace, 'target')), resolve(workspace, 'target'), resolve(workspace, 'node_modules'), resolve(workspace, '.shells'), resolve(app.dir, '.shells'),
-    resolve(exactRoot, 'target'), resolve(exactRoot, 'node_modules'), resolve(exactRoot, 'host/web/dist'),
-    resolve(exactRoot, 'host/web/dist.previous'), resolve(exactRoot, 'host/apple/.build'),
+    resolve(exactRoot, 'target'), resolve(exactRoot, 'node_modules'), ...dist.map((name) => resolve(exactRoot, 'host/web', name)),
+    resolve(exactRoot, 'host/apple/.build'),
     resolve(exactRoot, 'host/apple/macos/.build'), resolve(exactRoot, '.claude/worktrees')];
   // Each game owns generated products. A sibling app's cache is no more
   // source than the selected app's cache; its captured Cargo.lock is source.

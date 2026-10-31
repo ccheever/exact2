@@ -880,7 +880,7 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
   if (r.status === 410) { res.writeHead(410, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`build generation ${r.id} is no longer kept here: load the page again\n`); return; }
   if (pages && [200, 404].includes(r.status) && r.route === '/shell.html' && ['request', 'cached'].includes(r.render) && ['GET', 'HEAD'].includes(req.method)) {
     let page = null;
-    try { page = await pages(r.id, target.pathname + target.search, (name) => req.headers[name]); } catch (error) {
+    try { page = await pages(r.id, (r.location ?? target.pathname) + target.search, (name) => req.headers[name]); } catch (error) {
       console.error(`render ${target.pathname}: ${error.message}`);
       res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('This page could not be rendered.\n'); return;
     }
@@ -1261,6 +1261,12 @@ function settleBuild(dist) {
   const what = changed.map(({ name, built, now }) => `import.meta.env.${name} was built as ${said(built)} and is ${said(now)} here`).join('; ');
   if (!app) {
     console.error(`${dist}: ${what}, and the app's sources are not beside this build to build it again: build it with these settings (bun exact.mjs web-build), or serve it with the ones it was built with`);
+    return 2;
+  }
+  // A development build is built again only in its app's build directory, the one `serve` serves by default: built
+  // again anywhere else, what the build keeps beside it (`<dist>.previous`, …) would be taken as its own and replaced.
+  if (!marker.release && resolve(dist) !== webDist()) {
+    console.error(`${dist}: ${what}, and a development build is built again only in its app's build directory: build it again (bun exact.mjs web-build), or serve it with the settings it was built with`);
     return 2;
   }
   console.error(`${dist}: ${what}: building it again`);

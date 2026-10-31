@@ -262,6 +262,9 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     // reader loads from there, even once another build replaces it.
     const rendered = await get('/live'), id = generationIn(rendered.body), runtime = readFileSync(resolve(out, 'app.js'));
     expect(id).toBe(after);
+    // Asked for under its generation (as a page's own navigation asks), the same page is rendered, not the notfound route.
+    const under = await fetch(`http://127.0.0.1:${serve.port}/.exact/gen/${id}/live`, { headers: html });
+    expect([under.status, (await under.text()).includes('The note, rendered.')]).toEqual([200, true]);
     writeFileSync(resolve(app, 'app.contract'), source.replace('text note.text\n', 'text note.text\n      text "Changed again."\n'));
     const again = build();
     expect(again.status, again.stdout + again.stderr).toBe(0);

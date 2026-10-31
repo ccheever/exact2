@@ -226,6 +226,8 @@ export function withGenerationBase(html, id, base = '/') {
 export async function servedFile(dist, pathname, accept = '', { base = '/', pinned = null } = {}) {
   const under = generationPath(pathname, base);
   if (under === 'bad') return { status: 400 };
+  // The path in the app: a request under a generation names its page without that prefix.
+  const location = under ? under.path : pathname.slice(base.length - 1) || '/';
   let found;
   if (under || pinned) {
     const id = under ? under.id : pinned, path = under ? under.path : pathname.slice(base.length - 1) || '/';
@@ -249,5 +251,5 @@ export async function servedFile(dist, pathname, accept = '', { base = '/', pinn
   }
   if (!found) return { status: 404 };
   const body = found.route.endsWith('.html') && found.id ? withGenerationBase(found.body, found.id, base) : found.body;
-  return { status: found.status ?? 200, route: found.route, body, id: found.id, render: found.render };
+  return { status: found.status ?? 200, route: found.route, body, id: found.id, render: found.render, location };
 }

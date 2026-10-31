@@ -33,7 +33,9 @@ test('a deploy snapshot leaves out dist and everything a build keeps beside it, 
   const repo = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-snapshot-dist-'))), dist = resolve(repo, 'dist');
   try {
     const write = (path, text) => { mkdirSync(dirname(resolve(repo, path)), { recursive: true }); writeFileSync(resolve(repo, path), text); };
-    write('app.json', '{}'); write('.gitignore', '/dist/\n/dist.*\n/local.json\n'); write('local.json', '{}');
+    write('app.json', '{}'); write('.gitignore', '/dist/\n/dist.*\n/local.json\n/exact2/host/web/dist*\n'); write('local.json', '{}');
+    // The checkout's own web build keeps the same names beside it (an app of the checkout builds into host/web/dist).
+    for (const path of ['exact2/host/web/dist/app.js', 'exact2/host/web/dist.gen/a1/app.js', 'exact2/host/web/dist.lock', 'exact2/host/web/dist.gen.reaped', 'exact2/host/web/dist.stage-b2/app.js']) write(path, 'a build');
     const git = (...args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
     git('init', '-q'); git('add', '-A'); git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'app');
     for (const k of [1, 2, 3, 4]) {
