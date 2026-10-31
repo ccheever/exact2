@@ -1,5 +1,4 @@
 import { updateEverythingView } from '../sidebar/update-everything';
-import { legacySidebarSnapshot } from '../sidebar/legacy-sidebar-view';
 import { timelineReadsNeeded } from '../timeline/timeline-prepare';
 import { projectCloneBlock } from '../shell/project-clones-live';
 import { markdownSkills } from '../timeline/message-chips';
@@ -190,7 +189,6 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     ...diffSnapshot(client, now),
     projects: client.shell.projects.map(project => ({ id: str(project.id), name: str(project.title), path: str(project.workspaceRoot), selected: project.id === client.projectId })),
     ...sidebarSnapshot(client, now, { projectIdentity, providerBadge }),
-    legacy: legacySidebarSnapshot(client, now, { projectIdentity }),
     timelineReadsNeeded: timelineReadsNeeded(client),
     markdownSkills: markdownSkills(workspaceValues(provider ?? {}, workspaceCwd(client), 'skills').map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) }))),
     // The timeline's footer rows after the last message: a pending context handoff, then the status line.

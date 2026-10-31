@@ -65,7 +65,7 @@ export type AttachmentView = {
   // The rendered Markdown as Files' (files-surface.ts FilesView): renderFileMarkdown's one
   // message (kind "attachment"), its chips and settings, code colours, Mermaid fences, host-path media and Copy code's check.
   markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[];
-  mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[]; codeCopied: string; codeCopyNonce: number;
+  mdUrls: { id: string; url: string }[]; codeCopied: string; codeCopyNonce: number;
   /** A Mermaid file's refusal (MermaidViewer), shown instead of its diagram; `diagrams` is then empty. */
   mermaidNote: string;
   /** "No preview for this file" reports a failure (FontViewer's), not only a format. */
@@ -133,7 +133,7 @@ async function mint(client: T3Client, native: Native, meta: AttachmentMeta, sour
   return url;
 }
 const message = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);
-const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] }, code: [], diagrams: [] as MermaidDiagramView[], mdUrls: [], codeCopied: '', codeCopyNonce: 0 });
+const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [], inks: [] }, code: [], diagrams: [] as MermaidDiagramView[], mdUrls: [], codeCopied: '', codeCopyNonce: 0 });
 
 /**
  * AttachmentFilePreview's rendered Markdown: `<ChatMarkdown text cwd={undefined} />`, the chat renderer Files' rendered

@@ -1,7 +1,6 @@
-// The legacy sidebar on a background environment (T3 Code 1e2ecbd975; MIT, see LICENSE-T3): every project
-// and thread action of LegacySidebar.tsx targets the member's or thread's own environment
-// (projectEnvironment.update/delete with `environmentId: member.environmentId`, threadEnvironment.* and
-// useThreadActions over a scoped thread ref, handleNewThread(scopeProjectRef(member.environmentId, …))).
+// A background environment's threads and projects (T3 Code 6d450a4284; MIT, see LICENSE-T3): Sidebar.tsx and
+// useThreadActions.ts act on a row's own environment (threadEnvironment.* over a scoped thread ref,
+// projectEnvironment.update/delete with the member's `environmentId`, handleNewThread(scopeProjectRef(…))).
 // A background environment is one the fleet keeps connected (settings-b-fleet.ts); its rows carry
 // `fleet:<environment>:<id>` ids. Requests go through that environment's own transport, as
 // desktop-activation.ts's do; a new thread there focuses the environment, as opening its thread does.
@@ -118,10 +117,6 @@ export async function archiveBackground(client: T3Client, native: Native, id: st
   remember(client, native, 'Archived', id, 'Failed to undo archive', async later => {
     await connected(envAccess(client, later, ref.environmentId)).dispatch({ type: 'thread.unarchive', threadId: ref.id });
   });
-}
-export async function renameBackground(client: T3Client, native: Native, id: string, title: string): Promise<void> {
-  const ref = backgroundRef(client, id);
-  if (ref) await connected(envAccess(client, native, ref.environmentId)).dispatch({ type: 'thread.metadata.update', threadId: ref.id, title });
 }
 /** markThreadUnread: the server's watermark where that environment tracks visits, else this device's. */
 export async function markUnreadBackground(client: T3Client, native: Native, id: string): Promise<void> {

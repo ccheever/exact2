@@ -38,7 +38,7 @@ const REFERENCE_PATCH_CLIENT_KEYS = [
   'appearanceContrast', 'diffColorScheme', 'chatWidth', 'effortDisplay', 'timestampFormat', 'notificationMode', 'inAppNotificationsEnabled', 'wordWrap',
   'persistComposerContextStrip', 'diffFilesCollapsed', 'diffIgnoreWhitespace', 'diffLayout', 'proactivePanelsEnabled', 'showSkillsInSlashMenu',
   'composerRichTextEnabled', 'sendShortcut', 'followUpBehavior', 'contextWindowMeterEnabled', 'environmentIdentificationMode',
-  'glassOpacity', 'panelAnimationDurationMs', 'sidebarThreadPreviewCount', 'sidebarProjectGroupingMode', 'sidebarProjectSortOrder', 'sidebarWorkingShelfEnabled',
+  'glassOpacity', 'panelAnimationDurationMs', 'sidebarProjectGroupingMode', 'sidebarProjectSortOrder', 'sidebarWorkingShelfEnabled',
   'confirmThreadArchive', 'confirmThreadDelete', 'confirmThreadUnpin', 'confirmQuit', 'fontFamilySans', 'fontFamilyComposer', 'fontFamilyCode', 'fontFamilyTerminal',
   'fontSizeInterface', 'fontSizePrompt', 'fontSizeCode', 'fontSizeTerminal', 'browserDefaultViewport', 'browserDefaultZoomFactor', 'browserDefaultAppearance',
   'browserRecordingFrameRate', 'browserRecordingShowKeyPresses', 'browserRecordingShowMousePresses', 'browserLinkTarget', 'browserSearchEngine', 'browserCustomSearchUrl',
@@ -57,9 +57,9 @@ const CHANGED: Record<keyof typeof CLIENT_DEFAULTS, string | number | boolean> =
   confirmThreadArchive: true, confirmThreadDelete: false, confirmThreadUnpin: true, diffFilesCollapsed: false, diffIgnoreWhitespace: false, diffLayout: 'split',
   glassOpacity: 60, fontSizeInterface: 14, fontSizePrompt: 16, fontSizeCode: 14, fontSizeTerminal: 14, fontFamilyCode: 'Menlo',
   fontFamilyComposer: 'Menlo', fontFamilySans: 'Avenir', fontFamilyTerminal: 'Menlo', fontSmoothing: false, persistComposerContextStrip: true, contextWindowMeterEnabled: true,
-  composerRichTextEnabled: false, followUpBehavior: 'steer', proactivePanelsEnabled: true, showSkillsInSlashMenu: false, legacySidebarEnabled: true,
+  composerRichTextEnabled: false, followUpBehavior: 'steer', proactivePanelsEnabled: true, showSkillsInSlashMenu: false,
   sidebarWorkingShelfEnabled: true, wordWrap: false, browserLinkTarget: 'app', theme: 'grove', themeLight: 'ocean', themeDark: 'ember', typographyAdvanced: true,
-  confirmQuit: 'direct', sidebarProjectSortOrder: 'manual', sidebarThreadSortOrder: 'created_at', sidebarThreadPreviewCount: 8, browserRecordingFrameRate: 60,
+  confirmQuit: 'direct', sidebarProjectSortOrder: 'manual', sidebarThreadSortOrder: 'created_at', browserRecordingFrameRate: 60,
   browserRecordingShowKeyPresses: true, browserRecordingShowMousePresses: true, browserAutoShowFloatingPreview: false, pullRequestLinksOpenInApp: false,
   browserSearchEngine: 'kagi', browserCustomSearchUrl: 'https://search.example/?q=%s', mathRenderingEnabled: true,
 };
@@ -75,10 +75,10 @@ describe('Restore defaults resets what the reference resets', () => {
     // Every client-side key of the reference's patch is one this app keeps (or keeps elsewhere).
     for (const key of REFERENCE_PATCH_CLIENT_KEYS) expect([key, own.includes(key) || key in ELSEWHERE || DROPPED.has(key)]).toEqual([key, true]);
     for (const key of DROPPED) expect(own).not.toContain(key);
-    expect([...kept].sort()).toEqual(['fontSmoothing', 'legacySidebarEnabled', 'planModeEnabled', 'sidebarThreadSortOrder', 'typographyAdvanced']);
+    expect([...kept].sort()).toEqual(['fontSmoothing', 'planModeEnabled', 'sidebarThreadSortOrder', 'typographyAdvanced']);
   });
 
-  test('with every value changed, a restore resets the reference\'s keys and keeps the five', async () => {
+  test('with every value changed, a restore resets the reference\'s keys and keeps the four', async () => {
     expect(Object.keys(CHANGED).sort()).toEqual(Object.keys(CLIENT_DEFAULTS).sort());
     const client = fake();
     client.local.clientSettings = decodeClientPrefs(CHANGED);
@@ -103,15 +103,15 @@ describe('Restore defaults resets what the reference resets', () => {
   test('Font smoothing alone leaves Restore defaults disabled; with Chat width the list names Chat width only and a restore keeps it', async () => {
     const client = fake();
     applyDeviceSetting(client.local as never, 'fontSmoothing', 'false');
-    for (const [key, value] of [['legacySidebarEnabled', 'true'], ['sidebarThreadSortOrder', 'created_at'], ['typographyAdvanced', 'true'], ['planModeEnabled', 'true']] as const)
+    for (const [key, value] of [['sidebarThreadSortOrder', 'created_at'], ['typographyAdvanced', 'true'], ['planModeEnabled', 'true']] as const)
       applyDeviceSetting(client.local as never, key, value);
     expect(await settingsCore(as(client), native, '', '', '', '', 'appearance', '', true)).toMatchObject({ restoreCount: 0, restoreText: '' });
     applyDeviceSetting(client.local as never, 'chatWidth', 'wide');
     expect(await settingsCore(as(client), native, '', '', '', '', 'appearance', '', true)).toMatchObject({ restoreCount: 1, restoreText: 'This will reset: Chat width.' });
     await restore(client);
     const prefs = prefsOf(client);
-    expect([prefs.chatWidth, prefs.fontSmoothing, prefs.legacySidebarEnabled, prefs.sidebarThreadSortOrder, prefs.typographyAdvanced, (client.local.deviceSettings as Obj).planModeEnabled])
-      .toEqual(['comfortable', false, true, 'created_at', true, true]);
+    expect([prefs.chatWidth, prefs.fontSmoothing, prefs.sidebarThreadSortOrder, prefs.typographyAdvanced, (client.local.deviceSettings as Obj).planModeEnabled])
+      .toEqual(['comfortable', false, 'created_at', true, true]);
     expect(client.writes).toEqual([]);
   });
 });

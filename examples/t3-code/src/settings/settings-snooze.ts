@@ -9,7 +9,7 @@
 // preset changed, keyed by its index in the saved list, so a row keeps its identity while the order changes.
 import { obj, type Json, type Obj } from '../client/domain';
 import { ClientError } from '../client/protocol';
-import { currentTimestampLocale, timestampFormatter } from '../shared/timestamp-format';
+import { RUNTIME_LOCALE, timestampFormatter } from '../shared/timestamp-format';
 
 export const SNOOZE_DAYS = ['today', 'tomorrow', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
 export type SnoozeDay = (typeof SNOOZE_DAYS)[number];
@@ -93,11 +93,12 @@ export function resolveSnoozePreset(setting: SnoozePresetSetting, now: Date, for
     if (wake.getTime() <= now.getTime()) return null;
   }
   const label = presetLabel(setting, ahead);
-  // Durations and "Next week" don't name the wake day, so a wake on another day shows it.
+  // Durations and "Next week" don't name the wake day, so a wake on another day shows it. The weekday is the runtime
+  // default's (`toLocaleDateString(undefined, …)`), the time the Time format's.
   const labelNamesDay = setting.kind === 'at' && label !== 'Next week';
   const time = formatTime(wake);
   return { id: snoozePresetId(setting), label, snoozedUntil: wake.toISOString(),
-    whenLabel: labelNamesDay || wake.toDateString() === now.toDateString() ? time : `${wake.toLocaleDateString(currentTimestampLocale(), { weekday: 'short' })} ${time}` };
+    whenLabel: labelNamesDay || wake.toDateString() === now.toDateString() ? time : `${wake.toLocaleDateString(RUNTIME_LOCALE, { weekday: 'short' })} ${time}` };
 }
 /** The snooze menu: soonest first, one row per wake minute (a duration and a set time in one minute keep the first). */
 export function resolveSnoozePresets(now: Date, presets: readonly SnoozePresetSetting[], formatTime: (date: Date) => string): SnoozePresetChoice[] {

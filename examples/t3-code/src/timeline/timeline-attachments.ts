@@ -11,11 +11,9 @@ import { ClientError, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { fileIconToken } from '../shared/timeline-files';
 import { assetUrl } from '../settings/settings-b-icons';
-import { imageChipInks } from './message-chips';
 import { videoMimeType } from '../composer/composer-video'; // sent videos (UserVideoAttachment)
 import { markdownDocument, markdownGallery, markdownMedia, markdownMediaUrls, type GalleryImage, type MediaScope } from '../media/media-views'; // the transcript's host-path media
 import { letGo } from '../client/let-go';
-import { imageAccent } from '../media/image-accent';
 import { encodeMediaSource, mediaTooltip } from '../media/media-actions';
 import { syncInlineDocuments } from './inline-documents';
 import { draftThreadId } from '../composer/draft-thread-id';
@@ -95,7 +93,7 @@ export function withoutSoundReferences(text: string, item: Obj): string {
 }
 const urls = new Map<string, { url: string; expiresAt: number }>();
 /** Signed preview URLs for the selected thread's sent images (useAssetUrls), cached until shortly before they expire. */
-type AttachmentUrl = { id: string; url: string; fill: string; hover: string; border: string; ink: string };
+type AttachmentUrl = { id: string; url: string };
 export async function attachmentUrls(client: T3Client, native: Native | null | undefined, now: number, systemScheme?: string): Promise<{ items: AttachmentUrl[] }> {
   if (!native?.available || client.connection !== 'connected') return { items: [] };
   await syncInlineDocuments(client, native, now, systemScheme);
@@ -115,7 +113,7 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
   // Queued messages' images (the queued rows' thumbnails and the edit's kept attachments).
   const queuedMessages = new Set(arr(client.projection.runs).filter(run => run.status === 'queued').map(run => str(run.userMessageId)));
   for (const message of arr(client.projection.messages)) if (queuedMessages.has(str(message.id))) for (const attachment of arr(message.attachments)) if (attachment.type === 'image' && str(attachment.id)) wanted.push(attachment);
-  const items: { id: string; url: string }[] = [], failed: { id: string; url: string }[] = [], videoIds = new Set(wanted.filter(entry => entry.type === 'file' && !isSvgAttachment(entry)).map(entry => str(entry.id)));
+  const items: { id: string; url: string }[] = [], failed: { id: string; url: string }[] = [];
   for (const attachment of wanted.slice(-64)) {
     const id = str(attachment.id), key = JSON.stringify([client.generation, client.environmentId, id]);
     const cached = urls.get(key);
@@ -133,22 +131,22 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
   // The visible messages' Markdown media on host paths (`media:<path>`, `media-failed:<path>`).
   const thread = obj(client.projection.thread), project = (client.shell?.projects ?? []).find(entry => entry.id === (thread.projectId ?? client.projectId));
   const root = str(thread.worktreePath) || str(project?.workspaceRoot);
-  const media = (await markdownMediaUrls(client, native, root, now)).map(item => ({ ...item, ...NO_INKS }));
+  const media: AttachmentUrl[] = await markdownMediaUrls(client, native, root, now);
   // The linked media's signed URL (signed again after Retry video; a refusal is `failed:<key>`).
   const preview = activeMediaPreview(client);
   if (preview && !preview.url) {
     try { preview.url = await signMediaFile(client, native, preview.path); } catch (error) { if (letGo(error)) throw error; }
   }
-  if (preview) media.push(preview.url ? { id: preview.key, url: preview.url, ...NO_INKS } : { id: `failed:${preview.key}`, url: '', ...NO_INKS });
+  if (preview) media.push(preview.url ? { id: preview.key, url: preview.url } : { id: `failed:${preview.key}`, url: '' });
   media.push(...await galleryUrls(client, native, now, new Set(media.map(item => item.id))));
-  return { items: [...await withAccents(client, items, videoIds), ...failed.map(item => ({ ...item, ...NO_INKS })), ...media, ...await toolImageUrls(client, native, now)] };
+  return { items: [...items, ...failed, ...media, ...await toolImageUrls(client, native, now)] };
 }
 /** The open Markdown gallery's URLs the transcript's do not hold: a web image as written, a host path signed through the
  *  thread (a draft's own in Files) with the document's folder and workspace, as its view signed it. */
 async function galleryUrls(client: T3Client, native: Native, now: number, known: Set<string>): Promise<AttachmentUrl[]> {
   const gallery = activeGallery(client), out: AttachmentUrl[] = [];
   if (!gallery) return out;
-  const add = (entry: { id: string; url: string }) => { if (!known.has(entry.id)) { known.add(entry.id); out.push({ ...entry, ...NO_INKS }); } };
+  const add = (entry: { id: string; url: string }) => { if (!known.has(entry.id)) { known.add(entry.id); out.push(entry); } };
   for (const item of gallery.items) if (item.access === 'direct') add({ id: item.key, url: item.key });
   if (gallery.signThread) for (const entry of await markdownMediaUrls(client, native, gallery.root, now, [gallery.text], { ...gallery.scope, threadId: gallery.signThread })) add(entry);
   return out;
@@ -290,22 +288,3 @@ export function imagePreviewView(client: T3Client) {
     imagePreviewTip: image?.name ?? '', imagePreviewReturn: '' };
 }
 
-// ImageChipButton tints its chip with the picture's average colour (image-accent.ts).
-const accents = new Map<string, { fill: string; hover: string; border: string; ink: string }>();
-const NO_INKS = { fill: '', hover: '', border: '', ink: '' };
-async function withAccents(client: T3Client, items: { id: string; url: string }[], videoIds = new Set<string>()): Promise<AttachmentUrl[]> {
-  const out: AttachmentUrl[] = [];
-  for (const item of items) {
-    if (videoIds.has(item.id)) { out.push({ ...item, ...NO_INKS }); continue; } // a video or a sound has no image chip to tint
-    const key = JSON.stringify([client.environmentId, item.id]);
-    if (!accents.has(key)) {
-      // A passing failure (null) is not kept: the next answer reads the image again.
-      const accent = await imageAccent(item.url, letGo);
-      if (accent === null) { out.push({ ...item, ...NO_INKS }); continue; }
-      accents.set(key, imageChipInks(accent) ?? NO_INKS);
-      if (accents.size > 256) accents.delete(accents.keys().next().value!);
-    }
-    out.push({ ...item, ...accents.get(key)! });
-  }
-  return out;
-}

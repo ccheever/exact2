@@ -118,7 +118,7 @@ describe('D4: the undo notice expires', () => {
     expect(sidebarSnapshot(c, 0, helpers).sidebar.undoUntil).toBe(0);
     sidebarSession(c).undo = { action: 'Settled', threadIds: ['t1'], at: Date.now() };
     const view = sidebarSnapshot(c, 0, helpers).sidebar;
-    expect(view.undoText).toBe('Settled 1 thread,');
+    expect(view.undoShort).toBe('Settled,');
     expect(view.undoUntil).toBe(sidebarSession(c).undo!.at + 5000);
   });
 });

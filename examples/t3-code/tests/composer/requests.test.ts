@@ -3,6 +3,7 @@ import { T3Client } from '../../src/client/client';
 import { snapshot, transcriptPresentation } from '../../src/client/presentation';
 import { noteComposerTyping, releaseHeldRequests } from '../../src/composer/composer-typing-guard';
 import { pendingRequests, requestPresentation, requestActivity, resolveAnswer } from '../../src/composer/requests';
+import { timelinePendingApprovals } from '../../src/timeline/timeline-approvals';
 import { arr, obj, str, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
 import { readFileSync } from 'node:fs';
@@ -45,8 +46,10 @@ const input = (questions: Obj[], capability = 'live'): Obj => ({
   runtimeRequests: [{ id: 'r1', kind: 'user_input', status: 'pending', createdAt: '2026-10-03T00:00:00Z', responseCapability: { type: capability } }],
   turnItems: [{ id: 'i1', type: 'user_input_request', requestId: 'r1', questions }] });
 
+// Approvals answer on their timeline row (T3 Code v0.1.5, #26255): the composer has no approval banner; while one
+// waits, the composer is the draft a send redirects with.
 describe('approvals', () => {
-  test('shows the first pending approval with reference labels, default decisions and count', () => {
+  test('the composer shows no approval; the timeline row has every pending one', () => {
     const { client } = harness({
       runtimeRequests: [
         { id: 'b', kind: 'command', status: 'pending', createdAt: '2026-10-03T00:00:02Z', responseCapability: { type: 'live' } },
@@ -54,42 +57,26 @@ describe('approvals', () => {
       turnItems: [{ id: 'x', type: 'approval_request', requestId: 'b', prompt: 'run ls' }] });
     const view = requestPresentation(client);
     expect(view.requestMode).toBe('approval');
-    expect(view.approvals).toHaveLength(1);
-    expect(view.approvals[0]).toMatchObject({ id: 'a', label: 'File change approval', detail: 'File change approval', count: '1/2', mono: true, canRespond: true });
-    expect(view.approvals[0]!.options.map(option => option.label)).toEqual(['Decline', 'Approve']);
-    expect(view.approvals[0]!.more.map(option => option.label)).toEqual(['Cancel', 'Always allow this session']);
+    expect('approvals' in view).toBe(false);
     expect(view.questions).toHaveLength(0);
+    expect('approvals' in snapshot(client)).toBe(false);
+    expect([...timelinePendingApprovals(client).keys()]).toEqual(['a', 'b']);
   });
-  test('labels every request kind and keeps provider order, warnings and app names', () => {
-    const kinds = ['command', 'file-read', 'file-change', 'permission', 'mcp-elicitation'];
-    const labels = kinds.map(kind => requestPresentation(harness({
-      runtimeRequests: [{ id: 'a', kind, status: 'pending', responseCapability: { type: 'live' } }],
-      turnItems: [{ id: 'x', type: 'approval_request', requestId: 'a', appName: 'Figma', options: [{ decision: 'acceptAlways', label: 'Always', warning: 'Risky' }, { decision: 'accept', label: 'Yes' }, { decision: 'decline', label: 'No' }] }] }).client).approvals[0]!);
-    expect(labels.map(label => label.label)).toEqual(['Command approval', 'File read approval', 'File change approval', 'App permission approval', 'App access approval']);
-    expect(labels[4]).toMatchObject({ appName: 'Figma', mono: false });
-    expect(labels[0]!.options.map(option => option.id)).toEqual(['accept', 'decline']);
-    expect(labels[0]!.more).toEqual([{ id: 'acceptAlways', label: 'Always', warning: 'Risky', primary: false }]);
-  });
-  test('full access that still asks says why, the reason follows the request, and an agent that reads feedback asks for it', () => {
+  test('the placeholder asks for feedback when the agent reads it, else offers the redirect; the composer carries no reason', () => {
     const { client } = harness({
       runtimeRequests: [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'live', supportsFeedback: true } }],
       turnItems: [{ id: 'x', type: 'approval_request', requestId: 'a', prompt: 'rm -rf build', reason: 'Clean the build folder', fullAccessOverride: 'ask_rule' }] });
-    expect(requestPresentation(client).approvals[0]).toMatchObject({ reason: 'Clean the build folder', feedback: true,
-      whyAsked: "Full access skips approvals, but an ask rule in the agent's own settings matches this action, so it still asks. Remove or narrow that rule to stop these prompts." });
-    expect(snapshot(client).composer).toMatchObject({ placeholder: 'Send feedback to decline this request', approvalReason: 'Clean the build folder',
-      approvalWhy: expect.stringContaining('an ask rule in the agent') });
-    Object.assign(arr(client.projection.turnItems)[0]!, { fullAccessOverride: 'provider_check', reason: undefined });
+    const composer = snapshot(client).composer;
+    expect(composer.placeholder).toBe('Send feedback to decline this request');
+    expect('approvalReason' in composer || 'approvalWhy' in composer).toBe(false);
+    expect(timelinePendingApprovals(client).get('a')).toMatchObject({ reason: 'Clean the build folder', whyAsked: expect.stringContaining('an ask rule in the agent') });
     arr(client.projection.runtimeRequests)[0]!.responseCapability = { type: 'live' };
-    expect(requestPresentation(client).approvals[0]).toMatchObject({ reason: '', feedback: false, whyAsked: expect.stringContaining("T3 Code can't turn these off") });
     expect(snapshot(client).composer.placeholder).toBe('Send a message to decline and redirect the agent');
-    arr(client.projection.turnItems)[0]!.fullAccessOverride = undefined;
-    expect(requestPresentation(client).approvals[0]!.whyAsked).toBe('');
   });
-  test('a provider process that is gone replaces the detail and disables decisions', async () => {
-    const { client, command, committed } = harness({
+  test('a provider process that is gone takes no decision', async () => {
+    const { command, committed } = harness({
       runtimeRequests: [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'not_resumable' } }],
       turnItems: [{ id: 'x', type: 'approval_request', requestId: 'a', prompt: 'run ls' }] });
-    expect(requestPresentation(client).approvals[0]).toMatchObject({ canRespond: false, detail: 'Provider process is gone. Interrupt or restart the run to respond.' });
     expect((await command('approval', 'a', 'accept')).message).toBe('This approval is no longer live.');
     expect(committed).toHaveLength(0);
   });
@@ -101,21 +88,11 @@ describe('approvals', () => {
     await command('approval', 'a', 'acceptForSession');
     expect(committed).toEqual([{ type: 'runtime-request.respond', threadId: 't1', requestId: 'a', decision: 'acceptForSession', commandId: 'id-1' }]);
   });
-  test('a connection without orchestration:operate shows the approval with its actions disabled (canOperateThread)', () => {
-    const { client } = harness({
-      runtimeRequests: [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'live' } }],
-      turnItems: [{ id: 'x', type: 'approval_request', requestId: 'a', prompt: 'run ls' }] });
-    expect(requestPresentation(client).approvals[0]).toMatchObject({ operable: true, canRespond: true });
-    client.scopes = ['orchestration:read', 'terminal:read'];
-    expect(requestPresentation(client).approvals[0]).toMatchObject({ operable: false, canRespond: false, live: true,
-      responseReason: 'This connection does not have permission to respond.' });
-  });
-  test('a live request stays pressable while reconnecting and the press names the reconnect', async () => {
+  test('a live request\'s press while reconnecting names the reconnect', async () => {
     const { client, command, committed } = harness({
       runtimeRequests: [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'live' } }],
       turnItems: [{ id: 'x', type: 'approval_request', requestId: 'a', prompt: 'run ls' }] });
     client.connection = 'reconnecting';
-    expect(requestPresentation(client).approvals[0]).toMatchObject({ live: true, canRespond: false });
     expect((await command('approval', 'a', 'accept')).message).toBe('Reconnect before making changes.');
     expect(committed).toHaveLength(0);
     const gone = harness(input([question('scope')], 'not_resumable')).client;
@@ -203,11 +180,16 @@ describe('questions', () => {
     const live = harness(input([question('scope')]));
     expect((await live.command('dismiss-question', 'r1')).message).toBe('This question needs an answer.');
   });
-  test('approvals take precedence over questions, which return when approvals resolve', () => {
+  // ChatComposer at v0.1.5: the question card shows while an approval waits on its timeline row.
+  test('a question shows while an approval waits, and the approval keeps its row', () => {
     const { client, projectionOf } = harness(input([question('scope')]));
     projectionOf().runtimeRequests = [{ id: 'a', kind: 'command', status: 'pending', createdAt: '2026-10-03T00:00:05Z', responseCapability: { type: 'live' } }, ...(projectionOf().runtimeRequests as Obj[])];
-    expect(requestPresentation(client).requestMode).toBe('approval');
-    expect(pendingRequests(projectionOf()).inputs).toHaveLength(1);
+    const view = requestPresentation(client);
+    expect(view.requestMode).toBe('question');
+    expect(view.questions).toMatchObject([{ id: 'r1::scope', question: 'Which scope?' }]);
+    expect([...timelinePendingApprovals(client).keys()]).toEqual(['a']);
+    // The placeholder stays the approval's (isComposerApprovalState comes first).
+    expect(snapshot(client).composer.placeholder).toBe('Send a message to decline and redirect the agent');
   });
 });
 

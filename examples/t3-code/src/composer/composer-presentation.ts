@@ -2,7 +2,7 @@
 // ChatComposer.tsx, TraitsPicker.tsx and runtimeModeConfig.ts do. Contract
 // renders the rows; nothing here mutates the client.
 import { arr, obj, str, type Obj } from '../client/domain';
-import { requestPresentation } from './requests';
+import { composerRequests, requestPresentation } from './requests';
 import type { T3Client } from '../client/client';
 import { effortBlockWidth, footerLayout, traitsDisplay, primaryAction, composerNotices, providerControl, contextMeter, compactChip } from './composer-controls-view';
 import { resolveComposerControlsOwnership } from './composer-controls-ownership';
@@ -309,7 +309,8 @@ export function composerSnapshot(client: T3Client, now = 0) {
   const requests = requestPresentation(client);
   const question = requests.questions[0];
   const phase = client.threadId ? threadPhase(client.projection) : 'disconnected';
-  const view = composerView(client, { approval: requests.approvals.length > 0, feedback: requests.approvals[0]?.feedback === true, question: !!question,
+  const approval = composerRequests(client).approvals[0];
+  const view = composerView(client, { approval: !!approval, feedback: approval?.supportsFeedback === true, question: !!question,
     choiceOnly: !!question && !question.customAllowed, planReady: !!planFollowUp(client) && !question, terminalOpen: terminalOpen(client) });
   // ComposerBannerStack: each notice an attached card; consecutive cards join edge to edge (`stacked`).
   const rootFontSize = clampInterfaceFontSize((client.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface);
@@ -350,8 +351,6 @@ export function composerSnapshot(client: T3Client, now = 0) {
     // (attachmentUploadBlockReason); a send that goes anyway, an annotation's, is kept until they land, and the root sends
     // the first kept one that can go (`sendResume`).
     uploads: uploadTable(client), uploadBlock: uploadBlock(client), sendResume: readySend(client),
-    // The shown approval's reason and why full access still asked (ComposerPendingApprovalPanel).
-    approvalReason: requests.approvals[0]?.reason ?? '', approvalWhy: requests.approvals[0]?.whyAsked ?? '',
     notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), ...usageResetClock(client, now) }, rootFontSize);
 }
 

@@ -1,4 +1,4 @@
-// startThreadRename for a row's double-click (Sidebar.tsx and LegacySidebar.tsx onDoubleClick, T3 Code 1e2ecbd975;
+// startThreadRename for a row's double-click (Sidebar.tsx onDoubleClick, T3 Code 1e2ecbd975;
 // MIT, see LICENSE-T3). The reference's first click navigates in the same task, so the row is there when the
 // double-click renames it, and its title input's autoFocus comes after ChatView's composer focus. Here the first
 // click's open of another environment's row moves the window to that environment, and that environment's shell, with
@@ -7,7 +7,7 @@
 import { str } from '../client/domain';
 import type { T3Client } from '../client/client';
 import { fleet, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
-import { rowIdNow, rowThread } from './legacy-sidebar-links';
+import { rowIdNow, rowThread } from './row-thread';
 import { sidebarSession } from './sidebar-state';
 
 interface Held { environmentId: string; threadId: string }

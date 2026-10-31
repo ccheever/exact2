@@ -78,7 +78,6 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["open-source-licenses", "Open source licenses", "about", "", "", "", ""],
   ["legacy-plan-mode", "Plan mode (legacy)", "labs", "", "build plan composer old", "", ""],
   ["legacy-context-window-indicator", "Context window indicator (legacy)", "labs", "", "composer meter usage tokens circle old", "", ""],
-  ["legacy-sidebar", "Sidebar (legacy)", "labs", "", "project thread tree old flat list", "", ""],
   ["keybindings", "Keybindings", "keybindings", "", "keyboard shortcuts hotkeys commands bindings json", "", ""],
   ["snap-shot-enabled", "SnapShots", "snap-shot", "", "window capture screenshot", "", ""],
   ["snap-shot-accessibility", "Include app text", "snap-shot", "snap-shot-enabled", "capture accessibility data text UI structure elements privacy omit agent context", "", ""],

@@ -345,6 +345,9 @@ members T3Code
     // queued message only with the caret collapsed before everything (isCaretAtStart); elsewhere the key moves the caret.
     let queuedEdit = shortcuts.filter((item) => item.kind == "composer-key" and item.chord == chord)
     let caretAtStart = composerSelectionCurrent and composerSelectionStart == 0 and composerSelectionEnd == 0
+    // workspace.focusNext / focusPrevious (F6, ⇧F6; AppSidebarLayout's capture listener): the rich field takes its own
+    // keys before the dispatch buttons hear them, so the focus leaves it from here.
+    let workspaceFocus = shortcuts.filter((item) => item.kind == "workspace-focus" and item.chord == chord)
     // ComposerStashMenu's window keydown listener (capture): Escape, ↑ ↓, Return and ⌘⌫ with the composer focused.
     let stashKey = editor.stash.menuOpen and not editor.menu.open and (k == "Escape" or (editor.stash.count > 0 and (k == "ArrowDown" or k == "ArrowUp" or k == "Enter" or (k == "Backspace" and heldCommand))))
     // onComposerCommandKey: the open command menu takes Escape, and ↑ ↓ Return Tab while it lists rows, unless the
@@ -352,7 +355,14 @@ members T3Code
     let menuKey = editor.menu.open and (k == "Escape" or (editor.menu.count > 0 and (k == "ArrowDown" or k == "ArrowUp" or (k == "Tab" and not e.shiftKey) or (k == "Enter" and not composerChordIn(data.composer.sendCommandChords, chord)))))
     if composerComposing and not composing and composerRichCurrent and composerSelectionCurrent
       send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=composerText, start=composerSelectionStart, end=composerSelectionEnd, composing=composing, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial), false)
-    if not composing and queuedEdit.length > 0 and caretAtStart
+    if not composing and workspaceFocus.length > 0
+      preventDefault()
+      stopPropagation()
+      match first(workspaceFocus)
+        case some(item)
+          workspaceMove(item.target == "next" ? 1 : -1, "composer")
+        case none
+    else if not composing and queuedEdit.length > 0 and caretAtStart
       // A held key is consumed and does nothing more, as editLatest(event.repeat) does.
       preventDefault()
       stopPropagation()

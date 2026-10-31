@@ -35,7 +35,7 @@ import { minimapItems, type MinimapRow } from './timeline-minimap';
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, noteMermaidFrame, retryMermaid } from './timeline-mermaid';
 import { mathFrames, noteMathFrame } from './markdown-math';
 import { agentStarted, setupView, threadWorktreeSetup, worktreeDetailsOpen, worktreeSetupAction } from './timeline-worktree';
-import { asFileChip, chippedAttachmentIds, markdownEnv, messageChips, shouldCollapseUserMessage } from './message-chips';
+import { asFileChip, chippedAttachmentIds, markdownChipInks, markdownEnv, messageChips, shouldCollapseUserMessage } from './message-chips';
 import { hasQuestionAnswer, notificationChildThreadId, notificationSubagent, plainOutput, questionAnswerPreview, questionHistory, questionTextPreview, runlessWorkStartedAt, type InspectorCode } from './timeline-inspect';
 import { gitChatLocal } from '../details/git-route';
 import { openFileSurface, surfaceLocal } from '../panel/panel-surfaces';
@@ -597,13 +597,13 @@ function present(row: Row, context: PresentContext): Message {
 }
 
 type RowActivity = Activity & Required<Pick<Activity, 'tone' | 'ok' | 'reasoning' | 'expandable' | 'detail' | 'status' | 'targetId' | 'answer' | 'retryRunId' | 'outputState' | 'detailOpen' | 'iconLight' | 'iconDark'
-  | 'results' | 'changePath' | 'stats' | 'additions' | 'deletions' | 'diffRunId' | 'diffPath' | 'startedMs' | 'initials' | 'driverIcon' | 'targetLabel' | 'modelLine' | 'effort' | 'speed' | 'speedLabel'
+  | 'results' | 'changePath' | 'stats' | 'additions' | 'deletions' | 'startedMs' | 'initials' | 'driverIcon' | 'targetLabel' | 'modelLine' | 'effort' | 'speed' | 'speedLabel'
   | 'replArguments' | 'linkPrefix' | 'linkTitle' | 'linkThreadId' | 'badge' | 'badgeColor' | 'terminal' | 'terminalTruncated' | 'terminalSpans' | 'toolImages'>> & { timeTip: string };
 const blankActivity = (activity: Activity): RowActivity => ({
   tone: '', ok: true, reasoning: false, expandable: true, detail: '', status: '', targetId: '', answer: '', retryRunId: '', timeTip: '',
   ...activity, replArguments: activity.replArguments ?? [], terminal: activity.terminal ?? false, terminalTruncated: activity.terminalTruncated ?? false, terminalSpans: activity.terminalSpans ?? [], toolImages: activity.toolImages ?? [], outputState: activity.outputState ?? '', detailOpen: activity.detailOpen ?? false, iconLight: activity.iconLight ?? '', iconDark: activity.iconDark ?? '',
   results: activity.results ?? NO_INSPECTOR_EXTRAS.results, changePath: activity.changePath ?? '', stats: activity.stats ?? false, additions: activity.additions ?? 0,
-  deletions: activity.deletions ?? 0, diffRunId: activity.diffRunId ?? '', diffPath: activity.diffPath ?? '', startedMs: activity.startedMs ?? 0,
+  deletions: activity.deletions ?? 0, startedMs: activity.startedMs ?? 0,
   initials: activity.initials ?? '', driverIcon: activity.driverIcon ?? '', targetLabel: activity.targetLabel ?? '',
   modelLine: activity.modelLine ?? '', effort: activity.effort ?? '', speed: activity.speed ?? '', speedLabel: activity.speedLabel ?? '',
   linkPrefix: activity.linkPrefix ?? '', linkTitle: activity.linkTitle ?? '', linkThreadId: activity.linkThreadId ?? '', badge: activity.badge ?? '', badgeColor: activity.badgeColor ?? '' });
@@ -615,7 +615,7 @@ const blankActivity = (activity: Activity): RowActivity => ({
  * attached checkpoint carries the preceding answer's actions and the answer omits its own.
  */
 export function timelineMessages(client: T3Client, transcript: Message[], now: number) {
-  const format = client.local.deviceSettings.timestampFormat, md = markdownEnv(client);
+  const format = client.local.deviceSettings.timestampFormat, md = markdownEnv(client), bubbleInks = markdownChipInks(client, true);
   const copy = timelineView(client).codeCopy, codeCopy = copy.threadId === client.threadId ? { codeCopied: copy.text, codeCopyNonce: copy.nonce } : { codeCopied: '', codeCopyNonce: 0 };
   // A checkpoint that changed no files draws nothing, so it is no row, as upstream derives none for it. A zero-height
   // row would also never settle in the virtualized transcript: each row state write puts it
@@ -640,7 +640,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       attribution: message.attribution ?? '', summary: message.summary ?? '', sender: message.sender ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
       copied: message.copied ?? 0, copyFailed: message.copyFailed === true, meta: message.meta !== false,
       collapsible: message.collapsible === true, code: message.code ?? [], diagrams: message.diagrams ?? [], inlineDocuments: message.inlineDocuments ?? [], setup: message.setup ?? [], fileCount: message.kind === 'checkpoint' ? files.length : 0,
-      secret: message.secret ?? [], approval: message.approval ?? [], findLines: message.findLines ?? [], images: message.images ?? [], attachFiles: message.attachFiles ?? [], audio: message.audio ?? [], md: { ...md, chips: message.chips ?? [], threadGlyphs: markdownThreadGlyphs(client, str(message.body), message.chips ?? []), runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
+      secret: message.secret ?? [], approval: message.approval ?? [], findLines: message.findLines ?? [], images: message.images ?? [], attachFiles: message.attachFiles ?? [], audio: message.audio ?? [], md: { ...md, inks: message.kind === 'user' ? bubbleInks : md.inks, chips: message.chips ?? [], threadGlyphs: markdownThreadGlyphs(client, str(message.body), message.chips ?? []), runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
   });
   const rawText = new Map(transcript.map(message => [message.id, message.rawText]));
   timelineView(client).lastRows = { threadId: client.threadId, rows: rows.map(row => ({ id: row.id, kind: row.kind, body: row.body, text: rawText.get(row.id) })) };

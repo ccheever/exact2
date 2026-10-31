@@ -19,7 +19,7 @@ import { feedbackNotices, feedbackUploading } from './composer-feedback'; // Cod
 import { uploadBlock, waitingSend } from './composer-uploads'; // attachmentUploadBlockReason
 import { subagentTitle } from '../timeline/timeline-events';
 import { keepsFullHistory, latestTokenUsage, resumeCompactionTokens } from './composer-controls-resume';
-import { pendingRequests } from './requests';
+import { composerRequests } from './requests';
 import { chordGlyphs } from './composer-controls-model';
 import { commandChords } from './composer-presentation';
 import { threadWorktreeSetup } from '../timeline/timeline-worktree';
@@ -217,9 +217,9 @@ export function presentBackgroundWork(tasks: Obj[]): { title: string; descriptio
 /**
  * ChatView composerBannerItems, as ChatComposer and ComposerBannerStack show them: notices about sending from this
  * composer, each its own attached card, the machine's notices first and then feedback, limit recovery, usage limits,
- * the project clone and the branch mismatch, in that fixed order so cards never trade places. An open approval or
- * question owns the space above the composer: only a machine error or warning, which is why an answer could not go
- * through, stays beside it. What the thread is doing lives at the end of the timeline (thread-end.ts).
+ * the project clone and the branch mismatch, in that fixed order so cards never trade places. An open question owns
+ * the space above the composer: only a machine error or warning, which is why an answer could not go through, stays
+ * beside it. What the thread is doing lives at the end of the timeline (thread-end.ts).
  */
 export function composerNotices(client: T3Client, now: number): ComposerNotice[] {
   const mismatch = branchMismatchNotice(client); // returning to Home resets revelation, but keeps session dismissals
@@ -233,8 +233,7 @@ export function composerNotices(client: T3Client, now: number): ComposerNotice[]
   const attention = client.threadId
     ? [...feedbackNotices(client).map(item => notice(item)), ...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...(mismatch ? [notice(mismatch)] : [])]
     : [...usageNotices(client, now).map(item => notice(item)), ...cloneItem];
-  const requests = client.threadId ? pendingRequests(client.projection) : { approvals: [], inputs: [] };
-  if (requests.approvals.length > 0 || requests.inputs.length > 0) return system.filter(item => item.variant === 'error' || item.variant === 'warning');
+  if (client.threadId && composerRequests(client).inputs.length > 0) return system.filter(item => item.variant === 'error' || item.variant === 'warning');
   return [...system, ...attention];
 }
 

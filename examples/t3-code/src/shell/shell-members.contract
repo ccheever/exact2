@@ -301,7 +301,7 @@ members T3Code
       send localChanged = command(op, target, value, 0)
     if (op == "ui:new-thread" or not op.startsWith("ui:")) and not op.startsWith("shelllocal:") and not commandPending
       commandPending = true
-      send changed = command(op == "ui:new-thread" ? "new-thread" : op, target, value, 0)
+      send changed = command(op == "ui:new-thread" ? "new-thread" : op, target, value, op.startsWith("chat:") ? wallTime.epochAtZero + performanceNow() : 0) // a snooze preset is picked, and a settle's notice timed, at this instant
     else if op == "ui:custom-snooze" // Snooze › Custom… opens the sidebar's Custom snooze for this thread (useThreadActionMenu's requestCustomSnooze)
       sidebarRun("snooze:custom", target, "title")
   // A removal asked from a focused Remove gives the focus away first, to that Remove on Cancel or to where the

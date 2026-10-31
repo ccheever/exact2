@@ -87,18 +87,24 @@ export function documentKind(name: string): string {
     : /\.(pptx?|odp)$/.test(n) ? 'doc-slides' : /\.epub$/.test(n) ? 'doc-epub' : '';
 }
 
-/** Every kind's ink as `light-dark()`, solved per theme half (contextChipVariables); kept while the themes stay. */
-const inkCache = new WeakMap<object, { key: string; inks: Record<string, string> }>();
-export function chipInks(client: T3Client): Record<string, string> {
+/**
+ * Every kind's ink as `light-dark()`, solved per theme half (contextChipVariables); kept while the themes stay. In a
+ * sent message's bubble (`bubble`), a half whose bubble sits on the other side of the canvas's lightness draws its chips
+ * in the bubble's own text colour (TimelineUserMessageRow's `--context-chip-message`).
+ */
+const inkCache = new WeakMap<object, { key: string; inks: Record<string, string>; bubble: Record<string, string> }>();
+export function chipInks(client: T3Client, bubble = false): Record<string, string> {
   const { prefs, custom } = paintOf(client);
   // The status colours a palette leaves to the standard ones (STANDARD_STATUS_COLORS): the error foreground.
   const light = { errorForeground: '#c10007', ...themeRoles(prefs.themeLight, 'light', custom) }, dark = { errorForeground: '#ff6467', ...themeRoles(prefs.themeDark, 'dark', custom) };
   const key = JSON.stringify([light, dark]), cached = inkCache.get(client);
-  if (cached?.key === key) return cached.inks;
+  if (cached?.key === key) return bubble ? cached.bubble : cached.inks;
   const a = contextChipInks(light), b = contextChipInks(dark);
-  const inks = Object.fromEntries(Object.keys(a).map(kind => [kind, chipInk(kind, a, b)]).filter(([, ink]) => ink));
-  inkCache.set(client, { key, inks });
-  return inks;
+  const table = (x: Record<string, string>, y: Record<string, string>) => Object.fromEntries(Object.keys(x).filter(kind => kind !== 'message').map(kind => [kind, chipInk(kind, x, y)]).filter(([, ink]) => ink));
+  const inMessage = (half: Record<string, string>) => half.message ? Object.fromEntries(Object.keys(half).map(kind => [kind, half.message!])) : half;
+  const entry = { key, inks: table(a, b), bubble: table(inMessage(a), inMessage(b)) };
+  inkCache.set(client, entry);
+  return bubble ? entry.bubble : entry.inks;
 }
 
 const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);

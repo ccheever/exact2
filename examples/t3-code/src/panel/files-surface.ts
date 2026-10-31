@@ -80,7 +80,7 @@ export type FilesView = {
   // message (app.contract filesMarkdown; kind "file" when its task checkboxes may write the file), `md` its chips and
   // settings, `code` its fences' colours, `diagrams` its Mermaid fences, `mdUrls` its host-path media and `codeCopied` /
   // `codeCopyNonce` Copy code's check.
-  markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[]; mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[];
+  markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[]; mdUrls: { id: string; url: string }[];
   codeCopied: string; codeCopyNonce: number; editing: boolean; editorText: string; editPress: string; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
   /** A rendered page's frame source, or an audio file's signed URL. */
   url: string; media: MediaView;
@@ -713,7 +713,7 @@ async function renderedMarkdown(client: T3Client, native: Native, path: string, 
   return {
     markdownSource: [{ id: `file:${path}`, kind: editable ? 'file' : 'assistant', title: '', body: text }],
     md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text }, folder, [], `files:${absolute}`, scope, client)) }, // the owner names the document
-    code: messageCodeBlocks(text, 'shell', `file:${path}`), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
+    code: messageCodeBlocks(text, 'shell', `file:${path}`), diagrams, mdUrls: urls,
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };
 }
@@ -743,7 +743,7 @@ export const emptyFiles = (): FilesView => ({
   cwd: '', project: '', ready: false, loading: false, searching: false, error: '', query: '', truncated: false, noMatches: false, emptySearch: false, loadingQuiet: false, rows: [], hasDirectories: false, allExpanded: false, treeMenu: [],
   explorer: true, showExplorer: true, subheader: false, explorerToggle: false, path: '', preview: '', previewError: '', errorPath: '', errorCwd: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
-  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, editing: false, editorText: '', editPress: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
+  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [], inks: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, editing: false, editorText: '', editPress: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
   mermaidNote: '', editorRevision: 0, fileKey: '', attachment: emptyAttachment(), viewer: emptyViewerFrame(), fullFile: closedFullFile(),
 });
 

@@ -77,13 +77,13 @@ export const CLIENT_DEFAULTS = {
   diffFilesCollapsed: true, diffIgnoreWhitespace: true, diffLayout: 'stacked', glassOpacity: 80,
   fontSizeInterface: 16, fontSizePrompt: 14, fontSizeCode: 13, fontSizeTerminal: 12, fontFamilyCode: '', fontFamilyComposer: '', fontFamilySans: '',
   fontFamilyTerminal: '', fontSmoothing: true, persistComposerContextStrip: false, contextWindowMeterEnabled: false, composerRichTextEnabled: true,
-  followUpBehavior: 'steer', proactivePanelsEnabled: false, showSkillsInSlashMenu: true, legacySidebarEnabled: false, sidebarWorkingShelfEnabled: true,
+  followUpBehavior: 'steer', proactivePanelsEnabled: false, showSkillsInSlashMenu: true, sidebarWorkingShelfEnabled: true,
   // How the composer shows reasoning effort: its word, or bars (contracts settings.ts EffortDisplay, default label).
   effortDisplay: 'label',
   wordWrap: true, browserLinkTarget: 'system', theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code', typographyAdvanced: false, confirmQuit: 'hold',
   sidebarProjectSortOrder: 'updated_at',
-  // The legacy sidebar's Sidebar options (contracts settings.ts: sort orders, preview count 1-15, default 6).
-  sidebarThreadSortOrder: 'updated_at', sidebarThreadPreviewCount: 6,
+  // The thread order a delete falls back along (contracts settings.ts SidebarThreadSortOrder).
+  sidebarThreadSortOrder: 'updated_at',
   // The browser's recording and floating-preview defaults (contracts settings.ts names and defaults:
   // BROWSER_RECORDING_FRAME_RATES 30 | 60, default 30; key and mouse presses off; auto-show on). Settings › Integrations ›
   // Browser draws their rows and writes them.
@@ -108,7 +108,7 @@ const CHOICES: Record<string, readonly string[]> = {
 const BOUNDS: Record<string, [number, number, number]> = {
   appearanceContrast: [50, 200, 5], glassOpacity: [40, 100, 5], panelAnimationDurationMs: [0, 400, 25],
   fontSizeInterface: [12, 20, 1], fontSizePrompt: [12, 20, 1], fontSizeCode: [10, 18, 1], fontSizeTerminal: [8, 20, 1],
-  sidebarThreadPreviewCount: [1, 15, 1], browserRecordingFrameRate: [30, 60, 30],
+  browserRecordingFrameRate: [30, 60, 30],
 };
 const FONT_FAMILY = /^[^"\\;{}<>]{0,120}$/;
 const FONT_SIZE_KEYS: Record<string, string> = { fontFamilySans: 'fontSizeInterface', fontFamilyComposer: 'fontSizePrompt', fontFamilyCode: 'fontSizeCode', fontFamilyTerminal: 'fontSizeTerminal' };
@@ -180,9 +180,9 @@ export function changedDeviceLabels(local: LocalPrefs): string[] {
   return labels;
 }
 /** What useSettingsRestore leaves alone (SettingsPanels.tsx restoreDefaults: its one updateSettings patch and useTheme's keys):
- *  Font smoothing, Sidebar (legacy), the legacy thread sort, Plan mode (legacy), and typography's Advanced switch, which the
- *  reference keeps in its own local storage key (TypographySection), outside the settings. */
-export const KEPT_ON_RESTORE = ['fontSmoothing', 'legacySidebarEnabled', 'sidebarThreadSortOrder', 'typographyAdvanced'] as const;
+ *  Font smoothing, the thread sort, Plan mode (legacy), and typography's Advanced switch, which the reference keeps in its
+ *  own local storage key (TypographySection), outside the settings. */
+export const KEPT_ON_RESTORE = ['fontSmoothing', 'sidebarThreadSortOrder', 'typographyAdvanced'] as const;
 export function restoreDeviceDefaults(local: LocalPrefs): void {
   const prefs = local.clientSettings || decodeClientPrefs({}), planModeEnabled = local.deviceSettings.planModeEnabled;
   Object.assign(local.deviceSettings, DEVICE_DEFAULTS, { planModeEnabled });
@@ -597,7 +597,6 @@ export function generalSections(client: T3Client, context: ServerContext, route 
   const legacy = [
     deviceRow('planModeEnabled', 'legacy-plan-mode', 'Plan mode (legacy)', 'Restore Build/Plan, /plan, /default, and Shift+Tab. Off uses build mode.', 'switch', { resettable: false }),
     deviceRow('contextWindowMeterEnabled', 'legacy-context-window-indicator', 'Context window indicator (legacy)', 'Shows context window usage as a circular indicator in the composer.', 'switch', { resettable: false }),
-    deviceRow('legacySidebarEnabled', 'legacy-sidebar', 'Sidebar (legacy)', 'Restore per-project thread trees instead of the default flat sidebar.', 'switch', { resettable: false }),
   ];
   const rows = new Map([...newThreads, ...snoozeRows, ...organization, ...behavior, ...projects, ...confirmations, ...textGeneration, ...about, ...diagnostics, ...legacy].map(row => [row.id, row]));
   const pick = (id: string, title: string, ids: string[], advanced: string[] = []): CoreSection =>
@@ -618,7 +617,7 @@ export function generalSections(client: T3Client, context: ServerContext, route 
     worktrees: [pick('worktree-creation', 'Creation', ['start-from-origin'], ['worktree-submodules'])],
     maintenance: [pick('updates', 'Updates', ['provider-update-checks', 'continue-threads-after-server-update']), pick('background', 'Background activity', ['background-activity'])],
     about: [pick('about', 'App', about.map(row => row.id)), pick('legal', 'Legal', ['open-source-licenses'])],
-    labs: [pick('legacy-features', 'Legacy', ['legacy-plan-mode', 'legacy-context-window-indicator', 'legacy-sidebar'])],
+    labs: [pick('legacy-features', 'Legacy', ['legacy-plan-mode', 'legacy-context-window-indicator'])],
   };
   return (route ? pages[route] ?? [] : Object.values(pages).flat()).filter(entry => entry.rows.length > 0 || (entry.advanced ?? []).length > 0);
 }
@@ -815,7 +814,7 @@ const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser',
   ['Diff colors', 'device', ['diffColorScheme']], ['Chat width', 'device', ['chatWidth']], ['Effort display', 'device', ['effortDisplay']], ['Render math', 'device', ['mathRenderingEnabled']],
   ['Panel animations', 'device', ['panelAnimationDurationMs']],
   ['Time format', 'device', ['timestampFormat']], ['Thread notifications', 'device', ['notificationMode']],
-  ['In-app notifications', 'device', ['inAppNotificationsEnabled']], ['Visible threads', 'device', ['sidebarThreadPreviewCount']], ['Project Grouping', 'device', ['projectGrouping']],
+  ['In-app notifications', 'device', ['inAppNotificationsEnabled']], ['Project Grouping', 'device', ['projectGrouping']],
   ['Project order', 'device', ['sidebarProjectSortOrder']], ['Working section', 'device', ['sidebarWorkingShelfEnabled']],
   ['Auto-settle inactive threads', 'server', ['sidebarAutoSettleAfterDays']], ['Keep threads with a PR', 'server', ['sidebarAutoSettleKeepPullRequests']], ['Auto-settle merged threads', 'server', ['sidebarAutoSettleOnMerge']],
   ['Resume after usage limits', 'server', ['autoResumeLimitedThreads']], ['Snooze until limits reset', 'server', ['snoozeLimitedThreads']], ['Snooze options', 'server', ['snoozePresets']],

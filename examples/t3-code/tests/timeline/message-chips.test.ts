@@ -112,9 +112,9 @@ describe('markdown link scan (extractMarkdownLinkHrefs)', () => {
 describe('Markdown settings', () => {
   const client = (settings: object) => ({ local: { clientSettings: settings } }) as unknown as T3Client;
   test('code size clamps to 10–18, word wrap and the monospace family come from Settings → Appearance', () => {
-    expect(markdownEnv(client({ fontSizeCode: 22, wordWrap: false, fontFamilyCode: 'Menlo' }))).toEqual({ codeFont: '"Menlo", ui-monospace', codeSize: 18, wrap: false, chips: [], runCommands: [], threadGlyphs: [] });
+    expect(markdownEnv(client({ fontSizeCode: 22, wordWrap: false, fontFamilyCode: 'Menlo' }))).toEqual({ codeFont: '"Menlo", ui-monospace', codeSize: 18, wrap: false, chips: [], runCommands: [], threadGlyphs: [], inks: [] });
     // The default is the reference's code font as its renderer draws it (settings-appearance.ts DEFAULT_CODE_FONT).
-    expect(markdownEnv(client({ fontSizeCode: 13, wordWrap: true, fontFamilyCode: '' }))).toEqual({ codeFont: 'Menlo, Consolas, "Liberation Mono", monospace', codeSize: 13, wrap: true, chips: [], runCommands: [], threadGlyphs: [] });
+    expect(markdownEnv(client({ fontSizeCode: 13, wordWrap: true, fontFamilyCode: '' }))).toEqual({ codeFont: 'Menlo, Consolas, "Liberation Mono", monospace', codeSize: 13, wrap: true, chips: [], runCommands: [], threadGlyphs: [], inks: [] });
     expect(markdownEnv({} as T3Client).codeSize).toBe(13);
   });
   test('diff colors default to red-green', () => {
@@ -131,22 +131,6 @@ describe('subagent divider (TimelineSystemDivider)', () => {
   });
 });
 
-describe('image chip accent (averageImageColor)', () => {
-  test('the fill, border and ink follow color-mix in oklab as Chrome computes them for rgb(129 140 168)', async () => {
-    const { imageChipInks } = await import('../../src/timeline/message-chips');
-    const inks = imageChipInks('129 140 168')!;
-    expect(inks.fill).toBe('#818ca81c');
-    expect(inks.hover).toBe('#818ca82b');
-    // Chrome: border oklab(0.825 0.0003 -0.0175) = #c1c5d2; the text mixes with zinc-900 since 3816296021 (#2d2f36, light).
-    const channel = (hex: string, at: number) => parseInt(hex.slice(at, at + 2), 16);
-    const near = (hex: string, want: string) => [1, 3, 5].every(at => Math.abs(channel(hex, at) - channel(want, at)) <= 2);
-    const light = (value: string) => /light-dark\((#[0-9a-f]{6})/.exec(value)![1]!;
-    expect(near(light(inks.border), '#c1c5d2')).toBe(true);
-    expect(near(light(inks.ink), '#2d2f36')).toBe(true);
-    expect(imageChipInks('')).toBeNull();
-  });
-});
-
 describe('Pull Requests diff colors and Markdown settings', () => {
   test('the list and the detail carry Appearance → Diff colors and the code settings', async () => {
     const { pullRequestsPage } = await import('../../src/pull-requests/pages-prs');
@@ -156,7 +140,7 @@ describe('Pull Requests diff colors and Markdown settings', () => {
     const list = await pullRequestsPage(client, null, { open: false, refresh: 0, now: 0, selected: '', query: '', typed: false });
     expect(list.diffScheme).toBe('blue-orange');
     const detail = await pullRequestDetail(client, null, { selected: '', refresh: 0, now: 0 });
-    expect([detail.diffScheme, detail.md]).toEqual(['blue-orange', { codeFont: 'Menlo, Consolas, "Liberation Mono", monospace', codeSize: 15, wrap: false, chips: [], runCommands: [], threadGlyphs: [] }]);
+    expect([detail.diffScheme, detail.md]).toEqual(['blue-orange', { codeFont: 'Menlo, Consolas, "Liberation Mono", monospace', codeSize: 15, wrap: false, chips: [], runCommands: [], threadGlyphs: [], inks: [] }]);
   });
 });
 
@@ -250,7 +234,7 @@ describe('skill chips open their details (#25432)', () => {
     const call = /SkillChip\(label=chip\.label, description=chip\.detail, path=chip\.target, id=(`[^`]+`)/.exec(appText('markdown.contract'))![1]!;
     const ids = [['0', chips[0]!], ['1', chips[0]!], ['3', chips[1]!]].map(([blockId, chip]) => value(call, { chip, blockId, run: { id: '0' } }));
     expect(ids).toEqual(['m-0-0', 'm-1-0', 'm-3-0']);
-    expect(appText('markdown.contract')).toContain('ResolvedChip(run=run, chip=chip, urls=urls, local=local, blockId=blockId)');
+    expect(appText('markdown.contract')).toContain('ResolvedChip(run=run, chip=chip, urls=urls, local=local, blockId=blockId, color=color)');
   });
 });
 
@@ -268,7 +252,7 @@ describe('the chips and rows a context reference draws', () => {
     const url = 'http://127.0.0.1:1/api/assets/att-svg?sig=1';
     thumb.call('failed', thumb.state(), { target: 'att-svg', url, local: (...args: unknown[]) => sent.push(args) }, ['decode failed']);
     expect(sent).toEqual([['chip-preview-failed', 'att-svg', url]]);
-    expect(appText('markdown.contract').match(/ChipThumb\(url=entry\.url, target=chip\.target, local=local\)/g)).toHaveLength(2);
+    expect(appText('markdown.contract').match(/ChipThumb\(url=entry\.url, target=chip\.target, local=local\)/g)).toHaveLength(1);
   });
   test('a secret request draws its card and no divider under it', async () => {
     const { contractComponent } = await import('../support/contract-action-fixture');
@@ -285,8 +269,9 @@ describe('a sent sound (#21363)', () => {
       [{ type: 'file', id: 'att-m', name: 'memo.mp3', mimeType: 'audio/mpeg; codecs=mp3', sizeBytes: 900 }]), '', [], 'm');
     expect(chips.map(chip => [chip.kind, chip.label, chip.target])).toEqual([['audio', 'memo.mp3', 'att-m']]);
     const { contractComponent } = await import('../support/contract-action-fixture');
-    const resolved = contractComponent('markdown.contract', 'ResolvedChip');
-    const drawn = (kind: string) => resolved.drawn('AttachmentChip(run=run, chip=chip', resolved.state(), { chip: { ...chips[0], kind }, run: { id: '0' } });
+    const { contractFns } = await import('../support/contract-fn-fixture');
+    const resolved = contractComponent('markdown.contract', 'ResolvedChip'), inks = { ...contractFns('src/timeline/markdown-chip-inks.contract'), chipInks: [] };
+    const drawn = (kind: string) => resolved.drawn('AttachmentChipBody(run=run, chip=chip', resolved.state(), { ...inks, chip: { ...chips[0], kind }, run: { id: '0' }, color: '' });
     expect([drawn('audio'), drawn('file')]).toEqual([false, true]);
   });
   test('the timeline leaves the reference out of the prompt, so nothing draws for it (renderContextReference returns null)', async () => {
@@ -299,23 +284,58 @@ describe('a sent sound (#21363)', () => {
   });
 });
 
-describe('document chips take their type\'s accent (#21469)', () => {
-  test('a PDF, Word, spreadsheet, slides or EPUB name gives its accent; any other file keeps the file chip\'s', async () => {
+// Chips drop their pill (T3 Code v0.1.5 ContextChip, #25066, #26306, #26379): no border or fill; the glyph and the
+// medium label take the kind's ink, its accent raised to 5:1 on the theme (shared/chip-accents.ts).
+describe('sent chips, file links and citations without a pill', () => {
+  const inkFns = async () => {
     const { contractFns } = await import('../support/contract-fn-fixture');
-    const inks = contractFns('src/timeline/markdown-chip-inks.contract') as unknown as Record<string, (...args: unknown[]) => string>;
-    expect(['a.PDF', 'b.docx', 'c.rtf', 'd.xlsx', 'e.csv', 'f.pptx', 'g.epub', 'h.ts', 'report.pdf · L3'].map(name => inks.docType!(name))).toEqual(['pdf', 'word', 'word', 'sheet', 'sheet', 'slides', 'epub', '', 'pdf']);
-    expect([inks.docInk!('word'), inks.docFill!('word', false), inks.docFill!('word', true), inks.docBorder!('word')]).toEqual(['light-dark(#2b3b4c, #d7e7f9)', 'light-dark(#1a85d41c, #69b1ff1c)', 'light-dark(#1a85d42b, #69b1ff2b)', 'light-dark(#a8c5e3, #69b1ff61)']);
+    return contractFns('src/timeline/markdown-chip-inks.contract') as unknown as Record<string, (...args: unknown[]) => string>;
+  };
+  test('a PDF, Word, spreadsheet, slides or EPUB name gives its document kind; any other file has none', async () => {
+    const inks = await inkFns();
+    expect(['a.PDF', 'b.docx', 'c.rtf', 'd.xlsx', 'e.csv', 'f.pptx', 'g.epub', 'h.ts', 'report.pdf · L3'].map(name => inks.docKind!(name)))
+      .toEqual(['doc-pdf', 'doc-word', 'doc-word', 'doc-spreadsheet', 'doc-spreadsheet', 'doc-slides', 'doc-epub', '', 'doc-pdf']);
   });
-  test('a file link chip draws its document accent from its label (FileChipFace)', async () => {
-    const { contractFns } = await import('../support/contract-fn-fixture');
-    const { value } = await import('../support/contract-action-fixture');
+  test('the default theme\'s inks in the contract are those contextChipInks solves for it', async () => {
+    const { chipInks } = await import('../../src/composer/composer-chip-presentation');
+    const { CONTEXT_CHIP_ACCENTS } = await import('../../src/shared/chip-accents');
+    const inks = await inkFns();
+    const solved = chipInks({ local: { deviceSettings: { appearanceMode: 'system' }, clientSettings: {} } } as unknown as T3Client);
+    for (const kind of [...Object.keys(CONTEXT_CHIP_ACCENTS), 'invalid']) expect([kind, inks.defaultChipInk!(kind)]).toEqual([kind, solved[kind]!]);
+    expect(inks.defaultChipInk!('neutral')).toBe('light-dark(#18181b, #f5f5f5)');
+  });
+  test('a chip reads the Markdown\'s inks, the default theme\'s without them', async () => {
+    const inks = await inkFns();
+    const theirs = [{ kind: 'image', ink: 'light-dark(#000001, #fffffe)' }];
+    expect(inks.inkOf!(theirs, 'image')).toBe('light-dark(#000001, #fffffe)');
+    expect(inks.inkOf!(theirs, 'thread')).toBe(inks.defaultChipInk!('thread'));
+    expect(inks.inkOf!([], 'image')).toBe('light-dark(#006592, #249fdc)'); // image chips are blue (#26306)
+    expect([inks.chipAccent!('review', ''), inks.chipAccent!('pr', 'merged'), inks.chipAccent!('pr', ''), inks.chipAccent!('link', ''), inks.chipAccent!('unresolved', '')])
+      .toEqual(['review-comment', 'pr-merged', 'pull-request', 'mention', 'neutral']);
+    expect([inks.runAccent!('context-review-comment'), inks.runAccent!('context-other')]).toEqual(['review-comment', 'neutral']);
+    // A neutral chip draws in its text's colour (currentColor), a bubble's or a custom theme's too.
+    expect([inks.inkIn!(theirs, 'neutral', 'light-dark(#0a0a0a, #fafafa)'), inks.inkIn!(theirs, 'image', '#123456')]).toEqual(['light-dark(#0a0a0a, #fafafa)', 'light-dark(#000001, #fffffe)']);
+  });
+  test('markdownEnv carries the theme\'s inks; a sent message\'s bubble on the other side of the canvas takes its own text colour', async () => {
+    const { markdownChipInks, markdownEnv } = await import('../../src/timeline/message-chips');
+    const client = { local: { deviceSettings: { appearanceMode: 'system' }, clientSettings: { fontFamilyCode: '' } } } as unknown as T3Client;
+    expect(markdownEnv(client).inks).toContainEqual({ kind: 'citation', ink: 'light-dark(#1f5cba, #5695f8)' });
+    // The default theme's bubble is on the canvas's side in both halves, so its chips keep their accents.
+    expect(markdownChipInks(client, true)).toEqual(markdownChipInks(client));
+    expect(markdownEnv({ local: {} } as unknown as T3Client).inks).toEqual([]);
+  });
+  test('no chip in the chat Markdown draws a border or a fill', async () => {
     const { appText } = await import('../support/app-files');
-    const inks = contractFns('src/timeline/markdown-chip-inks.contract') as Record<string, unknown>;
-    const face = appText('markdown.contract').split('component FileChipFace')[1]!;
-    const [, border, fill] = /border-color=\((.+?)\) background-color=\((.+?)\) testId/.exec(face)!;
-    const ink = /white-space="pre" color=\((.+?)\) text-decoration-line/.exec(face)![1]!;
-    const drawn = (label: string) => [border!, fill!, ink].map(expr => value(expr, { ...inks, label }));
-    expect(drawn('report.docx')).toEqual(['light-dark(#a8c5e3, #69b1ff61)', 'light-dark(#1a85d41c, #69b1ff1c)', 'light-dark(#2b3b4c, #d7e7f9)']);
-    expect(drawn('notes.ts')).toEqual(['light-dark(#a9cad4, #39a1b861)', '#0096af1c', 'light-dark(#2c3e45, #cbe0e6)']);
+    for (const file of ['markdown.contract', 'skill-chip.contract']) {
+      const text = appText(file);
+      for (const name of ['ContextChipBox', 'FileChipFace', 'ResolvedChip', 'PrContextChip', 'CitationContextChip', 'TerminalContextChip', 'AttachmentChipBody', 'ChipFace', 'SkillChip']) {
+        const at = text.indexOf(`component ${name}\n`);
+        if (at < 0) continue;
+        const end = text.indexOf('\ncomponent ', at + 1), body = text.slice(at, end < 0 ? undefined : end);
+        const trigger = body.split('\n').filter(line => /testId=`(context|file)-chip-/.test(line));
+        for (const line of trigger) expect([name, /border-width=1|background-color=`|1c"/.test(line)]).toEqual([name, false]);
+      }
+    }
+    expect(appText('markdown.contract')).not.toContain('TintedImageChip');
   });
 });

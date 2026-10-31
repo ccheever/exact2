@@ -93,16 +93,20 @@ describe('composer during a pending approval', () => {
     await command('send', '', 'Use the other file');
     expect(writes(native.committed)).toEqual(['decline a', 'decline ccc', 'message.dispatch Use the other file steer']);
   });
-  test('with a question pending too, the composer is the thread draft, and Send redirects with it', async () => {
+  // useComposerSend at v0.1.5: an active question takes the send (onAdvanceActivePendingUserInput) while the approval
+  // waits on its row; nothing is declined.
+  test('with a question pending too, the composer answers the question and the approval stays pending', async () => {
     const { client, native, command } = await waiting(approval('a'));
     const projection = client.thread!.projection;
     projection.runtimeRequests = [...arr(projection.runtimeRequests), { id: 'q1', kind: 'user_input', status: 'pending', createdAt: '2026-10-03T00:00:09Z', responseCapability: { type: 'live' } }];
     projection.turnItems = [...arr(projection.turnItems), { id: 'item-q', type: 'user_input_request', requestId: 'q1', questions: [{ id: 's', header: 'S', question: 'Which?', options: [{ label: 'X', description: 'x' }] }] }];
-    await command('draft', '', 'redirect text');
-    expect(composerInput(client)).toBeUndefined();
-    expect(client.draft).toBe('redirect text');
-    await command('send', '', 'redirect text');
-    expect(writes(native.committed)).toEqual(['decline a', 'message.dispatch redirect text steer']);
+    expect(composerInput(client)?.input.requestId).toBe('q1');
+    await command('draft', '', 'My own answer');
+    const result = await command('send', '', 'My own answer');
+    expect(result.message).toBe('');
+    const sent = native.committed.filter(entry => entry.method === 'orchestration.dispatchCommand');
+    expect(sent.map(entry => [entry.type, entry.requestId])).toEqual([['runtime-request.respond', 'q1']]);
+    expect(obj(sent[0]!.answers)).toEqual({ s: 'My own answer' });
   });
   test('an approval answered while the send prepares keeps the draft unsent, and a toast says why', async () => {
     const { client, native, command } = await waiting(approval('a'));

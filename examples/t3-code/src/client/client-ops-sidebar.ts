@@ -10,7 +10,7 @@ import { str, initialShell, applyShell } from './domain';
 import { ClientError, type Native, type Files } from './protocol';
 import { letGo } from './let-go';
 import { settingsGroups } from '../settings/projects-fleet';
-import { backgroundProjectThreads, forgetBackgroundDrafts, isBackground, writeBackgroundProject } from '../sidebar/legacy-sidebar-fleet';
+import { backgroundProjectThreads, forgetBackgroundDrafts, isBackground, writeBackgroundProject } from '../sidebar/background-threads';
 
 /** Thread search, the sidebar's open state and width, and project grouping. */
 export async function sidebarOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {

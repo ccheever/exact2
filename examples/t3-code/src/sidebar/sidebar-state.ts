@@ -11,31 +11,29 @@ export const SETTLED_TAIL_INITIAL_COUNT = 10;
 export const SETTLED_TAIL_PAGE_COUNT = 25;
 
 /**
- * Shelf expansion (t3code:sidebar:*-expanded), project scope (sidebarProjectScopeKeys) and local visits;
- * for the legacy sidebar, the persisted UI store's projectExpandedById and projectOrder (uiStateStore.ts).
+ * Shelf expansion (t3code:sidebar:*-expanded), project scope (sidebarProjectScopeKeys), local visits and the
+ * persisted UI store's projectOrder, which Manual project order follows (uiStateStore.ts).
  */
 export interface SidebarPrefs {
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean;
   /** The projects the list shows, none for all. A key whose project is not loaded stays, so its scope returns with it. */
   scopes: string[]; visited: Record<string, string>;
-  projectExpanded: Record<string, boolean>; projectOrder: string[];
+  projectOrder: string[];
 }
 export function defaultSidebarPrefs(): SidebarPrefs {
-  return { settledExpanded: false, snoozedExpanded: false, workingExpanded: false, scopes: [], visited: {}, projectExpanded: {}, projectOrder: [] };
+  return { settledExpanded: false, snoozedExpanded: false, workingExpanded: false, scopes: [], visited: {}, projectOrder: [] };
 }
 export function decodeSidebarPrefs(value: unknown): SidebarPrefs {
   const saved = obj(value), visited: Record<string, string> = {};
   for (const [key, stamp] of Object.entries(obj(saved.visited)).slice(-500)) {
     if (typeof stamp === 'string' && Number.isFinite(Date.parse(stamp))) visited[key] = stamp;
   }
-  const projectExpanded: Record<string, boolean> = {};
-  for (const [key, value] of Object.entries(obj(saved.projectExpanded)).slice(-1000)) if (key && typeof value === 'boolean') projectExpanded[key] = value;
   const keys = (list: unknown) => [...new Set((Array.isArray(list) ? list : []).filter((key): key is string => typeof key === 'string' && key.length > 0))];
   const projectOrder = keys(saved.projectOrder).slice(0, 1000);
   // A file from before several projects keeps its one key (uiStateStore's sidebarProjectScopeKey).
   const scopes = keys(Array.isArray(saved.scopes) ? saved.scopes : [saved.scope]).filter(key => key.length <= 2000).slice(0, 1000);
   return { settledExpanded: saved.settledExpanded === true, snoozedExpanded: saved.snoozedExpanded === true,
-    workingExpanded: saved.workingExpanded === true, scopes, visited, projectExpanded, projectOrder };
+    workingExpanded: saved.workingExpanded === true, scopes, visited, projectOrder };
 }
 /** The client's preferences carry the sidebar block; older files decode to the defaults. */
 export function sidebarPrefs(client: T3Client): SidebarPrefs {

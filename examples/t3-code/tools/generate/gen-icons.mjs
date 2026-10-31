@@ -85,12 +85,14 @@ function element([tag, a]) {
 const flatten = node => node.map(element).join('');
 // ── Contract lookups ─────────────────────────────────────────────────────────────────────────
 const q = JSON.stringify;
-/** A value lookup as a fn body: `includes` groups of ⌈√n⌉ keys, each a ternary chain, so a call's
- *  expression stays shallow. */
+/** A value lookup as a fn body: `includes` groups, each a ternary chain, so a call's expression stays
+ *  shallow. Each group is one key shorter than the one before it, so every key sits at the same depth: a
+ *  group's place in the chain of groups plus its place in the group's own chain. */
 function lookup(entries, fallback, key = 'token') {
-  const size = Math.ceil(Math.sqrt(entries.length));
+  let depth = 1;
+  while (depth * (depth - 1) / 2 < entries.length) depth++;
   const groups = [];
-  for (let at = 0; at < entries.length; at += size) groups.push(entries.slice(at, at + size));
+  for (let at = 0, size = depth - 1; at < entries.length; at += size, size = Math.max(1, size - 1)) groups.push(entries.slice(at, at + size));
   return groups.map(group => {
     const chain = group.length === 1 ? group[0][1]
       : `(${group.slice(0, -1).map(([k, v]) => `${key} == ${q(k)} ? ${v} : `).join('')}${group[group.length - 1][1]})`;

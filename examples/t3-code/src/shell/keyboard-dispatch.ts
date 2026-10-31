@@ -17,8 +17,7 @@ import { addStripShortcuts } from '../composer/composer-controls-branch';
 import { diffShown } from './button-chords'; // ⌘D
 import { openFavoriteEnabled, remoteOpenFor } from '../connections/remote-open'; // the open-favorite key works only where the Open picker shows
 import { closeChordTarget } from '../panel/close-surface'; // ⌘W closes the active surface tab
-import { legacyTraversal } from '../sidebar/legacy-sidebar-view'; // the legacy sidebar: ⌘1-9 and ⇧⌘[ / ⇧⌘] follow its visible order
-import { resolveAdjacentThreadId } from '../sidebar/legacy-sidebar-model';
+import { resolveAdjacentThreadId } from '../sidebar/thread-sort';
 import { threadCommandRows } from './thread-keys'; // queue and host keys
 import { terminalRows, terminalOpen } from '../terminal/terminal-drawer-view';
 import { terminalFocused } from '../terminal/terminal-focus'; // ⌘J
@@ -230,10 +229,8 @@ function appearanceRow(add: DispatchAdd, client: T3Client, threads: Obj[], brows
 function threadOrderRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // Thread order as the sidebar paints it: pinned, active, working, snoozed, settled.
   const order = ['pinned', 'active', 'working', 'snoozed', 'settled'];
-  const legacy = legacyTraversal(client);
-  const ordered = legacy?.ordered ?? order.flatMap(section => threads.filter(thread => str(thread.section) === section));
-  if (legacy) { if (legacy.previous) add('thread.previous', 'thread', legacy.previous, 'Previous Thread'); if (legacy.next) add('thread.next', 'thread', legacy.next, 'Next Thread'); }
-  else if (ordered.length && !context.modelPickerOpen) {
+  const ordered = order.flatMap(section => threads.filter(thread => str(thread.section) === section));
+  if (ordered.length && !context.modelPickerOpen) {
     // resolveAdjacentThreadId: stops at the ends; no current thread starts from the last/first; an unlisted one goes nowhere.
     const ids = ordered.map(thread => str(thread.id)), selected = ordered.find(thread => thread.selected === true);
     const current = selected ? str(selected.id) : client.threadId ? undefined : null;

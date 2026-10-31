@@ -132,13 +132,9 @@ describe('dialog focus lifecycle uses the actual previous focus', () => {
     ['Diagram preview', 'app-overlays.contract', 'diagram-preview', '(data.diagramPreview.length > 0)', 'DiagramPreviewDialog', 'timeline-mermaid.contract', '"diagram-preview"', 'diagram-preview-close', 'diagram-close'],
     ['PR checkout', 'app-overlays.contract', 'pr-checkout-dialog', 'shell.prCheckout.open', 'CheckoutDialog', 'pr-checkout.contract', '"pr-checkout-dialog"', 'pr-checkout-input', 'git-pr-close'],
     ['Device setup', 'app-overlays.contract', 'device-setup', 'shell.panel.deviceSetup', 'DeviceSurfaceDialog', 'panel.contract', '"device-setup"', 'device-setup-step-0', 'surface-setup-close'],
-    ['Legacy rename', 'legacy-sidebar.contract', 'legacy-rename-project', '(data.legacy.dialog == "rename-project")', 'LegacyDialogFrame', 'legacy-sidebar.contract', 'label', 'legacy-project-title', 'legacy-dialog-close'],
-    ['Legacy grouping', 'legacy-sidebar.contract', 'legacy-grouping', '(data.legacy.dialog == "grouping")', 'LegacyDialogFrame', 'legacy-sidebar.contract', 'label', 'legacy-grouping-rule', 'legacy-dialog-close'],
     ['Welcome', 'app-overlays.contract', 'welcome-dialog', 'welcome.show', 'WelcomeWizard', 'pages-welcome.contract', '"welcome-dialog"', 'welcome-step-1', 'welcomeFinish'],
     ['ChatGPT plan', 'app-settings.contract', 'chatgpt-plan-dialog', '(data.chatgptPlan.length > 0)', 'ChatGptPlanDialog', 'codex-setup.contract', '"chatgpt-plan-dialog"', 'chatgpt-plan-usage-button', 'setup:chatgpt-plan-ack'],
     ['Pairing reveal', 'connections-network-dialogs.contract', 'pairing-reveal-dialog', 'net.reveal.open', 'PairingRevealDialog', 'connections-network-dialogs.contract', '"pairing-reveal-dialog"', 'pairing-reveal-value', 'pairing-reveal-close'],
-    ['Legacy remove', 'legacy-sidebar.contract', 'legacy-remove-project', '(data.legacy.dialog == "remove-project")', 'SettingsConfirm', 'settings-rest-dialogs.contract', 'dialogId', 'legacy-remove-project-cancel', 'legacy-dialog-close'],
-    ['Legacy archive', 'legacy-sidebar.contract', 'legacy-archive-many', '(data.legacy.dialog == "archive-many")', 'SettingsConfirm', 'settings-rest-dialogs.contract', 'dialogId', 'legacy-archive-many-cancel', 'legacy-dialog-close'],
     ['Archive delete retained route', 'app-settings.contract', 'archive-delete', '(restEditor == "archive-delete")', 'SettingsConfirm', 'settings-rest-dialogs.contract', 'dialogId', 'archive-delete-cancel', 'cancel=close'],
     ['Signal kill', 'app-settings.contract', 'signal-kill', '(settingsOpen and settingsCore.killConfirm.pid != "")', 'SettingsConfirm', 'settings-rest-dialogs.contract', 'dialogId', 'signal-kill-cancel', 'rest:diag-kill-cancel'],
     ['Archived row delete', 'app-settings.contract', 'archive-context-delete', '(settingsOpen and settingsCore.archiveConfirm.id != "")', 'SettingsConfirm', 'settings-rest-dialogs.contract', 'dialogId', 'archive-context-delete-cancel', 'rest:archive-cancel'],
@@ -150,7 +146,7 @@ describe('dialog focus lifecycle uses the actual previous focus', () => {
       expect(observer).toContain(`DialogFinalFocus(open=${opening}, owner="${owner}")`);
       expect(popup).toContain(`id=${binding}`); expect(popup).toContain(`focusin=dialogEntered(${binding})`);
       expect(popup).toContain('data-dialog-focus="open"');
-      const callers = (await Promise.all(['app-overlays.contract', 'app-settings.contract', 'legacy-sidebar.contract', 'settings-a-dialogs.contract', 'settings-rest-dialogs.contract', popupFile].map(source))).join('\n');
+      const callers = (await Promise.all(['app-overlays.contract', 'app-settings.contract', 'settings-a-dialogs.contract', 'settings-rest-dialogs.contract', popupFile].map(source))).join('\n');
       expect(callers).toContain(closing);
       if (binding === 'dialogId') expect(callers).toContain(`dialogId="${owner}"`);
       if (binding === 'confirmId') expect(callers).toContain(`confirmId="${owner}"`);

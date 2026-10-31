@@ -78,7 +78,7 @@ describe('sweep sidebar row actions (1826fb55cc)', () => {
     await sidebarCommand(client, native, files, 'drop', 'sweep|settle|active|a||a|b|p|', '|0|0|0|false', NOW);
     expect(strip(dispatched)).toEqual([{ type: 'thread.settle', threadId: 'a' }, { type: 'thread.settle', threadId: 'b' }]);
     const view = sidebarSnapshot(client, NOW, helpers).sidebar;
-    expect([view.undoText, view.sweepEpoch]).toEqual(['Settled 2 threads,', epoch + 1]);
+    expect([view.undoShort, view.sweepEpoch]).toEqual(['Settled 2,', epoch + 1]);
   });
 
   test('a pan that armed nothing is the button click; un-settle and wake sweeps act on each row', async () => {
@@ -132,7 +132,7 @@ describe('draft rows: context menu and discard behind Undo (95edeb753b)', () => 
     local(client).composerControls.contexts['env:new:p2'] = { envMode: 'worktree', branch: 'main', worktreePath: '' };
     await sidebarCommand(client, native, files, 'draft-choice', 'p2', 'discard');
     expect([local(client).drafts['env:new:p2'], local(client).snapshotDrafts['env:new:p2'], local(client).composerControls.contexts['env:new:p2']]).toEqual([undefined, undefined, undefined]);
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoText).toBe('Discarded 1 draft,');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoShort).toBe('Discarded,');
     expect(await undoLatest(client, native)).toBe(true);
     expect([local(client).drafts['env:new:p2'], local(client).snapshotDrafts['env:new:p2'], local(client).composerControls.contexts['env:new:p2']])
       .toEqual(['Sketch the parser', [{ id: 'img-1' }], { envMode: 'worktree', branch: 'main', worktreePath: '' }]);
@@ -147,7 +147,7 @@ describe('draft rows: context menu and discard behind Undo (95edeb753b)', () => 
     local(client).snapshotDrafts['env:new:p2'] = [{ id: 'img-b' }];
     await sidebarCommand(client, native, files, 'discard-draft', 'a', '');
     await sidebarCommand(client, native, files, 'discard-project-draft', 'p2', '');
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoText).toBe('Discarded 2 drafts,');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoShort).toBe('Discarded 2,');
     local(client).drafts['env:a'] = 'typed again';
     await undoLatest(client, native);
     expect(toasts(client).map(toast => [toast.title, toast.description])).toContainEqual(['Failed to restore draft', 'The draft has new content.']);

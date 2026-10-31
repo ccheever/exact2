@@ -11,8 +11,6 @@ import { timestamp, thread, storage, Backend, connected, opened } from '../suppo
 import { appPath } from '../support/app-files';
 import { noteTranscriptFacts } from '../../src/timeline/transcript-facts';
 import { attachmentUrls } from '../../src/timeline/timeline-attachments';
-import { serveAssets } from '../support/asset-server';
-import { memoryFiles } from '../support/image-accent-fixture';
 
 describe('desktop presentation and model options', () => {
   const capabilities = { optionDescriptors: [{ id: 'reasoningEffort', type: 'select', label: 'Reasoning', currentValue: 'medium',
@@ -203,9 +201,7 @@ describe('desktop presentation and model options', () => {
     let sign = 0;
     client.rpc = (async (_native: Native, method: string) => method === 'assets.createUrl'
       ? { relativeUrl: `/api/assets/att-svg?sig=${++sign}`, expiresAt: Date.now() + (sign > 1 ? 3_600_000 : 30_000) } : {}) as typeof client.rpc;
-    memoryFiles(null);
-    const accents = serveAssets(() => ({ status: 404 }));
-    try {
+    {
       const signed = async () => (await attachmentUrls(client, native, Date.now())).items.find(entry => entry.id === 'att-svg')!.url;
       const url = await signed();
       await command('chatlocal:chip-preview-failed', 'att-svg', 'http://127.0.0.1:1/another');
@@ -215,7 +211,7 @@ describe('desktop presentation and model options', () => {
       // Signed again (the first URL was near its expiry), the picture is tried again.
       expect(await signed()).not.toBe(url);
       expect(chips()[0]![0]).toBe('image');
-    } finally { accents.restore(); }
+    }
   });
 
   test('a checkpoint that changed no files is no row, so the transcript holds no zero-height row', async () => {
@@ -872,6 +868,7 @@ describe('streams and requests', () => {
     await command('submit-answers', 'questions');
     expect(native.committed[0]).toMatchObject({ type: 'runtime-request.respond', answers: { scope: [' exact ', 'two'] } });
   });
+  // The question card shows while an approval waits on its timeline row (#26255); its reasons are the composer's.
   test('request response reasons distinguish permanent, connection, permission and submission states', async () => {
     const { client } = await opened();
     const approval = { id: 'approval', status: 'pending', responseCapability: { type: 'live' } };
@@ -881,20 +878,18 @@ describe('streams and requests', () => {
       { id: 'a', type: 'approval_request', requestId: 'approval' },
       { id: 'q', type: 'user_input_request', requestId: 'question', questions: [{ id: 'q1', question: 'Choose' }] },
     ];
-    const reasons = () => { const view = snapshot(client), status = approval.status; approval.status = 'resolved'; const later = snapshot(client).questions[0]; approval.status = status; return [view.approvals[0], later]; };
-    expect(reasons().map(item => [item.canRespond, item.responseReason])).toEqual([[true, ''], [true, '']]);
+    const reason = () => snapshot(client).questions[0];
+    expect([reason().canRespond, reason().responseReason]).toEqual([true, '']);
     client.busy = true;
-    expect(reasons().every(item => !item.canRespond && item.responseReason.includes('submission'))).toBe(true);
+    expect(!reason().canRespond && reason().responseReason.includes('submission')).toBe(true);
     client.busy = false; client.scopes = ['orchestration:read'];
-    expect(reasons().every(item => item.responseReason.includes('permission'))).toBe(true);
+    expect(reason().responseReason).toContain('permission');
     client.scopes.push('orchestration:operate'); client.threadLive = false;
-    expect(reasons().every(item => item.responseReason.includes('synchronization'))).toBe(true);
+    expect(reason().responseReason).toContain('synchronization');
     client.connection = 'reconnecting';
-    expect(reasons().every(item => item.responseReason.includes('Reconnect'))).toBe(true);
-    approval.responseCapability.type = 'not_resumable'; question.responseCapability.type = 'not_resumable';
-    expect(reasons().every(item => item.responseReason.startsWith('Provider process is gone'))).toBe(true);
-    approval.responseCapability.type = 'message';
-    expect(reasons()[0].responseReason).toContain('Interrupt or restart the run');
+    expect(reason().responseReason).toContain('Reconnect');
+    question.responseCapability.type = 'not_resumable';
+    expect(reason().responseReason).toStartWith('Provider process is gone');
   });
   test('diff uses checkpoint ordinal and exposes read-only unified lines', async () => {
     const { client, native, command } = await opened();

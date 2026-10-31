@@ -13,7 +13,6 @@ import { lastVisited, unseenCompletion } from '../../src/sidebar/sidebar-model';
 import { adoptCommandTime, setRuntimeClock } from '../../src/sidebar/sidebar-state';
 import { claimThreadOpen, threadSearchSubject } from '../../src/palette/palette-search';
 import { sidebarSnapshot } from '../../src/sidebar/sidebar-view';
-import { resolveThreadStatusPill } from '../../src/sidebar/legacy-sidebar-model';
 
 beforeEach(() => setRuntimeClock(() => Date.now()));
 afterEach(() => setRuntimeClock(() => Number.NaN));
@@ -52,7 +51,7 @@ const strip = (payloads: Obj[]) => payloads.map(({ commandId: _id, ...rest }) =>
 describe('opening a background environment\'s thread visits it there', () => {
   test('the refresh after the reconnect sends thread.visit, the open, to that environment once, and the row\'s Completed goes', async () => {
     const thread = markedUnread('t-bg');
-    expect(resolveThreadStatusPill(thread, lastVisited(thread, undefined))?.label).toBe('Completed');
+    expect(unseenCompletion(thread, lastVisited(thread, undefined))).toBe(true);
     const { client, dispatched } = focused('env-second', [thread], 't-bg');
     await sidebarRefreshed(client, native);
     await sidebarRefreshed(client, native);
@@ -65,7 +64,6 @@ describe('opening a background environment\'s thread visits it there', () => {
     await settle();
     expect(dispatched).toHaveLength(1);
     expect(unseenCompletion(visited, lastVisited(visited, undefined))).toBe(false);
-    expect(resolveThreadStatusPill(visited, lastVisited(visited, undefined))).toBeNull();
   });
 
   test('the same thread id on another environment is another thread: its visit is not deduped away', async () => {

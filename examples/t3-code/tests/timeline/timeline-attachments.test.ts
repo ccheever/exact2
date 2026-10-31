@@ -3,7 +3,6 @@ import { attachmentUrls, imagePreviewAction, imagePreviewView, messageAttachment
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
-import { memoryFiles, scaledPhoto } from '../support/image-accent-fixture';
 import { serveAssets } from '../support/asset-server';
 
 const item = { type: 'user_message', attachments: [
@@ -23,33 +22,17 @@ describe('sent attachments', () => {
       ['a1', true, 'Safari', 'S', 'Captured window', true], ['a2', false, '', '', '', false]]);
     expect(attachFiles).toEqual([{ id: 'f1', name: 'notes.md', icon: 'markdown' }]);
   });
-  test('signed inline URLs come from assets.createUrl and are reused until they near expiry; each image is read once for its accent', async () => {
+  // ImageChipButton at v0.1.5 (#26306) takes the image kind's blue accent, so no picture is fetched for a tint.
+  test('signed inline URLs come from assets.createUrl and are reused until they near expiry; no image is read for an accent', async () => {
     const calls: Obj[] = [], c = client(calls), native = { available: true } as Native;
-    // image-accent.ts: a1 reads as rgb(129 140 168), a2 cannot be fetched.
-    memoryFiles(scaledPhoto());
-    const server = serveAssets(url => url.endsWith('/a1') ? { body: 'image bytes' } : { status: 404 });
+    const server = serveAssets(() => ({ body: 'image bytes' }));
     try {
       const items = (await attachmentUrls(c, native, 1000)).items;
-      expect(items.map(entry => [entry.id, entry.url, entry.fill])).toEqual([
-        ['a1', 'http://127.0.0.1:1/api/assets/a1', '#818ca81c'], ['a2', 'http://127.0.0.1:1/api/assets/a2', '']]);
+      expect(items).toEqual([{ id: 'a1', url: 'http://127.0.0.1:1/api/assets/a1' }, { id: 'a2', url: 'http://127.0.0.1:1/api/assets/a2' }]);
       expect(calls[0]).toMatchObject({ method: 'assets.createUrl', resource: { _tag: 'attachment', attachmentId: 'a1', fileName: 'shot.png', mimeType: 'image/png', disposition: 'inline' } });
-      expect(server.calls.map(call => call.url.split('/').pop())).toEqual(['a1', 'a2']);
       await attachmentUrls(c, native, 2000);
       expect(calls).toHaveLength(2);
-      expect(server.calls).toHaveLength(2);
-    } finally { server.restore(); }
-  });
-  test('an accent read that failed for a passing reason is asked again by the next answer', async () => {
-    const c = { ...client(), environmentId: 'e-retry' } as T3Client, native = { available: true } as Native;
-    memoryFiles(scaledPhoto());
-    let online = false;
-    const server = serveAssets(url => !online ? new Error('timed out') : url.endsWith('/a1') ? { body: 'image bytes' } : { status: 404 });
-    try {
-      expect((await attachmentUrls(c, native, 1000)).items.map(entry => entry.fill)).toEqual(['', '']);
-      online = true;
-      expect((await attachmentUrls(c, native, 2000)).items.map(entry => entry.fill)).toEqual(['#818ca81c', '']);
-      await attachmentUrls(c, native, 3000);
-      expect(server.calls.map(call => call.url.split('/').pop())).toEqual(['a1', 'a2', 'a1', 'a2']);
+      expect(server.calls).toHaveLength(0);
     } finally { server.restore(); }
   });
   test('the expanded preview opens on an image and steps through the message', () => {
