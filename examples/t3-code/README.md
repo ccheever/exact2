@@ -1154,7 +1154,7 @@ on its own bundle id and home, `second` seeded with `--turns --pull-request`, th
 with the same lane server). Presses, drags, wheel scrolls and keys came from the HID event source
 (small CGEvent tools). `orca computer`'s accessibility right-click is not real input for native menus:
 it opens the menu with its first item highlighted, and the next key or snapshot chooses that item.
-22 rows: 17 hold and 5 fail.
+22 rows: 17 hold and 5 failed; the five were fixed and hold when checked again (below).
 
 Hold:
 
@@ -1191,38 +1191,42 @@ Hold:
   header lights up and the row shows Settle; the drop settles it ("Settled 1 thread, ⌘Z to undo")
   (1 of 1).
 
-Fail (left in place):
+Failed, then fixed and checked again with real input (bundle of `7656e94b94`, a lane copy on its own
+bundle id and home, `second` seeded with `--turns`; presses, right-clicks and keys from the HID event
+source, each result read back from the accessibility tree or the clipboard). All five hold:
 
-- Open diff on a tool call whose change has no recorded patch opens the Diff panel on the Tool call
-  scope, as the oracle does, but reads "No net changes in this selection." The oracle reads "No
-  patch available for this selection." Fixed since: the panel follows DiffPanel's `hasNoNetChanges`
-  (a patch that resolved blank), so a call with no patch reads the oracle's text (agent driver).
-- Right-clicking the thread details card opens nothing (0 of 3: on its padding and on its Workspace
+- Open diff on a tool call whose change has no recorded patch opened the Diff panel on the Tool call
+  scope, as the oracle does, but read "No net changes in this selection." The oracle reads "No patch
+  available for this selection." The panel now follows DiffPanel's `hasNoNetChanges` (a patch that
+  resolved blank). Checked again: the README.md call's Open diff in "Turn with file edits" opens the
+  Diff panel on Tool call, reading "No patch available for this selection." (1 of 1).
+- Right-clicking the thread details card opened nothing (0 of 3: on its padding and on its Workspace
   row). On its padding the oracle opens Show in thread details; on the Workspace row, Copy full path.
-  Sidebar rows' right-clicks open their menus in the same session. Fixed since: the card's menu was
-  not menu-shaped (a check icon box beside each label), so macOS opened nothing; its rows are now
-  text alone and the Workspace row has Copy full path (`shell-details.contract`). With real input
-  (#1206), a right-click on the padding opens the Mac's menu, headed Show in thread details, with
-  the ten items and Reset to default, and one on the Workspace row opens Copy full path, which
-  copies the path and shows "Path copied".
-- A thread chip in a sent message neither underlines nor shows a tooltip on hover (0 of 2). The
-  oracle underlines it and shows "Open thread".
-- A double-click on inline code selects nothing, in an answer or in a user message (0 of 2). A
-  double-click on a plain word selects nothing either, though a drag selects text. The oracle selects
-  `selectme`.
-- Fixed since, both rows: a Browser tab neither shown nor held left its empty, transparent box over
-  the window (1280 by 800 from the left edge while the panel is closed), which took the hover, the
-  presses and the double-clicks meant for the timeline under it. The session had opened a page in
-  the Browser panel before these rows. The box is no longer displayed (`browser-frames.contract`): with such a
-  tab, the chip shows "Open thread" and underlines, and a double-click selects `selectme` (agent
-  driver). Without one, real input on the earlier bundle already selected the word and the span and
-  showed the tooltip (1 of 1 each).
-- After F2 and then Escape in the sidebar, the focus goes to the window, and F6 never enters the
-  sidebar after that: from the composer it stops at the terminal (4 presses). In the oracle, Escape
-  returns the focus to the row and F6 reaches it. Fixed since: once the rename field has gone, the
-  row's treeitem takes the focus back, and F6 enters the sidebar at that treeitem
-  (`shell-members.contract`). With real input (#1206), Escape leaves the focus on the row, F6 from the
-  composer goes row, Conversation, composer, row, and after Enter ArrowDown moves to the next row.
+  The card's menu was not menu-shaped (a check icon box beside each label), so macOS opened nothing;
+  its rows are now text alone and the Workspace row has Copy full path (`shell-details.contract`).
+  Checked again: a right-click on the padding between the card's sections opens the Mac's menu,
+  headed Show in thread details, with the ten items and Reset to default. Choosing Project scripts
+  hides the card's Add project script row, a right-click on the bottom padding shows the item
+  unchecked, and choosing it again brings the row back. A right-click on the Workspace row opens Copy
+  full path, which copies the lane repository's path and shows "Path copied" (3 of 3 menus).
+- A thread chip in a sent message showed no tooltip on hover (0 of 2), and a double-click selected
+  nothing (0 of 2), on inline code in an answer or a user message or on a plain word, though a drag
+  selected text. The oracle shows "Open thread" and selects `selectme`. The session had opened a page
+  in the Browser panel: a Browser tab neither shown nor held left its empty, transparent box over the
+  window (1280 by 800 from the left edge while the panel is closed), which took the hover, the presses
+  and the double-clicks meant for the timeline under it. The box is no longer displayed
+  (`browser-frames.contract`). Checked again in three states: before any Browser tab; with a page
+  open, after closing the panel, while its floating preview shows; and after closing that preview,
+  which leaves the tab neither shown nor held, the state that failed. In each, hovering the chip shows
+  "Open thread" (3 of 3), and a double-click selects `selectme` in the answer and in the user message
+  and a plain word in each, as ⌘C then reads (12 of 12).
+- After F2 and then Escape in the sidebar, the focus went to the window, and F6 never entered the
+  sidebar after that: from the composer it stopped at the terminal (4 presses). In the oracle, Escape
+  returns the focus to the row and F6 reaches it. Once the rename field has gone, the row's treeitem
+  now takes the focus back, and F6 enters the sidebar at that treeitem (`shell-members.contract`).
+  Checked again: Tab from Search to a row, F2, a typed character, then Escape leaves the title
+  unchanged and the focus on the row (2 of 2). F6 from the composer then reaches the row first (2 of
+  2); further presses go Conversation, composer, row.
 
 Not checked:
 
@@ -1237,6 +1241,12 @@ Not checked:
 
 Also seen: the model picker's "Codex: Unavailable…" tooltip stayed on screen after the picker closed,
 until another tooltip replaced it.
+
+Also seen on the `7656e94b94` bundle: with the Diff panel open, the header's thread details button opens
+the details as a popover, as upstream's `PanelLayoutControls` does in that layout. An agent drive
+had seen no change from that button. After the origin/main merge, opening a
+thread, sending a message, the ⌘K palette (a query lists Threads and Settings results; Escape closes
+it) and Settings › Appearance behave as before.
 
 **Fixed, not checked with real input or VoiceOver:**
 
@@ -1311,7 +1321,6 @@ sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and G
 
 **Next real-input session:**
 
-- The five 2026-10-31 failures, once fixed.
 - Decline on an approval.
 - Effort words and bars, with a provider that has reasoning traits.
 - Shift-click Viewed, with a pull request fixture whose files the 0.1.5 server can read.
