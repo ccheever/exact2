@@ -154,7 +154,8 @@ def run(args):
                 for arm in order:
                     output = out / f'{arm}-{round_number}.json'
                     schedule.append(dict(arm=arm, round=round_number, cohort='cold', trace=False,
-                                         output=str(output), accepted=output.exists(), exit=status))
+                                         output=str(output), accepted=output.exists()
+                                         and read(output).get('accepted') is True, exit=status))
                 write(out / 'schedule.json', schedule)
                 assert status == 0, f'measure exit {status}; retain all attempts'
                 assert all(r['accepted'] for r in schedule), 'failed original launch; no replacement table'
@@ -262,6 +263,7 @@ def distribution(values):
 
 def sample(path, traced=True):
     result = read(path)
+    assert result.get('accepted') is not False, f'{path}: rejected original launch'
     if not traced:
         return dict(file=str(path), milestones={'constructor': result['preMainMs'],
                     'first presented': result.get('firstDrawableMs'), 'complete screen': result['coldMs']},
