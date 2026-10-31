@@ -11037,3 +11037,14 @@ retained separately. All five final arms load identical probe bytes.
 The silver's A7 raster collector delayed this lane; the first waiting
 functional coordinator was stopped before launching an app to avoid
 mutual ownership waits. Its ownership log is retained.
+
+**Bound-background follow-up.** The six light-appearance functional
+launches all retire boot, and the bound window is shown after drawable
+acquisition. The diagnostic nevertheless finds its window colour still
+white and its layer colour unset at reveal, before a positive display
+callback. The late reveal now copies the presenter's already resolved
+canvas colour before ordering front. The pre-run prediction in
+`bound-reveal-prediction.json` is that the first visible window and layer
+samples both carry `[167, 43, 84, 255]`, with reveal still after acquisition.
+This branch does not run for heavy-list's literal root. The eight carrier
+tests pass after the three-line change (`bound-reveal-carrier.log`).

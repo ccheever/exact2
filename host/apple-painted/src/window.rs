@@ -836,6 +836,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
         if let (Some(window), Some(layer)) = (&self.window, &self.layer) {
             if window.is_visible() == Some(false) && layer.drawable_ready() {
+                if let Some(p) = &self.presenter {
+                    layer.set_background(Some(p.chrome().background));
+                }
                 window.set_visible(true);
                 trace_mark(c"boot window shown", || 0.);
             }
