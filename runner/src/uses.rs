@@ -570,6 +570,12 @@ pub fn uses_midi(plan: &Plan) -> bool {
         })
 }
 
+/// Whether the plan floats an image in picture in picture (LLP 1042 §9),
+/// which the video arm carries on Apple.
+pub fn uses_picture_in_picture(plan: &Plan) -> bool {
+    runs_command(plan, &["requestPictureInPicture"])
+}
+
 /// Whether the runner keeps a MIDI queue the agent shows (`state.midi`):
 /// for a plan that [`uses_midi`] or declares a sequence, whose notes and
 /// clock go on it. The JS target bundles midi.js then.
