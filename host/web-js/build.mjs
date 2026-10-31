@@ -554,7 +554,7 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   '  app();',
   '  route = routeAt(location.pathname + location.search);',
   '  const [render, activate] = pages[route] ?? ["build", "inferred"];',
-  '  return { activate: ["idle", "interaction", "never"].includes(activate) ? activate : "inferred", policy: render, notfound: !!pages[route]?.[2] };',
+  '  return { activate: ["idle", "interaction", "never"].includes(activate) ? activate : "inferred", policy: render, notfound: !!pages[route]?.[2], readsViewport: activation.viewport };',
   '};',
   'globalThis.__render = async deadline => {',
   '  const end = t0 + deadline;',

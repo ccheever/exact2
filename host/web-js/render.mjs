@@ -89,7 +89,7 @@ export function renderer(dist) {
     // What the render read that another render may not read alike: how long its answers stay fresh for any reader
     // (http-cache.mjs `FRESH`), and whether a source drew a random number (its only other reading the clock and
     // `Math.random` refuse, ts-fetch.js) — so how long its page may be given again (`keep`).
-    const read = { fresh: Infinity, random: false };
+    const read = { fresh: Infinity, random: false }, prefers = new Set();
     const noted = response => { read.fresh = Math.min(read.fresh, response?.[FRESH] ?? 0); return response; };
     const drew = f => (...args) => { read.random = true; return f(...args); };
     const ctx = vm.createContext({
@@ -99,8 +99,9 @@ export function renderer(dist) {
       history: { replaceState() {}, pushState() {}, go() {} }, localStorage: { length: 0, key() {}, getItem() { return null; } },
       addEventListener() {}, removeEventListener() {}, requestAnimationFrame: () => 0,
       // No reader's device facts: use runner/src/viewport.rs's default size and media bits.
+      // The reader's viewport as its request tells it (`viewportOf`), set by `begin`; else runner/src/viewport.rs's default.
       innerWidth: 390, innerHeight: 844,
-      matchMedia: media => ({ media, matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
+      matchMedia: media => ({ media, matches: prefers.has(media.replace(/\s+/g, '')), addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
       setTimeout, clearTimeout, queueMicrotask, performance, console, Request, Response, Headers, URL, URLSearchParams, TextEncoder, TextDecoder,
       fetch: (input, init) => fetched(input, init).then(noted, error => { read.fresh = 0; throw error; }),
       crypto: { subtle: crypto.subtle, getRandomValues: drew(a => crypto.getRandomValues(a)), randomUUID: drew(() => crypto.randomUUID()) },
@@ -111,7 +112,7 @@ export function renderer(dist) {
     script.runInContext(ctx);
     // What loading the bundle read is every render's alike.
     Object.assign(read, { fresh: Infinity, random: false });
-    return { ctx, location, read };
+    return { ctx, location, read, prefers };
   };
   // The next render's realm, made once the last render is done and nothing waits (`render.ahead` false turns it off).
   let ahead = null, making = false;
@@ -122,12 +123,15 @@ export function renderer(dist) {
   };
   /** A render begun: its route's policy and the page's head, known before
    * any data is asked; `finish` settles it and composes the rest. */
-  async function begin(location) {
+  async function begin(location, viewport = PAGE) {
     const url = new URL(location, 'http://render.invalid');
     const made = ahead ?? realm();
     ahead = null;
     const { ctx, read } = made;
     Object.assign(made.location, { pathname: url.pathname, search: url.search, href: url.href });
+    Object.assign(made.ctx, { innerWidth: viewport.width, innerHeight: viewport.height });
+    made.prefers.clear();
+    for (const [on, query] of [[viewport.dark, '(prefers-color-scheme:dark)'], [viewport.reducedMotion, '(prefers-reduced-motion:reduce)'], [viewport.reducedTransparency, '(prefers-reduced-transparency:reduce)']]) if (on) made.prefers.add(query);
     const info = await ctx.__start();
     // The capture script imports the entry by the policy; an interaction
     // page drops the head's modulepreloads, and an undeclared one adds them
@@ -173,20 +177,43 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'applic
  * a string, bytes, or a ReadableStream of bytes. A `cached` route's page is kept at the origin for its public lifetime
  * (60 s, 64 locations); brotli (quality 5) when the reader takes it; a browser's navigation gets the head at once and
  * the rest after the render. `render.mjs --serve` and `host/web/serve.mjs` (`serve`, LLP 1153 D3.4) answer with it. */
+// runner/src/viewport.rs's page viewport, and a desktop's that sends no width (host/render/src/viewport.rs `DESKTOP`).
+const PAGE = { width: 390, height: 844 }, DESKTOP = { width: 1280, height: 800 };
+/** The viewport a request is rendered at, as the render host chooses it (LLP 1048.006 D2, viewport.rs `Hints`): its client
+ * hints, else the class its user agent names — a desktop browser's 1280×800, a phone's or a client that says nothing the
+ * page viewport. */
+export function viewportOf(header) {
+  const get = name => header(name)?.trim().replace(/^"|"$/g, '');
+  const size = v => { const n = Number(v); return v && n >= 100 && n <= 10000 ? n : null; };
+  const ua = get('user-agent'), phoneUA = ua?.startsWith('Mozilla/') ? /Mobi|Android|iPhone|iPod/.test(ua) : null, said = get('sec-ch-ua-mobile');
+  const mobile = said === '?1' || phoneUA === true ? true : said === '?0' || phoneUA === false ? false : null;
+  const at = mobile === false ? DESKTOP : PAGE;
+  return { width: size(get('sec-ch-viewport-width') ?? get('viewport-width')) ?? at.width, height: size(get('sec-ch-viewport-height')) ?? at.height,
+    dark: get('sec-ch-prefers-color-scheme') === 'dark', reducedMotion: get('sec-ch-prefers-reduced-motion') === 'reduce', reducedTransparency: get('sec-ch-prefers-reduced-transparency') === 'reduce' };
+}
+// What a page laid out by the viewport asks for and varies by (LLP 1048.006 D3).
+const HINTS = 'Sec-CH-Viewport-Width, Sec-CH-Viewport-Height, Sec-CH-Prefers-Color-Scheme, Sec-CH-Prefers-Reduced-Motion, Sec-CH-Prefers-Reduced-Transparency';
+
 export function pageServer(dist, render = renderer(dist), log = console.log) {
   const cache = new Map();
+  // Whether the plan reads the viewport, from its first render: then a page asks for the hints and varies by them.
+  let reads = false;
   const brotli = header => /\bbr\b/.test(header('accept-encoding') ?? '');
+  const varies = extra => ({ vary: `Accept-Encoding${reads ? `, ${HINTS}, Sec-CH-UA-Mobile, User-Agent` : ''}`, ...(reads ? { 'accept-ch': HINTS } : {}), ...extra });
   const send = (header, html, status, cacheControl) => {
-    const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': cacheControl, vary: 'Accept-Encoding' };
+    const headers = varies({ 'content-type': 'text/html; charset=utf-8', 'cache-control': cacheControl });
     if (!brotli(header)) return { status, headers, body: html };
     headers['content-encoding'] = 'br';
     return { status, headers, body: brotliCompressSync(html, { params: { [constants.BROTLI_PARAM_QUALITY]: 5 } }) };
   };
-  return async function page(key, header) {
+  return async function page(location, header) {
+    // Laid out for the reader's viewport (LLP 1048.006), and kept per viewport.
+    const viewport = viewportOf(header), key = `${location} ${JSON.stringify(viewport)}`;
     const t = performance.now(), hit = cache.get(key);
     const revalidate = /no-cache|no-store|max-age=0/.test(header('cache-control') ?? '');
     if (hit && hit.until > Date.now() && !revalidate) return send(header, hit.html, hit.status, hit.cacheControl);
-    const begun = await render.begin(key);
+    const begun = await render.begin(location, viewport);
+    reads = !!begun.readsViewport;
     const keep = page => {
       // A `cached` route's page is kept 60 s; a `request` route's, as long as what it was made of (`keep`).
       const ms = page.status !== 200 ? 0 : page.policy === 'cached' ? 60000 : page.policy === 'request' ? page.keep : 0;
@@ -210,9 +237,9 @@ export function pageServer(dist, render = renderer(dist), log = console.log) {
         await put(page.error ? "<title>Unavailable</title>\n<p>This page couldn't be rendered.</p>\n" : page.rest);
         if (z) await new Promise(ok => { z.on('end', ok); z.end(); });
         try { out.close(); } catch {}
-        if (page.error) log(`render ${key} 500 ${page.error.message}`); else keep({ ...page, flushed: true });
+        if (page.error) log(`render ${location} 500 ${page.error.message}`); else keep({ ...page, flushed: true });
       }, cancel() { z?.destroy?.(); } });
-      const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': begun.policy === 'request' ? 'no-store' : 'private, no-cache', vary: 'Accept-Encoding' };
+      const headers = varies({ 'content-type': 'text/html; charset=utf-8', 'cache-control': begun.policy === 'request' ? 'no-store' : 'private, no-cache' });
       if (br) headers['content-encoding'] = 'br';
       return { status: 200, headers, body };
     }

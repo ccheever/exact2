@@ -1031,6 +1031,34 @@ component App
   });
 }, 60000);
 
+// LLP 1048.006 under Bun: a page laid out by the viewport is rendered at the reader's, as its request tells it, and asks for
+// the hints that tell it; a desktop browser's first visit gets the desktop layout, not the phone's it would shift from.
+test('serve lays a page out for the viewport its request tells', async () => {
+  await renderedPages(`shape Viewport
+  width: number
+
+routes nav
+  home "/" render=request
+
+component App
+  resource viewport = exactViewport() as shape Viewport
+  derive wide = viewport.width >= 640
+  view
+    main
+      text (wide ? "wide" : "narrow")
+`, async (_, html, dist) => {
+    const { pageServer } = await import('./render.mjs');
+    const page = pageServer(dist, undefined, () => {});
+    const at = async headers => { const r = await page('/', name => headers[name]); return [/>(wide|narrow)</.exec(Buffer.from(r.body).toString())?.[1], r.headers['accept-ch']?.includes('Sec-CH-Viewport-Width')]; };
+    const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15';
+    const phone = 'Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36';
+    expect(await at({ 'user-agent': mac })).toEqual(['wide', true]);
+    expect(await at({ 'user-agent': phone, 'sec-ch-ua-mobile': '?1' })).toEqual(['narrow', true]);
+    expect(await at({ 'user-agent': mac, 'sec-ch-viewport-width': '500' })).toEqual(['narrow', true]);
+    expect(await at({})).toEqual(['narrow', true]);
+  });
+}, 60000);
+
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {
   const doc = createDocument(), root = doc.getElementById('exact-root');

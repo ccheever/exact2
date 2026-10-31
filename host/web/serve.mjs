@@ -887,13 +887,14 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
       res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('This page could not be rendered.\n'); return;
     }
     if (page) {
-      const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': page.cacheControl };
+      const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': page.cacheControl, ...(page.acceptCH ? { 'accept-ch': page.acceptCH } : {}) };
       // A page made for this request is compressed as it goes: brotli at quality 5 takes a few milliseconds for a
       // page and is a tenth of its size, which the reader's first paint waits on (LLP 1048.007 D6).
       const accepted = compression ? acceptedEncodings(req.headers['accept-encoding']) : new Set();
       const encoding = ['br', 'gzip'].find(name => accepted.has(name));
       const body = encoding === 'br' ? brotliCompressSync(page.html, { params: { [zlib.BROTLI_PARAM_QUALITY]: 5 } }) : encoding ? gzipSync(page.html) : page.html;
-      sendStaticBody(req, res, body, { ...headers, ...(compression ? { vary: 'Accept-Encoding' } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) }, page.status);
+      const vary = [compression && 'Accept-Encoding', ...(page.vary ?? '').split(', ').filter(v => v && v !== 'Accept-Encoding')].filter(Boolean).join(', ');
+      sendStaticBody(req, res, body, { ...headers, ...(vary ? { vary } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) }, page.status);
       return;
     }
   }
@@ -940,8 +941,9 @@ function sitePages(dist, pageServer) {
     return servers.get(key);
   };
   return async (id, location, header) => {
-    // The page whole (no `sec-fetch-dest`) and uncompressed (no `accept-encoding`), as every file here is sent.
-    const asked = (name) => (name === 'cache-control' ? header(name) : undefined);
+    // The page whole (no `sec-fetch-dest`) and uncompressed (no `accept-encoding`), as every file here is sent; laid
+    // out for the viewport the request tells (render.mjs `viewportOf`, LLP 1048.006).
+    const asked = (name) => (name === 'cache-control' || name === 'user-agent' || name.startsWith('sec-ch-') || name === 'viewport-width' ? header(name) : undefined);
     for (let attempt = 0; attempt < 3; attempt++) {
       const current = !id || generationOf(dist) === id, tree = current ? dist : resolve(`${dist}.gen`, id);
       const render = existsSync(tree) && serverOf(id, tree);
@@ -949,7 +951,7 @@ function sitePages(dist, pageServer) {
       const { status, headers, body } = await render(location, asked);
       if (current && id && generationOf(dist) !== id) continue;
       const html = Buffer.from(body).toString('utf8');
-      return { status, cacheControl: headers['cache-control'], html: id ? withGenerationBase(html, id) : html };
+      return { status, cacheControl: headers['cache-control'], vary: headers.vary, acceptCH: headers['accept-ch'], html: id ? withGenerationBase(html, id) : html };
     }
     return null;
   };
