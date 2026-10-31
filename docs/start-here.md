@@ -131,8 +131,10 @@ prints one with its path and line); `apps/shelf` is a whole app.
 
 `app.contract` is the view, `app.ts` its data module, `app.test.contract` its tests. A
 screen is a route: its `header` the iOS navigation bar (the Mac window's title and toolbar) over the `scroll` its
-`navigationScroll` names (`one-screen`; more screens: `contract vocab screen`). This list
-takes the scroll's place:
+`navigationScroll` names (`one-screen`; more screens: `contract vocab screen`). Every host, the web
+too, hides the routes under a stack's top (not the page under a sheet), so keep
+`for e in stack(nav)`: `[top(nav)]` loses each route's scroll. A query follows the path:
+`` path("home") + `?q=${v}` ``. This list takes the scroll's place:
 
 ```contract
 shape Item
