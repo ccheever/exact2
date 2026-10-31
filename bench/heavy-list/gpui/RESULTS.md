@@ -11394,3 +11394,56 @@ The review bugs are fixed and the cold rows are recorded. The chunk is
 fling increase remains queued, and the full affected run has the two
 reported timing failures. The eight named suites and focused lifecycle
 tests pass. The mini still owns the six-check gate; staged caps passes here.
+
+
+## M10, landed: the six cuts over cut 7
+
+**Predictions before collection, 2026-10-31.** The rebased source is
+`cb7b01e228`, on `origin/main` `bc45470708`. The before carrier is that
+main, including cut 7 and its review fixes; after adds the six startup
+cuts and their review fixes. No renderer policy changes in this chunk.
+
+The silver M5 Max runs one interleaved session through unchanged
+`measure.m` cold-only: ten originals per arm and label, then five traced
+originals per Ink carrier for the timeline. Each signed executable first
+gets a throwaway launch. Every original requires ten quiet seconds;
+during-launch maxima are report-only. Failed originals remain without
+replacement, with successful n beside each median. These are fresh
+processes with retained application and system caches, hook and power
+off. The untraced row has tracing off. Native keeps its snapshot endpoint;
+the other arms use the first complete displayed drawable.
+
+| Prediction | Instrument |
+| --- | --- |
+| Ink before p50 210–215 ms; after 185 ms, estimated band 180–190 ms | Ten cold-only launches per carrier, same probe |
+| After at least 10 ms below both GPUI and egui; before within 10 ms of both | Contemporaneous four-arm cold rows |
+| First paint remains about 5 ms in both carriers; after complete commit at 150–160 ms and complete display at 180–190 ms | Five traced originals per carrier; process-age timeline and frame identity |
+| After first positive display is complete in all five traces; boot observer retires once; no retries after retirement | Presented-frame identity and boot trace marks |
+| Fling, rest, bar and caret process CPU and cycles within ±5% of before; fling instructions increase by no more than 30 million/s | One sample per carrier and workload with phase counters; rest is the fling's rest phase |
+| No rest frames; bar within 2% of 120 frames/s; caret within 2% of 2 frames/s; no warm glyph uploads in rest/bar/caret | Same samples and glyph batch/copy/byte counters |
+| Pixel parity and CPU-to-Ink transition survive the rebase | Affected suites, first-frame parity and Stage 0b transition |
+
+The 185 ms estimate is 212.5 − 18.5 − 9 ms: the six cuts' historical
+17–20 ms saving plus a hypothesis that the shorter first paint allows
+about 9 ms more boot-tick work to overlap the window's first composite.
+That last term is an additional overlap benefit, not a measured saving;
+shared work could instead make the cuts non-additive. The trace will
+locate first paint, complete commit and complete display separately.
+The instruction allowance retains the earlier +26.352 million/s fling
+finding, associated with two decodes moving out of boot. One cost pair
+can detect a large change but cannot establish a stable absence of
+regression. The 100 ms application obligation remains unmet.
+
+**Rebase.** All 54 lane commits replay onto `bc45470708`. `RESULTS.md`
+conflicts at the first appended cut-1 record: main's G7, cut-7 and review
+records precede this lane's records. LLP 1149.001's M10 status retains
+main's cut-7/A7 account before cut 1. LLP 1149 §4.1 retains cut 7 before
+cut 2 and the later lane sessions. `QUEUE.md` conflicts when cut 2,
+cut 3, cut 4, cut 5, cut 6, confirmation and review-fix commits replace
+the same follow-up: both main atlas entries survive, followed by the
+latest lane follow-up. `MEASUREMENTS.md` and the code have no conflicts.
+Cut 7's batch upload seam and this lane's boot latch, generation checks,
+retry reservations and complete-display tracking merge automatically.
+The original branch bundle and per-commit conflict record are retained
+under `target/m10-landed/`. The six broad checks stay with the Mac mini;
+this chunk runs the affected suites and staged structural caps locally.
