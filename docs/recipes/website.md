@@ -44,8 +44,8 @@ app.ts    export const API = import.meta.env.API_BASE_URL;
 The value is the environment's, else `.env.local`'s (out of git), else `.env`'s, else a
 default written after the read (`?? 'https://…'`); with none the build fails. It is inlined
 into the module on every host, so it is public: never a secret. A build records each value,
-and one changed since makes `test`, `agent` and `web` build again; `serve` serves what was
-built, so run `web-build` after changing one.
+and one changed since makes `test`, `agent`, `web` and `serve` build again where the app is
+beside the build; `serve` refuses a build copied away from it, naming both values.
 
 ## A deep link
 
