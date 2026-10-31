@@ -5,10 +5,12 @@ component HomeChrome
     configuration: string
     event: action
     height: number
+    trailingReservation: number
   view
     if configuration != "" and routeKey != ""
       t3-home-chrome configuration=configuration route-key=routeKey
         change=event
+        trailing-reservation=`${trailingReservation}`
         position="absolute"
         height=height
         right=0

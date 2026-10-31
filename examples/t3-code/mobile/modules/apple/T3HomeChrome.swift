@@ -122,6 +122,8 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private var dismiss: UIButton?
     private var glassLeading: NSLayoutConstraint?
     private var glassTrailing: NSLayoutConstraint?
+    private var glassCenter: NSLayoutConstraint?
+    private var trailingReservation: CGFloat = 0
     private var keyboardBottom: NSLayoutConstraint?
     private var restingBottom: NSLayoutConstraint?
     private var width: NSLayoutConstraint?
@@ -162,6 +164,11 @@ private final class T3HomeChromeView: ExactNativeInstance {
     }
     override func setProps(_ props: [String: String]) throws {
         let next = try T3ChromeConfiguration.read(props)
+        if let raw = props["trailing-reservation"], let value = Double(raw), value.isFinite, value >= 0 {
+            trailingReservation = CGFloat(value)
+        } else {
+            trailingReservation = 0
+        }
         if key != next.routeKey {
             detach(); owner?.unbind(self, key: key); key = next.routeKey; query = next.query
         }
@@ -312,8 +319,9 @@ private final class T3HomeChromeView: ExactNativeInstance {
         let resting = bar.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -4); resting.priority = .defaultHigh
         let keyboard = bar.bottomAnchor.constraint(equalTo: root.keyboardLayoutGuide.topAnchor, constant: -4); keyboard.priority = .defaultLow
         let width = bar.widthAnchor.constraint(equalToConstant: 300)
-        glassLeading = leading; glassTrailing = trailing; restingBottom = resting; keyboardBottom = keyboard; self.width = width
-        NSLayoutConstraint.activate([bar.centerXAnchor.constraint(equalTo: root.centerXAnchor), width, bar.heightAnchor.constraint(equalToConstant: 48),
+        let center = bar.centerXAnchor.constraint(equalTo: root.centerXAnchor)
+        glassLeading = leading; glassTrailing = trailing; glassCenter = center; restingBottom = resting; keyboardBottom = keyboard; self.width = width
+        NSLayoutConstraint.activate([center, width, bar.heightAnchor.constraint(equalToConstant: 48),
             bar.bottomAnchor.constraint(lessThanOrEqualTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -4), resting, keyboard,
             leading, trailing, glass.topAnchor.constraint(equalTo: bar.topAnchor), glass.bottomAnchor.constraint(equalTo: bar.bottomAnchor),
             filter.leadingAnchor.constraint(equalTo: bar.leadingAnchor), compose.trailingAnchor.constraint(equalTo: bar.trailingAnchor), dismiss.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
@@ -348,8 +356,9 @@ private final class T3HomeChromeView: ExactNativeInstance {
     }
     private func updateWidth() {
         let hostWidth = root.bounds.width
-        let resolved = min(min(560, max(300, hostWidth - 36)), max(260, hostWidth - 12))
+        let resolved = min(min(560, max(260, hostWidth - trailingReservation - 36)), max(260, hostWidth - trailingReservation - 12))
         if width?.constant != resolved { width?.constant = resolved }
+        if glassCenter?.constant != -trailingReservation / 2 { glassCenter?.constant = -trailingReservation / 2 }
         if let title = installedTitle as? T3ChromeTitle, hostWidth > 0 {
             title.availableWidth = max(0, hostWidth - 64 - 44 * (config?.layout == "sidebar" ? 2 : 1))
         }
@@ -409,7 +418,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         previousSearchPlacement = nil; previousSearchToolbarIntegration = nil
         searchController = nil; field?.delegate = nil; field?.resignFirstResponder(); field = nil
         bar?.removeFromSuperview(); bar = nil; filter = nil; compose = nil; dismiss = nil
-        width = nil; keyboardBottom = nil; restingBottom = nil; glassLeading = nil; glassTrailing = nil
+        width = nil; keyboardBottom = nil; restingBottom = nil; glassLeading = nil; glassTrailing = nil; glassCenter = nil
         settingQuery = false
     }
     fileprivate func detach() {

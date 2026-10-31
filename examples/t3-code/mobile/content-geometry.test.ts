@@ -140,3 +140,10 @@ test('Home uses a ready route-local height and safe top for its transparent empt
   expect(home.attribute('height=(fullPageFrame ?', 'height', home.state(), { ...scope, contentGeometry: { ...metrics(), state: 'unavailable' } })).toBe(900);
   expect(home.attribute('padding-right=(listId == "sidebar-list"', 'padding-right', home.state(), scope)).toBe(26);
 });
+
+test('route geometry exposes only a right-edge occlusion reservation', () => {
+  const fns = contractFns('mobile/content-geometry.contract', [], { first: (values: unknown[]) => values[0] });
+  expect(fns.contentGeometryTrailingReservation(metrics())).toBe(26);
+  expect(fns.contentGeometryTrailingReservation({ ...metrics(), reservedRegions: [{ kind: 'division', x: 450, y: 10, width: 50, height: 60 }] })).toBe(0);
+  expect(fns.contentGeometryTrailingReservation({ ...metrics(), state: 'unavailable' })).toBe(0);
+});

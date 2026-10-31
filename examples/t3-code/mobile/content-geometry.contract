@@ -29,6 +29,8 @@ shape ContentGeometry
   bottomBarInset: option<number>
   reservedRegions: ContentRegion[]
 
+fn contentGeometryTrailingReservation(geometry: ContentGeometry): number = geometry.state != "ready" ? 0 : match first(geometry.reservedRegions.filter(region => region.kind == "occlusion" and region.x > geometry.bounds.x + geometry.bounds.width * 0.5)) { case some(region) => max(0, geometry.bounds.x + geometry.bounds.width - region.x), case none => 0 }
+
 fn contentGeometryField(packet: string, index: number): string = match packet.split("\n").at(index) { case some(value) => value, case none => "" }
 fn contentGeometryCounter(packet: string, index: number): number = match parseNumber(contentGeometryField(packet, index)) { case some(value) => value, case none => 0 }
 fn contentGeometryCounterValid(packet: string, index: number): bool = contentGeometryCounter(packet, index) > 0 and contentGeometryCounter(packet, index) <= 9007199254740991 and contentGeometryCounter(packet, index) == floor(contentGeometryCounter(packet, index)) and `${contentGeometryCounter(packet, index)}` == contentGeometryField(packet, index)
