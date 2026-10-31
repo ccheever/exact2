@@ -64,6 +64,7 @@
     "t3-model-search",
     "t3-keyboard-commands",
     "t3-layout-facts",
+    "t3-content-geometry",
     "t3-archive-spinner",
     "t3-composer-material",
     "t3-composer-attachment-button",

@@ -1,3 +1,4 @@
+import { mobileContentGeometry } from './content-geometry';
 import { mobileNewTaskEditorRouteFor, mobileNewTaskEditorAction } from './new-task-editor';
 import { mobileHtmlRenderContext, mobileHtmlRenderEvent, mobileHtmlRenderCanOpen,
   mobileHtmlRenderDocumentSource, mobileHtmlRenderSelection } from './html-render-owner';
@@ -611,6 +612,7 @@ const sources: Sources = {
     const native = sourceNative('environmentDetailCommand', args, nativeInput);
     return mobileEnvironmentDetailCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native, storage);
   },
+  contentGeometry: args => mobileContentGeometry(String(args[0]), String(args[1]), Number(args[2]), Number(args[3]), String(args[4])),
   layoutFacts: (args, _store, storage, nativeInput) => {
     const native = sourceNative('layoutFacts', args, nativeInput);
     return mobileLayoutFacts(String(args[0] ?? ''));

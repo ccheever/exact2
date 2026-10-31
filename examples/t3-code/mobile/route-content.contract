@@ -1,3 +1,4 @@
+use MobileContentGeometry from "./content-geometry.contract"
 use HtmlRenderContext from "./html-render.contract"
 use PendingInputCard from "./pending-input.contract"
 use ComposerRootView from "./composer-root.contract"
@@ -58,6 +59,7 @@ use Environments, EnvironmentRow, GitHubRoutingSettings, GitHubRoutingRow from "
 // Presentation only. The root supplies all state, resource values and actions.
 component MobileRouteContent
   props
+    contentGeometryEvent: action
     threadSubmission: ThreadSubmission
     richComposer: ComposerRootView
     richComposerAction: action
@@ -364,6 +366,8 @@ component MobileRouteContent
     // UIKit projects a route's direct first header into its navigation bar.
     row flex=1 min-height=0 width="100%"
       column position="relative" width=(workspace.inspectorMounted and workspace.inspectorRouteId == routeId ? workspace.contentSettledWidth : viewport.width) height="100%" flex-shrink=0 min-width=0
+        if focused
+          MobileContentGeometry(owner=`${routeId}:${routeName}`, event=contentGeometryEvent)
         if focused and (routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia")
           t3-document-menu document-menu=documentMenu.configuration route-key=routeId document-tint=threadLook.foreground change=documentAction width=0 height=0 aria-hidden=true
         if focused and (routeName == "threadFile" or (routeName == "newTaskFile" and newTaskFlow.fileReady))

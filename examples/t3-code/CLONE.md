@@ -118,29 +118,54 @@ Duo system rail. Normal Back and reopening preserve the draft and expose Send
 without the keyboard; this does not qualify keyboard-visible reachability.
 Loaded raw history remains unbounded; resident bounds, native storage, stable
 anchors and selection are not complete.
+Conversation's separate table unit `116eedc7ae` is also in draft PR1190.
+It passes 152 focused tests, strict types, Contract compilation, and caps.
+The completed QA table has a literal regression; width, clipping, selection,
+and actual table rendering still need a normal native build and drive.
+
 Home's spacing/separator patch is draft
-[PR1191](https://github.com/ccheever/exact2/pull/1191), head `4a5502d0d7`.
+[PR1191](https://github.com/ccheever/exact2/pull/1191), head `22d8eb348d`.
 Its signed Release build, 185 focused tests, 4,171 quiet mobile tests, strict
 TypeScript, caps and all six root categories pass. Initial Duo controls and the
 local core flow use this artifact; populated-row parity remains pending.
-Conversation owns the new Duo live history acceptance. Home owns the serial
-build lane for the queued signed-reference Release. Home completed populated controls and preserved the QA draft.
+The new Duo history target is stopped after the failed advised recovery.
+Home completed populated controls and preserved the QA draft.
 A trailing swipe action opened Control Center beneath the Duo system rail;
 reserved-region reachability remains open. Home owns the original Release at
-the frozen reference below. That linker-only ad hoc artifact cannot read its
-secure connection catalog. A normally signed simulator build is running with
-its existing team and entitlements, preserving its source pin and secure storage.
+the frozen reference below. Its normally signed simulator Release now builds
+and reaches settled empty Home. The binary SHA-256 is
+`d16a4b8c59985693725e3a2b66834539efc3a847689e299e43c0b2b95de51031`.
+The prior pairing used an unrelated port from the version string. A corrected
+attempt discarded its single grant before submission because an address-string
+guard rejected equivalent loopback and LAN origins. Both public descriptors
+identify the same Mini and protocol 2. Connected reference parity remains open;
+future pairing must compare descriptor identity, not raw origin equality.
 Neither worker qualifies visual parity or a performance advantage.
 
 The coordinator's ordinary iPhone target `FD6F1599-5E3C-4D86-AF69-22FBD6596F6B`
 is held by another project's device session. Installation and launch were refused.
 The coordinator removed only its own panel without shutdown. Do not use this
 target for app acceptance or builder roster probes until its owner releases it.
-The coordinator currently has no open device session. A scoped native geometry
-unit is in progress, with no runtime acceptance yet. A root-document observer
-cannot supply route-local rectangles; the unit mounts a stationary local observer
-after native containment. Home consumption remains held until measurements pass.
-Keep window safe-area and keyboard-guide semantics separate.
+The coordinator currently has no open device session. Its passive local geometry
+unit builds normally and passes a clean ordinary A44 smoke. All 3,289 recorded
+inputs match; the binary SHA-256 is
+`3187df2abad885203132c7327f892d879ba91a2e950f566bcc0b35c4c67d460f`.
+A direct native outer-thread sample and the typed Root resource agree on
+466-by-562-point bounds, zero residual safe-area insets, a right-side bar, and
+an 84-by-92-point occlusion at local origin (382, 0). The owner-thread debugger
+inspection was followed by a libdispatch trap, so later lifecycle measurements
+are unqualified. A separate clean normal relaunch passes thread reopening,
+Back, Settings, panel reflow, and exact prior Unicode draft recovery. Fold
+commands still lack angle samples. The outer panel is restored and the owned
+session is closed without shutdown. Receipts are under
+`target/t3-mini-coordinator/evidence/content-geometry/`.
+
+The full mobile suite passes 4,184 tests with both native bridges enabled.
+Contract, strict TypeScript, caps, and boot pass. Root sources match the
+all-green `a9981950a3` gate checkpoint; those root checks were not repeated.
+The local observer changes no inset or keyboard policy. Home consumption stays
+held until route, keyboard, and panel-update measurements qualify. Keep window
+safe-area and keyboard-guide semantics separate.
 
 The HTTPS core-acceptance delegate was interrupted before its device launch.
 Its retained receipt contains artifact verification and a CLI help command,

@@ -71,6 +71,7 @@ final class T3MobileModule: ExactModule {
             try module.workspace.makeView(props: props, events: events)
         },
         "t3-layout-facts": T3LayoutFacts.factory,
+        "t3-content-geometry": T3ContentGeometry.factory,
         "t3-archive-spinner": T3ArchiveSpinner.factory,
         "t3-composer-material": T3MobileComposerMaterial.factory,
         "t3-composer-attachment-button": T3MobileAttachmentButton.factory,
@@ -713,6 +714,7 @@ final class T3MobileModule: ExactModule {
          "t3-inspector-chrome": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-workspace-layout": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-layout-facts": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-content-geometry": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-keyboard-commands": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-archive-chrome": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-model-search": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
