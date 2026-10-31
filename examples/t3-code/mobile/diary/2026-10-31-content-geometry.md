@@ -52,6 +52,11 @@ rejects retired route owners and nonadvancing counters.
   Root. Route transitions, keyboard states, and fold-update packets still need
   an inspection method that respects the runtime owner.
 
+The integrated thread route now applies the measured trailing reservation to
+the feed, working control and composer width. The focused geometry and history
+tests pass; a fresh Duo drive is still needed to qualify keyboard-visible
+reachability and the rail during transitions.
+
 Exact receipts and raw logs are under
 `target/t3-mini-coordinator/evidence/content-geometry/`. Home and conversation
 layout consumers, selection, rotation, and performance remain unqualified.

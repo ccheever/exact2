@@ -154,6 +154,8 @@ test('thread content consumes only the measured trailing reservation', () => {
   expect(source).toContain('derive threadTrailingReservation = contentGeometryTrailingReservation(contentGeometry)');
   expect(source).toContain('derive threadContentWidth = max(0, workspace.contentSettledWidth - threadTrailingReservation)');
   expect(source).toContain('workWidth=(threadContentWidth - workspace.chatHorizontalPadding * 2)');
+  expect(source).toContain('maxWidth=min(threadContentWidth, workspace.chatContentMaxWidth)');
+  expect(source).toContain('contentMaxWidth=min(threadContentWidth, workspace.chatContentMaxWidth)');
   expect(source).toContain('padding-right=threadTrailingReservation');
   expect(source).toContain('right=threadTrailingReservation');
 });
