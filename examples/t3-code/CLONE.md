@@ -102,6 +102,11 @@ Conversation's draft [PR1190](https://github.com/ccheever/exact2/pull/1190)
 contains bounded Markdown reuse commit `43d669d337` and separate automatic
 older-history commit `9a8dce92b3`. The final focused suite passes 283 tests and
 3,912 assertions; Contract compilation, strict TypeScript and caps pass.
+The coordinator integrates the cache unit alone as `740519f43c`. All five files
+match the reviewed worker commit. The parent repeats 136 focused tests, strict
+app TypeScript and caps. Reuse is bounded to 128 entries, 512 Ki UTF-16 units
+and 32,768 block and token objects. Oversized content remains complete and
+uncached. These are allocation bounds, not a measured performance advantage.
 The signed pre-refinement native artifact matches all 3,289 recorded inputs.
 The final normal artifact includes history and the first-run fix. All required
 root categories pass at clean `a9981950a3`, including 7,383 root tests with 84
@@ -131,9 +136,10 @@ The coordinator's ordinary iPhone target `FD6F1599-5E3C-4D86-AF69-22FBD6596F6B`
 is held by another project's device session. Installation and launch were refused.
 The coordinator removed only its own panel without shutdown. Do not use this
 target for app acceptance or builder roster probes until its owner releases it.
-The coordinator currently has no open device session. Shared Duo geometry remains
-design-only. A root-document observer cannot supply route-local rectangles; Home
-needs a stationary local observer after native containment has applied its insets.
+The coordinator currently has no open device session. A scoped native geometry
+unit is in progress, with no runtime acceptance yet. A root-document observer
+cannot supply route-local rectangles; the unit mounts a stationary local observer
+after native containment. Home consumption remains held until measurements pass.
 Keep window safe-area and keyboard-guide semantics separate.
 
 The HTTPS core-acceptance delegate was interrupted before its device launch.
