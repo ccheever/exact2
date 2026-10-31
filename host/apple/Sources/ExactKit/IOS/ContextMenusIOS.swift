@@ -466,8 +466,8 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         }
     }
 
-    /// The view UIKit lifts: the node, clipped to its corners, or the list
-    /// cell that draws it, in its background's shape.
+    /// The view UIKit lifts: the node, clipped to its corners or to the
+    /// grounds it holds, or the list cell that draws it, in its background's shape.
     private func targeted(_ configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
         guard let owner = open, let source = owner.source, live(source), (owner.touched ?? source).window != nil,
               (configuration.identifier as? NSNumber)?.uint32Value == (owner.inlineID ?? source.id) else { return nil }
@@ -491,6 +491,12 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         }
         let radius = shown.layer.cornerRadius
         if radius > 0, parameters.visiblePath == nil { parameters.visiblePath = UIBezierPath(roundedRect: shown.bounds, cornerRadius: radius) }
+        // A node that paints no ground, whose text and images lie on the
+        // grounds the nodes inside it paint, lifts in their shape: a chat
+        // balloon, its body and its tail, as the platform lifts its own.
+        if parameters.visiblePath == nil, let node = shown as? NodeView, !Self.paintsGround(node), let grounds = Self.grounds(in: node) {
+            parameters.visiblePath = grounds
+        }
         // Lifted over the window: in its own superview, a strip that scrolls
         // sideways would clip the card as it grows. Its centre is the view's,
         // and its transform the view's with each ancestor's scale and
@@ -503,6 +509,35 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         }
         let target = UIPreviewTarget(container: window, center: superview.convert(shown.center, to: window), transform: transform)
         return UITargetedPreview(view: shown, parameters: parameters, target: target)
+    }
+    /// The grounds the nodes inside `view` paint, in `view`'s space, each in
+    /// its clip path or its corners; nil when none paints one, or when a
+    /// node inside that paints none and holds none lies off them (a
+    /// paragraph, an image, a drawing).
+    private static func grounds(in view: NodeView) -> UIBezierPath? {
+        let shape = UIBezierPath()
+        var content: [NodeView] = []
+        var stack = view.subviews
+        while let sub = stack.popLast() {
+            guard !sub.isHidden, sub.alpha > 0.01 else { continue }
+            stack.append(contentsOf: sub.subviews)
+            guard let node = sub as? NodeView else { continue }
+            if paintsGround(node) {
+                let path = node.clipPath.map { UIBezierPath(cgPath: $0) } ?? node.roundedPath(in: node.bounds)
+                let origin = view.convert(CGPoint.zero, from: node), x = view.convert(CGPoint(x: 1, y: 0), from: node), y = view.convert(CGPoint(x: 0, y: 1), from: node)
+                path.apply(CGAffineTransform(a: x.x - origin.x, b: x.y - origin.y, c: y.x - origin.x, d: y.y - origin.y, tx: origin.x, ty: origin.y))
+                shape.append(path)
+            } else if !node.bounds.isEmpty, !node.subviews.contains(where: { $0 is NodeView }) {
+                content.append(node)
+            }
+        }
+        guard !shape.isEmpty, content.allSatisfy({ shape.contains(view.convert(CGPoint(x: $0.bounds.midX, y: $0.bounds.midY), from: $0)) }) else { return nil }
+        return shape
+    }
+    /// Whether `node` paints a ground: a background colour, a gradient, a material or a border.
+    private static func paintsGround(_ node: NodeView) -> Bool {
+        (node.cgColor("background_color")?.alpha ?? 0) > 0 || node.style["background_image"] != nil || node.materialView != nil
+            || ["border_width", "border_width_top", "border_width_right", "border_width_bottom", "border_width_left"].contains { node.number($0) > 0 }
     }
     /// The list cell drawing `view`: the cell itself, or the cell whose content carries it.
     private static func cell(drawing view: UIView) -> UICollectionViewCell? {
