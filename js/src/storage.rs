@@ -62,7 +62,9 @@ impl Session {
             })
             .map_err(|e| e.to_string())?;
         context
-            .set_sqlite_provider(Arc::new(ibex2_sqlite::SqliteProvider))
+            .set_sqlite_provider(Arc::new(crate::native_storage::Reserving(
+                ibex2_sqlite::SqliteProvider,
+            )))
             .map_err(|e| e.to_string())?;
         context
             .set_documents(Arc::new(move |path, _access| documents(path, owner)))

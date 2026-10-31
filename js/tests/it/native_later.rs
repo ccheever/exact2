@@ -3,7 +3,6 @@
 #![cfg(exact_js_engine)]
 use super::storage::{args, finish, Root, GRANTS};
 use exact_runner::{Answer, DataSource, Store};
-use std::path::PathBuf;
 
 /// `native.later`: the answer leaves as a native request, the host hands its
 /// body to the module's handler, the module's own thread replies, and the
@@ -16,7 +15,7 @@ fn native_later_answers_from_the_modules_own_thread() {
     static GATE: Mutex<Option<mpsc::Receiver<()>>> = Mutex::new(None);
     struct Native;
     impl exact_js::NativeModule for Native {
-        fn configure_storage(&mut self, _: PathBuf, _: PathBuf, _: PathBuf) -> Result<(), String> {
+        fn configure_storage(&mut self, _: exact_js::NativeStorage) -> Result<(), String> {
             Ok(())
         }
         fn call(&mut self, request: &serde_json::Value) -> Result<serde_json::Value, String> {
@@ -77,7 +76,7 @@ fn native_later_answers_from_the_modules_own_thread() {
 fn native_later_without_a_handler_answers_now() {
     struct Native;
     impl exact_js::NativeModule for Native {
-        fn configure_storage(&mut self, _: PathBuf, _: PathBuf, _: PathBuf) -> Result<(), String> {
+        fn configure_storage(&mut self, _: exact_js::NativeStorage) -> Result<(), String> {
             Ok(())
         }
         fn call(&mut self, request: &serde_json::Value) -> Result<serde_json::Value, String> {
