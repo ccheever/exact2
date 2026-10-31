@@ -126,25 +126,24 @@ impl Glyphs {
             return Ok(None);
         };
         #[cfg(windows)]
-        let image = if std::env::var("EXACT_INK_RASTERIZER").as_deref() == Ok("directwrite-audit")
-            && crate::device::directwrite::DirectWrite::candidate(font)
-        {
-            if self.directwrite.is_none() {
-                self.directwrite = Some(
-                    crate::device::directwrite::DirectWrite::new()
+        let image =
+            if directwrite_enabled() && crate::device::directwrite::DirectWrite::candidate(font) {
+                if self.directwrite.is_none() {
+                    self.directwrite = Some(
+                        crate::device::directwrite::DirectWrite::new()
+                            .map_err(|e| crate::device::Error::Device(e.to_string()))?,
+                    );
+                }
+                Some(
+                    self.directwrite
+                        .as_mut()
+                        .unwrap()
+                        .raster(font, glyph, size, phase)
                         .map_err(|e| crate::device::Error::Device(e.to_string()))?,
-                );
-            }
-            Some(
-                self.directwrite
-                    .as_mut()
-                    .unwrap()
-                    .raster(font, glyph, size, phase)
-                    .map_err(|e| crate::device::Error::Device(e.to_string()))?,
-            )
-        } else {
-            None
-        };
+                )
+            } else {
+                None
+            };
         #[cfg(not(windows))]
         let image: Option<swash::scale::image::Image> = None;
         let image = image.or_else(|| {
@@ -413,4 +412,11 @@ fn nearby_blur_sigmas_reuse_the_quantized_glyph() {
         .unwrap();
     assert_eq!((a.entry.texture, a.entry.uv), (b.entry.texture, b.entry.uv));
     assert_eq!(glyphs.stats().0.misses, 1);
+}
+
+#[cfg(windows)]
+fn directwrite_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED
+        .get_or_init(|| std::env::var("EXACT_INK_RASTERIZER").as_deref() == Ok("directwrite-audit"))
 }

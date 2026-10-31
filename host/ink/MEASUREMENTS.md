@@ -4437,7 +4437,7 @@ implementation and measurement. The NucBox retains each attempt under
 | Prediction | Instrument and acceptance | Result |
 | --- | --- | --- |
 | A runner-to-layout stall over 50 ms produces one all-thread stack capture, with the application's PDB resolved when present. An ordinary launch produces none. | Inject one 200 ms hold between the existing boot phase marks; retain the capture and phase log. | Injected hold captured after two failed attempts; ordinary-series prediction missed: two logged stalls have no capture and one short interval produced a late capture. |
-| Moving device preparation after layout reduces runner-to-layout stalls over 50 ms from roughly 10/100 to at most 2/100. | 100 fresh Shelf processes per arm, alternating order, the S2 startup driver's phase logs; retain every attempt and report the full interval distributions. This tests the loader-lock hypothesis and predicts no first-screen improvement. | Entry 2/100, layout 0/100. The predicted baseline incidence missed; the post-layout bound held. Cause unestablished. |
+| Moving device preparation after layout reduces runner-to-layout stalls over 50 ms from roughly 10/100 to at most 2/100. | 100 fresh Shelf processes per arm, alternating order, the S2 startup driver's phase logs; retain every attempt and report the full interval distributions. This tests the loader-lock hypothesis and predicts no first-screen improvement. | Entry 2/100, layout 0/100. The predicted baseline incidence missed. The marks bracket different work; 2/100 versus 0/100 is not support (two-sided Fisher p = 0.4975). Await corrected marks and a redesigned observer. |
 | DirectWrite natural advances agree with the shaper within 0.02 device pixels per glyph on the audited static outline faces at 100%, 125% and 150%. | Same font bytes, glyphs, sizes and variation coordinates; DirectWrite GetGlyphPlacements beside the shaper, retained per-glyph output. | Met for Inter and Segoe UI: maximum 0.0000019074 device pixels. Variable faces are refused. |
 | RichEdit keeps the Contract value and UTF-16 selection through type, select, cut, paste and undo, with no duplicate insertion. | Shelf search and Excord's fixture composer on the NucBox; native input and runner state after each operation. | Partial: native editor fixture and Shelf's photographed type/select/cut/paste/undo pass; the UIA journey fails and Excord is unrun. |
 
@@ -4475,10 +4475,15 @@ The entry tails are `tail-081-entry.log` (81.570 → 220.117 ms, a
 `tail-080-entry.stacks.txt`, triggered at 131.663 ms although that log's
 runner/layout marks are 69.045/71.691 ms. Its main-thread stack starts in
 `NtGdiDdDDICreateAllocation`. It is a late capture, not the blocking stack
-of either tail. The channel observer and the printed phase marks do not
-reliably delimit the same interval; a queued completion can also beat a
-zero-duration timeout after the observer is delayed. This instrument is
-**not qualified for attributing an ordinary startup tail**.
+of either tail. The log took its timestamp before a synchronous write, then
+notified the watchdog, which took a new timestamp. The log therefore includes
+the runner-ready write in its interval; the watchdog includes the layout-ready
+write instead. A slow first write can produce an uncaptured logged tail; a slow
+second write can produce a capture after a short logged interval. A queued
+completion always wins the channel receive before its deadline is tested: it
+suppresses a capture, never delays one. This instrument is **not qualified
+for attributing an ordinary startup tail**. The 2/100 is not established as
+runner-to-layout work until the series runs again on corrected marks.
 
 The injected 200 ms hold is captured with application symbols in attempt
 3; the process snapshot takes 6.026 ms and includes `startup_watchdog::phase`
@@ -4486,8 +4491,10 @@ on the main thread. Attempt 1 could not read the misaligned Windows
 CONTEXT; attempt 2 loaded symbols too late. Attempt 3 snapshots contexts
 and copy-on-write stack memory before loading the PDB. All attempts remain.
 The three-round stop rule leaves the ordinary-series miss open. The A/B
-shows fewer logged tails after layout, but with only two events and no
-causal stack it does not identify the loader lock or earn a startup fix.
+has two logged tails against none. Two-sided Fisher's exact test gives
+p = 0.4975; that difference supplies no support for the after-layout arm.
+The arms also differ in every concurrent device-thread effect, not only the
+loader lock. They do not identify a cause or earn a startup fix.
 No device-start policy change is enabled by default.
 
 Raw records: NucBox `target/stage-1w/series/` (200 logs and the capture),
@@ -4496,10 +4503,11 @@ Raw records: NucBox `target/stage-1w/series/` (200 logs and the capture),
 under `target/stage-1w-nucbox/`; the derived 200-row summary is
 `target/stage-1w/startup-summary.json`. Reproduce with the native
 `exact-ink --lib` test executable and `INK_SHELF` naming the symbolized
-Shelf, `INK_DESKTOP_OUT` a new directory, then
+Shelf, `EXACT_INK_TEST_OUTPUT` a new directory, then
 `shelf_startup_tail_series --ignored --nocapture --test-threads=1`.
-`EXACT_STARTUP_STACKS` names one launch's capture; the existing S2 and Python
-Windows drivers now set it beside their logs. The helper's executable is
+`EXACT_STARTUP_STACKS` names one launch's capture. Fix chunk A restricts
+arming to the two startup instrument tests; ordinary S2 journeys and the
+Python driver do not arm it. The helper's executable is
 the same Shelf and its PDB is beside it; no symbol server is contacted.
 
 ### M9: first paired observations
@@ -4597,7 +4605,7 @@ Retained NucBox paths: `target/stage-1w/field-journey-1/` through
 `field-visual-2/`, `reference/`, `reference-150/`, `reference-150-2/`, their sibling logs,
 and `field-shelf/` through `field-shelf-4/` executables. Local
 copies are under `target/stage-1w-nucbox/`. Reproduce the visual journey
-with `INK_SHELF`, a new `INK_DESKTOP_OUT`, the retained DPI operator and
+with `INK_SHELF`, a new `EXACT_INK_TEST_OUTPUT`, the retained DPI operator and
 `shelf_native_field_visual --ignored --nocapture --test-threads=1`.
 The provider journey is `shelf_native_field`. Its detector requires a
 RichEdit class/provider name; attempt 3 instead enumerates `Search` through
@@ -4612,8 +4620,8 @@ and the rest of the UIA journey owed. Failed qualification is not a pass.
 The normal suites run with RichEdit disabled. The first wgpu caret journey
 failed twice, while the pre-field Shelf control passed. Guarding the new
 paint, input and accessibility paths at their opt-in entry restores the
-existing three-transition caret assertion on both devices; the whole
-candidate path is skipped when disabled. These runs establish the repair,
+existing three-transition caret assertion on both devices; the paint, input and accessibility entry points are skipped when disabled.
+Fix chunk A also skips `fields::begin` and `end` before their TLS access. These runs establish the repair,
 not which individual no-op or clip transition caused the failure. The
 initial forced-device-loss runs were refused by DXCap's administrator check;
 the elevated scheduled task passes on both devices. The ordinary recovery
@@ -4749,3 +4757,28 @@ and reference geometry. Executables and PDBs remain in the NucBox paths
 above; the archive omits those large binaries. Local
 `target/stage-1w/source-before-rebase.mbox` preserves the pre-rebase
 commits named by the measurements. No cited raw file was deleted.
+
+
+### Fix chunk A — predictions before the runs
+
+Source base: `f03a34f546`, rebased onto Stage 0 at `942b409559`.
+Evidence stays under `target/stage-1w-fix-a/`, with the NucBox copy retained
+locally. No startup A/B rerun is part of this chunk. Candidates stay disabled.
+
+- **Imports:** `dumpbin /imports` on the retained pre-fix Shelf executable
+  and the rebuilt Shelf executable should show zero eager imports of DbgHelp,
+  D2D1 and DWrite after lazy loading. Retain both complete outputs and hashes.
+  No process-entry load-time saving is predicted from the import count.
+- **M9:** the 9,540-row audit with both outline rasters unhinted should keep
+  static-face advance error below 0.02 device pixels and reduce mean coverage
+  error below the earlier 4.589/255 (Inter) and 12.335/255 (Segoe UI).
+  Variable axes and colour remain refused. Run once and retain every row.
+- **UIA:** the single Shelf discovery attempt should find the registered native
+  fragment within the fixture's 30-second bound after exposing embedded roots.
+  A miss retains the rejected tree and leaves the candidate unqualified.
+
+The cached rasterizer flag and early field guards remove per-miss environment
+reads and disabled per-frame TLS work. D2D, DWrite and DbgHelp entry points are
+loaded from System32 on use. The helper and x64 contexts require explicit
+startup arming; non-x64 refuses arming. Boot phase marks now notify the observer
+before writing and map that same monotonic timestamp to process age.

@@ -104,10 +104,6 @@ impl Shelf {
             .env("EXACT_SIZE", size)
             .env("EXACT_AGENT_WINDOW_READY", "library-count")
             .env(
-                "EXACT_STARTUP_STACKS",
-                out().join(format!("{name}.stacks.txt")),
-            )
-            .env(
                 "EXACT_AGENT_STORAGE",
                 format!("ink-s2-{name}-{}", std::process::id()),
             )
@@ -816,6 +812,10 @@ fn shelf_startup_tail_series() {
             let arm = ["entry", "layout"][(round + step) % 2];
             std::env::set_var("EXACT_STARTUP_DEVICE_AT", arm);
             let name = format!("tail-{round:03}-{arm}");
+            std::env::set_var(
+                "EXACT_STARTUP_STACKS",
+                out().join(format!("{name}.stacks.txt")),
+            );
             let mut app = Shelf::launch(&name, &exe, "ink", "1024x720", Some(120), false);
             until("bounded startup run finishes", || {
                 app.child.try_wait().unwrap().is_some()
@@ -825,12 +825,17 @@ fn shelf_startup_tail_series() {
         }
     }
     std::env::remove_var("EXACT_STARTUP_DEVICE_AT");
+    std::env::remove_var("EXACT_STARTUP_STACKS");
 }
 
 #[test]
 #[ignore = "NucBox desktop; verify the startup watchdog with a 200 ms layout hold"]
 fn shelf_startup_watchdog() {
     let exe = std::env::var("INK_SHELF").unwrap();
+    std::env::set_var(
+        "EXACT_STARTUP_STACKS",
+        out().join("watchdog-held.stacks.txt"),
+    );
     std::env::set_var("EXACT_STARTUP_TEST_HOLD", "1");
     let app = Shelf::launch("watchdog-held", &exe, "ink", "1024x720", None, false);
     std::env::remove_var("EXACT_STARTUP_TEST_HOLD");
@@ -845,6 +850,10 @@ fn shelf_startup_watchdog() {
         "PDB must resolve the held boot thread: {stacks}"
     );
     app.close();
+    std::env::set_var(
+        "EXACT_STARTUP_STACKS",
+        out().join("watchdog-ordinary.stacks.txt"),
+    );
     let app = Shelf::launch(
         "watchdog-ordinary",
         &exe,
@@ -855,6 +864,7 @@ fn shelf_startup_watchdog() {
     );
     let log = app.close();
     println!("S1W_WATCHDOG ordinary\n{log}");
+    std::env::remove_var("EXACT_STARTUP_STACKS");
 }
 
 #[test]

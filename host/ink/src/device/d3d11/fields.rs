@@ -58,6 +58,9 @@ pub fn clear() {
 }
 
 pub fn begin() {
+    if !enabled() {
+        return;
+    }
     FIELDS.with(|f| {
         for editor in f.borrow_mut().editors.values_mut() {
             editor.seen = false;
@@ -65,6 +68,9 @@ pub fn begin() {
     });
 }
 pub fn end(device: &mut D3d11) -> Result<()> {
+    if !enabled() {
+        return Ok(());
+    }
     FIELDS.with(|f| {
         let mut f = f.borrow_mut();
         let dead: Vec<_> = f

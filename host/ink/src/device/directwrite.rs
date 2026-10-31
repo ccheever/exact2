@@ -1,10 +1,11 @@
 //! DirectWrite's grayscale candidate. Layout and advances stay with the shaper.
 //! @ref LLP 1149 D3.2–D3.3; LLP 1149.001 M9.
+use super::windows_library::Library;
 use crate::glyph::Font;
 use std::{collections::HashMap, mem::ManuallyDrop};
 use swash::scale::image::{Content, Image};
 use windows::{
-    core::{Interface, PCWSTR},
+    core::{s, w, Interface, GUID, HRESULT, PCWSTR},
     Win32::Graphics::DirectWrite::*,
 };
 
@@ -12,6 +13,7 @@ pub struct DirectWrite {
     factory: IDWriteFactory5,
     loader: IDWriteInMemoryFontFileLoader,
     faces: HashMap<([u64; 2], u32), IDWriteFontFace>,
+    _library: Library,
 }
 
 impl Drop for DirectWrite {
@@ -26,13 +28,28 @@ impl Drop for DirectWrite {
 impl DirectWrite {
     pub fn new() -> windows::core::Result<Self> {
         unsafe {
-            let factory: IDWriteFactory5 = DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED)?;
+            let library = Library::open(w!("dwrite.dll"))?;
+            type Create = unsafe extern "system" fn(
+                DWRITE_FACTORY_TYPE,
+                *const GUID,
+                *mut *mut std::ffi::c_void,
+            ) -> HRESULT;
+            let create: Create = library.get(s!("DWriteCreateFactory"))?;
+            let mut raw = std::ptr::null_mut();
+            create(
+                DWRITE_FACTORY_TYPE_ISOLATED,
+                &IDWriteFactory5::IID,
+                &mut raw,
+            )
+            .ok()?;
+            let factory = IDWriteFactory5::from_raw(raw);
             let loader = factory.CreateInMemoryFontFileLoader()?;
             factory.RegisterFontFileLoader(&loader)?;
             Ok(Self {
                 factory,
                 loader,
                 faces: HashMap::new(),
+                _library: library,
             })
         }
     }

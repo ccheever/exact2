@@ -6682,9 +6682,7 @@ scoreboard aggregation refuses it (`clock-aggregation-test.log`). The rebase
 changes no measured application or diagnostic input.
 ## Stage 1w — Windows startup-tail instrumentation (2026-10-30)
 
-The Windows Python startup driver now gives each Ink launch an
-`EXACT_STARTUP_STACKS` path beside its log. The equivalent S2 Shelf driver
-retains a 200-launch, same-executable A/B: 100 device-at-entry launches had
+The S2 Shelf startup driver retains a 200-launch, same-executable A/B: 100 device-at-entry launches had
 2 runner/layout intervals over 50 ms (138.547 and 77.718 ms); 100
 device-after-layout launches had none. Their medians are 3.826 and 2.5525 ms.
 This is Shelf's startup interval, not a new heavy-list first-screen or CPU
@@ -6699,3 +6697,12 @@ commands, suite results and predictions: `host/ink/MEASUREMENTS.md`,
 “Stage 1w”. Retained NucBox files are `target/stage-1w/series/`,
 `series.log` and `series-exe-hash.txt`; copies live in this worktree's
 `target/stage-1w-nucbox/`. G6e's scoreboard is unchanged.
+
+
+Stage 1w fix chunk A corrects the observer's marks: logging previously included
+one phase write while the watchdog included the other. The 2/100 logged tails
+are not established as runner-to-layout work; two-sided Fisher p = 0.4975
+against 0/100 supplies no support. A queued channel completion suppresses a
+capture, never delays it. Ordinary journeys and the Python driver no longer
+arm snapshots. The observer redesign and corrected A/B are queued; this chunk
+reruns neither the series nor the scoreboard.

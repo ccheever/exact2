@@ -340,12 +340,13 @@ thread_local! {
 /// Process-clock phases for the carrier's explicit startup measurement.
 #[cfg(windows)]
 pub(crate) fn boot_phase(name: &str) {
+    let at = std::time::Instant::now();
+    exact_ink::device::d3d11::startup_watchdog::phase(name, at);
     if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
-        if let Ok(ms) = exact_ink::device::process_ms() {
+        if let Ok(ms) = exact_ink::device::process_ms_at(at) {
             eprintln!("exact-windows: boot {name} at {ms:.3} ms (process)");
         }
     }
-    exact_ink::device::d3d11::startup_watchdog::phase(name);
 }
 
 /// Load fonts and lay out while the carrier's device opens. Readiness is bounded

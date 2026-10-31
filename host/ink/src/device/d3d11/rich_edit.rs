@@ -1,5 +1,6 @@
 //! Windowless RichEdit through Direct2D on the renderer's device.
 //! @ref LLP 1149 D10; LLP 1115.004 D7; LLP 1149.001 Stage 1w.
+use super::super::windows_library::Library;
 use super::text_host::{Host, State, TextHost};
 use super::*;
 use windows::{
@@ -7,19 +8,9 @@ use windows::{
     Win32::{
         Foundation::*,
         Graphics::Direct2D::{Common::*, *},
-        System::LibraryLoader::*,
         UI::{Controls::RichEdit::*, WindowsAndMessaging::*},
     },
 };
-
-struct Library(HMODULE);
-impl Drop for Library {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = FreeLibrary(self.0);
-        }
-    }
-}
 
 pub struct RichEdit {
     services: ITextServices2,
@@ -29,6 +20,7 @@ pub struct RichEdit {
     bitmap: ID2D1Bitmap1,
     texture: TextureId,
     _library: Library,
+    _d2d_library: Library,
     style: Cell<Option<(i32, [u8; 4], bool, bool)>>,
 }
 impl Drop for RichEdit {
@@ -48,19 +40,13 @@ impl RichEdit {
         // The export's ABI is CreateTextServices from textserv.h. Its IIDs are
         // queried explicitly because windows-rs metadata supplies zero IIDs.
         unsafe {
-            let library = Library(LoadLibraryExW(
-                w!("msftedit.dll"),
-                None,
-                LOAD_LIBRARY_SEARCH_SYSTEM32,
-            )?);
-            let address = GetProcAddress(library.0, s!("CreateTextServices"))
-                .ok_or_else(|| Error::Device("msftedit!CreateTextServices is absent".into()))?;
+            let library = Library::open(w!("msftedit.dll"))?;
             type Create = unsafe extern "system" fn(
                 *mut std::ffi::c_void,
                 *mut std::ffi::c_void,
                 *mut *mut std::ffi::c_void,
             ) -> HRESULT;
-            let create: Create = std::mem::transmute(address);
+            let create: Create = library.get(s!("CreateTextServices"))?;
             let state = State::new(window, size);
             let host: TextHost = Host(state.clone()).into();
             let mut raw = std::ptr::null_mut();
@@ -74,8 +60,23 @@ impl RichEdit {
                 )
                 .ok()?;
             let services = ITextServices2::from_raw(services);
-            let factory: ID2D1Factory1 =
-                D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)?;
+            let d2d_library = Library::open(w!("d2d1.dll"))?;
+            type CreateFactory = unsafe extern "system" fn(
+                D2D1_FACTORY_TYPE,
+                *const GUID,
+                *const D2D1_FACTORY_OPTIONS,
+                *mut *mut std::ffi::c_void,
+            ) -> HRESULT;
+            let create_factory: CreateFactory = d2d_library.get(s!("D2D1CreateFactory"))?;
+            let mut raw = std::ptr::null_mut();
+            create_factory(
+                D2D1_FACTORY_TYPE_SINGLE_THREADED,
+                &ID2D1Factory1::IID,
+                std::ptr::null(),
+                &mut raw,
+            )
+            .ok()?;
+            let factory = ID2D1Factory1::from_raw(raw);
             let dxgi: IDXGIDevice = device.device.cast()?;
             let d2d = factory.CreateDevice(&dxgi)?;
             let context = d2d.CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE)?;
@@ -108,6 +109,7 @@ impl RichEdit {
                 bitmap,
                 texture: id,
                 _library: library,
+                _d2d_library: d2d_library,
                 style: Cell::new(None),
             };
             editor.message(EM_SETEDITSTYLE, SES_USECTF as usize, SES_USECTF as isize)?;
