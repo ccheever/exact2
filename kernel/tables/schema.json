@@ -2614,7 +2614,7 @@
       "default": "auto"
     },
     "VerticalAlign": {
-      "_comment": "@ref LLP 1011.002 D3: CSS `vertical-align`'s keywords that an inline image takes: `baseline` puts its margin box's bottom on the baseline, `middle` its middle half the parent's x-height above it, `text-top` and `text-bottom` its top and bottom on the parent font's ascent and descent.",
+      "_comment": "@ref LLP 1011.002 D3: CSS `vertical-align`'s keywords that an inline image takes: `baseline` puts its margin box's bottom on the baseline, `middle` its middle half the parent's x-height above it, `text-top` and `text-bottom` its top and bottom on the parent font's ascent and descent. A table cell takes it too: `middle`, or unsaid, centres its content; any other keyword puts it at the baseline, the content box's top (CSS 2.1 §17.5.4).",
       "values": [
         "baseline",
         "middle",

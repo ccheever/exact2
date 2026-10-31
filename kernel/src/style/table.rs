@@ -255,13 +255,15 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
                 }
             }
             least(style, env, s);
-            // `vertical-align: middle`, the UA's for a cell.
+            // `vertical-align: middle`, the UA's for a cell; any other
+            // keyword aligns a cell at its baseline (CSS 2.1 §17.5.4), its
+            // first line's at the top of the cell's content.
             if s.display == taffy::style::Display::Block {
                 use taffy::style::AlignContent;
                 let said = style.mask.has(StyleId::VerticalAlign);
                 s.align_content = Some(match style.rare.vertical_align {
-                    VerticalAlign::Baseline | VerticalAlign::TextTop if said => AlignContent::START,
-                    VerticalAlign::TextBottom if said => AlignContent::END,
+                    VerticalAlign::Middle => AlignContent::SAFE_CENTER,
+                    _ if said => AlignContent::START,
                     _ => AlignContent::SAFE_CENTER,
                 });
             }

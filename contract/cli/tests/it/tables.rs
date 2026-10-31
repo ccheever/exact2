@@ -365,3 +365,15 @@ fn vocab_answers_with_the_tags() {
     assert!(out.contains("HTML table: a `table` holds"), "{out}");
     assert!(out.contains("HTML description list"), "{out}");
 }
+
+/// A cell takes `vertical-align`, as CSS's table cells do.
+#[test]
+fn a_cell_takes_vertical_align() {
+    contract::compile(
+        "component App\n  view\n    table\n      tr\n        td vertical-align=\"baseline\"\n          text \"a\"\n        th vertical-align=\"middle\"\n          text \"b\"\n",
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    let e = contract::compile("component App\n  view\n    column vertical-align=\"middle\"\n")
+        .unwrap_err();
+    assert_eq!(e.id, "lower-attr-tag", "{e}");
+}

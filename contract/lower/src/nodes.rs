@@ -186,11 +186,11 @@ impl Lowerer<'_> {
             }
         }
         if let Some(a) = expanded.iter().find(|a| a.name == "vertical-align") {
-            if !inline_image {
+            if !inline_image && !matches!(tag.as_str(), "th" | "td") {
                 return err(
                     "lower-attr-tag",
                     format!(
-                        "`vertical-align` aligns an `image` in a paragraph's text, not `{tag}`"
+                        "`vertical-align` aligns an `image` in a paragraph's text or a table cell's content, not `{tag}`"
                     ),
                     a.span,
                 );
