@@ -98,25 +98,25 @@ async function inChrome(test, html = page) {
 }
 
 check('a pushed route draws Back at its app bar\'s leading edge, and goes back as the browser\'s Back does', () => inChrome(async (evaluate, call) => {
-  // Pushed routes only: neither stack's root nor the sheet. The words are the route beneath's title, "Back" for a long
-  // one, or the control's, which a header holding it does not show.
-  expect(await evaluate('backs()')).toEqual(['r2:People|Back to People', 'r3:Done|Done', 't2:Back|Back', 't3:Mine|Mine']);
+  // Pushed routes only: neither stack's root nor the sheet. The words are "Back", named for the route beneath, or the
+  // control's, which a header holding it does not show.
+  expect(await evaluate('backs()')).toEqual(['r2:Back|Back to People', 'r3:Done|Done', 't2:Back|Back to Favorites of everyone', 't3:Mine|Mine']);
   expect(await evaluate(`['r3', 't3'].map(id => document.querySelector('#' + id + ' #back').getClientRects().length)`)).toEqual([1, 0]);
   // A disabled control is no way back, as iOS hides its Back button; enabled again, it is.
-  expect(await evaluate(`document.querySelector('#r3 #back').disabled = true; select('2'); backs()`)).toEqual(['r2:People|Back to People', 't2:Back|Back', 't3:Mine|Mine']);
+  expect(await evaluate(`document.querySelector('#r3 #back').disabled = true; select('2'); backs()`)).toEqual(['r2:Back|Back to People', 't2:Back|Back to Favorites of everyone', 't3:Mine|Mine']);
   expect(await evaluate(`document.querySelector('#r3 #back').disabled = false; select('2'); backs().length`)).toBe(4);
   // Until the page is interactive the wasm glue disables every control (`aria-busy`), which is not the author's.
   expect(await evaluate(`const busy = document.getElementById('exact-root'); busy.setAttribute('aria-busy', 'true'); document.querySelector('#r3 #back').disabled = true; select('2'); const n = backs().length; busy.removeAttribute('aria-busy'); document.querySelector('#r3 #back').disabled = false; n`)).toBe(4);
   // The renderer's children stay its own: the button is the header's shadow root's, before its slot, at the leading edge.
   expect(await evaluate(`[document.querySelector('#r2 > header').children.length, document.querySelector('#r2 > header').shadowRoot.querySelector('button').getBoundingClientRect().right <= document.getElementById('title2').getBoundingClientRect().left]`)).toEqual([1, true]);
-  // It is in the app's accent, not the bar's label ink, as UIKit tints its Back.
-  expect(await evaluate(`[getComputedStyle(document.querySelector('#r2 > header').shadowRoot.querySelector('button')).color === getComputedStyle(document.getElementById('accent')).color, getComputedStyle(document.getElementById('accent')).color === getComputedStyle(document.getElementById('ink')).color]`)).toEqual([true, false]);
+  // It is in the bar's label ink, as a web app's Back is, not the accent UIKit tints its Back with.
+  expect(await evaluate(`[getComputedStyle(document.querySelector('#r2 > header').shadowRoot.querySelector('button')).color === getComputedStyle(document.getElementById('ink')).color, getComputedStyle(document.getElementById('accent')).color === getComputedStyle(document.getElementById('ink')).color]`)).toEqual([true, false]);
 
   // Keyboard: the first Tab stop of the shown route; Enter goes back (the runner's own, with no entry beneath known).
   await evaluate('document.activeElement.blur()');
   await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
   await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
-  expect(await evaluate(`[document.activeElement.parentElement.id, document.activeElement.shadowRoot?.activeElement?.textContent]`)).toEqual(['r2', 'People']);
+  expect(await evaluate(`[document.activeElement.parentElement.id, document.activeElement.shadowRoot?.activeElement?.textContent]`)).toEqual(['r2', 'Back']);
   await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
   await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   expect(await evaluate('calls.splice(0)')).toEqual(['host back 2']);
@@ -291,13 +291,13 @@ check('a closed sheet or a popped screen leaves the route beneath it live when t
   expect(await evaluate(`calls.filter(c => c.startsWith('log '))`)).toEqual([refusal, refusal]);
 }, keyed), 60000);
 
-check('the bar says its own word, "Back", only on a page in English; elsewhere the chevron alone, named by the title beneath', () => inChrome(async (evaluate) => {
+check('the bar says its own word, "Back", only on a page in English; elsewhere the arrow alone, named by the title beneath', () => inChrome(async (evaluate) => {
   // LLP 1115.000 D4.14. No `lang` reads as English, as every app here is until it says otherwise.
-  const english = ['r2:People|Back to People', 'r3:Done|Done', 't2:Back|Back', 't3:Mine|Mine'];
+  const english = ['r2:Back|Back to People', 'r3:Done|Done', 't2:Back|Back to Favorites of everyone', 't3:Mine|Mine'];
   expect(await evaluate('backs()')).toEqual(english);
-  // In another language the app's own words stay (a short title beneath, the Back control's) and are the name; the
-  // bar's word is not said, so a long title beneath leaves the chevron alone, named by that title.
-  expect(await evaluate(`document.documentElement.lang = 'de'; select('2'); backs()`)).toEqual(['r2:People|People', 'r3:Done|Done', 't2:|Favorites of everyone', 't3:Mine|Mine']);
+  // In another language the Back control's words stay and are its name; the bar's word is not said, so with no
+  // control the arrow is alone, named by the title beneath, as it is in English after "Back to".
+  expect(await evaluate(`document.documentElement.lang = 'de'; select('2'); backs()`)).toEqual(['r2:|People', 'r3:Done|Done', 't2:|Favorites of everyone', 't3:Mine|Mine']);
   expect(await evaluate(`(b => [b.lastChild.hidden, b.hidden])(document.querySelector('#t2 > header').shadowRoot.querySelector('button'))`)).toEqual([true, false]);
   for (const lang of ['en-GB', 'EN', '']) expect([lang, await evaluate(`document.documentElement.lang = ${JSON.stringify(lang)}; select('2'); backs()`)]).toEqual([lang, english]);
 }), 60000);

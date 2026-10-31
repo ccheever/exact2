@@ -278,11 +278,6 @@
      (agent-input.js `viewBox`), where the hit is the header holding it: the driver's check that no ancestor takes the
      press (scripts/agent.mjs, the tap's `why`) passes such a hit only for a target with `pointer-events: none`. */
   #exact-root [data-exact-bar-back] { display: none !important; pointer-events: none; }
-  /* The Back a route's bar draws (navigation.js), chevron and words, is its navigation root's accent. UIKit tints its
-     Back with the tint its navigation controller's view inherits from the navigation root's node, which holds that view
-     (NavigationIOS.swift): the accent that node or one around it says (SystemColor.swift `applyAccentTint`), else the
-     app's (AppAccentIOS.swift). An accent a route or its header says does not reach it, as none reaches UIKit's bar. */
-  #exact-root [navigationBack] { --exact-bar-accent: var(--exact-accent, AccentColor); }
   /* A dialog's padding is its author's (LLP 1115.000 D4.14): the user agent's own `1em` is a box the kernel does not
      know, so a plain `dialog` has none; the alert's is the page's, below. */
   :where(#exact-root dialog) { padding: 0; }

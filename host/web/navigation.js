@@ -140,11 +140,11 @@ export function historyURL(path) { // (exported for its test)
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 /** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not: the route's own, else one in no route at all (a header the routes share), as iOS resolves it (NavigationBack.control); another route's is that route's. */
 const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) ?? [...nav.ownerDocument.querySelectorAll(`[id="${CSS.escape(name)}"]`)].find(control => [null, nav].includes(control.closest("[navigationKey]"))) ?? null : undefined;
-// @ref LLP 1116.000 D4 — a pushed route's bar draws Back as iOS draws UIKit's (NavigationBarIOS.swift `projectBack`),
-// with no Back control too: not on a stack's root, a sheet (whose Cancel is its Back) or a route with no bar, nor for a
-// disabled control or one the author made inert. A control that is an item of the bar iOS makes of its header is pressed
-// through it and not shown (index.html). The button is the header's shadow root's, before its slot, so the header's children stay the renderer's.
-const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-bar-accent,var(--exact-accent,AccentColor));cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.13;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15.35 5 8 12l7.35 7"/></svg><span></span></button><slot></slot>`;
+// @ref LLP 1116.000 D4, LLP 1115.000 D4.14 — a pushed route's bar draws a web Back (an arrow and "Back", or the control's
+// words) where iOS draws UIKit's (NavigationBarIOS.swift `projectBack`), with no Back control too; not on a stack's root,
+// a sheet, a route with no bar, or for a disabled or inert control. An item of the bar iOS makes of its header is pressed
+// through it and not shown (index.html). The button is the header's shadow root's, before its slot.
+const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:6px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}svg{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="4 4 16 16" aria-hidden="true"><path d="M19 12H5m6-6-6 6 6 6"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
 const authored = '[data-exact-said~="appearance"]'; // a header or a node in one whose author wrote `appearance: none` (element.rs)
 // @ref LLP 1153 D8 — a route's header holding a `nav` anywhere (a popover's too), or more than one link outside a `popover` or `dialog` in it (a menu's links are its button's, as an app bar's are), is a site's, marked `data-exact-site`: drawn as written (index.html, neutral.css), as one whose author wrote `appearance: none` is, it is no app bar and holds no Back. document_bars.rs `site_header` is the Rust renderer's rule.
@@ -215,7 +215,7 @@ function appBarBack(nav, routes, index, split, shown) {
   if (button) button.hidden = !drawn || (control?.matches(":disabled") && !nav.closest('[aria-busy="true"]')) || route.contains(inertAncestor(control)?.parentElement ?? null);
   if (!button || button.hidden) return;
   const words = control ? control.textContent.trim() : titleOf(routes[index - 1]), english = /^en\b/i.test(document.documentElement.lang || "en");
-  const label = words.length <= 14 && (words || control) ? words : english ? "Back" : "", name = control ? control.getAttribute("aria-label") || words || "Back" : !english ? words || "Back" : label === "Back" ? label : `Back to ${label}`;
+  const label = control ? (words.length <= 14 ? words : english ? "Back" : "") : english ? "Back" : "", name = control ? control.getAttribute("aria-label") || words || "Back" : !english ? words || "Back" : words ? `Back to ${words}` : "Back";
   button.lastChild.hidden = !label;
   if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
   if (button.getAttribute("aria-label") !== name) button.setAttribute("aria-label", name);

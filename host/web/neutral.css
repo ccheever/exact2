@@ -337,9 +337,9 @@
 
   /* A route's `header` is a plain bar: the page's ground, opaque, over a 1 px line, in the label's ink whatever the
      page's `color` (its own, written, wins). Its title is the route's heading at its level's size; nothing collapses.
-     A button nobody styled is the bar's: no outline, and the Back button the bar draws is one of them, though in its
-     navigation root's accent, as UIKit tints its Back (index.html). A header drawn as written, a site's
-     (`data-exact-site`) or one that says `appearance: none`, is no bar here or in a sheet (LLP 1153 D8). */
+     A button nobody styled is the bar's: no outline, and the Back button the bar draws (navigation.js) is one of
+     them, in the bar's ink (D4.14). A header drawn as written, a site's (`data-exact-site`) or one that says
+     `appearance: none`, is no bar here or in a sheet (LLP 1153 D8). */
   :where(#exact-root [navigationkey] > header:where(:not([data-exact-site], [data-exact-said~="appearance"]))) { background-color: var(--exact-background); backdrop-filter: none; box-shadow: none; border-bottom: 1px solid var(--exact-separator); color: var(--exact-label); }
   /* A level-1 heading in a route's bar stands where iOS draws its large title, in a bar that collapses as the page
      scrolls. The web's bar never collapses, so the title keeps its level's size (`title1`, LLP 1115 D3) and takes at
