@@ -31,6 +31,33 @@ The coordinator owns core pairing and persistence acceptance, this handoff,
 shared workspace layout, Root and the manifest. Shared transport, cache,
 generator and framework edits require coordination before implementation.
 
+The Mini's normal development iOS bundle from `22e5f5c807` builds and signs with
+`--no-install`. Its 90 files pass deep strict signature verification; all 3,289
+recorded source inputs match. C ABI 18, TypeScript runtime 7 and native ABI 3
+are unchanged. The builder's simulator module-roster probe passes, but no app
+launch or connected acceptance has occurred on the Mini. The bundle and raw
+receipts are local to this worktree under `examples/t3-code/target/` and
+`target/t3-mini-coordinator/evidence/normal-artifact.json`.
+
+EAS device opening refuses with "No EAS project to run the session under."
+The owner must select the existing `@exponathan/t3-code` project for the EAS
+host in T3 Settings. No device session was opened. The private ordinary-mobile
+pairing request timed out; obtain a fresh grant after association, through the
+authorized owner flow and private secret card. Do not retry the failed target
+before its setup changes or add an app-config workaround. Real Duo discovery
+also remains unavailable through T3 tools; neither worker has driven a Duo.
+
+Conversation's bounded Markdown reuse unit is draft
+[PR1190](https://github.com/ccheever/exact2/pull/1190), commit `43d669d337`.
+Its 136 focused tests, strict application TypeScript and caps pass. A changed-source
+native build and drive remain pending. Automatic older-history paging is the
+next separately approved unit; resident history bounds, native storage and
+selection retention remain open. Home's narrow spacing/separator patch has a
+signed Release build and 185 passing focused tests, with native interaction
+pending. Home also owns the original Release bundle at the shared reference
+pin below. Serialize follow-up builds and full suites after its existing root
+checks drain. Neither worker claims measured performance or native parity.
+
 The HTTPS core-acceptance delegate was interrupted before its device launch.
 Its retained receipt contains artifact verification and a CLI help command,
 not pairing or connected acceptance. The task is cancelled and must not be
@@ -73,8 +100,9 @@ The existing HTTPS origin is `https://prod-c4cb6b5152362498.t3coderelay.com`.
 It was found in current server logs and verified with system TLS validation.
 Its public descriptor returns HTTP 200 for MacBook Pro,
 `fb57350b-ce98-48b3-a812-df134e42156c`, protocol 2, server
-`0.1.6-nightly.20261030.3917`. The fresh EAS iPhone also loads that descriptor
-in Safari and displays the same identity. This proves network reachability,
+`0.1.6-nightly.20261030.3917`. The Mini freshly verifies the same descriptor
+with system curl and TLS validation. The prior EAS iPhone also loaded it in
+Safari and displayed the same identity. This proves network reachability,
 not app authentication. No new tunnel, exposure or credential was created.
 Normal app pairing and connected acceptance remain next. Route and normal-app
 evidence are under `target/t3-poc-evidence/ios-focus-20261031/`.
