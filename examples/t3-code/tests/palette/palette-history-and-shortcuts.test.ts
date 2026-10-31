@@ -12,8 +12,8 @@ import { keybindingDefaults } from '../../src/settings/keybinding-settings';
 import { parseWhen } from '../../src/settings/keybinding-view';
 import { keyboardDispatch, type DispatchContext } from '../../src/shell/keyboard-dispatch';
 import { newThreadInItems, rootActions } from '../../src/palette/palette';
-import { contractComponent, contractSource, type Env } from '../support/contract-action-fixture';
-import { APP } from '../support/app-files';
+import { contractComponent, type Env } from '../support/contract-action-fixture';
+import { appText, APP } from '../support/app-files';
 import { primaryAt, primaryOff, resetPrimary } from '../support/local-primary-fixture';
 
 const root = contractComponent('app.contract', 'T3Code');
@@ -28,7 +28,7 @@ test('the action fixture assembles relative same-owner members in listing order'
     writeFileSync(join(dir, 'feature', 'part.contract'), `use Shape from "../shape.contract"\n\nmembers Sample\n${member}fn unrelated(): number = 0\n`);
     writeFileSync(join(dir, 'entry.contract'), `component Sample\n${before}  members "./feature/part.contract"\n${after}component Other\n  state excluded = true\n`);
     const file = relative(APP, join(dir, 'entry.contract'));
-    expect(contractSource(file)).toBe(`component Sample\n${before}${member}${after}component Other\n  state excluded = true\n`);
+    expect(appText(file)).toBe(`component Sample\n${before}${member}${after}component Other\n  state excluded = true\n`);
     const component = contractComponent(file, 'Sample');
     const state = component.state();
     expect(state).toEqual({ count: 1, other: 0 });
@@ -43,7 +43,7 @@ test('the action fixture assembles relative same-owner members in listing order'
     component.call('outer', state, scope, []);
     expect(state).toEqual({ count: 3, other: 9 });
     writeFileSync(join(dir, 'feature', 'part.contract'), 'members Other\n  state other = 0\n');
-    expect(() => contractSource(file)).toThrow('no members Sample');
+    expect(() => appText(file)).toThrow('no members Sample');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

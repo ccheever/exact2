@@ -4,7 +4,8 @@
 // (reference 1e2ecbd975 dialog-styles.ts, duration-200), so an assistive press on Cancel or Confirm (AXPress, VO-Space)
 // never leaves the focus on a destroyed button. Run with the Contract action semantics of contract-action-fixture.ts.
 import { describe, expect, test } from 'bun:test';
-import { contractSource, contractComponent, type Env } from '../support/contract-action-fixture';
+import { contractComponent, type Env } from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 
 describe('a removal asked from a focused Remove gives the focus away before its dialog goes', () => {
   const root = contractComponent('app.contract', 'T3Code');
@@ -27,7 +28,7 @@ describe('a removal asked from a focused Remove gives the focus away before its 
       expect(calls).toEqual([`focus:${target}`, `close:${accept}`]);
       expect(state.confirmHanding).toBe('');
     }
-    const app = contractSource('app.contract');
+    const app = appText('app.contract');
     expect(app).toContain('  task confirmHand when confirmHanding != "" key=confirmHanding\n    after(200, confirmHanded)\n');
   });
 

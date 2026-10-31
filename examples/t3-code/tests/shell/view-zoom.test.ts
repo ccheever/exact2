@@ -4,8 +4,8 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { contractFns } from '../support/contract-fn-fixture';
-import { contractSource, contractComponent } from '../support/contract-action-fixture';
-import { appPath } from '../support/app-files';
+import { contractComponent } from '../support/contract-action-fixture';
+import { appText, appPath } from '../support/app-files';
 
 const { zoomFactor } = contractFns('src/settings/settings-shortcuts.contract') as unknown as { zoomFactor: (step: number) => number };
 
@@ -19,7 +19,7 @@ describe('View zoom', () => {
     const source = readFileSync(appPath('src/settings/settings-shortcuts.contract'), 'utf8');
     for (const chord of ['"Meta+0"', '"Meta+="', '"Meta+-"']) expect(source).toContain(chord);
     expect(source).toMatch(/button -exact-menu="none" press=zoomKey\("meta\+shift\+=", min\(17, step \+ 1\)\) aria-keyshortcuts=\(taken.includes\("meta\+shift\+="\) \? "" : "Meta\+Shift\+="\)/);
-    const root = contractSource('app.contract');
+    const root = appText('app.contract');
     expect(root).toContain('setRootFontSize((data.look.fontSize > 0 ? data.look.fontSize : 16) * zoomFactor(zoomStep))');
     expect(root).toContain('task rootFont key=`${data.look.fontSize}|${zoomStep}`');
   });

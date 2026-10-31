@@ -1,7 +1,8 @@
 // The root's external open (app.contract externalOpen): the data module outlives View › Reload, which boots the plan
 // again, so the serial standing at the first answer is the boot's baseline and the last link does not open again.
 import { expect, test } from 'bun:test';
-import { contractSource, contractComponent, type Env } from '../support/contract-action-fixture';
+import { contractComponent, type Env } from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 
 test('a reload takes the standing serial as its baseline; only a newer one opens', () => {
   const root = contractComponent('app.contract', 'T3Code');
@@ -12,7 +13,7 @@ test('a reload takes the standing serial as its baseline; only a newer one opens
   expect(state.externalOpenFrom).toBe(4);
   root.call('openExternalUrl', state, scope(5, 'https://example.com/next'), []);
   expect(opened).toEqual(['https://example.com/next']);
-  const source = contractSource('app.contract');
+  const source = appText('app.contract');
   expect(source).toContain('task externalOpenBaseline when externalOpenFrom < 0 and data.revision > 0');
   expect(source).toContain('task externalOpen when externalOpenFrom >= 0 and data.externalOpen.serial > externalOpenFrom key=data.externalOpen.serial');
 });

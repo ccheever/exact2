@@ -4,7 +4,6 @@
 // The clone's own rows: the reference has no host tests for these cases. The lifecycle is BrowserRecordings
 // (browser-recording.test.ts ports its tests) over a fake RecordingHost; then the window's queued sends every
 // long-lived piece of browser work runs in.
-import { contractSource } from '../support/contract-action-fixture';
 import { describe, expect, it } from 'bun:test';
 import {
   BrowserRecordings, PreviewAutomationRecordingDeadlineExpiredError, PreviewAutomationRecordingTooLargeError, PreviewAutomationRecordingTransferError,
@@ -16,7 +15,7 @@ import { surfaceLocal, surfaceStore } from '../../src/panel/panel-surfaces';
 import { adoptCaptureNative } from '../../src/browser/browser-capture';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
-import { appPath } from '../support/app-files';
+import { appText, appPath } from '../support/app-files';
 
 const STARTED_AT = '2026-10-11T12:00:00.000Z';
 function fakeRecordings(options: { size?: number } = {}) {
@@ -260,7 +259,7 @@ describe('the window\'s queued sends for long-lived browser work', () => {
   });
 
   it('is one of the window\'s four queued sends, the one the panel names, asked whenever the panel\'s serial passes the one it handled', () => {
-    const app = contractSource('app.contract').split('\n');
+    const app = appText('app.contract').split('\n');
     const at = (text: string) => app.findIndex(line => line.trimStart().startsWith(text));
     for (let slot = 0; slot < RECORDING_SENDS; slot++) expect(app[at(`mutation automationRecordingServed${slot} `)]).toContain('as shape Change queue refreshes data');
     expect(at(`mutation automationRecordingServed${RECORDING_SENDS} `)).toBe(-1);

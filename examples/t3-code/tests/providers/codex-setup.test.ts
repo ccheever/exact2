@@ -3,7 +3,6 @@
 // setup's requests, a test renders by asking for the view (Settings › Providers, the welcome card,
 // the Add ChatGPT account dialog) and presses by sending the op its button sends. The snapshot
 // answer's effects run as `codexSetupPrepare`. No OpenAI account is involved.
-import { contractSource } from '../support/contract-action-fixture';
 import { describe, expect, test } from 'bun:test';
 import { obj, str, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
@@ -12,7 +11,7 @@ import { providerSetupEvent, watchProviderSetup } from '../../src/providers/prov
 import { codexFlow, codexSetupView, readCodexSetupMode } from '../../src/providers/codex-setup';
 import { codexSetupOp, codexSetupPrepare, RECEIVE_FAILED, type CodexContext } from '../../src/providers/codex-setup-ops';
 import { codexHandoffEvent } from '../../src/providers/codex-handoff-events';
-import { appPath } from '../support/app-files';
+import { appText, appPath } from '../support/app-files';
 import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 const instanceId = 'codex_personal';
@@ -296,7 +295,7 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     expect(ids.length).toBeGreaterThanOrEqual(5);
     expect(ids.filter(value => !/\$\{(?:setup\.)?instanceId\}/.test(value) && !/=""$/.test(value))).toEqual([]);
     // Only an added provider becomes the page's selection; the ChatGPT account create is "provider" (or "provider-close" on the welcome).
-    const app = contractSource('app.contract');
+    const app = appText('app.contract');
     expect(app.match(/providerSelected = providerCreated/g)).toHaveLength(1);
     expect(app).toContain('if pendingModal == "provider-add" or pendingModal == "provider-add-local"\n            providerDialog = pendingModal == "provider-add-local" ? "" : wizardManual or wizardDriver == "acpRegistry" ? providerDialog : ""\n            providerSelected = providerCreated');
     expect(app).toContain('(op == "provider-chatgpt" and welcome.show) ? "provider-close" : "provider")');

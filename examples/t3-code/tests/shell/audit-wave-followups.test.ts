@@ -4,7 +4,7 @@
 // command palette over Settings closes only the palette. Reference: T3 Code 1e2ecbd975 (ChatView.tsx isDraftHeroState,
 // MessagesTimeline.tsx, rightPanelStore.ts, FilePreviewPanel.tsx with DiffCommentAnnotation, ProviderSettingsPanel.tsx's
 // keyed content, useEscapeToGoBack). The keys and the layout are checked by driving the app on macOS.
-import { contractSource } from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { snapshot } from '../../src/client/presentation';
@@ -13,7 +13,7 @@ import type { Files, Native } from '../../src/client/protocol';
 import { panelState, panelView, surfaceLocal } from '../../src/panel/panel-surfaces';
 import { adoptHostLocale, currentTimestampLocale } from '../../src/shared/timestamp-format';
 
-const source = (file: string) => contractSource(file);
+const source = (file: string) => appText(file);
 
 const appTs = 'import { answer } from "./answer";\n\nexport function hello(name: string): string {\n  return `Hello, ${name}`;\n}\n';
 function harness() {

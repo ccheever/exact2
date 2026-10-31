@@ -14,7 +14,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
-import { contractSource, contractComponent, type Env } from '../support/contract-action-fixture';
+import { contractComponent, type Env } from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 import { contractFn } from '../support/contract-fn-fixture';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { sidebarSnapshot } from '../../src/sidebar/sidebar-view';
@@ -23,7 +24,7 @@ import { branchPullRequest, fallbackReference, syncBranchPullRequests } from '..
 import { archiveCommand, archiveConfirmation } from '../../src/settings/settings-a-archive';
 import { sidebarCommand } from '../../src/sidebar/sidebar-commands';
 
-const source = (file: string) => contractSource(file);
+const source = (file: string) => appText(file);
 
 // ---- The window's hover over a row, its controls and their tips ----
 const windowHalf = contractComponent('app-window.contract', 'T3Window');

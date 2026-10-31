@@ -9,8 +9,7 @@
 // `else` arms around it hold (legacy-sidebar-full.test.ts runs the legacy rows' hover and focus through it, as the host
 // delivers them).
 import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { appPath } from './app-files';
+import { appPath, appText } from './app-files';
 
 export type Env = Record<string, unknown>;
 type Node = { line: string; body: Node[] };
@@ -163,29 +162,9 @@ function uncommented(line: string): string {
   return line;
 }
 
-/** Members join their component at the listing, with paths relative to the listing file. */
-export function contractSource(file: string): string {
-  const path = appPath(file);
-  let owner = '';
-  return readFileSync(path, 'utf8').split('\n').flatMap(line => {
-    const component = /^component (\w+)$/.exec(line);
-    if (component) owner = component[1]!;
-    const listing = /^  members "([^"]+)"(?:\s*\/\/.*)?$/.exec(line);
-    if (!listing) return [line];
-    const memberPath = resolve(dirname(path), listing[1]!);
-    const source = readFileSync(memberPath, 'utf8').split('\n');
-    const from = source.indexOf(`members ${owner}`);
-    if (!owner || from < 0) throw new Error(`${memberPath}: no members ${owner}`);
-    const to = source.findIndex((text, i) => i > from && /^\S/.test(text) && !text.startsWith('//'));
-    const body = source.slice(from + 1, to < 0 ? undefined : to);
-    if (to < 0 && body.at(-1) === '') body.pop();
-    return body;
-  }).join('\n');
-}
-
 /** `component name` of `file`: its assembled state, actions and derives. */
 export function contractComponent(file: string, name: string) {
-  const source = contractSource(file).split('\n');
+  const source = appText(file).split('\n');
   const from = source.indexOf(`component ${name}`);
   if (from < 0) throw new Error(`${file}: no component ${name}`);
   const to = source.findIndex((line, i) => i > from && line.startsWith('component '));

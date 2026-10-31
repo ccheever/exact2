@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { contractSource, contractComponent, value } from '../support/contract-action-fixture';
+import { contractComponent, value } from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 import { documentShortcutCommand } from '../../src/timeline/inline-document-shortcuts';
 
 const root = contractComponent('app.contract', 'T3Code');
@@ -20,7 +21,7 @@ test('a configured guest sidebar key invokes the existing button operation witho
 });
 
 test('inert guest messages cannot bypass global confirmations or preview overlays', () => {
-  const source = contractSource('app.contract');
+  const source = appText('app.contract');
   const expression = /^  derive inlineDocumentKeysBlocked = (.+)$/m.exec(source)![1]!;
   const base = { sshPrompt: { open: false }, confirmOp: '', data: { serverUpdate: { confirmTitle: '' }, updateEverything: { confirm: false }, composerImagePreview: [], messages: [{ inlineDocuments: [] }] }, shell: { panel: { deviceSetup: false }, composerFile: { open: false } } };
   expect(value(expression, base)).toBe(false);

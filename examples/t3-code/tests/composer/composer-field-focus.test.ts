@@ -1,8 +1,9 @@
 import {describe, expect, test} from 'bun:test';
-import {contractSource, contractComponent, value, type Env} from '../support/contract-action-fixture';
+import {contractComponent, value, type Env} from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 
 const root = contractComponent('app.contract', 'T3Code');
-const lines = contractSource('app.contract').split('\n');
+const lines = appText('app.contract').split('\n');
 const derived = lines.find(line => line.startsWith('  derive composerFieldFocusCurrent = '))!.split(' = ')[1]!;
 const task = lines.find(line => line.startsWith('  task composerFieldRestoreFocus when '))!;
 const admission = task.slice(task.indexOf(' when ') + 6, task.lastIndexOf(' key='));

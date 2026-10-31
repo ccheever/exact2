@@ -26,8 +26,8 @@ import { STAGED } from '../../src/composer/composer-attach-stage';
 import { threadOps } from '../../src/client/client-ops-threads';
 import type { OpOut } from '../../src/client/client-ops';
 import { terminalUiStore } from '../../src/terminal/terminal-ui-state';
-import { contractSource, contractComponent, value, type Env } from '../support/contract-action-fixture';
-import { appPath } from '../support/app-files';
+import { contractComponent, value, type Env } from '../support/contract-action-fixture';
+import { appText, appPath } from '../support/app-files';
 import { acceptComposerEdit, observeComposer } from '../support/composer-field-fixture';
 import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
@@ -492,7 +492,7 @@ describe('a thread change focuses the composer (ChatView\'s effect on activeThre
     const { client, native } = rig();
     terminalUiStore(client).getState().setTerminalOpen({ environmentId: 'local', threadId: 'thread-2' }, true);
     expect(await sidebarCommand(client, native, files, 'legacy-pr', 'thread-2', '')).toBe('sidebar:opened');
-    const app = contractSource('app.contract');
+    const app = appText('app.contract');
     expect(app).toContain('if result.message.startsWith("sidebar:opened")');
     expect(app).toContain('if result.message == "sidebar:opened:focus"\n            focus("composer")');
   });
@@ -889,7 +889,7 @@ describe('row drop ownership during an environment handoff', () => {
 
 describe('mounted initial focus survives late thread-open completion', () => {
   const source = readFileSync(appPath('legacy-sidebar.contract'), 'utf8');
-  const root = contractSource('app.contract');
+  const root = appText('app.contract');
   const guard = root.split('\n').find(line => line.trim().startsWith('if result.message.startsWith("focus:")'))!.trim().slice(3).split(' //')[0]!;
   for (const title of ['Branch work', '한글🙂']) test(`rename selects the complete UTF-16 title once: ${title}`, () => {
     const component = contractComponent('dialog-trap.contract', 'FieldOpenSelect'), state = component.state();
@@ -928,7 +928,7 @@ describe('project identity is included in local and remote dialog copy', () => {
       const { client, native } = rig();
       if (remote) background([], [{ id: 'r1', title: 'solo', workspaceRoot: '/srv/solo' }]);
       const message = await sidebarCommand(client, native, files, 'legacy-project-choice', remote ? 'env-remote:/srv/solo' : 'github.com/acme/app', 'project-settings');
-      const root = contractSource('app.contract');
+      const root = appText('app.contract');
       const branch = root.split('\n').find(line => line.includes('if result.message') && (line.includes('sidebar:navigate') || line.includes('sidebar:project-settings:')))!.trim().slice(3);
       expect(value(branch, { result: { message }, data: { sidebar: { navigateKind: '', navigateProject: 'old-project' } } })).toBe(true);
       expect(message).toBe(`sidebar:project-settings:${remote ? 'fleet:env-remote:r1' : 'p1'}`);
@@ -944,7 +944,7 @@ describe('project identity is included in local and remote dialog copy', () => {
 });
 
 describe('LEG-TIP: the root validates the rendered owner, including delayed tips without leave', () => {
-  const root = contractSource('app.contract');
+  const root = appText('app.contract');
   const owner = readFileSync(appPath('legacy-sidebar.contract'), 'utf8').split('\n').find(line => line.startsWith('fn legacyTipOwner('))!.split(' = ')[1]!;
   const valid = root.split('\n').find(line => line.startsWith('  derive hoverOwnerValid = '))!.split(' = ')[1]!;
   const shown = root.split('\n').find(line => line.startsWith('  derive hoverShown = '))!.split(' = ')[1]!;

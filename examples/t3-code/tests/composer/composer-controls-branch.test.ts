@@ -1,13 +1,12 @@
 // Lane composer-controls: the workspace / branch strip under the composer
 // (BranchToolbar, BranchToolbarBranchSelector, BranchToolbar.logic).
-import { contractSource } from '../support/contract-action-fixture';
 import { describe, expect, test } from 'bun:test';
 import { obj, str, type Obj } from '../../src/client/domain';
 import { composerBranches, sanitizeNewRefName, previousWorktree, stripShortcuts } from '../../src/composer/composer-controls-branch';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
 import { connected, thread } from '../support/composer-controls-fixture';
 import { toasts } from '../../src/shell/toast';
-import { appPath } from '../support/app-files';
+import { appText, appPath } from '../support/app-files';
 
 describe('workspace strip details', () => {
   test('a typed name is offered as a sanitized new ref, and Return picks the highlighted first item', async () => {
@@ -220,7 +219,7 @@ describe('one Run on and Workspace keyboard order', () => {
       ['cclocal:env-mode', '', 'worktree', 0], ['cclocal:env-mode', '', 'previous', 0]]);
     expect(workspace).not.toContain('focus(');
     expect(workspace).not.toContain('close(');
-    const app = contractSource('app.contract');
+    const app = appText('app.contract');
     expect(app).toContain('action menuCommand(op: string, id: string, value: string, n: number)\n    optionsOpen = ""\n    focus("composer")\n    if not commandPending\n      commandPending = true\n      send changed = command(op, id, value, n)');
   });
 });

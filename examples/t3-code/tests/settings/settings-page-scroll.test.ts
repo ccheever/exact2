@@ -4,10 +4,11 @@
 // scope search and the restore count (routes/settings.tsx SettingsContentLayout), so a new page mounts a scroller at
 // offset 0; the search jump then scrolls its target into view (scrollToSettingsTarget).
 import { describe, expect, test } from 'bun:test';
-import { contractSource, contractComponent, value, type Env } from '../support/contract-action-fixture';
+import { contractComponent, value, type Env } from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 import { settingsNavigation } from '../../src/settings/settings-search';
 
-const source = (file: string) => contractSource(file);
+const source = (file: string) => appText(file);
 const lines = (text: string, needle: string) => text.split('\n').filter(candidate => candidate.includes(needle));
 
 describe('a Settings page owns its scroller', () => {
@@ -25,7 +26,7 @@ describe('a Settings page owns its scroller', () => {
 
   test('a jump from another page lands on its row: the new page waits for its data, then the jump\'s offset wins over the reset', () => {
     const root = contractComponent('app.contract', 'T3Code');
-    const text = contractSource('app.contract');
+    const text = appText('app.contract');
     const derive = (name: string) => text.match(new RegExp(`^  derive ${name} = (.+)$`, 'm'))![1]!;
     const focused: string[] = [];
     const frames: Record<string, { x: number; y: number; width: number; height: number }> = {

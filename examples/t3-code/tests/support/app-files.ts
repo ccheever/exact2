@@ -2,8 +2,8 @@
 // or sweep them. Every file name under src/ and tests/ is unique, so a test names `composer.contract`
 // and appPath finds src/composer/composer.contract; a name with a slash is a path from the app's root
 // (`modules/apple/T3Composer.swift`).
-import { readdirSync, statSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 
 export const APP = join(import.meta.dir, '..', '..');
 
@@ -33,4 +33,24 @@ export function appPath(name: string): string {
 /** The names of the app's files: the root's, and every file under src/ and tests/. */
 export function appFiles(): string[] {
   return [...files().keys()];
+}
+
+/** Members join their component at the listing, with paths relative to the listing file. */
+export function appText(file: string): string {
+  const path = appPath(file);
+  let owner = '';
+  return readFileSync(path, 'utf8').split('\n').flatMap(line => {
+    const component = /^component (\w+)$/.exec(line);
+    if (component) owner = component[1]!;
+    const listing = /^  members "([^"]+)"(?:\s*\/\/.*)?$/.exec(line);
+    if (!listing) return [line];
+    const memberPath = resolve(dirname(path), listing[1]!);
+    const source = readFileSync(memberPath, 'utf8').split('\n');
+    const from = source.indexOf(`members ${owner}`);
+    if (!owner || from < 0) throw new Error(`${memberPath}: no members ${owner}`);
+    const to = source.findIndex((text, i) => i > from && /^\S/.test(text) && !text.startsWith('//'));
+    const body = source.slice(from + 1, to < 0 ? undefined : to);
+    if (to < 0 && body.at(-1) === '') body.pop();
+    return body;
+  }).join('\n');
 }

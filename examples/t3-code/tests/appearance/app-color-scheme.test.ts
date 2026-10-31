@@ -4,7 +4,6 @@
 // window's own, so a view that picked its palette from it drew the other palette whenever the two differed.
 // The root resolves one `scheme` and hands it down; these checks read the
 // Contract sources. The palettes themselves are checked by driving the app on macOS: a source read cannot see a colour.
-import { contractSource } from '../support/contract-action-fixture';
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
@@ -12,9 +11,9 @@ import { decodeClientPrefs } from '../../src/settings/settings-core';
 import { settingsCore } from '../../src/settings/settings-core-view';
 import { editorView, syncDraft } from '../../src/appearance/settings-appearance-editor';
 import type { CustomTheme } from '../../src/appearance/settings-themes';
-import { appFiles } from '../support/app-files';
+import { appText, appFiles } from '../support/app-files';
 
-const source = (file: string) => contractSource(file);
+const source = (file: string) => appText(file);
 const contracts = appFiles().filter(file => file.endsWith('.contract')).sort();
 const DERIVE = '  derive scheme = ';
 
