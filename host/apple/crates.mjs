@@ -8,7 +8,7 @@
  * `~/.cache/exact/apple-crates`, and a target directory that has compiled
  * nothing starts as a copy-on-write clone of what is kept.
  *
- * Nothing here decides whether a unit may be used: Cargo does, by the unit's
+ * Cargo decides whether a unit may be used, by the unit's
  * own fingerprint (compiler, profile, features, target, every crate under it)
  * and the order of its files' times, as it would had the directory been
  * moved. So what is kept is always one target directory's units, whole and
@@ -109,7 +109,18 @@ export function keptCrates({ root, env, profile }) {
           const here = resolve(target, dir);
           if (existsSync(here)) continue;
           clone(PARTS.map(part => resolve(kept, dir, part)).filter(existsSync), here);
-          for (const file of depInfo(here)) rewrite(resolve(kept, dir, file), resolve(here, file), TOKEN, target);
+          const invalid = new Set();
+          for (const file of depInfo(here)) {
+            const path = resolve(here, file);
+            rewrite(resolve(kept, dir, file), path, TOKEN, target);
+            const dep = readFileSync(path, 'utf8'), output = dep.slice(0, dep.indexOf(': '));
+            if (resolve(output) !== path) invalid.add(hashOf(file) ?? unitOf(file.split('/')[1])?.[2]);
+          }
+          // A copied unit may retain another target's output path. Removing its
+          // fingerprint makes Cargo regenerate the unit and its source evidence.
+          for (const unit of names(resolve(here, '.fingerprint'))) {
+            if (invalid.has(undefined) || invalid.has(unitOf(unit)?.[2])) rmSync(resolve(here, '.fingerprint', unit), { recursive: true, force: true });
+          }
           units += names(resolve(here, '.fingerprint')).length;
         }
         writeFileSync(stampOf(target), JSON.stringify({ from: newest, saw: {} }));
