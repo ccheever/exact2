@@ -151,6 +151,7 @@ shape ThreadSnapshot
   uncertain: bool
   hasMore: bool
   historyLoading: bool
+  historyRequest: string
   historyError: string
   readsNeeded: bool
   answerFilesOwner: string

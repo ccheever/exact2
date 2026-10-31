@@ -15,30 +15,24 @@ component ThreadFeed
     openSendingThread: action
     active: bool
     colors: ThreadColors
+  action loadEarlier
+    if active and data.hasMore and data.historyRequest != "" and not data.historyLoading and data.historyError == ""
+      action("chatlocal:history-auto", data.historyRequest, "")
   view
     if data.rows.length == 0
       column flex=1 min-height=0 align-items="center" justify-content="center" padding-left=(horizontalPadding + 24) padding-right=(horizontalPadding + 24) padding-bottom=bottomClearance
+        ThreadHistory(data=data, active=active, action=action, colors=colors)
         column max-width=320 align-items="center" gap=7
           text data.emptyTitle text-align="center" font-family="DM Sans" font-size=18 line-height="23px" font-weight=700 color=colors.foreground
           text data.emptyDetail text-align="center" font-family="DM Sans" font-size=14 line-height="21px" color=colors.secondary
     else
       column flex=1 min-height=0 justify-content="flex-end"
-        list id="thread-feed" max-height="100%" min-height=0 virtualized=true estimated-item-height=180 scroll-start="end" scrollFollowEnd=true
+        list id="thread-feed" max-height="100%" min-height=0 virtualized=true estimated-item-height=180 scroll-start="end" scrollFollowEnd=true reachstart=loadEarlier reach-margin="100%"
           padding-left=horizontalPadding padding-right=horizontalPadding testId="thread-feed"
           for row in data.rows key=row.id
             column padding-top=(row.first ? 12 : 0) padding-bottom=(row.last ? bottomClearance : 0) font-family="DM Sans"
-              if row.first and (data.hasMore or data.historyError.length > 0)
-                column align-items="center" gap=5.25 margin-bottom=10.5 padding-left=7 padding-right=7
-                  if data.hasMore
-                    button press=action("chatlocal:history", "", "") disabled=data.historyLoading
-                      min-height=31.5 border-radius=9999 border-width=1 border-style="solid" border-color=colors.border
-                      background-color=colors.subtle padding-left=14 padding-right=14 padding-top=7 padding-bottom=7
-                      aria-label="Load earlier activity" testId="thread-history"
-                      row align-items="center" gap=7
-                        t3-symbol symbol-name="chevron.up" symbol-weight="regular" symbol-tint=colors.primary width=12 height=12
-                        text (data.historyLoading ? "Loading earlier activity…" : "Load earlier activity") font-size=14 line-height="19px" font-weight=500 color=colors.foreground
-                  if data.historyError.length > 0
-                    text data.historyError text-align="center" font-size=13 line-height="17px" color=colors.iconSubtle
+              if row.first
+                ThreadHistory(data=data, active=active, action=action, colors=colors)
               if data.queued and not data.queuedFailed and row.first
                 column gap=7 padding=12 margin-bottom=12 border-radius=14 background-color=colors.subtle testId="outbox-status"
                   text data.queuedStatus font-size=14 line-height="19px" font-weight=500 color=colors.foreground
@@ -48,6 +42,33 @@ component ThreadFeed
                     button press=action("outbox:retry", data.queuedOwner, "") padding=7 aria-label="Retry pending task" testId="outbox-retry"
                       text "Retry" font-size=14 line-height="19px" font-weight=500 color=colors.primary
               ThreadMessage(row=row, workWidth=workWidth, userBubbleMaxWidth=userBubbleMaxWidth, action=action, openMedia=openMedia, openSendingThread=openSendingThread(data.environmentId, data.threadId), active=active, colors=colors)
+
+component ThreadHistory
+  props
+    data: ThreadSnapshot
+    active: bool
+    action: action
+    colors: ThreadColors
+  action observe(key: string, entry: IntersectionObserverEntry)
+    if entry.isIntersecting and active and key == data.historyRequest and key != "" and not data.historyLoading and data.historyError == ""
+      action("chatlocal:history-auto", key, "")
+  action retry
+    if active and data.historyRequest != "" and not data.historyLoading and data.historyError != ""
+      action("chatlocal:history-retry", data.historyRequest, "")
+  view
+    if data.hasMore or data.historyError != ""
+      column position="relative" align-items="center" gap=5.25 margin-bottom=10.5 padding-left=7 padding-right=7
+        if active and data.historyRequest != "" and data.historyError == ""
+          for key in [data.historyRequest] key=key
+            view width=1 height=1 pointer-events="none" aria-hidden=true intersect=observe(key) intersect-margin="100% 0px"
+        if data.historyError != ""
+          text data.historyError text-align="center" font-size=13 line-height="17px" color=colors.iconSubtle
+          button press=retry disabled=(not active or data.historyLoading or data.historyRequest == "") min-height=31.5 padding=7 aria-label="Retry loading earlier activity" testId="thread-history-retry"
+            text "Retry" font-size=14 line-height="19px" font-weight=500 color=colors.primary
+        else if data.historyLoading
+          row align-items="center" gap=7 aria-label="Loading earlier activity"
+            t3-archive-spinner spinner-tint=colors.iconSubtle width=16 height=16
+            text "Loading earlier activity…" font-size=13 line-height="17px" color=colors.iconSubtle
 
 component ThreadMessage
   props

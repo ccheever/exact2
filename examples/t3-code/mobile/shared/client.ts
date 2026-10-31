@@ -106,6 +106,11 @@ export class T3Client {
   private refreshEpoch = 0;
   private commandEpoch = 0;
   // Mobile history ownership begin: no native handle, promise or transcript graph.
+  historyEpoch = 0;
+  private historyRequest: { identity: string; visit: string; visitCurrent: () => boolean } | null = null;
+  private historyIdentity(): string {
+    return JSON.stringify([this.origin, this.environmentId, this.generation, this.threadId, this.threadEpoch, this.thread?.historyCursor]);
+  }
   private threadOpening: { id: string; environment: string; origin: string; generation: number; epoch: number } | null = null;
   private openingThread(id = this.threadId): boolean {
     const opening = this.threadOpening;
@@ -690,6 +695,8 @@ export class T3Client {
     if (!local) {
       if (this.busy && this.pending) this.pending.uncertain = true;
       this.busy = true;
+      this.historyRequest = null;
+      this.historyEpoch++;
       this.historyLoading = false; this.diffLoading = false;
       native = this.ownedNative(native, () => epoch === this.commandEpoch);
     }
@@ -941,14 +948,30 @@ export class T3Client {
     if (op === 'delete-archived-thread') delete this.local.drafts[`${this.environmentId}:${id}`];
   }
 
-  async history(native: Native): Promise<void> {
-    if (!this.thread?.hasMore || !this.thread.historyCursor || this.historyLoading) return;
-    const epoch = this.threadEpoch, id = this.threadId, cursor = this.thread.historyCursor;
-    this.historyLoading = true;
+  async history(native: Native, visit = '', visitCurrent = () => true): Promise<string[] | null> {
+    if (!this.thread?.hasMore || !this.thread.historyCursor || !visitCurrent()) return null;
+    const identity = this.historyIdentity();
+    if (this.historyLoading && this.historyRequest?.identity === identity
+      && this.historyRequest.visit === visit && this.historyRequest.visitCurrent()) return null;
+    const token = { identity, visit, visitCurrent }, id = this.threadId, cursor = this.thread.historyCursor, generation = this.generation;
+    const current = () => this.historyRequest === token && this.historyIdentity() === identity && visitCurrent();
+    this.historyRequest = token; this.historyLoading = true;
     try {
-      const page = await this.http(native, `/api/orchestration/threads/${encodeURIComponent(id)}/history?cursor=${encodeURIComponent(cursor)}`);
-      if (epoch === this.threadEpoch && id === this.threadId && this.thread?.historyCursor === cursor) this.thread = mergeHistory(this.thread, page);
-    } finally { this.historyLoading = false; }
+      const page = await this.http(this.ownedNative(native, current, true),
+        `/api/orchestration/threads/${encodeURIComponent(id)}/history?cursor=${encodeURIComponent(cursor)}`, generation);
+      if (!current() || !this.thread) throw new ClientError('This history read was superseded.', 'superseded');
+      const next = mergeHistory(this.thread, page);
+      if (next.hasMore && !next.historyCursor) throw new ClientError('Earlier activity returned an invalid page boundary.', 'protocol');
+      const added = arr(next.projection.visibleTurnItems).length - arr(this.thread.projection.visibleTurnItems).length;
+      this.thread = next;
+      return arr(next.projection.visibleTurnItems).slice(0, added).map(row => JSON.stringify([row.sourceThreadId, row.sourceItemId]));
+    } catch (error) {
+      if (letGo(error)) throw error;
+      if (!current()) throw new ClientError('This history read was superseded.', 'superseded');
+      throw error;
+    } finally {
+      if (this.historyRequest === token) { this.historyRequest = null; this.historyLoading = false; }
+    }
   }
 
 }
