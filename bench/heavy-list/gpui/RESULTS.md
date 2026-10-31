@@ -9975,3 +9975,33 @@ costs are not remeasured; their existing rows stand. D7, D11 and D15,
 including the dated boot and 100 ms application obligations, are unchanged.
 
 The final staged caps output is retained in `checks/caps-final.log`.
+
+## M10, cut 5: paint landed pictures on the display tick
+
+**Predictions before the run, 2026-10-31.** Cut 4's retained warm trace
+`target/m10-c4/silver/paired/ink-after-1-warm.json.trace.json` starts the
+display link only after the initial AppKit redraw. Its first `winit dispatch`
+is 95.880 ms after show; `display running` follows at 95.925 ms. The
+first paint has already finished at show +55.181 ms and the last decode
+at show +55.543 ms. No display tick can service that interval yet.
+
+Start the link before the first paint. Drain picture arrivals before painting
+on its tick, and permit one immediate successor during boot for arrivals
+that land during a paint. The successor uses the ordinary image-slot path;
+later arrivals remain damage for the next tick. The link's existing hidden
+and idle rules remain. Cuts 1–4, CPU handoff, D7, D11 and D15 remain.
+
+| Prediction | Instrument |
+| --- | --- |
+| Complete-frame commit about 165 ms warm, from 197.368 | Existing per-picture and presentation trace, `startup.py`; five confirmation and ten paired launches per arm and cache label |
+| First complete display 185–195 ms warm, from 218.772 | Same traced launches; the show +80 ms floor is about 181 ms |
+| Cold complete display 190–200 ms, below GPUI's 209.354 and egui's 218.137 | `measure.m` cold-only, ten launches per arm before and after, same order as cut 4; hook, trace and power off |
+| One zero callback, with cut 4's one or two repeats; latest frame repeated until positive display | Traced launches |
+| Zero changed first-screen content pixels; CPU-first handoff and live Metal/wgpu pass | Matching cut 4 backend captures, affected suites and functional drives |
+| Fling, rest and bar unchanged | One fling/rest and one bar sample per arm; hook, trace and power off, CPU clock counters retained |
+
+Before is cut 4's retained `35eea646e6` carrier. The lane rebased onto
+`origin/main` before implementation. All originals, including failures,
+remain under `target/m10-c5/` and its silver copy. Medians report successful
+n and qualification. One implementation and measurement round; no push.
+The six broad checks go to the Mac mini; affected suites and caps run here.
