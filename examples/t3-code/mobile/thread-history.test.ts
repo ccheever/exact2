@@ -40,6 +40,7 @@ describe('older-history request ownership', () => {
       path: '/api/orchestration/threads/thread/history?cursor=older' });
     f.page(0); expect(await pending).toEqual(['["thread","older-item"]']);
     expect(f.client.historyLoading).toBe(false);
+    expect(f.client.historyRevision).toBe(1);
     expect(f.client.thread).toMatchObject({ hasMore: false, historyCursor: null });
     expect(f.client.projection.visibleTurnItems.map((row: Obj) => obj(row.item).text)).toEqual(['Older content']);
   });
@@ -266,7 +267,7 @@ test('authored paging gates inactive views, rejects stale observations and isola
   data.historyError = 'Offline'; feed.call('loadEarlier', {}, scope, []); history.call('retry', {}, scope, []);
   expect(calls.at(-1)).toEqual(['chatlocal:history-retry', 'key', '']);
   const sent: string[] = [], rootScope = { data: { environmentId: 'env', threadId: 'thread' }, nav: {},
-    top: () => ({ id: 7, params: { threadEnvironment: 'env', threadId: 'thread' } }),
+    top: () => ({ id: 7, name: 'thread', params: { threadEnvironment: 'env', threadId: 'thread' } }),
     wallTime: { epochAtZero: 0 }, performanceNow: () => 1, taskGuardOwner: '', taskGuardRoute: '',
     pending: () => true, changed: {}, threadSubmissionChanged: {}, threadHistoryChanged: {},
     threadSubmission: { ordinary: true }, command: (...args: unknown[]) => args,
@@ -274,6 +275,13 @@ test('authored paging gates inactive views, rejects stale observations and isola
   root.call('threadAction', { lastOperation: '' }, rootScope, ['chatlocal:history-auto', 'key', '']);
   root.call('threadAction', { lastOperation: '' }, rootScope, ['stop', '', '']);
   expect(sent).toEqual(['threadHistoryChanged', 'changed']);
+  const anchorCalls: unknown[][] = [], anchorState = { historyAnchorKey: '', historyAnchorOffset: 0, historyAnchorRoute: '', historyAnchorRevision: 0 };
+  const anchorScope = { ...rootScope, threadData: { historyRevision: 0 }, scrollIntoView: (...args: unknown[]) => anchorCalls.push(args) };
+  root.call('threadHistoryScroll', anchorState, anchorScope, [0, 12, { firstVisibleKey: 'turn-03', firstVisibleOffset: 42 }]);
+  expect(anchorState).toMatchObject({ historyAnchorKey: 'turn-03', historyAnchorOffset: 42, historyAnchorRoute: '7', historyAnchorRevision: 0 });
+  anchorScope.threadData.historyRevision = 1;
+  root.call('didThreadHistoryChanged', anchorState, anchorScope, []);
+  expect(anchorCalls).toEqual([['thread-feed', 'turn-03', { offset: 42, behavior: 'instant' }]]);
 });
 
 test('history chrome describes active loading and disables retry while offline', () => {
