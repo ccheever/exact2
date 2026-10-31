@@ -9499,3 +9499,211 @@ already precede the device, runner, layout and display-link setup. No such
 work can be moved behind show here; creating before AppKit's launch callback
 would change winit's lifecycle ordering. This cut keeps that order and
 predicts no additional saving from an earlier show.
+
+**Paired result: a regression.** The qualified traced comparison makes Ink
+slower in every pair: +27.319 ms cold (12.018–47.087; n=10) and +28.148 ms
+warm (14.852–47.332; n=10). Warm complete screen is 241.785 ms, missing
+178 ms and the 170–190 ms range. The first displayed frame is still marked
+incomplete; reaching the probe’s image-readiness criterion costs another
+three refresh intervals in the warm cohort. No saving is
+funded. The one implementation round ends with this result.
+
+Confirmation uses five launches in each cold/warm cohort. Both cohorts
+qualify under cut 2’s per-launch rule; the two egui failures remain:
+
+| Arm | Cold complete ms (range; n) | Warm complete ms (range; n) |
+| --- | ---: | ---: |
+| ink-after | 231.432 (221.537–234.927; n=5) | 247.133 (232.401–258.571; n=5) |
+| gpui | 203.588 (194.885–214.864; n=5) | 207.640 (185.754–228.672; n=5) |
+| egui | 212.096 (208.695–216.142; n=4) | 218.277 (212.682–224.624; n=4) |
+
+The ten-round pairing retains all 120 attempts: 113 successes and seven
+egui readiness failures. The controls use the same executable in both
+positions. A paired difference uses only rounds with both originals:
+
+| Arm/cohort | Before complete ms (range; n) | After complete ms (range; n) | Paired after − before ms (range; n) |
+| --- | ---: | ---: | ---: |
+| ink cold | 208.183 (199.662–229.444; n=10) | 236.078 (228.672–253.761; n=10) | 27.319 (12.018–47.087; n=10) |
+| ink warm | 208.756 (205.846–224.701; n=10) | 241.785 (227.863–255.085; n=10) | 28.148 (14.852–47.332; n=10) |
+| gpui cold | 207.916 (196.038–214.663; n=10) | 205.576 (196.130–214.981; n=10) | -3.888 (-16.416–14.464; n=10) |
+| gpui warm | 201.040 (187.511–213.123; n=10) | 206.260 (196.352–215.376; n=10) | 9.802 (-11.126–15.768; n=10) |
+| egui cold | 212.414 (204.198–240.890; n=9) | 209.329 (199.532–219.831; n=9) | 0.006 (-24.433–14.128; n=8) |
+| egui warm | 213.511 (205.284–235.077; n=8) | 216.102 (203.686–236.229; n=7) | -5.621 (-15.473–21.412; n=6) |
+
+**Warm timeline, ten launches per carrier.** These are medians from the
+same paired cohort, in milliseconds from process start. Callback observation
+and the drawable’s displayed timestamp are distinct endpoints.
+
+| Milestone | Cut 2 before | Cut 3 after |
+| --- | ---: | ---: |
+| AppKit finished launching | 68.103 | 68.454 |
+| Window created | 90.018 | 91.709 |
+| Window show returned | 96.824 | 97.714 |
+| Runner first commit returned | 122.672 | 124.676 |
+| First layout completed | 123.935 | 126.062 |
+| First paint record | 126.888 | 128.650 |
+| First present committed | 152.390 | 157.016 |
+| Zero callback observed | 156.167 | 160.665 |
+| Display link started | 187.280 | 186.871 |
+| First display-link callback | 197.799 | 197.640 |
+| First retained-frame repeat | — | 198.276 |
+| First present committed after zero | 187.557 | 198.641 |
+| Next paint after zero | 185.671 | 221.988 |
+| First positive displayed time | 208.756 | 216.785 |
+| First positive callback observed | 209.052 | 217.086 |
+| Complete screen | 208.756 | 241.785 |
+| Complete callback observed | 209.040 | 242.065 |
+
+All thirty after launches (confirmation plus pairing) have **one zero
+callback, three repeats, then positive callbacks**. The two-to-ten-zero
+prediction misses. Each repeat acquires a drawable and encodes a compose
+copy. During those repeats there is no paint walk, scene encoding, text
+shaping, texture allocation, image upload or image decode. Every launch has
+one paint before the first positive callback and no repeat after it. All
+thirty report zero main-thread drawable acquisitions.
+
+The warm median within-launch zero-to-first-repeat interval is 36.686 ms
+(27.800–50.768). The display link does not start until the event loop’s
+`about_to_wait`; its first callback is late even though show remains early.
+The first displayed time is show +117.342 ms (110.043–132.849), not +85.
+Every warm after launch then takes 25.000 ms from first display to complete
+screen; across cold and warm the range is 25.000–33.333 ms. The first
+submission is marked incomplete. Its complete-marked successor waits for
+painting to resume while the already submitted copies drain.
+Cut 2’s redraw repaints and commits before its first display-link tick;
+cut 3 suppresses that redraw and starts copying only on the later tick.
+The traces establish these waits; they do not establish an 85 ms composite
+floor for this carrier. The show order did not change: its measured warm
+median moves 96.824 → 97.714 ms, with no earlier-show saving claimed.
+
+**Four-arm cold row.** `measure.m` runs cold-only with the probe GPU hook,
+trace and power sampler off. Each schedule has ten original attempts per
+arm. Both qualify. Native retains its snapshot criterion; the painted arms
+use displayed complete-screen timestamps. Processes are fresh; caches are
+retained, as in cut 2.
+
+| Arm | Before complete ms (range; n) | After complete ms (range; n) |
+| --- | ---: | ---: |
+| native | 250.616 (236.070–267.914; n=10) | 248.680 (234.345–267.701; n=10) |
+| gpui | 199.870 (191.749–209.196; n=10) | 204.925 (190.439–211.687; n=10) |
+| ink | 209.686 (200.681–215.664; n=10) | 244.322 (218.293–247.040; n=10) |
+| egui | 202.160 (196.389–218.292; n=8) | 214.842 (201.854–224.597; n=10) |
+
+Ink’s **244.322 ms** misses 180–188 ms. It is 39.397 ms slower than
+GPUI and 29.480 ms slower than egui, missing the predicted ≥10 ms lead.
+The before schedule retains two egui readiness failures (rounds 4 and 5);
+all forty after attempts succeed. Together with confirmation and pairing,
+the record has 230 attempts, 219 successes and eleven failed egui originals.
+None is replaced or removed.
+
+All launches pass ten quiet seconds before launch; all four cohorts retain
+a power-absent, error-free monitor record. During-launch maxima below are
+report-only. `target/m10-c3/launch-rows.md` gives every launch’s maxima and
+status; `silver/*/schedule.json` and `quiet.jsonl` retain their observations.
+
+| Cohort | Other busy cores, max | User-process cores, max | Whole-machine busy cores, max | Minimum quiet seconds |
+| --- | ---: | ---: | ---: | ---: |
+| confirm | 2.288 | 0.247 | 8.800 | 10.110 |
+| paired | 2.137 | 0.674 | 8.722 | 10.108 |
+| scoreboard-before | 2.090 | 0.306 | 8.129 | 10.118 |
+| scoreboard-after | 1.858 | 0.283 | 8.455 | 10.107 |
+
+**Predictions against results.**
+
+| Prediction | Result |
+| --- | --- |
+| Warm ≈178 ms, 170–190; show +85 | **Miss:** paired warm 241.785 ms; first display is show +117.342 ms, then the complete screen takes another 25.000 ms |
+| Cold 180–188 ms, ≥10 ms ahead of GPUI and egui | **Miss:** 244.322 ms; 39.397 ms behind GPUI and 29.480 ms behind egui |
+| Two to ten zero callbacks | **Miss:** exactly one in every one of the thirty traced after launches |
+| A drawable and compose copy per tick, no repaint, stopping after first positive | **Pass:** three ticks, three acquisitions and three copies per launch; no paint during them and no repeat after the positive callback |
+| Same pixels, CPU-first handoff and continuing live Metal/wgpu | Pixel suites and CPU handoff pass; both live devices draw and their captures are reviewed. No separate capture of the first dropped frame is compared |
+| Fling, rest and static unchanged | Not remeasured; the existing rows stand, with no new performance claim |
+| No additional saving from moving show earlier | Show ordering stays unchanged; there is no carrier setup to move out of the measured window-construction call |
+
+The passive startup checks pass for an archive miss, a retained archive and
+wgpu, each with zero main-thread drawable calls. On the archive miss the
+complete CPU screen displays at 185.387 ms and Ink at 318.720 ms. These are
+functional observations, not qualified startup medians. Live release
+Metal displayed frames advance 13 → 115 and wgpu 13 → 113; the development
+socket drive advances carrier frames 6 → 55 and 1 → 39 respectively, and
+both report painter `ink`. `boot-functional/validation.json`,
+`live-release/validation.json` and `live-dev/validation.json` are empty.
+The release captures and the development wgpu capture were inspected.
+D7, D11 and D15, including the dated boot and 100 ms application obligations,
+remain unchanged.
+
+**Implementation.** `a98e9b83f2` adds a generation-scoped zero-callback bit
+in `host/ink/src/device/apple.rs`. `host/apple-painted/src/window.rs`
+retains the first submitted frame and repeats it on ticks after that bit is
+set, stopping at the first positive callback. Paint and painter handoff wait
+until then; resource service continues. An actual resize or an agent
+operation that can change pixels releases the retained frame. Chunk 4's
+redraw retry remains the backstop.
+
+`host/linux/src/presenter/painter.rs` retains CPU pixels or a reference to
+the painter's unchanged compose target. `presenter.rs` exports that handle;
+`paint/backend.rs` and `ink.rs` carry the repeat operation to the existing
+present worker. Each repeat acquires another drawable and copies that
+source. The wgpu tracked layer still records display. Metal presentation
+and resource retirement use their existing paths. The window's creation
+and show order stay as in cut 2.
+
+**Validation.** The local affected-suite command is:
+
+```sh
+EXACT_INK_DEVICE=metal EXACT_REQUIRED=1 RUST_TEST_THREADS=2 \
+  cargo test -p exact-linux -p exact-apple-painted -p exact-ink \
+  --lib --tests --no-fail-fast
+```
+
+It exits 0. `target/m10-c3/checks/affected.log` retains the full output;
+`checks/suite-results.txt` retains the suite status lines verbatim. The
+presentation-generation test also passes after the new zero-callback
+assertions (`checks/callback.log`):
+
+```text
+test device::apple::tests::painter_identity_follows_display_and_rejects_a_lost_generations_callbacks ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 46 filtered out; finished in 0.00s
+```
+
+Both release and development heavy-list carriers build with the worktree's
+own `target/`. `checks/release-build.log` and `checks/dev-build.log` retain
+the commands' output. The changed Rust files pass `rustfmt --check`.
+The six broad gates remain for the Mac mini as requested; they are not
+claimed here. Caps runs locally. No retained file from an earlier cut is
+deleted, and no push is made.
+
+**Reproduction.** The signed control bundles and the before carrier are the
+retained cut 2 arms; after is `a98e9b83f2`, rebased onto `47bdcd085f`.
+`target/m10-c3/build-context.json` records tool versions and the build command;
+`after-source.patch` is this cut’s six-file source delta. The prediction is
+committed before the run in `22e11bd5f7`. No new benchmark hook is added.
+
+Raw files are retained locally at `target/m10-c3/silver/` and on the silver at
+`ccheever@100.76.94.78:~/projects/exact2-measure/target/g0/m10-c3/`.
+`collection-final.json` retains each collection command, PID and exit;
+`provenance.json` and each cohort’s copy hash the executables. Every signed
+measurement arm receives a throwaway launch before collection.
+
+To repeat, use a fresh artifact directory, copy the retained scripts and
+bundles, record their hashes and run `run-final.py` in the silver’s GUI
+session under `caffeinate`. It runs the five-per-arm confirmation, the ten
+paired rounds, and both ten-per-arm four-arm cold-only schedules. Preserve
+all originals. `live-dev.py` separately drives the development carrier’s
+socket with both devices. Reproduce the published reductions without a
+window:
+
+```sh
+python3 -B target/m10-c3/report.py
+python3 -B target/m10-c3/launch-rows.py
+```
+
+`report.json`, `tables.md`, `launch-rows.md` and `checks/final-reduction.log`
+retain the reductions. `raw-sha256.json` hashes the retained raw files;
+`analysis-sha256.json` hashes the reduction scripts. The final staged caps
+output is retained in `checks/caps-final.log`:
+
+```text
+All budgets within cap. 10 categories inspected.
+```

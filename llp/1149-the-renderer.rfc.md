@@ -1245,6 +1245,33 @@ first-frame loop is removed. D7, D11 and D15, including the dated boot and
 100 ms application obligations, are unchanged.
 [Qualified tables, failures, callbacks and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-2-show-the-window-before-the-first-paint).
 
+**M10 cut 3, 2026-10-31:** source `a98e9b83f2` repeats the retained first
+frame on each display-link tick after zero until its first positive callback.
+The silver’s four-arm cold-only schedules qualify under cut 2’s per-launch
+rule, with hook, trace and power sampling off. These are complete-screen
+medians from fresh processes with retained caches:
+
+| Arm | Before, ms (n) | After, ms (n) |
+| --- | ---: | ---: |
+| Native | 250.616 (10) | 248.680 (10) |
+| GPUI | 199.870 (10) | 204.925 (10) |
+| egui | 202.160 (8) | 214.842 (10) |
+| Ink | 209.686 (10) | 244.322 (10) |
+
+The two failed before egui originals remain; every after launch succeeds.
+Each launch passes ten quiet seconds, with launch load maxima report-only.
+Native retains the snapshot criterion and the painted arms use displayed
+timestamps. Ink misses 180–188 ms and the predicted ≥10 ms lead over GPUI
+and egui. The qualified traced median paired difference is +27.319 ms cold
+and +28.148 ms warm, with every Ink pair slower; warm complete screen is
+241.785 ms, missing 170–190 ms. Thirty after traces each have one zero,
+three copies without repainting, then a positive callback. The display
+link’s first tick is late, and holding the incomplete frame delays the
+paint that completes it. Pixel suites, CPU-first handoff and live Metal
+and wgpu pass. This one round ends with a regression; D7, D11 and D15,
+including the dated boot and 100 ms application obligations, are unchanged.
+[Qualified tables, predictions, callbacks and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-3-re-present-the-first-frame-on-each-tick).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms
