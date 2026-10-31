@@ -376,7 +376,7 @@ fn a_linked_module_leaves_its_bytecode_to_the_link() {
 /// `native` fills the slot. On a native platform `module.rs` joins its shim
 /// by an absolute `#[path]` and writes the factory; the web gets neither; a
 /// second such dependency refuses the bake, naming both. Every package file
-/// the choice read is watched.
+/// the choice read is watched, and one it cannot read refuses the bake.
 #[test]
 fn a_package_declaring_native_writes_the_factory_and_a_second_refuses() {
     let app = Scratch::new(&std::env::temp_dir()).unwrap();
@@ -449,6 +449,22 @@ fn a_package_declaring_native_writes_the_factory_and_a_second_refuses() {
     let refused = contract::native::native_slot(&app.0).unwrap_err();
     assert!(
         refused.starts_with("bake-native-twice: @fixture/vault and second each declare"),
+        "{refused}"
+    );
+
+    // What the choice cannot read it refuses, as it cannot watch a missing file.
+    manifest(r#""@fixture/vault": "1.0.0", "absent": "1.0.0""#);
+    let refused = contract::native::native_slot(&app.0).unwrap_err();
+    assert!(
+        refused.starts_with("bake-native-missing: the app depends on absent, which is not installed: run bun install"),
+        "{refused}"
+    );
+    std::fs::remove_file(package("undeclared", "{}").join("exact.json")).unwrap();
+    manifest(r#""@fixture/vault": "1.0.0", "undeclared": "1.0.0""#);
+    let refused = contract::native::native_slot(&app.0).unwrap_err();
+    assert!(
+        refused.starts_with("bake-native-declaration: undeclared's package.json exports ")
+            && refused.ends_with("exact.json, which does not exist"),
         "{refused}"
     );
 }
