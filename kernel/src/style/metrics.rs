@@ -414,6 +414,7 @@ mod tests {
             "grouped-button-title-grow" => &[FlexGrow],
             "grouped-button-align" => &[AlignSelf],
             "grouped-value-wrap" => &[FlexWrap],
+            n if n.ends_with("-shape") => &[CornerShape],
             n if n.contains("padding") => &[PaddingTop, PaddingLeft],
             _ => &[MarginTop, MarginLeft],
         }

@@ -648,9 +648,10 @@ fn section(
     if let Some(edge) = edge {
         group.extend([m("margin-left", edge, span), m("margin-right", edge, span)]);
     }
-    // No card, no card corners to clip a header image to.
+    // No card, no card corners to clip a header image to; their curve is the platform's (the Mac's continuous).
     if let Some(corner) = corner.filter(|_| !cardless) {
-        group.push(m("border-radius", corner, span));
+        let shape = m("corner-shape", "card-corner-shape", span);
+        group.extend([m("border-radius", corner, span), shape]);
     }
     // Where a platform's separator stands between two rows and takes no
     // height from either (the Mac's), the rows are that far apart and the

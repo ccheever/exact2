@@ -6175,6 +6175,7 @@
     ["grouped-card-radius", "style length", 26, 10, 26, 12],
     ["grouped-edge-inset", "style length", "unset", 20, "unset", "unset"],
     ["grouped-edge-radius", "style length", "unset", 10, "unset", "unset"],
+    ["grouped-card-corner-shape", "style", "unset", "-exact-continuous", "unset", "unset"],
     ["grouped-edge-width", "style length", 1, 0, 1, 1],
     ["grouped-separator-gap", "style length", "unset", 1, "unset", "unset"],
     ["grouped-separator-end", "style length", 0, 10, 0, 0],

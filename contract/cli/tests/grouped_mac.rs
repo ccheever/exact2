@@ -134,5 +134,19 @@ fn the_macs_rows_keep_their_height_and_their_separator_stands_in_the_gap() {
         (30.0, 382.0),
         "{written:?}"
     );
+    // The card, the rows' box, has its corners on SwiftUI's continuous
+    // curve, not a circle's.
+    let card = k
+        .node(k.node(id("first")).unwrap().parent.unwrap())
+        .unwrap();
+    assert_eq!(
+        card.style.border_radius_top_left,
+        exact_kernel::Dimension::Points(10.0)
+    );
+    assert!(
+        card.style.rare.corner_shape.is_apple_continuous(),
+        "{:?}",
+        card.style.rare.corner_shape
+    );
     set_column(Column::Web);
 }

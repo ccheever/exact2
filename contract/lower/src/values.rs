@@ -517,7 +517,10 @@ fn style_value(
             // @ref LLP 1066, LLP 1077 — the kernel's parse says why, by name.
             // A shadow token's name: its values were checked as this row's
             // (`theme::measure_row`), not the name's own text.
-            let why = if crate::theme::measure_named(v).is_some() {
+            // A metric's name in a sheet the compiler wrote is its platform's value (LLP 1115.002 D6).
+            let why = if crate::theme::measure_named(v).is_some()
+                || (!a.written && exact_kernel::style::metrics::named(v).is_some())
+            {
                 None
             } else if rows.contains(&StyleId::BackgroundImage) {
                 exact_kernel::gradient::BackgroundImage::check(v).err()
