@@ -157,8 +157,8 @@ export function renderer(dist) {
       // random and read no clock or reader's device (the plan's `kept`), from TypeScript sources alone, is the page
       // another render would make until the first of those answers goes stale: it may be given again until then, for
       // at most 60 s (LLP 1048.007 D8).
-      const keep = status === 200 && !out.pending.length && out.activation?.kept === false && !out.rust && !read.random && read.fresh > 0 && read.fresh < Infinity ? Math.min(read.fresh, 60000) : 0;
-      return { html: markedHead + body(''), rest: mark + body(late), status, settled: !out.pending.length, render: out.render, location, policy: info.policy, activate, keep };
+      const keep = status === 200 && !out.pending.length && !out.failed?.length && out.activation?.kept === false && !out.rust && !read.random && read.fresh > 0 && read.fresh < Infinity ? Math.min(read.fresh, 60000) : 0;
+      return { html: markedHead + body(''), rest: mark + body(late), status, settled: !out.pending.length, failed: out.failed ?? [], render: out.render, location, policy: info.policy, activate, keep };
     } };
   }
   const render = async (location, deadline = DEADLINE) => (await begin(location)).finish(deadline);
@@ -192,6 +192,7 @@ export function pageServer(dist, render = renderer(dist), log = console.log) {
       const ms = page.status !== 200 ? 0 : page.policy === 'cached' ? 60000 : page.policy === 'request' ? page.keep : 0;
       if (ms > 0) { if (cache.size >= 64) cache.delete(cache.keys().next().value); cache.set(key, { html: page.html, status: page.status, until: Date.now() + ms, cacheControl: page.policy === 'cached' ? 'public, max-age=0, s-maxage=60' : 'no-store' }); }
       log(`render ${page.location} ${page.status} ${(performance.now() - t).toFixed(1)}ms bytes=${page.html.length}${page.flushed ? ' flushed' : ''}`);
+      for (const failure of page.failed) log(`  ${page.location}: resource ${failure}`);
     };
     // A browser's navigation gets the head now and the rest after the
     // render (host/render/src/stream.rs): a 200, `private, no-cache`; the
@@ -260,6 +261,11 @@ if (import.meta.main) {
       mkdirSync(dirname(resolve(dist, file)), { recursive: true });
       writeFileSync(resolve(dist, file), page.html);
       console.log(`${p.location} → ${file} (${page.html.length} B${page.settled ? '' : ', at the deadline'})`);
+      for (const failure of page.failed) console.log(`  ${p.location}: resource ${failure}`);
     }
-  } else for (const location of args.slice(1)) process.stdout.write((await render(location)).html);
+  } else for (const location of args.slice(1)) {
+    const page = await render(location);
+    for (const failure of page.failed) console.error(`${location}: resource ${failure}`);
+    process.stdout.write(page.html);
+  }
 }

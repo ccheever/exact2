@@ -975,6 +975,7 @@ routes nav
   fresh "/" render=request
   never "/never" render=request
   seed "/seed" render=request
+  broken "/broken" render=request
 
 component App
   resource note = note(top(nav).name) as shape Note
@@ -989,12 +990,16 @@ component App
       for (const at of ['/', '/', '/never', '/never', '/seed', '/seed']) expect(Buffer.from((await page(at, header)).body).toString()).toContain('from /');
       const renders = at => said.filter(l => l.startsWith(`render ${at} 200`)).length;
       expect([renders('/'), renders('/never'), renders('/seed')]).toEqual([1, 2, 2]);
+      // A source that fails is named in the log, under its page, which shows its placeholder.
+      await page('/broken', header); await page('/broken', header);
+      expect([renders('/broken'), said.filter(l => l === '  /broken: resource note: no such note').length]).toEqual([2, 2]);
     }, { 'app.ts': `import type { Answer, Result } from './app.contract.d.ts';
 export const appId = 'test.heads';
 const API = '${origin}';
 export const grants = \`net.fetch \${API}\`;
 export const answer: Answer = async (_source, [name]): Promise<Result<'note'>> => {
   if (name === 'seed') crypto.getRandomValues(new Uint8Array(1));
+  if (name === 'broken') throw new Error('no such note');
   const response = await fetch(\`\${API}/\${name === 'fresh' ? 'fresh' : name}\`);
   return { text: await response.text() };
 };
