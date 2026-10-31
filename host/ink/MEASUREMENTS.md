@@ -5507,3 +5507,34 @@ kernel's table layout/style/schema; the measured binaries still come from
 `6d501215b7`. No timing or native-suite result is claimed for the rebased
 source. Final structural caps pass on the rebased tree, with the same wasm
 skip (`target/g7/caps-final.log`).
+
+## M10 cut 7 on Windows — predictions
+
+Recorded before collection, 2026-10-31. Compare `origin/main` at
+`fd89454bd30235dee8b8742963f7cf1faac281cf` with cut 7 at
+`d008a448c7cbf2b547ea80c1e4f1d49a43da9644`, without renderer changes.
+The NucBox mirror is `projects/exact2-1149-001-atlas-win`; its own
+`target/m10-cut7-windows/` retains sources, commands, logs and captures,
+copied back to that path in this worktree.
+
+Predict zero failures in both devices' Ink, pinned, text and image suites,
+including the D3D11 serial-versus-batched atlas byte comparison, and the
+five desktop journeys per device (resize, minimize/restore, idle caret,
+device loss and DPI). Use the native test binaries with required-device
+flags and one test thread. A suite failure stops collection. Sleep/wake
+is excluded by the brief; lock/unlock lacks an unlock operator.
+
+Predict D3D11 first-screen DWM p50 near **140 ms**, about **20 ms earlier**
+than the historical 161 ms row, and DXGI p50 near **157 ms**. Run S2's
+Shelf startup recipe on both revisions, ten launches per size and arm,
+with DWM and DXGI endpoints, retained driver caches and fresh application
+stores. Keep the whole-series Windows quiet rule: five-second observations,
+CPU below 10% and no compiler. Report the actual display rate; the historical
+row used 60 Hz, while G7 reports 120 Hz.
+
+Predict first-paint upload spans at most **2 ms**, at least **80% lower**
+than before, using upload elapsed spans as on Metal. The existing Windows
+probe has no upload-span markers; its paint spans and glyph counters cannot
+measure that duration. With renderer code fixed, report this prediction as
+unmeasured unless an existing instrument supplies those spans. Total first
+paint is a separate diagnostic, not an upload-time substitute.
