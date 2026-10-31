@@ -8048,3 +8048,88 @@ bound: at most 1.0 non-benchmark core. The arms, driver, wheel helper, probe
 helpers, caffeinate and WindowServer are benchmark work. The per-process bound,
 10% transient-daemon allowance, load bound and compiler refusal stay. M10's
 earlier cohorts crossed 2.0–2.1 whole-machine cores on their own launches.
+
+### Cut and pixel parity
+
+`host/apple-painted/src/window.rs` calls its existing draw path after the first
+layout and layer attachment, immediately before the existing `set_visible(true)`
+call. `prepare_draw` shares the pre-paint service sequence with the headless
+test. The presenter and Ink need no new boot API: their existing compose target,
+main-thread encoding, worker submission and positive-displayed-timestamp retry
+already support this order. No pipeline or glyph work moves between threads.
+
+The headless test compares every pixel of the early frame with the previous
+service-then-display-tick sequence at the same frozen clock, separately on CPU
+and Ink. Its 2× fixture includes text, digits, rounded geometry and a scrolling
+column; it checks nonblank output and an identical repaint after an unshown
+frame. This is a deterministic fixture comparison, not a capture of two live
+first screens. Stage 0b's archive-miss transition and unshown-drawable tests
+remain unchanged and pass.
+
+The benchmark workspace also gains the root workspace's required
+`accesskit_windows` patch so the release carrier can build. `startup.py`
+preserves variant identity in interleaved Ink-before/Ink-after cohorts and
+invokes the existing `measure.m` cold-only path for the scoreboard. Its reducer
+accepts native's absent drawable field and preserves startup clocks when
+available. `run-hook.py`, the README and cost-program §4 carry the quiet
+amendment above.
+
+### Cut verification
+
+Both release bundles build in this worktree's own `target/`, with the probe
+linked, and are preserved separately as `target/m10-c1/InkBefore.app` and
+`InkAfter.app`. The affected suites run once with Metal required:
+
+```sh
+env CARGO_BUILD_JOBS=6 RUST_TEST_THREADS=2 EXACT_INK_DEVICE=metal EXACT_REQUIRED=1 \
+  cargo test -p exact-linux -p exact-apple-painted -p exact-ink \
+  --lib --tests --no-fail-fast
+```
+
+Exit 0. The painted carrier, its binary target and Ink print, verbatim:
+
+```text
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 46 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.71s
+```
+
+Linux's library and integration targets (`authored_dialog`,
+`authored_dialog_windows`, `base_scale`, `bold_text`, `contrast`, `it`,
+`neutral`, `neutral_alert`, `pinned`, `reported`) print, verbatim:
+
+```text
+test result: ok. 1687 passed; 0 failed; 22 ignored; 0 measured; 0 filtered out; finished in 69.00s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.42s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.74s
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.39s
+test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 8.09s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+```
+
+The relevant cases print:
+
+```text
+test window::tests::an_unshown_boot_keeps_display_demand_after_two_completed_drawables ... ok
+test window::tests::the_first_frame_before_visibility_matches_the_display_tick_frame ... ok
+test presenter::painter::apple_tests::archive_miss_starts_with_cpu_pixels_then_replaces_the_whole_frame_with_ink ... ok
+```
+
+The existing probe self-test, with `G1_GPU_HOOK=0 G1_TRACE=1`, prints:
+
+```text
+probe: painter-specific completeness and one boot-expose wake passed
+probe: lazy trace observes application queues without pre-creating a device or queue
+probe: direct presentation preserves methods, joins preceding commit, excludes buffer path and resets reused drawables
+probe: GPU hook off; three buffers completed, commit-phase accounting passed
+```
+
+Raw build and suite output is under `target/m10-c1/checks/`, including
+`affected-tests.log` and `probe-tests.log`. The six checks are deliberately
+skipped on the loaded development Mac, as directed; the orchestrator runs
+them on the Mac mini. No local display was used.
