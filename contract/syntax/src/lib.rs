@@ -141,6 +141,9 @@ pub const HOST_COMMANDS: &[&str] = &[
     // @ref LLP 1020.002 D7 — WebDriver BiDi's `browsingContext.captureScreenshot`:
     // a picture of the frame's guest into an `app:/` file, answered by `capture=`.
     "captureScreenshot",
+    // @ref LLP 1020.002 D11 — Electron's `<webview>.openDevTools()`: the
+    // platform's inspector for the frame's guest, in a window of its own.
+    "openDevTools",
     "relaunch",
     "removeAllRanges",
     "selectText",

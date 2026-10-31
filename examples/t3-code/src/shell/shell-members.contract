@@ -114,6 +114,8 @@ members T3Code
       reload(c.id, ignoreCache=c.flag)
     else if c.kind == "stop"
       stopLoading(c.id)
+    else if c.kind == "devtools"
+      openDevTools(c.id)
     else if c.kind == "clear"
       send siteCleared = clearSiteData(partition=c.url, types=["cookies", "storage"])
     else if c.kind == "prompt"

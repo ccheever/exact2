@@ -62,7 +62,8 @@ final class EditMenuTarget: NSObject {
 /// what the Dock's menu shows, what "Clear Menu" empties — drawn here with
 /// public API. AppKit fills its own recent menu only for one a nib names
 /// (or one named through a private selector, which the Mac App Store
-/// refuses; ruled: nothing here may make that harder). Choosing an entry is
+/// refuses; ruled: nothing here may make that harder; the one exception is
+/// the web arm's `openDevTools`, LLP 1020.002 D11). Choosing an entry is
 /// one more route in, to the same router as Launch Services' (LLP 1033 D3).
 final class RecentMenu: NSObject, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {

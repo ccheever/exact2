@@ -70,6 +70,8 @@ export const commands = (say, agentMode = () => false) => ({
   stopLoading: (...args) => frame(say, "stopLoading", args),
   // A picture of a frame's guest (LLP 1020.002 D7): refused on the web, answered on its `capture=`.
   captureScreenshot: (...args) => frame(say, "captureScreenshot", args),
+  // A frame's inspector (LLP 1020.002 D11): a page has no API that opens the browser's developer tools.
+  openDevTools: id => say(`openDevTools("${id}") refused: a page cannot open the browser's developer tools; open them from the browser's menu`),
   relaunch: () => location.reload(),
   // `window.close()` (studio diary R17): a browser closes only a window a
   // script opened, and says so in its console otherwise.

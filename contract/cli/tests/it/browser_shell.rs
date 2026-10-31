@@ -178,6 +178,11 @@ fn frame_commands_reach_the_host_by_position() {
     let c = press(&mut r, "whole");
     assert_eq!(c[0].args.len(), 3);
     assert_eq!(c[0].args[2], Value::Option(None));
+    let c = press(&mut r, "inspect");
+    assert_eq!(
+        (c[0].name.as_str(), c[0].args.clone()),
+        ("openDevTools", vec![Value::str("tab")])
+    );
 }
 
 #[test]
@@ -236,6 +241,16 @@ fn a_partition_refuses_what_would_reach_the_app_and_the_words_are_an_iframes() {
         "type-frame-command"
     );
     command("captureScreenshot(\"tab\", \"app:/cache/x.png\", clip=DOMRect(x=0, y=0, width=10, height=10))").unwrap();
+    // The inspector is any iframe's, by its id alone.
+    command("openDevTools(\"tab\")").unwrap();
+    assert_eq!(
+        command("openDevTools(\"page\")").unwrap_err().id,
+        "lower-frame-command"
+    );
+    assert_eq!(
+        command("openDevTools(\"tab\", true)").unwrap_err().id,
+        "type-frame-command"
+    );
     let e = contract::compile("component A\n  action got(e: FrameCapture)\n    let x = e.path\n  view\n    column capture=got\n").unwrap_err();
     assert_eq!(e.id, "lower-attr-tag", "{e}");
     // The root's `navigate=` keeps its location; an iframe's has none.

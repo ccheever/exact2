@@ -64,7 +64,8 @@ describe('a frame\'s commands', () => {
     commandFrame(owner, 'a', 'back');
     commandFrame(owner, 'a', 'forward'); // no forward entry: nothing
     commandFrame(owner, 'a', 'stop');
-    expect(frames(owner).queue.map(command => [command.kind, command.url, command.delta])).toEqual([['navigate', 'https://b.test/', 0], ['traverse', '', -1], ['stop', '', 0]]);
+    commandFrame(owner, 'a', 'devtools');
+    expect(frames(owner).queue.map(command => [command.kind, command.url, command.delta])).toEqual([['navigate', 'https://b.test/', 0], ['traverse', '', -1], ['stop', '', 0], ['devtools', '', 0]]);
     expect(frameCommandView(owner)).toMatchObject({ kind: 'navigate', id });
     frameCommandDone(owner, frameCommandView(owner).serial);
     expect(frameCommandView(owner).kind).toBe('traverse');

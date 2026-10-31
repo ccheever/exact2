@@ -388,6 +388,9 @@ export type BrowserView = {
   /** The viewer page that shows it (server-pdf-viewer.ts; panel-surfaces.ts sets it). */
   pdfViewer: ViewerFrameView;
   url: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; refreshDisabled: boolean; hasWebContents: boolean;
+  /** The More menu's Open DevTools: a desktop tab in the macOS app, whose page is a web view here (PreviewView offers it
+   *  through the desktop bridge only; a server tab here is the server's headless page). */
+  devTools: boolean;
   empty: boolean; failed: boolean; failHost: string; failMessage: string; failLabel: string; live: boolean;
   /** The "+" menu's profile submenu (RightPanelTabs MenuSubPopup). */
   profiles: BrowserProfileChoice[];
@@ -399,7 +402,7 @@ export type BrowserView = {
 /** Part 4: the profile lists are the client's (Default, Incognito and the named ones); without a client, the built-ins. */
 export const emptyBrowserView = (client?: T3Client): BrowserView => ({
   tabId: '', runtimeId: '', server: false, streamUrl: '', pdfUrl: '', pdfViewer: emptyViewerFrame(), environment: '', profileId: DEFAULT_BROWSER_PROFILE_ID, profileName: 'Default', showProfile: false, url: '', loading: false, canGoBack: false, canGoForward: false,
-  refreshDisabled: true, hasWebContents: false, empty: true, failed: false, failHost: '', failMessage: '', failLabel: '', live: false,
+  refreshDisabled: true, hasWebContents: false, devTools: false, empty: true, failed: false, failHost: '', failMessage: '', failLabel: '', live: false,
   profiles: browserProfileChoices(client), capture: emptyCaptureView(), moveTarget: '', moveLabel: '', ...emptyNavigationView(),
 });
 
@@ -414,6 +417,7 @@ export function browserView(client: T3Client, surface: Surface | null, now = 0):
     pdfUrl: snapshot?.runtime === 'server' && nav._tag === 'Success' ? previewPdfAssetUrl(nav.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', pdfViewer: emptyViewerFrame(), ...tabProfile(client, snapshot?.profileId), // the badge shows a profile other than the configured default
     url: nav._tag === 'Idle' ? '' : nav.url, loading: nav._tag === 'Loading', canGoBack: snapshot?.runtime === 'server' && !serverStreamFrame(client, runtimeId).controlled ? false : tab?.canGoBack ?? snapshot?.canGoBack ?? false,
     canGoForward: snapshot?.runtime === 'server' && !serverStreamFrame(client, runtimeId).controlled ? false : tab?.canGoForward ?? snapshot?.canGoForward ?? false, refreshDisabled: nav._tag === 'Idle' || (snapshot?.runtime === 'server' && !serverStreamFrame(client, runtimeId).controlled), hasWebContents: !!tab || snapshot?.runtime === 'server',
+    devTools: client.available === true && snapshot?.runtime !== 'server',
     empty, failed, failHost: failed ? previewHost(nav.url) : '', failMessage: failed ? describePreviewError(nav.description).replace(/\.+$/, '') : '',
     failLabel: failed ? previewErrorLabel(nav.code, nav.description) : '', live: !!snapshot && !empty && !failed,
     profiles: browserProfileChoices(client), ...previewMove(client, ref, snapshot), ...navigationView(client, ref, runtimeId, tab, snapshot, empty, now),
@@ -558,7 +562,7 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
       if (overlay) await toggleFrameMute(client, native, runtimeId, !overlay.audioMuted);
       return '';
     }
-    case 'back': case 'forward': case 'refresh': case 'hard-reload':
+    case 'back': case 'forward': case 'refresh': case 'hard-reload': case 'devtools':
       frameOp(client); commandFrame(client, runtimeId, op);
       return '';
     case 'external': {
