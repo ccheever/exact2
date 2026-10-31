@@ -135,9 +135,10 @@ fn painted_boot_requests_no_images_below_the_first_screen() {
     p.frame();
     p.finish_boot_images();
     assert!(
-        p.images().views.values().any(|v| v.source_id.is_some()),
-        "retirement resumes ordinary mounted first loads without waiting for input"
+        p.images().views.values().all(|v| v.visible && !v.on_screen),
+        "the ordinary mounted first-load pass resumes only after first paint"
     );
+    assert!(p.images().views.values().any(|v| v.source_id.is_some()));
 }
 
 #[test]

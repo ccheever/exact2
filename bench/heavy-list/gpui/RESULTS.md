@@ -11108,3 +11108,30 @@ the post-paint handoff assertion, and all eight carrier tests pass
 full-suite timing failures and the deferred six checks remain as stated
 above. Final measurements use a fresh `final/` artifact directory; the
 first five-pair miss and every earlier original remain in place.
+
+**Second handoff prediction: decode split misses.** Both traced originals
+at `e8202d4dc8` qualify, but main still decodes 7 pictures before fling and
+33 during it, while Ink after decodes 5 then 35. The ordinary resync uses
+painted visibility; it does not repeat the mounted first-load pass that
+main performed before boxes existed. Both traced carriers route each
+fling draw through redraw demand (349/349 on main, 347/347 after), so the
+direct-draw prediction is met and does not explain the work difference.
+`final/trace-summary.py` reproduces the phase counts and counters.
+
+The third and last instruction-fix attempt defers that ordinary mounted
+first-load pass until the first visible frame has displayed. It retains
+real on-screen priority and returns to ordinary visibility on subsequent
+syncs. The pre-run prediction is again 7 pre-fling / 33 fling decodes and
+an instruction change within ±10 million/s in five qualified pairs, with
+zero off-screen requests before first paint. The number, instrument and
+round are retained in `mounted-handoff-prediction.json`.
+
+The third attempt's 20 image-control tests pass
+(`mounted-handoff-controls.log`). The cold trace comparison uses the
+retained driver's executable-wrapper path because the driver removes
+`G1_TRACE` from its child environment. The raw traced-minus-untraced
+launch difference therefore includes that wrapper. In addition to that
+full launch difference, the reducer reports the difference after the
+probe constructor (`coldMs − preMainMs`), separating the launcher's
+pre-constructor interval. Both use the same five adjacent pairs; neither
+changes a raw timestamp or the headline cold rows.

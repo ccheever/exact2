@@ -20,7 +20,9 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         self.images.finish_boot();
-        if let Some(error) = self.sync_images() {
+        // An ordinary first sync asks mounted first loads before boxes exist.
+        // Painted boot defers that pass until its visible frame has displayed.
+        if let Some(error) = self.sync_images_policy(&BTreeMap::new(), true) {
             self.host.log(error);
         }
     }
@@ -137,6 +139,14 @@ impl<D: DataSource> Presenter<D> {
         &mut self,
         moved: &BTreeMap<ViewId, (f32, f32)>,
     ) -> Option<String> {
+        self.sync_images_policy(moved, false)
+    }
+
+    fn sync_images_policy(
+        &mut self,
+        moved: &BTreeMap<ViewId, (f32, f32)>,
+        initial_mounts: bool,
+    ) -> Option<String> {
         let epoch = self.host.kernel().epoch();
         // A tree whose only images are symbols (a list's icons) has nothing
         // that loads by whether it shows: once synced at this epoch, a move
@@ -239,7 +249,7 @@ impl<D: DataSource> Presenter<D> {
         // Asked for: in the viewport or with no box yet (a first load), or
         // mounted where pictures are asked at mount.
         let visible = |id: ViewId| {
-            if *AT_MOUNT {
+            if initial_mounts || *AT_MOUNT {
                 return !host.route_visibility(id).0;
             }
             placed(id).unwrap_or(true)
