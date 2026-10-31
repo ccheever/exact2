@@ -5044,3 +5044,59 @@ pointer-focus handling, not Rust sources or this instrument. Post-rebase
 build, Clippy, fmt, caps, boot and workspace check all pass; output is retained in
 `target/g4m-hook/checks-rebased/`; the full test run above is on the measured
 source. The measurement series was not repeated after the rebase.
+
+
+### Both reviews folded: instrument verification, 2026-10-30
+
+The local real-Metal self-test passes with `G1_GPU_HOOK=0`, `1` and unset;
+unset reports off. Invalid and empty values exit 2 in the probe and exit 1 in
+the driver before any launch, naming `G1_GPU_HOOK`. Probe and driver compile
+with `-Wall -Wextra -Werror`. Verbatim successful outputs, with the off pair
+also repeated for unset:
+
+```text
+probe: painter-specific completeness and one boot-expose wake passed
+probe: GPU hook off; three buffers completed, commit-phase accounting passed
+probe: painter-specific completeness and one boot-expose wake passed
+probe: GPU hook on; three buffers completed, commit-phase accounting passed
+```
+
+Aggregation runs over all retained (a), (b), (c) and original G4m samples,
+printing off/on/on/on respectively. Original G4m's two tables and G5m's three
+tables reproduce exactly. A deliberately mixed table is refused with
+`mixed GPU hook states; aggregate separate configurations`. A hook-off static
+fixture derived from the G5m files exercises fling, bar and caret: it retains
+CPU rows and prints every GPU row as `—`. That transformed fixture is a test,
+not measured evidence. `report-hook.py --verify` confirms the complete (a)
+tables, paired comparison, prediction dispositions, bounds and background table.
+`verify-hook-code.py` confirms the retained native/GPUI/egui code identity.
+
+**One silver-Mac instrument sample, no series.** The copied Ink bundle uses
+the new probe and `measure.m`, with `G1_GPU_HOOK` unset and default fling settings.
+The single sample is accepted, hook-off and power-off, with zero observed GPU
+buffers. The before-run prediction in `hook-plan.txt` is met: positive instruction
+and cycle deltas in both phases, and busy cores plus five non-benchmark process
+records in every quiet observation. `aggregate.mjs --sample` prints:
+
+GPU hook: off (gpuHookEnabled=false). Instrument check only; not a scoreboard table.
+
+| Phase | Seconds | Process CPU, ms | Main CPU, ms | Instructions | Cycles |
+|---|---:|---:|---:|---:|---:|
+| fling | 10.001313 | 1347.523 | 664.744 | 5330508726 | 2957935869 |
+| rest | 10.003690 | 24.209 | 22.827 | 39854363 | 45864163 |
+
+All **six quiet observations fail** the proposed bounds: **4.23–5.90 busy
+cores** and **1.08–2.81 cores** in the largest non-benchmark process. Power
+metadata records **AC Power**, battery 100%, and `powermode 0`. No process was
+stopped and no performance table uses this sample. The identical probe, driver
+and monitor source hashes are retained in `single-provenance.json`.
+Raw sample, process logs, schedule, five-second observations and power mode/source
+remain on the silver Mac at
+`target/g0/hook-review-20261030/single/`, and here at
+`target/g4m-hook-review/single/`. Instrument checks and generated fixtures remain
+in `target/g4m-hook-review/`; nothing under a historical evidence path was removed.
+Reproduce the sample's columns without a launch:
+
+```sh
+bun bench/heavy-list/gpui/aggregate.mjs target/g4m-hook-review/single/sample/ink-1.json --sample
+```

@@ -3353,7 +3353,7 @@ bun bench/heavy-list/gpui/aggregate.mjs target/g0/silver-run-42d5066572/boot-mis
 **Hook provenance correction, 2026-10-30.** The startup cohorts in this Stage 0b
 record used the pre-switch probe with its queue hook on: the development-Mac
 `warm-final/`, `miss-final/` and `retained-loaded/` cohorts, the silver Mac's
-`run-42d5066572/{retained,miss}/`, and chunk 4's
+`run-42d5066572/{boot-retained,boot-miss}/`, and chunk 4's
 `s0b4-trace/baseline/` and `s0b4-fixed/{retained,miss}/`, including their failed
 launches and diagnostic traces. That probe creates the system Metal device and
 a command queue in its constructor, before `main`. The 0.064 ms
