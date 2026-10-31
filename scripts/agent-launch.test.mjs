@@ -882,8 +882,10 @@ test('a setting is read from the environment, then .env.local, then .env, and wh
   // The environment a command started in `dir` with `given` hands its processes: a real Bun, which loads the files
   // there, and the note its first exact2 script takes (`noteBunLoaded`).
   const module=JSON.stringify(resolve(import.meta.dir,'../js/bake/src/__exact_env.mjs'));
+  // What a process needs to run on each system, and no NODE_ENV (this runner's `test` would keep Bun from `.env.local`).
+  const base=Object.fromEntries(['PATH','Path','HOME','SystemRoot','TEMP','TMP','USERPROFILE','LOCALAPPDATA'].filter(k=>process.env[k]!==undefined).map(k=>[k,process.env[k]]));
   const launched=given=>{
-    const r=Bun.spawnSync([process.execPath,'-e',`import(${module}).then(m=>{m.noteBunLoaded();console.log(JSON.stringify(process.env))})`],{cwd:dir,env:{PATH:process.env.PATH,HOME:process.env.HOME,...given}});
+    const r=Bun.spawnSync([process.execPath,'-e',`import(${module}).then(m=>{m.noteBunLoaded();console.log(JSON.stringify(process.env))})`],{cwd:dir,env:{...base,...given}});
     if (r.exitCode!==0) throw new Error(r.stderr.toString());
     return JSON.parse(r.stdout.toString());
   };
@@ -908,6 +910,10 @@ test('a setting is read from the environment, then .env.local, then .env, and wh
     writeFileSync(resolve(dir,'.env'),'A=a-edited\nC=c-env\n');
     expect(settingValues(dir,['A'],exported)).toEqual({A:{value:'a-env',source:'environment'}});
     expect(settingValues(dir,['A'],loaded)).toEqual({A:{value:'a-edited',source:'.env'}});
+    // The file removed: what Bun loaded from it is gone with it; `.env.development`, which Bun read too, sets nothing.
+    rmSync(resolve(dir,'.env'));
+    expect(settingValues(dir,['A','B','D'],loaded)).toEqual({A:null,B:{value:'b-local',source:'.env.local'},D:null});
+    expect(settingValues(dir,['A','D'],exported)).toEqual({A:{value:'a-env',source:'environment'},D:{value:'d-development',source:'environment'}});
     // A command no exact2 script started notes nothing: what it was handed is the environment.
     expect(settingValues(dir,['A'],{A:'a-env'})).toEqual({A:{value:'a-env',source:'environment'}});
   } finally { rmSync(dir,{recursive:true,force:true}); }
@@ -956,6 +962,9 @@ test('import.meta.env inlines each declared setting in app.ts, its grant follows
     // Another module's read is found where the bundle captures it.
     expect(strayReads(resolve(dir,'api.ts'),'export const API = import.meta.env.API_BASE_URL;\n',(c,o)=>parseSync('api.ts',c,o),at=>`api.ts${at}`))
       .toEqual(["api.ts:1:20: import.meta.env is read only in a top-level const of app.ts: const API = import.meta.env.API_BASE_URL, with ?? 'a default' or without, then API where it is used"]);
+    // However it is spelled: a comment between the words is still the read.
+    expect(strayReads(resolve(dir,'index.js'),'export const API = import/* a comment */.meta.env.API_BASE_URL;\n',(c,o)=>parseSync('index.js',c,o),at=>`pkg@1.0.0 (index.js${at})`,true))
+      .toEqual(['pkg@1.0.0 (index.js:1:20) reads import.meta.env, which only app.ts may: app.ts reads the setting (const API = import.meta.env.API_BASE_URL) and passes it in']);
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 
@@ -998,6 +1007,24 @@ test('a setting is a web build input by value and source, and serve finds one ch
 });
 
 
+test('a setting is named the backend\'s source only where the grant takes it, and the origin literal comes first', async () => {
+  const {backendOriginSource}=await import('./agent-test.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-source-')), origin='http://127.0.0.1:4790';
+  try {
+    writeFileSync(resolve(dir,'app.json'),JSON.stringify({env:['API_BASE_URL','PICTURES']}));
+    writeFileSync(resolve(dir,'.env'),`API_BASE_URL=${origin}\nPICTURES=${origin}/pictures\n`);
+    // The grant takes the literal; a setting at the same origin is for something else.
+    writeFileSync(resolve(dir,'app.ts'),`const origin = '${origin}';\nconst PICTURES = import.meta.env.PICTURES;\nexport const grants = \`net.fetch \${origin}\`;\n`);
+    expect(backendOriginSource(dir,origin,{})).toBe('app.ts origin literal');
+    // The grant takes the setting's const.
+    writeFileSync(resolve(dir,'app.ts'),`const API = import.meta.env.API_BASE_URL;\nconst PICTURES = import.meta.env.PICTURES;\nexport const grants = \`net.fetch \${API}\`;\n`);
+    expect(backendOriginSource(dir,origin,{})).toBe('import.meta.env.API_BASE_URL from .env');
+    // No grant takes a setting at that origin.
+    writeFileSync(resolve(dir,'app.ts'),`const PICTURES = import.meta.env.PICTURES;\nexport const grants = 'net.fetch http://127.0.0.1:1';\n`);
+    expect(backendOriginSource(dir,origin,{})).toContain('built net.fetch grant');
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
 test('a native build is stale when a setting its module inlined has another value now', async () => {
   const {receiptChanges}=await import('./agent-launch.mjs');
   const {resolveApp}=await import('./app.mjs');
@@ -1022,6 +1049,34 @@ test('a native build is stale when a setting its module inlined has another valu
     if (before===undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR=before;
     rmSync(dir,{recursive:true,force:true});
   }
+});
+
+test('a Linux or Android build is stale when a setting its module inlined has another value now', async () => {
+  const {bakedSettingChanges}=await import('./agent-launch.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-linux-')), name='EXACT_TEST_SETTING', key=`import.meta.env.${name}`;
+  try {
+    writeFileSync(resolve(dir,'app.json'),JSON.stringify({env:[name]}));
+    // The binary embeds the bytecode its build script baked; the receipt beside it records what that bake inlined.
+    const out=resolve(dir,'target/host-dev/build/envapp-linux-0123/out'), bin=resolve(dir,'target/host-dev/envapp-linux');
+    mkdirSync(out,{recursive:true});
+    writeFileSync(resolve(out,'app.hbc'),'');
+    writeFileSync(resolve(out,'app.module.json'),JSON.stringify({env:{[name]:{value:'http://a.example',source:'environment'}}}));
+    writeFileSync(bin,'');
+    writeFileSync(`${bin}.d`,`${bin}: ${resolve(dir,'linux/src/main.rs')} ${resolve(out,'app.hbc')}\n`);
+    // The Canvas reader's APK keeps its record beside it.
+    const apk=resolve(dir,'app-release.apk');
+    writeFileSync(apk,'');
+    writeFileSync(`${apk}.settings.json`,JSON.stringify({[name]:{value:'http://a.example',source:'environment'}}));
+    process.env[name]='http://a.example';
+    try {
+      expect([bakedSettingChanges(bin,{dir}),bakedSettingChanges(apk,{dir})]).toEqual([[],[]]);
+      process.env[name]='http://b.example';
+      expect([bakedSettingChanges(bin,{dir}),bakedSettingChanges(apk,{dir})]).toEqual([[key],[key]]);
+    } finally { delete process.env[name]; }
+    // Nothing recorded (no TypeScript module, or a build before settings): nothing to compare.
+    rmSync(resolve(out,'app.module.json'));
+    expect(bakedSettingChanges(bin,{dir})).toEqual([]);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 
 test('activity addresses use the gallery reads and keep state separate from the app', async () => {

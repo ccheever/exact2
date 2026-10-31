@@ -1134,7 +1134,8 @@ function settleBuild(dist) {
     return 2;
   }
   console.error(`${dist}: ${what}: building it again`);
-  const built = spawnSync(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app], { stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist } });
+  // On the target it was built for: the JS target's marker says so; the wasm target's says no target.
+  const built = spawnSync(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app, ...marker.target === 'js' ? [] : ['--wasm']], { stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist } });
   return built.status === 0 ? 0 : built.status ?? 1;
 }
 

@@ -7,7 +7,7 @@ import { appleRunBinary, appleArtifacts, assertAppleIdentity } from '../host/app
 import { phone, phoneBridge, forwardedEnv, crashReports } from '../host/apple/devices.mjs';
 import { resolveApp, executableName, linuxBinary, bakeOutput, bakeTarget } from './app.mjs';
 import { linuxRebuild, nativeBuild, ownVerb, planOverride, refuseBuild } from './agent-build.mjs';
-import { refuseStale, proofProductChanges, unchecked, packagedBuildChanges, depInfoChanges, depInfoNewer, newerThan } from './agent-launch.mjs';
+import { refuseStale, proofProductChanges, unchecked, packagedBuildChanges, depInfoChanges, depInfoNewer, newerThan, bakedSettingChanges } from './agent-launch.mjs';
 import { androidBinary, androidDeploy, apkRecord } from './agent-android.mjs';
 import { nativeKey, mouseContact } from './agent-keys.mjs';
 import { jsonLines, hangup, waitAtMost, bootRefusal, REPLY_MS } from './agent-wire.mjs';
@@ -47,8 +47,8 @@ export async function openStdio({ host, plan, world, size, app, env: extra = {},
     refuseStale('windows', bin, packagedBuildChanges(receipt, dirname(bin), a), windowsRebuild());
   }
   else if ((linux && process.env.EXACT_LINUX_BIN) || (android && process.env.EXACT_ANDROID_BIN)) unchecked(host, android ? 'EXACT_ANDROID_BIN' : 'EXACT_LINUX_BIN');
-  else if (android && bin.endsWith('.apk')) refuseStale(host, bin, apkChanges(a, bin), androidRebuild(a, true));
-  else if (linux || android) refuseStale(host, bin, depInfoChanges(bin), android ? androidRebuild(a, false) : linuxRebuild(a));
+  else if (android && bin.endsWith('.apk')) refuseStale(host, bin, [...apkChanges(a, bin), ...bakedSettingChanges(bin, a)], androidRebuild(a, true));
+  else if (linux || android) refuseStale(host, bin, [...depInfoChanges(bin), ...bakedSettingChanges(bin, a)], android ? androidRebuild(a, false) : linuxRebuild(a));
   else if (!device && process.env.EXACT_MAC_BIN) unchecked(host, 'EXACT_MAC_BIN');
   if (device && (plan || extra.EXACT_PLAN || extra.EXACT_ASSETS)) throw new Error('a phone cannot read host-local plan/assets paths; use --url or its embedded app');
   const ph = device ? phone(pick) : null;

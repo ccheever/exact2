@@ -113,6 +113,7 @@ test('generated commands run from an external author directory with quoted paths
     mkdirSync(resolve(sdk,'host/windows'),{recursive:true});
     mkdirSync(resolve(sdk,'scripts'),{recursive:true});
     for (const file of ['app-cli.mjs', 'bun.mjs']) cpSync(resolve(import.meta.dir, '../scripts', file), resolve(sdk, 'scripts', file));
+    mkdirSync(resolve(sdk, 'js/bake/src'), { recursive: true });
     cpSync(resolve(import.meta.dir, '../js/bake/src/__exact_env.mjs'), resolve(sdk, 'js/bake/src/__exact_env.mjs'));
     writeFileSync(resolve(sdk,'host/windows/build.mjs'),`console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));`);
     const windows=spawnSync(process.execPath,['exact.mjs','windows','--release','--run'],{cwd:app,env:{...process.env,EXACT2:sdk},encoding:'utf8'});

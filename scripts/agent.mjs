@@ -144,7 +144,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
     throw new Error(`web carrier unavailable: ${chrome}: ${error.code}; install Playwright's Chromium (docs/testing.md, Browsers), or set CHROME`);
   }
   onProcess?.(child);
-  const hostLines = js ? builtSettingLines(dist) : [], launchTail = launchLog();
+  const hostLines = pageURL ? [] : builtSettingLines(dist), launchTail = launchLog();
   let partial = ''; // a line split across stderr chunks
   const line = (l) => {
     if (!l) return;

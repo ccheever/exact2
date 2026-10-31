@@ -176,7 +176,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.match(createApp(dir, { update: true }), /\.gitignore, AGENTS\.md, exact2 paths in web\/Cargo\.toml/);
     assert.match(agents(), /^# Mine\n\nAfter\.\n\n<!-- exact:begin[^]*feedback status[^]*<!-- exact:end -->\n$/);
     assert.ok(!agents().includes('stale'));
-    assert.equal(readFileSync(resolve(dir, '.gitignore'), 'utf8'), '/target/\n/.exact/\n');
+    assert.equal(readFileSync(resolve(dir, '.gitignore'), 'utf8'), '/target/\n/.exact/\n/.env.local\n');
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
     assert.deepEqual(readFileSync(resolve(dir, '.cargo/config.toml')), readFileSync(resolve(import.meta.dir, '../.cargo/config.toml')));
     assert.ok(!readFileSync(web, 'utf8').includes('/nowhere'));

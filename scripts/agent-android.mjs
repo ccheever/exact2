@@ -36,10 +36,11 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync,
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import { HOST_DEV, buildBake, cargoEnvironment, copyShaders, injectedProfiles, linuxBuild, resolveApp, wholeProgram } from './app.mjs';
+import { HOST_DEV, bakeWatchEnv, buildBake, cargoEnvironment, copyShaders, injectedProfiles, linuxBuild, resolveApp, wholeProgram } from './app.mjs';
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
 import { androidImplementations, packageConfig } from '../js/bake/src/typescript.mjs';
+import { bakedSettings } from '../js/bake/src/__exact_env.mjs';
 import { configMetaData, fragmentPermissions, manifestFragment, withMetaData } from './android-manifest.mjs';
 import { androidShareActivity } from './share-target.mjs';
 
@@ -380,6 +381,8 @@ function buildApk(app, env, profile, writeLocks = false) {
   const apk = readerApk(app);
   writeFileSync(resolve(dirname(apk), 'exact-build.json'), JSON.stringify({ started, library: built(crate), workspace: app.workspace ?? app.dir,
     sources: [...READER_SOURCES, ...[resolve(app.dir, 'modules/android')].filter(existsSync)] }) + '\n');
+  // What its bake inlined of each setting (LLP 1153 D4), for a drive to compare with their sources (`bakedSettingChanges`).
+  writeFileSync(`${apk}.settings.json`, JSON.stringify(bakedSettings(out, app.dir).settings?.env ?? {}));
   return apk;
 }
 
@@ -523,7 +526,8 @@ if (import.meta.main && process.argv[2] === 'relay') {
     console.error(`the toolchain has no ${ANDROID_TARGET} target: rustup target add ${ANDROID_TARGET} (once, in the app's directory so its pinned toolchain gets it)`);
     process.exit(1);
   }
-  const app = resolveApp(name), env = { ...androidToolchainEnv(), CARGO_TARGET_DIR: app.target };
+  // With what the bake watches named (`bakeWatchEnv`), as every baking build.
+  const app = resolveApp(name), env = { ...androidToolchainEnv(), ...bakeWatchEnv(app), CARGO_TARGET_DIR: app.target };
   // A TypeScript app's library links the Android Hermes bundle: said before minutes of compiling, not at the link.
   const crateToml = crateManifest(app, apkWanted ? 'android' : 'linux');
   if (!env.HERMES_LEAN_SYS_DIR_aarch64_linux_android && crateToml && /^exact-js\s*=/m.test(readFileSync(crateToml, 'utf8'))) {

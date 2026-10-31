@@ -12,7 +12,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
-import { settingInputs, settingLines } from '../js/bake/src/__exact_env.mjs';
+import { settingChanges, settingInputs, settingLines } from '../js/bake/src/__exact_env.mjs';
 import { chooseSimulator, phone } from '../host/apple/devices.mjs';
 import { androidDevice } from './agent-android.mjs';
 import { bakeOutput, gpuModules, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
@@ -750,6 +750,19 @@ function watchedChanges(since, dir, skip) {
 
 /** Cargo's dep-info beside a binary: every source input newer than the binary, or gone. */
 export const depInfoChanges = bin => existsSync(bin) ? depInfoNewer(statSync(bin).mtimeMs, bin) : [];
+
+/** The settings the build `bin` of `app` inlined (LLP 1153 D4) whose sources give them otherwise now, as
+ * `import.meta.env.NAME`: a change no file shows, which only a rebuild takes in. Its record is `<bin>.settings.json` where
+ * the build wrote one (the Canvas reader's APK), else the receipt of the bake whose bytecode the binary embeds, beside
+ * it in the build script's output its dep-info names. */
+export function bakedSettingChanges(bin, app) {
+  let record = null;
+  try { record = JSON.parse(readFileSync(`${bin}.settings.json`, 'utf8')); } catch {
+    const bytecode = depInfoInputs(bin).find(path => /\/build\/[^/]+\/out\/app\.hbc$/.test(path));
+    try { if (bytecode) record = JSON.parse(readFileSync(resolve(dirname(bytecode), 'app.module.json'), 'utf8')).env ?? null; } catch { /* no receipt: no settings */ }
+  }
+  return record ? settingChanges(record, process.env, app.dir).map(({ name }) => `import.meta.env.${name}`) : [];
+}
 
 /** A packaged Windows game keeps compiler provenance in the private bake cache.
  * Require both unchanged source inputs and the exact copied executable/DLLs. */

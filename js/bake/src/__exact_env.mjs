@@ -27,13 +27,14 @@ const assignments = (app, file) => { const path = resolve(app, file); return exi
 // (https://bun.sh/docs/runtime/env): `.env.local` (except when NODE_ENV is `test`), then `.env.<NODE_ENV, else
 // development>`, then `.env`, never over a variable already set. Every process a script starts inherits them as its
 // own environment, and `--no-env-file` on a child cannot take them out. The environment a process was started with is
-// still there to read, untouched by that loading (and by a script's assignments to `process.env`): the C library's
-// (getenv(3); on Linux /proc/self/environ, proc(5)). So the first exact2 script of a command (scripts/app.mjs and the
-// app's launcher call `noteBunLoaded`) notes in EXACT_BUN_LOADED each name Bun loaded, one set in `process.env` but not
-// in the environment it was given, and every process below inherits the note: those names' values are Bun's, never
-// the environment's, whatever the files say later (a dev loop builds long after it started). A variable the command
-// was given is the environment's whether or not a file holds the same value. On Windows, which this reads no started
-// environment for, nothing is noted, and a value Bun loaded counts as the environment's.
+// still there to read, untouched by that loading: the C library's (getenv(3); on Linux /proc/self/environ, proc(5)),
+// and on Windows the process's environment block (GetEnvironmentVariableW, which a script's own assignment to
+// `process.env` does reach, so only names in Bun's files are asked of it). So the first exact2 script of a command
+// (scripts/app.mjs and the app's launcher call `noteBunLoaded`) notes in EXACT_BUN_LOADED each name Bun loaded, one set
+// in `process.env` but not in the environment it was given, and every process below inherits the note: those names'
+// values are Bun's, never the environment's, whatever the files say later (a dev loop builds long after it started).
+// A variable the command was given is the environment's whether or not a file holds the same value. On any other
+// system nothing is noted, and a value Bun loaded counts as the environment's.
 const bunLoaded = (dir, env) => {
   const mode = env.NODE_ENV || 'development';
   return Object.assign({}, ...['.env', `.env.${mode}`, ...mode === 'test' ? [] : ['.env.local']].map(file => assignments(dir, file)));
@@ -50,6 +51,10 @@ const given = () => {
     } else if (process.platform === 'darwin') {
       const { symbols } = dlopen('/usr/lib/libSystem.B.dylib', { getenv: { args: [FFIType.cstring], returns: FFIType.cstring } });
       startedWith = name => symbols.getenv(Buffer.from(`${name}\0`)) !== null;
+    } else if (process.platform === 'win32') {
+      // With no buffer, the length a value needs: 0 for a name the block lacks.
+      const { symbols } = dlopen('kernel32.dll', { GetEnvironmentVariableW: { args: [FFIType.ptr, FFIType.ptr, FFIType.u32], returns: FFIType.u32 } });
+      startedWith = name => symbols.GetEnvironmentVariableW(Buffer.from(`${name}\0`, 'utf16le'), null, 0) > 0;
     }
   } catch { /* unreadable: nothing is noted */ }
   return startedWith;
@@ -67,7 +72,7 @@ const bunNames = env => new Set([...(env.EXACT_BUN_LOADED ?? '').split(',').filt
  * `.env` files. Each exact2 script calls it before it starts a process (scripts/app.mjs on import), so the first
  * one's note reaches every process below it. */
 export function noteBunLoaded() {
-  process.env.EXACT_BUN_LOADED = [...bunNames(process.env)].join(',');
+  process.env.EXACT_BUN_LOADED = [...bunNames(process.env)].sort().join(',');
 }
 
 /** Each of `names` with its value and source (`environment`, `.env.local` or `.env`), or null where none sets it. */
@@ -117,7 +122,7 @@ const READ = 'import.meta.env is read only in a top-level const of app.ts: const
  * value and no default. `parse` is Rolldown's. */
 export function inlineSettings(code, app, parse, env = process.env) {
   const declared = declaredSettings(app);
-  if (!declared.length && !/\bimport\s*\.\s*meta\b/.test(code)) return { code, record: {} };
+  if (!declared.length && !/\bimport\b/.test(code)) return { code, record: {} };
   const parsed = parse('app.ts', code);
   // The type check says what does not parse.
   if (parsed.errors?.length) return { code, record: {} };
@@ -164,7 +169,7 @@ export function inlineSettings(code, app, parse, env = process.env) {
  * app.ts has none left, so any is a read where none is allowed. `where(':line:col')` names the place, as the capture
  * names it (`path:line:col`, or `name@version (path:line:col)` in a package). */
 export function strayReads(file, code, parse, where, inPackage = false) {
-  if (!/\bimport\s*\.\s*meta\b/.test(code) || /\.d\.[cm]?ts$/.test(file) || !/\.[cm]?[jt]sx?$/.test(file)) return [];
+  if (!/\bimport\b/.test(code) || /\.d\.[cm]?ts$/.test(file) || !/\.[cm]?[jt]sx?$/.test(file)) return [];
   const lang = /\.[cm]?tsx?$/.test(file) ? (file.endsWith('x') ? 'tsx' : 'ts') : 'js', at = lineColumn(code);
   return metaEnvs(parse(code, { lang })).map(node => inPackage
     ? `${where(`:${at(node.start)}`)} reads import.meta.env, which only app.ts may: app.ts reads the setting (const API = import.meta.env.API_BASE_URL) and passes it in`
@@ -199,11 +204,14 @@ export function bakedSettings(baked, app) {
   return env ? { settings: { dir: app, env } } : {};
 }
 
-/** What a JS build in `out` inlined (`host/web-js/build.mjs` keeps `configure`'s record in its stage), as its
- * completion marker's `env`: nothing when it read no setting. */
+/** What a web build in `out` inlined, as its completion marker's `env`: on the JS target, `configure`'s record in its
+ * stage (`host/web-js/build.mjs`); on the wasm target, the receipt of the module paired with it. Nothing when it read
+ * no setting. */
 export function builtSettings(out) {
   let record = {};
-  try { record = JSON.parse(readFileSync(resolve(out, '.gen/typescript/__exact_env.json'), 'utf8')); } catch { /* no data module */ }
+  try { record = JSON.parse(readFileSync(resolve(out, '.gen/typescript/__exact_env.json'), 'utf8')); } catch {
+    try { record = JSON.parse(readFileSync(resolve(out, 'app.module.json'), 'utf8')).env ?? {}; } catch { /* no data module */ }
+  }
   return Object.keys(record).length ? { env: record } : {};
 }
 

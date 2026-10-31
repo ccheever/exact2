@@ -528,6 +528,8 @@ writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
   files: await publicFileCards(stage).finally(closeFilesystemReader),
   // Content digests of what this build read: a staleness check compares bytes, not times.
   inputs: webInputDigests(app, false),
+  // Each setting its module inlined (LLP 1153 D4), from the paired module's receipt, as a JS build's marker says them.
+  ...builtSettings(stage),
 }) + '\n');
 // In place in one step where the system has one (serve.mjs `replaceBuild`).
 publishWarmGame(app, stage, dist, warmInputs, buildReceipt, {...buildEnv, EXACT_GAME_PROOF_PROFILE:proofProfile});

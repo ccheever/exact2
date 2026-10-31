@@ -172,13 +172,14 @@ export function backendOriginSource(app, origin, env=process.env) {
   if (!dir) return 'built net.fetch grant';
   const selected=backendOriginSelection(dir,env);
   if (selected?.origin===origin) return selected.source;
-  // A setting app.ts reads (`import.meta.env`, LLP 1153 D4) whose value is at this origin.
-  const at=value=>{ try { return new URL(value).origin; } catch { return null; } };
-  const setting=Object.entries(settingValues(dir,declaredSettings(dir),env)).find(([,s])=>s && at(s.value)===origin);
-  if (setting) return `import.meta.env.${setting[0]} from ${setting[1].source}`;
   let code=''; try { code=readFileSync(resolve(dir,'app.ts'),'utf8'); } catch { /* no TypeScript source */ }
   const literal=/\bconst\s+origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(code)?.[1]?.replace(/\/+$/,'');
-  return !selected && literal===origin ? 'app.ts origin literal' : 'built net.fetch grant (rebuild after changing the backend selection)';
+  if (!selected && literal===origin) return 'app.ts origin literal';
+  // A setting (`import.meta.env`, LLP 1153 D4) at this origin, held by a const a `net.fetch` grant interpolates.
+  const at=value=>{ try { return new URL(value).origin; } catch { return null; } };
+  const granted=name=>[...code.matchAll(new RegExp(`\\bconst\\s+(\\w+)\\s*(?::[^=]*)?=\\s*\\(?\\s*import\\.meta\\.env\\.${name}\\b`,'g'))].some(([,id])=>new RegExp(`net\\.fetch\\s+\\$\\{${id}\\}`).test(code));
+  const setting=Object.entries(settingValues(dir,declaredSettings(dir),env)).find(([name,s])=>s && at(s.value)===origin && granted(name));
+  return setting ? `import.meta.env.${setting[0]} from ${setting[1].source}` : 'built net.fetch grant (rebuild after changing the backend selection)';
 }
 const listening = (origin, ms = 1000) => new Promise((done) => {
   const { hostname, port, protocol } = new URL(origin), socket = connect({ host: hostname.replace(/^\[|\]$/g, ''), port: Number(port || (protocol === 'https:' ? 443 : 80)) });

@@ -427,8 +427,11 @@ fn build_sources(
     // The settings app.ts read: each name in the environment, and the files
     // beside app.json, watched as the selection is (EXACT_ENV_FILES names the
     // ones that exist).
+    // And the names Bun loaded (`noteBunLoaded`): a variable whose value stays
+    // may come from the environment once and from Bun's files the next time.
     if let Some(settings) = meta["env"].as_object() {
         println!("cargo:rerun-if-env-changed=EXACT_ENV_FILES");
+        println!("cargo:rerun-if-env-changed=EXACT_BUN_LOADED");
         for name in settings.keys() {
             println!("cargo:rerun-if-env-changed={name}");
         }

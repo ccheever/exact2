@@ -110,7 +110,7 @@ function build(app, dist, keep = () => false, compiler = null, superseded = null
   rmSync(stage, { recursive: true, force: true });
   const began = Date.now();
   // The app's own inputs beside its Contract sources, and which were there.
-  const own = [designPath(app.dir) ?? resolve(app.dir, 'app.tamber'), resolve(app.dir, 'app.ts'), resolve(app.dir, 'app.json'), resolve(app.dir, '.exact/backend-origin')];
+  const own = [designPath(app.dir) ?? resolve(app.dir, 'app.tamber'), resolve(app.dir, 'app.ts'), resolve(app.dir, 'app.json'), resolve(app.dir, '.exact/backend-origin'), resolve(app.dir, '.env.local'), resolve(app.dir, '.env')];
   const there = new Set(own.filter((path) => existsSync(path)));
   const known = new Set(lastSources.filter((path) => existsSync(path)));
   return new Promise((done) => {
