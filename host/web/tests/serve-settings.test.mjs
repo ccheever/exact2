@@ -87,7 +87,7 @@ test('serve refuses a copied wasm-target build whose setting the environment cha
     expect(built.status, built.stderr).toBe(0);
     const marker = JSON.parse(readFileSync(join(dist, '.exact-build.json'), 'utf8'));
     expect([marker.target ?? null, marker.env]).toEqual([null, { API_BASE_URL: { value: 'http://a.example', source: 'environment' } }]);
-    const refused = spawnSync(process.execPath, [serve, String(freePort()), '--loopback', '--origin', dist], { env: { ...env, API_BASE_URL: 'http://b.example' }, encoding: 'utf8', timeout: 60_000 });
+    const refused = spawnSync(process.execPath, [serve, '--port', String(freePort()), '--loopback', '--origin', dist], { env: { ...env, API_BASE_URL: 'http://b.example' }, encoding: 'utf8', timeout: 60_000 });
     expect(refused.status).toBe(2);
     expect(refused.stderr).toContain(`${changed}, and the app's sources are not beside this build`);
   } finally { rmSync(root, { recursive: true, force: true }); }
