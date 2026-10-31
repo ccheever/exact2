@@ -40,7 +40,7 @@ import { HOST_DEV, bakeWatchEnv, buildBake, cargoEnvironment, copyShaders, injec
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
 import { androidImplementations, packageConfig } from '../js/bake/src/typescript.mjs';
-import { bakedSettings } from '../js/bake/src/__exact_env.mjs';
+import { recordBuiltSettings } from '../js/bake/src/__exact_env.mjs';
 import { configMetaData, fragmentPermissions, manifestFragment, withMetaData } from './android-manifest.mjs';
 import { androidShareActivity } from './share-target.mjs';
 
@@ -381,8 +381,8 @@ function buildApk(app, env, profile, writeLocks = false) {
   const apk = readerApk(app);
   writeFileSync(resolve(dirname(apk), 'exact-build.json'), JSON.stringify({ started, library: built(crate), workspace: app.workspace ?? app.dir,
     sources: [...READER_SOURCES, ...[resolve(app.dir, 'modules/android')].filter(existsSync)] }) + '\n');
-  // What its bake inlined of each setting (LLP 1153 D4), for a drive to compare with their sources (`bakedSettingChanges`).
-  writeFileSync(`${apk}.settings.json`, JSON.stringify(bakedSettings(out, app.dir).settings?.env ?? {}));
+  // What its bake inlined of each setting (LLP 1153 D4), bound to the APK, for a drive to compare with their sources.
+  recordBuiltSettings(apk, app, out);
   return apk;
 }
 
@@ -544,6 +544,6 @@ if (import.meta.main && process.argv[2] === 'relay') {
   }
   const [cmd, ...rest] = androidBuild(app);
   const built = spawnSync(cmd, rest, { cwd: app.workspace ?? app.dir, env, stdio: 'inherit' });
-  if (built.status === 0) console.log(androidBinary(app));
+  if (built.status === 0) { recordBuiltSettings(androidBinary(app), app); console.log(androidBinary(app)); }
   process.exit(built.status ?? 1);
 }

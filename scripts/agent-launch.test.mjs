@@ -1022,6 +1022,11 @@ test('a setting is named the backend\'s source only where the grant takes it, an
     // No grant takes a setting at that origin.
     writeFileSync(resolve(dir,'app.ts'),`const PICTURES = import.meta.env.PICTURES;\nexport const grants = 'net.fetch http://127.0.0.1:1';\n`);
     expect(backendOriginSource(dir,origin,{})).toContain('built net.fetch grant');
+    // As JavaScript reads it: spacing inside the template, and a grant in a comment, which is none.
+    writeFileSync(resolve(dir,'app.ts'),`const API = import.meta.env.API_BASE_URL;\nconst PICTURES = import.meta.env.PICTURES;\nexport const grants = \`net.fetch \${ API }\`;\n`);
+    expect(backendOriginSource(dir,origin,{})).toBe('import.meta.env.API_BASE_URL from .env');
+    writeFileSync(resolve(dir,'app.ts'),`const API = import.meta.env.API_BASE_URL;\nconst PICTURES = import.meta.env.PICTURES;\n// export const grants = \`net.fetch \${API}\`;\nexport const grants = 'net.fetch ${origin}/v2';\n`);
+    expect(backendOriginSource(dir,origin,{})).toContain('built net.fetch grant');
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 
@@ -1051,31 +1056,41 @@ test('a native build is stale when a setting its module inlined has another valu
   }
 });
 
-test('a Linux or Android build is stale when a setting its module inlined has another value now', async () => {
+test('a Linux or Android build is stale when a setting the executable holds has another value now, or none is bound to it', async () => {
   const {bakedSettingChanges}=await import('./agent-launch.mjs');
+  const {recordBuiltSettings}=await import('../js/bake/src/__exact_env.mjs');
   const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-linux-')), name='EXACT_TEST_SETTING', key=`import.meta.env.${name}`;
+  const app={dir,manifest:{env:[name]}}, inlined=value=>JSON.stringify({env:{[name]:{value,source:'environment'}}});
   try {
-    writeFileSync(resolve(dir,'app.json'),JSON.stringify({env:[name]}));
     // The binary embeds the bytecode its build script baked; the receipt beside it records what that bake inlined.
     const out=resolve(dir,'target/host-dev/build/envapp-linux-0123/out'), bin=resolve(dir,'target/host-dev/envapp-linux');
     mkdirSync(out,{recursive:true});
     writeFileSync(resolve(out,'app.hbc'),'');
-    writeFileSync(resolve(out,'app.module.json'),JSON.stringify({env:{[name]:{value:'http://a.example',source:'environment'}}}));
-    writeFileSync(bin,'');
+    writeFileSync(resolve(out,'app.module.json'),inlined('http://a.example'));
+    writeFileSync(bin,'linked with a');
     writeFileSync(`${bin}.d`,`${bin}: ${resolve(dir,'linux/src/main.rs')} ${resolve(out,'app.hbc')}\n`);
-    // The Canvas reader's APK keeps its record beside it.
+    recordBuiltSettings(bin,app);
     const apk=resolve(dir,'app-release.apk');
-    writeFileSync(apk,'');
-    writeFileSync(`${apk}.settings.json`,JSON.stringify({[name]:{value:'http://a.example',source:'environment'}}));
+    writeFileSync(apk,'packaged with a');
+    recordBuiltSettings(apk,app,out);
+    const changes=()=>[bakedSettingChanges(bin,app),bakedSettingChanges(apk,app)];
     process.env[name]='http://a.example';
     try {
-      expect([bakedSettingChanges(bin,{dir}),bakedSettingChanges(apk,{dir})]).toEqual([[],[]]);
+      expect(changes()).toEqual([[],[]]);
       process.env[name]='http://b.example';
-      expect([bakedSettingChanges(bin,{dir}),bakedSettingChanges(apk,{dir})]).toEqual([[key],[key]]);
+      expect(changes()).toEqual([[key],[key]]);
+      // A rebuild stopped after its bake and before the link: a receipt says b, the executable still holds a.
+      writeFileSync(resolve(out,'app.module.json'),inlined('http://b.example'));
+      expect(changes()).toEqual([[key],[key]]);
+      // Another build replaced them and recorded nothing: no record is bound to these, so build again.
+      writeFileSync(bin,'linked with b'); writeFileSync(apk,'packaged with b');
+      expect(changes()).toEqual([[`${bin}.settings.json (none, or another build's)`],[`${apk}.settings.json (none, or another build's)`]]);
+      // A build that finished records what it linked.
+      recordBuiltSettings(bin,app); recordBuiltSettings(apk,app,out);
+      expect(changes()).toEqual([[],[]]);
     } finally { delete process.env[name]; }
-    // Nothing recorded (no TypeScript module, or a build before settings): nothing to compare.
-    rmSync(resolve(out,'app.module.json'));
-    expect(bakedSettingChanges(bin,{dir})).toEqual([]);
+    // An app that declares no setting has none to compare.
+    expect(bakedSettingChanges(bin,{dir,manifest:{}})).toEqual([]);
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 

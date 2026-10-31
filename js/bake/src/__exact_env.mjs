@@ -3,8 +3,9 @@
 // the const's `??` default. The value is inlined into the captured copy, so every host runs the same module. The
 // native bake writes this file into its stage beside `__exact_config.mjs`, which imports it
 // (js/bake/src/resident.rs `ENV`); the web build and the scripts import it from here.
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { dirname, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
 import { dlopen, FFIType } from 'bun:ffi';
 
@@ -202,6 +203,35 @@ export function bakedSettings(baked, app) {
   let env = null;
   try { env = JSON.parse(readFileSync(resolve(baked, 'app.module.json'), 'utf8')).env ?? null; } catch { /* no TypeScript module */ }
   return env ? { settings: { dir: app, env } } : {};
+}
+
+// A native build's settings (a Linux or Android executable, the Canvas reader's APK) are bound to the executable a
+// successful build made: `<executable>.settings.json` holds its digest beside what its bake inlined. The bake's own
+// receipt cannot stand in, as an interrupted rebuild writes a new one and leaves the old executable.
+const digest = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
+
+/** After `executable` of the app `app` (its directory and manifest) built: what its bake inlined of each setting,
+ * bound to it by its digest. `baked` is the bake's output directory, where the build knows it; else the one the
+ * executable's dep-info names (`<executable>.d`), whose bytecode it embeds. An app that declares no setting has none. */
+export function recordBuiltSettings(executable, app, baked = null) {
+  if (!app.manifest?.env?.length) return;
+  if (!baked) {
+    let line = '';
+    try { line = readFileSync(`${executable}.d`, 'utf8').split('\n')[0]; } catch { /* no dep-info */ }
+    const bytecode = line.slice(line.indexOf(': ') + 2).split(/(?<!\\) /).map((path) => path.replace(/\\ /g, ' ')).find((path) => /\/build\/[^/]+\/out\/app\.hbc$/.test(path));
+    baked = bytecode ? dirname(bytecode) : null;
+  }
+  const env = baked ? bakedSettings(baked, app.dir).settings?.env ?? {} : {};
+  writeFileSync(`${executable}.settings.json`, JSON.stringify({ sha256: digest(executable), env }));
+}
+
+/** What the build `executable` inlined of each setting (`recordBuiltSettings`), or null where no record is bound to
+ * it: none written, or one written for another build of it. */
+export function boundSettings(executable) {
+  try {
+    const record = JSON.parse(readFileSync(`${executable}.settings.json`, 'utf8'));
+    return record.sha256 === digest(executable) ? record.env : null;
+  } catch { return null; }
 }
 
 /** What a web build in `out` inlined, as its completion marker's `env`: on the JS target, `configure`'s record in its

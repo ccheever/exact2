@@ -14,8 +14,9 @@ import { perfDelta } from './agent-inspect.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
 import { resolveApp, webDist as defaultWebDist } from './app.mjs';
 import { onThisMachine, serverUrl } from './verify.mjs';
-import { backendOrigin, backendOriginSelection } from '../js/bake/src/typescript.mjs';
-import { declaredSettings, settingValues } from '../js/bake/src/__exact_env.mjs';
+import { backendOrigin, backendOriginSelection, staticFacts } from '../js/bake/src/typescript.mjs';
+import { declaredSettings, inlineSettings, settingValues } from '../js/bake/src/__exact_env.mjs';
+import { createRequire } from 'node:module';
 import { devicePreflight, mountsSnapback } from '../snapback4/web/device-build.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
@@ -175,10 +176,15 @@ export function backendOriginSource(app, origin, env=process.env) {
   let code=''; try { code=readFileSync(resolve(dir,'app.ts'),'utf8'); } catch { /* no TypeScript source */ }
   const literal=/\bconst\s+origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(code)?.[1]?.replace(/\/+$/,'');
   if (!selected && literal===origin) return 'app.ts origin literal';
-  // A setting (`import.meta.env`, LLP 1153 D4) at this origin, held by a const a `net.fetch` grant interpolates.
+  // A setting (`import.meta.env`, LLP 1153 D4) at this origin that the exported grants fetch from, as the bake evaluates
+  // them (`inlineSettings`, `staticFacts`), each setting read as an origin of its own: the grants then name those they take.
   const at=value=>{ try { return new URL(value).origin; } catch { return null; } };
-  const granted=name=>[...code.matchAll(new RegExp(`\\bconst\\s+(\\w+)\\s*(?::[^=]*)?=\\s*\\(?\\s*import\\.meta\\.env\\.${name}\\b`,'g'))].some(([,id])=>new RegExp(`net\\.fetch\\s+\\$\\{${id}\\}`).test(code));
-  const setting=Object.entries(settingValues(dir,declaredSettings(dir),env)).find(([name,s])=>s && at(s.value)===origin && granted(name));
+  const names=declaredSettings(dir), placeholder=name=>`http://${name.toLowerCase().replaceAll('_','-')}.setting.invalid`;
+  let grants='';
+  try { const parse=createRequire(import.meta.url)('rolldown/utils').parseSync; grants=staticFacts(inlineSettings(code,dir,parse,Object.fromEntries(names.map(name=>[name,placeholder(name)]))).code,parse).grants ?? ''; }
+  catch { /* an app.ts the bake refuses: no setting is named */ }
+  const fetched=new Set(grants.split('\n').map(line=>/^\s*(?:development\s+)?net\.fetch\s+(\S+)/.exec(line)?.[1]).filter(Boolean).map(at));
+  const setting=Object.entries(settingValues(dir,names,env)).find(([name,s])=>s && at(s.value)===origin && fetched.has(at(placeholder(name))));
   return setting ? `import.meta.env.${setting[0]} from ${setting[1].source}` : 'built net.fetch grant (rebuild after changing the backend selection)';
 }
 const listening = (origin, ms = 1000) => new Promise((done) => {

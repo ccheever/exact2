@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { bakeWatchEnv, cargoEnvironment, linuxBinary, linuxBuild, resolveApp } from './app.mjs';
 import { guardFlags } from './help.mjs';
 import { desktopEntry } from './desktop-entry.mjs';
+import { recordBuiltSettings } from '../js/bake/src/__exact_env.mjs';
 import { writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
@@ -22,6 +23,8 @@ if (built.status === 0) {
   // Its desktop entry beside it, with the manifest's shortcuts as actions (LLP 1133.023 D17).
   const binary = linuxBinary(app), entry = resolve(dirname(binary), `${app.id}.desktop`);
   writeFileSync(entry, desktopEntry(app, binary));
+  // What it inlined of each setting (LLP 1153 D4), bound to the executable this build linked.
+  recordBuiltSettings(binary, app);
   console.log(binary);
   console.log(entry);
 }
