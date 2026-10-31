@@ -881,7 +881,16 @@ impl<S: Source> Walk<'_, '_, S> {
         if !style.is_empty() {
             attrs.push(("style".into(), Some(style)));
         }
-        attrs.push(("data-exact-paint".into(), Some(format!("[{flags},{z}]"))));
+        // `paintWait` takes a summary left out as the template facts with no
+        // z-index, which it is in most elements.
+        let said = attrs
+            .iter()
+            .filter(|(n, _)| n == "data-exact-f" || n.starts_with("data-exact-f-"))
+            .filter_map(|(_, v)| v.as_deref()?.parse::<u16>().ok())
+            .fold(0, |bits, f| bits | f);
+        if flags != said || z != "null" {
+            attrs.push(("data-exact-paint".into(), Some(format!("[{flags},{z}]"))));
+        }
         self.open(id, element, &attrs)?;
         if matches!(element, "img" | "input" | "hr") {
             // Void: no content, no end tag.
