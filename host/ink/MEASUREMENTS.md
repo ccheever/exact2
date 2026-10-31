@@ -4130,3 +4130,36 @@ test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; fi
 test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 ```
+
+## M2b-Windows — Step demand
+
+2026-10-30, NucBox, release heavy-list with `BENCH_MOTION=caret` and
+`BENCH_LIVE=0`. Before is `1013a5a7c4`; after is `d15f40e145`, including the
+Stage 0 rebase onto `942b409559`. Three processes per device use the existing
+Windows driver without wheel posts. The existing frame log counts successful
+redraws in host time `[5000, 15000)` ms. PresentMon observes D3D11; the frame
+log covers both devices. Prediction: about 60 redraws/s before, 2/s after
+(20 ± 1 frames per ten seconds).
+
+| Device | Before, redraws/s | Before recount, redraws/s | After, redraws/s |
+| --- | --- | --- | --- |
+| D3D11 | 60.0, 60.0, 60.0 | 56.5, 60.0, 59.8 | 2.0, 2.0, 2.0 |
+| wgpu | 59.6, 60.0, 60.0 | 60.0, 60.0, 60.0 | 2.0, 2.0, 2.0 |
+
+The two-redraw prediction is met in all six after samples. Painter snapshots
+match successful frames in every process (after: 47/47/46 for D3D11,
+46/45/45 for wgpu); no paint walk continues between the step frames. All
+processes exit zero, with no focus loss or lost ETW events. These are redraw
+counts, not a quiet-qualified CPU comparison: the 10% machine-CPU threshold
+was exceeded in 19/32, 28/33 and 16/33 observations in the three cohorts,
+respectively. Another build overlaps seven recount observations; neither the
+first before cohort nor the after cohort overlaps a compiler. The fixture's
+five app timer firings per second also prevent it qualifying M2's rest row.
+
+Raw logs, snapshots, PresentMon CSVs, process IDs and quiet observations are
+retained in this worktree's `target/m2b-fix/nucbox/{before-logged,before-final,after}/`.
+`target/m2b-fix/summarize-counts.py` reproduces `counts.json`; the prediction
+and adapted driver are beside it. The NucBox retains the same cohorts under
+`~/projects/exact2/target/m2b-fix/`, with both executables in `before-bin/` and
+`after-bin/` and the isolated source snapshot in `source/`. The shared
+mirror's pending edits were not overwritten.
