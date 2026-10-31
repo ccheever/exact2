@@ -41,8 +41,8 @@ bun env.mjs stop all
 The seed: `shared-notes` in both environments (one Git origin, so the clone groups it as one
 logical project) with a thread each, and in `second` only `background-only` with "Background
 thread (no run)" and "Background follow-up" and the action "Echo test" (its project settings'
-action to edit and delete), and `empty-project` with no thread (a project with nothing to
-remove). Threads are created with `thread.create` and never get a turn.
+action to edit and delete), and `empty-project` with no thread. Threads are created with
+`thread.create` and never get a turn.
 
 `seed second --turns` makes the ACP stand-in (`../acp-standin/`) a provider of that server and
 adds threads with a turn on it, each with a context meter (the stand-in reports its usage); their
@@ -116,9 +116,9 @@ T3_FIXTURE_LOCAL_PORT=16300`, and `start <name> --port 16310`.
 With `seed second --turns`, "Background thread (completed turn)" is read: its row shows no
 status. Mark unread (its context menu) rewinds the server's visit watermark to just before the
 completion (`thread.mark-unread`), and the row shows the reference's green "Completed" status
-(Sidebar.logic.ts `hasUnseenCompletion`); opening
-the thread reads it again. The menu needs real input (below); the row's answer to the command can
-be driven by sending it through the server's API while the app runs.
+(Sidebar.logic.ts `hasUnseenCompletion`); opening the thread reads it again. The menu needs real
+input (below); the row's answer to the command can be driven by sending it through the server's
+API while the app runs.
 
 What an agent drive cannot do here: choose an item of a native context menu (under the agent it
 answers dismissed: nothing is chosen and its items are not logged). That row needs real input. A

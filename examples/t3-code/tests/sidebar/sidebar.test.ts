@@ -422,7 +422,7 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
     await sidebarCommand(client, native, files, 'pin', 'a', '');
     expect(strip(dispatched)).toEqual([{ type: 'thread.pin', threadId: 'a', orderKey: 'h' }]);
     await sidebarCommand(client, native, files, 'unpin', 'p', '');
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoText).toBe('Unpinned 1 thread,');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoShort).toBe('Unpinned,');
     await undoLatest(client, native);
     expect(strip(dispatched).slice(1)).toEqual([{ type: 'thread.unpin', threadId: 'p' }, { type: 'thread.pin', threadId: 'p', orderKey: 'n' }]);
   });
@@ -432,7 +432,7 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
     await sidebarCommand(client, native, files, 'settle', 'a', '');
     expect(opened).toEqual(['b']);
     await sidebarCommand(client, native, files, 'settle', 'c', '');
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoText).toBe('Settled 2 threads,');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoShort).toBe('Settled 2,');
     await sidebarCommand(client, native, files, 'undo', '', '');
     expect(strip(dispatched).map(payload => `${payload.type}:${payload.threadId}`)).toEqual(['thread.settle:a', 'thread.settle:c', 'thread.unsettle:c', 'thread.unsettle:a']);
   });
@@ -440,12 +440,12 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
   test("the footer's undo notice reads the short summary; the full sentence stays for the announcement", async () => {
     const { client } = fake([shell('a', { createdAt: iso(-1) }), shell('b', { createdAt: iso(-2) }), shell('z', { snoozedUntil: iso(3_600_000) })], { threadId: 'a' });
     await sidebarCommand(client, native, files, 'settle', 'a', '');
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ undoShort: 'Settled,', undoText: 'Settled 1 thread,' });
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ undoShort: 'Settled,' });
     (client as unknown as { query: string }).query = 'Thread';
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoShort).toBe('Settled,');
     (client as unknown as { query: string }).query = '';
     await sidebarCommand(client, native, files, 'settle', 'b', '');
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ undoShort: 'Settled 2,', undoText: 'Settled 2 threads,' });
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ undoShort: 'Settled 2,' });
     // It is drawn in the footer's utility row, never over the list.
     const view = appPath('src/sidebar/sidebar.contract');
     const source = require('node:fs').readFileSync(view, 'utf8') as string;
@@ -580,7 +580,7 @@ describe('sidebar navigation, drafts and the hover card', () => {
     await sidebarCommand(client, native, files, 'discard-project-draft', 'p1', '');
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.drafts).toEqual([]);
     // Upstream 95edeb753b: the discard waits behind the undo notice; its uploads go when Undo can no longer bring them back.
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoText).toBe('Discarded 1 draft,');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoShort).toBe('Discarded,');
     expect((client.local as unknown as { snapshotReleases: string[] }).snapshotReleases).toEqual([]);
   });
 
@@ -704,7 +704,7 @@ describe('Custom snooze from the thread title menu', () => {
     await sidebarLocal(client, native, 'dialog-field', 'time', localTime(wake));
     await sidebarCommand(client, native, files, 'dialog-confirm', '', '', NOW);
     expect(strip(dispatched)).toEqual([{ type: 'thread.snooze', threadId: 'a', snoozedUntil: new Date(`${localDate(wake)}T${localTime(wake)}:00`).toISOString() }]);
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: '', dialogReturn: '', undoText: 'Snoozed 1 thread,' });
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ dialog: '', dialogReturn: '', undoShort: 'Snoozed,' });
     expect([navigated, drafts, client.threadId]).toEqual([[], [], 'a']);
     await sidebarCommand(client, native, files, 'snooze:custom', 'b', 'title', NOW);
     await sidebarLocal(client, native, 'dialog-field', 'mode', 'duration');

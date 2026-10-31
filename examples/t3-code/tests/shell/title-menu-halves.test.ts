@@ -57,6 +57,26 @@ describe('the title menu\'s snooze options are its environment\'s', () => {
     expect(dispatched).toHaveLength(2);
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'warning', title: 'Could not snooze thread' });
   });
+
+  test('with no runtime clock, as in the app, a choice is picked at the instant titleMenuPick sends', async () => {
+    const { client, dispatched } = fake([thread()], { snoozePresets: [{ kind: 'after', minutes: 60 }, { kind: 'at', day: 'today', time: '18:00' }] });
+    const value = (id: string) => titleMenu(client, NOW).find(item => item.id === `snooze:${id}`)!.value;
+    const hour = value('after:60'), evening = value('at:today:18:00');
+    const sent: unknown[][] = [];
+    contractComponent('app.contract', 'T3Code').call('titleMenuPick', { commandPending: false }, {
+      command: (...args: unknown[]) => sent.push(args), sent: () => {}, wallTime: { epochAtZero: NOW }, performanceNow: () => 60_000,
+    }, ['chat:snooze', 't1', hour, '', '', false]);
+    expect(sent).toEqual([['chat:snooze', 't1', hour, NOW + 60_000]]);
+    // An earlier sidebar command's instant (two hours ago) is not the pick's.
+    await chatCommand(client, native, {} as Files, 'unsnooze', 't1', '', NOW - 2 * 3_600_000);
+    await sidebarCommand(client, native, {} as Files, 'copy-thread', 't1', '', NOW - 2 * 3_600_000);
+    await chatCommand(client, native, {} as Files, 'snooze', 't1', hour, NOW + 60_000);
+    await chatCommand(client, native, {} as Files, 'snooze', 't1', evening, NOW + 60_000);
+    await chatCommand(client, native, {} as Files, 'snooze', 't1', evening, new Date(2026, 9, 7, 18, 1).getTime());
+    expect(dispatched.filter(payload => payload.type === 'thread.snooze').map(payload => payload.snoozedUntil))
+      .toEqual([new Date(NOW + 61 * 60_000).toISOString(), new Date(2026, 9, 7, 18, 0).toISOString()]);
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'warning', title: 'Could not snooze thread' });
+  });
 });
 
 describe('Turn into project and Copy › Thread', () => {

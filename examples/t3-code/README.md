@@ -373,16 +373,18 @@ its letters are its rows' `aria-keyshortcuts` (`shell-panels.contract`), which E
 menu is a window-level popup, placed from the trigger's `frame()` (scroll offsets applied),
 that Escape and an outside press close (`table-menu.*`). The row context menus are Contract context
 popovers, which the host presents as an `NSMenu` at the pointer, or for the ContextMenu key at the
-focused row's centre (exact2 #314): the sidebar's thread, draft and selection menus, the Files tree's, a panel tab's, a pull request number's, the branch
-picker's Copy branch name (on its trigger and on each ref in the open picker, which stays open under it), and the chat's
-web and file link menus (`link-menus.contract`; their rows are computed before the right-click,
-`external-link-menu.ts` and `file-link-menu.ts`). A draft
-row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. A mailto, irc,
-xmpp or fragment link has no menu of its own, so its right-click and its ContextMenu key get the desktop shell's
-(`T3TextContextMenu.swift`). The media menu stays the module's (`T3ContextMenu.swift` says why). A file link on
-the pull request page shows its menu where the press was (LLP 1021 D2: the press's `clientX` and `clientY` as the popover's `left` and `top`; a key's press is at 0, 0,
-the window's corner, as the reference's `Menu.popup` puts it). A global hotkey of another
-app (a launcher holding ⌘1, say) never reaches the window.
+focused row's centre (exact2 #314): the sidebar's thread, draft and selection menus, the Files
+tree's, a panel tab's, a pull request number's, the branch picker's Copy branch name (on its trigger
+and on each ref in the open picker, which stays open under it), and the chat's web and file link
+menus (`link-menus.contract`; their rows are computed before the right-click,
+`external-link-menu.ts` and `file-link-menu.ts`). A draft row's ContextMenu and Shift+F10, and a
+tab's Shift+F10, show theirs from the row, below it. A mailto, irc, xmpp or fragment link has no
+menu of its own, so its right-click and its ContextMenu key get the desktop shell's
+(`T3TextContextMenu.swift`). The media menu stays the module's (`T3ContextMenu.swift` says why). A
+file link on the pull request page shows its menu where the press was (LLP 1021 D2: the press's
+`clientX` and `clientY` as the popover's `left` and `top`; a key's press is at 0, 0, the window's
+corner, as the reference's `Menu.popup` puts it). A global hotkey of another app (a launcher holding
+⌘1, say) never reaches the window.
 
 Saved environments and their credentials are one kept secret, `t3-catalog` (granted by `secret.keep
 t3-catalog`, kept in the Keychain on macOS; `transport-catalog.ts`), each token scoped to the server

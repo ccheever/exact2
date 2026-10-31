@@ -37,6 +37,7 @@ export async function chatCommand(client: T3Client, native: Native, storage: Fil
     // A title menu choice, `<preset id>|<the wake it showed>`: picked as the sidebar's are (Sidebar.snooze.ts pickSnoozePreset).
     let until = value;
     if (value.includes('|')) {
+      adoptCommandTime(client, at); // the window's instant of the pick: `wall` is otherwise 0 or the last sidebar command's
       const [presetId = '', shown = ''] = value.split('|'), format = client.local.deviceSettings.timestampFormat;
       const preset = pickSnoozePreset([{ id: presetId, label: '', wakeLabel: '', until: shown }], presetId, wall(client), format, snoozePresetSettings(client.config));
       if (!preset) { pushToast(client, { kind: 'warning', title: 'Could not snooze thread', description: 'That snooze time has passed. Choose another time.' }); return ''; }

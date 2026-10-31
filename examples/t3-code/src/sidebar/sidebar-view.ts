@@ -15,7 +15,7 @@ import { selectRunningSubprocessTerminalIds } from '../terminal/terminal-session
 import { terminalFocused } from '../terminal/terminal-focus';
 import { snoozePresets, snoozePresetSettings, type SnoozePreset } from './sidebar-presentation';
 import { searchMatch, searchRows, threadSearchPending, type SearchPart } from './sidebar-search';
-import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, localDate, noteSnapshotTime, sidebarPrefs, sidebarSession, undoLive, undoShortSummary, undoSummary } from './sidebar-state';
+import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, localDate, noteSnapshotTime, sidebarPrefs, sidebarSession, undoLive, undoShortSummary } from './sidebar-state';
 import { NO_CALENDAR, firstWeekday, snoozeCalendar, type SnoozeCalendar } from './snooze-calendar';
 import { sidebarProviderPill } from './sidebar-provider-pill';
 import { grayIdentity, projectGlyph, type ProjectGlyph } from './sidebar-glyph';
@@ -97,7 +97,7 @@ export interface SidebarView {
   /** The chosen projects' keys, newline-joined ('' for all), and their names, comma-joined. */
   scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopeGlyphSecond: ProjectGlyph; scopeCount: number; scopes: SidebarScope[];
   scopeOpen: boolean; scopeQuery: string; scopeFirst: string;
-  renameId: string; renameTitle: string; renameHeld: boolean; selectionCount: number; undoText: string; undoShort: string; undoLabel: string; undoUntil: number;
+  renameId: string; renameTitle: string; renameHeld: boolean; selectionCount: number; undoShort: string; undoLabel: string; undoUntil: number;
   dialog: string; dialogTitle: string; dialogDescription: string; dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string; dialogReturn: string; jumpModifiers: string[];
   calendar: SnoozeCalendar;
   pillKey: string; pillTone: string; pillTitle: string; pillDescription: string; pillDismissible: boolean; sweepEpoch: number;
@@ -467,7 +467,6 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery,
       scopeFirst: scopeItems(client, session.scopeQuery, prefs.scopes, scopes, helpers.projectIdentity)[0]?.key ?? '',
       renameId: session.renameId, renameTitle: session.renameTitle, renameHeld: renameHeld(client), selectionCount: session.selection.length,
-      undoText: undo && live ? `${undoSummary(undo)},` : '', // drafts (upstream 95edeb753b)
       undoShort: undo && live ? `${undoShortSummary(undo)},` : '',
       undoUntil: undo && live ? undo.at + 5000 : 0, // the window hides the notice at this wall time (showThreadUndoNotice's 5 s)
       undoLabel: undoLabel(client),
