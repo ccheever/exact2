@@ -176,7 +176,7 @@ action log
 ```
 ### a test, and verify
 Each test starts with empty storage; target by `testId` or text. `clock data` lands replies, `clock settle` settles presentation, `clock held` lands held replies; `reload` keeps storage. `bun exact.mjs verify` tests, checks end screens and relaunches; `verify ios` last; `--shots <dir>` keeps screenshots.
-It runs `contract verify app.contract` too; keep its receipt.
+It runs `contract verify` too; keep its receipt.
 ```contract-test
 test "a pick survives a relaunch"
   tap "pick"

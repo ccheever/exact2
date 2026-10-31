@@ -931,6 +931,7 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
         "loading",
         "plural",
         "choice",
+        "select",
         "screen",
         "modal",
         "confirm",

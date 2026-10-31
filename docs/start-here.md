@@ -104,6 +104,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |a failure the person must acknowledge (an alert with OK)|`error-alert`|
 |tabular digits: numeric columns or values changing in place|`numeric-readout`|
 |a number field, a stepper's `step`|`number-field`, `stepper`|
+|a pick from six or more options (a picker)|`select`|
 |a chat that opens at its newest message|`chat-thread`|
 |a welcome at first launch|`first-launch`|
 |records kept across launches, a saved library (`state` holds values, not records): a JSON file, SQLite, grants|`files-and-grants`|

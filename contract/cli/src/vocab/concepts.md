@@ -140,11 +140,47 @@ component App
 - Each option is one short `text` (or a symbol `image` with an `aria-label`); leave its
   look unsaid. A radio that paints itself (its own `background-color`, `border` or
   `border-radius`, LLP 1104 D2) makes the group your drawn control on every host, keys
-  and all; `appearance="none"` on the `radiogroup` says so whatever the radios write. Six or more options, or long labels: a `select`. On or off: `input
+  and all; `appearance="none"` on the `radiogroup` says so whatever the radios write. Six or more options, or long labels: a `select` (`contract vocab select`). On or off: `input
   type="checkbox" switch`.
 - `state tip = 18 persist` keeps the choice across launches.
 
 More: docs/recipes/persisted-setting.md
+
+## select: one value from six or more, or from long labels (a picker)
+names: picker, Picker, combobox, pop-up button, UIPickerView, NSPopUpButton
+
+A `select` holds its `option "Label" value="x"` children, written out or from a `for`. Its
+`value` is the chosen option's `value`; `change` hands the action that string. iOS draws a
+pop-up button whose menu lists the options, the Mac a pop-up button, the web the browser's
+select; in a grouped row after a `text` it is the row's accessory.
+
+```contract
+component App
+  state course = ""
+  action pick(v: string)
+    course = v
+  view
+    list appearance="auto" listStyle="inset-grouped" height="100%"
+      section
+        row
+          text "Course"
+          select value=course change=pick aria-label="Course" testId="course"
+            option "None" value=""
+            for c in ["Breakfast", "Lunch", "Dinner", "Snack", "Dessert", "Drinks"] key=c
+              option c value=c
+        footer
+          text (course == "" ? "Choose a course." : `${course} it is.`) testId="picked"
+```
+
+```contract-test
+test "a course is picked"
+  type "course" "Dinner"
+  expect text "picked" == "Dinner it is."
+```
+
+- In a test or a drive, `type` picks an option by its `value`; a tap does not open the menu.
+- An option whose `value` is `""` stands for none chosen ("None", "Choose…"). Two to five
+  short options are a `choice` (a segmented control).
 
 ## screen: a second screen, a list and its detail, and Back
 names: navigate, navigation, navigationBack, back, detail, route, routes, router, list-detail, master-detail, deep-link, deep link, protocol_handlers, openURL, url-scheme, react-router, back button, back-button, back title, backButtonDisplayMode, headerBackTitle, backButtonTitle, backBarButtonItem, navigationBackTitle, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage

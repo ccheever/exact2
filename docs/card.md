@@ -179,7 +179,7 @@ a dated record: The write reads the clock, not a ticked `now`, and stores `at`; 
   action log
     let at = time.epochAtZero + performanceNow()
     days = days.concat([formatDate(at, time.utcOffset, "iso")])
-a test, and verify: Each test starts with empty storage; target by `testId` or text. `clock data` lands replies, `clock settle` settles presentation, `clock held` lands held replies; `reload` keeps storage. `bun exact.mjs verify` tests, checks end screens and relaunches; `verify ios` last; `--shots <dir>` keeps screenshots. It runs `contract verify app.contract` too; keep its receipt.
+a test, and verify: Each test starts with empty storage; target by `testId` or text. `clock data` lands replies, `clock settle` settles presentation, `clock held` lands held replies; `reload` keeps storage. `bun exact.mjs verify` tests, checks end screens and relaunches; `verify ios` last; `--shots <dir>` keeps screenshots. It runs `contract verify` too; keep its receipt.
   test "a pick survives a relaunch"
     tap "pick"
     clock data
@@ -212,5 +212,5 @@ component App
 - A number field's `min`, `max`, `step` are numbers (`min=-40`); with `inputmode="decimal"` a negative `min` gives the pad its ± key.
 - Symbols: `"symbol:<role>"` (below); `symbol:sf/<name>` is Apple-only.
 - Not in Contract (`contract vocab <name>` says what instead): abs pow sqrt sort reduce find some every contains padStart parseInt.
-idioms with code (`contract vocab <name>`): scroll loading plural choice screen notfound modal confirm date persist swipe task mutation resource match for if let fn shape props derive action stepper gradients menu search menubar ::placeholder glass bar-buttons haptics status-bar toast titlebar share use svg safe-area var
+idioms with code (`contract vocab <name>`): scroll loading plural choice select screen notfound modal confirm date persist swipe task mutation resource match for if let fn shape props derive action stepper gradients menu search menubar ::placeholder glass bar-buttons haptics status-bar toast titlebar share use svg safe-area var
 symbol roles: back close compose add microphone send search copy select-text more delete forward home person messages notifications settings repeat activity bookmark bookmark-fill document select select-fill reorder sort filter heart heart-fill reply share ellipsis home-fill notifications-fill person-fill photo play play-fill pause pause-fill skip-back-15 skip-forward-15 skip-back-30 skip-forward-30 speaker speaker-mute moon pin link checkmark forward-chevron at hashtag follow sign-out quote feeds calendar book layers lock people stop stop-fill circle alert minus-circle pencil waveform info camera star star-fill minus chart sparkles refresh menu adjust alert-fill info-fill chooser download install open-app download-pending package mail emoji translate
