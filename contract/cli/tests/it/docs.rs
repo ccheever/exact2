@@ -375,8 +375,8 @@ fn every_pattern_compiles_with_expected_diagnostics_and_its_tests_parse() {
 }
 
 /// Each pattern, written by `bun exact.mjs pattern <name>` into one app
-/// `exact new` made, passes its own tests on the web: `test web`, or the
-/// command its pattern.json adds (rest's `api-test`, which starts its server).
+/// `exact new` made, passes its own tests on the web: `test web`, which
+/// runs the pattern's server (rest's, site's) for them.
 #[test]
 #[ignore = "async lane: makes an app with Bun and Cargo and drives every pattern's tests in Chrome; bun scripts/async.mjs runs it"]
 fn every_pattern_passes_its_tests_on_the_web() {
@@ -413,14 +413,9 @@ fn every_pattern_passes_its_tests_on_the_web() {
             failures.push(format!("pattern {name}: {said}"));
             continue;
         }
-        let verb = if dir.join("pattern.json").is_file() {
-            "api-test"
-        } else {
-            "test"
-        };
-        let (passed, said) = run(&app, &["exact.mjs", verb, "web"]);
+        let (passed, said) = run(&app, &["exact.mjs", "test", "web"]);
         if !passed {
-            failures.push(format!("{name} ({verb} web):\n{said}"));
+            failures.push(format!("{name} (test web):\n{said}"));
         }
     }
     let _ = std::fs::remove_dir_all(&parent);

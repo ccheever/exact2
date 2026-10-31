@@ -24,14 +24,14 @@ use windows::{
 mod composition;
 #[cfg(test)]
 mod desktop_tests;
-#[cfg(test)]
-mod rich_edit;
+pub mod fields;
+pub mod rich_edit;
 mod setup;
 mod startup;
 pub use startup::Startup;
+pub mod startup_watchdog;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
 mod text_host;
 pub use composition::Window;
 
@@ -255,6 +255,7 @@ impl D3d11 {
 
     /// Force WARP for the software-device qualification (LLP 1149 S0 C6).
     pub fn open(force_warp: bool) -> Result<Self> {
+        crate::counters::initialize();
         Self::from_prepared(Prepared::open(force_warp)?)
     }
 

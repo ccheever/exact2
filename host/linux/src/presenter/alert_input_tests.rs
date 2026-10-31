@@ -64,7 +64,9 @@ const RADIOS: &str = r#"component App
 
 #[test]
 fn radio_arrows_leave_the_inert_pages_state_and_handlers_untouched() {
-    for kind in [Kind::Dialog, Kind::Popover] {
+    // Modal only: under a popover the page is live (`alert_popover_tests`).
+    {
+        let kind = Kind::Dialog;
         for checked in [false, true] {
             let mut p = boot(RADIOS, kind);
             if checked {
@@ -98,7 +100,9 @@ fn radio_arrows_leave_the_inert_pages_state_and_handlers_untouched() {
 
 #[test]
 fn radio_tab_stop_ignores_checked_and_unchecked_radios_on_the_inert_page() {
-    for kind in [Kind::Dialog, Kind::Popover] {
+    // Modal only: under a popover the page is live (`alert_popover_tests`).
+    {
+        let kind = Kind::Dialog;
         for checked in [false, true] {
             let mut p = boot(&RADIOS.replace("autofocus=true", ""), kind);
             if checked {
@@ -134,7 +138,8 @@ fn ime_composes_in_authored_fields_but_refuses_the_page_and_shape_surfaces() {
       column id="menu" popover="auto" role="menu"
         button "Item" press=pick
 "#;
-    for kind in [Kind::Dialog, Kind::Popover, Kind::Alert] {
+    // Modal kinds only: under a popover the page is live (`alert_popover_tests`).
+    for kind in [Kind::Dialog, Kind::Alert] {
         let mut p = boot(source, kind);
         tap(&mut p, "open");
         let editor = id(&p, "editor");
@@ -178,7 +183,8 @@ fn scrollbars_drag_and_page_only_scrollers_inside_the_authored_box() {
       dialog id="box" testId="box" width=220 height=180 overflow-y="auto"
         button "Content" press=press height=1000 flex-shrink=0
 "#;
-    for kind in [Kind::Dialog, Kind::Popover, Kind::Alert] {
+    // Modal kinds only: under a popover the page is live (`alert_popover_tests`).
+    for kind in [Kind::Dialog, Kind::Alert] {
         for nested in [false, true] {
             let source = if kind == Kind::Alert {
                 let content = if nested {

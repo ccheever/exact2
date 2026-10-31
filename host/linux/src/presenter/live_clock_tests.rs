@@ -28,6 +28,76 @@ const TICKER: &str = r#"component App
     text "x"
 "#;
 
+#[test]
+fn android_and_reader_turns_wake_at_each_step_without_runner_timers() {
+    let plan = crate::test_plan(
+        r##"keyframes blink
+  from opacity=1
+  to opacity=0
+component App
+  view
+    box testId="caret" width=1 height=20 background-color="#007aff" animation="blink 1s steps(2, jump-none) infinite"
+"##,
+    );
+    for reader in [false, true] {
+        let (mut p, error) = Presenter::boot_with(
+            &plan,
+            (),
+            (80., 40.),
+            1.,
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none());
+        p.frame();
+        let mut last_tick = 0.;
+        for edge in [500., 1000., 1500., 2000.] {
+            assert_eq!(p.timer_due_ms(), None);
+            assert_eq!(p.wake_due_ms(), Some(edge));
+            assert_eq!(p.turn_due_ms(edge - 1.), Some(1.));
+            assert!(!p.needs_animation_frame());
+            let before = p.host().now();
+            if reader {
+                assert!(p.reader_clock(edge - 1., true).is_none());
+                assert_eq!(p.host().now(), before);
+                assert!(p.reader_clock(edge, true).is_none());
+            } else {
+                assert_eq!(
+                    p.android_clock(edge - 1., false, &mut last_tick, 16.),
+                    (false, None)
+                );
+                assert_eq!(p.host().now(), before);
+                // Even a recent ordinary turn and a dirty waiting frame must
+                // not postpone the motion clock until after the demand read.
+                last_tick = edge - 1.;
+                if edge % 1000. == 0. {
+                    p.repaint();
+                }
+                assert_eq!(
+                    p.android_clock(edge, true, &mut last_tick, 16.),
+                    (false, None)
+                );
+                assert_eq!(p.host().now(), edge);
+                if p.needs_animation_frame() {
+                    p.tick(edge);
+                }
+            }
+            assert_eq!(p.host().now(), edge);
+            assert!(p.dirty());
+            let caret = p.host().kernel().find_by_test_id("caret")[0];
+            let id = p.host().kernel().node_by_key(caret).unwrap().id;
+            assert_eq!(
+                p.host().presented(id).opacity,
+                if edge % 1000. == 0. { 1. } else { 0. }
+            );
+            p.frame();
+            assert!(!p.needs_animation_frame());
+            assert!(!p.dirty());
+        }
+    }
+}
+
 fn ticks(p: &Presenter<NoData>) -> f64 {
     p.host()
         .runner()

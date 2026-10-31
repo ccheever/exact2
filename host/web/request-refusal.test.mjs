@@ -15,7 +15,7 @@ const { unavailable } = chromium(), chromeTest = need('chrome', unavailable);
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 // The real `redirectOf` and `ownWithout`, for a stub `admission.js` written beside a module under test
-const realHelpers = `export { ownWithout, redirectOf, within } from ${JSON.stringify(pathToFileURL(resolve(ROOT, 'host/web-js/admission.js')).href)}; `;
+const realHelpers = `export { ownWithout, redirectOf, signalDeadline, within } from ${JSON.stringify(pathToFileURL(resolve(ROOT, 'host/web-js/admission.js')).href)}; `;
 const sets = new Map();
 const normalizers = new Map();
 function builtNormalizer(target, run = spawnSync) {

@@ -142,6 +142,7 @@ fn call_value(
         | Stdlib::Depth
         | Stdlib::Params
         | Stdlib::SearchParam
+        | Stdlib::Fragment
         | Stdlib::SharedFiles => {
             return router?.call(plan, f, args);
         }

@@ -705,6 +705,32 @@ S2 runs before S1 (Charlie, 2026-10-28: the prospect's platform, and the stronge
 
 ## 4. Measurement
 
+**M9, Windows text (2026-10-30, Stage 1w): no default admission.** The
+9,540-row unhinted audit on `f3ff290579` reproduces every non-timing
+column from chunk A (`3168305a59`), recovered after the NucBox reboot. It
+compares the shaper's font bytes in both rasterizers. Static
+Inter and Segoe UI advances differ by at most 0.000002 device pixels at
+100/125/150%. Inter's mean coverage difference is **5.295/255**, missing the
+prediction below 4.589; Segoe UI's is **5.473/255**, meeting the prediction
+below 12.335. The earlier hinted/unhinted comparison remains historical.
+
+| Face | Maximum advance difference, device px | Mean raw coverage difference /255 |
+| --- | ---: | ---: |
+| Inter Regular | 0.0000019074 | 5.295 |
+| Segoe UI | 0 | 5.473 |
+| Segoe UI Variable | 1.951172 | 34.506 |
+| Roboto Flex | 1.265625 | 38.079 |
+| Noto Color Emoji (CBDT) | 0 | Not comparable: colour versus mask |
+
+The candidate maps no axes and drops colour. DirectWrite's timing column
+includes cache hits across repeated static-face weight passes. The earlier
+whole-app band (mean 1.43/255, 1.09% beyond 32) measures parity with swash,
+not a Windows app over Mica and D2D's gamma/grayscale contrast at blend
+time. Colour, synthesis, system smoothing and live motion remain unqualified
+under D3.3. Swash stays default. The per-case table, predictions and raw
+files are in `host/ink/MEASUREMENTS.md`, “Native collection”.
+
+
 The program is the same on every platform; the baselines differ. "Has numbers" is not a
 threshold; D15 is.
 
@@ -725,6 +751,19 @@ threshold; D15 is.
 
 The numbers land in this section as each chunk and stage does; a stage with no numbers has
 not landed.
+
+**Stage 0b, measurement Mac, 2026-10-30.** Chunk 4 fixes the retained-launch
+stall: a submitted but unshown window keeps
+its display link running until a positive presented timestamp, suspended while
+hidden. All **30/30** corrected silver Mac launches display: ten retained Metal,
+ten wgpu and ten archive misses. Complete-screen p50 is **202.050 ms** on Metal
+against **230.850 ms** on wgpu, meeting D15 part one's limit of at most 5 ms
+slower on the same carrier and probe. The warm phases are **5.715**
+and **6.069 ms**; P3 remains within 2 ms of the original 6.581 ms. Misses show
+CPU at **169.629 ms** and complete Ink at **343.322 ms**, with no boot-thread
+compilation. The **100 ms application budget remains unmet**. The first Metal
+launch's **669.576 ms** tail and every earlier failure remain in the record.
+[Cohorts, predictions and retained files](../host/ink/MEASUREMENTS.md#chunk-4--retained-launches-with-no-displayed-frame).
 
 ### 4.1 The GPUI arm
 
@@ -1092,18 +1131,62 @@ and disclose their freshly copied images; desktop captures use input attachment
 or UI Automation focus without a client click. See [G6d’s before/after tables
 and retained trials](../bench/heavy-list/gpui/RESULTS.md#g6d-the-windows-reviews-lifecycle-fixes).
 
-**G5, prepared 2026-10-29; run set aside 2026-10-30**: all four arms have
-bar and caret workloads, and the shared probe records Metal command-buffer
-GPU spans by phase. The development-Mac series on 2026-10-30, 09:30–09:38
-PDT, was spoiled: only 44 of 91 monitor observations were quiet, load reached
-170 as other lanes built, nearly every fling and bar sample had a focus-loss
-sidecar, and only 14 power samples were collected in eight minutes. Raw files
-remain under `target/g5/series` on that Mac; no row is taken from the run.
-G5 stays **prepared**, with its workload expectations untested by a qualified
-run. Measurement moves to **G5m** on the dedicated silver M5 Max once it is
-set up. All four arms launched in both modes after the rebase; egui's
-blinking remains unverified after three inactive or focus-lost observations
-(`bench/heavy-list/gpui/RESULTS.md`, “G5”).
+**G4m and G5m, measured 2026-10-30**, source `42d5066572`, on the dedicated
+silver M5 Max. G4m's original five interleaved fling/rest rounds and ten
+successful launches per arm use the GPU hook with power sampling. Their
+native/GPUI/Ink/egui fling process CPU is **156.91/129.79/110.90/108.28 ms/s**;
+all four ranges exceed G4's. All p95 intervals remain **8.33 ms**. Source,
+probe and power sampling changed, so this does not isolate hardware.
+[G4m's original tables and power](../bench/heavy-list/gpui/RESULTS.md#g4m-the-four-arms-on-the-measurement-mac).
+
+**G4m, the instrument's share, 2026-10-30:** five interleaved rounds each
+with hook/power off/off, on/off and on/on do not resolve a positive hook cost:
+every arm's paired CPU range crosses zero, with about 10 ms/s still compatible.
+Configuration (c) measured lower app CPU by 5.78–11.02 ms/s at the paired
+medians, missing the predicted positive cost. Most of the difference is on the
+main thread with cadence/input unchanged; the sampler keeping a cluster at a
+higher clock is a hypothesis, and the order is not fully counterbalanced.
+LLP 1149.001 §4 takes CPU from hook-off, power-off runs, GPU from hook-on,
+power-off runs, and power separately. The complete (a) baseline is
+**174.87/156.13/128.00/119.76 ms/s**; it was taken under 5–6 busy cores of
+standing background work and must be re-taken when quiet. The G4→G4m rise is
+unattributed; the queue hook is excluded as its explanation. The driver and
+three control arms' application code are unchanged from original G4m; Ink is
+`c22ef19622` on `f069d37722`, including Stage 0b chunk 4.
+[Original (c), complete (a), background, paired differences and reproduction](../bench/heavy-list/gpui/RESULTS.md#g4m-the-instruments-share).
+
+**G5:** three rounds each of fling, bar and caret complete, **36/36**
+samples, **114/114** observations passing the old load/compiler rule, no focus
+losses, under the same standing background as G4m. Bar/caret CPU is (c) and
+GPU is power-on; both stand until hook-off and power-off static series replace
+them respectively. Native bar main-thread
+CPU is **84.487 ms/s**, missing the below-10 prediction. Ink and GPUI present
+bar at **119.76 frames/s**; egui at **119.59**. GPUI and egui present caret
+exactly twice per second; Ink stays at **119.74 frames/s** and **154.320 process
+ms/s**, falsifying the idle-between-blinks expectation. All four blinks are
+captured with focus held, including egui. Ink's summed GPU spans per presented
+frame are **2.3090 ms fling / 1.6398 bar / 1.7741 caret**, or **27.7% / 19.7% /
+21.3%** of an 8.33 ms refresh. **M8 is not earned:** these are before M3, include
+the compose/present path and do not isolate plain-pipeline savings. Native's
+Core Animation GPU work is outside the process hook. PID/wall-clock power joins
+and all ranges are in [G5m](../bench/heavy-list/gpui/RESULTS.md#g5m-static-workloads-on-the-measurement-mac).
+The spoiled development-Mac G5 series remains retained and excluded.
+
+**G4q, 2026-10-30:** source `d5429830d2`, with hook and power sampling off,
+does not replace any CPU row. Both five-round fling attempts, both
+ten-launch-per-arm cold cohorts and both attempts at each five-round static CPU
+workload fail the whole-series quiet rule. The largest-non-benchmark-process bound
+includes WindowServer, which accounts for most crossings; the monitor does
+not attribute its work to the benchmark or other windows. These retained
+attempts do not resolve G4→G4m. Both hook-on, power-off attempts at each static
+workload also fail; no quiet Ink GPU value replaces G5m or evaluates M8's 15%
+trigger. These are before-M3 cohorts. A qualified silver baseline and, unless
+it meets G4's ranges, the interleaved two-Mac comparison remain owed. The
+separate power rounds and all four boot cohorts also fail the quiet rule. All
+sixty boot launches display complete Ink screens, but provide no quiet D15
+comparison; the 100 ms application obligation is unchanged. Gates consume
+71 min 18 s in total, including the initial wait.
+[Gates, excluded tables, predictions and reproduction](../bench/heavy-list/gpui/RESULTS.md#g4q-the-quiet-baselines).
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and

@@ -65,6 +65,8 @@ public struct Batch {
     public var wakelock: Bool? = nil
     /// The session's orientation lock, when it changed (LLP 1133.029 D3).
     public var orientation: OrientationRequest? = nil
+    /// Whether the app must finish work an answer started, when that changed (`ExactKit/Holds.swift`).
+    public var mustFinish: Bool? = nil
     /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
     public var seq: (UInt64, UInt64)?
     /// When `ExactSession.applyInput` marked it as a person's input: on iOS

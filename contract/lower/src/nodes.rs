@@ -233,6 +233,7 @@ impl Lowerer<'_> {
         let authored_children = children;
         let children: &[Node] = face.as_deref().unwrap_or(authored_children.as_slice());
         controls::check_nesting(tag, parent_tag, *span)?;
+        crate::tables::check(tag, parent_tag, expanded, children, *span)?;
         controls::check_progress(tag, expanded, children)?;
         crate::live_time::check(tag, expanded, *span)?;
         let alert = self.check_menu_shapes(tag, expanded, children, *span)?;
@@ -995,6 +996,10 @@ impl Lowerer<'_> {
             std::borrow::Cow::Owned(face)
         } else if let Some(parts) = parted {
             std::borrow::Cow::Owned(parts)
+        } else if let Some(bodies) =
+            crate::tables::implied_bodies(tag, authored_children, *span, *instance)
+        {
+            std::borrow::Cow::Owned(bodies)
         } else {
             std::borrow::Cow::Borrowed(authored_children.as_slice())
         };

@@ -5,8 +5,45 @@ use exact_runner::{DataError, Value};
 
 // The clipboard, keys, modifiers and mouse contacts.
 mod input;
+// An orderly exit's wait for the work the app must finish.
+mod exit;
 // A re-ask after a turn over its budget, which `clock settle` waits for.
 mod overrun;
+
+#[test]
+fn a_seek_past_the_discrete_instant_cap_reports_where_it_stopped() {
+    let plan = crate::test_plan(
+        r#"keyframes blink
+  from opacity=1
+  to opacity=0
+component App
+  view
+    box animation="blink 1s steps(2, jump-none) infinite"
+"#,
+    );
+    let (mut p, error) = Presenter::boot_with(
+        &plan,
+        (),
+        (80., 40.),
+        1.,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let (landed, error) = clock_hatched(&mut p, 2_049_000., deadline);
+    assert_eq!(
+        error.as_deref(),
+        Some("clock seek exceeds 4096 discrete instants")
+    );
+    assert_eq!(landed, 2_048_000.);
+    // The caller can resume from the reported instant without losing an edge.
+    assert_eq!(
+        clock_hatched(&mut p, 2_049_000., deadline),
+        (2_049_000., None)
+    );
+}
 
 /// A source whose one request is handed to work that never replies: the
 /// reply is leaked, so neither an outcome nor the drop's abort arrives.
@@ -1167,29 +1204,6 @@ fn clock_settle_waits_for_background_storage_and_a_jump_names_it() {
     assert_eq!(state["background"]["done"], 4, "{state}");
     assert_eq!(state["background"]["inFlight"], 0, "{state}");
     assert_eq!(state["pending"], serde_json::json!([]), "{state}");
-}
-
-/// LLP 1097 D10: an orderly exit pumps the module's storage to its end
-/// first, within its bound.
-#[test]
-fn an_orderly_exit_finishes_background_storage() {
-    let plan = contract::compile(
-        "component App\n  resource item = save() as shape number else save()\n  view\n    text item.toString() testId=\"item\" height=20\n",
-    )
-    .unwrap();
-    let (mut p, _) = Presenter::boot_with(
-        &plan.encode(),
-        Saving::default(),
-        (300.0, 300.0),
-        1.0,
-        std::path::PathBuf::new(),
-        PainterChoice::Cpu,
-    )
-    .unwrap();
-    assert!(p.host().runner().background_operations() > 0);
-    crate::teardown::finish(&mut p, crate::teardown::EXIT_BOUND);
-    assert_eq!(p.host().runner().background_operations(), 0);
-    assert!(!p.host().runner().has_pending());
 }
 
 /// `prefer mode` (LLP 1121 D13): the app's `setMode` for each pin, the

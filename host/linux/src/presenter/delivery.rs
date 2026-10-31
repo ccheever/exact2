@@ -43,12 +43,12 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// Milliseconds from `now` until a turn is owed: the next timer, or the
-    /// development poll's next tick when sooner (attached, and the first
+    /// Milliseconds from `now` until a turn is owed: a timer, sampled motion
+    /// edge, or development poll (attached, and the first
     /// pixel out: it polls after). A host that turns only when woken asks
     /// this (the Android reader's canvas host).
     pub fn turn_due_ms(&self, now: f64) -> Option<f64> {
-        let timer = self.timer_due_ms().map(|due| (due - now).max(0.0));
+        let timer = self.wake_due_ms().map(|due| (due - now).max(0.0));
         // (A load to send, or a picture asking again for a failed download, as soon.)
         let timer = timer
             .into_iter()

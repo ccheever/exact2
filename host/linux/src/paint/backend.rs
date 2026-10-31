@@ -61,6 +61,15 @@ impl WindowLayer {
 /// What draws the walk's output. Coordinates are viewport points with a
 /// transform (points → points); a backend applies the device scale itself.
 pub trait Backend {
+    /// A Windows field's editor image at its place in the paint walk.
+    #[cfg(windows)]
+    fn windows_field(
+        &mut self,
+        _field: &exact_ink::device::d3d11::fields::Field<'_>,
+        _scale: f32,
+    ) -> bool {
+        false
+    }
     /// Attach the benchmark carrier's retained AppKit layer.
     #[cfg(target_os = "macos")]
     fn attach_apple_layer(

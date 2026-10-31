@@ -426,40 +426,33 @@ pub fn project(
                 .is_some_and(|p| p.props.contains_key("data-exact-progress"))
         })
         .collect();
+    // A canvas keeps its width as a progress does, but in any parent (`sized.rs`).
+    let canvas: Vec<_> = out
+        .iter()
+        .map(|p| p.as_ref().is_some_and(|p| p.tag == "canvas"))
+        .collect();
+    let sized: Vec<_> = (0..out.len()).map(|i| progress[i] || canvas[i]).collect();
+    let alt = crate::sized::alternates(&sized, &parents);
     // Arms and each copies share templates. Only candidacy is static;
     // paint.js decides isolation from the actual instance's descendants.
     for (i, parts) in out.iter_mut().enumerate() {
         let Some(parts) = parts else { continue };
         let node = kernel.node(view(i)).expect("template node");
         crate::paint::attributes(&node.facts(), &mut parts.props);
-        // The immediate parent's live display supplies the block-flow exemption.
-        // A bound display writes the same property through `style_row`; regions
-        // inherit it from their actual element parent without a DOM scan.
-        if tree[i].iter().any(|c| progress[*c as usize]) {
-            let justify = if node.style.display == exact_kernel::Display::Block {
-                "start"
-            } else {
-                "auto"
-            };
-            parts
-                .css
-                .push_str(&format!("--exact-progress-justify:{justify};"));
+        // The immediate parent's live display and alignment; bound ones write the same properties
+        // through `style_row`. Regions inherit them from their actual element parent without a
+        // DOM scan.
+        if tree[i].iter().any(|c| sized[*c as usize]) {
+            crate::sized::parent_css(&node, alt[i], &mut parts.css);
         }
-        if progress[i] {
-            parts.css = parts.css.replace("justify-self:start;", "");
-            let justify = if node.style.position_type == exact_kernel::PositionType::Absolute {
-                "auto"
-            } else {
-                PROGRESS_JUSTIFY
-            };
-            parts.css.push_str(&format!("justify-self:{justify};"));
+        if sized[i] {
+            let reads_alt = parents[i].is_some_and(|p| alt[p]);
+            crate::sized::own_css(&node, canvas[i], reads_alt, &mut parts.css);
         }
     }
     symbol_marks(plan, &kernel, &parents, &mut out);
     Ok(out)
 }
-
-pub const PROGRESS_JUSTIFY: &str = "var(--exact-progress-justify,start)";
 
 /// Whether image `i` draws a symbol in its author's `color` (LLP 1121 stage
 /// 9 B; `NodeRef::symbol_color_said`), as far as the static tree says:
@@ -1116,7 +1109,11 @@ pub fn style_writes(id: u16, timeline: bool, written: bool) -> Result<Vec<Write>
         ],
         StyleId::TintColor => vec![with("--exact-tint", &TINT_MAP)],
         StyleId::PlaceholderColor => vec![with("--exact-placeholder-color", "v=>v==null?v:/^\\s*(unset)?\\s*$/i.test(v)?'initial':v")],
-        StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],
+        // A capsule's ends are half-circles, so it takes no curve (index.html).
+        StyleId::ControlCornerStyle => vec![
+            with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'"),
+            with("--exact-control-curve", "v=>v==null?v:v==='capsule'?'round':'initial'"),
+        ],
         StyleId::ColumnGap | StyleId::RowGap => {
             let column = row == StyleId::ColumnGap;
             let mut writes = one(if column { "column-gap" } else { "row-gap" }, "px");
@@ -1452,6 +1449,37 @@ pub(crate) fn other_side(id: StyleId) -> Option<StyleId> {
         StyleId::MarginRight => StyleId::MarginLeft,
         _ => return None,
     })
+}
+
+/// Right to left, a side its author binds keeps the sheet's other side
+/// physical in the class (`static_tree`) while it has a value. Unset, neither
+/// side is the author's and the sheet's pair mirrors, as the kernel's
+/// `mirror_unsaid` has it: inline logical sides, which outrank the class's
+/// physical ones, say the pair as css.rs would. The writes for the bound side
+/// `id`, given its class's `css`; none when the sheet sets no other side.
+pub(crate) fn unset_mirrors(id: StyleId, css: &str) -> Vec<(String, String, Option<String>)> {
+    let sheet = |row: StyleId| {
+        let name = format!("{}:", css_property(row));
+        css.split(';')
+            .find_map(|d| d.strip_prefix(name.as_str()).map(str::to_string))
+    };
+    let Some(theirs) = other_side(id).and_then(sheet) else {
+        return Vec::new();
+    };
+    let own = sheet(id).unwrap_or_else(|| "0px".into());
+    let left = matches!(id, StyleId::PaddingLeft | StyleId::MarginLeft);
+    let (start, end) = if left { (own, theirs) } else { (theirs, own) };
+    let side = match id {
+        StyleId::PaddingLeft | StyleId::PaddingRight => "padding",
+        _ => "margin",
+    };
+    [("start", start), ("end", end)]
+        .into_iter()
+        .map(|(edge, value)| {
+            let map = format!("v=>v==null?{value:?}:null");
+            (format!("{side}-inline-{edge}"), String::new(), Some(map))
+        })
+        .collect()
 }
 
 #[cfg(test)]

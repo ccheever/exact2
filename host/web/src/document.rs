@@ -345,6 +345,7 @@ fn write<S: Source>(
         presses,
         routes: SortedMap::new(),
         bars: SortedSet::new(),
+        sites: SortedSet::new(),
         keyframes: SortedMap::new(),
         out: String::new(),
         links: 0,
@@ -558,6 +559,8 @@ struct Walk<'r, 'w, S: Source> {
     routes: SortedMap<ViewId, Route>,
     /// The headers marked as their route's bar ([`bar_header`]).
     bars: SortedSet<ViewId>,
+    /// The routes' headers marked as a site's ([`bars::site_header`]).
+    sites: SortedSet<ViewId>,
     keyframes: SortedMap<String, String>,
     out: String,
     /// Open `a` and `button` elements: the parser closes an open one when a
@@ -664,12 +667,14 @@ impl<S: Source> Walk<'_, '_, S> {
                 self.touch > 0,
             ),
             holds,
+            &node,
         );
         let mut style = layers::with_isolation(css, isolated);
         let kept = self.computed.is_some().then(|| style.clone());
         // `glue.js` create: a canvas is a `div` holding the surface element.
         let element = if tag == "canvas" { "div" } else { tag };
         self.route_children(&node, &children);
+        bars::mark_sites(self.src, &node, &children, &mut self.sites);
         let chosen = (element == "select").then(|| props.get("value").cloned());
         // A waiting keyed row is opaque to adoption. Its complete paint
         // summary lets the JS target decide siblings without visiting it.
@@ -803,6 +808,9 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         if self.bars.contains(&id) {
             attrs.push(("data-exact-bar".into(), None));
+        }
+        if self.sites.contains(&id) {
+            attrs.push(("data-exact-site".into(), None));
         }
         // `attach`: the view id, and a tab stop for an element that hears
         // focus, blur or keys and is not one already.

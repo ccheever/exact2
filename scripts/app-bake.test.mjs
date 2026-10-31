@@ -834,6 +834,38 @@ test('game web, release and unwired gpu-dev bakes never open registry generation
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
+// A setting's source is a bake input (LLP 1153 D4): the same value from the environment once and from Bun's loading
+// of `.env.development`, which is no source, the next time is another bake.
+test('a linked bake follows a setting whose value stays but whose source moved', async () => {
+  const { bakeOutside, linkedBakeDir } = await import('./linked-plan.mjs');
+  const { createApp } = await import('../game/new.mjs');
+  const root = mkdtempSync(resolve(import.meta.dir, '../target/linked-settings-')), dir = resolve(root, 'app');
+  try {
+    createApp(dir);
+    const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, env: ['API_BASE_URL'] }));
+    writeFileSync(resolve(dir, 'app.ts'), readFileSync(resolve(dir, 'app.ts'), 'utf8').replace("export const grants = '';", "const API = import.meta.env.API_BASE_URL ?? 'http://b.example';\nexport const grants = `net.fetch ${API}`;"));
+    writeFileSync(resolve(dir, '.env.development'), 'API_BASE_URL=http://a.example\n');
+    const target = spawnSync('rustc', ['-vV'], { encoding: 'utf8' }).stdout.match(/^host: (.*)$/m)[1];
+    // With what the bake watches named, as every builder names it (`bakeWatchEnv`): what is absent is not watched.
+    const { bakeWatchEnv } = await import('./app.mjs');
+    const env = { ...process.env, ...bakeWatchEnv({ dir, manifest: { ...manifest, env: ['API_BASE_URL'] } }), EXACT_BAKE_OUTPUT: resolve(root, 'bakes'), API_BASE_URL: 'http://a.example', EXACT_BUN_LOADED: '' };
+    for (const name of ['EXACT_APP_DIR', 'EXACT_BACKEND_ORIGIN', 'CARGO_TARGET_DIR']) delete env[name];
+    const app = { dir, name: 'app' }, baked = linkedBakeDir(env, 'macos', target);
+    const inlined = () => JSON.parse(readFileSync(resolve(baked, 'app.module.json'), 'utf8')).env.API_BASE_URL;
+    const bakedAt = () => JSON.parse(readFileSync(resolve(baked, 'inputs.json'), 'utf8')).at;
+    bakeOutside(app, 'macos', target, env);
+    assert.deepEqual(inlined(), { value: 'http://a.example', source: 'environment' });
+    const first = bakedAt();
+    bakeOutside(app, 'macos', target, env);
+    assert.equal(bakedAt(), first, 'nothing changed: the bake is reused');
+    // The command was not given it this time: Bun loaded the same value, and the note says so.
+    env.EXACT_BUN_LOADED = 'API_BASE_URL';
+    bakeOutside(app, 'macos', target, env);
+    assert.deepEqual(inlined(), { value: 'http://b.example', source: 'default' });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 600_000);
+
 // The cache boundary needs real Cargo: a script rerun recompiles its crate,
 // even when the script leaves the generated Rust file unchanged.
 test.skipIf(!process.env.EXACT_RUST_BAKE_TEST)('a linked Rust bake changes its plan without compiling its archive', async () => {

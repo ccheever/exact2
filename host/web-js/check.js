@@ -25,11 +25,12 @@ export function observe(views, inactive = () => false) {
     const d = ctx.getImageData(0, 0, 1, 1).data;
     return d[3] ? [d[0], d[1], d[2], Math.round(d[3] / 255 * 1000) / 1000] : null;
   };
-  // What the author wrote on an element's classes: its platform colour role, and whether it set a size.
+  // What the author wrote on an element's classes: its platform colour role, and whether it set a size. The last class
+  // first: a lowered node's arm class (lower.js) stands over its static class, as its rule does.
   const rules = new Map();
   const gather = (list) => { for (const r of list) { const m = r.selectorText && /\.([\w-]+)$/.exec(r.selectorText.trim()); if (m) { if (!rules.has(m[1])) rules.set(m[1], []); rules.get(m[1]).push(r.style); } if (r.cssRules) gather(r.cssRules); } };
   for (const sheet of document.styleSheets) { try { gather(sheet.cssRules); } catch { /* another origin's sheet */ } }
-  const authored = (el, prop) => { for (const c of el.classList ?? []) for (const st of rules.get(c) ?? []) { const v = st.getPropertyValue(prop); if (v) return v; } return el.style?.getPropertyValue(prop) ?? ''; };
+  const authored = (el, prop) => { for (const c of [...(el.classList ?? [])].reverse()) for (const st of rules.get(c) ?? []) { const v = st.getPropertyValue(prop); if (v) return v; } return el.style?.getPropertyValue(prop) ?? ''; };
   const role = (el, prop) => /^var\(--exact-([\w-]+)/.exec(authored(el, prop))?.[1];
   const W = innerWidth, H = innerHeight, r2 = (x) => Math.round(x * 100) / 100;
   const modal = document.querySelector('dialog:modal');
@@ -246,13 +247,21 @@ export function observe(views, inactive = () => false) {
       const under = backing(el, ink);
       if (under) { item.bg = under.bg; item.on = under.by === item.id ? 'own' : under.by ?? 'page'; if (under.accent) item.onAccentFill = true; if (under.solid) item.solid = true; }
       // An ancestor that clips (never one that scrolls: a person scrolls to it) cutting part of the text away.
-      // One that hides it all is a collapsed disclosure, on purpose.
+      // One that hides it all is a collapsed disclosure, on purpose. What lies past a scroller's edge is reached by
+      // scrolling, so an ancestor above that scroller is judged on the part of the text inside the scroller's box:
+      // a row straddling a scroll view's end is not cut by the screen that holds the scroll view.
+      let seen = { left: ink.left, top: ink.top, right: ink.right, bottom: ink.bottom };
       for (let e = el.parentElement; e && e.id !== 'exact-root'; e = e.parentElement) {
         const s = getComputedStyle(e), hx = /^(hidden|clip)$/.test(s.overflowX), hy = /^(hidden|clip)$/.test(s.overflowY);
-        if (!hx && !hy) continue;
         const a = e.getBoundingClientRect(), left = a.left + e.clientLeft, top = a.top + e.clientTop, right = left + e.clientWidth, bottom = top + e.clientHeight;
-        if (ink.right <= left || ink.left >= right || ink.bottom <= top || ink.top >= bottom) break;
-        const dx = hx ? Math.max(0, left - ink.left) + Math.max(0, ink.right - right) : 0, dy = hy ? Math.max(0, top - ink.top) + Math.max(0, ink.bottom - bottom) : 0;
+        const sx = /^(auto|scroll)$/.test(s.overflowX), sy = /^(auto|scroll)$/.test(s.overflowY);
+        if (sx || sy) {
+          seen = { left: sx ? Math.max(seen.left, left) : seen.left, top: sy ? Math.max(seen.top, top) : seen.top, right: sx ? Math.min(seen.right, right) : seen.right, bottom: sy ? Math.min(seen.bottom, bottom) : seen.bottom };
+          if (seen.right <= seen.left || seen.bottom <= seen.top) break;
+        }
+        if (!hx && !hy) continue;
+        if (seen.right <= left || seen.left >= right || seen.bottom <= top || seen.top >= bottom) break;
+        const dx = hx ? Math.max(0, left - seen.left) + Math.max(0, seen.right - right) : 0, dy = hy ? Math.max(0, top - seen.top) + Math.max(0, seen.bottom - bottom) : 0;
         if (dx >= 2 || dy >= 2) { item.cut = { by: viewOf(e), dx: r2(dx), dy: r2(dy) }; break; }
       }
     }

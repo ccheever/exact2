@@ -123,6 +123,7 @@ def run(arm, number, out, full, presentmon, capture=False):
                   'bench/heavy-list/exact-heavylist/dist-windows/Heavy list.exe')
     if arm == 'wgpu':
         env['EXACT_INK_DEVICE']='wgpu'
+    env.pop('EXACT_STARTUP_STACKS', None)
     samples = dict(arm=arm, number=number, launchWallUnix=time.time(), binary=str(binary),
                    sha256=hashlib.sha256(binary.read_bytes()).hexdigest())
     log_path = out/(name+'.log')

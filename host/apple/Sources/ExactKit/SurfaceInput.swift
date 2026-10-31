@@ -62,9 +62,11 @@ extension NodeView {
     package func focusSurfacePointer() -> Bool {
         #if os(macOS)
         if (window?.firstResponder as? NSTextView)?.isEditable == true { return true }
+        if presenter?.mouseChain.keepingFocus == true { return true } // the down's `pointerdown` was prevented: the focus stays (LLP 1005 §3)
         return isSurfaceControl ? window?.makeFirstResponder(self) == true : focusCanvas()
         #else
         if presenter?.editing != nil { return true }
+        if keepsFocus(from: self) { return true } // its touch's `pointerdown` was prevented (LLP 1005 §3)
         if isSurfaceControl { return isFirstResponder || takeSurfaceTouchFocus() }
         return focusCanvas()
         #endif

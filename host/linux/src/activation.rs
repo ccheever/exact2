@@ -36,7 +36,7 @@ impl<D: DataSource> Host<D> {
             return Ok(false);
         }
         #[cfg(windows)]
-        crate::app::boot_phase("data-activation-entered");
+        crate::app::boot_phase(c"data-activation-entered");
         if let Err(error) = self
             .configure_storage()
             .and_then(|()| self.runner.data().activate())
@@ -45,7 +45,7 @@ impl<D: DataSource> Host<D> {
         }
         self.data_activated = true;
         #[cfg(windows)]
-        crate::app::boot_phase("data-source-ready");
+        crate::app::boot_phase(c"data-source-ready");
         let result = match self.runner.data_ready() {
             Ok(Some(receipt)) => match self.commit(
                 &[Timed {
@@ -61,7 +61,7 @@ impl<D: DataSource> Host<D> {
             Err(error) => Err(format!("data ready: {error:?}")),
         };
         #[cfg(windows)]
-        crate::app::boot_phase("data-activation-ready");
+        crate::app::boot_phase(c"data-activation-ready");
         result
     }
 

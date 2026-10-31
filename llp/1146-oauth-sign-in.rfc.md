@@ -2,10 +2,10 @@
 
 **Type:** RFC
 **Status:** Draft, built (§9)
-**Systems:** the TypeScript seam (`js/src/prelude.js` `__exact_adopt`, `js/src/binary.js` `__exact_module_work` and `timers`, `js/src/door.rs` op 22, ibex2's `bindings/abort.js` (the abort hooks' `sources`, expo/ibex#4), `js/src/turns.rs`, `js/src/lib.rs`, `js/src/module_work.rs`); the bake (`js/bake/src/typescript.mjs`: the async helper's `route`); Runner (`runner/src/request.rs` `has_effects`, `runner/src/runner/module_work.rs`, `commit.rs`, `admission.rs`, `settlement.rs`, `source.rs`'s `DataSource`, `auth.rs`); the source composers that forward `background` (`data/src/placed.rs`, `data/src/mixed.rs`, `data/host/src/lib.rs`, `logic/src/lib.rs`, `logic/src/configured.rs`, `host/render/src/source.rs`); the Linux host (`host/linux/src/presenter.rs`, `host/linux/src/agent/stdio.rs`); the web JS target (`host/web-js/ts-data.js`, `rt.js`, `auth.js`, `src/main.rs`); the Contract test grammar and driver (`contract/syntax`, `contract/cli/src/tests_json.rs`, `scripts/agent-test.mjs`, `scripts/agent.mjs`); `scripts/exact.mjs` (`add`, `docs`); `packages/oauth` (`@exact/oauth`, its fixture server and cases); `apps/oauth-fixture`; `docs/recipes/oauth.md`, `docs/contract-for-agents.md`, `docs/contract-grammar.md`, `docs/start-here.md`, `docs/card.md`
+**Systems:** the TypeScript seam (`js/src/prelude.js` `__exact_adopt`, `js/src/binary.js` `__exact_module_work` and `timers`, `js/src/door.rs` op 22, ibex2's `bindings/abort.js` (the abort hooks' `sources`, expo/ibex#4), `js/src/turns.rs`, `js/src/lib.rs`, `js/src/module_work.rs`); the Apple host (`host/apple/src/batch.rs` `mustFinish`, `colors.rs` `finish_moved`, `ExactKit/Holds.swift` `FinishHold` and `mustFinish`); the bake (`js/bake/src/typescript.mjs`: the async helper's `route`); Runner (`runner/src/request.rs` `has_effects`, `runner/src/runner/in_flight.rs` `must_finish`, `runner/src/runner/module_work.rs`, `commit.rs`, `admission.rs`, `settlement.rs`, `source.rs`'s `DataSource`, `auth.rs`); the source composers that forward `background` (`data/src/placed.rs`, `data/src/mixed.rs`, `data/host/src/lib.rs`, `logic/src/lib.rs`, `logic/src/configured.rs`, `host/render/src/source.rs`); the Linux host (`host/linux/src/presenter.rs`, `host/linux/src/agent/stdio.rs`, `host/linux/src/teardown.rs`); the web JS target (`host/web-js/ts-data.js`, `rt.js`, `auth.js`, `src/main.rs`); the Contract test grammar and driver (`contract/syntax`, `contract/cli/src/tests_json.rs`, `scripts/agent-test.mjs`, `scripts/agent.mjs`); `scripts/exact.mjs` (`add`, `docs`); `packages/oauth` (`@exact/oauth`, its fixture server and cases); `apps/oauth-fixture`; `docs/recipes/oauth.md`, `docs/contract-for-agents.md`, `docs/contract-grammar.md`, `docs/start-here.md`, `docs/card.md`
 **Author:** Claude (Opus 5.5)
 **Date:** 2026-10-26
-**Implementer:** Claude (Opus 5.5), 2026-10-26
+**Implementer:** Claude (Opus 5.5), 2026-10-26; D8 and D9, 2026-10-29
 **Amends:** LLP 1016 D5 (a forgotten ticket's outcome is dropped on arrival, and it is not in flight for `clock settle`): a forgotten request with effects runs to its end, is in flight until it lands, and its outcome reaches the let-go answer's continuation (D2)
 **Related:** LLP 1069.006 (`openAuthSession`, its D4 popup rule and D7 substitute); LLP 1018 (the store); LLP 1027.000 (no clock in data code); LLP 1133.002 D14 (an async function resumes under the answer that called it); LLP 1133.016 D9 (a runner ticket that belongs to no target). External: the Fetch Standard; RFC 9110 §9.2.1; RFC 6749, 6750, 7009, 7636, 8252, 8414, 9207, 9700; OpenID Connect Core 1.0 and Discovery 1.0
 
@@ -31,8 +31,10 @@ native seam (reproduced here, §9):
 | D3 | Where the executor offers no store, every store operation throws, reads included |
 | D4 | A sign-in is held under the agent on every host; authored tests complete it with `authorize` against the app's own server |
 | D5 | `@exact/oauth`: authorization code with PKCE, refresh, authorized requests, sign-out |
-| D6 | A fake provider with nine provider profiles, and the cases |
+| D6 | A fake provider with ten provider profiles, and the cases |
 | D7 | The bar: GPT-6 Luna at medium effort writes passing apps from the recipe |
+| D8 | An app that signs the person in with its own screens sends the authorization request itself (`signIn`'s `authorize`); the package does the rest |
+| D9 | What such a provider and its app need: `claims`, `ended`, `status`, `expiredStatus`, `fetch`, `log`, and fixed `endpoints` beside `issuer` |
 
 D2 and D3 are not about OAuth. D2 adds no API: work several answers share is
 ordinary JavaScript, a shared promise, as on the web, where it already worked.
@@ -169,11 +171,11 @@ the store.
 - **A fetch a let-go answer's continuation starts** differs by host: natively
   it is refused as `Aborted`, as no answer waits for its reply; on the web it
   runs.
-- **An `AbortSignal.timeout` whose answer was let go** differs by host:
-  natively the signal keeps its deadline, and a request carrying it aborts
-  at it; on the web the timer is the answer's, cleared when the answer is
-  let go, so neither the request that runs on nor another answer's carrying
-  the same signal has a deadline.
+- **An `AbortSignal.timeout` with more than an hour left** differs by host:
+  natively and on the wasm target, which runs the same prelude, the fetch
+  carrying it takes an hour as its deadline, which ends it as a `Timeout`, the
+  signal unaborted; on the web JS target the request ends when the signal
+  aborts.
 - **A live answer's write after an `await`** asks a store reader in flight
   again at once natively, where it runs in its reply's commit; on the web it
   is a write outside a commit, and the reader is asked again once its reply
@@ -182,9 +184,24 @@ the store.
   data source; a worker placement and the wasm target's module realm; and a
   JavaScript source in an ordered set with a worker Rust source sharing its
   `secret.keep` names (LLP 1027.002 D3), whose replies take their turns in the
-  set. The store writes of a reply's turn with effects (§2.3) stand for every
-  source the turn runs directly, not for a reply such a set delivers later.
+  set. The store writes of a reply's turn with effects (§2.3) stand, also
+  when a worker placement or such a set takes the reply in a later turn: a
+  continuation that parsing the reply returns is the rest of that answer and
+  keeps the request's obligation.
 - **Teardown, reload and update** end kept requests with the engine.
+- **Suspension and quitting** wait for a request with effects, kept or not,
+  and the continuations of its reply, as for the module's storage (LLP 1097
+  D10): the runner's `must_finish`.
+  iOS and tvOS hold a background task from the batch that says there is
+  such work to the one that says it is done, as UIKit asks of work that must
+  finish ("Extending your app's background execution time"), or until the
+  system's time runs out; one the system took back is begun again when the
+  app returns to the foreground. A macOS quit, the Apple driver's exit and the
+  Linux host's orderly exit (an agent's quit, a headless run's end) wait for
+  it: five seconds, 1.5 for the Apple driver and one for a Linux agent's quit,
+  whose drivers kill at two. Closing a window on Windows does not wait. Nor
+  does leaving the app on Android: the Android reader drains only the store
+  at `onStop`, and Android may kill the stopped app's process.
 - **Several tabs, windows or extensions** share the store and coordinate no
   work.
 
@@ -251,7 +268,13 @@ API, staged for the type checker), `index.contract` (`OAuthSession`,
   never both; `access_denied` and `cancelCodes`; one `code`. The session is
   kept with its issuer and endpoints.
 - **Token replies.** JSON, or form-encoded by content type (a repeated
-  parameter refused); `error` fails under any status; success needs 2xx, an
+  parameter refused); a 429 or 5xx is the server's failure whatever its body
+  says, as an OAuth error response is a 400 or 401 (RFC 6749 §5.2), and so is
+  one whose body is cut off where the transport gives the reply before its
+  body, as the web's `fetch` does (natively the host reads a body whole before
+  it gives the reply, so there a cut-off one is no reply, `network`); any other
+  reply cut off is no reply; `error`
+  fails under any other status; success needs 2xx, an
   access token and `token_type` `bearer` without case (`bearerByDefault` for
   providers that omit it); `expires_in` an integer or digit string; `scope` by
   spaces (`commaScopes`); no `refresh_token` keeps the old one, also on a
@@ -276,18 +299,91 @@ API, staged for the type checker), `index.contract` (`OAuthSession`,
 - **Requests.** `fetch` and `json` send the Bearer token only to `apis`
   origins (compared as the URL Standard serializes origins, RFC 6454 §4),
   over HTTPS except loopback, without following redirects; refresh
-  once on 401; 403 never refreshes; `json` throws for a status that is not 2xx.
+  once on 401; 403 never refreshes, unless `expiredStatus` names it (D9);
+  `json` throws for a status that is not 2xx.
 - **Sign-out** waits for a refresh in flight, forgets the session, then
   revokes its newest token (RFC 7009). When a revoke gets no reply (offline,
   or natively a superseded sign-out, whose request is refused) or a 429 or
   5xx (§2.2.1), the token waits for the next sign-out, which revokes every
   waiting token, newest first, and stops at the first such revoke.
 
+### 5.1 D8 — A first-party sign-in
+
+Some providers let an app sign the person in with its own screens, then
+issue an authorization code through their authorization endpoint for it to
+exchange: ForgeRock's authentication trees (PROVIDERS.md FR-1, FR-2). What
+follows the code is a browser sign-in's: PKCE, `state`, the exchange, the ID
+token's checks, rotation and revocation.
+
+- `signIn(store, { authorize })` prepares the request as for the browser
+  (discovery, `state`, a PKCE S256 verifier, `nonce` with `openid`) and hands
+  `authorize` the endpoint, its `params`, the whole `url`, and the package's
+  transport (`fetch`, D9) to send it with.
+- `authorize` sends the request as the provider documents (ForgeRock's: a
+  POST carrying the SSO token, `csrf` and `decision=allow`) and answers the
+  URL the provider redirected to. One that is not the callback, compared as
+  the host compares one (the scheme and host without ASCII case, no userinfo,
+  the path exactly, and none taken that the host refuses: whitespace or a control
+  character anywhere, or an empty authority), fails as `invalid_response`; the callback is checked as any
+  (§5, "Sign-in"). An
+  `OAuthError` it throws is the result's code, words and status; anything
+  else is `network`.
+- No browser opens, so `authorize` may await, and the app grants no
+  `auth.session` or `auth.callback`; `callback` names the redirect URI the
+  provider registered, an absolute URL the host can read, with no query or
+  fragment.
+- It runs natively. On the web the browser answers `redirect: 'manual'` with
+  an opaque redirect, no status or headers, and drops a `Cookie` the app sets
+  (Fetch), so a web build sends the authorization request from a server.
+- The source that answers the tree's last step keeps its SSO token in the
+  module and answers only that the tree is done: an answer is kept and shown.
+
+### 5.2 D9 — What a first-party provider and its app need
+
+- **`claims(store)`** answers the kept ID token's claims, `null` while
+  signed out, for an API that wants one of them in a header.
+- **`status`** in `OAuthResult` is the HTTP status, 400 or over, of the reply
+  that failed, and 0 otherwise (no reply, or a 2xx or 3xx the package could
+  not use), so an app words a refusal, a rate limit and an outage apart.
+- **`ended`** in `OAuthSession` says the last session ended, by the provider
+  or because the package could not go on with it (a refreshed ID token that
+  fails its checks, an expired access token with no refresh token), which
+  `error` then explains, as against a sign-in that cannot be prepared
+  (offline at launch): an app's "sign in again" notice shows only for the
+  first.
+- **`expiredStatus`** lists the statuses an API answers an expired access
+  token with: `[401]` by default (RFC 6750 §3.1), `[401, 403]` for a gateway
+  that answers 403 (FR-4). `fetch` and `json` refresh once on each, and
+  `json` throws `unauthorized` for one that stands. A token an API refused
+  right after the refresh that brought it refreshes again only once it has
+  expired by the API's `Date`, or, its expiry unknown, a minute after that
+  refusal: reads a gateway keeps refusing would otherwise each refresh in
+  turn, spending a rotating refresh token at every round trip. Where the app
+  cannot read the API's `Date` (from another origin, a browser shows it only
+  when the API exposes it), each read the API refuses refreshes once, as
+  without this limit.
+- **`endpoints` beside an exact `issuer`**: `authorization` and `token` both
+  given make no discovery, so a signed-out launch waits on no request. The ID
+  token and a callback's `iss` are still checked against `issuer`, a callback
+  without `iss` is taken, and sign-out revokes only at `revocation`. A
+  template issuer still runs discovery, whose `{tenantid}` issuer its tokens
+  are checked against.
+- **`fetch`** is the transport of every request the package makes:
+  discovery, the token endpoint, the API and revocation. Global `fetch` by
+  default; an app's own for a demo whose server is in the app, or for a
+  provider's cookies.
+- **`log`** hears what the session did, for an app's diagnostics: `signed-in`,
+  `refreshed`, `refresh-failed` (the session stands), `ended` (the session
+  ended), `refused` (an API refused the refreshed token) and `signed-out`,
+  in the order they happened across every provider made for the session's
+  key. No event carries a token: a refresh token is
+  named by its print, the first six hex digits of its SHA-256.
+
 ## 6. D6 — The fixture and the cases
 
 `packages/oauth/test/fixture.ts` serves profiles `spec`, `google`, `entra`,
-`entra-v1`, `auth0`, `okta`, `onelogin`, `github` and `salesforce`, each
-citing its PROVIDERS.md items, on a port and the next one (Google's token
+`entra-v1`, `auth0`, `okta`, `onelogin`, `github`, `salesforce` and
+`forgerock`, each citing its PROVIDERS.md items, on a port and the next one (Google's token
 endpoint, GOOG-1). `POST /control` expires access tokens, fails, cuts off
 (before or after spending) or holds the next token request until
 `release-token`, revokes, declines the next sign-in, sets claims in the next
@@ -303,7 +399,10 @@ read `Date`, and revocation reads its token: a current one ends the grant, a
 spent one ends nothing, and the counts say which a sign-out sent. A token or
 revocation request is refused as RFC 6749 §5.2 and RFC 7009 §2.1 say, a
 token is redeemed or revoked only for the client it was issued to, and the
-servers keep a held request open as long as a case holds it.
+servers keep a held request open as long as a case holds it. `forgerock`
+adds an authentication tree (`json/authenticate`) whose SSO token the
+authorization endpoint takes in a POST, and an API that answers 403 for an
+expired access token.
 
 - **Library cases** (`packages/oauth/test/oauth.test.ts`, Bun): among them
   two callers, and two providers for one key, renewing once while the refresh
@@ -316,8 +415,9 @@ servers keep a held request open as long as a case holds it.
   refresh token and that token's sign-in claims, after a refresh too, but not
   another client's or another tenant's; discovery's RFC 8414 fallback and a
   relative endpoint; a form reply that repeats a parameter; no `Date`; HTTP
-  Basic, with an empty secret too; the token request's 60 s deadline; a 403 and a redirect followed by
-  neither refresh nor fetch, and a 401 that persists after one refresh; an API
+  Basic, with an empty secret too; the 60 s deadline of the code exchange, a
+  refresh and revocation; a 403 and a redirect followed by neither refresh
+  nor fetch, and a 401 that persists after one refresh; an API
   origin matched as the URL Standard serializes it (a default or padded port,
   an IDNA host), and no other port; an API read the grants refuse reported as
   setup; an error made in a realm whose `Error.prototype` is frozen, as a
@@ -334,14 +434,18 @@ servers keep a held request open as long as a case holds it.
   puts back the first, which takes its reply), `js/tests/it/no_store.rs`
   (every store operation throws in a let-go continuation, each naming
   itself), `runner/src/request.rs` (which requests have effects),
-  `runner/tests/it/keep_sent.rs` (what the source keeps runs to its end,
-  what it does not is cancelled, one the host refused is not offered, a
-  refused commit keeps nothing it let go, a refused commit after a module
-  turn keeps the turn's writes, kept requests the host refuses settle once
-  each, an ordered one behind ordered work, module work's wait lapses at the
-  next write, a held reader is asked again at once after module work, and a
-  plain request a later pass drops is forgotten, at boot too, where the
-  source is then told what it may keep), `data/src/mixed_tests/keep_sent.rs`
+  `runner/tests/it/keep_sent.rs` (a request with effects is in flight from
+  its send until it lands, kept or not, as the agent's `background` op says,
+  and a GET, a POST refused at admission or a re-ask's wait never is
+  (`modules/invoke.rs` checks a handler's refused POST, `settlement_tests.rs`
+  the wait); what the source keeps runs to its end, what it does not is
+  cancelled, one the host refused is not offered, a refused commit keeps
+  nothing it let go, a refused commit after a module turn keeps the turn's
+  writes, kept requests the host refuses settle once each, an ordered one
+  behind ordered work, module work's wait lapses at the next write, a held
+  reader is asked again at once after module work, and a plain request a
+  later pass drops is forgotten, at boot too, where the source is then told
+  what it may keep), `data/src/mixed_tests/keep_sent.rs`
   (module work lands in a JavaScript child under its own grants),
   `runner/tests/it/app_module.rs` (a write that is not module work's asks a
   store reader in flight again at once), `runner/tests/it/failed_readers.rs`
@@ -359,8 +463,18 @@ servers keep a held request open as long as a case holds it.
   `AbortSignal.timeout`, as it is, composed or beside an `exactTimeout` as
   long, aborts at the request's deadline, which a later answer carrying the
   same signal has too),
+  `host/web-js/answer-timers.test.mjs`, `host/web-js/abort-reason.test.mjs`
+  and `host/web/ts-body-from.test.mjs` (the same on the web, and a body
+  file's request armed before its file work),
   `js/tests/it/superseded.rs` and `host/web-js/answer-timers.test.mjs` (a
-  let-go answer's continuation arms no timer) and
+  let-go answer's continuation arms no timer),
+  `host/apple/src/finish_tests.rs` (a batch says the app must finish from a
+  POST's send until it lands), `FinishHoldTests` (one background task from
+  that word to its end however often it repeats, ended once, by the system's
+  expiration too, begun again on the app's return to the foreground, and
+  ended by the session's end), the Linux host's
+  `an_orderly_exit_waits_for_a_request_with_effects` (an orderly exit waits
+  for a POST's late reply and its turn) and
   `host/linux/src/app/boot_hold_tests.rs` (a sign-in the boot starts is
   held under the agent).
 - **App cases** (`cases.template.contract`, written per profile by
@@ -393,8 +507,9 @@ browser.
 
 - **A lock API.** Work several answers share is a shared promise, as on the
   web; what must finish once started is a request with effects (D2).
-- **Draining kept requests across teardown, reload and update**, and through
-  iOS suspension.
+- **Draining kept requests across teardown, reload and update**, on a
+  Windows window's close and an Android app's stop, and past the background
+  time iOS grants.
 - **DPoP and PAR** in `@exact/oauth`; Sign in with Apple; a backend for
   providers whose token endpoint refuses browsers.
 - **A clock in data code.** LLP 1027.000 stands.
@@ -413,6 +528,31 @@ held-out cases of every profile on the web, the Linux host, macOS and the iOS
 says a server must exchange the code, as against GitHub (GH-8). No case waits
 out a duration; the fixture's `await` and the driver's `request` bound only a
 hanging test, at 50 and 60 s.
+
+**D8 and D9.** `packages/oauth`'s cases sign in through `forgerock`'s tree
+and the app's own authorization POST, with no browser, the SSO token in the
+cookie or a header and `callback` set with no `auth.callback` grant; check
+what `authorize` answers as any callback (a session the provider refused,
+another `state`, no redirect, an `OAuthError`, a network failure, and an
+unreadable token reply, whose status is 0), and its redirect as the host
+would, case folded as ASCII only and whitespace, a control character and an
+empty authority refused, as is a `callback` the host could not read; refresh on the gateway's 403 only
+with `expiredStatus`, `json` throwing `unauthorized` for one that stands, and
+a token refused right after its refresh again only once it expired by the
+API's `Date`, or, its expiry unknown, a minute after the refusal; make no
+discovery for an exact issuer with fixed endpoints, a callback's `iss` still
+checked against it and revoking only at the one they give, while a template
+issuer still discovers; take `expires_in: 0` as expiring at the reply's
+`Date`; keep a 503 whose body fails after its reply arrived (the web's `fetch`
+can give one) as the server's failure, with its status (no native case cuts
+one off); hear every event in order, across two providers made for one key
+too, with no token in any and an unusable 200's status as 0; and see `fetch` carry discovery, the token endpoint,
+the API and revocation. They pass in four runs in a row.
+`apps/oauth-fixture`'s `app.test.contract` signs in to `forgerock` with the
+app's own screens on the Linux host, macOS and the iOS simulator, where a
+fetch's `redirect: "manual"` answers the redirect and the app's `Cookie` is
+sent, and skips it on the web; its visible cases pass for `forgerock` on the
+web and the Linux host, through the browser's sign-in.
 
 **The bar (D7).** GPT-6 Luna wrote 21 apps from this RFC's recipe, package,
 fixture and cases. Graded on the web and the Linux host, every app passed

@@ -236,11 +236,11 @@ fn context_window_details_render_as_one_unnamed_dialog() {
         .unwrap();
     assert_eq!(
         prop(runner, "composer-options", "accessibilityRole").as_deref(),
-        Some("listbox")
+        Some("menu")
     );
     assert_eq!(
         prop(runner, "composer-options", "accessibilityLabel").as_deref(),
-        Some("Runtime mode")
+        Some("Permissions")
     );
 }
 

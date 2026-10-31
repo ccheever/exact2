@@ -6,6 +6,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { constants, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { noteBunLoaded } from '../js/bake/src/__exact_env.mjs';
 
 /** The compiler's warnings in what a build said (LLP 1116.004 D7), each once as `contract build` prints
  * it, `file:line:col warning [id] text`: the web compiler's or a bake's own line, Cargo's for a build
@@ -34,7 +35,8 @@ export function warningLines(dir, host, warnings) {
   if (!warnings.length) return [];
   const fresh = before ? warnings.filter((w) => !before.has(w)) : warnings;
   const where = shown.startsWith('..') ? file : shown;
-  const count = `compiler: ${warnings.length} warning${warnings.length === 1 ? '' : 's'}`;
+  const noted = warnings.filter(information).length, counted = warnings.length - noted;
+  const count = `compiler: ${[(counted || !noted) && `${counted} warning${counted === 1 ? '' : 's'}`, noted && `${noted} note${noted === 1 ? '' : 's'} (not counted)`].filter(Boolean).join(' and ')}`;
   if (!fresh.length) return [`${count}, as before (${where} lists them; bun exact.mjs contract build quotes each line)`];
   // In the compiler's order (`contract::warning_rank`), the symbols only the web draws blank one line: 21 of them hid
   // the euxy port's header warning.
@@ -43,10 +45,19 @@ export function warningLines(dir, host, warnings) {
   return [...fresh.filter((w) => !webOnly(w)), ...group, `${count}${fresh.length < warnings.length ? `, ${fresh.length} new (above)` : ''}; ${where} lists them all`];
 }
 
+/** A compiler warning that is information, not a problem: `tamber-unreachable` names a control whose host draws the
+ *  platform's own look, which the author should know of and cannot change (LLP 1121 D9, amended 2026-10-30). A drive
+ *  and verify say it but do not count it. contract's `warning_rank::information` is the same test. */
+export const information = (w) => / warning \[tamber-unreachable\] /.test(w);
+
 /** A compiler warning only the web's picture shows: an SF Symbol drawn blank where the web is the one target besides
  *  Apple's (contract's `web_only`). Its first use names the targets, `ships web (…), where it is blank`; a later one,
  *  `blank on web too`. */
 export const webOnly = (w) => /warning \[lower-symbol-platform\] /.test(w) && (/ blank on web too/.test(w) || /ships web \((?:(?!\) and ).)*?, where it is blank/.test(w));
+
+/** The window a Windows app opens in, `[width, height]`: app.json's `host.windows.window`, else the host's default
+ * (exact_windows::Window). A drive of an app on Windows is that size, as a person first sees it. */
+export const windowsWindow = (manifest) => [manifest?.host?.windows?.window?.width ?? 1280, manifest?.host?.windows?.window?.height ?? 720];
 
 /** exact2's verbs for the app `name` in `dir`: each the script it runs, from the checkout, and its
  * first arguments. `host` is a drive's (`test ios`); a game has its own and no `verify` or `pattern`. */
@@ -55,6 +66,7 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     status: ['scripts/exact.mjs', 'status', dir],
     web: ['host/web/dev.mjs', '--app', name],
     'web-build': ['host/web/build.mjs', name],
+    serve: ['host/web/serve.mjs'],
     test: ['scripts/agent.mjs', host, '--app', name],
     agent: ['scripts/agent.mjs', host, '--app', name],
     // Builds itself, so not below (LLP 1116.004 D7): one report of the build, the tests and check.
@@ -62,7 +74,9 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     ios: ['host/apple/build.mjs', '--ios', `${name}-apple`],
     mac: ['host/apple/build.mjs', `${name}-apple`],
     linux: ['scripts/build-linux.mjs', name],
-    android: ['scripts/agent-android.mjs', 'build', name],
+    windows: ['host/windows/build.mjs', name],
+    // The APK on the Canvas reader, installed (LLP 1107 D1); `--headless` the Linux host for Android instead.
+    android: ['scripts/agent-android.mjs', 'build', name, '--apk', '--install'],
     update: ['scripts/exact.mjs', 'new', dir, '--update'],
     lock: ['scripts/app-cli.mjs', '--lock', dir],
     contract: ['scripts/exact.mjs', 'contract'],
@@ -80,7 +94,6 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
       'test-rust': ['game/app/shells.mjs', dir, '--test'],
       shells: ['game/app/shells.mjs', dir],
       lock: ['game/app/shells.mjs', dir, '--lock'],
-      windows: ['host/windows/build.mjs', name],
       prove: ['game/prove.mjs', dir],
     } : {},
   };
@@ -88,6 +101,8 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
 
 /** `bun exact.mjs <verb> [arguments]` for the app `name` in `dir`, with the checkout `exact2`; the exit code. */
 export async function run({ dir, name, game = false, exact2, args }) {
+  // Before any process starts: which settings Bun loaded from this directory's `.env` files (LLP 1153 D4).
+  noteBunLoaded();
   // The design tool's tests, drives and verify run on this checkout's own port (port-lock.mjs `checkoutPort`, unless
   // EXACT_TOOL_PORT names one), from a copy staged with that origin and its stub (tamber-tool-port.mjs
   // `stageToolTests`), so its stub never binds the 7740 a person's tool holds; EXACT_TOOL_PORT=7740 runs them in place.
@@ -131,6 +146,18 @@ export async function run({ dir, name, game = false, exact2, args }) {
   if (!verbs[verb] && !own[verb]) {
     console.error(`Usage: bun exact.mjs <${[...Object.keys(verbs), ...Object.keys(own)].join('|')}> [arguments for that script]\nbun exact.mjs help says what each does.`);
     return 2;
+  }
+  // A native verb names its platform in app.json the first time, after that platform's setup rows, and keeps the
+  // generated workspace current unless the app authored one (LLP 1153 D1.2; scripts/app-shells.mjs). A drive's
+  // host counts (`test ios`). Absent from a checkout that lacks the module (the scaffold's test SDK), it is skipped.
+  const platform = game || rest.includes('--help') || rest.includes('-h') ? null : (await import(resolve(exact2, 'scripts/app-shells.mjs')).catch(() => null))?.platformOf(verb, host);
+  if (platform) {
+    const shells = await import(resolve(exact2, 'scripts/app-shells.mjs'));
+    const named = shells.namesPlatform(existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')) : {}, platform);
+    const report = named ? null : await import(resolve(exact2, 'scripts/exact.mjs')).then(({ sdkReport, platformReport }) => platformReport(platform, sdkReport(process.env, { only: platform, device: rest.includes('--device') }), { device: rest.includes('--device') })).catch((error) => ({ error: String(error?.message ?? error) }));
+    const brought = await shells.bringPlatform(dir, platform, { report });
+    if (brought.refused) { console.error(brought.refused); return 1; }
+    for (const line of brought.lines) console.error(line);
   }
   // The automatic build reports on stderr, so a drive's stdout stays its reply (`--json`).
   // The child ends with this process: a signal here is passed on, and a dev server
@@ -194,7 +221,12 @@ if (verb === 'contract') {
     rest.splice(backendFlag, 2);
   }
   const drivesWeb = (verb === 'test' || verb === 'agent') && host === 'web' && !rest.some((a) => a === '--url' || a === '--web-dist');
-  const drivesNative = (verb === 'test' || verb === 'agent') && ['ios', 'macos', 'mac'].includes(host) && !rest.includes('--device');
+  // Xcode's builds are a Mac's: on Windows, the verbs that need one say what Windows has instead.
+  if (process.platform === 'win32' && (['ios', 'mac'].includes(verb) || ['test', 'agent', 'verify'].includes(verb) && ['ios', 'macos', 'mac'].includes(host))) {
+    console.error(`${verb}${verb === 'ios' || verb === 'mac' ? '' : ` ${host}`} needs a Mac (Xcode); on Windows: bun exact.mjs windows --run opens the app, test windows and verify windows check it`);
+    return log(2);
+  }
+  const drivesNative = (verb === 'test' || verb === 'agent') && ['ios', 'macos', 'mac', 'windows'].includes(host) && !rest.includes('--device');
   // `test [host] [file|glob …]`: the test files named (each `.contract`, a glob or `--test <file>`, from the
   // current directory), else app.test.contract and every other `*.test.contract` beside it (an app's tests split
   // by area under the line cap); each runs in turn and any failure fails the command.
@@ -234,6 +266,12 @@ if (verb === 'contract') {
   const drivesApple = (verb === 'test' || verb === 'agent') && ['ios', 'macos', 'mac'].includes(host);
   if (drivesApple && !rest.includes('--chrome') && host === 'ios') rest.push('--chrome', 'platform');
   if (drivesApple && verb === 'agent' && !rest.includes('--scale')) rest.push('--scale', '1');
+  if ((verb === 'test' || verb === 'agent') && host === 'windows' && !rest.includes('--size') && existsSync(manifest)) rest.push('--size', windowsWindow(JSON.parse(readFileSync(manifest, 'utf8'))).join('x'));
+  // An Android drive is the APK's (`bun exact.mjs android` installs it), unless it asks for the headless Linux host.
+  if ((verb === 'test' || verb === 'agent') && host === 'android' && !rest.includes('--headless') && !rest.includes('--reader')) rest.push('--reader');
+  // A finished site is served to this machine unless --lan asks for every interface (LLP 1153 D3.3); the dev loop
+  // and serve.mjs run alone keep LAN (LLP 1023 D8).
+  if (verb === 'serve' && !rest.includes('--lan')) rest.push('--loopback');
   if (verb !== 'test') return log(await script(verbs[verb], rest));
   // An app with a server of its own (the rest pattern's) has it run for the tests, where app.ts calls it, on an empty
   // database kept through them: as verify runs it, by the same code (LLP 1116.007 D2).
@@ -271,10 +309,12 @@ async function webBuildQuiet(spawned, args, dir) {
 /** Explicit app lock repair: preserve selected versions and resolve only manifest drift. */
 export async function lockApp(dir) {
   const { cargoEnvironment } = await import('./app.mjs');
+  const { authoredWorkspace, shellsDir } = await import('./cargo-check.mjs');
   const options = { cwd: dir, env: cargoEnvironment(), encoding: 'utf8', maxBuffer: 1 << 26 };
-  const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain', '--manifest-path', resolve(dir, 'Cargo.toml')], options);
-  if (located.status !== 0) throw new Error(`cannot find the app's Cargo workspace: ${located.stderr || located.error?.message}`);
-  const workspace = resolve(located.stdout.trim(), '..'), lock = resolve(workspace, 'Cargo.lock');
+  // An app that authored no workspace has the generated one once a native verb wrote it (LLP 1153 D1.3), else no Rust.
+  const workspace = authoredWorkspace(dir) ?? (existsSync(resolve(shellsDir(dir), 'Cargo.toml')) ? shellsDir(dir) : null);
+  if (!workspace) return `${dir}: no Rust here yet; a native verb (bun exact.mjs ios, mac, linux, android, windows) brings it`;
+  const lock = resolve(workspace, 'Cargo.lock');
   const before = existsSync(lock) ? readFileSync(lock, 'utf8') : '';
   let result = spawnSync('cargo', ['metadata', '--offline', '--format-version', '1'], { ...options, cwd: workspace });
   if (result.status !== 0 && /no matching package named|--offline was specified|attempting to make an HTTP request|in the offline mode|offline mode \(via `--offline`\)/.test(result.stderr ?? '')) {

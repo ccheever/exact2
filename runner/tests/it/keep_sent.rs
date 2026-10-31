@@ -215,6 +215,30 @@ fn a_let_go_post_the_source_keeps_runs_to_its_end() {
     );
 }
 
+/// A request with effects is in flight from its send until its reply lands,
+/// kept ones included, so the host keeps the app running until then, as the
+/// agent's `background` op tells a quit; a GET never is one.
+#[test]
+fn a_request_with_effects_is_in_flight_until_it_lands_kept_or_not() {
+    let (mut r, _) = boot(true);
+    let background =
+        |r: &exact_runner::Runner<_>| exact_runner::agent::handle(r, r#"{"op":"background"}"#);
+    let (kept, reader) = first(&mut r);
+    assert!(r.effects_in_flight(), "the POST is out");
+    assert_eq!(background(&r), r#"{"mustFinish":true}"#);
+    r.act("bump", vec![]).unwrap();
+    let newer = (r.take_requests().into_iter())
+        .find(|o| o.request.url.contains("/row/"))
+        .expect("the newer POST")
+        .ticket;
+    r.fulfill(newer, ok()).unwrap();
+    assert!(r.effects_in_flight(), "the kept POST is still out");
+    r.fulfill(kept, ok()).unwrap();
+    assert!(r.holds(reader), "the GET is still out");
+    assert!(!r.effects_in_flight(), "a GET has no effects");
+    assert_eq!(background(&r), r#"{"mustFinish":false}"#);
+}
+
 /// A source that keeps nothing (a Rust data source's default): the host
 /// cancels the let-go POST, as before.
 #[test]
@@ -241,6 +265,10 @@ fn a_let_go_post_the_host_refused_is_not_offered() {
     let (mut r, seen) = boot(true);
     let (post, _) = first(&mut r);
     r.refuse_request(post, "native executor admission limit reached", false);
+    assert!(
+        !r.effects_in_flight(),
+        "it never ran, so nothing waits for it"
+    );
     r.act("bump", vec![]).unwrap();
     assert!(!seen.lock().unwrap().offered.contains(&(1, false)));
     assert!(!r.holds(post));

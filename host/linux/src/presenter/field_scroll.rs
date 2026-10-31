@@ -9,6 +9,11 @@ impl<D: DataSource> Presenter<D> {
         if selection.start != selection.end || self.shape_surface_open() {
             return None;
         }
+        #[cfg(windows)]
+        if let Some([x, y, w, h]) = exact_ink::device::d3d11::fields::caret(id) {
+            let s = self.brush.scale;
+            return Some((x / s, y / s, w / s, h / s));
+        }
         if self.ime_paint().is_some_and(|c| !c.cursor) {
             return None;
         }

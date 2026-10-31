@@ -18,6 +18,7 @@
 
 #![deny(missing_docs)]
 
+mod activation;
 mod compare;
 mod direct;
 mod encode;
@@ -42,6 +43,7 @@ pub use source::Anonymous;
 
 // The render never lays out (the projection is style rows, not boxes): its
 // kernels keep no layout engine tree unless something asks for a layout.
+pub(crate) use activation::{activation, inference};
 use exact_kernel::Kernel;
 use exact_plan::{Plan, RenderPolicy};
 use exact_runner::{
@@ -110,6 +112,10 @@ pub struct Rendered {
     pub settled: Settled,
     /// When the document asks for its client runtime.
     pub activate: exact_plan::ActivatePolicy,
+    /// For a page that waits for the reader, the viewport comparisons it
+    /// was laid out by and their answers, which the capture script checks
+    /// (`[[query, holds], …]`, LLP 1048.007 D2); empty otherwise.
+    pub wake: String,
     /// The document's root is already as the JavaScript runtime adopts it
     /// (written so without a kernel, LLP 1048.004): the page doesn't
     /// rewrite it (`page::for_runtime`), and the digest is over this form.
@@ -327,7 +333,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
     } else {
         None
     };
-    let (checkpoint, settled) = (page.checkpoint.clone(), page.settled);
+    let (checkpoint, settled, clocked) = (page.checkpoint.clone(), page.settled, page.clocked);
     retire(page, data);
     // @ref LLP 1048.000 D6 — the document is the checkpoint's projection,
     // from a runner booted from the page's checkpoint with a fresh source,
@@ -360,8 +366,11 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
             )
         }
     };
+    // Only the JavaScript runtime's pages, whose document carries no view
+    // ids, infer an activation (LLP 1048.007 D1).
+    let clocked = clocked || ids != Ids::Any;
     finish(
-        plan, site, location, document, handlers, checkpoint, state, settled,
+        plan, site, location, document, handlers, checkpoint, state, settled, clocked, viewport,
     )
 }
 
@@ -371,6 +380,9 @@ pub(crate) struct Settling<D: DataSource> {
     pub(crate) runner: Runner<Anonymous<D>>,
     pub(crate) settled: Settled,
     pub(crate) checkpoint: String,
+    /// Something was still due on its clock when it settled: a timer, a
+    /// frame task (LLP 1048.007 D1).
+    pub(crate) clocked: bool,
 }
 
 /// Boot a fresh runner at `location` with a fresh source (LLP 1048.000 D10)
@@ -498,10 +510,12 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
         EXECUTORS.with(|pool| pool.borrow_mut().push((grants, executor)));
     }
     let checkpoint = checkpoint(&runner, location);
+    let clocked = runner.timer_due_ms().is_some() || runner.wants_frames();
     Ok(Settling {
         runner,
         settled,
         checkpoint,
+        clocked,
     })
 }
 
@@ -533,12 +547,14 @@ pub(crate) fn finish(
     checkpoint: String,
     state: exact_runner::Checkpoint,
     settled: Settled,
+    clocked: bool,
+    viewport: exact_runner::Viewport,
 ) -> Result<Rendered, String> {
     let head = document
         .page_head(plan, site, location)
         .map_err(|e| e.to_string())?;
     let digest = digest(&encoded(plan), location, &checkpoint, &document.root);
-    let activation = activation(plan, location, &state, &handlers);
+    let (activation, wake) = activation(plan, location, &state, &handlers, clocked, &viewport);
     Ok(Rendered {
         document,
         head,
@@ -546,43 +562,10 @@ pub(crate) fn finish(
         digest,
         state,
         settled,
+        wake,
         activate: activation,
         runtime_form: false,
     })
-}
-
-/// The page's activation (LLP 1071 D6): the route's, unless a partial
-/// document or a continuous handler needs the host's ordinary boot.
-pub(crate) fn activation(
-    plan: &Plan,
-    location: &str,
-    state: &exact_runner::Checkpoint,
-    handlers: &exact_kernel::SortedMap<exact_kernel::ViewId, Vec<exact_plan::EventKind>>,
-) -> exact_plan::ActivatePolicy {
-    let mut activation = route_at(plan, location)
-        .map_or(exact_plan::ActivatePolicy::Inferred, |route| route.activate);
-    // A partial document needs to finish without waiting for an action. Gesture,
-    // media and other continuous handlers likewise need the host's ordinary
-    // boot (undeclared: idle on the wasm host, eager on the JavaScript one);
-    // interaction activation only replays discrete form and press semantics.
-    if activation == exact_plan::ActivatePolicy::Interaction
-        && (!state.pending.is_empty()
-            || handlers.values().flatten().any(|kind| {
-                !matches!(
-                    kind,
-                    exact_plan::EventKind::Press
-                        | exact_plan::EventKind::Change
-                        | exact_plan::EventKind::Focus
-                        | exact_plan::EventKind::Blur
-                        | exact_plan::EventKind::Key
-                        | exact_plan::EventKind::Submit
-                        | exact_plan::EventKind::Navigate
-                )
-            }))
-    {
-        activation = exact_plan::ActivatePolicy::Inferred;
-    }
-    activation
 }
 
 /// `plan`'s bytes, for the digest: encoded once per plan a process renders,

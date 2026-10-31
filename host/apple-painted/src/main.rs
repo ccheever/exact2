@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 fn main() {
+    exact_apple_painted::main_started();
     let plan = std::env::var_os("EXACT_PLAN")
         .and_then(|p| std::fs::read(p).ok())
         .unwrap_or_default();

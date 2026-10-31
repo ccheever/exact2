@@ -83,6 +83,9 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     init(_ node: NodeView) {
         self.node = node
         super.init(nibName: nil, bundle: nil)
+        #if os(iOS)
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (c: RouteController, _: UITraitCollection) in c.reopenTitle() }
+        #endif
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)

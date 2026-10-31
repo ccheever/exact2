@@ -55,8 +55,10 @@ pub(crate) fn preload_paths(shell: &str) -> Vec<String> {
     found
 }
 
-/// Send a 103 naming `paths` as `modulepreload`s. Best effort: a client
-/// that closed is found by the response after it.
+/// Send a 103 naming `paths` as `modulepreload`s, at low priority as the
+/// page's head names them (`page::head_js`; HTML's Link header processing
+/// reads `fetchpriority`). Best effort: a client that closed is found by
+/// the response after it.
 pub(crate) fn hint(out: &mut TcpStream, paths: &[String]) {
     if paths.is_empty() {
         return;
@@ -65,7 +67,7 @@ pub(crate) fn hint(out: &mut TcpStream, paths: &[String]) {
     for path in paths {
         head.push_str("Link: <");
         head.push_str(path);
-        head.push_str(">; rel=modulepreload\r\n");
+        head.push_str(">; rel=modulepreload; fetchpriority=low\r\n");
     }
     head.push_str("\r\n");
     let _ = out.write_all(head.as_bytes());

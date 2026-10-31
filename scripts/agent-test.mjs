@@ -14,7 +14,9 @@ import { perfDelta } from './agent-inspect.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
 import { resolveApp, webDist as defaultWebDist } from './app.mjs';
 import { onThisMachine, serverUrl } from './verify.mjs';
-import { backendOrigin, backendOriginSelection } from '../js/bake/src/typescript.mjs';
+import { backendOrigin, backendOriginSelection, staticFacts } from '../js/bake/src/typescript.mjs';
+import { declaredSettings, inlineSettings, settingValues } from '../js/bake/src/__exact_env.mjs';
+import { createRequire } from 'node:module';
 import { devicePreflight, mountsSnapback } from '../snapback4/web/device-build.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
@@ -173,7 +175,17 @@ export function backendOriginSource(app, origin, env=process.env) {
   if (selected?.origin===origin) return selected.source;
   let code=''; try { code=readFileSync(resolve(dir,'app.ts'),'utf8'); } catch { /* no TypeScript source */ }
   const literal=/\bconst\s+origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(code)?.[1]?.replace(/\/+$/,'');
-  return !selected && literal===origin ? 'app.ts origin literal' : 'built net.fetch grant (rebuild after changing the backend selection)';
+  if (!selected && literal===origin) return 'app.ts origin literal';
+  // A setting (`import.meta.env`, LLP 1153 D4) at this origin that the exported grants fetch from, as the bake evaluates
+  // them (`inlineSettings`, `staticFacts`), each setting read as an origin of its own: the grants then name those they take.
+  const at=value=>{ try { return new URL(value).origin; } catch { return null; } };
+  const names=declaredSettings(dir), placeholder=name=>`http://${name.toLowerCase().replaceAll('_','-')}.setting.invalid`;
+  let grants='';
+  try { const parse=createRequire(import.meta.url)('rolldown/utils').parseSync; grants=staticFacts(inlineSettings(code,dir,parse,Object.fromEntries(names.map(name=>[name,placeholder(name)]))).code,parse).grants ?? ''; }
+  catch { /* an app.ts the bake refuses: no setting is named */ }
+  const fetched=new Set(grants.split('\n').map(line=>/^\s*(?:development\s+)?net\.fetch\s+(\S+)/.exec(line)?.[1]).filter(Boolean).map(at));
+  const setting=Object.entries(settingValues(dir,names,env)).find(([name,s])=>s && at(s.value)===origin && fetched.has(at(placeholder(name))));
+  return setting ? `import.meta.env.${setting[0]} from ${setting[1].source}` : 'built net.fetch grant (rebuild after changing the backend selection)';
 }
 const listening = (origin, ms = 1000) => new Promise((done) => {
   const { hostname, port, protocol } = new URL(origin), socket = connect({ host: hostname.replace(/^\[|\]$/g, ''), port: Number(port || (protocol === 'https:' ? 443 : 80)) });
@@ -611,14 +623,14 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
-  // Native runs use the origin their build selected (LLP 1142 D13), else the scaffold's declared one, when no web
-  // admission file exists.
-  const appOrigin = host !== 'web' && existsSync(resolve(resolveApp(app).dir, 'app.ts')) ? backendOrigin(resolveApp(app).dir, { ...process.env, ...(env ?? {}) }) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(readFileSync(resolve(resolveApp(app).dir, 'app.ts'), 'utf8'))?.[1] : null;
+  // Native runs use the origin their build selected (LLP 1142 D13), else the scaffold's declared one, else the grants
+  // app.ts names as the build evaluates them, when no web admission file exists.
+  const appOrigins = host !== 'web' ? nativeFetchOrigins(resolveApp(app).dir, { ...process.env, ...(env ?? {}) }) : [];
   const authored = JSON.parse(c.stdout), properties = authored.properties.filter(p => p.kind === 'always');
   const unchecked = authored.properties.filter(p => p.kind !== 'always').reduce((n, p) => n + Math.max(1, p.lines.length), 0);
-  console.error(`properties on ${host}: ${unchecked} lines not checked (after, its frames and commands, and never refuses); the driver exposes no commit trace`);
+  if (unchecked) console.error(`properties on ${host}: ${unchecked} lines not checked (after, its frames and commands, and never refuses); the driver exposes no commit trace`);
   let propertyChecks = 0, propertyFalse = 0;
-  const tests = backendFetchPrefixes(authored.tests, granted.length ? granted : appOrigin ? [appOrigin] : []);
+  const tests = backendFetchPrefixes(authored.tests, granted.length ? granted : appOrigins);
   const reseeded = tests.filter(t => t.steps.some(s => s.op === 'fresh')).length;
   if (reseeded) console.error(`fresh: reseeding before each of ${reseeded} tests`);
   const results = [];
@@ -651,7 +663,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const facts = { size, seed, locale, formatLocale, timeZone, epoch, failFetch };
     const lines = [], preferences = [];
     const media = {};
-    let beforeData = false, leading = 0, reset = null;
+    let beforeData = false, leading = 0, reset = null, opensAt = null; // `at`'s location, where the app opens (LLP 1153 D5)
     // `fail fetch` lines that lead the steps are armed before the app's first data load (LLP 1103 D3).
     const armed = new Map(); // prefix -> the line that armed it with a count
     // Advice beside the verdict, never a failure: a `fail fetch` armed before the app's data first loaded (app farm
@@ -664,6 +676,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       else if (st.op === 'fresh') reset = st;
       else if (st.op === 'fail-fetch') { early(st); facts.failFetch = [facts.failFetch, st.times == null ? st.prefix : `${st.prefix}\t${st.times}`].filter(Boolean).join('\n'); if (st.times != null) armed.set(st.prefix, st.line); }
       else if (st.op === 'size') facts.size = [st.width, st.height];
+      else if (st.op === 'at') opensAt = st.value;
       else if (st.op === 'prefer') preferences.push(st);
       else if (LAUNCH[st.op]) facts[LAUNCH[st.op]] = st.value;
       else break;
@@ -696,7 +709,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // (every `clock +N`, settle and timer), as the runner reports it; whole milliseconds, which every host takes.
     const first = facts.epoch; // the test's launch date, which a `reload` moves `facts.epoch` on from
     const reached = async () => { const { clock } = await s.op({ op: 'tags' }).catch(() => ({})); return facts.epoch + Math.floor(Number.isFinite(clock) ? clock : s.now); };
-    const launch = (environment) => open({ host, browser, plan, ...facts, env: { ...environment, EXACT_AGENT_EPHEMERAL_PORT: '1' }, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port });
+    const launch = (environment) => open({ host, browser, plan, ...facts, env: { ...environment, EXACT_AGENT_EPHEMERAL_PORT: '1' }, app, webDist, device, phone, url: opensAt ?? url, storage: store, touch: fingers, chrome: bars, scale, port });
     let s = await launch(fresh);
     const prefer = async (st) => {
       const facts = { [st.name]: st.value };
@@ -818,7 +831,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         if (INPUTS.has(st.op)) await settleFired();
         if (st.op === 'type') { typed.add(st.target); touched.add(st.target); } else if (INPUTS.has(st.op) || st.op === 'reload') typed.clear();
         switch (st.op) {
-          case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': case 'fresh': break; // the session opened with it
+          case 'size': case 'at': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': case 'fresh': break; // the session opened with it
           case 'prefer': if (n >= leading) await prefer(st); break;
           // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
           case 'fail-fetch': {
@@ -904,7 +917,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             const tree = await s.tree();
             const f = treeExpectation(tree.nodes, st.target, st.present);
             // The first step of a test that waited for data cannot see the boot's loading view (authoring bench).
-            const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size' || p.op === 'prefer');
+            const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size' || p.op === 'at' || p.op === 'prefer');
             if (f?.unshown) failures.push(`${at}: ${f.message}`);
             else if (f) await fail(`${at}: ${f.message}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
             break;
@@ -1082,6 +1095,18 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   return { passed: results.length - failed - skipped, failed, skipped, results };
 }
 
+/** The origins a native run's fetch faults resolve against, with no web build's admission data to read: the backend its
+ * build selected (LLP 1142 D13), else app.ts's literal `const origin`, else the origins its `net.fetch` grants name as the
+ * build evaluates them, a setting's value (`import.meta.env.API_BASE_URL`, LLP 1153 D4) in place of its read. */
+export function nativeFetchOrigins(dir, env = process.env) {
+  let code; try { code = readFileSync(resolve(dir, 'app.ts'), 'utf8'); } catch { return []; }
+  const origin = backendOrigin(dir, env) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(code)?.[1];
+  if (origin) return [origin];
+  let grants = '';
+  try { const parse = createRequire(import.meta.url)('rolldown/utils').parseSync; grants = staticFacts(inlineSettings(code, dir, parse, env).code, parse).grants ?? ''; }
+  catch { return []; } // the bake refuses it, and says why when it builds
+  return [...new Set(grants.split('\n').map(line => /^\s*(?:development\s+)?net\.fetch\s+(https?:\/\/[^/\s]+)/.exec(line)?.[1]).filter(Boolean))];
+}
 /** Resolve the built grant alias and diagnose a fault that cannot meet a granted URL. */
 export function resolveFaultPrefix(prefix, origins, say=console.warn) {
   const unique=[...new Set(origins.map(o=>o.replace(/\/+$/,'')))];

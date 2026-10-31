@@ -13,6 +13,7 @@ mod paint;
 mod path;
 mod played;
 mod presence;
+mod schedule;
 mod spring;
 mod transform_hold;
 mod uikit;

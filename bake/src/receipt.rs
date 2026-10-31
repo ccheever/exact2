@@ -677,8 +677,9 @@ fn listens(inputs: &Value) -> bool {
 
 /// LLP 1116.011 D2.3: the ground the app's first route stands on, which the
 /// iOS launch screen shows until its first frame: `"grouped"` where the first
-/// route's `background-color` is the role the compiler gives a route that
-/// scrolls a grouped list (`-exact-grouped-background`, LLP 1116.007 D5),
+/// route's `background-color` is the metric the compiler gives a route that
+/// scrolls a grouped list (`-exact-grouped-page-ground`, LLP 1116.007 D5),
+/// iOS's grouped grey, or that role written (`-exact-grouped-background`),
 /// `"system"` for any other (the platform's page, `systemBackground`). A route
 /// is a node with a `navigationKey` and no `navigationBack` (the navigation
 /// root has both); the first in the plan's order, past the page the compiler
@@ -703,7 +704,10 @@ fn launch_background(plan: &exact_plan::Plan) -> &'static str {
     let ground = route.and_then(|node| {
         literal(&node, Style, exact_kernel::StyleId::BackgroundColor as u16).flatten()
     });
-    if ground == Some("-exact-grouped-background") {
+    if matches!(
+        ground,
+        Some("-exact-grouped-page-ground" | "-exact-grouped-background")
+    ) {
         "grouped"
     } else {
         "system"

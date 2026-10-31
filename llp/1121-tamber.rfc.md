@@ -800,6 +800,15 @@ A native control takes the platform's supported parameters, never Exact paint ov
   control: a styled pressable (`PostButton`, D8). The lint says so where a design colours
   prominent buttons.
 
+*Amended 2026-10-30 (the bake-off program lead's ruling, LLP 1116 round r34):*
+`tamber-unreachable` is information, not a problem. It stays reported, because the author
+should know where the platform's look stands, but `bun exact.mjs verify` and `test` say it
+apart, as a note, and leave it out of their problem count and verdict: no author can change
+the Mac's switch, and 12 of r34's 24 builds spent fix rounds on these lines. The overrides one
+declaration sets are one line naming each host and control (`accent-color on iOS, macOS and
+the web: the platform's look stands on macOS switches (NSSwitch draws the system accent);
+…`), where one `accent-color` had made six.
+
 The control-role table is the schema's, beside `_metrics` (looks as data, LLP 1115.000 D17);
 its rows are measured before they land, as LLP 1095's were.
 

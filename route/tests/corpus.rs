@@ -16,6 +16,7 @@ struct Corpus {
     param_names: BTreeMap<String, Vec<String>>,
     canonical: Vec<Pair>,
     location_of: Vec<Pair>,
+    fragments: Vec<Pair>,
     components: Vec<Pair>,
     search: Vec<Search>,
     matches: Vec<MatchCase>,
@@ -208,6 +209,7 @@ fn corpus_incoming_urls_and_component_encoding() {
     let mut failures = Vec::new();
     for (pairs, operation) in [
         (&corpus().location_of, location_of as fn(&str) -> String),
+        (&corpus().fragments, fragment_of),
         (&corpus().components, encode_uri_component),
     ] {
         for pair in pairs {
@@ -234,6 +236,7 @@ fn corpus_reads() {
             url: case.url.clone(),
             tab: String::new(),
             params: Params::new(),
+            fragment: String::new(),
         };
         let value = search_param(&e, &case.name);
         if value != case.expected {
@@ -313,7 +316,7 @@ fn corpus_verb_sequences() {
 // all three tables. The JSON supplies its statement and the location domain.
 fn law(name: &str, run: impl Fn(&Table, &Router, &[String])) {
     let c = corpus();
-    assert_eq!(c.laws.len(), 10);
+    assert_eq!(c.laws.len(), 11);
     assert!(!c
         .laws
         .iter()
@@ -351,8 +354,8 @@ fn law_push_of_the_top_is_unchanged() {
     // A same-URL navigation replaces its entry (HTML); a link to the screen
     // shown adds no visit.
     law("push_top", |t, r, _| {
-        if let Some(url) = top(r).map(|e| e.url.clone()) {
-            assert_eq!(&success(push(t, r.clone(), &url)), r);
+        if let Some(location) = top(r).map(Entry::location) {
+            assert_eq!(&success(push(t, r.clone(), &location)), r);
         }
     });
 }
@@ -407,7 +410,34 @@ fn law_replace_keeps_the_visit_id() {
 #[test]
 fn law_go_to_the_top_is_unchanged() {
     law("go_top", |t, r, _| {
-        assert_eq!(success(go(t, r.clone(), &top(r).unwrap().url)), *r);
+        assert_eq!(success(go(t, r.clone(), &top(r).unwrap().location())), *r);
+    });
+}
+#[test]
+fn law_a_fragment_only_change_is_the_same_visit() {
+    // @ref LLP 1153 D5 — identity is the path and query; the fragment rides.
+    law("fragment_in_place", |t, r, _| {
+        let top_url = top(r).unwrap().url.clone();
+        for fragment in ["", "moves", "b%20c"] {
+            let location = match fragment {
+                "" => top_url.clone(),
+                f => format!("{top_url}#{f}"),
+            };
+            let mut expected = r.clone();
+            let index = expected
+                .tabs
+                .iter()
+                .position(|tab| tab.name == r.tab)
+                .unwrap();
+            expected.tabs[index].stack.last_mut().unwrap().fragment = fragment.into();
+            for verb in [push, replace, go] {
+                assert_eq!(
+                    success(verb(t, r.clone(), &location)),
+                    expected,
+                    "{location}"
+                );
+            }
+        }
     });
 }
 #[test]

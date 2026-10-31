@@ -124,7 +124,7 @@ def globalScope (p : Program) (L : Layout) : Scope :=
 /-- The roster as the compiler knows it: each entry's name. -/
 def roster : List String :=
   ["performanceNow", "formatTime", "length", "isEmpty", "toString", "floor", "max", "min", "open", "push",
-   "replace", "back", "select", "go", "stack", "top", "depth", "params", "searchParam",
+   "replace", "back", "select", "go", "stack", "top", "depth", "params", "searchParam", "fragment",
    "encodeURIComponent", "encodeRouteSegment", "includes", "trim", "first", "t", "map",
    "filter", "join", "formatDate", "formatNumber", "frame", "measure", "at", "startsWith",
    "endsWith", "slice", "replaceAll", "toLowerCase", "concat", "indexOf", "split",

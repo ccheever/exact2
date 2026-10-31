@@ -364,10 +364,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         set { super.isAccessibilityElement = newValue }
     }
     /// A native module's box whose view has elements of its own, named by
-    /// the Contract (`aria-label`): VoiceOver says the name entering them.
+    /// the Contract (`aria-label`): VoiceOver says the name entering them. A table and a `dl` are `tableContainerType`.
     package override var accessibilityContainerType: UIAccessibilityContainerType {
         get {
-            guard kind == "native", authoredLabel != nil, presenter?.session?.natives.speaksForItself(self) == true else { return super.accessibilityContainerType }
+            guard kind == "native", authoredLabel != nil, presenter?.session?.natives.speaksForItself(self) == true else { return tableContainerType ?? super.accessibilityContainerType }
             return .semanticGroup
         }
         set { super.accessibilityContainerType = newValue }
@@ -379,7 +379,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var focusesOnPress: Bool { canBecomeFirstResponder && asksForFocus }
     package override var canBecomeFirstResponder: Bool { !formDisabled && !inert && !cssVisibilityHidden && !isHidden && field == nil && textArea == nil && (kind == "button" || isNativeButton || isRadio || asksForFocus) }
     package override func becomeFirstResponder() -> Bool {
-        guard !formDisabled, !inert, !cssVisibilityHidden else { return false }
+        guard !formDisabled, !inert, !cssVisibilityHidden, !keepsFocus(from: self) else { return false }
         let ok = super.becomeFirstResponder()
         if ok { presenter?.collections.pinsChanged(); inputCanvas?.canvasInput?.focused() }
         if ok, presenter?.menus.focus.quiet != true { presenter?.focus(id) } // a menu's set-aside focus returns quietly (MenuFocusIOS)
@@ -523,7 +523,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if source.hasPrefix("symbol:") { presenter?.session?.rasters.cancel(id); raster = nil; updateSymbol(); return }
         loadGeneration += 1
         clearSymbol(); image = nil
-        if previousSource?.hasPrefix("symbol:") == true { presenter?.queueIntrinsicSize(self, generation: loadGeneration, nil) }
+        if previousSource?.hasPrefix("symbol:") == true { presenter?.intrinsic(id, nil) }
         guard let session = presenter?.session else { return }
         if !session.rasters.load(self, source: source, resolver: session.app.resolver) {
             imageSource = previousSource; loadGeneration = previousGeneration

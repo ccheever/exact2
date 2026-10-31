@@ -1,0 +1,156 @@
+// Starter: a website: a table of planets built ahead, and a page per planet rendered per request.
+// The list is the site's own (app.ts's PLANETS), fixed when the site is built, so its page renders at
+// build (`render=build`). A planet's figures are the API's: they change after a build, and a build
+// cannot list them, so its page renders per request (`render=request`): `serve` renders it with the
+// API's answer, and a static host serves the shell, which draws it in the browser.
+// The API's origin is a setting: app.json's `env`, `import.meta.env.API_BASE_URL` in app.ts, and its
+// value in `.env`: the address of server.ts, a stand-in for the API that `test` and `verify` run themselves.
+// `bun exact.mjs web-build --out dist` builds the site and `bun exact.mjs serve dist` serves it, with
+// `bun server.ts` running for its API; `npm start` (package.json's `start`) serves the last `web-build`
+// made without `--out` (recipes/website.md).
+// The header holds a `nav` and says `appearance="none"`, so every host draws it as written, not as a bar.
+// The list is a `table` whose sortable columns say `aria-sort`; a planet's figures are a `dl`, and
+// `/planet/7#details` opens at them.
+use EmptyState from "exact:content"
+
+routes nav
+  planets "/" render=build
+    planet "/planet/:id" render=request
+
+shape Planet
+  id: string
+  name: string
+  kind: string
+  au: number
+
+shape Details
+  id: string
+  summary: string
+  moons: number
+  day: string
+  year: string
+
+style Cell
+  padding="6px 24px 6px 0" text-align="start"
+
+fn nameOf(planets: Planet[], id: string): string = match first(planets.filter(p => p.id == id)) { case some(p) => p.name, case none => "" }
+fn order(on: bool, descending: bool): string = on ? (descending ? "descending" : "ascending") : "none"
+fn arrow(on: bool, descending: bool): string = on ? (descending ? " ↓" : " ↑") : ""
+
+component App
+  state sortKey = "au"
+  state descending = false
+  // The `id` the focus is on in a planet's page, which a test reads: opened at `#details`, the web puts it there.
+  state focused = ""
+  resource planets = loadPlanets() as shape Planet[] else empty()
+  derive selected = match stack(nav).filter(e => e.name == "planet").at(-1) { case some(e) => e.params.id, case none => "" }
+  // The API is asked only for a planet the list has.
+  resource details = loadDetails(nameOf(planets, selected) == "" ? "" : selected) as shape Details else empty()
+  derive byName = descending ? sortBy(planets, p => p.name, "desc") : sortBy(planets, p => p.name)
+  derive byDistance = descending ? sortBy(planets, p => p.au, "desc") : sortBy(planets, p => p.au)
+  derive shown = sortKey == "name" ? byName : byDistance
+  // What the page shown was opened at after `#` (`details`); the host scrolls there once the page has its data.
+  derive opened = fragment(top(nav))
+
+  // A column's button sorts by it; pressed again, the other way.
+  action sort(key: string)
+    if sortKey == key
+      descending = not descending
+    else
+      sortKey = key
+      descending = false
+  // A link's location; the browser's Back, Forward and a deep link arrive here too.
+  action follow(url: string)
+    nav = go(nav, url)
+  action retry
+    refresh details
+  action focusMoved(e: FocusEvent)
+    focused = e.target
+
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+      // What a link preview and a search engine read; a route's own `head` wins.
+      head description="The planets of the Solar System, and what each is like."
+      for e in stack(nav) key=e.id
+        if e.name == "planets"
+          column navigationKey=`${e.id}` navigationScroll="planets-page" position="absolute" inset=0
+            display="flex" flex-direction="column"
+            SiteHeader(current=e.name)
+            scroll id="planets-page" flex=1 min-height=0
+              column gap=16 padding=16 max-width="48rem" margin-left="auto" margin-right="auto"
+                text "Planets" role="heading" aria-level=1
+                // A table wider than a phone scrolls sideways, as a web page's does.
+                view overflow-x="auto"
+                  table
+                    thead
+                      tr
+                        th scope="col" aria-sort=order(sortKey == "name", descending) class=Cell
+                          button press=sort("name") appearance="none" testId="sort-name"
+                            text `Planet${arrow(sortKey == "name", descending)}`
+                        th scope="col" class=Cell
+                          text "Kind"
+                        th scope="col" aria-sort=order(sortKey == "au", descending) class=Cell text-align="end"
+                          button press=sort("au") appearance="none" margin-left="auto" testId="sort-au"
+                            text `From the Sun (AU)${arrow(sortKey == "au", descending)}`
+                    tbody
+                      for p in shown key=p.id
+                        tr
+                          th scope="row" class=Cell
+                            link href=path("planet", p.id) testId=`planet-${p.id}`
+                              text p.name
+                          td class=Cell
+                            text p.kind
+                          td class=Cell text-align="end"
+                            text p.au.toFixed(2) font-variant-numeric="tabular-nums"
+        if e.name == "planet"
+          column navigationKey=`${e.id}` navigationScroll="planet-page" position="absolute" inset=0
+            display="flex" flex-direction="column" focusin=focusMoved
+            SiteHeader(current=e.name)
+            scroll id="planet-page" flex=1 min-height=0
+              column gap=16 padding=16 max-width="48rem" margin-left="auto" margin-right="auto"
+                if nameOf(planets, e.params.id) == ""
+                  // An id no planet has (a stale link): the page says so, and its head says 404.
+                  head title="Not Found" status=404
+                  EmptyState(symbol="symbol:alert", title="No Such Planet", message="Its link may be out of date.")
+                    link href="/" testId="missing-home"
+                      text "All Planets"
+                else
+                  head title=nameOf(planets, e.params.id) description=details.summary
+                  text nameOf(planets, e.params.id) role="heading" aria-level=1 testId="planet-name"
+                  if failed(details) and not pending(details)
+                    EmptyState(symbol="symbol:alert", title="Can’t Load Its Figures", message="The API didn’t answer. Try again.")
+                      button press=retry testId="retry"
+                        text "Try Again"
+                  else if details.id == e.params.id
+                    text details.summary testId="summary"
+                    column id="details" gap=8
+                      text "Details" role="heading" aria-level=2
+                      dl
+                        dt
+                          text "Moons"
+                        dd
+                          text `${details.moons}` testId="moons"
+                        dt
+                          text "Day"
+                        dd
+                          text details.day
+                        dt
+                          text "Year"
+                        dd
+                          text details.year
+                  else
+                    progress aria-label="Loading" testId="loading"
+
+// The site's header on every page: its name, which goes home, and a `nav` of its sections, the one
+// shown marked `aria-current`. Drawn as written (`appearance="none"`), on iOS as on the web.
+component SiteHeader
+  props
+    current: string
+  view
+    header appearance="none" padding-top=8 padding-bottom=8
+      row flex-wrap="wrap" align-items="center" gap=16 padding="0 16px" max-width="48rem" margin-left="auto" margin-right="auto"
+        link href="/" testId="home"
+          text "Starter" font="-exact-headline"
+        nav aria-label="Sections"
+          link href="/" aria-current=(current == "planets" ? "page" : "false") testId="nav-planets"
+            text "Planets"

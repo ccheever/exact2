@@ -97,7 +97,10 @@ fn interview_table_shapes_roundtrip_and_launch_fill() {
     for (name, fields) in [
         ("Router", vec!["tab", "tabs", "next"]),
         ("Tab", vec!["name", "stack"]),
-        ("Entry", vec!["id", "name", "url", "tab", "params"]),
+        (
+            "Entry",
+            vec!["id", "name", "url", "tab", "params", "fragment"],
+        ),
         ("Params", vec!["post", "question", "person"]),
     ] {
         let row = plan
@@ -279,7 +282,17 @@ fn corpus_verb_sequences_run_through_compiled_actions_without_copying_expectatio
                     .unwrap_or_default();
                 r.act(step["verb"].as_str().unwrap(), args).unwrap();
             }
-            if state(&r)["slots"]["nav"] != step["expected"] {
+            // The corpus leaves an empty fragment unwritten, as `exact_route::Entry`
+            // serializes it; the agent's state names every field.
+            let mut nav = state(&r)["slots"]["nav"].clone();
+            for tab in nav["tabs"].as_array_mut().into_iter().flatten() {
+                for entry in tab["stack"].as_array_mut().into_iter().flatten() {
+                    if entry["fragment"] == "" {
+                        entry.as_object_mut().map(|e| e.remove("fragment"));
+                    }
+                }
+            }
+            if nav != step["expected"] {
                 failures.push(format!(
                     "{} step {index}: {}",
                     sequence["name"],

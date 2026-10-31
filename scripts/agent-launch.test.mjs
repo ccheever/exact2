@@ -875,6 +875,225 @@ test('backend diagnostics name the selected source and warn when a saved selecti
 });
 
 
+// LLP 1153 D4: a setting app.ts reads at build (`import.meta.env.NAME`), declared in app.json's `env`.
+test('a setting is read from the environment, then .env.local, then .env, and what Bun loaded from them is never the environment', async () => {
+  const {settingValues} = await import('../js/bake/src/__exact_env.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-'));
+  // The environment a command started in `dir` with `given` hands its processes: a real Bun, which loads the files
+  // there, and the note its first exact2 script takes (`noteBunLoaded`).
+  const module=JSON.stringify(resolve(import.meta.dir,'../js/bake/src/__exact_env.mjs'));
+  // What a process needs to run on each system, and no NODE_ENV (this runner's `test` would keep Bun from `.env.local`).
+  const base=Object.fromEntries(['PATH','Path','HOME','SystemRoot','TEMP','TMP','USERPROFILE','LOCALAPPDATA'].filter(k=>process.env[k]!==undefined).map(k=>[k,process.env[k]]));
+  const launched=given=>{
+    const r=Bun.spawnSync([process.execPath,'-e',`import(${module}).then(m=>{m.noteBunLoaded();console.log(JSON.stringify(process.env))})`],{cwd:dir,env:{...base,...given}});
+    if (r.exitCode!==0) throw new Error(r.stderr.toString());
+    return JSON.parse(r.stdout.toString());
+  };
+  try {
+    writeFileSync(resolve(dir,'.env'),'# the shared values\nA=a-env\nB="b-env # quoted, not a comment" # a comment\nC=c-env\n');
+    writeFileSync(resolve(dir,'.env.local'),"B='b-local'\n");
+    writeFileSync(resolve(dir,'.env.development'),'D=d-development\n');
+    const names=['A','B','C','D'], files={A:{value:'a-env',source:'.env'},B:{value:'b-local',source:'.env.local'},C:{value:'c-env',source:'.env'},D:null};
+    expect(settingValues(dir,names,{})).toEqual(files);
+    // Bun put the files in the environment before any script ran: each value is still the file's, and
+    // `.env.development`, which Bun reads and this does not, sets nothing.
+    const loaded=launched({}), exported=launched({A:'a-env',C:'c-shell',D:'d-development'});
+    expect(loaded.A).toBe('a-env');
+    expect(settingValues(dir,names,loaded)).toEqual(files);
+    // A variable the command was given is the environment's, though a file holds the same value.
+    expect(settingValues(dir,names,exported)).toEqual({...files,A:{value:'a-env',source:'environment'},C:{value:'c-shell',source:'environment'},D:{value:'d-development',source:'environment'}});
+    // And so it reaches the module, though `.env.development`, the one file that holds it, is not read.
+    writeFileSync(resolve(dir,'app.json'),JSON.stringify({env:['D']}));
+    const {parseSync}=await import('rolldown/utils'), {inlineSettings}=await import('../js/bake/src/__exact_env.mjs');
+    expect(inlineSettings('const D_ = import.meta.env.D;\n',dir,parseSync,exported)).toEqual({code:'const D_ = "d-development";\n',record:{D:{value:'d-development',source:'environment'}}});
+    // An edit after the command started: the given value still wins; the one Bun loaded gives way to the file.
+    writeFileSync(resolve(dir,'.env'),'A=a-edited\nC=c-env\n');
+    expect(settingValues(dir,['A'],exported)).toEqual({A:{value:'a-env',source:'environment'}});
+    expect(settingValues(dir,['A'],loaded)).toEqual({A:{value:'a-edited',source:'.env'}});
+    // The file removed: what Bun loaded from it is gone with it; `.env.development`, which Bun read too, sets nothing.
+    rmSync(resolve(dir,'.env'));
+    expect(settingValues(dir,['A','B','D'],loaded)).toEqual({A:null,B:{value:'b-local',source:'.env.local'},D:null});
+    expect(settingValues(dir,['A','D'],exported)).toEqual({A:{value:'a-env',source:'environment'},D:{value:'d-development',source:'environment'}});
+    // A command no exact2 script started notes nothing: what it was handed is the environment.
+    expect(settingValues(dir,['A'],{A:'a-env'})).toEqual({A:{value:'a-env',source:'environment'}});
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test('import.meta.env inlines each declared setting in app.ts, its grant follows, and every misuse is refused at once', async () => {
+  const {inlineSettings,strayReads} = await import('../js/bake/src/__exact_env.mjs');
+  const {injectBackendOrigin,staticFacts} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-'));
+  const declare=(...env)=>writeFileSync(resolve(dir,'app.json'),JSON.stringify({env}));
+  const inline=(code,env={})=>inlineSettings(code,dir,parseSync,env);
+  try {
+    declare('API_BASE_URL');
+    writeFileSync(resolve(dir,'.env'),'API_BASE_URL=http://127.0.0.1:9999\n');
+    const code="const API = import.meta.env.API_BASE_URL;\nexport const grants = `net.fetch ${API}`;\n";
+    const set=inline(code);
+    expect(set.code).toBe('const API = "http://127.0.0.1:9999";\nexport const grants = `net.fetch ${API}`;\n');
+    expect(set.record).toEqual({API_BASE_URL:{value:'http://127.0.0.1:9999',source:'.env'}});
+    expect(staticFacts(set.code,parseSync).grants).toBe('net.fetch http://127.0.0.1:9999');
+    // Exported, wrapped, or with a default the environment overrides; a const origin it sets is one the backend selection may move.
+    expect(inline("export const API = (import.meta.env['API_BASE_URL'] ?? 'http://x') as string;",{API_BASE_URL:'https://api.example'}).code).toBe('export const API = "https://api.example";');
+    const origin=inline("const origin = import.meta.env.API_BASE_URL;\nexport const grants = `net.fetch ${origin}`;\n").code;
+    expect(staticFacts(injectBackendOrigin(origin,'http://127.0.0.1:4790',parseSync),parseSync).grants).toBe('net.fetch http://127.0.0.1:4790');
+    rmSync(resolve(dir,'.env'));
+    expect(inline("const API = import.meta.env.API_BASE_URL ?? `http://x`;").record).toEqual({API_BASE_URL:{value:'http://x',source:'default'}});
+    expect(() => inline(code)).toThrow("import.meta.env.API_BASE_URL has no value: set it in the environment, in .env.local or in .env beside app.json (read in that order), or write a default: import.meta.env.API_BASE_URL ?? '…'");
+    // Each refusal at once, by name and place.
+    declare('API_BASE_URL','UNREAD','lower');
+    const misuse="const API = import.meta.env.API_BASE_URL ?? compute();\nconst MODE = import.meta.env.MODE;\nlet other = import.meta.env.API_BASE_URL;\nexport function f() { return import.meta.env.API_BASE_URL; }\n";
+    expect(() => inline(misuse)).toThrow([
+      `app.json's "env": "lower" is not a setting's name (import.meta.env names are [A-Z][A-Z0-9_]*)`,
+      "app.ts:3:13: import.meta.env is read only in a top-level const of app.ts: const API = import.meta.env.API_BASE_URL, with ?? 'a default' or without, then API where it is used",
+      "app.ts:4:30: import.meta.env is read only in a top-level const of app.ts: const API = import.meta.env.API_BASE_URL, with ?? 'a default' or without, then API where it is used",
+      `app.ts:2:14: import.meta.env.MODE is not declared: add "MODE" to app.json's "env" (every declared value is public: it ships in the module on every host)`,
+      `import.meta.env.UNREAD: app.json's "env" declares it, and app.ts reads it nowhere: read it as const X = import.meta.env.UNREAD, or remove it from "env"`,
+      "app.ts:1:13: import.meta.env.API_BASE_URL's default after ?? must be a string literal",
+    ].join('\n'));
+    // One name read twice takes one default.
+    declare('API_BASE_URL');
+    expect(inline("const A = import.meta.env.API_BASE_URL ?? 'http://a';\nconst B = import.meta.env.API_BASE_URL ?? 'http://a';\n").code).toBe('const A = "http://a";\nconst B = "http://a";\n');
+    expect(() => inline("const A = import.meta.env.API_BASE_URL ?? 'http://a';\nconst B = import.meta.env.API_BASE_URL ?? 'http://b';\nconst C = import.meta.env.API_BASE_URL;\n")).toThrow([
+      'app.ts:2:11: import.meta.env.API_BASE_URL is read again with "http://b", and at app.ts:1:11 with "http://a": read it once, or give every read the same default',
+      'app.ts:3:11: import.meta.env.API_BASE_URL is read again with no default, and at app.ts:1:11 with "http://a": read it once, or give every read the same default',
+    ].join('\n'));
+    // Another module's read is found where the bundle captures it.
+    expect(strayReads(resolve(dir,'api.ts'),'export const API = import.meta.env.API_BASE_URL;\n',(c,o)=>parseSync('api.ts',c,o),at=>`api.ts${at}`))
+      .toEqual(["api.ts:1:20: import.meta.env is read only in a top-level const of app.ts: const API = import.meta.env.API_BASE_URL, with ?? 'a default' or without, then API where it is used"]);
+    // However it is spelled: a comment between the words is still the read.
+    expect(strayReads(resolve(dir,'index.js'),'export const API = import/* a comment */.meta.env.API_BASE_URL;\n',(c,o)=>parseSync('index.js',c,o),at=>`pkg@1.0.0 (index.js${at})`,true))
+      .toEqual(['pkg@1.0.0 (index.js:1:20) reads import.meta.env, which only app.ts may: app.ts reads the setting (const API = import.meta.env.API_BASE_URL) and passes it in']);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test('a setting is a web build input by value and source, and serve finds one changed since the build', async () => {
+  const {webChanges,webInputDigests}=await import('./agent-launch.mjs');
+  const {changedSettings}=await import('../js/bake/src/__exact_env.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-')), dist=resolve(dir,'dist'), name='EXACT_TEST_SETTING', key=`import.meta.env.${name}`;
+  const app={dir,manifest:{env:[name]}};
+  const bake=env=>writeFileSync(resolve(dist,'.exact-build.json'),JSON.stringify({target:'js',inputs:webInputDigests(app,true),env}));
+  try {
+    mkdirSync(dist);
+    writeFileSync(resolve(dir,'.env'),`${name}=http://a.example\n`);
+    bake({[name]:{value:'http://a.example',source:'.env'}});
+    expect(webChanges(dist,app).all).toEqual([]);
+    writeFileSync(resolve(dir,'.env'),`${name}=http://b.example\n`);
+    expect(webChanges(dist,app).app).toEqual([key]);
+    expect(changedSettings(dist,{},dir)).toEqual([{name,built:{value:'http://a.example',source:'.env'},now:{value:'http://b.example',source:'.env'}}]);
+    // The same value from another source is another build input, and the same build for serve.
+    writeFileSync(resolve(dir,'.env'),`${name}=http://a.example\n`);
+    expect(webChanges(dist,app).all).toEqual([]);
+    writeFileSync(resolve(dir,'.env.local'),`${name}=http://a.example\n`);
+    expect(webChanges(dist,app).app).toEqual([key]);
+    expect(changedSettings(dist,{},dir)).toEqual([]);
+    rmSync(resolve(dir,'.env.local'));
+    process.env[name]='http://e.example';
+    try { expect(webChanges(dist,app).app).toEqual([key]); } finally { delete process.env[name]; }
+    // A build copied away from its sources: only the environment changes a value, and an unset name keeps the build's.
+    expect(changedSettings(dist,{})).toEqual([]);
+    expect(changedSettings(dist,{[name]:'http://c.example'})).toEqual([{name,built:{value:'http://a.example',source:'.env'},now:{value:'http://c.example',source:'environment'}}]);
+    // A default stands until a source sets a value, and the digest records it as the bake inlines it.
+    rmSync(resolve(dir,'.env'));
+    writeFileSync(resolve(dir,'app.json'),JSON.stringify({env:[name]}));
+    writeFileSync(resolve(dir,'app.ts'),`const API = import.meta.env.${name} ?? 'http://default.example';\n`);
+    expect(webInputDigests(app,true)[key]).toBe(JSON.stringify({value:'http://default.example',source:'default'}));
+    bake({[name]:{value:'http://default.example',source:'default'}});
+    expect(webChanges(dist,app).all).toEqual([]);
+    expect(changedSettings(dist,{},dir)).toEqual([]);
+    expect(changedSettings(dist,{[name]:'http://d.example'},dir).map(c=>c.now)).toEqual([{value:'http://d.example',source:'environment'}]);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+
+test('a setting is named the backend\'s source only where the grant takes it, and the origin literal comes first', async () => {
+  const {backendOriginSource}=await import('./agent-test.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-source-')), origin='http://127.0.0.1:4790';
+  try {
+    writeFileSync(resolve(dir,'app.json'),JSON.stringify({env:['API_BASE_URL','PICTURES']}));
+    writeFileSync(resolve(dir,'.env'),`API_BASE_URL=${origin}\nPICTURES=${origin}/pictures\n`);
+    // The grant takes the literal; a setting at the same origin is for something else.
+    writeFileSync(resolve(dir,'app.ts'),`const origin = '${origin}';\nconst PICTURES = import.meta.env.PICTURES;\nexport const grants = \`net.fetch \${origin}\`;\n`);
+    expect(backendOriginSource(dir,origin,{})).toBe('app.ts origin literal');
+    // The grant takes the setting's const.
+    writeFileSync(resolve(dir,'app.ts'),`const API = import.meta.env.API_BASE_URL;\nconst PICTURES = import.meta.env.PICTURES;\nexport const grants = \`net.fetch \${API}\`;\n`);
+    expect(backendOriginSource(dir,origin,{})).toBe('import.meta.env.API_BASE_URL from .env');
+    // No grant takes a setting at that origin.
+    writeFileSync(resolve(dir,'app.ts'),`const PICTURES = import.meta.env.PICTURES;\nexport const grants = 'net.fetch http://127.0.0.1:1';\n`);
+    expect(backendOriginSource(dir,origin,{})).toContain('built net.fetch grant');
+    // As JavaScript reads it: spacing inside the template, and a grant in a comment, which is none.
+    writeFileSync(resolve(dir,'app.ts'),`const API = import.meta.env.API_BASE_URL;\nconst PICTURES = import.meta.env.PICTURES;\nexport const grants = \`net.fetch \${ API }\`;\n`);
+    expect(backendOriginSource(dir,origin,{})).toBe('import.meta.env.API_BASE_URL from .env');
+    writeFileSync(resolve(dir,'app.ts'),`const API = import.meta.env.API_BASE_URL;\nconst PICTURES = import.meta.env.PICTURES;\n// export const grants = \`net.fetch \${API}\`;\nexport const grants = 'net.fetch ${origin}/v2';\n`);
+    expect(backendOriginSource(dir,origin,{})).toContain('built net.fetch grant');
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test('a native build is stale when a setting its module inlined has another value now', async () => {
+  const {receiptChanges}=await import('./agent-launch.mjs');
+  const {resolveApp}=await import('./app.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-native-')), name='EXACT_TEST_SETTING', before=process.env.EXACT_APP_DIR;
+  try {
+    writeFileSync(resolve(dir,'app.json'),JSON.stringify({name:'Native',app:{id:'com.exact.native',name:'Native'},env:[name]}));
+    writeFileSync(resolve(dir,'app.contract'),'component App\n  view\n    text "x"\n');
+    const app=resolveApp(dir), receipt=resolve(dir,'target/receipt.json');
+    mkdirSync(dirname(receipt),{recursive:true});
+    // As completeBuild records a Mac build whose bake inlined the setting from the environment.
+    writeFileSync(receipt,JSON.stringify({target:'aarch64-apple-darwin',started:new Date().toISOString(),
+      build:{binary:{inputs:[],missing:[],directories:[]},settings:{dir,env:{[name]:{value:'http://a.example',source:'environment'}}}}}));
+    process.env[name]='http://a.example';
+    try {
+      expect(receiptChanges(receipt,app)).toEqual([]);
+      process.env[name]='http://b.example';
+      expect(receiptChanges(receipt,app)).toEqual([`import.meta.env.${name}`]);
+    } finally { delete process.env[name]; }
+    // Unset now, and in no file: the build's value is gone too.
+    expect(receiptChanges(receipt,app)).toEqual([`import.meta.env.${name}`]);
+  } finally {
+    if (before===undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR=before;
+    rmSync(dir,{recursive:true,force:true});
+  }
+});
+
+test('a Linux or Android build is stale when a setting the executable holds has another value now, or none is bound to it', async () => {
+  const {bakedSettingChanges}=await import('./agent-launch.mjs');
+  const {recordBuiltSettings}=await import('../js/bake/src/__exact_env.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-linux-')), name='EXACT_TEST_SETTING', key=`import.meta.env.${name}`;
+  const app={dir,manifest:{env:[name]}}, inlined=value=>JSON.stringify({env:{[name]:{value,source:'environment'}}});
+  try {
+    // The binary embeds the bytecode its build script baked; the receipt beside it records what that bake inlined.
+    const out=resolve(dir,'target/host-dev/build/envapp-linux-0123/out'), bin=resolve(dir,'target/host-dev/envapp-linux');
+    mkdirSync(out,{recursive:true});
+    writeFileSync(resolve(out,'app.hbc'),'');
+    writeFileSync(resolve(out,'app.module.json'),inlined('http://a.example'));
+    writeFileSync(bin,'linked with a');
+    writeFileSync(`${bin}.d`,`${bin}: ${resolve(dir,'linux/src/main.rs')} ${resolve(out,'app.hbc')}\n`);
+    recordBuiltSettings(bin,app);
+    const apk=resolve(dir,'app-release.apk');
+    writeFileSync(apk,'packaged with a');
+    recordBuiltSettings(apk,app,out);
+    const changes=()=>[bakedSettingChanges(bin,app),bakedSettingChanges(apk,app)];
+    process.env[name]='http://a.example';
+    try {
+      expect(changes()).toEqual([[],[]]);
+      process.env[name]='http://b.example';
+      expect(changes()).toEqual([[key],[key]]);
+      // A rebuild stopped after its bake and before the link: a receipt says b, the executable still holds a.
+      writeFileSync(resolve(out,'app.module.json'),inlined('http://b.example'));
+      expect(changes()).toEqual([[key],[key]]);
+      // Another build replaced them and recorded nothing: no record is bound to these, so build again.
+      writeFileSync(bin,'linked with b'); writeFileSync(apk,'packaged with b');
+      expect(changes()).toEqual([[`${bin}.settings.json (none, or another build's)`],[`${apk}.settings.json (none, or another build's)`]]);
+      // A build that finished records what it linked.
+      recordBuiltSettings(bin,app); recordBuiltSettings(apk,app,out);
+      expect(changes()).toEqual([[],[]]);
+    } finally { delete process.env[name]; }
+    // An app that declares no setting has none to compare.
+    expect(bakedSettingChanges(bin,{dir,manifest:{}})).toEqual([]);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
 test('activity addresses use the gallery reads and keep state separate from the app', async () => {
   const { widgetStep } = await import('./agent-widget.mjs');
   const state = '{"train":233}';

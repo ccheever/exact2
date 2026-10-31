@@ -13,6 +13,50 @@ pub fn wall_since(started: std::time::Instant) -> Wall {
 }
 
 impl<D: DataSource> Presenter<D> {
+    /// Android's painted loop: defer an ordinary timer behind a waiting paint,
+    /// but bring a due motion sample's clock forward before testing frame demand.
+    #[cfg(any(target_os = "android", test))]
+    pub(crate) fn android_clock(
+        &mut self,
+        now: f64,
+        vsync: bool,
+        last_tick: &mut f64,
+        frame_ms: f64,
+    ) -> (bool, Option<String>) {
+        let motion = self.host.motion_due_ms().is_some_and(|due| due <= now);
+        if vsync && self.host.wants_frames() {
+            *last_tick = now;
+            (false, self.animation_frame(now))
+        } else if self.wake_due_ms().is_some_and(|due| due <= now)
+            && (motion || now - *last_tick >= frame_ms * 0.5)
+        {
+            *last_tick = now;
+            if vsync && self.dirty() && !motion {
+                (true, None)
+            } else {
+                (false, self.advance(now))
+            }
+        } else {
+            (false, None)
+        }
+    }
+
+    /// The Canvas reader's frame turn, also driven headlessly in tests.
+    #[cfg(any(target_os = "android", test))]
+    pub(crate) fn reader_clock(&mut self, now: f64, live: bool) -> Option<String> {
+        let error = if self.wants_frames() && live {
+            self.animation_frame(now)
+        } else if self.wake_due_ms().is_some_and(|due| due <= now) {
+            self.advance(now)
+        } else {
+            None
+        };
+        if self.needs_animation_frame() {
+            self.tick(now);
+        }
+        error
+    }
+
     /// The runner's clock (timers), from the presenter's loop.
     pub fn advance(&mut self, now_ms: f64) -> Option<String> {
         let (e, paint) = self.host.advance_effects(now_ms);
@@ -150,7 +194,10 @@ impl<D: DataSource> Presenter<D> {
         loop {
             let scrolling = !self.timers_hidden && self.scroll_activity();
             let demand = !self.timers_hidden
-                && (self.host.motion()
+                && (self
+                    .host
+                    .motion_due_ms()
+                    .is_some_and(|due| due <= self.host.now())
                     || self.host.canvas_wants_frame()
                     || self.wants_frames()
                     || scrolling
@@ -194,7 +241,10 @@ impl<D: DataSource> Presenter<D> {
         let idle = exact_runner::IdleObservation {
             scrolling: !self.timers_hidden && self.scroll_activity(),
             demand: !self.timers_hidden
-                && (self.host.motion()
+                && (self
+                    .host
+                    .motion_due_ms()
+                    .is_some_and(|due| due <= self.host.now())
                     || self.host.canvas_wants_frame()
                     || self.wants_frames()
                     || self
@@ -209,6 +259,7 @@ impl<D: DataSource> Presenter<D> {
                 .runner()
                 .timer_due_ms()
                 .into_iter()
+                .chain(self.host.motion_due_ms())
                 .chain(
                     self.host
                         .runner()

@@ -59,14 +59,16 @@ function streamTiming(start) {
 }
 import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
-import { inertAncestor, displayMode, environment, navigation, unselected, foldEnv, preferFold, typedControl, settleValue, animationClocks, pageReporter } from './navigation.js';
-import { guestOutline, guestTap, guestType, backButton, viewBox, reveal, selectAll, scrollRange, typeControl, watchGlides, glidesSettled, scrollsSeen } from './input-glue.js';
+import { inertAncestor, displayMode, environment, navigation, routeFlags, foldEnv, preferFold, typedControl, settleValue, animationClocks, pageReporter } from './navigation.js';
+import { backButton } from './input-glue.js';
+import { guestOutline, guestTap, guestType, viewBox, reveal, selectAll, scrollRange, typeControl, watchGlides, glidesSettled, scrollsSeen } from './agent-input.js';
 watchGlides();
 // How long `clock settle` waits for a scroller gliding on its own, as a native host waits (agent.mjs reason `scroll`).
 const GLIDE_BOUND_MS = 4000;
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
-const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['data-alertpart', 'alertPart'], ['aria-controls', 'accessibilityControls'], ['id', 'id'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-current', 'accessibilityCurrent'], ['aria-sort', 'accessibilitySort'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['aria-valuenow', 'accessibilityValueNow'], ['aria-valuemin', 'accessibilityValueMin'], ['aria-valuemax', 'accessibilityValueMax'], ['aria-valuetext', 'accessibilityValueText'], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
+const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['data-alertpart', 'alertPart'], ['aria-controls', 'accessibilityControls'], ['id', 'id'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-current', 'accessibilityCurrent'], ['aria-sort', 'accessibilitySort'], ['colspan', 'colSpan', 1], ['rowspan', 'rowSpan', 1], ['scope', 'scope'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['aria-valuenow', 'accessibilityValueNow'], ['aria-valuemin', 'accessibilityValueMin'], ['aria-valuemax', 'accessibilityValueMax'], ['aria-valuetext', 'accessibilityValueText'], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
+const TABLE_TAGS = /^(table|caption|thead|tbody|tfoot|tr|th|td|dl|dt|dd)$/;
 const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', AUDIO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
 /** The view an operation names: its id, else the first node with that testId on an active screen, a covered
  * screen's or an unselected tab's copy only when no active one carries it, as the runner's `target`. */
@@ -94,6 +96,8 @@ export function install(exact) {
   const record = (el, depth) => {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;
+    // HTML's table and description list are their elements (LLP 1153 D7): the runner's tree names each by its `semanticTag`.
+    if (TABLE_TAGS.test(el.localName) && el.namespaceURI === 'http://www.w3.org/1999/xhtml') props.semanticTag = el.localName;
     if (el.tagName === 'IMG') props.imageSource = el.dataset.symbolSource ?? el.dataset.appSrc ?? el.getAttribute('src') ?? '';
     if (el.hasAttribute('aria-label')) props.accessibilityLabel = el.getAttribute('aria-label');
     else if (el.tagName === 'IMG' && el.getAttribute('alt')) props.accessibilityLabel = el.getAttribute('alt');
@@ -143,12 +147,21 @@ export function install(exact) {
     }
     return n;
   };
-  // `inactive` (the runner's tree): under a route or tab its navigation root has not selected (shop F16);
+  // `inactive` (the runner's tree): under a route or tab its navigation root has not selected (shop F16), and `hidden`
+  // too where the projection hides it (navigation.js `routeFlags`, as the wasm glue's `tree` reads it; LLP 1153 D8);
   // `unopened`: a tab panel whose tab has never been selected, empty until it is (LLP 1075.003 §3.7).
   const all = () => {
-    const out = [], root = document.getElementById('exact-root'), off = new Set([...root.querySelectorAll('[navigationBack]')].flatMap(nav => unselected(nav)));
-    const walk = (el, d, dead) => { const n = record(el, d); out.push(n); if ((dead ||= off.has(el))) n.inactive = true; if (unopened(el)) n.unopened = true; n.children = kids(el).map(c => walk(c, d + 1, dead).id); return n; };
-    kids(root).forEach(el => walk(el, 0, false));
+    const out = [], root = document.getElementById('exact-root'), flag = routeFlags(root);
+    // A node's flags are at least its parent's: a flowed paragraph's runs are held off the page, where the projection
+    // reaches none of them.
+    const walk = (el, d, up) => {
+      const n = record(el, d), f = Math.max(up, flag(el)); out.push(n);
+      if (f) n.inactive = true;
+      if (f > 1) n.hidden = true;
+      if (unopened(el)) n.unopened = true;
+      n.children = kids(el).map(c => walk(c, d + 1, f).id); return n;
+    };
+    kids(root).forEach(el => walk(el, 0, 0));
     return out;
   };
   // The runner's tags (LLP 1035.002 D3): a commit is an epoch; a JS page
@@ -194,13 +207,16 @@ export function install(exact) {
     ?? prop.replace(/^border-(top|right|bottom|left)-(color|style|width)$/, 'border-$2-$1').replace(/^border-(top|bottom)-(left|right)-radius$/, 'border-radius-$1-$2').replace(/^-+/, '').replace(/-/g, '_');
   // A class's rule may be nested: the build wraps them all in
   // `#exact-root#exact-root { & .cN { … } }` for specificity (emit.rs).
+  // A lowered node's arm class (lower.js, its rule in `#exact-arms`, last) stands where its rows were inline: a later
+  // rule's declaration wins over an earlier one's, and the inline style over both.
   const declared = el => {
-    const out = new Map([...el.style].map(p => [p, el.style.getPropertyValue(p)])), classes = new Set([...el.classList].map(c => '.' + c));
+    const out = new Map([...el.style].map(p => [p, el.style.getPropertyValue(p)])), classes = new Set([...el.classList].map(c => '.' + c)), ruled = new Map();
     const walk = rules => { for (const r of rules) {
-      if (r.style && classes.has(r.selectorText?.replace(/^&\s+/, ''))) for (const p of r.style) if (!out.has(p)) out.set(p, r.style.getPropertyValue(p));
+      if (r.style && classes.has(r.selectorText?.replace(/^&\s+/, ''))) for (const p of r.style) ruled.set(p, r.style.getPropertyValue(p));
       if (r.cssRules) walk(r.cssRules);
     } };
     for (const sheet of document.styleSheets) { let rules; try { rules = sheet.cssRules; } catch { continue; } walk(rules); }
+    for (const [p, v] of ruled) if (!out.has(p)) out.set(p, v);
     return out;
   };
   const r2 = x => Math.round(x * 100) / 100;
@@ -214,7 +230,7 @@ export function install(exact) {
     // (an svg's written width, though flex shrinks it), as the runner's are.
     const typed = el.computedStyleMap?.();
     const computedOf = p => { try { return typed?.get(p)?.toString(); } catch { return undefined; } };
-    for (const [p, text] of own) if (!p.startsWith('--') || SPELLED[p]) { const token = exact.modes?.token(el, p, text), computed = computedOf(p); style[rowOf(p)] = { value: cs.getPropertyValue(p), ...(computed !== undefined ? { computed } : {}), ...(token ? { token } : {}), source: el.$css?.[p] !== undefined ? 'dynamic' : 'authored' }; }
+    for (const [p, text] of own) if (!p.startsWith('--') || SPELLED[p]) { const token = exact.modes?.token(el, p, text), computed = computedOf(p); style[rowOf(p)] = { value: cs.getPropertyValue(p), ...(computed !== undefined ? { computed } : {}), ...(token ? { token } : {}), source: el.$css?.[p] !== undefined || el.$lowered?.includes(p) ? 'dynamic' : 'authored' }; }
     for (const [row, prop] of Object.entries(INHERITED)) {
       if (own.has(prop)) continue;
       let from = null;
@@ -463,7 +479,7 @@ export function install(exact) {
           const glide = { ms: GLIDE_BOUND_MS };
           let moved = false;
           for (let round = 0; round < 16; round++) {
-            // A scroller still gliding from the last input moves on its own: it ends first (input-glue.js).
+            // A scroller still gliding from the last input moves on its own: it ends first (agent-input.js).
             if (!(await glidesSettled(glide))) return { clock: exact.clock.now, settled: false, reason: 'scroll' };
             const scrolled = scrollsSeen();
             lastRound = exact.lists?.scrollsFired?.() ?? 0;

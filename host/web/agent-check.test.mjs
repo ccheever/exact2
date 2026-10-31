@@ -154,6 +154,15 @@ const TALL = `component TallFixture
       button testId="unreachable" press=bump flex-shrink=0
         text "Save"
 `;
+// The same column holding a scroll view: the line straddling the scroll view's end is reached by scrolling, so the column
+// above the scroll view cuts nothing (AgentCheckIOS.swift stops at a scroller the same way).
+const SCROLLED = `component ScrolledFixture
+  view
+    column testId="root" height="100vh" overflow="hidden"
+      scroll testId="list" flex=1 min-height=0
+        column testId="spacer" height=890 flex-shrink=0
+        text testId="past" flex-shrink=0 "This line straddles the end of the scroll view"
+`;
 // LLP 1116.006 D5: a text judged on the fill under it — its own box's (a rounded bubble, whose corners show the page), a
 // bubble column's, the page's — in each scheme; and rows a scroller cuts, overlapping nothing past its edge.
 const BUBBLES = `component BubbleFixture
@@ -470,6 +479,10 @@ test('a page with every finding class has each found, by testId, in the scheme i
     const t = kinds((await checkOp(tall, [])).check[0]);
     expect(t).toEqual({ cut: ['clipped'], unreachable: ['covered'] });
   } finally { await tall.close(); }
+  const scrolled = await open({ host: 'web', url: await built('scrolled', SCROLLED) });
+  try {
+    expect(kinds((await checkOp(scrolled, [])).check[0])).toEqual({});
+  } finally { await scrolled.close(); }
   // A row under a bar is covered only when no scroller moves it clear (LLP 1116.012 D3): the fold row of a list above an in-flow bar, or
   // under a bar laid over it with the range to scroll by, is not; the last row of a list that scrolls too little, and the first row
   // under a header at the start of its list, are.

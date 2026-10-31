@@ -13,8 +13,12 @@
 //   bun scripts/agent-android.mjs build <app> --apk        the app on the Canvas reader, as an APK (host/android/README.md;
 //                                                          --release: the release profile, for measuring;
 //                                                          --write-locks: write the lock and checksums of the
-//                                                          Maven libraries the app's modules name)
+//                                                          Maven libraries the app's modules name;
+//                                                          --install: then onto the device; --run: and launch it)
 //   bun scripts/agent.mjs android --reader --app <app> …   drive that APK (EXACT_ANDROID_BIN names another)
+//
+// An `exact new` app's `bun exact.mjs android` is `build <app> --apk --install` (`--headless`: the Linux host), and its
+// `agent android` and `test android` drive the APK.
 //
 // An app with a TypeScript data module also needs the Android Hermes bundle:
 // `bun scripts/hermes-android.mjs build` once (scripts/hermes-android.mjs).
@@ -27,14 +31,16 @@
 // SwiftShader crashes it).
 import { writeTamberNames } from './tamber-names.mjs';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import { HOST_DEV, buildBake, cargoEnvironment, copyShaders, injectedProfiles, linuxBuild, resolveApp, wholeProgram } from './app.mjs';
+import { HOST_DEV, bakeWatchEnv, buildBake, cargoEnvironment, copyShaders, injectedProfiles, linuxBuild, resolveApp, wholeProgram } from './app.mjs';
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
 import { androidImplementations, packageConfig } from '../js/bake/src/typescript.mjs';
+import { recordBuiltSettings } from '../js/bake/src/__exact_env.mjs';
 import { configMetaData, fragmentPermissions, manifestFragment, withMetaData } from './android-manifest.mjs';
 import { androidShareActivity } from './share-target.mjs';
 
@@ -68,7 +74,7 @@ export function androidToolchainEnv(env = process.env) {
   // A TypeScript data module's lean Hermes VM: the Android bundle
   // `hermes-android.mjs build` made, for the target only (the host keeps its pinned one).
   const hermes = env.HERMES_LEAN_SYS_DIR_aarch64_linux_android ?? hermesAndroidBundle();
-  return { ...cargoEnvironment(env), CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: cc, CC_aarch64_linux_android: cc,
+  return { ...cargoEnvironment(env), ANDROID_NDK_HOME: ndk, CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: cc, CC_aarch64_linux_android: cc,
     CXX_aarch64_linux_android: `${cc}++`, AR_aarch64_linux_android: resolve(bin, 'llvm-ar'),
     // One C++ runtime, static, as the Hermes bundle links it (ANDROID_STL=c++_static):
     // the cc crate's Android default, c++_shared, needs libc++_shared.so beside the binary.
@@ -76,13 +82,15 @@ export function androidToolchainEnv(env = process.env) {
     ...(hermes ? { HERMES_LEAN_SYS_DIR_aarch64_linux_android: hermes } : {}) };
 }
 
-/** The device a drive uses: ANDROID_SERIAL, else the only (or first) one adb lists as ready. */
+/** The device a drive uses: ANDROID_SERIAL, else the one adb lists as ready. With several and none named it refuses to
+ * choose: another lane's emulator or a person's phone may be among them. */
 export function androidDevice(env = process.env) {
   if (env.ANDROID_SERIAL) return env.ANDROID_SERIAL;
   const listed = spawnSync(adb(env), ['devices'], { encoding: 'utf8' });
   if (listed.error) throw new Error(`adb: ${listed.error.message} (install the SDK's platform-tools, or set ANDROID_HOME)`);
   const ready = listed.stdout.split('\n').map((l) => l.split('\t')).filter(([, s]) => s?.trim() === 'device').map(([id]) => id);
-  if (!ready.length) throw new Error('no Android device or emulator is ready: start one (`emulator -avd <name>`) or attach a phone with USB debugging on');
+  if (!ready.length) throw new Error('no Android device or emulator is ready: start one (`emulator -avd <name>`), `adb connect <host:port>` one elsewhere, or attach a phone with USB debugging on');
+  if (ready.length > 1) throw new Error(`${ready.length} Android devices are ready (${ready.join(', ')}): set ANDROID_SERIAL to the one to use`);
   return ready[0];
 }
 
@@ -132,10 +140,30 @@ export function androidDeploy(app, bin, env) {
   };
 }
 
+/** The app's `kind` crate's Cargo.toml, beside app.json or in the workspace generated for it (scripts/app-shells.mjs). */
+const crateManifest = (app, kind) => [resolve(app.dir, kind, 'Cargo.toml'), resolve(app.workspace, kind, 'Cargo.toml')].find(existsSync);
+
 /** The Gradle project that holds the Canvas reader and the shell that packages one app with it. */
 const READER = resolve(import.meta.dir, '../host/android');
+/** Where one app's Gradle build writes: the shell's build (its staged library and assets, its APK), the reader's, and
+ * Gradle's project cache and Kotlin's session files. An app of this checkout's keeps the shell's under
+ * host/android/app/build/<name>; an app outside it builds under its own target directory. No two apps share any of it,
+ * so builds of two apps at once neither mix outputs nor wait on one project's locks. */
+export function apkDirs(app) {
+  const own = !app.dir.startsWith(resolve(READER, '../..') + '/'), root = resolve(app.target, 'android');
+  return own ? { app: resolve(root, 'app'), canvas: resolve(root, 'canvas'), cache: resolve(root, 'gradle'), kotlin: resolve(root, 'kotlin') }
+    : { app: resolve(READER, 'app/build', app.name), canvas: resolve(READER, 'canvas/build', app.name), cache: resolve(READER, '.gradle/apps', app.name), kotlin: resolve(READER, '.kotlin/apps', app.name) };
+}
 /** The APK `build <app> --apk` makes. */
-const readerApk = (app) => resolve(READER, 'app/build', app.name, 'outputs/apk/release/app-release.apk');
+const readerApk = (app) => resolve(apkDirs(app).app, 'outputs/apk/release/app-release.apk');
+/** What `build --apk` records beside the APK, for a drive to tell whether it is older than its sources: when the build
+ * began, the library it packaged (whose Cargo dep-info names the Rust, the plan's and the module's sources), and the
+ * app's Kotlin. Null without one. */
+export function apkRecord(app, apk = readerApk(app)) {
+  try { return JSON.parse(readFileSync(resolve(dirname(apk), 'exact-build.json'), 'utf8')); } catch { return null; }
+}
+/** The reader's own sources, which every APK compiles. */
+export const READER_SOURCES = ['canvas/src', 'app/src'].map((d) => resolve(READER, d));
 
 /** The reader carrier (LLP 1107 D1): install the APK and return what `androidDeploy` returns, with a process that
  * launches the app under a driver and relays the agent protocol's lines between its stdio and the app (`relay`).
@@ -161,7 +189,10 @@ function readerDeploy(app, apk, env) {
     const r = spawnSync(tool, ['-s', serial, ...args], { encoding: 'utf8' });
     if (r.status !== 0 || /^Failure/m.test(r.stdout)) throw new Error(`adb ${what}: ${(r.stderr || r.stdout || r.error?.message || '').trim()}`);
   };
-  run(['install', '-r', apk], `install ${apk}`);
+  // An APK the device already holds, byte for byte, is not installed again: an install is tens of seconds on an emulator.
+  const local = createHash('sha256').update(readFileSync(apk)).digest('hex');
+  const held = spawnSync(tool, ['-s', serial, 'shell', `p=$(pm path ${quote(id)} 2>/dev/null | head -n 1); [ -n "$p" ] && sha256sum "\${p#package:}"`], { encoding: 'utf8' }).stdout?.split(/\s/)[0];
+  if (held !== local) run(['install', '-r', apk], `install ${apk}`);
   run(['shell', `mkdir -p ${quote(dir)}`], 'prepare');
   // The app reads the plan from the shell's directory, which it may enter but not list.
   if (env.EXACT_PLAN) {
@@ -301,7 +332,7 @@ function bakedOut(dir, crate) {
  * Gradle wants a JDK (17 or newer) and the SDK's platform. The APK's path, or null. */
 function buildApk(app, env, profile, writeLocks = false) {
   const crate = app.crate('android');
-  if (!app.manifest.game && !existsSync(resolve(app.dir, 'android/Cargo.toml'))) throw new Error(`${app.dir} has no android/ crate: the app's library for the Canvas host (apps/caltrain/android is one)`);
+  if (!app.manifest.game && !crateManifest(app, 'android')) throw new Error(`${app.dir} has no android/ crate, the app's library for the Canvas host: bun exact.mjs update adds one to an app that names android in app.json (apps/shelf/android is one)`);
   const built = (name) => resolve(app.target, ANDROID_TARGET, profile, `lib${name.replaceAll('-', '_')}.so`);
   // The packages' configuration (LLP 1133.021 §9 item 7), before anything compiles: a required value that is absent
   // refuses the build by its code (`maps-key-missing` for a release without the Maps key).
@@ -320,7 +351,7 @@ function buildApk(app, env, profile, writeLocks = false) {
     out = planOut(cargo.stdout.toString(), crate);
   }
   const uses = planUses(out);
-  const staged = resolve(READER, 'app/build', app.name, 'rust');
+  const dirs = apkDirs(app), started = new Date().toISOString(), staged = resolve(dirs.app, 'rust');
   rmSync(staged, { recursive: true, force: true });
   mkdirSync(resolve(staged, 'jniLibs/arm64-v8a'), { recursive: true });
   // The reader loads one name whatever the app; the plan names `assets/…` under the APK's `app/`.
@@ -339,12 +370,20 @@ function buildApk(app, env, profile, writeLocks = false) {
   if (!graph) return null;
   let gradle;
   try {
-    gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`, ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose, ...extensionArgs(app, out, config), ...graph.args], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
+    gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`,
+      `-PappBuildDir=${dirs.app}`, `-PcanvasBuildDir=${dirs.canvas}`, `-PndkPath=${env.ANDROID_NDK_HOME}`, '--project-cache-dir', dirs.cache, `-Pkotlin.project.persistent.dir=${dirs.kotlin}`,
+      ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose, ...extensionArgs(app, out, config), ...graph.args], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
     if (gradle.status === 0) graph.kept();
   } finally {
     graph.done();
   }
-  return gradle.status === 0 ? resolve(READER, 'app/build', app.name, 'outputs/apk/release/app-release.apk') : null;
+  if (gradle.status !== 0) return null;
+  const apk = readerApk(app);
+  writeFileSync(resolve(dirname(apk), 'exact-build.json'), JSON.stringify({ started, library: built(crate), workspace: app.workspace ?? app.dir,
+    sources: [...READER_SOURCES, ...[resolve(app.dir, 'modules/android')].filter(existsSync)] }) + '\n');
+  // What its bake inlined of each setting (LLP 1153 D4), bound to the APK, for a drive to compare with their sources.
+  recordBuiltSettings(apk, app, out);
+  return apk;
 }
 
 /** The Maven libraries the bound modules name (LLP 1133.008 D8 item 5), as Gradle arguments: one graph with the
@@ -377,7 +416,7 @@ function mavenGraph(app, writeLocks) {
  * components its packages' manifest fragments declare with the meta-data `config` (`packageConfig`'s) carries, as
  * Gradle properties. */
 function extensionArgs(app, out, config) {
-  const bound = androidImplementations(app.dir), generated = resolve(READER, 'app/build', app.name, 'extensions');
+  const bound = androidImplementations(app.dir), generated = resolve(apkDirs(app).app, 'extensions');
   rmSync(generated, { recursive: true, force: true });
   let permissions = [], services = {}, features = [];
   try {
@@ -412,12 +451,62 @@ function extensionArgs(app, out, config) {
     if (typeof value?.env === 'string' && !process.env[value.env] && config.has(name.split('/').at(-1))) console.warn(`${app.name}: ${value.env} is unset, so ${name}'s ${key} is absent from this development build (a release build refuses it)`);
   }
   // The share target's filters on the app's activity (LLP 1133.024 D5), inside the same `<application>`.
-  const fragment = withMetaData(manifestFragment(bound, { privacyPolicy: app.manifest?.privacy_policy ?? null }), [...configMetaData(config), ...(androidShareActivity(app.manifest?.share_target) ?? [])]), fragmentFile = resolve(READER, 'app/build', app.name, 'manifest-fragment.xml');
+  const fragment = withMetaData(manifestFragment(bound, { privacyPolicy: app.manifest?.privacy_policy ?? null }), [...configMetaData(config), ...(androidShareActivity(app.manifest?.share_target) ?? [])]), fragmentFile = resolve(apkDirs(app).app, 'manifest-fragment.xml');
   rmSync(fragmentFile, { force: true });
   if (fragment) { mkdirSync(dirname(fragmentFile), { recursive: true }); writeFileSync(fragmentFile, fragment); }
   return [...(bound.length ? [`-PextensionDirs=${[...bound.flatMap((b) => b.dirs), generated].join(',')}`] : []), ...(permissions.length ? [`-Ppermissions=${permissions.join(',')}`] : []),
     ...(fragment ? [`-PmanifestFragment=${fragmentFile}`] : []), ...(Object.keys(services).length ? [`-PforegroundServices=${JSON.stringify(services)}`] : []),
     ...(features.length ? [`-PandroidFeatures=${features.join(',')}`] : [])];
+}
+
+/** `--install` (`--run`: and launch it): the APK onto the device `androidDevice` names. With none ready the build
+ * stands and says how to install it; with several and no ANDROID_SERIAL it refuses. The exit code. */
+function installApk(app, apk, { run = false, built = 0 } = {}) {
+  let serial;
+  try { serial = androidDevice(); } catch (error) {
+    if (/^no Android device/.test(error.message)) { console.error(`built in ${(built / 1000).toFixed(1)} s; not installed: ${error.message}`); return run ? 1 : 0; }
+    console.error(error.message);
+    return 1;
+  }
+  const id = app.id.replaceAll('-', '_') + (process.env.ORG_GRADLE_PROJECT_idSuffix ?? ''), started = Date.now();
+  const installed = spawnSync(adb(), ['-s', serial, 'install', '-r', apk], { encoding: 'utf8' });
+  if (installed.status !== 0 || /^Failure/m.test(installed.stdout)) { console.error(`adb install: ${(installed.stderr || installed.stdout).trim()}`); return 1; }
+  console.error(`built in ${(built / 1000).toFixed(1)} s, installed on ${serial} as ${id} in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  if (!run) return 0;
+  const launched = spawnSync(adb(), ['-s', serial, 'shell', 'am', 'start', '-W', '-n', `${id}/dev.exact.app.MainActivity`], { encoding: 'utf8' });
+  if (launched.status !== 0 || /Error/.test(launched.stdout + launched.stderr)) { console.error(`am start: ${(launched.stderr || launched.stdout).trim()}`); return 1; }
+  return 0;
+}
+
+/** `verify android`'s build (scripts/verify.mjs): the APK, built when it is missing or older than its sources, as a
+ * drive would refuse it. Null when fresh, else what the build said (its last lines when it failed). */
+export async function apkBuildFirst(app) {
+  const { apkChanges } = await import('./agent-stdio.mjs'), { bakedSettingChanges } = await import('./agent-launch.mjs'), apk = readerApk(app);
+  const why = !existsSync(apk) ? 'no APK yet' : apkChanges(app, apk).length ? 'the APK is older than its sources'
+    : bakedSettingChanges(apk, app).length ? 'a setting changed since the APK was built' : null;
+  if (!why) return null;
+  console.error(`building the APK (${why}): bun exact.mjs android`);
+  const started = Date.now(), r = spawnSync(process.execPath, [import.meta.path, 'build', app.dir, '--apk'], { encoding: 'utf8', maxBuffer: 256 << 20 });
+  const lines = `${r.stdout ?? ''}${r.stderr ?? ''}`.split('\n').filter((l) => l.trim());
+  return { ms: Date.now() - started, code: r.status ?? 1, said: r.status ? lines.slice(-20) : [`built the APK in ${((Date.now() - started) / 1000).toFixed(1)} s`], warnings: [] };
+}
+
+/** `verify android`'s look at a screen: the host has no `check` observation yet, so each scheme's screen is captured,
+ * `unchecked`, as Windows' is (the device's pixels, shrunk to a pixel a point as check keeps an iOS capture). */
+export async function androidCaptures(s, { screen, shot, failed }) {
+  const [{ decodePng, encodePng, shrink }, { tmpdir }] = await Promise.all([import('./png.mjs'), import('node:os')]);
+  const seen = (await s.layout().catch(() => null))?.viewport ?? {}, vp = { w: Math.round(seen.w), h: Math.round(seen.h) }, runs = [];
+  for (const scheme of ['light', 'dark']) {
+    await s.prefer({ 'prefers-color-scheme': scheme });
+    await s.clock('settle');
+    const path = shot?.(vp, scheme) ?? resolve(tmpdir(), `exact-verify-${process.pid}-${scheme}.png`);
+    await s.carrier.screenshot(path);
+    const png = decodePng(readFileSync(path)), scale = vp.w ? png.width / vp.w : 1;
+    if (scale > 1) writeFileSync(path, encodePng(shrink(png, Math.round(png.width / scale), Math.round(png.height / scale))));
+    runs.push({ screen, size: [vp.w, vp.h], scheme, asked: scheme, unchecked: true, ...(shot?.(vp, scheme) ? { shot: path } : {}), findings: [], accepted: [], lines: failed, hidden: 0, advice: [] });
+  }
+  await s.prefer({ 'prefers-color-scheme': 'light' });
+  return runs;
 }
 
 if (import.meta.main && process.argv[2] === 'relay') {
@@ -427,23 +516,35 @@ if (import.meta.main && process.argv[2] === 'relay') {
   const args = guardFlags('android', process.argv.slice(2));
   const [verb, name] = args.filter((arg) => !arg.startsWith('--'));
   if (verb !== 'build' || !name) {
-    console.error('usage: bun scripts/agent-android.mjs build <app> [--apk]   (then: bun scripts/agent.mjs android --app <app> …; --apk: the app on the Canvas reader, host/android/README.md)');
+    console.error('usage: bun scripts/agent-android.mjs build <app> [--apk [--install | --run]] [--headless]   (then: bun scripts/agent.mjs android [--reader] --app <app> …; --apk: the app on the Canvas reader, host/android/README.md; --headless: the Linux host for Android, never the APK)');
     process.exit(2);
   }
+  // `--headless` wins: an app's `bun exact.mjs android --headless` asks for the Linux host its verb's `--apk` would replace.
+  const apkWanted = args.includes('--apk') && !args.includes('--headless');
   // Without rustup (a toolchain installed by hand) Cargo names a missing target itself.
   const rustup = spawnSync('rustup', ['target', 'list', '--installed'], { cwd: resolveApp(name).dir, encoding: 'utf8' });
   if (rustup.status === 0 && !rustup.stdout.split('\n').includes(ANDROID_TARGET)) {
     console.error(`the toolchain has no ${ANDROID_TARGET} target: rustup target add ${ANDROID_TARGET} (once, in the app's directory so its pinned toolchain gets it)`);
     process.exit(1);
   }
-  const app = resolveApp(name), env = { ...androidToolchainEnv(), CARGO_TARGET_DIR: app.target };
-  if (args.includes('--apk')) {
+  // With what the bake watches named (`bakeWatchEnv`), as every baking build.
+  const app = resolveApp(name), env = { ...androidToolchainEnv(), ...bakeWatchEnv(app), CARGO_TARGET_DIR: app.target };
+  // A TypeScript app's library links the Android Hermes bundle: said before minutes of compiling, not at the link.
+  const crateToml = crateManifest(app, apkWanted ? 'android' : 'linux');
+  if (!env.HERMES_LEAN_SYS_DIR_aarch64_linux_android && crateToml && /^exact-js\s*=/m.test(readFileSync(crateToml, 'utf8'))) {
+    console.error(`${app.name}'s TypeScript needs the Android Hermes bundle, which is not installed: bun scripts/hermes-android.mjs install <archive> (or copy ~/.cache/exact/hermes-android from a machine that has one; LLP 1107 §4.1)`);
+    process.exit(1);
+  }
+  if (apkWanted) {
+    const started = Date.now();
     const apk = buildApk(app, env, args.includes('--release') ? 'release' : HOST_DEV, args.includes('--write-locks'));
-    if (apk) console.log(apk);
-    process.exit(apk ? 0 : 1);
+    if (!apk) process.exit(1);
+    console.log(apk);
+    if (args.includes('--install') || args.includes('--run')) process.exit(installApk(app, apk, { run: args.includes('--run'), built: Date.now() - started }));
+    process.exit(0);
   }
   const [cmd, ...rest] = androidBuild(app);
   const built = spawnSync(cmd, rest, { cwd: app.workspace ?? app.dir, env, stdio: 'inherit' });
-  if (built.status === 0) console.log(androidBinary(app));
+  if (built.status === 0) { recordBuiltSettings(androidBinary(app), app); console.log(androidBinary(app)); }
   process.exit(built.status ?? 1);
 }

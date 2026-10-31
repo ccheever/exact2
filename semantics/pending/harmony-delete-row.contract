@@ -1,0 +1,15 @@
+// Harmony's Custom Emoji row uses delete=. Lowering inserts a button
+// that the Lean embedding does not include; the views differ at boot.
+component App
+  state removed = false
+  action remove
+    removed = true
+  view
+    list appearance="auto"
+      section
+        if not removed
+          row delete=remove testId="emoji"
+            text "Emoji"
+
+test "the row exposes its generated Delete button"
+  expect tree has "emoji-delete"

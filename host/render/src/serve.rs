@@ -1175,8 +1175,7 @@ fn document<D: DataSource + 'static>(
     // @ref LLP 1071 D6 — the early flush (crate::stream): a browser's
     // navigation gets the page's head now; its rest follows the render.
     let js = shared.js && !notfound && request.method == "GET";
-    let preload = route_at(&shared.plan, location)
-        .is_none_or(|route| route.activate != exact_plan::ActivatePolicy::Interaction);
+    let preload = crate::page::preloads_early(&shared.plan, location);
     let mut early = early.filter(|_| js);
     if let Some(out) = early.as_deref_mut().filter(|_| request.cdn && preload) {
         crate::stream::hint(out, &shared.hints);

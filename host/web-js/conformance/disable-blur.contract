@@ -1,0 +1,38 @@
+// A focused control that a commit disables loses the focus and runs its
+// `blur` (HTML's focus fixup); enabled again, it does not get the focus back.
+// A control inside a box that becomes disabled keeps it: `disabled` means
+// nothing on a `div` (host/web/glue.js). A removed one runs no `blur`. The
+// Linux presenter once kept the focus on a disabled control (fieldnotes'
+// save-backup and read-backup).
+component DisableBlur
+  state busy = false
+  state off = false
+  state gone = false
+  state log = ""
+  task finish when busy
+    after(100, done)
+  action go
+    busy = true
+  action done
+    busy = false
+  action shut
+    off = true
+  action open
+    off = false
+  action leave
+    gone = true
+  action note(s: string)
+    log = `${log}${s}`
+  view
+    column testId="root" gap=8 padding=8
+      button press=go disabled=busy focus=note("+") blur=note("-") testId="self"
+        text "self"
+      column disabled=off testId="box" padding=4
+        button press=shut focus=note("[") blur=note("]") testId="inner"
+          text "inner"
+      button press=open testId="open"
+        text "open"
+      if not gone
+        button press=leave focus=note("<") blur=note(">") testId="leaving"
+          text "leaving"
+      text log testId="log"

@@ -466,7 +466,7 @@ impl<D: DataSource> Presenter<D> {
         // made its view take it (a hardware key ends touch mode, and the
         // platform then focuses the window's first focusable view). The
         // shell is told again that no field holds it, which blurs the view.
-        if focused && self.top_open() {
+        if focused && self.page_inert() {
             self.keyboard_changed();
             return;
         }

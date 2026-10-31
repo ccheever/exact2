@@ -1,0 +1,18 @@
+component App
+  state ready = false
+  state n = 0
+  action step
+    ready = true
+    n = n + 1
+  action reset
+    if n > 1000
+      ready = false
+  view
+    column
+      button "Step" testId="step" press=step
+      button "Reset" testId="reset" press=reset
+
+test "a reset lies beyond the observed prefix"
+  tap "step"
+  tap "step"
+  tap "reset"

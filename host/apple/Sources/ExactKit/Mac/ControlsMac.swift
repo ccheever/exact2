@@ -192,7 +192,7 @@ final class ControlHost: NSObject {
             }
             if !(control is NativeButtonMac) {
                 control.isEnabled = !owner.disabled
-                control.setAccessibilityLabel(owner.props["accessibilityLabel"])
+                control.setAccessibilityLabel(owner.authoredLabel)
                 control.setAccessibilityIdentifier(owner.props["testId"])
             }
             // A native button is sized by its node's box and has answered its fitting size already (D11):

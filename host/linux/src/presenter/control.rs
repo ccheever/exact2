@@ -153,6 +153,9 @@ impl<D: DataSource> Presenter<D> {
             (Event::Input(on.into()), EventKind::Input),
             (Event::Change(on.into()), EventKind::Change),
         ] {
+            if let Some(e) = dispatched.then(|| self.blur_disabled_now()).flatten() {
+                eprintln!("exact: {e}");
+            }
             if self.host.runner().handlers_of(id).contains(&kind) {
                 if let Some(e) = self.host.dispatch_at(id, event, now_ms) {
                     eprintln!("exact: {e}");
@@ -276,12 +279,18 @@ impl<D: DataSource> Presenter<D> {
         self.menu = None;
         let now = self.host.now();
         let mut error = None;
+        let mut dispatched = false;
         for (event, kind) in [
             (Event::Input(value.into()), EventKind::Input),
             (Event::Change(value.into()), EventKind::Change),
         ] {
+            // A control its input disabled loses the focus before its change.
+            if dispatched {
+                error = error.or(self.blur_disabled_now());
+            }
             if self.host.runner().handlers_of(id).contains(&kind) {
                 error = error.or(self.host.dispatch_at(id, event, now));
+                dispatched = true;
             }
         }
         let after = self.after_commit();

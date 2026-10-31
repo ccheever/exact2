@@ -108,6 +108,7 @@ impl Render for HeavyList {
 }
 
 fn main() {
+    picture::boot_mark(c"boot main");
     assert_ne!(
         std::env::var("BENCH_LIVE").as_deref(),
         Ok("1"),
@@ -128,6 +129,7 @@ fn main() {
     )
     .expect("heavy-list data");
     assert_eq!(file.messages.len(), 10_000);
+    picture::boot_mark(c"boot data ready");
     let motion = std::env::var("BENCH_MOTION").unwrap_or_default();
     assert!(
         matches!(motion.as_str(), "" | "bar" | "caret"),
@@ -189,6 +191,7 @@ fn main() {
             },
         )
         .unwrap();
+        picture::boot_mark(c"boot window created");
         cx.activate(true);
     });
 }

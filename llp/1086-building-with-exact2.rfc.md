@@ -119,6 +119,11 @@ are 0 and the page is unchanged.
 > **Amended by LLP 1115 D7.** The template writes no colour, no font size and no safe-area
 > padding; it says structure and leaves the rest to the platform.
 
+> **Amended by LLP 1153 D1 (2026-10-30).** `exact new` writes eight files and no host crate; a
+> native verb names its platform in app.json the first time it runs and builds in a workspace
+> generated under the app's `.exact/`. The paragraph below describes an app that authored its
+> crates, which `update` still serves.
+
 The app's workspace holds three host crates: `apple/`, `web/` and, since
 2026-10-07 (Charlie, toward Android bench cells, LLP 1107), `linux/`, in the
 shape of the repo's own (`apps/duo-lab/linux`: one executable with the runner,

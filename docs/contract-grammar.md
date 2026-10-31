@@ -649,6 +649,7 @@ HOST          = "web" | "macos" | "ios" | "tvos" | "linux" | "windows" | "androi
 launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "epoch" ( STRING | NUMBER | "now" ) NL (* "2026-09-21T12:00:00Z", Unix ms, or now *)
               | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
+              | "at" STRING NL                       (* the location it opens at, "/item/7#moves" *)
               | "locale" STRING NL                   (* a BCP 47 tag, "fr-FR" *)
               | "seed" NUMBER NL                     (* 0 through 2^32 - 1 *)
               | "fresh" [ STRING ] NL                (* the Snapback dev server emptied first, seeded from the file *)
@@ -814,7 +815,8 @@ with `expect disabled`, then `expect enabled` once what enables it has happened.
 launch lines: `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
 "America/New_York"`, `locale "fr-FR"` and `seed 7` are the driver's `--size`,
 `--epoch`, `--time-zone`, `--locale` and `--seed`, so they lead the test's steps,
-each once. Written at the top of the file they apply to every test that does not
+each once; `at "/item/7#moves"` opens the app at that location, fragment included,
+as `--url` with a path does. Written at the top of the file they apply to every test that does not
 name its own; either way they override the drive's flags. Media preferences
 (`prefer prefers-color-scheme dark`) also lead a test or the file, and may
 change between steps. Defaults merge by feature name; duplicate names among
@@ -1042,6 +1044,7 @@ says. Every roster function has a row and an example, and each example written
 | `depth(router)` | Number | `depth(nav)` is `1` |
 | `params(router, parameterName)` | `string[]`: that parameter's non-empty values over the selected stack, bottom first, duplicates kept (one entry's own value is `entry.params.<name>`, `""` where its route does not bind it; the name must be a parameter of some route) | `params(push(nav, "/item/7"), "id")` is `["7"]` |
 | `searchParam(entry, name)` | String | `searchParam(top(push(nav, "/item/7?tab=notes")), "tab")` is `"notes"` |
+| `fragment(entry)` | String: what the entry's location had after `#`, fragment-encoded as the browser's `hash` is, `""` when none. It is no part of the screen: `/item/7#moves` is the visit to `/item/7`, and a `push`, `replace` or `go` that changes only the fragment changes it on that visit. Written as `path("item", id) + "#moves"`, or `href="#moves"` on a `link` to the screen shown. Once the route's content has arrived, each host scrolls to the element with that `id` in the entry's route, as a browser scrolls to a fragment (`top`, or no such element: the route's top) (LLP 1153 D5) | `fragment(top(push(nav, "/item/7#moves")))` is `"moves"` |
 | `sharedFiles(entry, name)` | `SharedFiles`: `{files: Picked[], dropped, pending}`, the files a received share carried, by the token in the entry's `name` parameter; `pending` counts those still being copied, and a token the host did not set this launch answers no files ([receiving shares](../llp/1133.024-share-browser-compose-print.rfc.md), D3) | `sharedFiles(top(nav), "files").files.length` is the count of shared files that have landed |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders | `t("greeting", name=user.name)` is the `greeting` string of the app's locale with `{name}` filled |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied | `frame("card").height`, in an action, is the card's height as drawn |
@@ -1170,6 +1173,7 @@ Several tags share a kernel node type with different fixed properties.
 | --- | --- |
 | Boxes / layout | `view`, `box`, `row`, `column`, `scroll`, `list` |
 | Structure | `main`, `header`, `nav`, `section`, `footer`, `article`, `aside`, `dialog`, `hr` |
+| Tables / description lists | `table`, `caption`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`; `dl`, `dt`, `dd` |
 | Text and controls | `text`, `h1`–`h6`, `button`, `link`, `input`, `textarea`, `select`, `option`, `progress` |
 | Media / metadata | `image`, `video`, `audio`, `iframe`, `canvas`, `head` |
 | SVG scene | `svg`, `g`, `path`, `polyline`, `polygon`, `circle`, `ellipse`, `line`, `rect` |
@@ -1556,9 +1560,20 @@ stops that event at its handler, as DOM's
 does: no handler after it hears that event. The stop is that event's alone. A
 stopped `pointerdown` still sends its `pointerup` to every node it passed, and
 the pointer's moves stay with the node that holds them. The event's default
-action still happens: only `preventDefault()` stops a key's typing or a
-wheel's scroll, and a stopped `pointerdown` or `pointerup` leaves the click's
-`press` alone.
+action still happens: only `preventDefault()` stops a key's typing, a
+wheel's scroll or a press's focus move, and a stopped `pointerdown` or
+`pointerup` leaves the click's `press` alone. A `pointerdown` action that
+calls `preventDefault()` keeps the focus where it is, places no caret and
+starts no selection, as Chrome's does, by mouse and by touch; the `press`
+still fires, and an action's own `focus()` still moves the focus. (On iOS a
+field that already has the focus still places its caret where the touch
+lifts; LLP 1005 §3.) A formatting toolbar keeps its editor focused so:
+
+```text
+action keep(e: PointerEvent)
+  preventDefault()
+button pointerdown=keep press=bold …
+```
 
 `press` is DOM's `click` stopped at its handler: a press goes to the nearest
 node from the one pressed up that takes a press (a `press` handler or a

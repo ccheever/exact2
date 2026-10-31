@@ -694,8 +694,12 @@ impl NodeArena {
     /// `textarea`, LLP 1104 D2) in a grouped list's row, at any depth: the
     /// field a platform draws in a list's cell (LLP 1116.005 D2), which on
     /// iOS is borderless, the cell being the field. A search field keeps its
-    /// own chrome. Read from the tree as it stands: a list with `listStyle`,
-    /// a section, its rows' group (not its `header` or `footer`), a row.
+    /// own chrome, and so does a field in a section drawn with no card (a
+    /// transparent `background-color`), where no cell is drawn around it:
+    /// water-tracker's custom amount was placeholder text alone on the
+    /// grouped background (round 33). Read from the tree as it stands: a
+    /// list with `listStyle`, a section, its rows' group (not its `header` or
+    /// `footer`), a row.
     pub(crate) fn is_cell_field(&self, slot: u32) -> bool {
         use crate::FieldKind;
         if !self.is_native_text_control(slot)
@@ -712,7 +716,11 @@ impl NodeArena {
                     Some("header" | "footer")
                 )
             {
-                return true;
+                // As `grouped_list` decides the section's card.
+                return self
+                    .style(group)
+                    .background_color
+                    .is_none_or(|c| c.resolve(false).a() != 0 || c.resolve(true).a() != 0);
             }
             at = group;
         }

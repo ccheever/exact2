@@ -1,3 +1,4 @@
+use exact_ink::counters;
 use exact_linux::{
     app::{self, Config},
     Presenter,
@@ -12,7 +13,7 @@ use std::{
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
-    event::{ElementState, MouseButton, WindowEvent},
+    event::{ElementState, MouseButton, StartCause, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, PhysicalKey},
     platform::windows::{EventLoopBuilderExtWindows, WindowAttributesExtWindows},
@@ -21,6 +22,7 @@ use winit::{
 };
 
 struct App<D: DataSource> {
+    service_causes: u8,
     proxy: EventLoopProxy<crate::accessibility::Event>,
     accessibility: Option<crate::accessibility::Access>,
     name: String,
@@ -69,11 +71,13 @@ struct App<D: DataSource> {
 
 impl<D: DataSource> Drop for App<D> {
     fn drop(&mut self) {
+        crate::probe::save();
         if std::env::var("EXACT_AGENT_WINDOW_PROBE").as_deref() == Ok("on") {
             eprintln!("exact-windows: successful frames {}", self.frames);
         }
         self.timers.clear();
         self.accessibility.take();
+        exact_ink::device::d3d11::fields::clear();
         // The module's GPU swapchain must release its HWND before the window.
         self.presenter.take();
         self.caret.clear();
@@ -181,8 +185,13 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     compat: &str,
     composed: exact_linux::Composed,
 ) -> i32 {
+    if let Some(result) = exact_ink::device::d3d11::startup_watchdog::helper() {
+        return result;
+    }
+    exact_ink::device::d3d11::startup_watchdog::start();
     let started = Instant::now();
     app::prepare_environment(compat);
+    counters::initialize();
     boot_phase("host-entered");
     if app::print_baked_receipt(compat) {
         return 0;
@@ -202,7 +211,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         ),
         device.as_deref(),
     );
-    let preparing = if direct {
+    let preparing = if direct && !exact_ink::device::d3d11::startup_watchdog::after_layout() {
         match exact_ink::device::d3d11::Startup::start(
             exact_ink::device::direct_d3d11(device.as_deref()).unwrap(),
         ) {
@@ -270,8 +279,12 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     let desktop = crate::desktop::Desktop::install(name);
     let ime_message = ime.message_hook();
     let desktop_message = desktop.clone();
+    let field_message = exact_ink::device::d3d11::fields::message_hook();
     // Winit keeps one hook; replacing it would lose composition completion on clicks.
     builder.with_msg_hook(move |message| {
+        if field_message(message) {
+            return true;
+        }
         ime_message(message);
         desktop_message.message(message);
         false
@@ -298,6 +311,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         let _ = timer_proxy.send_event(crate::accessibility::Event::Timer(fired));
     });
     let mut state = App::<D> {
+        service_causes: 0,
         proxy,
         accessibility: None,
         name: name.to_owned(),
@@ -462,7 +476,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             || self
                 .presenter
                 .as_ref()
-                .is_some_and(|p| p.wants_display_frames() || p.host().motion());
+                .is_some_and(|p| p.wants_display_frames() || p.needs_animation_frame());
         let unpaced =
             self.frame_limit.is_some() && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some();
         let schedule = FrameSchedule {
@@ -517,6 +531,8 @@ impl<D: DataSource + Default + 'static> App<D> {
                 return Err(error);
             }
         }
+        counters::service(counters::DRAW);
+        let service_span = crate::probe::Span::new("draw service", counters::DRAW);
         p.pump(now);
         // A presented frame: its tasks, then the hatches' ticks and due
         // `after`s (LLP 1075.003.000.001 §2.4).
@@ -529,6 +545,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         p.hatch_turn();
         let prepared_at = frame_started.elapsed().as_secs_f64() * 1000.;
         p.poll_images();
+        drop(service_span);
         // The OS draws the desktop cursor; this presenter's arrow is for DRM.
         p.set_pointer(None);
         if self.frames > 0 {
@@ -810,7 +827,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         let (Some(window), Some(p)) = (&self.window, &mut self.presenter) else {
             return Ok(());
         };
-        if p.dirty() || p.wants_display_frames() || p.host().motion() {
+        if p.dirty() || p.wants_display_frames() || p.needs_animation_frame() {
             return Ok(());
         }
         if !self.caret.advance(now) {
@@ -874,6 +891,14 @@ impl<D: DataSource + Default + 'static> App<D> {
 }
 
 impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility::Event> for App<D> {
+    fn new_events(&mut self, _: &ActiveEventLoop, cause: StartCause) {
+        if matches!(cause, StartCause::ResumeTimeReached { .. }) {
+            if counters::enabled() {
+                self.service_causes |= counters::TIMER;
+            }
+        }
+        let _span = crate::probe::Span::new("run loop wake", self.service_causes);
+    }
     fn resumed(&mut self, events: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -930,6 +955,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         let mut direct = false;
         let booted = if let Some(preparing) = self.preparing.take() {
             app::boot_presenter_with_device::<D>(&mut self.config, viewport, preparing)
+        } else if self.direct && exact_ink::device::d3d11::startup_watchdog::after_layout() {
+            app::boot_presenter_after_layout_device::<D>(&mut self.config, viewport)
         } else {
             app::boot_presenter::<D>(&mut self.config, viewport)
         };
@@ -1009,17 +1036,30 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         boot_phase("visible");
         window.request_redraw();
         self.window = Some(window);
+        self.observe_monitor();
     }
     fn user_event(&mut self, events: &ActiveEventLoop, event: crate::accessibility::Event) {
+        let _span = crate::probe::Span::new("user event", 0);
         if let crate::accessibility::Event::Timer(fired) = event {
+            if counters::enabled() {
+                self.service_causes |= counters::TIMER;
+            }
             self.deliver_timer(fired, self.now());
             self.about_to_wait(events);
             return;
         }
         if matches!(event, crate::accessibility::Event::ModalWake) {
+            if counters::enabled() {
+                self.service_causes |= counters::TIMER;
+            }
             // Requesting another WM_PAINT is insufficient inside a native
             // modal loop. Consume its deadline in this dispatched callback.
-            if let Err(error) = self.draw(events) {
+            let result = self.draw(events);
+            if counters::enabled() {
+                self.service_causes &= !counters::TIMER;
+                self.service_causes |= counters::DRAW;
+            }
+            if let Err(error) = result {
                 self.fail(events, error);
                 return;
             }
@@ -1029,6 +1069,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         // Executor, image and hatch wakes need a display turn; polling the
         // executor alone does not service all three. Timers take the branch above.
         if matches!(event, crate::accessibility::Event::Wake) {
+            if counters::enabled() {
+                self.service_causes |= counters::WORKER;
+            }
             if let Some(window) = &self.window {
                 window.request_redraw();
             }
@@ -1047,6 +1090,14 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         self.about_to_wait(events);
     }
     fn window_event(&mut self, events: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+        let _span = crate::probe::Span::new("window event", 0);
+        if counters::enabled() {
+            self.service_causes |= match event {
+                WindowEvent::MouseWheel { .. } => counters::WHEEL,
+                WindowEvent::RedrawRequested => counters::DRAW,
+                _ => counters::WINDOW,
+            };
+        }
         if let (Some(access), Some(window)) = (&mut self.accessibility, &self.window) {
             access.process_event(window, &event);
         }
@@ -1063,6 +1114,12 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             }
             events.exit();
             return;
+        }
+        if matches!(
+            event,
+            WindowEvent::Moved(_) | WindowEvent::ScaleFactorChanged { .. }
+        ) {
+            self.observe_monitor();
         }
         if matches!(event, WindowEvent::ScaleFactorChanged { .. }) {
             // Winit applies the new pixel extent after this callback. Pairing
@@ -1248,7 +1305,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             }
             WindowEvent::Ime(event) => {
                 self.caret.activity(Instant::now());
-                self.ime.event(p, event);
+                if !exact_ink::device::d3d11::fields::focused() {
+                    self.ime.event(p, event);
+                }
             }
             _ => return,
         }
@@ -1269,16 +1328,37 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
 }
 
 impl<D: DataSource + Default + 'static> App<D> {
+    fn observe_monitor(&self) {
+        if counters::enabled() {
+            let hz = self
+                .window
+                .as_ref()
+                .and_then(|w| w.current_monitor())
+                .and_then(|m| m.refresh_rate_millihertz())
+                .unwrap_or(60_000);
+            counters::refresh_rate(hz);
+        }
+    }
+
     fn wait(
         &mut self,
         events: &ActiveEventLoop,
         deadlines: impl FnOnce(&Presenter<D>) -> (Option<Instant>, Option<Instant>),
     ) {
+        let causes = if counters::enabled() {
+            std::mem::take(&mut self.service_causes)
+        } else {
+            0
+        };
+        counters::service(causes);
+        let _span = crate::probe::Span::new("carrier service", causes);
+        crate::probe::sample();
         let now = self.now();
         for fired in self.timers.take_due(now) {
             self.deliver_timer(fired, now);
         }
         if let Some(p) = self.presenter.as_mut() {
+            p.windows_field_edits(self.started.elapsed().as_secs_f64() * 1000.);
             p.timer_visibility(self.minimized || self.occluded);
             let now = self.started.elapsed().as_secs_f64() * 1000.0;
             if p.wake_due_ms().is_some_and(|due| due <= now) {
@@ -1346,7 +1426,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             events.set_control_flow(ControlFlow::Wait);
         }
         let continuous =
-            self.frame_limit.is_some() || p.wants_display_frames() || p.host().motion();
+            self.frame_limit.is_some() || p.wants_display_frames() || p.needs_animation_frame();
         let unpaced =
             self.frame_limit.is_some() && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some();
         let (retry, present) = deadlines(p);
@@ -1392,7 +1472,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             && !self.minimized
             && !p.dirty()
             && !p.wants_display_frames()
-            && !p.host().motion()
+            && !p.needs_animation_frame()
         {
             if let Some(soon) = self.caret.deadline() {
                 if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= soon) {

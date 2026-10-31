@@ -74,6 +74,9 @@ pub struct Batch {
     /// The session's orientation lock, JSON, when it changed
     /// (`Host::orientation_moved`, LLP 1133.029 D3).
     pub orientationlock: Option<String>,
+    /// Whether the app must finish work an answer started, when that
+    /// changed (`Host::finish_moved`).
+    pub must_finish: Option<bool>,
 }
 
 pub use exact_runner::agent::quote;
@@ -303,10 +306,21 @@ impl Batch {
         Batch::default()
     }
 
-    /// @ref LLP 1038 D7 — one coalesced router change beside commands.
+    /// @ref LLP 1038 D7 — one coalesced router change beside commands; its
+    /// `url` carries the visit's fragment, and `scroll` asks for the scroll
+    /// to it (LLP 1153 D5).
     pub fn router(&mut self, change: &exact_runner::RouterChange) {
         let mut s = format!("{{\"op\":\"router\",\"top\":{},\"url\":", change.top);
-        quote(&change.url, &mut s);
+        quote(&change.location(), &mut s);
+        s.push_str(",\"fragment\":");
+        quote(&change.fragment, &mut s);
+        s.push_str(if change.scroll {
+            ",\"scroll\":true"
+        } else {
+            ",\"scroll\":false"
+        });
+        s.push_str(",\"activation\":");
+        s.push_str(&change.activation.to_string());
         s.push_str(",\"removed\":[");
         for (i, id) in change.removed.iter().enumerate() {
             if i > 0 {
@@ -952,6 +966,9 @@ impl Batch {
         }
         if let Some(lock) = &self.orientationlock {
             let _ = write!(s, ",\"orientationlock\":{lock}");
+        }
+        if let Some(must) = self.must_finish {
+            let _ = write!(s, ",\"mustFinish\":{must}");
         }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");

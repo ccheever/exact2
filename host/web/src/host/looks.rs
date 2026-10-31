@@ -21,7 +21,8 @@ pub fn declarations(
 }
 
 /// The looks' [`declarations`] for the element `at` selects, as page rules,
-/// empty for none: `:hover` (where the pointer hovers), then
+/// empty for none: `:hover` (where a pointer hovers and the last one used
+/// was no finger, the input glue's `data-exact-input`), then
 /// `:focus-visible`, the last winning, each also where it is held; a
 /// disabled node takes none.
 pub fn rules(at: &str, looks: &[(u8, String)]) -> String {
@@ -43,7 +44,7 @@ pub fn rules(at: &str, looks: &[(u8, String)]) -> String {
             // rule, whatever the pointer (the input glue's `hold`).
             LOOK_HOVER => write!(
                 out,
-                "@media (hover:hover){{{at}:hover{enabled}{{{rows}}}}}{at}[data-exact-held~=hover]{enabled}{{{rows}}}"
+                "@media (any-hover:hover){{:where(html:not([data-exact-input=touch])) {at}:hover{enabled}{{{rows}}}}}{at}[data-exact-held~=hover]{enabled}{{{rows}}}"
             ),
             _ => write!(
                 out,

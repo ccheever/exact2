@@ -2124,3 +2124,17 @@ component App
     after(1, tick, tolerance=1, wait=frame)
   view
     text "timer"
+---
+== lower-table-content
+component App
+  view
+    table
+      td
+        text "a"
+---
+== lower-dl-content
+component App
+  view
+    column
+      dd
+        text "a"

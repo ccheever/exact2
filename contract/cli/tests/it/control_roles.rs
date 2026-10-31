@@ -1,8 +1,8 @@
 //! @ref LLP 1121 D9 (stage 8 C2) — `tamber-unreachable`: for each target the
 //! app ships, each control parameter it sets that the target's host does
 //! not honour there (the schema's control-role table), once a target,
-//! control and parameter, at the override; `best-effort` says nothing; a
-//! node's own row wins over the role.
+//! control and parameter, in one line for each override; `best-effort` says
+//! nothing; a node's own row wins over the role.
 
 use std::path::PathBuf;
 
@@ -158,14 +158,10 @@ fn classes_conditions_and_appearance_none() {
     let view = "style Primary\n  buttonStyle=\"bordered-prominent\"\n\nstyle Brand\n  accent-color=\"accent.brand\"\n\nstyle Plain\n  opacity=1\n\ncomponent App\n  state on = true\n  state busy = true\n  action check(checked: bool)\n    on = checked\n  action go\n    busy = !busy\n  view\n    column class=(on ? Brand : Plain)\n      input type=\"CHECKBOX\" switch checked=on change=check aria-label=\"A\"\n      button \"Post\" class=Primary press=go disabled=busy\n      input type=\"checkbox\" switch appearance=\"none\" checked=on change=check aria-label=\"B\"\n";
     let path = app("classes", "\"macos\": {}, \"ios\": {}", design, view);
     let said = unreachable(&path);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains("macOS switches (NSSwitch"), "{said:?}");
     assert!(
-        said.iter()
-            .any(|m| m.starts_with("accent-color on macOS switches")),
-        "{said:?}"
-    );
-    assert!(
-        said.iter()
-            .any(|m| m.starts_with("accent-color on iOS disabled prominent buttons")),
+        said[0].contains("iOS disabled prominent buttons (iOS draws"),
         "{said:?}"
     );
     // The `appearance="none"` switch alone: nothing.
@@ -180,6 +176,47 @@ fn classes_conditions_and_appearance_none() {
         );
     let path = app("own", "\"macos\": {}", design, &own);
     assert_eq!(unreachable(&path), Vec::<String>::new());
+}
+
+/// One declaration that several hosts' controls leave alone is one line
+/// (the 2026-10-30 ruling): it names the hosts, each part's controls and
+/// why, the hosts that agree once, and how to stop shipping each.
+#[test]
+fn one_declaration_is_one_line_naming_its_hosts() {
+    let view = "component App\n  state on = true\n  state size = \"m\"\n  action check(checked: bool)\n    on = checked\n  action pick(value: string)\n    size = value\n  action go\n    on = on\n  view\n    column accent-color=\"accent.brand\"\n      input type=\"checkbox\" switch checked=on change=check aria-label=\"A\"\n      select value=size change=pick aria-label=\"Size\"\n        option \"Medium\" value=\"m\"\n      button \"Post\" buttonStyle=\"prominent-glass\" press=go disabled=true\n";
+    let path = app(
+        "collapse",
+        "\"web\": {}, \"ios\": {}, \"macos\": {}, \"linux\": {}, \"windows\": {}",
+        "  accent.brand = #e0218a\n",
+        view,
+    );
+    let said = unreachable(&path);
+    assert_eq!(said.len(), 1, "{said:?}");
+    let line = &said[0];
+    assert!(
+        line.starts_with(
+            "accent-color on iOS, macOS, the web, Linux and Windows: the platform's look stands on "
+        ),
+        "{line}"
+    );
+    for part in [
+        "macOS switches (NSSwitch draws the system accent)",
+        "macOS selects (NSPopUpButton takes no tint)",
+        "the web's selects (a browser's select takes no accent-color)",
+        "Linux and Windows selects (the neutral look, as the web's, draws a closed select without the accent)",
+        "iOS disabled prominent buttons (iOS draws a disabled prominent glass button grey",
+        "the web's, Linux and Windows disabled prominent buttons (the neutral look draws",
+    ] {
+        assert!(line.contains(part), "{part} in {line}");
+    }
+    assert!(
+        line.contains("(the first at line 12; LLP 1121 D9)"),
+        "{line}"
+    );
+    assert!(
+        line.ends_with("; not shipping one? `bun exact.mjs update --without linux` removes linux; otherwise delete its keys"),
+        "{line}"
+    );
 }
 
 /// Review round 2: `accent-color="auto"` is the platform's accent, no

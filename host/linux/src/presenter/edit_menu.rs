@@ -47,7 +47,7 @@ impl<D: DataSource> Presenter<D> {
     /// A secondary click's default menu. Authored context menus and handlers
     /// run first; disabled, covered and hosted fields have no painted-field menu.
     pub fn edit_menu_at(&mut self, point: (f32, f32)) -> Option<EditMenu> {
-        if self.top_open() {
+        if self.page_inert() {
             return None;
         }
         let id = self.hit(point.0, point.1)?;
@@ -68,7 +68,7 @@ impl<D: DataSource> Presenter<D> {
     ) -> (bool, Option<EditMenu>) {
         let held = self.modifiers();
         let asks = key == "ContextMenu" || (key == "F10" && held.shift);
-        if !asks || held.ctrl || held.alt || held.meta || self.top_open() {
+        if !asks || held.ctrl || held.alt || held.meta || self.page_inert() {
             return (false, None);
         }
         let Some(id) = self.focus.filter(|&id| self.menu_field(id)) else {
@@ -158,7 +158,7 @@ impl<D: DataSource> Presenter<D> {
                 break;
             }
         }
-        if prevented || !self.input_live(key) || !self.menu_field(id) || self.top_open() {
+        if prevented || !self.input_live(key) || !self.menu_field(id) || self.page_inert() {
             return None;
         }
         if let Some((invoker, name)) = popover {
@@ -242,7 +242,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Whether the menu still describes the focused text field and selection.
     pub fn edit_menu_valid(&self, menu: &EditMenu) -> bool {
-        if self.top_open() || !self.input_live(menu.key) {
+        if self.page_inert() || !self.input_live(menu.key) {
             return false;
         }
         self.host.kernel().node_by_key(menu.key).is_some_and(|n| {

@@ -115,7 +115,7 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         "undeliverable parser step kinds: {}",
         crate::script::undeliverable_kinds()
     );
-    println!("delivered forms: tap press without modifiers; type replacement; clock +N, data, settle; expect (host-only reads omitted)");
+    println!("delivered forms: tap press without modifiers; type replacement; clock +N, data, settle, until state (top-level); leading size (no layout); expect (host-only reads omitted)");
     let mut delivery = crate::receipt::Delivery::default();
     let mut located = Vec::new();
     for (test_file, tests) in authored {
@@ -124,6 +124,11 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
                 crate::script::test_case(&show(&test_file), &source, Some(&file), t, Some(&plan))?;
             let d = &scripted.delivery;
             delivery.settle_bounds += d.settle_bounds;
+            delivery.until_met += d.until_met;
+            if let Some((_, kind, _)) = &d.stopped {
+                delivery.until_not_met += usize::from(kind == "clock until (not met)");
+                delivery.until_field_paths += usize::from(kind == "clock until (field path)");
+            }
             delivery.mutation_events += d.mutation_events;
             delivery.mutation_bounds += d.mutation_bounds;
             let expansion = if let Some(path) = &d.expansion {
@@ -415,7 +420,7 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         crate::observe::OMITTED_KINDS.join(", ")
     );
     println!("world: {}", crate::settle::HOST_WORLD);
-    suggestions.print(&properties);
+    let precision = suggestions.print(&properties, &file)?;
     let never = rendered
         .difference(&walk_census.attempted)
         .cloned()
@@ -436,6 +441,7 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         js: &js,
         runner_seconds,
         candidates,
+        precision: &precision,
     }
     .print();
     Ok(ok)

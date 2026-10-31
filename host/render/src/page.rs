@@ -146,6 +146,19 @@ pub(crate) fn activate_js(activate: exact_plan::ActivatePolicy) -> &'static str 
     }
 }
 
+/// Whether a page at `location` names the entry's preloads in the head a
+/// server sends before its render: an `interaction` route fetches nothing
+/// before intent, and an undeclared one whose page may wait does not know
+/// yet, so it names them after its head once its render chose to run at
+/// once (`body_open_js`'s `late`, LLP 1048.007 D1).
+pub(crate) fn preloads_early(plan: &exact_plan::Plan, location: &str) -> bool {
+    match exact_web::document::route_at(plan, location).map(|route| route.activate) {
+        Some(exact_plan::ActivatePolicy::Interaction) => false,
+        None | Some(exact_plan::ActivatePolicy::Inferred) => crate::inference(plan).never_waits(),
+        Some(_) => true,
+    }
+}
+
 /// [`page`] over the JavaScript runtime's shell (exact2's JS web target,
 /// LLP 1071): [`head_js`], then [`body_js`] — the page a server streams in
 /// those two parts is these bytes.
@@ -262,14 +275,25 @@ fn lang_attr(shell: &str, lang: &str) -> String {
         .to_string()
 }
 
+/// One of the shell's `modulepreload` lines (`<link …>\n`), marked
+/// `fetchpriority="low"` (LLP 1153.001 D8): a rendered page paints without
+/// the runtime, which only adopts it (LLP 1048.001), so the runtime must not
+/// compete with the page for the link. The shell a `client` route is sent
+/// keeps it at the default priority: that page cannot paint until it runs.
+fn push_low(out: &mut String, line: &str) {
+    let tag = line.trim_end_matches('\n').trim_end_matches('>');
+    out.push_str(tag);
+    out.push_str(" fetchpriority=\"low\">\n");
+}
+
 /// What of a JavaScript page comes before anything its render decides: the
 /// doctype and `<html lang dir>`, the charset and base, the capture script,
-/// the entry's `modulepreload`s when `preload` (an `interaction` page has
-/// none: it fetches nothing before intent) and the stylesheet. A server
-/// sends it as a request arrives (LLP 1071 D6's early flush), while the
-/// page's data is still being asked; the head stays open, so what the
-/// render decides — the title, the metas, a late preload — still lands in
-/// `<head>`.
+/// the entry's `modulepreload`s at low priority when `preload` (an
+/// `interaction` page has none: it fetches nothing before intent) and the
+/// stylesheet. A server sends it as a request arrives (LLP 1071 D6's early
+/// flush), while the page's data is still being asked; the head stays open,
+/// so what the render decides — the title, the metas, a late preload — still
+/// lands in `<head>`.
 pub(crate) fn head_js(
     shell: &str,
     js: &Js,
@@ -297,7 +321,7 @@ pub(crate) fn head_js(
     for &(start, stop) in &js.preloads {
         out.push_str(&shell[from..start]);
         if preload {
-            out.push_str(&shell[start..stop]);
+            push_low(&mut out, &shell[start..stop]);
         }
         from = stop;
     }
@@ -338,6 +362,7 @@ pub(crate) fn body_js(
         js,
         &rendered.digest,
         rendered.activate,
+        &rendered.wake,
         &rendered.checkpoint,
     ));
     out
@@ -369,7 +394,7 @@ pub(crate) fn body_open_js(
     }
     if late {
         for &(start, stop) in &js.preloads {
-            out.push_str(&shell[start..stop]);
+            push_low(&mut out, &shell[start..stop]);
         }
     }
     out.push_str(&shell[js.at.root..js.at.root_open]);
@@ -383,18 +408,31 @@ pub(crate) fn body_close_js(
     js: &Js,
     digest: &str,
     activate: exact_plan::ActivatePolicy,
+    wake: &str,
     checkpoint: &str,
 ) -> String {
     let at = &js.at;
     let mut out = String::with_capacity(shell.len() - at.root + checkpoint.len() + 256);
     out.push_str("</div>");
     out.push_str(&shell[at.root_end..at.entry]);
+    let wake = if wake.is_empty() {
+        String::new()
+    } else {
+        // Escaped as `render.mjs` `esc` writes it.
+        let escaped = wake
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;");
+        format!(" data-wake=\"{escaped}\"")
+    };
     let _ = std::fmt::Write::write_fmt(
         &mut out,
         format_args!(
-            "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\">{}</script>",
+            "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\"{}>{}</script>",
             digest,
             activate_js(activate),
+            wake,
             checkpoint
         ),
     );
@@ -728,6 +766,7 @@ mod tests {
             state: Default::default(),
             settled: crate::Settled::Complete,
             activate: exact_plan::ActivatePolicy::Inferred,
+            wake: String::new(),
             runtime_form: false,
         };
         let js = Js::of(shell).unwrap();

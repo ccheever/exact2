@@ -1,11 +1,12 @@
-//! The browser's path and query serializer, without a host parser.
+//! The browser's path, query and fragment serializers, without a host parser.
 //!
-//! @ref LLP 1038 §3 — Location and the searchParam read; D1, D3, D8.
+//! @ref LLP 1038 §3 — Location and the searchParam read; D1, D3, D8; LLP 1153 D5.
 //!
 //! Locations are absolute paths appended to `https://x`, never resolved as
 //! network-path references. Backslashes are path separators and the query
 //! uses the special-query set (it includes `'`). Existing percent escapes
 //! keep their spelling; only parameter formatting uses encodeURIComponent.
+//! A fragment rides beside a location's identity, never in it.
 
 use crate::Entry;
 
@@ -21,12 +22,27 @@ pub fn canonical(location: &str) -> String {
     path_query(&clean(&absolute))
 }
 
-/// Derive a location from a host's incoming URL. For non-HTTP schemes the
-/// authority is the first path segment, so `interview://post/42` is `/post/42`.
-/// A scheme without `//` uses everything after `:` as that path (e.g. mailto).
+/// The browser's `hash` without its `#`: what follows the first `#`, with
+/// the fragment percent-encode set applied (WHATWG URL: C0 controls, space,
+/// `"`, `<`, `>`, `` ` `` and every non-ASCII byte); `""` when there is none.
+pub fn fragment_of(location: &str) -> String {
+    clean(location)
+        .split_once('#')
+        .map(|(_, fragment)| {
+            encode(fragment, |b| {
+                !(0x21..=0x7e).contains(&b) || matches!(b, b'"' | b'<' | b'>' | b'`')
+            })
+        })
+        .unwrap_or_default()
+}
+
+/// Derive a location from a host's incoming URL, its fragment kept. For
+/// non-HTTP schemes the authority is the first path segment, so
+/// `interview://post/42` is `/post/42`. A scheme without `//` uses
+/// everything after `:` as that path (e.g. mailto).
 pub fn location_of(href: &str) -> String {
     let input = clean(href);
-    match scheme(&input) {
+    let location = match scheme(&input) {
         Some((name, after))
             if !name.eq_ignore_ascii_case("http") && !name.eq_ignore_ascii_case("https") =>
         {
@@ -34,6 +50,10 @@ pub fn location_of(href: &str) -> String {
         }
         Some((_, after)) => path_query(without_authority(after.trim_start_matches(['/', '\\']))),
         None => canonical(&input),
+    };
+    match fragment_of(&input) {
+        fragment if fragment.is_empty() => location,
+        fragment => format!("{location}#{fragment}"),
     }
 }
 
@@ -163,7 +183,18 @@ fn encode(input: &str, escape: impl Fn(u8) -> bool) -> String {
     out
 }
 
+/// The `id` a fragment names when it is not one as written (HTML, "find a
+/// potential indicated element"): percent-decoded, then read as UTF-8 with
+/// no BOM stripped; `None` when the bytes are not UTF-8.
+pub fn fragment_id(fragment: &str) -> Option<String> {
+    String::from_utf8(decode_bytes(fragment, false)).ok()
+}
+
 pub(crate) fn decode(input: &str, plus: bool) -> String {
+    String::from_utf8_lossy(&decode_bytes(input, plus)).into_owned()
+}
+
+fn decode_bytes(input: &str, plus: bool) -> Vec<u8> {
     let mut out = Vec::with_capacity(input.len());
     let mut bytes = input.bytes();
     while let Some(b) = bytes.next() {
@@ -182,7 +213,7 @@ pub(crate) fn decode(input: &str, plus: bool) -> String {
         }
         out.push(if plus && b == b'+' { b' ' } else { b });
     }
-    String::from_utf8_lossy(&out).into_owned()
+    out
 }
 
 fn hex(b: u8) -> Option<u8> {
@@ -237,6 +268,7 @@ mod protocol_tests {
             url: location,
             tab: "home".into(),
             params: Default::default(),
+            fragment: String::new(),
         };
         assert_eq!(search_param(&entry, "u"), long);
     }

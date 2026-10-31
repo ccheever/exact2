@@ -549,22 +549,11 @@ fn run<D: DataSource + Default>(
         // a fling) runs once that frame is out, as a scrolled list's
         // collection turn does: it shows a frame later instead of making
         // this one late.
-        let mut advance_after = false;
-        if vsync.arrived.get() && p.host().wants_frames() {
-            last_tick = now;
-            if let Some(e) = trace(c"exact animation frame", || p.animation_frame(now)) {
-                log(&format!("exact: {e}"));
-            }
-        } else if p
-            .timer_or_scroll_due_ms()
-            .is_some_and(|due| due <= now && now - last_tick >= frame_ms * 0.5)
-        {
-            last_tick = now;
-            if vsync.arrived.get() && p.dirty() {
-                advance_after = true;
-            } else if let Some(e) = trace(c"exact advance", || p.advance(now)) {
-                log(&format!("exact: {e}"));
-            }
+        let (advance_after, error) = trace(c"exact advance", || {
+            p.android_clock(now, vsync.arrived.get(), &mut last_tick, frame_ms)
+        });
+        if let Some(e) = error {
+            log(&format!("exact: {e}"));
         }
         if vsync.arrived.get() && trace(c"exact needs frame", || p.needs_animation_frame()) {
             trace(c"exact tick", || p.tick(now));
@@ -641,7 +630,7 @@ fn run<D: DataSource + Default>(
                 )
             };
         }
-        let timeout = match p.timer_or_scroll_due_ms() {
+        let timeout = match p.wake_due_ms() {
             Some(due) => ((due - wall()).max(0.0).ceil() as c_int).min(1000),
             None => 1000,
         };

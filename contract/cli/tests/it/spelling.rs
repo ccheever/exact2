@@ -328,7 +328,7 @@ fn review_cases_values_in_keyframes_composites_and_author_names() {
         ),
         (
             app("      view background-color=\"var(--EXACT-label, #000)\"\n"),
-            "--exact-",
+            "`-exact-label` is a role",
         ),
     ] {
         let e = refusal(&src);

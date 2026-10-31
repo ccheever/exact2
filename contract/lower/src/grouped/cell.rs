@@ -2,6 +2,7 @@
 //! (`GroupedRow`): a leading symbol and a trailing accessory at most around
 //! a title, a title and a value, or a `column` of one or two texts.
 
+use super::inputs::column_row;
 use super::{accessory, hidden, symbol};
 use contract_syntax::{Expr, Node};
 
@@ -77,4 +78,18 @@ pub(super) fn text_lines(nodes: &[Node]) -> Option<(usize, usize)> {
         }
         _ => None,
     })
+}
+
+/// Whether a row's part is a column of one shown text.
+pub(super) fn one_line(node: &Node) -> bool {
+    matches!(node, Node::Element { tag, attrs, children, .. }
+        if !hidden(node) && column_row(tag, attrs) && text_lines(children) == Some((1, 1)))
+}
+
+/// Whether a row's part is lines stacked in the row: a shown element that
+/// lays out as a column around two parts or more (a column with nothing in
+/// it is a box, as a cover's placeholder is). `part` reads an `if` through.
+pub(super) fn stacks(node: &Node) -> bool {
+    matches!(node, Node::Element { tag, attrs, children, .. }
+        if !hidden(node) && column_row(tag, attrs) && children.iter().filter(|c| !hidden(c)).count() >= 2)
 }

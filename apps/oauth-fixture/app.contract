@@ -2,7 +2,8 @@
 // authorization server (`packages/oauth/test/fixture.ts`), one provider
 // profile at a time. Its testIds are the ones the conformance cases read
 // (`packages/oauth/test/cases.template.contract`): sign-in, sign-out, status,
-// name, refresh and error.
+// name, refresh and error. `sign-in-here` signs in to ForgeRock with the
+// app's own screens (LLP 1146 D8; `app.test.contract`).
 
 use OAuthSession, OAuthResult from "@exact/oauth"
 
@@ -22,6 +23,8 @@ component OAuthFixture
 
   action signIn
     send signedIn = signIn(profile)
+  action signInHere
+    send signedIn = signInHere(profile)
   action signOut
     send signedOut = signOut(profile)
   action reload
@@ -42,6 +45,7 @@ component OAuthFixture
         option "OneLogin" value="onelogin"
         option "GitHub" value="github"
         option "Salesforce" value="salesforce"
+        option "ForgeRock" value="forgerock"
       text (session.signedIn ? "Signed in" : "Signed out") testId="status"
       if problem != "" and not pending(signedIn)
         text problem color="-exact-system-red" testId="error"
@@ -54,3 +58,6 @@ component OAuthFixture
       else
         button press=signIn disabled=pending(signedIn) buttonStyle="filled" testId="sign-in"
           text "Sign In"
+        if profile == "forgerock"
+          button press=signInHere disabled=pending(signedIn) testId="sign-in-here"
+            text "Sign In Here"

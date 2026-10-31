@@ -103,7 +103,7 @@ impl<D: DataSource> Presenter<D> {
     /// layer, which no scroll takes away: the tap still refuses there. Whether it scrolled.
     fn clear_of_sticky(&mut self, id: ViewId, at: (f32, f32)) -> bool {
         // (An open surface of the top layer, a popover or an alert, is over the page: no scroll clears it.)
-        if self.surface_open() || self.alert.is_some() {
+        if self.surface_open() || self.alert_inert() {
             return false;
         }
         let Some((cover, scroller)) = self.sticky_at(id, at) else {
@@ -189,6 +189,9 @@ impl<D: DataSource> Presenter<D> {
     /// with that HTML `id`, aligned in each scroll container above it, then
     /// the page. `behavior="smooth"` lands at once here (no animation).
     pub(super) fn scroll_element_into_view(&mut self, args: &[exact_plan::Value]) {
+        // The author's scroll wins over a fragment's, held or still armed.
+        self.fragment_anchor = None;
+        self.fragment_armed = None;
         let text = |i: usize| args.get(i).and_then(exact_plan::Value::as_str);
         let name = text(0).unwrap_or_default();
         let kernel = self.host.kernel();
@@ -212,11 +215,118 @@ impl<D: DataSource> Presenter<D> {
         });
     }
 
+    /// The runner's `scrollToFragment(visit, fragment, activation)`, once a
+    /// route's data has arrived (LLP 1153 D5): the node with that HTML `id`
+    /// in the visit's own route (a route beneath may hold the same id) at
+    /// the start of each scroll container above it, as `scrollIntoView` with
+    /// `block="start"`, then the starting point of the next Tab, and held
+    /// there while the pictures load (`hold_fragment`); `top`, or no such
+    /// node, the route's scrollers at their tops and the route's start in
+    /// view. A scroll by the person since the router change that made the
+    /// activation arrived cancels it.
+    pub(super) fn scroll_to_fragment(&mut self, args: &[exact_plan::Value]) {
+        let visit = args.first().and_then(exact_plan::Value::as_number);
+        let fragment = args
+            .get(1)
+            .and_then(exact_plan::Value::as_str)
+            .unwrap_or_default();
+        let activation = args.get(2).and_then(exact_plan::Value::as_number);
+        self.fragment_anchor = None;
+        // The activation this command makes, armed when its router change
+        // arrived; taken once.
+        let armed = self
+            .fragment_armed
+            .filter(|(a, _)| Some(*a as f64) == activation);
+        if armed.is_some() {
+            self.fragment_armed = None;
+        }
+        if armed.is_some_and(|(_, scrolls)| scrolls != self.person_scrolls) {
+            self.host.log(format!(
+                "fragment #{fragment}: the person scrolled first; the route stays where it is"
+            ));
+            return;
+        }
+        let key = visit.map(|v| format!("{v}")).unwrap_or_default();
+        let kernel = self.host.kernel();
+        let Some(route) = kernel
+            .preorder_where(&self.host.roots(), |_, props| {
+                props.str(PropId::NavigationKey) == Some(key.as_str())
+                    && props.str(PropId::NavigationBack).is_none()
+            })
+            .first()
+            .copied()
+        else {
+            self.host.log(format!(
+                "fragment #{fragment}: no route of visit {key} is on the screen"
+            ));
+            return;
+        };
+        let id = exact_route::fragment_id(fragment);
+        let target = [Some(fragment), id.as_deref()]
+            .into_iter()
+            .flatten()
+            .filter(|name| !name.is_empty())
+            .find_map(|name| {
+                (kernel.find_by_id(name).into_iter())
+                    .filter_map(|key| kernel.node_by_key(key).map(|n| n.id))
+                    .find(|n| self.is_inside(*n, route))
+            });
+        if let Some(target) = target {
+            self.scroll_into(target, true, true, at_start);
+            self.fragment_anchor = self
+                .images
+                .pending()
+                .then_some((target, self.person_scrolls));
+            // HTML moves the sequential focus navigation starting point to
+            // the target; a focus elsewhere would take the next Tab instead.
+            self.blur();
+            self.focus_start = Some(target);
+            return;
+        }
+        if !fragment.is_empty() && !id.is_some_and(|id| id.eq_ignore_ascii_case("top")) {
+            self.host.log(format!("fragment #{fragment}: no element in the route of visit {key} has that id; the route goes to its top"));
+        }
+        let scrolled: Vec<_> = (self.scroll.iter())
+            .filter(|(id, off)| {
+                **off != (0.0, 0.0) && (**id == route || self.is_inside(**id, route))
+            })
+            .map(|(id, off)| (*id, *off))
+            .collect();
+        for (id, off) in scrolled {
+            self.scroll.insert(id, (0.0, 0.0));
+            self.scroll_end_input(id, off, Completion::Instant);
+            self.collection_scroll_input(id, off);
+            self.dirty = true;
+        }
+        // The scrollers that present the route, the page's among them.
+        self.scroll_into(route, true, true, at_start);
+    }
+
+    /// While the route's pictures load, the fragment's target stays at the
+    /// start of its scrollers, as a browser holds its fragment in view while
+    /// its document loads, until the person scrolls; whether it moved.
+    pub(crate) fn hold_fragment(&mut self) -> bool {
+        let Some((target, scrolls)) = self.fragment_anchor else {
+            return false;
+        };
+        if scrolls != self.person_scrolls || self.host.kernel().node(target).is_none() {
+            self.fragment_anchor = None;
+            return false;
+        }
+        let (page, scroll) = (self.page, self.scroll.clone());
+        self.scroll_into(target, true, true, at_start);
+        if !self.images.pending() {
+            self.fragment_anchor = None;
+        }
+        self.page != page || self.scroll != scroll
+    }
+
     /// An app's `scrollBy("element-id", x, y)`: that scroll container moves
     /// by the pixels given, clamped to its travel, as the web's
     /// `Element.scrollBy`; an element that does not scroll does not move.
     pub(super) fn scroll_element_by(&mut self, args: &[exact_plan::Value]) {
         self.restore_scroll_anchors();
+        self.fragment_anchor = None;
         let name = args
             .first()
             .and_then(exact_plan::Value::as_str)
@@ -392,7 +502,7 @@ impl<D: DataSource> Presenter<D> {
                 self.collection_scroll_input(a, off);
             }
         }
-        if self.alert.is_some() {
+        if self.alert_inert() {
             return;
         }
         if let Some(target) = self.box_of(id) {
@@ -466,3 +576,16 @@ fn inset(rect: Rect4, [top, right, bottom, left]: [f32; 4]) -> Rect4 {
         (rect.3 - top - bottom).max(0.0),
     )
 }
+
+/// `scrollIntoView`'s `block="start"`, `inline="nearest"`: the offsets that
+/// put the target `t` at the start of the port `p`.
+fn at_start(t: Rect4, p: Rect4) -> (f32, f32) {
+    (
+        aligned("nearest", t.0, t.0 + t.2, p.0, p.2) - p.0,
+        aligned("start", t.1, t.1 + t.3, p.1, p.3) - p.1,
+    )
+}
+
+#[cfg(test)]
+#[path = "fragment_tests.rs"]
+mod fragment_tests;

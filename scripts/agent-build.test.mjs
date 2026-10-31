@@ -618,6 +618,19 @@ test('a drive says the web-only symbol warnings in one line and lists each in it
   }
 });
 
+test('a drive counts a warning that is information apart (tamber-unreachable, LLP 1121 D9)', async () => {
+  const { warningLines } = await import('./app-cli.mjs');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-warning-notes-')));
+  try {
+    const note = 'app.contract:3:5 warning [tamber-unreachable] accent-color on macOS switches: NSSwitch draws the system accent (the first at line 4; LLP 1121 D9)';
+    const header = 'app.contract:9:3 warning [lower-header-unplaced] this `button` in this route\'s `header` is not shown on iOS';
+    assert.match(warningLines(dir, 'web', [note]).at(-1), /^compiler: 1 note \(not counted\); /);
+    assert.match(warningLines(dir, 'web', [header, note]).at(-1), /^compiler: 1 warning and 1 note \(not counted\), 1 new \(above\); /);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // An Apple build's bake says its warnings on every build: the SF Symbols only the web draws blank one line where the
 // first was (euxy's 18, every Release build), the rest each.
 test('an Apple bake says the web-only symbol warnings in one line', async () => {

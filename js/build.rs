@@ -62,6 +62,10 @@ fn main() {
         shim.flag("-isysroot")
             .flag(String::from_utf8(sdk.stdout).expect("SDK path").trim());
     }
+    // The shim is compiled against ibex2's headers: a vendored Ibex bump
+    // that changes a struct the shim fills (`InstallOptions`) must compile
+    // it again, or ibex2 reads the new layout from the old one's bytes.
+    println!("cargo:rerun-if-changed={}", ibex.join("include").display());
     shim.cpp(true)
         .file("src/shim.cc")
         .include(ibex.join("include"))

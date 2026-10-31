@@ -62,7 +62,14 @@ NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and
    uses name `dates` (a date or time control), which links Compose Material 3 for its pickers; and with the Kotlin
    in the app's `modules/android`, its hatches and module roster, compiled in,
 
-and prints `app/build/<app>/outputs/apk/release/app-release.apk`. The package id and the label are the app's
+and prints the APK's path. Each build has its own Gradle output and locks: the
+shell's build directory (`-PappBuildDir`), the reader's (`-PcanvasBuildDir`), Gradle's project cache
+(`--project-cache-dir`) and Kotlin's session files, under `app/build/<app>`, `canvas/build/<app>`, `.gradle/apps/<app>`
+and `.kotlin/apps/<app>` for an app of this repository and under the app's own `target/android/` for one outside it, so
+builds of two apps at once do not wait on each other or mix outputs. The library is stripped with the NDK it was linked
+with (`-PndkPath`). Beside the APK, `exact-build.json` records when the build began, the library and the Kotlin it
+compiled: a drive refuses an APK older than its sources by it. `--install` then installs the APK on the device a drive
+would use (`--run`: and launches it). The package id and the label are the app's
 `app.json` (`app.id`, with `-` as `_`, which a package name cannot hold; `app.name`). `ORG_GRADLE_PROJECT_idSuffix=.dev` in the environment builds a side-by-side package
 (`<app id>.dev`). `./gradlew :canvas:assembleRelease` builds the reader alone.
 
@@ -72,6 +79,14 @@ is the built app's own `modules/android`; this override avoids copying a provide
 
 Then `adb install -r <apk>` and `adb shell am start -n <app id>/dev.exact.app.MainActivity`, or drive it:
 `bun scripts/agent.mjs android --reader --app <app> …` (below, "Driving the reader").
+
+**An `exact new` app**'s `bun exact.mjs android` names Android in its `app.json` the first time and builds in the
+workspace generated under `.exact/shells/` (`scripts/app-shells.mjs`), whose `android/` crate is Shelf's shape with
+`exact_js_bake::build_android` for its build script; an app with its own workspace gains the crate from `bun exact.mjs
+update` once its `app.json` names Android. That verb is `build <app> --apk --install`; its
+`test android` and `agent android` drive the APK (`--headless`: the Linux host under `adb shell`), and `verify android`
+runs the tests, the first screen and the relaunch with screenshots light and dark, without `check`, which this host
+does not observe for yet.
 
 **In a dev loop** (LLP 1122 D4): give the launch the loop's page URL as `x_dev_plan` (exact2's `EXACT_DEV_PLAN`),
 through `adb reverse` since the loop serves this Mac's loopback only: `adb reverse tcp:<port> tcp:<port>`, then
@@ -203,8 +218,9 @@ on screen; and `tap … contextmenu` was refused as a popover though this host p
 0.52 MB more in `libexactcanvas.so` for every app (Shelf's 19,717,432 bytes before it, 20,241,592 after). Nothing of
 it runs unless a driver asks, and cold start with it is the table's above.
 
-Not built: the carrier does not check that the APK is newer than its sources, as the other carriers refuse a stale
-build; each drive installs the APK again; a drive leaves the phone's night mode, font scale and locale as they are
+A drive refuses an APK older than its sources, naming the build (the record beside the APK, above), and installs it
+only when the device does not already hold the same bytes. With several devices attached and no `ANDROID_SERIAL` it
+refuses to choose. Not built: a drive leaves the phone's night mode, font scale and locale as they are
 (`prefer` tells the app, not the phone); and a touch through Android's own input (`adb shell input`, or a
 `UiAutomation`) is still the only way to test what the reader does with a finger.
 
@@ -1237,7 +1253,6 @@ The cut was the smallest one. Left in the reader:
 - **No picture from a URL.** The Linux host's pictures are files under the asset root (`host/linux/src/image`), on
   every shell it has: Shelf's covers, which Open Library serves, are the grey box behind them in Discover and a gap on
   a book's page. Nothing of this host's is missing for it; the loader has no door for a remote source.
-- `exact new` writes no `android/` crate.
 - **The benchmark still builds its own copy** of the reader, which no longer matches this repository's JNI names.
 
 ## The Material reference

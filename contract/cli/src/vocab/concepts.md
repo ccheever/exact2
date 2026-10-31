@@ -116,7 +116,7 @@ Contract has no `Intl.PluralRules`: a language with more forms gets its strings 
 data module.
 
 ## choice: one value from two to five (a preset, units, a period)
-names: segment, segments, radiogroup, radio, segmented, segmented-control, segmentedcontrol, UISegmentedControl
+names: segment, segments, radiogroup, radio, segmented, segmented-control, segmentedcontrol, UISegmentedControl, checklist, multi-select, multiselect
 
 A `row role="radiogroup"` of `button role="radio" aria-checked=…`, each pressing its value, is
 the platform's segmented control: UIKit's `UISegmentedControl`, AppKit's segmented control,
@@ -140,14 +140,55 @@ component App
 - Each option is one short `text` (or a symbol `image` with an `aria-label`); leave its
   look unsaid. A radio that paints itself (its own `background-color`, `border` or
   `border-radius`, LLP 1104 D2) makes the group your drawn control on every host, keys
-  and all; `appearance="none"` on the `radiogroup` says so whatever the radios write. Six or more options, or long labels: a `select`. On or off: `input
+  and all; `appearance="none"` on the `radiogroup` says so whatever the radios write. Six or more options, or long labels: a `select` (`contract vocab select`). A setting on or off: `input
   type="checkbox" switch`.
+- An item checked off (a to-do, a shopping list) is a plain `input type="checkbox"`: on iOS
+  the checklist's circle, as Reminders draws it, never a switch. Several of a fixed set (a
+  recipe's tags) is a list row each, a `button role="checkbox" aria-checked=…` that ends, when
+  chosen, in `image "symbol:checkmark"` under an `if`: UIKit's checkmark. A state is the
+  control's, never its label's (`✓ Dinner`).
 - `state tip = 18 persist` keeps the choice across launches.
 
 More: docs/recipes/persisted-setting.md
 
+## select: one value from six or more, or from long labels (a picker)
+names: picker, Picker, combobox, pop-up button, UIPickerView, NSPopUpButton
+
+A `select` holds its `option "Label" value="x"` children, written out or from a `for`. Its
+`value` is the chosen option's `value`; `change` hands the action that string. iOS draws a
+pop-up button whose menu lists the options, the Mac a pop-up button, the web the browser's
+select; in a grouped row after a `text` it is the row's accessory.
+
+```contract
+component App
+  state course = ""
+  action pick(v: string)
+    course = v
+  view
+    list appearance="auto" listStyle="inset-grouped" height="100%"
+      section
+        row
+          text "Course"
+          select value=course change=pick aria-label="Course" testId="course"
+            option "None" value=""
+            for c in ["Breakfast", "Lunch", "Dinner", "Snack", "Dessert", "Drinks"] key=c
+              option c value=c
+        footer
+          text (course == "" ? "Choose a course." : `${course} it is.`) testId="picked"
+```
+
+```contract-test
+test "a course is picked"
+  type "course" "Dinner"
+  expect text "picked" == "Dinner it is."
+```
+
+- In a test or a drive, `type` picks an option by its `value`; a tap does not open the menu.
+- An option whose `value` is `""` stands for none chosen ("None", "Choose…"). Two to five
+  short options are a `choice` (a segmented control).
+
 ## screen: a second screen, a list and its detail, and Back
-names: navigate, navigation, navigationBack, back, detail, route, routes, router, list-detail, master-detail, deep-link, deep link, protocol_handlers, openURL, url-scheme, react-router, back button, back-button, back title, backButtonDisplayMode, headerBackTitle, backButtonTitle, backBarButtonItem, navigationBackTitle, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage
+names: navigate, navigation, navigationBack, back, detail, route, routes, router, list-detail, master-detail, deep-link, deep link, protocol_handlers, openURL, url-scheme, react-router, back button, back-button, back title, backButtonDisplayMode, headerBackTitle, backButtonTitle, backBarButtonItem, navigationBackTitle, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage, anchor, hashchange, location.hash
 
 A second screen is a route. `routes` gives each screen a path, the root draws `stack(nav)`, a
 row `push`es its detail and `back` returns. That gives the web its Back (the browser's Back
@@ -204,6 +245,11 @@ component App
   last was scrolled to, part way down and under the bar. Build locations with
   `path("recipe", name)`; a route's parameters are strings (`e.params.name`). In tests, `clock settle` after each push and back. A form
   over the screen is a sheet (`contract vocab modal`).
+- A fragment names a place on a screen, never another screen: `path("recipe", name) +
+  "#steps"`, a `link href="#steps"` on the screen shown, or a deep link's `#steps` is the
+  same visit with `fragment(e) == "steps"`. Once the route's data has arrived each host
+  scrolls the route to its `id="steps"` (`top`, or no such id: its top; `logs` name a missing id); a
+  return by Back or a tab keeps its place. A test opens there with `at "/recipe/Ramen#steps"`.
 - A welcome shown at first launch only is not a second route: the main screen is the root
   route and shows the welcome while a `persist` flag is unset (docs/recipes/first-launch.md).
   A stack's first visit keeps its root route: `replace` to another route is refused there.
@@ -651,7 +697,7 @@ component App
 - A component's view root is an element: wrap an `if` in a `column`.
 
 ## let: a name inside an action
-names: local, const, var, variable
+names: local, const, variable
 
 An action reads the state it started with, and its writes commit together, so `doubled = count * 2`
 after `count = count + 1` uses the old `count`. `let next = count + 1` binds a local, read after
@@ -1313,3 +1359,34 @@ the browser's. `env(-exact-layout-margins-inset-left)` is UIKit's layout margin.
   from the original's gap rather than adding `env(safe-area-inset-bottom)`.
 
 More: docs/agent-pitfalls.md ("Native presentation and navigation (iOS)"), docs/contract-grammar.md (length strings)
+
+## var: a design token by CSS's `var(--name)`, and a stylesheet's custom properties
+names: var(), custom-property, custom-properties, tokens.css
+
+`var(--name)` in a style row is the token `name` of the app's design (`app.tamber`, or a root
+`theme`), and compiles exactly as writing `name` does: folded, or on the web `var(--x-name)`
+where the token varies by an app mode. It is the build's reference, not the browser's: no
+stylesheet redefines it, and every host draws it. A name the design lacks is refused, naming
+the tokens the row could take, whether or not a fallback is written, so a misspelt name never
+ships the fallback; a declared name's fallback is ignored and warned (`tamber-var-fallback`).
+
+```contract
+theme
+  ink = "light-dark(#1d1d1f, #f5f5f7)"
+  card = "light-dark(#f2f2f7, #1c1c1e)"
+
+component App
+  view
+    column background-color="var(--card)" padding=16 gap=8
+      text "Tonight" color="var(--ink)"
+      text "3 patterns" color="ink"
+```
+
+- `bun exact.mjs tamber import css tokens.css` writes a stylesheet's `:root` custom properties
+  into `app.tamber`, a `prefers-color-scheme: dark` redeclaration as `light-dark()`, between
+  `// tamber:import tokens.css` and `// tamber:end`; after an edit, import again. A `.dark` or
+  `[data-theme]` scope, or a value built around a `var()`, is refused by name.
+- A token of another kind (`color="var(--space)"` for a length) is refused as its name is.
+- JavaScript's `var`, a name inside an action, is `let` (`contract vocab let`).
+
+More: docs/recipes/tamber.md, docs/recipes/theme.md

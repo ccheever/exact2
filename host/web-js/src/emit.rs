@@ -21,6 +21,8 @@ use std::fmt::Write as _;
 mod answers;
 #[path = "list_options.rs"]
 mod list_options;
+#[path = "lower.rs"]
+pub(crate) mod lower;
 #[path = "motion.rs"]
 mod motion;
 #[path = "named_records.rs"]
@@ -29,6 +31,10 @@ mod named_records;
 mod regions;
 #[path = "rows.rs"]
 mod rows;
+#[path = "said.rs"]
+mod said;
+#[path = "sides.rs"]
+mod sides;
 #[path = "timers.rs"]
 mod timers;
 #[path = "trapped.rs"]
@@ -727,9 +733,11 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         })
         .collect();
     let names_js = format!(
-        "{names_js}export const sourceTypes={{{}}};export const pages=[{}];\n",
+        "{names_js}export const sourceTypes={{{}}};export const pages=[{}];export const viewportMedia={};export const activation={};\n",
         source_types.join(","),
-        pages.join(",")
+        pages.join(","),
+        crate::facts::viewport_media(plan),
+        crate::facts::activation(plan)
     );
     let imports: Vec<String> = em.uses.names.iter().cloned().collect();
     let budget: Vec<String> = em.uses.budget.iter().cloned().collect();
@@ -1197,6 +1205,10 @@ impl Em<'_> {
             self.markdown = true;
         }
         self.editor(i, element, &e)?;
+        let (lowers, mut seen) = (
+            self.lower_candidate(i, &parts, element, !kinds.is_empty(), markdown),
+            Vec::new(),
+        );
         for (k, b) in row.bindings.iter().enumerate() {
             let b = plan.binding(b);
             if self.named_record(i, &b, &e, scope)? {
@@ -1262,11 +1274,17 @@ impl Em<'_> {
                 }
                 BindingKind::Style => self.style_row(i, &b, &parts, &e, &f, scope)?,
             }
+            let raw = (lowers && b.kind == BindingKind::Style).then(|| self.out[at..].to_string());
             // Include dependencies added by lowering, such as a text row's shorthand.
             if let Some(m) = crate::reads::field_mask(&self.out[at..]) {
                 let (fm, stmt) = (self.uses.rt("fm"), self.out.split_off(at));
                 let _ = write!(self.out, "{fm}({m},()=>{{{stmt}}});");
             }
+            let end = self.out.len();
+            seen.extend(raw.map(|raw| lower::Seen { b, f, raw, at, end }));
+        }
+        if !seen.is_empty() {
+            self.lower(&e, &class, &parts, scope, seen)?;
         }
         self.motion_node(i, &e, scope)?;
         self.height_owner(i, &e, scope)?;

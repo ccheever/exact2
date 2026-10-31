@@ -158,9 +158,16 @@ enum NfcRecords {
         return out
     }
 
+    /// Why a record cannot be encoded, the message of its `TypeError`.
+    struct RecordError: Error, ExpressibleByStringInterpolation {
+        let message: String
+        init(stringLiteral message: String) { self.message = message }
+        init(stringInterpolation: DefaultStringInterpolation) { message = String(stringInterpolation: stringInterpolation) }
+    }
+
     /// An `NDEFRecordInit` as (type name format, type, identifier, payload),
     /// or why it cannot be encoded (`TypeError`, Web NFC's "create NDEF record").
-    static func encode(_ r: [String: Any], lang fallback: String) -> Result<(UInt8, Data, Data, Data), String> {
+    static func encode(_ r: [String: Any], lang fallback: String) -> Result<(UInt8, Data, Data, Data), RecordError> {
         let recordType = r["recordType"] as? String ?? ""
         let id = Data((r["id"] as? String ?? "").utf8)
         let data = NfcWire.data(r["data"])
@@ -259,7 +266,7 @@ public final class NfcModule: ExactPackage {
                 let records = (args["message"] as? [String: Any])?["records"] as? [[String: Any]] ?? []
                 if records.isEmpty { return reply(["error": "TypeError", "message": "a message has a record"]) }
                 for r in records {
-                    if case .failure(let why) = NfcRecords.encode(r, lang: "en") { return reply(["error": "TypeError", "message": why]) }
+                    if case .failure(let why) = NfcRecords.encode(r, lang: "en") { return reply(["error": "TypeError", "message": why.message]) }
                 }
             }
             NfcRegistry.shared.claim(NfcClaim(kind, owner: self, request: context.request, args: args, reply: reply))

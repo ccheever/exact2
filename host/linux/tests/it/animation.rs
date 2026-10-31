@@ -44,3 +44,82 @@ fn an_animation_plays_under_the_clock_and_stops_with_its_row() {
     close(h.presented(mark).opacity, 1.0);
     assert!(!h.motion());
 }
+
+fn presenter(animation: &str) -> exact_linux::Presenter<()> {
+    let source = format!(
+        r##"keyframes blink
+  from opacity=1
+  to opacity=0
+component App
+  view
+    box testId="caret" width=1 height=20 background-color="#007aff" animation="{animation}"
+"##
+    );
+    let (mut p, error) = exact_linux::Presenter::boot_with(
+        &contract::compile(&source).unwrap().encode(),
+        (),
+        (80., 40.),
+        1.,
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+        exact_linux::presenter::PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.frame();
+    p
+}
+
+#[test]
+fn a_step_animation_paints_each_step_and_no_frame_between() {
+    let mut p = presenter("blink 1s steps(2, jump-none) infinite");
+    assert!(!p.needs_animation_frame());
+    assert_eq!(p.wake_due_ms(), Some(500.));
+    let mut frames = Vec::new();
+    for period in 1..=120 {
+        let now = period as f64 * 1000. / 120.;
+        assert!(p.advance(now).is_none());
+        // An unrelated frame task may sample the same held value too.
+        assert!(p.animation_frame(now).is_none());
+        p.tick(now);
+        if p.dirty() {
+            frames.push(now);
+            p.frame();
+        }
+        assert!(!p.needs_animation_frame(), "display period {period}");
+    }
+    assert_eq!(frames, [500., 1000.]);
+    assert_eq!(p.wake_due_ms(), Some(1500.));
+}
+
+#[test]
+fn paused_delayed_and_finished_animations_do_not_hold_the_display_pump() {
+    let mut paused = presenter("blink 1s steps(2) infinite paused");
+    assert_eq!(paused.host().motion_due_ms(), None);
+    paused.tick(1000.);
+    assert!(!paused.dirty());
+
+    let mut delayed = presenter("blink 1s steps(2, jump-none) 2s forwards");
+    assert_eq!(delayed.host().motion_due_ms(), Some(2000.));
+    delayed.tick(1999.);
+    assert!(!delayed.dirty());
+    delayed.tick(2000.);
+    assert!(!delayed.dirty());
+    assert_eq!(delayed.host().motion_due_ms(), Some(2500.));
+    delayed.tick(2500.);
+    assert!(delayed.dirty());
+    delayed.frame();
+    delayed.tick(3000.);
+    assert!(!delayed.dirty());
+    assert_eq!(delayed.host().motion_due_ms(), None);
+}
+
+#[test]
+fn continuous_animation_still_paints_each_display_period() {
+    let mut p = presenter("blink 1s linear infinite");
+    for period in 1..=120 {
+        assert!(p.needs_animation_frame());
+        p.tick(period as f64 * 1000. / 120.);
+        assert!(p.dirty());
+        p.frame();
+    }
+}
