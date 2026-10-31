@@ -4819,3 +4819,115 @@ directory copies every test result line, including nested subprocess output.
 ```text
 test result: ok. 564 passed; 0 failed; 18 ignored; 0 measured; 0 filtered out; finished in 6.14s
 ```
+
+### Fix chunk A — shipping imports
+
+**Prediction met:** the rebuilt Shelf imports neither DbgHelp, D2D1 nor
+DWrite eagerly. The DLL list shrinks from 45 to 42, with no additions.
+No load-time saving is inferred from those counts, and no import load cost
+needs adding to S2.7's phase table. The optional entry points load on use.
+
+The before executable is the retained
+`target/stage-1w/field-shelf-4/Shelf.exe`; the after executable is
+`target/stage-1w-fix-a/shelf/Shelf.exe`, built from `3168305a59` in
+`target/stage-1w-fix-a/source/`, with its own `target/`. These paths are
+on the NucBox. Complete `dumpbin /imports` reports and executable hash
+records are copied locally under `target/stage-1w-fix-a/nucbox/`.
+The commands use VS 2022's x64 `dumpbin.exe /imports <Shelf.exe>`.
+
+Before SHA-256: `ea5068939cc8dce428c82a66ef85ac3ba2d939bfb40983e53259d119495fd411`.
+
+```text
+kernel32.dll
+user32.dll
+gdi32.dll
+api-ms-win-core-synch-l1-2-0.dll
+bcryptprimitives.dll
+shell32.dll
+imm32.dll
+comctl32.dll
+xinput1_4.dll
+advapi32.dll
+ole32.dll
+shlwapi.dll
+combase.dll
+ws2_32.dll
+ntdll.dll
+crypt32.dll
+bcrypt.dll
+dwmapi.dll
+dcomp.dll
+dbghelp.dll
+dwrite.dll
+d3d11.dll
+d2d1.dll
+setupapi.dll
+dxgi.dll
+opengl32.dll
+icuuc.dll
+icuin.dll
+uiautomationcore.dll
+oleaut32.dll
+api-ms-win-core-winrt-l1-1-0.dll
+WINMM.dll
+uxtheme.dll
+MSVCP140.dll
+VCRUNTIME140.dll
+VCRUNTIME140_1.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-utility-l1-1-0.dll
+api-ms-win-crt-time-l1-1-0.dll
+api-ms-win-crt-convert-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+```
+
+After SHA-256: `822a13b9281faada0507b7178f6b401c4326b561a4b4c83607823b6dffd3c91a`.
+
+```text
+kernel32.dll
+user32.dll
+gdi32.dll
+api-ms-win-core-synch-l1-2-0.dll
+bcryptprimitives.dll
+shell32.dll
+imm32.dll
+comctl32.dll
+xinput1_4.dll
+advapi32.dll
+ole32.dll
+shlwapi.dll
+combase.dll
+ws2_32.dll
+ntdll.dll
+crypt32.dll
+bcrypt.dll
+dwmapi.dll
+dcomp.dll
+d3d11.dll
+setupapi.dll
+dxgi.dll
+opengl32.dll
+icuuc.dll
+icuin.dll
+uiautomationcore.dll
+oleaut32.dll
+api-ms-win-core-winrt-l1-1-0.dll
+WINMM.dll
+uxtheme.dll
+MSVCP140.dll
+VCRUNTIME140.dll
+VCRUNTIME140_1.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-utility-l1-1-0.dll
+api-ms-win-crt-time-l1-1-0.dll
+api-ms-win-crt-convert-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+```
