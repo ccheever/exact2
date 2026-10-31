@@ -9,9 +9,11 @@ Cargo dependencies were cached and failed on missing `wat`. Root Cargo fetch
 also needed `CARGO_NET_GIT_FETCH_WITH_CLI=true` to use the existing Git credentials.
 The mobile tests need a built Contract compiler for the expanded-route check.
 
-T3 initially listed no local devices despite Xcode listing an iPhone Duo; EAS
-reported no selected project. T3 now exposes a coordinator-owned iPhone 18 Pro.
-Home awaits its own device window, and Duo remains unavailable through T3.
+T3 omitted unused simulators from discovery. Creating an actual iPhone Duo through
+Xcode Device Hub made it available through T3 without restarting shared services.
+Both Release apps launch through the returned launcher. Fold requests switch the
+visible panel, but hinge-angle readback fails. Orientation commands succeed without
+an observed orientation change in either app.
 
 ### Lean in
 
@@ -37,7 +39,15 @@ without a new test harness. The same Home component serves the screen and sideba
   failure is retained in evidence.
 - original iOS Release: built from the frozen clean reference with Xcode 27.2.
 - Exact iOS Release: built and signed; strict signature verification passes.
-  Native acceptance remains blocked by device access.
+- actual Duo: both Release apps respond to initial Home, Add environment, and
+  Settings controls. Screenshots show outer, inner, and outer panels in sequence.
+  The reference has a split sidebar on the inner panel and a right rail on both
+  panels. Exact retains full-width Home and bottom search. Shared layout remains
+  coordinator-owned.
+- acceptance: populated rows, separators, clipping during motion, accessibility,
+  appearance changes, and verified rotation remain open. The reference remains in
+  Loading environments during this drive, so settled empty states are not matched.
+  Screenshots, trees, and raw tool errors are in `target/t3-home-evidence/duo-initial`.
 
 Reference source is frozen at `80a2351fcb909034e65a512dfabeb3cdfd367762`.
 The older vendored pin remains provenance. This change does not establish pixel
