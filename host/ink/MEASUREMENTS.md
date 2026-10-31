@@ -4788,3 +4788,34 @@ reads and disabled per-frame TLS work. D2D, DWrite and DbgHelp entry points are
 loaded from System32 on use. The helper and x64 contexts require explicit
 startup arming; non-x64 refuses arming. Boot phase marks now notify the observer
 before writing and map that same monotonic timestamp to process age.
+
+### Fix chunk A — Mac checks
+
+All six checks pass on the rebased source. The full root test command passes
+with 7,211 tests, 68 ignored and no failures across 108 top-level binaries.
+Nested subprocess result lines are retained but excluded from that count.
+`workers_start_with_the_first_request` passes in the full command; no isolated
+`RUST_TEST_THREADS=2` rerun was needed.
+
+Each check starts with all load averages below 30 and no other compiler or
+Cargo process. Another Cargo process starts during the first root test run
+and one sample of Clippy. Both pass, then both whole commands run again;
+the repeated runs' recorded samples are all quiet. The other checks' samples
+are quiet. The five-second process/load observations, command arguments,
+exit codes and full output remain under `target/stage-1w-fix-a/mac/`,
+`mac-quiet-root/` and `mac-quiet-clippy/`. `result-lines.txt` in the parent
+directory copies every test result line, including nested subprocess output.
+
+| Command | Exit | Verbatim final output |
+| --- | ---: | --- |
+| `cargo build --all-targets --keep-going` | 0 | ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.81s`` |
+| `cargo test --tests --no-fail-fast` | 0 | Full output: `mac-quiet-root/tests.log`; the Apple suite's result is copied below. |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.01s`` |
+| `cargo fmt --all -- --check` | 0 | No output. |
+| `bun scripts/caps.mjs` | 0 | `All budgets within cap. 10 categories inspected.` |
+| `bun scripts/boot.mjs` | 0 | `Allowed import paths only. This does not prove generic content, constant startup work, or absence of runtime-loaded code; metrics measures built artifacts and browser work.` |
+| `cargo check --workspace --all-targets --keep-going` | 0 | ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 07s`` |
+
+```text
+test result: ok. 564 passed; 0 failed; 18 ignored; 0 measured; 0 filtered out; finished in 6.14s
+```
