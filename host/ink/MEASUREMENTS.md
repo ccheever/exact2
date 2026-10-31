@@ -4303,3 +4303,128 @@ counts displayed drawables; endpoint quiet is weaker than the whole-cohort rule.
 | wgpu-9 | 16.984 | 6.403 | 242.990 | 266.377 | 1 | — | False |
 
 20 exits, complete scenes, span sums, archive hashes, hook flags and passive windows verified; whole-cohort quiet = False.
+
+### boot-miss-1 — excluded
+
+The gate waited **65.794 s**. Of the qualifying minute and
+collection's **14 observations, 1 fail**.
+Whole-machine CPU is **0.516–2.419 cores**;
+the largest non-benchmark process is `WindowServer` (PID 446) at
+**0.268 core**. The whole cohort is excluded from quiet claims.
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | metal |
+|---|---:|
+| Launches | 10 |
+| Displayed | 10 |
+| Complete Ink screens | 10 |
+| Device/layer phase, ms | 0.850 (0.731–1.442) |
+| First pixel, ms | 198.387 (162.417–215.706) |
+| First CPU pixel, ms | 198.387 (162.417–215.706) |
+| Complete CPU screen, ms | 206.274 (179.084–224.039) |
+| Complete Ink screen, ms | 360.441 (329.084–365.706) |
+| Worker compilation/serialization, ms | 198.057 (192.600–205.989) |
+| Active or key windows | 0 |
+
+
+The disjoint durations below sum per launch before taking a median. The
+remaining duration is a residual, not a causal attribution. Displayed ordinal
+counts displayed drawables; endpoint quiet is weaker than the whole-cohort rule.
+
+| Launch | Pre-main, ms | Device/layer, ms | Remaining boot/presentation, ms | Complete Ink, ms | Ink displayed ordinal | First CPU / complete CPU, ms | Quiet endpoints |
+|---|---:|---:|---:|---:|---:|---:|---|
+| metal-1 | 6.073 | 0.731 | 322.280 | 329.084 | 4 | 162.417 / 179.084 | False |
+| metal-10 | 17.076 | 0.820 | 346.557 | 364.453 | 5 | 214.453 / 222.786 | False |
+| metal-2 | 11.858 | 0.852 | 346.205 | 358.916 | 5 | 192.249 / 200.582 | False |
+| metal-3 | 15.829 | 0.844 | 332.925 | 349.597 | 4 | 191.264 / 191.264 | False |
+| metal-4 | 14.517 | 0.884 | 347.456 | 362.858 | 4 | 204.524 / 221.191 | False |
+| metal-5 | 10.838 | 0.834 | 338.655 | 350.327 | 4 | 191.994 / 191.994 | False |
+| metal-6 | 16.025 | 0.864 | 347.954 | 364.843 | 5 | 206.509 / 214.843 | False |
+| metal-7 | 12.993 | 0.848 | 321.854 | 335.695 | 5 | 185.695 / 194.028 | False |
+| metal-8 | 17.693 | 0.889 | 347.124 | 365.706 | 4 | 215.706 / 224.039 | False |
+| metal-9 | 17.876 | 1.442 | 342.648 | 361.966 | 5 | 211.965 / 211.965 | False |
+
+10 exits, complete scenes, span sums, archive hashes, hook flags and passive windows verified; whole-cohort quiet = False.
+
+### boot-miss-2 — excluded
+
+The gate waited **60.740 s**. Of the qualifying minute and
+collection's **14 observations, 1 fail**.
+Whole-machine CPU is **0.635–2.331 cores**;
+the largest non-benchmark process is `WindowServer` (PID 446) at
+**0.247 core**. The whole cohort is excluded from quiet claims.
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | metal |
+|---|---:|
+| Launches | 10 |
+| Displayed | 10 |
+| Complete Ink screens | 10 |
+| Device/layer phase, ms | 0.844 (0.731–0.999) |
+| First pixel, ms | 199.441 (181.382–216.351) |
+| First CPU pixel, ms | 199.441 (181.382–216.351) |
+| Complete CPU screen, ms | 209.589 (181.382–224.684) |
+| Complete Ink screen, ms | 355.560 (339.715–366.351) |
+| Worker compilation/serialization, ms | 196.369 (191.982–202.331) |
+| Active or key windows | 0 |
+
+
+The disjoint durations below sum per launch before taking a median. The
+remaining duration is a residual, not a causal attribution. Displayed ordinal
+counts displayed drawables; endpoint quiet is weaker than the whole-cohort rule.
+
+| Launch | Pre-main, ms | Device/layer, ms | Remaining boot/presentation, ms | Complete Ink, ms | Ink displayed ordinal | First CPU / complete CPU, ms | Quiet endpoints |
+|---|---:|---:|---:|---:|---:|---:|---|
+| metal-1 | 9.820 | 0.731 | 329.164 | 339.715 | 4 | 181.382 / 181.382 | False |
+| metal-10 | 15.970 | 0.926 | 344.922 | 361.818 | 4 | 211.818 / 220.151 | False |
+| metal-2 | 18.319 | 0.823 | 336.036 | 355.178 | 5 | 196.845 / 205.178 | False |
+| metal-3 | 16.357 | 0.845 | 343.169 | 360.371 | 4 | 202.038 / 210.371 | False |
+| metal-4 | 19.008 | 0.900 | 346.443 | 366.351 | 4 | 216.351 / 224.684 | False |
+| metal-5 | 15.258 | 0.789 | 334.764 | 350.812 | 4 | 192.478 / 209.145 | False |
+| metal-6 | 16.323 | 0.999 | 335.757 | 353.079 | 4 | 186.413 / 203.080 | False |
+| metal-7 | 17.775 | 0.876 | 337.291 | 355.942 | 4 | 205.942 / 205.942 | False |
+| metal-8 | 16.558 | 0.844 | 348.283 | 365.685 | 4 | 207.351 / 224.018 | False |
+| metal-9 | 14.716 | 0.831 | 336.154 | 351.700 | 4 | 193.367 / 210.034 | False |
+
+10 exits, complete scenes, span sums, archive hashes, hook flags and passive windows verified; whole-cohort quiet = False.
+
+### Boot predictions beside the results
+
+Attempt 1 / attempt 2 are in that order. All sixty launches displayed a
+complete Ink screen, with zero dropped trace events, zero boot-thread
+compilation, nominal thermal endpoints and no active or key boot window.
+The per-launch span sums and archive hashes reproduce. No failed cohort is
+promoted by its passing launch endpoints or by a numeric prediction being met.
+
+| Prediction and instrument | Observed result, attempts 1 / 2 | Disposition |
+|---|---|---|
+| 30/30 complete Ink screens per three-arm cohort; boot probe | 30/30 / 30/30, including all retries | Completion prediction met |
+| Retained Metal phase p50 ≤8 ms; startup span union | 5.969 / 6.540 ms | Numerically met; retained cohorts excluded |
+| Retained Metal phase p50 within 2 ms of 6.581 ms; same trace | -0.612 / -0.041 ms | Numerically met; retained cohorts excluded |
+| Complete Metal screen p50 ≤wgpu +5 ms; per-launch complete-path sum | 223.733 vs 263.722; 224.022 vs 259.248 ms (-39.989 / -35.226) | Numerically met; no quiet D15 comparison |
+| Zero boot-thread compilation in misses; trace thread IDs | 0 / 0 spans | Met |
+| Miss CPU first pixel p50 ≤300 ms; presented timestamp | 198.387 / 199.441 ms | Numerically met; cohorts excluded / excluded |
+| Miss complete Ink screen p50 ≤450 ms; per-painter completeness | 360.441 / 355.560 ms | Numerically met; cohorts excluded / excluded |
+
+The 100 ms application obligation remains unmet. This carrier retake does not
+qualify the Caltrain/Shelf application gate. The retained comparison cannot
+replace chunk 4's result under the stronger whole-series quiet rule.
+
+Raw files are retained on silver under
+`target/g0/quiet-d5429830d2/boot-{retained,miss}-{1,2}/` and mirrored in this
+worktree beneath `target/g4q/silver/`. Each directory holds `runner.py`,
+`provenance.json`, `gate.json`, `quiet.jsonl`, `run.json`, `power-mode.json`,
+per-launch probe output, traces, window state, logs and archive copies. Local
+`target/g4q/audit-boot.py` reproduces `cohort-audit.json` and the per-launch
+tables. The complete timing-series gates and wait accounting are in
+[G4q](../../bench/heavy-list/gpui/RESULTS.md#g4q-the-quiet-baselines).
+
+```sh
+bun bench/heavy-list/gpui/aggregate.mjs target/g4q/silver/target/g0/quiet-d5429830d2/boot-retained-1 --boot --verify
+python3 target/g4q/audit-boot.py boot-retained-1
+```
+
+Repeat for the other retained attempt and both miss attempts. `--boot --table`
+prints each summary; `--boot` prints the trace-derived values and all samples.

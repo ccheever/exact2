@@ -1155,7 +1155,11 @@ not attribute its work to the benchmark or other windows. These retained
 attempts do not resolve G4→G4m. Both hook-on, power-off attempts at each static
 workload also fail; no quiet Ink GPU value replaces G5m or evaluates M8's 15%
 trigger. These are before-M3 cohorts. A qualified silver baseline and, unless
-it meets G4's ranges, the interleaved two-Mac comparison remain owed.
+it meets G4's ranges, the interleaved two-Mac comparison remain owed. The
+separate power rounds and all four boot cohorts also fail the quiet rule. All
+sixty boot launches display complete Ink screens, but provide no quiet D15
+comparison; the 100 ms application obligation is unchanged. Gates consume
+71 min 18 s in total, including the initial wait.
 [Gates, excluded tables, predictions and reproduction](../bench/heavy-list/gpui/RESULTS.md#g4q-the-quiet-baselines).
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,

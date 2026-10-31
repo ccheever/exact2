@@ -5372,6 +5372,13 @@ the headless tests. The timer-workload CPU attribution remains queued.
 
 ## G4q, the quiet baselines
 
+**Outcome:** every prescribed cohort and its one retry exceeded the landed
+quiet bounds. All twenty are retained and excluded; no scoreboard row is
+replaced. The gates used 71 min 18 s of the two-hour wait allowance. The
+G4→G4m attribution, a quiet Ink GPU share and the 100 ms application obligation
+remain open. The tables below report failed cohorts and partial phases, not
+quiet baselines.
+
 **Predictions recorded before any series, 2026-10-30.** Measure source
 `d5429830d2` on the silver Mac, using the landed probe and driver. Native,
 GPUI and egui retain their `42d5066572` application binaries; Ink and the
@@ -5958,3 +5965,278 @@ Each cell is one run's duration-weighted mean, with the singleton min/max.
 | Bar interior: process energy impact/s | 19.88 (19.88–19.88) | 57.62 (57.62–57.62) | 54.72 (54.72–54.72) | 53.01 (53.01–53.01) |
 | Bar interior: system GPU clock, MHz | 362.7 (362.7–362.7) | 338.2 (338.2–338.2) | 369.7 (369.7–369.7) | 361.2 (361.2–361.2) |
 | Bar interior: system GPU active, % | 38.63 (38.63–38.63) | 46.48 (46.48–46.48) | 49.22 (49.22–49.22) | 48.86 (48.86–48.86) |
+
+### Stage 0b boot cohorts
+
+All four cohorts use the hook and power sampling off. Their complete
+per-launch traces, gates and archive audit are recorded in
+[MEASUREMENTS](../../../host/ink/MEASUREMENTS.md#stage-0b-g4q-quiet-boot-cohorts-2026-10-30).
+
+**boot-retained-1: excluded.**
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | metal | wgpu |
+|---|---:|---:|
+| Launches | 10 | 10 |
+| Displayed | 10 | 10 |
+| Complete Ink screens | 10 | 10 |
+| Device/layer phase, ms | 5.969 (5.599–7.855) | 6.290 (6.024–232.594) |
+| First pixel, ms | 223.733 (182.126–253.811) | 263.722 (249.341–458.228) |
+| First CPU pixel, ms | — | — |
+| Complete CPU screen, ms | — | — |
+| Complete Ink screen, ms | 223.733 (182.126–253.811) | 263.722 (249.341–458.228) |
+| Worker compilation/serialization, ms | 0.000 (0.000–0.000) | 0.000 (0.000–0.000) |
+| Active or key windows | 0 | 0 |
+
+**boot-retained-2: excluded.**
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | metal | wgpu |
+|---|---:|---:|
+| Launches | 10 | 10 |
+| Displayed | 10 | 10 |
+| Complete Ink screens | 10 | 10 |
+| Device/layer phase, ms | 6.540 (5.318–6.756) | 6.407 (6.119–7.022) |
+| First pixel, ms | 224.022 (191.142–247.024) | 259.248 (237.942–283.799) |
+| First CPU pixel, ms | — | — |
+| Complete CPU screen, ms | — | — |
+| Complete Ink screen, ms | 224.022 (191.142–247.024) | 259.248 (237.942–283.799) |
+| Worker compilation/serialization, ms | 0.000 (0.000–0.000) | 0.000 (0.000–0.000) |
+| Active or key windows | 0 | 0 |
+
+**boot-miss-1: excluded.**
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | metal |
+|---|---:|
+| Launches | 10 |
+| Displayed | 10 |
+| Complete Ink screens | 10 |
+| Device/layer phase, ms | 0.850 (0.731–1.442) |
+| First pixel, ms | 198.387 (162.417–215.706) |
+| First CPU pixel, ms | 198.387 (162.417–215.706) |
+| Complete CPU screen, ms | 206.274 (179.084–224.039) |
+| Complete Ink screen, ms | 360.441 (329.084–365.706) |
+| Worker compilation/serialization, ms | 198.057 (192.600–205.989) |
+| Active or key windows | 0 |
+
+**boot-miss-2: excluded.**
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | metal |
+|---|---:|
+| Launches | 10 |
+| Displayed | 10 |
+| Complete Ink screens | 10 |
+| Device/layer phase, ms | 0.844 (0.731–0.999) |
+| First pixel, ms | 199.441 (181.382–216.351) |
+| First CPU pixel, ms | 199.441 (181.382–216.351) |
+| Complete CPU screen, ms | 209.589 (181.382–224.684) |
+| Complete Ink screen, ms | 355.560 (339.715–366.351) |
+| Worker compilation/serialization, ms | 196.369 (191.982–202.331) |
+| Active or key windows | 0 |
+
+### Boot predictions beside the results
+
+Attempt 1 / attempt 2 are in that order. All sixty launches displayed a
+complete Ink screen, with zero dropped trace events, zero boot-thread
+compilation, nominal thermal endpoints and no active or key boot window.
+The per-launch span sums and archive hashes reproduce. No failed cohort is
+promoted by its passing launch endpoints or by a numeric prediction being met.
+
+| Prediction and instrument | Observed result, attempts 1 / 2 | Disposition |
+|---|---|---|
+| 30/30 complete Ink screens per three-arm cohort; boot probe | 30/30 / 30/30, including all retries | Completion prediction met |
+| Retained Metal phase p50 ≤8 ms; startup span union | 5.969 / 6.540 ms | Numerically met; retained cohorts excluded |
+| Retained Metal phase p50 within 2 ms of 6.581 ms; same trace | -0.612 / -0.041 ms | Numerically met; retained cohorts excluded |
+| Complete Metal screen p50 ≤wgpu +5 ms; per-launch complete-path sum | 223.733 vs 263.722; 224.022 vs 259.248 ms (-39.989 / -35.226) | Numerically met; no quiet D15 comparison |
+| Zero boot-thread compilation in misses; trace thread IDs | 0 / 0 spans | Met |
+| Miss CPU first pixel p50 ≤300 ms; presented timestamp | 198.387 / 199.441 ms | Numerically met; cohorts excluded / excluded |
+| Miss complete Ink screen p50 ≤450 ms; per-painter completeness | 360.441 / 355.560 ms | Numerically met; cohorts excluded / excluded |
+
+The 100 ms application obligation remains unmet. This carrier retake does not
+qualify the Caltrain/Shelf application gate. The retained comparison cannot
+replace chunk 4's result under the stronger whole-series quiet rule.
+
+### Gate accounting and disposition
+
+**No quiet baseline was established.** All twenty cohorts failed during
+collection, including each allowed retry. Each began after a fresh passing
+minute. Total gate waiting was **4278.288 s (71 min 18 s)**, below the
+two-hour cumulative allowance; the lane stopped after its prescribed retries,
+not because that allowance expired. The first gate began at **18:02:34 PDT**;
+the final boot launch ended at **20:31:16 PDT**, followed by its terminal
+observation. Collection and finite power-sampler completion time are not gate
+waiting. No background process was killed and no go file was required.
+
+The table includes the initial passing minute of each series and all subsequent
+collection observations; earlier failed waiting observations are counted in the
+gate column and retained in `quiet.jsonl`. The separate initial 1,777.842 s
+gate is described above. Across the twenty series, **300/967** qualifying-gate
+and collection observations fail; **43** exceed the busy-core bound and
+**240** identify WindowServer as the largest process above 0.25 core. These
+counts overlap. No series observation fails the compiler or load-average
+condition. No sample is rescued by subtracting WindowServer or a process with
+an ambiguous command name. In `boot-retained-2`, the landed monitor classifies
+`(Heavy list)` as non-benchmark because that command does not match the retained
+executable paths. Its two crossings remain failures. This is instrument
+classification, not evidence that those cycles came from background work.
+
+| Series | Gate wait, s | Gate failures / observations | Qualifying minute busy cores | Qualifying minute largest process, core | Series + gate failures / observations | Busy cores | Largest non-benchmark, cores |
+|---|---:|---:|---:|---:|---:|---:|---|
+| fling-a-1 | 60.749 | 0/12 | 0.690–1.183 | 0.145, sysmond | 18/102 | 0.640–1.816 | 2.460, claude (PID 20934) |
+| fling-a-2 | 182.160 | 5/36 | 0.679–1.256 | 0.198, sysmond | 22/115 | 0.633–1.769 | 2.077, claude (PID 20934) |
+| cold-a-1 | 60.711 | 0/12 | 0.684–1.280 | 0.177, fleet | 3/37 | 0.653–2.269 | 0.320, WindowServer (PID 446) |
+| cold-a-2 | 151.809 | 2/30 | 0.686–1.109 | 0.162, fleet | 8/37 | 0.686–2.434 | 0.779, deleted (PID 792) |
+| bar-a-1 | 202.523 | 3/40 | 0.610–1.215 | 0.214, sysmond | 45/63 | 0.610–2.643 | 0.859, biomesyncd (PID 30323) |
+| bar-a-2 | 156.920 | 3/31 | 0.718–1.167 | 0.140, claude | 43/63 | 0.718–2.074 | 0.341, WindowServer (PID 446) |
+| caret-a-1 | 157.012 | 3/31 | 0.383–1.006 | 0.178, fleet | 16/63 | 0.383–1.884 | 0.463, corespotlightd (PID 784) |
+| caret-a-2 | 60.742 | 0/12 | 0.450–0.742 | 0.188, fleet | 18/63 | 0.413–1.942 | 0.942, hybridsearchd (PID 933) |
+| bar-b-1 | 212.581 | 7/42 | 0.476–1.128 | 0.188, fleet | 32/63 | 0.476–1.810 | 0.686, duetexpertd (PID 806) |
+| bar-b-2 | 60.765 | 0/12 | 0.465–0.674 | 0.159, fleet | 26/63 | 0.465–1.785 | 0.384, WindowServer (PID 446) |
+| caret-b-1 | 60.771 | 0/12 | 0.532–0.664 | 0.162, fleet | 17/64 | 0.532–1.430 | 0.559, corespotlightd (PID 784) |
+| caret-b-2 | 86.078 | 1/17 | 0.495–0.708 | 0.184, fleet | 19/64 | 0.443–2.910 | 1.031, fseventsd (PID 378) |
+| fling-power-1 | 60.750 | 0/12 | 0.461–0.714 | 0.197, io.tailscale.ipn.macsys.network-extension | 1/31 | 0.461–1.558 | 0.421, find (PID 91615) |
+| fling-power-2 | 60.728 | 0/12 | 0.461–0.708 | 0.182, WindowServer | 4/31 | 0.461–1.667 | 0.843, duetexpertd (PID 806) |
+| bar-power-1 | 475.678 | 21/94 | 0.641–1.794 | 0.121, fleet | 11/24 | 0.641–2.398 | 0.788, duetexpertd (PID 806) |
+| bar-power-2 | 131.687 | 4/26 | 0.680–1.421 | 0.179, fleet | 11/24 | 0.680–2.565 | 0.439, WindowServer (PID 446) |
+| boot-retained-1 | 131.507 | 4/26 | 0.623–0.774 | 0.187, Microsoft Update Assistant | 1/16 | 0.623–1.966 | 0.283, ScreensharingAgent (PID 9846) |
+| boot-retained-2 | 60.742 | 0/12 | 0.484–0.829 | 0.184, launchd | 3/16 | 0.484–2.144 | 0.514, (Heavy list) (PID 35938) |
+| boot-miss-1 | 65.794 | 1/13 | 0.516–0.930 | 0.173, fleet | 1/14 | 0.516–2.419 | 0.268, WindowServer (PID 446) |
+| boot-miss-2 | 60.740 | 0/12 | 0.635–0.988 | 0.212, (fleet) | 1/14 | 0.635–2.331 | 0.247, WindowServer (PID 446) |
+
+The following table counts observations in which each process was the largest
+non-benchmark process above 0.25 core. It covers the same qualifying-gate and
+collection intervals, not the earlier failed waiting intervals.
+
+| Largest process above the bound | Observations | Maximum cores |
+|---|---:|---:|
+| WindowServer | 240 | 0.458 |
+| fseventsd | 6 | 1.031 |
+| corespotlightd | 5 | 0.559 |
+| claude | 5 | 2.460 |
+| launchd | 5 | 0.409 |
+| biomesyncd | 5 | 0.859 |
+| duetexpertd | 5 | 0.978 |
+| agy | 3 | 0.325 |
+| (Heavy list) | 2 | 0.514 |
+| mediaanalysisd | 2 | 0.473 |
+| fleet | 2 | 0.582 |
+| airportd | 2 | 0.369 |
+| io.tailscale.ipn.macsys.network-extension | 1 | 0.793 |
+| ScreensharingAgent | 1 | 0.283 |
+| mds | 1 | 0.454 |
+| mds_stores | 1 | 0.835 |
+| deleted | 1 | 0.779 |
+| UsageTrackingAgent | 1 | 0.435 |
+| aned | 1 | 0.385 |
+| frauddefensed | 1 | 0.464 |
+| hybridsearchd | 1 | 0.942 |
+| searchpartyd | 1 | 0.501 |
+| usernoted | 1 | 0.257 |
+| find | 1 | 0.421 |
+
+Every series records `pmset -g` and `pmset -g batt`: AC power, charged battery,
+and `powermode 0`. CPU, GPU and power configurations remain separate. None of
+the power runs supplies a CPU baseline. No G4q row replaces an existing
+scoreboard row; the prior silver rows remain marked under-background. The
+G4→G4m rise is still unattributed. A qualifying silver retake is owed, then
+the interleaved two-Mac comparison unless that retake meets G4's ranges.
+There is no qualifying Ink static GPU share for M8's 15% trigger, and these
+before-M3 measurements cannot earn M8. The 100 ms application obligation is
+unchanged.
+
+### G4q verification and reproduction
+
+`aggregate.mjs --verify` reproduces all **twenty** new reports: twelve CPU/GPU
+series, four separate-power series and four boot cohorts (`--boot --verify`).
+The historical G4 and G5 reports still reproduce exactly. The cohort audit
+checks uninterrupted five-second monitor coverage, the passing minute, the
+terminal observation, whole-series exclusion, accepted slots, hook flags,
+static dimensions, scale, zero wheel input and zero offset, monotone work
+counters and completed GPU timestamps. The boot audit checks all sixty
+complete scenes, passive windows, trace loss, archive hashes and per-launch
+phase sums. Static screenshots are retained; the first bar captures for all
+four arms and Ink's changed bar were inspected. Final binary hashes and strict
+bundle signatures still match preparation.
+
+The only source change is to the existing aggregator: cold-only cohorts,
+separate five-round static workloads, boot tables and verification of the
+separate power joins. No renderer design or instrument threshold changes.
+The final report branch is rebased onto `origin/main` `1d7a1ac9b5`; the silver
+measurement source remains `d5429830d2`. The intervening main changes,
+including M2b, are not part of these before measurements. The original
+prediction commit remains in `target/g4q/lane-before-rebase.bundle`; the
+measured source remains in `target/g4q/measured-source.bundle`.
+
+**Repository checks did not obtain a quiet qualification.** The initial full
+run on the measured-source branch exits zero for all six checks, including
+both lint commands. The test and workspace-check intervals overlap external
+compilers. Those results are retained as passing executions, not a quiet gate
+or verification of the rebased tree. The later preflight waits each stop after
+three five-minute windows: `checks-2` has 0/177 passing observations;
+`checks-rebased` has 0/170. In the latter, Cargo PID 4068 and rustc PID 86725
+remain among the observed compilers; maximum 1/5/15-minute loads are
+79.723 / 59.345 / 47.881. The final six-check run is therefore unrun. No
+unrelated compiler was stopped to obtain a passing gate.
+
+| Initial execution | Exit | Wall seconds | Qualification |
+|---|---:|---:|---|
+| `cargo build --all-targets --keep-going` | 0 | 1.874 | No failing observation during command; full run unqualified |
+| `cargo test --tests --no-fail-fast` | 0 | 194.252 | External compiler overlap |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | 1.319 | No failing observation during command; full run unqualified |
+| `cargo fmt --all -- --check` | 0 | 7.531 | No failing observation during command; full run unqualified |
+| `bun scripts/caps.mjs` | 0 | 2.704 | No failing observation during command; full run unqualified |
+| `bun scripts/boot.mjs` | 0 | 0.025 | No failing observation during command; full run unqualified |
+| `cargo check --workspace --all-targets --keep-going` | 0 | 56.585 | External compiler overlap |
+
+Complete verbatim stdout/stderr is retained in
+`target/g4q/checks/FULL-OUTPUT.txt`, with the original individual logs beside
+it. `suite-results.txt` preserves all 113 reported test-result lines; none
+reports a failure. Some lines are from nested suites, so their sum is not a
+unique-test count. `checks-2/` and `checks-rebased/` retain the blocked gates,
+monitor fields and `results.json`. Report verification output is retained in
+`target/g4q/final-verify/OUTPUT.txt`, with one log per series and the historical
+G4/G5 logs. Final staged caps passes: `All budgets within cap. 10 categories inspected.`
+Its full output is `target/g4q/final-caps.log`.
+
+The raw mirror has **2,593 files, 483,712,856 bytes**, enumerated with SHA-256
+in `target/g4q/raw-sha256.json` (manifest SHA-256
+`58c8ff9824d6729a882446fb446e95ddfca37cd4c5ac533e446427d7011b26bf`).
+It is retained at `target/g4q/silver/target/g0/quiet-d5429830d2/` here; the
+original raw series and signed bundles remain at
+`~/projects/exact2-measure/target/g0/quiet-d5429830d2/` on silver.
+No cited file was removed. Each series retains its gate and observations,
+`pmset` state, provenance, runner snapshot, accepted and rejected probe output,
+and logs. Power series also retain the entire plist and paired clock
+calibrations. The local raw roots include the regenerated power joins and
+boot audits; the collection originals on silver need no reporting change.
+
+From this branch, reproduce a CPU/GPU table and its comparison with the record:
+
+```sh
+bun bench/heavy-list/gpui/aggregate.mjs target/g4q/silver/target/g0/quiet-d5429830d2/fling-a-1 --verify
+bun bench/heavy-list/gpui/aggregate.mjs target/g4q/silver/target/g0/quiet-d5429830d2/caret-b-2 --verify
+python3 target/g4q/audit-series.py
+```
+
+Use each directory in the gate table. Boot cohorts use `--boot --verify` and
+`python3 target/g4q/audit-boot.py boot-retained-1`; the other three names work
+likewise. Power joins are regenerated from the retained plist before checking
+their tables:
+
+```sh
+python3 target/g4q/power-summary.py target/g4q/silver/target/g0/quiet-d5429830d2/fling-power-1
+bun bench/heavy-list/gpui/aggregate.mjs target/g4q/silver/target/g0/quiet-d5429830d2/fling-power-1 --verify
+```
+
+Repeat for the fling retry and the two bar rounds. These commands report
+retained data and do not launch applications or power sampling. Recollection
+requires the same Aqua-session recipe in `bench/heavy-list/README.md`, the
+retained signed bundles and the runner snapshot from the desired cohort, with
+a fresh output directory and the same quiet rule. The old output directories
+must remain intact.
