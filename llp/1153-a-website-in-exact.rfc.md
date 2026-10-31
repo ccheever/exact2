@@ -464,12 +464,7 @@ and this RFC says so rather than imitating the wider one.
    re-translated; the author's own tokens stay outside the markers. The subset it
    translates: each `--name: value` on `:root` becomes a token; a redeclaration under
    `@media (prefers-color-scheme: dark)` makes the pair a `light-dark()`, which is what
-   that query means; `--a: var(--b)` becomes a reference to the token `b`. A colour
-   the stylesheet gives one value is one colour in both schemes, as CSS draws it, so it
-   is marked `scheme=fixed` (LLP 1121 D3) and the import says so, rather than leaving a
-   light-only design to a `lower-colour-one-scheme` warning per token (2026-10-31: three
-   of five Pokédex agents marked them by hand). One with a refused declaration (a
-   `.dark` value) is not marked. What it does
+   that query means; `--a: var(--b)` becomes a reference to the token `b`. What it does
    not translate it refuses by name, and writes nothing for: a `.dark` or
    `[data-theme="dark"]` scope (an author-controlled switch, which is a Tamber axis the
    author declares), a value composed around a `var()` (`hsl(var(--h) var(--s) var(--l))`),

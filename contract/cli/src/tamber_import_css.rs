@@ -11,9 +11,7 @@
 //! `@media (prefers-color-scheme: dark)` makes the two a `light-dark()`, which
 //! is what that query means; `--a: var(--b)` is a reference to the token
 //! `b`. Each scheme's value is the declaration that wins it, as CSS's cascade
-//! picks one. A colour the stylesheet gives one value is one colour in both
-//! schemes, as CSS draws it, so it is marked `scheme=fixed` (LLP 1121 D3)
-//! rather than left to `lower-colour-one-scheme`. Everything else is refused by name, and nothing is written for
+//! picks one. Everything else is refused by name, and nothing is written for
 //! it: a scope the page switches (`.dark`, `[data-theme="dark"]`), which is
 //! an app axis the author declares; a value composed around a `var()`; a
 //! value the evaluator, or the compiler after it, refuses. The import exits 1
@@ -35,7 +33,6 @@ struct Token {
     name: String,
     value: String,
     note: Option<&'static str>,
-    fixed: bool,
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -169,39 +166,6 @@ pub fn run(args: &[String]) -> ExitCode {
             !dropped[k - 1]
         });
     };
-    // A literal colour with no dark side, marked, unless a declaration of it
-    // was refused (a `.dark` one); the marks are kept only if the design
-    // still checks with them.
-    let one = |t: &Token| {
-        !t.value.contains("light-dark(")
-            && !refused
-                .iter()
-                .any(|(n, _)| n.strip_prefix("--") == Some(t.name.as_str()))
-            && !exact_tamber::is_name(&t.value)
-            && kinds.iter().any(|(n, k)| *n == t.name && *k == "color")
-    };
-    let marks: Vec<bool> = tokens.iter().map(one).collect();
-    let text = match marks.contains(&true) {
-        false => text,
-        true => {
-            let marked: Vec<Token> = (tokens.iter().zip(&marks))
-                .map(|(t, &fixed)| Token {
-                    name: t.name.clone(),
-                    value: t.value.clone(),
-                    note: t.note,
-                    fixed,
-                })
-                .collect();
-            let (with, _) = render(&base, at, &start, &marked);
-            match checked(&with, &path, &built, &dir, &app) {
-                Ok((said, _)) if said.is_empty() => {
-                    tokens = marked;
-                    with
-                }
-                _ => text,
-            }
-        }
-    };
     let say_refused = || {
         for (name, why) in &refused {
             println!("  refused {name}: {why}");
@@ -239,15 +203,7 @@ pub fn run(args: &[String]) -> ExitCode {
             .find(|(n, _)| *n == t.name)
             .map_or("", |(_, k)| k);
         let note = t.note.map_or(String::new(), |n| format!("  ({n})"));
-        let mark = if t.fixed { "  scheme=fixed" } else { "" };
-        println!("  {} = {}{mark}  {kind}{note}", t.name, t.value);
-    }
-    let fixed = tokens.iter().filter(|t| t.fixed).count();
-    if fixed > 0 {
-        println!(
-            "  {fixed} colour{} the stylesheet gives no dark value, one colour in both schemes as on the web: `scheme=fixed`; a `light-dark(light, dark)` pair follows the reader's scheme",
-            if fixed == 1 { "" } else { "s" }
-        );
+        println!("  {} = {}  {kind}{note}", t.name, t.value);
     }
     say_refused();
     if refused.is_empty() {
@@ -422,12 +378,7 @@ fn read(css: &str) -> (Vec<Token>, Vec<(String, String)>) {
             }
         };
         let name = name.to_string();
-        tokens.push(Token {
-            name,
-            value,
-            note,
-            fixed: false,
-        });
+        tokens.push(Token { name, value, note });
     }
     (tokens, refused)
 }
@@ -568,10 +519,11 @@ fn render(base: &str, at: Option<usize>, start: &str, tokens: &[Token]) -> (Stri
         }
     };
     let mut block = vec![format!("{indent}{start}")];
-    block.extend(tokens.iter().map(|t| {
-        let mark = if t.fixed { "  scheme=fixed" } else { "" };
-        format!("{indent}{} = {}{mark}", t.name, t.value)
-    }));
+    block.extend(
+        tokens
+            .iter()
+            .map(|t| format!("{indent}{} = {}", t.name, t.value)),
+    );
     block.push(format!("{indent}{END}"));
     lines.splice(at..at, block);
     (lines.join("\n") + "\n", at + 2)
