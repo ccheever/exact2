@@ -9734,3 +9734,244 @@ The before measurement carrier is cut 2 (`19f0758ca6`, rebased later as
 arm gets a throwaway launch and each measurement ten quiet seconds first.
 Raw evidence stays under `target/m10-c4/` and its silver copy. One round;
 the six broad checks are deferred to the Mac mini. No push.
+
+**Outcome.** The first positive display is complete in all thirty traced
+Ink after launches. The cut 3 hold is corrected, but the timing targets miss.
+Warm complete screen is 218.772 ms. Qualified four-arm cold is 224.299 ms,
+against GPUI's 209.354 and egui's 218.137 ms. The paired ranges cross zero;
+no consistent complete-screen saving is established in this one round.
+
+| Prediction | Result |
+| --- | --- |
+| Pictures ready by about 150 ms warm | **Miss:** last decode ends at 154.513 ms; the final upload is issued at 196.685 ms |
+| Complete frame presented by about 160 ms | **Miss:** complete-frame commit is 197.368 ms |
+| Complete screen 185–195 ms warm | **Miss:** 218.772 ms, n=10 |
+| Cold complete screen 190–200 ms, below GPUI and egui | **Miss:** 224.299 ms, n=10; both controls are faster |
+| One zero callback or a few; repeats use the latest frame and end at first positive | **Met:** one zero and one or two repeats in all thirty Ink after traces; every first display is complete; none repeats after the positive callback |
+| First displayed pixels, CPU-first handoff and live Metal/wgpu remain correct | **Pass:** identical RGBA first-screen content against each matching cut 2 backend; handoff and both live drives pass |
+| Fling, rest and static unchanged | **Not remeasured:** existing cost rows stand; live drives establish operation only |
+
+**Four-arm cold rows.** Both schedules qualify: `measure.m` cold-only,
+GPU hook, trace and power sampling off, fresh processes and retained caches.
+Native retains its snapshot criterion; painted arms use displayed timestamps.
+Every cold original succeeds. All 230 requested attempts remain, with three
+egui readiness failures in the traced cohorts and no replacements.
+
+| Arm | Before, ms (n) | After, ms (n) |
+| --- | ---: | ---: |
+| Native | 269.169 (10) | 253.631 (10) |
+| GPUI | 211.914 (10) | 209.354 (10) |
+| Ink | 222.856 (10) | 224.299 (10) |
+| egui | 223.831 (10) | 218.137 (10) |
+
+The launch rule gates the ten seconds before launch. During-launch load
+maxima are reported, not grounds for discarding a launch. No power sampler
+overlaps any cohort, and every monitor finishes without error.
+
+| Cohort | Minimum quiet seconds | Max non-benchmark busy cores | Max user-process cores | Max whole-machine busy cores |
+| --- | ---: | ---: | ---: | ---: |
+| confirm | 10.111 | 3.759 | 0.293 | 7.864 |
+| paired | 10.109 | 2.419 | 0.485 | 9.267 |
+| scoreboard-before | 10.105 | 1.909 | 0.327 | 7.573 |
+| scoreboard-after | 10.111 | 1.757 | 0.242 | 7.965 |
+
+Ranges, original filenames, qualification flags and failed-launch records
+remain in `report.json` and `launch-rows.md`.
+
+**Traced cohorts.** Confirmation and pairing qualify under cut 2's
+per-launch rule: ten quiet seconds before each launch, GPU hook and power
+sampling off, trace on. Failed originals remain without replacement.
+
+| Confirmation | Cold, ms (n) | Warm, ms (n) |
+| --- | ---: | ---: |
+| Ink after | 218.230 (5) | 223.174 (5) |
+| GPUI | 211.701 (5) | 216.540 (5) |
+| egui | 223.018 (5) | 222.373 (4) |
+
+| Paired cohort | Before, ms (n) | After, ms (n) | Median paired change, ms (paired n) | Paired range, ms |
+| --- | ---: | ---: | ---: | ---: |
+| ink cold | 225.943 (10) | 222.686 (10) | -1.123 (10) | -22.023 to +15.950 |
+| ink warm | 226.276 (10) | 218.772 (10) | -4.727 (10) | -23.655 to +20.244 |
+| gpui cold | 214.818 (10) | 210.949 (10) | -2.351 (10) | -15.734 to +32.067 |
+| gpui warm | 212.843 (10) | 211.677 (10) | +0.854 (10) | -18.124 to +19.614 |
+| egui cold | 222.927 (10) | 224.403 (10) | -1.756 (10) | -17.070 to +25.685 |
+| egui warm | 229.206 (9) | 230.520 (9) | +1.741 (8) | -23.868 to +23.074 |
+
+All Ink and GPUI originals succeed. egui fails confirmation round 5 warm,
+paired after round 8 warm and paired before round 9 warm, each at readiness.
+The two failed paired launches leave eight matched warm egui pairs.
+Ink's paired ranges cross zero: this round does not establish a consistent
+complete-screen saving. The contemporary cut 2 warm median is 226.276 ms;
+the brief's 208.756 ms is the earlier cohort, not this before measurement.
+
+**Warm timeline.** These are medians of ten original launches per carrier,
+in process-relative milliseconds. Before is the retained cut 2 binary.
+Its existing unlabelled decode/upload spans supply the aggregate image
+endpoints; source-ID spans below use the separate diagnostic rebuild. Phase
+timestamps and per-launch intervals are reduced separately.
+
+| Event | Cut 2 | Cut 4 |
+| --- | ---: | ---: |
+| Window show returns | 105.035 | 101.002 |
+| Data bind | 114.623 | 111.152 |
+| First commit returns | 130.817 | 127.686 |
+| First layout completes | 132.129 | 128.984 |
+| First paint starts | 136.715 | 131.605 |
+| Last visible-picture decode ends | 164.832 | 154.513 |
+| First present commits | 165.073 | 159.089 |
+| Last picture upload is issued | 206.077 | 196.685 |
+| Complete frame commits | 206.565 | 197.368 |
+| First display; complete screen | 226.276 | 218.772 |
+
+Cut 4 requests sized decodes at 128.999 ms, a median 0.017 ms after
+layout; the instrumented before arm takes 1.439 ms after layout. The last
+decode ends at 154.513 ms, but the final upload is issued at 196.685 ms.
+The median per-launch gap is **43.711 ms**, versus **1.557 ms** summed
+picture-upload CPU work. Waiting for the paint that consumes the decoded
+pictures dominates the upload step. The complete successor commits at
+197.368 ms, missing about 160 ms. The first positive display follows show
+by a median **118.928 ms**, not the assumed 85 ms; complete screen is
+**218.772 ms**, missing 185–195 ms. Moving the request does not make uploads
+happen as soon as the workers finish.
+
+All thirty Ink after traces have exactly one zero callback, two paints before
+the first positive callback and one or two repeats. Every first positive
+display is complete. No repeat occurs after that callback, and no drawable
+is acquired on the main thread. The repeats now carry the complete
+successor; the incomplete first frame no longer blocks it.
+
+**Per-picture spans.** The following warm traces are nearest their cohort's
+median complete-screen time: diagnostic before
+`before-picture-spans/ink-before-trace-1-warm.json` and after
+`paired/ink-after-1-warm.json`. Each cell is start–end in process-relative
+milliseconds. Decode thread IDs are in parentheses; every upload below is
+on main thread 259. Thread IDs are local to each trace.
+
+| Source ID | Before decode (thread) | After decode (thread) | Before upload | After upload |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 128.779–130.579 (62647) | 129.173–130.935 (49415) | 201.379–201.554 | 132.343–132.620 |
+| 2 | 128.786–130.560 (61467) | 129.181–130.929 (62003) | 201.579–201.651 | 145.659–145.819 |
+| 3 | 153.556–166.757 (61467) | 131.664–145.185 (62003) | 201.654–202.428 | 195.372–196.187 |
+| 4 | 153.557–165.852 (62647) | 131.666–143.787 (49415) | 202.430–202.657 | 196.197–196.480 |
+| 5 | 167.897–168.252 (62647) | 155.973–156.464 (62003) | 202.664–202.702 | 196.489–196.543 |
+
+`picture-spans.json` retains every span and each cohort's medians, including
+the ten-launch paired before timeline. `picture-examples.json` identifies
+the displayed examples. Neither table treats CPU upload submission as
+GPU completion. The first complete displayed frame remains the endpoint.
+
+**Implementation and scope.** `35eea646e6` starts embedded-image metadata
+work after the first commit, in `Host::boot_decoded`, and asks for sized
+decodes immediately after the first layout. `Heavy::bind` has no image
+nodes or resolved boxes. Selected assets retain their metadata/integrity
+gate. The initial mounted set names ten sources; the first screen decodes
+five, and the existing visibility pass cancels the other requests. Two
+persistent image workers serve them; five jobs cannot fit one decode round.
+
+The carrier permits ordinary redraws while awaiting its first positive
+callback. Each new successful paint replaces the retained frame. A tick
+services arrivals and paints any damage first; otherwise it repeats the
+latest frame after a zero callback. The first positive callback ends the
+repeat path. The paint walk, image-slot patching, CPU-first handoff,
+compose target and retirement rules are unchanged.
+
+`image/workers.rs` records the source ID on each decode span;
+`image/bitmap.rs` carries that ID into `ink/images.rs`'s picture-upload
+span. Both spans retain start, end and thread. The upload span measures
+the CPU's texture creation, pixel upload and mip submission, not a
+per-picture GPU-completion timestamp. GPU submission and display remain
+separate events in the existing trace.
+
+The picture-span before arm rebuilds cut 2's window scheduling on this
+worktree's rebased dependencies, with the same source-ID instrumentation.
+Its five cold and five warm launches are a diagnostic control; each cited
+warm launch follows its cold partner, with no separate throwaway launch
+for this extra arm. The paired and four-arm before arm is the original
+retained cut 2 carrier, source
+`19f0758ca6` (later rebased as `8116a09a55`); the diagnostic rebuild does
+not replace it. `before-trace.patch`, `after-source.patch` and
+`build-context.json` retain that distinction.
+
+**Validation.** The affected-suite command exits 0:
+
+```sh
+EXACT_INK_DEVICE=metal EXACT_REQUIRED=1 RUST_TEST_THREADS=2 \
+  cargo test -p exact-linux -p exact-apple-painted -p exact-ink \
+  --lib --tests --no-fail-fast
+```
+
+`target/m10-c4/checks/affected.log` retains the full output, and
+`checks/final-suite-results.txt` retains the suite status lines verbatim.
+The new regression verifies that metadata can finish before layout without
+starting a decode, that layout sizes the decode, and that symbols still
+report their intrinsic size. Its final focused run reports:
+
+```text
+test image::control_tests::boot_metadata_waits_for_layout_size_before_decoding ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1717 filtered out; finished in 0.03s
+```
+
+Both release and development carriers build into this worktree's own
+`target/`. The changed Rust files pass `rustfmt --check`. The full six-check
+gate remains for the Mac mini; affected suites and caps run here. No push
+is made, and no earlier cut's retained artifact is removed.
+
+**Functional drives and pixels.** On the silver, an empty application
+archive displays the complete CPU frame at 184.325 ms and the complete Ink
+frame at 334.325 ms. Retained Metal and wgpu display complete screens;
+all three boot checks pass, with no main-thread drawable acquisition.
+These are functional observations, not qualified startup medians.
+
+Release Metal advances its displayed-frame counter from 12 to 113 under
+the posted wheel drive; wgpu advances from 12 to 111. The development
+socket drive advances carrier frames from 2 to 40 on Metal and 3 to 39 on
+wgpu. All functional validation files are empty, and all drives exit 0.
+
+Untouched first-screen captures match cut 2 exactly for each backend:
+**zero changed RGBA content pixels**, 1600×1536. The capture runs also record
+that the complete screen was the first displayed screen. The initial
+cross-backend wgpu-to-Metal comparison differs on 0.055542% of RGB pixels,
+with no channel difference above 8; the matching cut 2 wgpu reference
+removes that difference. Its pre-run zero-difference prediction is retained
+in `first-screen-wgpu-prediction.txt`. All captures are retained and the
+Metal first screen and both release captures were inspected.
+
+`first-screen-compare.mjs` uses the repository's existing PNG reader and
+comparator, removing only the 32-point native title bar from its content
+comparison. `first-screen/comparison.json` retains the full-window and
+content comparisons, including the cross-backend result. Reproduce it with
+`bun target/m10-c4/first-screen-compare.mjs`. No renderer revision follows
+the timing results; this is one implementation round.
+
+**Reproduction.** The prediction is committed before the run in `2e15057801`.
+The implementation is `35eea646e6`; `build-context.json` records the rebase,
+tool versions, worktree and build command. All arms use the worktree's own
+build output or the retained signed controls. The silver needs no go file.
+
+Raw files are retained at `target/m10-c4/silver/` locally and at
+`ccheever@100.76.94.78:~/projects/exact2-measure/target/g0/m10-c4/`.
+`collection-final.json` records commands, PIDs and exits; each cohort's
+`provenance.json` hashes its executables. Re-run the retained `run-final.py`
+in a fresh artifact directory, in the silver's GUI session under
+`caffeinate`, to collect the five-round confirmation, ten paired rounds and
+two ten-round four-arm cold schedules. Each signed arm receives a throwaway
+launch first. Failed originals are retained, never replaced.
+
+Reproduce the tables and image spans without opening a window:
+
+```sh
+python3 -B target/m10-c4/report.py
+python3 -B target/m10-c4/picture-spans.py
+python3 -B target/m10-c4/launch-rows.py
+```
+
+`report.json`, `tables.md`, `picture-spans.json`, `picture-examples.json`
+and `launch-rows.md` retain the reductions. `raw-sha256.json` hashes the
+retained raw files; `analysis-sha256.json` hashes the reduction scripts.
+The first-screen capture and development socket checks are separate
+functional drives, not qualified startup samples. Fling, rest and static
+costs are not remeasured; their existing rows stand. D7, D11 and D15,
+including the dated boot and 100 ms application obligations, are unchanged.
+
+The final staged caps output is retained in `checks/caps-final.log`.

@@ -1272,6 +1272,38 @@ and wgpu pass. This one round ends with a regression; D7, D11 and D15,
 including the dated boot and 100 ms application obligations, are unchanged.
 [Qualified tables, predictions, callbacks and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-3-re-present-the-first-frame-on-each-tick).
 
+**M10 cut 4, 2026-10-31:** source `35eea646e6` requests sized decodes at
+first layout and lets each new paint replace the frame repeated after a
+zero callback. All thirty traced first positive displays are complete,
+with one zero callback and one or two repeats; none occurs after the
+positive callback. Both four-arm cold-only schedules qualify, hook,
+trace and power sampling off, with ten quiet seconds before each launch.
+Fresh processes retain their caches; native keeps its snapshot criterion
+and the painted arms use displayed timestamps. All eighty originals pass.
+
+| Arm | Before, ms (n) | After, ms (n) |
+| --- | ---: | ---: |
+| Native | 269.169 (10) | 253.631 (10) |
+| GPUI | 211.914 (10) | 209.354 (10) |
+| egui | 223.831 (10) | 218.137 (10) |
+| Ink | 222.856 (10) | 224.299 (10) |
+
+Ink misses 190–200 ms and the predicted lead over GPUI and egui. Paired
+warm complete screen is 218.772 ms, missing 185–195 ms; median paired
+changes are −1.123 ms cold and −4.727 ms warm, both ranges crossing zero.
+Last decode is 154.513 ms, final upload 196.685 ms and complete-frame
+commit 197.368 ms. The median per-launch decode-to-upload gap is 43.711 ms,
+against 1.557 ms summed upload CPU work: the next paint remains late.
+
+All 230 requested originals remain, including three traced egui readiness
+failures. Matching-backend first-screen captures have zero changed RGBA
+content pixels. Pixel suites, CPU-first handoff and live Metal and wgpu
+pass. Fling, rest and static costs are not remeasured. This one round
+corrects the incomplete-frame hold but establishes no consistent startup
+saving. D7, D11 and D15, including the dated boot and 100 ms application
+obligations, are unchanged.
+[Tables, picture spans, predictions and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-4-request-the-pictures-earlier-and-re-present-the-latest-frame).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms
