@@ -5463,7 +5463,7 @@ records and instrument binaries under
 `target/g4q/silver/target/g0/quiet-d5429830d2/`. Predictions were committed as
 `8ead227047` before the first gate began at **18:02:34 PDT**. The gate imports
 the landed `QuietMonitor`; its wrapper samples every five seconds in bounded
-one-minute loops, with a two-hour total deadline.
+one-minute loops, with a two-hour cumulative wait allowance.
 
 The initial gate passed after **1,777.842 s (29 min 38 s)**: 351 observations,
 339 failing before twelve consecutive passes. Whole-machine CPU ranged from
@@ -5902,3 +5902,25 @@ but excluded from the join. Power is reported separately from CPU timings.
 | Rest interior: process energy impact/s | 0.39 (0.39–0.39) | 0.97 (0.97–0.97) | 0.60 (0.60–0.60) | 0.17 (0.17–0.17) |
 | Rest interior: system GPU clock, MHz | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) | 371.2 (371.2–371.2) | 386.2 (386.2–386.2) |
 | Rest interior: system GPU active, % | 0.55 (0.55–0.55) | 0.36 (0.36–0.36) | 1.36 (1.36–1.36) | 1.95 (1.95–1.95) |
+
+### Separate power: fling attempt 2 — excluded
+
+`fling-power-2` runs one round with the hook off and power sampling on, after
+a **60.728 s** gate. **4 of 31** qualifying-gate/series observations
+fail: **0.461–1.667 busy cores**, with `duetexpertd` at
+**0.843 cores**. The whole series is excluded.
+The same interior PID join has **0.000408649 s** calibration spread.
+Each cell is one run's duration-weighted mean, with the singleton min/max.
+
+| Metric | Native | GPUI | Ink | egui |
+|---|---:|---:|---:|---:|
+| Fling interior: system CPU, W | 1.861 (1.861–1.861) | 1.562 (1.562–1.562) | 1.376 (1.376–1.376) | 1.258 (1.258–1.258) |
+| Fling interior: system GPU, W | 0.029 (0.029–0.029) | 0.162 (0.162–0.162) | 0.213 (0.213–0.213) | 0.046 (0.046–0.046) |
+| Fling interior: process energy impact/s | 309.74 (309.74–309.74) | 53.19 (53.19–53.19) | 64.17 (64.17–64.17) | 53.98 (53.98–53.98) |
+| Fling interior: system GPU clock, MHz | 338.0 (338.0–338.0) | 346.1 (346.1–346.1) | 344.5 (344.5–344.5) | 357.7 (357.7–357.7) |
+| Fling interior: system GPU active, % | 4.74 (4.74–4.74) | 10.77 (10.77–10.77) | 12.26 (12.26–12.26) | 5.59 (5.59–5.59) |
+| Rest interior: system CPU, W | 1.034 (1.034–1.034) | 0.975 (0.975–0.975) | 1.119 (1.119–1.119) | 1.412 (1.412–1.412) |
+| Rest interior: system GPU, W | 0.001 (0.001–0.001) | 0.004 (0.004–0.004) | 0.001 (0.001–0.001) | 0.001 (0.001–0.001) |
+| Rest interior: process energy impact/s | 0.34 (0.34–0.34) | 1.23 (1.23–1.23) | 0.47 (0.47–0.47) | 0.09 (0.09–0.09) |
+| Rest interior: system GPU clock, MHz | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) |
+| Rest interior: system GPU active, % | 0.50 (0.50–0.50) | 0.83 (0.83–0.83) | 0.41 (0.41–0.41) | 0.39 (0.39–0.39) |
