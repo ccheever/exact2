@@ -10,9 +10,10 @@
 //   `@rpath/<link>.framework/…`, so an app that embeds it in `Frameworks` finds it by its run path.
 // - a Linux or Android target: the shared object itself, `lib<link>.so`, whose SONAME, if it has one, is that name.
 //
-// Each target's link inputs are laid out under `<sha256>/<target>/`, where the bake's build script points the linker
-// (js/bake/src/library.rs): `-L <that directory> -l<link>` on every target, which on Apple finds `lib<link>.dylib`, a
-// link to the framework's binary, so the link records the framework's install name.
+// Each target's link inputs are laid out under `<sha256>/<target>/`. A Rust link (the Linux host's executable) takes
+// `-L <that directory> -l<link>` from the bake's build script (js/bake/src/library.rs); on an Apple target `-l` finds
+// `lib<link>.dylib`, a link to the framework's binary, so the link records the framework's install name. An Apple
+// app's Swift link takes the framework itself (`appleLinkArgs`).
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
