@@ -4984,3 +4984,76 @@ Runtime results that have not been collected are not passes.
 `host/linux/src/presenter/focus_disabled_tests.rs` receives only rustfmt's
 formatting, needed for the full format check after the rebase. The records
 also correct `bench/heavy-list/gpui/RESULTS.md` and both renderer RFCs.
+
+### Landing — rebase onto M2b and the instrument check
+
+Rebased the sixteen Stage 1w commits from `9f4caaa663` onto
+`origin/main` `41a959bf1e`. Two append conflicts required resolution:
+this file keeps main's M2b-Windows record before Stage 1w, and
+`bench/heavy-list/gpui/RESULTS.md` keeps main's instrument and M2b records
+before Stage 1w. No code conflict required manual resolution.
+
+The automatic merges retain all four `needs_animation_frame()` gates in
+`host/windows/src/window.rs` beside the field, IME and watchdog hooks.
+The shared presenter's sampled-motion and deadline changes remain beside
+`windows_field`; main's focus-test formatting is identical to this lane's.
+`Cargo.toml` keeps the AccessKit patch and main's patches and workspace
+exclusions. `Cargo.lock` retains the automatic merge; regeneration by the
+build from main's lockfile remains owed. Both renderer RFCs and both lanes'
+queue entries remain.
+
+**Prediction before verification:** zero failures in the six Mac checks,
+including Clippy and rustfmt, and in the shared Linux presenter suite.
+No performance improvement is predicted from this rebase. The native
+predictions remain chunk A's: zero eager optional DLL imports, static-face
+advance error below 0.02 device pixels, unhinted mean coverage error below
+4.589/255 for Inter and 12.335/255 for Segoe UI, and UIA discovery within
+30 seconds. New native results require the NucBox to answer its one SSH
+check; elapsed time or uncollected output cannot qualify a candidate.
+
+Rebase differences, the SSH output and quiet observations are retained under
+`target/stage-1w-landing/`.
+
+**Mac verification remains unrun.** The existing check runner's two-hour
+quiet wait expired before dependency installation or any check started.
+From 19:12:30 to 21:12:42 PDT on 2026-10-30, none of 238 observations met
+both conditions: all three load averages below 30 and no competing Cargo
+or compiler process. `mac/quiet.jsonl` retains every observation;
+`mac/verification.json` lists every unrun command. The waiter exits 1 with:
+
+```text
+quiet wait expired
+```
+
+| Command | Result on the rebased source |
+| --- | --- |
+| `cargo build --all-targets --keep-going` | Unrun; quiet wait expired. |
+| `cargo test --tests --no-fail-fast` | Unrun; quiet wait expired. |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | Unrun; quiet wait expired. |
+| `cargo fmt --all -- --check` | Unrun; quiet wait expired. |
+| `bun scripts/caps.mjs` | Unrun; quiet wait expired. |
+| `bun scripts/boot.mjs` | Unrun; quiet wait expired. |
+| `cargo check --workspace --all-targets --keep-going` | Unrun; quiet wait expired. |
+| `cargo test -p exact-linux --lib --tests --no-fail-fast` | Unrun; quiet wait expired. |
+
+The zero-failure prediction remains unverified. No test output or isolated
+flake rerun exists for this revision. Chunk A's passes above qualify its
+earlier source, not this rebase. The six checks, shared presenter suite and
+lockfile regeneration remain owed before landing.
+
+The single NucBox SSH check on 2026-10-30 returns exit 255:
+
+```text
+ssh: connect to host 100.103.120.64 port 22: Operation timed out
+```
+
+`nucbox-ssh.json` retains its command and UTC timestamps; `nucbox-ssh.log`
+retains the output. No retry or native launch follows. Both-device S2.8b
+suites, desktop and field journeys, the UIA attempt and tree, unhinted M9
+rows, and the wgpu pinned-paint rerun remain unrun on the rebased source.
+Chunk A's outstanding outputs remain uncollected. Its import prediction
+remains met on the recorded executable; the new M9 and UIA predictions
+remain unverified. The existing `amdihk64.dll_unloaded` fault event identifies
+a module, not a cause:
+whether it is an AMD overlay hook loaded into every process, and whether
+the crash reproduces with the candidate off, remain unverified.
