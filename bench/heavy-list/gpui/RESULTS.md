@@ -10990,5 +10990,50 @@ The combined affected run is **not green**: the existing
 fails in both full runs and passes alone. The earlier offscreen and
 plain-color failures remain in those logs; the corrected tests pass in
 the focused runs. No change to the exit test or its implementation is
-included. `caps.log` passes all ten categories; the six broad repository
+included. The final Linux library run, excluding only that known exit
+failure, reports 1,699 passed, one failed and 22 ignored: its asynchronous
+core subprocess hits `a_quit_ends_every_group`'s grace-time bound. The
+direct test in the same run passes. Both timing failures are already in
+`QUEUE.md`'s “Wall-clock test bounds flake under load” item; neither is
+silently excluded from a green claim. `caps.log` and
+`caps-source-final.log` pass all ten categories; the six broad repository
 checks remain assigned to the mini.
+
+**Finding dispositions at the measured source.** Commit `4a0166e254`
+fixes Sol 1–5 and Claude 1–3, 5–7, 9–12. It records Claude 8's boot input
+ordering as a known limit in LLP 1149.001. Commit `07ea81f30c` releases
+the one-repeat reservation when wgpu coalesces or refuses a submission,
+completing the retry fix. Sol 6 and Claude 4 are evidence findings: the
+scoreboard carries both earlier untraced sessions and explicitly records
+that the second puts Ink above GPUI. The final fixed-tip rows and the
+paired trace comparison below decide the new session's ordering; none
+can erase that disagreement.
+
+**Fling diagnosis before the fix.** The retained confirmation binaries
+reproduce the increase without tracing: 526.571 million instructions/s
+before and 551.490 after, a +24.919 million/s pair. The traced main
+original qualifies; the traced cuts original exceeds the quiet limit
+(non-benchmark load reaches 1.305 cores), so it is diagnostic evidence,
+not a cost row. Its observer retires at about 204 ms, before the fling.
+The trace contains 12 picture-arrival direct draws after retirement;
+main routes these through redraw demand. The fixed carrier limits that
+direct path to unshown boot. These traces rule out a persistent observer
+for this workload; they do not establish how much of the instruction
+increase the direct path explains. The five final pairs test that claim.
+The second plan decode and earlier link start are boot work, not fling
+work. `diagnose.py` reproduces the phase counters and trace observations
+from `silver/diagnosis/` and `silver/diagnosis-traced/`.
+
+**Build identity.** The baseline is `origin/main` as fetched before work,
+`15c20224e2a16165bad87552a036d90d16fd4d91`; the fixed carrier is
+`07ea81f30c0f5d69775bd96891dafc8a6eea93a5`. Both release builds use
+`MACOSX_DEPLOYMENT_TARGET=14.0`, the worktree's own `--target-dir target`,
+and the same explicit probe link command. `before-build.json`,
+`after-build.json`, their command files and build logs retain the results.
+The provenance check rejected a freshly compiled probe before collection;
+`probe-alignment.json` records replacement with the exact signed probe
+already shared by all three controls. The initially built probes are
+retained separately. All five final arms load identical probe bytes.
+The silver's A7 raster collector delayed this lane; the first waiting
+functional coordinator was stopped before launching an app to avoid
+mutual ownership waits. Its ownership log is retained.
