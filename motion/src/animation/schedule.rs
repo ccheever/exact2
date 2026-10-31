@@ -2,7 +2,7 @@
 //! @ref LLP 1149.001 M2b — a step's held value needs no display callbacks.
 
 use super::{Animation, Direction, Phase};
-use crate::{Easing, Property, Value};
+use crate::{Easing, Property, StepPosition, Value};
 
 impl Animation {
     /// Next local time at which this property needs sampling. `Some(t)` means
@@ -53,7 +53,7 @@ impl Animation {
         } else {
             let easing = a.1.unwrap_or(&self.easing);
             match easing {
-                Easing::Steps { count, .. } => {
+                Easing::Steps { count, position } => {
                     let local = (progress - a.0) / span;
                     let n = *count as f64;
                     let step = if forwards {
@@ -61,7 +61,14 @@ impl Animation {
                     } else {
                         // At a reverse boundary the closed-form sampler still
                         // holds the upper step. Cross it before sleeping again.
-                        (local * n).floor()
+                        let step = (local * n).floor();
+                        if *position == StepPosition::JumpNone {
+                            // jump-none has no jump at progress 1, including
+                            // the start of a reverse or alternate iteration.
+                            step.min(n - 1.0)
+                        } else {
+                            step
+                        }
                     };
                     a.0 + (step / n).clamp(0.0, 1.0) * span
                 }
@@ -70,12 +77,18 @@ impl Animation {
         };
         // Reverse traversal changes a step just below its boundary, because
         // `sample_in` uses the upper value at the boundary itself.
-        let simple = if forwards {
-            edge
+        let simple = if forwards { edge } else { 1.0 - edge };
+        let boundary = self.delay + (iteration + simple) * self.duration;
+        // Cross after converting to time: adding the iteration can erase an
+        // ULP in progress. The iteration's end itself is already a phase edge.
+        let next = if !forwards && edge > 0.0 {
+            boundary.next_up()
         } else {
-            1.0 - edge.next_down()
-        };
-        let next = (self.delay + (iteration + simple) * self.duration).min(self.end_time());
+            boundary
+        }
+        .min(self.end_time());
+        // A just-later instant can round back to `t` when a host converts to
+        // milliseconds. It then requests a display frame instead of sleeping.
         Some(if next > t { next } else { t.next_up() })
     }
 }
