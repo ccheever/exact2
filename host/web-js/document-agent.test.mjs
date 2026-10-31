@@ -176,3 +176,73 @@ component TabsDocument
     await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
   }
 }, 30000);
+
+// LLP 1153 D8 — a flowed paragraph's runs are held off the page while its fragments paint (flow.js), so the tree
+// gives them their paragraph's route flags: hidden under a pushed route, inactive under a sheet.
+test('a flowed paragraph\'s runs keep their route\'s flags', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/flow-agent-test-'));
+  let browser, server;
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Flow Agent Test', app: { id: 'test.flow-agent', name: 'Flow Agent Test' }, host: { web: {} } }));
+    writeFileSync(resolve(dir, 'app.contract'), `routes nav
+  home "/"
+    detail "/detail"
+    sheet "/sheet"
+
+component FlowAgent
+  action open(url: string)
+    nav = push(nav, url)
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` position="absolute" inset=0 navigationPresentation=(e.name == "sheet" ? "modal" : "auto")
+          if e.name == "home"
+            box display="block" position="relative" width=300 height=160
+              text width=300 height=160 testId="prose"
+                text "Words that flow around a square, " testId="run-a"
+                text "and more words after them." testId="run-b"
+              box position="absolute" left=0 top=0 width=60 height=60 wrap-flow="both"
+            button press=open("/detail") testId="open-detail"
+              text "Detail"
+            button press=open("/sheet") testId="open-sheet"
+              text "Sheet"
+          else
+            button press=back testId=\`back-\${e.name}\`
+              text "Back"
+`);
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'flow-agent-test', '--out', resolve(dir, 'dist'), '--render', 'none'], {
+      cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
+      const path = new URL(req.url).pathname;
+      const file = Bun.file(resolve(dir, 'dist', path.includes('.') ? path.slice(1) : 'index.html'));
+      return await file.exists() ? new Response(file) : new Response('not found', { status: 404 });
+    } });
+    browser = await open({ host: 'web', url: server.url.href, size: [420, 900] });
+    // The runs are off the page once the flow paints its fragments, which it loads after first paint.
+    const flowed = () => browser.carrier.evaluate('!!document.querySelector(\'[data-testid="prose"] > [data-flow-fragment]\') && !document.querySelector(\'[data-testid="run-a"]\')?.isConnected');
+    for (let at = Date.now(); !await flowed(); await new Promise((r) => setTimeout(r, 50))) if (Date.now() - at > 20000) throw new Error('the paragraph was never flowed');
+    const runs = async () => {
+      const { nodes } = await browser.tree();
+      return ['run-a', 'run-b'].map((id) => nodes.find((n) => n.props.testId === id)).map((n) => [!!n.inactive, !!n.hidden]);
+    };
+    expect(await runs()).toEqual([[false, false], [false, false]]);
+    await browser.tap('open-detail');
+    await browser.clock('settle');
+    expect(await flowed()).toBe(true);
+    expect(await runs()).toEqual([[true, true], [true, true]]);
+    await browser.tap('back-detail');
+    await browser.clock('settle');
+    await browser.tap('open-sheet');
+    await browser.clock('settle');
+    expect(await flowed()).toBe(true);
+    expect(await runs()).toEqual([[true, false], [true, false]]);
+  } finally {
+    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
+  }
+}, 60000);

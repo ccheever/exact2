@@ -149,14 +149,16 @@ export function install(exact) {
   // `unopened`: a tab panel whose tab has never been selected, empty until it is (LLP 1075.003 §3.7).
   const all = () => {
     const out = [], root = document.getElementById('exact-root'), flag = routeFlags(root);
-    const walk = (el, d) => {
-      const n = record(el, d), f = flag(el); out.push(n);
+    // A node's flags are at least its parent's: a flowed paragraph's runs are held off the page, where the projection
+    // reaches none of them.
+    const walk = (el, d, up) => {
+      const n = record(el, d), f = Math.max(up, flag(el)); out.push(n);
       if (f) n.inactive = true;
       if (f > 1) n.hidden = true;
       if (unopened(el)) n.unopened = true;
-      n.children = kids(el).map(c => walk(c, d + 1).id); return n;
+      n.children = kids(el).map(c => walk(c, d + 1, f).id); return n;
     };
-    kids(root).forEach(el => walk(el, 0));
+    kids(root).forEach(el => walk(el, 0, 0));
     return out;
   };
   // The runner's tags (LLP 1035.002 D3): a commit is an epoch; a JS page
