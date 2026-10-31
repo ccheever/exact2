@@ -6,6 +6,8 @@ pub use super::metal::startup::Startup;
 #[path = "apple/startup_unavailable.rs"]
 mod startup_unavailable;
 use super::{Error, Result};
+mod boot;
+pub use boot::BootTicks;
 use objc2::{
     define_class, msg_send, rc::Retained, runtime::ProtocolObject, AnyThread, DefinedClass,
     MainThreadMarker,
@@ -193,6 +195,10 @@ impl Layer {
         self.0.presentation.painter()
     }
 
+    pub fn complete_frame_presented(&self) -> bool {
+        self.0.presentation.0.lock().unwrap().complete
+    }
+
     /// A zero callback before this generation's first displayed frame.
     pub fn first_present_dropped(&self) -> bool {
         let shown = self.0.presentation.0.lock().unwrap();
@@ -271,6 +277,7 @@ impl DrawableTracker {
         let wake = self.wake.clone();
         let presentation = self.presentation.clone();
         let generation = self.generation;
+        let complete = PRESENTING_COMPLETE.get();
         let block = block2::RcBlock::new(
             move |shown: std::ptr::NonNull<
                 objc2::runtime::ProtocolObject<dyn objc2_metal::MTLDrawable>,
@@ -281,7 +288,7 @@ impl DrawableTracker {
                 let time = unsafe { shown.as_ref().presentedTime() };
                 trace_mark(c"presented handler", || time);
                 trace_interval(c"presented", || (time, time, 0.));
-                if !presentation.record(generation, time, ink) {
+                if !presentation.record(generation, time, ink, complete) {
                     return;
                 }
                 if time == 0. && retry.failed() {
@@ -307,6 +314,7 @@ struct Shown {
     time: f64,
     painter: Option<&'static str>,
     dropped: bool,
+    complete: bool,
 }
 impl Presentation {
     fn painter(&self) -> Option<&'static str> {
@@ -319,12 +327,13 @@ impl Presentation {
             ..Shown::default()
         };
     }
-    fn record(&self, generation: u64, time: f64, ink: bool) -> bool {
+    fn record(&self, generation: u64, time: f64, ink: bool, complete: bool) -> bool {
         let mut shown = self.0.lock().unwrap();
         if shown.generation != generation {
             return false;
         }
         shown.dropped |= time == 0.;
+        shown.complete |= time > 0. && complete;
         // Completion callbacks can arrive in a different order from display.
         if time > shown.time {
             shown.time = time;
@@ -581,9 +590,10 @@ impl Drop for DisplayLink {
 
 thread_local! {
     static BENCHMARK: std::cell::Cell<(bool, f32)> = const { std::cell::Cell::new((false, 0.)) };
+    static PRESENTING_COMPLETE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Readiness and scroll offset of the frame being encoded, for the optional probe.
+/// Frame readiness retires boot on display; the optional probe also reads its offset.
 pub fn benchmark_frame(complete: bool, offset: f32) {
     BENCHMARK.set((complete, offset));
 }
@@ -643,8 +653,9 @@ pub fn benchmark_present_clear() -> bool {
     clear.is_some_and(|clear| unsafe { clear() != 0 })
 }
 
-/// Set the probe's metadata on the worker immediately before drawable acquisition.
+/// Carry readiness to the drawable callback and metadata to the optional probe.
 pub(crate) fn benchmark_present((complete, offset): (bool, f32)) {
+    PRESENTING_COMPLETE.set(complete);
     type Ready = unsafe extern "C" fn(i32, usize, f32);
     static READY: std::sync::OnceLock<Option<Ready>> = std::sync::OnceLock::new();
     let ready = READY.get_or_init(|| unsafe {
@@ -671,24 +682,42 @@ mod tests {
         let presented = Presentation::default();
         assert_eq!(presented.painter(), None);
         assert!(!presented.0.lock().unwrap().dropped);
-        presented.record(0, 0., true);
+        presented.record(0, 0., true, false);
         assert_eq!(presented.painter(), None);
         assert!(presented.0.lock().unwrap().dropped);
-        presented.record(0, 1., false);
+        presented.record(0, 1., false, false);
         assert_eq!(presented.painter(), Some("cpu"));
-        presented.record(0, 0., true);
+        presented.record(0, 0., true, false);
         assert_eq!(presented.painter(), Some("cpu"));
-        presented.record(0, 2., true);
+        presented.record(0, 2., true, false);
         assert_eq!(presented.painter(), Some("ink"));
-        presented.record(0, 1.5, false);
+        presented.record(0, 1.5, false, false);
         assert_eq!(presented.painter(), Some("ink"));
         presented.invalidate();
-        assert!(!presented.record(0, 3., true));
-        assert!(!presented.record(0, 0., true));
+        assert!(!presented.record(0, 3., true, false));
+        assert!(!presented.record(0, 0., true, false));
         assert!(!presented.0.lock().unwrap().dropped);
         assert_eq!(presented.painter(), None);
-        presented.record(1, 4., false);
+        presented.record(1, 4., false, false);
         assert_eq!(presented.painter(), Some("cpu"));
+        assert!(!presented.0.lock().unwrap().complete);
+        presented.record(1, 0., true, true);
+        assert!(
+            !presented.0.lock().unwrap().complete,
+            "a complete dropped frame is not displayed"
+        );
+        presented.record(0, 5., true, true);
+        assert!(
+            !presented.0.lock().unwrap().complete,
+            "an old generation cannot retire boot"
+        );
+        presented.record(1, 5., false, true);
+        assert!(
+            presented.0.lock().unwrap().complete,
+            "a complete CPU frame retires boot too"
+        );
+        presented.invalidate();
+        assert!(!presented.0.lock().unwrap().complete);
     }
 
     #[test]

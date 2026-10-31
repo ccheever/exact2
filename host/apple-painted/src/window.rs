@@ -1,11 +1,12 @@
 use exact_ink::counters;
-use exact_ink::device::apple::{trace_mark, DisplayLink, Layer, Trace};
+use exact_ink::device::apple::{trace_mark, BootTicks, DisplayLink, Layer, Trace};
 use exact_linux::{
     app::{self, Config},
     Presenter,
 };
 use exact_runner::DataSource;
 use std::{
+    cell::RefCell,
     rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -55,6 +56,7 @@ struct App<D: DataSource> {
     wheel_phases: [u64; 2],
     scrolling: Scrolling,
     benchmark_complete: bool,
+    booting: bool,
     service_causes: u8,
 }
 
@@ -135,7 +137,7 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
     exact_linux::set_event_waker(Some(Arc::new(move || {
         let _ = wake.send_event(Event::Wake);
     })));
-    let mut state = App::<D> {
+    let state = Rc::new(RefCell::new(App::<D> {
         name: name.into(),
         config,
         live,
@@ -159,13 +161,49 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         wheel_phases: [0; 2],
         scrolling: Scrolling::default(),
         benchmark_complete: false,
+        booting: true,
         service_causes: 0,
-    };
+    }));
     drop(entry_trace);
-    if let Err(error) = events.run_app(&mut state) {
+    let weak = Rc::downgrade(&state);
+    let boot_ticks = match BootTicks::new(move || {
+        let Some(state) = weak.upgrade() else {
+            return false;
+        };
+        let Ok(mut app) = state.try_borrow_mut() else {
+            return true;
+        };
+        if app
+            .layer
+            .as_ref()
+            .is_some_and(Layer::complete_frame_presented)
+        {
+            app.booting = false;
+            return false;
+        }
+        if app.tick_pending.swap(false, Ordering::AcqRel) {
+            trace_mark(c"boot tick delivered", || 0.);
+            if let Err(error) = app.tick() {
+                eprintln!("exact-apple-painted: {error}");
+                app.failed = true;
+                let _ = app.proxy.send_event(Event::Closed);
+                return false;
+            }
+        }
+        true
+    }) {
+        Ok(observer) => observer,
+        Err(error) => {
+            eprintln!("{error}");
+            return 1;
+        }
+    };
+    if let Err(error) = events.run_app(&mut Handler(state.clone())) {
         eprintln!("{error}");
-        state.failed = true;
+        state.borrow_mut().failed = true;
     }
+    drop(boot_ticks);
+    let mut state = state.borrow_mut();
     exact_linux::set_event_waker(None);
     if state.frames > 0 {
         eprintln!(
@@ -181,7 +219,86 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
     i32::from(state.failed)
 }
 
+struct Handler<D: DataSource>(Rc<RefCell<App<D>>>);
+impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for Handler<D> {
+    fn new_events(&mut self, events: &ActiveEventLoop, cause: StartCause) {
+        self.0.borrow_mut().new_events(events, cause);
+    }
+    fn resumed(&mut self, events: &ActiveEventLoop) {
+        self.0.borrow_mut().resumed(events);
+    }
+    fn user_event(&mut self, events: &ActiveEventLoop, event: Event) {
+        self.0.borrow_mut().user_event(events, event);
+    }
+    fn window_event(&mut self, events: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        self.0.borrow_mut().window_event(events, id, event);
+    }
+    fn about_to_wait(&mut self, events: &ActiveEventLoop) {
+        self.0.borrow_mut().about_to_wait(events);
+    }
+}
+
 impl<D: DataSource + Default + 'static> App<D> {
+    fn tick(&mut self) -> Result<(), String> {
+        if counters::enabled() {
+            self.service_causes |= counters::LINK;
+        }
+        trace_mark(c"display wake", || 0.);
+        if self.hidden {
+            return Ok(());
+        }
+        let unshown = self.awaiting_first_present();
+        if !unshown {
+            self.first_frame = None;
+        }
+        if self.first_frame.is_some()
+            || self
+                .presenter
+                .as_ref()
+                .is_some_and(|p| p.pictures_need_paint())
+        {
+            let before = self.frames;
+            self.draw()?;
+            if self.frames != before {
+                return Ok(());
+            }
+        }
+        if let Some(frame) = &self.first_frame {
+            if self
+                .layer
+                .as_ref()
+                .is_some_and(Layer::first_present_dropped)
+            {
+                // With no new paint, repeat the latest submitted pixels.
+                let _trace = Trace::new(c"first frame repeat");
+                match self.presenter.as_mut().unwrap().repeat_apple_frame(frame) {
+                    Ok(true) => {}
+                    Ok(false) => self.first_frame = None,
+                    Err(e) => return Err(e),
+                }
+            }
+            return Ok(());
+        }
+        let dirty = self
+            .presenter
+            .as_ref()
+            .is_some_and(|p| display_needed(p, self.live, self.hidden, unshown));
+        self.scrolling.tick(dirty);
+        if dirty {
+            if unshown {
+                // GPU completion does not prove the compositor showed a frame.
+                self.presenter.as_mut().unwrap().repaint();
+            }
+            if self.booting {
+                self.draw()?;
+            } else if let Some(window) = &self.window {
+                trace_mark(c"display requests redraw", || 0.);
+                window.request_redraw();
+            }
+        }
+        Ok(())
+    }
+
     fn awaiting_first_present(&self) -> bool {
         self.frames > 0
             && self
@@ -275,18 +392,19 @@ impl<D: DataSource + Default + 'static> App<D> {
             // Painting replaces the compose target (or the CPU startup device).
             // Only a successful submission below may become the next repeat.
             self.first_frame = None;
+            self.benchmark_complete = !p.images().pending() && !p.images().has_refusals();
+            let mut offset = 0.;
             if std::env::var_os("G1_OUTPUT").is_some() {
-                self.benchmark_complete = !p.images().pending() && !p.images().has_refusals();
                 let target = std::env::var("EXACT_BENCH_SCROLL_TARGET")
                     .unwrap_or_else(|_| "messages".into());
                 let k = p.host().kernel();
-                let offset = k
+                offset = k
                     .find_by_test_id(&target)
                     .first()
                     .and_then(|key| k.node_by_key(*key))
                     .map_or(0., |node| p.scroll_of(node.id).1);
-                exact_ink::device::apple::benchmark_frame(self.benchmark_complete, offset);
             }
+            exact_ink::device::apple::benchmark_frame(self.benchmark_complete, offset);
             let frame = p.apple_window_frame()?;
             self.paint_ms += started.elapsed().as_secs_f64() * 1000.;
             let submitted = p.last_frame_succeeded();
@@ -400,6 +518,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                     f64::from(active.load(Ordering::Acquire))
                 });
                 if active.load(Ordering::Acquire) && !pending.swap(true, Ordering::AcqRel) {
+                    trace_mark(c"display tick posted", || 0.);
                     let _ = proxy.send_event(Event::Tick);
                 }
             })
@@ -413,8 +532,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             self.layer = Some(layer);
             self.presenter = Some(p);
             self.window = Some(window.clone());
-            // about_to_wait follows AppKit's first redraw transaction. Start
-            // boot ticks here; winit may still defer their main-thread delivery.
+            // A pending tick can run at the next run-loop entry, before AppKit's
+            // first display cycle. The observer never reenters this borrow.
             self.display_active.store(true, Ordering::Release);
             self.display
                 .as_mut()
@@ -436,62 +555,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
     fn user_event(&mut self, events: &ActiveEventLoop, event: Event) {
         match event {
             Event::Tick => {
-                if counters::enabled() {
-                    self.service_causes |= counters::LINK;
-                }
-                trace_mark(c"display wake", || 0.);
-                self.tick_pending.store(false, Ordering::Release);
-                if self.hidden {
-                    return;
-                }
-                let unshown = self.awaiting_first_present();
-                if !unshown {
-                    self.first_frame = None;
-                }
-                if self.first_frame.is_some()
-                    || self
-                        .presenter
-                        .as_ref()
-                        .is_some_and(|p| p.pictures_need_paint())
-                {
-                    let before = self.frames;
-                    if let Err(e) = self.draw() {
-                        self.fail(events, e);
-                        return;
-                    }
-                    if self.frames != before {
-                        return;
-                    }
-                }
-                if let Some(frame) = &self.first_frame {
-                    if self
-                        .layer
-                        .as_ref()
-                        .is_some_and(Layer::first_present_dropped)
-                    {
-                        // With no new paint, repeat the latest submitted pixels.
-                        let _trace = Trace::new(c"first frame repeat");
-                        match self.presenter.as_mut().unwrap().repeat_apple_frame(frame) {
-                            Ok(true) => {}
-                            Ok(false) => self.first_frame = None,
-                            Err(e) => self.fail(events, e),
-                        }
-                    }
-                    return;
-                }
-                let dirty = self
-                    .presenter
-                    .as_ref()
-                    .is_some_and(|p| display_needed(p, self.live, self.hidden, unshown));
-                self.scrolling.tick(dirty);
-                if dirty {
-                    if unshown {
-                        // GPU completion does not prove the compositor showed a frame.
-                        self.presenter.as_mut().unwrap().repaint();
-                    }
-                    if let Some(window) = &self.window {
-                        trace_mark(c"display requests redraw", || 0.);
-                        window.request_redraw();
+                // The boot observer may already have consumed this queued tick.
+                if self.tick_pending.swap(false, Ordering::AcqRel) {
+                    if let Err(error) = self.tick() {
+                        self.fail(events, error);
                     }
                 }
             }
@@ -760,8 +827,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             }
         }
         // Offscreen metadata can finish after the last visible image. Submit a
-        // complete scene for the probe even when that completion owes no damage.
-        if std::env::var_os("G1_OUTPUT").is_some()
+        // complete scene to retire boot even when that completion owes no damage.
+        if (self.booting || std::env::var_os("G1_OUTPUT").is_some())
             && !self.benchmark_complete
             && !p.images().pending()
             && !p.images().has_refusals()
