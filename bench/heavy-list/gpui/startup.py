@@ -1,5 +1,7 @@
 """M10 startup cohorts and phase tables, using the existing probe and quiet monitor."""
 import argparse
+import ctypes
+import hashlib
 import importlib.util
 import json
 import os
@@ -21,32 +23,69 @@ def read(path):
     return json.loads(path.read_text())
 
 
-def wait_file(path, child, seconds=35):
+def wait_file(path, child, seconds=35, accept=lambda value: True):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if path.exists():
-            return read(path)
+            value = read(path)
+            if accept(value):
+                return value
         if child.poll() is not None:
             raise RuntimeError(f'exit {child.returncode} before {path.name}')
         time.sleep(.02)
     raise RuntimeError(f'timed out waiting for {path.name}')
 
 
+class Activator:
+    """Use the same NSRunningApplication activation as measure.m, before focus confirmation."""
+    def __init__(self):
+        self.appkit = ctypes.CDLL('/System/Library/Frameworks/AppKit.framework/AppKit')
+        objc = self.objc = ctypes.CDLL('/usr/lib/libobjc.A.dylib')
+        pointer = ctypes.c_void_p
+        objc.objc_getClass.argtypes = objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        objc.objc_getClass.restype = objc.sel_registerName.restype = pointer
+        objc.objc_autoreleasePoolPush.restype = pointer
+        objc.objc_autoreleasePoolPop.argtypes = [pointer]
+        self.application = objc.objc_getClass(b'NSRunningApplication')
+        self.lookup = objc.sel_registerName(b'runningApplicationWithProcessIdentifier:')
+        self.activate = objc.sel_registerName(b'activateWithOptions:')
+        self.find = ctypes.CFUNCTYPE(pointer, pointer, pointer, ctypes.c_int)(('objc_msgSend', objc))
+        self.send = ctypes.CFUNCTYPE(ctypes.c_bool, pointer, pointer, ctypes.c_ulong)(('objc_msgSend', objc))
+
+    def __call__(self, pid):
+        pool = self.objc.objc_autoreleasePoolPush()
+        try:
+            app = self.find(self.application, self.lookup, pid)
+            return bool(app and self.send(app, self.activate, 1 << 1))
+        finally:
+            self.objc.objc_autoreleasePoolPop(pool)
+
+
 def run(args):
     base, out = args.base.resolve(), args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
     provenance = read(base / 'provenance.json')
-    arms = ['ink', 'gpui', 'egui']
+    provenance['startupDriverSha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    arms = ['egui', 'ink', 'gpui']
     paths = [provenance[a]['executable'] for a in arms]
     write(out / 'provenance.json', provenance)
     write(out / 'power-mode.json', {
         name: subprocess.check_output(['/usr/bin/pmset', '-g', *extra], text=True)
         for name, extra in [('settings', []), ('source', ['batt'])]})
     assert subprocess.run(['pgrep', '-x', 'powermetrics'], capture_output=True).returncode == 1
+    activate = Activator()
     spec = importlib.util.spec_from_file_location('quiet', Path(__file__).with_name('run-hook.py'))
     quiet = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(quiet)
-    monitor = quiet.QuietMonitor(out / 'quiet.jsonl', paths)
+    class StartupQuiet(quiet.QuietMonitor):
+        def observe(self):
+            row = super().observe()
+            absent = subprocess.run(['pgrep', '-x', 'powermetrics'], capture_output=True).returncode == 1
+            with (out / 'power-observations.jsonl').open('a') as stream:
+                stream.write(json.dumps(dict(time=self.now(), absent=absent)) + '\n')
+            row['quiet'] = row['quiet'] and absent
+            return row
+    monitor = StartupQuiet(out / 'quiet.jsonl', paths)
     consecutive = 0
     gate_deadline = time.monotonic() + args.gate_seconds
     while time.monotonic() < gate_deadline and consecutive < 12:
@@ -66,6 +105,7 @@ def run(args):
             order = arms[(round_number-1) % 3:] + arms[:(round_number-1) % 3]
             for arm in order:
                 for cohort in ['cold', 'warm']:
+                    assert subprocess.run(['pgrep', '-x', 'powermetrics'], capture_output=True).returncode == 1, 'power sampler started'
                     assert monitor.error is None, monitor.error
                     assert all(r['quiet'] for r in monitor.rows[first_sample:]), 'loaded cohort retained; stop'
                     name = f'{arm}-{round_number}-{cohort}'
@@ -86,11 +126,22 @@ def run(args):
                         record['pid'] = child.pid
                         write(out / 'schedule.json', schedule)
                         try:
+                            activate(child.pid)
                             wait_file(Path(str(output) + '.window'), child)
-                            child.send_signal(signal.SIGUSR1)
-                            focus = wait_file(Path(str(output) + '.focus'), child)
-                            assert focus['active'] and focus['frontmostPid'] == child.pid
-                            assert focus['keyWindow'] == focus['window']
+                            focus_deadline, last_focus = time.monotonic() + 5, 0
+                            record['focusChecks'] = []
+                            while time.monotonic() < focus_deadline:
+                                activate(child.pid)
+                                child.send_signal(signal.SIGUSR1)
+                                focus = wait_file(Path(str(output) + '.focus'), child,
+                                                  seconds=max(.01, focus_deadline-time.monotonic()),
+                                                  accept=lambda value: value['time'] > last_focus)
+                                record['focusChecks'].append(focus)
+                                last_focus = focus['time']
+                                if focus['active'] and focus['frontmostPid'] == child.pid and focus['keyWindow'] == focus['window']:
+                                    break
+                                time.sleep(.05)
+                            assert focus['active'] and focus['frontmostPid'] == child.pid and focus['keyWindow'] == focus['window'], 'focus not confirmed'
                             wait_file(Path(str(output) + '.ready'), child)
                             child.send_signal(signal.SIGUSR2)
                             result = wait_file(output, child)

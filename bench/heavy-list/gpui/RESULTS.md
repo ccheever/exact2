@@ -6717,7 +6717,7 @@ and makes no startup cut. The silver Mac's other lane owns the session while
 G4's cold row is a fresh process with application, filesystem and driver
 caches retained. Here a cold launch is followed immediately by a second fresh
 process of the same arm, called the warm repeat; no cache is purged in either.
-Ten pairs rotate Ink, GPUI and egui each round. The probe uses process creation
+The prepared cohort rotates egui, Ink and GPUI each round for ten pairs. The probe uses process creation
 as zero, Core Animation's clock for spans and `MTLDrawable.presentedTime`
 for complete screens. Constructor entry is **not main**. Ink has separate main
 and host-entry marks; the other arms retain
@@ -6729,21 +6729,21 @@ to the preceding commit on the same thread; it retains both events and all
 command commits. The ordinary path tags the buffer passed a drawable directly.
 Binary facts and constructor/completion fault counters test the loader hypothesis.
 The local OS emits no `DYLD_PRINT_STATISTICS` output for a runnable CLI control;
-a separate App Launch diagnostic will attempt the dyld breakdown and retain
-stderr from the statistics attempt. Primary cohorts set no `DYLD_*` variables.
+the separate App Launch diagnostic was prepared but did not run after the
+primary cohort failed; the dyld breakdown remains missing. Primary cohorts set no `DYLD_*` variables.
 No output is not a zero-duration loader. Completion counters are read
 in the presented callback, with its observation time retained; the two-second
 readiness report's counters cannot stand in for boot work.
 
 | Prediction | Instrument and decision | Result |
 | --- | --- | --- |
-| Ink warm repeat complete screen 210 ms, range of the median estimate 180–240 ms | Process start to complete presented drawable | Pending |
-| Ink warm: process to constructor 15 ms; remaining entry/AppKit/window 75 ms; plan/data/runner 30 ms; fonts 25 ms; layout and shaping 25 ms; painter/device/encode 15 ms; presentation and image completion 25 ms | Per-launch disjoint timeline, 210 ms estimate; nested shaping and device spans also reported separately | Pending |
-| Ink cold exceeds warm repeats by at most 25 ms at p50 | Ten within-pair differences, no cache purge | Pending |
-| At least half of the cold-minus-warm excess is before host entry, with increased page-ins rather than runner instructions | Constructor boundary, dyld statistics and fault counters; absent attribution stays unknown | Pending |
-| Of the historical roughly 30 ms Ink/CPU difference, at least 15 ms is renderer preparation or waiting to present, and under 10 ms is extra shaping/layout | Hook-off device and paint spans; historical hook-on CPU samples are not a paired control | Pending |
-| GPUI/egui complete-screen p50 is 190–240 / 210–260 ms; Ink's positive gap to GPUI lies mainly after constructor | Same probe and rotating launch pairs | Pending |
-| Trace-on adds at most 5 ms to each arm's complete-screen p50 | Three trace-off pairs per arm after the primary cohort, same hook-off launch path; between-series drift remains a limit | Pending |
+| Ink warm repeat complete screen 210 ms, range of the median estimate 180–240 ms | Process start to complete presented drawable | Not qualified. One retained-Metal repeat is 218.510 ms, inside the estimate range; no ten-pair median was obtained. |
+| Ink warm: process to constructor 15 ms; remaining entry/AppKit/window 75 ms; plan/data/runner 30 ms; fonts 25 ms; layout and shaping 25 ms; painter/device/encode 15 ms; presentation and image completion 25 ms | Per-launch disjoint timeline, 210 ms estimate; nested shaping and device spans also reported separately | Diagnostic misses: constructor 6.618; plan/data/runner 16.445; fonts 2.750; initial layout 1.237 ms. Constructor to window creation is 74.303 ms, close to 75. Metal constructor is 5.672 ms and first paint 27.786 ms. First present commit to display is 32.398 ms. The remaining shares are not separated; 103.126 ms has no named main-thread interval. |
+| Ink cold exceeds warm repeats by at most 25 ms at p50 | Ten within-pair differences, no cache purge | Not tested on ten retained pairs. The only Ink pair differs by +0.997 ms but changes from a CPU archive-miss screen to Metal. |
+| At least half of the cold-minus-warm excess is before host entry, with increased page-ins rather than runner instructions | Constructor boundary, dyld statistics and fault counters; absent attribution stays unknown | Unresolved. No matched retained Ink cold/repeat cohort or dyld breakdown. Constructor page-ins are four in each Ink diagnostic; that does not attribute elapsed time. |
+| Of the historical roughly 30 ms Ink/CPU difference, at least 15 ms is renderer preparation or waiting to present, and under 10 ms is extra shaping/layout | Hook-off device and paint spans; historical hook-on CPU samples are not a paired control | Unresolved: no matched CPU control. The Metal repeat includes 25.239 ms of glyph-raster spans, 23.038 ms exclusive, and only 1.237 ms of initial layout. Those cannot establish the historical painter difference. |
+| GPUI/egui complete-screen p50 is 190–240 / 210–260 ms; Ink's positive gap to GPUI lies mainly after constructor | Same probe and rotating launch pairs | Cold diagnostic misses: GPUI 595.457 ms and egui 560.348 ms. Their constructor boundaries are already 259.494/325.555 ms. Egui repeats at 224.162 ms; GPUI has no repeat. No qualifying comparison. |
+| Trace-on adds at most 5 ms to each arm's complete-screen p50 | Three trace-off pairs per arm after the primary cohort, same hook-off launch path; between-series drift remains a limit | Unrun. The coordinator stopped after the primary cohort failed; no observer-cost claim. |
 
 The seven warm estimates are an additive hypothesis, not a sum of marginal
 medians. The analysis assigns each launch's nested main-thread spans once,
@@ -6755,3 +6755,208 @@ substituted for the complete screen. Startup failures remain failed attempts.
 tests and the probe tests exit zero. Checks run serially with Bun 1.4.2, starting
 at one-minute load below 30 with no Rust, Swift or Clang compiler. Artifact builds
 on the development Mac supply no timing result.
+
+
+### Outcome and retained attempts
+
+**M10 is instrumented, not qualified. No startup cut or scoreboard replacement is
+made.** The named silver timing and boot runners finished before M10 launched.
+A later clock-attribution lane initially overlapped the qualification work.
+Its existing guard recognizes `run-*.py`; the retained M10 coordinator uses that
+name so the other lane waits before its next launch. The process query used by
+M10's local handoff helper truncated `comm` because another column followed it;
+its empty blocker list was wrong. `guard-observation.txt` records the actual
+state: the clock driver remained alive at its guard, with no benchmark app or
+power sampler running. The corrected helper is retained beside the original.
+
+The sixty-second gate keeps the landed bounds: at most two whole-machine busy
+cores, at most 0.25 core for the largest non-benchmark process, all load averages
+below 30 and no compiler. Power-sampler absence is checked throughout the gate
+and cohort in a separate sidecar. A passing minute does not qualify a loaded
+cohort. Three attempts crossed the bounds; retries stop under the three-round
+rule. The requested 10 cold and 10 repeat launches per arm, trace-off controls,
+and separate App Launch diagnostics are incomplete.
+
+| Attempt | Outcome |
+| --- | --- |
+| `qualification-1` | Refused before launching: another lane's `powermetrics` capture was active. |
+| `qualification-2` | One Ink launch rejected at focus confirmation. The driver now uses G4's `NSRunningApplication` activation and five-second confirmation loop, retaining every reply. |
+| `qualification-3` | Three complete diagnostics; excluded at 2.110 busy cores. |
+| `qualification-4` | Three complete diagnostics; excluded at 2.003 busy cores and WindowServer 0.253 core. |
+| `primary-1` | First egui launch failed readiness at 30 s; cohort also excluded at ScreenSharingAgent 0.279 core and WindowServer 0.268 core. |
+
+The failed egui launch has a complete scene, a visible window, confirmed focus,
+three drawable acquisitions and three present commits, but no positive presented
+drawable timestamp. The timeout sidecar and lossless trace are retained. A commit
+is not substituted for display. Whether this is an observer effect, an app race
+or a presentation/session failure is unresolved; changing egui's source or its
+readiness criterion is outside this trace chunk.
+
+### Diagnostic phase tables
+
+The six completed launches below are all retained, including the first launches
+of the newly signed GPUI and egui bundles. Neither their large constructor gaps
+nor the smaller repeats establish a cold-cache or loader-work attribution.
+Ink's runner mark is the return from boot, an upper bound on first-commit
+completion; the benchmark source's bind is a no-op over baked data. The first
+text-shape mark is one source, not all boot shaping. GPUI and egui retain probe
+window observations and constructor boundaries; their actual `main` and window
+construction are not marked in source.
+
+**Unqualified diagnostics only.** Cells are milliseconds from process creation: median (minimum–maximum). No cell is a qualifying cold row.
+
+ink: cold n=2, repeat n=1.
+
+| Milestone | Cold diagnostics | Immediate repeat diagnostics |
+| --- | ---: | ---: |
+| constructor | 6.331 (5.178–7.483) | 6.618 (6.618–6.618) |
+| main | 7.166 (5.894–8.437) | 7.502 (7.502–7.502) |
+| AppKit finished launching | 62.053 (58.296–65.811) | 57.829 (57.829–57.829) |
+| window created | 84.456 (81.743–87.169) | 80.921 (80.921–80.921) |
+| visible window observed | 137.553 (128.048–147.057) | 143.829 (143.829–143.829) |
+| plan loaded | 88.838 (88.710–88.965) | 87.380 (87.380–87.380) |
+| fonts ready | 92.618 (92.079–93.156) | 90.132 (90.132–90.132) |
+| data source bound | 92.726 (92.176–93.276) | 90.221 (90.221–90.221) |
+| first commit completed (runner returned) | 110.170 (108.960–111.379) | 106.130 (106.130–106.130) |
+| first layout completed | 111.499 (110.290–112.709) | 107.459 (107.459–107.459) |
+| first text shape start | 110.303 (109.094–111.512) | 106.256 (106.256–106.256) |
+| first text shape end | 110.466 (109.248–111.684) | 106.418 (106.418–106.418) |
+| layer attached | 113.654 (112.347–114.962) | 109.546 (109.546–109.546) |
+| first paint record | 141.749 (130.824–152.673) | 152.798 (152.798–152.798) |
+| first paint record completed | 163.399 (141.820–184.978) | 180.584 (180.584–180.584) |
+| first present committed | 167.672 (145.241–190.103) | 186.113 (186.113–186.113) |
+| first presented | 220.236 (219.508–220.964) | 218.510 (218.510–218.510) |
+| complete screen | 220.236 (219.508–220.964) | 218.510 (218.510–218.510) |
+
+The two cold diagnostics mix one archive-miss CPU screen and one retained-Metal screen. The repeat uses Metal; these are not a matched renderer comparison.
+
+gpui: cold n=1, repeat n=0.
+
+| Milestone | Cold diagnostics | Immediate repeat diagnostics |
+| --- | ---: | ---: |
+| constructor | 259.494 (259.494–259.494) | — |
+| AppKit finished launching | 350.461 (350.461–350.461) | — |
+| visible window observed | 570.304 (570.304–570.304) | — |
+| first present committed | 542.913 (542.913–542.913) | — |
+| first presented | 595.457 (595.457–595.457) | — |
+| complete screen | 595.457 (595.457–595.457) | — |
+
+egui: cold n=1, repeat n=1.
+
+| Milestone | Cold diagnostics | Immediate repeat diagnostics |
+| --- | ---: | ---: |
+| constructor | 325.555 (325.555–325.555) | 7.314 (7.314–7.314) |
+| AppKit finished launching | 417.864 (417.864–417.864) | 80.301 (80.301–80.301) |
+| visible window observed | 517.236 (517.236–517.236) | 174.797 (174.797–174.797) |
+| first present committed | 522.266 (522.266–522.266) | 196.337 (196.337–196.337) |
+| first presented | 560.348 (560.348–560.348) | 224.162 (224.162–224.162) |
+| complete screen | 560.348 (560.348–560.348) | 224.162 (224.162–224.162) |
+
+### Binary facts and limits of the loader attribution
+
+These are the signed measured copies, built from `f67f57c8a6`. Direct dependencies
+come from `otool -L`; defined Objective-C class pointers come from Mach-O sections.
+The runtime counts are sampled at the two-second readiness report, not the
+constructor. They include classes from the loaded frameworks.
+
+| Arm | Executable bytes | Direct dylibs/frameworks, including probe | Defined ObjC class pointers | Runtime loaded images / registered classes |
+| --- | ---: | ---: | ---: | ---: |
+| Ink | 37,774,720 | 18 | 5 | 1,149 / 74,735 |
+| GPUI | 5,374,400 | 20 | 0 | 1,149 / 74,745 |
+| egui | 7,971,088 | 17 | 0 | 1,149 / 74,732 |
+
+Ink's `__TEXT` is 36,388,864 bytes, including 18,877,756 bytes of code and
+17,017,160 bytes of constants. Its fixture JSON is 7,168,232 bytes and the
+current baked plan 7,850,935 bytes. The release profiles already request
+stripping and thin LTO. File size is not pages read, and class count is not
+registration time. The large first egui constructor gap has two page-ins and
+49,983,519 instructions; its repeat also has two page-ins and 49,857,164
+instructions. This argues against treating that entire gap as extra executed
+loader work, but does not identify the wait. The planned dyld diagnostic is
+still needed. Constructor, page-in, instruction and completion counters for
+every completed launch remain in `diagnostic-summary.json`.
+
+### Savings hypotheses, not a funded budget
+
+The basis below is the single unqualified Metal repeat. Inclusive glyph raster
+is 25.239 ms across 321 calls; exclusive raster is 23.038 ms. Initial layout is
+1.237 ms, and all named layout/shaping work before completion is about 1.8 ms.
+The 103.126 ms without a named main-thread interval includes the 32.398 ms from
+present commit to display. It must not be relabeled AppKit CPU or added to the
+asynchronous image-decode and upload spans.
+Layer attachment to the first paint spans another 43.252 ms. The next trace
+must explain that interval before claiming it as removable work or waiting.
+
+| Candidate | Phase and numerical basis | Next-cut prediction, ms | Design status |
+| --- | --- | ---: | --- |
+| Runner boot beside window creation | Plan/data/runner 16.445; window creation 21.294. Overlap cannot save more than the smaller span. | 12, conditional on at most 4.445 ms of dependency/handoff cost; ceiling 16.445 | Moving live runner ownership needs an M10/D11 amendment. Moving only immutable plan decode preserves ownership but exposes just 0.510 ms. |
+| Visible-only layout and shaping at boot | The list is already virtualized; about 1.8 ms of named layout/shaping is available. | 0–1 | Implementation if visible output and D4's kept-row validity remain unchanged. No 25 ms layout saving is supported. |
+| Shaping/layout cache across launches | Same roughly 1.8 ms ceiling, before cache validation and loading. | 0–1 | Amendment: persistent identity and invalidation are new design. |
+| Glyph-mask cache across launches | 23.038 ms exclusive raster; allow 3 ms for validation/loading as an unmeasured engineering assumption. | 20 if that allowance holds | Amendment to cache lifetime/identity under D3/D4; platform font revision, size, scale, synthesis, subpixel position and rendering settings must be respected. |
+| Remove one avoidable first-redraw turn | A 120 Hz frame is 8.333 ms. The trace does not prove a removable turn. | 0–8.333 | Implementation only if D7/D11 presentation and thread ownership remain unchanged. |
+| Dylib count, stripping, ObjC registration, carrier size | Ink has fewer direct dependencies than GPUI; its sampled warm constructor boundary is 6.618 ms. Size reductions may affect later faults too, which are unattributed. | 0 funded; 6.618 is the whole observed pre-constructor ceiling, not a saving | Ordinary link/data changes are implementation; moving capabilities into new artifacts needs an amendment. |
+
+**Recommended first candidate:** reduce first-screen glyph rasterization. A
+persistent mask-cache experiment has the largest named addressable cost, but
+requires the amendment above and a paired measurement of cache overhead. It is
+not implemented here. The runner-overlap candidate comes next; a shaping/layout
+cache has too little measured work to justify priority.
+
+No combination is funded to beat GPUI on either Mac. The hypothetical
+12 + 20 + 8.333 = 40.333 ms combination would arithmetically cover the old
+silver gap of about 31 ms and black gap of about 39 ms, with almost no black
+margin. Confidence is **low**: these cuts are unmeasured, their presentation
+savings may overlap, the old rows have the GPU hook on, and no qualifying
+hook-off baseline or black phase trace was obtained. It would also leave far
+more than 100 ms in the sampled application launch. M10's application obligation
+remains open.
+
+### Verification and reproduction
+
+The three release arms build, and the probe passes hook-off, hook-on, lazy-trace
+and direct-present tests. The analysis checks nested-span conservation,
+separation of background work, missing markers and rejection of an incomplete
+cohort. The initial root build and root tests exit zero: the test log has 113
+successful result lines and no failed result. Their preflight passed, but
+external compiler activity during execution was not monitored, so these are
+functional results without a full quiet qualification.
+
+Clippy's preflight then waited 983 seconds across 29 observations, exceeding
+three five-minute windows, with no quiet opening. One-minute load went from
+254.7 to 693.2 and other lanes' compilers remained active. This lane's waiting
+controller was stopped before rebasing. Clippy, the final format check, caps,
+boot, workspace check, Linux tests and painted-carrier tests did not run; the
+check prediction is unmet. The final rebased tree has no six-check pass. Exact
+commands, exit records and complete verbatim output are retained in
+`target/m10/checks/`; `verbatim-output.txt` collects the executed build/test logs,
+including the initial stale-lockfile build failure. `clippy.gate.json` and
+`stopped-wait.json` retain the blocked preflight and the owned processes stopped.
+
+`target/m10/` retains the signed bundles, binary/fixture facts, source patch,
+probe source, each driver revision, commands, build/check output and the local
+mirror of every remote attempt under `silver/`. The remote originals remain at
+`~/projects/exact2-measure/target/g0/m10-f67f57c8a6/`. No cited raw file was removed.
+The bundle and run provenance record hashes; each run also records its driver
+hash. `quiet.jsonl`, `power-observations.jsonl`, the gate, schedule, focus replies,
+timeout sidecars, stderr and trace files retain exclusions as well as successes.
+`measured-source.bundle` retains the two commits before rebase;
+`final-provenance.json` names the rebased tree and confirms that its instrument
+source matches the measured source and retained driver.
+
+Reproduce the diagnostic tables without launching anything:
+
+```sh
+python3 target/m10/diagnostic-report.py
+```
+
+The normal aggregator deliberately refuses the incomplete, loaded primary run:
+
+```sh
+python3 bench/heavy-list/gpui/startup.py summarize target/m10/silver/primary-1
+```
+
+For a future qualifying collection, use the README's Aqua-session recipe, the
+signed bundles and `run-m10.py`/`run-m10-plan.py` snapshots, with fresh output
+names. The `run-` name makes the quiet wait visible to the other lane's existing
+launch guard. The coordinator stops on any failed cohort before controls or
+App Launch profiling. Keep that separation and retain every failed attempt.
