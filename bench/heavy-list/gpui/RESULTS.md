@@ -8315,3 +8315,29 @@ These are `checks/rebase-painted-tests.log` and
 `checks/rebase-transition-tests.log`. No post-rebase timing is claimed; the
 retained signed bundles are the measured pre-rebase builds. The six repository
 checks remain for the orchestrator.
+
+## M10, cut 1b: the prepared frame rides the window's first composite
+
+**Predictions before the runs, 2026-10-30.** Paint the first scene into the
+compose target before showing the window. Only after the show call returns,
+acquire its drawable on the existing worker, copy the scene and present on the
+main thread in that turn's Core Animation transaction. Keep the existing
+retry-until-displayed path and CPU archive-miss handoff.
+
+| Prediction | Instrument |
+| --- | --- |
+| Warm complete screen 146–160 ms, approximately show return at 116 ms plus a 30 ms first composite; faster than the prior single GPUI/egui launches at 212/218 ms | `startup.py`, ten warm and ten scoreboard-cold launches of each before/after Ink, GPUI and egui; hook off, trace on, power off |
+| Qualified Ink cold median at least 30 ms below GPUI | `measure.m` cold-only, ten launches per arm, native/GPUI/Ink/egui, before and after; hook and power off |
+| No unshown first submission on the ordinary retained-archive path | The same traced cohorts, drawable sequence and positive presented timestamps; report any 59 ms first-composite interval instead of the predicted 30 ms |
+| First-frame pixels identical; CPU archive miss hands off; dropped submissions retry | Prepared-frame pixel comparison, Stage 0b transition/completeness and painted-carrier suites, plus live silver launches |
+
+After signing, each arm launches once outside the cohorts to pay its initial
+code-signature validation. The cold definition remains a fresh process with
+application and system caches retained. Qualification now applies the 0.25-core
+per-process bound only outside `/System`, `/usr/libexec`, `/sbin` and system
+framework XPC services. System daemons remain in the 1.0-core non-benchmark
+aggregate. This replaces the transient-daemon percentage allowance: cut 1's
+crossings were XprotectService (0.6 core), mediaanalysisd, hybridsearchd,
+searchpartyd, suggestd, duetexpertd, launchd and the system screen-sharing agent
+(0.29 core), including work triggered by the launches themselves. Load below
+30, compiler refusal and retained five-second observations remain required.
