@@ -4740,3 +4740,5 @@ The initial completed build remains `build.log`. `range-diff.txt` and
 unchanged, and the RESULTS sections and RFC measurement lines are preserved.
 No prior raw evidence was deleted. No benchmark series was rerun in this
 mechanical landing pass, and Stage 0's outstanding qualification is unchanged.
+
+Third rebase onto `43e0d93b85`: the `probe.m` and `window.rs` conflicts retain Stage 0's cause attribution and traces alongside Stage 0b's retries until a frame displays; all six checks pass, including Clippy and fmt (`target/s0/landing3/`).
