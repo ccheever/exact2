@@ -164,9 +164,16 @@ no compiler. Benchmark work is the arms, driver, wheel helper, probe helpers,
 caffeinate and WindowServer. The aggregate is the sum of `ps` per-process CPU
 shares outside that set; whole-machine CPU-tick deltas are retained separately.
 M10 cut 1 amends the former 2.0 whole-machine-core limit: its launches alone
-used 2.0–2.1 cores. Other processes stay at or below 0.25 core, except transient
-macOS daemons: at most 10% of a series' five-second observations may cross
-0.25 core, and none may exceed 1.0 core. User workloads get no allowance.
+used 2.0–2.1 cores. M10 cut 1b applies the 0.25-core per-process bound only to user processes:
+anything outside `/System`, `/usr/libexec`, `/sbin` and the XPC services inside
+system frameworks. System daemons count only toward the 1.0-core total.
+This replaces the transient-daemon allowance. Cut 1's crossings were
+XprotectService (0.6 core, triggered by launches), mediaanalysisd, hybridsearchd,
+searchpartyd, suggestd, duetexpertd, launchd and the system screen-sharing
+agent (0.29 core). Retain the five largest non-benchmark processes and the
+five largest user processes so system work cannot hide a user-process breach.
+After signing, launch each arm once as an unrecorded throwaway before a cohort;
+first-execution signature validation is not the scoreboard's cold launch.
 `gpui/run-hook.py` retains CPU-tick deltas, the five largest other processes,
 and power source/mode. Its `--single` mode retains an instrument sample even
 when loaded and produces no scoreboard table. See

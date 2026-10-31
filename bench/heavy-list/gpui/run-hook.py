@@ -13,21 +13,18 @@ PROCESS_LIMIT = 0.25
 COMPILERS = {'cargo', 'rustc', 'swiftc', 'swift-frontend', 'clang', 'clang++', 'xcodebuild', 'metal', 'ld'}
 
 
+def system_process(command):
+    """System daemons count toward total load, without a per-process ceiling."""
+    return command.startswith(('/System/', '/usr/libexec/', '/sbin/'))
+
+
 def quiet_series(rows):
-    """WindowServer is benchmark work; bounded daemon bursts are allowed per series."""
-    if not rows:
-        return False
-    crossings = 0
-    for row in rows:
-        if max(row['load']) >= 30 or row['compilers'] or row['nonBenchmarkBusyCores'] > BUSY_LIMIT:
-            return False
-        over = [p for p in row['topNonBenchmark'] if Path(p['command']).name != 'WindowServer'
-                and p['cpuCores'] > PROCESS_LIMIT]
-        crossings += bool(over)
-        if any(p['cpuCores'] > 1.0 or not p['command'].startswith(
-                ('/System/Library/', '/usr/libexec/', '/usr/sbin/', '/sbin/')) for p in over):
-            return False
-    return crossings / len(rows) <= 0.1
+    """M10 cut 1b: at most one non-benchmark core and 0.25 core per user process."""
+    return bool(rows) and all(
+        max(row['load']) < 30 and not row['compilers']
+        and row['nonBenchmarkBusyCores'] <= BUSY_LIMIT
+        and all(p['cpuCores'] <= PROCESS_LIMIT for p in row['topUserProcesses'])
+        for row in rows)
 
 
 class QuietMonitor:
@@ -75,13 +72,16 @@ class QuietMonitor:
         benchmark, other = self.partition(processes)
         non_benchmark_busy = sum(p['cpuCores'] for p in other)
         largest = sorted(other, key=lambda p: p['cpuCores'], reverse=True)[:5]
+        users = sorted((p for p in other if not system_process(p['command'])),
+                       key=lambda p: p['cpuCores'], reverse=True)[:5]
         load = list(os.getloadavg())
         row = dict(wall=time.time(), time=now, intervalSeconds=elapsed, load=load,
                    busyCores=busy, nonBenchmarkBusyCores=non_benchmark_busy,
-                   benchmark=benchmark, topNonBenchmark=largest, compilers=builds,
+                   benchmark=benchmark, topNonBenchmark=largest, topUserProcesses=users, compilers=builds,
+                   quietRule="m10-cut1b-user-processes",
                    busyLimit=BUSY_LIMIT, nonBenchmarkLimit=PROCESS_LIMIT,
                    quiet=max(load) < 30 and not builds and non_benchmark_busy <= BUSY_LIMIT
-                   and (not largest or largest[0]['cpuCores'] <= PROCESS_LIMIT))
+                   and (not users or users[0]['cpuCores'] <= PROCESS_LIMIT))
         self.rows.append(row)
         with self.output.open('a') as stream:
             stream.write(json.dumps(row) + '\n')
@@ -149,9 +149,7 @@ def main():
         for round_number, config in runs:
             assert monitor.error is None, monitor.error
             if not args.single:
-                # The daemon allowance is assessed over the complete series.
-                assert all(max(row['load']) < 30 and not row['compilers']
-                           and row['nonBenchmarkBusyCores'] <= BUSY_LIMIT for row in monitor.rows), 'loaded observations retained; stop series'
+                assert quiet_series(monitor.rows), 'loaded observations retained; stop series'
                 env['G1_GPU_HOOK'] = '0' if config == 'a' else '1'
             folder = out/'sample' if args.single else out/config/'series/fling'
             folder.mkdir(parents=True, exist_ok=True)

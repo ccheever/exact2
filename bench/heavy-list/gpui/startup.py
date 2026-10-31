@@ -1,4 +1,4 @@
-"""M10 startup cohorts and phase tables, using the existing probe and quiet monitor."""
+"""M10 startup cohorts; signature-prewarmed arms, user-process quiet bound, retained raw phases."""
 import argparse
 import ctypes
 import hashlib
@@ -136,9 +136,7 @@ def run(args):
             if args.scoreboard:
                 wait_for_lane(out)
                 assert monitor.error is None, monitor.error
-                assert all(max(r['load']) < 30 and not r['compilers']
-                           and r['nonBenchmarkBusyCores'] <= quiet.BUSY_LIMIT
-                           for r in monitor.rows[first_sample:]), 'loaded cohort retained; stop'
+                assert not monitor.rows[first_sample:] or quiet.quiet_series(monitor.rows[first_sample:]), 'loaded cohort retained; stop'
                 env = {k: v for k, v in os.environ.items()
                        if not k.startswith(('EXACT_', 'G1_', 'G3_', 'G4_', 'G5_', 'BENCH_', 'DYLD_'))}
                 env.update(G1_GPU_HOOK='0', EXACT_INK_DEVICE='metal',
@@ -166,14 +164,12 @@ def run(args):
                     wait_for_lane(out)
                     assert subprocess.run(['pgrep', '-x', 'powermetrics'], capture_output=True).returncode == 1, 'power sampler started'
                     assert monitor.error is None, monitor.error
-                    assert all(max(r['load']) < 30 and not r['compilers']
-                               and r['nonBenchmarkBusyCores'] <= quiet.BUSY_LIMIT
-                               for r in monitor.rows[first_sample:]), 'loaded cohort retained; stop'
+                    assert not monitor.rows[first_sample:] or quiet.quiet_series(monitor.rows[first_sample:]), 'loaded cohort retained; stop'
                     name = f'{arm}-{round_number}-{cohort}'
                     output = out / f'{name}.json'
                     env = {k: v for k, v in os.environ.items()
                            if not k.startswith(('EXACT_', 'G1_', 'G3_', 'G4_', 'G5_', 'BENCH_', 'DYLD_'))}
-                    probe_arm = 'ink' if arm.startswith('ink-') else arm
+                    probe_arm = arm.split('-')[0]
                     env.update(G1_OUTPUT=str(output), G1_ARM=probe_arm, G1_COLD_ONLY='1',
                                G1_GPU_HOOK='0', BENCH_LIVE='0', EXACT_INK_DEVICE='metal',
                                DYLD_PRINT_STATISTICS='1', DYLD_PRINT_STATISTICS_DETAILS='1',
