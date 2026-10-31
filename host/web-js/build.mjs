@@ -807,8 +807,8 @@ if (existsSync(gpuLib)) {
 }
 if (pageModules) cpSync(moduleDirectory(appDir, 'web'), resolve(out, 'modules'), { recursive: true });
 if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), resolve(out, 'assets'), { recursive: true });
-// Each file a package app.ts imports declares in exact.json `web.assets`, at /assets/<package>/<path>, from the capture
-// alone (LLP 1154 D2; js/bake/src/typescript.mjs `capturedSources`).
+// Copy each imported package's declared web assets from the capture, to /assets/<package>/<path> (LLP 1154 D2;
+// js/bake/src/typescript.mjs `capturedSources`).
 if (ts) for (const { name, path, file } of (await import(resolve(root, 'js/bake/src/typescript.mjs'))).capturedAssets(tsStage)) {
   mkdirSync(dirname(resolve(out, 'assets', name, path)), { recursive: true });
   cpSync(file, resolve(out, 'assets', name, path));
