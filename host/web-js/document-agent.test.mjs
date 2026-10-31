@@ -246,3 +246,69 @@ component FlowAgent
     await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
   }
 }, 60000);
+
+for (const render of ['none', 'js']) for (const literal of [false, true]) {
+  test(`${render} navigation preserves ${literal ? 'literal' : 'bound'} inert on its tabs`, async () => {
+    if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+    const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/inert-tabs-test-'));
+    let browser, server;
+    try {
+      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Inert Tabs', app: { id: 'test.inert-tabs', name: 'Inert Tabs' }, host: { web: {} } }));
+      writeFileSync(resolve(dir, 'app.contract'), `routes nav
+  tab a "/" render=build
+  tab b "/b"
+
+component InertTabs
+  state covered = false
+  action cover
+    covered = not covered
+  action pick(name: string)
+    nav = select(nav, name)
+  view
+    main navigationKey=\`\${top(nav).id}\` width="100%" height="100%" display="flex" flex-direction="column"
+      column flex=1 position="relative"
+        for tab in nav.tabs key=tab.name
+          column role="tabpanel" id=\`panel-\${tab.name}\` position="absolute" inset=0
+            for entry in tab.stack key=entry.id
+              column navigationKey=\`\${entry.id}\` position="absolute" inset=0
+                text entry.name
+      row role="tablist" appearance="none" inert=${literal ? 'true' : 'covered'} testId="tabs"
+        button role="tab" aria-controls="panel-a" aria-selected=(nav.tab == "a") press=pick("a") testId="tab-a"
+          text "A"
+        button role="tab" aria-controls="panel-b" aria-selected=(nav.tab == "b") press=pick("b") testId="tab-b"
+          text "B"
+      button press=cover testId="cover"
+        text "Toggle cover"
+`);
+      const dist = resolve(dir, 'dist');
+      const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'inert-tabs-test', '--out', dist, '--render', render], {
+        cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
+      });
+      const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+      expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
+      server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
+        const path = new URL(req.url).pathname;
+        const file = Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1)));
+        return await file.exists() ? new Response(file) : new Response('not found', { status: 404 });
+      } });
+      browser = await open({ host: 'web', url: server.url.href, size: [420, 900] });
+      if (render === 'js') expect(await browser.carrier.evaluate('exact.journal.some(l => l.endsWith("adopted the document"))')).toBe(true);
+      await browser.tap('cover');
+      expect(await browser.carrier.evaluate('document.querySelector("[data-testid=tabs]").inert')).toBe(true);
+      const { x, y } = await browser.carrier.evaluate('(()=>{const r=document.querySelector("[data-testid=tab-b]").getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()');
+      await browser.carrier.call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+      await browser.carrier.call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
+      await browser.clock('settle');
+      expect((await browser.state()).navigation.url).toBe('/');
+      await expect(browser.tap('tab-b')).rejects.toThrow(/hidden or inert/);
+      await browser.tap('cover');
+      expect(await browser.carrier.evaluate('document.querySelector("[data-testid=tabs]").inert')).toBe(literal);
+      if (!literal) {
+        await browser.tap('tab-b');
+        expect((await browser.state()).navigation.url).toBe('/b');
+      }
+    } finally {
+      await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30000);
+}
