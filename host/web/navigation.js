@@ -146,7 +146,7 @@ const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("n
 // header's children stay the renderer's.
 const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-bar-accent,var(--exact-accent,AccentColor));cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.13;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15.35 5 8 12l7.35 7"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
-const authored = '[data-exact-said~="appearance"]'; // a header whose author wrote `appearance: none` (element.rs)
+const authored = '[data-exact-said~="appearance"]'; // a header or a node in one whose author wrote `appearance: none` (element.rs)
 // The items of the bar iOS makes of a shown `header`, or null where it makes none: kernel/src/bars.rs `header_bar`,
 // ported to the elements both runtimes write alike, since the JS target keeps no kernel to ask. `walk` is `Walk::walk`:
 // a bar's header holds one heading, and an item is a pressable it reaches, not the title's, or a disabled button.
@@ -158,7 +158,7 @@ function barItems(route, header) {
   let headings = 0, tap = null;
   const items = [], walk = node => {
     for (const child of node.children) {
-      if (layer(child) || child.matches('[role=tablist], input[type="search"]')) continue; // a layer, the bar's segments or its search field: no item
+      if (layer(child) || child.matches(`[role=tablist], input[type="search"], ${authored}`)) continue; // a layer, the bar's segments, its search field, or what its author wrote `appearance: none` on (iOS projects none of it): no item
       if (child.matches(heading)) headings++;
       else if (child.matches(press) || opensPopover(child) || (disabled(child) && !holds(child))) { if (!tap && child.matches(press) && holds(child)) walk(tap = child); else items.push(child); } // the first to hold a heading is the title, tapped
       else if (!child.matches("[role=status]") || holds(child)) walk(child); // a readout's face is no item
@@ -201,7 +201,7 @@ function appBarBack(nav, routes, index, split, shown) {
   const items = headerShown && (inShownHeader || shown) ? barItems(route, header) : null;
   const held = inShownHeader && !!items?.includes(control);
   for (const el of route.querySelectorAll("[data-exact-bar-back]")) if (el !== control || !held) el.removeAttribute("data-exact-bar-back");
-  const drawn = pushed && (!inShownHeader || !!items || !control.checkVisibility({ visibilityProperty: true }));
+  const drawn = pushed && !(inShownHeader && header.contains(control.closest(authored))) && (!inShownHeader || !!items || !control.checkVisibility({ visibilityProperty: true })); // a control its author wrote `appearance: none` on, or an item holding it, is their Back, with no bar's beside it (iOS's `authoredBack`)
   if (shown) header.toggleAttribute("data-exact-bar", !!items); // a shown bar, whose symbols are the bar's size (neutral.css)
   let button = header.shadowRoot?.querySelector('button[part="back"]');
   if (drawn && !button && !header.shadowRoot && header.attachShadow) { // not a shadow root of someone else's

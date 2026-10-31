@@ -1265,6 +1265,20 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             out.insert("data-exact-said".into(), said.join(" "));
         }
     }
+    // @ref LLP 1075.003 §9.10 — what else its author wrote `appearance: none`
+    // on says so too: in a route's header it is no bar item (navigation.js),
+    // as iOS projects none of it, and a Back control so written is the
+    // route's Back, with none of the bar's beside it.
+    if element(node) != "header"
+        && node.style.written.has(exact_kernel::StyleId::Appearance)
+        && node.style.appearance == exact_kernel::Appearance::None
+    {
+        let words = match out.get("data-exact-said") {
+            Some(said) if !said.is_empty() => format!("{said} appearance"),
+            _ => "appearance".to_string(),
+        };
+        out.insert("data-exact-said".into(), words);
+    }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
     if element(node) == "button" {
         out.get_or_insert_with("type".into(), || "button".into());

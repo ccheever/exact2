@@ -352,10 +352,11 @@
      app's own has its em. On a native button the symbol overhangs the button's 1em place, as a face's does, so the
      button is as tall as one with a word. The bar is a header navigation.js or document.rs marks `data-exact-bar`,
      where iOS makes one; an item is a pressable in it, not a tab of its tablist, nor in a popover, a dialog, a
-     readout or another item (the title's pressable, around the heading, is no item; one inside it is). A symbol
+     readout or another item (the title's pressable, around the heading, is no item; one inside it is), nor what its
+     author wrote `appearance: none` on, or anything in it (navigation.js makes no item of it). A symbol
      beside words (a title's chevron, a chip's) or inside a box of the item's keeps its size (the LLP says how iOS
      draws those). Only native face text is ignored when empty; custom text can still draw an authored box. */
-  #exact-root [navigationkey] > header[data-exact-bar] :is(button, [data-exact-on~="press"]):not(:is([role="tablist"], [role="status"], [popover], dialog, :is(button, [data-exact-on~="press"]):not(:has([data-exact-text][role="heading"]))) *, :has(> :not(img[data-symbol-path], :where(button[data-button-style]) > [data-exact-text]:empty))) {
+  #exact-root [navigationkey] > header[data-exact-bar] :is(button, [data-exact-on~="press"]):not([data-exact-said~="appearance"], :is([data-exact-said~="appearance"], [role="tablist"], [role="status"], [popover], dialog, :is(button, [data-exact-on~="press"]):not(:has([data-exact-text][role="heading"]))) *, :has(> :not(img[data-symbol-path], :where(button[data-button-style]) > [data-exact-text]:empty))) {
     & > img[data-symbol-path] { font-size: 1.2941rem !important; width: calc(var(--exact-symbol-scale, 1) * 1em) !important; height: calc(var(--exact-symbol-scale, 1) * 1em) !important; }
     & > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]) { --exact-symbol-scale: 1.2; }
     &[data-button-style] > img[data-symbol-path] { margin: calc((1rem - var(--exact-symbol-scale, 1) * 1em) / 2); }

@@ -106,6 +106,13 @@ fn a_web_boot_uses_neutral_roles_and_marks_without_a_look_fact() {
         assert!(!op.contains("data-exact-control"), "{other}, {why}: {op}");
     }
     assert!(created(&neutral, "switch").contains("\"data-exact-switch\":\"\""));
+    // What its author wrote `appearance: none` on says so (a Back control
+    // so written in a route's header is the route's Back, navigation.js).
+    assert!(
+        created(&neutral, "own").contains("\"data-exact-said\":\"appearance\""),
+        "{}",
+        created(&neutral, "own")
+    );
     // The rows the author wrote where the sheet would draw over them.
     assert!(!created(&neutral, "spinner").contains("data-exact-said"));
     assert!(

@@ -6,7 +6,7 @@
 // UIKit's there too). A control hidden in that header leaves a drawn Back. The bar discounts its own hiding mark
 // when deciding whether the control shows. The Back presses its control wherever it is. A disabled control, one the author
 // made inert, a route with no bar or whose header's author wrote `appearance: none`, a stack's root and a sheet leave
-// no Back. The chevron is UIKit's back chevron at the bar's font, and it and the words are the navigation root's
+// no Back, and so does a control whose author wrote `appearance: none`, which stays where it is (iOS's `authoredBack`). The chevron is UIKit's back chevron at the bar's font, and it and the words are the navigation root's
 // accent. The page is the shell, the neutral look and the navigation glue, which both runtimes run, over nodes as
 // either writes them: an author's rows inline (the wasm runtime) or in a class (the JS target).
 import { test, expect } from 'bun:test';
@@ -55,6 +55,7 @@ const content = `<style>#exact-root#exact-root { & .sized { width: 44px; height:
   ${stack('row', symbol(), 'header', '', '<div role="heading" aria-level="1"><span data-exact-text>Updates</span></div>')}
   ${stack('authored', symbol(), 'header', '', heading('Updates'), 'data-exact-said="appearance"')}${stack('authored-content', symbol(), 'content', '', heading('Updates'), 'data-exact-said="appearance"')}
   ${stack('authored-alone', '', 'content', '', heading('Updates'), 'data-exact-said="appearance"')}${stack('alone', '', 'content')}
+  ${stack('own-back', symbol('data-exact-said="appearance"'))}
   ${stack('wraps', `<button type="button" id="back" data-exact-on="press" aria-label="Back"><img data-symbol-source="symbol:back" data-symbol-path="M15 5 8 12l7 7" style="width:20px;height:20px">${heading('Inbox')}</button>`, 'header', '', '')}
   ${stack('in-menu', `<div popover="manual" id="back-menu">${symbol()}</div>`)}${stack('in-dialog', `<dialog id="back-dialog">${symbol()}</dialog>`)}
   ${stack('hidden-content', `<div hidden>${symbol()}</div>`, 'content')}${stack('inert-content', `<div inert>${symbol()}</div>`, 'content')}
@@ -152,14 +153,14 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a pushe
     // The Back presses a control wherever it is, as UIKit's Back does: in a closed menu or dialog, or hidden in the content.
     expect(await page.evaluate(() => ['in-menu', 'in-dialog', 'hidden-content', 'two-dialog'].flatMap((id) => (document.querySelector(`#${id} > header`).shadowRoot.querySelector('button[part="back"]').click(), pressed.splice(0)))))
       .toEqual(['back-menu', 'back-dialog', 'hidden-content', 'two-dialog']);
-    expect(await bars(['symbol', 'inline', 'titled', 'long', 'keys', 'disabled', 'dimmed', 'dimmed-link', 'content', 'bare', 'bare-content', 'headless', 'two', 'row', 'titled-tap', 'authored', 'pressing', 'commanded', 'popover-first', 'foreign', 'sheet', 'root'])).toEqual([
+    expect(await bars(['symbol', 'inline', 'titled', 'long', 'keys', 'disabled', 'dimmed', 'dimmed-link', 'content', 'bare', 'bare-content', 'headless', 'two', 'row', 'titled-tap', 'authored', 'own-back', 'pressing', 'commanded', 'popover-first', 'foreign', 'sheet', 'root'])).toEqual([
       ['symbol', true, '', 'Back', null, false], ['inline', true, '', 'Back', null, false], ['titled', true, 'Done', 'Done', null, false],
       ['long', true, 'Back', 'All my conversations', null, false], ['keys', true, '', 'Back', 'Meta+[', false],
       ['disabled', false, null, null, null, false], ['dimmed', false, null, null, null, false],
       ['dimmed-link', false, null, null, null, true], ['content', true, '', 'Back', null, true],
       ['bare', false, null, null, null, true], ['bare-content', false, null, null, null, true], ['headless', false, null, null, null, true],
       ['two', false, null, null, null, true], ['row', false, null, null, null, true], ['titled-tap', true, '', 'Back', null, false],
-      ['authored', false, null, null, null, true], ['pressing', true, '', 'Back', null, false], ['commanded', true, '', 'Back', null, false],
+      ['authored', false, null, null, null, true], ['own-back', false, null, null, null, true], ['pressing', true, '', 'Back', null, false], ['commanded', true, '', 'Back', null, false],
       ['popover-first', true, '', 'Back', null, false], ['foreign', false, null, null, null, true], ['sheet', false, null, null, null, true], ['root', false, null, null, null, true],
     ]);
     // A control the header no longer holds is shown again.
