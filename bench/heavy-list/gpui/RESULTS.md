@@ -11256,3 +11256,48 @@ other arms are absent; that failed check is retained under
 `--sample` instrument check, and `aggregate-check.py` verifies the CPU
 and instruction/cycle distributions against those outputs within their
 printed precision. The cold cohorts use its full four-arm mode.
+
+**Trace comparison, final five-round cohort.** All forty traced slots are
+attempted; 39 qualify. The egui-before round 3 readiness failure remains.
+The traced after medians are Native 250.120, GPUI 205.837, egui 205.812
+and Ink 194.959 ms, n=5 each. Before Ink is 214.776 ms; its paired change
+is −15.907 [−35.813, −8.328] ms, n=5. Ink after is below both controls in
+this traced cohort. Its paired difference from GPUI is −7.536
+[−22.737, +14.674] ms and from egui −17.873 [−21.717, −6.943] ms, n=5:
+the median ordering is not a win in every GPUI pair.
+
+Trace-associated differences use the adjacent matching arm, label and
+round. The full column includes the executable wrapper. The second
+column subtracts the probe's constructor-entry timestamp from each
+launch before pairing; it leaves the measured app interval unchanged.
+Ranges are the individual paired differences.
+
+| Arm / label | Full trace-associated difference, ms | After constructor, ms |
+| --- | ---: | ---: |
+| native-before | 2.853 [-9.824, 248.101], n=5 | -1.836 [-13.878, 20.099], n=5 |
+| native-after | 8.636 [0.724, 15.491], n=5 | 3.781 [-3.500, 10.652], n=5 |
+| gpui-before | 9.028 [-6.924, 248.990], n=5 | 4.638 [-11.194, 24.371], n=5 |
+| gpui-after | -1.868 [-23.086, 4.568], n=5 | -6.375 [-27.664, 1.383], n=5 |
+| egui-before | 3.304 [-8.375, 30.112], n=3 | -1.350 [-12.048, 24.667], n=3 |
+| egui-after | 0.788 [-8.211, 9.060], n=4 | -4.033 [-12.530, 4.285], n=4 |
+| ink-before | -3.520 [-19.113, 13.298], n=5 | -8.920 [-24.950, 8.353], n=5 |
+| ink-after | 6.742 [-0.266, 14.212], n=5 | 2.120 [-5.048, 9.573], n=5 |
+
+All eight paired medians are below 10 ms. The <10 ms prediction **misses
+as a per-launch bound**: Native-before and GPUI-before reach +248.101
+and +248.990 ms. Their first traced launches spend 235.490 and 229.317 ms
+before constructor entry; egui-before's first traced launch spends
+187.808 ms there. Those intervals precede the probe's trace-enable read.
+They belong to the launcher/loader interval, whose cause is not resolved
+here. Every original remains in the row; none is removed as a warmup.
+The signed app bundles had throwaway launches; the trace wrappers did
+not have separate throwaways. The paired differences include launcher
+overhead and run-to-run variation, so they do not isolate pure trace
+collection cost.
+
+The two untraced egui readiness failures in the matched rounds and the
+one traced failure reduce the matched egui samples to n=3 before and n=4
+after. `trace-cohort-summary.json` retains this completed trace comparison;
+its untraced headline rows are provisional because rounds 6–10 were still
+running. Both traced four-arm distributions, ranges and counts match
+unchanged `aggregate.mjs` (`aggregate-cold.py cold-traced`).
