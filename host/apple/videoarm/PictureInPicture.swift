@@ -121,7 +121,7 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
         if controller?.isPictureInPictureActive == true { controller?.stopPictureInPicture() }
         controller = nil
         layer.sampleBufferRenderer.flush(removingDisplayedImage: true)
-        holder.orderOut(nil)
+        holder.close()
     }
 
     // A live source: every time is now, and it never pauses.
@@ -171,6 +171,8 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
                                   bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
             drawn?.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
             CVPixelBufferUnlockBaseAddress(pixels, [])
+            // The pixels were drawn in sRGB; untagged, the layer would read them in the display's space.
+            CVBufferSetAttachment(pixels, kCVImageBufferCGColorSpaceKey, CGColorSpace(name: CGColorSpace.sRGB)!, .shouldPropagate)
             guard drawn != nil else { return nil }
             var format: CMVideoFormatDescription?
             CMVideoFormatDescriptionCreateForImageBuffer(allocator: nil, imageBuffer: pixels, formatDescriptionOut: &format)

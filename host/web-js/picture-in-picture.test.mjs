@@ -57,6 +57,37 @@ test("an image floats in picture in picture and hears it enter and leave", async
   }
 }, 30000);
 
+// A picture from another origin without CORS would taint the canvas, whose
+// stream then sends no frames: it is refused, and nothing is left floating.
+test("a picture from another origin without CORS is refused", async () => {
+  const other = Bun.serve({ port: 0, fetch: () => new Response(Bun.file(new URL('../../apps/canvas-gallery/assets/tile.png', import.meta.url))) });
+  const server = Bun.serve({ port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === '/picture-in-picture.js') return new Response(Bun.file(new URL('./picture-in-picture.js', import.meta.url)));
+    return new Response(`<button id="float">Float</button><img id="page" src="${other.url.href}icon.png"><output id="log"></output>
+      <script type="module">
+        import { float } from '/picture-in-picture.js';
+        const img = document.querySelector('#page'), log = document.querySelector('#log');
+        img.addEventListener('enterpictureinpicture', () => { log.textContent += 'enter;'; });
+        document.querySelector('#float').onclick = () => float(img, 'page', line => { log.textContent += line + ';'; });
+      </script>`, { headers: { 'content-type': 'text/html' } });
+  } });
+  let browser;
+  try {
+    browser = await suiteBrowser();
+    const page = await browser.newPage();
+    await page.goto(server.url.href);
+    await page.waitForFunction(() => document.querySelector('#page').naturalWidth > 0);
+    await page.locator('#float').click();
+    await page.waitForFunction(() => document.querySelector('#log').textContent !== '');
+    expect(await page.locator('#log').textContent()).toBe('requestPictureInPicture "page" refused: a picture from another origin needs CORS (Access-Control-Allow-Origin);');
+    expect(await page.evaluate(() => [document.pictureInPictureElement, document.querySelectorAll('video').length])).toEqual([null, 0]);
+  } finally {
+    await browser?.close();
+    server.stop(true); other.stop(true);
+  }
+}, 30000);
+
 test("an element that is not an image is refused", async () => {
   const { float } = await import('./picture-in-picture.js');
   const said = [];
