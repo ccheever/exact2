@@ -5734,3 +5734,27 @@ record. This lane changes only the two measurement records. The outstanding
 Windows qualifications are a quiet startup collection, upload duration that
 this probe cannot report, and the unrun sleep/wake and lock/unlock journeys;
 their reasons are stated above.
+
+Final renderer tip `c3ba9ab238`, tested from branch tip `46f6328874` on the
+NucBox on 2026-10-31, passes all eight requested suites, including both
+ordered atlas byte comparisons, and one Shelf launch per device reaches
+`library-count` readiness, meeting the prediction of zero failures:
+
+```text
+d3d11-ink: test result: ok. 53 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 5.39s
+d3d11-pinned: test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 27.35s
+d3d11-text: test result: ok. 216 passed; 0 failed; 1 ignored; 0 measured; 1420 filtered out; finished in 3.82s
+d3d11-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.71s
+wgpu-ink: test result: ok. 53 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 5.23s
+wgpu-pinned: test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 57.60s
+wgpu-text: test result: ok. 216 passed; 0 failed; 1 ignored; 0 measured; 1420 filtered out; finished in 3.89s
+wgpu-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.79s
+test atlas::upload::tests::d3d11_batches_identical_masks_and_padding_then_only_the_new_rectangle ... ok
+test atlas::upload::tests::wgpu_batches_identical_masks_and_padding_then_only_the_new_rectangle ... ok
+```
+
+The source archive, commands, prediction, raw logs, exit codes and captures
+are retained under `target/m10-cut7-final-windows/` on both machines
+(local raw logs in `nucbox/`); the captures show the three-book library
+partly covered by Settings, and both complete-screen markers name the
+requested adapter.
