@@ -1247,8 +1247,8 @@ seeded with `--more-turns --pull-request --limits` and started with `--scratch`,
 the older-server stand-in reporting 0.1.4; the v0.1.5 oracle paired with the same two lane servers). Presses, drags,
 right-clicks and keys from the HID event source; each result read back from the accessibility tree, the lane
 server's API or VoiceOver's caption panel; the oracle driven the same way in the same state. 11 rows hold, 3
-fail (one is the video chip of the chips row) and 2 are not reachable with these fixtures; two of the three were fixed
-and hold when checked again, and the video chip waits for a ruling (below). The oracle's doc.pdf and sample.py
+fail (one is the video chip of the chips row) and 2 are not reachable with these fixtures; all three were fixed
+and hold when checked again (below). The oracle's doc.pdf and sample.py
 chips were not opened under VoiceOver: an XCTest run of another lane took the front window during that step.
 
 Hold:
@@ -1315,16 +1315,27 @@ Also seen in this session, then fixed and checked again (bundle of `d9bb57b588`,
   once it moves away (1 of 1); the clone's update pill shows no tooltip while the pointer rests where the idle pill
   was.
 
-Left for a ruling:
+Failed, then fixed in the macOS host and checked again with real input (2026-11-01, a bundle of this change with
+exact2 #1225 merged, a lane copy on its own bundle id and `HOME`, the fixture's samples and a PNG attached as chips;
+keys from the HID event source, VoiceOver read from its caption panel; the v0.1.5 oracle with the same files
+attached). It holds:
 
-- VO-Space on the clip.mp4 chip focuses Close: VoiceOver reads "Close video preview, button", and half a second
-  later "Expanded video preview, dialog" (3 of 3; the focus stays on Close, by the accessibility focus read every
-  100 ms). The oracle reads "Expanded video preview, dialog, with 3 items, Close video preview, button" (1 of 1). The
-  image preview reads the same way as the video in the clone ("Close image preview, button", then "Expanded image
-  preview, dialog", 1 of 1). The order is the macOS host's: it names a dialog drawn in the page after the focused
-  control, so VoiceOver does not drop the words (`nameDialog`, host/apple/Sources/ExactKit/Accessibility.swift).
-  The 2026-10-31 "no control focused" was seen once more (the focus stayed on the prompt for 4 s, 1 of 20 opens by
-  VoiceOver, an accessibility press or the pointer).
+- VO-Space on the clip.mp4 chip focused Close, and VoiceOver read "Close video preview, button", then half a second
+  later "Expanded video preview, dialog" (3 of 3); the image preview read the same way (1 of 1). The oracle reads
+  "Expanded video preview, dialog, with 3 items, Close video preview, button" (1 of 1). VoiceOver names a dialog before
+  the control that takes the focus only when a web area is among the dialog's ancestors, as every dialog in Chrome
+  has; the macOS host had none, and named a dialog drawn in the page itself, after the control. Each such dialog now
+  has a web area of its own as its parent, and the host announces nothing (exact2 #1225, LLP 1080.003 D3.1). Checked
+  again: VO-Space on the clip.mp4 chip reads "Expanded video preview, dialog, with 22 items, Close video preview,
+  button", with the focus on Close (5 of 5); on the photo.png chip "Expanded image preview, dialog, with 5 items, Close
+  image preview, button" (3 of 3; the oracle "with 3 items", 1 of 1); on the sample.py chip "sample.py, dialog, with 9
+  items, Disable word wrap, button" (3 of 3; the oracle focuses Save file and reads "sample.py, dialog, with 8 items,
+  Save file, button", 1 of 1). The counts are the clone's: its previews serve more children than the oracle's (the
+  video preview's player controls, the image preview's second Close and its zoom). The Settings sample's skill chip
+  reads "Skill Frontend Design, dialog, with 2 items" (3 of 3; before, "Skill Frontend Design, dialog"), and the font
+  picker "Interface font family Search fonts..., dialog, with 2 items, Search fonts, expanded, combo box" (3 of 3;
+  before, the field, then "Interface font family, dialog"). The 2026-10-31 "no control focused" was not seen (0 of 11
+  opens by VO-Space).
 
 Not reachable with these fixtures:
 
