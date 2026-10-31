@@ -109,6 +109,8 @@ final class AccessibilityTreeMacTests: XCTestCase {
     }
 
     /// From `start` (a view, or an element such as a field's cell) up to the viewport, each parent serves its child.
+    /// A dialog's web area (`DialogWebArea`) is its parent and serves it, and is served by no one: the
+    /// view above serves the dialog in its place.
     private func assertModalParentChain(_ start: Any, presenter p: Presenter, file: StaticString = #filePath, line: UInt = #line) throws {
         var child = start as AnyObject
         var visited: Set<ObjectIdentifier> = []
@@ -116,9 +118,17 @@ final class AccessibilityTreeMacTests: XCTestCase {
             guard visited.insert(ObjectIdentifier(child)).inserted else { return XCTFail("parent cycle", file: file, line: line) }
             guard visited.count < 20 else { return XCTFail("parent chain never reaches viewport", file: file, line: line) }
             let element = try XCTUnwrap(child as? NSAccessibilityProtocol, file: file, line: line)
-            let parent = try XCTUnwrap(element.accessibilityParent() as? NSView, file: file, line: line)
+            var served = child
+            if let area = element.accessibilityParent() as? DialogWebArea {
+                XCTAssertTrue((area.accessibilityChildren() ?? []).count == 1 && area.accessibilityChildren()?.first as AnyObject === child, "the web area serves the dialog alone", file: file, line: line)
+                XCTAssertTrue((child as? NSObject)?.accessibilityAttributeValue(.parent) as AnyObject === area, "legacy AXParent agrees", file: file, line: line)
+                served = area
+            }
+            let parent = try XCTUnwrap((served as? NSAccessibilityProtocol)?.accessibilityParent() as? NSView, file: file, line: line)
             XCTAssertTrue((parent.accessibilityChildren() ?? []).contains { ($0 as AnyObject) === child }, "AXParent points back through AXChildren", file: file, line: line)
-            XCTAssertTrue(((child as? NSObject)?.accessibilityAttributeValue(.parent) as? NSView) === parent, "legacy AXParent agrees", file: file, line: line)
+            if served === child {
+                XCTAssertTrue(((child as? NSObject)?.accessibilityAttributeValue(.parent) as? NSView) === parent, "legacy AXParent agrees", file: file, line: line)
+            }
             XCTAssertFalse(elements(p.axElements(roots: [parent])).contains { $0["testId"] as? String == "named" }, "moving to a container cannot reach Play", file: file, line: line)
             child = parent
         }
@@ -281,7 +291,7 @@ final class AccessibilityTreeMacTests: XCTestCase {
         let unmodal = p.axElements(roots: [p.viewport])
         XCTAssertEqual((unmodal["modal"] as? [String: Any])?["present"] as? Bool, false)
         XCTAssertTrue(elements(unmodal).contains { $0["testId"] as? String == "named" })
-        XCTAssertTrue((p.views[10]?.accessibilityParent() as? NSView) === p.views[1], "clearing modality restores the authored parent")
+        XCTAssertTrue(((p.views[10]?.accessibilityParent() as? DialogWebArea)?.accessibilityParent() as? NSView) === p.views[1], "clearing modality restores the authored parent")
 
         p.dialogs.show(try XCTUnwrap(p.views[10]))
         let shown = p.axElements(roots: [p.viewport])
@@ -315,13 +325,14 @@ final class AccessibilityTreeMacTests: XCTestCase {
         NSView.hiddenGetterCalls = 0
         let children = p.viewport.accessibilityChildren() as? [NSView]
         let contents = p.viewport.accessibilityAttributeValue(.contents) as? [NSView]
-        let parent = dialog.accessibilityAttributeValue(.parent) as? NSView
+        let area = dialog.accessibilityAttributeValue(.parent) as? DialogWebArea
+        let parent = area?.accessibilityParent() as? NSView
         _ = ok.accessibilityParent()
         method_exchangeImplementations(getter, counting)
         XCTAssertEqual(NSView.hiddenGetterCalls, 0, "serving AXChildren, AXContents and AXParent calls no isAccessibilityHidden()")
         XCTAssertTrue(children?.count == 1 && children?.first === dialog, "the viewport's child is exactly the modal")
         XCTAssertTrue(contents?.count == 1 && contents?.first === dialog)
-        XCTAssertTrue(parent === p.viewport)
+        XCTAssertTrue(parent === p.viewport, "the dialog's web area is the viewport's")
         wrapper.setAccessibilityHidden(true)
         XCTAssertNil(p.macAccessibilityModal, "an ancestor the host hid from accessibility still hides the modal")
         wrapper.setAccessibilityHidden(false)
