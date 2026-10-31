@@ -7537,6 +7537,28 @@ thermal rules. Failed launches remain counted; maxima are report-only.
 | Peak footprint changes by at most 2 MiB | The same probe's phase peaks |
 | Glyph masks and rendered pixels remain identical | Atlas byte comparison, pinned and text suites on Metal and wgpu |
 
+The rest sample is fling round 1's rest interval for each carrier. The driver
+also records rest after rounds 2–5; those intervals remain in the raw files.
+
 The six-check gate is assigned to the Mac mini. This lane runs the affected
 suites, formatting and staged caps locally. Raw files for this cut are retained
 under `target/m10-cut7/`; `target/a7/` is unchanged.
+
+The glyph atlas retains the padded mask bytes in a CPU page and tracks their
+dirty bounding rectangle. Alpha and color pages flush together before a pass
+samples them. Metal encodes one blit command with one copy per dirty page;
+wgpu uses one mapped staging buffer and one copy encoder. D3D11 keeps
+`UpdateSubresource` in queue order, once per dirty page; its runtime owns the
+copy, with no application staging ring to combine. Paths, images, shelf
+placement, page pins and swash output are unchanged.
+
+Metal has three lazy staging slots, covering the previous, submitted and
+encoding frames. A cold fill allocates one slot large enough for every dirty
+rectangle, with 256-byte row alignment. A busy slot retires behind its own
+submission and receives fresh storage; no glyph insertion waits for staging.
+Later small batches replace a slot larger than the greater of 64 KiB and the
+batch's next power of two; idle trimming releases all three. CPU shadows cost
+256 KiB per normal alpha or color page, bounded by the existing sixteen-page
+ceiling per atlas; overflow shadows are released after submission. Intermediate
+layer draws must flush before sampling: a later pass that discovers new glyphs
+can issue another batch. The trace and counters report those batches too.
