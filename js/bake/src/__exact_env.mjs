@@ -53,9 +53,13 @@ const given = () => {
       const { symbols } = dlopen('/usr/lib/libSystem.B.dylib', { getenv: { args: [FFIType.cstring], returns: FFIType.cstring } });
       startedWith = name => symbols.getenv(Buffer.from(`${name}\0`)) !== null;
     } else if (process.platform === 'win32') {
-      // With no buffer, the length a value needs: 0 for a name the block lacks.
-      const { symbols } = dlopen('kernel32.dll', { GetEnvironmentVariableW: { args: [FFIType.ptr, FFIType.ptr, FFIType.u32], returns: FFIType.u32 } });
-      startedWith = name => symbols.GetEnvironmentVariableW(Buffer.from(`${name}\0`, 'utf16le'), null, 0) > 0;
+      // With no buffer, the length a value needs: 0 for a name the block lacks, and for one whose value is empty, which
+      // only the last error tells apart (ERROR_ENVVAR_NOT_FOUND, 203); a success leaves the last error as it was.
+      const { symbols } = dlopen('kernel32.dll', {
+        GetEnvironmentVariableW: { args: [FFIType.ptr, FFIType.ptr, FFIType.u32], returns: FFIType.u32 },
+        GetLastError: { args: [], returns: FFIType.u32 }, SetLastError: { args: [FFIType.u32], returns: FFIType.void },
+      });
+      startedWith = name => { symbols.SetLastError(0); return symbols.GetEnvironmentVariableW(Buffer.from(`${name}\0`, 'utf16le'), null, 0) > 0 || symbols.GetLastError() !== 203; };
     }
   } catch { /* unreadable: nothing is noted */ }
   return startedWith;

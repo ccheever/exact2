@@ -23,6 +23,7 @@ async function settingApp(root) {
   writeFileSync(join(app, 'app.ts'), `import type { Answer } from './app.contract.d.ts';\nexport const appId = ${JSON.stringify(manifest.app.id)};\nconst API = import.meta.env.API_BASE_URL;\nexport const grants = \`net.fetch \${API}\`;\nexport const answer: Answer = () => API;\n`);
   const env = { ...process.env, EXACT_APP_DIR: app };
   for (const name of ['EXACT_WEB_DIST', 'EXACT_BACKEND_ORIGIN', 'API_BASE_URL']) delete env[name];
+  env.EXACT_BUN_LOADED = ''; // a value this test gives is the environment's, whatever a checkout's .env holds
   return { app, env };
 }
 

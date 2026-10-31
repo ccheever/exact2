@@ -136,8 +136,8 @@ function build(app, dist, keep = () => false, compiler = null, superseded = null
       const packages = devPackages(stage);
       // Or a source it read moved since it began (a watcher's event can come
       // after the build ends): its Contract sources (one gone is moved), and
-      // the design, app.ts, app.json and the backend's origin (one come or
-      // gone is moved), by their times. Asked again just before it is
+      // the design, app.ts, app.json, the backend's origin and the settings
+      // files .env.local and .env (one come or gone is moved), by their times. Asked again just before it is
       // published or kept, after the work before that.
       const since = (path) => changedSince(path, began);
       lastSources = packages.sources;

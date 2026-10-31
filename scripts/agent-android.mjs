@@ -481,8 +481,9 @@ function installApk(app, apk, { run = false, built = 0 } = {}) {
 /** `verify android`'s build (scripts/verify.mjs): the APK, built when it is missing or older than its sources, as a
  * drive would refuse it. Null when fresh, else what the build said (its last lines when it failed). */
 export async function apkBuildFirst(app) {
-  const { apkChanges } = await import('./agent-stdio.mjs'), apk = readerApk(app);
-  const why = !existsSync(apk) ? 'no APK yet' : apkChanges(app, apk).length ? 'the APK is older than its sources' : null;
+  const { apkChanges } = await import('./agent-stdio.mjs'), { bakedSettingChanges } = await import('./agent-launch.mjs'), apk = readerApk(app);
+  const why = !existsSync(apk) ? 'no APK yet' : apkChanges(app, apk).length ? 'the APK is older than its sources'
+    : bakedSettingChanges(apk, app).length ? 'a setting changed since the APK was built' : null;
   if (!why) return null;
   console.error(`building the APK (${why}): bun exact.mjs android`);
   const started = Date.now(), r = spawnSync(process.execPath, [import.meta.path, 'build', app.dir, '--apk'], { encoding: 'utf8', maxBuffer: 256 << 20 });
