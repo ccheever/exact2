@@ -1,0 +1,77 @@
+// A pull request's +/- split by file kind, drawn from pr-change-breakdown.ts. T3 Code 74541bab17 (MIT, see
+// LICENSE-T3): apps/web/src/components/pullRequest/PullRequestChangeBreakdownStat.tsx.
+use hoverTipAtFrame, hoverTipWide from "../shell/hover-layer.contract"
+
+shape PrBreakdownLine
+  key: string
+  label: string
+  additions: string
+  deletions: string
+  row: number
+shape PrBreakdown
+  ref: string
+  requested: bool
+  loading: bool
+  rows: PrBreakdownLine[]
+  total: PrBreakdownLine[]
+  width: number
+  height: number
+
+// Appearance → Diff colors (PullRequestDiffStat's text-diff-addition-foreground / text-diff-deletion).
+fn breakdownAdd(diff: string): string = diff == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#007a55, #00d492)"
+fn breakdownDel(diff: string): string = diff == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)"
+
+// PullRequestChangeBreakdownStat: the +/- (the slot) with a hover that splits it into its kinds and the Total.
+// The first pointer intent asks for the split (`request(breakdown.ref)`) unless it was asked for already (a view
+// of one pull request reads its split when it opens). The bubble is TooltipPopup's card below the stat, centred,
+// after its 600 ms delay: the window's hover layer (hover-layer.contract kind "breakdown") draws it from the view
+// that owns `breakdown.ref`, so a read that lands while it shows fills it in, and keeps it inside the window,
+// flipping above the stat where it does not fit below (the last list row, the folding detail header). Its size is
+// the estimate the read gave (`width`, `height`), or a three-line grid's before the first read.
+component PrBreakdownStat
+  inject
+    rem: number
+    hoverTipAt: action
+  props
+    breakdown: PrBreakdown
+    tipId: string
+    request: action
+  slot
+  action hover(inside: bool)
+    if inside and not breakdown.requested
+      request(breakdown.ref)
+    hoverTipAt(hoverTipWide(hoverTipAtFrame(tipId, "breakdown", breakdown.ref, [], "bottom", "center", frame(tipId), (breakdown.height > 0 ? breakdown.height : 102), `${tipId}-tooltip`), (breakdown.width > 0 ? breakdown.width : 150)), "trigger", inside)
+  view
+    box id=tipId testId=tipId position="relative" hover=hover flex-shrink=0 display="flex" flex-direction="row" align-items="baseline"
+      children
+
+// The hover layer's "breakdown" bubble: TooltipPopup's card around the grid, or "Loading breakdown".
+component PrBreakdownCard
+  props
+    breakdown: PrBreakdown
+    diff: string
+    testId: string
+  view
+    if breakdown.rows.length > 0 or breakdown.loading
+      column padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=testId
+        if breakdown.rows.length > 0
+          PrBreakdownGrid(rows=breakdown.rows, total=breakdown.total, diff=diff, ink="light-dark(#18181b, #f5f5f5)")
+        else
+          text "Loading breakdown" font-size="0.75rem" line-height="1rem" color="light-dark(#18181b, #f5f5f5)"
+
+// ChangeBreakdownGrid: label, +additions and -deletions in three auto columns (16pt apart, 4pt between lines),
+// each kind that changed, then a rule and the Total when the hover carries one.
+component PrBreakdownGrid
+  props
+    rows: PrBreakdownLine[]
+    total: PrBreakdownLine[]
+    diff: string
+    ink: string
+  view
+    box display="grid" grid-template-columns="auto auto auto" justify-content="start" column-gap="1rem" row-gap="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" testId="pr-breakdown-grid"
+      for item in rows.concat(total) key=item.key
+        if item.key == "total"
+          box grid-row=(item.row - 1) grid-column="1 / -1" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)"
+        text item.label grid-row=item.row grid-column=1 font-size="0.75rem" line-height="1rem" white-space="nowrap" color=ink
+        text item.additions grid-row=item.row grid-column=2 text-align="right" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color=breakdownAdd(diff)
+        text item.deletions grid-row=item.row grid-column=3 text-align="right" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color=breakdownDel(diff)

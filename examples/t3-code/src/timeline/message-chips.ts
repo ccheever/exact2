@@ -1,0 +1,383 @@
+import { workspaceFileIcon } from '../shared/file-metadata';
+import { contextLinks, contextTarget } from '../composer/context-links';
+// Context chips in sent messages, adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3):
+// MessagesTimeline.tsx userMessageContextPresentationRegistry (each
+// `[label](t3-context://v1/<kind>/<id>)` resolved against the message's
+// `context.records` and attachments), contextChipParts.tsx (FileChip,
+// ImageChipButton, UnresolvedChip), ThreadContextChip.tsx and ChatMarkdown's
+// MarkdownFileLink tooltip (the link's full path). Contract matches each chip
+// to its parsed run by `href` (markdown.contract ChipView).
+import { isWindowsAbsolutePath } from '../media/media-reference';
+import { inlineCodeFilePathCandidate } from './inline-code-files';
+import { workspaceLookupPath } from './workspace-file-lookup';
+import { chatFileLink } from './markdown-file-links';
+import { isSentAudio, isSvgAttachment } from './timeline-attachments';
+import { workspaceValues } from '../composer/composer-workspace-snapshots';
+import { selectedProvider, workspaceCwd } from '../composer/composer-editor';
+import { arr, obj, str, type Obj } from '../client/domain';
+import { fileIconToken } from '../shared/timeline-files';
+import type { T3Client } from '../client/client';
+import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
+import { fontStack } from '../appearance/settings-appearance';
+import { assistantCitationLabel, parseAssistantCitationHref } from './diff-citations';
+import { COMPOSER_CITATION } from '../composer/composer-source-chips';
+import { markdownLinkHref, markdownMediaChips, noteMarkdownDocument, type MediaScope } from '../media/media-views'; // a message's images and their actions
+import type { ThreadLinkGlyph } from './markdown-thread-glyphs';
+import { parseThreadLinkHref, percentDecodedThreadLinkId, resolveThreadLink, threadLinksIn, unknownThreadLinkLabel } from './thread-links';
+import { notePullRequestLinks } from './pull-link-registry';
+import { chipInks } from '../composer/composer-chip-presentation';
+
+export interface ChipView {
+  id: string; href: string; kind: string; label: string; size: string; tip: string;
+  detail: string; icon: string; target: string; owner: string;
+  /** A file link's menu rows (file-link-menu.ts withFileLinkMenus); [] until then and for every other chip. */
+  menu: { id: string; label: string }[];
+}
+/** A chip kind's ink (markdown-chip-inks.contract ChipInk): `light-dark()` of its accent raised to 5:1 on each theme half. */
+export interface ChipInk { kind: string; ink: string }
+export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[]; runCommands: string[]; threadGlyphs: ThreadLinkGlyph[]; inks: ChipInk[] }
+
+
+// extractMarkdownLinkHrefs (packages/shared/src/markdownLinks.ts at 9c161462c9): a forward scan
+// with cached delimiter searches, linear where the old link pattern backtracked quadratically.
+/** Reuses delimiter searches when successive candidates fall in the same run. */
+function runEndFinder(markdown: string, delimiter: RegExp) {
+  let runStart = -1, runEnd = -1;
+  return (start: number) => {
+    if (start >= runStart && start <= runEnd) return runEnd;
+    delimiter.lastIndex = start;
+    runStart = start;
+    runEnd = delimiter.exec(markdown)?.index ?? markdown.length;
+    return runEnd;
+  };
+}
+function linkTailScanner(markdown: string) {
+  const whitespaceEnd = runEndFinder(markdown, /\S/g), titleEnd = runEndFinder(markdown, /["']/g), titleWhitespaceEnd = runEndFinder(markdown, /\S/g);
+  return (start: number) => {
+    const end = whitespaceEnd(start);
+    if (markdown[end] === ')') return end + 1;
+    if (end === start || (markdown[end] !== '"' && markdown[end] !== "'")) return null;
+    const quoteEnd = titleEnd(end + 1);
+    if (quoteEnd === markdown.length) return null;
+    const close = titleWhitespaceEnd(quoteEnd + 1);
+    return markdown[close] === ')' ? close + 1 : null;
+  };
+}
+function linkDestinationScanner(markdown: string) {
+  const whitespaceEnd = runEndFinder(markdown, /\S/g), angleEnd = runEndFinder(markdown, /[>\n]/g), bareEnd = runEndFinder(markdown, /[\s)]/g);
+  // Separate caches keep each branch's searches moving forward when an angle destination falls back to a bare one.
+  const angleTail = linkTailScanner(markdown), bareTail = linkTailScanner(markdown);
+  return (start: number) => {
+    if (markdown[start] !== '(') return null;
+    const hrefStart = whitespaceEnd(start + 1);
+    if (markdown[hrefStart] === '<') {
+      const hrefEnd = angleEnd(hrefStart + 1);
+      if (hrefEnd > hrefStart + 1 && markdown[hrefEnd] === '>') {
+        const end = angleTail(hrefEnd + 1);
+        if (end !== null) return { hrefStart: hrefStart + 1, hrefEnd, end };
+      }
+    }
+    const hrefEnd = bareEnd(hrefStart);
+    if (hrefEnd === hrefStart) return null;
+    const end = bareTail(hrefEnd);
+    return end === null ? null : { hrefStart, hrefEnd, end };
+  };
+}
+/** Every `[label](href)` in order, with whether a `!` makes it an image. A label stays on one line, as the parser's does. */
+export function markdownLinks(markdown: string): { image: boolean; label: string; href: string }[] {
+  const links: { image: boolean; label: string; href: string }[] = [];
+  const scanDestination = linkDestinationScanner(markdown);
+  let cursor = 0, lineStart = 0, lineEnd = markdown.indexOf('\n');
+  while (cursor < markdown.length) {
+    let labelStart = markdown.indexOf('[', cursor);
+    if (labelStart === -1) break;
+    const labelEnd = markdown.indexOf(']', labelStart + 1);
+    if (labelEnd === -1) break;
+    // Nested opening brackets share this closing bracket: on failure skip the whole label.
+    cursor = labelEnd + 1;
+    while (lineEnd !== -1 && lineEnd < labelEnd) {
+      lineStart = lineEnd + 1;
+      lineEnd = markdown.indexOf('\n', lineStart);
+    }
+    if (lineStart > labelStart) { labelStart = markdown.indexOf('[', lineStart); if (labelStart === -1 || labelStart > labelEnd) continue; }
+    const destination = scanDestination(cursor);
+    if (!destination) continue;
+    cursor = destination.end;
+    const href = markdown.slice(destination.hrefStart, destination.hrefEnd).trim();
+    if (href) links.push({ image: markdown[labelStart - 1] === '!', label: markdown.slice(labelStart + 1, labelEnd), href });
+  }
+  return links;
+}
+
+/** formatAttachmentSize (client-runtime state/attachments.ts). */
+export function attachmentSize(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+}
+/** middleTruncateAttachmentName (composerInlineChip.ts): the start and the extension survive. */
+export function middleTruncate(name: string, max = 36): string {
+  const characters = Array.from(name);
+  if (characters.length <= max) return name;
+  const available = max - 1;
+  const suffixLength = Math.min(available - 1, available >= 18 ? 14 : Math.ceil(available / 2));
+  return `${characters.slice(0, available - suffixLength).join('')}…${characters.slice(-suffixLength).join('')}`;
+}
+const VIDEO = /\.(mp4|m4v|mov|webm|ogv|ogg)$/i;
+const isVideo = (attachment: Obj) => /^video\//.test(str(attachment.mimeType)) || VIDEO.test(str(attachment.name));
+
+/** resolvePathLinkTarget: a relative link joined to the workspace root, `.`/`..` folded, `#L3` as `:3`. */
+export function fileLinkTarget(href: string, root: string): string {
+  let target = href.trim();
+  try { target = decodeURI(target); } catch { /* keep the raw spelling */ }
+  target = target.replace(/^file:\/\//i, '').replace(/#L(\d+)(?:C(\d+))?$/i, (_all, line: string, column?: string) => `:${line}${column ? `:${column}` : ''}`);
+  if (target.startsWith('~') || target.startsWith('/') || isWindowsAbsolutePath(target) || !root) return target;
+  const parts: string[] = [];
+  for (const part of `${root.replace(/\/+$/, '')}/${target}`.split('/')) {
+    if (part === '.' || (part === '' && parts.length > 0)) continue;
+    if (part === '..') { if (parts.length > 1) parts.pop(); continue; }
+    parts.push(part);
+  }
+  return parts.join('/') || '/';
+}
+
+/**
+ * `text` with each Markdown link or image read as its label, as MessagesTimeline.logic.ts reads it by replacing
+ * `/!?\[([^\]\n]*)\]\((?:<[^>\n]*>|[^\s)]*)\)/g` with `$1`: a `[` or `![`, a label to the first `]` on its line, then
+ * `(`, an `<…>` target or one with no space, and `)`. Where each part ends is found once for the whole text, so a line of
+ * many unclosed `[` or `![` reads in linear time, where the expression read on to the line's end from each.
+ */
+export function markdownLinkLabels(text: string): string {
+  if (!text.includes('](')) return text;
+  const ends = (pattern: RegExp) => Array.from(text.matchAll(pattern), match => match.index);
+  const labelEnds = ends(/[\]\n]/g), angleEnds = ends(/[>\n]/g), plainEnds = ends(/[\s)]/g);
+  // The first of `at` that is `from` or after, or -1.
+  const next = (at: number[], from: number) => {
+    let low = 0, high = at.length;
+    while (low < high) { const middle = (low + high) >> 1; if (at[middle]! < from) low = middle + 1; else high = middle; }
+    return low < at.length ? at[low]! : -1;
+  };
+  let out = '', copied = 0;
+  for (let at = text.indexOf('['); at >= 0;) {
+    const close = next(labelEnds, at + 1);
+    let end = -1;
+    if (close >= 0 && text[close] === ']' && text[close + 1] === '(') {
+      if (text[close + 2] === '<') {
+        const angle = next(angleEnds, close + 3);
+        if (angle >= 0 && text[angle] === '>' && text[angle + 1] === ')') end = angle + 2;
+      }
+      if (end < 0) {
+        const plain = next(plainEnds, close + 2);
+        if (plain >= 0 && text[plain] === ')') end = plain + 1;
+      }
+    }
+    if (end < 0) { at = text.indexOf('[', at + 1); continue; }
+    out += text.slice(copied, at > copied && text[at - 1] === '!' ? at - 1 : at) + text.slice(at + 1, close);
+    copied = end;
+    at = text.indexOf('[', end);
+  }
+  return out + text.slice(copied);
+}
+/**
+ * shouldCollapseUserMessage (MessagesTimeline.logic.ts): past 600 characters or 8 lines of what
+ * the reader sees, where a link counts as its label and a quote as its chip's label.
+ */
+export function shouldCollapseUserMessage(text: string): boolean {
+  const linkLabels = markdownLinkLabels;
+  let visible = '', cursor = 0;
+  if (text.includes('](t3-citation:')) for (const match of text.matchAll(COMPOSER_CITATION)) {
+    const citation = parseAssistantCitationHref(match[1]!);
+    if (!citation) continue;
+    visible += linkLabels(text.slice(cursor, match.index)) + assistantCitationLabel(citation);
+    cursor = match.index + match[0].length;
+  }
+  visible += linkLabels(text.slice(cursor));
+  return visible.trim().length > 0 && (visible.length > 600 || visible.split('\n').length > 8);
+}
+
+/** Every chip a message's Markdown draws, by the href its run keeps (markdown.rs chat_run); `media`: where its media resolve. */
+export function messageChips(item: Obj, root: string, threads: Obj[], owner = '', media: MediaScope = {}, client?: T3Client): ChipView[] {
+  const text = str(item.text), chips: ChipView[] = [];
+  const records = new Map(arr(obj(item.context).records).map(record => [str(record.contextId), record]));
+  const attachments = new Map(arr(item.attachments).map(attachment => [str(attachment.id), attachment]));
+  const seen = new Set<string>();
+  const add = (chip: Omit<ChipView, 'id' | 'owner' | 'menu'>) => { if (seen.has(chip.href)) return; seen.add(chip.href); chips.push({ id: `chip-${chips.length}`, ...chip, owner, menu: [] }); };
+  // The thread's provider skills for its workspace, as the composer's `$` menu reads them (a sketch of a client has none).
+  const skills = client?.config && client.projection ? workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills') : [];
+  for (const link of contextLinks(text)) {
+    const target = contextTarget(link.href);
+    if (!target) continue;
+    const href = link.href, kind = target.kind, label = link.label.trim() || kind;
+    const record = records.get(target.id);
+    add(contextChip(href, kind, label, record && str(record.kind) === kind ? record : undefined, attachments, threads, skills));
+  }
+  // A known `$skill` in the prose is its skill's chip (markdown.rs skill_runs): its details popover (SkillChipPopover).
+  if (skills.length && text.includes('$')) for (const match of text.matchAll(SKILL_TOKEN_REGEX)) {
+    const skill = skills.find(candidate => str(candidate.name) === match[2]);
+    if (skill) add({ href: `t3-skill:$${match[2]}`, kind: 'skill', ...skillDetails(skill, formatProviderSkillDisplayName({ name: str(skill.name), displayName: str(skill.displayName) || undefined })) });
+  }
+  // A citation by its destination, whatever its label reads, as the composer sends it (COMPOSER_CITATION).
+  if (text.includes('](t3-citation:')) for (const match of text.matchAll(COMPOSER_CITATION)) if (parseAssistantCitationHref(match[1]!)) add(citationChip(match[1]!));
+  // A thread link, an autolink too, is its thread's chip (MarkdownThreadLink → ThreadContextChip).
+  for (const link of threadLinksIn(text)) { const chip = threadLinkChip(link.href, link.label, threads, client); if (chip) add(chip); }
+  if (text.includes('](')) for (const link of markdownLinks(text)) {
+    if (!link.image && link.href.startsWith('t3-thread://')) continue;
+    // Exactly the destinations markdown.rs draws as file chips: kept by the URL transform, and file-shaped.
+    if (link.image || !markdownLinkHref(link.href).startsWith('t3-file:') || !chatFileLink(link.href)) continue;
+    // A link chip's `target` is what the link wrote from the workspace root, which the workspace search can resolve.
+    add({ href: `t3-file:${link.href}`, kind: 'link', label: link.label, size: '', tip: fileLinkTarget(link.href, root), detail: '', icon: fileIconToken(link.href), target: workspaceLookupPath(link.href, root, media.cwd || root) });
+  }
+  if (root && text.includes('`')) for (const match of text.matchAll(/(`+)([^`]+)\1/g)) {
+    const code = match[2]!.trim(), candidate = inlineCodeFilePathCandidate(code);
+    if (candidate === null) continue;
+    const cwd = media.cwd || root;
+    const fromRoot = !/^(?:~|\.{1,2})[\\/]/.test(candidate) && candidate.replace(/:\d+(?::\d+)?$/, '').includes('/')
+      && (root === cwd || root.startsWith(`${cwd.replace(/\/+$/, '')}/`));
+    const target = fileLinkTarget(candidate, fromRoot ? cwd : root), position = /:(\d+)(?::\d+)?$/.exec(candidate);
+    const path = candidate.replace(/:\d+(?::\d+)?$/, ''), name = path.replaceAll('\\', '/').split('/').pop() || path;
+    add({ href: `t3-inline-code:${code}`, kind: 'link', label: `${name}${position ? ` · L${position[1]}` : ''}`, size: '', tip: target, detail: '', icon: fileIconToken(path), target: workspaceLookupPath(candidate, fromRoot ? cwd : root, cwd) });
+  }
+  // An image's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
+  for (const chip of markdownMediaChips(text, root, media)) chips.push({ id: `chip-${chips.length}`, ...chip, owner, menu: [] });
+  if (client) for (const chip of chips) {
+    if (chip.kind === 'link' || chip.kind === 'mention') chip.icon = workspaceFileIcon(client, chip.kind === 'link' ? chip.href.slice('t3-file:'.length) : chip.tip, root);
+  }
+  noteMarkdownDocument(owner, text, root, media); // the image's press opens the preview over this document's images
+  notePullRequestLinks(text); // a web link's menu rows (pull-link-registry.ts)
+  return chips;
+}
+
+/** AssistantCitationChip (T3 Code 9c161462c9): the label is the quote (or its comment) cut at 64 characters; its popover
+ * shows the quote (`tip`) and the comment (`size`), and "Go to source" opens the cited thread (`target`) at the answer
+ * (`detail`). Each citation link's destination is read with the reference's parseAssistantCitationHref (diff-citations.ts). */
+function citationChip(href: string): Omit<ChipView, 'id' | 'owner' | 'menu'> {
+  const citation = parseAssistantCitationHref(href);
+  return { href, kind: 'citation', label: citation ? assistantCitationLabel(citation) : '', size: citation?.comment ?? '', tip: citation?.text ?? '',
+    detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '' };
+}
+/**
+ * A thread link's chip (MarkdownThreadLink): the thread's current title, never a title written into the link, which only
+ * stands in for an empty one; "Open thread"; and what a press opens (`target`; `detail` "link" routes it through
+ * openThreadLink, so another environment's thread focuses that environment). A link that resolves to nothing is the
+ * unresolved chip, named by its written label or by why: "Thread on another machine" or "Thread no longer available".
+ */
+function threadLinkChip(href: string, label: string | null, threads: Obj[], client?: T3Client): Omit<ChipView, 'id' | 'owner' | 'menu'> | null {
+  const link = parseThreadLinkHref(href);
+  if (!link) return null;
+  const local = () => {
+    const thread = link.environmentId !== null && link.environmentId !== client?.environmentId ? undefined
+      : threads.find(thread => thread.id === link.threadId) ?? threads.find(thread => thread.id === percentDecodedThreadLinkId(link.threadId));
+    return thread ? { id: str(thread.id), thread } : null;
+  };
+  const target = client ? resolveThreadLink(client, link) : local();
+  if (!target) {
+    const unknown = unknownThreadLinkLabel(link, client?.environmentId ?? '');
+    return { href, kind: 'unresolved', label: label ?? unknown, size: '', tip: unknown, detail: '', icon: '', target: '' };
+  }
+  return { href, kind: 'thread', label: str(target.thread.title).trim() || label || 'Untitled thread', size: '', tip: 'Open thread', detail: 'link', icon: '', target: target.id };
+}
+/** skillPopoverDescription and skillInstructionsOpener's path: a skill chip's `detail` and `target`. */
+function skillDetails(skill: Obj | undefined, label: string): Pick<ChipView, 'label' | 'size' | 'tip' | 'detail' | 'icon' | 'target'> {
+  return { label, size: '', tip: `$${str(skill?.name)}`, detail: str(skill?.description).trim() || str(skill?.shortDescription).trim(), icon: '', target: str(skill?.path) };
+}
+const UNAVAILABLE = 'This context is no longer available.';
+function contextChip(href: string, kind: string, label: string, record: Obj | undefined, attachments: Map<string, Obj>, threads: Obj[], skills: Obj[] = []): Omit<ChipView, 'id' | 'owner' | 'menu'> {
+  const base = { href, label, size: '', tip: '', detail: '', icon: '', target: '' };
+  const unresolved = { ...base, kind: 'unresolved', tip: UNAVAILABLE };
+  if (!record) return unresolved;
+  switch (kind) {
+    case 'mention': return { ...base, kind: 'mention', label: str(record.label, label), tip: str(record.path), icon: fileIconToken(str(record.path)) };
+    case 'skill': return { ...base, kind: 'skill', ...skillDetails(skills.find(skill => str(skill.name) === str(record.name)), str(record.label) || str(record.name, label)), tip: `$${str(record.name)}` };
+    case 'thread': {
+      const threadId = str(record.threadId), shell = threads.find(thread => str(thread.id) === threadId);
+      return { ...base, kind: 'thread', label: str(shell?.title).trim() || str(record.title, label), tip: shell ? 'Open thread' : 'Thread no longer available', target: shell ? threadId : '' };
+    }
+    case 'image': case 'file': {
+      const attachment = attachments.get(str(record.attachmentId));
+      if (!attachment || (kind === 'image' ? attachment.type !== 'image' : attachment.type !== 'file')) return unresolved;
+      const name = str(record.name, str(attachment.name)), size = attachmentSize(Number(record.sizeBytes) || 0);
+      if (kind === 'image') return { ...base, kind: 'image', label: middleTruncate(name), size, tip: `Image attachment, ${name}, ${size}`, target: str(attachment.id) };
+      // A sent sound plays in its audio chip above the text, so its reference draws nothing here.
+      if (isSentAudio(attachment)) return { ...base, kind: 'audio', label: middleTruncate(name), target: str(attachment.id) };
+      // FileChip's `disabled`: a file the server does not hand out is no button (no `target`).
+      const target = attachment.downloadable === false ? '' : str(attachment.id);
+      // SvgFileChip: an SVG draws as an image chip with the picture as its thumbnail, named and tipped as the file it
+      // opens as (`detail` is its tooltip); `icon` is the file's glyph for when the picture does not load.
+      if (isSvgAttachment(attachment)) return { ...base, kind: 'image', label: middleTruncate(name), size, tip: `File attachment, ${name}, ${size}`, detail: `${name}\n${size}`, icon: fileIconToken(name), target };
+      const video = isVideo(attachment);
+      return { ...base, kind: video ? 'video' : 'file', label: middleTruncate(name), size, tip: `${name}\n${size}`, icon: video ? '' : fileIconToken(name), target };
+    }
+    case 'terminal': return { ...base, kind: 'terminal', label: str(record.label, label), size: num(record.lineStart) === num(record.lineEnd) ? `Line ${num(record.lineStart)}` : `Lines ${num(record.lineStart)}–${num(record.lineEnd)}`,
+      tip: str(record.terminalLabel), detail: str(record.text) };
+    case 'element': return { ...base, kind: 'element', label: str(record.label, label), tip: str(record.pageTitle).trim() || str(record.pageUrl),
+      detail: [str(record.selector) || `<${str(record.tagName)}>`, str(record.htmlPreview).trim()].filter(Boolean).join('\n') };
+    case 'preview-annotation': return { ...base, kind: 'element', label: str(record.label, label), tip: str(record.pageTitle).trim() || str(record.pageUrl) || 'Preview annotation',
+      detail: [str(record.comment), str(record.targetSummary)].filter(Boolean).join('\n') };
+    case 'review-comment': {
+      // PullRequestChip: a pull request context with its metadata is a button that opens it ("#N", its state's glyph and
+      // colour), named "Open <state> pull request #N: <title>". A review comment, or a pull request summary without its
+      // metadata, opens its details.
+      const pr = obj(record.pullRequest), number = Number(pr.number);
+      if (record.pullRequest && str(pr.url) && Number.isSafeInteger(number)) {
+        const state = str(pr.state) === 'open' && pr.isDraft === true ? 'draft' : ['open', 'merged', 'closed'].includes(str(pr.state)) ? str(pr.state) : '';
+        const kindLabel = state ? `${state[0]!.toUpperCase()}${state.slice(1)} pull request` : 'Pull request';
+        return { ...base, kind: 'pr', label: `#${number}`, tip: `Open ${kindLabel} #${number}: ${str(pr.title)}`, detail: state, target: str(pr.url) };
+      }
+      return { ...base, kind: 'review', label: str(record.label, label), tip: str(record.filePath),
+        detail: [`${str(record.sectionTitle)} · ${str(record.rangeLabel)}`, str(record.text).trim()].filter(Boolean).join('\n') };
+    }
+    default: return unresolved;
+  }
+}
+const num = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : 0;
+
+/** Attachment ids a chip in the prose already shows, a disabled one's too: their standalone file rows are left out. */
+export function chippedAttachmentIds(chips: ChipView[], item: Obj = {}): Set<string> {
+  const records = new Map(arr(obj(item.context).records).map(record => [str(record.contextId), str(record.attachmentId)]));
+  return new Set(chips.filter(chip => chip.kind === 'file' || chip.kind === 'video' || chip.kind === 'image')
+    .map(chip => chip.target || records.get(chip.href.split('/').pop() ?? '') || '').filter(Boolean));
+}
+/** SvgFileChip's fallback: an SVG whose picture did not load is the plain file chip, as FileChip draws it. */
+export function asFileChip(chip: ChipView): ChipView {
+  return { ...chip, kind: 'file', tip: chip.detail, detail: '' };
+}
+
+/**
+ * appearanceFonts.ts: the code family and clamped size (10–18, default 13) and the word-wrap default chat Markdown reads,
+ * with the chips' inks on the canvas (shared/chip-accents.ts).
+ */
+export function markdownEnv(client: T3Client): MarkdownEnv {
+  const prefs = (client.local as unknown as { clientSettings?: ClientPrefs } | undefined)?.clientSettings || decodeClientPrefs({});
+  const size = Number(prefs.fontSizeCode);
+  return { codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', codeSize: Number.isFinite(size) ? Math.min(18, Math.max(10, Math.round(size))) : 13,
+    wrap: prefs.wordWrap !== false, chips: [], runCommands: [], threadGlyphs: [], inks: markdownChipInks(client) };
+}
+/** The chips' inks as a list, on the canvas or in a sent message's bubble; none for a client without settings, whose
+ *  chips take the default theme's (markdown-chip-inks.contract defaultChipInk). */
+export function markdownChipInks(client: T3Client, bubble = false): ChipInk[] {
+  if (!(client.local as { deviceSettings?: unknown } | undefined)?.deviceSettings) return [];
+  return Object.entries(chipInks(client, bubble)).map(([kind, ink]) => ({ kind, ink }));
+}
+/** Settings → Appearance → Diff colors: "blue-orange" or the default "red-green". */
+export function diffSchemeOf(client: { local: object }): string {
+  return (client.local as unknown as { clientSettings?: ClientPrefs } | undefined)?.clientSettings?.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green';
+}
+
+// Ported from T3 Code 1e2ecbd975 SkillInlineText.tsx and providerSkills.ts (MIT).
+// Exact renders parsed runs in Rust; this list supplies validated known names and
+// display labels, without rewriting the message source used by Copy.
+const SKILL_TOKEN_REGEX =
+  /(^|\s)\p{Sc}(?![0-9][0-9_]*(?:[kKmMbBtT]|[eE][0-9]+)?(?:\s|$))(?=[a-zA-Z0-9:_-]*[a-zA-Z])([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?=\s|$)/gu;
+export interface MarkdownSkill { name: string; displayName: string }
+export function formatProviderSkillDisplayName(skill: { name: string; displayName?: string }): string {
+  const displayName = skill.displayName?.trim();
+  if (displayName) return displayName;
+  return skill.name.split(/[\s:_-]+/).filter(Boolean).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+export function markdownSkills(skills: readonly { name: string; displayName?: string }[]): MarkdownSkill[] {
+  const seen = new Set<string>();
+  return skills.flatMap(skill => {
+    const matches = [...`$${skill.name}`.matchAll(SKILL_TOKEN_REGEX)];
+    if (matches[0]?.[2] !== skill.name || seen.has(skill.name)) return [];
+    seen.add(skill.name);
+    return [{ name: skill.name, displayName: formatProviderSkillDisplayName(skill) }];
+  });
+}

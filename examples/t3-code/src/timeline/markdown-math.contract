@@ -1,0 +1,43 @@
+// MarkdownMath (T3 Code 74541bab17, MIT; see LICENSE-T3) for a display formula, with Render math on: the formula
+// typeset by KaTeX in the math page (assets/math/index.html), centred in the lane, scrolling sideways when it is
+// wider. Until the page reports, and when KaTeX cannot parse the TeX, the TeX source shows as `\[ … \]`.
+
+// What a formula's math page reported (markdown-math.ts): "rendered" with its size, or "error".
+shape MathFrame
+  theme: string
+  size: number
+  tex: string
+  status: string
+  width: number
+  height: number
+
+component MathBlock
+  inject
+    rem: number
+    // Every report so far (the window's data.mathFrames).
+    mathFrames: MathFrame[]
+  props
+    id: string
+    tex: string
+    scheme: string
+    prose: string
+    local: action
+  derive theme = scheme == "dark" ? "dark" : "light"
+  // The chat's text size, at which KaTeX sets its 1.21em.
+  derive size = 0.875 * rem
+  derive mine = mathFrames.filter((frame) => frame.tex == tex and frame.theme == theme and frame.size == size)
+  derive rendered = mine.filter((frame) => frame.status == "rendered").length > 0
+  derive formulaWidth = match first(mine) { case some(frame) => frame.width, case none => 0 }
+  derive formulaHeight = match first(mine) { case some(frame) => frame.height, case none => 0 }
+  derive src = `assets/math/index.html#theme=${theme}&size=${size}&tex=${encodeURIComponent(tex)}`
+  action reported(payload: string)
+    local("math-frame", "", payload)
+  view
+    column position="relative" width="100%" role="group" aria-label="Display equation" testId=`math-${id}`
+      if not rendered
+        // The TeX source until the page reports, and for good when KaTeX cannot parse it.
+        text `\\[\n${tex.trim()}\n\\]` width="100%" padding-left="0.125rem" padding-right="0.125rem" padding-top="0.1875rem" padding-bottom="0.1875rem" box-sizing="border-box" font-size="0.875rem" line-height=1.625 white-space="pre-wrap" overflow-wrap="anywhere" color=prose
+      // One page per formula: it loads out of sight behind the source and shows once it has reported.
+      scroll position=(rendered ? "relative" : "absolute") left=0 top=0 width="100%" height=(rendered ? formulaHeight : 1) overflow-x=(rendered ? "scroll" : "hidden") overflow-y="hidden" opacity=(rendered ? 1 : 0) pointer-events=(rendered ? "auto" : "none") tabindex=(rendered ? 0 : -1) aria-label="Scroll display equation" aria-hidden=(not rendered)
+        box width="100%" min-width=formulaWidth height="100%" position="relative"
+          iframe src=src message=reported aria-hidden=true tabindex=-1 pointer-events="none" position="absolute" left=0 top=0 width="100%" height="100%" border-width=0 testId=`math-frame-${id}`

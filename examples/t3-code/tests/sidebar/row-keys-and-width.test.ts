@@ -1,0 +1,135 @@
+// The row-action sweep's Escape, the rows' keyboard context
+// menus, the Environments list without a switched-off primary, and the sidebar's
+// minimum width at the Interface font size (f870c419fc).
+import { afterEach, describe, expect, test } from 'bun:test';
+import '../../src/client/client';
+import type { T3Client } from '../../src/client/client';
+import { initialShell, type Obj } from '../../src/client/domain';
+import type { Files, Native } from '../../src/client/protocol';
+import { sidebarCommand } from '../../src/sidebar/sidebar-commands';
+import { adoptCommandTime, sidebarSession } from '../../src/sidebar/sidebar-state';
+import { parseSweep } from '../../src/sidebar/row-sweep';
+import { contractComponent } from '../support/contract-action-fixture';
+import { environmentRows } from '../../src/connections/environment-list';
+import { connectionsProjection, type ConnectionHost } from '../../src/connections/connections';
+import { environmentKey, type FleetEntry } from '../../src/connections/settings-b-fleet';
+import { brandProbeWidth, clampSidebarWidth, sidebarMinimumWidth } from '../../src/sidebar/sidebar-min-width';
+import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
+import { sidebarLaunchWidth } from '../../src/sidebar/sidebar-width';
+
+const NOW = Date.parse('2026-10-05T12:00:00.000Z');
+const iso = (offset: number) => new Date(NOW + offset).toISOString();
+const CAPS = { threadSettlement: true, threadSnooze: true, threadPinning: true };
+const shell = (id: string, extra: Obj = {}): Obj => ({ id, projectId: 'p1', title: `Thread ${id}`, status: 'idle', latestRunId: null,
+  activeProviderThreadId: null, pendingRuntimeRequest: null, createdAt: iso(-3_600_000), updatedAt: iso(-3_600_000), archivedAt: null,
+  settledOverride: null, settledAt: null, modelSelection: { instanceId: 'codex', model: 'm' }, lineage: { relationshipToParent: null }, ...extra });
+
+function fake(threads: Obj[]) {
+  const dispatched: Obj[] = [], calls: Obj[] = [];
+  let ids = 0;
+  const client = {
+    shell: { projects: [{ id: 'p1', title: 'Parity fixture', workspaceRoot: '/fixture' }], threads, sequence: 1 },
+    config: { environment: { capabilities: CAPS }, providers: [], keybindings: [] },
+    environmentId: 'env', threadId: '', projectId: 'p1', query: '', connection: 'connected', writable: true, ready: true,
+    presentation: {}, local: { drafts: { 'env:new:p1': 'Second sketch' }, snapshotDrafts: {}, snapshotReleases: [], composerControls: { contexts: {} }, deviceSettings: { timestampFormat: '24-hour' },
+      clientSettings: { confirmThreadArchive: false, confirmThreadDelete: true, confirmThreadUnpin: false }, sidebarWidth: 256 },
+    projection: { runs: [], turnItems: [] },
+    projectGroups() { return [{ key: 'g1', name: 'Parity fixture', members: [{ id: 'p1' }] }]; },
+    restAccess: () => ({
+      ids: async (count: number) => Array.from({ length: count }, () => `c${ids++}`),
+      request: async (method: string, payload: Obj) => { if (method === 'orchestration.dispatchCommand') dispatched.push(payload); return {}; },
+      dispatch: async (_storage: Files, payload: Obj) => { dispatched.push(payload); return {}; },
+      call: async (request: Obj) => { calls.push(request); return {}; },
+    }),
+  } as unknown as T3Client;
+  adoptCommandTime(client, NOW);
+  return { client, dispatched, calls };
+}
+const native = { available: true, watch() {}, later: async () => ({}) } as unknown as Native;
+const files = {} as Files;
+
+describe('a row-action sweep cancelled with Escape (SidebarPointerSensor keydown)', () => {
+  test('the cancelled release applies nothing, not even the pressed button, and ends the sweep', async () => {
+    const { client, dispatched } = fake([shell('a'), shell('b'), shell('s1', { settledOverride: 'settled', settledAt: iso(-60_000) })]);
+    const epoch = sidebarSession(client).sweepEpoch;
+    expect(parseSweep('sweep|settle|active|a||cancel|')?.keys).toEqual(['cancel']);
+    await sidebarCommand(client, native, files, 'drop', 'sweep|settle|active|a||cancel|', '|0|0|0|false', NOW);
+    await sidebarCommand(client, native, files, 'drop', 'sweep|unsettle|settled|s1||cancel|', '', NOW);
+    expect(dispatched).toEqual([]);
+    expect(sidebarSession(client).sweepEpoch).toBe(epoch + 2);
+    // An uncancelled sweep still applies.
+    await sidebarCommand(client, native, files, 'drop', 'sweep|settle|active|a||a|b|', '', NOW);
+    expect(dispatched.map(entry => [entry.type, entry.threadId])).toEqual([['thread.settle', 'a'], ['thread.settle', 'b']]);
+  });
+});
+
+describe('keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 reference)', () => {
+  // SidebarDraftRow handleKeyDown: ContextMenu or Shift+F10 opens the draft's menu at { x: rect.left, y: rect.bottom }. The row's
+  // key handler names the row for the sidebar's one draft popover and shows it from the row: a popover with no
+  // `position-area` sits below its source, left edges aligned, where macOS pops its NSMenu up. A thread row's and a legacy
+  // row's ContextMenu are the host's default (exact2 #314): their context popover at the row's centre, as Chromium's keyboard
+  // contextmenu; Shift+F10 opens nothing on macOS.
+  test('a draft row\'s ContextMenu and Shift+F10 open its menu from the row; other keys open none', () => {
+    const card = contractComponent('sidebar-row.contract', 'DraftCard'), state = card.state(), done: unknown[][] = [];
+    const scope = { d: { id: 'p1' }, menu: (...args: unknown[]) => done.push(['menu', ...args]), preventDefault: () => done.push(['preventDefault']),
+      showPopover: (...args: unknown[]) => done.push(['showPopover', ...args]), run: (...args: unknown[]) => done.push(['run', ...args]), treeKey: () => {} };
+    const key = (shiftKey: boolean, metaKey = false) => ({ shiftKey, metaKey, ctrlKey: false, altKey: false, key: '', code: '', repeat: false });
+    card.call('rowKey', state, scope, ['ContextMenu', key(false)]);
+    card.call('rowKey', state, scope, ['F10', key(true)]);
+    const opened = [['preventDefault'], ['menu', 'p1', 'draft-p1'], ['showPopover', 'draft-menu', { source: 'draft-p1' }]];
+    expect(done).toEqual([...opened, ...opened]);
+    done.length = 0;
+    for (const [name, e] of [['F10', key(false)], ['F10', key(true, true)], ['Enter', key(false)], [' ', key(false)], ['a', key(false)], ['Escape', key(false)]] as const) card.call('rowKey', state, scope, [name, e]);
+    expect(done).toEqual([]);
+  });
+});
+
+describe('Environments never list the primary (ConnectionsSettings savedEnvironments)', () => {
+  const A = 'http://127.0.0.1:15083', B = 'http://127.0.0.1:15084';
+  const focusB = (): ConnectionHost => ({ connection: 'connected', origin: B, environmentId: 'env-b', statusMessage: 'Connected.', scopes: ['orchestration:read'],
+    config: { environment: { label: 'Mac B', platform: { machine: 'laptop' } } } });
+  const live = (origin: string, environmentId: string, primary = false): FleetEntry => ({ key: environmentKey(origin, environmentId), origin, environmentId, phase: 'connected', message: '',
+    traceId: '', generation: 1, synchronized: 1, lastEvent: 0, subscriptions: {}, config: {}, shell: initialShell(), scopes: [], error: '', requested: true, primary });
+  afterEach(resetPrimary);
+
+  test('this machine and B: only B is listed under Environments, while Load balancing counts this machine first', () => {
+    primaryAt(A, 'env-a', 'Mac A');
+    const saved = [{ origin: B, environmentId: 'env-b', label: 'Mac B', enabled: true }];
+    const page = connectionsProjection(focusB(), saved, new Map([[environmentKey(B, 'env-b'), live(B, 'env-b')], [environmentKey(A, 'env-a'), live(A, 'env-a', true)]]));
+    expect(page.environments.map(row => [row.label, row.first, row.enabled])).toEqual([['Mac B', true, true]]);
+    expect(page.machines.map(machine => [machine.label, machine.subtitle])).toEqual([['Mac A', 'This machine'], ['Mac B', 'http://127.0.0.1:15084/']]);
+  });
+
+  test('every saved environment keeps its row and switch, a loopback one and a switched-off one included', () => {
+    const rows = (a: boolean, b: boolean) => environmentRows([{ key: 'a', origin: A, enabled: a }, { key: 'b', origin: B, enabled: b }]).map(row => row.key);
+    expect(rows(true, true)).toEqual(['a', 'b']);
+    expect(rows(false, true)).toEqual(['a', 'b']);
+    expect(rows(false, false)).toEqual(['a', 'b']);
+    // The primary never has a row.
+    expect(environmentRows([{ key: 'p', origin: A, enabled: true, primary: true }, { key: 's', origin: 'https://two.example.com', enabled: true }]).map(row => row.key)).toEqual(['s']);
+  });
+});
+
+describe('the sidebar minimum width follows the brand at the Interface font size', () => {
+  test('max(13rem, ceil(brand probe)): the macOS probe is 90 + 2.5rem + mark + 0.75rem + 1', () => {
+    expect(brandProbeWidth(16)).toBeCloseTo(196.78125, 5);
+    expect([12, 16, 17, 18, 19, 20].map(sidebarMinimumWidth)).toEqual([208, 208, 208, 210, 216, 223]);
+    expect([undefined, 'x', 30, 4].map(sidebarMinimumWidth)).toEqual([208, 208, 223, 208]);
+  });
+
+  test('a width clamps to [minimum, max(minimum, viewport - 40rem)]', () => {
+    expect(clampSidebarWidth(256, 1280, 223)).toBe(256);
+    expect(clampSidebarWidth(208, 840, 223)).toBe(223);
+    expect(clampSidebarWidth(400, 900, 210)).toBe(260);
+  });
+
+  test('the launch width (no stored width) is clamped to the live minimum', () => {
+    const owner = { local: { clientSettings: { fontSizeInterface: 20 } }, preferencesLoaded: true };
+    expect(sidebarLaunchWidth(owner, 840, true)).toBe(223);
+    // Sized once at load (208 at 840), then only clamped: a wider window keeps it.
+    expect(sidebarLaunchWidth(owner, 1280, true)).toBe(223);
+    expect(sidebarLaunchWidth({ local: { clientSettings: { fontSizeInterface: 20 } }, preferencesLoaded: true }, 1280, true)).toBe(256);
+    owner.local.clientSettings.fontSizeInterface = 16;
+    expect(sidebarLaunchWidth(owner, 840, true)).toBe(208);
+  });
+});

@@ -1,0 +1,36 @@
+// ThreadDetailsItemsRow's control (T3 Code 6d450a4284, MIT, see LICENSE-T3): an outline sm button reading "N of 10 on"
+// whose menu is ThreadDetailsItemsMenuItems, the items of the thread details card's own menu (details/shell-details.contract
+// ItemsMenuPopover): "Show in thread details", a checkbox per item, a separator, then Reset to default. Its rows keep a
+// check icon box beside each label, so the popover is not menu-shaped (LLP 1021 D3) and macOS shows it as drawn here.
+// A choice closes it, where Base UI's checkbox items keep the menu open.
+use CoreOption, CorePalette from "../settings/settings-core-shared.contract"
+use CorePaintIcon from "../settings/settings-core.contract"
+
+component ThreadDetailsItemsMenu
+  props
+    rowId: string
+    label: string
+    items: CoreOption[]
+    resetDisabled: bool
+    pal: CorePalette
+    disabled: bool
+    choose: action // (item id or "reset", "true" | "false" | "")
+  derive menuId = `setting-${rowId}-menu`
+  view
+    box position="relative" flex-shrink=0
+      button popovertarget=menuId disabled=disabled aria-label=`Thread details: ${label}` aria-haspopup="menu" id=`setting-${rowId}` testId=`setting-${rowId}` border-width=0 padding=0 background-color="#00000000" data-focus-stop=(disabled ? "" : "enabled page")
+        // Button outline sm, w-40 justify-between: Settings' select face (settings-rows.contract SelectFace).
+        row justify-content="space-between" align-items="center" gap="0.5rem" width="10rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.3125rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow=(disabled ? "none" : "0 1px 2px #0000000d") box-sizing="border-box" opacity=(disabled ? 0.64 : 1) id=`paint-ThreadDetailsItemsMenu-face-${rowId}` data-paint="input canvas" data-pick="canvas"
+          text label font-size="0.875rem" line-height="1.25rem" color=pal.text white-space="nowrap" id=`paint-ThreadDetailsItemsMenu-label-${rowId}` data-paint="text" data-pick="text"
+          box opacity=0.7 flex-shrink=0
+            CorePaintIcon(ownId=`paint-icon-ThreadDetailsItemsMenu-chevron-${rowId}`, paint="text", name="chevron-down", size=14, color=pal.text)
+      column id=menuId popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" role="menu" aria-label="Show in thread details" padding="0.25rem" box-sizing="border-box" min-width="13rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" testId=menuId data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
+        for item in items key=item.id
+          button id=`${menuId}-${item.id}` press=choose(item.id, item.selected ? "false" : "true") popovertarget=menuId popovertargetaction="hide" role="menuitemcheckbox" aria-checked=item.selected testId=`${menuId}-${item.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+            box width="1rem" height="1rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+              if item.selected
+                CorePaintIcon(ownId=`paint-icon-ThreadDetailsItemsMenu-${item.id}`, paint="text", name="check", size=14, color=pal.text)
+            text item.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=pal.text
+        hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color=pal.divider
+        button id=`${menuId}-reset` press=choose("reset", "") popovertarget=menuId popovertargetaction="hide" role="menuitem" disabled=resetDisabled testId=`${menuId}-reset` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color="#00000000" opacity=(resetDisabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+          text "Reset to default" flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=pal.text

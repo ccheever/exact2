@@ -1,0 +1,52 @@
+// The timeline's icons, over the generated timeline-icons.contract.
+use Icon from "../shared/icons.contract"
+use timelineIconGeometry, TimelineWordmark, ComputerUseMark, BrowserAppMark from "./timeline-icons.contract"
+
+// TimelineIcon: the timeline's glyphs and marks (timeline-icons.contract); a name the timeline's table lacks
+// falls through to Icon.
+component TimelineIcon
+  props
+    name: string
+    size: number
+    color: string
+  derive geometry = timelineIconGeometry(name)
+  view
+    // T3Wordmark and the timeline's BrowserAppIcon draw filled marks of their own.
+    if name == "t3-code"
+      TimelineWordmark(size=size, color=color)
+    if name == "computer"
+      ComputerUseMark(size=size)
+    if name == "browser"
+      BrowserAppMark(size=size, color=color)
+    if not ["t3-code", "computer", "browser"].includes(name) and geometry == ""
+      Icon(name=(name == "pull-request" ? "pull-requests" : name), size=size, color=color)
+    if not ["t3-code", "computer", "browser"].includes(name) and geometry != ""
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+        path d=geometry
+
+// T3 Code ToolActivityImageIcon (TimelineToolActivityIcon.tsx, 74541bab17; MIT, LICENSE-T3): the
+// fallback glyph (the slot) until the theme's logo loads, and again when it fails (on Apple an SVG
+// the host's parser refuses fails, LLP 1011.001). A muted image (every work-log row but a live row's highlight) is
+// `dark:opacity-70` and, in the light scheme, `light:brightness-70`, which keeps a logo's detail on the light canvas.
+component ToolActivityIcon
+  inject
+    scheme: string
+  props
+    light: string
+    dark: string
+    label: string
+    muted: bool
+  slot
+  derive src = scheme == "dark" and dark != "" ? dark : light
+  state loaded = ""
+  state failed = ""
+  action didLoad
+    loaded = src
+  action didFail(message: string)
+    failed = src
+  view
+    box width="1rem" height="1rem" position="relative" flex-shrink=0 aria-label=label
+      if src == "" or loaded != src
+        children
+      if src != "" and failed != src
+        image src width="1rem" height="1rem" object-fit="contain" aria-hidden=true load=didLoad error=didFail opacity=(muted and scheme == "dark" ? 0.7 : 1) filter=(muted and scheme != "dark" ? "brightness(0.7)" : "none") position="absolute" left=0 top=0 visibility=(loaded == src ? "visible" : "hidden")

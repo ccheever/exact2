@@ -1,0 +1,100 @@
+// An image file's body in Files and in a sent file's preview (MIT reference, see LICENSE-T3:
+// components/files/PreviewImage.tsx and PreviewImageContent.tsx, FilePreviewPanel.tsx WorkspaceImagePreview; T3 Code
+// 7c3b3b3605ef): a bar with the natural size ("4,000 × 3,000"), Zoom out, the scale, Zoom in, Fit image and Actual
+// image size over the picture, which opens the expanded image dialog when pressed. The picture fits the pane until a
+// zoom is chosen, and zooming steps ×1.25 between 5 % and 800 %. The natural size is the picture's own layout before
+// it is sized: an `image` with no size lays out at its pixel counts (LLP 1011 §1), so the bar holds for every format
+// the host decodes.
+use FileSurfaceAction, FileSurfaceFailure from "./file-surface-chrome.contract"
+use MediaTip from "../media/media-actions.contract"
+
+component PreviewImage
+  props
+    url: string
+    name: string
+    // The picture's button: the expanded image dialog gives the focus back to it.
+    zoomId: string
+    expand: action
+    // The picture did not load (`message`).
+    failed: action
+    testId: string
+  state naturalWidth = 0
+  state naturalHeight = 0
+  state viewWidth = 0
+  state viewHeight = 0
+  // The chosen zoom, or -1 while the picture fits the pane (PreviewImageContent's `zoom` null).
+  state zoom = -1
+  state broken = false
+  state hovered = ""
+  derive measured = naturalWidth > 0 and naturalHeight > 0
+  derive fit = measured ? min(1, min(max(1, viewWidth - 32) / naturalWidth, max(1, viewHeight - 32) / naturalHeight)) : 1
+  derive scale = zoom < 0 ? fit : zoom
+  derive sizeLabel = measured ? `${formatNumber(naturalWidth, "decimal")} × ${formatNumber(naturalHeight, "decimal")}` : "Loading image…"
+  derive percent = `${round(scale * 100)}%`
+  derive canZoomOut = measured and scale > 0.05
+  derive canZoomIn = measured and scale < 8
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  action changeZoom(factor: number)
+    zoom = max(0.05, min(8, scale * factor))
+  action fitImage
+    zoom = -1
+  action actualSize
+    zoom = 1
+  // The first size the picture lays out at, unsized, is its natural one.
+  action pictured(w: number, h: number)
+    if not measured and w > 0 and h > 0
+      naturalWidth = round(w)
+      naturalHeight = round(h)
+  action viewport(w: number, h: number)
+    viewWidth = w
+    viewHeight = h
+  action broke(message: string)
+    broken = true
+    failed(message)
+  action open
+    expand()
+  view
+    if broken
+      FileSurfaceFailure(message="Unable to load image.", canRetry=false, retry=open, testId=`${testId}-failed`)
+    else
+      column flex=1 min-height=0 width="100%" overflow="hidden" testId=testId
+        row min-height="2.5rem" flex-shrink=0 flex-wrap="wrap" align-items="center" justify-content="space-between" gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" testId=`${testId}-bar`
+          text sizeLabel font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" testId=`${testId}-size`
+          row align-items="center" gap="0.25rem"
+            FileSurfaceAction(id="zoom-out", ids="", label="Zoom out", icon="minus", toggle=false, pressed=false, disabled=(not canZoomOut), hovered=hovered, hover=hover, press=changeZoom(0.8))
+            text percent min-width="2.5rem" text-align="center" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" testId=`${testId}-scale`
+            FileSurfaceAction(id="zoom-in", ids="", label="Zoom in", icon="plus", toggle=false, pressed=false, disabled=(not canZoomIn), hovered=hovered, hover=hover, press=changeZoom(1.25))
+            FileSurfaceAction(id="fit", ids="", label="Fit image", icon="scan", toggle=true, pressed=(zoom < 0), disabled=false, hovered=hovered, hover=hover, press=fitImage)
+            FileSurfaceAction(id="actual", ids="", label="Actual image size", icon="maximize", toggle=true, pressed=(zoom == 1), disabled=false, hovered=hovered, hover=hover, press=actualSize)
+        scroll flex=1 min-height=0 width="100%" resize=viewport testId=`${testId}-scroll`
+          row min-width="100%" min-height="100%" width=(measured ? naturalWidth * scale + 32 : "auto") height=(measured ? naturalHeight * scale + 32 : "auto") padding="1rem" box-sizing="border-box" align-items="center" justify-content="center"
+            button id=zoomId press=open aria-label=`Zoom ${name}` cursor="zoom-in" flex-shrink=0 padding=0 border-width=0 background-color="#00000000" display="flex" title="" testId=`${testId}-zoom`
+              // Unsized and out of flow until it has reported its natural size, so it takes no room meanwhile.
+              image url aria-label=name error=broke resize=pictured position=(measured ? "relative" : "absolute") width=(measured ? naturalWidth * scale : "auto") height=(measured ? naturalHeight * scale : "auto") max-width="none" opacity=(measured ? 1 : 0) testId=`${testId}-picture`
+
+// MediaActions (media-actions.contract) around a whole image pane: the focus, the path tooltip and the media menu
+// (`chatlocal:media-menu`), on a box that fills the pane, as WorkspaceImagePreview's MediaActions renders its child.
+component ImageActions
+  props
+    source: string
+    tip: string
+    local: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  action pointerMenu
+    over = false
+    local("media-menu", source, "pointer")
+  action menuKey(k: string, e: KeyboardEvent)
+    if k == "ContextMenu" or (e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey and k == "F10")
+      preventDefault()
+      stopPropagation()
+      over = false
+      local("media-menu", source, "key")
+  slot
+  view
+    column flex=1 min-height=0 width="100%" overflow="hidden" data-focus-stop="enabled" tabindex=0 title="" hover=hover contextmenu=pointerMenu key=menuKey aria-label=tip hatch="t3-media" data-media-kind="actions" position="relative" testId=testId
+      children
+      MediaTip(label=tip, shown=over)

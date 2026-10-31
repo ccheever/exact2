@@ -1,0 +1,19 @@
+// A font's specimen (MIT reference, see LICENSE-T3: components/files/FontViewer.tsx; T3 Code 7c3b3b3605ef): the document
+// font-preview.ts wrote, filling the body as the reference's `iframe` does. Its script may run (the reference checks the
+// font with FontFace before it frames a script-less document); it posts whether the font loaded, and a font that did
+// not load is "No preview for this file" (attachment-surface.ts). Its colour scheme is the window's.
+
+component FontSpecimen
+  props
+    src: string
+    name: string
+    scheme: string
+    failed: action
+    testId: string
+  action reported(payload: string)
+    // font-preview.ts FONT_FAILED_MESSAGE.
+    if payload == "font-failed"
+      failed()
+  view
+    box position="relative" flex=1 min-height=0 width="100%"
+      iframe src=src sandbox="allow-scripts" message=reported color-scheme=scheme aria-label=name testId=testId position="absolute" left=0 top=0 width="100%" height="100%" border-width=0

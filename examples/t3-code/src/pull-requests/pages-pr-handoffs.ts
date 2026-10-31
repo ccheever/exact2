@@ -1,0 +1,164 @@
+import { composerFieldCurrent } from '../composer/composer-field-bridge';
+import { composerFieldOwner } from '../composer/auto-balance-owner';
+// The pull request panel's hand-offs: "Ask a question", "Explain this
+// PR" (the host's term), "Fix findings", the Check out menu ("In a separate worktree", "In this repository"), a
+// finding's own Fix on the Summary tab, and Resolve conflicts — the panel's startAsk/startHandoff
+// (T3 Code 7c3b3b3605ef, MIT, see LICENSE-T3: apps/web/src/components/pullRequest/
+// PullRequestDetailPanel.tsx writeTaskToComposer, startAsk, startHandoff, askAboutPullRequest,
+// explainPullRequest, startCheckout, startFixFinding, startFixFindings, startResolveConflicts and
+// the menus that call them). The thread-opening core is pr-row-actions.ts (checkoutHandoff,
+// askInThread), shared with the thread card's Resolve and Fix, so one hand-off runs at a time whatever
+// surface pressed it.
+//
+// Where the task lands (`attachTarget`): beside a thread (the right panel's pull request surface) the
+// thread's own composer, written as one edit of the prompt on screen; on the Pull Requests page a
+// thread on the pull request's project, which the window then shows (the reply's
+// `sidebar:new-thread`, or `pr-handoff-next` before a checkout, app.contract commandCompleted). A value says which surface pressed it:
+// "<surface>|<kind>", kind `ask`, `explain`, `findings`, `conflicts`, `checkout:worktree`,
+// `checkout:local` or a finding's key (pullRequestFindingKey).
+import type { T3Client } from '../client/client';
+import { arr, num, obj, str, type Obj } from '../client/domain';
+import { ClientError, type Native } from '../client/protocol';
+import { pushToast } from '../shell/toast';
+import { letGo } from '../client/let-go';
+import { replaceComposerPrompt } from '../composer/composer-editor';
+import { askedDescription, askInThread, beginCheckoutHandoff, prState, writeTaskToDraft, type HandoffTask } from '../details/pr-row-actions';
+import { termView, terminologyOf, type Terminology, type TermView } from '../details/git-logic';
+import { checksRollup, resolveConflictsPrompt } from '../details/pr-row-logic';
+import {
+  buildAddSelectionToAgentHandoff, buildAskAboutPullRequestHandoff, buildExplainPullRequestHandoff, buildFixFindingHandoff, buildFixFindingsHandoff, contextMetadata, pullRequestFindingKey,
+  pullRequestPanelContext, type PullRequestFinding,
+} from './pages-pr-handoffs-logic';
+import type { ReviewCommentContext } from '../diff/diff-comments';
+
+/** What the panel's header and Summary show of the hand-offs. */
+export type PrHandoffsView = {
+  /** Which hand-off is preparing (its key), '' when none: every hand-off control is disabled meanwhile. */
+  pending: string;
+  /** checkoutRoot: the server knows where the repository is checked out, so it can be checked out again. */
+  canCheckout: boolean;
+  /** pullRequestPanelContext beside the window's thread: its own pull request hides the Check out menu there. */
+  threadOwn: boolean;
+  /** The panel's host words (pages-pr-actions.ts panelTerminology). */
+  term: TermView;
+};
+export const emptyHandoffs = (): PrHandoffsView => ({ pending: '', canCheckout: false, threadOwn: false, term: termView(terminologyOf(undefined)) });
+
+export function presentHandoffs(client: T3Client, detail: Obj | null, reference: { projectId: string; host: string; repository: string; number: number }, term: Terminology = terminologyOf(undefined)): PrHandoffsView {
+  const thread = arr(client.shell?.threads).find(entry => entry.id === client.threadId) ?? null;
+  const surface = { projectId: reference.projectId, ...(reference.host ? { host: reference.host } : {}), repository: reference.repository, number: reference.number };
+  const own = client.threadId
+    ? pullRequestPanelContext({ projectId: str(thread?.projectId) || client.projectId, pullRequests: thread?.pullRequests,
+      linkedPullRequest: thread?.linkedPullRequest ? obj(thread.linkedPullRequest) : null, branchPullRequest: thread?.branchPullRequest ? obj(thread.branchPullRequest) : null }, surface)
+    : 'page';
+  return { pending: prState(client).handoff, canCheckout: checkoutRoot(client, detail, reference.projectId) !== '', threadOwn: own === 'thread', term: termView(term) };
+}
+/** checkoutRoot: where the server keeps the repository — the detail's, else the project's (while the detail is out). */
+function checkoutRoot(client: T3Client, detail: Obj | null, projectId: string): string {
+  return str(detail?.workspaceRoot) || str(arr(client.shell?.projects).find(project => project.id === projectId)?.workspaceRoot);
+}
+
+/** What a hand-off from the panel reads: the detail on screen, its conversation, the list's row (for a newer checks rollup) and the panel's host words. */
+export type HandoffContext = { detail: Obj | null; activity: Obj | null; listEntry: Obj | null; term: Terminology };
+
+/** PullRequestSummaryTab checksStale: a newer list rollup disagrees with the detail's checks, which are then not handed over. */
+function checksStale(detail: Obj, listEntry: Obj | null): boolean {
+  const detailState = checksRollup(arr(detail.checks)) || null;
+  const listNewer = listEntry && Date.parse(str(listEntry.updatedAt)) > Date.parse(str(detail.updatedAt));
+  const latest = listNewer ? (str(listEntry!.checksState) || null) : detailState;
+  const state = latest !== 'failing' && arr(detail.checks).some(check => check.status === 'action-required') ? 'pending' : latest;
+  return state !== detailState;
+}
+/** The finding a Fix button names, found again in what the panel shows. */
+export function findingFor(key: string, detail: Obj, activity: Obj | null): PullRequestFinding | null {
+  const threads = arr(activity?.reviewThreads), comments = arr(activity?.comments);
+  const candidates: PullRequestFinding[] = [
+    ...threads.map(thread => ({ kind: 'thread' as const, thread })),
+    ...comments.map(comment => ({ kind: 'comment' as const, comment })),
+    ...arr(detail.checks).map(check => ({ kind: 'check' as const, check })),
+  ];
+  return candidates.find(finding => pullRequestFindingKey(finding) === key) ?? null;
+}
+
+/** writeTaskToComposer into the composer on screen: one edit of its prompt, chips included. */
+async function writeToComposer(client: T3Client, native: Native, task: HandoffTask, applied: () => void = () => {}): Promise<void> {
+  const field = composerFieldCurrent(client, composerFieldOwner(client));
+  if (!field) throw new ClientError('The composer is not ready.');
+  const key = client.draftKey, prompt = writeTaskToDraft(client, key, task, false, field.value);
+  await replaceComposerPrompt(client, native, prompt, { applied: () => { prState(client).lastHandoff.set(key, task.prompt); applied(); } }, field.value);
+}
+
+/**
+ * `pageslocal:pr-act-handoff`: one of the panel's hand-offs. Resolves the reply's message:
+ * `sidebar:new-thread` when it opened a thread the window should show.
+ */
+export async function prHandoffCommand(client: T3Client, native: Native, ctx: HandoffContext, value: string,
+  // "Act on": a page hand-off for a server other than the focused one runs there (pages-pr-acton.ts).
+  elsewhere?: (kind: string, task: HandoffTask | null, mode: 'worktree' | 'local', detail: Obj) => Promise<string>): Promise<string> {
+  const bar = value.indexOf('|');
+  const surface = bar < 0 ? 'page' : value.slice(0, bar), kind = bar < 0 ? value : value.slice(bar + 1);
+  // handoffSummary: the detail, or while it is out the list's row (a checkout and Resolve need only its identity).
+  const summary = ctx.detail ?? ctx.listEntry;
+  if (!summary) throw new ClientError('The pull request is still loading.');
+  const detail: Obj = { ...summary, workspaceRoot: checkoutRoot(client, summary, str(summary.projectId)) };
+  if (prState(client).handoff) return '';
+  const attach = surface === 'thread';
+  const subject = { number: num(detail.number), title: str(detail.title), url: str(detail.url), headBranch: str(detail.headBranch), baseBranch: str(detail.baseBranch) };
+  const opened = (thread: boolean) => (thread && !attach ? 'sidebar:new-thread' : '');
+  // startAsk: a question needs a thread and nothing else.
+  if (kind === 'ask' || kind === 'explain') {
+    const task = kind === 'ask' ? buildAskAboutPullRequestHandoff(contextMetadata(detail)) : buildExplainPullRequestHandoff(contextMetadata(detail));
+    if (attach) {
+      await writeToComposer(client, native, task, () => pushToast(client, { kind: 'success', title: 'Added to the composer', description: askedDescription(task, ctx.term) }));
+      return '';
+    }
+    if (elsewhere) return elsewhere(kind, task, 'worktree', detail);
+    return opened(await askInThread(client, native, kind, task, detail));
+  }
+  // startHandoff: a task the agent needs the branch for, or a checkout that carries nothing.
+  let task: HandoffTask | null = null, mode: 'worktree' | 'local' = 'worktree';
+  if (kind === 'checkout:worktree' || kind === 'checkout:local') mode = kind === 'checkout:local' ? 'local' : 'worktree';
+  else if (kind === 'conflicts') task = { prompt: resolveConflictsPrompt(subject) };
+  else if (kind === 'findings') {
+    const activity = ctx.activity;
+    task = buildFixFindingsHandoff({ ...subject, reviewThreads: arr(activity?.reviewThreads), comments: arr(activity?.comments),
+      checks: checksStale(detail, ctx.listEntry) ? [] : arr(detail.checks), commentsTruncated: activity?.commentsTruncated === true });
+  } else if (kind.startsWith('finding:')) {
+    const finding = findingFor(kind, detail, ctx.activity);
+    if (!finding) throw new ClientError('That finding is no longer on the pull request.');
+    task = buildFixFindingHandoff({ ...subject, finding });
+  } else throw new ClientError(`Unknown hand-off: ${kind}`);
+  if (attach && task) {
+    await writeToComposer(client, native, task, () => pushToast(client, { kind: 'success', title: 'Added to the composer', description: 'The task is in the composer. Read it over, then send.' }));
+    return '';
+  }
+  if (elsewhere) return elsewhere(kind, task, mode, detail);
+  if (!str(detail.workspaceRoot)) return ''; // checkoutRoot === null: nothing to check out from
+  // The thread opens first and the window shows it (`pr-handoff-next`, app.contract commandCompleted), then
+  // `pageslocal:pr-act-handoff-run` runs the checkout (pr-row-actions.ts finishCheckoutHandoff).
+  return (await beginCheckoutHandoff(client, native, kind, task, detail, mode)) ? 'pr-handoff-next' : '';
+}
+
+/**
+ * The Code tab's "Add to agent" (PullRequestDetailPanel addSelectionToAgent → startAsk): the
+ * lines and the reader's request beside a thread go into its composer, elsewhere into a new thread.
+ */
+export async function prSelectionHandoff(client: T3Client, native: Native, detail: Obj, surface: string, comment: ReviewCommentContext, request: string, term: Terminology = terminologyOf(undefined)): Promise<string> {
+  if (prState(client).handoff) return '';
+  const { pullRequest: _none, ...lines } = comment;
+  const task = buildAddSelectionToAgentHandoff({ ...contextMetadata(detail), comment: lines, request });
+  if (surface === 'thread') {
+    await writeToComposer(client, native, task, () => pushToast(client, { kind: 'success', title: 'Added to the composer', description: askedDescription(task, term) }));
+    return '';
+  }
+  return (await askInThread(client, native, `selection:${comment.id}`, task, detail)) ? 'sidebar:new-thread' : '';
+}
+
+/** A guide question keeps the same bounded handoff/concurrency path as other PR questions. */
+export async function prGuideTaskHandoff(client: T3Client, native: Native, detail: Obj, surface: string, task: HandoffTask,
+  elsewhere?: (kind: string, task: HandoffTask | null, mode: 'worktree' | 'local', detail: Obj) => Promise<string>): Promise<string> {
+  if (prState(client).handoff) return '';
+  if (surface === 'thread') { await writeToComposer(client, native, task); return ''; }
+  if (elsewhere) return elsewhere('ask', task, 'local', detail);
+  return await askInThread(client, native, 'guide', task, detail) ? 'sidebar:new-thread' : '';
+}

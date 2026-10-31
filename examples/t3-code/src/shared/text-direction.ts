@@ -1,0 +1,28 @@
+// Adapted from T3 Code 7c3b3b3605ef (MIT); see LICENSE-T3.
+// A line's reading direction by its majority language: apps/web/src/textDirection.ts, which the palette's
+// results, the sidebar's rows and the chat header give their titles (`dir`). A node takes it as `direction`,
+// whose `start` alignment then follows it.
+export type TextDirection = 'ltr' | 'rtl';
+
+// Hebrew through Arabic Extended-A, their presentation forms, and the supplementary right-to-left blocks.
+const RTL_LETTER = /[֐-ࣿיִ-﷿ﹰ-﻿\u{10800}-\u{10FFF}\u{1E800}-\u{1EFFF}]/u;
+const LETTER = /\p{L}/u;
+
+/**
+ * `dir="auto"` misreads Arabic prose that opens with an English term. Count words so mixed prose follows its main
+ * language; break ties with the first word. Text without letters has no direction of its own (undefined).
+ */
+export function textDirection(text: string): TextDirection | undefined {
+  let rtlWords = 0, ltrWords = 0;
+  let first: TextDirection | undefined;
+  for (const word of text.split(/\s+/)) {
+    const letter = LETTER.exec(word)?.[0];
+    if (!letter) continue;
+    const direction = RTL_LETTER.test(letter) ? 'rtl' : 'ltr';
+    first ??= direction;
+    if (direction === 'rtl') rtlWords += 1;
+    else ltrWords += 1;
+  }
+  if (rtlWords === ltrWords) return first;
+  return rtlWords > ltrWords ? 'rtl' : 'ltr';
+}

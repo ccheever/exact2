@@ -1,0 +1,436 @@
+// Settings shell: navigation sidebar, top bar, scope sentence and the setting rows.
+// Geometry and colours follow the served reference
+// (SettingsSidebarNav, WorkspacePageHeader, SettingsScopeSentence, settingsLayout,
+// ui/select, ui/switch); colours arrive as light-dark() tokens from the theme palette.
+use CoreOption, CorePalette, SettingsGhost from "./settings-core-shared.contract"
+use AppRouteModalClose from "../shell/app-route-modal.contract"
+use FontDiffPreview from "../shared/shapes.contract"
+use EditorView from "../appearance/settings-appearance-editor-shapes.contract"
+use ImportView from "../appearance/settings-appearance-editor-shapes.contract"
+use KillConfirm from "./settings-a-telemetry.contract"
+use HostEditorView from "../device/settings-a-hosts.contract"
+use HostCheckGroup from "../device/settings-a-hosts.contract"
+use EasEditorView from "../device/settings-eas-hosts.contract"
+use ProviderInstanceMark from "../shared/icons-kit.contract"
+
+use InheritanceGroup from "./settings-inheritance.contract"
+use SnoozeEditor from "./settings-snooze.contract"
+shape CoreRow
+  id: string
+  title: string
+  description: string
+  status: string
+  kind: string
+  checked: bool
+  value: string
+  label: string
+  icon: string
+  width: number
+  options: CoreOption[]
+  value2: string
+  label2: string
+  options2: CoreOption[]
+  driver: string
+  badge: string
+  badgeColor: string
+  markIcon: string
+  inheritance: string
+  inheritanceSummary: string
+  resettable: bool
+  resetLabel: string
+  disabled: bool
+  inert: bool
+  mixed: bool
+  note: string
+  min: number
+  max: number
+  step: number
+  target: string
+  placeholder: string
+  suffix: string
+  info: string
+  divider: bool
+  layers: CoreOption[]
+  layerGroups: InheritanceGroup[]
+  layerTitle: string
+  amount: number
+  // A font row's preview size in px: the prompt sample uses the Prompt font size, the code sample the code size.
+  previewSize: number
+  menuWidth: number
+  qr: QrMark[]
+  // Threads › Snooze options' editor; empty on every other row.
+  snooze: SnoozeEditor[]
+// About → Mobile app (settings-mobile-beta.ts): one QR code as boxes, one per dark run.
+shape QrCell
+  x: number
+  y: number
+  w: number
+  h: number
+shape QrMark
+  id: string
+  url: string
+  label: string
+  caption: string
+  cells: QrCell[]
+shape CoreSection
+  id: string
+  title: string
+  collapsible: bool
+  toggle: bool
+  rows: CoreRow[]
+  // The rows its Advanced fold holds (settings-advanced.contract); empty draws no fold.
+  advanced: CoreRow[]
+shape ScopeChoice
+  id: string
+  label: string
+  secondary: string
+  mark: string
+  ink: string
+  surface: string
+  member: string
+  selected: bool
+  offline: bool
+// SettingsScopeNotice's rows (settings-scope-notice.ts, drawn by settings-scope-notice.contract).
+shape ScopeNoticeChoice
+  key: string
+  label: string
+  secondary: string
+  icon: string
+  kind: string
+  mark: string
+  ink: string
+  surface: string
+  project: string
+  machine: string
+  member: string
+shape ScopeNoticeGroup
+  key: string
+  title: string
+  choices: ScopeNoticeChoice[]
+shape CoreNavItem
+  id: string
+  route: string
+  target: string
+  title: string
+  section: string
+  icon: string
+  scope: string
+  active: bool
+  // SETTINGS_NAV_GROUPS: the heading drawn above a group's first page ("" for none), and whether the page starts a
+  // group after the first (gap-4 between groups, gap-1 between pages).
+  heading: string
+  groupStart: bool
+shape CoreNav
+  items: CoreNavItem[]
+  searching: bool
+  count: number
+  firstRoute: string
+  firstTarget: string
+  firstId: string
+
+shape Wire
+  canvas: string
+  sidebar: string
+  surface: string
+  accentSurface: string
+  message: string
+  action: string
+shape ModeTile
+  id: string
+  label: string
+  aria: string
+  selected: bool
+  split: bool
+  left: Wire
+  right: Wire
+shape ThemeOrb
+  mode: string
+  base: string
+  accent: string
+  accentMid: string
+  action: string
+  picked: bool
+  ax: number
+  ay: number
+  px: number
+  py: number
+  ar: number
+  pr: number
+shape ThemeCard
+  id: string
+  label: string
+  selected: bool
+  custom: bool
+  canvasLight: string
+  accentLight: string
+  canvasDark: string
+  accentDark: string
+  orbs: ThemeOrb[]
+  collection: bool
+  collectionId: string
+  primary: string
+  primaryLabel: string
+  variants: VariantMode[]
+  removal: RemovalOption[]
+  picked: number
+  pickedIds: string
+shape VariantOption
+  themeId: string
+  label: string
+  active: bool
+  aria: string
+  orb: ThemeOrb
+  x: number
+  y: number
+  delay: number
+shape VariantMode
+  mode: string
+  themeId: string
+  label: string
+  more: number
+  active: bool
+  aria: string
+  offset: number
+  orb: ThemeOrb
+  options: VariantOption[]
+shape RemovalOption
+  themeId: string
+  label: string
+  orbs: ThemeOrb[]
+  checked: bool
+
+shape BackgroundSwitch
+  id: string
+  label: string
+  checked: bool
+shape BackgroundDialog
+  available: bool
+  policy: string
+  policyLabel: string
+  policies: CoreOption[]
+  git: number
+  health: number
+  active: number
+  idle: number
+  switches: BackgroundSwitch[]
+
+shape ArchiveConfirm
+  id: string
+  title: string
+shape SettingsCore
+  // A code text it painted waits for its tokens (highlights.ts; app.contract highlightStoredThen refreshes it).
+  highlightPending: bool
+  // The search jump this answer is for (settingsFocusTarget) and the reveal stop of the fold its row sits under, '' for none.
+  jumpTarget: string
+  jumpStop: string
+  // The jump names a row that exists only with Separate fonts on, which is still off: the jump waits for it.
+  separateFontsWanted: bool
+  ready: bool
+  route: string
+  breadcrumb: string
+  showScope: bool
+  kind: string
+  message: string
+  notice: string
+  noticeGroups: ScopeNoticeGroup[]
+  environmentLabel: string
+  projectLabel: string
+  projectMark: string
+  projectInk: string
+  projectSurface: string
+  connective: string
+  environmentChoices: ScopeChoice[]
+  environmentIcon: string
+  projectChoices: ScopeChoice[]
+  // One entry each, keyed by its label: the scope sentence remounts a label that changes.
+  environmentKeyed: ScopeChoice[]
+  projectKeyed: ScopeChoice[]
+  representative: string
+  showAllEnvironments: bool
+  allEnvironmentsProject: string
+  allEnvironmentsMember: string
+  scopeEnvironment: string // the scope's representative environment; Settings' own setup links open Providers there
+  scopeKey: string
+  sections: CoreSection[]
+  cliSections: CoreSection[]
+  // The Project page's Model row (General's default-model row in the project scope), or none.
+  projectModel: CoreRow[]
+  restoreCount: number
+  restoreText: string
+  appearanceMode: string
+  tiles: ModeTile[]
+  themes: ThemeCard[]
+  typographyAdvanced: bool
+  themeLight: string
+  palette: CorePalette
+  interfaceFont: string
+  codeFont: string
+  interfaceSize: number
+  codeSize: number
+  // Appearance › Typography's code sample (settings-font-previews.ts).
+  codePreview: FontDiffPreview
+  wordWrap: bool
+  panelDuration: number
+  // The Quit shortcut setting ("direct", "hold" or "double-click"), which the window's ⌘Q hold reads (app.contract quitHoldKey).
+  quitMode: string
+  background: BackgroundDialog
+  archiveConfirm: ArchiveConfirm
+  updateConfirm: bool
+  killConfirm: KillConfirm
+  hostEditor: HostEditorView
+  hostChecks: HostCheckGroup[]
+  easEditor: EasEditorView
+  saOpen: bool
+  editor: EditorView
+  themeImport: ImportView
+
+// Lucide geometry from the served reference, one path per icon (circles and rects as arcs).
+fn coreIconPath(name: string): string = ["laptop", "settings-2", "palette", "keyboard", "snap-shot", "bot", "blocks"].includes(name) ? (name == "laptop" ? "M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2zM20.054 15.987H3.946" : name == "settings-2" ? "M14 17H5M19 7h-9M14 17a3 3 0 1 0 6 0a3 3 0 1 0 -6 0M4 7a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" : name == "palette" ? "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8zM13 6.5a0.5 0.5 0 1 0 1 0a0.5 0.5 0 1 0 -1 0M17 10.5a0.5 0.5 0 1 0 1 0a0.5 0.5 0 1 0 -1 0M6 12.5a0.5 0.5 0 1 0 1 0a0.5 0.5 0 1 0 -1 0M8 7.5a0.5 0.5 0 1 0 1 0a0.5 0.5 0 1 0 -1 0" : name == "keyboard" ? "M10 8h.01M12 12h.01M14 8h.01M16 12h.01M18 8h.01M6 8h.01M7 16h10M8 12h.01M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-16a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2z" : name == "snap-shot" ? "M8 3H6a3 3 0 0 0-3 3v2M16 3h2a3 3 0 0 1 3 3v2M21 16v2a3 3 0 0 1-3 3h-2M8 21H6a3 3 0 0 1-3-3v-2M9 8h6a2 2 0 0 1 2 2v4a2 2 0 0 1 -2 2h-6a2 2 0 0 1 -2 -2v-4a2 2 0 0 1 2 -2zM10.5 12a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0" : name == "bot" ? "M12 8V4H8M2 14h2M20 14h2M15 13v2M9 13v2M6 8h12a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-8a2 2 0 0 1 2 -2z" : "M10 22V7a1 1 0 0 0-1-1H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5a1 1 0 0 0-1-1H2M15 2h6a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-6a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1z") : ["calendar-clock", "git-branch", "hard-drive", "link-2", "archive", "panels-top-left", "search"].includes(name) ? (name == "calendar-clock" ? "M16 14v2.2l1.6 1M16 2v4M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5M3 10h5M8 2v4M10 16a6 6 0 1 0 12 0a6 6 0 1 0 -12 0" : name == "git-branch" ? "M15 6a9 9 0 0 0-9 9V3M15 6a3 3 0 1 0 6 0a3 3 0 1 0 -6 0M3 18a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" : name == "hard-drive" ? "M10 16h.01M2.212 11.577a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11zM21.946 12.013H2.054M6 16h.01" : name == "link-2" ? "M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 1 1 0 10h-2M8 12h8" : name == "archive" ? "M3 3h18a1 1 0 0 1 1 1v3a1 1 0 0 1 -1 1h-18a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1zM4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4" : name == "panels-top-left" ? "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2zM3 9h18M9 21V9" : "m21 21-4.34-4.34M3 11a8 8 0 1 0 16 0a8 8 0 1 0 -16 0") : ["x", "arrow-left", "rotate-ccw", "chevron-down", "chevron-right", "check", "layers"].includes(name) ? (name == "x" ? "M18 6 6 18M6 6l12 12" : name == "arrow-left" ? "m12 19-7-7 7-7M19 12H5" : name == "rotate-ccw" ? "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" : name == "chevron-down" ? "m6 9 6 6 6-6" : name == "chevron-right" ? "m9 18 6-6-6-6" : name == "check" ? "M20 6 9 17l-5-5" : "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83zM2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17") : ["undo-2", "info", "lock", "lock-open", "pen-line", "sparkles", "sun"].includes(name) ? (name == "undo-2" ? "M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11" : name == "info" ? "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0M12 16v-4M12 8h.01" : name == "lock" ? "M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-7a2 2 0 0 1 2 -2zM7 11V7a5 5 0 0 1 10 0v4" : name == "lock-open" ? "M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-7a2 2 0 0 1 2 -2zM7 11V7a5 5 0 0 1 9.9-1" : name == "pen-line" ? "M13 21h8M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" : name == "sparkles" ? "M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594zM20 2v4M22 4h-4M2 20a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" : "M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0M12 2v2M12 20v2m-7.07-17.07 1.41 1.41m11.32 11.32 1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41") : ["moon", "copy", "plus", "minus", "download", "upload", "trash-2"].includes(name) ? (name == "moon" ? "M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" : name == "copy" ? "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-10a2 2 0 0 1 2 -2zM4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" : name == "plus" ? "M5 12h14M12 5v14" : name == "minus" ? "M5 12h14" : name == "download" ? "M12 15V3M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5" : name == "upload" ? "M12 3v12M17 8l-5-5-5 5M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" : "M10 11v6M14 11v6M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2") : ["paintbrush", "settings", "panel-left-close"].includes(name) ? (name == "paintbrush" ? "m14.622 17.897-10.68-2.913M18.376 2.622a1 1 0 1 1 3.002 3.002L17.36 9.643a.5.5 0 0 0 0 .707l.944.944a2.41 2.41 0 0 1 0 3.408l-.944.944a.5.5 0 0 1-.707 0L8.354 7.348a.5.5 0 0 1 0-.707l.944-.944a2.41 2.41 0 0 1 3.408 0l.944.944a.5.5 0 0 0 .707 0zM9 8c-1.804 2.71-3.97 3.46-6.583 3.948a.507.507 0 0 0-.302.819l7.32 8.883a1 1 0 0 0 1.185.204C12.735 20.405 16 16.792 16 15" : name == "settings" ? "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915M9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" : "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2zM9 3v18m7-6-3-3 3-3") : ["message-square-text", "file-diff", "messages-square", "globe", "smartphone"].includes(name) ? (name == "message-square-text" ? "M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2zM7 11h10M7 15h6M7 7h8" : name == "file-diff" ? "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2zM9 10h6M12 13V7M9 17h6" : name == "messages-square" ? "M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2zM20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1" : name == "globe" ? "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20" : "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-16a2 2 0 0 1 2 -2ZM12 18h.01") : ["folder-tree", "server", "shield-check", "wrench", "flask-conical"].includes(name) ? (name == "folder-tree" ? "M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1ZM20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1ZM3 5a2 2 0 0 0 2 2h3M3 3v13a2 2 0 0 0 2 2h3" : name == "server" ? "M4 2h16a2 2 0 0 1 2 2v4a2 2 0 0 1 -2 2h-16a2 2 0 0 1 -2 -2v-4a2 2 0 0 1 2 -2ZM4 14h16a2 2 0 0 1 2 2v4a2 2 0 0 1 -2 2h-16a2 2 0 0 1 -2 -2v-4a2 2 0 0 1 2 -2ZM6 6L6.01 6M6 18L6.01 18" : name == "shield-check" ? "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1zM9 12l2 2 4-4" : name == "wrench" ? "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z" : "M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2M6.453 15h11.094M8.5 2h7") : ""
+
+// SETTINGS_DETAIL_PAGE_PARENTS: a detail page without a nav entry highlights the page that links to it.
+fn navActiveRoute(route: string): string = route == "diagnostics" ? "maintenance" : (route == "open-source-licenses" ? "about" : route)
+
+component CoreIcon
+  props
+    name: string
+    size: number
+    color: string
+  view
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" fill="none" color=color flex-shrink=0 aria-hidden=true
+      path d=coreIconPath(name) stroke=color stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round"
+
+component CorePaintIcon
+  props
+    ownId: string
+    paint: string
+    name: string
+    size: number
+    color: string
+  view
+    svg id=ownId data-paint=paint data-pick=paint width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" fill="none" color=color flex-shrink=0 aria-hidden=true
+      path d=coreIconPath(name) stroke=color stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round"
+
+component CoreMark
+  props
+    label: string
+    ink: string
+    surface: string
+  view
+    box width="0.875rem" height="0.875rem" border-radius="0.21875rem" background-color=surface display="flex" align-items="center" justify-content="center" flex-shrink=0
+      text label font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.4375rem" font-weight=700 color=ink
+
+// SettingsSidebarNav (96fc7b9551): the modal's own nav column, w-60 with border-e on bg-sidebar. Search (role
+// combobox, `/` focuses it), then the section groups (SETTINGS_NAV_GROUPS: a heading or, without one, space alone)
+// or the ranked results. testIds keep `settings-<route>` for the drivers.
+component SettingsNav
+  inject
+    workspaceEntered: action // Settings' sections are a workspace area (shell-members.contract)
+  props
+    nav: CoreNav
+    route: string
+    query: string
+    pal: CorePalette
+    active: number
+    edit: action
+    onKey: action
+    pick: action
+    clear: action
+  state hovered = ""
+  // useSettingsSectionNavigation: the sections are one Tab stop, the last focused section's while the open one is the
+  // same, else the open one's; ↑ ↓ Home and End move the focus without opening a section, ← and → do nothing.
+  state navFocused = ""
+  state navFocusedRoute = ""
+  derive navIds = nav.searching ? [] : nav.items.map((item) => item.id)
+  derive navStop = navFocusedRoute == navActiveRoute(route) and navIds.includes(navFocused) ? navFocused : navActiveRoute(route)
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  action navEntered(id: string)
+    navFocused = id
+    navFocusedRoute = navActiveRoute(route)
+  action navKey(id: string, k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey
+      let at = navIds.indexOf(id)
+      let next = k == "ArrowDown" ? min(at + 1, navIds.length - 1) : (k == "ArrowUp" ? max(at - 1, 0) : (k == "Home" ? 0 : (k == "End" ? navIds.length - 1 : -1)))
+      if k == "ArrowLeft" or k == "ArrowRight"
+        preventDefault()
+      else if next >= 0 and at >= 0
+        preventDefault()
+        match navIds.at(next)
+          case some(target)
+            navEntered(target)
+            focus(`settings-${target}`)
+          case none
+  // SettingsSidebarNav's search ignores a key that confirms an input method's candidate.
+  action searchKey(k: string, e: KeyboardEvent)
+    if not e.isComposing
+      onKey(k)
+  view
+    column width="15rem" height="100%" flex-shrink=0 position="relative" background-color=pal.sidebar border-right-width=1 border-right-style="solid" border-color=pal.sidebarBorder testId="settings-navigation" id="settings-navigation" tabindex=-1 role="navigation" aria-label="Settings sections" focusin=workspaceEntered("settings-nav") data-paint="sidebar border" data-pick="sidebar"
+      column flex=1 min-height=0 padding="0.5rem" gap="0.5rem" position="relative"
+        row height="2rem" flex-shrink=0 padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.375rem" align-items="center" box-sizing="border-box"
+          CorePaintIcon(ownId=`paint-icon-SettingsNav-2-${route}`, paint="mutedForeground", name="search", size=16, color=pal.sidebarMuted)
+          // "Search" is drawn under the transparent field in SidebarInput's placeholder:text-sidebar-muted-foreground
+          // while it is empty; it stays text (not a ::placeholder part) as the theme inspector's mutedForeground pick.
+          box flex=1 min-width=0 height="1.3125rem" position="relative"
+            if query == ""
+              text "Search" font-size="0.875rem" font-weight=500 line-height="1.3125rem" color=pal.sidebarMuted white-space="nowrap" position="absolute" left=0 top=0 testId="settings-search-placeholder" id="settings-search-placeholder" data-paint="mutedForeground" data-pick="mutedForeground"
+            input value=query input=edit key=searchKey placeholder="" aria-label="Search settings" role="combobox" aria-expanded=(nav.searching and nav.count > 0) id="settings-search" testId="settings-search" font-size="0.875rem" font-weight=500 line-height="1.3125rem" position="absolute" left=0 top=0 width="100%" height="1.3125rem" border-width=0 padding=0 background-color="#00000000" color=pal.sidebarText autocorrect="off" data-paint="sidebar" data-pick="sidebar" data-editable="yes" data-focus-stop="enabled"
+          if query != ""
+            button press=clear class=SettingsGhost width="1.25rem" height="1.25rem" min-height="1.25rem" padding="0.25rem" border-radius="0.375rem" aria-label="Clear settings search" testId="clear-settings-search" title="" id="clear-settings-search" data-focus-stop="enabled"
+              CorePaintIcon(ownId=`paint-icon-SettingsNav-3-${route}`, paint="mutedForeground", name="x", size=12, color=pal.sidebarMuted)
+          else
+            box height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color=pal.kbd display="flex" align-items="center" justify-content="center" id=`paint-SettingsNav-5-${route}` data-paint="text" data-pick="text"
+              text "/" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.muted id=`paint-SettingsNav-6-${route}` data-paint="mutedForeground" data-pick="mutedForeground"
+        if nav.searching and nav.count == 0
+          text "No settings found" role="status" font-size="0.75rem" color=pal.sidebarMuted text-align="center" padding-top="1.5rem" padding-bottom="1.5rem" testId="settings-search-empty" id="settings-search-empty" data-paint="mutedForeground" data-pick="mutedForeground"
+        scroll flex=1 min-height=0 width="100%" testId="settings-navigation-scroll"
+          column gap="0.25rem" width="100%" role=(nav.searching ? "listbox" : "tree") aria-label=(nav.searching ? "Settings search results" : "Settings sections")
+            for item in nav.items key=item.id
+              if nav.searching
+                // SidebarMenuButton size sm: py-2 and the sidebar's row inset (--sidebar-row-content-inset) on each side.
+                button press=pick(item.route, item.target, item.scope, item.id) hover=hover(item.id) role="option" aria-selected=(item.id == hovered or (hovered == "" and item.active)) class=SettingsGhost justify-content="flex-start" align-items="flex-start" width="100%" min-height="3.25rem" padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" background-color=((item.id == hovered or (hovered == "" and item.active)) ? pal.rowActive : "#00000000") testId=`settings-${item.id}` id=`settings-${item.id}` data-paint=`${((item.id == hovered or (hovered == "" and item.active)) ? "sidebarRowSelected" : "")}` data-pick=(((item.id == hovered or (hovered == "" and item.active)) ? "sidebarRowSelected" : "") != "" ? ((item.id == hovered or (hovered == "" and item.active)) ? "sidebarRowSelected" : "") : "")
+                  // SettingsSectionIcon (size-4): on the title's line.
+                  box height="1.25rem" flex-shrink=0 display="flex" align-items="center"
+                    CorePaintIcon(ownId=`paint-icon-SettingsNav-4-${route}-${item.id}`, paint=((item.id == hovered or (hovered == "" and item.active)) ? "sidebar" : "mutedForeground"), name=item.icon, size=16, color=((item.id == hovered or (hovered == "" and item.active)) ? pal.sidebarText : pal.sidebarIcon))
+                  column flex=1 min-width=0 gap=0 align-items="flex-start"
+                    text item.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.sidebarText line-clamp=1 id=`paint-SettingsNav-9-${route}-${item.id}` data-paint="sidebar" data-pick="sidebar"
+                    text item.section font-size="0.6875rem" font-weight=500 line-height="1rem" color=pal.sectionMuted line-clamp=1 id=`paint-SettingsNav-10-${route}-${item.id}` data-paint="mutedForeground" data-pick="mutedForeground"
+              else
+                // The heading names its group of sections; a heading is no tree child, so it is not read.
+                if item.heading != ""
+                  text item.heading aria-hidden=true font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" margin-top=(item.groupStart ? "0.75rem" : "0rem") color=pal.sectionMuted id=`paint-SettingsNav-heading-${item.id}` data-paint="mutedForeground" data-pick="mutedForeground"
+                button press=pick(item.route, "", "", item.id) key=navKey(item.id) focus=navEntered(item.id) tabindex=(item.id == navStop ? 0 : -1) role="treeitem" aria-current=(navActiveRoute(route) == item.route ? "page" : "") margin-top=(item.groupStart and item.heading == "" ? "0.75rem" : "0rem") hover=hover(item.id) aria-selected=(navActiveRoute(route) == item.route) class=SettingsGhost justify-content="flex-start" width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" background-color=(navActiveRoute(route) == item.route ? pal.rowActive : (item.id == hovered ? pal.rowHover : "#00000000")) testId=`settings-${item.id}` id=`settings-${item.id}` data-paint=`${(navActiveRoute(route) == item.route ? "sidebarRowSelected" : (item.id == hovered ? "sidebarRowSelected" : ""))}` data-pick=((navActiveRoute(route) == item.route ? "sidebarRowSelected" : (item.id == hovered ? "sidebarRowSelected" : "")) != "" ? (navActiveRoute(route) == item.route ? "sidebarRowSelected" : (item.id == hovered ? "sidebarRowSelected" : "")) : "") data-focus-stop=(item.id == navStop ? "enabled" : "")
+                  CorePaintIcon(ownId=`paint-icon-SettingsNav-5-${route}-${item.id}`, paint=(navActiveRoute(route) == item.route ? "sidebar" : "mutedForeground"), name=item.icon, size=16, color=(navActiveRoute(route) == item.route ? pal.sidebarText : pal.sidebarIcon))
+                  text item.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(navActiveRoute(route) == item.route ? pal.sidebarText : pal.sidebarMuted) line-clamp=1 id=`paint-SettingsNav-12-${route}-${item.id}` data-paint=`${(navActiveRoute(route) == item.route ? "sidebar" : "mutedForeground")}` data-pick=((navActiveRoute(route) == item.route ? "sidebar" : "mutedForeground") != "" ? (navActiveRoute(route) == item.route ? "sidebar" : "mutedForeground") : "")
+      button press=onKey("/") aria-keyshortcuts="/" aria-label="Focus settings search" position="absolute" width=1 height=1 opacity=0 left=0 top=0 tabindex=-1 testId="settings-search-shortcut" title=""
+      // ⌘F focuses it too, from a text field as well (SettingsSidebarNav's isFindShortcut).
+      button -exact-menu="none" press=onKey("/") aria-keyshortcuts="Meta+F" aria-label="Find in settings" position="absolute" width=1 height=1 opacity=0 left=0 top=0 tabindex=-1 testId="settings-find-shortcut" title=""
+
+// The settings route's header (96fc7b9551 _chat.settings.tsx): h-12 with border-b, ps-5 pe-2, the breadcrumb,
+// then Restore device defaults on General only and AppRouteModalClose ("Close (Esc)").
+component SettingsTopBar
+  props
+    route: string
+    crumb: string
+    pal: CorePalette
+    busy: bool
+    restorable: bool
+    // Escape is the close button's unless something inside owns it (app-settings.contract escapeOwned).
+    escapeFree: bool
+    restore: action
+    close: action
+  view
+    row height="3rem" min-height="3rem" flex-shrink=0 align-items="center" gap="0.75rem" padding-left="1.25rem" padding-right="0.5rem" box-sizing="border-box" width="100%" border-bottom-width=1 border-bottom-style="solid" border-color=pal.border testId="settings-header"
+      row role="navigation" aria-label="Settings breadcrumb" gap="0.75rem" align-items="center" min-width=0
+        if crumb != "Settings"
+          text "Settings" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.muted flex-shrink=0 id=`paint-SettingsTopBar-1-${route}` data-paint="mutedForeground" data-pick="mutedForeground"
+          text "/" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.muted flex-shrink=0 aria-hidden=true id=`paint-SettingsTopBar-2-${route}` data-paint="mutedForeground" data-pick="mutedForeground"
+        text crumb font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text line-clamp=1 testId="settings-breadcrumb-current" id="settings-breadcrumb-current" data-paint="text" data-pick="text"
+      row margin-left="auto" flex-shrink=0 align-items="center" gap="0.25rem"
+        if route == "general"
+          // Ghost xs: px 7, the icon's -mx-0.5 inside mx-1, gap 1; disabled:opacity-64 dims icon and label.
+          button id="settings-restore-defaults" press=restore class=SettingsGhost height="1.5rem" min-height="1.5rem" padding-left="0.3125rem" padding-right="0.4375rem" gap="0.125rem" border-radius="0.5rem" disabled=(busy or not restorable) opacity=(restorable ? 1 : 0.64) aria-label="Restore device defaults" testId="restore-device-defaults" data-focus-stop=(busy or not restorable ? "" : "enabled")
+            svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" fill="none" flex-shrink=0 aria-hidden=true
+              path d=coreIconPath("rotate-ccw") stroke=pal.muted stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round"
+            text "Restore device defaults" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text id=`paint-SettingsTopBar-4-${route}` data-paint="text" data-pick="text"
+        AppRouteModalClose(closeId="close-settings", escape=escapeFree, color=pal.text, hoverFill=pal.rowHover, dismiss=close)

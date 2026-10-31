@@ -1,0 +1,40 @@
+import { expect, test } from 'bun:test';
+import { opened, thread } from '../support/composer-controls-fixture';
+import { composerCommand } from '../../src/composer/composer-controls-commands';
+import { threadNowRows } from '../../src/composer/thread-end';
+import { topStatus } from '../../src/sidebar/sidebar-model';
+import { obj } from '../../src/client/domain';
+const goalLine = (client: Parameters<typeof threadNowRows>[0]) => threadNowRows(client).find(row => row.id === 'goal:t1');
+const actions = (row: ReturnType<typeof goalLine>) => (row?.activities ?? []).filter(entry => entry.status === 'action').map(entry => [entry.label, entry.detail, entry.tone]);
+test('the goal line keeps usage beside the title, offers Clear while working and Resume only when idle, and preserves the draft', async () => {
+  const { client, native, disk } = await opened();
+  client.shell.threads = [thread('t1', { goal: { objective: 'Fix parser', status: 'paused', tokensUsed: 12000, checks: 2 } })];
+  client.local.drafts[client.draftKey] = 'Keep my current draft';
+  client.local.snapshotDrafts[client.draftKey] = [{ id: 'kept-image' }];
+  expect(goalLine(client)).toMatchObject({ kind: 'thread-now', icon: 'target', title: 'Goal paused · 12k tokens · 2 checks', detail: 'Fix parser' });
+  expect(actions(goalLine(client))).toEqual([['Resume', 'cc:goal-resume', ''], ['Clear', 'cc:goal-clear', 'muted']]);
+  await composerCommand(client, native, disk, 'goal-resume', '', '');
+  expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', text: '/goal resume', attachments: [], dispatchMode: { type: 'start_immediately' } });
+  expect(client.draft).toBe('Keep my current draft'); expect(client.snapshotDrafts).toEqual([{ id: 'kept-image' }]);
+  client.projection.runs = [{ id: 'running', status: 'running' }];
+  expect(actions(goalLine(client))).toEqual([['Clear', 'cc:goal-clear', 'muted']]);
+  await expect(composerCommand(client, native, disk, 'goal-resume', '', '')).rejects.toThrow('Wait for the current turn');
+  await composerCommand(client, native, disk, 'goal-clear', '', '');
+  expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', text: '/goal clear', attachments: [], dispatchMode: { type: 'start_immediately' } });
+  expect(topStatus('working', false, false, true)?.label).toBe('Goal');
+  expect(topStatus('working', false, false, false)?.label).toBe('Working');
+  expect(obj(native.committed.at(-1)).modelSelection).toBeDefined();
+});
+
+test("a provider's subagent draws Clear but has no composer to send it from", async () => {
+  const { client, native, disk } = await opened();
+  client.shell.threads = [thread('t1', { goal: { objective: 'Inspect parser', status: 'active' } })];
+  client.projection.runs = [];
+  Object.assign(obj(client.projection.thread), { creationSource: 'provider', lineage: { relationshipToParent: 'subagent' } });
+  client.projection.nodes = [{ id: 'root', kind: 'root_turn', runId: null, status: 'running', startedAt: '2026-01-01T00:00:00Z' }];
+  expect(goalLine(client)).toMatchObject({ title: 'Pursuing goal' });
+  expect(actions(goalLine(client))).toEqual([['Clear', 'cc:goal-clear', 'muted']]);
+  await expect(composerCommand(client, native, disk, 'goal-resume', '', '')).rejects.toThrow('Wait for the current turn');
+  await composerCommand(client, native, disk, 'goal-clear', '', '');
+  expect(native.committed).toHaveLength(0);
+});

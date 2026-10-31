@@ -1,0 +1,28 @@
+// The chat Markdown's chips (markdown.contract), adapted from T3 Code v0.1.5 (MIT; see LICENSE-T3): ContextChip.tsx
+// and lib/contextChipAccents.ts. A chip has no pill: its glyph and medium label take its kind's ink, the accent raised to
+// 5:1 against the theme (shared/chip-accents.ts), which MarkdownEnv `inks` carries (message-chips.ts markdownEnv; a sent
+// message's bubble has its own). Markdown without them takes the default theme's (defaultChipInk; message-chips.test.ts
+// keeps it in step). An unresolved chip and a kind with no accent draw in the text's colour (inkIn).
+shape ChipInk
+  kind: string
+  ink: string
+fn noChipInks(): ChipInk[] = []
+fn inkOf(inks: ChipInk[], kind: string): string = inks.filter((entry) => entry.kind == kind).length > 0 ? inks.filter((entry) => entry.kind == kind).map((entry) => entry.ink).join("") : defaultChipInk(kind)
+// A chip's ink in text of colour `text`: a neutral chip (no accent, or unresolved) takes the text's (currentColor).
+fn inkIn(inks: ChipInk[], kind: string, text: string): string = kind == "neutral" ? text : inkOf(inks, kind)
+fn defaultChipInk(kind: string): string = ["image", "video", "file", "mention", "terminal", "element", "preview-annotation", "review-comment"].includes(kind) ? (kind == "image" ? "light-dark(#006592, #249fdc)" : kind == "video" ? "light-dark(#9e4500, #e77733)" : kind == "file" ? "light-dark(#006592, #249fdc)" : kind == "mention" ? "light-dark(#00697b, #24a4bd)" : kind == "terminal" ? "light-dark(#006d4a, #1faa78)" : kind == "element" ? "light-dark(#875400, #cc8727)" : kind == "preview-annotation" ? "light-dark(#875400, #cc8727)" : "light-dark(#694cb6, #9e84f4)") : ["pull-request", "pr-open", "pr-draft", "pr-merged", "pr-closed", "skill", "thread", "environment"].includes(kind) ? (kind == "pull-request" ? "light-dark(#4f53bb, #818cf9)" : kind == "pr-open" ? "light-dark(#006d4a, #1faa78)" : kind == "pr-draft" ? "light-dark(#58606b, #8e97a3)" : kind == "pr-merged" ? "light-dark(#694cb6, #9e84f4)" : kind == "pr-closed" ? "light-dark(#ad3145, #ee6c79)" : kind == "skill" ? "light-dark(#8e3e9a, #c977d5)" : kind == "thread" ? "light-dark(#006b67, #1fa7a0)" : "light-dark(#2e6c32, #65a466)") : ["citation", "doc-pdf", "doc-word", "doc-spreadsheet", "doc-slides", "doc-epub", "invalid"].includes(kind) ? (kind == "citation" ? "light-dark(#1f5cba, #5695f8)" : kind == "doc-pdf" ? "light-dark(#ae3235, #ee6e6a)" : kind == "doc-word" ? "light-dark(#0062a4, #479be4)" : kind == "doc-spreadsheet" ? "light-dark(#056e2b, #50a861)" : kind == "doc-slides" ? "light-dark(#944c00, #d6813d)" : kind == "doc-epub" ? "light-dark(#664db6, #9b85f4)" : "light-dark(#c10007, #ff6467)") : "light-dark(#18181b, #f5f5f5)"
+// Whether a parsed run is a context chip (markdown.rs context_kind), and its accent kind ("neutral" for one the parser
+// does not name).
+fn contextRun(kind: string): bool = kind.startsWith("context-")
+fn runAccent(kind: string): string = kind == "context-other" ? "neutral" : kind.slice(8)
+// A resolved chip's accent kind (message-chips.ts ChipView `kind`, a pull request's state in `detail`).
+fn chipAccent(kind: string, detail: string): string = kind == "review" ? "review-comment" : kind == "pr" ? (detail != "" ? `pr-${detail}` : "pull-request") : kind == "link" ? "mention" : kind == "unresolved" ? "neutral" : kind
+fn chipIcon(kind: string): string = ["context-thread", "context-review-comment", "context-terminal"].includes(kind) ? (kind == "context-thread" ? "messages-square" : kind == "context-review-comment" ? "message-circle" : "square-terminal") : ["context-element", "context-image", "context-video"].includes(kind) ? (kind == "context-element" ? "mouse-pointer-click" : kind == "context-image" ? "image" : "film") : ["context-skill", "context-citation"].includes(kind) ? (kind == "context-skill" ? "skill" : "quote") : "circle-dashed"
+// A resolved chip's glyph family (chipIcon's run kinds).
+fn chipFamily(kind: string): string = ["citation", "file", "video"].includes(kind) ? (kind == "citation" ? "context-citation" : kind == "file" ? "context-file" : "context-video") : ["image", "skill", "thread"].includes(kind) ? (kind == "image" ? "context-image" : kind == "skill" ? "context-skill" : "context-thread") : ["terminal", "element", "review"].includes(kind) ? (kind == "terminal" ? "context-terminal" : kind == "element" ? "context-element" : "context-review-comment") : "context-other"
+
+// documentChipKindForFileName (pierre-icons.ts): a PDF, Word, spreadsheet, slides or EPUB file's chip takes its type's
+// accent kind ("" for any other file). `name` may trail its line (`a.pdf · L3`).
+fn docKind(name: string): string = docType(name) == "" ? "" : `doc-${docType(name) == "sheet" ? "spreadsheet" : docType(name)}`
+fn docType(name: string): string = docTypeOf(name.split(" · ").slice(0, 1).join("").toLowerCase())
+fn docTypeOf(n: string): string = n.endsWith(".pdf") ? "pdf" : n.endsWith(".doc") or n.endsWith(".docx") or n.endsWith(".odt") or n.endsWith(".rtf") ? "word" : n.endsWith(".xls") or n.endsWith(".xlsx") or n.endsWith(".ods") or n.endsWith(".csv") or n.endsWith(".tsv") ? "sheet" : n.endsWith(".ppt") or n.endsWith(".pptx") or n.endsWith(".odp") ? "slides" : n.endsWith(".epub") ? "epub" : ""

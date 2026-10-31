@@ -1,0 +1,960 @@
+// Settings shell + General route data.
+// Reference: T3 Code 6d450a4284 apps/web/src/components/settings/{SettingsPanels,ProjectDefaultsSettings,
+// WorktreesSettings,AdvancedSettings,settingsLayout,SettingsScopeSentence,settingsScope,scopedSettings}.tsx,
+// apps/web/src/modelSelection.ts and packages/shared/src/projectSettings.ts. Server rows read and write the connected
+// environment's ServerSettings (server.updateSettings); device rows are the
+// reference ClientSettings, saved in this app's own preferences file.
+import { changeCliCommand } from './cli-command';
+import { installedFonts } from '../appearance/appearance-fonts';
+import { pushToast } from '../shell/toast';
+import { arr, num, obj, str, type Json, type Obj } from '../client/domain';
+import { ClientError, providerAvailable, type Native } from '../client/protocol';
+import { projectIdentity, providerBadge } from '../client/presentation';
+import { traitsDisplay } from '../composer/composer-controls-model';
+import { acpInstanceIcon } from '../composer/acp-instance-icon';
+import { resolveTextGenerationSelection } from './text-generation-model';
+import { providerEntries, resolveAppModelSelectionForInstance, resolveSelectableProviderInstanceEntry } from '../composer/composer-provider-selection';
+import type { T3Client } from '../client/client';
+import { duplicateTheme, parseThemeFile, type CustomTheme } from '../appearance/settings-themes';
+import { themeRoles } from '../appearance/settings-appearance';
+import { advancedBackgroundValue, baseProfile, profileOption } from './settings-a-background';
+import { seedDiffState } from '../appearance/settings-appearance-look';
+import { themeEditorCommand } from '../appearance/settings-appearance-editor';
+import { themeImportCommand } from '../appearance/settings-appearance-import';
+import { aboutRows, updateCommand, updateTrackCommand } from './settings-a-about';
+import { removeThemes, useCollectionDefaults } from '../appearance/settings-a-collections';
+import type { DiffState } from '../diff/diff';
+import { notificationPermission, notificationPermissionMessage } from '../shell/shell-notify';
+import { type QrMark } from './settings-mobile-beta';
+import { DEFAULT_SNOOZE_PRESETS, snoozeEditor, snoozePresetsChanged, snoozePresetsEdit, snoozePresetsOf, type SnoozeEditor } from './settings-snooze';
+import { latestWall } from '../sidebar/sidebar-state';
+import { CLIENT_VERSION } from '../connections/connections';
+import { isPrimaryEnvironment, primaryEnvironmentId } from '../connections/local-primary';
+import { ALL_ENVIRONMENTS_VALUE, environmentAxisValue, projectScopeMenuGroups, resolveSettingsScope, scopeSearch, settingsScopeEnvironmentAddress, settingsScopeEnvironmentLabel, settingsScopeEnvironmentLabels,
+  settingsScopeProjectMachines, type ResolvedSettingsScope, type ScopeGroup } from './settings-scope';
+import { IDLE_COMPACTION_MODES, globalIdleCompaction, persistScopedSettingsPatch, planProjectOverridesClear, planScopedSettingsClear, planScopedSettingsPatch, readsIdleCompactionModes,
+  resolveScopedSettingsTargets, scopedPlanNotice, scopedSettingsSource, selectScopedSettingsEnvironments, type ScopedSettingsEnvironment, type ScopedSettingsPlan,
+  type ScopedSettingsTarget } from './scoped-settings-plan';
+import { postScopedNotice, scopeEnvironments, scopeMemberFiles, scopeProjectGroups, scopedWriter, type ScopeEnvironment } from './settings-scope-sources';
+import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { changedBrowserSettingLabels, restoreBrowserTabDefaults } from '../browser/browser-defaults'; // Restore defaults' browser rows
+import { threadDetailsItemsLocal } from '../details/thread-details-items';
+import { BROWSER_CUSTOM_SEARCH_URL_MAX_LENGTH, BROWSER_SEARCH_ENGINES } from '../browser/browser-url';
+
+export type CoreOption = { id: string; value: string; label: string; detail: string; icon: string; selected: boolean; disabled: boolean };
+export type CoreRow = {
+  id: string; title: string; description: string; status: string; kind: string; checked: boolean; value: string; label: string;
+  icon: string; width: number; options: CoreOption[]; value2: string; label2: string; options2: CoreOption[]; driver: string; badge: string; badgeColor: string; markIcon: string;
+  inheritance: string; inheritanceSummary: string; resettable: boolean; resetLabel: string; disabled: boolean; inert: boolean;
+  /** ScopedSwitch: the selected targets disagree; the switch draws its thumb centred and a press turns it on everywhere. */
+  mixed: boolean;
+  note: string; min: number; max: number; step: number; target: string; placeholder: string; suffix: string; info: string; divider: boolean;
+  layers: CoreOption[]; layerTitle: string; layerGroups: InheritanceGroup[]; amount: number; previewSize: number; menuWidth: number;
+  /** About → Mobile app's QR codes (settings-mobile-beta.ts); empty on every other row. */
+  qr: QrMark[];
+  /** Threads › Snooze options' editor (settings-snooze.ts); empty on every other row. */
+  snooze: SnoozeEditor[];
+};
+/** A section's rows, and the power-user rows its Advanced fold holds (AdvancedSettings; empty draws no fold). */
+export type CoreSection = { id: string; title: string; collapsible: boolean; rows: CoreRow[]; toggle: boolean; advanced?: CoreRow[] };
+/** A scope menu option (SettingsScopeSentence ScopeOption): its name, the line under it that tells it apart, its mark and Offline. */
+export type ScopeChoice = { id: string; label: string; secondary: string; mark: string; ink: string; surface: string; member: string; selected: boolean; offline: boolean };
+
+const option = (value: string, label: string, selected: boolean, extra: Partial<CoreOption> = {}): CoreOption =>
+  ({ id: value || 'none', value, label, detail: '', icon: '', selected, disabled: false, ...extra });
+export function coreRow(id: string, title: string, description: string, kind: string, extra: Partial<CoreRow> = {}): CoreRow {
+  return { id, title, description, status: '', kind, checked: false, value: '', label: '', icon: '', width: 160, options: [], value2: '', label2: '',
+    options2: [], driver: '', badge: '', badgeColor: '', markIcon: '', inheritance: '', inheritanceSummary: '', resettable: false, resetLabel: title.toLowerCase(), disabled: false, inert: false, mixed: false,
+    note: '', min: 0, max: 0, step: 1, target: '', placeholder: '', suffix: '', info: '', divider: false, layers: [], layerTitle: '', layerGroups: [], amount: 0, previewSize: 0, menuWidth: 0, qr: [], snooze: [], ...extra };
+}
+
+// ── Device (client) settings ───────────────────────────────────────────────
+// Reference ClientSettingsSchema defaults for the rows these pages render. The
+// five legacy device keys stay in deviceSettings, which other code reads.
+export const CLIENT_DEFAULTS = {
+  notificationMode: 'off', inAppNotificationsEnabled: false, diffColorScheme: 'red-green', chatWidth: 'comfortable',
+  appearanceContrast: 100, panelAnimationDurationMs: 0, confirmThreadArchive: false, confirmThreadDelete: true, confirmThreadUnpin: false,
+  diffFilesCollapsed: true, diffIgnoreWhitespace: true, diffLayout: 'stacked', glassOpacity: 80,
+  fontSizeInterface: 16, fontSizePrompt: 14, fontSizeCode: 13, fontSizeTerminal: 12, fontFamilyCode: '', fontFamilyComposer: '', fontFamilySans: '',
+  fontFamilyTerminal: '', fontSmoothing: true, persistComposerContextStrip: false, contextWindowMeterEnabled: false, composerRichTextEnabled: true,
+  followUpBehavior: 'steer', proactivePanelsEnabled: false, showSkillsInSlashMenu: true, sidebarWorkingShelfEnabled: true,
+  // How the composer shows reasoning effort: its word, or bars (contracts settings.ts EffortDisplay, default label).
+  effortDisplay: 'label',
+  wordWrap: true, browserLinkTarget: 'system', theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code', typographyAdvanced: false, confirmQuit: 'hold',
+  sidebarProjectSortOrder: 'updated_at',
+  // The thread order a delete falls back along (contracts settings.ts SidebarThreadSortOrder).
+  sidebarThreadSortOrder: 'updated_at',
+  // The browser's recording and floating-preview defaults (contracts settings.ts names and defaults:
+  // BROWSER_RECORDING_FRAME_RATES 30 | 60, default 30; key and mouse presses off; auto-show on). Settings › Integrations ›
+  // Browser draws their rows and writes them.
+  browserRecordingFrameRate: 30, browserRecordingShowKeyPresses: false, browserRecordingShowMousePresses: false, browserAutoShowFloatingPreview: true,
+  // Whether a pull request link opens T3 Code's pull request view (pullRequestLinksOpenInApp, default on); off, it opens as
+  // any other link does.
+  pullRequestLinksOpenInApp: true,
+  // The address bar's search engine (contracts settings.ts BrowserSearchEngine, default DuckDuckGo) and the custom
+  // search URL, a `%s` template kept when the engine is switched away from Custom so switching back restores it.
+  browserSearchEngine: 'duckduckgo', browserCustomSearchUrl: '',
+  // Opt-in TeX typesetting in rendered Markdown (mathRenderingEnabled, default off).
+  mathRenderingEnabled: false,
+} as const;
+export type ClientPrefs = { -readonly [K in keyof typeof CLIENT_DEFAULTS]: (typeof CLIENT_DEFAULTS)[K] extends number ? number : (typeof CLIENT_DEFAULTS)[K] extends boolean ? boolean : string };
+const CHOICES: Record<string, readonly string[]> = {
+  browserLinkTarget: ['system', 'app'], browserSearchEngine: BROWSER_SEARCH_ENGINES,
+  notificationMode: ['off', 'notifications', 'sound', 'notifications-and-sound'], diffColorScheme: ['red-green', 'blue-orange'],
+  chatWidth: ['comfortable', 'wide', 'full'], effortDisplay: ['label', 'bars'], diffLayout: ['stacked', 'split'],
+  followUpBehavior: ['queue', 'steer'], confirmQuit: ['direct', 'hold', 'double-click'], sidebarProjectSortOrder: ['updated_at', 'created_at', 'manual'],
+  sidebarThreadSortOrder: ['updated_at', 'created_at'],
+};
+const BOUNDS: Record<string, [number, number, number]> = {
+  appearanceContrast: [50, 200, 5], glassOpacity: [40, 100, 5], panelAnimationDurationMs: [0, 400, 25],
+  fontSizeInterface: [12, 20, 1], fontSizePrompt: [12, 20, 1], fontSizeCode: [10, 18, 1], fontSizeTerminal: [8, 20, 1],
+  browserRecordingFrameRate: [30, 60, 30],
+};
+const FONT_FAMILY = /^[^"\\;{}<>]{0,120}$/;
+const FONT_SIZE_KEYS: Record<string, string> = { fontFamilySans: 'fontSizeInterface', fontFamilyComposer: 'fontSizePrompt', fontFamilyCode: 'fontSizeCode', fontFamilyTerminal: 'fontSizeTerminal' };
+/** One decoded value, or undefined when it is not a valid value for the key. */
+export function clientValue(key: string, raw: unknown): string | number | boolean | undefined {
+  if (!(key in CLIENT_DEFAULTS)) return undefined;
+  const fallback = CLIENT_DEFAULTS[key as keyof typeof CLIENT_DEFAULTS];
+  if (typeof fallback === 'boolean') return typeof raw === 'boolean' ? raw : raw === 'true' ? true : raw === 'false' ? false : undefined;
+  if (typeof fallback === 'number') {
+    const value = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
+    const [min, max, step] = BOUNDS[key]!;
+    return Number.isInteger(value) && value >= min && value <= max && (value - min) % step === 0 ? value : undefined;
+  }
+  if (typeof raw !== 'string') return undefined;
+  if (key === 'browserCustomSearchUrl') return raw.length <= BROWSER_CUSTOM_SEARCH_URL_MAX_LENGTH ? raw : undefined;
+  if (key.startsWith('fontFamily')) return FONT_FAMILY.test(raw) ? raw.trim() : undefined;
+  // Built-in or saved custom theme ids; a removed custom id falls back to T3 Code when painted.
+  if (key === 'theme' || key === 'themeLight' || key === 'themeDark') return /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/.test(raw) ? raw : undefined;
+  return CHOICES[key]?.includes(raw) ? raw : undefined;
+}
+export function decodeClientPrefs(saved: unknown): ClientPrefs {
+  const source = obj(saved), next = { ...CLIENT_DEFAULTS } as ClientPrefs;
+  for (const key of Object.keys(CLIENT_DEFAULTS)) {
+    const value = clientValue(key, source[key]);
+    if (value !== undefined) (next as Record<string, unknown>)[key] = value;
+  }
+  return next;
+}
+
+type Device = { planModeEnabled: boolean; timestampFormat: string; appearanceMode: string; sendShortcut: string };
+export const DEVICE_DEFAULTS: Device = { planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' };
+const DEVICE_CHOICES: Record<string, readonly string[]> = { timestampFormat: ['locale', '12-hour', '24-hour'], appearanceMode: ['system', 'light', 'dark'], sendShortcut: ['enter', 'mod-enter-multiline', 'mod-enter'] };
+type LocalPrefs = { deviceSettings: Device; clientSettings?: ClientPrefs; groupingMode: string; lastGroupingMode?: string; customThemes?: CustomTheme[] };
+/** Apply one device-local change in place. Returns false when the key is not a device setting. */
+export function applyDeviceSetting(local: LocalPrefs, key: string, value: string): boolean {
+  const device = local.deviceSettings as Record<string, unknown>;
+  if (key in DEVICE_CHOICES || key === 'planModeEnabled') {
+    if (key in DEVICE_CHOICES ? !DEVICE_CHOICES[key]!.includes(value) : !['true', 'false'].includes(value)) throw new ClientError('Unsupported device setting.');
+    device[key] = key in DEVICE_CHOICES ? value : value === 'true';
+    return true;
+  }
+  if (key === 'projectGrouping') {
+    if (!['true', 'false'].includes(value)) throw new ClientError('Unsupported device setting.');
+    if (value === 'false' && local.groupingMode !== 'separate') local.lastGroupingMode = local.groupingMode;
+    local.groupingMode = value === 'true' ? (local.lastGroupingMode && local.lastGroupingMode !== 'separate' ? local.lastGroupingMode : 'repository') : 'separate';
+    return true;
+  }
+  if (key in CLIENT_DEFAULTS) {
+    const decoded = clientValue(key, value);
+    if (decoded === undefined) throw new ClientError('Unsupported device setting.');
+    // ThemeLibrary's Use (ThemeSettings.tsx:906-910, singleAppearanceOf): a one-palette custom theme takes only its own
+    // half (assignHalf), so the other appearance keeps its theme; any other theme is the whole theme (setTheme).
+    const own = key === 'theme' ? (local.customThemes ?? []).find(theme => theme.id === decoded) : undefined;
+    const modes = own ? (['light', 'dark'] as const).filter(mode => own[mode] != null || own.appearance === mode) : [];
+    if (modes.length === 1) { local.clientSettings = { ...(local.clientSettings || decodeClientPrefs({})), [modes[0] === 'light' ? 'themeLight' : 'themeDark']: decoded }; return true; }
+    local.clientSettings = { ...(local.clientSettings || decodeClientPrefs({})), [key]: decoded };
+    if (key === 'theme') local.clientSettings = { ...local.clientSettings, themeLight: decoded as string, themeDark: decoded as string };
+    return true;
+  }
+  return false;
+}
+/** Every device-local key off its default, KEPT_ON_RESTORE's and Plan mode's too; restoreLabels lists only RESTORE_ROWS' of them. */
+export function changedDeviceLabels(local: LocalPrefs): string[] {
+  const prefs = local.clientSettings || decodeClientPrefs({});
+  const labels: string[] = [];
+  for (const [key, value] of Object.entries(DEVICE_DEFAULTS)) if ((local.deviceSettings as Record<string, unknown>)[key] !== value) labels.push(key);
+  for (const [key, value] of Object.entries(CLIENT_DEFAULTS)) if ((prefs as Record<string, unknown>)[key] !== value) labels.push(key);
+  if (local.groupingMode !== 'repository') labels.push('projectGrouping');
+  return labels;
+}
+/** What useSettingsRestore leaves alone (SettingsPanels.tsx restoreDefaults: its one updateSettings patch and useTheme's keys):
+ *  Font smoothing, the thread sort, Plan mode (legacy), and typography's Advanced switch, which the reference keeps in its
+ *  own local storage key (TypographySection), outside the settings. */
+export const KEPT_ON_RESTORE = ['fontSmoothing', 'sidebarThreadSortOrder', 'typographyAdvanced'] as const;
+export function restoreDeviceDefaults(local: LocalPrefs): void {
+  const prefs = local.clientSettings || decodeClientPrefs({}), planModeEnabled = local.deviceSettings.planModeEnabled;
+  Object.assign(local.deviceSettings, DEVICE_DEFAULTS, { planModeEnabled });
+  local.clientSettings = { ...decodeClientPrefs({}), ...Object.fromEntries(KEPT_ON_RESTORE.map(key => [key, prefs[key]])) };
+  local.groupingMode = 'repository';
+  restoreBrowserTabDefaults({ local }); // the default viewport, zoom and appearance (browser-defaults.ts)
+}
+
+// ── Scope ─────────────────────────────────────────────────────────────────
+// settings-scope.ts resolves the selection across every environment the app knows
+// (settings-scope-sources.ts: the focused one and each switched-on background one).
+export type CoreScope = {
+  kind: string; message: string; environmentLabel: string; projectLabel: string; projectMark: string; projectInk: string; projectSurface: string;
+  connective: string; members: Obj[]; connected: boolean; environmentChoices: ScopeChoice[]; projectChoices: ScopeChoice[];
+  /** The ported resolution, every known environment, the selected ones and the axis's machine icon. */
+  resolved: ResolvedSettingsScope; environments: ScopeEnvironment[]; selected: ScopeEnvironment[]; environmentIcon: string;
+  /** Every project group the scope menu lists (SettingsScopeNotice's project choices). */
+  groups: ScopeGroup[];
+};
+/** resolveSettingsScope over the app's environments and project groups. A removed target never broadens to All. */
+export function resolveScope(client: T3Client, machine: string, projectKey: string, checkout: string, source?: EnvironmentFleet): CoreScope {
+  const environments = scopeEnvironments(client, source);
+  const groups = scopeProjectGroups(client, source);
+  const search = scopeSearch(machine, projectKey, checkout);
+  const resolved = resolveSettingsScope(search, groups, environments);
+  const axis = environmentAxisValue(search, resolved.kind === 'checkout' ? resolved.environmentId : null);
+  const current = environments.find(environment => environment.environmentId === axis);
+  const group = groups.find(candidate => candidate.projectKey === projectKey);
+  const { environments: selected, connectedEnvironments } = selectScopedSettingsEnvironments(resolved, environments, primaryEnvironmentId());
+  // EnvironmentScopeMenu and ProjectScopeMenu's options: the line under a name is the address (an environment) or the
+  // checkout path, and the machines when another project has the same name. A chosen project lists only the environments
+  // it has a checkout on (an unknown one lists them all, so it stays recoverable); a chosen environment lists only its projects.
+  const memberEnvironmentIds = group ? new Set(group.memberProjects.map(member => member.environmentId)) : null;
+  const environmentOptions = memberEnvironmentIds ? environments.filter(environment => memberEnvironmentIds.has(environment.environmentId)) : environments;
+  const environmentChoices: ScopeChoice[] = [{ id: '', label: 'All environments', secondary: '', mark: '', ink: '', surface: '', member: '', selected: axis === ALL_ENVIRONMENTS_VALUE, offline: false },
+    ...environmentOptions.map(environment => {
+      const { primary, secondary } = settingsScopeEnvironmentLabels(environment, environments);
+      return { id: environment.environmentId, label: primary, secondary: environments.length <= 1 ? '' : secondary || settingsScopeEnvironmentAddress(environment), mark: environment.kind,
+        ink: '', surface: '', member: '', selected: environment.environmentId === axis, offline: environment.connection.phase !== 'connected' };
+    })];
+  const projects = projectScopeMenuGroups(groups, search).map(candidate => ({ group: candidate, machines: settingsScopeProjectMachines(candidate, environments, true).join(', ') }));
+  const projectChoices: ScopeChoice[] = [{ id: '', label: 'All projects', secondary: '', mark: '', ink: '', surface: '', member: '', selected: projectKey === '', offline: false },
+    ...projects.map(({ group: candidate, machines }) => {
+      const sameName = projects.filter(other => other.group.projectKey !== candidate.projectKey && other.group.displayName === candidate.displayName);
+      const root = str(candidate.memberProjects[0]?.workspaceRoot);
+      const secondary = sameName.length === 0 ? (environments.length > 1 ? root : '') : sameName.some(other => other.machines === machines) ? `${machines} · ${root}` : machines;
+      return { id: candidate.projectKey, label: candidate.displayName, secondary, ...markOf(groupMarkName(candidate)), member: str(candidate.memberProjects[0]?.id), selected: candidate.projectKey === projectKey, offline: false };
+    })];
+  const marks = group ? markOf(groupMarkName(group)) : { mark: '', ink: '', surface: '' };
+  return { kind: resolved.kind, message: resolved.kind === 'unavailable' ? resolved.message : '', members: resolved.members.map(member => member as unknown as Obj),
+    environmentLabel: current ? settingsScopeEnvironmentLabel(current, environments) : axis !== ALL_ENVIRONMENTS_VALUE ? 'Unavailable environment' : 'All environments',
+    projectLabel: projectKey ? (group ? group.displayName : 'Unavailable project') : 'All projects', projectMark: marks.mark, projectInk: marks.ink, projectSurface: marks.surface,
+    connective: machine || resolved.kind === 'checkout' ? 'on' : 'across', connected: connectedEnvironments.length > 0, environmentChoices, projectChoices,
+    resolved, environments, selected, environmentIcon: current?.kind ?? '', groups };
+}
+/** SettingsScopeContext's `environment`: the scope's connected environment, the primary first (its setup links and Providers name it). */
+export function scopeRepresentative(scope: CoreScope) {
+  const connected = scope.selected.filter(environment => environment.connection.phase === 'connected' && environment.serverConfig !== null);
+  return connected.find(candidate => isPrimaryEnvironment(candidate.environmentId)) ?? connected[0];
+}
+/** ProjectFavicon draws the group's representative project, so its monogram is that project's title, not the group label. */
+const groupMarkName = (group: ScopeGroup) => str((group.memberProjects[0] as Obj | undefined)?.title) || group.displayName;
+function markOf(name: string) { const identity = projectIdentity(name); return { mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface }; }
+
+// ── Server rows ───────────────────────────────────────────────────────────
+export const PROJECT_SCOPED = new Set(['worktreeCleanup', 'defaultModelSelection', 'defaultRuntimeMode', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin', 'worktreeSubmodules',
+  'defaultAutoPull', 'defaultProjectScripts', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'textGenerationModelSelection', 'threadTitleInstructions', 'sourceControlWriterModelSelection',
+  'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod', 'sidebarAutoSettleOnMerge',
+  'sidebarAutoSettleAfterDays', 'sidebarAutoSettleKeepPullRequests', 'continueThreadsAfterServerUpdate', 'responseStreamingMode']);
+export const SERVER_DEFAULTS: Record<string, Json> = {
+  defaultModelSelection: null, defaultRuntimeMode: 'full-access', defaultThreadEnvMode: null, worktreeSubmodules: null, autoResumeLimitedThreads: false,
+  snoozeLimitedThreads: false, compactIdleThreads: false, sidebarAutoSettleOnMerge: true, sidebarAutoSettleAfterDays: 3, sidebarAutoSettleKeepPullRequests: false, responseStreamingMode: 'paragraph', enableProviderUpdateChecks: true,
+  continueThreadsAfterServerUpdate: true, backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, newWorktreesStartFromOrigin: true,
+  addProjectBaseDirectory: '', textGenerationModelSelection: { instanceId: 'codex', model: 'gpt-6-luna', options: [{ id: 'reasoningEffort', value: 'low' }] }, threadTitleInstructions: '',
+  enableAgentBrowserAccess: true, fallbackModelSelection: null, snoozePresets: DEFAULT_SNOOZE_PRESETS as unknown as Json,
+};
+const FILE_BACKED: Record<string, [string, string]> = { defaultThreadEnvMode: ['defaultThreadEnvMode', 'local'], worktreeSubmodules: ['worktreeSubmodules', 'recursive'] };
+// Effect's Equal.equals on decoded settings: structural, independent of key order.
+const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical((value as Record<string, unknown>)[key])])) : value ?? null;
+const same = (a: unknown, b: unknown) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+const overridesOf = (settings: Obj, projectId: string) => obj(obj(settings.projectSettingsOverrides)[projectId]);
+const has = (value: Obj, key: string) => Object.prototype.hasOwnProperty.call(value, key) && value[key] !== undefined;
+
+/** The checkout's decoded t3.json, or null for a missing, oversized or invalid file (projectSettings.ts applyProjectFile). */
+export function parseProjectFile(contents: string): Obj | null {
+  try { const value = JSON.parse(contents); return value && typeof value === 'object' && !Array.isArray(value) ? value : null; } catch { return null; }
+}
+/** resolveProjectSettings for one member: project override, environment value, t3.json (file-backed keys), built-in. */
+export function effectiveSetting(settings: Obj, projectId: string, key: string, file: Obj | null | undefined): { value: Json; source: string } {
+  const overrides = overridesOf(settings, projectId);
+  if (projectId && has(overrides, key) && PROJECT_SCOPED.has(key)) {
+    const value = overrides[key] as Json;
+    if (!FILE_BACKED[key] || value !== null) return { value, source: 'project' };
+  }
+  const environmentValue = (key in settings ? settings[key] : SERVER_DEFAULTS[key]) as Json;
+  const fileBacked = FILE_BACKED[key];
+  if (fileBacked && (environmentValue === null || environmentValue === undefined)) {
+    const fromFile = file?.[fileBacked[0]];
+    if (projectId && typeof fromFile === 'string') return { value: fromFile, source: 't3.json' };
+    return { value: fileBacked[1], source: 'environment' };
+  }
+  return { value: environmentValue ?? null, source: 'environment' };
+}
+
+/** One control's context: the representative target's settings (display) and every connected target (mixed, writes). */
+export type ServerContext = { settings: Obj; scope: CoreScope; files: Map<string, Obj | null>; capabilities: Obj; providers: Obj[]; environmentLabel: string;
+  targets: readonly ScopedSettingsTarget[]; restartEverywhere: boolean; autoSettlementScopeEverywhere: boolean; settingsWritable: boolean;
+  /** Each known environment's advertised providers: a model choice must exist on every target (useScopedModelDisabledReason). */
+  catalogs: Map<string, Obj[]>;
+  /** This device's preferences: models it hides, and a model a hidden default falls back to (resolveEffectiveDefaultModelSelection). */
+  local?: object };
+/** A target's value for a key: its effective value, a file-backed key's built-in when nothing set it (effectiveSetting). */
+function targetValue(target: ScopedSettingsTarget, key: string): Json {
+  // scopedIdleCompaction: targets compare by the mode each resolves to, whichever field its server keeps it in.
+  if (key === 'idleCompaction') return globalIdleCompaction(target.settings);
+  const value = (key in target.settings ? target.settings[key] : SERVER_DEFAULTS[key]) as Json;
+  return (value === null || value === undefined) && FILE_BACKED[key] ? FILE_BACKED[key]![1] : value ?? null;
+}
+function serverState(context: ServerContext, key: string) {
+  const { settings, scope, targets } = context;
+  const project = scope.kind === 'project' || scope.kind === 'checkout';
+  const values = targets.map(target => targetValue(target, key));
+  const first = values.length ? values[0]! : effectiveSetting(settings, '', key, null).value;
+  // scopedSettingsAreMixed over the effective values (a file-backed key's unset value reads as its built-in).
+  const mixed = values.some(value => !same(value, first));
+  const scoped = PROJECT_SCOPED.has(key);
+  const environmentWide = project && !scoped;
+  const source = project ? scopedSettingsSource(targets, [key]) : 'environment';
+  // The idle compaction row reads both of its keys (settingKeys idleCompaction, compactIdleThreads).
+  const customized = key === 'idleCompaction' ? settings.idleCompaction !== undefined || !same(settings.compactIdleThreads ?? false, false)
+    : !same(settings[key], SERVER_DEFAULTS[key]) && key in SERVER_DEFAULTS;
+  const inheritance = mixed ? ['mixed', 'Mixed across selected targets'] : project && source === 'project' ? ['overridden', 'Overridden for this project']
+    : project && source === 't3.json' ? ['inherited', "Inherited from the repository's t3.json"]
+    : project && scoped ? ['inherited', `Inherited from ${context.environmentLabel}`]
+    : customized ? ['environment', 'Set on the environment'] : ['default', 'Built-in default'];
+  const note = !context.settingsWritable ? 'This connection requires settings:write.' : !scope.connected ? 'Reconnect the selected environment to change this setting.' : environmentWide ? 'Environment-wide setting. Select an environment to change it.' : '';
+  return { value: first, mixed, source, inheritance, note, inert: note !== '', resettableProject: project && scoped && (source === 'project' || source === 'mixed') };
+}
+const MERGE_METHOD_LABELS: Record<string, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
+const SUBMODULE_LABELS: Record<string, string> = { recursive: 'Recursive', 'top-level': 'Top level only', none: 'Skip' };
+const WRITING_STYLE_LABELS: Record<string, string> = { repo_conventions: 'Repository conventions', conventional_commits: 'Conventional Commits', custom: 'Custom instructions' };
+/**
+ * SettingInheritance formatValue: human labels for the chain's values, every page's popover (General's here,
+ * Source Control's and Integrations' in source-control-view.ts). An object other than a model selection or a writing
+ * style reads "Custom": Background activity's `{ profile }` has no label of its own there.
+ */
+export function formatSettingValue(key: string, value: unknown): string {
+  if (value === null || value === undefined) return key === 'pullRequestMergeMethod' ? 'Last selected' : key === 'sidebarAutoSettleAfterDays' ? 'Never'
+    : key === 'defaultModelSelection' ? 'Automatic' : key === 'sourceControlWriterModelSelection' ? 'Text generation model'
+    : key === 'reviewGuideModelSelection' ? 'Source control writer model' : key === 'defaultThreadEnvMode' || key === 'worktreeSubmodules' ? 'Inherit' : 'Not set';
+  if (typeof value === 'boolean') return value ? 'On' : 'Off';
+  if (typeof value === 'number') return key === 'sidebarAutoSettleAfterDays' ? `${value} ${value === 1 ? 'day' : 'days'}` : String(value);
+  if (typeof value === 'string') {
+    if (key === 'defaultThreadEnvMode' && (value === 'local' || value === 'worktree')) return value === 'worktree' ? 'New worktree' : 'Current checkout';
+    const label = key === 'worktreeSubmodules' ? SUBMODULE_LABELS[value] : key === 'pullRequestMergeMethod' ? MERGE_METHOD_LABELS[value] : undefined;
+    if (label) return label;
+    return value === '' ? 'Empty' : value;
+  }
+  if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? 'item' : 'items'}`;
+  const entry = obj(value);
+  if (typeof entry.model === 'string') return entry.model;
+  if (typeof entry.mode === 'string') return WRITING_STYLE_LABELS[entry.mode] ?? entry.mode;
+  return 'Custom';
+}
+/** settingInheritanceLayers for the representative target: project, environment, t3.json, built-in. */
+function inheritanceLayers(context: ServerContext, key: string, target?: ScopedSettingsTarget, defaults: Obj = SERVER_DEFAULTS): CoreOption[] {
+  const { scope } = context;
+  const raw = target ? scope.environments.find(environment => environment.environmentId === target.environmentId)?.serverConfig?.settings ?? context.settings : context.settings;
+  const settings = { ...defaults, ...raw };
+  const member = target ? target.projectId ?? '' : scope.kind === 'project' || scope.kind === 'checkout' ? str(scope.members[0]?.id) : '';
+  const resolved = effectiveSetting(settings, member, key, member ? context.files.get(member) : null);
+  const environmentValue = key in settings ? settings[key] : defaults[key];
+  const environmentSet = !same(environmentValue, defaults[key]);
+  const layers: CoreOption[] = [];
+  if (member && PROJECT_SCOPED.has(key)) layers.push(option('project', 'Project', resolved.source === 'project', { detail: resolved.source === 'project' ? formatSettingValue(key, resolved.value) : 'Inherits' }));
+  layers.push(option('environment', 'Environment', resolved.source === 'environment' && environmentSet, { detail: environmentSet ? formatSettingValue(key, environmentValue) : 'Inherits' }));
+  if (member && FILE_BACKED[key]) layers.push(option('t3.json', 't3.json', resolved.source === 't3.json', { detail: resolved.source === 't3.json' ? formatSettingValue(key, resolved.value) : 'Inherits' }));
+  const builtIn = FILE_BACKED[key] ? FILE_BACKED[key]![1] : defaults[key];
+  layers.push(option('default', 'Default', !layers.some(layer => layer.selected), { detail: formatSettingValue(key, builtIn) }));
+  return layers;
+}
+export type InheritanceGroup = { id: string; title: string; winner: string; value: string; labels: string[]; folded: boolean; sameEverywhere: boolean; layers: CoreOption[]; overrideTargets: string; overrides: { id: string; label: string; machine: string; value: string }[] };
+/** SettingInheritance (T3 9c161462c9): equal resolutions share a chain; disagreeing groups open on demand. */
+export function inheritanceGroups(context: ServerContext, key: string, defaults: Obj = SERVER_DEFAULTS): InheritanceGroup[] {
+  const multiple = new Set(context.targets.map(target => target.environmentId)).size > 1;
+  const groups: { resolution: unknown; view: InheritanceGroup }[] = [];
+  for (const target of context.targets) {
+    const environment = context.scope.environments.find(entry => entry.environmentId === target.environmentId);
+    if (!environment?.serverConfig) continue;
+    const labels = settingsScopeEnvironmentLabels(environment, context.scope.environments);
+    const member = context.scope.members.find(entry => entry.environmentId === target.environmentId && entry.id === target.projectId);
+    const path = str(member?.workspaceRoot).split(/[\\/]/).filter(Boolean).slice(-2).join('/');
+    const label = [labels.primary, labels.secondary, path].filter(Boolean).join(' · ');
+    const layers = inheritanceLayers(context, key, target, defaults), winning = layers.find(layer => layer.selected);
+    const resolution = { source: target.sources[key], value: target.settings[key], layers: layers.map(layer => [layer.value, layer.detail]) };
+    const overrides = (context.scope.kind === 'all' || context.scope.kind === 'environment') && PROJECT_SCOPED.has(key) ? Object.entries(obj(environment.serverConfig.settings.projectSettingsOverrides)).filter(([, value]) => has(obj(value), key)).map(([projectId, value]) => {
+      const project = context.scope.groups.flatMap(group => group.memberProjects).find(member => member.environmentId === target.environmentId && member.id === projectId);
+      return { id: `${target.environmentId}:${projectId}`, label: str(project?.title) || projectId, machine: settingsScopeEnvironmentLabel(environment, context.scope.environments), value: formatSettingValue(key, obj(value)[key]) };
+    }) : [];
+    const existing = multiple ? groups.find(group => same(group.resolution, resolution)) : undefined;
+    if (existing) { existing.view.labels.push(label); existing.view.overrides.push(...overrides.filter(override => !existing.view.overrides.some(current => current.id === override.id))); }
+    else groups.push({ resolution, view: { id: `${target.environmentId}:${target.projectId ?? ''}`, title: target.label, winner: winning?.label ?? '', value: winning?.detail ?? '',
+      labels: [label], folded: false, sameEverywhere: false, layers, overrides, overrideTargets: '' } });
+  }
+  return groups.map(({ view }) => ({ ...view, folded: multiple && groups.length > 1, sameEverywhere: multiple && groups.length === 1, overrideTargets: JSON.stringify(view.overrides.map(override => { const at = override.id.indexOf(':'); return { environmentId: override.id.slice(0, at), projectId: override.id.slice(at + 1) }; })) }));
+}
+function serverRow(context: ServerContext, key: string, id: string, title: string, description: string, kind: string, extra: Partial<CoreRow> = {}, resetDefault?: boolean): CoreRow {
+  const state = serverState(context, key);
+  const project = context.scope.kind === 'project' || context.scope.kind === 'checkout';
+  const resettable = !state.inert && (project ? state.resettableProject : resetDefault ?? !same(context.settings[key], SERVER_DEFAULTS[key]));
+  return coreRow(id, title, description, kind, { inheritance: state.inheritance[0]!, inheritanceSummary: state.inheritance[1]!, inert: state.inert, note: state.note,
+    layers: inheritanceLayers(context, key), layerTitle: context.environmentLabel, layerGroups: inheritanceGroups(context, key),
+    resettable, resetLabel: extra.resetLabel ?? title.toLowerCase(), ...(kind === 'switch' ? { checked: state.value === true, mixed: state.mixed } : {}), ...extra });
+}
+
+const RUNTIME = [['approval-required', 'Supervised', 'Ask before commands and file changes.', 'lock'], ['auto-accept-edits', 'Auto-accept edits', 'Auto-approve edits, ask before other actions.', 'pen-line'],
+  ['auto', 'Auto', 'Supported providers approve routine actions; others still ask.', 'sparkles'], ['full-access', 'Full access', 'Allow commands and edits without prompts.', 'lock-open']] as const;
+const BACKGROUND = { balanced: ['Balanced', 'Pauses probes for idle clients, locked hosts, or low power mode.'], performance: ['Performance', 'Allows scoped background probes while any subscribed client remains connected.'],
+  'battery-saver': ['Battery saver', 'Also pauses background probes when the host or client is on battery.'] } as Record<string, [string, string]>;
+
+/** ProviderModelPicker + TraitsPicker rows: an advertised model and its reasoning effort (the picker's catalog is settings-model-picker.ts). */
+function modelControl(context: ServerContext, selection: Obj | null, textGeneration: boolean): Partial<CoreRow> {
+  const providers = context.providers.filter(provider => providerAvailable(provider) && (!textGeneration || provider.supportsTextGeneration !== false));
+  if (textGeneration) {
+    // resolveAppModelSelectionState: a missing saved model gets the driver's text generation default.
+    const resolved = resolveTextGenerationSelection(selection, providers);
+    return resolved ? traitsControl(context, resolved.provider, resolved.model, resolved.options) : { kind: 'text-only', label: 'No text generation providers available.' };
+  }
+  // resolveDefaultProviderModelSelection: the saved instance while it is selectable, else a ready one at its default model.
+  const entry = resolveSelectableProviderInstanceEntry(providerEntries(providers), selection ? str(selection.instanceId) : undefined);
+  if (!entry) return { kind: 'text-only', label: 'No providers available' };
+  const stored = selection && str(selection.instanceId) === entry.instanceId;
+  const storedModel = stored ? str(selection!.model) : str(entry.models.find(model => model.isDefault === true)?.slug, str(entry.models[0]?.slug));
+  // resolveEffectiveDefaultModelSelection: a saved model this device hides shows the model new drafts fall back to,
+  // with the saved options, as the new-thread composer resolves them.
+  const effective = resolveAppModelSelectionForInstance(context.local ?? {}, context.settings, providers, entry.instanceId, storedModel, true) ?? storedModel;
+  const model = entry.models.find(candidate => candidate.slug === effective) ?? (effective ? { slug: effective, name: effective } : undefined);
+  return traitsControl(context, entry.snapshot, model, stored ? arr(selection!.options) : []);
+}
+/**
+ * ProjectDefaultsSettings' Fallback model: a ProviderModelPicker with no TraitsPicker, over the saved fallback or else the
+ * default model; "None" while no fallback is saved and "Mixed" when the targets differ, with no provider mark.
+ */
+function fallbackControl(context: ServerContext, defaultSelection: Json): Partial<CoreRow> {
+  const state = serverState(context, 'fallbackModelSelection');
+  const saved = state.value === null || state.value === undefined ? null : obj(state.value);
+  const control = modelControl(context, saved ?? (defaultSelection === null ? null : obj(defaultSelection)), false);
+  if (control.kind === 'text-only') return control;
+  const shown = state.mixed ? 'Mixed' : saved === null ? 'None' : '';
+  return { ...control, label2: '', options2: [], ...(shown ? { label: shown, driver: '', badge: '' } : {}) };
+}
+/** The model trigger and its TraitsPicker for one resolved instance, model and saved options. */
+export function traitsControl(context: { providers: Obj[]; settings?: Obj }, provider: Obj, model: Obj | undefined, selections: Obj[]): Partial<CoreRow> {
+  // TraitsPicker: every select trait in its own section (Reasoning, Service Tier), radio rows with a Default badge.
+  const descriptors = arr(obj(model?.capabilities).optionDescriptors).filter(descriptor => descriptor.type === 'boolean' || descriptor.type === 'select' && arr(descriptor.options).length > 0);
+  const choices = (descriptor: Obj) => descriptor.type === 'boolean' ? [{ id: 'true', label: 'On' }, { id: 'false', label: 'Off' }]
+    : arr(descriptor.options).filter(entry => !Array.isArray(descriptor.promptInjectedValues) || !descriptor.promptInjectedValues.some(value => value === entry.id));
+  // A saved value the model does not offer (options carried over from a hidden model) shows the descriptor's default.
+  const current = (descriptor: Obj) => descriptor.type === 'boolean' ? String(selections.find(entry => entry.id === descriptor.id)?.value ?? descriptor.currentValue ?? false)
+    : str(choices(descriptor).find(entry => entry.id === selections.find(saved => saved.id === descriptor.id)?.value)?.id,
+      str(arr(descriptor.options).find(entry => entry.isDefault === true)?.id, str(arr(descriptor.options)[0]?.id)));
+  const effort = descriptors.find(descriptor => ['reasoningEffort', 'effort'].includes(str(descriptor.id)));
+  const effortValue = effort ? current(effort) : '';
+  // buildTraitsTriggerDisplay over every trait (TraitsPicker with the setting's options): "Medium · 1M", "High Fast".
+  const display = traitsDisplay(str(provider.driver), arr(obj(model?.capabilities).optionDescriptors), selections);
+  const traits = descriptors.flatMap((descriptor, index) => [option(`section:${str(descriptor.id)}`, str(descriptor.label, str(descriptor.id)), false, { icon: index ? 'section-rule' : 'section', disabled: true }),
+    ...choices(descriptor).map(entry => option(`${str(descriptor.id)}=${str(entry.id)}`, str(entry.label, str(entry.id)), current(descriptor) === entry.id,
+      { detail: str(entry.description), icon: entry.isDefault === true ? 'default' : '' }))]);
+  return {
+    value: `${str(provider.instanceId)}|${str(model?.slug)}`, label: str(model?.name, str(model?.slug)), driver: str(provider.driver),
+    badge: providerBadge(provider, context.providers).providerBadge, badgeColor: providerBadge(provider, context.providers).providerBadgeColor,
+    markIcon: acpInstanceIcon({ settings: context.settings ?? {} }, provider),
+    value2: effortValue, label2: display.label,
+    options2: traits,
+  };
+}
+
+/**
+ * The rows the reference's General page held before 9db433f4ba #25651 split it, with their live values, as the
+ * sections of `route`: General, Chat, Diffs & pull requests, Threads, Worktrees, Maintenance, About or Labs
+ * (SettingsPanels.tsx and WorktreesSettings.tsx at 96fc7b9551); every page's, in nav order, without one.
+ */
+export function generalSections(client: T3Client, context: ServerContext, route = ''): CoreSection[] {
+  const { scope, settings, capabilities } = context;
+  const local = client.local as unknown as LocalPrefs;
+  const prefs = local.clientSettings || decodeClientPrefs({});
+  const device = local.deviceSettings;
+  const project = scope.kind === 'project' || scope.kind === 'checkout';
+  const deviceRow = (key: string, id: string, title: string, description: string, kind: string, extra: Partial<CoreRow> = {}): CoreRow => {
+    const value = key in DEVICE_DEFAULTS ? (device as Record<string, unknown>)[key] : (prefs as Record<string, unknown>)[key];
+    const fallback = key in DEVICE_DEFAULTS ? (DEVICE_DEFAULTS as Record<string, unknown>)[key] : (CLIENT_DEFAULTS as Record<string, unknown>)[key];
+    return coreRow(id, title, description, kind, { checked: value === true, value: String(value), resettable: value !== fallback, target: key, ...extra });
+  };
+  const select = (current: string, choices: readonly (readonly [string, string])[]) => ({ value: current, label: choices.find(([value]) => value === current)?.[1] ?? current,
+    options: choices.map(([value, label]) => option(value, label, value === current)) });
+  const value = (key: string) => serverState(context, key);
+  const modelState = value('defaultModelSelection');
+  // ProjectDefaultsSettings: a Mixed model shows a neutral trigger and no Traits picker.
+  const modelRow = modelControl(context, modelState.value === null ? null : obj(modelState.value), false);
+  const runtime = value('defaultRuntimeMode'), workspace = value('defaultThreadEnvMode'), submodules = value('worktreeSubmodules');
+  const runtimeEntry = RUNTIME.find(entry => entry[0] === runtime.value) ?? RUNTIME[3];
+  const autoSettle = capabilities.threadAutoSettlement === true && scope.connected;
+  const days = value('sidebarAutoSettleAfterDays');
+  const streaming = value('responseStreamingMode');
+  const background = obj(value('backgroundActivity').value);
+  // The select shows the normalized value; Advanced needs exactly one environment (isEnvironmentScope).
+  const profile = profileOption({ ...settings, backgroundActivity: background });
+  // isEnvironmentScope: Advanced needs exactly one selected environment.
+  const envScope = scope.kind !== 'unavailable' && scope.selected.length === 1;
+  const restart = context.restartEverywhere;
+  const mod = '⌘';
+  const textState = value('textGenerationModelSelection'), textSelection = obj(textState.value);
+  const textControl = modelControl(context, textSelection, true); // a Mixed text generation model keeps its Traits picker
+  const titleInstructions = value('threadTitleInstructions');
+  const newThreads: CoreRow[] = [
+    serverRow(context, 'defaultModelSelection', 'default-model', 'Model', project ? 'Model for new threads in this project.' : scope.connected && !modelState.mixed && modelState.source !== 'project' && modelState.value === null ? 'Default model for new threads, selected automatically. Projects can override it.' : 'Default model for new threads. Projects can override it.', 'model',
+      { status: '', resetLabel: 'default model',
+        ...modelRow, ...(modelState.mixed && modelRow.kind !== 'text-only' ? { label: 'Mixed', mixed: true, label2: '' } : {}) }, modelState.value !== null),
+    ...(project ? [] : [serverRow(context, 'fallbackModelSelection', 'fallback-model', 'Fallback model', "Used for new threads when the default model's provider is out of usage.", 'model',
+      { resetLabel: 'fallback model', ...fallbackControl(context, modelState.value) }, value('fallbackModelSelection').mixed || value('fallbackModelSelection').value !== null)]),
+    serverRow(context, 'defaultRuntimeMode', 'default-permissions', 'Permissions', project ? 'Permissions for new threads in this project.' : 'Default permissions for new threads. Projects can override them.', 'select',
+      { value: str(runtime.value), label: runtime.mixed ? 'Mixed' : runtimeEntry[1], icon: runtime.mixed ? '' : runtimeEntry[3], resetLabel: 'default permissions', menuWidth: 372,
+        options: RUNTIME.map(([id, label, detail, icon]) => option(id, label, id === runtime.value, { detail, icon })) }),
+    serverRow(context, 'defaultThreadEnvMode', 'new-threads', 'Workspace', project ? 'Where new threads in this project start.' : 'Where new threads start. Projects and their t3.json can override it.', 'select',
+      { ...select(str(workspace.value), [['local', 'Current checkout'], ['worktree', 'New worktree']]), ...(workspace.mixed ? { label: scope.connected ? 'Mixed' : 'Unavailable' } : {}), resetLabel: 'default workspace' },
+      !project && settings.defaultThreadEnvMode !== null && settings.defaultThreadEnvMode !== undefined),
+    serverRow(context, 'worktreeSubmodules', 'worktree-submodules', 'Submodules', project ? 'How new worktrees in this project populate git submodules.' : 'How new worktrees populate git submodules. Projects and their t3.json can override it.', 'select',
+      { ...select(str(submodules.value), [['recursive', 'Recursive'], ['top-level', 'Top level only'], ['none', 'Skip']]), ...(submodules.mixed ? { label: 'Mixed' } : {}), resetLabel: 'worktree submodules' },
+      !project && settings.worktreeSubmodules !== null && settings.worktreeSubmodules !== undefined),
+  ];
+  // SnoozePresetsRow: the environment's own list (environment scope only), soonest first.
+  const snooze = value('snoozePresets');
+  const snoozeRows: CoreRow[] = project ? [] : [serverRow(context, 'snoozePresets', 'snooze-options', 'Snooze options', 'Choices in every snooze menu, listed soonest first. Weekdays mean the next one after today.', 'snooze',
+    { resetLabel: 'snooze options', snooze: [snoozeEditor(snoozePresetsOf({ snoozePresets: snooze.value }), new Date(latestWall(client)), device.timestampFormat)] },
+    snooze.mixed || snoozePresetsChanged(snooze.value))];
+  const organization: CoreRow[] = [
+    coreRow('project-grouping', 'Project grouping', 'Combine matching repositories across environments.', 'switch', { checked: local.groupingMode !== 'separate', resettable: local.groupingMode !== 'repository', target: 'projectGrouping' }),
+    // c5a929e1: Project order (client setting sidebarProjectSortOrder), w-full sm:w-44.
+    deviceRow('sidebarProjectSortOrder', 'project-order', 'Project order', 'Order of projects in the sidebar project picker and command palette.', 'select',
+      { ...select(prefs.sidebarProjectSortOrder, [['updated_at', 'Last user message'], ['created_at', 'Created at'], ['manual', 'Manual']]), width: 176, resetLabel: 'project order' }),
+    serverRow(context, 'autoResumeLimitedThreads', 'auto-resume-limited-threads', 'Resume after usage limits', 'Resume usage-limit stops at the reported reset time. Each thread can cancel its scheduled continuation.', 'switch', {}, false),
+    serverRow(context, 'snoozeLimitedThreads', 'snooze-limited-threads', 'Snooze until limits reset', 'Snooze usage-limit stops until reset. Pair with resume to continue on wake.', 'switch', {}, false),
+    deviceRow('sidebarWorkingShelfEnabled', 'working-shelf', 'Working section', 'Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you.', 'switch'),
+    ...(autoSettle ? [
+      serverRow(context, 'sidebarAutoSettleOnMerge', 'auto-settle-merged-threads', 'Auto-settle merged threads', 'Settle a thread when its pull request merges. Closed pull requests still settle automatically.', 'switch', { resetLabel: 'auto-settle on merge' }),
+      serverRow(context, 'sidebarAutoSettleAfterDays', 'auto-settle-inactive-threads', 'Auto-settle inactive threads', 'Sidebar threads with no activity for this long settle automatically.', 'switch', { checked: days.value !== null, resetLabel: 'auto-settle' }),
+      ...(days.value !== null ? [serverRow(context, 'sidebarAutoSettleAfterDays', 'days-before-auto-settle', 'Days of inactivity before auto-settle', 'Any new activity un-settles a thread automatically.', 'number',
+        { value: String(num(days.value, 3)), min: 1, max: 90, width: 96, target: 'days' }, false)] : []),
+      ...(days.value !== null && context.autoSettlementScopeEverywhere ? [serverRow(context, 'sidebarAutoSettleKeepPullRequests', 'keep-threads-with-pr', 'Keep threads with a PR', 'Inactivity does not settle threads with a pull request. Merge and close still do.', 'switch')] : []),
+    ] : []),
+  ];
+  const behavior: CoreRow[] = [
+    deviceRow('notificationMode', 'thread-notifications', 'Thread notifications', notificationPermissionMessage(client) || 'System alerts when a thread finishes, fails, or needs input or approval. Applies to this device while T3 Code is open.', 'select',
+      { ...select(prefs.notificationMode, [['off', 'Off'], ['notifications', 'Notifications only'], ['sound', 'Sound only'], ['notifications-and-sound', 'Notifications with sound']]), width: 224, resettable: false }),
+    deviceRow('inAppNotificationsEnabled', 'in-app-notifications', 'In-app notifications', 'Show a toast when another thread finishes, fails, or needs input or approval while this app has focus.', 'switch', { resettable: false }),
+    deviceRow('timestampFormat', 'time-format', 'Time format', 'System default follows your browser or OS clock preference.', 'select', { ...select(device.timestampFormat, [['locale', 'System default'], ['12-hour', '12-hour'], ['24-hour', '24-hour']]) }),
+    serverRow(context, 'responseStreamingMode', 'response-streaming', 'Response streaming', streaming.mixed ? 'The selected targets use different streaming modes.' : streaming.value === 'turn' ? 'Text appears once the agent finishes its turn.' : 'Each paragraph or code block appears as soon as it is complete.', 'select',
+      { ...select(str(streaming.value), [['turn', 'Wait for the full response'], ['paragraph', 'Show finished paragraphs']]), ...(streaming.mixed ? { label: 'Mixed' } : {}), width: 224 }),
+    deviceRow('diffIgnoreWhitespace', 'hide-whitespace-changes', 'Hide whitespace changes', 'Set whether the diff panel ignores whitespace-only edits by default.', 'switch', { resetLabel: 'diff whitespace changes' }),
+    deviceRow('diffFilesCollapsed', 'default-diff-file-state', 'Default diff file state', "Start with files expanded or collapsed when opening diffs or a pull request's Code tab.", 'select',
+      { value: prefs.diffFilesCollapsed ? 'collapsed' : 'expanded', label: prefs.diffFilesCollapsed ? 'Collapsed' : 'Expanded', options: [option('expanded', 'Expanded', !prefs.diffFilesCollapsed), option('collapsed', 'Collapsed', prefs.diffFilesCollapsed)] }),
+    deviceRow('diffLayout', 'diff-layout', 'Diff layout', 'Show diffs stacked or side by side. The toggle in the diff toolbar changes this too.', 'select', { ...select(prefs.diffLayout, [['stacked', 'Stacked'], ['split', 'Split']]) }),
+    // DiffColorsSettingsRow: the trigger's two dots, deletion then addition (reversed for blue and orange).
+    deviceRow('diffColorScheme', 'diff-color-scheme', 'Diff colors', 'Choose colors for additions and deletions, including change counts.', 'select',
+      { ...select(prefs.diffColorScheme, [['red-green', 'Red & green (default)'], ['blue-orange', 'Blue & orange']]), label: prefs.diffColorScheme === 'blue-orange' ? 'Blue & orange' : 'Red & green',
+        icon: prefs.diffColorScheme === 'blue-orange' ? 'dots-blue-orange' : 'dots-red-green', resetLabel: 'diff colors' }),
+    deviceRow('proactivePanelsEnabled', 'proactive-panels', 'Proactive panels', 'Open linked pull requests first. Otherwise, open Changes for edits to at least 3 files or 50 lines.', 'switch'),
+    deviceRow('pullRequestLinksOpenInApp', 'pull-request-links-open-in-app', 'Open pull requests in T3 Code', 'Clicking a pull request link opens it in T3 Code. Turn off to open pull request links like any other link, on your git host.', 'switch',
+      { resetLabel: 'open pull requests in T3 Code' }),
+    deviceRow('showSkillsInSlashMenu', 'skills-in-slash-menu', 'Show skills in slash menu', 'Also include skills in the / command menu. Skills always appear when you type $.', 'switch'),
+    deviceRow('composerRichTextEnabled', 'composer-rich-text', 'Rich text composer', 'Show formatted Markdown as you type.', 'switch'),
+    deviceRow('sendShortcut', 'send-shortcut', 'Send shortcut', 'Choose when Enter sends a prompt or inserts a new line', 'select',
+      { ...select(device.sendShortcut, [['enter', 'Enter'], ['mod-enter-multiline', `${mod} + Enter for multiline prompts`], ['mod-enter', `${mod} + Enter always`]]), width: 0, icon: 'checks' }),
+    deviceRow('followUpBehavior', 'follow-up-behavior', 'Follow-up behavior', 'Queue follow-ups while the agent runs or steer the current run. ' + (device.sendShortcut === 'mod-enter-multiline'
+      ? `Press ${mod} + Enter for single-line prompts or ${mod} + Shift + Enter for multiline prompts to do the opposite for one message.`
+      : `Press ${mod}${device.sendShortcut === 'mod-enter' ? ' + Shift' : ''} + Enter to do the opposite for one message.`), 'select', { ...select(prefs.followUpBehavior, [['queue', 'Queue'], ['steer', 'Steer']]), width: 0 }),
+    serverRow(context, 'enableProviderUpdateChecks', 'provider-update-checks', 'Provider update checks', 'Check installed provider CLIs for newer available versions and fetch model catalog updates. When off, new models may not appear.', 'switch'),
+    serverRow(context, 'continueThreadsAfterServerUpdate', 'continue-threads-after-server-update', 'Continue threads after restarts', 'Automatically resume interrupted threads after an update, crash, or machine restart on the selected environments.', 'switch',
+      { status: restart || !scope.connected ? '' : 'All selected connected environments must support restart continuation.', disabled: !restart, resetLabel: 'continue threads after restarts' }, restart && settings.continueThreadsAfterServerUpdate === true),
+    serverRow(context, 'backgroundActivity', 'background-activity', 'Background activity', profile === 'advanced' ? `Uses custom intervals. Shared policy: ${(BACKGROUND[baseProfile(background)] ?? BACKGROUND.balanced!)[0]}.` : (BACKGROUND[profile] ?? BACKGROUND.balanced!)[1], 'select',
+      { value: profile, label: profile === 'advanced' ? 'Advanced' : (BACKGROUND[profile] ?? BACKGROUND.balanced!)[0], info: 'This shared policy gates background work such as Git refreshes and provider health probes after their individual intervals elapse.',
+        width: 160, value2: profile === 'advanced' && envScope ? 'configure' : '',
+        options: [...Object.entries(BACKGROUND).map(([id, [label]]) => option(id, label, id === profile)), option('advanced', envScope ? 'Advanced' : 'Advanced (one environment)', profile === 'advanced', { disabled: !envScope })] }),
+  ];
+  const projects: CoreRow[] = [
+    serverRow(context, 'newWorktreesStartFromOrigin', 'start-from-origin', 'Start from remote', 'Uses the latest commit of the base branch’s tracked remote branch, even if its name differs. Otherwise uses the same-named branch on origin. Uses your local branch if that remote branch is missing.', 'switch', { resetLabel: 'new worktrees start from remote' }),
+    serverRow(context, 'addProjectBaseDirectory', 'add-project-starts-in', 'Add project starts in', 'Leave empty to use "~/" when the Add Project browser opens.', 'text',
+      { value: str(value('addProjectBaseDirectory').value), placeholder: '~/', width: 288, resetLabel: 'add project base directory' }),
+  ];
+  const confirmations: CoreRow[] = [
+    deviceRow('confirmThreadUnpin', 'unpin-confirmation', 'Unpin confirmation', 'Ask before unpinning a thread from the pinned section.', 'switch'),
+    deviceRow('confirmThreadArchive', 'archive-confirmation', 'Archive confirmation', 'Require a second click on the inline archive action before a thread is archived.', 'switch'),
+    deviceRow('confirmThreadDelete', 'delete-confirmation', 'Delete confirmation', 'Ask before deleting a thread and its chat history.', 'switch'),
+    // Desktop-only (SettingsPanels.tsx isElectron): the ⌘Q behaviour (T3Menus.swift).
+    deviceRow('confirmQuit', 'quit-confirmation', 'Quit shortcut', 'Hold mode also quits on two quick presses.', 'select', { ...select(prefs.confirmQuit, [['direct', 'Direct'], ['hold', 'Hold'], ['double-click', 'Double press']]), resetLabel: 'quit shortcut behavior' }),
+  ];
+  const textGeneration: CoreRow[] = [serverRow(context, 'textGenerationModelSelection', 'text-generation-model', 'Text generation model',
+    'Used for thread titles and other generated text on connected devices with this provider. Source control can override it.', 'model',
+    scope.connected ? { ...textControl, ...(textState.mixed && textControl.kind !== 'text-only' ? { label: 'Mixed', mixed: true } : {}) } : { kind: 'text-only', label: 'Connect an environment to choose its text generation model.' }),
+    // ThreadTitleInstructionsSettings: a 4-row textarea saved when the field is left (CoreTextArea).
+    serverRow(context, 'threadTitleInstructions', 'thread-title-instructions', 'Thread title instructions', 'Appended to the prompt for new and regenerated thread titles.', 'textarea',
+      { value: titleInstructions.mixed ? '' : str(titleInstructions.value), mixed: titleInstructions.mixed, resetLabel: 'thread title instructions',
+        placeholder: titleInstructions.mixed ? 'Mixed. Enter instructions to apply to all selected targets.' : 'Keep titles to a few words. Lead with the main subject.' },
+      titleInstructions.mixed || str(titleInstructions.value) !== '')];
+  // AboutVersionTitle: this app's own release (APP_VERSION), not the connected server's.
+  const about = aboutRows(client, CLIENT_VERSION); // settings-a-about.ts: the update button and Update track
+  const diagnostics = [
+    diagnosticsRow(envScope),
+    coreRow('open-source-licenses', 'Open source licenses', 'Notices for dependencies, assets, and optional tools used by T3 Code.', 'link', { label: 'View licenses', target: 'open-source-licenses', width: 0 }),
+  ];
+  const legacy = [
+    deviceRow('planModeEnabled', 'legacy-plan-mode', 'Plan mode (legacy)', 'Restore Build/Plan, /plan, /default, and Shift+Tab. Off uses build mode.', 'switch', { resettable: false }),
+    deviceRow('contextWindowMeterEnabled', 'legacy-context-window-indicator', 'Context window indicator (legacy)', 'Shows context window usage as a circular indicator in the composer.', 'switch', { resettable: false }),
+  ];
+  const rows = new Map([...newThreads, ...snoozeRows, ...organization, ...behavior, ...projects, ...confirmations, ...textGeneration, ...about, ...diagnostics, ...legacy].map(row => [row.id, row]));
+  const pick = (id: string, title: string, ids: string[], advanced: string[] = []): CoreSection =>
+    ({ id, title, collapsible: false, toggle: false, rows: ids.flatMap(rowId => rows.get(rowId) ?? []), advanced: advanced.flatMap(rowId => rows.get(rowId) ?? []) });
+  // Worktrees' Creation and Maintenance's Diagnostics are drawn by the storage panel between its own sections
+  // (settings-data.ts worktreeRows); Providers' Compact idle threads by the Providers page (idleCompactionRow).
+  const pages: Record<string, CoreSection[]> = {
+    general: [pick('notifications', 'Notifications', ['thread-notifications', 'in-app-notifications']), pick('sidebar', 'Sidebar', ['project-grouping', 'project-order', 'working-shelf']),
+      pick('confirmations', 'Confirmations', ['unpin-confirmation', 'archive-confirmation', 'delete-confirmation', 'quit-confirmation']), pick('display', 'Display', ['time-format'])],
+    chat: [pick('composer', 'Composer', ['composer-rich-text', 'send-shortcut'], ['skills-in-slash-menu']), pick('follow-ups', 'Follow-ups', ['follow-up-behavior'])],
+    diffs: [pick('diffs', 'Diffs', ['diff-layout', 'hide-whitespace-changes', 'default-diff-file-state', 'diff-color-scheme']),
+      pick('pull-requests', 'Pull requests', ['proactive-panels', 'pull-request-links-open-in-app'])],
+    threads: [pick('new-projects', 'New projects', ['add-project-starts-in']), pick('project-defaults', 'New threads', ['default-model', 'fallback-model', 'default-permissions', 'new-threads']),
+      pick('snooze', 'Snooze', ['snooze-options']),
+      pick('usage-limits', 'Usage limits', ['auto-resume-limited-threads', 'snooze-limited-threads']),
+      pick('auto-settle', 'Auto-settle', ['auto-settle-merged-threads', 'auto-settle-inactive-threads', 'days-before-auto-settle', 'keep-threads-with-pr']),
+      pick('text-generation', 'Text generation', ['text-generation-model'], ['thread-title-instructions', 'response-streaming'])],
+    worktrees: [pick('worktree-creation', 'Creation', ['start-from-origin'], ['worktree-submodules'])],
+    maintenance: [pick('updates', 'Updates', ['provider-update-checks', 'continue-threads-after-server-update']), pick('background', 'Background activity', ['background-activity'])],
+    about: [pick('about', 'App', about.map(row => row.id)), pick('legal', 'Legal', ['open-source-licenses'])],
+    labs: [pick('legacy-features', 'Legacy', ['legacy-plan-mode', 'legacy-context-window-indicator'])],
+  };
+  return (route ? pages[route] ?? [] : Object.values(pages).flat()).filter(entry => entry.rows.length > 0 || (entry.advanced ?? []).length > 0);
+}
+/** SettingsGroup's dividers: every row after a section's first, and every Advanced row after the fold's first (the fold
+ *  draws its own top border, AdvancedSettings' `border-t`). */
+export const dividedSection = (section: CoreSection): CoreSection => ({ ...section,
+  rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 })), advanced: (section.advanced ?? []).map((row, index) => ({ ...row, divider: index > 0 })) });
+/**
+ * CompactIdleThreadsRow (SettingsPanels.tsx), last under Providers › Advanced: the mode the scope's targets resolve
+ * (scopedIdleCompaction). "Never" needs every target to store modes; a server with only the switch cannot.
+ */
+export function idleCompactionRow(context: ServerContext): CoreRow {
+  const modes = context.targets.map(target => globalIdleCompaction(target.settings));
+  const mode = modes[0] ?? globalIdleCompaction(context.settings), mixed = modes.some(entry => entry !== mode);
+  const neverAvailable = context.targets.every(target => readsIdleCompactionModes(target.settings));
+  return serverRow(context, 'idleCompaction', 'compact-idle-threads', 'Compact idle threads',
+    'When to compact an idle Claude thread over 200,000 tokens: after you return, just before its prompt cache expires, or never. Each Claude provider can override this.', 'select',
+    { value: mode, label: mixed ? 'Mixed' : IDLE_COMPACTION_MODES.find(([id]) => id === mode)?.[1] ?? mode, width: 224, resetLabel: 'compact idle threads',
+      options: IDLE_COMPACTION_MODES.map(([id, label]) => option(id, label, !mixed && id === mode, { disabled: id === 'off' && !neverAvailable })) },
+    globalIdleCompaction(context.settings) !== 'onReturn');
+}
+/** Maintenance's Diagnostics row: its own page for one environment at a time (isEnvironmentScope). */
+export function diagnosticsRow(envScope: boolean): CoreRow {
+  return coreRow('diagnostics', 'Diagnostics', envScope ? 'Inspect processes, resource use, and logs on this environment.' : 'Inspect processes, resource use, and logs on one environment at a time.', 'link', { label: 'View diagnostics', target: 'diagnostics', width: 0 });
+}
+
+// ── Reading and writing ───────────────────────────────────────────────────
+type Bridge = { request(native: Native, method: string, payload: Obj, write?: boolean): Promise<Obj> };
+const bridge = (client: T3Client) => client as unknown as Bridge & Pick<T3Client, 'config'> & { settingsCoreRequest(native: Native, method: string, payload: Obj, write?: boolean): Promise<Obj> };
+/** t3.json per member, read through its environment's projects.readFile; absent or unreadable files resolve to null. */
+export async function memberFiles(client: T3Client, native: Native | null | undefined, members: Obj[], scope?: CoreScope): Promise<Map<string, Obj | null>> {
+  const environments = scope?.environments ?? [{ environmentId: client.environmentId, label: '', displayUrl: null, kind: '', fleetKey: '', connection: { phase: 'connected' }, serverConfig: null }];
+  const scoped = members.map(member => ({ ...member, id: str(member.id), environmentId: str(member.environmentId, client.environmentId), workspaceRoot: str(member.workspaceRoot), physicalProjectKey: str(member.physicalProjectKey, str(member.id)) }));
+  return scopeMemberFiles(bridge(client), native, scoped, environments, parseProjectFile);
+}
+/** The scope's connected environments with every value a control reads filled (the reference decodes ServerSettings defaults). */
+function connectedOf(client: T3Client, scope: CoreScope, settings?: Obj): ScopedSettingsEnvironment[] {
+  return selectScopedSettingsEnvironments(scope.resolved, scope.environments, primaryEnvironmentId()).connectedEnvironments.map(environment => ({
+    ...environment, serverConfig: { ...environment.serverConfig!, settings: { ...SERVER_DEFAULTS, projectSettingsOverrides: {},
+      ...(settings && environment.environmentId === client.environmentId && !(environment as ScopeEnvironment).fleetKey ? settings : environment.serverConfig!.settings) } } }));
+}
+export function serverContext(client: T3Client, scope: CoreScope, files: Map<string, Obj | null>, settings?: Obj): ServerContext {
+  const { environment: representative } = selectScopedSettingsEnvironments(scope.resolved, scope.environments, primaryEnvironmentId());
+  const focused = !representative || (representative.environmentId === client.environmentId && !representative.fleetKey);
+  const config = focused ? client.config : obj(fleetConfig(representative!.fleetKey));
+  const environment = obj(config.environment);
+  const raw = focused ? (settings ?? obj(client.config.settings)) : obj(representative!.serverConfig?.settings);
+  const connected = scope.environments.filter(entry => scope.selected.includes(entry) && entry.connection.phase === 'connected');
+  const restartEverywhere = connected.length > 0 && connected.every(entry => obj(obj((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).environment).capabilities).threadRestartContinuation === true);
+  const autoSettlementScopeEverywhere = connected.length > 0 && connected.every(entry => obj(obj((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).environment).capabilities).threadAutoSettlementScope === true);
+  return { settings: raw, scope, files, capabilities: obj(environment.capabilities), providers: arr(config.providers), environmentLabel: representative?.label || str(environment.label, 'environment'),
+    targets: resolveScopedSettingsTargets(scope.resolved, connectedOf(client, scope, settings), files), restartEverywhere, autoSettlementScopeEverywhere,
+    settingsWritable: connected.length > 0 && connected.every(entry => entry.scopes?.includes('settings:write') === true),
+    catalogs: new Map(scope.environments.map(entry => [entry.environmentId, arr((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).providers)])), local: client.local };
+}
+/**
+ * useScopedModelDisabledReason / ProjectDefaultsSettings modelDisabledReason: a model choice fans
+ * out to every selected target, so each target's own instance must be enabled, available, of the
+ * representative's driver and advertise the model; '' when every target can honor it.
+ */
+export function scopedModelReason(context: ServerContext, instanceId: string, model: string): string {
+  const source = context.providers.find(provider => provider.instanceId === instanceId);
+  for (const target of context.targets) {
+    const providers = context.catalogs.get(target.environmentId);
+    if (!providers) continue;
+    const entry = providers.find(provider => provider.instanceId === instanceId);
+    if (!entry || entry.enabled !== true || entry.availability === 'unavailable' || entry.driver !== source?.driver || !arr(entry.models).some(option => option.slug === model)) {
+      return `This model is unavailable on ${target.label || 'a selected environment'}. Select that environment to choose its model separately.`;
+    }
+  }
+  return '';
+}
+/** A General model row's picker (settings-model-picker.ts): its scope, the providers it offers and its current pick, or null when the row has none. */
+export function settingsModelTarget(client: T3Client, id: string) {
+  const target = parseCoreTarget(id);
+  const key = SERVER_ROW_KEYS[target.row];
+  if (target.part || (key !== 'defaultModelSelection' && key !== 'textGenerationModelSelection' && key !== 'fallbackModelSelection')) return null;
+  const scope = resolveScope(client, target.machine, target.projectKey, target.checkout);
+  if (scope.kind === 'unavailable') return null;
+  const context = serverContext(client, scope, new Map());
+  const state = serverState(context, key);
+  const textGeneration = key === 'textGenerationModelSelection';
+  const control = key === 'fallbackModelSelection' ? fallbackControl(context, serverState(context, 'defaultModelSelection').value)
+    : modelControl(context, state.value === null ? null : obj(state.value), textGeneration);
+  if (control.kind === 'text-only') return null;
+  const [instanceId = '', model = ''] = str(control.value).split('|');
+  // Text generation offers only the providers that support it (textGenerationProviders).
+  const providers = context.providers.filter(provider => !textGeneration || provider.supportsTextGeneration !== false);
+  const { environment: representative } = selectScopedSettingsEnvironments(scope.resolved, scope.environments, primaryEnvironmentId());
+  // The representative's whole config (serverContext's): a background environment's comes from the fleet.
+  const config = !representative || (representative.environmentId === client.environmentId && !representative.fleetKey) ? client.config : obj(fleetConfig(representative.fleetKey));
+  return { context, config, providers, instanceId, model };
+}
+const fleetConfig = (key: string) => fleet.entries.get(key)?.config ?? {};
+
+/** The plan one control writes (planScopedSettingsPatch / planScopedSettingsClear): one patch per connected target environment. */
+export function settingPlan(client: T3Client, scope: CoreScope, key: string, value: Json | undefined, clear: boolean, settings?: Obj): ScopedSettingsPlan {
+  const environments = connectedOf(client, scope, settings);
+  const project = scope.kind === 'project' || scope.kind === 'checkout';
+  if (clear && project) return planScopedSettingsClear(scope.resolved, environments, [key]);
+  // An idle compaction reset writes the default's mode (globalIdleCompaction of the defaults), in each target's form.
+  const fallback = key === 'idleCompaction' ? 'onReturn' : SERVER_DEFAULTS[key] ?? null;
+  return planScopedSettingsPatch(scope.resolved, environments, { [key]: clear ? fallback : value as Json });
+}
+const SERVER_ROW_KEYS: Record<string, string> = {
+  'default-model': 'defaultModelSelection', 'fallback-model': 'fallbackModelSelection', 'default-permissions': 'defaultRuntimeMode', 'new-threads': 'defaultThreadEnvMode', 'worktree-submodules': 'worktreeSubmodules',
+  'auto-resume-limited-threads': 'autoResumeLimitedThreads', 'snooze-limited-threads': 'snoozeLimitedThreads', 'compact-idle-threads': 'idleCompaction', 'auto-settle-merged-threads': 'sidebarAutoSettleOnMerge',
+  'keep-threads-with-pr': 'sidebarAutoSettleKeepPullRequests', 'auto-settle-inactive-threads': 'sidebarAutoSettleAfterDays', 'days-before-auto-settle': 'sidebarAutoSettleAfterDays', 'response-streaming': 'responseStreamingMode',
+  'provider-update-checks': 'enableProviderUpdateChecks', 'continue-threads-after-server-update': 'continueThreadsAfterServerUpdate', 'background-activity': 'backgroundActivity',
+  'background-advanced': 'backgroundActivity', 'start-from-origin': 'newWorktreesStartFromOrigin', 'add-project-starts-in': 'addProjectBaseDirectory', 'text-generation-model': 'textGenerationModelSelection',
+  'thread-title-instructions': 'threadTitleInstructions', 'snooze-options': 'snoozePresets',
+};
+/** Decode one control's string payload into the schema value, refusing anything the reference would not write. */
+export function serverValue(key: string, raw: string, context: ServerContext, part = ''): Json {
+  const bool = () => { if (raw !== 'true' && raw !== 'false') throw new ClientError('Choose On or Off.'); return raw === 'true'; };
+  switch (key) {
+    case 'defaultRuntimeMode': if (!RUNTIME.some(([id]) => id === raw)) throw new ClientError('Choose a supported permission mode.'); return raw;
+    case 'defaultThreadEnvMode': if (!['local', 'worktree'].includes(raw)) throw new ClientError('Choose a supported workspace.'); return raw;
+    case 'worktreeSubmodules': if (!['recursive', 'top-level', 'none'].includes(raw)) throw new ClientError('Choose a supported submodule mode.'); return raw;
+    case 'responseStreamingMode': if (!['turn', 'paragraph'].includes(raw)) throw new ClientError('Choose a supported streaming mode.'); return raw;
+    case 'sidebarAutoSettleAfterDays': {
+      if (part !== 'days') return bool() ? 3 : null;
+      const days = Number(raw);
+      if (!Number.isInteger(days) || days < 1 || days > 90) throw new ClientError('Enter a whole number of days from 1 to 90.');
+      return days;
+    }
+    case 'backgroundActivity':
+      if (!(raw in BACKGROUND)) throw new ClientError('Advanced background activity needs one environment.');
+      return { schemaVersion: 1, profile: raw, overrides: {} };
+    case 'addProjectBaseDirectory': if (raw.length > 4096) throw new ClientError('Use a shorter directory.'); return raw.trim();
+    // TrimmedString, of any length: the field saves its text without surrounding whitespace.
+    case 'threadTitleInstructions': return raw.trim();
+    case 'idleCompaction': if (!IDLE_COMPACTION_MODES.some(([mode]) => mode === raw)) throw new ClientError('Choose a supported idle compaction mode.'); return raw;
+    case 'defaultModelSelection': case 'textGenerationModelSelection': case 'fallbackModelSelection': return modelValue(raw, part, key, context);
+    case 'snoozePresets': return snoozePresetsEdit(snoozePresetsOf({ snoozePresets: serverState(context, key).value }), part, raw);
+    default: return bool();
+  }
+}
+function modelValue(raw: string, part: string, key: string, context: ServerContext): Json {
+  const current = serverState(context, key).value;
+  const providers = context.providers.filter(provider => providerAvailable(provider) && (key !== 'textGenerationModelSelection' || provider.supportsTextGeneration !== false));
+  if (part === 'effort') {
+    const control = modelControl(context, current === null ? null : obj(current), key === 'textGenerationModelSelection');
+    const [instanceId, model] = str(control.value).split('|');
+    // A bare value is a reasoning effort (older ids); "<descriptor>=<option>" picks one trait and keeps the others.
+    const pick = raw.includes('=') ? raw : str(control.options2?.find(entry => /^(reasoningEffort|effort)=/.test(entry.value) && entry.value.endsWith(`=${raw}`))?.value);
+    if (!control.options2?.some(entry => entry.value === pick && !entry.icon.startsWith('section'))) throw new ClientError('Choose a supported reasoning effort.');
+    const [id, value] = [pick.slice(0, pick.indexOf('=')), pick.slice(pick.indexOf('=') + 1)];
+    const previous = current !== null && obj(current).instanceId === instanceId && obj(current).model === model ? arr(obj(current).options) : [];
+    return { instanceId: instanceId!, model: model!, options: [...previous.filter(entry => entry.id !== id).map(entry => ({ id: str(entry.id), value: entry.value as Json })), { id, value: value === 'true' ? true : value === 'false' ? false : value }] };
+  }
+  const separator = raw.indexOf('|');
+  const instanceId = raw.slice(0, separator), model = raw.slice(separator + 1);
+  // setModel: a choice some selected target cannot honor is not saved ("Default model not saved").
+  const reason = separator < 0 ? '' : scopedModelReason(context, instanceId, model);
+  if (reason) throw new ClientError(reason);
+  const provider = providers.find(entry => entry.instanceId === instanceId);
+  if (separator < 0 || !provider || !arr(provider.models).some(entry => entry.slug === model)) throw new ClientError(`This model is unavailable on ${context.scope.environmentLabel === 'All environments' ? 'a selected environment' : context.scope.environmentLabel}.`);
+  return { instanceId, model };
+}
+
+/** settings-core command id: `<rowId>:<part>|<machine>|<projectKey>|<checkout>`; the value is the control's raw value.
+ * part is '' for a server row, the device key for a device row, 'reset', 'effort' or 'days'. */
+export function parseCoreTarget(id: string) {
+  const first = id.indexOf('|'), last = id.lastIndexOf('|');
+  const rest = id.slice(first + 1, last), second = rest.indexOf('|');
+  if (first < 0 || last <= first || second < 0) throw new ClientError('That setting is no longer available.');
+  const head = id.slice(0, first), colon = head.indexOf(':');
+  return { row: colon < 0 ? head : head.slice(0, colon), part: colon < 0 ? '' : head.slice(colon + 1), machine: rest.slice(0, second), projectKey: rest.slice(second + 1), checkout: id.slice(last + 1) };
+}
+const SERVER_LABELS: Record<string, string> = {
+  autoResumeLimitedThreads: 'Resume after usage limits', snoozeLimitedThreads: 'Snooze until limits reset', sidebarAutoSettleOnMerge: 'Auto-settle merged threads',
+  sidebarAutoSettleKeepPullRequests: 'Keep threads with a PR', sidebarAutoSettleAfterDays: 'Auto-settle inactive threads', snoozePresets: 'Snooze options', responseStreamingMode: 'Response streaming', enableProviderUpdateChecks: 'Provider update checks',
+  continueThreadsAfterServerUpdate: 'Continue threads after restarts', backgroundActivity: 'Background activity', defaultThreadEnvMode: 'New thread mode',
+  newWorktreesStartFromOrigin: 'New worktrees start from remote', addProjectBaseDirectory: 'Add project base directory', textGenerationModelSelection: 'Text generation model',
+  threadTitleInstructions: 'Thread title instructions',
+};
+/** useSettingsRestore lists and re-grants Agent browser access after the browser rows (SettingsPanels.tsx: "the confirmation dialog
+ *  lists it by name, so a user restoring defaults is told the agent regains access"). An environment setting, written like the rest. */
+const AGENT_BROWSER_LABELS: Record<string, string> = { enableAgentBrowserAccess: 'Agent browser access' };
+const RESTORED_SERVER_KEYS = [...Object.keys(SERVER_LABELS), ...Object.keys(AGENT_BROWSER_LABELS)];
+/** useTheme's `themeHalves`: a theme on one appearance only (a one-palette theme's Use, assignHalf), which a whole theme (setTheme)
+ *  clears. Here a half is `themeLight` or `themeDark` apart from `theme` (a whole theme sets all three). */
+const THEME_MIX = 'themeMix';
+/**
+ * useSettingsRestore's changedSettingLabels in its order (SettingsPanels.tsx): each label with the keys it reads, `device` from this
+ * app's preferences (changedDeviceLabels) and `server` from the scope's settings. `browser` is getChangedBrowserSettingLabels' place.
+ * A font's label counts its family and its size (getChangedTypographySettingLabels). Font smoothing is neither listed nor reset, as
+ * on the reference (KEPT_ON_RESTORE).
+ */
+const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser', readonly string[]])[] = [
+  ['Theme', 'device', ['theme']], ['Follow system', 'device', ['appearanceMode']], ['Theme mix', 'device', [THEME_MIX]], ['Contrast', 'device', ['appearanceContrast']],
+  ['Glass opacity', 'device', ['glassOpacity']],
+  ['Diff colors', 'device', ['diffColorScheme']], ['Chat width', 'device', ['chatWidth']], ['Effort display', 'device', ['effortDisplay']], ['Render math', 'device', ['mathRenderingEnabled']],
+  ['Panel animations', 'device', ['panelAnimationDurationMs']],
+  ['Time format', 'device', ['timestampFormat']], ['Thread notifications', 'device', ['notificationMode']],
+  ['In-app notifications', 'device', ['inAppNotificationsEnabled']], ['Project Grouping', 'device', ['projectGrouping']],
+  ['Project order', 'device', ['sidebarProjectSortOrder']], ['Working section', 'device', ['sidebarWorkingShelfEnabled']],
+  ['Auto-settle inactive threads', 'server', ['sidebarAutoSettleAfterDays']], ['Keep threads with a PR', 'server', ['sidebarAutoSettleKeepPullRequests']], ['Auto-settle merged threads', 'server', ['sidebarAutoSettleOnMerge']],
+  ['Resume after usage limits', 'server', ['autoResumeLimitedThreads']], ['Snooze until limits reset', 'server', ['snoozeLimitedThreads']], ['Snooze options', 'server', ['snoozePresets']],
+  ['Word wrap', 'device', ['wordWrap']], ['Composer context', 'device', ['persistComposerContextStrip']],
+  ['Interface font', 'device', ['fontFamilySans', 'fontSizeInterface']], ['Prompt font', 'device', ['fontFamilyComposer', 'fontSizePrompt']],
+  ['Code font', 'device', ['fontFamilyCode', 'fontSizeCode']], ['Terminal font', 'device', ['fontFamilyTerminal', 'fontSizeTerminal']],
+  ['Default diff file state', 'device', ['diffFilesCollapsed']], ['Diff whitespace changes', 'device', ['diffIgnoreWhitespace']], ['Diff layout', 'device', ['diffLayout']],
+  ['Proactive panels', 'device', ['proactivePanelsEnabled']], ['Show skills in slash menu', 'device', ['showSkillsInSlashMenu']],
+  ['Rich text composer', 'device', ['composerRichTextEnabled']], ['Send shortcut', 'device', ['sendShortcut']],
+  ['Follow-up behavior', 'device', ['followUpBehavior']], ['Context window indicator', 'device', ['contextWindowMeterEnabled']],
+  ['Response streaming', 'server', ['responseStreamingMode']], ['Provider update checks', 'server', ['enableProviderUpdateChecks']],
+  ['Continue threads after restarts', 'server', ['continueThreadsAfterServerUpdate']], ['Background activity', 'server', ['backgroundActivity']],
+  ['New thread mode', 'server', ['defaultThreadEnvMode']], ['New worktrees start from remote', 'server', ['newWorktreesStartFromOrigin']],
+  ['Add project base directory', 'server', ['addProjectBaseDirectory']], ['Unpin confirmation', 'device', ['confirmThreadUnpin']],
+  ['Archive confirmation', 'device', ['confirmThreadArchive']], ['Delete confirmation', 'device', ['confirmThreadDelete']], ['Quit shortcut', 'device', ['confirmQuit']],
+  ['Text generation model', 'server', ['textGenerationModelSelection']], ['Thread title instructions', 'server', ['threadTitleInstructions']], ['', 'browser', []], ['Agent browser access', 'server', ['enableAgentBrowserAccess']],
+];
+/**
+ * useSettingsRestore: the labels its confirmation lists. Its environment values are useScopedSettings', the scope's representative
+ * target (`scopeTarget`): in a project or checkout scope, that member's project overrides and t3.json over its environment's settings.
+ * `settings` is null with no connected target (DEFAULT_SERVER_SETTINGS: no environment row is listed).
+ */
+export function restoreLabels(local: LocalPrefs, settings: Obj | null): string[] {
+  const device = new Set(changedDeviceLabels(local)), prefs = local.clientSettings || decodeClientPrefs({});
+  if (prefs.themeLight !== prefs.theme || prefs.themeDark !== prefs.theme) device.add(THEME_MIX);
+  const changed = (key: string) => settings !== null && key in settings && !same(settings[key], SERVER_DEFAULTS[key]);
+  return RESTORE_ROWS.flatMap(([label, source, keys]) => source === 'browser' ? changedBrowserSettingLabels({ local })
+    : keys.some(key => source === 'device' ? device.has(key) : changed(key)) ? [label] : []);
+}
+/** SettingsScopeContext's `target`: the representative target supplies display values, the member on the scope's environment in a
+ *  project scope, as environments prefer theirs (useResolvedSettingsScope); null when no selected environment is connected. */
+export function scopeTarget(client: T3Client, context: ServerContext): ScopedSettingsTarget | null {
+  const { environment } = selectScopedSettingsEnvironments(context.scope.resolved, context.scope.environments, primaryEnvironmentId());
+  return context.targets.find(target => target.environmentId === environment?.environmentId) ?? context.targets[0] ?? null;
+}
+
+export async function applyCoreSetting(client: T3Client, native: Native, id: string, value: string): Promise<string> {
+  const target = parseCoreTarget(id);
+  if (target.row === 'cli-command') return changeCliCommand(client, native, value);
+  const local = client.local as unknown as LocalPrefs;
+  const key = SERVER_ROW_KEYS[target.row];
+  if (target.row === 'theme-import' || target.row === 'theme-save' || target.row === 'theme-remove') return applyThemeCommand(local, target.row, value);
+  if (target.row === 'theme-editor' || target.row === 'theme-editor-save' || target.row === 'theme-export') return themeEditorCommand(client, native, target.row, target.part, value);
+  if (target.row === 'theme-add') return themeImportCommand(client, native, target.part, value);
+  if (target.row === 'theme-collection' || target.row === 'theme-remove-many') { // settings-a-collections.ts
+    local.clientSettings = local.clientSettings || decodeClientPrefs({});
+    if (target.row === 'theme-collection') useCollectionDefaults(local, value); else removeThemes(local, value.split(',').filter(Boolean));
+    return '';
+  }
+  if (target.row === 'version' || target.row === 'update') return updateCommand(client, target.row, target.part);
+  if (target.row === 'update-track') return updateTrackCommand(client, native, value);
+  // Appearance › Thread details: an item's `part` is its id and `value` "true" or "false"; reset clears every choice.
+  if (target.row === 'thread-details-items') return threadDetailsItemsLocal(client, target.part === 'reset' ? 'reset' : 'item', target.part, value);
+  if (target.row !== 'restore-device-defaults' && !key) {
+    // Device rows: saved in this app's preferences, never sent to a server.
+    if (target.part === 'reset') {
+      if (value === 'projectGrouping') { local.groupingMode = 'repository'; return ''; }
+      const fallback = value in DEVICE_DEFAULTS ? (DEVICE_DEFAULTS as Record<string, unknown>)[value] : (CLIENT_DEFAULTS as Record<string, unknown>)[value];
+      if (fallback === undefined) throw new ClientError('That setting has no default.');
+      applyDeviceSetting(local, value, String(fallback));
+      const size = FONT_SIZE_KEYS[value];
+      if (size) applyDeviceSetting(local, size, String(CLIENT_DEFAULTS[size as keyof typeof CLIENT_DEFAULTS]));
+    } else if (target.part === 'notificationMode' && !(await notificationPermission(client, value))) { // shell-notify.ts permission gate
+      return '';
+    } else if ((target.part === 'fontFamilyCode' || target.part === 'fontFamilyTerminal') && value.trim() &&
+      (await installedFonts(client, native)).some(font => font.family.toLowerCase() === value.trim().toLowerCase() && !font.monospace)) {
+      pushToast(client, { kind: 'error', title: `"${value}" isn't monospace`,
+        description: 'Code and terminal need a fixed-width font, so the current font was kept.', stacked: true });
+      return '';
+    } else if (!applyDeviceSetting(local, target.part, value)) throw new ClientError('Unsupported setting.');
+    seedDiffState(client, (client as unknown as { diffState: DiffState }).diffState);
+    return '';
+  }
+  // Server rows re-resolve the selection against the live shell, the fleet and each
+  // environment's config: a stale or removed target is refused, never widened (planScopedSettingsPatch).
+  const scope = resolveScope(client, target.machine, target.projectKey, target.checkout);
+  const project = scope.kind === 'project' || scope.kind === 'checkout';
+  const focusedSelected = client.ready && scope.selected.some(environment => environment.environmentId === client.environmentId && !environment.fleetKey);
+  const settings = focusedSelected ? obj((await bridge(client).settingsCoreRequest(native, 'server.getConfig', {})).settings) : undefined;
+  const restore = target.row === 'restore-device-defaults';
+  let plan: ScopedSettingsPlan;
+  if (restore) {
+    restoreDeviceDefaults(local);
+    // useSettingsRestore sends one useUpdateScopedSettings patch that always carries environment-wide keys, so in a project or
+    // checkout scope planScopedSettingsPatch plans no server write (no override is set or cleared) and, its device keys saved, warns nothing.
+    if (project) return 'Device settings restored';
+    const targets = serverContext(client, scope, new Map(), settings).targets;
+    const keys = RESTORED_SERVER_KEYS.filter(name => targets.some(entry => name in entry.settings && !same(entry.settings[name], SERVER_DEFAULTS[name])));
+    if (keys.length === 0 || scope.kind === 'unavailable' || !scope.connected) return 'Device settings restored';
+    plan = planScopedSettingsPatch(scope.resolved, connectedOf(client, scope, settings), Object.fromEntries(keys.map(name => [name, SERVER_DEFAULTS[name] ?? null])));
+  } else if (scope.kind === 'unavailable') {
+    plan = { clientPatch: {}, hasClientWrite: false, serverWrites: [], unavailableReason: scope.message };
+  } else {
+    const context = serverContext(client, scope, await memberFiles(client, native, scope.members, scope), settings);
+    if (key === 'sidebarAutoSettleKeepPullRequests' && !context.autoSettlementScopeEverywhere && scope.connected) throw new ClientError('All selected connected environments must support keeping threads with a PR.');
+    if (key === 'continueThreadsAfterServerUpdate' && !context.restartEverywhere && scope.connected) throw new ClientError('All selected connected environments must support restart continuation.');
+    const clear = target.part === 'reset';
+    if (target.part === 'clear-overrides') {
+      const entries = arr(JSON.parse(value)).map(entry => ({ environmentId: str(entry.environmentId), projectId: str(entry.projectId) })).filter(entry => scope.selected.some(environment => environment.environmentId === entry.environmentId));
+      plan = planProjectOverridesClear(connectedOf(client, scope, settings), entries, [key!]);
+    } else if (target.row === 'background-advanced') plan = settingPlan(client, scope, key!, advancedBackgroundValue(context.settings, target.part, value), false, settings);
+    else {
+      const next = clear ? undefined : serverValue(key!, value, context, target.part);
+      // SnoozePresetsRow's save(): an edit that leaves the list as it was writes nothing, unless the environments disagree.
+      const current = serverState(context, key!);
+      if (key === 'snoozePresets' && next !== undefined && !current.mixed && same(next, snoozePresetsOf({ snoozePresets: current.value as Json }))) return '';
+      plan = settingPlan(client, scope, key!, next, clear, settings);
+    }
+  }
+  // useRunScopedPlan: a refused plan warns; every write is awaited and the failures are named.
+  const refused = scopedPlanNotice(plan);
+  if (refused) { postScopedNotice(client, refused); return restore ? 'Device settings restored' : ''; }
+  const result = await persistScopedSettingsPatch(plan, scopedWriter(bridge(client), native, scope.environments), () => {});
+  postScopedNotice(client, scopedPlanNotice(plan, result));
+  return restore ? 'Device settings restored' : '';
+}
+
+/** Theme library writes: import a theme file, save a duplicate, or remove a saved theme (device-local). */
+function applyThemeCommand(local: LocalPrefs, row: string, value: string): string {
+  const themes = local.customThemes || [];
+  const prefs = local.clientSettings || decodeClientPrefs({});
+  const taken = ['t3-code', 't3-chat', 'grove', 'ocean', 'ember', 'iris', ...themes.map(theme => theme.id)];
+  if (row === 'theme-remove') {
+    if (!themes.some(theme => theme.id === value)) throw new ClientError('That theme is no longer installed.');
+    local.customThemes = themes.filter(theme => theme.id !== value);
+    const fallback = (id: string) => id === value ? 't3-code' : id;
+    local.clientSettings = { ...prefs, theme: fallback(prefs.theme), themeLight: fallback(prefs.themeLight), themeDark: fallback(prefs.themeDark) };
+    return '';
+  }
+  let theme: CustomTheme;
+  if (row === 'theme-import') theme = parseThemeFile(value, taken);
+  else {
+    // The editor sends source|name|light canvas|light accent|dark canvas|dark accent, each URI-encoded.
+    const [source = 't3-code', name = '', lc = '', la = '', dc = '', da = ''] = value.split('|').map(part => { try { return decodeURIComponent(part); } catch { return ''; } });
+    const input: Obj = { name, light: { canvas: lc, accent: la }, dark: { canvas: dc, accent: da } };
+    theme = duplicateTheme(input, mode => themeRoles(source, mode, themes) as unknown as Record<string, string>, taken);
+  }
+  if (themes.length >= 100) throw new ClientError('Remove a theme before adding another.');
+  local.customThemes = [...themes, theme];
+  const both = theme.light && theme.dark;
+  local.clientSettings = { ...prefs, ...(both || theme.appearance === 'light' ? { themeLight: theme.id } : {}), ...(both || theme.appearance === 'dark' ? { themeDark: theme.id } : {}), ...(both ? { theme: theme.id } : {}) };
+  return '';
+}

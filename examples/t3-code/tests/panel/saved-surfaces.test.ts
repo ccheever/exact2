@@ -1,0 +1,87 @@
+import { describe, expect, test } from 'bun:test';
+import { adoptRightPanels, restoreRightPanel, savedPanel, syncRightPanels } from '../../src/panel/saved-panel';
+import { keepRestored, prTargetOf, restoredEffects } from '../../src/panel/saved-surfaces';
+import { prSurfaceId } from '../../src/panel/pr-surface';
+
+// Every right-panel surface persists across launches, as rightPanelStore's
+// `byThreadKey` does (migratePersistedRightPanelState), not only Files, file tabs and the list.
+const pr = { projectId: 'p1', host: 'github.com', repository: 'acme/app', number: 101, url: 'https://github.com/acme/app/pull/101' };
+const meta = { id: 'att-1', name: 'notes.md', mimeType: 'text/markdown', sizeBytes: 120 };
+const device = { hostId: 'local', deviceId: 'SIM-1', platform: 'ios', name: 'iPhone 18 Pro' };
+const surfaces = () => [
+  { id: 'diff', kind: 'diff' as const, path: '', line: 0, reveal: 0 },
+  { id: 'files', kind: 'files' as const, path: '', line: 0, reveal: 0 },
+  { id: 'device', kind: 'device' as const, path: '', line: 0, reveal: 0, device },
+  { id: prSurfaceId(pr), kind: 'pull-request' as const, path: '', line: 0, reveal: 1, pr },
+  { id: 'attachment:att-1', kind: 'attachment' as const, path: 'notes.md', line: 0, reveal: 0, attachment: meta },
+];
+
+describe('Right panels keep every surface across launches', () => {
+  test('the Diff, the device with its target, a pull request and an attachment are saved in order', () => {
+    const saved = savedPanel({ visible: true, active: prSurfaceId(pr), surfaces: surfaces() });
+    expect(saved).toEqual({ visible: true, active: 'pull-request:p1:github.com:acme%2Fapp:101', surfaces: [
+      { id: 'diff', kind: 'diff', path: '', line: 0 },
+      { id: 'files', kind: 'files', path: '', line: 0 },
+      { id: 'device', kind: 'device', path: '', line: 0, device },
+      { id: 'pull-request:p1:github.com:acme%2Fapp:101', kind: 'pull-request', path: '', line: 0, pr },
+      { id: 'attachment:att-1', kind: 'attachment', path: 'notes.md', line: 0, attachment: meta },
+    ] });
+    // A Device surface before a device was chosen is the picker: kept without a target.
+    expect(keepRestored({ id: 'device', kind: 'device', path: '', line: 0 })).toEqual({ id: 'device', kind: 'device', path: '', line: 0 });
+  });
+
+  test('a pull request surface keeps its detail tab across launches', () => {
+    const kept = savedPanel({ visible: true, active: prSurfaceId(pr), surfaces: [{ id: prSurfaceId(pr), kind: 'pull-request' as const, path: '', line: 0, reveal: 0, pr, detailTab: 'timeline' }] });
+    expect(kept?.surfaces[0]).toMatchObject({ kind: 'pull-request', detailTab: 'timeline' });
+    expect(keepRestored({ id: prSurfaceId(pr), kind: 'pull-request', path: '', line: 0, pr, detailTab: 'other' })).not.toHaveProperty('detailTab');
+    const owner = { local: {} as Record<string, unknown>, preferencesLoaded: true, ready: true }, next = {};
+    adoptRightPanels(next, { rightPanels: { 'env:t1': kept } });
+    owner.local = next;
+    const state = { surfaces: [], active: '', visible: false, userRevision: 0 } as Parameters<typeof restoreRightPanel>[2];
+    expect(restoreRightPanel(owner, 'env:t1', state)).toBe(true);
+    expect(state.surfaces[0]).toMatchObject({ kind: 'pull-request', detailTab: 'timeline' });
+  });
+
+  test('malformed entries are dropped as the migration drops them', () => {
+    expect(prTargetOf({ projectId: 'p', repository: 'a/b', number: 0 })).toBeNull();
+    expect(prTargetOf({ projectId: 'p', repository: 'a/b', number: 1.5 })).toBeNull();
+    expect(prTargetOf({ repository: 'a/b', number: 3 })).toBeNull();
+    expect(prTargetOf({ projectId: 'p', repository: 'a/b', number: 3, host: 'GitHub.com' })).toEqual({ projectId: 'p', host: 'github.com', repository: 'a/b', number: 3, url: '' });
+    expect(keepRestored({ id: 'attachment:other', kind: 'attachment', path: 'x', line: 0, attachment: meta })).toBeNull();
+    expect(keepRestored({ id: 'diff:2', kind: 'diff', path: '', line: 0 })).toBeNull();
+    // A device target with an unknown platform is not a target: the picker comes back.
+    expect(keepRestored({ id: 'device', kind: 'device', path: '', line: 0, device: { ...device, platform: 'tv' } })).toEqual({ id: 'device', kind: 'device', path: '', line: 0 });
+    const next = {} as { rightPanels?: Record<string, unknown> };
+    adoptRightPanels(next, { rightPanels: { 'env:t1': { visible: true, active: 'pull-request:x', surfaces: [{ id: 'pull-request:x', kind: 'pull-request', pr: { projectId: 'p', repository: 'a/b', number: -1 } }, { id: 'diff', kind: 'diff' }] } } });
+    // The active pull request was dropped: the first survivor while open (the Diff).
+    expect(next.rightPanels).toEqual({ 'env:t1': { visible: true, active: 'diff', surfaces: [{ id: 'diff', kind: 'diff', path: '', line: 0 }] } });
+  });
+
+  test('a relaunch restores them with their targets; the open Diff and the device are reapplied', () => {
+    const owner = { local: {} as object, preferencesLoaded: true };
+    const panels = new Map([['env:t1', { surfaces: surfaces(), active: 'diff', visible: true, userRevision: 2 }]]);
+    expect(syncRightPanels(owner, panels)).toBe(true);
+    const relaunched = { local: JSON.parse(JSON.stringify(owner.local)), preferencesLoaded: false, ready: true };
+    const next = {} as { rightPanels?: Record<string, unknown> };
+    adoptRightPanels(next, JSON.parse(JSON.stringify(relaunched.local)));
+    expect(next.rightPanels).toEqual(relaunched.local.rightPanels);
+    relaunched.preferencesLoaded = true;
+    const fresh = { surfaces: [] as ReturnType<typeof surfaces>, active: '', visible: false, userRevision: 0 };
+    expect(restoreRightPanel(relaunched, 'env:t1', fresh)).toBe(true);
+    expect(fresh.active).toBe('diff');
+    expect(fresh.visible).toBe(true);
+    expect(fresh.surfaces.map(entry => entry.id)).toEqual(['diff', 'files', 'device', 'pull-request:p1:github.com:acme%2Fapp:101', 'attachment:att-1']);
+    expect(fresh.surfaces[2]!.device).toEqual(device);
+    expect(fresh.surfaces[3]!.pr).toEqual(pr);
+    expect(fresh.surfaces[4]!.attachment).toEqual(meta);
+    expect(fresh.surfaces.every(entry => entry.reveal === 0)).toBe(true);
+    expect(restoredEffects(fresh.surfaces, fresh.active, fresh.visible)).toEqual({ diff: true, device });
+    // A hidden panel or another active surface does not reopen the Diff.
+    expect(restoredEffects(fresh.surfaces, fresh.active, false).diff).toBe(false);
+    expect(restoredEffects(fresh.surfaces, 'files', true).diff).toBe(false);
+    // Closing the device tab forgets its target with it.
+    panels.get('env:t1')!.surfaces = surfaces().filter(entry => entry.kind !== 'device');
+    expect(syncRightPanels(owner, panels)).toBe(true);
+    expect(JSON.stringify((owner.local as { rightPanels?: object }).rightPanels)).not.toContain('SIM-1');
+  });
+});

@@ -100,6 +100,21 @@ export const tvosCompile = ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host
 export const watchosCompile = ['watchos', 'bun', ['host/apple/build.mjs', '--watchos', '--no-install']];
 export const gameScaffoldCheck = ['game-scaffold', 'bun', ['test', 'game/proof-game.test.mjs', 'game/new.test.mjs', '--test-name-pattern', 'proof script|worldPixels|AGENTS.md lists vocab|new logic/tests file']];
 export const gameCheck = ['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']];
+// The T3 Code clone's own workspace (examples/t3-code/Cargo.toml): its build script bakes the whole app on
+// one core for minutes, so the root's members and the six checks leave it out. Built, tested and
+// linted here, in the root's target (pruned with it), where the units the two workspaces share are built
+// once. Clippy's build of the build script is a unit of its own, so linting bakes once more. The root's
+// `cargo fmt --all` does not reach this workspace, so its step checks the formatting too, after the tests.
+const t3Code = ['--manifest-path', 'examples/t3-code/Cargo.toml', '--target-dir', 'target', '--workspace', '--locked'];
+export const t3CodeChecks = [
+  ['t3-code', 'sh', ['-c', [
+    'failed=0',
+    `cargo test ${t3Code.join(' ')} --lib --bins --tests --no-fail-fast || failed=1`,
+    'cargo fmt --manifest-path examples/t3-code/Cargo.toml --all -- --check || failed=1',
+    'exit $failed',
+  ].join('\n')]],
+  ['t3-code-clippy', 'cargo', ['clippy', ...t3Code, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
+];
 // Glue files that edit an app's checked-in sources while they run
 const EDITS_APPS = /\/dev-scheduler\.test\.mjs$/;
 /** The glue step's worker processes: half the cores the machine's load leaves idle, at least one. Each worker's file
@@ -137,6 +152,7 @@ export function checks(sha, since, selection = {}) {
     // The scaffold's standing checks: seconds, then the one that builds a game's tests twice.
     gameScaffoldCheck,
     ['game-assets-scaffold', 'bun', ['test', 'game/new.test.mjs', '--timeout', '3600000', '--test-name-pattern', 'assets scaffold']],
+    ...t3CodeChecks,
     ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
     ['clippy', 'cargo', ['clippy', ...workspace, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],

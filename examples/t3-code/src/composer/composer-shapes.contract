@@ -1,0 +1,425 @@
+use TextProbe from "./composer-label-probes.contract"
+use RunOnOption from "../details/git-shapes.contract"
+use StripPrTip from "./strip-pr-badge.contract"
+use CheckoutItem from "./pr-checkout-shapes.contract"
+use UsageAccount from "../usage/usage-bars.contract" // the /usage-limits body
+// The composer's projected toolbar/menu rows (composer-presentation.ts) and the
+// model picker catalog (model-catalog.ts).
+shape ComposerTrait
+  key: string
+  kind: string
+  descriptor: string
+  value: string
+  label: string
+  description: string
+  selected: bool
+  isDefault: bool
+  index: number
+  // The primary effort's rows while "ultrathink" is in the prompt's body.
+  disabled: bool
+shape ComposerRuntime
+  mode: string
+  label: string
+  description: string
+  icon: string
+  selected: bool
+  index: number
+// A notice above the composer (ComposerBannerStackItem).
+// A description part: plain text, or (threadId set) an inline link that opens that thread.
+shape NoticeSegment
+  key: string
+  label: string
+  threadId: string
+  // The link's accessible name ("Open subagent …", or "Show subagent …" for a lone one).
+  aria: string
+  last: bool
+shape ComposerNotice
+  id: string
+  // "environment" (the machine's own notice, shown first) or "attention".
+  group: string
+  variant: string
+  icon: string
+  title: string
+  description: string
+  action: string
+  actionLabel: string
+  dismiss: string
+  dismissLabel: string
+  priority: number
+  // Not the first card: it joins the card above edge to edge.
+  stacked: bool
+  action2: string
+  action2Label: string
+  lines: string[]
+  actionReason: string
+  // The second action shows, disabled (Snooze until reset once the reset passed).
+  action2Disabled: bool
+  // The id the action's command receives.
+  actionId: string
+  // The action command's value (the fallback notice's "Use <default>": the model's instance).
+  actionValue: string
+  dismissId: string
+  segments: NoticeSegment[]
+  // The title's and actions' tooltips, a red icon; `details`: the description is clipped (NoticeDescription).
+  tip: string
+  actionTip: string
+  action2Tip: string
+  iconTone: string
+  details: bool
+  // The title is cut off: an info button shows it in full (NoticeText).
+  titleDetails: bool
+  // A title in two parts: `title` a muted lead-in, then this code (the branch mismatch's branch), with `tip` on it.
+  code: string
+  // The multi-machine update banner's popover rows, and its title's accessible name.
+  machines: NoticeMachine[]
+  menuLabel: string
+  // An account address as the description (redacted until clicked, then `redactAfter`) and the /usage-limits body.
+  redact: string
+  redactMask: string
+  redactAfter: string
+  usage: UsageAccount[]
+// One machine of the banner's popover (status idle, running or failed; a manual copy action or note).
+shape NoticeMachine
+  id: string
+  label: string
+  status: string
+  line: string
+  copyLabel: string
+  note: string
+// An image taken into the draft whose file is still being prepared, under the id its draft will take.
+shape PreparingImage
+  id: string
+  name: string
+  // A 256 px thumbnail of the taken image (an `app:/` PNG); "" until it is made, or for none.
+  source: string
+// One upload resource's answer (composer-uploads.ts UploadValue): the image it carries and how its upload goes, status
+// "uploading" with its progress (0 to 1), "ready", "failed" with the reason, or "" while it carries none.
+shape ComposerUpload
+  slot: number
+  id: string
+  attachmentId: string
+  status: string
+  progress: number
+  reason: string
+// The image an upload resource carries, under the attachment its upload URL was minted for ("" for none).
+shape ComposerUploadSlot
+  id: string
+  attachmentId: string
+// A draft image's upload (ImageUpload): "queued" for a slot, in a "slot" (whose answer has its percentage), or "failed".
+shape ComposerUploadImage
+  id: string
+  attachmentId: string
+  status: string
+  progress: number
+  reason: string
+// The draft's uploads (composer-uploads.ts uploadTable): what each resource carries, the images waiting while one is
+// free (the root then starts them), the slots and attachments to settle, and each image's upload; `supported`: the
+// server stages uploads; `operate`: this connection may operate threads, so a failed upload's Retry acts.
+shape ComposerUploads
+  u0: ComposerUploadSlot
+  u1: ComposerUploadSlot
+  u2: ComposerUploadSlot
+  u3: ComposerUploadSlot
+  u4: ComposerUploadSlot
+  u5: ComposerUploadSlot
+  supported: bool
+  operate: bool
+  pending: string
+  settle: number
+  images: ComposerUploadImage[]
+// An attachment the queued edit keeps.
+shape QueueEditAttachment
+  id: string
+  name: string
+  image: bool
+// The workspace / branch strip under the draft composer (composer-controls-branch.ts).
+shape BranchRef
+  name: string
+  badge: string
+  selected: bool
+  index: number
+shape ComposerBranches
+  show: bool
+  envMode: string
+  forceWorktree: bool
+  envLabel: string
+  envLocked: bool
+  envIcon: string
+  previous: bool
+  previousBranch: string
+  branchLabel: string
+  branch: string
+  loading: bool
+  refs: BranchRef[]
+  status: string
+  creatable: string
+  enterOp: string
+  enterValue: string
+  // "Checkout pull request" before the refs (0 or 1).
+  checkout: CheckoutItem[]
+  // "Run on" (git-env.ts stripRunOn).
+  envShow: bool
+  // A non-Git project (a No project draft, say) shows only the machine selector
+  // (BranchToolbarEnvironmentSelector); envLocked then means a started thread's static machine row.
+  gitless: bool
+  envMachine: string
+  envMachineLabel: string
+  envOptions: RunOnOption[]
+  // "Add to another machine": the machines the project can be cloned onto (useAddProjectTargets).
+  envAdd: RunOnOption[]
+  envMenuWidth: number
+  envAddMenuWidth: number
+  // The host-resource load the root's balanceLoad task sends ("" when none is due).
+  balanceFetch: string
+  originShown: bool
+  originOn: bool
+  // The pull request badge before the branch trigger (strip-pr-badge.ts).
+  prShow: bool
+  prText: string
+  prIcon: string
+  prState: string
+  prLabel: string
+  prList: bool
+  prUrl: string
+  prTarget: string
+  prTips: StripPrTip[]
+  // The workspace (composer.workspace) and host (composer.host) shortcuts their tooltips name.
+  keyWorkspace: string
+  keyHost: string
+// One provider mark of a multi-model draft's trigger (composer-controls-fanout.ts).
+shape FanoutMark
+  key: string
+  driver: string
+  icon: string
+// One bar of the effort glyph (effort-glyph.ts effortBars): its x, top and height in a 14pt box, filled up to the level.
+shape EffortBar
+  x: number
+  y: number
+  height: number
+  on: bool
+
+shape ComposerView
+  placeholder: string
+  modelTip: string
+  // The prompt field's accessible name: "Message <thread title>".
+  fieldLabel: string
+  fanout: bool
+  fanoutLabel: string
+  fanoutAria: string
+  fanoutMarks: FanoutMark[]
+  fanoutMore: number
+  fanoutKeys: string[]
+  traitsLabel: string
+  // The effort chip (TraitsPicker in the composer): shown when the model has traits; its word ("High", "" for bars),
+  // its bars, the speed ("Fast", "Ultrafast" or ""), the other traits ("1M") and its name and tooltip.
+  effortShown: bool
+  effortWord: string
+  effortBars: EffortBar[]
+  effortBarsWidth: number
+  effortSpeed: string
+  effortOther: string
+  traitsTip: string
+  // Where Permissions live (composer-controls-ownership.ts): the chip shows "label", "icon" or is "hidden"; it is
+  // emphasized off the project's default; the mode block (the chip or Plan) shows; the effort chip or the overflow
+  // menu answers composer.mode; a new thread's strip names them.
+  accessDisplay: string
+  accessEmphasized: bool
+  showModeBlock: bool
+  effortOwnsMode: bool
+  overflowPermissions: bool
+  permissionsInStrip: bool
+  permissionsTip: string
+  stripPermissionsTip: string
+  // The selected ACP Registry instance's agent icon URL (acp-instance-icon.ts).
+  providerIcon: string
+  runtimeIconOnly: bool
+  traitsIconOnly: bool
+  sendRunning: bool
+  sendLabel: string
+  sendIcon: string
+  // While ⌘ or Control is held (useShortcutModifierState): the follow-up alternate's label and icon.
+  sendHeldLabel: string
+  sendHeldIcon: string
+  sendStatus: string
+  sendSpinner: bool
+  sendTooltip: string
+  sendChords: string
+  // The send chords that are not a plain send (alternate, background): an open command menu leaves them to Send.
+  sendCommandChords: string
+  // The Compact chip ('' tokens when it is not offered): off keeps full history; on, the send compacts first.
+  compactTokens: string
+  compactKeepFull: bool
+  compactSend: bool
+  compactTip: string
+  compactWidth: number
+  canResume: bool
+  planReady: bool
+  planTitle: string
+  noProvider: string
+  providerSetupId: string
+  // The context strip shows its controls' icons without their labels (useLabelsOverflow, context-strip.ts).
+  stripCompact: bool
+  notices: ComposerNotice[]
+  // The account whose reset credit confirm is open ('' when none).
+  resetConfirm: string
+  // A usage-limit reset under a minute away: the root's clock ticks each second until it passes (`resetKey` re-arms it).
+  resetSoon: bool
+  resetKey: string
+  // ScrollToEndButton's summary ("Subagent waiting · 2 queued"; '' for none).
+  endSummary: string
+  // The draft's images still being prepared: the strip shows their tiles at once, disabled.
+  preparingImages: PreparingImage[]
+  // Its images' uploads, which start as each joins the draft (attachmentUploadQueue.ts), and why Send and Return wait for
+  // them ("Attachment still uploading"; "" when they need not).
+  uploads: ComposerUploads
+  uploadBlock: string
+  // The first send kept while its images uploaded that can go now ("" for none; composer-uploads.ts).
+  sendResume: string
+  contextShow: bool
+  contextAria: string
+  contextPercent: string
+  contextOffset: number
+  contextOver: bool
+  contextUsed: string
+  contextMax: string
+  contextTotal: string
+  contextCost: string
+  contextNote: string
+  contextCompact: bool
+  contextValueNow: number
+  toolbarTop: number
+  toolbarRight: number
+  sendTipWidth: number
+  stripTop: number
+  stripLeft: number
+  stripRight: number
+  queueEditing: string
+  // The edit's kept attachments and whether its save is in flight.
+  queueEditAttachments: QueueEditAttachment[]
+  queueEditSaving: bool
+  traitsCount: number
+  traitsSelected: number
+  traits: ComposerTrait[]
+  runtimeMode: string
+  runtimeLabel: string
+  runtimeIcon: string
+  runtimeDescription: string
+  runtimeSelected: number
+  runtimeCount: number
+  runtimes: ComposerRuntime[]
+  // Menu texts to measure, and the menus' widths from the measurements (composer-menus.ts).
+  menuProbes: TextProbe[]
+  effortMenuWidth: number
+  runtimeMenuWidth: number
+  effortMenuHeight: number
+  runtimeMenuHeight: number
+  planVisible: bool
+  planActive: bool
+  // The prompt drives the ultrathink frame (composer-ultrathink.ts).
+  ultrathink: bool
+  // Blocks moved into "More composer controls", the cluster hidden below the
+  // picker's minimum, and the menu's rows and widths.
+  modeOverflow: bool
+  traitsOverflow: bool
+  controlsHidden: bool
+  more: ComposerTrait[]
+  moreCount: number
+  moreMenuWidth: number
+  moreMenuHeight: number
+  keyEffort: string
+  keyMode: string
+  attach: bool
+  subagent: bool
+  subagentModel: string
+  subagentEffort: string
+  subagentStatus: string
+  subagentAnnounce: string
+  subagentParent: string
+  // The bar's laid-out width (0 until measured): it stacks under 560pt (ProviderSubagentBar's container queries).
+  subagentWidth: number
+
+shape PickerRow
+  key: string
+  kind: string
+  id: string
+  providerId: string
+  name: string
+  label: string
+  driver: string
+  // An ACP Registry instance's agent icon URL (acp-instance-icon.ts).
+  icon: string
+  // The provider line shows (a search, Favorites, a sub-provider; the Legacy header): a 48pt row, else 32pt.
+  twoLine: bool
+  favorite: bool
+  selected: bool
+  isNew: bool
+  index: number
+  highlighted: bool
+  expanded: bool
+  checked: bool
+  // getModelDisabledReason: a disabled row cannot be chosen or favorited.
+  reason: string
+  // modelPicker.jump.N's shortcut ("⌘1") and chord ("Meta+1") on the first nine choosable rows.
+  jump: string
+  jumpKey: string
+shape PickerRail
+  id: string
+  index: number
+  name: string
+  driver: string
+  // An ACP Registry instance's agent icon URL (acp-instance-icon.ts).
+  icon: string
+  ready: bool
+  // An instance that needs setup is selectable though not ready.
+  selectable: bool
+  // The tooltip, and the accessible name of a button that is not ready or locked out.
+  label: string
+  selected: bool
+  providerBadge: string
+  providerBadgeColor: string
+// ModelPickerContent's setup footer entry: the status message and "Set up X" / "Open provider setup".
+shape PickerSetup
+  id: string
+  message: string
+  label: string
+shape PickerUpdateNotice
+  id: string
+  message: string
+shape PickerCatalog
+  favoriteWritable: bool
+  updateRequired: PickerUpdateNotice[]
+  environmentId: string
+  searching: bool
+  provider: string
+  favoritesSelected: bool
+  count: number
+  legacyCount: number
+  restCount: number
+  restLegacyCount: number
+  twoLineCount: number
+  legacyTwoLineCount: number
+  restTwoLineCount: number
+  restLegacyTwoLineCount: number
+  // The tallest tab's list, in points (rows and their gaps): the popup is never shorter.
+  tallest: number
+  highlight: number
+  highlightKind: string
+  highlightId: string
+  highlightProvider: string
+  models: PickerRow[]
+  providers: PickerRail[]
+  railIndex: number
+  setup: PickerSetup[]
+  chatgptSharing: bool
+  // The active model is a legacy one: its section starts expanded (expandedLegacyInstances).
+  legacyDefault: bool
+  // The first row a search highlights (autoHighlight), -1 when none can be chosen.
+  firstEnabled: number
+  // Shift adds a model to a new thread's draft and keeps the picker open (onToggleModel).
+  multiple: bool
+// The row the open picker chooses for ("" for the composer) and its trigger's window-space edges.
+shape PickerTarget
+  id: string
+  top: number
+  bottom: number
+  left: number

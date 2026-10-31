@@ -1,0 +1,186 @@
+// The thread details panel's data (MIT reference: chat/ThreadDetailsPanel.tsx,
+// BranchToolbar panel sections, chat/OpenInPicker.tsx, editorPreferences.ts,
+// GitActionsControl.logic.ts resolveQuickAction, BranchToolbarEnvironmentSelector):
+// where the thread runs, the workspace folder, the preferred editor, the
+// version-control rows from vcs.refreshStatus, the lineage (shell-lineage.ts), the items
+// the card shows (thread-details-items.ts), Servers and Usage.
+import type { T3Client } from '../client/client';
+import { arr, obj, str, num, type Obj } from '../client/domain';
+import type { Native } from '../client/protocol';
+import { lineageView } from './shell-lineage';
+import { nativeParentStatus, releaseNativeParent } from './lineage-parent';
+import { inlineOpen, shellPrefs } from '../shell/shell-prefs';
+import { refreshVcsOnFocus, watchVcsStatus } from './shell-vcs';
+import { canOverrideServerEnv, draftContext, previousWorktree, serverEnvMode, stripWorkspace } from '../composer/composer-controls-branch';
+import { fanoutSelections } from '../composer/composer-controls-fanout';
+import { focusedOnPrimary } from '../connections/local-primary';
+import { machineKind } from '../connections/connections';
+import { commandShortcut } from '../shell/shell';
+import { NO_SCRIPTS, cardScripts } from './project-scripts';
+import { gitDetails, EMPTY_GIT } from './git-card'; // branch picker, Git actions and dialogs
+import { environmentOptions } from './git-env'; // the environments that hold this project
+import { prRowsView, emptyPrRows } from '../panel/pr-surface'; // the pull request rows under the branch
+import { EDITOR_DEFINITIONS } from '../shared/editors';
+import { openInView } from '../connections/remote-open'; // OpenInPicker's remote Open: deep links for environments on other machines
+import { threadAutomations, NO_AUTOMATIONS } from './thread-automations'; // ThreadAutomationsPanel
+import { autoBalanceState } from '../composer/auto-balance';
+import { threadDetailsMenu, threadDetailsVisibility } from './thread-details-items';
+import { NO_SERVERS, threadServersView, watchThreadServers } from './thread-servers'; // ThreadServersPanel
+import { NO_USAGE, threadUsage } from './thread-details-usage'; // ThreadDetailsUsage
+
+/** EDITORS in contracts/editor.ts order; `file-manager` is Finder on macOS (editorLabelForPlatform). */
+export const EDITORS: [string, string][] = EDITOR_DEFINITIONS.map(editor => [editor.id, editor.label]);
+
+type QuickAction = { label: string; kind: string; disabled: boolean; hint: string; action: string };
+/** GitActionsControl.logic.ts resolveQuickAction (GitHub terminology: PR). */
+export function quickAction(status: Obj | null): QuickAction {
+  const hint = (label: string, text: string): QuickAction => ({ label, kind: 'show_hint', disabled: true, hint: text, action: '' });
+  const run = (label: string, action: string): QuickAction => ({ label, kind: 'run_action', disabled: false, hint: '', action });
+  if (!status) return hint('Commit', 'Git status is unavailable.');
+  const pr = obj(status.pr), hasOpenPr = pr.state === 'open', ahead = num(status.aheadCount) > 0, behind = num(status.behindCount) > 0;
+  const isDefault = status.isDefaultRef === true, hasRemote = status.hasPrimaryRemote !== false, upstream = status.hasUpstream === true;
+  if (status.refName == null) return hint('Commit', 'Create and checkout a ref before pushing or opening a pull request.');
+  if (status.hasWorkingTreeChanges === true) {
+    if (!upstream && !hasRemote) return run('Commit', 'commit');
+    if (hasOpenPr || isDefault) return run('Commit & push', 'commit_push');
+    return run('Commit, push & PR', 'commit_push_pr');
+  }
+  if (!upstream) {
+    if (!hasRemote) return { label: 'Publish repository', kind: 'open_publish', disabled: false, hint: '', action: '' };
+    if (!ahead) return hasOpenPr ? hint('Commit', 'Branch is up to date. No action needed.') : hint('Push', 'No local commits to push.');
+    if (hasOpenPr || isDefault) return run('Push', isDefault ? 'commit_push' : 'push');
+    return run('Push & create PR', 'create_pr');
+  }
+  if (ahead && behind) return hint('Sync ref', 'Branch has diverged from upstream. Rebase/merge first.');
+  if (behind) return { label: 'Pull', kind: 'run_pull', disabled: false, hint: '', action: '' };
+  if (ahead) return hasOpenPr || isDefault ? run('Push', isDefault ? 'commit_push' : 'push') : run('Push & create PR', 'create_pr');
+  if (hasOpenPr) return hint('Commit', 'Branch is up to date. No action needed.');
+  if (num(status.aheadOfDefaultCount ?? status.aheadCount) > 0 && !isDefault) return run('Create PR', 'create_pr');
+  return hint('Commit', 'Branch is up to date. No action needed.');
+}
+
+/** GitQuickActionIcon: commit, cloud up/down, the source control host's mark for a pull request, else info. */
+export function quickActionIcon(action: QuickAction, status: Obj | null): string {
+  const provider = str(obj(status?.sourceControlProvider).kind) || 'github';
+  const host = provider === 'github' ? 'github' : 'pull-request';
+  if (action.kind === 'open_publish') return 'cloud-upload';
+  if (action.kind === 'run_pull') return 'cloud-download';
+  if (action.kind === 'run_action') return action.action === 'commit' ? 'git-commit' : action.action === 'push' || action.action === 'commit_push' ? 'cloud-upload' : host;
+  return action.label === 'Commit' ? 'git-commit' : action.label === 'Push' ? 'cloud-upload' : 'info';
+}
+
+export function preferredEditor(available: string[], last: string): string {
+  if (last && available.includes(last)) return last;
+  return EDITORS.find(([id]) => available.includes(id))?.[0] ?? '';
+}
+
+/** shouldShowEnvironmentIndicator and the static label (BranchToolbar.logic.ts, BranchToolbarEnvironmentSelector, upstream bb7997709d):
+ * a remote (non-primary) machine always gets a row, even when it is the only one, because the user still needs to see where it runs. */
+export function environmentIndicator(input: { isPrimary: boolean; available: number; environmentId: string; runtimeLabel: string; savedLabel: string; machine: string }) {
+  const runtime = input.runtimeLabel.trim(), saved = input.savedLabel.trim();
+  const generic = (label: string) => !label || ['local', 'local environment'].includes(label.toLowerCase());
+  const label = input.isPrimary ? (!generic(runtime) ? runtime : !generic(saved) ? saved : 'This device') : runtime || saved || input.environmentId;
+  return { envShow: input.available > 1 || !input.isPrimary, envLabel: label || 'Run on', envKind: input.machine || 'server' };
+}
+
+type LineageView = ReturnType<typeof lineageView>;
+const noLineage: LineageView = { lineageTitle: 'Lineage', lineage: [], showLineage: false, previousCount: 0, previousFailed: 0, mergeRunId: '', mergeTargetId: '', mergeSourceId: '', mergeLabel: '', mergeHint: '' };
+// A function, not a constant: the Servers and Usage modules sit in an import cycle with this one.
+const empty = () => ({ versionClient: '', versionServer: '', versionLabel: '', ready: false, inline: false, error: '', folderName: '', folderLabel: '', cwd: '', workspacePath: '', editorId: '', editorLabel: '', editors: [] as { id: string; label: string; selected: boolean }[], editorShortcut: '', editorShow: false, editorHint: '', editorUnavailable: '', editorEmpty: false,
+  isGit: false, branch: '', actionLabel: 'Commit', actionKind: 'show_hint', actionDisabled: true, actionHint: '', insertions: 0, deletions: 0,
+  envModeSelect: false, envMode: 'local', envIcon: 'folder', previousLabel: '', actionIcon: 'git-commit', changesEnabled: false, diffScheme: 'red-green',
+  envShow: false, envLabel: '', envKind: 'server', automations: NO_AUTOMATIONS, git: EMPTY_GIT, prRows: emptyPrRows(), ...NO_SCRIPTS, ...noLineage,
+  items: threadDetailsVisibility({ local: {} }), itemsMenu: threadDetailsMenu({ local: {} }), servers: NO_SERVERS, usage: NO_USAGE });
+/** usePreferredEditor's stored choice (persisted in t3-code.json, shell-prefs.ts). */
+export function rememberEditor(client: T3Client, editor: string): void { shellPrefs(client).lastEditor = editor; }
+export const lastEditor = (client: T3Client): string => shellPrefs(client).lastEditor;
+
+/** The inline card's per-thread key (scopedThreadKey: a draft is keyed by its draft). */
+export const detailsKey = (client: T3Client) => client.draftKey;
+
+/**
+ * Data sources cannot read the clock (Date.now() fails the whole answer): `now` is the window's wall time.
+ * The `shellDetails` source. Where chat has room (`wide`), the card docks inline
+ * and is open unless this thread closed it (ThreadDetailsCard, upstream
+ * 429c625a85); otherwise, or where a floating player leaves it no placement, it is
+ * the header's popover, fetched only while open: `open` is the popover shown
+ * (app.contract detailsShown), so the pull request rows place their cards for it.
+ */
+/** `focused`: the window has the focus and is visible (exactPage(), exact2 #219); the card's Git actions refresh the status when it returns. */
+export async function shellDetails(client: T3Client, native: Native | null | undefined, open: boolean, threadId: string, wide = false, now = 0, rightGap = 0, focused = true,
+  workflows: string[] = [], phasesOpen: string[] = [], phasesClosed: string[] = [], visible = true) {
+  const inline = wide && inlineOpen(client, detailsKey(client));
+  // The popover: chat is narrow, or the floating player left the docked card no placement (ThreadDetailsCard's mode).
+  if (!(inline || open) || !native?.available || !client.ready || !client.projectId) {
+    // While the card is closed the stream follows the strip's workspace, or ends when the strip is hidden.
+    if (native?.available && client.ready) { await watchVcsStatus(client, native, stripWorkspace(client), now); await refreshVcsOnFocus(client, native, '', focused); await watchThreadServers(client, native, false); }
+    await releaseNativeParent(client, native); // lineage-parent.ts: the closed card no longer watches a native coordinator
+    return empty();
+  }
+  const thread = client.shell.threads.find(entry => entry.id === threadId);
+  const project = client.shell.projects.find(entry => entry.id === (thread ? thread.projectId : client.projectId));
+  const draft = thread ? null : draftContext(client);
+  // forceNewWorktree: a multi-model draft starts each model in its own new worktree (the composer strip's rule).
+  const forced = !thread && !!fanoutSelections(client);
+  // canOverrideServerThreadEnvMode: a server thread with no message, runtime or worktree still picks its workspace.
+  const override = !!thread && threadId === client.threadId && canOverrideServerEnv(client);
+  const cwd = (thread ? str(thread.worktreePath) : str(draft?.worktreePath)) || str(project?.workspaceRoot);
+  const worktree = forced ? '' : thread ? str(thread.worktreePath) : str(draft?.worktreePath);
+  const raw: unknown[] = Array.isArray(client.config.availableEditors) ? client.config.availableEditors : [];
+  const available = raw.filter((value): value is string => typeof value === 'string' && EDITORS.some(([id]) => id === value));
+  // Remote mode ignores the server's PATH probe: what matters is what runs on this Mac (OpenInPicker effectiveEditors).
+  const openIn = await openInView(client, native, available, str(project?.title));
+  const editor = preferredEditor(openIn.editors, lastEditor(client));
+  const label = (id: string) => EDITORS.find(([candidate]) => candidate === id)?.[1] ?? id;
+  // subscribeVcsStatus while the card is shown (shell-vcs.ts); a closed card ends the stream below.
+  const { status, error } = await watchVcsStatus(client, native, cwd, now);
+  await refreshVcsOnFocus(client, native, cwd, focused); // GitActionsControl: vcs.refreshStatus when the window regains the focus
+  const action = quickAction(status);
+  // The Changes row reads the branch's totals when the server reports them (upstream d1034d62b2).
+  const totals = obj(status?.branchChanges ?? status?.workingTree);
+  // BranchToolbarEnvModeSelector (panel): a draft or an unstarted server thread picks Current checkout / New worktree
+  // here; several models force New worktree; a started thread's workspace is locked.
+  const envMode = forced ? 'worktree' : override ? serverEnvMode(client) : worktree ? (thread ? 'worktree' : 'local') : draft?.envMode === 'worktree' ? 'worktree' : 'local';
+  const creating = (!thread || override) && envMode === 'worktree' && !worktree;
+  const previous = thread || forced ? null : previousWorktree(client);
+  const environment = obj(client.config.environment);
+  const env = environmentIndicator({ isPrimary: focusedOnPrimary(client), available: environmentOptions(client).length, environmentId: client.environmentId,
+    runtimeLabel: str(environment.label), savedLabel: '', machine: machineKind(client.config) });
+  const balance = autoBalanceState(client); // the Run on row reads "Auto balance" (a scale) while the draft is automatic
+  if (balance.automatic) Object.assign(env, { envLabel: balance.label, envKind: 'scale' });
+  // lineage-parent.ts: a native coordinator's stream while its member is shown (a draft or another thread releases it).
+  const nativeParent = await nativeParentStatus(client, native, threadId);
+  const items = threadDetailsVisibility(client);
+  // The Servers section's stream lasts while the card shows it for a started thread.
+  await watchThreadServers(client, native, items.servers && !!thread);
+  return {
+    items, itemsMenu: threadDetailsMenu(client), servers: thread && items.servers ? threadServersView(client, threadId) : NO_SERVERS,
+    usage: items.usage ? threadUsage(client, thread ? threadId : '', now) : NO_USAGE,
+    versionClient: '', versionServer: '', versionLabel: '',
+    ready: true, inline, error, folderName: creating ? 'New worktree' : cwd.replace(/\/+$/, '').split('/').pop() ?? '',
+    // The panel names the workspace kind only when it is not the project folder.
+    folderLabel: creating ? 'Create' : worktree ? 'Worktree' : '', cwd,
+    // RunContextSelector's workspacePath: none for a worktree not made yet (forced, or New worktree before its first turn).
+    workspacePath: envMode === 'worktree' && !worktree ? '' : cwd,
+    envModeSelect: !thread || override, envMode, envIcon: envMode === 'worktree' && !worktree ? 'folder-git-2' : worktree ? 'folder-git' : 'folder',
+    previousLabel: previous?.branch ?? '', actionIcon: quickActionIcon(action, status),
+    // ChatView passes onOpenChanges only for a server thread in a Git repository.
+    changesEnabled: !!thread && status?.isRepo !== false, // GitActionsControl's isRepo is true until status says otherwise
+    editorId: editor, editorLabel: `Open in ${editor ? label(editor) : 'editor'}`, editors: openIn.unavailable ? [] : openIn.editors.map(id => ({ id, label: label(id), selected: id === editor })),
+    editorShow: openIn.show, editorHint: openIn.hint, editorUnavailable: openIn.unavailable, editorEmpty: openIn.empty,
+    editorShortcut: commandShortcut(client.config, 'editor.openFavorite'),
+    ...cardScripts(obj(client.config.settings), project), // the project script row (project-scripts.ts)
+    isGit: status?.isRepo === true, branch: str(status?.refName), actionLabel: action.label, actionKind: action.kind === 'run_action' ? action.action : action.kind,
+    actionDisabled: action.disabled, actionHint: action.hint, insertions: num(totals.insertions), deletions: num(totals.deletions), ...env,
+    diffScheme: client.local.clientSettings?.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green',
+    git: { ...(await gitDetails(client, native, { status, error, cwd, root: str(project?.workspaceRoot), now, editor, envRow: env.envShow, unstarted: !thread || thread.latestRunId == null })),
+      // BranchToolbar's run-context glyphs: the machine names where it runs, the folder its path (its label until it has one).
+      runTip: env.envLabel || 'Run on', workspaceTip: forced ? 'Each model starts in its own worktree.' : creating ? 'New worktree' : cwd },
+    // The row's place in the window, in the presentation shown: the popover's while it is open, also where the
+    // floating player left the docked card no placement (ThreadDetailsCard's mode).
+    prRows: await prRowsView(client, native, { status, threadId, now, projectId: str(project?.id), rightGap, inline: inline && !open, visible }),
+    automations: await threadAutomations(client, native, thread ? threadId : '', now), // thread-automations.ts: ThreadAutomationsPanel
+    ...(thread ? lineageView(client.shell.threads, client.threadId === threadId ? client.projection : null, threadId, arr(client.config.providers), now,
+      workflows, phasesOpen, phasesClosed, client.writable, nativeParent) : noLineage),
+  };
+}

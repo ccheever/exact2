@@ -1,0 +1,37 @@
+// The settings model and traits pickers' trigger (settingsLayout.tsx SETTINGS_PICKER_TRIGGER_CLASSNAME), apart from
+// settings-rows.contract so Source control and Scheduled tasks can use it.
+use ProviderInstanceMark from "../shared/icons-kit.contract"
+use CcIcon from "../composer/composer-controls.contract"
+
+// SETTINGS_PICKER_TRIGGER_CLASSNAME (settingsLayout.tsx): the composer's model and traits triggers bordered as the
+// selects beside them: the input border, the background (input/32 in dark), shadow-xs/5 and accent/50 while hovered.
+// Its text is regular foreground and its chevron 1.75 at 70%, which each trigger draws.
+style SettingsPickerFace
+  display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem" flex-shrink=0 min-width=0
+  height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.5rem"
+  border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)"
+  box-shadow="0 1px 2px #0000000d"
+  :hover
+    background-color="light-dark(#f4f4f580, #ffffff05)"
+
+// ProviderModelPicker's trigger in Settings (SETTINGS_PICKER_TRIGGER_CLASSNAME): the instance mark, the model's name and
+// the chevron, opening the window's model picker under it (Source control's writer and review guide models, a scheduled
+// task's model).
+component SettingsModelTrigger
+  props
+    rowId: string
+    label: string
+    name: string
+    driver: string
+    badge: string
+    accent: string
+    disabled: bool
+    press: action
+    stop: string // its focus word when enabled: "enabled page" on a Settings page, "enabled" in a dialog
+  view
+    button press=press disabled=disabled id=`setting-${rowId}` testId=`setting-${rowId}` aria-label=name aria-haspopup="dialog" class=SettingsPickerFace opacity=(disabled ? 0.64 : 1) data-focus-stop=(disabled ? "" : stop)
+      if driver != ""
+        ProviderInstanceMark(driver=driver, size=16, color="light-dark(#71717b, #a1a1a1)", badge=badge, accent=(accent == "" ? "#00000000" : accent))
+      text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=1
+      box opacity=0.7 flex-shrink=0
+        CcIcon(name="chevron-down", size=14, color="light-dark(#18181b, #f5f5f5)", weight=1.75)

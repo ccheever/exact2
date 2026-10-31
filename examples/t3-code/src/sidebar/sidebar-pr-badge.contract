@@ -1,0 +1,19 @@
+// MIT reference, see LICENSE-T3.
+// ThreadPullRequestBadgeControl in the sidebar row (ThreadStatusIndicators.tsx):
+// an InlineButton (gap-0.5) holding the status glyph, GitPullRequestArrow until
+// the host reports a state (Layers for a stack), and the number in text-xs.
+use Thread from "./sidebar-shapes.contract"
+use Icon from "../shared/icons.contract"
+use ShellIcon from "../shell/shell-icons.contract"
+use PgIcon from "../shared/pages-icons.contract"
+use prdTone from "../pull-requests/pages-pr-detail.contract"
+
+component SidebarPrBadge
+  props
+    t: Thread
+  derive tone = t.badgeState == "" ? "light-dark(#71717b, #8f8f8f)" : prdTone(t.badgeState)
+  view
+    // The glyph wears the badge's state tone (muted until a snapshot arrives); the number is secondary-label.
+    row gap="0.125rem" align-items="center" flex-shrink=0
+      PgIcon(name=t.badgeIcon, size=12, color=tone)
+      text t.badge font-size="0.75rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #8f8f8f)"
