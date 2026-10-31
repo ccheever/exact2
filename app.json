@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "T3 Code",
+    "slug": "t3-code",
+    "owner": "exponathan",
+    "version": "1.0.0",
+    "ios": {
+      "bundleIdentifier": "com.exact.t3code.ios",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "d174410b-5859-4712-9ad2-014c94542a43"
+      }
+    }
+  }
+}
