@@ -7677,9 +7677,9 @@ Single-sample static/rest rows; clocks and work accompany elapsed CPU:
 | Peak footprint changes by at most 2 MiB | Literal ±2 MiB prediction **missed toward lower footprint**: fling −2.281, rest −2.172, bar −7.328, caret −15.141 MiB. No measured peak increases. |
 | Bit-for-bit mask parity; pinned and text suites | Met on Metal and wgpu; validation below. |
 
-No performance tuning or second timed collection followed these results.
-The rest/bar misses remain work to attribute, rather than a claim that the
-warm path's CPU cost is proven unchanged.
+No performance tuning followed this initial collection. The review-fix
+paired collection below resolves its rest/bar follow-up; the original
+single-sample predictions remain misses.
 
 Reproduction uses the retained signed bundles and
 `target/m10-cut7/silver/{provenance.json,sources.json,source-before.patch,source-after.patch}`.
@@ -7797,3 +7797,228 @@ both sites and zero uploads. Pending geometry-only masks prevent eviction
 at insertion; no protection scan runs at begin. Existing overflow retirement
 and glyph-cache bookkeeping are unchanged. The diagnostic source delta is
 `scans-before.patch`; its output is `checks/scans-before.log`.
+
+The fixes are `b1b0e9c993`. Metal validates and retains every destination
+texture before opening the blit encoder, allocates at least 64 KiB per staging
+slot, and returns a recorded submit error before the atlas clears dirty state.
+The ordered fake queue runs the adapter's intermediate group, opacity,
+backdrop and later-mask pass boundaries; each new mask uploads before its draw.
+Real Metal and wgpu readbacks cover a batch spanning two pages of one atlas
+kind, including both new padded regions and earlier masks. A blocked Metal
+worker holds four batches in one frame: the fourth replaces the busy slot
+without waiting; completion drains retired buffers; larger sub-64-KiB batches
+reuse all three slots; trim releases them. The sixteen-page counter fixture
+reports **16,777,216 retained bytes**, including both 8 MiB halves.
+
+| Review finding | Disposition |
+| --- | --- |
+| Sol 1; Claude 5, CPU shadows | Counted in `Stats.bytes`; D8 amended; normal ceiling and overflow release asserted. |
+| Sol 2; Claude warm path | Dirty-page list; measured visits fall 128 → 0 for one begin and three flushes. |
+| Sol 2; Claude rest/bar | Five qualified pairs each; CPU medians within ±5%, both paired ranges cross zero. Extra bar timer/dispatch work is counted below. |
+| Sol 3; Claude 9, coverage gaps | Ordered adapter passes, same-kind two-page readbacks, four busy Metal batches, reuse and trim pass. |
+| Claude 2, failed Metal submission | Return the recorded error; dirty rectangles remain pending. |
+| Claude 4, upload-byte meaning | Field comment and kept-rows qualification above. |
+| Claude 6, small staging allocations | 64 KiB floor, with slot-reuse assertions. |
+| Claude 8, open encoder on error | Destination textures collected before opening the encoder. |
+| Claude 3 and 7, shelf-wrap union and double copy | Queued with the 16.9 KiB/copy and 29.8 μs staging observations; no optimization claimed. |
+| Claude 1; Sol 4, device parity | Vulkan passes at `b1b0e9c993`; the separate Windows lane passes D3D11/wgpu at its frozen `d008a448c7`. The follow-up changes have not run on Windows. |
+
+### Validation after review
+
+The local suites ran the sources in `b1b0e9c993`. The Linux adapter runs use
+`CARGO_BUILD_JOBS=6` and `EXACT_REQUIRED=1`; the Metal/wgpu parity runs also
+set `RUST_TEST_THREADS=2`.
+The ink library's `--nocapture` output also retains the scan and memory
+counter measurements. Logs are under `target/m10-cut7-review/checks/`.
+
+```text
+cargo test -p exact-ink --lib --no-fail-fast -- --nocapture
+test result: ok. 52 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+cargo test -p exact-linux --lib ink:: --no-fail-fast -- --nocapture
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 1691 filtered out; finished in 0.37s
+
+EXACT_INK_DEVICE=metal cargo test -p exact-linux --test pinned --test it --lib --no-fail-fast
+test result: ok. 1695 passed; 0 failed; 22 ignored; 0 measured; 0 filtered out; finished in 53.95s
+test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.09s
+test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 7.50s
+
+EXACT_INK_DEVICE=wgpu cargo test -p exact-linux --test pinned --no-fail-fast
+test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 7.74s
+
+EXACT_INK_DEVICE=wgpu cargo test -p exact-linux --lib text:: --no-fail-fast
+test result: ok. 217 passed; 0 failed; 0 ignored; 0 measured; 1500 filtered out; finished in 2.42s
+
+EXACT_INK_DEVICE=wgpu cargo test -p exact-linux --test it image --no-fail-fast
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 1.81s
+```
+
+Both release carriers build locally with the same probe and own `target/`.
+The main carrier uses `fd89454bd3`'s runtime files, checked byte for byte
+before the build; the after carrier uses `b1b0e9c993`. Their build logs,
+signed bundles and source checks are retained with the measurements.
+The six checks remain assigned to the Mac mini; this lane runs package
+formatting, `git diff --check` and staged structural caps with
+`EXACT_CAPS_WASM=0`.
+
+### Vulkan and Windows parity after review
+
+Claude 1's Vulkan gap is closed at `b1b0e9c993`. The tracked sources were
+rsynced to `ccheever@100.85.211.16` (`expose-builder-pixel-a`), into its own
+`~/projects/exact2-wt-1149-raster`, and every changed runtime file was checked
+against the local SHA-256 manifest. The builder ran Rust 1.97.0 and Bun 1.4.2.
+Mesa lavapipe 25.2.8 was extracted under that mirror's
+`target/m10-cut7-review/lavapipe/`; `VK_DRIVER_FILES` names its ICD and absolute
+library path. No system driver or other checkout was changed.
+
+The commands use `CARGO_BUILD_JOBS=6`, `RUST_TEST_THREADS=2`,
+`EXACT_REQUIRED=1`, `EXACT_INK_DEVICE=wgpu`, `WGPU_BACKEND=vulkan`,
+`EXACT_PAINTER=ink` and this mirror's `--target-dir target`:
+
+```text
+cargo test -p exact-ink --lib --target-dir target --no-fail-fast
+test result: ok. 31 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.52s
+
+EXACT_PAINTER=ink cargo test -p exact-linux --test pinned --target-dir target --no-fail-fast
+test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 30.18s
+```
+
+The first pinned build stopped before running tests because the fresh mirror
+lacked Rolldown. `bun install --frozen-lockfile` supplied it; the second build
+and run passed. Both attempts, exit statuses, driver scripts and provenance
+are retained locally in `target/m10-cut7-review/vulkan/`, with the original
+driver files on the builder. `vulkan-source-check.log`, `source-sha256.json`
+and `lavapipe-setup.log` beside that directory record the source and driver
+checks. Reproduction starts with the tracked-file rsync and frozen install,
+then runs `run-vulkan.sh` with the pinned tools first on PATH. The script
+sets the private ICD and runtime paths explicitly. These are headless Vulkan
+pixel/readback checks; they do not qualify a native Linux window or input.
+
+D3D11 was not repeated. `lane/1149-001-atlas-win` committed its record as
+`2851b41a15`, in `host/ink/MEASUREMENTS.md`, “M10 cut 7 on Windows”. Its
+frozen candidate is **`d008a448c7`**, before these review fixes. D3D11 and
+wgpu pass the original batch readback, pinned, text, image and all five
+desktop journeys each. The new two-page test and accounting changes at
+`b1b0e9c993` have not run on Windows. This closes the original cut's D3D11
+qualification gap, without claiming a Windows run of the follow-up.
+
+Verbatim parity lines from that committed record:
+
+```text
+test atlas::upload::tests::d3d11_batches_identical_masks_and_padding_then_only_the_new_rectangle ... ok
+d3d11-ink: test result: ok. 52 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 4.83s
+d3d11-pinned: test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 27.17s
+d3d11-text: test result: ok. 216 passed; 0 failed; 1 ignored; 0 measured; 1420 filtered out; finished in 3.84s
+d3d11-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.66s
+wgpu-ink: test result: ok. 52 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 5.19s
+wgpu-pinned: test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 57.05s
+wgpu-text: test result: ok. 216 passed; 0 failed; 1 ignored; 0 measured; 1420 filtered out; finished in 3.98s
+wgpu-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.58s
+```
+
+The record and result lines are copied to
+`target/m10-cut7-review/windows-measurements.md`; its source/provenance and
+raw evidence remain with that lane in `target/m10-cut7-windows/`. Its two
+startup collections fail the quiet rule and its third attempt stops at
+preflight, so no Windows startup saving is imported here.
+
+### Paired rest, bar and caret after review
+
+The silver's M10 collector released the display before this collection.
+The existing Aqua launch chain ran main `fd89454bd3` against `b1b0e9c993`,
+with the same signed probe, `G1_GPU_HOOK=0`, `EXACT_INK_COUNTERS=1`, direct
+Metal and no power sampler. Two first launches after signing are retained
+and excluded. Five rounds alternate the before/after order; bar reverses
+that round's fling order. Rest is each fling's rest phase. Caret runs once
+per carrier. All accepted rows have an 800×800-point outer window,
+800×768-point content, 2× scale, 120 Hz display, focus, normal thermal state
+and no low-power mode.
+
+All drivers succeed. Three launches in session 1 fail the per-launch quiet
+rule: after flings 4 and 5, and before bar 4. The observations record
+`mediaanalysisd`/`launchd`, `duetexpertd`, and `agy` bursts respectively.
+Their samples remain retained. Session 2 repeats both members of those
+three pairs, with unchanged binaries and settings; all six replacements
+qualify. Selection takes the first qualified pair for each phase and round,
+regardless of its CPU value. The session-wide quiet flag remains false;
+qualification covers each selected launch and its preceding sixty seconds.
+There are five qualified rest pairs, five bar pairs and one caret pair.
+
+Process CPU milliseconds/second, before → after, with each paired change:
+
+| Round | Rest | Bar |
+| --- | ---: | ---: |
+| 1 | 3.134 → 3.161 (+0.882%) | 185.267 → 185.730 (+0.250%) |
+| 2 | 3.137 → 3.150 (+0.408%) | 187.893 → 199.361 (+6.104%) |
+| 3 | 3.184 → 3.055 (−4.033%) | 188.068 → 192.385 (+2.295%) |
+| 4, replacement | 3.181 → 3.044 (−4.315%) | 187.129 → 183.094 (−2.156%) |
+| 5 | 3.107 → 3.090 (−0.541%; replacement) | 183.119 → 190.114 (+3.820%) |
+
+Qualified arm medians; GHz and IPC are calculated per sample before taking
+their medians, so ratios of the displayed median columns need not agree:
+
+| Phase / arm | CPU, ms/s | Main, ms/s | Cycles, M/s | Instructions, M/s | GHz | IPC |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| rest / before | 3.137 | 3.006 | 4.482 | 4.274 | 1.408 | 0.970 |
+| rest / after | 3.090 | 2.926 | 4.441 | 4.241 | 1.437 | 0.957 |
+| bar / before | 187.129 | 95.857 | 268.796 | 437.597 | 1.436 | 1.621 |
+| bar / after | 190.114 | 98.268 | 269.929 | 442.109 | 1.426 | 1.676 |
+| caret / before | 29.974 | 26.999 | 41.993 | 92.666 | 1.401 | 2.207 |
+| caret / after | 31.330 | 28.229 | 43.822 | 96.868 | 1.399 | 2.210 |
+
+| Prediction | Result |
+| --- | --- |
+| Clean begin plus three flushes: 128 page visits → 0; zero uploads | Met: 32 + 96 → 0 + 0; zero uploads in both counter runs. |
+| Normal GPU pages plus CPU shadows: 8 + 8 MiB at sixteen pages per kind | Met: 16,777,216 bytes. Overflow shadows count until successful flush. |
+| Two same-kind page copies/readbacks; four busy Metal batches; retirement and trim | Met on the local devices; the shared readback also passes on Vulkan. |
+| Rest median paired CPU within ±5%, range crossing zero | Met: −0.541%, range −4.315% to +0.882%; median paired delta −0.017 ms/s. |
+| Bar median paired CPU within ±5%, range crossing zero | Met: +2.295%, range −2.156% to +6.104%; median paired delta +4.317 ms/s. |
+| One caret pair within ±5% | Met: +4.523%, +1.356 ms/s. One pair establishes no distribution. |
+| Warm glyph batches, copies and bytes remain zero | Met in every selected candidate rest, bar and caret interval. Main's older counter set lacks these fields. |
+| Local Metal/wgpu and Vulkan parity | Met; verbatim results above. Windows' original cut also passes on its separate lane. |
+
+**Variance under the requested paired-range test:** both process-CPU ranges
+cross zero, so neither earlier single-sample increase is reproduced as a
+consistent regression on the revision with these fixes. The old +14.084%
+rest and +6.143% bar predictions remain recorded misses. These are observed paired
+ranges, not confidence intervals, and do not establish zero cost. In
+particular, paired bar instructions rise 0.933% median, range +0.513% to
++15.728%, while paired effective GHz falls 1.112% median.
+
+The largest bar pair has 40 → 2,460 timer service passes and
+3,566 → 4,711 dispatch-only passes over ten seconds; another has
+15 → 802 timer passes. Both retain 1,200 paint attempts and zero candidate
+glyph uploads. The counted path is
+`host/apple-painted/src/window.rs::new_events/about_to_wait → service`
+(`ResumeTimeReached`, then `advance`, `pump`, commands and image polling).
+This names the extra work accompanying the spread; the trigger for those
+intermittent timer wakes is not isolated by these counters. Rest records
+zero paint attempts and presentations in both carriers; caret presents
+twenty frames in each sample.
+
+Retained evidence is `target/m10-cut7-review/silver/`, mirrored from
+`/Users/ccheever/projects/exact2-measure/target/g0/m10-cut7-review-b1b0e9c993/`.
+`session-1/` and `session-2/` contain every attempt, ready record, driver log,
+schedule, five-second quiet observation and power configuration.
+`combined/selection.json` names the pairs; `combined/paired.json` contains
+their phase deltas and summaries. Both signed carriers remain in the local
+parent directory and on the silver. `provenance.json` records their complete
+file hashes and the shared probe hash. `baseline-source-check.json` and
+`source-sha256.json` bind the builds to their source revisions.
+
+The retained `run-paired.py`, `run-repair.py` and `repair-plan.json` specify
+launch order, ownership checks, quiet gates and replacement criteria.
+Recompute from this worktree:
+
+```sh
+python3 target/m10-cut7-review/analyze-paired.py target/m10-cut7-review/silver 1
+python3 target/m10-cut7-review/analyze-paired.py target/m10-cut7-review/silver 2
+python3 target/m10-cut7-review/combine-paired.py target/m10-cut7-review/silver session-1 session-2
+python3 target/m10-cut7-review/summarize-paired.py target/m10-cut7-review/silver/combined
+bun bench/heavy-list/gpui/aggregate.mjs target/m10-cut7-review/silver/session-1/bar/after/series/ink-2.json --sample
+```
+
+The committed aggregator independently checks all 22 selected source samples'
+phase deltas and hook state; `aggregate-selected.log` retains its output.
+No trace or power sample enters these CPU rows, and no other startup cut is
+included. The earlier cold-row and observer-control limitations still stand.
