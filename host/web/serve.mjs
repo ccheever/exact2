@@ -6,7 +6,7 @@
 // Usage: bun host/web/serve.mjs [<dir> | --origin <dir>] [--port <n>] [--loopback|--lan]
 import { createServer } from 'node:http';
 import { createServer as createSocketServer } from 'node:net';
-import { brotliCompress, constants as zlib, gzip } from 'node:zlib';
+import { brotliCompress, brotliCompressSync, constants as zlib, gzip, gzipSync } from 'node:zlib';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -871,8 +871,10 @@ function* treeFile(dist, pathname, accept, miss) {
  * generation in its base, and a path under one, or any path for a drive's `pinned` one, is read from that build. A
  * generation kept no more is 410, which the page's glue answers by loading the page again. With `pages` (`serve`'s
  * `sitePages`, LLP 1153 D3.4), a `render=request` or `cached` route's page is rendered for the request in place of
- * its shell. */
-export async function serveBuildTree(dist, req, res, { pinned = null, pages = null } = {}) {
+ * its shell. With `compression` (`serve`'s, `compressionCache`), it is a site's server: a page goes compressed as the
+ * reader accepts, and a file as its warmed variant, revalidated by its ETag; else (the drivers, the dev server) every
+ * response is identity and never kept. */
+export async function serveBuildTree(dist, req, res, { pinned = null, pages = null, compression = null } = {}) {
   // The raw target is refused as serveStatic refuses it (an encoded dot
   // segment); a parsed URL would resolve one into another route.
   const target = webRequestURL(req.url);
@@ -884,10 +886,41 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
       console.error(`render ${target.pathname}: ${error.message}`);
       res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('This page could not be rendered.\n'); return;
     }
-    if (page) { sendStaticBody(req, res, page.html, { 'content-type': 'text/html; charset=utf-8', 'cache-control': page.cacheControl }, page.status); return; }
+    if (page) {
+      const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': page.cacheControl };
+      // A page made for this request is compressed as it goes: brotli at quality 5 takes a few milliseconds for a
+      // page and is a tenth of its size, which the reader's first paint waits on (LLP 1048.007 D6).
+      const accepted = compression ? acceptedEncodings(req.headers['accept-encoding']) : new Set();
+      const encoding = ['br', 'gzip'].find(name => accepted.has(name));
+      const body = encoding === 'br' ? brotliCompressSync(page.html, { params: { [zlib.BROTLI_PARAM_QUALITY]: 5 } }) : encoding ? gzipSync(page.html) : page.html;
+      sendStaticBody(req, res, body, { ...headers, ...(compression ? { vary: 'Accept-Encoding' } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) }, page.status);
+      return;
+    }
+  }
+  // A request that does not ask for HTML (`curl`'s `*/*`) gets no page, and a site without a 404 page sends nothing:
+  // where a browser's would get a page, that empty 404 says how to ask for it.
+  if (r.status === 404 && !r.body && target && !acceptsHTML(req.headers.accept) && (await servedFile(dist, target.pathname, 'text/html', { pinned })).status === 200) {
+    res.writeHead(404, { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8' });
+    res.end(`${target.pathname} is a page: ask for it as a browser does, with Accept: text/html (curl -H 'Accept: text/html' …).\n`);
+    return;
   }
   if (!r.body) { res.writeHead(r.status, { 'cache-control': 'no-store', ...(r.status === 503 ? { 'retry-after': '1' } : {}) }); res.end(); return; }
-  sendStaticBody(req, res, r.body, { 'content-type': webContentType(r.route), 'cache-control': 'no-store' }, r.status);
+  const type = webContentType(r.route);
+  if (!compression || r.status !== 200) { sendStaticBody(req, res, r.body, { 'content-type': type, 'cache-control': 'no-store' }, r.status); return; }
+  const body = Buffer.isBuffer(r.body) ? r.body : Buffer.from(r.body), digest = bodyDigest(body);
+  let encoding = null;
+  if (COMPRESSIBLE.has(type)) {
+    const accepted = acceptedEncodings(req.headers['accept-encoding']);
+    encoding = ['br', 'gzip'].find(name => accepted.has(name) && compression.get(digest, name)) ?? null;
+    void compression.warm(digest, body);
+  }
+  const headers = { 'content-type': type, 'cache-control': 'no-cache', etag: `"${digest}${encoding ? `-${encoding}` : ''}"`,
+    ...(COMPRESSIBLE.has(type) ? { vary: 'Accept-Encoding' } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) };
+  if (matchesETag(req.headers['if-none-match'], headers.etag)) {
+    const { 'content-type': _, 'content-encoding': __, ...validators } = headers;
+    res.writeHead(304, validators); res.end(); return;
+  }
+  sendStaticBody(req, res, encoding ? compression.get(digest, encoding) : body, headers);
 }
 
 /** `serve`'s `pages` for the JS-target build at `dist`: `(id, location, header)`, the page for `location` rendered by
@@ -1080,10 +1113,10 @@ const matchesETag = (header, etag) => typeof header === 'string'
 
 /** Warm every compressible file the server will answer for: a local build's
  * public files, or a published root's current release. */
-export async function warmCompression(dist, compression) {
+export async function warmCompression(dist, compression, js = false) {
   let names;
   try { names = listPublicFiles(dist); } catch { names = []; }
-  if (!names.includes('app.wasm')) {
+  if (!js && !names.includes('app.wasm')) {
     try { names = parseWebRoot(readFileSync(resolve(dist, webRootPath))).files.map(card => card.name); } catch { return 0; }
   }
   let warmed = 0;
@@ -1205,8 +1238,8 @@ async function main() {
   const dist = resolve(origin ?? named[0] ?? webDist());
   const settled = settleBuild(dist);
   if (settled) return settled;
-  // A JS-target build (LLP 1071) is served as its tree, uncompressed. A published root is its pointer's release,
-  // whose page is the JS target's or the wasm's.
+  // A JS-target build (LLP 1071) is served as its tree. A published root is its pointer's release, whose page is the
+  // JS target's or the wasm's.
   const js = jsTargetBuild(dist);
   if (!js && !await readStaticFileAsync(dist, origin && existsSync(resolve(dist, webRootPath)) ? '/index.html' : '/app.wasm')) {
     // A build that is there but unreadable says why: the reader is a Cargo-built
@@ -1221,13 +1254,15 @@ async function main() {
   }
   // TODO(LLP 1153 D4): compare each setting app.json declares with the value the build inlined before serving.
   const loopback = !argv.includes('--lan') && (argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1');
-  const port = portFlag === null ? 8765 : Number(portFlag);
-  if (!Number.isInteger(port) || port < 0 || port > 65535) { console.error(`serve: --port ${portFlag} is not a port`); return 2; }
+  // `--port`, else `PORT`, which a host sets for `npm start` (LLP 1153.001 D3), else 8765.
+  const portText = portFlag ?? process.env.PORT ?? null;
+  const port = portText === null || portText === '' ? 8765 : Number(portText);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) { console.error(`serve: ${portFlag === null ? 'PORT' : '--port'} ${portText} is not a port`); return 2; }
   const host = loopback ? '127.0.0.1' : '0.0.0.0';
   const compression = compressionCache();
-  const warming = js ? Promise.resolve(0) : warmCompression(dist, compression);
+  const warming = warmCompression(dist, compression, js);
   const pages = js ? sitePages(dist, (await import('../web-js/render.mjs')).pageServer) : null;
-  const server = createServer((req, res) => js ? serveBuildTree(dist, req, res, { pages }) : serveStatic(dist, req, res, {host,port}, compression));
+  const server = createServer((req, res) => js ? serveBuildTree(dist, req, res, { pages, compression }) : serveStatic(dist, req, res, {host,port}, compression));
   server.on('error', (error) => { console.error(error.code === 'EADDRINUSE' ? `serve: port ${port} is in use; --port <n> names another` : `serve: ${error.message}`); process.exit(1); });
   server.listen(port, host, () => {
     const urls = [`http://127.0.0.1:${server.address().port}/`];
@@ -1239,7 +1274,7 @@ async function main() {
     let served = '';
     try { const { app } = JSON.parse(readFileSync(resolve(dist, js ? '.exact-build.json' : 'exact.json'), 'utf8')); served = ` ${app.name} (${app.id})${js ? ', the JS target' : ''}`; } catch { /* an older build has no envelope */ }
     console.log(urls.join('\n') + `\n  (serving${served} from ${dist}; ctrl-c to stop)`);
-    if (!js) warming.then(n => console.log(`  (${n} files compressed: brotli and gzip)`));
+    warming.then(n => console.log(`  (${n} files compressed: brotli and gzip)`));
     let rendered = [];
     try { rendered = JSON.parse(readFileSync(resolve(dist, 'routes.json'), 'utf8')).routes.filter((r) => r.render === 'request' || r.render === 'cached'); } catch { /* no route table */ }
     if (js && rendered.length && !existsSync(resolve(dist, '.gen/server.js'))) console.log(`  (${rendered.map((r) => r.pattern).join(', ')}: their shell, since this build has no server bundle to render them with; web-build makes one)`);

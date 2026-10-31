@@ -163,14 +163,31 @@ pub(crate) fn preloads_early(plan: &exact_plan::Plan, location: &str) -> bool {
 /// LLP 1071): [`head_js`], then [`body_js`] — the page a server streams in
 /// those two parts is these bytes.
 fn page_js(shell: &str, rendered: &Rendered) -> Result<String, String> {
+    Ok(page_with(shell, &Js::of(shell)?, rendered))
+}
+
+/// [`page_js`] over a shell already read, with the build's analyzed sheet
+/// when [`Js::with_rules`] gave it.
+pub(crate) fn page_with(shell: &str, js: &Js, rendered: &Rendered) -> String {
     let preload = activate_js(rendered.activate) != "interaction";
     let document = &rendered.document;
     let scroll = document.scroll_document;
-    let js = Js::of(shell)?;
-    Ok(
-        head_js(shell, &js, &document.lang, &document.dir, preload, scroll)
-            + &body_js(shell, &js, rendered, false, scroll),
-    )
+    head_js(shell, js, &document.lang, &document.dir, preload, scroll)
+        + &body_js(shell, js, rendered, false, scroll)
+}
+
+/// [`page`] with the build's analyzed sheet (`.gen/page-style.json`), so
+/// a JavaScript page carries only the rules its document can match (LLP
+/// 1048.007 D4).
+pub fn page_with_rules(shell: &str, rules: &str, rendered: &Rendered) -> Result<String, String> {
+    if !is_js(shell) {
+        return page(shell, rendered);
+    }
+    Ok(page_with(
+        shell,
+        &Js::of(shell)?.with_rules(rules),
+        rendered,
+    ))
 }
 
 /// What a JavaScript shell's pages are composed from, read once: a server
@@ -180,18 +197,39 @@ pub(crate) struct Js {
     preloads: Vec<(usize, usize)>,
     classes: Classes,
     fonts: bool,
+    /// The shell's `<style>…</style>` line, between the viewport meta and
+    /// the root.
+    sheet: Option<(usize, usize)>,
+    /// The sheet as the build analyzed it ([`Js::with_rules`]): a page then
+    /// carries its own rules after its head ([`body_open_js`]), and the head
+    /// sent before the render carries none.
+    rules: Option<Vec<crate::page_style::Rule>>,
 }
 
 impl Js {
     /// `shell`'s places, or why it lacks them.
     pub(crate) fn of(shell: &str) -> Result<Js, String> {
         let at = places(shell)?;
+        let sheet = shell[at.title.1..at.root].find("<style>").and_then(|s| {
+            let start = at.title.1 + s;
+            let end = shell[start..at.root].find("</style>")? + start + "</style>".len();
+            Some((start, end + usize::from(shell[end..].starts_with('\n'))))
+        });
         Ok(Js {
             preloads: preloads(shell, &at),
             classes: classes(shell),
             fonts: shell.contains("as=\"font\""),
+            sheet,
+            rules: None,
             at,
         })
+    }
+
+    /// With the build's analyzed sheet (`.gen/page-style.json`); unchanged
+    /// when it does not parse or the shell has no sheet.
+    pub(crate) fn with_rules(mut self, json: &str) -> Js {
+        self.rules = self.sheet.and(crate::page_style::parse(json));
+        self
     }
 }
 
@@ -325,16 +363,25 @@ pub(crate) fn head_js(
         }
         from = stop;
     }
-    out.push_str(&shell[from..at.root]);
+    match js
+        .sheet
+        .filter(|(start, _)| js.rules.is_some() && *start >= from)
+    {
+        Some((start, stop)) => {
+            out.push_str(&shell[from..start]);
+            out.push_str(&shell[stop..at.root]);
+        }
+        None => out.push_str(&shell[from..at.root]),
+    }
     out
 }
 
 /// The rest of a JavaScript page, once its render is done: the head's
 /// fields, the entry's `modulepreload`s when `late` (a page sent before its
-/// render turned an `interaction` route `eager`), the document in
-/// `#exact-root`, and its checkpoint in the entry's place, which the capture
-/// script finds. The document goes as the runtime adopts it
-/// ([`for_runtime`]).
+/// render turned an `interaction` route `eager`), the page's own sheet, the
+/// document in `#exact-root`, and its checkpoint in the entry's place,
+/// which the capture script finds. The document goes as the runtime adopts
+/// it ([`for_runtime`]).
 pub(crate) fn body_js(
     shell: &str,
     js: &Js,
@@ -343,6 +390,17 @@ pub(crate) fn body_js(
     marked: bool,
 ) -> String {
     let document = &rendered.document;
+    let mut root = String::with_capacity(document.root.len());
+    if rendered.runtime_form {
+        root.push_str(&document.root);
+    } else {
+        for_runtime(&mut root, &document.root, &js.classes);
+    }
+    // The tokens `render.mjs` reads: the document, then the shell from its root.
+    let style = js.rules.as_ref().map(|rules| {
+        let have = crate::page_style::tokens(&(root.clone() + &shell[js.at.root..]));
+        crate::page_style::select(rules, &have)
+    });
     let mut out = body_open_js(
         shell,
         js,
@@ -350,13 +408,10 @@ pub(crate) fn body_js(
         document.scroll_document,
         late,
         marked,
+        style.as_deref().map_or(Sheet::Whole, Sheet::Own),
     );
-    out.reserve(document.root.len() + rendered.checkpoint.len() + shell.len() - js.at.root);
-    if rendered.runtime_form {
-        out.push_str(&document.root);
-    } else {
-        for_runtime(&mut out, &document.root, &js.classes);
-    }
+    out.reserve(root.len() + rendered.checkpoint.len() + shell.len() - js.at.root);
+    out.push_str(&root);
     out.push_str(&body_close_js(
         shell,
         js,
@@ -368,9 +423,22 @@ pub(crate) fn body_js(
     out
 }
 
+/// Which sheet a page's rest carries when the build analyzed the shell's
+/// (its head, sent before the render, carries none).
+pub(crate) enum Sheet<'a> {
+    /// The rules its document can match, which the runtime replaces with
+    /// the whole sheet before its first render.
+    Own(&'a str),
+    /// The shell's whole sheet: a page sent before its document is written.
+    Whole,
+    /// None: an earlier part of the page carried it.
+    Sent,
+}
+
 /// [`body_js`] through `<div id="exact-root">`: what goes before the
 /// document, which a streamed page sends before its root is written
-/// (LLP 1048.004 Q3).
+/// (LLP 1048.004 Q3), with the page's sheet when the build analyzed it
+/// ([`Sheet`]).
 pub(crate) fn body_open_js(
     shell: &str,
     js: &Js,
@@ -378,6 +446,7 @@ pub(crate) fn body_open_js(
     scroll: bool,
     late: bool,
     marked: bool,
+    sheet: Sheet,
 ) -> String {
     let mut out = String::with_capacity(head.len() + 1024);
     if js.fonts {
@@ -396,6 +465,15 @@ pub(crate) fn body_open_js(
         for &(start, stop) in &js.preloads {
             push_low(&mut out, &shell[start..stop]);
         }
+    }
+    match (sheet, js.sheet.filter(|_| js.rules.is_some())) {
+        (Sheet::Own(style), _) => {
+            out.push_str("<style data-exact-page>");
+            out.push_str(style);
+            out.push_str("</style>\n");
+        }
+        (Sheet::Whole, Some((start, stop))) => out.push_str(&shell[start..stop]),
+        _ => {}
     }
     out.push_str(&shell[js.at.root..js.at.root_open]);
     out

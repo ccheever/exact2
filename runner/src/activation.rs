@@ -18,6 +18,13 @@ pub const REPLAYED: [EventKind; 4] = [
     EventKind::Navigate,
 ];
 
+/// The handlers whose first report waits for the reader's view: an
+/// `intersect` handler reports its element's visibility, which only matters
+/// once the element shows or the reader scrolls, so the capture script
+/// wakes the runtime then, and the runtime reports it as it is (LLP
+/// 1048.001 D4's `visible`).
+pub const WOKEN: [EventKind; 1] = [EventKind::Intersect];
+
 /// The reserved sources a plan may read and its pages still wait: the
 /// viewport, whose comparisons every page carries for the capture script
 /// to check ([`wake`]), and the build's own facts. Every other one is the

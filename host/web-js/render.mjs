@@ -15,8 +15,9 @@ import { resolve, dirname, extname } from 'node:path';
 import vm from 'node:vm';
 import { brotliCompressSync, createBrotliCompress, constants } from 'node:zlib';
 import { createDocument } from './dom.js';
-import { cachingFetch } from './http-cache.mjs';
+import { cachingFetch, FRESH } from './http-cache.mjs';
 import { canonical, matchPattern } from './route-pattern.js';
+import { select, tokens } from './page-style.mjs';
 
 const DEADLINE = 3000;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -35,14 +36,14 @@ const utcIntl = new vm.Script(`{
  * `out.activation`): `interaction` when the render left the runtime nothing
  * to do before the reader acts — nothing in the plan only the runtime
  * keeps, no answer pending, nothing due on the clock, no handler the
- * capture script cannot replay — else `eager`. A render that formatted in
+ * capture script can neither replay nor wake for — else `eager`. A render that formatted in
  * the default zone does not wait either. The page carries the plan's
  * viewport comparisons as it was laid out by them, which the capture
  * script checks (`wake`). */
 function infer(out) {
-  const { replayed, kept } = out.activation;
-  const kinds = [...out.root.matchAll(/ data-exact-on="([^"]*)"/g)].flatMap(m => m[1].split(' '));
-  const waits = !kept && !out.pending.length && !out.due && !out.zoned && kinds.every(k => replayed.includes(k));
+  const { waits: kinds, kept } = out.activation;
+  const on = [...out.root.matchAll(/ data-exact-on="([^"]*)"/g)].flatMap(m => m[1].split(' '));
+  const waits = !kept && !out.pending.length && !out.due && !out.zoned && on.every(k => kinds.includes(k));
   return waits ? 'interaction' : 'eager';
 }
 
@@ -68,20 +69,31 @@ export function renderer(dist) {
   const viewport = esc(/<meta name="viewport" content="([^"]*)"/.exec(shell)?.[1] ?? 'width=device-width, initial-scale=1');
   // The document's language is the shell's, which the build wrote from the manifest's `lang` (LLP 1115.000 D4.6).
   const language = /<html[^>]* lang="([^"]*)"/.exec(shell)?.[1] || 'en-US';
+  // The shell's sheet as rules, when the build analyzed it: a page then carries only those its document can match, after
+  // its render, and the head sent before the render carries none (page-style.mjs, LLP 1048.007 D4).
+  const rules = existsSync(resolve(dist, '.gen/page-style.json')) ? JSON.parse(readFileSync(resolve(dist, '.gen/page-style.json'), 'utf8')) : null;
+  const sheet = rules ? /<style>[\s\S]*?<\/style>\n?/ : /(?!)/;
   // A rendered page paints without the runtime, which only adopts it, so its preloads are low priority (page.rs `push_low`).
   const headOf = preload => shell.slice(0, title).replace(/<html[^>]*>/, `<html lang="${language}" dir="ltr">`) + `<script>${capture}</script>\n`
-    + shell.slice(stop, root).replace(/(<link rel="modulepreload" href="[^"]*")>\n/g, preload ? '$1 fetchpriority="low">\n' : '');
+    + shell.slice(stop, root).replace(sheet, '').replace(/(<link rel="modulepreload" href="[^"]*")>\n/g, preload ? '$1 fetchpriority="low">\n' : '');
   const preloads = (shell.slice(stop, root).match(/<link rel="modulepreload" href="[^"]*">\n/g) ?? []).map(l => l.replace('>', ' fetchpriority="low">')).join('');
-  /** A render begun: its route's policy and the page's head, known before
-   * any data is asked; `finish` settles it and composes the rest. */
-  async function begin(location) {
+  // A realm for one render: a document, a context with the server bundle run in it, and its location, which `begin`
+  // fills in. Nothing has run in it but the bundle's own loading, so making it ahead takes that off a request's path
+  // and every render still has a realm of its own (LLP 1048.000 D10, as the render host's `make_realm`).
+  const realm = () => {
     const document = createDocument(shell);
-    const url = new URL(location, 'http://render.invalid');
     // The bake's page facts (runner/src/page.rs): visible, online, focused, no share sheet or pickers. The
     // base is the shell's `<base href="/">`, against which the runtime checks that a link navigates (rt.js `navigable`).
-    Object.assign(document, { visibilityState: 'visible', hasFocus: () => true, baseURI: `${url.origin}/` });
+    Object.assign(document, { visibilityState: 'visible', hasFocus: () => true, baseURI: 'http://render.invalid/' });
+    const location = { pathname: '/', search: '', href: 'http://render.invalid/', origin: '' };
+    // What the render read that another render may not read alike: how long its answers stay fresh for any reader
+    // (http-cache.mjs `FRESH`), and whether a source drew a random number (its only other reading the clock and
+    // `Math.random` refuse, ts-fetch.js) — so how long its page may be given again (`keep`).
+    const read = { fresh: Infinity, random: false };
+    const noted = response => { read.fresh = Math.min(read.fresh, response?.[FRESH] ?? 0); return response; };
+    const drew = f => (...args) => { read.random = true; return f(...args); };
     const ctx = vm.createContext({
-      document, location: { pathname: url.pathname, search: url.search, href: url.href, origin: '' },
+      document, location,
       navigator: { onLine: true, language },
       getComputedStyle: () => ({ fontSize: '16px' }), devicePixelRatio: 1,
       history: { replaceState() {}, pushState() {}, go() {} }, localStorage: { length: 0, key() {}, getItem() { return null; } },
@@ -89,12 +101,33 @@ export function renderer(dist) {
       // No reader's device facts: use runner/src/viewport.rs's default size and media bits.
       innerWidth: 390, innerHeight: 844,
       matchMedia: media => ({ media, matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
-      setTimeout, clearTimeout, queueMicrotask, performance, console, fetch: fetched, Request, Response, Headers, URL, URLSearchParams, TextEncoder, TextDecoder,
-      WebAssembly, atob, btoa, Event: class {}, CustomEvent: class {}, crypto, __exactRender: true, __files: files,
+      setTimeout, clearTimeout, queueMicrotask, performance, console, Request, Response, Headers, URL, URLSearchParams, TextEncoder, TextDecoder,
+      fetch: (input, init) => fetched(input, init).then(noted, error => { read.fresh = 0; throw error; }),
+      crypto: { subtle: crypto.subtle, getRandomValues: drew(a => crypto.getRandomValues(a)), randomUUID: drew(() => crypto.randomUUID()) },
+      WebAssembly, atob, btoa, Event: class {}, CustomEvent: class {}, __exactRender: true, __files: files,
     });
     ctx.globalThis = ctx; ctx.self = ctx;
     utcIntl.runInContext(ctx);
     script.runInContext(ctx);
+    // What loading the bundle read is every render's alike.
+    Object.assign(read, { fresh: Infinity, random: false });
+    return { ctx, location, read };
+  };
+  // The next render's realm, made once the last render is done and nothing waits (`render.ahead` false turns it off).
+  let ahead = null, making = false;
+  const makeAhead = () => {
+    if (ahead || making || render.ahead === false) return;
+    making = true;
+    setImmediate(() => { making = false; if (!ahead && render.ahead !== false) ahead = realm(); });
+  };
+  /** A render begun: its route's policy and the page's head, known before
+   * any data is asked; `finish` settles it and composes the rest. */
+  async function begin(location) {
+    const url = new URL(location, 'http://render.invalid');
+    const made = ahead ?? realm();
+    ahead = null;
+    const { ctx, read } = made;
+    Object.assign(made.location, { pathname: url.pathname, search: url.search, href: url.href });
     const info = await ctx.__start();
     // The capture script imports the entry by the policy; an interaction
     // page drops the head's modulepreloads, and an undeclared one adds them
@@ -108,14 +141,24 @@ export function renderer(dist) {
       const fields = `<title>${esc(out.title || name)}</title><meta name="viewport" content="${viewport}">${out.description ? `<meta name="description" content="${esc(out.description)}">` : ''}`;
       const checkpoint = `{"location":${JSON.stringify(url.pathname + url.search)},"time":${JSON.stringify(out.time)},"logic":null,"answers":${out.answers},"pending":${JSON.stringify(out.pending)}}`;
       const digest = createHash('sha256').update(out.root).digest('hex').slice(0, 16);
-      const body = late => `${fields}\n${late}<div id="exact-root"${rootAttrs}>${out.root}</div>${shell.slice(root + ROOT[0].length, entry)}`
+      const style = rules ? `<style data-exact-page>${select(rules, tokens(out.root + shell.slice(root)))}</style>\n` : '';
+      const body = late => `${fields}\n${late}${style}<div id="exact-root"${rootAttrs}>${out.root}</div>${shell.slice(root + ROOT[0].length, entry)}`
         + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${activate}"${wake}>${checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entry + ENTRY.length)}`;
       // A complete page marks html and names the preloads in its head; a streamed head has gone already, so the rest
       // marks it before the body and names them after the head's fields, as page.rs does.
       const whole = late ? headOf(true) : head;
       const markedHead = out.scrollDocument ? whole.replace('<html ', '<html data-scrolldocument ') : whole;
       const mark = out.scrollDocument ? '<script>document.documentElement.setAttribute("data-scrolldocument","")</script>\n' : '';
-      return { html: markedHead + body(''), rest: mark + body(late), status: info.notfound ? 404 : 200, settled: !out.pending.length, render: out.render, location, policy: info.policy, activate };
+      makeAhead();
+      // The HTTP status, as the render host gives it (lib.rs `Rendered::status`, LLP 1048.000 D11): a location the router
+      // sends to its notfound route is 404, or 410 if its head says so; a render at its deadline 503; else the head's own.
+      const status = info.notfound ? (out.status === 410 ? 410 : 404) : out.pending.length ? 503 : out.status ?? 200;
+      // A page made only of answers any reader may still be given (one at least), by a render that drew nothing at
+      // random and read no clock or reader's device (the plan's `kept`), from TypeScript sources alone, is the page
+      // another render would make until the first of those answers goes stale: it may be given again until then, for
+      // at most 60 s (LLP 1048.007 D8).
+      const keep = status === 200 && !out.pending.length && out.activation?.kept === false && !out.rust && !read.random && read.fresh > 0 && read.fresh < Infinity ? Math.min(read.fresh, 60000) : 0;
+      return { html: markedHead + body(''), rest: mark + body(late), status, settled: !out.pending.length, render: out.render, location, policy: info.policy, activate, keep };
     } };
   }
   const render = async (location, deadline = DEADLINE) => (await begin(location)).finish(deadline);
@@ -142,10 +185,12 @@ export function pageServer(dist, render = renderer(dist), log = console.log) {
   return async function page(key, header) {
     const t = performance.now(), hit = cache.get(key);
     const revalidate = /no-cache|no-store|max-age=0/.test(header('cache-control') ?? '');
-    if (hit && hit.until > Date.now() && !revalidate) return send(header, hit.html, hit.status, 'public, max-age=0, s-maxage=60');
+    if (hit && hit.until > Date.now() && !revalidate) return send(header, hit.html, hit.status, hit.cacheControl);
     const begun = await render.begin(key);
     const keep = page => {
-      if (page.policy === 'cached' && page.status === 200) { if (cache.size >= 64) cache.delete(cache.keys().next().value); cache.set(key, { html: page.html, status: page.status, until: Date.now() + 60000 }); }
+      // A `cached` route's page is kept 60 s; a `request` route's, as long as what it was made of (`keep`).
+      const ms = page.status !== 200 ? 0 : page.policy === 'cached' ? 60000 : page.policy === 'request' ? page.keep : 0;
+      if (ms > 0) { if (cache.size >= 64) cache.delete(cache.keys().next().value); cache.set(key, { html: page.html, status: page.status, until: Date.now() + ms, cacheControl: page.policy === 'cached' ? 'public, max-age=0, s-maxage=60' : 'no-store' }); }
       log(`render ${page.location} ${page.status} ${(performance.now() - t).toFixed(1)}ms bytes=${page.html.length}${page.flushed ? ' flushed' : ''}`);
     };
     // A browser's navigation gets the head now and the rest after the
