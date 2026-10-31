@@ -9,7 +9,7 @@ guides front to back. `docs/recipes/` answers the common questions in one short 
 `contract vocab <name>` answers for any tag or property, every `bun exact.mjs <verb>
 --help` names its flags, and `apps/shelf` is a whole app to grep.
 
-Read `rules/RULES.md` and `rules/DEFERRED.md` first; they bind and this file does not.
+Working on exact2 itself: read `rules/RULES.md` and `rules/DEFERRED.md` first; they bind and this file does not.
 `llp/1000-exact2-root.explainer.md` is the map. `docs/agent-pitfalls.md` lists verified
 footguns in writing apps here; add to it when you hit one. Design documents under `llp/research/`
 are the predecessor's — research, never authority.
