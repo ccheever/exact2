@@ -31,6 +31,8 @@ mod named_records;
 mod regions;
 #[path = "rows.rs"]
 mod rows;
+#[path = "sides.rs"]
+mod sides;
 #[path = "timers.rs"]
 mod timers;
 #[path = "trapped.rs"]

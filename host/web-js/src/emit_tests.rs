@@ -978,20 +978,27 @@ fn a_bound_side_stays_its_authors_right_to_left_and_the_sheets_mirror() {
     .unwrap();
     let js = crate::emit::emit(&conditional, false, false).unwrap().js;
     assert!(js.contains("\"padding-inline-start\""), "{js}");
-    // Its author writing the other side of the pair, neither mirrors (as the kernel and wasm keep them).
+    // Its author binding the other side of the pair, that inset is physical
+    // while the author's side has a value and logical while it is unset (as
+    // the kernel and wasm keep them): each write is gated on the author's.
     let mixed = contract::compile(
-        "component App\n  state show = true\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : 4) testId=\"r\"\n          if show\n            image \"symbol:person\"\n          text \"Name\"\n",
+        "component App\n  state show = true\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : none) testId=\"r\"\n          if show\n            image \"symbol:person\"\n          text \"Name\"\n",
     )
     .unwrap();
     let js = crate::emit::emit(&mixed, false, false).unwrap().js;
-    assert!(
-        js.contains("\"padding-left\"") && js.contains("\"padding-right\""),
-        "{js}"
-    );
-    assert!(
-        !js.contains("inline-start") && !js.contains("inline-end"),
-        "{js}"
-    );
+    for (side, gate) in [
+        ("padding-left", "?null:("),
+        ("padding-inline-start", "==null?("),
+    ] {
+        let at = js
+            .find(&format!("\"{side}\""))
+            .unwrap_or_else(|| panic!("{side}: {js}"));
+        let write = &js[at..js[at..].find(";S").map_or(js.len(), |n| at + n)];
+        assert!(
+            write.contains(gate),
+            "{side} is gated on the author's side: {write}"
+        );
+    }
     // And beside the sheet's static inset (an unconditional symbol): that
     // inset stays left in the class; while the author's side is unset,
     // neither is the author's, and inline logical sides mirror the pair.
