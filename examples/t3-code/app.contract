@@ -925,6 +925,19 @@ component T3Code
     if not commandPending
       commandPending = true
       send changed = command(`sidebar:${op}`, id, value, wallTime.epochAtZero + performanceNow())
+    else if op == "rename"
+      renameQueuedId = id
+      renameQueuedTitle = value
+  // A rename committed while another command runs: its field has settled and will not commit again, so the rename
+  // runs once that command answers.
+  state renameQueuedId = ""
+  state renameQueuedTitle = ""
+  task renameQueuedDue when renameQueuedId != "" and not commandPending key=renameQueuedId
+    after(1, renameQueuedRun)
+  action renameQueuedRun
+    let id = renameQueuedId
+    renameQueuedId = ""
+    sidebarRun("rename", id, renameQueuedTitle)
   action sidebarHover(id: string, over: bool) // the window's half sets the card's geometry (app-window.contract)
     if over
       sidebarHoverId = id

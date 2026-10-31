@@ -32,8 +32,10 @@ describe('the card\'s menus are menu-shaped, so macOS presents them as its own m
     for (const row of rows) {
       const at = lines.indexOf(row);
       const inside = lines.slice(at + 1).filter((line, i, all) => all.slice(0, i + 1).every(entry => entry.depth > row.depth));
-      // Each row is its label alone: no box, icon or image beside it.
-      expect([row.text.slice(0, 40), inside.map(line => line.text.split(' ')[0])]).toEqual([row.text.slice(0, 40), ['text']]);
+      // Each row is text alone: no box, icon or image beside its label, and any other text is aria-hidden.
+      const texts = inside.map(line => line.text);
+      expect([row.text.slice(0, 40), texts.map(line => line.split(' ')[0])]).toEqual([row.text.slice(0, 40), texts.map(() => 'text')]);
+      for (const text of texts.slice(0, -1)) expect(text).toContain('aria-hidden=true');
     }
   });
 
@@ -42,6 +44,8 @@ describe('the card\'s menus are menu-shaped, so macOS presents them as its own m
     // A menu-shaped popover's aria-label heads the Mac's menu (MenuHost.menu(of:)).
     expect(items.find(line => line.startsWith('column id="details-items-menu"'))).toContain('aria-label="Show in thread details"');
     expect(items.find(line => line.includes('id=`details-items-${item.id}`'))).toContain('role="menuitemcheckbox" aria-checked=item.checked');
+    // The painted form shows the check too (the web, the agent's screenshots).
+    expect(items.find(line => line.startsWith('text (item.checked ? "✓" : "")'))).toContain('aria-hidden=true');
     expect(path.find(line => line.startsWith('column id="details-path-menu"'))).not.toContain('aria-label');
   });
 });

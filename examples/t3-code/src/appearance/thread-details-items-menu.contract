@@ -1,7 +1,8 @@
 // ThreadDetailsItemsRow's control (T3 Code 6d450a4284, MIT, see LICENSE-T3): an outline sm button reading "N of 10 on"
-// whose menu is ThreadDetailsItemsMenuItems, as the thread details card's own menu draws it (details/shell-details.contract
-// ItemsMenuPopover): "Show in thread details", a checkbox per item, a separator, then Reset to default. On macOS it is
-// a native menu, which closes after a choice (Base UI's checkbox items keep the menu open).
+// whose menu is ThreadDetailsItemsMenuItems, the items of the thread details card's own menu (details/shell-details.contract
+// ItemsMenuPopover): "Show in thread details", a checkbox per item, a separator, then Reset to default. Its rows keep a
+// check icon box beside each label, so the popover is not menu-shaped (LLP 1021 D3) and macOS shows it as drawn here.
+// A choice closes it, where Base UI's checkbox items keep the menu open.
 use CoreOption, CorePalette from "../settings/settings-core-shared.contract"
 use CorePaintIcon from "../settings/settings-core.contract"
 

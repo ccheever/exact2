@@ -354,7 +354,8 @@ members T3Code
       workspaceTargets = workspaceTargets.filter((entry) => entry.area != area).concat([WorkspaceTarget(area=area, target=e.target)])
   // A sidebar rename closed by Enter or Escape (sidebar-row.contract SidebarRenameField): once its field has gone, the
   // row takes the focus back, as the reference's tree refocuses its stop when the focused field unmounts to the body
-  // (sidebarTree.ts refresh), so F6 and the arrow keys keep their place. A blur elsewhere leaves the focus where it went.
+  // (sidebarTree.ts refresh), so F6 and the arrow keys keep their place. A blur elsewhere leaves the focus where it went,
+  // and so does a focus moved out of the sidebar while the rename's answer was awaited.
   state renameReturn = ""
   action sidebarRenameClosed(id: string)
     renameReturn = id
@@ -363,7 +364,8 @@ members T3Code
   action sidebarRenameReturned
     let id = renameReturn
     renameReturn = ""
-    focus(`thread-${id}`)
+    if workspaceArea == "sidebar"
+      focus(`thread-${id}`)
   // F6 typed in a terminal page arrives as its op's answer (app.contract terminalCompleted), which cannot itself send
   // the terminal's mutation that a move into the terminal sends: the move runs on the next turn.
   state terminalWorkspaceMove = 0

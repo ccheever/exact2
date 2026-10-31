@@ -773,6 +773,9 @@ above.
   AppKit posts only `AXSelectedTextChanged`, and VoiceOver speaks the text removed from an AppKit text
   view however it is replaced; Chromium reports the change as an `AXValueChanged` edit naming the
   removed text, which VoiceOver does not read.
+- The Show in thread details menu, on the thread details card and in Settings › Appearance, closes
+  after a choice, as a Mac menu does. The reference's is a Base UI menu whose checkbox items keep it
+  open, so several items can be turned on or off in one visit.
 - The Browser tab's ⋮ menu has no "Open DevTools": macOS has no public API that opens Web Inspector
   from code. A development build's page is inspectable from Safari › Develop.
 - A server-rendered Browser tab has no picture-in-picture window: Exact has no source that turns its
@@ -1190,7 +1193,12 @@ Fail (left in place):
   patch available for this selection."
 - Right-clicking the thread details card opens nothing (0 of 3: on its padding and on its Workspace
   row). On its padding the oracle opens Show in thread details; on the Workspace row, Copy full path.
-  Sidebar rows' right-clicks open their menus in the same session.
+  Sidebar rows' right-clicks open their menus in the same session. Fixed since: the card's menu was
+  not menu-shaped (a check icon box beside each label), so macOS opened nothing; its rows are now
+  text alone and the Workspace row has Copy full path (`shell-details.contract`). With real input
+  (#1206), a right-click on the padding opens the Mac's menu, headed Show in thread details, with
+  the ten items and Reset to default, and one on the Workspace row opens Copy full path, which
+  copies the path and shows "Path copied".
 - A thread chip in a sent message neither underlines nor shows a tooltip on hover (0 of 2). The
   oracle underlines it and shows "Open thread".
 - A double-click on inline code selects nothing, in an answer or in a user message (0 of 2). A
@@ -1198,7 +1206,10 @@ Fail (left in place):
   `selectme`.
 - After F2 and then Escape in the sidebar, the focus goes to the window, and F6 never enters the
   sidebar after that: from the composer it stops at the terminal (4 presses). In the oracle, Escape
-  returns the focus to the row and F6 reaches it.
+  returns the focus to the row and F6 reaches it. Fixed since: once the rename field has gone, the
+  row's treeitem takes the focus back, and F6 enters the sidebar at that treeitem
+  (`shell-members.contract`). With real input (#1206), Escape leaves the focus on the row, F6 from the
+  composer goes row, Conversation, composer, row, and after Enter ArrowDown moves to the next row.
 
 Not checked:
 
