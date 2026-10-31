@@ -139,16 +139,10 @@ function createPresence(root) {
     return [[el.offsetLeft - parseFloat(cs.marginLeft), el.offsetTop - parseFloat(cs.marginTop), el.offsetWidth, el.offsetHeight],
       cs.position !== 'static' || /flex|grid/.test(getComputedStyle(el.parentElement).display)];
   };
-  // A view stops being lifted when it leaves, and so does any lifted view inside it, as on Apple, where the reorder
-  // hold lets go of a view that has left. Each gets back the `z-index` and `position` the Arrange lift overwrote
-  // (motion-glue.js `overlay`).
-  const unlift = leaving => {
-    const lifts = globalThis.exact?.lifts;
-    for (const [el, [zIndex, position]] of lifts ?? []) {
-      if (!leaving.contains(el)) continue;
-      el.style.zIndex = zIndex; el.style.position = position;
-      lifts.delete(el);
-    }
+  // Motion lets go of a view that leaves and of every view inside it, before the ghost is read and written: a lift
+  // ends, and a hold or lift that ends later writes nothing to the ghost (motion-glue.js `letGo`)
+  const release = leaving => {
+    for (const [el, letGo] of globalThis.exact?.motionHolds ?? []) if (leaving.contains(el)) letGo();
   };
   let first = new Map();
 
@@ -309,7 +303,7 @@ function createPresence(root) {
       }
       // The batch's leaving views, each read before any exit takes one out of flow
       const exits = (batch.ops ?? []).filter(op => op.op === 'exit').map(op => [views.get(op.id), op.css]).filter(([el]) => el?.isConnected);
-      for (const [el] of exits) unlift(el);
+      for (const [el] of exits) release(el);
       const readings = exits.map(([el]) => kept(el));
       // Let this commit update the underlying row before reapplying the
       // ghost policy in after(). Both run in the same task, before paint.
@@ -323,7 +317,7 @@ function createPresence(root) {
     exit(el, css, at) {
       if (!el?.isConnected || !css) return;
       stop(el);
-      unlift(el);
+      release(el);
       const [box, ranked] = at ?? kept(el), s = el.style, parent = el.parentElement;
       // No input, no accessibility, no focus, no ids: a view re-created with
       // the same key while this one leaves is the only one with its names.

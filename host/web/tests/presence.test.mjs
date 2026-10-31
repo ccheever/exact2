@@ -121,6 +121,18 @@ const topmost = (x, y) => evaluate(`(() => {
   for (const g of ghosts) { g.inert = true; g.style.pointerEvents = 'none'; }
   return el.id || el.exactExitId;
 })()`);
+// A motion controller from motion-glue.js that knows only the element `id`, as `window.motion`, over an engine that
+// accepts every hold
+const motionFor = id => evaluate(`(async () => {
+  const { motionController } = await import('./motion-glue.js');
+  window.motion = motionController({ views: new Map([['${id}', document.getElementById('${id}')]]), now: () => 0, generation: () => 0,
+    request: facts => facts.op === 'begin' ? { token: 1, value: [0, 0] } : { accepted: true }, applyBatch: () => {}, inert: () => false });
+})()`);
+// Lifts the element `id` as an Arrange drag does, and reads its `z-index`
+const lift = async id => {
+  await motionFor(id);
+  return evaluate(`motion.raiseReorder('${id}', true); getComputedStyle(document.getElementById('${id}')).zIndex`);
+};
 
 check('presence inspection reads the moving surface and the leaving ghost', async () => {
   await fixture(`<div id="card" data-view="7" style="${card}"></div>`);
@@ -284,15 +296,6 @@ check('a ghost paints its subtree in its turn, though only its position made it 
 });
 
 check('a view that leaves while lifted stops being lifted, as Apple lets go of it', async () => {
-  // Lifts the element `id` as an Arrange drag does, through a motion controller that knows only it, and reads its
-  // `z-index`
-  const lift = id => evaluate(`(async () => {
-    const { motionController } = await import('./motion-glue.js');
-    const el = document.getElementById('${id}');
-    window.lifting = motionController({ views: new Map([['${id}', el]]), now: () => 0, generation: () => 0, request: () => {}, applyBatch: () => {}, inert: () => false });
-    lifting.raiseReorder('${id}', true);
-    return getComputedStyle(el).zIndex;
-  })()`);
   // After the exit, `later` lies over the card's box; the lift had raised the card over everything
   await fixture(`<div id="holder" style="position:relative">
     <div id="card" style="width:200px;height:40px"></div>
@@ -303,12 +306,46 @@ check('a view that leaves while lifted stops being lifted, as Apple lets go of i
   await evaluate(`leave('pulse 1000ms linear both'); seek(0)`);
   expect(await topmost(50, 20)).toBe('later');
   expect(await evaluate('getComputedStyle(document.querySelector("[data-exiting]")).zIndex')).toBe('auto');
+  // The drag ends after its view left, which motion let go of: the ghost stays out of flow
+  await evaluate(`motion.raiseReorder('card', false)`);
+  expect(await evaluate('document.querySelector("[data-exiting]").style.position')).toBe('absolute');
   // And a lifted row inside a view that leaves
   await fixture(`<div id="holder" style="position:relative"><div id="card" style="width:200px;height:80px">
     <div id="row" style="width:200px;height:40px"></div></div></div>`);
   expect(await lift('row')).toBe('2147483647');
   await evaluate(`leave('pulse 1000ms linear both'); seek(0)`);
   expect(await evaluate('(() => { const cs = getComputedStyle(document.querySelector("[data-exiting] > div")); return [cs.zIndex, cs.position]; })()')).toEqual(['auto', 'static']);
+});
+
+check('a hold that ends after its view left leaves the ghost as it was shown', async () => {
+  await fixture(`<div id="holder" style="position:relative">
+    <div id="card" style="width:200px;height:40px"></div>
+    <div id="plain" style="width:200px;height:40px"></div>
+  </div>`);
+  await motionFor('card');
+  const shown = () => evaluate('(() => { const el = document.getElementById("card") ?? document.querySelector("[data-exiting]"); return [el.style.position, getComputedStyle(el).translate]; })()');
+  await evaluate(`window.hold = motion.begin('card', 'translate'); motion.move(hold, [30, 0])`);
+  const [, translate] = await shown();
+  expect(translate).not.toBe('none');
+  await evaluate(`leave('pulse 1000ms linear both'); seek(0)`);
+  await evaluate('motion.end(hold)');
+  expect(await shown()).toEqual(['absolute', translate]);
+});
+
+check('a lift that ends on a ghosts parent keeps the parent isolated', async () => {
+  // `over` (z-index 1) lies over the card, whose z-index 5 stays inside the row while the row is isolated
+  await fixture(`<div id="holder" style="position:relative">
+    <div id="row" style="display:flex;flex-direction:column;width:200px">
+      <div id="card" style="position:relative;z-index:5;width:200px;height:40px"></div>
+      <div id="other" style="width:200px;height:40px"></div>
+    </div>
+    <div id="over" style="position:absolute;z-index:1;top:0;left:0;width:200px;height:40px"></div>
+  </div>`);
+  expect(await lift('row')).toBe('2147483647');
+  await evaluate(`leave('pulse 1000ms linear both'); seek(0)`);
+  await evaluate(`motion.raiseReorder('row', false)`);
+  expect(await evaluate('document.getElementById("row").style.isolation')).toBe('isolate');
+  expect(await topmost(50, 20)).toBe('over');
 });
 
 check('a flex or grid items ghost paints at the z-index that ranked it', async () => {

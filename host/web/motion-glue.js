@@ -87,6 +87,10 @@ export function timelineEasing(timing,p) {
 }
 export function motionController({views,now,generation,request,applyBatch,inert,releaseInteraction=()=>{},ready=()=>true}) {
   const properties=['translate','scale','rotate','opacity','height'];
+  // What motion writes over the author's style, which `restore` puts back: the lift's `z-index` and `position`, the
+  // `transition` that keeps a held property from animating, and each held property (`scale` as `--exact-scale` on a
+  // pressable, `cssProperty`)
+  const overwritten=['z-index','position','transition','translate','scale','--exact-scale','rotate','opacity','height'];
   const animations=new Map(), held=new Map(), authored=new Map(), drags=new Map();
   const raised=new Set();
   const active=new Map(), heightBindings=new Map(); let reconciling=false;
@@ -111,7 +115,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   // down (swipe) marks its pointer 'pending' until it claims or refuses; an
   // ancestor's recognizer that would capture waits for that verdict.
   const contacts=()=>(globalThis.exact??={}).contacts??=new Map();
-  const lifts=()=>(globalThis.exact??={}).lifts??=new Map();
+  // Each view motion writes over, with the function that lets it go if it leaves (presence-glue.js `release`)
+  const holds=()=>(globalThis.exact??={}).motionHolds??=new Map();
   const deferred=d=>{
     if(!d.deferred)return false;
     const state=contacts().get(d.pointer??[...d.pointers.keys()][0]);
@@ -279,10 +284,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   function overlay(id) {
     const el=views.get(id); if(!el) return;
     const active=properties.map(p=>held.get(key(id,p))).filter(local);
-    // Keep each lifted view's own `z-index` and `position`, which the lift overwrites, so that presence can put them
-    // back if the view leaves (presence-glue.js `unlift`)
-    if(raised.has(id)){lifts().set(el,[el.style.zIndex,el.style.position]);el.style.zIndex='2147483647';if(getComputedStyle(el).position==='static')el.style.position='relative';}
-    else lifts().delete(el);
+    if(raised.has(id)){el.style.zIndex='2147483647';if(getComputedStyle(el).position==='static')el.style.position='relative';}
     if(!active.length) return;
     const transition=el.style.transition;
     el.style.transition=[...(transition && transition!=='none'?[transition]:[]), ...active.map(h=>`${cssProperty(el,h.property)} 0s linear 0s`)].join(',');
@@ -290,9 +292,31 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   }
   function restore(id) {
     const el=views.get(id); if(!el) return;
-    if(authored.has(id)) el.style.cssText=authored.get(id);
+    // Only what motion writes over goes back to the author's style: what another piece wrote since stays, such as the
+    // isolation presence gives a ghost's parent
+    if(authored.has(id)) putBack(el,authored.get(id),overwritten);
     overlay(id);
-    if(!raised.has(id)&&!properties.some(p=>held.has(key(id,p)))) authored.delete(id);
+    if(!raised.has(id)&&!properties.some(p=>held.has(key(id,p)))) { authored.delete(id); holds().delete(el); }
+  }
+  // Before motion first writes over a view: the author's style, which `restore` puts back, and the function that lets
+  // the view go if it leaves. The entries of views no longer in the page go first.
+  function own(id,el) {
+    if(authored.has(id)) return;
+    for(const view of holds().keys())if(!view.isConnected)holds().delete(view);
+    authored.set(id,el.style.cssText);holds().set(el,()=>letGo(id,el));
+  }
+  // A view that leaves is presence's (LLP 1063 D4), as on Apple, where the reorder hold lets go of a view that has
+  // left: its lift ends, putting back the `z-index` and `position` the lift wrote over, and motion forgets it, so a
+  // hold or lift that ends later writes nothing to the ghost. What a hold shows stays, such as a swiped row's offset.
+  function letGo(id,el) {
+    if(raised.has(id)) putBack(el,authored.get(id),['z-index','position']);
+    raised.delete(id);authored.delete(id);for(const p of properties)held.delete(key(id,p));
+    holds().delete(el);
+  }
+  // Each of `names` as `text`, an author's style, declares it, or none
+  function putBack(el,text,names) {
+    const a=document.createElement('div').style;a.cssText=text;
+    for(const name of names)el.style.setProperty(name,a.getPropertyValue(name),a.getPropertyPriority(name));
   }
   function sample(el,property) {
     const text=getComputedStyle(el).getPropertyValue(cssProperty(el,property)), numbers=text.trim().split(/\s+/);
@@ -307,7 +331,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   function adopt(view,property,reply,adopted) {
     const el=views.get(view);
     if(!el||!reply.token) return null;
-    if(!authored.has(view)) authored.set(view,el.style.cssText);
+    own(view,el);
     const h={view,property,el,token:reply.token,generation:generation(),value:reply.value};
     held.set(key(view,property),h);
     cancelProperty(view,property,el); restore(view);
@@ -320,7 +344,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   function adoptPair(b,reply,adopted) {
     if(!reply.translateToken||!reply.scaleToken||reply.runtime!==b.runtime||reply.geometrySequence!==b.sequence)return null;
     const el=b.targetEl,view=b.target;
-    if(!authored.has(view))authored.set(view,el.style.cssText);
+    own(view,el);
     const pair=['translate','scale'].map((property,i)=>({view,property,el,token:i?reply.scaleToken:reply.translateToken,
       generation:generation(),runtime:b.runtime,value:i?[reply.value[2],0]:reply.value.slice(0,2)}));
     // BOTH records and recognizer ownership precede any synchronous begin batch.
@@ -464,10 +488,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       h.value=value;h.el.style.translate=css('translate',value);return true;
     },
     raiseReorder(id,enabled) {
-      // Drop the kept values of lifted views no longer in the page, so the registry holds no removed element
-      for(const lifted of lifts().keys())if(!lifted.isConnected)lifts().delete(lifted);
       const el=views.get(id);if(!el)return;
-      if(enabled){if(!authored.has(id))authored.set(id,el.style.cssText);raised.add(id);}else raised.delete(id);
+      if(enabled){own(id,el);raised.add(id);}else raised.delete(id);
       restore(id);
     },
     captureReorder(frame) {
@@ -621,7 +643,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       // need explicit cancellation; querying getAnimations here flushes styles
       // once per retired list row while the DOM batch is still being applied.
       for(const property of properties) { cancelProperty(id,property,null); held.delete(key(id,property)); }
-      raised.delete(id);authored.delete(id);lifts().delete(views.get(id));
+      raised.delete(id);authored.delete(id);holds().delete(views.get(id));
     },
     reset() {
       for(const stop of drags.values()) stop(); drags.clear();
