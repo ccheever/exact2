@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { appText } from '../tests/support/app-files';
 import { contractComponent } from '../tests/support/contract-action-fixture';
 import { contractFns } from '../tests/support/contract-fn-fixture';
 import { mobileContentGeometry } from './content-geometry';
@@ -123,9 +124,9 @@ test('route geometry observer mounts only for an active route and cannot capture
   expect(view.drawn('t3-content-geometry', {}, { owner })).toBe(true);
   expect(view.attribute('t3-content-geometry', 'pointer-events', {}, { owner })).toBe('none');
   const route = contractComponent('mobile/route-content.contract', 'MobileRouteContent');
-  const scope = { focused: false, routeId: 'visit-1', routeName: 'home', composerExpanded: false, composerFocused: false,
+  const scope = { ...fns, contentGeometry: { state: 'unavailable' }, focused: false, routeId: 'visit-1', routeName: 'home', composerExpanded: false, composerFocused: false,
     threadData: { environmentId: '', threadId: '', composer: { contentOwner: '' }, pendingInput: { active: false } },
-    layout: { safeBottom: 0 }, workingControl: { visible: false }, workspace: { fileInspectorSupported: false }, max: Math.max };
+    layout: { safeBottom: 0 }, workingControl: { visible: false }, workspace: { fileInspectorMounted: false, fileInspectorSupported: false, contentSettledWidth: 0, chatHorizontalPadding: 0, chatContentMaxWidth: 0 }, max: Math.max };
   expect(route.drawn('MobileContentGeometry(', route.state(), scope)).toBe(false);
   expect(route.drawn('MobileContentGeometry(', route.state(), { ...scope, focused: true })).toBe(true);
 });
@@ -146,4 +147,13 @@ test('route geometry exposes only a right-edge occlusion reservation', () => {
   expect(fns.contentGeometryTrailingReservation(metrics())).toBe(26);
   expect(fns.contentGeometryTrailingReservation({ ...metrics(), reservedRegions: [{ kind: 'division', x: 450, y: 10, width: 50, height: 60 }] })).toBe(0);
   expect(fns.contentGeometryTrailingReservation({ ...metrics(), state: 'unavailable' })).toBe(0);
+});
+
+test('thread content consumes only the measured trailing reservation', () => {
+  const source = appText('mobile/route-content.contract');
+  expect(source).toContain('derive threadTrailingReservation = contentGeometryTrailingReservation(contentGeometry)');
+  expect(source).toContain('derive threadContentWidth = max(0, workspace.contentSettledWidth - threadTrailingReservation)');
+  expect(source).toContain('workWidth=(threadContentWidth - workspace.chatHorizontalPadding * 2)');
+  expect(source).toContain('padding-right=threadTrailingReservation');
+  expect(source).toContain('right=threadTrailingReservation');
 });
