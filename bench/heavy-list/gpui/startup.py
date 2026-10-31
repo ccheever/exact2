@@ -92,7 +92,9 @@ def run(args):
     out.mkdir(parents=True, exist_ok=False)
     provenance = read(base / 'provenance.json')
     provenance['startupDriverSha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-    arms = ['egui', 'ink', 'gpui']
+    arms = args.arms.split(',')
+    if args.scoreboard:
+        arms = ['native', 'gpui', 'ink', 'egui']
     paths = [provenance[a]['executable'] for a in arms]
     write(out / 'provenance.json', provenance)
     write(out / 'power-mode.json', {
@@ -112,7 +114,7 @@ def run(args):
             row['quiet'] = row['quiet'] and absent
             row['powerAbsent'] = absent
             return row
-    monitor = StartupQuiet(out / 'quiet.jsonl', paths)
+    monitor = StartupQuiet(out / 'quiet.jsonl', paths + [base / 'measure', base / 'exact-wheel'])
     wait_for_lane(out)
     consecutive = 0
     gate_deadline = time.monotonic() + args.gate_seconds
@@ -120,7 +122,7 @@ def run(args):
         time.sleep(5)
         observation = monitor.observe()
         consecutive = consecutive + 1 if observation['quiet'] else 0
-        print('QUIET', consecutive, observation['busyCores'], flush=True)
+        print('QUIET', consecutive, observation['nonBenchmarkBusyCores'], flush=True)
     write(out / 'gate.json', dict(passed=consecutive == 12, consecutive=consecutive))
     if consecutive != 12:
         raise RuntimeError('sixty-second quiet gate not met; no launches')
@@ -130,23 +132,51 @@ def run(args):
     child = None
     try:
         for round_number in range(1, args.rounds + 1):
-            order = arms[(round_number-1) % 3:] + arms[:(round_number-1) % 3]
+            order = arms[(round_number-1) % len(arms):] + arms[:(round_number-1) % len(arms)]
+            if args.scoreboard:
+                wait_for_lane(out)
+                assert monitor.error is None, monitor.error
+                assert all(max(r['load']) < 30 and not r['compilers']
+                           and r['nonBenchmarkBusyCores'] <= quiet.BUSY_LIMIT
+                           for r in monitor.rows[first_sample:]), 'loaded cohort retained; stop'
+                env = {k: v for k, v in os.environ.items()
+                       if not k.startswith(('EXACT_', 'G1_', 'G3_', 'G4_', 'G5_', 'BENCH_', 'DYLD_'))}
+                env.update(G1_GPU_HOOK='0', EXACT_INK_DEVICE='metal',
+                           G3_PAINTED_BIN=provenance['ink']['executable'],
+                           G4_EGUI_BIN=provenance['egui']['executable'])
+                command = [str(base / 'measure'), str(out), provenance['native']['executable'],
+                           provenance['gpui']['executable'], str(base / 'exact-wheel'),
+                           '1', str(round_number), 'cold-only']
+                with (out / f'driver-{round_number}.log').open('w') as log:
+                    child = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
+                    status = child.wait(timeout=300)
+                child = None
+                for arm in order:
+                    output = out / f'{arm}-{round_number}.json'
+                    schedule.append(dict(arm=arm, round=round_number, cohort='cold', trace=False,
+                                         output=str(output), accepted=output.exists(), exit=status))
+                write(out / 'schedule.json', schedule)
+                assert status == 0, f'measure exit {status}; retain all attempts'
+                assert all(r['accepted'] for r in schedule), 'failed original launch; no replacement table'
+                print('SCOREBOARD', round_number, flush=True)
+                continue
             for arm in order:
                 for cohort in ['cold', 'warm']:
                     wait_for_lane(out)
                     assert subprocess.run(['pgrep', '-x', 'powermetrics'], capture_output=True).returncode == 1, 'power sampler started'
                     assert monitor.error is None, monitor.error
                     assert all(max(r['load']) < 30 and not r['compilers']
-                               and r['busyCores'] <= quiet.BUSY_LIMIT
+                               and r['nonBenchmarkBusyCores'] <= quiet.BUSY_LIMIT
                                for r in monitor.rows[first_sample:]), 'loaded cohort retained; stop'
                     name = f'{arm}-{round_number}-{cohort}'
                     output = out / f'{name}.json'
                     env = {k: v for k, v in os.environ.items()
                            if not k.startswith(('EXACT_', 'G1_', 'G3_', 'G4_', 'G5_', 'BENCH_', 'DYLD_'))}
-                    env.update(G1_OUTPUT=str(output), G1_ARM=arm, G1_COLD_ONLY='1',
+                    probe_arm = 'ink' if arm.startswith('ink-') else arm
+                    env.update(G1_OUTPUT=str(output), G1_ARM=probe_arm, G1_COLD_ONLY='1',
                                G1_GPU_HOOK='0', BENCH_LIVE='0', EXACT_INK_DEVICE='metal',
                                DYLD_PRINT_STATISTICS='1', DYLD_PRINT_STATISTICS_DETAILS='1',
-                               EXACT_WINDOW_WIDTH='800', EXACT_WINDOW_HEIGHT='768' if arm == 'ink' else '800')
+                               EXACT_WINDOW_WIDTH='800', EXACT_WINDOW_HEIGHT='768' if probe_arm == 'ink' else '800')
                     if not args.no_trace:
                         env['G1_TRACE'] = '1'
                     record = dict(arm=arm, round=round_number, cohort=cohort,
@@ -214,7 +244,9 @@ def run(args):
         time.sleep(5)
         monitor.stop.set()
         monitor.thread.join()
-        write(out / 'run.json', dict(launches=len(schedule), expectedLaunches=args.rounds * 6,
+        write(out / 'run.json', dict(launches=len(schedule),
+              arms=arms, cohorts=['cold'] if args.scoreboard else ['cold', 'warm'],
+              expectedLaunches=args.rounds * len(arms) * (1 if args.scoreboard else 2),
               quiet=quiet.quiet_series(monitor.rows[first_sample:])
                     and all(r['powerAbsent'] for r in monitor.rows[first_sample:]),
               firstSeriesObservation=first_sample,
@@ -309,14 +341,16 @@ def summarize(args):
     run_record = read(directory / 'run.json')
     assert run_record['quiet'] and not run_record['monitorError'], 'cohort is not quiet'
     assert len(schedule) == run_record['launches'] == run_record['expectedLaunches'], 'incomplete cohort'
-    expected = {(arm, cohort, r) for arm in ['ink', 'gpui', 'egui']
-                for cohort in ['cold', 'warm'] for r in range(1, len(schedule) // 6 + 1)}
+    arms = run_record.get('arms', ['ink', 'gpui', 'egui'])
+    cohorts = run_record.get('cohorts', ['cold', 'warm'])
+    expected = {(arm, cohort, r) for arm in arms
+                for cohort in cohorts for r in range(1, len(schedule) // (len(arms) * len(cohorts)) + 1)}
     assert {(r['arm'], r['cohort'], r['round']) for r in schedule} == expected, 'unbalanced cohort'
     assert all(r.get('accepted') and r.get('exit') == 0 for r in schedule), 'failed attempts retained; incomplete cohort'
-    samples = [dict(sample(directory / Path(r['output']).name, r['trace']), cohort=r['cohort'], round=r['round']) for r in schedule]
+    samples = [dict(sample(directory / Path(r['output']).name, r['trace']), arm=r['arm'], cohort=r['cohort'], round=r['round']) for r in schedule]
     tables = {}
-    for arm in ['ink', 'gpui', 'egui']:
-        for cohort in ['cold', 'warm']:
+    for arm in arms:
+        for cohort in cohorts:
             selected = [s for s in samples if s['arm'] == arm and s['cohort'] == cohort]
             tables[f'{arm} {cohort}'] = {
                 kind: {name: distribution([s[kind].get(name, 0) for s in selected
@@ -334,7 +368,7 @@ def summarize(args):
                         for metric in selected[0]['clocks'][phase]}
                 for phase in selected[0].get('clocks', {})}
     paired = {}
-    for arm in ['ink', 'gpui', 'egui']:
+    for arm in arms if 'warm' in cohorts else []:
         cold = {s['round']: s for s in samples if s['arm'] == arm and s['cohort'] == 'cold'}
         warm = {s['round']: s for s in samples if s['arm'] == arm and s['cohort'] == 'warm'}
         paired[arm] = {name: distribution([cold[r]['milestones'][name]-warm[r]['milestones'][name]
@@ -358,6 +392,8 @@ if __name__ == '__main__':
     launch.add_argument('--rounds', type=int, default=10)
     launch.add_argument('--gate-seconds', type=int, default=300)
     launch.add_argument('--no-trace', action='store_true', help='same-launch-path observer control')
+    launch.add_argument('--arms', default='egui,ink,gpui', help='provenance keys; ink-* are paired Ink variants')
+    launch.add_argument('--scoreboard', action='store_true', help='measure.m cold-only, native/GPUI/Ink/egui')
     analyze = commands.add_parser('summarize')
     analyze.add_argument('directory', type=Path)
     args = parser.parse_args()

@@ -8027,3 +8027,24 @@ passes Ink, pinned, text, image and five desktop journeys on both D3D11 and
 wgpu, including D3D11's atlas byte comparison. No startup saving is qualified:
 two S2 before/after collections violate the quiet rule and the third attempt
 expires in preflight. Windows upload spans remain unmeasured.
+## M10, cut 1: prepare the first frame before showing the window
+
+**Predictions, before the runs, 2026-10-30.** The cut starts the existing
+paint/encode/submit path after layer attachment, before the existing show
+call. It preserves the compose target, host-thread encoding, worker submission
+and retry-until-displayed rule. The system's roughly 30 ms commit-to-display
+interval is outside this cut.
+
+| Prediction | Instrument |
+| --- | --- |
+| Warm complete screen 217.9 → about 198 ms, a 20 ms saving | Ten interleaved cold/warm pairs for Ink before/after, GPUI and egui, `startup.py`, hook off, trace on, power off; positive complete drawable timestamps |
+| Scoreboard cold row falls by the same 20 ms (G4m's 250 → about 230 ms; the contemporaneous before row is the control) | `measure.m` cold-only, ten launches of each of native, GPUI, Ink and egui before and after, hook and power off |
+| First paint duration unchanged (about 29.4 ms) | The same trace's first `paint walk` span |
+| Fling, rest and static rows unchanged | Existing scoreboard instruments; full series follows landing, outside this startup cut |
+| First-frame pixels equal; CPU archive misses still hand off; unshown submissions keep retrying | Headless first-frame comparison, Stage 0b transition/completeness and painted-carrier suites |
+
+The quiet amendment excludes benchmark work from the aggregate busy-core
+bound: at most 1.0 non-benchmark core. The arms, driver, wheel helper, probe
+helpers, caffeinate and WindowServer are benchmark work. The per-process bound,
+10% transient-daemon allowance, load bound and compiler refusal stay. M10's
+earlier cohorts crossed 2.0–2.1 whole-machine cores on their own launches.
