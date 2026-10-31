@@ -27,13 +27,15 @@ const run = (cmd, args, cwd, env = process.env) => {
   return r.stdout;
 };
 
-/** The library compiled for `target` as a dynamic library named `install` (an Apple install name) or `soname`, at
- * `out`. Its Cargo target directory is the crate's own, kept between builds. */
+/** The library compiled for `target` as a dynamic library, linked with `linkArg` (its install name or SONAME), at
+ * `out`. Its Cargo target directory is the one Cargo chooses for the crate (its own `target/`, or
+ * `CARGO_TARGET_DIR`), kept between builds, named to the build so that the file copied is the one it wrote. */
 function cdylib(target, out, linkArg) {
-  const crate = join(pkg, 'library');
+  const crate = join(pkg, 'library'), manifest = join(crate, 'Cargo.toml');
+  const targetDir = JSON.parse(run('cargo', ['metadata', '--format-version', '1', '--no-deps', '--locked', '--manifest-path', manifest], crate)).target_directory;
   const env = { ...process.env, MACOSX_DEPLOYMENT_TARGET: '14.0', IPHONEOS_DEPLOYMENT_TARGET: '17.0' };
-  run('cargo', ['rustc', '--locked', '--release', '--lib', '--crate-type', 'cdylib', '--target', target, '--manifest-path', join(crate, 'Cargo.toml'), '--', '-C', `link-arg=${linkArg}`], crate, env);
-  cpSync(join(crate, 'target', target, 'release', target.includes('-apple-') ? 'libvault.dylib' : 'libvault.so'), out);
+  run('cargo', ['rustc', '--locked', '--release', '--lib', '--crate-type', 'cdylib', '--target', target, '--target-dir', targetDir, '--manifest-path', manifest, '--', '-C', `link-arg=${linkArg}`], crate, env);
+  cpSync(join(targetDir, target, 'release', target.includes('-apple-') ? 'libvault.dylib' : 'libvault.so'), out);
 }
 
 const plist = (keys = '') => `<?xml version="1.0" encoding="UTF-8"?>

@@ -34,7 +34,7 @@ export function makeApp(app, pkg) {
 }
 
 /** The package and its library built under `dir`, the fixture app, and an app whose copy of the package declares
- * each library with a SHA-256 its bytes do not have. */
+ * each library with a SHA-256 its bytes do not have (`wrong`, that copy's `native.library`). */
 export function makeFixture(dir) {
   const { pkg, library } = buildPackage(join(dir, 'build'));
   const wrong = join(dir, 'wrong-hash');
@@ -43,7 +43,7 @@ export function makeFixture(dir) {
   const declaration = JSON.parse(readFileSync(join(wrong, 'exact.json'), 'utf8'));
   for (const entry of Object.values(declaration.native.library)) entry.sha256 = entry.sha256.replace(/.$/, c => c === '0' ? '1' : '0');
   writeFileSync(join(wrong, 'exact.json'), JSON.stringify(declaration, null, 2));
-  return { pkg, library, wrong, app: makeApp(join(dir, 'vaultfixture'), pkg), wrongApp: makeApp(join(dir, 'wrongfixture'), wrong) };
+  return { pkg, library, wrong: declaration.native.library, app: makeApp(join(dir, 'vaultfixture'), pkg), wrongApp: makeApp(join(dir, 'wrongfixture'), wrong) };
 }
 
 /** `cmd` in `cwd` that must fail: its stderr and stdout. */
@@ -51,8 +51,8 @@ export function refused(cmd, args, cwd, env = process.env) {
   try { run(cmd, args, cwd, env); return null; } catch (e) { return e.message; }
 }
 
-/** The refusal a build of `wrongApp` for `target` prints, the declared and the actual hash named. */
-export const wrongHash = (library, target) => `its ${target} library ${library[target].url} has SHA-256 ${library[target].sha256}, and its exact.json says `;
+/** The refusal a build of `wrongApp` for `target` prints: the library's actual hash and the one `wrong` declares. */
+export const wrongHash = (library, wrong, target) => `@fixture/vault: its ${target} library ${library[target].url} has SHA-256 ${library[target].sha256}, and its exact.json says ${wrong[target].sha256}; nothing was linked`;
 
 /** Forget the fetched library: what is left to load is the copy the product carries. */
 export const forget = (library) => { for (const { sha256 } of Object.values(library)) rmSync(join(LIBRARY_CACHE, sha256), { recursive: true, force: true }); };

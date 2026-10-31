@@ -17,8 +17,8 @@ rusqlite = { version = "0.40.2", features = ["bundled"] }
 
 [profile.release]
 panic = "abort"
-# Cargo's release default strips debug info, and on a Mac the dylib Apple's `strip` leaves is one ld refuses to link
-# against ("mis-aligned LINKEDIT string pool").
+# Cargo's release default strips debug info, and with MACOSX_DEPLOYMENT_TARGET set (test/library.mjs sets it) the
+# dylib Xcode 27's `strip` leaves is one ld refuses to link against ("mis-aligned LINKEDIT string pool").
 strip = false
 
 [workspace]

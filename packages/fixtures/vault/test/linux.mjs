@@ -17,12 +17,12 @@ import { TARGET } from './library.mjs';
 import { checker, drive, fetched, forget, makeFixture, refused, root, run, workDir, wrongHash } from './fixture.mjs';
 
 const given = process.argv[2], dir = workDir(given);
-const { pkg, library, app, wrongApp } = makeFixture(dir);
+const { pkg, library, wrong: wrongLibrary, app, wrongApp } = makeFixture(dir);
 const { check, failed } = checker();
 const target = process.platform === 'darwin' ? 'aarch64-apple-darwin' : TARGET;
 
 const wrong = refused('bun', ['exact.mjs', 'linux'], wrongApp) ?? '';
-check('linux', 'a declared hash the library does not have is refused, both named', wrong.includes(`@fixture/vault: ${wrongHash(library, target)}`) && wrong.includes('nothing was linked'), wrong.slice(0, 2000));
+check('linux', 'a declared hash the library does not have is refused, both named', wrong.includes(wrongHash(library, wrongLibrary, target)), wrong.slice(0, 2000));
 
 const built = run('bun', ['exact.mjs', 'linux'], app).trim().split('\n');
 const binary = built.at(-2);
