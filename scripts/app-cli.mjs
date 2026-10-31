@@ -67,7 +67,8 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     mac: ['host/apple/build.mjs', `${name}-apple`],
     linux: ['scripts/build-linux.mjs', name],
     windows: ['host/windows/build.mjs', name],
-    android: ['scripts/agent-android.mjs', 'build', name],
+    // The APK on the Canvas reader, installed (LLP 1107 D1); `--headless` the Linux host for Android instead.
+    android: ['scripts/agent-android.mjs', 'build', name, '--apk', '--install'],
     update: ['scripts/exact.mjs', 'new', dir, '--update'],
     lock: ['scripts/app-cli.mjs', '--lock', dir],
     contract: ['scripts/exact.mjs', 'contract'],
@@ -256,6 +257,8 @@ if (verb === 'contract') {
   if (drivesApple && !rest.includes('--chrome') && host === 'ios') rest.push('--chrome', 'platform');
   if (drivesApple && verb === 'agent' && !rest.includes('--scale')) rest.push('--scale', '1');
   if ((verb === 'test' || verb === 'agent') && host === 'windows' && !rest.includes('--size') && existsSync(manifest)) rest.push('--size', windowsWindow(JSON.parse(readFileSync(manifest, 'utf8'))).join('x'));
+  // An Android drive is the APK's (`bun exact.mjs android` installs it), unless it asks for the headless Linux host.
+  if ((verb === 'test' || verb === 'agent') && host === 'android' && !rest.includes('--headless') && !rest.includes('--reader')) rest.push('--reader');
   if (verb !== 'test') return log(await script(verbs[verb], rest));
   // An app with a server of its own (the rest pattern's) has it run for the tests, where app.ts calls it, on an empty
   // database kept through them: as verify runs it, by the same code (LLP 1116.007 D2).

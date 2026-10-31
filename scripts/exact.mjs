@@ -53,6 +53,8 @@ const { closeFilesystemReader } = await import('./filesystem.mjs');
 const { builtAppMatches, jsTargetBuild } = await import('../host/web/serve.mjs');
 const { signRelease } = await import('../host/apple/assets.mjs');
 const { chromium } = await import('./agent-launch.mjs');
+const { androidSdk } = await import('./agent-android.mjs');
+const { hermesAndroidBundle } = await import('./hermes-android.mjs');
 const { guardFlags, helpText } = await import('./help.mjs');
 const { backendOrigin } = await import('../js/bake/src/typescript.mjs');
 const { devicePreflight } = await import('../snapback4/web/device-build.mjs');
@@ -423,6 +425,9 @@ export function setup({check = false} = {}) {
         console.error(`exact setup: the ${target} Hermes bundle did not install; Apple TypeScript builds for it will name the command`);
       }
     }
+    // Android, where its SDK is (LLP 1107): the Rust target the APK's library builds for. Its Hermes bundle has no
+    // release to fetch yet (`sdkReport`'s row says how to install one).
+    if (existsSync(androidSdk())) run('rustup', ['target', 'add', 'aarch64-linux-android', '--toolchain', pin.channel]);
     // Every bake resolves offline and locked: the checkout's crates, and the game SDK's for a game's shell.
     run('cargo', [`+${pin.channel}`, 'fetch', '--locked', '--manifest-path', resolve(ROOT, 'Cargo.toml')]);
     console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
@@ -475,6 +480,9 @@ export async function platformReport(platform, rows, { device = false } = {}) {
   own.push(row('Rust target aarch64-linux-android', android, android ? 'installed' : 'missing', 'aarch64-linux-android', 'rustup target add aarch64-linux-android'));
   try { (await import('./agent-android.mjs')).androidToolchainEnv(); own.push(row('Android NDK', true, 'found', 'an NDK', '')); }
   catch (error) { own.push(row('Android NDK', false, 'missing', 'an NDK with the aarch64-linux-android toolchain', String(error.message ?? error))); }
+  const bundle = hermesAndroidBundle();
+  own.push(row('Hermes bundle (aarch64-linux-android)', !!bundle, bundle ? 'installed' : 'missing', 'the Android Hermes bundle a TypeScript app links',
+    'no Ibex release ships one yet: bun scripts/hermes-android.mjs install <archive>, or copy ~/.cache/exact/hermes-android from a machine that has one'));
   return own;
 }
 
@@ -549,6 +557,17 @@ export function sdkReport(env = process.env, { only = null, device = false } = {
     const cross = checkHermesBundles(env, spawnSync, process.platform, process.arch, [target]);
     rows.push(row(`Hermes bundle (${target})`, cross.ok ? 'verified by hermes-lean-sys' : 'not installed or invalid',
       'the pinned Ibex release', cross.ok, cross.fix, need));
+  }
+  // Android, where its SDK is (LLP 1107), in the whole report: what `bun exact.mjs android` needs besides it
+  // (`platformReport` checks the same for a first Android build).
+  if (!only && existsSync(androidSdk(env))) {
+    const ndks = resolve(androidSdk(env), 'ndk'), ndk = env.ANDROID_NDK_HOME ?? (existsSync(ndks) ? readdirSync(ndks).filter(v => /^\d/.test(v)).sort((a, b) => a.localeCompare(b, undefined, {numeric: true})).at(-1) : '');
+    rows.push(row('Android NDK', ndk && basename(ndk), 'any (27.1 is tried)', !!ndk, 'the SDK manager: sdkmanager "ndk;27.1.12297006" (or set ANDROID_NDK_HOME)', 'Android'));
+    const target = output('rustup', ['target', 'list', '--installed', '--toolchain', pin.channel]).split('\n').includes('aarch64-linux-android');
+    rows.push(row('Rust aarch64-linux-android', target ? 'installed' : '', pin.channel, target, 'exact setup', 'Android'));
+    const bundle = hermesAndroidBundle();
+    rows.push(row('Hermes bundle (aarch64-linux-android)', bundle ? 'installed' : '', 'scripts/hermes-android.mjs', !!bundle,
+      'no Ibex release ships one yet: bun scripts/hermes-android.mjs install <archive>, or copy ~/.cache/exact/hermes-android from a machine that has one', 'Android TypeScript'));
   }
   return rows;
 }

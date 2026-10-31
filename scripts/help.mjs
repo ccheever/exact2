@@ -39,7 +39,7 @@ const DRIVE = [
   ['--process <target>=<file>|script:<file.json>|real · --login-env NAME=value · --home <dir>', 'macOS, Linux: what a child process is (none runs unnamed; `all=real` runs every one), the login shell\'s variables, home:/ for the data code (LLP 1133.007 §7)'],
   ['--url <url> · --browser chrome|firefox|webkit', 'web: drive a page already served (the dev loop\'s) instead of building · web (default chrome; bunx playwright@1.64.1 install firefox webkit)'],
   ['--sim <udid|name>', 'iOS: which simulator (default: a booted one)'],
-  ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
+  ['--device · --phone <udid|name> · --reader · --headless', 'a connected iPhone (built with ios --device), and which · Android: the APK (an `exact new` app\'s default) · the Linux host under adb shell'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
   ['--family <name> · --mode fullColor|accented|vibrant · --scheme light|dark · --props <json> · --placement <name> · --state <json>', 'gallery: widget variant/props or activity placement/state; --size large|xxxl is widget text size'],
@@ -169,7 +169,7 @@ Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else
   },
   verify: {
     line: 'build if stale, run *.test.contract, check each screen it reaches light and dark, relaunch once',
-    usage: 'bun exact.mjs verify [web|ios|windows] [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]',
+    usage: 'bun exact.mjs verify [web|ios|windows|android] [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]',
     common: ['verify [ios] [--shots <dir>] [--sim <name>]    done when it says "verify: clean"'],
     flags: [
       ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
@@ -195,7 +195,7 @@ Large    each of those screens again at the largest text size (ios: the simulato
          smaller or fixed font is the tell, and so is a line-clamp in a list's row or hyphens="auto"
          on a text of several words (a UILabel hyphenates only a word longer than its line; a
          grouped list's rows hyphenate as cells do). Counted ("3 at the largest text size"), never failing.
-Windows  headless drives at app.json's window size, then the window as it opens on the signed-in desktop (windows-window.png); no largest-text pass or scrolling probe yet.
+Native   windows: headless at app.json's window size, then the desktop's window (windows-window.png); android: the APK, light and dark. Neither checks, reads the largest text or scrolls yet.
 Scroll   ios: ~15 s of real touches on a long first-screen list, once per build (host/apple/feel): "like UIKit", or
          a counted finding per metric the app can fix; Exact's own one uncounted line; load > cores: physics only.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
@@ -263,21 +263,27 @@ Ports    none. Runs to completion.`,
     example: 'bun exact.mjs linux && bun exact.mjs test linux',
   },
   android: {
-    line: 'build the Linux host for Android (test and agent android drive it over adb)',
-    usage: 'bun exact.mjs android',
-    flags: [],
-    // The app on the Canvas reader, as an APK (host/android/README.md): for an app with an `android/` crate,
-    // which `exact new` does not write yet, or a game (its shell generates one). --release builds the
-    // release profile, for measuring.
-    // --write-locks writes the Gradle lock and verification files of an app whose modules name Maven libraries.
-    internal: ['--apk', '--release', '--write-locks'],
-    body: `Builds for aarch64-linux-android and prints the binary's path; the drive runs it under
-adb shell on the first device or emulator (ANDROID_SERIAL picks one). Needs the NDK
-(ANDROID_NDK_HOME, else the newest under the SDK's ndk/) and, once in this directory,
-rustup target add aarch64-linux-android. A TypeScript data module also needs the
-Android Hermes bundle (bun <exact2>/scripts/hermes-android.mjs build, once).
+    line: 'build the APK and install it (test, agent and verify android drive it)',
+    usage: 'bun exact.mjs android [--run] [--headless]',
+    flags: [
+      ['--run', 'launch it once installed'],
+      ['--headless', 'build the Linux host for Android instead (agent android --headless runs it under adb shell)'],
+    ],
+    // `--apk --install` are the verb's own; --release builds the release profile, for measuring; --write-locks writes
+    // the Gradle lock and verification files of an app whose modules name Maven libraries.
+    internal: ['--apk', '--install', '--release', '--write-locks'],
+    body: `Builds android/ for aarch64-linux-android, packages it with exact2's Canvas reader
+(host/android) into an APK under target/android/, prints its path and installs it on the
+device: ANDROID_SERIAL, else the one adb lists (with several and none named, it refuses).
+With no device it builds and says so. test android and agent android drive the installed
+APK and refuse one older than its sources, naming this command.
+Needs    the SDK (ANDROID_HOME) with platform 37.2 and an NDK, a JDK 17+ (JAVA_HOME), once in
+         this directory rustup target add aarch64-linux-android, and the Android Hermes
+         bundle (~/.cache/exact/hermes-android; bun <exact2>/scripts/hermes-android.mjs).
+Device   an emulator elsewhere: adb connect 127.0.0.1:<port> through an ssh tunnel to its
+         adb port, then ANDROID_SERIAL=127.0.0.1:<port>.
 Ports    none. Runs to completion.`,
-    example: 'bun exact.mjs android && bun exact.mjs agent android tree',
+    example: 'ANDROID_SERIAL=emulator-5554 bun exact.mjs android && bun exact.mjs test android',
   },
   game: {
     line: 'game vocab: fields, defaults and recipes',

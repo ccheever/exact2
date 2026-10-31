@@ -527,7 +527,7 @@ mod tests {
             .map(|h| h.rule.as_str());
         let rule = rule.expect("a how-to for verify");
         for flag in ["verify ios", "--shots <dir>"] {
-            let usage = flag.replace("verify ios", "[web|ios]");
+            let usage = flag.replace("verify ios", "[web|ios");
             assert!(rule.contains(flag), "the verify how-to names `{flag}`");
             assert!(verify.contains(&usage), "`{flag}` is not in `{verify}`");
         }

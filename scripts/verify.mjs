@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// `bun exact.mjs verify [web|ios|windows]` (LLP 1116.004 D7, 1116.005 D7): one command a builder can stop on, where test,
+// `bun exact.mjs verify [web|ios|windows|android]` (LLP 1116.004 D7, 1116.005 D7): one command a builder can stop on, where test,
 // drives, check and screenshots were three to five turns. It builds when the build is stale (web: the dist's
 // record against its sources, as the driver checks it; iOS: agent-build.mjs `buildFirst`, the plan fast path
 // included), runs the app's tests (app.test.contract and each other `*.test.contract` beside it, app.mjs
@@ -34,7 +34,7 @@
 // the console session's desktop and its window captured (`desktopShot`), since that, not the headless picture, is what a
 // person sees there.
 //
-//   bun scripts/verify.mjs [web|ios|windows] --app <name> [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]
+//   bun scripts/verify.mjs [web|ios|windows|android] --app <name> [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]
 import { LAUNCH_MEDIA } from './agent-prefer.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -56,7 +56,7 @@ const REAL_MS = 4000, REAL_STEP = 250; // the relaunch's bound on real time for 
 const FIRST = 'first screen', RELAUNCH = 'relaunch';
 // How long a run takes, said when it starts so a builder waits once rather than polling (LLP 1116.021 D3): the app's
 // last run on that host, else these (a run that must build first takes that build's time too).
-const ESTIMATE = { web: 30_000, ios: 60_000, windows: 60_000 };
+const ESTIMATE = { web: 30_000, ios: 60_000, windows: 60_000, android: 120_000 };
 const lastRuns = (app) => { try { return JSON.parse(readFileSync(resolve(app.dir, '.exact', 'verify', 'last.json'), 'utf8')); } catch { return {}; } };
 let ACCEPT = []; // app.json `verify.accept`: findings the app's design accepts, set by main
 const secs = (ms) => `${(ms / 1000).toFixed(1)} s`;
@@ -650,6 +650,7 @@ async function checkHere(s, { screen, sizes = [null], shot, state }) {
     return [{ screen, size: [vp.w, vp.h], scheme: 'light', unchecked: true, ...(kept ? { shot: kept } : {}), findings: [], accepted: [], lines: failed, hidden: 0, advice: [] }];
   }
   const runs = [];
+  if (s.host === 'android') return (await import('./agent-android.mjs')).androidCaptures(s, { screen, shot, failed });
   for (const size of sizes) {
     if (size) { await s.resize(...size); await s.clock('settle'); }
     const r = await checkOp(s, ['both'], { shots: shot, accept: ACCEPT });
@@ -662,6 +663,10 @@ async function checkHere(s, { screen, sizes = [null], shot, state }) {
   }
   return runs;
 }
+
+
+/** What verify android does not do yet (agent-android.mjs `androidCaptures`), said in its report. */
+const ANDROID = 'not on Android yet: check\'s findings (each screen is captured unjudged, light and dark: look at them), the largest text size, the scrolling probe (iOS\'s), a test end\'s reload (the web\'s)';
 
 // LLP 1116.019 D2: each screen verify visits is read again at the largest text size, and what spills is reported, counted
 // and never failing the run (LLP 1116.020 D4: uncounted, half of the builders who saw them stopped at "verify: clean"): the
@@ -1305,7 +1310,8 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   if (desktop) out.push(desktop.error ? `window: not captured (${firstLine(desktop.error)})` : `window: ${relative(cwd, desktop.shot)}, the app opened on the desktop at ${desktop.size?.join('x')} with the system's font, title bar and theme${desktop.foreground ? '' : ' (not the foreground window: its title bar is drawn inactive)'}`,
     '  not on Windows yet: check\'s findings (the host has no check observation; each screen is captured unjudged), the largest text size, the scrolling probe (iOS\'s), a test end\'s reload (the web\'s)');
   // How a person opens what ran (LLP 1116.008 D2): the dev loop serves the web app, the simulator build launches on iOS.
-  if (!failedTests && !broken) out.push(host === 'ios' ? 'open it: bun exact.mjs ios --run (launches what verify checked)' : host === 'windows' ? 'open it: bun exact.mjs windows --run (opens what verify checked)' : 'open it: bun exact.mjs web (serves what verify checked)');
+  if (host === 'android') out.push(ANDROID);
+  if (!failedTests && !broken) out.push(host === 'ios' ? 'open it: bun exact.mjs ios --run (launches what verify checked)' : host === 'windows' ? 'open it: bun exact.mjs windows --run (opens what verify checked)' : host === 'android' ? 'open it: bun exact.mjs android --run (installs and launches what verify checked)' : 'open it: bun exact.mjs web (serves what verify checked)');
   // Every finding, one a line, where the groups above left any out.
   const grouped = full.length && out.some((l) => /^ {4}also |^ {2}… and \d+ more/.test(l));
   if (grouped && listed) out.push(`every finding, one a line: ${listed}`);
@@ -1330,8 +1336,9 @@ async function deviceMain(argv, emitJSON, declined) {
   const flagged = new Set([args.indexOf('--app') + 1, args.indexOf('--sim') + 1, args.indexOf('--shots') + 1].filter((i) => i > 0));
   if (args.includes('--shots') && (!copyTo || copyTo.startsWith('-'))) { console.error('verify: --shots takes a directory: the screenshots are copied there, under the names in .exact/verify/'); return declined(2); }
   const host = args.find((a, i) => !a.startsWith('-') && !flagged.has(i)) ?? 'web';
-  if (!['web', 'ios', 'windows'].includes(host)) { console.error(`verify: web, ios or windows, not ${host} (test ${host} runs the tests there)`); return declined(2); }
+  if (!['web', 'ios', 'windows', 'android'].includes(host)) { console.error(`verify: web, ios, windows or android, not ${host} (test ${host} runs the tests there)`); return declined(2); }
   if (host === 'windows' && process.platform !== 'win32') { console.error('verify windows runs on Windows (bun exact.mjs verify windows there)'); return declined(2); }
+  if (host === 'android') process.env.EXACT_ANDROID_READER = '1'; // the APK, as `test android` drives it
   if (sim) process.env.EXACT_SIM = sim; // as the driver names it (devices.mjs `simulator`)
   const started = Date.now();
   const { resolveApp } = await import('./app.mjs');
@@ -1349,7 +1356,7 @@ async function deviceMain(argv, emitJSON, declined) {
 
   const last = lastRuns(app)[host];
   console.error(`verify ${host}: about ${Math.round((last ?? ESTIMATE[host]) / 1000)} s${last ? ', as its last run took' : ''}; one report when it ends`);
-  const built = host === 'web' ? await webBuild(app) : host === 'windows' ? await windowsBuild(app) : await iosBuild(app);
+  const built = host === 'web' ? await webBuild(app) : host === 'windows' ? await windowsBuild(app) : host === 'android' ? await (await import('./agent-android.mjs')).apkBuildFirst(app) : await iosBuild(app);
   // The build said the compiler's warnings when it ran; the report's own group says them whether it ran or not.
   if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length && !/^compiler: \d+ warnings?[,;]/.test(line)); }
   if (built?.code) {
