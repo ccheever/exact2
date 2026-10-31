@@ -58,9 +58,10 @@ export function renderer(dist) {
    * any data is asked; `finish` settles it and composes the rest. */
   async function begin(location) {
     const document = createDocument(shell);
-    // The bake's page facts (runner/src/page.rs): visible, online, focused, no share sheet or pickers.
-    Object.assign(document, { visibilityState: 'visible', hasFocus: () => true });
     const url = new URL(location, 'http://render.invalid');
+    // The bake's page facts (runner/src/page.rs): visible, online, focused, no share sheet or pickers. The
+    // base is the shell's `<base href="/">`, against which the runtime checks that a link navigates (rt.js `navigable`).
+    Object.assign(document, { visibilityState: 'visible', hasFocus: () => true, baseURI: `${url.origin}/` });
     const ctx = vm.createContext({
       document, location: { pathname: url.pathname, search: url.search, href: url.href, origin: '' },
       navigator: { onLine: true, language },

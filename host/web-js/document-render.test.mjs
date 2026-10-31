@@ -298,6 +298,24 @@ component Greeting
   }, { 'strings/fr.json': '{"hello":"Bonjour"}', 'strings/en.json': '{"hello":"Hello"}' }, { lang: 'fr', strings: { base: 'fr' } });
 }, 30000);
 
+// A link the render binds to data keeps its href, so the page navigates before the runtime runs, or without it.
+test('both document renderers keep the hrefs of links bound to data', async () => {
+  for (const how of ['js', 'rust']) await renderedPages(`routes nav
+  home "/" render=build
+  item "/items/:id"
+
+component Home
+  state ids: string[] = ["a", "b"]
+  view
+    main
+      for id in ids key=id
+        link href=path("item", id)
+          text id
+`, (_, html) => {
+    expect([how, html('').match(/<a [^>]*>/g)?.map(a => /href="([^"]*)"/.exec(a)?.[1])]).toEqual([how, ['/items/a', '/items/b']]);
+  }, {}, {}, how);
+}, 180000);
+
 test('the render context reports UTC independently of the machine zone', async () => {
   const dir = mkdtempSync(resolve(import.meta.dir, '../../target/place-render-test-'));
   try {
