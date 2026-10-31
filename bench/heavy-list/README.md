@@ -171,13 +171,18 @@ when loaded and produces no scoreboard table. See
 [the amended G4q audit](gpui/RESULTS.md#g4q1-the-clock).
 
 Every Mac CPU row carries its **effective GHz**: the phase's process-cycle
-delta divided by its process-CPU-second delta and by 10⁹. Calculate each
-sample before aggregating; include instructions per cycle. A row whose arms
-ran below **3 GHz** is not a scoreboard row. Missing counters are unavailable,
-not evidence of a qualified clock. G4m and the five-round hook comparison lack
-them; G4q's retained counters show low clocks and disqualify its CPU rows.
-The silver's M5 Max names its CPU levels **Super** and **Performance**. Calling
-the lower level an efficiency cluster would misidentify this machine.
+delta divided by its process-CPU-second delta and by 10⁹, calculated per
+sample before aggregating, with instructions per cycle, and cycles and
+instructions per second beside the milliseconds. The clock is reported, not
+gated. Both Macs are the same M5 Max (6 **Super** and 12 **Performance**
+cores; there is no efficiency cluster), and on an idle one the scheduler keeps
+the Rust arms' main threads on the Performance level near 1.9 GHz while
+native's user-interactive main thread runs on Super near 2.9, so milliseconds
+per second compare arms at different clocks. Across arms, series or machines,
+compare work (cycles and instructions per second) and energy; milliseconds per
+second stand beside them with their GHz. A row without counters (G4 on the
+black, G4m, the five-round hook comparison) has an unknown clock and compares
+only within its own series.
 
 **No restoring launch recipe is established.** G4q.1 tested the SSH/Aqua chain
 below, LaunchServices and an interactive-QoS probe override. The Rust arms

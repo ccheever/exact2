@@ -6583,8 +6583,9 @@ busy/load/compiler failures. Completeness still requires every accepted arm.
 | fling-power-2 | 2/31 | 0.843 | 1 process; 0 busy/load/compiler | yes | fail |
 
 Thus `bar-b-1`, `caret-a-1`, `caret-b-1` and `boot-retained-1` now pass the quiet
-bound. No G4q CPU row enters the scoreboard: the retained clocks fail the new
-≥3 GHz instrument rule. GPU and boot quiet qualification is not completion
+bound. G4q's CPU rows enter the record with their clocks (the Rust arms near
+1.9 GHz on the Performance level, native near 2.8 on Super): the clock is
+reported, not gated, and work is compared by cycles and instructions per second. GPU and boot quiet qualification is not completion
 of M8 or M10's other conditions.
 
 ### Launch recipe and reproduction
