@@ -470,7 +470,7 @@ the element's box, so a hidden 1-point image floats its full picture.
 
 | Host | What it does |
 | --- | --- |
-| macOS 12+ | The video arm (`host/apple/videoarm/PictureInPicture.swift`) decodes each picture with ImageIO into a BGRA `CVPixelBuffer`, enqueues it as a `CMSampleBuffer` shown at once on an `AVSampleBufferDisplayLayer`, and floats the layer with `AVPictureInPictureController(contentSource: .init(sampleBufferDisplayLayer:playbackDelegate:))`; the playback delegate reports an unbounded time range and never paused. AVKit stays in the on-demand artifact; ExactKit follows the node (`PictureInPicture.swift`) |
+| macOS 14+ (ExactKit's minimum; the arm uses the display layer's `sampleBufferRenderer`) | The video arm (`host/apple/videoarm/PictureInPicture.swift`) decodes each picture with ImageIO into a BGRA `CVPixelBuffer`, enqueues it as a `CMSampleBuffer` shown at once on an `AVSampleBufferDisplayLayer`, and floats the layer with `AVPictureInPictureController(contentSource: .init(sampleBufferDisplayLayer:playbackDelegate:))`; the playback delegate reports an unbounded time range and never paused. AVKit stays in the on-demand artifact; ExactKit follows the node (`PictureInPicture.swift`) |
 | Web, JS target | `host/web-js/picture-in-picture.js`, loaded on first use: the image drawn onto a canvas on each `load`, its `captureStream()` in a hidden video, `requestPictureInPicture()` on it. A browser without `captureStream` or `document.pictureInPictureEnabled` refuses in the journal |
 | iOS, tvOS | Refused in the journal: their picture in picture needs the app's playback audio session and background mode, which an app that shows no media does not declare |
 | Web, wasm target; Linux; Windows; the terminal | Refused in the journal |
@@ -481,10 +481,12 @@ the layer, so a layer larger than the panel shows only its lower-left corner
 and a layer in the app's own window shows that window's part of it (Apple
 Developer Forums thread 821582, FB22411168; reproduced on macOS 27.2). The
 layer therefore lives in a window of its own, borderless, transparent,
-click-through and out of the Window menu, kept at the panel's content size;
-the arm finds the panel by its class name (`PIPPanel`) to follow its resizes.
-That name is not public API; the app is not distributed through the App
-Store (the user's ruling, 2026-10-31).
+click-through and out of the Window menu, sized to the panel's content. To
+follow the panel's size, the arm looks for an app window whose class name
+contains `PIPPanel` and observes its resizes; it links and calls no private
+symbol, only compares a class name. Where no such window is found, the layer
+keeps the size the first picture gave it (its aspect, at most 640 points
+long), which the panel then shows scaled down or cropped.
 
 Sources: [W3C Picture-in-Picture](https://w3c.github.io/picture-in-picture/),
 [AVPictureInPictureController.ContentSource](https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/contentsource-swift.class),
