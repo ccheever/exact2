@@ -1,6 +1,7 @@
 // `tamber import css` (LLP 1153 D6.2): a stylesheet's custom properties written into app.tamber between markers.
-// The subset it translates, each thing it refuses by name, each scheme's value by CSS's cascade, an author's tokens
-// kept outside the markers, a second import rewriting only its block, and one that would leave the author's tokens
+// The subset it translates, each thing it refuses by name, each scheme's value by CSS's cascade (a colour with one
+// value marked `scheme=fixed`), an author's tokens kept outside the markers, a second import rewriting only its
+// block, and one that would leave the author's tokens
 // refused writing nothing. Runs the debug compiler the lane builds, as tamber-dtcg.test.mjs does.
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -95,7 +96,8 @@ test('each thing outside the subset is refused by name, and nothing is written f
   // The evaluator types it and the compiler refuses it: `link` is drawn in the app's tint.
   expect(why('--link')).toContain('`link = ink`: [lower-');
   expect(why('--only-dark')).toContain('declared only under `prefers-color-scheme: dark`');
-  // What translates is written, a number among it, and nothing refused is.
+  // What translates is written, a number among it, and nothing refused is; `ink`, whose `.dark` value was refused,
+  // is not marked one colour.
   expect(r.design).toContain('  ink = #111111\n  h = 220\n  // tamber:end');
   for (const name of ['brand', 'grid', '1x', 'orphan', 'only-dark', 'link', 'edge', '-ink']) expect(r.design).not.toContain(`${name} =`);
 });
@@ -114,13 +116,16 @@ html { --rule: #303030; }
   // :root outranks html whatever their order; the dark query nested in :root, CSS Nesting's form,
   // is the dark side as the query around :root is.
   expect(r.design).toContain(`  // tamber:import tokens.css
-  ink = #333333
-  line = #cccccc
+  ink = #333333  scheme=fixed
+  line = #cccccc  scheme=fixed
   muted = light-dark(#888888, #999999)
-  rule = #202020
+  rule = #202020  scheme=fixed
   nested = light-dark(#101010, #efefef)
   // tamber:end
 `);
+  // A colour with one value is one colour in both schemes, as CSS draws it: marked, and said.
+  expect(r.out).toContain('  ink = #333333  scheme=fixed  color');
+  expect(r.out).toContain('3 colours the stylesheet gives no dark value');
 });
 
 test("the author's tokens stay outside the markers, and a second import rewrites only its block", () => {
@@ -145,15 +150,15 @@ theme
   expect(first.status).toBe(1);
   expect(first.out).toContain('refused --ink: the design declares `ink` outside the import\'s markers');
   expect(first.design).toBe(`${design}  // tamber:import tokens.css
-  paper = #ffffff
-  line = #dddddd
+  paper = #ffffff  scheme=fixed
+  line = #dddddd  scheme=fixed
   // tamber:end
 `);
   expect(second.status).toBe(0);
   expect(second.design).toBe(`${design}  // tamber:import tokens.css
-  paper = #fafafa
+  paper = #fafafa  scheme=fixed
   rule = line2
-  line2 = #cccccc
+  line2 = #cccccc  scheme=fixed
   // tamber:end
 `);
   // Without `--paper`, the author's `card` would name no token: the file is left as it was.
