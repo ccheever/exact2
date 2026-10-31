@@ -4532,11 +4532,15 @@ and grayscale. No ClearType output enters the composition texture.
 
 Coverage means weight all pixels in the union of the paired glyph bounds;
 they are not whole-screen scores. Timing is one call per row, including
-space glyphs and each face's first cached-face creation; it is a diagnostic
-cost distribution, not a frame-time saving. The faster empty monochrome
+space glyphs and each face's first cached-face creation. DirectWrite's column
+includes glyph-cache hits: two of three weight passes repeat the same raster
+for static faces. Every swash call rasterizes. This is a diagnostic cost
+distribution, not a frame-time saving. The faster empty monochrome
 emoji is not a replacement for the colour raster. System rendering
 parameters are gamma 1.8, enhanced contrast 0.5, ClearType level 1.0; the
-candidate records them but has not applied their grayscale correction.
+candidate records them but has not applied grayscale correction. The recorded
+contrast is the ClearType value; D2D applies gamma and grayscale enhanced
+contrast at blend time.
 COLR, sbix, synthetic bold/oblique, smoothing changes and a real monitor
 transition remain unqualified. Four subpixel phases and three scales do
 not alone qualify scrolling or a monitor change. No face is admitted to
@@ -4620,10 +4624,10 @@ and the rest of the UIA journey owed. Failed qualification is not a pass.
 The normal suites run with RichEdit disabled. The first wgpu caret journey
 failed twice, while the pre-field Shelf control passed. Guarding the new
 paint, input and accessibility paths at their opt-in entry restores the
-existing three-transition caret assertion on both devices; the paint, input and accessibility entry points are skipped when disabled.
-Fix chunk A also skips `fields::begin` and `end` before their TLS access. These runs establish the repair,
-not which individual no-op or clip transition caused the failure. The
-initial forced-device-loss runs were refused by DXCap's administrator check;
+existing three-transition caret assertion on both devices. Fix chunk A
+also skips `fields::begin` and `end` before their TLS access. These runs
+establish the repair, not which individual no-op or clip transition caused
+the failure. Initial forced-device-loss runs were refused by DXCap's administrator check;
 the elevated scheduled task passes on both devices. The ordinary recovery
 journeys do not qualify a live RichEdit document through device loss.
 
@@ -4661,7 +4665,9 @@ runs separately. All result strings below are copied from retained logs.
 
 The candidate's whole-app score is mean 1.43/255, 1.09% beyond 32;
 the predicted <5/255 and <6% band holds. Geometry filters also pass.
-This is not admission under D3.3's remaining requirements.
+That band measures parity with swash. It does not measure parity with a
+Windows app over Mica, where D2D applies gamma and grayscale enhanced
+contrast at blend time. This is not admission under D3.3.
 
 | Desktop journey | DirectX 11 | wgpu |
 | --- | --- | --- |
