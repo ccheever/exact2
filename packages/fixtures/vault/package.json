@@ -1,0 +1,9 @@
+{
+  "name": "@fixture/vault",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A package that fills the data module's native slot (LLP 1154 D3): its Rust shim, named by exact.json \"native\", joins the app's crate and opens a SQLite file through the storage the host admits. Its prebuilt library per target (\"native.library\") comes with LLP 1154 §3 item 1.",
+  "exports": {
+    ".": "./exact.json"
+  }
+}

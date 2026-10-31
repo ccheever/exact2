@@ -79,9 +79,27 @@ export function shellCrates(manifest) {
   return ['web', ...new Set(Object.keys(manifest.host ?? {}).filter(p => p in PLATFORMS).flatMap(p => p === 'android' ? ['linux', 'android'] : [PLATFORMS[p]]))];
 }
 
+/** The app's direct dependency whose `exact.json` declares `native`, the package that fills the data module's native
+ * slot (LLP 1154 D3), found as the bake finds it (contract/cli/src/native/slot.rs); null for none. */
+export function nativePackage(dir) {
+  const read = (path) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } };
+  const ancestors = [];
+  for (let at = dir; ; at = dirname(at)) { ancestors.push(at); if (dirname(at) === at) break; }
+  const manifest = ancestors.map(at => resolve(at, 'package.json')).find(existsSync);
+  for (const name of Object.keys((manifest && read(manifest))?.dependencies ?? {})) {
+    const root = ancestors.map(at => resolve(at, 'node_modules', name)).find(at => existsSync(resolve(at, 'package.json')));
+    const exports = root && read(resolve(root, 'package.json'))?.exports;
+    const main = typeof exports === 'string' ? exports : exports?.['.'];
+    const at = typeof main === 'string' ? main : main?.contract ?? main?.default;
+    if (typeof at === 'string' && /(^|\/)exact\.json$/.test(at) && read(resolve(root, at))?.native) return name;
+  }
+  return null;
+}
+
 /** A host crate's files, keyed by path under the crate's directory. `dep(path)` is a dependency's path from there and
- * `app` the app directory's, as Rust strings' content. */
-function crateFiles(kind, { name, title, dep, app }) {
+ * `app` the app directory's, as Rust strings' content; `native` attaches the factory the bake writes for a package
+ * that fills the native slot. */
+function crateFiles(kind, { name, title, dep, app, native = false }) {
   const header = (target) => `[package]
 name = "${name}-${kind}"
 version.workspace = true
@@ -114,7 +132,7 @@ fn embedded_data() -> ExactEmbeddedData {
 fn embedded_data() -> ExactEmbeddedData {
     exact_js::Module::new(APP_BYTECODE, APP, GRANTS)
         .with_canvas_surfaces(CANVAS_SURFACES)
-        .placed(TYPESCRIPT_PLACEMENT)
+${native ? '        .with_native(exact_native)\n' : ''}        .placed(TYPESCRIPT_PLACEMENT)
 }
 `;
   const includes = (plan) => `include!(concat!(env!("OUT_DIR"), "/module.rs"));
@@ -269,17 +287,17 @@ function writeChanged(path, text) {
 export function ensureShells(dir, manifest = readManifest(dir)) {
   dir = realpathSync(dir);
   const shells = shellsDir(dir), name = basename(dir), title = manifest.app?.name ?? manifest.name ?? titleOf(name);
-  const crates = shellCrates(manifest);
+  const crates = shellCrates(manifest), native = nativePackage(dir);
   // The paths written are relative where the two trees share a directory (`pathFrom`), which reads real directories.
   for (const kind of crates) mkdirSync(resolve(shells, kind), { recursive: true });
   const copied = ['rust-toolchain.toml', '.cargo/config.toml'].map(file => [file, readFileSync(resolve(ROOT, file), 'utf8')]);
   const patches = patchLines(shells);
   // The inputs whose change rewrites the workspace: the checkout's path and commit, the templates (this module), the
-  // files copied from the checkout, its patch table and its lock (a dependency the SDK moved), the manifest's platforms
-  // and the app's name.
+  // files copied from the checkout, its patch table and its lock (a dependency the SDK moved), the manifest's platforms,
+  // the app's name and the package that fills the native slot.
   const commit = spawnSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() ?? '';
   const stamp = {
-    exact2: ROOT, commit, name, title, crates,
+    exact2: ROOT, commit, name, title, crates, native,
     inputs: createHash('sha256').update([readFileSync(fileURLToPath(import.meta.url), 'utf8'), APPLE_BUILD_SCRIPT, ...copied.map(([, text]) => text), ...patches, readFileSync(resolve(ROOT, 'Cargo.lock'), 'utf8')].join('\0')).digest('hex'),
   };
   const before = stampOf(shells);
@@ -303,7 +321,7 @@ ${patches.join('\n')}
 `);
   for (const [file, text] of copied) wrote = writeChanged(resolve(shells, file), text) || wrote;
   for (const kind of crates) {
-    const files = crateFiles(kind, { name, title, app: '../../..', dep: path => `{ path = ${JSON.stringify(pathFrom(resolve(shells, kind), resolve(ROOT, path)))} }` });
+    const files = crateFiles(kind, { name, title, native: !!native, app: '../../..', dep: path => `{ path = ${JSON.stringify(pathFrom(resolve(shells, kind), resolve(ROOT, path)))} }` });
     for (const [file, text] of Object.entries(files)) wrote = writeChanged(resolve(shells, kind, file), text) || wrote;
   }
   // A crate for a platform no longer named goes with its platform.

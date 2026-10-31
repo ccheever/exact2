@@ -1,0 +1,8 @@
+{
+  "name": "@fixture/vault",
+  "version": "1.0.0",
+  "native": {
+    "rust": "native/lib.rs",
+    "class": "Vault"
+  }
+}

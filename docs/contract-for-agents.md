@@ -2296,6 +2296,19 @@ web implementation, Kotlin `ExactExtension.view`; `id` is the node's. A view dec
 prop marked `"binds": true` `bound(id, prop, origin)` when it changes; `origin` is `app`,
 `tool` or `wake`, that of the commit that did it. `packages/fixtures/swatch` is a whole one.
 
+### A package's native module
+
+A package fills the data module's one native module (`native.call` in `app.ts`) by
+declaring `"native": {"rust": "native/lib.rs", "class": "Vault"}` in its `exact.json`
+(LLP 1154 D3): `rust` is the shim's root file, beside `exact.json`, and `class` a type in
+it that implements `exact_js::NativeModule` and has `fn new(app: &str) -> Self`. A native
+build joins the shim to the app's crate and attaches it; an app that writes its own
+`Cargo.toml` attaches `.with_native(exact_native)` in `embedded_data`. The shim names only
+`exact_js` and `std`. Its `configure_storage` gets the app's roots and `sqlite(path)`,
+which admits `sqlite.open` under the app's grants and keeps the file from the app's own
+`storage.sqlite` until the answer drops. Two dependencies declaring `native` refuse the
+build (`bake-native-twice`). `packages/fixtures/vault` is a whole one.
+
 ## Routes and web documents
 
 Declare at most one `routes <slot>` in the app's root file. Each row names an

@@ -16,7 +16,9 @@ use contract_syntax::{File, Span};
 use std::path::Path;
 
 mod packages;
+mod slot;
 pub use packages::{bound, plan_packages, rust_packages, write_desktop_packages, Bound};
+pub use slot::{native_slot, NativeSlot};
 
 /// The roster in `manifest`, each name checked against the tag grammar.
 pub fn roster(manifest: &Manifest) -> Result<Vec<String>, String> {
