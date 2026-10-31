@@ -2138,13 +2138,3 @@ component App
     column
       dd
         text "a"
----
-== lower-table-cells
-component App
-  state xs = [1, 2]
-  view
-    table
-      tr
-        for x in xs key=x
-          td
-            text "a"

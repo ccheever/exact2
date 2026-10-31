@@ -14,7 +14,9 @@ pub(super) fn publish(
         tree.publication_visits = 0;
     }
     for node in tree.taffy.take_layout_changes() {
-        if let Some(&slot) = tree.slots.get(&node) {
+        // An anonymous table's change is its table's (`table.rs`).
+        let slot = tree.slots.get(&node).copied();
+        if let Some(slot) = slot.or_else(|| tree.tables.holding(node)) {
             arena.layout_dirty.insert(slot);
         }
     }
@@ -194,7 +196,12 @@ pub(super) fn publish(
         // A multi-column cut that changed publishes this subtree whole
         // (LLP 1093): placements moved without each child's layout bit.
         let full = full || hidden || republish;
-        let descend_all = full || origin_moved || flags.has(NodeFlags::CHILDREN_DIRTY);
+        // A table that is another box places its parts from its anonymous
+        // table, which can move inside it alone.
+        let descend_all = full
+            || origin_moved
+            || flags.has(NodeFlags::CHILDREN_DIRTY)
+            || tree.tables.anon(slot).is_some();
         arena.set_frame(slot, frame);
         arena.consume_layout_flags(slot);
         if moved {
@@ -224,9 +231,15 @@ pub(super) fn publish(
             updated.push(arena.key(slot));
         }
         // A table's row group or row holds its children only in the arena:
-        // the engine laid them out in the table's grid (`table.rs`).
+        // the engine laid them out in the table's grid (`table.rs`), from
+        // the grid's origin, moved with the row or group as it is moved
+        // relatively. A table that is another box holds its grid.
         let (fx, fy) = if tree.tables.flat(slot) {
-            (ox, oy)
+            let (dx, dy) = super::table::relative(arena, slot);
+            (ox + dx, oy + dy)
+        } else if let Some(grid) = tree.tables.anon(slot) {
+            let l = tree.layout(grid);
+            (fx + l.location.x, fy + l.location.y)
         } else {
             (fx, fy)
         };

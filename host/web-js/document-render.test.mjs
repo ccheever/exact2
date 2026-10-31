@@ -205,6 +205,53 @@ component Moves
   }, {}, {}, renderer);
 }, 180000);
 
+// The parser's "in table" mode gives a row the table holds a `tbody` in either branch of a conditional
+// that makes a row in one and a row group in the other; the plan has one in each, so either adopts.
+test('a table rendered ahead adopts either branch of a conditional that makes rows', async () => {
+  const shape = `[...document.querySelector('table').children].map(e => e.localName + ':' + [...e.children].map(c => c.localName).join(','))`;
+  for (const shown of [true, false]) {
+    const source = `routes nav
+  home "/" render=build
+
+component Branches
+  state open = ${shown}
+  action flip
+    open = not open
+  view
+    column
+      button testId="flip" press=flip
+        text "Flip"
+      table
+        if open
+          tr testId="row"
+            td
+              text "open"
+        else
+          tbody
+            tr testId="row"
+              td
+                text "shut"
+`;
+    for (const renderer of ['rust', 'js']) await renderedPages(source, async (_, _html, dist) => {
+      const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+        const path = new URL(req.url).pathname;
+        return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+      } });
+      let browser;
+      try {
+        browser = await open({ host: 'web', url: server.url.href });
+        const journal = await browser.carrier.evaluate('globalThis.exact.journal');
+        const at = [renderer, shown];
+        expect([...at, journal.some(l => l.endsWith('adopted the document')), journal.filter(l => /afresh|abandoned/.test(l))]).toEqual([...at, true, []]);
+        expect([...at, await browser.carrier.evaluate(shape)]).toEqual([...at, ['tbody:tr']]);
+        await browser.tap('flip');
+        expect([...at, await browser.carrier.evaluate(shape)]).toEqual([...at, ['tbody:tr']]);
+        expect(await browser.carrier.evaluate(`document.querySelector('[data-testid="row"]').textContent`)).toBe(shown ? 'shut' : 'open');
+      } finally { await browser?.close(); server.stop(true); }
+    }, {}, {}, renderer);
+  }
+}, 300000);
+
 test('select and date text styles preserve shell leading only under a said row', async () => {
   const ids = ['select-said','select-bound-said','date-said','time-bound-said','select-unsaid','select-bound-unsaid','date-unsaid','time-bound-unsaid'];
   for (const weighted of [false, true]) await textStylePage(ids, async (before, read, tap, browser) => {

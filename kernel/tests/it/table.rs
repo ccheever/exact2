@@ -517,26 +517,213 @@ fn a_dds_start_margin_stays_beside_its_end_margin() {
     assert_eq!(frame(&k, 5), [40.0, 26.0, 348.0, 10.0]);
 }
 
-/// A table whose author says `display: block` is a block, as the browser
-/// makes it: it fills its container, where a table shrinks to its columns.
-#[test]
-fn a_table_whose_author_says_block_is_a_block() {
-    // 2 table, 3 tr, 4 td, 5 box.
-    let mut k = lay_out(tag("table", vec![tag("tr", vec![cell(&[], 20.0, 10.0)])]));
-    assert_eq!(frame(&k, 2)[2], 26.0, "a table");
+/// Rows its author writes on node `id` after it is made, keyword rows as
+/// text; then a layout.
+fn restyle(k: &mut Kernel, epoch: u64, id: u32, rows: &[(StyleId, &str)]) {
     let mut s = StyleProps::default();
-    s.set_dynamic(StyleId::Display, &StyleValue::Text("block".into()))
-        .unwrap();
-    s.written.set(StyleId::Display);
-    k.apply(
-        0,
-        2,
-        &[Op::SetStyle {
-            id: 2,
-            patch: Box::new(s),
-        }],
-    )
-    .unwrap();
+    for (row, value) in rows {
+        let value = match value.parse::<f64>() {
+            Ok(n) => StyleValue::Number(n),
+            Err(_) => StyleValue::Text((*value).into()),
+        };
+        s.set_dynamic(*row, &value).unwrap();
+        s.written.set(*row);
+    }
+    let patch = Box::new(s);
+    k.apply(0, epoch, &[Op::SetStyle { id, patch }]).unwrap();
     k.compute_layout(1, Offer::definite(400.0, 400.0)).unwrap();
-    assert_eq!(frame(&k, 2)[2], 400.0, "a block");
+}
+
+/// A table whose author says `display: block` is a block, as the browser
+/// makes it, and its parts are an anonymous table inside it (CSS 2.2
+/// §17.2.1): the same rows and cells, spaced and placed as a table's.
+#[test]
+fn a_table_whose_author_says_block_holds_an_anonymous_table() {
+    // 2 table; 3 thead, 4 tr, 5/7 td; 9 tbody, 10 tr, 11/13 td.
+    let two = || tag("tr", vec![cell(&[], 20.0, 10.0), cell(&[], 20.0, 10.0)]);
+    let mut k = lay_out(tag(
+        "table",
+        vec![tag("thead", vec![two()]), tag("tbody", vec![two()])],
+    ));
+    let parts = |k: &Kernel| [3, 5, 7, 9, 11, 13].map(|id| frame(k, id));
+    let table = parts(&k);
+    assert_eq!(frame(&k, 2), [0.0, 0.0, 50.0, 30.0], "a table");
+    restyle(&mut k, 2, 2, &[(StyleId::Display, "block")]);
+    assert_eq!(frame(&k, 2), [0.0, 0.0, 400.0, 30.0], "a block");
+    assert_eq!(parts(&k), table, "its parts where the table had them");
+    restyle(&mut k, 3, 2, &[(StyleId::PaddingLeft, "10")]);
+    let moved = table.map(|[x, y, w, h]| [x + 10.0, y, w, h]);
+    assert_eq!(parts(&k), moved, "inside the block's own padding");
+}
+
+/// A table's height is its least (CSS 2.2 §17.5.3): taller content makes the
+/// table taller, and the box after it follows; a taller height is shared
+/// among its rows.
+#[test]
+fn a_tables_height_is_its_least() {
+    // 2 view; 3 table (10 tall), 4 tr, 5 td, 6 box (40 tall); 7 the box after.
+    let k = lay_out(tag(
+        "view",
+        vec![
+            N::Tag(
+                "table",
+                vec![(StyleId::Height, 10.0)],
+                Vec::new(),
+                vec![tag("tr", vec![cell(&[], 20.0, 40.0)])],
+            ),
+            N::Box(20.0, 10.0),
+        ],
+    ));
+    assert_eq!(frame(&k, 3), [0.0, 0.0, 26.0, 46.0], "as tall as its row");
+    assert_eq!(frame(&k, 5), [2.0, 2.0, 22.0, 42.0]);
+    assert_eq!(frame(&k, 7)[1], 46.0, "the box after it");
+    // 2 table (60 tall), 3/6 tr, 4/7 td: two rows of 12 share 54.
+    let k = lay_out(N::Tag(
+        "table",
+        vec![(StyleId::Height, 60.0)],
+        Vec::new(),
+        vec![
+            tag("tr", vec![cell(&[], 20.0, 10.0)]),
+            tag("tr", vec![cell(&[], 20.0, 10.0)]),
+        ],
+    ));
+    assert_eq!(frame(&k, 2)[3], 60.0);
+    assert_eq!(frame(&k, 4), [2.0, 2.0, 22.0, 27.0]);
+    assert_eq!(frame(&k, 7), [2.0, 31.0, 22.0, 27.0]);
+}
+
+/// A row or row group moved relatively moves its cells with it, as the
+/// browser moves a row's (CSS 2.2 §9.4.3).
+#[test]
+fn a_relatively_moved_row_or_group_moves_its_cells() {
+    // 2 table, 3 tbody, 4 tr, 5 td, 6 box, 7 tr, 8 td, 9 box.
+    let mut k = lay_out(tag(
+        "table",
+        vec![tag(
+            "tbody",
+            vec![
+                tag("tr", vec![cell(&[], 20.0, 10.0)]),
+                tag("tr", vec![cell(&[], 20.0, 10.0)]),
+            ],
+        )],
+    ));
+    let before = [4, 5, 6, 7, 8, 9].map(|id| frame(&k, id));
+    let by = |f: [f32; 4], dx: f32, dy: f32| [f[0] + dx, f[1] + dy, f[2], f[3]];
+    let relative = (StyleId::PositionType, "relative");
+    restyle(&mut k, 2, 4, &[relative, (StyleId::Left, "10")]);
+    assert_eq!(frame(&k, 4), by(before[0], 10.0, 0.0), "the row");
+    assert_eq!(frame(&k, 5), by(before[1], 10.0, 0.0), "its cell");
+    assert_eq!(
+        frame(&k, 6),
+        by(before[2], 10.0, 0.0),
+        "what the cell holds"
+    );
+    assert_eq!(frame(&k, 8), before[4], "the other row's cell");
+    restyle(&mut k, 3, 3, &[relative, (StyleId::Top, "5")]);
+    assert_eq!(
+        frame(&k, 5),
+        by(before[1], 10.0, 5.0),
+        "with the group's too"
+    );
+    assert_eq!(
+        frame(&k, 8),
+        by(before[4], 0.0, 5.0),
+        "the group's other cell"
+    );
+}
+
+/// A caption follows its table's padding as it changes: its margins and
+/// width are the table's padding box's.
+#[test]
+fn a_caption_follows_its_tables_padding() {
+    // 2 table, 3 caption, 4 box, 5 tr, 6 td, 7 box.
+    let mut k = lay_out(tag(
+        "table",
+        vec![
+            tag("caption", vec![N::Box(10.0, 10.0)]),
+            tag("tr", vec![cell(&[], 60.0, 10.0)]),
+        ],
+    ));
+    assert_eq!(frame(&k, 3), [0.0, 0.0, 66.0, 10.0]);
+    let sides = [(StyleId::PaddingLeft, "20"), (StyleId::PaddingRight, "20")];
+    restyle(&mut k, 2, 2, &sides);
+    assert_eq!(frame(&k, 2)[2], 106.0, "20 + 2 + 62 + 2 + 20");
+    assert_eq!(frame(&k, 3), [0.0, 0.0, 106.0, 10.0], "the padding box");
+    assert_eq!(frame(&k, 6)[0], 22.0);
+}
+
+/// Right to left, with padding on one side only, the caption still spans
+/// the table's padding box: its margins cancel the sides the padding is on.
+#[test]
+fn a_right_to_left_captions_margins_cancel_its_tables_own_sides() {
+    // 2 table, 3 caption, 4 box, 5 tr, 6 td, 7 box.
+    let mut k = lay_out(tag(
+        "table",
+        vec![
+            tag("caption", vec![N::Box(10.0, 10.0)]),
+            tag("tr", vec![cell(&[], 60.0, 10.0)]),
+        ],
+    ));
+    let rows = [(StyleId::Direction, "rtl"), (StyleId::PaddingLeft, "10")];
+    restyle(&mut k, 2, 2, &rows);
+    assert_eq!(frame(&k, 2)[2], 76.0, "10 + 2 + 62 + 2");
+    assert_eq!(frame(&k, 3), [0.0, 0.0, 76.0, 10.0], "the padding box");
+    assert_eq!(frame(&k, 6)[0], 12.0);
+}
+
+/// A caption's percentage margin is of the table's width, as CSS's is of
+/// the table wrapper's: 10% of 66 is 6.6.
+#[test]
+fn a_captions_percentage_margin_is_of_the_tables_width() {
+    // 2 table, 3 caption, 4 box, 5 tr, 6 td, 7 box.
+    let mut k = lay_out(tag(
+        "table",
+        vec![
+            tag("caption", vec![N::Box(10.0, 10.0)]),
+            tag("tr", vec![cell(&[], 60.0, 10.0)]),
+        ],
+    ));
+    restyle(&mut k, 2, 3, &[(StyleId::MarginLeft, "10%")]);
+    let [x, _, width, _] = frame(&k, 3);
+    assert!(
+        (x - 6.6).abs() < 1e-3 && (width - 59.4).abs() < 1e-3,
+        "{x} {width}"
+    );
+}
+
+/// A cell's width and its minimum: the greater is its floor.
+#[test]
+fn a_cells_width_and_min_width_take_the_greater() {
+    // 2 table, 3 tr, 4 td (20 wide, at least 80), 5 box.
+    let k = lay_out(tag(
+        "table",
+        vec![tag(
+            "tr",
+            vec![N::Tag(
+                "td",
+                vec![(StyleId::Width, 20.0), (StyleId::MinWidth, 80.0)],
+                Vec::new(),
+                vec![N::Box(10.0, 10.0)],
+            )],
+        )],
+    ));
+    assert_eq!(frame(&k, 4)[2], 82.0, "80 and its padding");
+}
+
+/// Right to left, a `dd`'s 40 px start margin is on its right, beside an
+/// end margin its author said on its left.
+#[test]
+fn a_right_to_left_dds_start_margin_is_its_right() {
+    // 2 dl, 3 dt, 4 box, 5 dd, 6 box.
+    let mut k = lay_out(tag(
+        "dl",
+        vec![
+            tag("dt", vec![N::Box(30.0, 10.0)]),
+            tag("dd", vec![N::Box(30.0, 10.0)]),
+        ],
+    ));
+    restyle(&mut k, 2, 2, &[(StyleId::Direction, "rtl")]);
+    assert_eq!(frame(&k, 5)[0..3], [0.0, 26.0, 360.0], "the start margin");
+    restyle(&mut k, 3, 5, &[(StyleId::MarginLeft, "12")]);
+    assert_eq!(frame(&k, 5)[0..3], [12.0, 26.0, 348.0], "beside the end's");
 }

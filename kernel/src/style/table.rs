@@ -81,7 +81,9 @@ pub(crate) fn lays_out(arena: &NodeArena, table: u32) -> bool {
 
 /// The table that lays `slot` out among its grid items, when `slot` is a
 /// part standing where HTML's content model puts it: a caption or row group
-/// in the table, a row in it or in its row group, a cell in such a row.
+/// in the table, a row in it or in its row group, a cell in such a row. A
+/// table that is another box (an authored `display`) still lays its parts
+/// out, in an anonymous table (`layout/table.rs`).
 pub(crate) fn table_of(arena: &NodeArena, slot: u32) -> Option<u32> {
     let parent = arena.parent(slot)?;
     let table = match (Part::of(arena, slot)?, Part::of(arena, parent)?) {
@@ -93,7 +95,7 @@ pub(crate) fn table_of(arena: &NodeArena, slot: u32) -> Option<u32> {
         (Part::Cell, Part::Row) => return table_of(arena, parent),
         _ => return None,
     };
-    lays_out(arena, table).then_some(table)
+    Some(table)
 }
 
 /// The UA sheet's layout for `slot`, over its authored rows in `s`; the
@@ -112,19 +114,15 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
             }
             return;
         }
-        // `margin-inline-start`, where its author said none. With neither
-        // side said it is the left, which right to left mirrors
-        // (`sides::mirror_unsaid`); with one said, the start side itself.
+        // `margin-inline-start`, where its author said none: the right
+        // right to left. This runs after `sides::mirror_unsaid`, so the side
+        // written is the side the box has.
         Some("dd") if arena.node_type(slot) == NodeType::View => {
-            let (left, right) = (
-                style.mask.has(StyleId::MarginLeft),
-                style.mask.has(StyleId::MarginRight),
-            );
             let rtl = arena.computed_source(slot, StyleId::Direction).direction == Direction::Rtl;
-            match (left, right, rtl) {
-                (false, false, _) | (false, true, false) => s.margin.left = length(DD_INDENT),
-                (true, false, true) => s.margin.right = length(DD_INDENT),
-                _ => {}
+            if rtl && !style.mask.has(StyleId::MarginRight) {
+                s.margin.right = length(DD_INDENT);
+            } else if !rtl && !style.mask.has(StyleId::MarginLeft) {
+                s.margin.left = length(DD_INDENT);
             }
             return;
         }
@@ -161,6 +159,12 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
                 width: length(SPACING),
                 height: length(SPACING),
             };
+            // A height is the table's least: its rows grow to fill it, and
+            // content taller than it makes it taller (CSS 2.2 §17.5.3).
+            if let Some(floor) = floor(style, env, StyleId::Height, StyleId::MinHeight) {
+                s.min_size.height = floor;
+                s.size.height = auto();
+            }
         }
         Part::Caption => {
             // Above the rows, from the table's padding box: outside its
@@ -168,52 +172,53 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
             // but inside a border the table has, where CSS's is outside it
             // too. An authored margin is from that box's edge, as CSS's is
             // from the table's.
+            // An anonymous table, which holds the parts of a table that is
+            // another box, has no padding of its own.
             let t = arena.style(table);
+            let padded = lays_out(arena, table);
             let inset = |d: Dimension| match d.resolve(env) {
-                Dimension::Points(v) => v.max(0.0) + SPACING,
+                Dimension::Points(v) if padded => v.max(0.0) + SPACING,
                 _ => SPACING,
             };
             let (left, right) = (inset(t.padding_left), inset(t.padding_right));
-            // Writes a side's engine margin, from that box's edge, and gives
-            // the points its author said there (0 where none).
-            let from = |side: StyleId,
-                        said: Dimension,
-                        at: f32,
-                        m: &mut taffy::style::LengthPercentageAuto| {
-                match said.resolve(env) {
-                    Dimension::Points(v) if style.mask.has(side) => {
-                        *m = length(v - at);
-                        v
-                    }
-                    _ if style.mask.has(side) => 0.0,
-                    _ => {
-                        *m = length(-at);
-                        0.0
-                    }
-                }
+            // A margin as a percentage and points. CSS takes the percentage
+            // of the table's width, the engine of the grid area, `left +
+            // right` narrower, so `from` adds the difference and takes off
+            // the inset. Unsaid, it is 0; one no such pair holds (a
+            // comparison, `env()`) stays as written.
+            let said = |side: StyleId, d: Dimension| match d.resolve(env) {
+                _ if !style.mask.has(side) => Some((0.0, 0.0)),
+                Dimension::Points(v) => Some((0.0, v)),
+                Dimension::Percent(p) => Some((p, 0.0)),
+                Dimension::Calc(p, v) => Some((p, v)),
+                _ => None,
             };
-            let start = from(
-                StyleId::MarginLeft,
-                style.margin_left,
-                left,
-                &mut s.margin.left,
-            );
-            let end = from(
-                StyleId::MarginRight,
-                style.margin_right,
-                right,
-                &mut s.margin.right,
-            );
-            let top = inset(t.padding_top);
-            from(StyleId::MarginTop, style.margin_top, top, &mut s.margin.top);
+            let from = |(p, v): (f32, f32), at: f32| {
+                Dimension::Calc(p, v + p / 100.0 * (left + right) - at).to_lpa(env)
+            };
+            let start = said(StyleId::MarginLeft, style.margin_left);
+            let end = said(StyleId::MarginRight, style.margin_right);
+            let above = said(StyleId::MarginTop, style.margin_top);
+            if let Some(m) = start {
+                s.margin.left = from(m, left);
+            }
+            if let Some(m) = end {
+                s.margin.right = from(m, right);
+            }
+            if let Some(m) = above {
+                s.margin.top = from(m, inset(t.padding_top));
+            }
             // Unsized, it is as wide as that box less its margins and asks the
             // columns for none of its width, so a long caption wraps where
             // CSS's does.
             let sized = [StyleId::Width, StyleId::MinWidth, StyleId::MaxWidth];
             if !sized.iter().any(|id| style.mask.has(*id)) {
-                let wider = left + right - start - end;
+                let (sp, sv) = start.unwrap_or_default();
+                let (ep, ev) = end.unwrap_or_default();
+                let share = 100.0 - sp - ep;
+                let wider = (left + right) * share / 100.0 - sv - ev;
                 s.size.width = length(0.0);
-                s.min_size.width = Dimension::Calc(100.0, wider).floor_lpa(env);
+                s.min_size.width = Dimension::Calc(share, wider).floor_lpa(env);
             }
         }
         Part::Group | Part::Row => {
@@ -256,14 +261,58 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
 /// A row's or a cell's width and height are its least (CSS 2.1 §17.5.2.2,
 /// §17.5.3): the box fills its grid area, as a cell fills its slot.
 fn least(style: &crate::StyleProps, env: &crate::style::Env, s: &mut taffy::style::Style) {
-    if style.width != Dimension::Auto {
-        s.min_size.width = style.width.floor_lpa(env);
+    if let Some(floor) = floor(style, env, StyleId::Width, StyleId::MinWidth) {
+        s.min_size.width = floor;
         s.size.width = auto();
     }
-    if style.height != Dimension::Auto {
-        s.min_size.height = style.height.floor_lpa(env);
+    if let Some(floor) = floor(style, env, StyleId::Height, StyleId::MinHeight) {
+        s.min_size.height = floor;
         s.size.height = auto();
     }
     s.align_self = None;
     s.justify_self = None;
+}
+
+/// The greater of a size and its minimum, as the minimum the box takes;
+/// `None` where the size is unsaid and the minimum stands as it is.
+fn floor(
+    style: &crate::StyleProps,
+    env: &crate::style::Env,
+    size: StyleId,
+    least: StyleId,
+) -> Option<taffy::style::LengthPercentageAuto> {
+    let dimension = |id| match id {
+        StyleId::Width => style.width,
+        StyleId::Height => style.height,
+        StyleId::MinWidth => style.min_width,
+        _ => style.min_height,
+    };
+    let (said, least_said) = (dimension(size), dimension(least));
+    let greater = match (said.resolve(env), least_said.resolve(env)) {
+        (Dimension::Auto, _) => return None,
+        (_, Dimension::Auto) => said,
+        (Dimension::Points(a), Dimension::Points(b)) => Dimension::Points(a.max(b)),
+        // CSS's `max()` of the two as written, which the engine resolves
+        // against the box's grid area.
+        (a, b) => match (css(a), css(b)) {
+            (Some(a), Some(b)) => Dimension::parse_calc(&format!("max({a}, {b})")).unwrap_or(said),
+            _ => said,
+        },
+    };
+    Some(greater.floor_lpa(env))
+}
+
+/// A length's CSS, where it is one `max()` takes.
+fn css(d: Dimension) -> Option<String> {
+    Some(match d {
+        Dimension::Points(v) => format!("{v}px"),
+        Dimension::Percent(p) => format!("{p}%"),
+        Dimension::Calc(p, v) => format!("calc({p}% + {v}px)"),
+        Dimension::Compare(c) => {
+            let mut text = String::new();
+            c.css(&mut text);
+            text
+        }
+        _ => return None,
+    })
 }

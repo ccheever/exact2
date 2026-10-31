@@ -102,15 +102,6 @@ pub(crate) fn check(
     for a in attrs {
         attribute(tag, a)?;
     }
-    if tag == "tr" {
-        if let Some(at) = repeated(children) {
-            return err(
-                "lower-table-cells",
-                "a `tr`'s cells are written out, one element per cell, so a table's columns are the ones its markup names (LLP 1153 D7): a `for` inside a `tr` makes the row's cell count vary with the data. Repeat the `tr` with `for` instead, or write each cell out, with `if` around one that comes and goes",
-                at,
-            );
-        }
-    }
     if tag == "dl" {
         grouped(children)?;
     }
@@ -165,19 +156,23 @@ fn attribute(tag: &str, a: &Attr) -> Result<(), LowerError> {
 }
 
 /// A table's children with each run of rows it holds directly in a `tbody`
-/// of its own, as HTML's parser puts them (HTML §13.2.6.4.9): the DOM a
-/// page rendered ahead is parsed into is then the one the runtime builds,
-/// and every host has the row group HTML's table model has. `None` where
-/// there is no such run. The `tbody` has the table's place in the source.
+/// of its own, as HTML's parser puts them (HTML §13.2.6.4.9, "in table"):
+/// the DOM a page rendered ahead is parsed into is then the one the runtime
+/// builds, and every host has the row group HTML's table model has. A run
+/// takes in a `for`, `if` or `match` that makes only rows; one that makes
+/// rows and other parts keeps its place, and its arms' own runs are wrapped
+/// inside it, so a row is never the table's child in any branch. `None`
+/// where there is no row. The `tbody` has the table's place in the source.
 pub(crate) fn implied_bodies(
     tag: &str,
     children: &[Node],
     span: Span,
     instance: u32,
 ) -> Option<Vec<Node>> {
-    if tag != "table" || !children.iter().any(rows) {
-        return None;
-    }
+    (tag == "table" && children.iter().any(holds_row)).then(|| bodies(children, span, instance))
+}
+
+fn bodies(children: &[Node], span: Span, instance: u32) -> Vec<Node> {
     let body = |run: Vec<Node>| Node::Element {
         tag: "tbody".into(),
         positional: Vec::new(),
@@ -186,6 +181,7 @@ pub(crate) fn implied_bodies(
         span,
         instance,
     };
+    let inner = |nodes: &[Node]| bodies(nodes, span, instance);
     let mut out = Vec::with_capacity(children.len());
     let mut run = Vec::new();
     for c in children {
@@ -196,12 +192,71 @@ pub(crate) fn implied_bodies(
         if !run.is_empty() {
             out.push(body(std::mem::take(&mut run)));
         }
-        out.push(c.clone());
+        out.push(match c {
+            Node::When {
+                tag,
+                cond,
+                then,
+                otherwise,
+                span,
+            } => Node::When {
+                tag: *tag,
+                cond: cond.clone(),
+                then: inner(then),
+                otherwise: inner(otherwise),
+                span: *span,
+            },
+            Node::Each {
+                tag,
+                var,
+                index,
+                list,
+                key,
+                body,
+                span,
+            } => Node::Each {
+                tag: *tag,
+                var: var.clone(),
+                index: index.clone(),
+                list: list.clone(),
+                key: key.clone(),
+                body: inner(body),
+                span: *span,
+            },
+            Node::Match {
+                tag,
+                subject,
+                some,
+                none,
+                span,
+            } => Node::Match {
+                tag: *tag,
+                subject: subject.clone(),
+                some: (some.0.clone(), inner(&some.1)),
+                none: inner(none),
+                span: *span,
+            },
+            _ => c.clone(),
+        });
     }
     if !run.is_empty() {
         out.push(body(run));
     }
-    Some(out)
+    out
+}
+
+/// Whether `n` is a `tr` or makes one in some branch.
+fn holds_row(n: &Node) -> bool {
+    let any = |nodes: &[Node]| nodes.iter().any(holds_row);
+    match n {
+        Node::Element { tag, .. } => tag == "tr",
+        Node::When {
+            then, otherwise, ..
+        } => any(then) || any(otherwise),
+        Node::Each { body, .. } => any(body),
+        Node::Match { some, none, .. } => any(&some.1) || any(none),
+        _ => false,
+    }
 }
 
 /// Whether `n` is a `tr`, or a `for`, `if` or `match` that makes nothing
@@ -217,19 +272,6 @@ fn rows(n: &Node) -> bool {
         Node::Match { some, none, .. } => all(&some.1) && all(none),
         _ => false,
     }
-}
-
-/// Where a `for` stands among `children`, an `if`'s or `match`'s arms
-/// looked into: the cells of the row it is in would vary in number.
-fn repeated(children: &[Node]) -> Option<Span> {
-    children.iter().find_map(|c| match c {
-        Node::Each { span, .. } => Some(*span),
-        Node::When {
-            then, otherwise, ..
-        } => repeated(then).or_else(|| repeated(otherwise)),
-        Node::Match { some, none, .. } => repeated(&some.1).or_else(|| repeated(none)),
-        _ => None,
-    })
 }
 
 /// HTML's groups in a `dl` (HTML §4.4.9): one or more `dt`, then one or

@@ -1058,8 +1058,7 @@ optional `caption`, then `thead`, `tbody` and `tfoot` row groups of `tr`s (or
 `tr`s alone, which are a `tbody` of their own, as HTML's parser makes them),
 each `tr` holding `th` header cells (`scope="col"` or `"row"`) and `td`
 cells, any cell with `colspan` and `rowspan` (`rowspan=0` reaches the end of
-its row group). Rows may come from a
-`for`; a row's cells are written out, so its columns line up. A sortable
+its row group). Rows and cells may come from a `for`. A sortable
 column's `th` takes `aria-sort` (`"ascending"`, `"descending"`, `"none"` or
 `"other"`; no bool), which only the web exposes. Terms and their descriptions
 are a `dl` of `dt` terms each followed by its `dd` descriptions. On the web

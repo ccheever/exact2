@@ -500,7 +500,9 @@ impl LayoutTree {
         self.deferred.remove(&node);
         self.walks.remove(&node);
         if let Some(slot) = self.slots.remove(&node) {
-            self.tables.forget(slot);
+            if let Some(anon) = self.tables.forget(slot) {
+                self.remove(anon);
+            }
             self.flowing.remove(&slot);
             if let Some(prefix) = self.alert_prefixes.remove(&slot) {
                 self.remove(prefix);

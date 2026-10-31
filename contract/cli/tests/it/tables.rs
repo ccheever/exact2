@@ -190,16 +190,6 @@ fn the_content_model_and_the_cell_attributes_are_held() {
             "a `dt` is followed by its `dd`",
         ),
         (
-            "    table\n      tr\n        for x in xs key=x\n          td\n            text \"a\"\n",
-            "lower-table-cells",
-            "a `for` inside a `tr` makes the row's cell count vary",
-        ),
-        (
-            "    table\n      tr\n        if true\n          for x in xs key=x\n            td\n              text \"a\"\n",
-            "lower-table-cells",
-            "Repeat the `tr` with `for` instead",
-        ),
-        (
             "    table\n      tr\n        td colspan=0\n          text \"a\"\n",
             "lower-attr-value",
             "`colspan` is a whole number of columns from 1 to 1000 (HTML's limit), written as a number: `colspan=2`",
@@ -244,6 +234,47 @@ fn rows_may_repeat_and_a_cell_may_come_and_go() {
         "component App\n  state xs = [1, 2]\n  state on = true\n  view\n    column\n      table\n        for x in xs key=x\n          tr\n            td\n              text \"a\"\n            if on\n              td\n                text \"b\"\n      dl\n        for x in xs key=x\n          dt\n            text \"t\"\n          dd\n            text \"d\"\n      dl\n        dt\n          text \"one\"\n        dt\n          text \"two\"\n        dd\n          text \"both\"\n",
     )
     .unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// A row's cells may come from a `for`, as HTML's do from any template:
+/// the kernel places them, and the written cells below share their columns.
+#[test]
+fn a_rows_cells_may_come_from_a_for() {
+    let mut r = boot(
+        "component App\n  state names = [\"Name\", \"Power\", \"Accuracy\"]\n  view\n    table\n      thead\n        tr\n          for h in names key=h\n            th testId=h\n              view width=40 height=10\n      tbody\n        tr\n          td testId=\"a\"\n            view width=20 height=10\n          td testId=\"b\"\n            view width=20 height=10\n          td testId=\"c\"\n            view width=20 height=10\n",
+    );
+    let root = r.roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(400.0, 400.0))
+        .unwrap();
+    let x = |id: &str| {
+        let key = r.kernel().find_by_test_id(id)[0];
+        r.kernel().node_by_key(key).unwrap().frame.x
+    };
+    let heads = ["Name", "Power", "Accuracy"].map(x);
+    assert_eq!(heads, [2.0, 46.0, 90.0], "three 42 px columns");
+    assert_eq!(["a", "b", "c"].map(x), heads, "each cell under its heading");
+}
+
+/// The rows of an `if` that makes rows in one branch and a row group in the
+/// other are in a `tbody` inside the branch, where the browser's parser
+/// would put them: no branch leaves a `tr` the table's own child.
+#[test]
+fn rows_in_a_mixed_branch_are_in_a_tbody_of_their_own() {
+    for open in [true, false] {
+        let r = boot(&format!(
+            "component App\n  state open = {open}\n  view\n    table testId=\"t\"\n      if open\n        tr testId=\"row\"\n          td\n            text \"a\"\n      else\n        tbody\n          tr testId=\"row\"\n            td\n              text \"b\"\n"
+        ));
+        let kernel = r.kernel();
+        let node = |id: &str| kernel.node_by_key(kernel.find_by_test_id(id)[0]).unwrap();
+        let body = kernel.node(node("row").parent.unwrap()).unwrap();
+        assert_eq!(
+            body.props.str(PropId::SemanticTag),
+            Some("tbody"),
+            "open={open}"
+        );
+        assert_eq!(body.parent, Some(node("t").id), "open={open}");
+    }
 }
 
 /// The rows a table holds directly are in a `tbody` of their own, as
