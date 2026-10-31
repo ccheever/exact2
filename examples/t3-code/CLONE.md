@@ -9,13 +9,27 @@ disabled. Use this handoff when taking over the work.
 The clone is incomplete. The desktop app is in `examples/t3-code`; the separate
 iPhone and iPad app is in `examples/t3-code/mobile`.
 
-The user requested moving coordination from MacBook Pro to Nate's Mac Mini.
-A successor thread is being prepared in the Mini's existing Exact project,
-with a T3-managed worktree from PR216's remote branch. Before new app edits,
-the successor records its actual coordinator link here and notifies the Home
-and thread-detail workers. Existing prompts point to the original MacBook Pro
-thread, so check-ins need redirecting. The original coordinator stops local
-implementation after launch of the successor.
+Coordination now runs on Nate's Mac Mini in
+<t3-thread://v2/382c4b25-df00-4a33-a517-979b0d92c1cc/3f60e3e4-8cf4-4b90-8534-36484dd879ee>.
+The prepared T3 worktree is `/Users/nate/.t3/worktrees/exact2/t3-da2ae05b`,
+on `t3/coordinate-t3-ios-mini`. Its clean starting HEAD is
+`f27f4534159c09435bdb678115d34d44af88b0f8`, matching PR216's remote branch.
+PR216 is linked to this thread and remains draft and unmerged. The original
+MacBook Pro coordinator stops local implementation. Both workers have received
+the new coordinator link.
+
+Home belongs to
+<t3-thread://v2/382c4b25-df00-4a33-a517-979b0d92c1cc/8f828093-182b-40f3-87df-b14560195fd3>,
+on `t3/t3-home-parity-performance`. Conversation belongs to
+<t3-thread://v2/382c4b25-df00-4a33-a517-979b0d92c1cc/b0b6d3d6-7f14-4930-9c24-c7b3e2ccee16>,
+on `nate/t3-ios-conversation`. Workers open PRs against
+`feat(example)/t3-code-ios` while PR216 is unmerged. The coordinator controls
+integration and eventual retargeting to main. Home owns its Contract and data,
+Home-local UIKit, and the original app's dependency and Release build outputs.
+Conversation owns its Contract, data, composer and conversation-local UIKit.
+The coordinator owns core pairing and persistence acceptance, this handoff,
+shared workspace layout, Root and the manifest. Shared transport, cache,
+generator and framework edits require coordination before implementation.
 
 The HTTPS core-acceptance delegate was interrupted before its device launch.
 Its retained receipt contains artifact verification and a CLI help command,
@@ -86,7 +100,7 @@ the archive and its build receipt are in the isolated `t3-f9c706fa` worktree at
 complete phone or iPad parity. Historical notes below about the older POC build
 refer to `20261029015732` unless another build is named.
 
-Continue on `t3/t3-clone-pr216-poc`, which pushes to PR216's remote branch
+Continue on `t3/coordinate-t3-ios-mini`, which pushes to PR216's remote branch
 `feat(example)/t3-code-ios`. Keep PR216 draft and unmerged. The integration
 commit is `85d466e2e3c5ff0c4e94b7b6065c6a91b3584609`, a normal merge of
 `9db6b0d68ccf7d5780b46022ae16dbe2f4132d36` into
