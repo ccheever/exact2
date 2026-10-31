@@ -57,6 +57,16 @@ the feed, working control and composer width. The focused geometry and history
 tests pass; a fresh Duo drive is still needed to qualify keyboard-visible
 reachability and the rail during transitions.
 
+A fresh normal build was then installed on Duo `8AE91541-FA45-4707-89E1-43DB980A2985`.
+On the outer panel, opening the existing conversation with the keyboard visible
+kept the composer and Send/Stop control inside the measured content column; the
+right system rail stayed clear. The same drive scrolled Home to its populated
+settled rows, including the synthetic QA thread and unsent drafts, without a
+row or status entering the rail. Screenshots are retained in the local
+`target/t3-mini-coordinator-geometry-8ae-*.png` evidence; this qualifies the
+ordinary outer-panel reachability sample only. Fold angles, rotation, and
+transition animation remain open.
+
 Exact receipts and raw logs are under
 `target/t3-mini-coordinator/evidence/content-geometry/`. Home and conversation
 layout consumers, selection, rotation, and performance remain unqualified.
