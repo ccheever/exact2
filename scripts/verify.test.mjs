@@ -649,7 +649,7 @@ test('Excord declares its transcript fixture without a database', async () => {
   assert.deepEqual(appServer(toNamespacedPath(dir), {}), appServer(dir, {}));
   assert.deepEqual(appServer(dir, {}), {
     entry: 'fixture/server.ts', args: ['--world', 'transcript', '--reset-on-identify'], database: false,
-    url: selected.origin, port: Number(new URL(selected.origin).port), why: null, refusal: null, fixture: true,
+    url: selected.origin, port: Number(new URL(selected.origin).port), why: null, refusal: null, settings: {}, fixture: true,
   });
   assert.equal(selected.source, 'checkout fixture port');
   assert.ok(appServer(dir, {}).port >= 4790 && appServer(dir, {}).port <= 5789);
