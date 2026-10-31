@@ -6240,3 +6240,28 @@ requires the same Aqua-session recipe in `bench/heavy-list/README.md`, the
 retained signed bundles and the runner snapshot from the desired cohort, with
 a fresh output directory and the same quiet rule. The old output directories
 must remain intact.
+
+## G4q.1, the clock
+
+**Predictions before measurement, 2026-10-30.** Retained G4q fling endpoints
+give GPUI 1.59–1.90 GHz, Ink 1.67–1.97 and egui 1.66–1.82; native
+2.55–3.01. These are per-sample cycle deltas divided by process CPU seconds,
+not ratios of published medians. The old five-round hook comparison has no
+cycles or instructions; neither quantity can be recovered for it.
+
+On the same probe, predict Terminal and LaunchServices launches each give all
+four arms **3.0–4.5 effective GHz** during fling and process CPU inside G4's
+ranges: native **112.39–143.12**, GPUI **82.05–89.05**, Ink
+**84.98–87.07**, egui **64.93–71.54 ms/s**. Predict each painted arm's
+full-phase presented rate stays within **5%** of G4q attempt 1's median.
+The constructor's interactive-QoS diagnostic predicts **3.0–4.5 GHz** too;
+it is never a scoreboard configuration. One sample per arm/configuration,
+with a second only to separate power-sampler effects or confirm a finding.
+The original launch with powermetrics predicts Rust arms below **2.5 GHz**
+and more than **50%** of their main-thread CPU on the lower performance
+level. QoS, task role and cluster counters decide the explanation.
+
+Raw inputs, reductions, launch sources and observations are retained under
+`target/g4q-clock/` here and `target/g0/clock-2035d50319/` on silver.
+The silver reports performance-level names **Super** and **Performance**;
+no efficiency-core assignment is inferred from GHz alone.
