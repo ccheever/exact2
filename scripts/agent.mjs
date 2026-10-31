@@ -1375,7 +1375,11 @@ export async function main(argv, injected = {}) {
       if (/^(?:type|post)(\s|$)/.test(trimmed)) return [trimmed.slice(0, 4), await s.type(...(trimmed.startsWith('post') ? postCommand : typeCommand)(trimmed))];
       // A target of several words is quoted inside the op: `tap "Sky off"`.
       const named = trimmed.match(/^(tap|tree|state|layout|perf)\s+"((?:[^"\\]|\\.)*)"(?:\s+([\s\S]*))?$/);
-      const [op, ...args] = named ? [named[1], inputJSON(`"${named[2]}"`), ...(named[3] ? named[3].split(/\s+/) : [])] : trimmed.split(/\s+/);
+      // A picture's path with spaces is quoted, in either quote, and read as written: `C:\Users\…` keeps its backslashes.
+      const pathed = trimmed.match(/^(screenshot)\s+(["'])([^"']+)\2(?:\s+([\s\S]*))?$/);
+      const [op, ...args] = named ? [named[1], inputJSON(`"${named[2]}"`), ...(named[3] ? named[3].split(/\s+/) : [])]
+        : pathed ? [pathed[1], pathed[3], ...(pathed[4] ? pathed[4].split(/\s+/) : [])] : trimmed.split(/\s+/);
+      if (op === 'screenshot' && !pathed && args.length > 1 && !/\.a?png$/i.test(args[0]) && /\.a?png$/i.test(args.at(-1))) throw new MalformedOperation(`screenshot: a path with spaces is quoted, as screenshot '${args.join(' ')}'`);
       let r, how;
       switch (op) {
         case 'tree': r = args[0] === '--ax' ? await s.tree(args[1], {ax: true}) : await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
