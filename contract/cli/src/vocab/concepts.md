@@ -1390,3 +1390,70 @@ component App
 - JavaScript's `var`, a name inside an action, is `let` (`contract vocab let`).
 
 More: docs/recipes/tamber.md, docs/recipes/theme.md
+
+## media: a layout by width, where CSS has `@media`
+names: @media, responsive, media-query, media-queries, breakpoint, breakpoints, matchMedia, container-query
+
+There is no `@media` rule. Most layouts by width need none, as in CSS: a grid of
+`repeat(auto-fill, minmax(min(100%, 12rem), 1fr))` columns, or flex items that wrap at a basis
+(`flex-wrap="wrap"` and `flex="1 1 280px"`), fit as many columns as the width holds. To choose by
+width, read the viewport and branch: `viewport.width >= 640` is `@media (width >= 640px)`. A
+rendered page that compares it carries the comparison as a media query, so a page waiting for the
+reader wakes where the width differs.
+
+```contract
+shape Viewport
+  width: number
+
+component App
+  resource viewport = exactViewport() as shape Viewport
+  view
+    column gap=16 padding=16
+      column display="grid" grid-template-columns="repeat(auto-fill, minmax(min(100%, 12rem), 1fr))" gap=12
+        for n in ["Bulbasaur", "Ivysaur", "Venusaur"] key=n
+          text n testId=`card-${n}`
+      if viewport.width >= 640
+        text "Side by side" testId="wide"
+      else
+        text "Stacked" testId="narrow"
+```
+
+More: docs/recipes/responsive-columns.md
+
+## css: CSS without a stylesheet (a class, a global style, tokens.css)
+names: stylesheet, style-sheet, global-css, global-styles, app.css, index.css
+
+There is no stylesheet and no selector: each CSS property is an attribute of the element it
+styles, by CSS's name and value (`padding=16`, `font-family="Georgia, serif"`). Properties CSS
+inherits are inherited, so `font-family` and `color` on the root reach every text below it. A
+`style Name` block at file scope is a class that an element takes with `class=Name`; its own
+attributes win over the class's. A stylesheet's custom properties become the app's design:
+`bun exact.mjs tamber import css tokens.css`, then `var(--name)` names one (`contract vocab var`).
+
+```contract
+style Card
+  border-radius=12 padding=16 gap=8
+
+component App
+  view
+    column font-family="Georgia, serif" gap=12 padding=16
+      column class=Card testId="card"
+        text "Bulbasaur"
+      column class=Card padding=8 testId="tight"
+        text "Ivysaur"
+```
+
+More: docs/recipes/web-look.md
+
+## cache: keeping an API's answers (HTTP caching, memoizing)
+names: caching, http-cache, cache-control, max-age, memoize, memoization
+
+A data source's `fetch` keeps each answer as long as its HTTP headers allow (`Cache-Control:
+max-age` or `s-maxage`, `stale-while-revalidate`), as a browser's HTTP cache does: in the
+browser by the browser, and in `serve`'s renders by one cache every request shares, so a page made
+only of answers still fresh is served again without rendering. Write no cache of your own: a data
+module has no clock or timer to expire one, and on the server each render runs it afresh, so its
+module state lasts one render. An API that sends no `Cache-Control` is asked every time; to cache
+its answers, have it say how long they keep.
+
+More: docs/recipes/rest-backend.md
