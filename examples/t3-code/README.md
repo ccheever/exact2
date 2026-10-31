@@ -1298,6 +1298,17 @@ Both hold:
   (2 of 2). The old bundle in the same state shows no pill (1 of 1). The oracle lists Lane Third as a Server row
   (1 of 1); its own machine adds a Codex provider row, which the clone, with no local server in this lane, has not.
 
+Also seen in this session, then fixed and checked again (bundle of `d9bb57b588`, the same lane):
+
+- The footer's "Check for updates" tooltip stayed on screen once the update pill appeared, also after the pointer moved
+  away. With the pointer resting on the idle pill as the app starts, npm's answer replaces that pill with the update
+  pill under the pointer, which gets no pointer leave, so the root's sidebar hover stayed on the idle pill. A root task
+  now ends it when the idle pill gives way (`sidebarUpdateTipGone`, app.contract). Checked again: four relaunches with
+  the pointer resting on the pill show no tooltip, then or after the pointer moves away (4 of 4); opening and
+  cancelling the update dialog leaves none (1 of 1). The previous bundle keeps "Check for updates" (1 of 1). The
+  oracle shows the update pill's own tooltip, "Update 1 server and 1 provider", while the pointer rests there, and none
+  once it moves away (1 of 1); the clone's update pill shows its title only after the pointer moves onto it again.
+
 Left for a ruling:
 
 - VO-Space on the clip.mp4 chip focuses Close: VoiceOver reads "Close video preview, button", and half a second
