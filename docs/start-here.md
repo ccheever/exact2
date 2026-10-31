@@ -48,9 +48,12 @@ which it took. Your shell commands have no such help, so keep one directory.
 |`contract build app.contract --json --errors-only`|A CI gate: `[]` and exit zero mean no errors (omit `--errors-only` to include warnings); it rewrites the types `app.ts` imports and type-checks it.|
 |`verify`, `verify ios`|Builds, runs `app.test.contract` and each other `*.test.contract` beside it, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time, and reads those screens (on the web, also the ones the tests pass through) at the largest text size, where what spills is the app's layout to fix, with a remedy that keeps the text's size (no `line-clamp` in a list's row; `hyphens="auto"` only on a text of one word, which a UILabel breaks between syllables when it is longer than its line); `verify ios` also plays real touches on a long list on the first screen, once per build, and says `scrolling: like UIKit` or what a person would notice, each with UIKit's value and its cause, counting only what the app can fix: one report. A clean run on the app's platform is done.|
 |`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--keep-storage` reopens saved data.|
-|`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
+|`web`, `ios --run`, `windows --run`|For a person watching: its URL, rebuilds on save; a simulator; a window (from SSH, on the signed-in desktop).|
 
-`verify`, `test` and `agent` compile, build and serve their own copy, saying a compile error as `contract build` does: no `contract build` before them, no dev server. `test linux` and `agent linux` do not build: run `bun exact.mjs linux` first and after each edit. Run `verify` when the features work; `verify ios` once at the end for an iPhone app. A screen you
+`verify`, `test` and `agent` compile, build and serve their own copy, saying a compile error as `contract build` does: no `contract build` before them, no dev server. `test linux` and `agent linux` do not build: run `bun exact.mjs linux` first and after each edit. Run `verify` when the features work; `verify ios` once at the end for an iPhone app. On Windows, `test windows`,
+`agent windows` and `verify windows` build first and drive headless at `app.json`'s `host.windows.window` size, in
+DejaVu Sans with no frame; `verify windows` also captures the app as it opens on the desktop (`windows-window.png`):
+judge the look from that one. A screenshot path with a space is quoted: `"screenshot 'C:\a b\x.png'"`. A screen you
 want checked or captured is a test's end; a drive takes any others (`resize`, `prefer …`, `screenshot`).
 Create seam types once with `bun exact.mjs contract types app.contract -o app.contract.d.ts`.
 `contract build` refreshes that declaration after a successful compile and reports
