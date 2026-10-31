@@ -433,6 +433,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // (`requestPictureInPicture`, LLP 1042 §9).
         "enterpictureinpicture" => AttrTarget::Handler("enterpictureinpicture"),
         "leavepictureinpicture" => AttrTarget::Handler("leavepictureinpicture"),
+        // The request failed: HTML's rejected promise, as an event with its reason.
+        "pictureinpictureerror" => AttrTarget::Handler("pictureinpictureerror"),
         "canplay" => AttrTarget::Handler("canplay"),
         // @ref LLP 1098 D1, D2 — the media session: `metadata=` claims it,
         // the six actions by `setActionHandler`'s names, and the seconds a

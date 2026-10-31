@@ -30,6 +30,16 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
     private static let decoder = DispatchQueue(label: "exact.video.picture-in-picture", qos: .userInitiated)
     /// The longest side a picture is decoded at: the panel is at most a quarter of the screen.
     private static let maxPixel = 1920
+    /// `EXACT_PIP_LOG=<file>`: a diagnostic trace of the renderer, the holder window and the panel.
+    private static let trace: FileHandle? = ProcessInfo.processInfo.environment["EXACT_PIP_LOG"].flatMap { path in
+        FileManager.default.createFile(atPath: path, contents: nil)
+        return FileHandle(forWritingAtPath: path)
+    }
+    private let born = CACurrentMediaTime()
+    private var enqueued = 0
+    private var firstTime: CMTime = .invalid, lastTime: CMTime = .invalid
+    private var panelFound = -1.0
+    private var traceTimer: Timer?
 
     init(context: UnsafeMutableRawPointer?, callback: @escaping VideoCallback) {
         self.context = context; self.callback = callback
@@ -48,6 +58,35 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
         layer.videoGravity = .resizeAspect
         layer.frame = view.bounds
         view.layer?.addSublayer(layer)
+        if Self.trace != nil {
+            log("created holder=\(holder.windowNumber)")
+            traceTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                self.log("tick " + self.snapshot())
+            }
+        }
+    }
+
+    private func log(_ text: String) {
+        guard let trace = Self.trace else { return }
+        trace.write(Data(String(format: "%7.3f %@\n", CACurrentMediaTime() - born, text).utf8))
+    }
+
+    private func snapshot() -> String {
+        let renderer = layer.sampleBufferRenderer
+        let occluded = holder.occlusionState.contains(.visible) ? "visible" : "occluded"
+        return "status=\(renderer.status.rawValue) error=\(renderer.error.map { "\($0)" } ?? "-") flushNeeded=\(renderer.requiresFlushToResumeDecoding) ready=\(renderer.isReadyForMoreMediaData)"
+            + " enqueued=\(enqueued) first=\(firstTime.seconds) last=\(lastTime.seconds) now=\(CMClockGetTime(CMClockGetHostTimeClock()).seconds)"
+            + " holder=\(NSStringFromRect(holder.frame)) screen=\(holder.screen.map { NSStringFromRect($0.frame) } ?? "none") \(occluded) onScreen=\(holder.isVisible) level=\(holder.level.rawValue)"
+            + " above=\(windowsAbove()) layer=\(NSStringFromRect(layer.frame)) panel=\(panel.map { NSStringFromRect($0.frame) } ?? "none")@\(panelFound)"
+            + " possible=\(controller?.isPictureInPicturePossible ?? false) active=\(controller?.isPictureInPictureActive ?? false)"
+    }
+
+    /// The app's on-screen windows ordered above the holder (window numbers, front first).
+    private func windowsAbove() -> String {
+        let order = NSWindow.windowNumbers(options: []) ?? []
+        guard let at = order.firstIndex(of: NSNumber(value: holder.windowNumber)) else { return "-" }
+        return order[..<at].map { "\($0)" }.joined(separator: ",")
     }
 
     private func say(_ text: String) {
@@ -66,15 +105,22 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.decoding = false
+                if buffer == nil { self.log("decode failed \(path)") }
                 if let buffer, !self.invalid { self.show(buffer) }
+                // The first picture opens the window: one that cannot be read fails the request.
+                else if buffer == nil, !self.started, self.waiting == nil { self.say("error the picture could not be read") }
                 if let next = self.waiting { self.waiting = nil; self.frame(next) }
             }
         }
     }
 
     private func show(_ buffer: CMSampleBuffer) {
-        if layer.sampleBufferRenderer.status == .failed { layer.sampleBufferRenderer.flush() }
+        if layer.sampleBufferRenderer.status == .failed { log("flush after failure " + snapshot()); layer.sampleBufferRenderer.flush() }
         layer.sampleBufferRenderer.enqueue(buffer)
+        enqueued += 1
+        let time = CMSampleBufferGetPresentationTimeStamp(buffer)
+        if !firstTime.isValid { firstTime = time; log("first enqueue inWindow=\(layer.superlayer != nil && holder.isVisible) " + snapshot()) }
+        lastTime = time
         guard !started else { return }
         started = true
         // The panel opens at the layer's aspect: the first picture's.
@@ -93,8 +139,8 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
 
     private func start(tries: Int) {
         guard !invalid, let controller else { return }
-        if controller.isPictureInPicturePossible { controller.startPictureInPicture(); return }
-        if tries == 0 { say("error picture in picture is not possible"); return }
+        if controller.isPictureInPicturePossible { log("start after \(20 - tries) waits " + snapshot()); controller.startPictureInPicture(); return }
+        if tries == 0 { log("never possible " + snapshot()); say("error picture in picture is not possible"); return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.start(tries: tries - 1) }
     }
 
@@ -110,12 +156,16 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
     private func follow() {
         if panel == nil, let found = NSApp.windows.first(where: { String(describing: type(of: $0)).contains("PIPPanel") }) {
             panel = found
+            panelFound = CACurrentMediaTime() - born
+            log("panel found " + snapshot())
             resized = NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: found, queue: .main) { [weak self] _ in self?.follow() }
         }
         if let size = panel?.contentView?.bounds.size { fit(size) }
     }
 
     func invalidate() {
+        log("invalidate " + snapshot())
+        traceTimer?.invalidate()
         invalid = true
         if let resized { NotificationCenter.default.removeObserver(resized) }
         if controller?.isPictureInPictureActive == true { controller?.stopPictureInPicture() }
@@ -134,12 +184,14 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
     func pictureInPictureController(_ c: AVPictureInPictureController, skipByInterval interval: CMTime) async {}
 
     func pictureInPictureControllerDidStartPictureInPicture(_ c: AVPictureInPictureController) {
+        log("did start " + snapshot())
         follow()
         // The panel settles its size after its opening animation.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.follow() }
         say("enter")
     }
     func pictureInPictureController(_ c: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
+        log("failed to start \(error)")
         say("error \(error.localizedDescription)")
     }
     /// The panel's button that returns to the app: the app comes forward, as a browser's tab does.

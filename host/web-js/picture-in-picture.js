@@ -10,8 +10,10 @@
 // One floating element per document, as the Picture-in-Picture API keeps.
 let active = null;
 
+// A failed request is the element's `pictureinpictureerror`, whose detail is the reason: HTML's
+// rejected promise, as an event.
 export function float(img, id, say) {
-  const refuse = why => say(`requestPictureInPicture "${id}" refused: ${why}`);
+  const refuse = why => { say(`requestPictureInPicture "${id}" refused: ${why}`); img?.dispatchEvent?.(new CustomEvent("pictureinpictureerror", { detail: why })); };
   if (img?.localName !== "img") return refuse(img ? "not an image" : "no live node with that id");
   if (active?.img === img) return;
   active?.stop(true);
@@ -67,5 +69,12 @@ export function float(img, id, say) {
       video.addEventListener("leavepictureinpicture", leave);
       img.dispatchEvent(new Event("enterpictureinpicture"));
     })
-    .catch(error => { refuse(error.name); current.stop(false); });
+    .catch(error => { current.stop(false); refuse(error.name); });
+}
+
+/** `exitPictureInPicture()`: the floating image leaves the window and hears it, as HTML's
+ *  document.exitPictureInPicture() ends the document's one picture-in-picture element. */
+export function exit(say) {
+  if (!active) return say("exitPictureInPicture ignored: no image is in picture in picture");
+  active.stop(true);
 }

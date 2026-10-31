@@ -379,6 +379,7 @@ extension Presenter {
     /// HTML `id`, as `focus(id)` names one.
     func mediaCommand(_ name: String, _ args: [Any]) {
         if name == "requestPictureInPicture" { return pictureInPicture(args) }
+        if name == "exitPictureInPicture" { return PictureInPictureHost.exit(session) }
         let id = args.first as? String ?? ""
         let node = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == id })
         guard let video = node?.video else {

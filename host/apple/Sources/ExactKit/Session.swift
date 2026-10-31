@@ -1203,7 +1203,7 @@ public final class ExactSession {
                     continue
                 }
                 if name == "scrollToFragment" { app.deliver { [weak self] in self?.presenter.scrollToFragment(args) }; continue }
-                if ["fastSeek", "load", "requestFullscreen", "requestPictureInPicture"].contains(name) {
+                if ["fastSeek", "load", "requestFullscreen", "requestPictureInPicture", "exitPictureInPicture"].contains(name) {
                     app.deliver { [weak self] in self?.presenter.mediaCommand(name, args) }
                     continue
                 }

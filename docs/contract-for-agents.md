@@ -2110,10 +2110,13 @@ Pictures that are not a video (a page a server streams as JPEG frames, a
 camera's stills) float in the platform's picture-in-picture window with
 `requestPictureInPicture("id")` on the `image` that shows them: the window
 shows each picture its `src` names next, and the image hears
-`enterpictureinpicture` and `leavepictureinpicture`. The image may be a
-hidden 1-point one that a stream of its own paints; removing it closes the
-window. macOS and the web's JS target float it; other hosts refuse it in the
-journal ([LLP 1042 §9](../llp/1042-video.spec.md)).
+`enterpictureinpicture` and `leavepictureinpicture`;
+`exitPictureInPicture()` closes the window. A request that fails is the
+image's `pictureinpictureerror(message)`, on every host that cannot float it
+too, so handle it where a press asked: a toast, the control unpressed. The
+image may be a hidden 1-point one that a stream of its own paints; removing it
+closes the window. macOS and the web's JS target float it
+([LLP 1042 §9](../llp/1042-video.spec.md)).
 
 To be the system's Now Playing app (the media keys, the lock screen, Control
 Center, a headset's buttons, the browser's media hub), give the player the Media

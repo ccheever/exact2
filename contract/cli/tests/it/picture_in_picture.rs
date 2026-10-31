@@ -1,13 +1,19 @@
 //! An image's picture in picture (LLP 1042 §9): `requestPictureInPicture(id)`
-//! reaches the host, and the image hears `enterpictureinpicture` and
-//! `leavepictureinpicture` as the host reports them.
+//! and `exitPictureInPicture()` reach the host, and the image hears
+//! `enterpictureinpicture`, `leavepictureinpicture` and, with its reason,
+//! `pictureinpictureerror` as the host reports them.
 use exact_runner::{DataError, DataSource, Event, Runner, Value};
 
 const APP: &str = r#"component App
   state floating = false
   state entries = 0
+  state refusal = ""
   action float
     requestPictureInPicture("page")
+  action unfloat
+    exitPictureInPicture()
+  action refused(why: string)
+    refusal = why
   action entered
     floating = true
     entries = entries + 1
@@ -17,7 +23,7 @@ const APP: &str = r#"component App
     column
       button press=float testId="float"
         text "Float"
-      image "app:/tmp/frame.jpg" id="page" testId="page" width=1 height=1 enterpictureinpicture=entered leavepictureinpicture=left
+      image "app:/tmp/frame.jpg" id="page" testId="page" width=1 height=1 enterpictureinpicture=entered leavepictureinpicture=left pictureinpictureerror=refused
 "#;
 
 struct NoData;
@@ -43,6 +49,7 @@ fn the_request_is_a_command_naming_the_image() {
     let mut r = boot();
     r.take_commands();
     r.act("float", vec![]).unwrap();
+    r.act("unfloat", vec![]).unwrap();
     let ran: Vec<_> = r
         .take_commands()
         .into_iter()
@@ -50,10 +57,13 @@ fn the_request_is_a_command_naming_the_image() {
         .collect();
     assert_eq!(
         ran,
-        [(
-            "requestPictureInPicture".to_string(),
-            vec![Value::str("page")]
-        )]
+        [
+            (
+                "requestPictureInPicture".to_string(),
+                vec![Value::str("page")]
+            ),
+            ("exitPictureInPicture".to_string(), vec![])
+        ]
     );
 }
 
@@ -72,6 +82,10 @@ fn the_image_hears_it_enter_and_leave() {
         assert_eq!(r.slot("floating"), Some(&Value::Bool(floating)), "{wire:?}");
     }
     assert_eq!(r.slot("entries"), Some(&Value::Number(2.0)));
+    let refused = "picture in picture is not possible";
+    let event = Event::media_payload(&format!("pictureinpictureerror\n{refused}")).unwrap();
+    r.dispatch(id, event).unwrap();
+    assert_eq!(r.slot("refusal"), Some(&Value::str(refused)));
 }
 
 #[test]
@@ -87,6 +101,7 @@ fn the_request_names_one_element() {
         r#"requestPictureInPicture()"#,
         r#"requestPictureInPicture(1)"#,
         r#"requestPictureInPicture("page", "other")"#,
+        r#"exitPictureInPicture("page")"#,
     ] {
         let source = APP.replace(r#"requestPictureInPicture("page")"#, statement);
         let error = contract::compile(&source).unwrap_err().to_string();

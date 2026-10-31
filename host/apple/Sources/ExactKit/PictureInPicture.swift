@@ -1,6 +1,8 @@
 // @ref LLP 1042 §9. `requestPictureInPicture(id)`: an `image` floats in the platform's
-// picture-in-picture window, which shows each picture its `src` names next. AVKit stays in
-// the video arm (`host/apple/videoarm/PictureInPicture.swift`); this side follows the node.
+// picture-in-picture window, which shows each picture its `src` names next, until
+// `exitPictureInPicture()` or the window's own close; a failure is the image's
+// `pictureinpictureerror`. AVKit stays in the video arm
+// (`host/apple/videoarm/PictureInPicture.swift`); this side follows the node.
 import Foundation
 
 private typealias FloatCallback = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void
@@ -46,8 +48,17 @@ final class PictureInPictureHost {
         host.sendSource()
     }
 
-    private static func refuse(_ node: NodeView, _ why: String) {
+    /// The request failed: a journal line, and the image's `pictureinpictureerror` with the
+    /// reason, as HTML's promise rejects.
+    static func refuse(_ node: NodeView, _ why: String) {
         node.presenter?.session?.log("requestPictureInPicture \"\(node.props["id"] ?? "")\" refused: \(why)")
+        dispatch(node, "pictureinpictureerror", payload: why)
+    }
+
+    /// `exitPictureInPicture()`: the floating image leaves the window and hears it.
+    static func exit(_ session: ExactSession?) {
+        guard let current else { session?.log("exitPictureInPicture ignored: no image is in picture in picture"); return }
+        current.end(heard: true)
     }
 
     /// The image's `src` changed: its new picture floats.
@@ -60,28 +71,33 @@ final class PictureInPictureHost {
         source = src
         // A file the image names, as it resolves one: the app's own (`app:/`) or a bundled asset.
         let url = src.hasPrefix("app:/") ? AppFiles.url(src) : URL(string: src)?.scheme == nil ? node.presenter?.session?.app.resolveAsset(src) : nil
-        guard let path = url?.path else { return Self.refuse(node, "\(src) is not a file this window can read") }
+        guard let path = url?.path else {
+            // Before the window opens, an unreadable picture fails the request; after, the window keeps the last.
+            if entered { node.presenter?.session?.log("requestPictureInPicture: \(src) is not a file the window can read") }
+            else { end(heard: false); Self.refuse(node, "\(src) is not a file the window can read") }
+            return
+        }
         Array(path.utf8).withUnsafeBufferPointer { exports.frame(handle, $0.baseAddress, $0.count) }
     }
 
     private func heard(_ text: String) {
         guard Self.current === self, let node else { return }
-        if text == "enter" { entered = true; dispatch(node, "enterpictureinpicture") }
+        if text == "enter" { entered = true; Self.dispatch(node, "enterpictureinpicture") }
         else if text == "leave" { end(heard: true) }
-        else { Self.refuse(node, String(text.dropFirst("error ".count))); end(heard: false) }
+        else { end(heard: false); Self.refuse(node, String(text.dropFirst("error ".count))) }
     }
 
     private func end(heard: Bool) {
         if Self.current === self { Self.current = nil }
         if let handle { Self.exports?.destroy(handle) }
         handle = nil
-        if heard, entered, let node { dispatch(node, "leavepictureinpicture") }
+        if heard, entered, let node { Self.dispatch(node, "leavepictureinpicture") }
         entered = false
     }
 
-    private func dispatch(_ node: NodeView, _ event: String) {
+    private static func dispatch(_ node: NodeView, _ event: String, payload: String = "") {
         guard node.handlers.contains(event), let session = node.presenter?.session else { return }
-        session.apply(session.runtime.media(node.id, event: event, payload: "", now: session.now()))
+        session.apply(session.runtime.media(node.id, event: event, payload: payload, now: session.now()))
     }
 }
 
@@ -90,10 +106,8 @@ extension Presenter {
     func pictureInPicture(_ args: [Any]) {
         let id = args.first as? String ?? ""
         let node = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == id })
-        guard let node, node.kind == "image" else {
-            session?.log("requestPictureInPicture \"\(id)\" refused: \(node == nil ? "no live node with that id" : "not an image")")
-            return
-        }
+        guard let node else { session?.log("requestPictureInPicture \"\(id)\" refused: no live node with that id"); return }
+        guard node.kind == "image" else { return PictureInPictureHost.refuse(node, "not an image") }
         PictureInPictureHost.request(node)
     }
 }

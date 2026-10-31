@@ -11,7 +11,8 @@ test("an image floats in picture in picture and hears it enter and leave", async
     if (path === '/picture-in-picture.js') return new Response(Bun.file(new URL('./picture-in-picture.js', import.meta.url)));
     return new Response(`<button id="float">Float</button><img id="page"><output id="log"></output>
       <script type="module">
-        import { float } from '/picture-in-picture.js';
+        import { float, exit } from '/picture-in-picture.js';
+        window.exitPip = () => exit(line => { log.textContent += line + ';'; });
         const picture = color => { const c = Object.assign(document.createElement('canvas'), { width: 320, height: 200 }); const g = c.getContext('2d'); g.fillStyle = color; g.fillRect(0, 0, 320, 200); return c.toDataURL(); };
         const img = document.querySelector('#page'), log = document.querySelector('#log');
         img.src = picture('red');
@@ -45,12 +46,20 @@ test("an image floats in picture in picture and hears it enter and leave", async
     await page.evaluate(() => document.exitPictureInPicture());
     await page.waitForFunction(() => document.querySelector('#log').textContent.endsWith('leavepictureinpicture;'));
     expect(await page.evaluate(() => document.querySelectorAll('video').length)).toBe(0);
+    // exitPictureInPicture() closes it as the window's close does; with none open it says so.
+    await page.locator('#float').click();
+    await page.waitForFunction(() => document.pictureInPictureElement !== null);
+    await page.evaluate(() => window.exitPip());
+    await page.waitForFunction(() => document.pictureInPictureElement === null);
+    await page.evaluate(() => window.exitPip());
+    expect(await page.locator('#log').textContent()).toBe('enterpictureinpicture;leavepictureinpicture;enterpictureinpicture;leavepictureinpicture;exitPictureInPicture ignored: no image is in picture in picture;');
+    await page.evaluate(() => { document.querySelector('#log').textContent = ''; });
     // Floated again, then the image leaves the document: the window closes, and no one hears it.
     await page.locator('#float').click();
     await page.waitForFunction(() => document.pictureInPictureElement !== null);
     await page.evaluate(() => { window.next(); document.querySelector('#page').remove(); });
     await page.waitForFunction(() => document.pictureInPictureElement === null, null, { timeout: 5000 });
-    expect(await page.locator('#log').textContent()).toBe('enterpictureinpicture;leavepictureinpicture;enterpictureinpicture;');
+    expect(await page.locator('#log').textContent()).toBe('enterpictureinpicture;');
   } finally {
     await browser?.close();
     server.stop(true);
@@ -69,6 +78,7 @@ test("a picture from another origin without CORS is refused", async () => {
         import { float } from '/picture-in-picture.js';
         const img = document.querySelector('#page'), log = document.querySelector('#log');
         img.addEventListener('enterpictureinpicture', () => { log.textContent += 'enter;'; });
+        img.addEventListener('pictureinpictureerror', e => { log.textContent += 'error event: ' + e.detail + ';'; });
         document.querySelector('#float').onclick = () => float(img, 'page', line => { log.textContent += line + ';'; });
       </script>`, { headers: { 'content-type': 'text/html' } });
   } });
@@ -80,7 +90,8 @@ test("a picture from another origin without CORS is refused", async () => {
     await page.waitForFunction(() => document.querySelector('#page').naturalWidth > 0);
     await page.locator('#float').click();
     await page.waitForFunction(() => document.querySelector('#log').textContent !== '');
-    expect(await page.locator('#log').textContent()).toBe('requestPictureInPicture "page" refused: a picture from another origin needs CORS (Access-Control-Allow-Origin);');
+    const reason = 'a picture from another origin needs CORS (Access-Control-Allow-Origin)';
+    expect(await page.locator('#log').textContent()).toBe(`requestPictureInPicture "page" refused: ${reason};error event: ${reason};`);
     expect(await page.evaluate(() => [document.pictureInPictureElement, document.querySelectorAll('video').length])).toEqual([null, 0]);
   } finally {
     await browser?.close();

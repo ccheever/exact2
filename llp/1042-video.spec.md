@@ -463,6 +463,25 @@ moves the window to it, and the first hears `leavepictureinpicture`. Neither
 event carries a payload; the plan's EventKind table gains both, and the
 runner admits them as media events with an empty payload.
 
+Two rulings (Daehyeon Mun, 2026-10-31):
+
+- **A failed request is an event.** HTML's `requestPictureInPicture()`
+  returns a promise that rejects; an action has no promise, so a failure is
+  the image's `pictureinpictureerror(message)`, whose string is the reason.
+  It fires on every path that leaves the image not floating: on macOS the
+  first picture unreadable, the controller never possible within a second,
+  AVKit's failure to start, and no video module or no picture in picture on
+  the platform; on the web a rejected request, a picture that taints the
+  canvas, and a browser without the APIs; and at once on every host that
+  refuses the command, beside its journal line. No capability read says in
+  advance whether a host can float, so an app learns it from this event.
+- **`exitPictureInPicture()`** closes the window and the image hears
+  `leavepictureinpicture`, as HTML's `document.exitPictureInPicture()`. It
+  takes no id: one image floats at a time, so there is only one window to
+  close, and a bare command is how Exact names the app's own (`close()`,
+  `blur()`). With no image floating it does nothing and says so in the
+  journal.
+
 HTML has `requestPictureInPicture()` only on `video`. On an `image` it is
 this extension, which stands for the canvas and hidden video a page builds;
 the window shows the picture's pixels at the size the platform chooses, not
@@ -472,8 +491,8 @@ the element's box, so a hidden 1-point image floats its full picture.
 | --- | --- |
 | macOS 14+ (ExactKit's minimum; the arm uses the display layer's `sampleBufferRenderer`) | The video arm (`host/apple/videoarm/PictureInPicture.swift`) decodes each picture with ImageIO into a BGRA `CVPixelBuffer`, enqueues it as a `CMSampleBuffer` shown at once on an `AVSampleBufferDisplayLayer`, and floats the layer with `AVPictureInPictureController(contentSource: .init(sampleBufferDisplayLayer:playbackDelegate:))`; the playback delegate reports an unbounded time range and never paused. AVKit stays in the on-demand artifact; ExactKit follows the node (`PictureInPicture.swift`) |
 | Web, JS target | `host/web-js/picture-in-picture.js`, loaded on first use: the image drawn onto a canvas on each `load`, its `captureStream()` in a hidden video, `requestPictureInPicture()` on it. A browser without `captureStream` or `document.pictureInPictureEnabled` refuses in the journal |
-| iOS, tvOS | Refused in the journal: their picture in picture needs the app's playback audio session and background mode, which an app that shows no media does not declare |
-| Web, wasm target; Linux; Windows; the terminal | Refused in the journal |
+| iOS, tvOS | Refused, with the event: their picture in picture needs the app's playback audio session and background mode, which an app that shows no media does not declare |
+| Web, wasm target; Linux; Windows (the Linux presenter) | Refused in the journal and with the event; `exitPictureInPicture()` in the journal |
 
 On macOS the PiP panel does not take the display layer into its window, as
 iOS does: it mirrors the layer's pixels at 1:1 from the window that holds
