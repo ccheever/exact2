@@ -7562,3 +7562,206 @@ batch's next power of two; idle trimming releases all three. CPU shadows cost
 ceiling per atlas; overflow shadows are released after submission. Intermediate
 layer draws must flush before sampling: a later pass that discovers new glyphs
 can issue another batch. The trace and counters report those batches too.
+
+The single collection is `silver/session-3/`: 80 successful cold launches
+from 82 attempts, ten traces, ten flings, and one bar and caret sample per
+carrier. Rest uses fling round 1, as predicted. Two egui readiness failures
+(exit 2, before round 7 and after round 5) are retained; each retry succeeds.
+After cold round 4 and after fling rounds 3 and 5 fail their individual quiet
+gates. All other successful timed launches qualify. Thus cold has 10 qualified launches
+per before arm and 9 per after arm; traces have 5/5, fling 5/3, and each
+static/rest pair 1/1. The session-wide quiet flag is false; it is not the
+per-launch gate. Maxima below are report-only. Hook and power sampling are off.
+
+Cold complete-screen milliseconds, median [minimum–maximum]; n is qualified /
+all attempts, including the retained readiness failures:
+
+| Arm | Before | n | After | n |
+| --- | ---: | ---: | ---: | ---: |
+| Native | 256.146 [227.947–285.701] | 10/10 | 253.071 [240.206–281.900] | 9/10 |
+| GPUI | 211.635 [188.874–231.867] | 10/10 | 218.309 [202.823–229.436] | 9/10 |
+| Ink | 253.124 [204.693–265.480] | 10/10 | 215.080 [191.030–231.964] | 9/10 |
+| egui | 223.185 [197.780–248.128] | 10/11 | 214.707 [192.838–248.247] | 9/11 |
+
+Ink's difference of qualified medians is **38.044 ms**. All nine matched
+Ink pairs improve: median paired saving **32.862 ms**, range 12.506–48.511.
+The candidate sits between GPUI and egui's after medians; this cut establishes
+no win over egui and leaves the 100 ms application budget unmet.
+
+Each of the five traces per carrier has 321 raster-miss spans. The before
+carrier uploads 307 nonempty masks, compared with A7's older 250-upload arm.
+The candidate uses **one batch, one 223,744-byte (218.5 KiB) staging buffer,
+and two copies**, one per dirty alpha/color page, on every traced first frame.
+The CPU shadows for those two normal pages total 512 KiB. Five ordinary
+texture uploads remain in both arms.
+
+| Trace measurement, ms unless counted | Before median | After median |
+| --- | ---: | ---: |
+| First paint walk | 31.183 | 4.953 |
+| Following Ink finish | 0.169 | 0.250 |
+| Process start to complete-scene commit | 197.734 | 169.972 |
+| Pure swash spans | 2.555 | 2.023 |
+| Staging waits contained in first paint/finish, all uploads | 27.170 | 0.686 |
+| Full glyph-upload elapsed spans | 34.464 | 0.0525 |
+| Full glyph staging waits | 31.106 | 0 |
+| Summed glyph GPU copy commands | 5.037 | 0.0337 |
+
+The before arm's 307 upload commands average **101.323 μs staging wait,
+10.247 μs CPU staging/copy/encoding, and 16.408 μs GPU copy** per mask
+(medians of each launch's per-mask means). There are 305 staging waits;
+the first two slots are fresh. Full glyph-upload elapsed time averages
+112.260 μs per mask. The one after batch costs **52.500 μs** on its owner:
+29.833 μs staging allocation/copy, 11.083 μs blit encoding, and 33.708 μs on
+the GPU for both copies. GPU time and CPU-side elapsed time overlap.
+
+The reducer joins all 312 serial upload submission IDs to 312 ordered
+worker spans, then selects the 307 glyph IDs. Every glyph command has a GPU
+interval; every after batch does too. Some serial uploads finish after the
+paint walk, which is why their full waits exceed the 27.170 ms contained
+within the first paint/finish interval. The old encoding span combines staging
+allocation, memory copy and blit encoding; main-thread command-buffer creation
+is not separately timed. The new batch span starts after packing the dirty
+CPU rectangles; that packing remains included in paint/finish. Its two GPU
+copies share a command timestamp and cannot be timed separately.
+
+Traced cold medians are 221.220 → 194.535 ms, below the untraced cohort's
+253.124 → 215.080 ms. The phase cohort is diagnostic; its medians are not
+added to the untraced cold row, and this collection does not isolate observer
+cost. The earlier M10 observer-control obligation remains open.
+
+Fling rows use qualified samples only (before n=5, after n=3), medians
+[minimum–maximum]. Cadence and late intervals use the four posted gesture
+windows, as in `aggregate.mjs`; CPU and work use the full ten seconds.
+
+| Fling metric | Before | After |
+| --- | ---: | ---: |
+| Process CPU, ms/s | 143.501 [134.664–145.352] | 143.245 [139.002–144.637] |
+| Main-thread CPU, ms/s | 72.700 [69.794–73.687] | 75.565 [74.575–76.069] |
+| Cycles, million/s | 241.817 [238.365–248.351] | 240.659 [238.432–244.408] |
+| Instructions, million/s | 523.456 [523.103–525.250] | 514.507 [514.015–517.103] |
+| Effective GHz | 1.731 [1.671–1.770] | 1.706 [1.664–1.715] |
+| Instructions/cycle | 2.163 [2.115–2.195] | 2.138 [2.116–2.156] |
+| Peak footprint, MiB | 599.111 [597.548–599.876] | 596.829 [594.642–598.861] |
+| Presented frames / gesture s | 89.221 [83.945–90.322] | 88.812 [88.437–89.847] |
+| Late intervals / gesture s | 1.075 [0.999–1.608] | 0.528 [0.264–0.805] |
+| p99 interval, ms | 16.667 [16.667–16.667] | 8.333 [8.333–8.333] |
+
+Fling process CPU moves **−0.178%**, cycles −0.479%, and instructions −1.710%:
+within the predicted unchanged band, with no substantial CPU saving established.
+The candidate records 18 glyph batches and 33 page copies per fling (copy
+range 33–34), uploading 570,022 bytes (570,022–578,243), about 16.9 KiB per
+copy. The before hook-off counter set has no glyph-upload count; the brief's
+estimate of about 70 newly discovered glyphs is not independently counted in
+this series. Rest, bar and caret each record **zero** glyph batches, copies
+and bytes after the cut.
+
+Single-sample static/rest rows; clocks and work accompany elapsed CPU:
+
+| Phase / arm | CPU, ms/s | Main, ms/s | Cycles, M/s | Instructions, M/s | GHz | IPC | Peak, MiB | Frames/s |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| rest / before | 2.831 | 2.694 | 4.289 | 4.079 | 1.515 | 0.951 | 247.564 | 0.000 |
+| rest / after | 3.229 | 3.067 | 4.539 | 4.231 | 1.406 | 0.932 | 245.392 | 0.000 |
+| bar / before | 177.266 | 91.656 | 249.218 | 433.593 | 1.406 | 1.740 | 358.735 | 119.672 |
+| bar / after | 188.156 | 96.504 | 270.588 | 439.296 | 1.438 | 1.623 | 351.407 | 119.630 |
+| caret / before | 30.766 | 27.755 | 43.723 | 93.766 | 1.421 | 2.145 | 355.939 | 2.000 |
+| caret / after | 31.354 | 28.487 | 45.452 | 97.260 | 1.450 | 2.140 | 340.798 | 1.999 |
+
+| Prediction | Result |
+| --- | --- |
+| First-paint upload spans about 27 → 2 ms | Contained staging waits 27.170 → 0.686 ms; all contained upload elapsed spans 30.402 → 2.125 ms. Glyph waits are zero and the batch itself is 0.0525 ms. |
+| First paint about 31 → 8 ms | 31.183 → 4.953 ms, faster than estimated. |
+| Complete-frame commit about 20 ms earlier | 27.762 ms earlier, faster than estimated. |
+| Cold 15–20 ms earlier, about 220 → 200 ms | The 15–20 ms estimate underpredicts both the 38.044 ms median-row change and 32.862 ms paired saving. The absolute 200 ms estimate misses: after is 215.080 ms, from 253.124. |
+| Fling CPU within 5% | −0.178%; met, with n=5/3 after quiet qualification. |
+| Rest, bar and caret CPU within 5% | Rest +14.084% and bar +6.143%: **misses**. Caret +1.911%: met. These are single samples; the rest/bar changes remain unattributed despite zero glyph uploads. |
+| Peak footprint changes by at most 2 MiB | Literal ±2 MiB prediction **missed toward lower footprint**: fling −2.281, rest −2.172, bar −7.328, caret −15.141 MiB. No measured peak increases. |
+| Bit-for-bit mask parity; pinned and text suites | Met on Metal and wgpu; validation below. |
+
+No performance tuning or second timed collection followed these results.
+The rest/bar misses remain work to attribute, rather than a claim that the
+warm path's CPU cost is proven unchanged.
+
+Reproduction uses the retained signed bundles and
+`target/m10-cut7/silver/{provenance.json,sources.json,source-before.patch,source-after.patch}`.
+The main base is `4ee50baec5`; before is instrumented `b7c52c6d22`, after is
+`75ac7d413b`. The trace additions are common to both. Native is `d16c84ee03`,
+GPUI and egui `a91fd38b4d`, with the same probe in all five bundles. All
+executable/library and instrument hashes match the silver provenance.
+`target/m10-cut7/measured-source.bundle` retains the pre-rebase commits. The remote original
+is `/Users/ccheever/projects/exact2-measure/target/g0/m10-cut7-4ee50baec5/`;
+the local signed mirror and every raw attempt are in `target/m10-cut7/silver/`.
+
+Preparation attempt 1 uses a LaunchAgent and fails Accessibility preflight
+before any app starts. Attempt 2 is stopped before the gate because its
+relative script name matches its own ownership filter. Both remain retained;
+neither has a timed app sample. The sole timed collection, session 3, uses the
+README's existing SSH grant and Aqua chain, with an absolute script path;
+no permission settings change. It waits for the M10 fix collector to finish.
+
+```sh
+EXACT_APP_DIR="$PWD/bench/heavy-list/exact-heavylist" \
+EXACT_PAINTED_PROBE="$PWD/bench/heavy-list/gpui/probe.m" \
+CARGO_BUILD_JOBS=6 bun host/apple/build.mjs exact-heavylist-apple --painted-benchmark --release
+# The standalone workspace builds into this checkout's target/.
+python3 target/m10-cut7/silver/analyze-cut7.py target/m10-cut7/silver 3
+bun bench/heavy-list/gpui/aggregate.mjs \
+  target/m10-cut7/silver/session-3/fling/after/series/fling/ink-1.json --sample
+```
+
+The retained runner specifies the alternating order, first-launch exclusions,
+per-launch quiet window and all commands.
+`target/m10-cut7/silver/session-3/analysis.json` carries every qualification
+reason and trace join; `target/m10-cut7/analysis-final.json` retains its printed
+metrics. The committed `aggregate.mjs --sample` independently checks all
+fourteen motion samples' phase deltas and hook state. Its instrument-only
+output does not qualify the two excluded flings.
+
+Validation: the new GPU readbacks compare serial and batched padded masks
+byte for byte on Metal and wgpu, including an overflow page and a later
+small dirty rectangle. A delayed-device fixture inserts 250 masks before any
+upload, checks one copy per dirty page, preserves a geometry-only walk,
+and checks warm zero-upload and pending-upload reuse. Pinned, text and image
+suites pass before and after rebasing onto `fd89454bd3`; the atlas, device,
+glyph and Ink adapter sources match measured `75ac7d413b` byte for byte.
+The incoming table-layout changes are included in the post-rebase tests,
+not in the retained performance bundles.
+
+Test commands use `EXACT_REQUIRED=1 RUST_TEST_THREADS=2 CARGO_BUILD_JOBS=6` and
+`EXACT_INK_DEVICE=metal` or `wgpu`. Full stdout and stderr are in
+`target/m10-cut7/checks/`. Result lines below are verbatim; Linux-host lines
+are the post-rebase run.
+
+```text
+cargo test -p exact-ink --lib --no-fail-fast
+test result: ok. 50 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.95s
+
+EXACT_INK_DEVICE=metal cargo test -p exact-linux --test pinned --no-fail-fast
+test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 9.56s
+
+EXACT_INK_DEVICE=metal cargo test -p exact-linux --lib text:: --no-fail-fast
+test result: ok. 217 passed; 0 failed; 0 ignored; 0 measured; 1499 filtered out; finished in 2.88s
+
+EXACT_INK_DEVICE=metal cargo test -p exact-linux --test it image --no-fail-fast
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.42s
+
+EXACT_INK_DEVICE=wgpu cargo test -p exact-linux --test pinned --no-fail-fast
+test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 10.19s
+
+EXACT_INK_DEVICE=wgpu cargo test -p exact-linux --lib text:: --no-fail-fast
+test result: ok. 217 passed; 0 failed; 0 ignored; 0 measured; 1499 filtered out; finished in 2.76s
+
+EXACT_INK_DEVICE=wgpu cargo test -p exact-linux --test it image --no-fail-fast
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.35s
+
+cargo check -p exact-ink --target x86_64-pc-windows-msvc --tests
+warning: exact-ink@0.1.0: exact-ink: fxc is not on PATH; the Direct3D 11 device will refuse to open
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 33s
+```
+
+Windows compilation passes; D3D11 runtime parity is untested on this Mac,
+whose missing `fxc` prevents opening that device. The two initial wgpu
+compilation failures and their corrected third run remain in `ink.log`,
+`ink-2.log` and `ink-3.log`. The six-check gate remains assigned to the Mac mini.
+
+Formatting, staged structural caps and `git diff --check` pass. Caps uses
+`EXACT_CAPS_WASM=0`; the implicit wasm build stays with the Mac mini gate.

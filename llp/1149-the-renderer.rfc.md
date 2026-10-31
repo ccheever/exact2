@@ -1203,6 +1203,29 @@ comparison; the 100 ms application obligation is unchanged. Gates consume
 71 min 18 s in total, including the initial wait.
 [Gates, excluded tables, predictions and reproduction](../bench/heavy-list/gpui/RESULTS.md#g4q-the-quiet-baselines).
 
+**M10 cut 7, 2026-10-31:** atlas batching on main's carrier, without the
+other M10 startup cuts. The silver M5 Max's single interleaved collection
+uses fresh processes with retained caches, hook and power sampling off,
+and per-launch quiet qualification. Cold complete-screen medians, ms:
+
+| Arm | Before | Qualified n / attempts | After | Qualified n / attempts |
+| --- | ---: | ---: | ---: | ---: |
+| Native | 256.146 | 10/10 | 253.071 | 9/10 |
+| GPUI | 211.635 | 10/10 | 218.309 | 9/10 |
+| Ink | 253.124 | 10/10 | 215.080 | 9/10 |
+| egui | 223.185 | 10/11 | 214.707 | 9/11 |
+
+Ink's median row improves 38.044 ms; the nine matched pairs improve
+32.862 ms median, all in the same direction. The candidate remains just
+above egui's median and above the 100 ms budget. Two egui readiness failures
+are retained with successful retries; after round 4 fails quiet qualification.
+Five traces per carrier show first paint **31.183 → 4.953 ms**, with 307
+glyph uploads replaced by one batch and two page copies. Fling CPU is
+**143.501 → 143.245 ms/s** (qualified n=5/3); rest and bar's single-sample
+CPU changes miss the unchanged prediction. No warm glyph upload occurs.
+Before is `b7c52c6d22`, after `75ac7d413b`, on main `4ee50baec5`.
+[Ranges, clocks, misses, raw files and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-7-the-atlas-uploaded-once).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms
