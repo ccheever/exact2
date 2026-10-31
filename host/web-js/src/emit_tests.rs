@@ -1160,6 +1160,7 @@ fn a_bound_appearance_marks_a_header_while_it_reads_none() {
         write.contains("[\"justify-content\"]") && write.contains("w.push(\"appearance\")"),
         "{write}"
     );
+}
 
 /// @ref LLP 1153 D7.2 — a table and a description list are HTML's own
 /// elements, a cell's `colspan`, `rowspan` and `scope` their attributes, and
