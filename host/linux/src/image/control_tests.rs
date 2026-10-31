@@ -96,7 +96,7 @@ fn painted_boot_requests_no_images_below_the_first_screen() {
     let bytes = contract::compile(&source).unwrap().encode();
     let decoded = std::cell::Cell::new(0);
     let ready = |_: &exact_plan::Plan| decoded.set(decoded.get() + 1);
-    let (p, error) = Presenter::boot_selected(
+    let (mut p, error) = Presenter::boot_selected(
         PlanBytes::Painted(&bytes, &ready),
         (),
         (100., 100.),
@@ -131,6 +131,12 @@ fn painted_boot_requests_no_images_below_the_first_screen() {
     assert!(
         ordinary.images().views.values().all(|v| v.visible),
         "ordinary hosts keep their pre-paint mounted-image policy"
+    );
+    p.frame();
+    p.finish_boot_images();
+    assert!(
+        p.images().views.values().any(|v| v.source_id.is_some()),
+        "retirement resumes ordinary mounted first loads without waiting for input"
     );
 }
 

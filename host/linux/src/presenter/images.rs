@@ -16,7 +16,13 @@ impl<D: DataSource> Presenter<D> {
     /// Restore the ordinary image policy after the painted carrier retires boot.
     #[cfg(target_os = "macos")]
     pub fn finish_boot_images(&mut self) {
+        if !self.images.boot_visible_only {
+            return;
+        }
         self.images.finish_boot();
+        if let Some(error) = self.sync_images() {
+            self.host.log(error);
+        }
     }
 
     /// A landed picture needs the next display tick, without waiting for a

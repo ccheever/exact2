@@ -11048,3 +11048,27 @@ canvas colour before ordering front. The pre-run prediction in
 samples both carry `[167, 43, 84, 255]`, with reveal still after acquisition.
 This branch does not run for heavy-list's literal root. The eight carrier
 tests pass after the three-line change (`bound-reveal-carrier.log`).
+
+**First instruction fix: miss.** The five qualified pairs at
+`07ea81f30c` give +24.755 [11.743, 28.869] million instructions/s, outside
+the predicted ±10. CPU is +1.596 [−1.935, +6.437] ms/s and cycles are
++9.738 [−4.818, +32.591] million/s. Limiting direct picture draws to boot
+did not remove the extra fling work. These originals remain a separate
+diagnostic cohort, not replacements for any final original.
+
+The same pairs' cumulative process counters locate the shift: before
+fling, after minus main is −268.892 [−275.055, −162.438] million
+instructions; during fling it is +248.877 [117.282, 289.993] million;
+through fling's end it is −15.524 [−45.156, +21.102] million. The earlier
+traced carriers each decode 40 pictures in total: main decodes 7 before
+fling and 33 during it; the cuts decode 5 then 35. Two decodes moved into
+fling. `phase-work.py` reproduces the cumulative counter comparison.
+
+The next prediction, written in `image-handoff-prediction.json` before
+changing the handoff, is 7 pre-fling and 33 fling decodes, and an
+instruction delta within ±10 million/s in five qualified untraced pairs.
+Boot retirement now resynchronizes the ordinary image policy after
+restoring it, so mounted first loads need no input to resume. The
+60-image test still makes zero off-screen requests before first paint;
+after painting and retirement it now checks that ordinary first loads
+resume. That extended test passes (`boot-handoff-round1.log`).
