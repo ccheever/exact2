@@ -347,6 +347,25 @@ impl NavPlace {
                     .map_or(span, |a| a.span),
             );
         }
+        // Only a route is presented. gradebook (bake-off round 34) wrote
+        // `navigationPresentation="modal"` on the root of a form component
+        // its stack drew with no `navigationKey`: every host drew the form
+        // in place, and on iOS its header sat under the status bar, where
+        // Save and Cancel got no touches.
+        if let Some(a) = attrs
+            .iter()
+            .rev()
+            .find(|a| a.name == "navigationPresentation")
+            .filter(|a| {
+                !has("navigationKey") && !matches!(&a.value, Expr::Str(s, _) if s.is_empty())
+            })
+        {
+            return err(
+                "lower-route-place",
+                format!("`navigationPresentation` is on a `{tag}` with no `navigationKey`, which is no route, so no host presents it: it is drawn in place, and on iOS what it draws at the screen's top sits under the status bar, where its buttons get no touches. A sheet is a route: write `navigationKey` (the entry's id, `${{e.id}}`) and `navigationPresentation` on the stack's child that draws this; or pass the id into this component and write `navigationKey` here beside it (docs/recipes/edit-sheet.md)"),
+                a.span,
+            );
+        }
         // A sheet opens at one of its own heights, which its route says; a
         // list the compiler cannot read is given the benefit of the doubt
         // (iOS journals a miss).
