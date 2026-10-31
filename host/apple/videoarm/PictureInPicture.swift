@@ -27,6 +27,13 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
     /// One decode at a time; a path that arrives meanwhile waits, replacing any before it.
     private var decoding = false
     private var waiting: String?
+    /// The pixel size of the pictures in the window. Each change of the video's size makes
+    /// AVKit lay its video layer out again at that size, and only the panel's next layout fits
+    /// it back into the panel: when no panel layout follows, the picture is left outside the
+    /// panel, which shows blank. A stream's pictures differ by a pixel as the page is scaled
+    /// (922 × 1280 after a seed of 1078 × 1496), so a picture of nearly the same aspect is
+    /// drawn at this size. A new aspect resizes the panel, whose layout then fits the video.
+    private var pixels: (width: Int, height: Int)?
     private static let decoder = DispatchQueue(label: "exact.video.picture-in-picture", qos: .userInitiated)
     /// The longest side a picture is decoded at: the panel is at most a quarter of the screen.
     private static let maxPixel = 1920
@@ -100,8 +107,9 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
         guard !invalid else { return }
         if decoding { waiting = path; return }
         decoding = true
+        let keep = pixels
         Self.decoder.async { [weak self] in
-            let buffer = Self.sample(path)
+            let buffer = Self.sample(path, keeping: keep)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.decoding = false
@@ -117,6 +125,10 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
     private func show(_ buffer: CMSampleBuffer) {
         if layer.sampleBufferRenderer.status == .failed { log("flush after failure " + snapshot()); layer.sampleBufferRenderer.flush() }
         layer.sampleBufferRenderer.enqueue(buffer)
+        if let format = CMSampleBufferGetFormatDescription(buffer) {
+            let size = CMVideoFormatDescriptionGetDimensions(format)
+            pixels = (Int(size.width), Int(size.height))
+        }
         enqueued += 1
         let time = CMSampleBufferGetPresentationTimeStamp(buffer)
         if !firstTime.isValid { firstTime = time; log("first enqueue inWindow=\(layer.superlayer != nil && holder.isVisible) " + snapshot()) }
@@ -204,8 +216,9 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
         say("leave")
     }
 
-    /// The file's picture as a BGRA sample buffer shown as soon as it is enqueued.
-    private static func sample(_ path: String) -> CMSampleBuffer? {
+    /// The file's picture as a BGRA sample buffer shown as soon as it is enqueued, drawn at
+    /// `keep` when its aspect is within 2% of that size's.
+    private static func sample(_ path: String, keeping keep: (width: Int, height: Int)?) -> CMSampleBuffer? {
         autoreleasepool {
             let options = [kCGImageSourceShouldCache: false] as CFDictionary
             guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, options),
@@ -213,15 +226,17 @@ private final class PictureInPictureArm: NSObject, AVPictureInPictureSampleBuffe
                       kCGImageSourceCreateThumbnailFromImageAlways: true,
                       kCGImageSourceCreateThumbnailWithTransform: true,
                       kCGImageSourceThumbnailMaxPixelSize: maxPixel] as CFDictionary) else { return nil }
+            var (width, height) = (image.width, image.height)
+            if let keep, abs(Double(width * keep.height) / Double(height * keep.width) - 1) < 0.02 { (width, height) = keep }
             var pixels: CVPixelBuffer?
             let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary
-            guard CVPixelBufferCreate(nil, image.width, image.height, kCVPixelFormatType_32BGRA, attributes, &pixels) == kCVReturnSuccess,
+            guard CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA, attributes, &pixels) == kCVReturnSuccess,
                   let pixels else { return nil }
             CVPixelBufferLockBaseAddress(pixels, [])
-            let drawn = CGContext(data: CVPixelBufferGetBaseAddress(pixels), width: image.width, height: image.height, bitsPerComponent: 8,
+            let drawn = CGContext(data: CVPixelBufferGetBaseAddress(pixels), width: width, height: height, bitsPerComponent: 8,
                                   bytesPerRow: CVPixelBufferGetBytesPerRow(pixels), space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
-            drawn?.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            drawn?.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             CVPixelBufferUnlockBaseAddress(pixels, [])
             // The pixels were drawn in sRGB; untagged, the layer would read them in the display's space.
             CVBufferSetAttachment(pixels, kCVImageBufferCGColorSpaceKey, CGColorSpace(name: CGColorSpace.sRGB)!, .shouldPropagate)
