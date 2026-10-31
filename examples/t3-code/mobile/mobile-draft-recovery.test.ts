@@ -226,7 +226,7 @@ test('malformed and future pending-editor extensions survive actual load and per
 test('empty preference text is explicitly known-empty while malformed and unknown documents stay unhydrated', async () => {
   const empty = setup(''); await empty.load();
   expect(mobilePendingTaskEditorsSnapshot(empty.client)).toEqual({ hydrated: true, ready: true, blocked: false, markers: [], errors: [] });
-  for (const document of ['{broken', '{"version":2,"mobilePendingTaskEditors":{"version":1,"markers":{}}}', 'null', '[]']) {
+  for (const document of ['{broken', '{}', '{"mobileQuestionCommands":{},"pending":{}}', '{"version":2,"mobilePendingTaskEditors":{"version":1,"markers":{}}}', 'null', '[]']) {
     const f = setup(document); await f.load();
     expect(mobilePendingTaskEditorsSnapshot(f.client)).toMatchObject({ hydrated: false, ready: false, blocked: true });
   }

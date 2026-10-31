@@ -9,8 +9,9 @@ private final class QuestionPreferences {
     let lock = NSLock()
     var fail = false
     lazy var owner = T3QuestionCommands(root: root, read: { [self] in
-        guard let data = try disk.load() else { return [:] }
-        return try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let data = try disk.load()
+        let value = try data.map { try JSONSerialization.jsonObject(with: $0) as! [String: Any] } ?? [:]
+        return try t3InitialPreferenceDocument(value, missing: data == nil, hasBoundPins: { try attachments.hasBoundPins() })
     }, save: { [self] value in
         if fail { throw CocoaError(.fileWriteOutOfSpace) }
         try disk.replace(T3QuestionCommands.encoded(value))
@@ -101,8 +102,32 @@ private final class QuestionPreferences {
         try process.run(); process.waitUntilExit(); check(process.terminationStatus == 0, "Actual child process \(mode) exits successfully")
     }
     static func main() throws {
+        if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--first-read-output" {
+            let prefs = QuestionPreferences(root())
+            defer { roots.forEach { try? FileManager.default.removeItem(at: $0) } }
+            try Data(prefs.owner.preferencesRead().utf8).write(to: URL(fileURLWithPath: CommandLine.arguments[2]))
+            return
+        }
         if CommandLine.arguments.count == 3 { try child(CommandLine.arguments[1], URL(fileURLWithPath: CommandLine.arguments[2])); return }
         defer { roots.forEach { try? FileManager.default.removeItem(at: $0) } }
+        run("first preference read") {
+            let prefs = QuestionPreferences(root())
+            let text = try prefs.owner.preferencesRead()
+            let document = try JSONSerialization.jsonObject(with: Data(text.utf8)) as! [String: Any]
+            check(T3QuestionCommands.integer(document["version"]) == 1, "First native preference read has the supported version")
+            check(T3QuestionCommands.equal(document, try prefs.raw()), "First preference projection matches durable bytes")
+        }
+        run("existing preference documents keep their version") {
+            for original: [String: Any] in [[:], ["drafts": ["kept": "text"]], ["version": 2], ["version": 1, "drafts": ["kept": "Café 日本語"]]] {
+                let prefs = QuestionPreferences(root()); try prefs.disk.replace(T3QuestionCommands.encoded(original))
+                let document = try JSONSerialization.jsonObject(with: Data(prefs.owner.preferencesRead().utf8)) as! [String: Any]
+                check(T3QuestionCommands.equal(document["version"], original["version"]), "An existing document is not initialized or upgraded")
+                check(T3QuestionCommands.equal(document["drafts"], original["drafts"]), "Existing draft bytes survive the preference read")
+            }
+            let corrupt = QuestionPreferences(root()); try corrupt.disk.replace(Data("{broken".utf8))
+            refuses("Malformed existing preferences remain refused") { _ = try corrupt.owner.preferencesRead() }
+            check(try corrupt.disk.load() == Data("{broken".utf8), "Malformed preference bytes are preserved")
+        }
         run("wire and outcome") {
             let prefs = QuestionPreferences(root()), value = try prepare(prefs), attempt = try issued(prefs, value, rpc: "1-1")
             let wire = try JSONSerialization.jsonObject(with: Data(attempt.0.utf8)) as! [String: Any]
@@ -155,6 +180,9 @@ private final class QuestionPreferences {
             try FileManager.default.removeItem(at: location.appendingPathComponent("preferences/question-attachments/inventory.json"))
             refuses("Missing preference file beside a bound pin fails closed") { _ = try prefs.call("read") }
             check(try prefs.attachments.hasBoundPins(), "Missing preferences retain bound byte ownership")
+            let document = try JSONSerialization.jsonObject(with: Data(prefs.owner.preferencesRead().utf8)) as! [String: Any]
+            check(document["version"] == nil && (document["mobileQuestionRecovery"] as? [String: Any])?["blocked"] as? Bool == true,
+                  "Missing preferences with bound pins cannot authorize editor hydration")
         }
         run("strict decoders") {
             check(T3QuestionCommands.integer(true) == nil && T3QuestionCommands.integer(1.5) == nil && T3QuestionCommands.integer(9_007_199_254_740_992) == nil, "Booleans, nonintegral values and unsafe revisions are rejected")

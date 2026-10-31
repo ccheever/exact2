@@ -38,9 +38,9 @@ export class CountingClient extends MobileDraftClient {
     this.refreshes++; await super.refresh(native, storage);
   }
 }
-export async function fixture(seed?: (client: MobileDraftClient, key: string) => void) {
+export async function fixture(seed?: (client: MobileDraftClient, key: string) => void, document = JSON.stringify({ version: 1 })) {
   const client = new CountingClient(), fleet = new EnvironmentFleet(), calls: Obj[] = [], order: string[] = [], writes: Obj[] = [];
-  let disk = JSON.stringify({ version: 1 }), receipts: unknown[] = [], allocated = 0;
+  let disk = document, receipts: unknown[] = [], allocated = 0;
   let reserved: ComposerMountedIdentity[] = [];
   let writeHook: (() => Promise<void>) | null = null;
   let readHook: (() => Promise<unknown>) | null = null;

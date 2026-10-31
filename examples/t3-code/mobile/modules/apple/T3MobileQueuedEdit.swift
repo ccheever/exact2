@@ -1,7 +1,7 @@
+import Foundation
 #if os(iOS)
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 // App-local queued editor and durable immutable commands; never shared ordinary pending.
-import Foundation
 import CoreFoundation
 import Darwin
 
@@ -21,7 +21,9 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
     private let lock = NSLock()
     private let root: URL
-    private lazy var questions = T3QuestionCommands(root: root, read: { [unowned self] in try self.readJSON(self.preferences) },
+    private lazy var questions = T3QuestionCommands(root: root, read: { [unowned self] in
+        try t3InitialPreferenceDocument(self.readJSON(self.preferences), missing: !FileManager.default.fileExists(atPath: self.preferences.path),
+            hasBoundPins: { try T3QuestionAttachments.shared(dataRoot: self.root).hasBoundPins() }) },
         save: { [unowned self] in try self.writePreferencesLocked($0, questionCAS: true) },
         inventory: { [unowned self] in T3QuestionAttachments.shared(dataRoot: self.root) })
     private lazy var pickerIntakes = T3MobilePickerIntakeStore(root: root, replace: replace)
@@ -1486,3 +1488,8 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
 }
 #endif
+
+func t3InitialPreferenceDocument(_ value: [String: Any], missing: Bool, hasBoundPins: () throws -> Bool) throws -> [String: Any] {
+    guard missing, value.isEmpty, try !hasBoundPins() else { return value }
+    return ["version": 1]
+}
