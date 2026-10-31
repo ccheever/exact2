@@ -887,6 +887,16 @@ reading. Nothing that isn't HTML is added by it.
   in data code; HDR output; `ExternalTexture` as a tier 2 word; a third
   party's decoder; tracks from other producers; WebRTC; Rust data code's
   binding.
+- **Expanded (Daehyeon Mun, 2026-10-31; LLP 1042 §9):** picture in
+  picture for an `image`'s pictures: `requestPictureInPicture(id)` and the
+  image's `enterpictureinpicture` and `leavepictureinpicture`, on macOS
+  (AVKit's sample-buffer source in the video arm) and the web's JS target;
+  iOS, tvOS, the wasm target, Linux and Windows refuse it. Consumer: the
+  T3 Code clone's server-rendered Browser tab, which T3 Code floats from
+  its JPEG stream; until now the clone hid the action. Take: none offered;
+  the waiver is asked for in the PR. Still out: picture in picture for a
+  `video` by command (AVKit's controls reach it, LLP 1042 §3),
+  `exitPictureInPicture()`, a capability read for it, and iOS.
 - ~~No camera anything.~~ Moved 2026-10-02 (Charlie: "I don't know why camera is so
   aggressively deferred. Can we change that and record the change? It's time to work
   on it"; take waived, none offered): a camera is an app native module in LLP
