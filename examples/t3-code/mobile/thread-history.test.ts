@@ -275,13 +275,17 @@ test('authored paging gates inactive views, rejects stale observations and isola
   root.call('threadAction', { lastOperation: '' }, rootScope, ['chatlocal:history-auto', 'key', '']);
   root.call('threadAction', { lastOperation: '' }, rootScope, ['stop', '', '']);
   expect(sent).toEqual(['threadHistoryChanged', 'changed']);
-  const anchorCalls: unknown[][] = [], anchorState = { historyAnchorKey: '', historyAnchorOffset: 0, historyAnchorRoute: '', historyAnchorRevision: 0 };
-  const anchorScope = { ...rootScope, threadData: { historyRevision: 0 }, scrollIntoView: (...args: unknown[]) => anchorCalls.push(args) };
+  const anchorCalls: unknown[][] = [], anchorState = { historyAnchorKey: '', historyAnchorOffset: 0, historyAnchorRoute: '', historyAnchorEnvironment: '', historyAnchorThread: '', historyAnchorRevision: 0 };
+  const anchorScope = { ...rootScope, threadData: { historyRevision: 0, environmentId: 'env', threadId: 'thread' }, scrollIntoView: (...args: unknown[]) => anchorCalls.push(args) };
   root.call('threadHistoryScroll', anchorState, anchorScope, [0, 12, { firstVisibleKey: 'turn-03', firstVisibleOffset: 42 }]);
-  expect(anchorState).toMatchObject({ historyAnchorKey: 'turn-03', historyAnchorOffset: 42, historyAnchorRoute: '7', historyAnchorRevision: 0 });
+  expect(anchorState).toMatchObject({ historyAnchorKey: 'turn-03', historyAnchorOffset: 42, historyAnchorRoute: '7', historyAnchorEnvironment: 'env', historyAnchorThread: 'thread', historyAnchorRevision: 0 });
   anchorScope.threadData.historyRevision = 1;
   root.call('didThreadHistoryChanged', anchorState, anchorScope, []);
   expect(anchorCalls).toEqual([['thread-feed', 'turn-03', { offset: 42, behavior: 'instant' }]]);
+  anchorScope.threadData.threadId = 'other-thread';
+  anchorScope.threadData.historyRevision = 2;
+  root.call('didThreadHistoryChanged', anchorState, anchorScope, []);
+  expect(anchorCalls).toHaveLength(1);
 });
 
 test('history chrome describes active loading and disables retry while offline', () => {
