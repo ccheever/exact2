@@ -10667,3 +10667,24 @@ collection is complete. The six broad checks remain deferred to the Mac
 mini. One implementation and measurement round; no second renderer change
 is made to pursue the missed warm targets. D7, D11 and D15, including the
 dated device and 100 ms application obligations, remain unchanged.
+
+## M10, confirmed
+
+**Predictions, before measurement (2026-10-31).** This records-only
+confirmation compares main's carrier at `bc9da74a4b` with cut 6 rebased at
+`c7a9596585`. Both are release builds from this worktree. The native, GPUI
+and egui controls are the retained cut 6 binaries. All run on the dedicated
+silver Mac with the GPU queue hook, tracing and power sampling off.
+
+| Prediction | Instrument and cohort | Result |
+| --- | --- | --- |
+| Ink after is 5–12 ms below GPUI and 15–25 ms below egui; Ink before is 8–15 ms above GPUI | `measure.m`, cold-only; ten launches of each control under each before/after label, ten of each Ink carrier, interleaved in one session | Pending |
+| Ink after and before have a paired range crossing zero for process/main CPU ms/s, cycles/s, frames/s, late intervals/s and peak footprint in fling, rest, bar and caret | G4's posted fling and rest; G5's bar and caret; five interleaved rounds of native, GPUI, egui and adjacent Ink before/after | Pending |
+| Ink rest submits zero frames | Presented timestamps in the same five fling/rest samples | Pending |
+
+Every freshly signed bundle gets a throwaway launch. Cold launches require
+ten quiet seconds each; their during-launch load maxima are report-only.
+Fling and static samples keep the amended five-second quiet rule and clock
+columns. Failed originals remain, without replacement. Raw files, signed
+bundles, commands and reductions will remain in `target/m10-confirmed/`
+and the silver's `target/g0/m10-confirmed/`. No renderer code changes.
