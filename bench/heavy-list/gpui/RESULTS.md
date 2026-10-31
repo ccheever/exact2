@@ -11163,7 +11163,9 @@ window's first visible window and layer colours match; reveal follows
 acquisition by 24.001 ms. Each background case retires its observer
 once. `landing/{trace-summary,background-summary}.py` reproduces these
 checks from `landing/silver/`; the live Metal and wgpu screenshots show
-the scrolled list. Dark appearance is covered by unit tests, not a live
+the scrolled list. The moved `first-present-window.m` fixture compiles
+without diagnostics (`checks/first-present-window-build.{json,log}`);
+that compile opens no window. Dark appearance is covered by unit tests, not a live
 silver appearance switch; nesting is tested with a real nested Core
 Foundation loop, not an AppKit modal window.
 
@@ -11178,4 +11180,39 @@ failed, and takes a fresh initial quiet gate; it keeps that original
 unchanged. `resume-provenance.json` records the original and resumed
 coordinator hashes and the retained slot. The first pair therefore
 straddles the ownership interruption; no measured original is replaced.
-The cold cohorts start only after this handoff.
+The cold cohorts start only after this handoff. The primary cost result
+keeps all five pairs; a separately reported sensitivity uses pairs 2–5,
+whose collection is uninterrupted. This selection is written before
+those four pairs finish, not chosen from their results.
+
+**Landing source and reproduction.** The final source is
+`c2bbac1010565b1bc606dad1b3fb7efe7aaa0741`, against main
+`15c20224e2a16165bad87552a036d90d16fd4d91`. `build-landing.json` and
+`build-landing.log` retain the release build, target directory and source;
+later commits change only measurement records and the queue. The same three
+control executables are reused. All five arms load probe SHA-256
+`956fa19e69c1eb98619c1e476bf1f818b9f77f1c6fdcafd1cd1b09771b938dcc`.
+The background diagnostic uses a separate copied bundle and probe; it
+does not supply a scoreboard sample.
+
+The retained silver session is
+`/Users/ccheever/projects/exact2-measure/target/g0/m10-review-fix/landing/`,
+mirrored locally at `target/m10-review-fix/landing/silver/`. Launches are
+process-cold with application and system caches retained. The driver
+commands, environment policy, original slots, quiet observations and
+report-only launch maxima are in `run-review.py`, `provenance.json` and
+each cohort's `schedule.json` and `quiet-*.jsonl`. Reproduce the final
+tables from the repository root:
+
+```sh
+python3 target/m10-review-fix/landing/reduce.py
+python3 target/m10-review-fix/landing/reduce-cold.py
+python3 target/m10-review-fix/landing/phase-work.py
+python3 target/m10-review-fix/landing/aggregate-check.py
+python3 target/m10-review-fix/landing/aggregate-cold.py
+python3 target/m10-review-fix/landing/launch-table.py cold
+python3 target/m10-review-fix/landing/launch-table.py cold-traced
+python3 target/m10-review-fix/landing/trace-summary.py
+python3 target/m10-review-fix/landing/background-summary.py
+python3 target/m10-review-fix/landing/audit.py
+```
