@@ -1379,6 +1379,13 @@ predicted 5–12 and 15–25 ms leads. Before is 17.131 ms above GPUI, outside
 8–15 ms. The paired Ink change is −19.836 ms [−44.145, +16.012], n=10.
 The cold lead does not hold in both sessions, so cut 6's historical row
 is not promoted as a confirmed win. The 100 ms obligation remains unmet.
+The five paired fling/rest/caret rounds meet the unchanged CPU, cycles,
+cadence and peak predictions, with zero Ink rest frames. Bar's frame rate
+rises by 0.194/s [0.095, 0.306] and peak falls by 3.188 MiB
+[2.703, 5.062], missing the unchanged prediction. Its late-rate range
+barely excludes zero; one pair has equal long-interval counts. Fling
+instructions rise by 24.934 million/s [15.612, 28.720]. Controls share
+each cost round, with failures and load exclusions reported beside n.
 [Both sessions and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-confirmed).
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,

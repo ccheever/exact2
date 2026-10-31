@@ -10679,14 +10679,14 @@ silver Mac with the GPU queue hook, tracing and power sampling off.
 | Prediction | Instrument and cohort | Result |
 | --- | --- | --- |
 | Ink after is 5–12 ms below GPUI and 15–25 ms below egui; Ink before is 8–15 ms above GPUI | `measure.m`, cold-only; ten launches of each control under each before/after label, ten of each Ink carrier, interleaved in one session | **Miss:** Ink after is 3.847 ms above GPUI and only 1.843 ms below egui; Ink before is 17.131 ms above GPUI. |
-| Ink after and before have a paired range crossing zero for process/main CPU ms/s, cycles/s, frames/s, late intervals/s and peak footprint in fling, rest, bar and caret | G4's posted fling and rest; G5's bar and caret; five interleaved rounds of native, GPUI, egui and adjacent Ink before/after | Fling/rest meet all named rows; bar misses frame rate, late rate and peak footprint in the lower-cost direction. Caret pending. |
+| Ink after and before have a paired range crossing zero for process/main CPU ms/s, cycles/s, frames/s, late intervals/s and peak footprint in fling, rest, bar and caret | G4's posted fling and rest; G5's bar and caret; five interleaved rounds of native, GPUI, egui and adjacent Ink before/after | **Partly met:** fling/rest/caret meet all named rows. Bar misses frame rate (+0.194/s), late rate (−0.200/s) and peak footprint (−3.188 MiB), with ranges excluding zero; CPU/main/cycles meet. |
 | Ink rest submits zero frames | Presented timestamps in the same five fling/rest samples | **Met:** all ten before/after Ink rest originals have zero frames. |
 
 Every freshly signed bundle gets a throwaway launch. Cold launches require
 ten quiet seconds each; their during-launch load maxima are report-only.
 Fling and static samples keep the amended five-second quiet rule and clock
 columns. Failed originals remain, without replacement. Raw files, signed
-bundles, commands and reductions will remain in `target/m10-confirmed/`
+bundles, commands and reductions remain in `target/m10-confirmed/`
 and the silver's `target/g0/m10-confirmed/`. No renderer code changes.
 
 **Cold confirmation: the lead does not repeat.** All 80 original slots
@@ -10725,6 +10725,7 @@ alongside them; no unchanged prediction was made for those two rows.
 | fling | 5 | 4 | 2 | 5 | 5 | 5 |
 | rest | 5 | 4 | 2 | 5 | 5 | 5 |
 | bar | 4 | 5 | 4 | 5 | 5 | 5 |
+| caret | 5 | 4 | 5 | 5 | 5 | 5 |
 
 Process work and clocks. Cycles and instructions are millions per second;
 effective GHz is cycles divided by process CPU time, and IPC is instructions
@@ -10747,6 +10748,11 @@ per cycle. Each clock cell is reduced per original before taking its median.
 | bar | egui | 203.704 [203.214, 206.208] | 109.516 [109.339, 111.316] | 352.632 [348.231, 362.585] | 329.532 [326.656, 332.622] | 1.733 [1.709, 1.758] | 0.931 [0.917, 0.944] |
 | bar | ink-before | 192.552 [188.655, 205.877] | 97.611 [95.083, 111.985] | 299.105 [283.524, 318.657] | 411.363 [408.229, 486.670] | 1.548 [1.503, 1.630] | 1.418 [1.294, 1.527] |
 | bar | ink-after | 192.494 [190.167, 201.455] | 96.611 [96.072, 107.389] | 294.855 [289.765, 311.329] | 408.737 [406.344, 471.898] | 1.524 [1.509, 1.626] | 1.402 [1.313, 1.537] |
+| caret | native | 11.499 [10.532, 11.659] | 10.249 [9.256, 10.366] | 16.914 [15.587, 17.332] | 21.783 [20.082, 21.853] | 1.483 [1.466, 1.487] | 1.274 [1.236, 1.292] |
+| caret | gpui | 18.455 [17.774, 18.889] | 14.865 [14.337, 15.180] | 26.657 [25.977, 27.689] | 36.046 [35.855, 36.168] | 1.453 [1.444, 1.466] | 1.354 [1.303, 1.380] |
+| caret | egui | 16.317 [15.879, 16.586] | 13.426 [13.129, 13.737] | 23.397 [22.988, 25.056] | 28.815 [28.754, 28.918] | 1.458 [1.434, 1.511] | 1.232 [1.148, 1.257] |
+| caret | ink-before | 26.708 [26.611, 27.821] | 23.647 [23.418, 24.670] | 38.951 [38.263, 41.028] | 64.901 [64.375, 65.085] | 1.458 [1.437, 1.475] | 1.668 [1.569, 1.696] |
+| caret | ink-after | 26.278 [26.143, 26.821] | 23.183 [23.060, 23.638] | 38.569 [37.791, 39.426] | 64.362 [63.547, 65.764] | 1.455 [1.446, 1.496] | 1.668 [1.660, 1.687] |
 
 Presentation and footprint. Native reports display-link callbacks, painted
 arms report presented drawables. Fling late intervals and p95 use the four
@@ -10772,6 +10778,11 @@ are not a missed-deadline count. Peak and end footprint are MiB.
 | bar | egui | 119.699 [119.494, 119.701] | — | 0.300 [0.300, 0.500] | 8.333 [8.333, 8.333] | 439.314 [438.954, 442.767] | 438.915 [438.611, 442.376] |
 | bar | ink-before | 119.555 [119.426, 119.580] | — | 0.400 [0.400, 0.600] | 8.333 [8.333, 8.333] | 356.251 [355.689, 358.251] | 351.220 [350.892, 353.079] |
 | bar | ink-after | 119.650 [119.587, 119.884] | — | 0.400 [0.100, 0.400] | 8.333 [8.333, 8.333] | 353.064 [352.876, 353.360] | 348.064 [347.657, 350.314] |
+| caret | native | 119.960 [119.882, 120.034] | — | 0.000 [0.000, 0.100] | 8.333 [8.333, 8.333] | 128.970 [125.595, 130.345] | 128.517 [125.064, 129.985] |
+| caret | gpui | 2.000 [1.999, 2.098] | — | 1.900 [1.900, 1.998] | 529.167 [525.000, 533.334] | 292.985 [292.454, 301.392] | 292.525 [291.970, 300.814] |
+| caret | egui | 2.000 [1.999, 2.000] | — | 1.900 [1.899, 1.900] | 500.000 [500.000, 508.333] | 440.079 [432.579, 443.657] | 439.735 [432.157, 443.189] |
+| caret | ink-before | 1.999 [1.999, 2.000] | — | 1.899 [1.899, 1.900] | 508.334 [500.000, 508.334] | 354.064 [344.439, 356.610] | 350.532 [341.095, 350.798] |
+| caret | ink-after | 1.999 [1.999, 2.000] | — | 1.899 [1.899, 1.900] | 508.333 [500.000, 508.334] | 350.829 [341.439, 351.079] | 347.501 [338.110, 347.751] |
 
 Paired changes. The “zero in range” column tests the prediction only for
 the metrics named above. The bar late-rate range uses six decimals because
@@ -10783,8 +10794,8 @@ its upper endpoint is close to zero.
 | fling | main | -1.281 [-3.050, 0.458] | yes |
 | fling | cycles | -0.149 [-6.209, 6.672] | yes |
 | fling | instructions | 24.934 [15.612, 28.720] | no |
-| fling | fps | 0.105 [-0.201, 0.196] | yes |
-| fling | gestureFps | -0.411 [-1.276, 0.894] | yes |
+| fling | fps | 0.105278 [-0.201066, 0.196451] | yes |
+| fling | gestureFps | -0.411269 [-1.276423, 0.893876] | yes |
 | fling | late | -0.000991 [-0.531341, 0.535067] | yes |
 | fling | peak | 0.750 [-4.234, 10.313] | yes |
 | fling | end | 1.141 [-1.000, 8.344] | yes |
@@ -10792,7 +10803,7 @@ its upper endpoint is close to zero.
 | rest | main | -0.092 [-0.146, 0.147] | yes |
 | rest | cycles | -0.070 [-0.220, 0.176] | yes |
 | rest | instructions | -0.153 [-0.278, 0.105] | yes |
-| rest | fps | 0.000 [0.000, 0.000] | yes |
+| rest | fps | 0.000000 [0.000000, 0.000000] | yes |
 | rest | gestureFps | — | unavailable |
 | rest | late | 0.000000 [0.000000, 0.000000] | yes |
 | rest | peak | 1.141 [-1.000, 8.344] | yes |
@@ -10801,35 +10812,49 @@ its upper endpoint is close to zero.
 | bar | main | -0.012 [-4.595, 2.355] | yes |
 | bar | cycles | 5.207 [-23.059, 12.224] | yes |
 | bar | instructions | -3.153 [-14.772, 18.761] | yes |
-| bar | fps | 0.194 [0.095, 0.306] | no |
+| bar | fps | 0.194316 [0.095124, 0.306029] | no |
 | bar | gestureFps | — | unavailable |
 | bar | late | -0.199800 [-0.299939, -0.000016] | no |
 | bar | peak | -3.188 [-5.062, -2.703] | no |
 | bar | end | -2.828 [-3.563, -2.766] | no |
+| caret | cpu | -0.565 [-1.471, 0.210] | yes |
+| caret | main | -0.587 [-1.369, 0.060] | yes |
+| caret | cycles | -1.160 [-1.824, 0.492] | yes |
+| caret | instructions | -0.516 [-1.432, 1.390] | yes |
+| caret | fps | -0.000281 [-0.001171, 0.000729] | yes |
+| caret | gestureFps | — | unavailable |
+| caret | late | -0.000267 [-0.001113, 0.000693] | yes |
+| caret | peak | -3.047 [-6.094, 6.297] | yes |
+| caret | end | -2.984 [-3.266, 6.391] | yes |
 
-Fling and rest meet every named unchanged prediction. Every Ink rest
-original has zero presented frames, before and after. Fling instructions
-rise by 24.934 million/s [15.612, 28.720]; that is a measured work increase
-outside the predicted metrics. The fling late-rate range crosses zero,
-so this result does not trigger the requested commit attribution.
+Fling, rest and caret meet every named unchanged prediction. Every Ink
+rest original has zero presented frames, before and after. Fling
+instructions rise by 24.934 million/s [15.612, 28.720]; that is a measured
+work increase outside the predicted metrics. The fling late-rate range
+crosses zero, so this result does not trigger the requested commit
+attribution.
 
 Bar meets the CPU, main-thread CPU and cycles predictions. Its frame-rate,
 late-rate and peak-footprint predictions miss: frame rate rises, while the
 late rate and peak fall. The late-rate upper endpoint is −0.000016/s;
 round 2 has four long intervals on each carrier, and its rate difference
 comes only from the phase durations. That endpoint is not evidence of fewer
-long intervals in every pair. Peak falls by 3.188 MiB [2.703, 5.063].
-Caret is still running; its prediction remains unresolved.
+long intervals in every pair. Peak falls by 3.188 MiB [2.703, 5.062].
 
+All 155 original slots complete. Cold has four egui readiness failures.
 Fling excludes egui rounds 1 and 4 for readiness timeouts, egui round 3
 for 1.326 non-benchmark cores, and GPUI round 5 for a user process at
 0.280 core. Bar excludes native round 1 and egui round 4 for background
-load. All originals remain without replacement.
+load. Caret excludes GPUI round 5 for a user process at 0.297 core.
+All originals remain without replacement. Every Ink cost original qualifies,
+so each phase has five complete pairs. The incomplete control counts prevent
+claiming five qualified samples for every arm.
 
 **Builds, originals and reproduction.** Prediction commit `b6ada1ba71`
-(08:39 PDT) precedes the collector launch (08:49 PDT). The later rebase
-preserves it as `326bddef5c`; the measured sources remain `bc9da74a4b`
-and `c7a9596585`. `target/m10-confirmed/measured-source.bundle`,
+(08:39 PDT) precedes the collector launch (08:49 PDT). The branch rebases onto
+`origin/main` at `15c20224e2`; the measured sources remain `bc9da74a4b`
+and `c7a9596585`. The renderer and benchmark source diff is empty;
+`rebase-final-context.json` lists the checked paths and other upstream changes. `target/m10-confirmed/measured-source.bundle`,
 `measured-source.patch` and the rebase records preserve those boundaries.
 
 The after carrier builds with the release painted-benchmark wrapper.
@@ -10878,3 +10903,14 @@ originals the quiet rule excludes. The originals themselves remain in
 `silver/`, failures included. `raw-sha256.json` and `analysis-sha256.json`
 hash the records and reducers. Recollection needs a fresh artifact
 directory and its own provenance paths; do not overwrite these originals.
+
+**Verification.** Both release builds succeed, as recorded above. The
+committed reducer reproduces the cold, fling/rest, bar and caret values and
+sample counts; `aggregate-check.txt` retains its exact comparison output.
+`audit.txt` confirms all 155 slots, quiet gates and adjacent Ink pairs,
+all 1,759 power observations, the common probe bytes, all five executable
+hashes and all five bundle signatures. The final caps output is retained in
+`checks/caps-final.log`; `git diff --check` is clean. No renderer code or
+test changes in this chunk. The six broad suites and blind code reviews
+remain the separate runs assigned in the brief; this records-only chunk
+does not claim their results. No push.
