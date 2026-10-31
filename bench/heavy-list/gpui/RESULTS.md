@@ -9463,3 +9463,39 @@ The six broad gates are left for the Mac mini as requested: no root build,
 root test, root clippy/fmt, boot or workspace check is claimed here. Caps,
 the release/development builds and the affected suites above run locally.
 No push is made.
+
+## M10, cut 3: re-present the first frame on each tick
+
+**Predictions before the run, 2026-10-31.** Keep cut 2's early show and
+page background. Retain the first submitted frame; after its zero callback,
+copy it to a fresh drawable on every display-link tick until the first
+positive displayed timestamp. Do not repaint it. Keep the wgpu layer's
+displayed-painter tracking and chunk 4's redraw retry as the backstop.
+
+| Prediction | Instrument |
+| --- | --- |
+| Warm complete screen about 178 ms, range 170–190, approximately show + 85 ms | `startup.py`, hook off, trace on, power off; five cold/warm launches per arm, then ten paired before/after launches per arm |
+| Cold complete screen 180–188 ms, at least 10 ms below GPUI and egui | `measure.m` cold-only, ten attempts per arm before and after, native/GPUI/Ink/egui |
+| Two to ten zero callbacks, then a positive one | The traced confirmation and paired launches; callback observation and displayed time reported separately |
+| One drawable and compose-target copy per retry tick, no paint | The same traces, joining tick, copy and callback records |
+| First-frame pixels identical; CPU-first archive miss hands off; live Metal and wgpu continue drawing | Affected suites, passive startup and live carrier checks on silver |
+| Fling, rest and static unchanged | Existing scoreboard rows stand; this startup cut does not remeasure them |
+
+Before is cut 2's retained `8116a09a55` carrier. Every signed arm gets a
+throwaway launch. Every measured launch needs ten quiet seconds; launch load
+maxima are report-only. Failed originals remain without replacement, with
+successful n beside each median. New raw files stay under `target/m10-c3/`.
+The six broad checks go to the Mac mini; affected suites and caps run here.
+One implementation round, no push.
+
+The retained ten cut 2 warm traces locate the proposed earlier show:
+AppKit finishes launching at median 65.517 ms; the call to create the window
+begins at 66.519, returns at 87.607, and show returns at 93.348. The median
+within-launch dispatch gap is 0.985 ms, window construction 21.083 ms, and
+layer setup plus show 5.721 ms. `target/m10-c3/window-before.json` retains
+the per-file reduction. The gap is the window's construction, not carrier
+setup ahead of it: `resumed` creates the window first. The window and layer
+already precede the device, runner, layout and display-link setup. No such
+work can be moved behind show here; creating before AppKit's launch callback
+would change winit's lifecycle ordering. This cut keeps that order and
+predicts no additional saving from an earlier show.
