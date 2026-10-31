@@ -1,5 +1,7 @@
 # Queue
 
+- **`check` on the Windows host** (2026-10-31, bake-off Windows lane). The painted presenter answers no `check` observation (`scripts/agent-check.mjs` takes web and iOS), so `verify windows` captures each screen unjudged: no contrast, target-size, overflow or largest-text findings. Answer it from the presenter as the Apple agent's `check` does, then let `verify windows` judge light and dark as iOS's does.
+- **A Windows build's receipt names no app source** (2026-10-31). `windows-<target>.build.json`'s inputs hold the app's Cargo files but not app.contract, app.ts or the crate, so `agent.mjs windows` does not refuse a stale build; `agent-build.mjs` `windowsBuild` compares the app's files with the executable's time instead. Record the bake's inputs in the receipt and drop that comparison.
 - **M2 rest trace on the caret workload** (LLP 1149.001 M2b). The G5m caret now presents twice per second but still uses 27.148 process / 24.661 main-thread ms/s. Its `every(250, tick)` and `every(1000, second)` fire five times per second, and the display link starts and stops twice. Attribute the service passes, link start/stop and probe on the retained workload before predicting another CPU saving; this is not M2's timer-free rest case. See `bench/heavy-list/gpui/RESULTS.md`, “G5m, after M2b”.
 
 - **Wall-clock test bounds flake under load** (2026-10-30). In every full run on a loaded Mac one of these
