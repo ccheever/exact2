@@ -408,6 +408,10 @@ fn a_hover_that_disables_the_focused_control_blurs_it_before_the_next_hover() {
     let inner = p.box_of(named(&p, "inner")).unwrap();
     let (x, y) = inner.center();
     assert!(p.hover_at(Some((x, y)), 1.).is_none());
-    assert_eq!(log(&p), "b", "the outer hover disabled it; the inner one enabled it after its blur");
+    assert_eq!(
+        log(&p),
+        "b",
+        "the outer hover disabled it; the inner one enabled it after its blur"
+    );
     assert_eq!(p.focus(), None);
 }
