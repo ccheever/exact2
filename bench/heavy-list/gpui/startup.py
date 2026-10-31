@@ -264,8 +264,9 @@ def sample(path, traced=True):
     result = read(path)
     if not traced:
         return dict(file=str(path), milestones={'constructor': result['preMainMs'],
-                    'first presented': result['firstDrawableMs'], 'complete screen': result['coldMs']},
-                    exclusive={}, inclusive={}, startup={}, arm=result['arm'])
+                    'first presented': result.get('firstDrawableMs'), 'complete screen': result['coldMs']},
+                    exclusive={}, inclusive={}, startup=result.get('startup', {}),
+                    clocks=launch_clocks(result.get('startup', {})), arm=result['arm'])
     trace = read(Path(str(path) + '.trace.json'))
     assert trace['dropped'] == 0
     start = result['startup']['processStart'] * 1000
@@ -297,20 +298,7 @@ def sample(path, traced=True):
                        first('probe direct present preceding commit', True)] if v is not None), default=None),
                   'first presented': result['firstDrawableMs'], 'complete screen': result['coldMs']}
     startup = result['startup']
-    clocks = {}
-    for phase, lower, upper in [('process to constructor', None, 'constructor'),
-                                ('process to main', None, 'main'),
-                                ('main to complete callback', 'main', 'complete'),
-                                ('constructor to complete callback', 'constructor', 'complete'),
-                                ('process to complete callback', None, 'complete')]:
-        if any(prefix + suffix not in startup for prefix in [lower, upper] if prefix
-               for suffix in ['CpuSeconds', 'Cycles', 'Instructions']):
-            continue
-        def delta(suffix):
-            return startup[upper + suffix] - (startup[lower + suffix] if lower else 0)
-        cpu, cycles, instructions = delta('CpuSeconds'), delta('Cycles'), delta('Instructions')
-        clocks[phase] = dict(cpuMs=cpu*1000, cycles=cycles, instructions=instructions,
-                             effectiveGHz=cycles/cpu/1e9, ipc=instructions/cycles)
+    clocks = launch_clocks(startup)
     milestones['complete callback observed'] = startup['completeObserved'] * 1000 - start if startup.get('completeObserved') else None
     # The main-thread intervals nest. Divide at every boundary and charge each
     # slice to the innermost interval; off-thread work is kept in its own table.
@@ -333,6 +321,24 @@ def sample(path, traced=True):
             inclusive[key] = inclusive.get(key, 0) + duration
     return dict(file=str(path), milestones=milestones, exclusive=exclusive, inclusive=inclusive,
                 startup=startup, clocks=clocks, arm=result['arm'])
+
+
+def launch_clocks(startup):
+    clocks = {}
+    for phase, lower, upper in [('process to constructor', None, 'constructor'),
+                                ('process to main', None, 'main'),
+                                ('main to complete callback', 'main', 'complete'),
+                                ('constructor to complete callback', 'constructor', 'complete'),
+                                ('process to complete callback', None, 'complete')]:
+        if any(prefix + suffix not in startup for prefix in [lower, upper] if prefix
+               for suffix in ['CpuSeconds', 'Cycles', 'Instructions']):
+            continue
+        def delta(suffix):
+            return startup[upper + suffix] - (startup[lower + suffix] if lower else 0)
+        cpu, cycles, instructions = delta('CpuSeconds'), delta('Cycles'), delta('Instructions')
+        clocks[phase] = dict(cpuMs=cpu*1000, cycles=cycles, instructions=instructions,
+                             effectiveGHz=cycles/cpu/1e9, ipc=instructions/cycles)
+    return clocks
 
 
 def summarize(args):
