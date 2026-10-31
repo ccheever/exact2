@@ -47,15 +47,15 @@ export function directDependencies(appDir) {
   return Object.keys(manifest?.dependencies ?? {}).sort().flatMap(name => { const root = located(name); return root ? [{ name, root }] : []; });
 }
 
-/** The app's direct dependencies whose `exact.json`, at the package's root, declares `native`. A declaration that is
- * there and does not parse is refused by name. */
+/** The app's direct dependencies whose `exact.json`, at the package's root, declares `native`, as the bake reads them
+ * (contract/cli/src/native/slot.rs). The bake is the one that refuses: two of them (`bake-native-twice`), and a
+ * declaration that does not parse (`bake-native-declaration`), which this skips. Every caller is followed by Cargo,
+ * which runs the bake before anything links. */
 export function nativePackages(appDir) {
   return directDependencies(appDir).flatMap(({ name, root }) => {
-    const path = join(root, 'exact.json');
-    if (!existsSync(path)) return [];
     let declaration;
-    try { declaration = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${name}'s exact.json (${path}) cannot be read as JSON: ${e.message}`); }
-    return declaration?.native && typeof declaration.native === 'object' ? [{ name, root, native: declaration.native }] : [];
+    try { declaration = JSON.parse(readFileSync(join(root, 'exact.json'), 'utf8')); } catch { return []; }
+    return declaration?.native != null ? [{ name, root, native: declaration.native }] : [];
   });
 }
 
@@ -86,12 +86,12 @@ export function xcframeworkSlice(fw, { platform, variant, arch }) {
 }
 
 /** What the app's build for `target` links of its package's library: the declaration's `{url, sha256}` for the
- * target, with the package and its link name; null when no direct dependency declares `native.library`. A target
+ * target, with the package and its link name; null when no one direct dependency declares `native.library`. A target
  * the declaration does not name is refused by name (LLP 1154 D6), as is a declaration exact2 cannot use. */
 export function libraryFor(appDir, target) {
   const declaring = nativePackages(appDir);
-  if (declaring.length > 1) throw new Error(`bake-native-twice: ${declaring.map(p => p.name).join(' and ')} each declare \`native\` in exact.json, and an app has one native module; depend on one of them`);
-  const [pkg] = declaring;
+  // Two are the bake's refusal, which Cargo meets before it links.
+  const [pkg] = declaring.length === 1 ? declaring : [];
   if (!pkg?.native.library) return null;
   const { library, link } = pkg.native, at = `${pkg.name}'s exact.json`;
   if (typeof library !== 'object' || Array.isArray(library)) throw new Error(`${at}: native.library is an object of {url, sha256} by Rust target`);

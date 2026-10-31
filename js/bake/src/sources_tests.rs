@@ -372,8 +372,9 @@ fn a_linked_module_leaves_its_bytecode_to_the_link() {
     );
 }
 
-/// LLP 1154 D3: the one direct dependency whose `exact.json` declares
-/// `native` fills the slot. On a native platform `module.rs` joins its shim
+/// LLP 1154 D3: the one direct dependency whose `exact.json`, at its root,
+/// declares `native` fills the slot, whatever its `exports` "." names (here
+/// its TypeScript driver). On a native platform `module.rs` joins its shim
 /// by an absolute `#[path]` and writes the factory; the web gets neither; a
 /// second such dependency refuses the bake, naming both. Every package file
 /// the choice read is watched, and one it cannot read refuses the bake.
@@ -385,7 +386,7 @@ fn a_package_declaring_native_writes_the_factory_and_a_second_refuses() {
         std::fs::create_dir_all(dir.join("native")).unwrap();
         std::fs::write(
             dir.join("package.json"),
-            r#"{"exports": {".": "./exact.json"}}"#,
+            r#"{"exports": {".": "./driver.js"}}"#,
         )
         .unwrap();
         std::fs::write(dir.join("exact.json"), declaration).unwrap();
@@ -430,6 +431,8 @@ fn a_package_declaring_native_writes_the_factory_and_a_second_refuses() {
     );
     let root = std::fs::canonicalize(vault.join("native/lib.rs")).unwrap();
     assert_eq!(slot.root, root);
+    // The link reads the rest of `native` from the same declaration.
+    assert!(slot.native["library"].is_object(), "{:?}", slot.native);
     let meta = serde_json::json!({"appId": "a", "grants": "", "module": {"sha256": "beef"}});
     let linux = super::module_constants(&meta, false, "linux", false, Some(&slot)).unwrap();
     assert!(
@@ -459,12 +462,19 @@ fn a_package_declaring_native_writes_the_factory_and_a_second_refuses() {
         refused.starts_with("bake-native-missing: the app depends on absent, which is not installed: run bun install"),
         "{refused}"
     );
-    std::fs::remove_file(package("undeclared", "{}").join("exact.json")).unwrap();
-    manifest(r#""@fixture/vault": "1.0.0", "undeclared": "1.0.0""#);
+    // A dependency with no exact.json declares nothing, and its absence is not watched.
+    let bare = package("bare", "{}");
+    std::fs::remove_file(bare.join("exact.json")).unwrap();
+    manifest(r#""@fixture/vault": "1.0.0", "bare": "1.0.0""#);
+    let selection = contract::native::native_slot(&app.0).unwrap();
+    assert_eq!(selection.slot.unwrap().package, "@fixture/vault");
+    assert!(!selection.watched.iter().any(|file| file.ends_with("bare/exact.json")));
+    package("unread", r#"{"native": "#);
+    manifest(r#""@fixture/vault": "1.0.0", "unread": "1.0.0""#);
     let refused = contract::native::native_slot(&app.0).unwrap_err();
     assert!(
-        refused.starts_with("bake-native-declaration: undeclared's package.json exports ")
-            && refused.ends_with("exact.json, which does not exist"),
+        refused.starts_with("bake-native-declaration: unread's exact.json (")
+            && refused.contains("is not JSON: "),
         "{refused}"
     );
 }

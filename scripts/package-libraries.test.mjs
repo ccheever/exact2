@@ -101,7 +101,7 @@ test('a shared object whose SONAME is not lib<link>.so is refused before it is l
   expect(refusal(() => prepareLibrary(app, TARGET, { cache, ...quiet }))).toBe(`vault: its ${TARGET} library text-libvault.so is not an ELF file`);
 });
 
-test('a target the declaration does not name, one exact2 cannot link, an http: URL, a bad declaration and two native packages are refused by name', () => {
+test('a target the declaration does not name, one exact2 cannot link, an http: URL and a bad link name are refused by name', () => {
   const bytes = elf('libvault.so'), url = library('targets', bytes);
   const app = fixture('targets', { vault: { native: { link: 'vault', library: { [TARGET]: { url, sha256: sha256(bytes) }, 'aarch64-linux-android': { url, sha256: sha256(bytes) }, 'armv7-linux-androideabi': { url, sha256: sha256(bytes) } } } } });
   expect(refusal(() => libraryFor(app, 'aarch64-unknown-linux-gnu'))).toBe(`vault has no native library for aarch64-unknown-linux-gnu: its exact.json native.library names ${TARGET}, aarch64-linux-android, armv7-linux-androideabi. An app that builds for aarch64-unknown-linux-gnu waits for the package to publish one (LLP 1154 D6)`);
@@ -109,9 +109,11 @@ test('a target the declaration does not name, one exact2 cannot link, an http: U
   expect(refusal(() => libraryFor(fixture('http', declares('http://example.com/libvault.so', bytes)), TARGET))).toBe(`vault's exact.json: native.library.${TARGET}.url is a file: or https: URL, not http:`);
   expect(refusal(() => libraryFor(fixture('apple-file', declares(url, bytes, 'vault', 'aarch64-apple-darwin')), 'aarch64-apple-darwin'))).toContain('native.library.aarch64-apple-darwin is a zip holding the .xcframework');
   expect(refusal(() => libraryFor(fixture('newline', declares(url, bytes, 'vault\ncargo:rustc-link-arg=-x')), TARGET))).toStartWith("vault's exact.json: native.link names the library");
-  expect(refusal(() => libraryFor(fixture('unparsed', { vault: '{"native": ' }), TARGET))).toMatch(/^vault's exact\.json \(.+\) cannot be read as JSON: /);
-  const two = fixture('two', { vault: { native: { rust: 'native/lib.rs', class: 'Vault' } }, safe: { native: { rust: 'native/lib.rs', class: 'Safe' } } });
-  expect(refusal(() => libraryFor(two, TARGET))).toStartWith('bake-native-twice: safe and vault each declare `native`');
+  // A declaration that does not parse and two native packages are the bake's to refuse (js/bake/src/sources_tests.rs):
+  // nothing is fetched for them.
+  expect(libraryFor(fixture('unparsed', { vault: '{"native": ' }), TARGET)).toBe(null);
+  const two = fixture('two', { vault: declares(url, bytes).vault, safe: declares(url, bytes).vault });
+  expect(libraryFor(two, TARGET)).toBe(null);
   // A native module without a library, an app with none, and a web target link nothing.
   expect(libraryFor(fixture('shim', { vault: { native: { rust: 'native/lib.rs', class: 'Vault' } } }), TARGET)).toBe(null);
   expect(libraryFor(fixture('none', { plain: { kind: 'interface' } }), TARGET)).toBe(null);

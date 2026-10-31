@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync,
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoEnvironment, pathFrom, patchLines } from './app.mjs';
+import { nativePackages } from './package-libraries.mjs';
 import { authoredWorkspace, shellsDir } from './cargo-check.mjs';
 import { APPLE_BUILD_SCRIPT, appleBuildScript } from './linked-plan.mjs';
 
@@ -77,23 +78,6 @@ export function withoutPlatformKeys(dir, platform) {
  * Canvas reader's APK loads, and `linux/`, the Linux host built for Android, which `--headless` drives under adb. */
 export function shellCrates(manifest) {
   return ['web', ...new Set(Object.keys(manifest.host ?? {}).filter(p => p in PLATFORMS).flatMap(p => p === 'android' ? ['linux', 'android'] : [PLATFORMS[p]]))];
-}
-
-/** The app's direct dependency whose `exact.json` declares `native`, the package that fills the data module's native
- * slot (LLP 1154 D3), found as the bake finds it (contract/cli/src/native/slot.rs); null for none. */
-export function nativePackage(dir) {
-  const read = (path) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } };
-  const ancestors = [];
-  for (let at = dir; ; at = dirname(at)) { ancestors.push(at); if (dirname(at) === at) break; }
-  const manifest = ancestors.map(at => resolve(at, 'package.json')).find(existsSync);
-  for (const name of Object.keys((manifest && read(manifest))?.dependencies ?? {})) {
-    const root = ancestors.map(at => resolve(at, 'node_modules', name)).find(at => existsSync(resolve(at, 'package.json')));
-    const exports = root && read(resolve(root, 'package.json'))?.exports;
-    const main = typeof exports === 'string' ? exports : exports?.['.'];
-    const at = typeof main === 'string' ? main : main?.contract ?? main?.default;
-    if (typeof at === 'string' && /(^|\/)exact\.json$/.test(at) && read(resolve(root, at))?.native) return name;
-  }
-  return null;
 }
 
 /** A host crate's files, keyed by path under the crate's directory. `dep(path)` is a dependency's path from there and
@@ -287,7 +271,8 @@ function writeChanged(path, text) {
 export function ensureShells(dir, manifest = readManifest(dir)) {
   dir = realpathSync(dir);
   const shells = shellsDir(dir), name = basename(dir), title = manifest.app?.name ?? manifest.name ?? titleOf(name);
-  const crates = shellCrates(manifest), native = nativePackage(dir);
+  // The package that fills the native slot (LLP 1154 D3); the bake refuses two.
+  const crates = shellCrates(manifest), native = nativePackages(dir).map(p => p.name);
   // The paths written are relative where the two trees share a directory (`pathFrom`), which reads real directories.
   for (const kind of crates) mkdirSync(resolve(shells, kind), { recursive: true });
   const copied = ['rust-toolchain.toml', '.cargo/config.toml'].map(file => [file, readFileSync(resolve(ROOT, file), 'utf8')]);
@@ -321,7 +306,7 @@ ${patches.join('\n')}
 `);
   for (const [file, text] of copied) wrote = writeChanged(resolve(shells, file), text) || wrote;
   for (const kind of crates) {
-    const files = crateFiles(kind, { name, title, native: !!native, app: '../../..', dep: path => `{ path = ${JSON.stringify(pathFrom(resolve(shells, kind), resolve(ROOT, path)))} }` });
+    const files = crateFiles(kind, { name, title, native: native.length > 0, app: '../../..', dep: path => `{ path = ${JSON.stringify(pathFrom(resolve(shells, kind), resolve(ROOT, path)))} }` });
     for (const [file, text] of Object.entries(files)) wrote = writeChanged(resolve(shells, kind, file), text) || wrote;
   }
   // A crate for a platform no longer named goes with its platform.

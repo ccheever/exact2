@@ -1,7 +1,8 @@
 //! A package's prebuilt dynamic library, linked into the app's crate (LLP 1154 D3 "The library", LLP 1133.001 D9).
-//! The app's direct dependency whose `exact.json` declares `native.library` names one `{url, sha256}` per Rust
-//! target; the native build fetched and checked the target's file before Cargo ran and laid out its link inputs
-//! under `~/.cache/exact/package-libraries/<sha256>/<target>/<link>/` (`scripts/package-libraries.mjs`). This build
+//! The package that fills the app's native slot (`contract::native::native_slot`, which chooses it and refuses two)
+//! names one `{url, sha256}` per Rust target in its `exact.json` `native.library`; the native build fetched and
+//! checked the target's file before Cargo ran and laid out its link inputs under
+//! `~/.cache/exact/package-libraries/<sha256>/<target>/<link>/` (`scripts/package-libraries.mjs`). This build
 //! script only points the linker there: `-L` that directory, `-l` the declaration's `native.link`, and a run path
 //! where the product carries the library, beside a Linux executable (`$ORIGIN`) and a Mac one run as the Linux host
 //! (`@executable_path`). An Apple app's crate is an archive, for which Cargo records these and links nothing;
@@ -10,20 +11,21 @@
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-/// Print the link of the app's package library for Cargo's `TARGET`; nothing for a web bake or when no direct
-/// dependency declares one.
+/// Print the link of the app's package library for Cargo's `TARGET`; nothing for a web bake or when the package that
+/// fills the native slot declares none.
 pub(crate) fn link(app: &Path, platform: &str) -> Result<(), String> {
     let target = std::env::var("TARGET").map_err(|_| "build requires TARGET".to_string())?;
     if platform == "web" || target.starts_with("wasm32-") {
         return Ok(());
     }
-    let app = app
-        .canonicalize()
-        .map_err(|e| format!("{}: {e}", app.display()))?;
-    let Some((name, declaration_path, native)) = declaring(&app)? else {
+    let selection = contract::native::native_slot(app)?;
+    for file in &selection.watched {
+        println!("cargo:rerun-if-changed={}", file.display());
+    }
+    let Some(slot) = selection.slot else {
         return Ok(());
     };
-    println!("cargo:rerun-if-changed={}", declaration_path.display());
+    let (name, native) = (&slot.package, &slot.native);
     let Some(library) = native.get("library").and_then(Value::as_object) else {
         return Ok(());
     };
@@ -89,58 +91,4 @@ pub(crate) fn link(app: &Path, platform: &str) -> Result<(), String> {
     let origin = if apple { "@executable_path" } else { "$ORIGIN" };
     println!("cargo:rustc-link-arg=-Wl,-rpath,{origin}");
     Ok(())
-}
-
-/// The direct dependency whose `exact.json` declares `native`: its name, that file and the `native` object. A
-/// declaration that is there and cannot be read or parsed is refused by name.
-fn declaring(app: &Path) -> Result<Option<(String, PathBuf, Value)>, String> {
-    let Some(manifest) = app
-        .ancestors()
-        .map(|dir| dir.join("package.json"))
-        .find(|path| path.is_file())
-    else {
-        return Ok(None);
-    };
-    let manifest: Value = std::fs::read_to_string(&manifest)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default();
-    let mut names: Vec<String> = (manifest["dependencies"].as_object())
-        .map(|deps| deps.keys().cloned().collect())
-        .unwrap_or_default();
-    names.sort();
-    let mut found = Vec::new();
-    for name in names {
-        let Some(root) = app
-            .ancestors()
-            .map(|dir| dir.join("node_modules").join(&name))
-            .find(|root| root.join("package.json").is_file())
-        else {
-            continue;
-        };
-        let path = root.join("exact.json");
-        let text = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => {
-                return Err(format!(
-                    "{name}'s exact.json ({}) cannot be read: {e}",
-                    path.display()
-                ))
-            }
-        };
-        let json: Value = serde_json::from_str(&text)
-            .map_err(|e| format!("{name}'s exact.json ({}) is not JSON: {e}", path.display()))?;
-        if json["native"].is_object() {
-            found.push((name, path, json["native"].clone()));
-        }
-    }
-    if found.len() > 1 {
-        let names: Vec<&str> = found.iter().map(|(name, ..)| name.as_str()).collect();
-        return Err(format!(
-            "bake-native-twice: {} each declare `native` in exact.json, and an app has one native module; depend on one of them",
-            names.join(" and ")
-        ));
-    }
-    Ok(found.pop())
 }
