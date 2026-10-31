@@ -305,14 +305,26 @@ mod tests {
                 assert_eq!(m.web, m.ios, "{}", m.name);
             }
         }
-        // The neutral look's grouped list is that one on the neutral
-        // grounds, with a surface's corners (LLP 1115.000 D4 part B): what
-        // the page's sheet draws (host/web/neutral.css).
+        // The neutral look's grouped list is a web page's (LLP 1115.000 D4
+        // part B, D4.16): edged cards with a surface's corners on the page's
+        // own ground, headed in the label's ink, a readable width at most,
+        // spaced as a web form's sections are.
         for m in METRICS.iter().filter(|m| m.kind == MetricKind::Style) {
             let neutral = match m.name {
-                "grouped-ground" => Text("-exact-grouped-background"),
-                "grouped-ground-plain" => Text("-exact-background"),
+                "grouped-ground"
+                | "grouped-ground-plain"
+                | "grouped-page-ground"
+                | "grouped-card-fill" => Text("-exact-background"),
                 "grouped-card-radius" => Number(12.0),
+                "grouped-card-edge-width" => Number(1.0),
+                "grouped-card-edge-style" => Text("solid"),
+                "grouped-header-color" => Text("-exact-label"),
+                "grouped-label-inset" => Number(16.0),
+                "grouped-section-width" => Text("100%"),
+                "grouped-section-max-width" => Number(720.0),
+                "grouped-section-margin-inline" => Text("auto"),
+                "grouped-section-top" => Number(24.0),
+                "grouped-section-top-first" | "grouped-section-bottom" => Number(16.0),
                 "header-ground" => Text("-exact-background"),
                 "header-color" => Text("-exact-label"),
                 "header-edge-width" => Number(1.0),
@@ -402,7 +414,8 @@ mod tests {
             "grouped-footer-font" => &[FontSize],
             n if n.ends_with("-weight") => &[FontWeight],
             n if n.ends_with("-radius") => &[BorderRadiusTopLeft],
-            "grouped-edge-width" => &[BorderWidthTop],
+            "grouped-edge-width" | "grouped-card-edge-width" => &[BorderWidthTop],
+            "grouped-card-edge-style" => &[BorderStyleTop],
             n if n.ends_with("-gap") => &[RowGap, ColumnGap],
             n if n.ends_with("-min-height") => &[MinHeight],
             n if n.ends_with("-height") => &[Height],
@@ -453,7 +466,7 @@ mod tests {
             assert_eq!(m.length, by_name, "{}", m.name);
             marked += usize::from(m.length);
         }
-        assert_eq!(marked, 61);
+        assert_eq!(marked, 62);
         // A `length` row is a length too; a `number` row is not.
         assert!(METRICS
             .iter()

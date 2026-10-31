@@ -127,12 +127,18 @@ fn a_host_that_says_its_platform_reads_that_platforms_column() {
     assert_eq!(ios.mask, web.mask);
 
     roles::set_overrides(vec![(card, card_theme), (separator, separator_theme)]);
-    for column in [Column::Ios, Column::Web, Column::Neutral] {
+    for column in [Column::Ios, Column::Web] {
         metrics::set_column(column);
         let unchanged = read();
         assert_eq!(unchanged.background_color, web.background_color);
         assert_eq!(unchanged.border_color_bottom, web.border_color_bottom);
     }
+    // The neutral look's card is the page's own ground, edged (LLP 1115.000
+    // D4.16), whatever a theme does to the grouped card's role.
+    metrics::set_column(Column::Neutral);
+    let neutral = read();
+    assert_eq!(neutral.background_color, Some(role("-exact-background")));
+    assert_eq!(neutral.border_color_bottom, web.border_color_bottom);
     roles::set_overrides(Vec::new());
 
     metrics::set_column(Column::Web);

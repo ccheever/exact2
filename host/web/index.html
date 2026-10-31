@@ -257,13 +257,13 @@
   #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls] > img { color: var(--exact-accent, AccentColor) !important; }
   #exact-root [data-exact-split="list"] { inset-inline-end: auto !important; box-sizing: border-box !important; width: var(--exact-split, 320px) !important; }
   #exact-root [data-exact-split="detail"] { inset-inline-start: var(--exact-split, 320px) !important; }
-  #exact-root [data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"]) { display: none !important; }
-  /* LLP 1116.006 D2: a split showing no detail fills the detail pane as an iPad's split view does: one quiet line,
-     centred, in the secondary label's colour (in English: the web host has no strings table of its own). A box of
+  /* LLP 1116.006 D2: a split showing no detail fills the detail pane with one quiet line, centred, in the secondary
+     label's colour, which asks for a choice as a web app's empty pane does, where an iPad's says "No Selection" (in
+     English: the web host has no strings table of its own; LLP 1115.000 D4.16). A box of
      the root route marked `navigationSplit="placeholder"`, the author's own, takes the pane instead: a centred
      column at the pane's width (the navigation glue sets it), its alignment the author's. The lowerer hides that box
      wherever no split shows it (a phone, a detail shown, a host that does not split). */
-  #exact-root [data-exact-split-empty]::before { content: "No Selection"; position: absolute; inset: 0; inset-inline-start: var(--exact-split, 320px); display: flex; align-items: center; justify-content: center; padding: 16px; color: var(--exact-secondary-label); font-size: 1.25rem; text-align: center; pointer-events: none; }
+  #exact-root [data-exact-split-empty]::before { content: "Select an item"; position: absolute; inset: 0; inset-inline-start: var(--exact-split, 320px); display: flex; align-items: center; justify-content: center; padding: 16px; color: var(--exact-secondary-label); font-size: 1.25rem; text-align: center; pointer-events: none; }
   #exact-root [data-exact-split-placeholder] { display: flex !important; position: absolute !important; inset-block: 0 !important; inset-inline: 100% auto !important; box-sizing: border-box !important; width: var(--exact-split-pane) !important; height: auto !important; margin: 0 !important; }
   :where(#exact-root [data-exact-split-placeholder]) { flex-direction: column; align-items: center; justify-content: center; padding: 16px; }
   /* Explicit glass styles retain their material when disabled. */

@@ -102,7 +102,8 @@ check('a field in a grouped row is a visible field on the web; appearance="none"
         expect(f.inRow, `${at} fits its row`).toBe(true);
         expect(f.color, `${at}: its line shows on the card`).not.toBe(f.card);
       }
-      expect(facts.unsaid.width, 'a field in a column fills the row').toBeGreaterThan(width === 390 ? 250 : 900);
+      // (A section is at most 720 px wide on the web, LLP 1115.000 D4.16.)
+      expect(facts.unsaid.width, 'a field in a column fills the row').toBeGreaterThan(width === 390 ? 250 : 620);
       expect(facts.bare.line, `bare at ${width} in ${mode}`).toBe('0px none');
       expect(facts.bare.radius).toBe('0px');
       expect(facts.bare.height).toBeLessThan(30);

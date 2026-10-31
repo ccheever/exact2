@@ -240,16 +240,18 @@ impl NavPlace {
     }
 
     /// @ref LLP 1116.007 D5 — a route whose scroll is a grouped list is on
-    /// the grouped background, as a hand-built `UITableViewController`'s
-    /// screen is, bar to bottom edge: its unsaid `background-color` is the
-    /// role `-exact-grouped-background`, so what sits between the `header`
-    /// and the list (a segmented switcher, a summary) is on the list's grey,
-    /// not the page's white. The row is the compiler's, set and not written
-    /// (LLP 1115.000 D2), and pushed before the author's, so a
-    /// `background-color` on the route (or its class) wins; a box between the
-    /// header and the list paints its own, over it. Each host resolves the
-    /// role its own way (`systemGroupedBackground` on iOS). `None` where this
-    /// is no route, or the route's scroll is anything else or cannot be told.
+    /// the grouped page's ground (the metric `grouped-page-ground`), bar to
+    /// bottom edge: on iOS the role `-exact-grouped-background`, as a
+    /// hand-built `UITableViewController`'s screen is, so what sits between
+    /// the `header` and the list (a segmented switcher, a summary) is on the
+    /// list's grey, not the page's white; on the web the page's own ground,
+    /// on which the list's cards stand. The row is the compiler's, set and
+    /// not written (LLP 1115.000 D2), and pushed before the author's, so a
+    /// `background-color` on the route (or its class) wins; a box between
+    /// the header and the list paints its own, over it. Each host resolves
+    /// the role its own way (`systemGroupedBackground` on iOS). `None` where
+    /// this is no route, or the route's scroll is anything else or cannot be
+    /// told.
     pub(crate) fn grouped_page(
         &self,
         tag: &str,
@@ -266,7 +268,7 @@ impl NavPlace {
         }
         let role = Attr {
             name: "background-color".into(),
-            value: Expr::Str("-exact-grouped-background".into(), span),
+            value: Expr::Str(crate::metrics::grouped("page-ground"), span),
             span,
             written: crate::IMPLIED,
         };

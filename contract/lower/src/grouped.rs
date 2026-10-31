@@ -31,7 +31,7 @@ mod native;
 mod title;
 mod value;
 
-use cell::{lines as cell_lines, standard, text_lines, text_stack};
+use cell::{lines as cell_lines, one_line, stacks, standard, text_stack};
 use inputs::{column_row, field_beside_label, field_kind, hidden, switch, text_field, Field};
 use native::native_row;
 pub(crate) use native::{margins_said, native_rows};
@@ -628,6 +628,16 @@ fn section(
     } else {
         m("background-color", "card-fill", span)
     }];
+    // An inset card's edge where the platform draws one (the web's, on the
+    // page's own ground), and a grouped card's at its top and bottom.
+    if style == "inset-grouped" && !cardless {
+        let edge = [
+            ("border-width", "card-edge-width"),
+            ("border-style", "card-edge-style"),
+        ];
+        group.extend(edge.map(|(row, metric)| m(row, metric, span)));
+        group.push(m("border-color", "separator", span));
+    }
     if style == "grouped" && !cardless {
         group.extend([
             m("border-top-width", "edge-width", span),
@@ -1482,18 +1492,4 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         }
         _ => child.clone(),
     }
-}
-
-/// Whether a row's part is a column of one shown text.
-fn one_line(node: &Node) -> bool {
-    matches!(node, Node::Element { tag, attrs, children, .. }
-        if !hidden(node) && column_row(tag, attrs) && text_lines(children) == Some((1, 1)))
-}
-
-/// Whether a row's part is lines stacked in the row: a shown element that
-/// lays out as a column around two parts or more (a column with nothing in
-/// it is a box, as a cover's placeholder is). `part` reads an `if` through.
-fn stacks(node: &Node) -> bool {
-    matches!(node, Node::Element { tag, attrs, children, .. }
-        if !hidden(node) && column_row(tag, attrs) && children.iter().filter(|c| !hidden(c)).count() >= 2)
 }

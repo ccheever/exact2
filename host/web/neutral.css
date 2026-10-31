@@ -33,7 +33,7 @@
      The roles this sheet and the shell's name, as the neutral column's pairs (the same test holds them to the table;
      apple-colors.test.mjs holds the Apple pairs a build lays over them), and the look's own few values. The line is the
      label's ink at 45% whatever the label's own alpha (Safari's on a Mac is 85%). */
-  :root { --exact-label: light-dark(#000000ff, #ffffffff); --exact-field-text: light-dark(#000000ff, #ffffffff); --exact-secondary-label: light-dark(#474747ff, #bdbdbdff); --exact-placeholder: light-dark(#5c5c5cff, #a3a3a3ff); --exact-separator: light-dark(#0000001f, #ffffff29); --exact-background: light-dark(#ffffffff, #121212ff); --exact-secondary-background: light-dark(#f5f5f5ff, #1e1e1eff); --exact-grouped-background: light-dark(#f5f5f5ff, #121212ff); --exact-secondary-grouped-background: light-dark(#ffffffff, #1e1e1eff); --exact-fill: light-dark(#00000024, #ffffff29); --exact-secondary-fill: light-dark(#0000001a, #ffffff1f); --exact-tertiary-fill: light-dark(#00000012, #ffffff17); --exact-quaternary-fill: light-dark(#0000000a, #ffffff0f); --exact-system-red: light-dark(#c90f1aff, #fe7367ff);
+  :root { --exact-label: light-dark(#000000ff, #ffffffff); --exact-field-text: light-dark(#000000ff, #ffffffff); --exact-secondary-label: light-dark(#474747ff, #bdbdbdff); --exact-placeholder: light-dark(#5c5c5cff, #a3a3a3ff); --exact-separator: light-dark(#0000001f, #ffffff29); --exact-background: light-dark(#ffffffff, #121212ff); --exact-secondary-background: light-dark(#f5f5f5ff, #1e1e1eff); --exact-secondary-grouped-background: light-dark(#ffffffff, #1e1e1eff); --exact-fill: light-dark(#00000024, #ffffff29); --exact-secondary-fill: light-dark(#0000001a, #ffffff1f); --exact-tertiary-fill: light-dark(#00000012, #ffffff17); --exact-quaternary-fill: light-dark(#0000000a, #ffffff0f); --exact-system-red: light-dark(#c90f1aff, #fe7367ff);
     --exact-gray-text: light-dark(#707070ff, #929292ff); --exact-line: color-mix(in srgb, var(--exact-label) 45%, transparent); --exact-raised: 0 0 0 1px var(--exact-separator), 0 4px 12px rgb(0 0 0 / .12); --exact-modal: 0 0 0 1px var(--exact-separator), 0 16px 48px rgb(0 0 0 / .24); --exact-scrim: rgb(0 0 0 / .4); }
   @supports (color: rgb(from red r g b / 1)) { :root { --exact-line: color-mix(in srgb, rgb(from var(--exact-label) r g b / 1) 45%, transparent); } }
   /* The accent: the browser's own (`AccentColor`), kept to a lightness at which it reads at 4.5:1 as text on the page
@@ -226,6 +226,11 @@
   #exact-root [data-listrows] > :not([data-exact-said~="box-shadow"]):has(+ :is(button, a[data-view][href], [data-exact-on~="press"])[data-pressed]:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"], [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"], [data-exact-surface], [data-exact-text] a, [data-exact-said~="background-color"], [data-exact-said~="background-image"]), + [data-listitemkey] > :is(button, a[data-view][href], [data-exact-on~="press"])[data-pressed]:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"], [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"], [data-exact-surface], [data-exact-text] a, [data-exact-said~="background-color"], [data-exact-said~="background-image"]), + [swipecontent] > :is(button, a[data-view][href], [data-exact-on~="press"])[data-pressed]:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"], [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"], [data-exact-surface], [data-exact-text] a, [data-exact-said~="background-color"], [data-exact-said~="background-image"]):first-child, + [data-listitemkey] > [swipecontent] > :is(button, a[data-view][href], [data-exact-on~="press"])[data-pressed]:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"], [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"], [data-exact-surface], [data-exact-text] a, [data-exact-said~="background-color"], [data-exact-said~="background-image"]):first-child) { box-shadow: none; }
   #exact-root [data-listrows] :is(button:not([data-native]), a[data-view][href], [data-exact-on~="press"]):focus-visible { outline-offset: -2px; }
 
+  /* A row that navigates shows no chevron (D4.16), as a web app's rows do not, where iOS draws its disclosure
+     indicator: a forward chevron in a link, a button or another pressable, or in a list's row, is not drawn, unless
+     it is all a button's face (a carousel's Next). */
+  #exact-root :is(a[href], button, [data-exact-on~="press"], [data-listrows] > *, [data-groupedrowseparator]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"]):not(:is(button, [data-exact-on~="press"]) > :only-child) { display: none !important; }
+
   /* Fields and `select`: 36 px in every engine (a said line height again), the control's line, the field's own ground
      and ink (the page's `color` does not tint a surface the host paints; the node's own, inline or its class's,
      still wins; the ground and ink are the design's Field and FieldText where it overrides them, LLP 1121 D9). */
@@ -296,6 +301,10 @@
   #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls])[aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: var(--exact-label); }
   @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls]), [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled:hover { color: var(--exact-label); } } }
   @media (any-pointer: coarse) { #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls]), [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { min-height: 38px; } }
+  /* A segmented control that is itself a grouped list's row (D4.16) spans the card as the row does, its segments on
+     the card's own ground, the chosen one raised: the track would stand in the row's padding and stop short of its
+     separator. */
+  #exact-root [data-groupedrowseparator]:is([role="tablist"]:has(> button[data-button-style][role="tab"]):not(:has(> [aria-controls])), [role="radiogroup"]:has(> button[data-button-style][role="radio"])) { width: auto; background-color: transparent; border-radius: 0; }
 
   /* The root tab bar, narrow: a bar of the page's ground under a 1 px line, each tab its symbol over its label, the
      selected one in the accent. */
@@ -477,12 +486,11 @@
     @starting-style { #exact-root [navigationPresentation="modal"] { box-shadow: var(--exact-modal), 0 0 0 100vmax transparent; } }
   }
 
-  /* A grouped list: the grouped ground under cards with 12 px corners. Its sheet is the compiler's (LLP 1084), whose
-     ground and corners are iOS's literals until its surfaces are roles (LLP 1115.000 D3.1), so these two outrank it;
-     a ground the author wrote on the list stays (`data-exact-said`). A card is the sheet's own node. */
-  #exact-root [data-liststyle]:not([data-exact-said~="background-color"]) { background-color: var(--exact-grouped-background) !important; }
-  #exact-root [data-liststyle="plain"]:not([data-exact-said~="background-color"]) { background-color: var(--exact-background) !important; }
+  /* A grouped list's card takes the look's surface corners and curve (D4.16): the grouped sheet is the compiler's
+     (LLP 1084), whose radius is the metric's number alone. Its ground, its card's fill and edge, and its section's
+     width are the metric table's neutral column. A card with no rows draws no edge, as it has no height to show. */
   #exact-root [data-liststyle="inset-grouped"] > section > div { border-radius: calc(12px * var(--exact-curve-reach)) !important; corner-shape: var(--exact-curve) !important; }
+  #exact-root [data-liststyle="inset-grouped"] > section > div:empty { border-style: none !important; }
 
   /* Forced colours: the drawn marks would lose their fills, so each is the browser's own again. */
   @media (forced-colors: active) {
