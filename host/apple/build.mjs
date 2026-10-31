@@ -971,7 +971,7 @@ async function main(args, lockHeld = false) {
     copyFileSync(resolve(libDir, archive), resolve(embed, archive));
     copyFileSync(resolve(pkg, 'include/exact.h'), resolve(embed, 'include/exact.h'));
     copyAppleGpuProducts(libDir, embed, gpuArtifacts, !!ipa);
-    const embeddedLibrary = embedLibrary(library, embed); // a package's framework (LLP 1154 D3), which the consumer links and embeds
+    const embeddedLibrary = embedLibrary(library, embed, ios); // a package's framework (LLP 1154 D3), which the consumer links and embeds
     // Beside the executable in the embedding app's bundle, as the standalone app has it.
     if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(embed, svgFilterLibraryName));
     copyAppleStaticTrees(paths.capture, embed);

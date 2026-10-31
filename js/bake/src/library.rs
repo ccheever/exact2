@@ -92,7 +92,7 @@ pub(crate) fn link(app: &Path, platform: &str) -> Result<(), String> {
 }
 
 /// The direct dependency whose `exact.json` declares `native`: its name, that file and the `native` object. A
-/// declaration that is there and does not parse is refused by name.
+/// declaration that is there and cannot be read or parsed is refused by name.
 fn declaring(app: &Path) -> Result<Option<(String, PathBuf, Value)>, String> {
     let Some(manifest) = app
         .ancestors()
@@ -119,8 +119,15 @@ fn declaring(app: &Path) -> Result<Option<(String, PathBuf, Value)>, String> {
             continue;
         };
         let path = root.join("exact.json");
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                return Err(format!(
+                    "{name}'s exact.json ({}) cannot be read: {e}",
+                    path.display()
+                ))
+            }
         };
         let json: Value = serde_json::from_str(&text)
             .map_err(|e| format!("{name}'s exact.json ({}) is not JSON: {e}", path.display()))?;

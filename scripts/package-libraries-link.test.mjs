@@ -193,7 +193,7 @@ test.skipIf(!mac)('the macOS app embeds the framework, signed, and dyld loads it
   const embed = /^host\/apple: (\S+) — /m.exec(embedded)?.[1];
   const at = embed.startsWith('/') ? embed : resolve(root, embed);
   expect(existsSync(join(at, 'Frameworks/vault.framework/Versions/A/vault'))).toBe(true);
-  expect(JSON.parse(readFileSync(join(at, 'capabilities.json'), 'utf8')).frameworks).toEqual([{ path: 'Frameworks/vault.framework', package: '@fixture/tally', sha256: library[target].sha256, linkerFlags: ['-F', 'Frameworks', '-framework', 'vault'], embed: true }]);
+  expect(JSON.parse(readFileSync(join(at, 'capabilities.json'), 'utf8')).frameworks).toEqual([{ path: 'Frameworks/vault.framework', package: '@fixture/tally', sha256: library[target].sha256, linkerFlags: ['-F', 'Frameworks', '-framework', 'vault', '-Xlinker', '-rpath', '-Xlinker', '@executable_path/../Frameworks'], embed: true }]);
 }, 3_600_000);
 
 test.skipIf(!mac)('the iOS app on a simulator embeds the framework, signed, and dyld loads it from the bundle', async () => {
