@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import statistics
@@ -61,6 +62,29 @@ class Activator:
             self.objc.objc_autoreleasePoolPop(pool)
 
 
+def wait_for_lane(out, seconds=3600):
+    deadline = time.monotonic() + seconds
+    while True:
+        rows = [line.split(None, 2) for line in subprocess.check_output(
+            ['/bin/ps', '-ww', '-axo', 'pid=,ppid=,args='], text=True).splitlines()]
+        parents = {int(pid): int(parent) for pid, parent, _ in rows}
+        ours, pid = set(), os.getpid()
+        while pid and pid not in ours:
+            ours.add(pid)
+            pid = parents.get(pid, 0)
+        blockers = [dict(pid=int(pid), command=command) for pid, _, command in rows
+                    if int(pid) not in ours and (re.search(
+                        r'target/g0/\S*run-[^ /]+\.py(?:\s|$)', command) or re.search(
+                        r'(?:^|/)(?:measure|gpui-heavy-list|egui-heavy-list|HeavyExact2|Heavy list)(?:\s|$)', command))]
+        with (out / 'ownership.jsonl').open('a') as stream:
+            stream.write(json.dumps(dict(wall=time.time(), blockers=blockers)) + '\n')
+        if not blockers:
+            return
+        if time.monotonic() >= deadline:
+            raise RuntimeError('another measurement lane remains active; no launch')
+        time.sleep(5)
+
+
 def run(args):
     base, out = args.base.resolve(), args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
@@ -84,8 +108,10 @@ def run(args):
             with (out / 'power-observations.jsonl').open('a') as stream:
                 stream.write(json.dumps(dict(time=self.now(), absent=absent)) + '\n')
             row['quiet'] = row['quiet'] and absent
+            row['powerAbsent'] = absent
             return row
     monitor = StartupQuiet(out / 'quiet.jsonl', paths)
+    wait_for_lane(out)
     consecutive = 0
     gate_deadline = time.monotonic() + args.gate_seconds
     while time.monotonic() < gate_deadline and consecutive < 12:
@@ -105,15 +131,19 @@ def run(args):
             order = arms[(round_number-1) % 3:] + arms[:(round_number-1) % 3]
             for arm in order:
                 for cohort in ['cold', 'warm']:
+                    wait_for_lane(out)
                     assert subprocess.run(['pgrep', '-x', 'powermetrics'], capture_output=True).returncode == 1, 'power sampler started'
                     assert monitor.error is None, monitor.error
-                    assert all(r['quiet'] for r in monitor.rows[first_sample:]), 'loaded cohort retained; stop'
+                    assert all(max(r['load']) < 30 and not r['compilers']
+                               and r['busyCores'] <= quiet.BUSY_LIMIT
+                               for r in monitor.rows[first_sample:]), 'loaded cohort retained; stop'
                     name = f'{arm}-{round_number}-{cohort}'
                     output = out / f'{name}.json'
                     env = {k: v for k, v in os.environ.items()
                            if not k.startswith(('EXACT_', 'G1_', 'G3_', 'G4_', 'G5_', 'BENCH_', 'DYLD_'))}
                     env.update(G1_OUTPUT=str(output), G1_ARM=arm, G1_COLD_ONLY='1',
                                G1_GPU_HOOK='0', BENCH_LIVE='0', EXACT_INK_DEVICE='metal',
+                               DYLD_PRINT_STATISTICS='1', DYLD_PRINT_STATISTICS_DETAILS='1',
                                EXACT_WINDOW_WIDTH='800', EXACT_WINDOW_HEIGHT='768' if arm == 'ink' else '800')
                     if not args.no_trace:
                         env['G1_TRACE'] = '1'
@@ -153,6 +183,8 @@ def run(args):
                             assert not result['lowPower'] and not result['gpuHookEnabled']
                             assert result['size'] == [800, 768] and result['scale'] == 2
                             assert result['coldMs'] > 0
+                            record['dyldStatisticsLines'] = [line for line in (out / f'{name}.log').read_text().splitlines()
+                                                            if re.search(r'pre-main|dylib loading|rebase/binding|initializer time', line)]
                             if not args.no_trace:
                                 trace = read(Path(str(output) + '.trace.json'))
                                 assert trace['dropped'] == 0
@@ -181,10 +213,13 @@ def run(args):
         monitor.stop.set()
         monitor.thread.join()
         write(out / 'run.json', dict(launches=len(schedule), expectedLaunches=args.rounds * 6,
-              quiet=all(r['quiet'] for r in monitor.rows[first_sample:]),
+              quiet=quiet.quiet_series(monitor.rows[first_sample:])
+                    and all(r['powerAbsent'] for r in monitor.rows[first_sample:]),
+              firstSeriesObservation=first_sample,
               monitorError=str(monitor.error) if monitor.error else None))
     assert monitor.error is None, monitor.error
-    assert all(r['quiet'] for r in monitor.rows[first_sample:]), 'loaded observations; no qualified table'
+    assert quiet.quiet_series(monitor.rows[first_sample:]), 'loaded observations; no qualified table'
+    assert all(r['powerAbsent'] for r in monitor.rows[first_sample:]), 'power sampler overlapped cohort'
 
 
 def distribution(values):
@@ -210,6 +245,8 @@ def sample(path, traced=True):
     milestones = {'constructor': result['preMainMs'], 'main': first('boot main'), 'host entry': first('boot host entry'),
                   'AppKit finished launching': first('AppKit did finish launching'),
                   'window created': first('boot window created'),
+                  'data ready': first('boot data ready'), 'app creation': first('boot app creation'),
+                  'app fonts ready': first('boot fonts ready'),
                   'first window update': first('probe first window update'),
                   'visible window observed': first('probe visible window'),
                   'plan loaded': first('plan-ready'), 'fonts ready': first('fonts-ready'),
@@ -225,6 +262,17 @@ def sample(path, traced=True):
                        first('probe direct present preceding commit', True)] if v is not None), default=None),
                   'first presented': result['firstDrawableMs'], 'complete screen': result['coldMs']}
     startup = result['startup']
+    clocks = {}
+    for phase, lower, upper in [('process to constructor', None, 'constructor'),
+                                ('process to main', None, 'main'),
+                                ('main to complete callback', 'main', 'complete'),
+                                ('constructor to complete callback', 'constructor', 'complete'),
+                                ('process to complete callback', None, 'complete')]:
+        def delta(suffix):
+            return startup[upper + suffix] - (startup[lower + suffix] if lower else 0)
+        cpu, cycles, instructions = delta('CpuSeconds'), delta('Cycles'), delta('Instructions')
+        clocks[phase] = dict(cpuMs=cpu*1000, cycles=cycles, instructions=instructions,
+                             effectiveGHz=cycles/cpu/1e9, ipc=instructions/cycles)
     milestones['complete callback observed'] = startup['completeObserved'] * 1000 - start if startup.get('completeObserved') else None
     # The main-thread intervals nest. Divide at every boundary and charge each
     # slice to the innermost interval; off-thread work is kept in its own table.
@@ -246,7 +294,7 @@ def sample(path, traced=True):
             key = ('main: ' if e['thread'] == trace['mainThread'] else 'other: ') + e['name']
             inclusive[key] = inclusive.get(key, 0) + duration
     return dict(file=str(path), milestones=milestones, exclusive=exclusive, inclusive=inclusive,
-                startup=startup, arm=result['arm'])
+                startup=startup, clocks=clocks, arm=result['arm'])
 
 
 def summarize(args):
@@ -275,6 +323,10 @@ def summarize(args):
                              'constructorInstructions', 'constructorCycles', 'completeMinorFaults',
                              'completeMajorFaults', 'completePageins', 'completeInstructions',
                              'completeCycles', 'completeCpuSeconds', 'loadedImages', 'registeredObjcClasses']}
+            tables[f'{arm} {cohort}']['clocks'] = {
+                phase: {metric: distribution([s['clocks'][phase][metric] for s in selected])
+                        for metric in selected[0]['clocks'][phase]}
+                for phase in selected[0].get('clocks', {})}
     paired = {}
     for arm in ['ink', 'gpui', 'egui']:
         cold = {s['round']: s for s in samples if s['arm'] == arm and s['cohort'] == 'cold'}

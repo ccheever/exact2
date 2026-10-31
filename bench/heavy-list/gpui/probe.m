@@ -19,6 +19,7 @@ static double processStart, loaded, firstDrawable, firstComplete;
 static BOOL tracing;
 static struct rusage constructorUsage;
 static struct rusage_info_v4 constructorRusage;
+static struct rusage_info_v4 mainRusage;
 static struct rusage completeUsage;
 static struct rusage_info_v4 completeRusage;
 static double completeObserved;
@@ -277,7 +278,14 @@ static void interval(const char *name, double start, double end, double value, c
     pthread_mutex_unlock(&traceLock);
 }
 void g1_interval(const char *name, double start, double end, double value) {
+    if (tracing && !strcmp(name, "boot main") &&
+        proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&mainRusage)) abort();
     interval(name, start, end, value, NULL);
+}
+void g1_startup_mark(const char *name) {
+    if (!tracing) return;
+    double now = CACurrentMediaTime();
+    g1_interval(name, now, now, 0);
 }
 static const char *callerName(void *address) {
     Dl_info info;
@@ -809,6 +817,12 @@ static NSData *signature(NSView *view) {
             @"constructorPageins": @(constructorRusage.ri_pageins),
             @"constructorInstructions": @(constructorRusage.ri_instructions),
             @"constructorCycles": @(constructorRusage.ri_cycles),
+            @"constructorCpuSeconds": @((constructorRusage.ri_user_time + constructorRusage.ri_system_time) * tickSeconds),
+            @"mainPageins": @(mainRusage.ri_pageins), @"mainCycles": @(mainRusage.ri_cycles),
+            @"mainInstructions": @(mainRusage.ri_instructions),
+            @"mainCpuSeconds": @((mainRusage.ri_user_time + mainRusage.ri_system_time) * tickSeconds),
+            @"dyldStatisticsRequested": @(getenv("DYLD_PRINT_STATISTICS") != NULL),
+            @"dyldStatisticsDetailsRequested": @(getenv("DYLD_PRINT_STATISTICS_DETAILS") != NULL),
             @"completeObserved": @(completeObserved),
             @"completeMinorFaults": @(completeUsage.ru_minflt), @"completeMajorFaults": @(completeUsage.ru_majflt),
             @"completePageins": @(completeRusage.ri_pageins),
