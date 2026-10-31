@@ -9,6 +9,21 @@ disabled. Use this handoff when taking over the work.
 The clone is incomplete. The desktop app is in `examples/t3-code`; the separate
 iPhone and iPad app is in `examples/t3-code/mobile`.
 
+The user requested moving coordination from MacBook Pro to Nate's Mac Mini.
+A successor thread is being prepared in the Mini's existing Exact project,
+with a T3-managed worktree from PR216's remote branch. Before new app edits,
+the successor records its actual coordinator link here and notifies the Home
+and thread-detail workers. Existing prompts point to the original MacBook Pro
+thread, so check-ins need redirecting. The original coordinator stops local
+implementation after launch of the successor.
+
+The HTTPS core-acceptance delegate was interrupted before its device launch.
+Its retained receipt contains artifact verification and a CLI help command,
+not pairing or connected acceptance. The task is cancelled and must not be
+resumed alongside the successor. The original coordinator's EAS iPhone session
+was already shut down. Ignored evidence, cached builds and signing credentials
+remain machine-local; use committed sources and rebuild on the Mini as needed.
+
 The current priority is iOS. Desktop feature work is deferred. Continue in this
 order, with small verified commits and normal pushes to PR216:
 
