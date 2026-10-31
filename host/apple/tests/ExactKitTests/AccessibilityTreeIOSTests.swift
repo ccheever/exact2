@@ -525,6 +525,34 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertEqual((secure["states"] as? [String: Any])?["protected"] as? Bool, true)
     }
 
+    /// A button with no name that shows only a symbol is named by it, as a
+    /// `UIButton` with an SF Symbol image is ("Share"); one with words, or
+    /// whose symbol is `aria-hidden`, is not.
+    func testASymbolOnlyButtonIsNamedByItsSymbol() throws {
+        guard Presenter.axRuntimeLoaded else { throw missing("accessibility", "UIKit names a symbol only with its accessibility runtime") }
+        let p = try fixture()
+        let symbol: [String: Any] = ["imageSource": "symbol:sf/square.and.arrow.up", "symbolName": "square.and.arrow.up"]
+        p.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "image", "props": symbol, "style": ["font_size": 17]],
+            ["op": "create", "id": 31, "kind": "button", "handlers": ["press"]],
+            ["op": "create", "id": 32, "kind": "image", "props": symbol, "style": ["font_size": 17]],
+            ["op": "create", "id": 33, "kind": "text", "props": ["text": "Send"]],
+            ["op": "create", "id": 34, "kind": "button", "handlers": ["press"]],
+            ["op": "create", "id": 35, "kind": "image", "props": symbol.merging(["accessibilityElementsHidden": "true"]) { a, _ in a }, "style": ["font_size": 17]],
+            ["op": "children", "id": 3, "ids": [30]],
+            ["op": "children", "id": 31, "ids": [32, 33]],
+            ["op": "children", "id": 34, "ids": [35]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 31, 34]],
+            ["op": "frame", "id": 31, "x": 0.0, "y": 210.0, "w": 100.0, "h": 40.0],
+            ["op": "frame", "id": 34, "x": 0.0, "y": 260.0, "w": 40.0, "h": 40.0],
+        ]))
+        p.syncAccessibility()
+        let share = try XCTUnwrap(UIImage(systemName: "square.and.arrow.up")?.accessibilityLabel)
+        XCTAssertEqual(p.views[3]?.accessibilityLabel, share)
+        XCTAssertEqual(p.views[31]?.accessibilityLabel, "Send")
+        XCTAssertEqual(p.views[34]?.accessibilityLabel ?? "", "")
+    }
+
     func testACycleIsCutAndBudgetsBoundTheWalk() throws {
         let p = try fixture()
         let box = try XCTUnwrap(p.views[4])

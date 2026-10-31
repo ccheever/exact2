@@ -113,7 +113,7 @@ fn unlabelled_button(attrs: &[Attr], children: &[Node], span: Span) -> Option<Lo
     }
     let message = match says(children, false) {
         Says::Words => return None,
-        Says::Unnamed => "this `button` shows only an image with no name, so VoiceOver reads it as just \"button\". Name it: `aria-label=\"Add\"` on the button, beside its `image \"symbol:…\"` (docs/recipes/symbols.md)",
+        Says::Unnamed => "this `button` shows only an image with no name: a screen reader on the web reads it as just \"button\", and VoiceOver on iOS by the symbol's generic name (\"add\", \"love\"). Name it: `aria-label=\"Add\"` on the button, beside its `image \"symbol:…\"` (docs/recipes/symbols.md)",
         Says::Nothing => "this `button` holds no text and no `aria-label`, so it is blank: an empty button to a person, just \"button\" to VoiceOver. Put its words in it (a `text \"Add 500 ml\"` child), or name a symbol-only button with `aria-label` beside its `image \"symbol:…\"` (docs/recipes/symbols.md)",
     };
     Some(LowerError {

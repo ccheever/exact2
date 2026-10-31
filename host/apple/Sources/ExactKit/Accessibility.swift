@@ -6,6 +6,35 @@ import AppKit
 import UIKit
 #endif
 
+#if os(iOS) || os(tvOS)
+extension NodeView {
+    /// A button with no name that shows only a symbol is named by it, as a
+    /// `UIButton` whose image is an SF Symbol is: UIKit's own name for the
+    /// symbol ("Share", "add"), which its accessibility runtime gives the
+    /// image. Read when asked, since the runtime loads with VoiceOver.
+    package override var accessibilityLabel: String? {
+        get {
+            let said = super.accessibilityLabel
+            guard said?.isEmpty ?? true, actsAsButton, !isNativeButton, authoredLabel == nil else { return said }
+            return onlySymbol?.image?.accessibilityLabel ?? said
+        }
+        set { super.accessibilityLabel = newValue }
+    }
+    /// Its one shown symbol, when it holds no words and no other picture.
+    private var onlySymbol: UIImageView? {
+        var symbols: [UIImageView] = [], other = false
+        func walk(_ node: NodeView) {
+            for child in node.container.subviews.compactMap({ $0 as? NodeView }) where !child.isHidden && child.props["accessibilityElementsHidden"] != "true" {
+                if let leaf = child.symbolView, leaf.image != nil { symbols.append(leaf) } else if child.kind == "image" || child.props["text"]?.isEmpty == false { other = true }
+                walk(child)
+            }
+        }
+        walk(self)
+        return !other && symbols.count == 1 ? symbols[0] : nil
+    }
+}
+#endif
+
 extension NodeView {
     /// A button: a custom one (`kind == "button"`) or a native one, under any
     /// role (LLP 1069.011.000 D1).
