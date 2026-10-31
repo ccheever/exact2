@@ -23,6 +23,23 @@ order, with small verified commits and normal pushes to PR216:
 8. Deliver the phone checkpoint as a signed production build through TestFlight.
 9. Complete iPad layout and the same working flows, then deliver its TestFlight build.
 
+Home and thread-detail workers now also target current upstream mobile UI,
+including iPhone Duo improvements. The original repository is cloned locally at
+`~/Projects/t3-code`, with clean main snapshot
+`80a2351fcb909034e65a512dfabeb3cdfd367762`. Record and share the chosen reference
+SHA before comparisons; use one fixed snapshot per acceptance and benchmark run.
+The existing vendored mobile source pin remains `365aa87982` until its changes
+are adopted and qualified separately. It is no longer the sole UI oracle.
+
+Pixel parity includes container padding and margins, overflow and clipping,
+native headers, safe areas and all interactive states. Qualify the actual iPhone
+Duo simulator folded and unfolded, in portrait and landscape, through fold,
+rotation, keyboard and sidebar transitions. Preserve the reading position and
+draft. Simulator-agent swarms are authorized for separate interaction cases,
+with one owned device/session and isolated writable work per worker. Performance
+comparisons run without competing swarm load. Coordinate shared files and merge
+order through this thread; each worker owns its feature branch and PR.
+
 The existing HTTPS origin is `https://prod-c4cb6b5152362498.t3coderelay.com`.
 It was found in current server logs and verified with system TLS validation.
 Its public descriptor returns HTTP 200 for MacBook Pro,
