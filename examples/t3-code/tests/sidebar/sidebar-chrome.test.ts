@@ -91,3 +91,25 @@ test('the Working shelf\'s grace runs on two root timers, with the sidebar open 
   root.call('workingGraceClock', {}, { wallTime: { epochAtZero: 1_790_000_000_000 }, performanceNow: () => 2_500, command: (...args: unknown[]) => { sent.push(args); } }, []);
   expect(sent).toEqual([['sidebarlocal:working-grace', '', '1790000002500', 0]]);
 });
+
+// SidebarUpdatePill's "Check for updates" tooltip goes with the idle pill. Once a server has an update, the update pill
+// replaces it under a resting pointer, which gets no leave; the oracle's TooltipPopup unmounts with its trigger.
+describe('the idle update pill\'s tip goes with the pill', () => {
+  const when = /^ {2}task sidebarUpdateTipGone when (.+)$/m.exec(appText('app.contract'))![1]!;
+  const due = (hover: string, available: boolean, running = false) => value(when, { sidebarHoverId: hover, data: { updateEverything: { available, running } } });
+  test('the task is due once the update pill takes the idle pill\'s place under its tip', () => {
+    expect(due('sidebar-update', false)).toBe(false);
+    expect(due('sidebar-update', true)).toBe(true);
+    expect(due('sidebar-update', false, true)).toBe(true);
+    expect(due('sidebar-settings', true)).toBe(false);
+  });
+  test('it ends that tip and no other', () => {
+    const root = contractComponent('app.contract', 'T3Code');
+    const state = { sidebarHoverId: 'sidebar-update' };
+    root.call('sidebarUpdateTipEnd', state, {}, []);
+    expect(state.sidebarHoverId).toBe('');
+    const other = { sidebarHoverId: 'sidebar-usage' };
+    root.call('sidebarUpdateTipEnd', other, {}, []);
+    expect(other.sidebarHoverId).toBe('sidebar-usage');
+  });
+});

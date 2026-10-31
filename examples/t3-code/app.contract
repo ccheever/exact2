@@ -939,6 +939,13 @@ component T3Code
     let id = renameQueuedId
     renameQueuedId = ""
     sidebarRun("rename", id, renameQueuedTitle)
+  // The footer's idle update pill gives way to the update pill under a resting pointer once a server has an update, with
+  // no pointer leave: its "Check for updates" tip goes with it, as a TooltipPopup goes with its trigger.
+  task sidebarUpdateTipGone when sidebarHoverId == "sidebar-update" and (data.updateEverything.available or data.updateEverything.running)
+    after(1, sidebarUpdateTipEnd)
+  action sidebarUpdateTipEnd
+    if sidebarHoverId == "sidebar-update"
+      sidebarHoverId = ""
   action sidebarHover(id: string, over: bool) // the window's half sets the card's geometry (app-window.contract)
     if over
       sidebarHoverId = id
