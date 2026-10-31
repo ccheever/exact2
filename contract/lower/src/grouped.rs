@@ -35,6 +35,7 @@ use cell::{lines as cell_lines, standard, text_lines, text_stack};
 use inputs::{column_row, field_beside_label, field_kind, hidden, switch, text_field, Field};
 use native::native_row;
 pub(crate) use native::{margins_said, native_rows};
+use value::{grows, sized};
 
 use crate::{err, swipe_rows, tags, LowerError};
 use contract_syntax::{Attr, Expr, Node, Span, TemplatePart};
@@ -1473,13 +1474,14 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             child,
             vec![attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)],
         ),
+        // A box its author grows (`flex=1`) before any text is the title, the text after it
+        // the value: as a second title, water-tracker's "Goal met" squeezed its bar (round 33).
+        ("row" | "column" | "view", _) if matches!(texts, Count::Known(0)) && grows(child) => {
+            *texts = Count::Known(1);
+            child.clone()
+        }
         _ => child.clone(),
     }
-}
-
-/// Whether the author wrote how wide `node` is in its row.
-fn sized(node: &Node) -> bool {
-    matches!(node, Node::Element { attrs, .. } if attrs.iter().any(|a| matches!(a.name.as_str(), "flex" | "flex-grow" | "flex-basis" | "width" | "min-width")))
 }
 
 /// Whether a row's part is a column of one shown text.

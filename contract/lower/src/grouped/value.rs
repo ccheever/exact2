@@ -30,6 +30,8 @@
 //! text, or a title over a subtitle) is custom already. The Mac's form
 //! keeps the two side by side (`grouped-value-wrap`).
 //!
+//! A value an `if` shows (one text, no `else`) is boxed the same way.
+//!
 //! A text followed by a worded `button` that ends the row (a message and its
 //! Try Again) is boxed the same way, as a hand-built cell switches its stack
 //! to vertical at the accessibility sizes (Apple's guidance for Dynamic
@@ -85,10 +87,17 @@ pub(super) fn boxed(
     {
         end += 1;
     }
+    // A value shown only sometimes: an `if` holding one text and no `else`
+    // (water-tracker's "Goal met" beside its day's bar, round 33).
+    let sometimes = |k: usize| {
+        matches!(&children[k], Node::When { then, otherwise, .. } if otherwise.is_empty()
+            && matches!(then.as_slice(), [Node::Element { tag, .. }] if tag == "text"))
+            && matches!(&counts[k].0, Count::Known(1))
+    };
     if value >= children.len()
         || !(tag(title) == Some("column")
             || (swiped || button || end > value) && tag(title) == Some("text"))
-        || !(button || tag(value) == Some("text") && counted(value, 1))
+        || !(button || tag(value) == Some("text") && counted(value, 1) || sometimes(value))
     {
         return parts;
     }
@@ -158,4 +167,20 @@ pub(super) fn boxed(
         },
     );
     parts
+}
+
+/// Whether the author wrote how wide `node` is in its row.
+pub(super) fn sized(node: &Node) -> bool {
+    matches!(node, Node::Element { attrs, .. } if attrs.iter().any(|a| matches!(a.name.as_str(), "flex" | "flex-grow" | "flex-basis" | "width" | "min-width")))
+}
+
+/// Whether the author wrote that `node` grows in its row: a `flex` or
+/// `flex-grow` other than none or zero, or one computed.
+pub(super) fn grows(node: &Node) -> bool {
+    matches!(node, Node::Element { attrs, .. } if attrs.iter().any(|a| match (a.name.as_str(), &a.value) {
+        ("flex" | "flex-grow", Expr::Number(v, _)) => *v > 0.0,
+        ("flex" | "flex-grow", Expr::Str(v, _)) => !(v.trim() == "none" || v.trim_start().starts_with('0')),
+        ("flex" | "flex-grow", _) => true,
+        _ => false,
+    }))
 }
