@@ -1361,6 +1361,26 @@ All 230 originals remain, including three traced egui failures and the
 before cold failure. One implementation round; the 100 ms application obligation and D7, D11 and D15 remain.
 [Predictions, qualification and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-6-the-boot-ticks-reach-the-carrier-when-they-fire).
 
+**M10 confirmation, 2026-10-31:** a second session compares main
+`bc9da74a4b` with the rebased cut 6 tip `c7a9596585`, both release. Native,
+GPUI and egui reuse session 1's binaries. Hook, trace and power are off;
+all 80 original launch slots pass their ten-second quiet gate. Four egui
+readiness timeouts remain without replacement.
+
+| Arm | Session 2 before, ms (n) | Session 2 after, ms (n) |
+| --- | ---: | ---: |
+| Native | 250.780 (10) | 242.379 (10) |
+| GPUI | 201.212 (10) | 197.920 (10) |
+| egui | 207.824 (9) | 203.609 (7) |
+| Ink | 218.343 (10) | 201.766 (10) |
+
+Ink after is 3.847 ms above GPUI and 1.843 ms below egui, missing the
+predicted 5–12 and 15–25 ms leads. Before is 17.131 ms above GPUI, outside
+8–15 ms. The paired Ink change is −19.836 ms [−44.145, +16.012], n=10.
+The cold lead does not hold in both sessions, so cut 6's historical row
+is not promoted as a confirmed win. The 100 ms obligation remains unmet.
+[Both sessions and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-confirmed).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms

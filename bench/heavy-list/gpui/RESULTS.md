@@ -10679,8 +10679,8 @@ silver Mac with the GPU queue hook, tracing and power sampling off.
 | Prediction | Instrument and cohort | Result |
 | --- | --- | --- |
 | Ink after is 5–12 ms below GPUI and 15–25 ms below egui; Ink before is 8–15 ms above GPUI | `measure.m`, cold-only; ten launches of each control under each before/after label, ten of each Ink carrier, interleaved in one session | **Miss:** Ink after is 3.847 ms above GPUI and only 1.843 ms below egui; Ink before is 17.131 ms above GPUI. |
-| Ink after and before have a paired range crossing zero for process/main CPU ms/s, cycles/s, frames/s, late intervals/s and peak footprint in fling, rest, bar and caret | G4's posted fling and rest; G5's bar and caret; five interleaved rounds of native, GPUI, egui and adjacent Ink before/after | Pending |
-| Ink rest submits zero frames | Presented timestamps in the same five fling/rest samples | Pending |
+| Ink after and before have a paired range crossing zero for process/main CPU ms/s, cycles/s, frames/s, late intervals/s and peak footprint in fling, rest, bar and caret | G4's posted fling and rest; G5's bar and caret; five interleaved rounds of native, GPUI, egui and adjacent Ink before/after | Fling/rest meet all named rows; bar misses frame rate, late rate and peak footprint in the lower-cost direction. Caret pending. |
+| Ink rest submits zero frames | Presented timestamps in the same five fling/rest samples | **Met:** all ten before/after Ink rest originals have zero frames. |
 
 Every freshly signed bundle gets a throwaway launch. Cold launches require
 ten quiet seconds each; their during-launch load maxima are report-only.
@@ -10713,6 +10713,168 @@ above session 1, while the controls’ after medians fall by 15.202 ms
 (native), 11.388 ms (GPUI) and 18.880 ms (egui). The repeated ordering
 required to promote the cold row is absent; the 100 ms obligation remains.
 
-The fling/rest and static series are running. Their predictions remain
-unresolved. `target/m10-confirmed/session1.json` and `summary.json`
-retain the values and original filenames; `reduce.py` reproduces session 2.
+**After boot: paired results.** Values are medians [minimum, maximum].
+Pairs are after minus before within the same round; these are observed
+ranges, not confidence intervals. The prediction is that zero lies in the
+range for CPU, main-thread CPU, cycles, frame rate, intervals over 12.5 ms
+per second and peak footprint. Instructions and end footprint are reported
+alongside them; no unchanged prediction was made for those two rows.
+
+| Phase | Native n | GPUI n | egui n | Ink before n | Ink after n | Ink pairs |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| fling | 5 | 4 | 2 | 5 | 5 | 5 |
+| rest | 5 | 4 | 2 | 5 | 5 | 5 |
+| bar | 4 | 5 | 4 | 5 | 5 | 5 |
+
+Process work and clocks. Cycles and instructions are millions per second;
+effective GHz is cycles divided by process CPU time, and IPC is instructions
+per cycle. Each clock cell is reduced per original before taking its median.
+
+| Phase | Arm | CPU ms/s | Main ms/s | Mcycles/s | Minstructions/s | GHz | IPC |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| fling | native | 166.250 [165.687, 169.659] | 114.407 [113.971, 116.606] | 482.978 [459.583, 496.954] | 1303.828 [1205.839, 1377.387] | 2.903 [2.764, 2.929] | 2.705 [2.624, 2.806] |
+| fling | gpui | 157.858 [156.501, 160.251] | 82.086 [81.017, 82.710] | 300.296 [294.786, 307.260] | 499.504 [496.925, 500.515] | 1.897 [1.851, 1.963] | 1.661 [1.624, 1.696] |
+| fling | egui | 120.209 [119.882, 120.535] | 59.148 [58.871, 59.426] | 243.700 [239.942, 247.458] | 369.788 [369.784, 369.791] | 2.027 [2.001, 2.053] | 1.518 [1.494, 1.541] |
+| fling | ink-before | 136.928 [129.661, 141.043] | 67.525 [66.768, 70.036] | 257.058 [254.070, 262.443] | 499.183 [497.324, 510.067] | 1.882 [1.841, 1.959] | 1.944 [1.941, 1.973] |
+| fling | ink-after | 138.472 [131.217, 140.331] | 67.283 [63.717, 67.333] | 257.661 [251.500, 262.854] | 524.651 [524.070, 527.836] | 1.874 [1.831, 1.917] | 2.036 [2.001, 2.084] |
+| rest | native | 2.572 [2.561, 2.626] | 1.260 [1.213, 1.303] | 3.861 [3.697, 4.067] | 2.411 [2.300, 2.470] | 1.503 [1.408, 1.581] | 0.605 [0.593, 0.668] |
+| rest | gpui | 4.622 [4.581, 4.719] | 2.851 [2.821, 2.905] | 6.550 [6.491, 6.645] | 7.997 [7.957, 8.001] | 1.413 [1.408, 1.424] | 1.221 [1.204, 1.226] |
+| rest | egui | 0.731 [0.703, 0.759] | 0.611 [0.591, 0.631] | 1.058 [1.027, 1.090] | 0.986 [0.962, 1.010] | 1.449 [1.436, 1.462] | 0.932 [0.926, 0.937] |
+| rest | ink-before | 3.042 [2.934, 3.313] | 2.932 [2.774, 3.137] | 4.459 [4.327, 4.840] | 4.004 [3.962, 4.183] | 1.466 [1.385, 1.485] | 0.889 [0.838, 0.967] |
+| rest | ink-after | 3.017 [2.965, 3.146] | 2.885 [2.841, 2.991] | 4.503 [4.255, 4.620] | 3.897 [3.809, 4.089] | 1.469 [1.435, 1.494] | 0.877 [0.844, 0.908] |
+| bar | native | 11.663 [11.182, 11.921] | 10.367 [9.923, 10.602] | 17.009 [16.260, 17.905] | 21.844 [21.314, 21.896] | 1.459 [1.452, 1.502] | 1.285 [1.222, 1.311] |
+| bar | gpui | 181.949 [179.369, 185.312] | 127.142 [125.099, 130.063] | 298.325 [295.698, 308.996] | 471.327 [468.789, 474.573] | 1.651 [1.596, 1.698] | 1.580 [1.517, 1.604] |
+| bar | egui | 203.704 [203.214, 206.208] | 109.516 [109.339, 111.316] | 352.632 [348.231, 362.585] | 329.532 [326.656, 332.622] | 1.733 [1.709, 1.758] | 0.931 [0.917, 0.944] |
+| bar | ink-before | 192.552 [188.655, 205.877] | 97.611 [95.083, 111.985] | 299.105 [283.524, 318.657] | 411.363 [408.229, 486.670] | 1.548 [1.503, 1.630] | 1.418 [1.294, 1.527] |
+| bar | ink-after | 192.494 [190.167, 201.455] | 96.611 [96.072, 107.389] | 294.855 [289.765, 311.329] | 408.737 [406.344, 471.898] | 1.524 [1.509, 1.626] | 1.402 [1.313, 1.537] |
+
+Presentation and footprint. Native reports display-link callbacks, painted
+arms report presented drawables. Fling late intervals and p95 use the four
+gesture windows for painted arms and the whole phase for native. Full-phase
+and gesture frame rates are separate. Native rest cadence is unavailable.
+Static intervals over 12.5 ms include intended caret blink intervals; they
+are not a missed-deadline count. Peak and end footprint are MiB.
+
+| Phase | Arm | Phase frames/s | Gesture frames/s | Intervals >12.5 ms/s | p95 ms | Peak MiB | End MiB |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| fling | native | 118.592 [118.350, 118.774] | — | 1.400 [1.100, 1.699] | 8.333 [8.333, 8.333] | 236.017 [231.095, 237.517] | 214.204 [211.298, 218.376] |
+| fling | gpui | 88.938 [88.878, 89.086] | 105.868 [105.411, 106.053] | 1.876 [1.579, 2.146] | 8.333 [8.333, 8.333] | 416.306 [403.048, 422.048] | 394.150 [388.298, 399.048] |
+| fling | egui | 41.739 [41.693, 41.785] | 104.711 [104.207, 105.216] | 0.000 [0.000, 0.000] | 8.333 [8.333, 8.333] | 513.993 [513.814, 514.173] | 187.470 [186.939, 188.001] |
+| fling | ink-before | 33.197 [33.085, 33.494] | 89.082 [88.785, 89.996] | 1.075 [1.073, 1.607] | 8.333 [8.333, 8.333] | 598.032 [596.861, 601.095] | 248.267 [246.267, 249.314] |
+| fling | ink-after | 33.290 [32.996, 33.592] | 89.449 [87.509, 90.340] | 1.075 [0.805, 1.608] | 8.333 [8.333, 8.333] | 598.782 [596.423, 607.173] | 249.907 [247.907, 254.689] |
+| rest | native | — | — | — | — | 214.204 [211.298, 218.376] | 213.501 [210.626, 217.564] |
+| rest | gpui | 0.000 [0.000, 0.000] | — | 0.000 [0.000, 0.000] | — | 394.150 [388.298, 399.048] | 210.134 [205.157, 215.064] |
+| rest | egui | 0.000 [0.000, 0.000] | — | 0.000 [0.000, 0.000] | — | 187.470 [186.939, 188.001] | 179.345 [178.814, 179.876] |
+| rest | ink-before | 0.000 [0.000, 0.000] | — | 0.000 [0.000, 0.000] | — | 248.267 [246.267, 249.314] | 240.923 [238.954, 242.032] |
+| rest | ink-after | 0.000 [0.000, 0.000] | — | 0.000 [0.000, 0.000] | — | 249.907 [247.907, 254.689] | 242.626 [240.579, 245.845] |
+| bar | native | 119.992 [119.934, 120.075] | — | 0.000 [0.000, 0.000] | 8.333 [8.333, 8.333] | 126.798 [126.610, 128.579] | 126.376 [126.251, 128.314] |
+| bar | gpui | 119.636 [119.601, 119.683] | — | 0.400 [0.300, 0.400] | 8.333 [8.333, 8.333] | 303.501 [301.517, 305.939] | 303.079 [301.173, 305.501] |
+| bar | egui | 119.699 [119.494, 119.701] | — | 0.300 [0.300, 0.500] | 8.333 [8.333, 8.333] | 439.314 [438.954, 442.767] | 438.915 [438.611, 442.376] |
+| bar | ink-before | 119.555 [119.426, 119.580] | — | 0.400 [0.400, 0.600] | 8.333 [8.333, 8.333] | 356.251 [355.689, 358.251] | 351.220 [350.892, 353.079] |
+| bar | ink-after | 119.650 [119.587, 119.884] | — | 0.400 [0.100, 0.400] | 8.333 [8.333, 8.333] | 353.064 [352.876, 353.360] | 348.064 [347.657, 350.314] |
+
+Paired changes. The “zero in range” column tests the prediction only for
+the metrics named above. The bar late-rate range uses six decimals because
+its upper endpoint is close to zero.
+
+| Phase | Metric | Paired after − before [range] | Zero in range |
+| --- | --- | ---: | --- |
+| fling | cpu | 1.136 [-5.711, 8.430] | yes |
+| fling | main | -1.281 [-3.050, 0.458] | yes |
+| fling | cycles | -0.149 [-6.209, 6.672] | yes |
+| fling | instructions | 24.934 [15.612, 28.720] | no |
+| fling | fps | 0.105 [-0.201, 0.196] | yes |
+| fling | gestureFps | -0.411 [-1.276, 0.894] | yes |
+| fling | late | -0.000991 [-0.531341, 0.535067] | yes |
+| fling | peak | 0.750 [-4.234, 10.313] | yes |
+| fling | end | 1.141 [-1.000, 8.344] | yes |
+| rest | cpu | -0.077 [-0.167, 0.147] | yes |
+| rest | main | -0.092 [-0.146, 0.147] | yes |
+| rest | cycles | -0.070 [-0.220, 0.176] | yes |
+| rest | instructions | -0.153 [-0.278, 0.105] | yes |
+| rest | fps | 0.000 [0.000, 0.000] | yes |
+| rest | gestureFps | — | unavailable |
+| rest | late | 0.000000 [0.000000, 0.000000] | yes |
+| rest | peak | 1.141 [-1.000, 8.344] | yes |
+| rest | end | 1.125 [-1.000, 6.891] | yes |
+| bar | cpu | 0.394 [-4.422, 1.513] | yes |
+| bar | main | -0.012 [-4.595, 2.355] | yes |
+| bar | cycles | 5.207 [-23.059, 12.224] | yes |
+| bar | instructions | -3.153 [-14.772, 18.761] | yes |
+| bar | fps | 0.194 [0.095, 0.306] | no |
+| bar | gestureFps | — | unavailable |
+| bar | late | -0.199800 [-0.299939, -0.000016] | no |
+| bar | peak | -3.188 [-5.062, -2.703] | no |
+| bar | end | -2.828 [-3.563, -2.766] | no |
+
+Fling and rest meet every named unchanged prediction. Every Ink rest
+original has zero presented frames, before and after. Fling instructions
+rise by 24.934 million/s [15.612, 28.720]; that is a measured work increase
+outside the predicted metrics. The fling late-rate range crosses zero,
+so this result does not trigger the requested commit attribution.
+
+Bar meets the CPU, main-thread CPU and cycles predictions. Its frame-rate,
+late-rate and peak-footprint predictions miss: frame rate rises, while the
+late rate and peak fall. The late-rate upper endpoint is −0.000016/s;
+round 2 has four long intervals on each carrier, and its rate difference
+comes only from the phase durations. That endpoint is not evidence of fewer
+long intervals in every pair. Peak falls by 3.188 MiB [2.703, 5.063].
+Caret is still running; its prediction remains unresolved.
+
+Fling excludes egui rounds 1 and 4 for readiness timeouts, egui round 3
+for 1.326 non-benchmark cores, and GPUI round 5 for a user process at
+0.280 core. Bar excludes native round 1 and egui round 4 for background
+load. All originals remain without replacement.
+
+**Builds, originals and reproduction.** Prediction commit `b6ada1ba71`
+(08:39 PDT) precedes the collector launch (08:49 PDT). The later rebase
+preserves it as `326bddef5c`; the measured sources remain `bc9da74a4b`
+and `c7a9596585`. `target/m10-confirmed/measured-source.bundle`,
+`measured-source.patch` and the rebase records preserve those boundaries.
+
+The after carrier builds with the release painted-benchmark wrapper.
+Main’s wrapper refuses its benchmark manifest’s missing `accesskit_windows`
+patch before compiling. No source is changed to bypass that refusal:
+`build-before.py` runs the equivalent `cargo rustc` release/link command,
+with `--target-dir target`, at the fixed before revision, then restores this
+branch. Both builds succeed. `checks/build-before.log` retains the refusal;
+`checks/build-before-direct.log`, `checks/build-after.log`,
+`before-build-command.json` and the two Cargo lock snapshots retain the
+builds. The bundles use the same carrier assets and retained probe, then
+are signed and receive a throwaway launch on the silver.
+
+The measured signed bundles and originals remain on the silver under
+`~/projects/exact2-measure/target/g0/m10-confirmed/`, mirrored in
+`target/m10-confirmed/silver/`. `provenance.json` identifies both sources,
+executables, libraries and hashes. `instrument-identity.json` verifies the
+three control executables are unchanged from cut 6 and all five loaded
+probes have identical bytes. `launch-context.json` records the GUI-session
+command and PID; `run-confirmation.py` uses the retained `measure`,
+`exact-wheel`, `startup.py` and quiet monitor without changing them.
+
+Each workload’s `schedule.json` retains every original, command, exit,
+gate and qualification. The cold schedule has 80 slots; `cold-launches.md`
+shows each launch’s gate and report-only maxima. The cost schedules rotate
+five distinct arms, with the two Ink carriers adjacent and their order
+reversed on even rounds. There are 25 slots per workload. Quiet failures
+exclude the original, including its rest phase; no replacement enters a
+row. Each cold before/after label has its own control launches; the cost
+series shares one control launch per round between the two Ink carriers.
+
+Reproduce the tables without opening a window:
+
+```sh
+python3 -B target/m10-confirmed/session1.py
+python3 -B target/m10-confirmed/launch-table.py
+python3 -B target/m10-confirmed/reduce.py
+python3 -B target/m10-confirmed/aggregate-check.py
+python3 -B target/m10-confirmed/audit.py
+```
+
+`summary.json` retains every value and its original filename. The
+`aggregate/` projections feed unchanged qualified originals to the
+committed `aggregate.mjs`; `selection-exclusions.json` records which cost
+originals the quiet rule excludes. The originals themselves remain in
+`silver/`, failures included. `raw-sha256.json` and `analysis-sha256.json`
+hash the records and reducers. Recollection needs a fresh artifact
+directory and its own provenance paths; do not overwrite these originals.
