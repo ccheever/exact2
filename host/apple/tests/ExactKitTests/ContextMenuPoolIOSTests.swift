@@ -46,7 +46,7 @@ final class ContextMenuPoolIOSTests: XCTestCase {
     private func menus(_ v: UIView) -> [UIContextMenuInteraction] { v.interactions.compactMap { $0 as? UIContextMenuInteraction } }
 
     func testARowWithAContextMenuIsLentToTheNextRow() throws {
-        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        if ExactEnv.agentPaints { throw XCTSkip("the agent paints the popover (D4)") }
         let p = presenter()
         let view = try XCTUnwrap(p.views[10])
         XCTAssertEqual(menus(view).count, 1)
@@ -82,7 +82,7 @@ final class ContextMenuPoolIOSTests: XCTestCase {
     /// Only the menu's own are admitted: a recognizer anything else added
     /// keeps the row out of the pool, as before.
     func testAForeignRecognizerStillKeepsTheRowOut() throws {
-        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        if ExactEnv.agentPaints { throw XCTSkip("the agent paints the popover (D4)") }
         let p = presenter()
         let view = try XCTUnwrap(p.views[10])
         view.addGestureRecognizer(UITapGestureRecognizer())
@@ -93,7 +93,7 @@ final class ContextMenuPoolIOSTests: XCTestCase {
     }
 
     func testAParkedRowThatLeavesThePoolTakesItsInteractionWithIt() throws {
-        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        if ExactEnv.agentPaints { throw XCTSkip("the agent paints the popover (D4)") }
         let p = presenter()
         let view = try XCTUnwrap(p.views[10])
         // Retired with nothing to take it: parked, its interaction kept.
@@ -117,7 +117,7 @@ final class ContextMenuPoolIOSTests: XCTestCase {
     /// lent to: row 10 holds the focus, row 20's menu sets it aside, row 10
     /// is retired and lent to row 30, and row 20's menu ends.
     func testASetAsideFocusIsNotGivenToTheNodeItsViewIsLentTo() throws {
-        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        if ExactEnv.agentPaints { throw XCTSkip("the agent paints the popover (D4)") }
         let p = presenter()
         p.apply(wireBatch([collections([10, 20])] + row(20) + [["op": "children", "id": 1, "ids": [10, 20]],
                            ["op": "frame", "id": 20, "x": 0.0, "y": 60.0, "w": 300.0, "h": 60.0]]))
@@ -135,7 +135,7 @@ final class ContextMenuPoolIOSTests: XCTestCase {
     }
 
     func testARowWhoseMenuIsUpIsDestroyedAndItsMenuEnds() throws {
-        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        if ExactEnv.agentPaints { throw XCTSkip("the agent paints the popover (D4)") }
         let p = presenter()
         let view = try XCTUnwrap(p.views[10])
         let interaction = try XCTUnwrap(menus(view).first)
