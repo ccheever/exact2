@@ -9,6 +9,30 @@ disabled. Use this handoff when taking over the work.
 The clone is incomplete. The desktop app is in `examples/t3-code`; the separate
 iPhone and iPad app is in `examples/t3-code/mobile`.
 
+The current priority is iOS. Desktop feature work is deferred. Continue in this
+order, with small verified commits and normal pushes to PR216:
+
+1. Pair the normal iPhone app over the verified existing HTTPS route below.
+2. Open a project, create a thread, send, observe streaming, Stop, then restart
+   and recover the environment, transcript and unsent draft.
+3. Verify reconnect, offline recovery, retries and duplicate-send prevention.
+4. Complete Photos and Files selection, cancellation, preview, removal and Undo.
+5. Verify keyboard focus, Return behavior, IME, hardware shortcuts and voice.
+6. Complete connected file previews, Markdown, selection, Copy and cache recovery.
+7. Compare iPhone navigation, layout, accessibility and performance with the pin.
+8. Deliver the phone checkpoint as a signed production build through TestFlight.
+9. Complete iPad layout and the same working flows, then deliver its TestFlight build.
+
+The existing HTTPS origin is `https://prod-c4cb6b5152362498.t3coderelay.com`.
+It was found in current server logs and verified with system TLS validation.
+Its public descriptor returns HTTP 200 for MacBook Pro,
+`fb57350b-ce98-48b3-a812-df134e42156c`, protocol 2, server
+`0.1.6-nightly.20261030.3917`. The fresh EAS iPhone also loads that descriptor
+in Safari and displays the same identity. This proves network reachability,
+not app authentication. No new tunnel, exposure or credential was created.
+Normal app pairing and connected acceptance remain next. Route and normal-app
+evidence are under `target/t3-poc-evidence/ios-focus-20261031/`.
+
 The requested production release `1.0.0 (20261031003812)` is available in internal
 TestFlight. Its clean source is `358dce46d1defe3260c401cde377b7dd8aefa4f9`, including
 Exact main `43e0d93b85` and the prior native NewTask and preview corrections.
@@ -84,8 +108,13 @@ before controller close; all owned processes exit, the isolated port is free,
 and the original listener and clone window defaults remain unchanged.
 
 The clean normal iPhone no-install bundle verifies 92 files, 3,289 inputs and its
-strict signature. It was neither installed nor launched. The delivered TestFlight
-record remains unchanged. Mobile UI routes stay stopped. Unit 3 must qualify live
+strict signature. It now installs and launches on a fresh EAS iPhone. Home and
+Settings work. Changing the Return preference to Insert new line survives an app
+relaunch; restoring Send message survives another relaunch. AX selection and an
+inspected native capture agree. Hardware Return dispatch remains unqualified.
+The owned EAS session is shut down, and the original T3 view is restored after
+read-only route inspection. The delivered TestFlight record remains unchanged.
+Unit 3 must qualify live
 viewer/Copy/disposal and upload ownership flows, Browser A→B/Back/Forward/Reload,
 Markdown and retention, provider flows, and phone/iPad parity. Ordinary Mac mouse
 input, physical dragging and normal-app Keychain restart also remain unqualified.
@@ -106,7 +135,11 @@ composer. Inspected native captures agree. The first app and backend exit before
 controller close, and the isolated port is free. This qualifies named agent
 storage with `context.agent=true`; normal-app Keychain persistence stays open.
 Evidence is under `target/t3-poc-evidence/desktop-015-provider-acceptance/`.
-Real provider, streaming, Stop and transcript recovery on 0.1.5 remain pending.
+The same isolated 0.1.5 app also returns a real Codex reply. A later assistant
+message grows from 726 to 2,474 characters while active. Actual Stop ends it with
+Run interrupted. Extended stability and transcript restart remain untested.
+The desktop session and all owned processes are closed. Further desktop work is
+deferred for the iOS priority above.
 
 ## Earlier checkpoints
 
