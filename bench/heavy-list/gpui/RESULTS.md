@@ -11326,3 +11326,71 @@ primary row retains all ten rounds. A sensitivity excluding round 7 was
 declared before its Ink-after launch in `cold-handoff-sensitivity.json`.
 This is one logical cohort with recorded pauses, not an uninterrupted
 session or two independent sessions.
+
+**Final cold rows, 2026-10-31.** Source `c2bbac1010` is compared with
+main `15c20224e2`, using unchanged `measure.m` cold-only and the
+first-complete-drawable probe on the silver. Hook and power are off;
+the untraced cohort has no trace. Each of the five signed executables
+has a successful throwaway launch (`throwaway.log`). The table gives
+medians [minimum, maximum] and qualified n. All ten untraced and five
+traced slots per arm and label were attempted once.
+
+| Arm | Untraced before, ms | Untraced after, ms | Traced before, ms | Traced after, ms |
+| --- | ---: | ---: | ---: | ---: |
+| Native | 236.245 [217.617, 247.928], n=10 | 241.759 [230.728, 256.217], n=10 | 238.104 [226.410, 489.079], n=5 | 250.120 [244.087, 257.756], n=5 |
+| GPUI | 196.795 [184.795, 208.887], n=10 | 198.280 [189.952, 207.706], n=10 | 208.096 [188.344, 446.075], n=5 | 205.837 [184.195, 209.678], n=5 |
+| egui | 206.389 [200.263, 217.091], n=8 | 201.296 [195.753, 217.385], n=7 | 218.649 [203.464, 426.513], n=4 | 205.812 [203.365, 220.018], n=5 |
+| Ink | 214.120 [204.642, 233.889], n=10 | 189.055 [179.885, 211.096], n=10 | 214.776 [203.287, 224.666], n=5 | 194.959 [186.941, 198.869], n=5 |
+
+The 195–215 ms untraced p50 prediction **misses on the faster side**.
+The median paired change is −21.531 [−43.335, +3.430] ms, n=10,
+meeting the predicted −15 to −25 ms. The predeclared sensitivity without
+round 7 is −20.814 ms, n=9, with the same range. Neither establishes a
+saving in every pair.
+
+Ink after is below both controls in this review cohort, with and without
+tracing. Its untraced paired difference from GPUI is −10.450
+[−23.617, +16.006] ms, n=10, and from egui −12.387
+[−31.866, −1.253] ms, n=7. Without round 7, these are −10.833
+[−23.617, +16.006], n=9, and −11.321 [−28.267, −1.253], n=6.
+The ordering does not depend on enabling trace in this cohort. It does
+not erase the earlier disagreement: cut 6's first untraced session put
+Ink below GPUI, its traced cohorts put Ink 5–9 ms above, and the second
+untraced confirmation put Ink 3.847 ms above. The two earlier sessions
+gave a consistent Ink saving of about 17–20 ms; they did not repeat the
+lead over GPUI. The current source has one review cohort, not two
+independent confirmations. The 100 ms application obligation remains unmet.
+
+**Qualification and retained evidence.** The untraced cohort qualifies
+75/80 originals. Egui-before rounds 1 and 8 and egui-after rounds 4, 9
+and 10 fail startup readiness. The traced cohort qualifies 39/40;
+egui-before round 3 has the same failure. Every original remains, with
+no replacement. All 120 launched originals pass the ten-second gate;
+the shortest observed gate is 10.108 seconds untraced and 10.113 traced.
+The failed, unstarted gate above is archived separately.
+
+During-launch maxima are report-only and do not exclude a sample:
+
+| Cohort | Non-benchmark busy cores | Largest user process, cores | Whole-machine busy cores |
+| --- | ---: | ---: | ---: |
+| Untraced | 3.710 | 0.307 | 7.770 |
+| Traced | 1.750 | 0.287 | 8.554 |
+
+`cold-launches.md` and `cold-traced-launches.md` under `landing/` give
+every original's gate, maxima, result and failure reason. `reduce-cold.py`
+reproduces the table, paired comparisons and qualification summary.
+All four before/after cohort distributions match unchanged
+`aggregate.mjs`, including ranges and counts. `audit.txt` verifies every
+slot, the forty adjacent trace pairs, identical probes, executable
+hashes and signatures, instrument hashes, and the unchanged originals
+across resumes. Power sampling is absent in all 2,009 observations.
+Each of the five traced Ink-after launches retires its observer once
+after complete display, with zero trace drops and zero drawable calls
+on main (`cold-retirement.json`). Raw and analysis SHA-256 manifests are
+`raw-sha256.json` and `analysis-sha256.json`.
+
+The review bugs are fixed and the cold rows are recorded. The chunk is
+**not ready to land**: all three instruction-fix attempts miss, the final
+fling increase remains queued, and the full affected run has the two
+reported timing failures. The eight named suites and focused lifecycle
+tests pass. The mini still owns the six-check gate; staged caps passes here.

@@ -1388,6 +1388,45 @@ instructions rise by 24.934 million/s [15.612, 28.720]. Controls share
 each cost round, with failures and load exclusions reported beside n.
 [Both sessions and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-confirmed).
 
+**M10 review fixes, 2026-10-31:** main `15c20224e2` against source
+`c2bbac1010`, release, silver Mac. Instrument: unchanged `measure.m`
+cold-only and the first-complete-drawable probe, hook and power off.
+The ten untraced and five traced originals per arm and label use the
+same signed executables and probe; each executable has a throwaway
+launch. All launched originals pass ten quiet seconds; launch maxima
+are report-only. This is one logical cohort with retained load and
+ownership pauses. Medians in ms, qualified n in parentheses:
+
+| Arm | Untraced before | Untraced after | Traced before | Traced after |
+| --- | ---: | ---: | ---: | ---: |
+| Native | 236.245 (10) | 241.759 (10) | 238.104 (5) | 250.120 (5) |
+| GPUI | 196.795 (10) | 198.280 (10) | 208.096 (5) | 205.837 (5) |
+| egui | 206.389 (8) | 201.296 (7) | 218.649 (4) | 205.812 (5) |
+| Ink | 214.120 (10) | 189.055 (10) | 214.776 (5) | 194.959 (5) |
+
+Five untraced and one traced egui readiness failures remain without
+replacement. Ink's untraced paired change is −21.531 [−43.335, +3.430]
+ms, n=10; omitting the round separated by the ownership pause gives
+−20.814 ms, n=9. The −15 to −25 ms paired prediction is met;
+195–215 ms absolute p50 misses on the faster side. The traced paired
+change is −15.907 [−35.813, −8.328] ms, n=5. Ink is below both controls
+with and without tracing in this cohort, but the historical confirmation
+above puts it above GPUI, as do cut 6's traced cohorts. A repeated lead
+across sessions is not established. Trace-associated paired medians are
+below 10 ms; individual launches miss that bound, and launcher wrapper
+and pre-constructor delays prevent a pure tracing-cost attribution.
+
+The stub, retries, frame generation, refused-picture retirement,
+bounded repeats, nested-loop guard, first-screen picture scope and
+background handling are fixed. All five traced Ink-after launches
+retire boot once after complete display. The final five fling pairs
+still add 26.352 [10.743, 28.312] million instructions/s. Three fix
+attempts miss, so the regression remains queued and the chunk is not
+ready to land. The eight named suites pass; two full-suite timing
+failures remain reported, and the mini owns the six-check gate. The
+100 ms obligation and D7, D11 and D15 are unchanged.
+[Review dispositions, predictions, raw rows and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-the-cuts-reviews-folded).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms
