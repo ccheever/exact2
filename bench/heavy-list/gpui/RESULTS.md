@@ -9707,3 +9707,30 @@ output is retained in `checks/caps-final.log`:
 ```text
 All budgets within cap. 10 categories inspected.
 ```
+
+## M10, cut 4: request the pictures earlier and re-present the latest frame
+
+**Predictions before the run, 2026-10-31.** Correct cut 3's hold: a new
+paint replaces the frame repeated after a zero callback; repetition ends
+at the first positive callback. Request image metadata when the first
+commit exposes the image nodes and request sized decodes at first layout.
+The data source's `bind` precedes those nodes: it names neither the rows
+nor their resolved content boxes. Keep the two image workers, admission,
+slot patching, paint contract and resource retirement unchanged.
+
+| Prediction | Instrument |
+| --- | --- |
+| Pictures decoded and uploaded by about 150 ms warm, from about 185 | Per-picture request, decode and upload spans on the existing probe, with thread IDs; separate before/after diagnostics |
+| Complete frame presented by about 160 ms; complete screen 185–195 ms warm, from cut 2's 208.756 | `startup.py`, GPU hook off, trace on, power off; five cold/warm confirmation launches per arm, then ten paired rounds |
+| Cold complete screen 190–200 ms, below GPUI's 204.925 and egui's 214.842 | `measure.m` cold-only, hook/trace/power off; ten original launches per arm, before and after |
+| One zero callback or a few; each repeat uses the latest painted frame and stops after the first positive callback | The traced launches |
+| First displayed pixels, CPU-first handoff and live Metal/wgpu remain correct | Affected suites and functional carrier drives on silver |
+| Fling, rest and static unchanged | Existing rows stand; this cut does not remeasure them |
+
+The retained cut 2 warm trace has five unique decodes, not twenty. Five
+jobs need at least three rounds on two workers; twenty would need ten.
+The before measurement carrier is cut 2 (`19f0758ca6`, rebased later as
+`8116a09a55`); all failed originals remain with successful n. Each signed
+arm gets a throwaway launch and each measurement ten quiet seconds first.
+Raw evidence stays under `target/m10-c4/` and its silver copy. One round;
+the six broad checks are deferred to the Mac mini. No push.
