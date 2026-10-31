@@ -513,6 +513,12 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
   if (op.startsWith('artifact-')) return artifactLocal(client, native, op.slice(9), id, value);
   if (op.startsWith('mini-')) return browserMiniLocal(client, native, op.slice(5), id, value, tabId => reopenBrowserTab(client, state, tabId));
   if (op === 'pip-left') { closeServerPictureInPicture(client); return ''; } // the picture-in-picture window's close
+  // toggleNativePictureInPicture's catch: the platform could not float the tab (`value`, its reason).
+  if (op === 'pip-failed') {
+    closeServerPictureInPicture(client);
+    pushToast(client, { kind: 'error', title: 'Unable to pop out preview', description: value || 'An error occurred.' });
+    return '';
+  }
   if (op === 'annotation-held') return annotationAttachedToDraft(client); // an annotation's ⌘Return the window could not send
   if (op === 'show') return showPreview(client, native, state); // ⇧⌘J (browser-navigation.ts)
   const surface = state.surfaces.find(entry => entry.id === browserSurfaceId(id) && entry.kind === 'browser');

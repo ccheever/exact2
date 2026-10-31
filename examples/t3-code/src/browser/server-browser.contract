@@ -180,7 +180,8 @@ component ServerBrowserPage
 
 // serverPictureInPicture.ts's hidden video: the tab's own stream (server-browser-members.contract `serverPipFrame`)
 // paints a 1-point image that `requestPictureInPicture` floats; the window shows each picture it names next. The
-// window's close is `leavepictureinpicture`; the image unmounted closes the window.
+// window's close, or the pill's `exitPictureInPicture()`, is `leavepictureinpicture`; a failure is
+// `pictureinpictureerror`; the image unmounted closes the window.
 component ServerBrowserPip
   props
     pip: BrowserPip
@@ -196,6 +197,9 @@ component ServerBrowserPip
     painted()
   action left
     local("surface-browser-pip-left", pip.runtimeId, "")
+  // The platform could not float it (LLP 1042 §9's `pictureinpictureerror`): the reference's rejected open.
+  action failed(message: string)
+    local("surface-browser-pip-failed", pip.runtimeId, message)
   view
     if streamed or pip.seed != ""
-      image (streamed ? serverPipFrame.image : pip.seed) id="server-browser-pip" load=painted error=broken leavepictureinpicture=left aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId="server-browser-pip"
+      image (streamed ? serverPipFrame.image : pip.seed) id="server-browser-pip" load=painted error=broken leavepictureinpicture=left pictureinpictureerror=failed aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId="server-browser-pip"

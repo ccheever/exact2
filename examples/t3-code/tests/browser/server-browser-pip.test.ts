@@ -9,6 +9,7 @@ import type { PreviewSessionSnapshot } from '../../src/browser/browser-state';
 import { panelKey, panelView, surfaceLocal, surfaceStore, type PanelState } from '../../src/panel/panel-surfaces';
 import { miniStoreOf } from '../../src/device/device-session';
 import { serverPipOf, serverPipRuntimeId } from '../../src/browser/server-browser-pip';
+import { toasts } from '../../src/shell/toast';
 import { prepareServerStream, serverStreamUrl } from '../../src/browser/server-browser-runtime';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
@@ -81,6 +82,16 @@ describe("a server tab's picture-in-picture window", () => {
     expect(view.browserMini.pdfUrl).not.toBe('');
   });
 
+  it("a refusal ends the window and says so, as the reference's failed open does", async () => {
+    const client = floating();
+    const runtimeId = (await panelView(client, module, 0)).browserMini.runtimeId;
+    await surfaceLocal(client, module, 'browser-mini-window', runtimeId, 'server');
+    await surfaceLocal(client, module, 'browser-pip-failed', serverPipRuntimeId(runtimeId), 'picture in picture is not possible');
+    const view = await panelView(client, module, 0);
+    expect([serverPipOf(client), view.browserMini.separateWindow]).toEqual([null, false]);
+    expect(toasts(client).map(t => [t.kind, t.title, t.description])).toEqual([['error', 'Unable to pop out preview', 'picture in picture is not possible']]);
+  });
+
   it("ends on a PDF in the floating tab's thread whichever thread is shown", async () => {
     const client = floating();
     const runtimeId = (await panelView(client, module, 0)).browserMini.runtimeId;
@@ -117,7 +128,18 @@ describe("a server tab's picture-in-picture window", () => {
     const scope = { pip, ...frame('rt:pip', 'app:/tmp/1.jpg'), streamPainted: (...args: unknown[]) => painted.push(args), local: (...args: unknown[]) => said.push(args) };
     pipImage.call('painted', {}, scope, []);
     pipImage.call('left', {}, scope, []);
-    expect([painted, said]).toEqual([[['rt:pip', 'app:/tmp/1.jpg']], [['surface-browser-pip-left', 'rt:pip', '']]]);
+    pipImage.call('failed', {}, scope, ['not possible']);
+    expect([painted, said]).toEqual([[['rt:pip', 'app:/tmp/1.jpg']], [['surface-browser-pip-left', 'rt:pip', ''], ['surface-browser-pip-failed', 'rt:pip', 'not possible']]]);
+  });
+
+  it("the pill opens the window through the panel and closes it with exitPictureInPicture()", () => {
+    const calls: unknown[][] = [];
+    const scope = (mini: Record<string, unknown>) => ({ mini: { runtimeId: 'rt', server: true, separateWindow: false, ...mini },
+      local: (...a: unknown[]) => calls.push(['local', ...a]), exitPictureInPicture: (...a: unknown[]) => calls.push(['exit', ...a]) });
+    player.call('popOut', player.state(), scope({}), []);
+    player.call('popOut', player.state(), scope({ separateWindow: true }), []);
+    player.call('popOut', player.state(), scope({ server: false, separateWindow: true }), []);
+    expect(calls).toEqual([['local', 'surface-browser-mini-window', 'rt', 'server'], ['exit'], ['local', 'surface-browser-mini-window', 'rt', '']]);
   });
 
   it("offers the pill's window button as canPopOut does", () => {
