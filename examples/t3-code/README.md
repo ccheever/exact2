@@ -1235,8 +1235,9 @@ and its own `HOME`, This machine on the fixture's local home with no folder for 
 seeded with `--more-turns --pull-request --limits` and started with `--scratch`, `third` on the 0.1.4 release behind
 the older-server stand-in reporting 0.1.4; the v0.1.5 oracle paired with the same two lane servers). Presses, drags,
 right-clicks and keys from the HID event source; each result read back from the accessibility tree, the lane
-server's API or VoiceOver's caption panel; the oracle driven the same way in the same state. 15 rows: 11 hold, 2
-failed, 2 not reachable with these fixtures.
+server's API or VoiceOver's caption panel; the oracle driven the same way in the same state. 11 rows hold, 3
+fail (one is the video chip of the chips row) and 2 are not reachable with these fixtures. The oracle's doc.pdf and sample.py
+chips were not opened under VoiceOver: an XCTest run of another lane took the front window during that step.
 
 Hold:
 
@@ -1262,9 +1263,10 @@ Hold:
   segment ("ST: 20% left, resets in 38m, 13% of the window left, dialog pop up collapsed, button"; with "2 reset credits
   banked" where it has them), for Codex and Claude (1 of 1). The oracle speaks the same strings, as one group per
   window.
-- VO-Space on composer chips: sample.py opens its file preview with Disable word wrap focused; clip.mp4 opens
-  "Expanded video preview, dialog", playing; doc.pdf opens the PDF preview reading "1 / 1 pages" (1 of 1 each). VO-Right
-  from Message reads the three chips in text order, and Escape gives the prompt back with the chip selected.
+- VO-Space on composer chips: sample.py opens its file preview with Disable word wrap focused, and doc.pdf the PDF
+  preview reading "1 / 1 pages" (1 of 1 each). VO-Right from Message reads the three chips in text order, and Escape
+  gives the prompt back with the chip selected. In the oracle the chips are reached by interacting with Message
+  (VO-Right from it goes to Attach files); doc.pdf and sample.py were not opened there (below).
 - An italic face: with Interface font Georgia, the stand-in's answer draws its emphasis in Georgia Italic, and bold
   with italic in Georgia Bold Italic (1 of 1). The oracle the same (1 of 1).
 - The Thread title instructions textarea's grip: a drag of 60 pt from the grip grows the field by 60 pt (1 of 1); the
@@ -1278,6 +1280,10 @@ Failed (left as they are; no app change in this round):
   yet"; the oracle lists Lane Third as a Server row to update (1 of 1 each). The clone's npm check
   (`sidebar/npm-release.ts`) answered not published, where `https://registry.npmjs.org/t3/0.1.5` answers from this Mac;
   the cause is not yet known.
+
+- VO-Space on the clip.mp4 chip opens the playing preview reading "Expanded video preview, dialog", with no control
+  focused; the oracle reads "Expanded video preview, dialog, with 3 items, Close video preview, button", with Close
+  focused (1 of 1 each), as the image preview does in both.
 
 Not reachable with these fixtures:
 
