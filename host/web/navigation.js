@@ -141,17 +141,18 @@ const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) ?? [...nav.ownerDocument.querySelectorAll(`[id="${CSS.escape(name)}"]`)].find(control => [null, nav].includes(control.closest("[navigationKey]"))) ?? null : undefined;
 // @ref LLP 1116.000 D4 — a pushed route's bar draws Back as iOS draws UIKit's (NavigationBarIOS.swift `projectBack`),
 // with no Back control too: not on a stack's root, a sheet (whose Cancel is its Back) or a route with no bar, nor for a
-// disabled control or one the author made inert. A control that is an item of the bar iOS makes of its header is
-// pressed through it and not shown (index.html). The button is the header's shadow root's, before its slot, so the
-// header's children stay the renderer's.
+// disabled control or one the author made inert. A control that is an item of the bar iOS makes of its header is pressed
+// through it and not shown (index.html). The button is the header's shadow root's, before its slot, so the header's children stay the renderer's.
 const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-bar-accent,var(--exact-accent,AccentColor));cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.13;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15.35 5 8 12l7.35 7"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
 const authored = '[data-exact-said~="appearance"]'; // a header or a node in one whose author wrote `appearance: none` (element.rs)
+// @ref LLP 1153 D8 — a route's header holding a `nav`, or more than one link outside a `popover` or `dialog` in it (the top layer's), is a site's, marked `data-exact-site`: drawn as written (index.html, neutral.css), as one whose author wrote `appearance: none` is, it is no app bar and holds no Back. document_bars.rs `site_header` is the Rust renderer's rule.
+const siteHeader = (header, links = 0) => { const holds = el => [...el.children].some(child => !child.matches("[popover], dialog") && (child.localName === "nav" || (child.matches("a[href], [role=link]") && ++links > 1) || holds(child))); return holds(header); }, markSites = route => { for (const child of route.children) if (child.localName === "header") child.toggleAttribute("data-exact-site", siteHeader(child)); }, asWritten = header => header.matches(`${authored}, [data-exact-site]`);
 // The items of the bar iOS makes of a shown `header`, or null where it makes none: kernel/src/bars.rs `header_bar`,
 // ported to the elements both runtimes write alike, since the JS target keeps no kernel to ask. `walk` is `Walk::walk`:
-// a bar's header holds one heading, and an item is a pressable it reaches, not the title's, or a disabled button.
+// a bar's header holds one heading, and an item is a pressable it reaches, not the title's, or a disabled button. A header drawn as written is no bar.
 function barItems(route, header) {
-  if (route.getAttribute("data-navigationbar") === "none" || route.firstElementChild !== header || header.matches(authored)) return null;
+  if (route.getAttribute("data-navigationbar") === "none" || route.firstElementChild !== header || asWritten(header)) return null;
   const heading = "[data-exact-text][role=heading]", press = '[data-exact-on~="press"]', layer = el => el.matches("[popover], dialog");
   const holds = el => [...el.children].some(child => !layer(child) && (child.matches(heading) || holds(child)));
   const disabled = el => el.matches("button[disabled]") && !el.hasAttribute("role") && root?.getAttribute("aria-busy") !== "true"; // `fact::DISABLED`, dimmed whether or not it presses; a `button` element carries no `role` unless it has another one (element.rs); until input is ready, the glue disables every control itself (glue.js)
@@ -167,8 +168,8 @@ function barItems(route, header) {
   walk(header);
   return headings === 1 ? items : null;
 }
-/** Mark every route's bar on a page rendered ahead of time (host/web-js/render.mjs), which runs no projection, as document.rs marks one. */
-export function markBars(node) { for (const child of node.children) { const header = child.hasAttribute("navigationKey") && !child.hasAttribute("navigationBack") && headerOf(child); if (header) header.toggleAttribute("data-exact-bar", !!barItems(child, header)); markBars(child); } }
+/** Mark every route's bar and site header on a page rendered ahead of time (host/web-js/render.mjs), which runs no projection, as document.rs marks them. */
+export function markBars(node) { for (const child of node.children) { if (child.hasAttribute("navigationKey")) markSites(child); const header = child.hasAttribute("navigationKey") && !child.hasAttribute("navigationBack") && headerOf(child); if (header) header.toggleAttribute("data-exact-bar", !!barItems(child, header)); markBars(child); } }
 // Whether a button shows or toggles a popover, a header's menu (kernel/src/invocation.rs `opens_popover`).
 function opensPopover(el) {
   if (el.localName !== "button") return false;
@@ -190,11 +191,10 @@ function appBarBack(nav, routes, index, split, shown) {
   const route = routes[index], header = headerOf(route);
   if (!header) return;
   const headerShown = getComputedStyle(header).display !== "none";
-  // In a split, a detail its list's row pushed has none: the list beside it is its way back (LLP 1116.004 D1). Nor has a
-  // route whose shown header's author wrote `appearance: none`, which keeps the bar they drew (HeaderRule.swift
-  // `keepsAuthoredHeader`).
+  // In a split, a detail its list's row pushed has none: the list beside it is its way back (LLP 1116.004 D1). Nor has a route whose shown header
+  // is drawn as written: its author wrote `appearance: none`, keeping the bar they drew (HeaderRule.swift `keepsAuthoredHeader`), or it is a site's.
   const pushed = index > 0 && !sheet(route) && route.getAttribute("data-navigationbar") !== "none" && !(split && (index === 1 || rowOf.has(route)))
-    && !(route.firstElementChild === header && header.matches(authored) && headerShown);
+    && !(route.firstElementChild === header && asWritten(header) && headerShown);
   // A header iOS makes no bar of draws Back when it does not show a visible Back control (iOS draws it either way).
   // Discount the bar's own hiding mark. In a header not shown, the Back stays hidden with it.
   const control = pushed ? backControl(nav, route) : null, inShownHeader = headerShown && !!control && header.contains(control) && !header.contains(control.closest("[popover], dialog"));
@@ -402,7 +402,7 @@ export const navigation = {
     });
   },
   project(root, log) {
-    if (activationRequired.has(root) && !activated.has(root)) return;
+    if (activationRequired.has(root) && !activated.has(root)) return; for (const route of root.querySelectorAll("[navigationKey]")) markSites(route); // site headers, under a root with no `navigationBack` too
     for (const nav of root.querySelectorAll("[navigationBack]")) {
       let key = nav.getAttribute("navigationKey"), [list, panels] = tabsOf(nav);
       // The authored placement is read with the sidebar's own rules lifted, which restyles the page (an embedded frame re-centres), so only when what places the bar may have changed: the wide breakpoint, the bar's parent or orientation, or the root's or the bar's class or inline display, flex direction, position or appearance (their class rules and inline style are what place them).

@@ -551,6 +551,69 @@ component App
     }
 }
 
+// LLP 1153 D8 — a route's header that holds a `nav`, or more than one link,
+// is a site's: marked `data-exact-site`, which the shell draws as written,
+// and no bar, though iOS would make one of its one heading. The header iOS
+// makes its bar of (one heading, its buttons) stays the bar, and so does one
+// whose second link is in a menu (a popover is the top layer's). A header
+// whose author wrote `appearance: none` is drawn as written by its own mark.
+#[test]
+fn a_site_header_is_marked_and_is_no_bar() {
+    let src = r#"
+routes nav
+  tab home "/"
+    navs "/navs"
+    links "/links"
+    menu "/menu"
+    own "/own"
+component App
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}`
+          header testId=`header-${e.name}` appearance=(e.name == "own" ? "none" : "auto")
+            text "Pokédex" role="heading" aria-level=1
+            if e.name == "navs"
+              nav aria-label="Sections"
+                link href=path("home")
+                  text "All"
+            if e.name == "links"
+              link href=path("home")
+                text "All"
+              link href=path("menu")
+                text "Types"
+            if e.name == "menu"
+              link href=path("home")
+                text "All"
+              button popovertarget="more" aria-label="More"
+                text "More"
+              column popover="auto" id="more"
+                link href=path("links")
+                  text "Links"
+            button press=back aria-label="Back"
+              text "Back"
+"#;
+    let tag = |launch: &str, test_id: &str| {
+        let doc = host(src, Says(""), launch).document().unwrap().root;
+        let at = doc.find(&format!("data-testid=\"{test_id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        doc[start..at + doc[at..].find('>').unwrap() + 1].to_owned()
+    };
+    for (launch, header, site, bar) in [
+        ("/", "header-home", false, true),
+        ("/navs", "header-navs", true, false),
+        ("/links", "header-links", true, false),
+        ("/menu", "header-menu", false, true),
+        ("/own", "header-own", false, false),
+    ] {
+        let tag = tag(launch, header);
+        assert_eq!(tag.contains("data-exact-site"), site, "{tag}");
+        assert_eq!(tag.contains("data-exact-bar"), bar, "{tag}");
+    }
+}
+
 // @ref LLP 1075.003 §3.3, §3.7 — with tabs, each tab's panel holds its own
 // stack, built when the tab is first selected: the unselected panel is
 // hidden and inert; an app's data-* words are attributes of their own. Both are linked

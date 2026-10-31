@@ -269,8 +269,10 @@
   /* Explicit glass styles retain their material when disabled. */
   #exact-root button[data-button-style="prominent-glass"]:disabled { background-color: light-dark(#ffffffb3, #262629b3); }
   #exact-root button[data-button-style="prominent-clear-glass"]:disabled { background-color: light-dark(#ffffff26, #ffffff1a); }
-  /* A route's app bar keeps its document-scroll position and content inset. Its neutral paint is in neutral.css. */
-  :where(#exact-root [navigationkey] > header:not([data-exact-said~="appearance"])) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; }
+  /* A route's app bar keeps its document-scroll position and content inset. Its neutral paint is in neutral.css. A
+     header drawn as written is no app bar, here or there (LLP 1153 D8): a site's, which navigation.js marks
+     `data-exact-site` when it holds a `nav` or more than one link, and one whose author wrote `appearance: none`. */
+  :where(#exact-root [navigationkey] > header:where(:not([data-exact-site], [data-exact-said~="appearance"]))) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; }
   /* LLP 1116.000 D4: the Back control a pushed route's header holds is pressed through the Back its bar draws
      (navigation.js), which stands for it, so it is not shown. A tap the agent aims at it lands on that Back
      (agent-input.js `viewBox`), where the hit is the header holding it: the driver's check that no ancestor takes the

@@ -2,10 +2,11 @@
 //! its route's bar `data-exact-bar`, by the kernel's rule
 //! (`exact_kernel::bars::header_bar`), as navigation.js marks it (`barItems`).
 //! The mark sizes the bar's symbols (neutral.css), so they are the bar's size
-//! before the page adopts.
+//! before the page adopts. A site's header is marked `data-exact-site`
+//! instead ([`site_header`]), so it is drawn as written before then too.
 
 use super::Source;
-use exact_kernel::{PropId, SortedMap, ViewId};
+use exact_kernel::{NodeFacts, PropId, SortedMap, SortedSet, ViewId};
 use exact_plan::EventKind;
 
 /// The page's nodes and which hear `press`, as the kernel's header rule reads
@@ -60,7 +61,8 @@ impl<S: Source> exact_kernel::bars::Tree for BarTree<'_, S> {
     }
 }
 
-/// The header iOS makes `route`'s bar of, if any.
+/// The header iOS makes `route`'s bar of, if any, unless it is a site's
+/// ([`site_header`]), which the web draws as written.
 pub(super) fn bar_header<S: Source>(
     src: &S,
     handlers: &SortedMap<ViewId, Vec<EventKind>>,
@@ -68,4 +70,54 @@ pub(super) fn bar_header<S: Source>(
 ) -> Option<ViewId> {
     exact_kernel::bars::header_bar(&BarTree { src, handlers }, route, false)
         .map(|shape| shape.header)
+        .filter(|header| !site_header(src, *header))
+}
+
+/// LLP 1153 D8 — whether `header` is a site's: it holds a `nav`, or more
+/// than one link, outside any `popover` or `dialog` in it, whose contents
+/// are the top layer's. The shell draws it as written, with no app bar
+/// (`data-exact-site`), as navigation.js `siteHeader` decides on a live page.
+pub(super) fn site_header<S: Source>(src: &S, header: ViewId) -> bool {
+    fn holds<S: Source>(src: &S, id: ViewId, links: &mut u32) -> bool {
+        src.children(id).iter().any(|&child| {
+            let Some(node) = src.facts(child) else {
+                return false;
+            };
+            let props = node.props;
+            let tag = props.str(PropId::SemanticTag);
+            if props.get(PropId::Popover).is_some() || tag == Some("dialog") {
+                return false;
+            }
+            // A link: a node with an `href` (an `a`), or whose role is `link`.
+            let link = props.str(PropId::Href).is_some()
+                || props.str(PropId::AccessibilityRole) == Some("link");
+            if link {
+                *links += 1;
+            }
+            tag == Some("nav") || *links > 1 || holds(src, child, links)
+        })
+    }
+    holds(src, header, &mut 0)
+}
+
+/// Mark the headers of `node` that are a site's ([`site_header`]) when it
+/// is a route, as `navigation.project` marks them: any node with a
+/// `navigationKey`, whether or not its root names a Back control.
+pub(super) fn mark_sites<S: Source>(
+    src: &S,
+    node: &NodeFacts<'_>,
+    children: &[ViewId],
+    sites: &mut SortedSet<ViewId>,
+) {
+    if node.props.str(PropId::NavigationKey).is_none() {
+        return;
+    }
+    for &child in children {
+        let header = src
+            .facts(child)
+            .is_some_and(|c| c.props.str(PropId::SemanticTag) == Some("header"));
+        if header && site_header(src, child) {
+            sites.insert(child);
+        }
+    }
 }
