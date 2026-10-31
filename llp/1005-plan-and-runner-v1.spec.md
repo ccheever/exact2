@@ -817,6 +817,31 @@ root's edit actions and key path), Linux's
 `with_nothing_focused_the_root_hears_keys`, and the `body-keys` conformance
 plan (Chrome, JS against wasm, and the Linux host).
 
+**A non-modal popover on Linux and Windows** (the shared presenter,
+`presenter/alert.rs`; theme2 15:34 and the lead's 2026-10-31 00:13 ruling)
+follows HTML. Opening it leaves the focus where it was, unless something
+inside autofocuses; a `dialog` shown as a popover runs the dialog focusing
+steps. The page stays live: keys other than the popover's Escape, Tab, wheel,
+reveal and the accessibility tree all reach it. A press outside an auto
+popover dismisses it and goes on to what it lands on. A press on any button
+whose popover command targets it is that button's toggle. Tab enters the
+popover's stops right after where its invoker sorts. A manual popover hears
+no close request and gives no focus back. Modal dialogs and alerts keep the
+inert page and move the focus in. **Not yet conforming:**
+- From a focused node that is no stop inside a popover (an autofocused
+  `tabindex=-1`), Tab steps from that node's tree position at the default
+  tabindex rank. A positive-`tabindex` stop after it inside the popover is
+  then skipped, and Shift+Tab can land on it; HTML searches plain tree order
+  from such a starting point. This is dtool3's owned item, next.
+- One box at a time: a popover from a dialog, or a nested auto popover,
+  replaces the open box (owned, dtool3).
+- Light dismiss runs on pointerdown; HTML records the press there and
+  dismisses on the matching pointerup, and Chrome on the click (owned, dtool3).
+
+Tests: `presenter/alert_popover_tests.rs`, `alert_input_tests.rs` (modal
+kinds), `tests/authored_dialog.rs` and `tests/authored_dialog_windows.rs`, and
+the `reads` conformance plan with `--linux`.
+
 **A chord during an input method's composition, and held modifiers**
 (2026-10-07, #140). Chrome hands the page a ⌘ chord's keydown while the text
 is still composed (`isComposing`; CDP's `Input.imeSetComposition` then the
