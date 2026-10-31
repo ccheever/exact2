@@ -5,7 +5,65 @@ import { join } from 'node:path';
 import assert from 'node:assert/strict';
 
 const [directory = 'target/g3c', mode] = process.argv.slice(2);
-assert([undefined, '--verify', '--json', '--boot'].includes(mode), 'expected --verify, --json or --boot');
+assert([undefined, '--verify', '--json', '--boot', '--sample'].includes(mode), 'expected --verify, --json, --boot or --sample');
+const hookStates = new Set();
+const hookSamples = [];
+function hookState(raw, path, retained = raw.accepted !== false) {
+  const enabled = raw.gpuHookEnabled ?? true; // Pre-switch probes always enabled the hook.
+  assert.equal(typeof enabled, 'boolean', `${path}: gpuHookEnabled must be boolean`);
+  hookSamples.push({ path, gpuHookEnabled: retained ? enabled : raw.gpuHookEnabled ?? null,
+    requestedGpuHookEnabled: raw.requestedGpuHookEnabled ?? null });
+  if (retained) {
+    hookStates.add(enabled);
+    assert.equal(hookStates.size, 1, `${path}: mixed GPU hook states; aggregate separate configurations`);
+  }
+  if (!enabled) for (const gpu of Object.values(raw.gpu ?? {})) {
+    for (const key of ['committed', 'completed', 'invalid', 'seconds'])
+      assert.equal(gpu[key], 0, `${path}: hook off but observed GPU ${key}`);
+    assert(!gpu.queueClass && !gpu.bufferClass, `${path}: hook off but observed GPU class`);
+  }
+  return enabled;
+}
+const hookMetadata = () => ({ gpuHookEnabled: [...hookStates][0] ?? null, hookSamples });
+const hookLabel = () => `GPU hook: ${[...hookStates][0] ? 'on' : 'off'} (gpuHookEnabled=${[...hookStates][0]}).`;
+function gpuMetrics(raw, phase, enabled, seconds, frames, path) {
+  const gpu = raw.gpu?.[phase];
+  // Older cadence probes have no command-buffer instrument.
+  if (!enabled || !gpu) return {};
+  assert.equal(gpu.committed, gpu.completed, `${path}: outstanding command buffers`);
+  assert.equal(gpu.invalid, 0, `${path}: invalid GPU timestamps`);
+  if (raw.arm !== 'native') assert(gpu.committed > 0, `${path}: no observed GPU work`);
+  return { buffers: gpu.completed, ...(gpu.completed ? {
+    gpu_ms_s: gpu.seconds * 1000 / seconds,
+    ...(frames ? { gpu_ms_frame: gpu.seconds * 1000 / frames } : {}),
+  } : {}) };
+}
+function workCounters(start, end, seconds, path) {
+  const result = {};
+  for (const counter of ['instructions', 'cycles']) {
+    if (!(counter in start) && !(counter in end)) continue;
+    assert(Number.isSafeInteger(start[counter]) && Number.isSafeInteger(end[counter])
+      && end[counter] >= start[counter], `${path}: invalid ${counter}`);
+    result[`${counter}_million_s`] = (end[counter] - start[counter]) / seconds / 1e6;
+  }
+  return result;
+}
+if (mode === '--sample') {
+  const raw = JSON.parse(readFileSync(directory, 'utf8'));
+  assert.equal(raw.accepted, true, `${directory}: rejected sample`);
+  const enabled = hookState(raw, directory);
+  console.log(`${hookLabel()} Instrument check only; not a scoreboard table.\n`);
+  console.log('| Phase | Seconds | Process CPU, ms | Main CPU, ms | Instructions | Cycles |');
+  console.log('|---|---:|---:|---:|---:|---:|');
+  for (const phase of [raw.workload, ...(raw.rest ? ['rest'] : [])]) {
+    const { start, end } = raw[phase];
+    const seconds = end.time - start.time;
+    workCounters(start, end, seconds, directory);
+    gpuMetrics(raw, phase, enabled, seconds, 0, directory);
+    console.log(`| ${phase} | ${seconds.toFixed(6)} | ${((end.cpu-start.cpu)*1000).toFixed(3)} | ${((end.main-start.main)*1000).toFixed(3)} | ${end.instructions-start.instructions} | ${end.cycles-start.cycles} |`);
+  }
+  process.exit(0);
+}
 if (mode === '--boot') {
   const samples = [];
   for (const file of readdirSync(directory).filter(f => /^(metal|wgpu)-\d+\.run\.json$/.test(f)).sort()) {
@@ -13,6 +71,7 @@ if (mode === '--boot') {
     const read = suffix => JSON.parse(readFileSync(join(directory, stem + suffix), 'utf8'));
     const run = read('.run.json');
     const raw = existsSync(join(directory, stem + '.json')) ? read('.json') : {};
+    const enabled = hookState(raw, stem, run.exit === 0);
     if (!existsSync(join(directory, stem + '.json.trace.json'))) {
       assert(run.timeout || run.exit !== 0, `${stem}: successful launch without trace`);
       samples.push({sample: stem, arm: stem.split('-')[0], exit: run.exit ?? 'timeout', quiet: false, phaseMs: null,
@@ -55,7 +114,7 @@ if (mode === '--boot') {
     const constructor = events.find(e => names[0] === e.name);
     const compiledOnBoot = events.filter(e => e.name === 'worker compile pipelines' && e.tid === constructor.tid).length;
     assert.equal(compiledOnBoot, 0, `${stem}: compilation on boot thread`);
-    samples.push({sample: stem, arm, exit: run.exit, quiet: run.before.quiet && run.after.quiet,
+    samples.push({sample: stem, arm, gpuHookEnabled: enabled, exit: run.exit, quiet: run.before.quiet && run.after.quiet,
       phaseMs: elapsed/1000, archiveOpenMs: phase('boot archive open'),
       compileMs: phase('worker compile pipelines'),
       firstPixelMs: raw.firstDrawableMs ?? null, firstCpuMs: raw.firstCpuMs ?? null,
@@ -87,7 +146,7 @@ if (mode === '--boot') {
       medians[arm][key] = values.length ? (values[Math.floor((values.length-1)/2)] + values[Math.floor(values.length/2)])/2 : null;
     }
   }
-  console.log(JSON.stringify({instrument: 'probe CACurrentMediaTime startup span union; MTLDrawable.presentedTime first pixels and per-painter complete scenes', medians, samples}, null, 2));
+  console.log(JSON.stringify({...hookMetadata(), instrument: 'probe CACurrentMediaTime startup span union; MTLDrawable.presentedTime first pixels and per-painter complete scenes', medians, samples}, null, 2));
   process.exit(0);
 }
 const fourArms = readdirSync(join(directory, 'series', 'fling')).some(file => /^egui-/.test(file));
@@ -138,6 +197,7 @@ function staticReport() {
       }
       if (!/^(native|gpui|ink|egui)-\d+(-retry)?\.json$/.test(file)) continue;
       const path = join(folder, file), raw = JSON.parse(readFileSync(path, 'utf8'));
+      const enabled = hookState(raw, path);
       if (!raw.accepted || raw.thermalStart !== raw.thermalEnd) {
         excluded.push({ path, reason: raw.reason ?? 'focus or thermal state' });
         continue;
@@ -162,16 +222,12 @@ function staticReport() {
       const bounds = [start.time, end.time];
       const frames = (arm === 'native' ? displayLink.map(row => row.timestamp) : raw.presented)
         .filter(time => inside(time, bounds)).length;
-      const gpu = raw.gpu[phase];
-      assert.equal(gpu.committed, gpu.completed, `${path}: outstanding command buffers`);
-      assert.equal(gpu.invalid, 0, `${path}: invalid GPU timestamps`);
-      if (arm !== 'native') assert(gpu.committed > 0, `${path}: no observed GPU work`);
-      const sample = { path, seconds, frames, fps: frames / seconds,
+      const sample = { path, gpuHookEnabled: enabled, seconds, frames, fps: frames / seconds,
         cpu: (end.cpu - start.cpu) * 1000 / seconds,
         main: (end.main - start.main) * 1000 / seconds,
-        peak_mib: mib(peak), end_mib: mib(end.footprint), buffers: gpu.committed,
-        ...(gpu.committed ? { gpu_ms_s: gpu.seconds * 1000 / seconds,
-          ...(frames ? { gpu_ms_frame: gpu.seconds * 1000 / frames } : {}) } : {}),
+        ...workCounters(start, end, seconds, path),
+        peak_mib: mib(peak), end_mib: mib(end.footprint),
+        ...gpuMetrics(raw, phase, enabled, seconds, frames, path),
       };
       if (phase === 'fling') {
         const driver = readFileSync(path.replace(/\.json$/, '.log'), 'utf8')
@@ -195,7 +251,7 @@ function staticReport() {
       const samples = retained[phase][arm];
       const slots = samples.map(row => round(row.path));
       assert(slots.every(slot => slot >= 1 && slot <= 3) && new Set(slots).size === slots.length, `${phase}/${arm}: slots`);
-      const keys = new Set(samples.flatMap(sample => Object.keys(sample)).filter(key => key !== 'path'));
+      const keys = new Set(samples.flatMap(sample => Object.keys(sample)).filter(key => !['path', 'gpuHookEnabled'].includes(key)));
       summary[phase][arm] = Object.fromEntries([...keys].map(key => [key,
         distribution(samples.filter(sample => key in sample).map(sample => sample[key])),
       ]));
@@ -208,6 +264,8 @@ function staticReport() {
   const tables = ['bar', 'caret', 'fling'].map(phase => {
     const rows = [
       ['Process CPU, ms/s', 'cpu', 3], ['Main-thread CPU, ms/s', 'main', 3],
+      ...(['instructions', 'cycles'].filter(key => targets.some(arm => summary[phase][arm][`${key}_million_s`]))
+        .map(key => [`Process ${key}, million/s`, `${key}_million_s`, 3])),
       ['Frames/s; native display link / painted drawables', 'fps', 2],
       ['Peak footprint, MiB', 'peak_mib', 2], ['End footprint, MiB', 'end_mib', 2],
       ['GPU busy time, ms/s; process command buffers', 'gpu_ms_s', 3],
@@ -217,13 +275,13 @@ function staticReport() {
     return `${phase}\n\n${header}\n| Quiet samples | ${targets.map(arm => retained[phase][arm].length).join(' | ')} |\n`
       + rows.map(([label, key, digits]) => `| ${label} | ${targets.map(arm => cell(phase, arm, key, digits)).join(' | ')} |`).join('\n');
   });
-  if (mode === '--json') console.log(JSON.stringify({ samples: retained, metrics: summary, excluded }, null, 2));
+  if (mode === '--json') console.log(JSON.stringify({ ...hookMetadata(), samples: retained, metrics: summary, excluded }, null, 2));
   else if (mode === '--verify') {
     const record = readFileSync(new URL('./RESULTS.md', import.meta.url), 'utf8').split('## G5:')[1];
     assert(record, 'missing G5 results');
     for (const table of tables) assert(record.includes(table), `G5 table differs:\n${table}`);
-    console.log(`G5 reproduced exactly: three tables; ${excluded.length} excluded samples.`);
-  } else console.log(tables.join('\n\n'));
+    console.log(`${hookLabel()} G5 reproduced exactly: three tables; ${excluded.length} excluded samples.`);
+  } else console.log(hookLabel() + '\n\n' + tables.join('\n\n'));
 }
 
 const phases = ['cold', 'fling'];
@@ -242,6 +300,7 @@ for (const phase of phases) {
     if (!/^(native|gpui|ink|egui)-\d+(-retry)?\.json$/.test(file)) continue;
     const path = join(folder, file);
     const raw = JSON.parse(readFileSync(path, 'utf8'));
+    const enabled = hookState(raw, path);
     if (!raw.accepted) {
       rejected.push(path);
       continue;
@@ -253,7 +312,7 @@ for (const phase of phases) {
       continue;
     }
     const arm = file.split('-')[0];
-    const sample = { path, cold_ms: raw.coldMs };
+    const sample = { path, gpuHookEnabled: enabled, cold_ms: raw.coldMs };
     if (phase === 'fling') {
       for (const part of ['fling', 'rest']) {
         const { start, end } = raw[part];
@@ -263,6 +322,8 @@ for (const phase of phases) {
         for (const counter of ['cpu', 'main']) {
           sample[`${part}_${counter}`] = (end[counter] - start[counter]) * 1000 / seconds;
         }
+        for (const [key, value] of Object.entries(workCounters(start, end, seconds, path)))
+          sample[`${part}_${key}`] = value;
       }
       sample.peak_mib = mib(raw.fling.peak);
       sample.end_fling_mib = mib(raw.fling.end.footprint);
@@ -296,6 +357,7 @@ for (const phase of phases) {
       for (const p of [50, 95, 99]) sample[`p${p}`] = quantile(intervals, p / 100);
       sample.late = intervals.filter(ms => ms > 12.5).length;
       sample.late_per_s = sample.late / (arm === 'native' ? sample.fling_seconds : sample.gesture_seconds);
+      Object.assign(sample, gpuMetrics(raw, 'fling', enabled, sample.fling_seconds, sample.fling_frames, path));
     }
     samples[arm].push(sample);
   }
@@ -309,7 +371,7 @@ for (const arm of arms) {
   assert(flings > 0 && flings <= 5, `${arm}: one to five fling/rest samples`);
   const slots = samples[arm].map(sample => sample.path.split('/').at(-1).replace('-retry', ''));
   assert.equal(new Set(slots).size, slots.length, `${arm}: duplicate accepted slot`);
-  const keys = new Set(samples[arm].flatMap(sample => Object.keys(sample)).filter(key => key !== 'path'));
+  const keys = new Set(samples[arm].flatMap(sample => Object.keys(sample)).filter(key => !['path', 'gpuHookEnabled'].includes(key)));
   metrics[arm] = Object.fromEntries([...keys].map(key => [key,
     distribution(samples[arm].filter(sample => key in sample).map(sample => sample[key])),
   ]));
@@ -327,8 +389,12 @@ const resources = table([
   ['Fling process CPU, ms/s', 'fling_cpu', 2],
   ['Fling process CPU per presented frame, ms', 'cpu_per_frame', 3],
   ['Fling main-thread CPU, ms/s', 'fling_main', 2],
+  ...(['instructions', 'cycles'].filter(key => arms.some(arm => metrics[arm][`fling_${key}_million_s`]))
+    .map(key => [`Fling process ${key}, million/s`, `fling_${key}_million_s`, 3])),
   ['Rest process CPU, ms/s', 'rest_cpu', 3],
   ['Rest main-thread CPU, ms/s', 'rest_main', 3],
+  ...(['instructions', 'cycles'].filter(key => arms.some(arm => metrics[arm][`rest_${key}_million_s`]))
+    .map(key => [`Rest process ${key}, million/s`, `rest_${key}_million_s`, 3])),
   ['Peak footprint during fling, MiB', 'peak_mib', 2],
   ['End-of-fling footprint, MiB', 'end_fling_mib', 2],
   ['End-of-rest footprint, MiB', 'end_rest_mib', 2],
@@ -351,15 +417,20 @@ cadence += '\n| Inputs received / posted per sample | ' + arms.map(arm => {
 cadence += '\n| Driver maxGapMs; maximum of four gestures | ' + arms.map(arm => format(arm, 'maxGapMs', 3)).join(' | ') + ' |';
 
 if (fourArms) cadence += '\n| Driver empty callbacks per sample | ' + arms.map(arm => format(arm, 'emptyCallbacks', 0)).join(' | ') + ' |';
+const gpuTable = table([
+  ['Fling GPU busy time, ms/s; process command buffers', 'gpu_ms_s', 3],
+  ['Fling GPU ms/presented frame', 'gpu_ms_frame', 4],
+  ['Fling completed command buffers per sample', 'buffers', 0],
+]);
 
 if (mode === '--verify') {
-  const record = readFileSync(new URL('./RESULTS.md', import.meta.url), 'utf8').split(`## ${report}:`)[1];
+    const record = readFileSync(new URL('./RESULTS.md', import.meta.url), 'utf8').replace(/<br>G4: [^|]+/g, ' ');
   assert(record, `missing ${report} results`);
   for (const output of [resources, cadence]) assert(record.includes(output), `${report} table differs:\n${output}`);
   const retained = Object.values(samples).flat();
-  console.log(`${report} reproduced exactly: two tables, ${retained.length} retained launches, ${retained.filter(sample => sample.fling_seconds).length} fling/rest samples; ${rejected.length} rejected attempts.`);
+  console.log(`${hookLabel()} ${report} reproduced exactly: two tables, ${retained.length} retained launches, ${retained.filter(sample => sample.fling_seconds).length} fling/rest samples; ${rejected.length} rejected attempts.`);
 } else if (mode === '--json') {
-  console.log(JSON.stringify({ samples, metrics, rejected, ...(fourArms ? { unused } : {}) }, null, 2));
+  console.log(JSON.stringify({ ...hookMetadata(), samples, metrics, rejected, ...(fourArms ? { unused } : {}) }, null, 2));
 } else {
-  console.log(`${resources}\n\n${cadence}`);
+  console.log(`${hookLabel()}\n\n${resources}\n\n${cadence}\n\n${gpuTable}`);
 }

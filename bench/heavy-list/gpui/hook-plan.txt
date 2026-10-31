@@ -1,0 +1,40 @@
+G4m, the instrument's share — predictions before measurement, 2026-10-30.
+Same silver M5 Max, 800x800 outer points, 2x, 120 Hz, retained caches.
+No startup series. Four flings in ten seconds, then ten seconds at rest,
+using the existing measure driver and wheel helper. Five rounds per configuration.
+Interleave round-wise: abc, bca, cab, abc, bca. Each driver round rotates arms.
+a: G1_GPU_HOOK=0, powermetrics off.
+b: G1_GPU_HOOK=1, powermetrics off.
+c: G1_GPU_HOOK=1, powermetrics cpu_power,gpu_power,tasks at 1 s with
+   --show-process-energy --show-process-gpu, as G4m.
+All configurations disable G1_TRACE and Stage 0 counters, use identical binaries.
+Retain every attempt. The driver's one retry per slot remains unchanged.
+Quiet means all three load averages below 30 and no compiler; observed every 5 s.
+
+Predictions: probe process CPU (proc_pid_rusage user+system milliseconds per
+phase second), paired by arm/round. Hook cost b-a: native between -5 and +5
+ms/s (no in-process buffers); GPUI +1 to +10; Ink +1 to +10; egui +5 to +20.
+Power-sampler cost c-b: between 0 and +5 ms/s for each arm.
+For each painted arm, median presented frames per full fling second changes by
+at most 5% in b versus a and c versus b. Median peak footprint changes by at
+most 10% for every arm in those comparisons. All are hypotheses, not gates.
+Hook cost per completed buffer uses each round's process-CPU-rate difference
+b-a divided by b's completed buffers per second, converted to microseconds.
+Native is unavailable, not zero per buffer. Report negative differences and
+the five paired differences; do not call negative differences a saving.
+Ranges are descriptive, not a basis for substituting cells from another run.
+
+CPU scoreboard: configuration a. GPU: b. G5m's power-on GPU rows stand
+until replaced by a power-off static series. Power is a
+separate run and never supplies or joins a scoreboard CPU row.
+
+Review correction, 2026-10-30: the historical quiet rule above missed sustained
+background CPU. Future qualification also requires <=2 busy cores and <=0.25
+core for the largest non-benchmark process at every five-second observation.
+Record pmset -g and pmset -g batt per series. This does not requalify the
+historical series. Before another series the owner stops the fleet session,
+simulators and PerfPowerServices if spinning. No series is authorized in the
+review-fix chunk: one default hook-off fling checks the instrument only.
+Prediction for that check: gpuHookEnabled=false, zero observed buffers;
+positive instructions and cycles deltas for both ten-second phases; quiet
+observations contain busyCores and five non-benchmark process CPU records.

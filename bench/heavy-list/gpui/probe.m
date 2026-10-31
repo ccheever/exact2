@@ -115,7 +115,7 @@ static void configureGPUHook(void) {
     if (setting && strcmp(setting, "0") && strcmp(setting, "1")) {
         fprintf(stderr, "probe: G1_GPU_HOOK must be 0 or 1\n"); exit(2);
     }
-    gpuHookEnabled = !setting || strcmp(setting, "0");
+    gpuHookEnabled = setting && !strcmp(setting, "1");
     if (gpuHookEnabled) watchCommandQueues();
 }
 
@@ -307,7 +307,8 @@ static NSDictionary *usage(void) {
     double main = thread.user_time.seconds + thread.system_time.seconds
         + (thread.user_time.microseconds + thread.system_time.microseconds) / 1e6;
     NSMutableDictionary *sample = [@{@"time": @(CACurrentMediaTime()), @"cpu": @((r.ri_user_time + r.ri_system_time) * tickSeconds),
-             @"main": @(main), @"footprint": @(r.ri_phys_footprint), @"lifetimePeak": @(r.ri_lifetime_max_phys_footprint)} mutableCopy];
+             @"main": @(main), @"cycles": @(r.ri_cycles), @"instructions": @(r.ri_instructions),
+             @"footprint": @(r.ri_phys_footprint), @"lifetimePeak": @(r.ri_lifetime_max_phys_footprint)} mutableCopy];
     if (counterName && counterValue) {
         NSMutableDictionary *values = [NSMutableDictionary dictionary], *high = [NSMutableDictionary dictionary];
         size_t i = 0;
