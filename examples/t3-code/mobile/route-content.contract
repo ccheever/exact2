@@ -1,4 +1,4 @@
-use MobileContentGeometry from "./content-geometry.contract"
+use ContentGeometry, MobileContentGeometry, contentGeometryTrailingReservation from "./content-geometry.contract"
 use HtmlRenderContext from "./html-render.contract"
 use PendingInputCard from "./pending-input.contract"
 use ComposerRootView from "./composer-root.contract"
@@ -59,6 +59,7 @@ use Environments, EnvironmentRow, GitHubRoutingSettings, GitHubRoutingRow from "
 // Presentation only. The root supplies all state, resource values and actions.
 component MobileRouteContent
   props
+    contentGeometry: ContentGeometry
     contentGeometryEvent: action
     threadSubmission: ThreadSubmission
     richComposer: ComposerRootView
@@ -76,6 +77,7 @@ component MobileRouteContent
     workingControl: WorkingControlData
     threadHeaderConfiguration: string
     threadHeaderAction: action
+    threadHistoryScroll: action
     terminalMountReady: bool
     queueData: MobileQueueSnapshot
     gitLook: GitColors
@@ -388,8 +390,8 @@ component MobileRouteContent
         else if routeName == "homeArrange"
           HomeArrangement(requestRoute=routeId, data=arrangement, colors=HomeArrangementColors(screen=look.screen, foreground=homeLook.foreground, muted=homeLook.muted, primaryText=homeLook.primaryText, borderSubtle=homeLook.borderSubtle), safeTop=0, safeBottom=0, drop=homeArrangeDrop, close=back)
         else if routeName == "home"
-          Home(routeId=routeId, active=focused, refreshAt=home.nextSwipeRefreshAt, epochAtZero=homeEpochAtZero, refreshClock=refreshHomeClock, reducedMotion=viewport.prefersReducedMotion, listId="home-list", items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, emptyTitleRole=settingsData.root.roles.headline, emptyDetailRole=settingsData.root.roles.footnote, plainTitleRole=settingsData.root.roles.title, plainDetailRole=settingsData.root.roles.body, plainActionRole=settingsData.root.roles.footnote, loading=home.loading, addEnvironment=home.addEnvironment, fullPageEmpty=home.fullPageEmpty, liquidGlass=layout.liquidGlass, windowHeight=(layout.windowHeight > 0 ? layout.windowHeight : viewport.height), safeTop=layout.safeTop, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, menuAction=homeMenuAction, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
-          HomeChrome(routeKey=routeId, configuration=chrome.configuration, event=homeEvent, height=(layout.liquidGlass ? chrome.toolbarContentInset + layout.safeBottom : 0))
+          Home(contentGeometry=contentGeometry, routeId=routeId, active=focused, refreshAt=home.nextSwipeRefreshAt, epochAtZero=homeEpochAtZero, refreshClock=refreshHomeClock, reducedMotion=viewport.prefersReducedMotion, listId="home-list", items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, emptyTitleRole=settingsData.root.roles.headline, emptyDetailRole=settingsData.root.roles.footnote, plainTitleRole=settingsData.root.roles.title, plainDetailRole=settingsData.root.roles.body, plainActionRole=settingsData.root.roles.footnote, loading=home.loading, addEnvironment=home.addEnvironment, fullPageEmpty=home.fullPageEmpty, liquidGlass=layout.liquidGlass, windowHeight=(layout.windowHeight > 0 ? layout.windowHeight : viewport.height), safeTop=layout.safeTop, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, menuAction=homeMenuAction, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
+          HomeChrome(routeKey=routeId, configuration=chrome.configuration, event=homeEvent, height=(layout.liquidGlass ? chrome.toolbarContentInset + layout.safeBottom : 0), trailingReservation=contentGeometryTrailingReservation(contentGeometry))
         else if routeName == "thread" or (routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")
           // Childless bounds stay settled while unrelated images load; the route probe also hears equal-flow viewport changes.
           for geometryOwner in [threadGeometryKey] key=geometryOwner
@@ -397,7 +399,7 @@ component MobileRouteContent
           column id=`thread-flow-${routeId}` flex=1 min-height=0 width="100%" position="relative" pointer-events="none"
             view id=`thread-flow-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)
             column position="absolute" top=0 left=0 right=0 bottom=(-threadCoveredBottom) pointer-events="auto"
-              ThreadFeed(data=threadData, active=focused, workWidth=(workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2), horizontalPadding=workspace.chatHorizontalPadding, userBubbleMaxWidth=workspace.userBubbleMaxWidth, bottomClearance=threadDockClearance, action=threadAction, openMedia=openMedia, openSendingThread=openSendingThread(routeId), colors=threadLook)
+              ThreadFeed(data=threadData, active=focused, workWidth=(workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2), horizontalPadding=workspace.chatHorizontalPadding, userBubbleMaxWidth=workspace.userBubbleMaxWidth, bottomClearance=threadDockClearance, action=threadAction, openMedia=openMedia, openSendingThread=openSendingThread(routeId), historyScroll=threadHistoryScroll, colors=threadLook)
           if threadData.queuedFailed
             column id=`thread-dock-${routeId}` position="absolute" left=0 right=0 bottom=0 padding-left=14 padding-right=14 padding-bottom=threadBottomInset pointer-events="none"
               view id=`thread-dock-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)

@@ -1,6 +1,28 @@
 use Change from "./app-shapes.contract"
 members App
-  mutation threadHistoryChanged as shape Change queue refreshes data, threadData
+  state historyAnchorKey = ""
+  state historyAnchorOffset = 0
+  state historyAnchorRoute = ""
+  state historyAnchorEnvironment = ""
+  state historyAnchorThread = ""
+  state historyAnchorRevision = 0
+  mutation threadHistoryChanged as shape Change queue refreshes data, threadData then didThreadHistoryChanged
+  action threadHistoryScroll(x: number, y: number, e: ScrollEvent)
+    if top(nav).name.startsWith("thread")
+      match e.firstVisibleKey
+        case some(key)
+          historyAnchorKey = key
+          historyAnchorOffset = e.firstVisibleOffset
+          historyAnchorRoute = `${top(nav).id}`
+          historyAnchorEnvironment = threadData.environmentId
+          historyAnchorThread = threadData.threadId
+          historyAnchorRevision = threadData.historyRevision
+        case none
+          historyAnchorKey = ""
+  action didThreadHistoryChanged
+    if historyAnchorKey != "" and historyAnchorRoute == `${top(nav).id}` and historyAnchorEnvironment == threadData.environmentId and historyAnchorThread == threadData.threadId and threadData.historyRevision > historyAnchorRevision
+      scrollIntoView("thread-feed", historyAnchorKey, offset=historyAnchorOffset, behavior="instant")
+      historyAnchorRevision = threadData.historyRevision
   action threadAction(op: string, id: string, value: string)
     if op == "outbox:edit"
       if not pending(outboxEdited)

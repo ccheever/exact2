@@ -168,6 +168,7 @@ shape ThreadSnapshot
   historyLoading: bool
   historyRequest: string
   historyError: string
+  historyRevision: number
   readsNeeded: bool
   answerFilesOwner: string
   answerFilesRequest: string

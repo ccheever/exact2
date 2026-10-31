@@ -45,7 +45,7 @@ export interface ThreadComposerState { editing: boolean; saving: boolean; canCan
   canOperate: boolean; showReadOnlyNotice: boolean; sendLabel: string; sendSymbol: string; blockedReason: string; modelLabel: string; providerDriver: string;
   providerIconURL: string; modelUnavailable: boolean; running: boolean; queueCount: number; }
 export interface ThreadSnapshot { queuedCanSelect: boolean; queuedFailed: boolean; queuedCanEdit: boolean; queued: boolean; queuedOwner: string; queuedStatus: string; queuedReason: string; queuedCanRetry: boolean; revision: number; environmentId: string; threadId: string; title: string; loaded: boolean; loading: boolean; rows: ThreadRow[];
-  emptyTitle: string; emptyDetail: string; error: string; uncertain: boolean; hasMore: boolean; historyRequest: string; historyLoading: boolean; historyError: string;
+  emptyTitle: string; emptyDetail: string; error: string; uncertain: boolean; hasMore: boolean; historyRequest: string; historyLoading: boolean; historyError: string; historyRevision: number;
   readsNeeded: boolean; answerFilesOwner: string; answerFilesRequest: string; approvals: ThreadApproval[]; composer: ThreadComposerState; pendingInput: PendingInputView; }
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 const legacyAutomationPrefix = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r?\n/;
@@ -159,7 +159,7 @@ export function mobileThread(now: number, dark = false, client: T3Client = mobil
     title: str(obj(client.projection.thread).title), loaded, loading, rows,
     emptyTitle: loaded ? 'No conversation yet' : loading ? '' : 'Messages not cached',
     emptyDetail: loaded ? 'Ask the agent to inspect the repo, run a command, or continue the active thread.' : loading ? '' : 'Reconnect this environment to load the conversation.',
-    error: requests.error, uncertain: client.pending?.uncertain === true, hasMore: client.thread?.hasMore === true,
+    error: requests.error, uncertain: client.pending?.uncertain === true, hasMore: client.thread?.hasMore === true, historyRevision: client.historyRevision,
     ...mobileThreadHistory(client, routeKey, includeRows), readsNeeded: includeRows && timelineReadsNeeded(client),
     approvals: requests.approvals.map(approval => {
       const item = arr(client.projection.turnItems).slice().reverse().find(item => item.requestId === approval.id);

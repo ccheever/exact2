@@ -129,3 +129,21 @@ test('route geometry observer mounts only for an active route and cannot capture
   expect(route.drawn('MobileContentGeometry(', route.state(), scope)).toBe(false);
   expect(route.drawn('MobileContentGeometry(', route.state(), { ...scope, focused: true })).toBe(true);
 });
+
+test('Home uses a ready route-local height and safe top for its transparent empty frame', () => {
+  const home = contractComponent('mobile/home.contract', 'Home');
+  const scope = { ...contractFns('mobile/home.contract', [], { first: (values: unknown[]) => values[0] }),
+    fullPageEmpty: true, liquidGlass: true,
+    windowHeight: 900, safeTop: 40, routeId: 'visit-1', listId: 'home-list', contentGeometry: metrics() };
+  expect(home.attribute('height=(fullPageFrame ?', 'height', home.state(), scope)).toBe(600);
+  expect(home.attribute('padding-top=(fullPageFrame ?', 'padding-top', home.state(), scope)).toBe(72);
+  expect(home.attribute('height=(fullPageFrame ?', 'height', home.state(), { ...scope, contentGeometry: { ...metrics(), state: 'unavailable' } })).toBe(900);
+  expect(home.attribute('padding-right=(listId == "sidebar-list"', 'padding-right', home.state(), scope)).toBe(26);
+});
+
+test('route geometry exposes only a right-edge occlusion reservation', () => {
+  const fns = contractFns('mobile/content-geometry.contract', [], { first: (values: unknown[]) => values[0] });
+  expect(fns.contentGeometryTrailingReservation(metrics())).toBe(26);
+  expect(fns.contentGeometryTrailingReservation({ ...metrics(), reservedRegions: [{ kind: 'division', x: 450, y: 10, width: 50, height: 60 }] })).toBe(0);
+  expect(fns.contentGeometryTrailingReservation({ ...metrics(), state: 'unavailable' })).toBe(0);
+});
