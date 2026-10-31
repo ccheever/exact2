@@ -20,7 +20,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DIFF_GLYPHS, ICON, ICON_FILLED, ICON_THIN, PROVIDER_FILLED, PROVIDER_ICON, PANEL_ICON, SETTINGS_ICONS, SHELL_ICON, SIDEBAR_ICON, TIMELINE_ICON } from './icon-tables.mjs';
-import { DIFF_STATUS, DRIVER_MARKS, EDITOR_MARKS, PROVIDER_MARKS, SHELL_EDITOR_MARKS, SOURCE_CONTROL_MARKS, TIMELINE_MARKS, WORDMARK } from './icon-marks.mjs';
+import { DIFF_STATUS, DRIVER_MARKS, EDITOR_MARKS, PROVIDER_MARKS, SHELL_EDITOR_MARKS, SOURCE_CONTROL_MARKS, TIMELINE_MARKS } from './icon-marks.mjs';
 import { FILE_ICON_SPRITE, FILE_ICON_TINTS } from './file-icon-marks.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -355,16 +355,14 @@ ${derive ? `  derive geometry = ${derive}\n` : ''}  view
 
 async function iconsContract() {
   return `${header(`Icon: ${LUCIDE}, each glyph flattened to one path so a
-// use costs two nodes (icon-tables.mjs ICON). Wordmark and ProviderMark: T3 Code's marks (icon-marks.mjs; MIT,
-// see LICENSE-T3).`)}
+// use costs two nodes (icon-tables.mjs ICON). ProviderMark: T3 Code's marks (icon-marks.mjs; MIT, see
+// LICENSE-T3).`)}
 
 // Icon's ${FN_NOTE}
 ${await lookupFn('iconGeometry', ICON)}
 
 ${glyphComponent('Icon', `path d=geometry fill=(${ICON_FILLED.map(name => `name == ${q(name)}`).join(' or ')} ? "currentColor" : "none")`,
     { weight: `(name == ${q(ICON_THIN)} ? 1 : ${LUCIDE_STROKE})`, derive: 'iconGeometry(name)' })}
-
-${markComponent('Wordmark', WORDMARK)}
 
 component ProviderMark
   props

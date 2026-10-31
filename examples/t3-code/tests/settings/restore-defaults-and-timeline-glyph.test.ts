@@ -46,9 +46,9 @@ const REFERENCE_PATCH_CLIENT_KEYS = [
 ];
 /** useTheme's keys the restore also resets: setTheme("system"), clearThemeHalves(), setFollowSystem(true). */
 const REFERENCE_THEME_KEYS = ['theme', 'themeLight', 'themeDark', 'appearanceMode'];
-/** Where the clone keeps a reference key outside CLIENT_DEFAULTS / DEVICE_DEFAULTS. */
 /** A reference key this stable app does not keep: environment identification only names a Dev or Nightly stage. */
 const DROPPED = new Set(['environmentIdentificationMode']);
+/** Where the clone keeps a reference key outside CLIENT_DEFAULTS / DEVICE_DEFAULTS. */
 const ELSEWHERE: Record<string, string> = { sidebarProjectGroupingMode: 'groupingMode', browserDefaultViewport: 'local root', browserDefaultZoomFactor: 'local root', browserDefaultAppearance: 'local root' };
 
 /** One valid value apart from the default for every key this app keeps in clientSettings. */
