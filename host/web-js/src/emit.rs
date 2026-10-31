@@ -977,6 +977,9 @@ impl Em<'_> {
             self.symbols.1 |= bound;
         }
         let (mut attrs, content, extra) = rows::attributes(element, &parts.props);
+        if element == "img" && crate::facts::repeated(plan, exact_plan::NodesId(i)) {
+            attrs.push(("loading".into(), "lazy".into()));
+        }
         let mut css = parts.css.clone();
         css.push_str(&extra);
         // @ref LLP 1063 — `-exact-layout-transition` and `-exact-exit-animation` are custom

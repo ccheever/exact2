@@ -36,14 +36,14 @@ const utcIntl = new vm.Script(`{
  * `out.activation`): `interaction` when the render left the runtime nothing
  * to do before the reader acts — nothing in the plan only the runtime
  * keeps, no answer pending, nothing due on the clock, no handler the
- * capture script cannot replay — else `eager`. A render that formatted in
+ * capture script can neither replay nor wake for — else `eager`. A render that formatted in
  * the default zone does not wait either. The page carries the plan's
  * viewport comparisons as it was laid out by them, which the capture
  * script checks (`wake`). */
 function infer(out) {
-  const { replayed, kept } = out.activation;
-  const kinds = [...out.root.matchAll(/ data-exact-on="([^"]*)"/g)].flatMap(m => m[1].split(' '));
-  const waits = !kept && !out.pending.length && !out.due && !out.zoned && kinds.every(k => replayed.includes(k));
+  const { waits: kinds, kept } = out.activation;
+  const on = [...out.root.matchAll(/ data-exact-on="([^"]*)"/g)].flatMap(m => m[1].split(' '));
+  const waits = !kept && !out.pending.length && !out.due && !out.zoned && on.every(k => kinds.includes(k));
   return waits ? 'interaction' : 'eager';
 }
 

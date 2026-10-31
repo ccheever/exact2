@@ -812,6 +812,7 @@ test('both document renderers infer an undeclared route\'s activation from its r
   home "/" render=build
   clock "/clock" render=build
   wide "/wide" render=build
+  seen "/seen" render=build
 
 shape Viewport
   width: number
@@ -819,12 +820,15 @@ shape Viewport
 component App
   state n = 0
   state ticks = 0
+  state shown = 0
   resource viewport = exactViewport() as shape Viewport
   derive wide = viewport.width >= 640
   action add
     n = n + 1
   action tick
     ticks = ticks + 1
+  action saw(entry: IntersectionObserverEntry)
+    shown = shown + 1
   task ticker when top(nav).name == "clock"
     every(1000, tick)
   view
@@ -835,15 +839,22 @@ component App
         text \`\${ticks}\`
       if top(nav).name == "wide"
         text (wide ? "wide" : "narrow")
+      if top(nav).name == "seen"
+        column height="3000px"
+          text "Above"
+        column intersect=saw
+          text \`\${shown}\`
 `, async (_, html, dist) => {
       const wake = '[["(width >= 640px)",false]]';
       expect([how, activation(html(''))]).toEqual([how, ['interaction', [], wake]]);
       expect([how, activation(html('clock'))]).toEqual([how, ['eager', [low], undefined]]);
       expect([how, activation(html('wide'))]).toEqual([how, ['interaction', [], wake]]);
+      // An intersect handler waits for its element to show, or for a scroll (LLP 1048.001 D4's `visible`).
+      expect([how, activation(html('seen'))]).toEqual([how, ['interaction', [], wake]]);
       // The capture script wakes the runtime where the comparison differs, and only there.
       const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
         const path = new URL(req.url).pathname;
-        return new Response(Bun.file(resolve(dist, path === '/wide' ? 'wide/index.html' : path.slice(1))));
+        return new Response(Bun.file(resolve(dist, /^\/(wide|seen)$/.test(path) ? `${path.slice(1)}/index.html` : path.slice(1))));
       } });
       const browser = await suiteBrowser();
       try {
@@ -853,6 +864,13 @@ component App
           await page.waitForTimeout(500);
           expect([how, width, await page.evaluate(() => !!globalThis.exact?.ready)]).toEqual([how, width, woken]);
         }
+        const page = await browser.newPage({ viewport: { width: 390, height: 800 } });
+        await page.goto(new URL('/seen', server.url).href);
+        await page.waitForTimeout(500);
+        const before = await page.evaluate(() => !!globalThis.exact?.ready);
+        await page.mouse.wheel(0, 4000);
+        await page.waitForFunction(() => !!globalThis.exact?.ready, null, { timeout: 5000 });
+        expect([how, before]).toEqual([how, false]);
       } finally { await browser.close(); server.stop(true); }
     }, {}, {}, how);
   }
@@ -897,6 +915,23 @@ component Page
     } finally { await browser.close(); server.stop(true); }
   }, {}, {}, how);
 }, 240000);
+
+// LLP 1048.007 D5: an image a `for` repeats loads as its row comes into view, as a platform list's cells load theirs.
+test('JavaScript-rendered images a for repeats load lazily, and a lone one at once', async () => {
+  await renderedPages(`routes nav
+  home "/" render=build
+
+component Page
+  state ids: string[] = ["a", "b"]
+  view
+    main
+      image "https://example.com/hero.png" width=200 alt="Hero"
+      for id in ids key=id
+        image \`https://example.com/\${id}.png\` width=96 alt=id
+`, (_, html) => {
+    expect(html('').match(/<img [^>]*>/g)?.map(img => /loading="([^"]*)"/.exec(img)?.[1] ?? null)).toEqual([null, 'lazy', 'lazy']);
+  });
+}, 30000);
 
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {

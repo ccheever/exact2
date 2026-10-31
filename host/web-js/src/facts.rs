@@ -229,11 +229,32 @@ pub fn viewport_media(plan: &Plan) -> String {
 /// What an undeclared route's inferred activation asks of a render (LLP
 /// 1048.007 D1, `exact_runner::activation`), for `render.mjs`.
 pub fn activation(plan: &Plan) -> String {
-    use exact_runner::activation::{runtime_kept, REPLAYED};
-    let replayed: Vec<&str> = REPLAYED.iter().map(|k| k.name()).collect();
+    use exact_runner::activation::{runtime_kept, REPLAYED, WOKEN};
+    let waits: Vec<&str> = REPLAYED.iter().chain(&WOKEN).map(|k| k.name()).collect();
     format!(
-        "{{replayed:{},kept:{}}}",
-        serde_json::to_string(&replayed).unwrap(),
+        "{{waits:{},kept:{}}}",
+        serde_json::to_string(&waits).unwrap(),
         runtime_kept(plan) || exact_runner::activation::wake(plan).is_none()
     )
+}
+
+/// Whether plan node `node` is repeated by a `for`, at any depth: a row of
+/// a list or grid, whose image loads as the row comes into view (LLP
+/// 1048.007 D5), as a platform list's cells load theirs.
+pub fn repeated(plan: &Plan, node: exact_plan::NodesId) -> bool {
+    use exact_plan::RegionKind;
+    let (mut parent, mut arm) = (Some(node), None);
+    loop {
+        if let Some(n) = parent.take() {
+            let row = plan.node(n);
+            (parent, arm) = (row.parent, row.arm);
+            continue;
+        }
+        let Some(a) = arm.take() else { return false };
+        let region = &plan.regions[plan.arms[a.0 as usize].region.0 as usize];
+        if region.kind == RegionKind::Each {
+            return true;
+        }
+        (parent, arm) = (region.parent, region.arm);
+    }
 }
