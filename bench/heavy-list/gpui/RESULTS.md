@@ -8049,6 +8049,105 @@ helpers, caffeinate and WindowServer are benchmark work. The per-process bound,
 10% transient-daemon allowance, load bound and compiler refusal stay. M10's
 earlier cohorts crossed 2.0–2.1 whole-machine cores on their own launches.
 
+### Cut results: no qualified startup row
+
+**The cut builds and its correctness checks pass. No startup saving is
+qualified.** The silver Mac's non-benchmark work crosses the amended bound
+in all three before-scoreboard attempts, the paired cohort and the after
+scoreboard. Repetition of the before cohort stops at three attempts. No
+process belonging to another lane or the owner was stopped. The ten-pair
+tables and ten-launch four-arm rows remain owed; LLP 1149 §4.1 is unchanged.
+
+| Cohort | Original launch records / requested | Maximum non-benchmark cores | Result |
+| --- | ---: | ---: | --- |
+| `scoreboard-before` | 4 / 40 | 1.096 | Excluded; `searchpartyd` contributes 0.832 core |
+| `scoreboard-before-2` | 4 / 40 | 1.532 | Excluded; screen sharing and macOS services |
+| `scoreboard-before-3` | 4 / 40 | 1.696 | Excluded; screen sharing, fleet polling and macOS services |
+| `paired-1` | 3 / 80 | 1.870 | Excluded; XprotectService, screen sharing, metadata and policy services |
+| `scoreboard-after` | 4 / 40 | 1.595 | Excluded; aggregate load and an egui readiness failure |
+
+Every cohort passed its sixty-second gate before launching. The hard
+aggregate limit, not the transient per-process allowance, stops these runs.
+The raw five-second observations retain the benchmark partition and the
+five largest other processes. Power sampling stays off.
+
+These are **excluded individual cold-only launches, not medians or scoreboard
+replacements**, from `measure.m` with the same hook-off configuration. Each
+number has one original launch; `—` is a failed original.
+
+| Cold complete screen, ms | Native | GPUI | Ink | egui |
+| --- | ---: | ---: | ---: | ---: |
+| Before, attempt 1 | 635.579 | 421.591 | 615.336 | 552.744 |
+| Before, attempt 2 | 236.749 | 225.495 | 250.000 | 236.424 |
+| Before, attempt 3 | 253.748 | 217.659 | 260.938 | 252.562 |
+| After | 245.412 | 210.795 | 247.095 | — |
+
+The driver's egui retry reports 214.907 ms, retained separately as
+`scoreboard-after/egui-1-retry.json`; it does not replace the failed original.
+This exposed a wrapper bug: the original file's existence was recorded as
+acceptance even when its contents said `accepted: false`. The collector now
+reads that field, and the reducer rejects a failed original even with the
+older incorrect schedule metadata. The retained collection snapshot and its
+raw schedule are unchanged. The cohort was already excluded by load.
+
+| Prediction | Result |
+| --- | --- |
+| Warm 217.9 → about 198 ms, −20 ms | Not established: before warm is 212.297 ms, but the cohort stops before after warm. The first after cold is 785.612 ms, including 559.234 ms before the probe constructor; it is retained, not substituted or called warm. |
+| Cold row improves by 20 ms | Not established. The excluded last-before/after Ink samples are 260.938 → 247.095 ms, −13.843 ms: short of the prediction, and insufficient for a saving. Ink also remains slower than GPUI in those individual launches. |
+| First paint stays about 29.4 ms | Excluded paired-cohort cold spans are 28.753 ms before and 28.227 ms after, consistent with unchanged paint work; no qualified phase median. |
+| Fling, rest and static rows unchanged | Unmeasured in this cut; their scoreboard rows remain unchanged. |
+| First-frame pixels equal | Pass, every pixel on both painters at the same frozen clock, including the unshown retry. |
+| CPU archive miss hands off; unshown submissions retry | Pass in the suites and the silver's live miss and retained functional launches. |
+
+The three retained phase traces show where the cut acts:
+
+| Process age, ms | Before cold | Before warm | After cold |
+| --- | ---: | ---: | ---: |
+| Probe constructor | 5.376 | 6.140 | 559.234 |
+| Layer attached | 114.395 | 112.301 | 690.995 |
+| First paint begins | 150.461 | 151.901 | 692.096 |
+| First paint ends | 179.214 | 181.028 | 720.323 |
+| Window show returns | 115.795 | 114.377 | 725.047 |
+| First present commits | 184.512 | 185.799 | 726.189 |
+| Complete screen displayed | 213.707 | 212.297 | 785.612 |
+
+Layer-to-paint falls from 36.066 ms to 1.101 ms in these two cold traces.
+The after paint finishes before the show call returns. Its first
+`nextDrawable` runs at 725.239–726.056 ms, before the probe observes visibility
+at 742.422 ms, and succeeds: `present encode` follows. That submission gets
+a zero displayed timestamp. The retained row repaint and subsequent
+submissions continue until the positive complete timestamp at 785.612 ms.
+Thus the cut removes the visibility/tick wait before recording; it does not
+make an unshown submission count as displayed.
+
+No nil drawable was observed in these after traces. If acquisition returns
+nil, the existing worker commits for retirement and requests a retry. The
+scene can already be encoded into D7's compose target; the final copy into
+the drawable needs that drawable. This revision does not park an uncommitted
+presentation buffer or add an acquirer. Its retained rows and compose target
+survive for the existing retry. Stage 0b's CPU handoff and positive-timestamp
+rule are unchanged. The roughly 30 ms system presentation interval is outside
+the cut; the after trace's 59.423 ms from first commit to complete includes
+the unshown submission and cannot be treated as that interval's cost.
+
+The same three traces retain clocks through the complete callback. These
+excluded process-CPU observations are not phase medians:
+
+| Launch | CPU, ms | Instructions, million | Cycles, million | Effective GHz | IPC |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Before cold | 235.721 | 2411.335 | 982.103 | 4.166 | 2.455 |
+| Before warm | 225.966 | 2390.059 | 943.061 | 4.173 | 2.534 |
+| After cold | 234.933 | 2189.279 | 895.720 | 3.813 | 2.444 |
+
+The separate `boot-functional` launches use `G1_BOOT_ONLY=1`, a fresh
+`EXACT_CACHE` for the miss and that same archive for the retained launch.
+The miss displays complete CPU at 175.758 ms and complete Ink at 342.424 ms;
+its 200.302 ms pipeline compile runs off the boot thread. The retained launch
+submits no CPU frame and displays complete Ink at 176.559 ms. Both begin
+with an unshown submission and recover. These passive, activation-suppressed
+checks are functional evidence, not replacements for the foreground startup
+cohort. Their raw environment, source hash, exit status and archive are kept.
+
 ### Cut and pixel parity
 
 `host/apple-painted/src/window.rs` calls its existing draw path after the first
@@ -8133,3 +8232,68 @@ Raw build and suite output is under `target/m10-c1/checks/`, including
 `affected-tests.log` and `probe-tests.log`. The six checks are deliberately
 skipped on the loaded development Mac, as directed; the orchestrator runs
 them on the Mac mini. No local display was used.
+
+### Cut reproduction and retained evidence
+
+The before source is `b7ff5fc19d` (the carrier code at `9e565537bb`); the
+after carrier is `c04c363e98`. The later commits change only measurement
+handling and records. Executable SHA-256 values are:
+
+| Bundle | SHA-256 |
+| --- | --- |
+| Ink before | `019e240d745c07ea53762835b21a2a322817e46f4bc925bbbc0f1358d59aa4bc` |
+| Ink after | `84a8502592a813e1f0d5378a0765e570c5d8f0eb13cb3443f29ece2c40587aaf` |
+
+The native control comes from `d16c84ee03`, GPUI and egui from `a91fd38b4d`;
+their binaries are reused with the current probe and signed again. Each
+cohort's `provenance.json` records their executable paths and hashes, the
+probe, driver and wheel helper. The silver's source checkout is unchanged.
+Its artifact root is `~/projects/exact2-measure/target/g0/m10-c1/`. Raw files
+are also retained locally at `target/m10-c1/silver/`; the two Ink bundles and
+build/check output are under `target/m10-c1/`. Nothing cited was deleted.
+
+The benchmark's 105 generated data/assets files pass `data.sha256` before
+building. The release build uses the command in “Chunk 2 verification and
+reproduction” above, with `CARGO_BUILD_JOBS=6` and this worktree's `target/`.
+`prepare-controls.py` and its log retain the probe/measure compile and
+control-bundle preparation. Neither memory nor file caches were evicted.
+
+`run-m10.py` is the exact collection snapshot; `run-m10-final.py` has the
+native-field/clock reducer repair and failed-original rejection. Each is
+retained beside `run-hook.py`. Enter the silver's Aqua session using the
+README's SSH chain and use fresh output directories. Point provenance's
+`ink` entry at `ink-before` or `ink-after` for the corresponding scoreboard
+run; the paired run names both explicitly:
+
+```sh
+python3 "$PWD/target/g0/m10-c1/run-m10-final.py" run \
+  target/g0/m10-c1 target/g0/m10-c1/paired-repeat \
+  --arms ink-before,ink-after,gpui,egui
+python3 "$PWD/target/g0/m10-c1/run-m10-final.py" run \
+  target/g0/m10-c1 target/g0/m10-c1/scoreboard-repeat --scoreboard
+```
+
+The wrappers refuse competing `measure`, arm or `target/g0/run-*.py`
+processes, require the amended sixty-second quiet gate and retain failures.
+They require no GO file on the silver. To reproduce the excluded individual
+values, phase spans, clocks and load observations without opening windows:
+
+```sh
+python3 -B target/m10-c1/report.py
+```
+
+This writes `diagnostic-report.json` and never promotes an excluded sample.
+The ordinary reducer refuses every collected cohort:
+
+```sh
+python3 -B bench/heavy-list/gpui/startup.py summarize \
+  target/m10-c1/silver/paired-1
+```
+
+The raw functional checks are `boot-functional/{miss,retained}.json`, their
+trace, log and `.run.json` environment/exit records, plus the retained archive.
+The quiet-bound/partition checks, four-arm reducer check and rejected-original
+regression check print their outcomes in `target/m10-c1/checks/`. Fling, rest,
+static, ten-pair startup medians and ten-launch cold rows remain unmeasured;
+there is no evidence here to replace LLP 1149 §4.1 or satisfy D15's 100 ms
+application obligation. Q4/Q6 and Stage 0b's third part remain as assigned.
