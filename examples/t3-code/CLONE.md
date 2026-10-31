@@ -97,6 +97,17 @@ mobile preservation, signed artifacts, bundled runtime and raw native evidence.
 Three redundant fixture comments are removed; 17 palette and nested-action tests
 pass again. Unit 3 live qualification remains pending.
 
+The unchanged 0.1.5 Mac artifact also passes fresh project-draft recovery through
+that controller. Onboarding skips import, and the real palette adds one owned
+scratch Git project. Its exact 75-character unsent draft, including Unicode,
+survives normal Quit and a new-seed launch of the same named store and backend
+home. Explicit project reopening retains the draft in app data and the live
+composer. Inspected native captures agree. The first app and backend exit before
+controller close, and the isolated port is free. This qualifies named agent
+storage with `context.agent=true`; normal-app Keychain persistence stays open.
+Evidence is under `target/t3-poc-evidence/desktop-015-provider-acceptance/`.
+Real provider, streaming, Stop and transcript recovery on 0.1.5 remain pending.
+
 ## Earlier checkpoints
 
 The desktop manifest's unused `t3-browser` native tag is removed in `859f7b8676`.
