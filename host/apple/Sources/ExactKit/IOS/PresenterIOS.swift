@@ -133,6 +133,16 @@ package final class Presenter {
     #endif
     lazy var modals = ModalHost(presenter: self)
     lazy var owners = OwnerBlocks(self)
+    #if os(iOS)
+    private var arrangementHost: AnyObject?
+    @available(iOS 27.1, *)
+    var arrangements: ArrangementHost {
+        if let host = arrangementHost as? ArrangementHost { return host }
+        let host = ArrangementHost(self)
+        arrangementHost = host
+        return host
+    }
+    #endif
     /// What a capability module sees of the viewport and the keyboard's
     /// container (LLP 1047.001 D4): UIKit's types, not the core's.
     package var viewportScroll: UIScrollView { viewport }
@@ -332,6 +342,9 @@ package final class Presenter {
         pool.reset()
         leaves.reset()
         flats.reset()
+        #if os(iOS)
+        if #available(iOS 27.1, *) { arrangements.reset() }
+        #endif
         owners.reset {
             modals.reset()
             navigation.reset(); navigation.rebooting()
@@ -1083,6 +1096,9 @@ package final class Presenter {
         afterBatch { [weak self] in
             guard let self else { return }
             navigation.batchApplied(batch, rowsOnly: rowsOnly)
+            #if os(iOS)
+            if #available(iOS 27.1, *) { arrangements.sync() }
+            #endif
             keyboardToolbars.finishBackendChange()
             for id in scrollers.union(pendingScrolls).union(materialNodes) {
                 guard let node = views[id] else { continue }
@@ -1107,6 +1123,9 @@ package final class Presenter {
     /// parked row, `NodePool`).
     @discardableResult
     func release(_ id: UInt32, _ leaving: (NodeView) -> Void) -> NodeView? {
+        #if os(iOS)
+        if #available(iOS 27.1, *) { arrangements.remove(id) }
+        #endif
         focusEvents.removed(id)
         session?.canvases.destroy(view: id)
         svg.forget(id)
@@ -1126,6 +1145,9 @@ package final class Presenter {
     /// `parent`'s children, in order: its views as subviews of its container,
     /// then its flat leaves' layers among them (LLP 1068 §6.1).
     func placeChildren(_ parent: NodeView, _ ids: [UInt32]) {
+        #if os(iOS)
+        if #available(iOS 27.1, *) { arrangements.record(parent, children: ids) }
+        #endif
         // Make any views required by this holder before assembling its list.
         for id in flats.place(parent, ids) { flats.promote(id) }
         let container = parent.container
@@ -1142,7 +1164,13 @@ package final class Presenter {
         // view's indicators): inserting a subview at an index moves
         // it when it is already there. One already there stays.
         for child in want where child.superview !== container { placedAnew.append(child.id) }
-        let contained = NodeView.keepingGhosts(want.filter { !navigation.ownsContainment(of: $0, under: parent) && !menus.lifted($0) && !isFlying($0) }, in: container)
+        let heldByArrangement: (NodeView) -> Bool = { node in
+            #if os(iOS)
+            if #available(iOS 27.1, *) { return self.arrangements.owns(node, under: parent) }
+            #endif
+            return false
+        }
+        let contained = NodeView.keepingGhosts(want.filter { !heldByArrangement($0) && !navigation.ownsContainment(of: $0, under: parent) && !menus.lifted($0) && !isFlying($0) }, in: container)
         current = container.subviews
         for (i, child) in contained.enumerated() where !(i < current.count && current[i] === child) {
             // One already here is past `i` (those before it are in place):
