@@ -581,11 +581,12 @@ test('update --without edits any spelling of the workspace member, and a refusal
     createApp(dir, { with: ['ios', 'linux'] });
     authorCrates(dir);
     const manifest = resolve(dir, 'app.json'), workspace = resolve(dir, 'Cargo.toml'), lock = resolve(dir, 'Cargo.lock');
+    const app = JSON.parse(readFileSync(manifest, 'utf8'));
     const state = () => [manifest, workspace, lock].map(p => readFileSync(p, 'utf8'));
     // A resolve that fails once the crate is aside (a member depends on it): the files, the
     // lock and the crate all come back, and nothing is left beside them.
-    const apple = resolve(dir, 'apple/Cargo.toml');
-    writeFileSync(apple, readFileSync(apple, 'utf8').replace('[dependencies]\n', '[dependencies]\nweb-log-linux = { path = "../linux" }\n'));
+    const apple = resolve(dir, 'apple/Cargo.toml'), appleManifest = readFileSync(apple, 'utf8');
+    writeFileSync(apple, appleManifest.replace('[dependencies]\n', '[dependencies]\nweb-log-linux = { path = "../linux" }\n'));
     const again = state();
     assert.throws(() => createApp(dir, { update: true, without: 'linux' }), /Cargo\.toml, app\.json, Cargo\.lock and linux\/ are as they were/);
     assert.deepEqual(state(), again);

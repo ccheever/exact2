@@ -32,7 +32,7 @@ const freePort = () => { const free = Bun.serve({ port: 0, fetch: () => new Resp
 /** `serve.mjs` on `dist` under `env`, until it listens or ends: the child, what it said, whether it listens. */
 async function served(dist, port, env) {
   let log = '';
-  const child = spawn(process.execPath, [serve, String(port), '--loopback', '--origin', dist], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [serve, '--port', String(port), '--loopback', '--origin', dist], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   for (const stream of [child.stdout, child.stderr]) stream.on('data', (b) => { log += b; });
   const listening = await new Promise((done) => {
     const end = Date.now() + 900_000;
@@ -54,7 +54,7 @@ test('serve builds a changed setting again beside its sources, and refuses a cop
     const dist = join(app, 'target/web-dist'), copy = join(root, 'copy'), port = freePort();
     cpSync(dist, copy, { recursive: true });
     // Copied away from its sources: refused before it listens.
-    const refused = spawnSync(process.execPath, [serve, String(port), '--loopback', '--origin', copy], { env: { ...env, API_BASE_URL: 'http://b.example' }, encoding: 'utf8', timeout: 60_000 });
+    const refused = spawnSync(process.execPath, [serve, '--port', String(port), '--loopback', '--origin', copy], { env: { ...env, API_BASE_URL: 'http://b.example' }, encoding: 'utf8', timeout: 60_000 });
     expect(refused.status).toBe(2);
     expect(refused.stderr).toContain(`${changed}, and the app's sources are not beside this build`);
     // Beside them: built again with the new value, then served.
