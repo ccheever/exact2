@@ -21,6 +21,8 @@ test("the drive opens Settings › Connections once data has landed", () => {
 
 test("the older-server stand-in: every environment descriptor reads older with self-update; the update streams as the reference's", () => {
   expect(OLDER.version < CLIENT_VERSION).toBe(true);
+  // A stable version, the client's channel, so the update dialog offers it rather than skipping it.
+  expect([OLDER.version, CLIENT_VERSION].map((version) => version.includes("-"))).toEqual([false, false]);
   const descriptor = { environmentId: "e1", serverVersion: "0.0.46-nightly.20261005.2667", capabilities: { pullRequests: true } };
   expect(rewrite({ _tag: "Exit", exit: { value: { environment: descriptor, providers: [{ serverVersion: "kept" }] } } }, OLDER.version)).toEqual(
     { _tag: "Exit", exit: { value: { environment: { ...descriptor, serverVersion: OLDER.version, capabilities: { pullRequests: true, ...SELF_UPDATE } }, providers: [{ serverVersion: "kept" }] } } });

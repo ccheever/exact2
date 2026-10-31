@@ -5,6 +5,7 @@
 //   bun install.mjs install --home <t3 home> [--mode agent|terminal|both|none] [--auth-delay <ms>] [--no-logout]
 //   bun install.mjs status  --home <t3 home>     installed?, mode, signed in?
 //   bun install.mjs reset   --home <t3 home>     signs the stand-in out (its state file only)
+//   bun install.mjs release --home <t3 home>     ends the turn a "Hold the turn" prompt holds
 //   bun install.mjs forget  --home <t3 home>     removes the provider instances a drive added for it (stop the server first)
 //   bun install.mjs remove  --home <t3 home>     removes the registry cache and the installed agent
 //
@@ -39,7 +40,7 @@ export function registryIndex() {
 
 export function installPaths(t3home) {
   const root = join(t3home, "tools", AGENT.id, encodeURIComponent(AGENT.version), PLATFORM);
-  return { registry: join(t3home, "caches/acp-registry/registry.json"), root, executable: join(root, COMMAND), mode: join(root, "mode.json"), state: join(root, "state.json") };
+  return { registry: join(t3home, "caches/acp-registry/registry.json"), root, executable: join(root, COMMAND), mode: join(root, "mode.json"), state: join(root, "state.json"), release: join(root, "release") };
 }
 
 /**
@@ -75,6 +76,9 @@ export function status(t3home) {
 }
 
 export function reset(t3home) { rmSync(installPaths(t3home).state, { force: true }); }
+
+/** Lets a held turn ("Hold the turn") finish: the stand-in replies once it sees `release`, and removes it. */
+export function release(t3home) { writeFileSync(installPaths(t3home).release, ""); }
 
 /**
  * Undoes a drive's Add provider: the `acpRegistry` instances of this agent in the server's
@@ -112,6 +116,7 @@ if (import.meta.main) {
       console.log(`installed ${AGENT.id} ${AGENT.version} at ${paths.executable}`);
     } else if (command === "status") console.log(JSON.stringify(status(t3home), null, 2));
     else if (command === "reset") { reset(t3home); console.log("signed out"); }
+    else if (command === "release") { release(t3home); console.log("released"); }
     else if (command === "forget") console.log(`forgot ${forget(t3home).join(", ") || "nothing"}`);
     else if (command === "remove") { remove(t3home); console.log("removed"); }
     else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 10).join("\n")); process.exitCode = command ? 2 : 0; }

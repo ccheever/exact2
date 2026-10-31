@@ -12,7 +12,7 @@ import { makeHub, HUB_ACCOUNTS } from "./usage-hub.mjs";
 import { answer, PULL_REQUEST } from "./gh-standin.mjs";
 import { respond } from "./github-api-standin.mjs";
 import { resetDetail } from "./github-api-detail.mjs";
-import { githubCertificates, ENVIRONMENTS, HUB, LOCAL_PORT, SEEDS, STANDIN_INSTANCE, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, standinInstance, turnCompleted, turnSeeded, welcomeWait } from "./lib.mjs";
+import { githubCertificates, ENVIRONMENTS, HUB, LOCAL_PORT, SEEDS, STANDIN_INSTANCE, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, standinInstance, turnCompleted, turnSeeded, welcomeWait, serverExecutable, example, withoutScratch, writeSamples } from "./lib.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "t3-fixture-env-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -46,6 +46,28 @@ describe("a lane server's environment", () => {
     server.close();
     await new Promise((done) => server.once("close", done));
     await expect(assertOfflinePortClosed(env)).resolves.toBeUndefined();
+  });
+
+  test("--scratch stops Git's repository search at the environment, so the server offers a folder for threads without a project", () => {
+    expect(serverEnv(paths, "second", {}, { scratch: true }).GIT_CEILING_DIRECTORIES).toBe(envDir(paths, "second"));
+    expect(serverEnv(paths, "second", {}).GIT_CEILING_DIRECTORIES).toBeUndefined();
+  });
+
+  test("no-scratch makes This machine's home a Git repository, so its server offers no folder for threads without a project", () => {
+    const home = withoutScratch(join(root, "local-no-scratch"));
+    expect(run("/usr/bin/git", ["-C", home, "rev-parse", "--is-inside-work-tree"]).stdout.trim()).toBe("true");
+    expect(withoutScratch(home)).toBe(home);
+  });
+
+  test("samples writes a Python file, a one-page PDF and a video", () => {
+    const [py, pdf, mp4] = writeSamples(join(root, "samples"));
+    expect(readFileSync(py, "utf8")).toStartWith("def greet");
+    expect(run("/usr/bin/file", ["-b", pdf]).stdout).toStartWith("PDF document, version 1.4, 1 page");
+    expect(run("/usr/bin/file", ["-b", mp4]).stdout).toStartWith("ISO Media");
+  });
+
+  test("--runtime takes another release's archive from .runtime-cache", () => {
+    expect(() => serverExecutable(paths, "0.0.1-missing")).toThrow(join(example, ".runtime-cache", "t3-0.0.1-missing-darwin-arm64.tar.gz"));
   });
 
   test("settings pin every built-in provider to a missing binary and keep what a drive added", () => {
@@ -101,6 +123,15 @@ describe("threads with a turn (seed --turns)", () => {
     const after = (status: string) => turnSeeded({ approval: true }, { ...completed, status });
     expect([turnSeeded({ approval: true }, waiting), after("completed"), after("cancelled"), turnSeeded({ approval: true }, { ...waiting, pendingRuntimeRequest: null })]).toEqual([true, true, false, false]);
     expect(turnSeeded({}, waiting)).toBe(false);
+    // A held turn is seeded while it runs.
+    expect([turnSeeded({ hold: true }, { latestRunId: "r1", latestRunCompletedAt: null, activeRunId: "r1" }), turnSeeded({ hold: true }, { latestRunId: null, activeRunId: null })]).toEqual([true, false]);
+  });
+
+  test("seed --more-turns adds a second approval, an italic answer and a held turn to agent-edits", () => {
+    expect(SEEDS.second.flatMap((entry) => (entry.moreTurns ?? []).map((turn) => [entry.repo, turn.title, turn.prompt, !!turn.approval, !!turn.hold]))).toEqual([
+      ["agent-edits", "Second edit awaiting approval", "Ask before editing the notes", true, false],
+      ["agent-edits", "Italic answer", "Show the italic sample", false, false],
+      ["agent-edits", "Turn held open", "Hold the turn", false, true]]);
   });
 
   test("the stand-in's instance is one install.mjs forget removes", () => {
@@ -243,6 +274,30 @@ describe("the GitHub API stand-in (seed --pull-request)", () => {
     expect(githubCertificates(dir)).toBe(false);
     run("/usr/bin/openssl", ["x509", "-req", "-in", "api.csr", "-CA", "ca.crt", "-CAkey", "ca.key", "-out", "api.crt", "-days", "1", "-extfile", "api.cnf", "-extensions", "ext"], { cwd: dir });
     expect(githubCertificates(dir)).toBe(true);
+  });
+  test("lets the viewer allow edits by maintainers on its fork's pull request, and keeps the choice and the files viewed", () => {
+    resetDetail();
+    const v = { owner: "t3-fixture", name: "shared-notes", number: 7 };
+    const core = () => graphql("query PullRequestCore($owner:String!){}", { ...v, headRef: "refs/pull/7/head", required: true }).data.repository.pullRequest;
+    // v0.1.5 gitHubPullRequestJson.ts toPullRequestCore: open, cross-repository, authored by the viewer, a User's fork, a head ref.
+    expect(core()).toMatchObject({ maintainerCanModify: true, isCrossRepository: true, viewerDidAuthor: true, headRepositoryOwner: { __typename: "User", login: PULL_REQUEST.author }, headRef: { id: "REF_1" } });
+    graphql("mutation UpdatePullRequest($pullRequestId:ID!){}", { pullRequestId: "PR_7", maintainerCanModify: false });
+    expect(core().maintainerCanModify).toBe(false);
+    // SetFileViewed comes aliased per file, its variables prefixed alike.
+    const marked = graphql("mutation SetFileViewed($_0_pullRequestId:ID!,$_0_path:String!,$_0_viewed:Boolean!,$_1_pullRequestId:ID!,$_1_path:String!,$_1_viewed:Boolean!){}",
+      { _0_pullRequestId: "PR_7", _0_path: "README.md", _0_viewed: true, _1_pullRequestId: "PR_7", _1_path: "notes/plan.md", _1_viewed: true }).data;
+    expect(marked).toEqual({ _0_markFileAsViewed: { clientMutationId: null }, _1_markFileAsViewed: { clientMutationId: null } });
+    graphql("mutation SetFileViewed($pullRequestId:ID!,$path:String!,$viewed:Boolean!){}", { pullRequestId: "PR_7", path: "notes/plan.md", viewed: false });
+    const viewed = graphql("query PullRequestFilesViewed($owner:String!){}", v).data.repository.pullRequest.files.nodes;
+    expect(viewed.map((file: { path: string; viewerViewedState: string }) => [file.path, file.viewerViewedState])).toEqual([["README.md", "VIEWED"], ["notes/plan.md", "UNVIEWED"], ["notes/outline.ts", "UNVIEWED"]]);
+    expect(graphql("mutation SetFileViewed($pullRequestId:ID!,$path:String!,$viewed:Boolean!){}", { pullRequestId: "PR_7", path: "elsewhere.md", viewed: true }).errors).toBeArray();
+    resetDetail();
+  });
+  test("names the activity's commit by node id and answers its stats, as the 0.1.5 server reads them", () => {
+    const v = { owner: "t3-fixture", name: "shared-notes", number: 7, head: true, withComments: false, withReviews: false };
+    const commit = graphql("query PullRequestActivity($owner:String!){}", v).data.repository.pullRequest.commits.nodes[0].commit;
+    expect(commit).toMatchObject({ id: "C_1", parents: { totalCount: 1 } });
+    expect(graphql("query PullRequestCommitStats($ids:[ID!]!){}", { ids: [commit.id, "C_other"] }).data.nodes).toEqual([{ oid: commit.oid, additions: 203, deletions: 1 }, null]);
   });
   test("a --pull-request server trusts the stand-in's CA and sends its HTTPS to the stand-in's proxy", () => {
     const built = serverEnv(paths, "second", { T3_FIXTURE_GITHUB_PORT: "16592" }, { githubApi: true });
