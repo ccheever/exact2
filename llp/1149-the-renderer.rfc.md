@@ -705,16 +705,20 @@ S2 runs before S1 (Charlie, 2026-10-28: the prospect's platform, and the stronge
 
 ## 4. Measurement
 
-**M9, Windows text (2026-10-30, Stage 1w): no default admission.** A paired
-9,540-row NucBox audit opens the shaper's bytes in DirectWrite. Static Inter and
-Segoe UI advances differ by at most 0.000002 device pixels at 100/125/150%; the
-opt-in grayscale candidate passes the existing whole-app band (mean 1.43/255,
-1.09% beyond 32). Variable-axis comparisons drift up to 1.951172 px; the
-monochrome candidate drops colour and has not applied the system's grayscale
-gamma/contrast correction. Colour families, synthesis and live motion remain
-unqualified under D3.3. Swash stays the default. Cost distributions, refused
-cases, predictions and retained raw files are in `host/ink/MEASUREMENTS.md`,
-“Stage 1w”.
+**M9, Windows text (2026-10-30, Stage 1w): no default admission.** The
+original 9,540-row NucBox audit opens the shaper's bytes in DirectWrite,
+but its coverage comparison mixes hinted swash with unhinted DirectWrite.
+Static Inter and Segoe UI advances differ by at most 0.000002 device pixels
+at 100/125/150%. The opt-in whole-app band (mean 1.43/255, 1.09% beyond 32)
+measures parity with swash. It does not establish parity with a Windows app
+over Mica, where D2D applies gamma and grayscale enhanced contrast at blend
+time. The candidate maps no axes: its default instances are compared with
+requested instances, differing by up to 1.951172 px. DirectWrite's timing
+column includes glyph-cache hits; two of three weight passes repeat the same
+static-face raster. The monochrome candidate drops colour. Colour families,
+synthesis, system smoothing and live motion remain unqualified under D3.3.
+Swash stays the default. Predictions and retained raw files are in
+`host/ink/MEASUREMENTS.md`, “Stage 1w”.
 
 
 The program is the same on every platform; the baselines differ. "Has numbers" is not a

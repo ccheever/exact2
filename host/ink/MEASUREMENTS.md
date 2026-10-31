@@ -4510,10 +4510,12 @@ arming to the two startup instrument tests; ordinary S2 journeys and the
 Python driver do not arm it. The helper's executable is
 the same Shelf and its PDB is beside it; no symbol server is contacted.
 
-### M9: first paired observations
+### M9: original observations — hinting mismatched
 
-The presenter's own shaper and DirectWrite open the same retained font
-bytes. Five sizes (12, 14, 16, 20, 24), requested weights 400/600/700,
+The original audit hints swash and disables DirectWrite grid fitting. Its
+coverage rows therefore compare different hinting modes. The advance rows
+remain observations of the shaper and DirectWrite over the same retained
+font bytes. Fix chunk A makes both outline rasters unhinted. Five sizes (12, 14, 16, 20, 24), requested weights 400/600/700,
 scales 100/125/150% and four quarter-pixel phases produce 9,540 rows.
 Static-file weight requests do not supply a separate bold face; they do
 not qualify synthetic bold. The Latin string separates characters to
