@@ -539,26 +539,23 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertEqual(route.view.safeAreaInsets.bottom, route.platformSafeBottom, "UIKit's safe area holds the keys, and the route adds nothing")
     }
 
-    /// A drag takes a bar search's keys down from the top of the bar the search rides on, as from a composer's: UIKit
-    /// carries its bottom bar up over the keys, and the route's own safe area ends at that bar's top.
-    func testADragTakesABarSearchsKeysDownFromItsBarsTop() throws {
-        guard hostedWindowScene() != nil else {
-            throw missing("scene", "native search editing needs the hosted app responder lifecycle")
+    /// A drag takes the keys down from the top of the bar the edited field rides on: a composer resting on the keys,
+    /// its field a text view, or UIKit's search bar riding 10 points above them (an iPhone's, an open iPhone Duo's).
+    /// A search bar far above them, at an iPad's top, is no such bar.
+    func testTheBarADragTakesTheKeysDownFrom() {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800)), page = UIView(frame: window.bounds)
+        window.addSubview(page)
+        func field(in bar: CGRect) -> UIView {
+            let box = UIView(frame: bar), field = UITextView(frame: CGRect(x: 0, y: 10, width: bar.width, height: bar.height - 20))
+            page.addSubview(box)
+            box.addSubview(field)
+            return field
         }
-        let (session, _, nav) = try fixture()
-        let p = session.presenter
-        try tap("home-open-seek", in: nav, depth: 2)
-        let search = try XCTUnwrap(nav.topViewController?.navigationItem.searchController)
-        until("the bar's search field takes the autofocus") { search.searchBar.searchTextField.isFirstResponder }
-        let route = try XCTUnwrap(nav.topViewController as? RouteController), guide = try XCTUnwrap(session.view).keyboardLayoutGuide
-        let keys: CGFloat = 300
-        setKeyboard(p, top: 874 - keys, responder: search.searchBar.searchTextField)
-        _ = Agent(session: session).clock(["settle": true])
-        XCTAssertEqual(guide.keyboardDismissPadding, 0, "below the keys, the bar leaves them their own edge")
-        // The bar rides 60 points above the keys, with no layout pass of the route after it
-        nav.additionalSafeAreaInsets.bottom = keys + 60 - route.platformSafeBottom
-        XCTAssertEqual(route.platformSafeBottom, keys + 60, accuracy: 0.5)
-        XCTAssertEqual(guide.keyboardDismissPadding, 60, accuracy: 0.5, "a drag takes the keys down from the bar's top")
+        // As the presenter's: the page, and any scroller
+        let keys: CGFloat = 500, stops = { (box: UIView) in box === page || box is UIScrollView }
+        XCTAssertEqual(Presenter.bar(riding: keys, around: field(in: CGRect(x: 0, y: 440, width: 400, height: 60)), in: window, stops: stops)?.minY, 440, "a composer resting on the keys")
+        XCTAssertEqual(Presenter.bar(riding: keys, around: field(in: CGRect(x: 20, y: 440, width: 360, height: 50)), in: window, stops: stops)?.minY, 440, "a search bar riding above them")
+        XCTAssertNil(Presenter.bar(riding: keys, around: field(in: CGRect(x: 20, y: 60, width: 360, height: 50)), in: window, stops: stops), "a search bar at the top")
     }
 
     private func assertBarSearchKeys(policy: String) throws {

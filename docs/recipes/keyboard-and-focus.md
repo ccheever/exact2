@@ -72,6 +72,6 @@ test "Return adds and keeps typing; Done puts the keyboard away"
 - **Search** lives in the bar: `contract vocab search`. Native iOS Back commits its edit and blur before removing the route.
 - Put live results above the editor.
 - **On scroll,** a drag on a `list` or `scroll` pulls the keyboard down from the top of a bar
-  riding it (a composer, an iPhone's header search), else its top; `keyboardDismissMode="on-drag"`
+  riding it (a composer, a header search above it), else its top; `keyboardDismissMode="on-drag"`
   puts it away as the drag starts, `"none"` keeps it up and a background tap hides it.
   Composer: [chat-thread](chat-thread.md).

@@ -359,30 +359,40 @@ extension Presenter {
     /// Where a drag begins to take the keys down: at the top of the bar the
     /// field being edited rides on, as UIKit asks of an app with a bar above
     /// its keys (`UIKeyboardLayoutGuide.keyboardDismissPadding`), so the
-    /// finger that reaches the bar carries it and the keys down together. The bar is the outermost box around
-    /// the field that rests on the keys and holds no scroller; a field with
-    /// none, or one in a scroller, leaves the keys' own edge. A header's
-    /// search field is UIKit's: on an iPhone it sits in a bottom bar that
-    /// UIKit carries above the keys, and UIKit's part of the route's safe
-    /// area ends at that bar's top (`platformSafeBottom`).
+    /// finger that reaches the bar carries it and the keys down together: a
+    /// composer, or a header's search field, which UIKit puts in a bar above
+    /// the keys on an iPhone and an open iPhone Duo. A field with none, or
+    /// one in a scroller, leaves the keys' own edge. The bar moves with the
+    /// keys, so this runs again once they settle, and when the route's safe
+    /// area changes.
     func updateKeyboardDismissPadding() {
         // Keys a drag carries below the screen report no top: the reach they
         // began with stands until they settle
         guard let view = session?.view, view.hasKeyboardGuide, let top = keyboardTop, let window = view.window else { return }
         var padding: CGFloat = 0
-        if let editor = keyboardEditor, let route = navigation.controllers.values.first(where: { $0.search?.field?.headerField === editor }),
-           let routeView = route.viewIfLoaded, routeView.window === window {
-            padding = max(0, top - routeView.convert(CGPoint(x: 0, y: routeView.bounds.maxY - route.platformSafeBottom), to: window).y)
-        } else if keyboardPolicy == "resizes-content", let editor = editing, editor.window === window {
+        if let editor = keyboardEditor, editor.window === window {
             let scrolling = scrollers.compactMap { views[$0] }
-            var at: UIView? = editor
-            while let box = at, box !== view, !(box is UIScrollView), !scrolling.contains(where: { $0.isDescendant(of: box) }) {
-                let frame = box.convert(box.bounds, to: window)
-                if abs(frame.maxY - top) < 0.5 { padding = max(0, top - frame.minY) }
-                at = box.superview
+            let bar = Self.bar(riding: top, around: editor, in: window) { box in
+                box === view || box.next is UIViewController || box is UIScrollView || scrolling.contains { $0.isDescendant(of: box) }
             }
+            padding = bar.map { max(0, top - $0.minY) } ?? 0
         }
         if view.keyboardLayoutGuide.keyboardDismissPadding != padding { view.keyboardLayoutGuide.keyboardDismissPadding = padding }
+    }
+    /// The frame, in `window`, of the outermost box the keys carry around
+    /// `editor`: one resting on their top (`keysTop`), or riding above it by
+    /// less than its own height, as UIKit's search bar rides 10 points up
+    /// (measured on iOS 27). The walk up from the editor ends at the first
+    /// ancestor `stops` names; the editor itself, a text view perhaps, is none.
+    static func bar(riding keysTop: CGFloat, around editor: UIView, in window: UIView, stops: (UIView) -> Bool) -> CGRect? {
+        var bar: CGRect?
+        var at: UIView? = editor
+        while let box = at, box === editor || !stops(box) {
+            let frame = box.convert(box.bounds, to: window)
+            if frame.height > 0, frame.maxY <= keysTop + 0.5, keysTop - frame.maxY < frame.height { bar = frame }
+            at = box.superview
+        }
+        return bar
     }
 }
 #endif

@@ -139,6 +139,7 @@ extension Presenter {
     /// that left the route scrolled, taking the next detent drag.
     @objc func keyboardSettled(_ n: Notification) {
         refitKeyboard()
+        updateKeyboardDismissPadding()
         guard keyboardTop != nil else { return }
         owners.revealOnceTold()
     }
