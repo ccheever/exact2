@@ -8297,3 +8297,21 @@ regression check print their outcomes in `target/m10-c1/checks/`. Fling, rest,
 static, ten-pair startup medians and ten-launch cold rows remain unmeasured;
 there is no evidence here to replace LLP 1149 §4.1 or satisfy D15's 100 ms
 application obligation. Q4/Q6 and Stage 0b's third part remain as assigned.
+
+The cut is rebased onto `518d469861`, after M10 landed as `9a88c8bead`.
+The measured carrier, presenter, Ink adapter, probe and `measure.m` sources
+are byte-identical across that rebase. Incoming main changes the kernel
+schema, so the final-tree carrier suite and archive transition are rebuilt
+and run again, with Metal required. They exit zero and print:
+
+```text
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+Metal archive transition: mean 0.023/255, 0.000% beyond 32
+test presenter::painter::apple_tests::archive_miss_starts_with_cpu_pixels_then_replaces_the_whole_frame_with_ink ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1708 filtered out; finished in 0.54s
+```
+
+These are `checks/rebase-painted-tests.log` and
+`checks/rebase-transition-tests.log`. No post-rebase timing is claimed; the
+retained signed bundles are the measured pre-rebase builds. The six repository
+checks remain for the orchestrator.

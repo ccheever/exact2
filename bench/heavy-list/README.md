@@ -163,9 +163,9 @@ The bounds are ≤1.0 non-benchmark busy cores, all load averages below 30 and
 no compiler. Benchmark work is the arms, driver, wheel helper, probe helpers,
 caffeinate and WindowServer. The aggregate is the sum of `ps` per-process CPU
 shares outside that set; whole-machine CPU-tick deltas are retained separately.
-M10 cut 1 amends this bound because its launches alone crossed the former
-2.0–2.1 whole-machine-core limit. Other processes stay at or below 0.25 core,
-except transient macOS daemons: at most 10% of a series' five-second observations may cross
+M10 cut 1 amends the former 2.0 whole-machine-core limit: its launches alone
+used 2.0–2.1 cores. Other processes stay at or below 0.25 core, except transient
+macOS daemons: at most 10% of a series' five-second observations may cross
 0.25 core, and none may exceed 1.0 core. User workloads get no allowance.
 `gpui/run-hook.py` retains CPU-tick deltas, the five largest other processes,
 and power source/mode. Its `--single` mode retains an instrument sample even
