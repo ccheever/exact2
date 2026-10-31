@@ -8318,8 +8318,8 @@ checks remain for the orchestrator.
 
 ## M10, cut 1b: the prepared frame rides the window's first composite
 
-**Outcome, 2026-10-31: the first-composite goal remains unmet.** All three
-placements of the first Metal presentation still produce zero timestamps.
+**Outcome, 2026-10-31: the first-composite goal remains unmet.** Each of the three
+first-presentation placements produced zero timestamps in its live checks.
 The final implementation preserves early preparation, pixel parity and CPU
 handoff, but still needs the existing retry path. Three fix rounds are
 exhausted; this is not a first-composite win.
@@ -8556,9 +8556,9 @@ the raw JSON, trace, log, launch environment, exit status and pipeline archives.
 `functional-third.py` checks all three arms and records both failed Metal
 assertions in `boot-functional-3/validation.json`.
 
-The branch is rebased onto `7b9e3b9bc3`. The carrier, presenter, Ink, probe and
+The branch is rebased onto `56f3fc2f62`. The carrier, presenter, Ink, probe and
 startup-driver sources are byte-identical across that rebase
-(`checks/final-source.diff` is empty). Main changes the kernel schema and
+(`checks/completion-source.diff` is empty). Main changes kernel metrics, the schema and
 Contract lowering, so the affected suites run again on the final tree with
 Metal required. The timing artifacts remain the measured pre-rebase builds;
 no post-rebase startup timing is claimed. The full six-check gate is left
@@ -8570,27 +8570,27 @@ env CARGO_BUILD_JOBS=6 RUST_TEST_THREADS=2 EXACT_INK_DEVICE=metal EXACT_REQUIRED
   --lib --tests --no-fail-fast
 ```
 
-`checks/rebase-affected-tests.log` exits zero. Its suite summaries, in output
+`checks/completion-affected-tests.log` exits zero. Its suite summaries, in output
 order (including the nested Linux processes), are verbatim:
 
 ```text
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-test result: ok. 46 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.62s
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1709 filtered out; finished in 0.53s
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1709 filtered out; finished in 0.50s
-test result: ok. 170 passed; 0 failed; 15 ignored; 0 measured; 1525 filtered out; finished in 2.81s
-test result: ok. 1688 passed; 0 failed; 22 ignored; 0 measured; 0 filtered out; finished in 68.92s
-test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.81s
-test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+test result: ok. 46 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.53s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1709 filtered out; finished in 0.56s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1709 filtered out; finished in 0.52s
+test result: ok. 170 passed; 0 failed; 15 ignored; 0 measured; 1525 filtered out; finished in 3.00s
+test result: ok. 1688 passed; 0 failed; 22 ignored; 0 measured; 0 filtered out; finished in 72.18s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.66s
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.12s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.30s
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.13s
+test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 11.03s
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
-test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.07s
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.50s
-test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.97s
-test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 10.50s
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
 ```
 
 The first pre-rebase Linux run timed out in the asynchronous photo-upload
@@ -8604,17 +8604,17 @@ the unshown-frame retry test. The existing probe test, load-rule boundary and
 partition checks, and cross-thread phase reducer checks also pass; their
 verbatim output is in `checks/`.
 
-The final-tree wgpu comparison (`checks/rebase-wgpu-parity.log`) prints:
+The final-tree wgpu comparison (`checks/completion-wgpu-parity.log`) prints:
 
 ```text
 test paint::backend::tests::a_prepared_first_frame_has_the_same_pixels_without_a_second_paint ... ok
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1709 filtered out; finished in 0.43s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1709 filtered out; finished in 0.29s
 ```
 
 `checks/record-verification.log` verifies the retained executable hashes,
 CPU-to-Ink ordering, lane ownership, absent power sampler, all seven reducer
 refusals and the failed no-drop prediction. The scoped format check passes.
-The staged caps check (`checks/caps-final.log`) exits zero:
+The staged caps check (`checks/caps-completion.log`) exits zero:
 
 ```text
 All budgets within cap. 10 categories inspected.
