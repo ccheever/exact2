@@ -18,9 +18,9 @@ if (!name) {
   process.exit(2);
 }
 const app = resolveApp(name), [cmd, ...args] = linuxBuild(app);
-// A package's prebuilt library, fetched before Cargo links it (LLP 1154 D3).
+// A package's prebuilt library, fetched and checked before Cargo links it (LLP 1154 D3).
 let library;
-try { library = await prepareLibrary(app.dir, bakeTarget('linux')); } catch (error) { console.error(error.message); process.exit(1); }
+try { library = prepareLibrary(app.dir, bakeTarget('linux')); } catch (error) { console.error(error.message); process.exit(1); }
 // With what its bake watches named (`bakeWatchEnv`): unset, an absent settings file is a watched input that is gone.
 const built = spawnSync(cmd, args, { cwd: app.workspace ?? app.dir, env: cargoEnvironment({ ...process.env, ...bakeWatchEnv(app), CARGO_TARGET_DIR: app.target }), stdio: 'inherit' });
 if (built.status === 0) {

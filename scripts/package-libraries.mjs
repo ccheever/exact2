@@ -8,30 +8,33 @@
 //   The hash covers the zip, the one file that has a hash; a directory has none. The slice for the target, read from
 //   the xcframework's Info.plist, is a dynamic framework named `<link>.framework` whose install name is
 //   `@rpath/<link>.framework/…`, so an app that embeds it in `Frameworks` finds it by its run path.
-// - a Linux or Android target: the shared object itself, `lib<link>.so`, whose SONAME, if it has one, is that name.
+// - a Linux target: the shared object itself, whose SONAME is `lib<link>.so`, the name it is carried by beside the
+//   executable. An Android target is refused: the APK carries no package library yet.
 //
-// Each target's link inputs are laid out under `<sha256>/<target>/`. A Rust link (the Linux host's executable) takes
-// `-L <that directory> -l<link>` from the bake's build script (js/bake/src/library.rs); on an Apple target `-l` finds
-// `lib<link>.dylib`, a link to the framework's binary, so the link records the framework's install name. An Apple
-// app's Swift link takes the framework itself (`appleLinkArgs`).
+// Each target's link inputs are laid out under `<sha256>/<target>/<link>/`, with a digest of what was laid out, which
+// every build checks before it links (a view that differs is laid out again). A Rust link (the Linux host's
+// executable) takes `-L <that directory> -l<link>` from the bake's build script (js/bake/src/library.rs); on an Apple
+// target `-l` finds `lib<link>.dylib`, a link to the framework's binary, so the link records the framework's install
+// name. An Apple app's Swift link takes the framework itself (`appleLinkArgs`).
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const LIBRARY_CACHE = resolve(homedir(), '.cache/exact/package-libraries');
 
-const read = (path) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } };
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+const inside = (root, path) => { const at = relative(root, path); return at !== '' && !isAbsolute(at) && at !== '..' && !at.startsWith(`..${sep}`); };
 
 /** The packages among the app's direct dependencies (the `dependencies` of the nearest `package.json` above it, as
- * contract/cli/src/package_views.rs reads them) whose `exact.json`, at the package's root, declares `native`. */
+ * contract/cli/src/package_views.rs reads them) whose `exact.json`, at the package's root, declares `native`. A
+ * declaration that is there and does not parse is refused by name. */
 export function nativePackages(appDir) {
   let manifest = null;
   for (let dir = resolve(appDir); ; dir = dirname(dir)) {
-    if (existsSync(join(dir, 'package.json'))) { manifest = read(join(dir, 'package.json')); break; }
+    if (existsSync(join(dir, 'package.json'))) { try { manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')); } catch { /* none */ } break; }
     if (dirname(dir) === dir) break;
   }
   const located = (name) => {
@@ -42,7 +45,10 @@ export function nativePackages(appDir) {
     }
   };
   return Object.keys(manifest?.dependencies ?? {}).sort().flatMap((name) => {
-    const root = located(name), declaration = root && read(join(root, 'exact.json'));
+    const root = located(name), path = root && join(root, 'exact.json');
+    if (!path || !existsSync(path)) return [];
+    let declaration;
+    try { declaration = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${name}'s exact.json (${path}) is not JSON: ${e.message}`); }
     return declaration?.native && typeof declaration.native === 'object' ? [{ name, root, native: declaration.native }] : [];
   });
 }
@@ -59,7 +65,8 @@ export function appleSlice(target) {
 }
 
 /** The library of `slice` in the xcframework at `fw`, from its Info.plist's `AvailableLibraries` (its platform,
- * variant and architectures), never guessed from a directory name: its directory and `LibraryPath`. */
+ * variant and architectures), never guessed from a directory name: its directory and `LibraryPath`, both inside
+ * the xcframework. */
 export function xcframeworkSlice(fw, { platform, variant, arch }) {
   const plist = spawnSync('plutil', ['-convert', 'json', '-o', '-', resolve(fw, 'Info.plist')], { encoding: 'utf8' });
   if (plist.status !== 0) throw new Error(`${basename(fw)} has no readable Info.plist: ${(plist.stderr || '').trim()}`);
@@ -67,7 +74,9 @@ export function xcframeworkSlice(fw, { platform, variant, arch }) {
   try { info = JSON.parse(plist.stdout || '{}'); } catch (e) { throw new Error(`${basename(fw)}'s Info.plist is not a dictionary: ${e.message}`); }
   const lib = (info.AvailableLibraries ?? []).find(l => l.SupportedPlatform === platform && (l.SupportedPlatformVariant || undefined) === variant && (l.SupportedArchitectures ?? []).includes(arch));
   if (!lib) throw new Error(`${basename(fw)} has no ${platform}${variant ? ' ' + variant : ''} ${arch} slice in its Info.plist`);
-  return { dir: resolve(fw, lib.LibraryIdentifier), lib };
+  const dir = resolve(fw, String(lib.LibraryIdentifier));
+  if (!inside(fw, dir) || !inside(dir, resolve(dir, String(lib.LibraryPath)))) throw new Error(`${basename(fw)}'s ${platform} slice names ${lib.LibraryIdentifier}/${lib.LibraryPath}, outside the xcframework`);
+  return { dir, lib };
 }
 
 /** What the app's build for `target` links of its package's library: the declaration's `{url, sha256}` for the
@@ -86,49 +95,119 @@ export function libraryFor(appDir, target) {
   if (typeof entry.url !== 'string' || !/^[0-9a-f]{64}$/.test(entry.sha256 ?? '')) throw new Error(`${at}: native.library.${target} is {"url": …, "sha256": <64 lowercase hex digits>}`);
   let url;
   try { url = new URL(entry.url); } catch { throw new Error(`${at}: native.library.${target}.url is not a URL: ${entry.url}`); }
-  if (!['file:', 'https:', 'http:'].includes(url.protocol)) throw new Error(`${at}: native.library.${target}.url is a file:, https: or http: URL, not ${url.protocol}`);
-  const kind = target.includes('-apple-') ? 'apple' : target.includes('-linux-') && !target.endsWith('-android') ? 'linux' : null;
+  if (!['file:', 'https:'].includes(url.protocol)) throw new Error(`${at}: native.library.${target}.url is a file: or https: URL, not ${url.protocol}`);
+  const kind = target.includes('-android') ? null : target.includes('-apple-') ? 'apple' : target.includes('-linux-') ? 'linux' : null;
   if (!kind) throw new Error(`${pkg.name} declares a native library for ${target}, and exact2 links a package's library only for Apple and Linux targets; Android's APK carries none yet (LLP 1154 D6)`);
   const file = basename(decodeURIComponent(url.pathname));
   if (kind === 'apple' && !file.endsWith('.zip')) throw new Error(`${at}: native.library.${target} is a zip holding the .xcframework, not ${file}`);
   return { package: pkg.name, root: pkg.root, target, link, url: url.href, sha256: entry.sha256, file, kind };
 }
 
+/** The bytes at `lib.url`: a file: URL read, an https: one fetched by curl (synchronous, so every build path can
+ * call this before Cargo), redirects only to https:. */
+function download(lib, temporary) {
+  const url = new URL(lib.url);
+  if (url.protocol === 'file:') {
+    try { return readFileSync(fileURLToPath(url)); } catch (e) { throw new Error(`${lib.package}: its ${lib.target} library ${lib.url} could not be read: ${e.message}`); }
+  }
+  const r = spawnSync('curl', ['--fail', '--silent', '--show-error', '--location', '--proto', '=https', '--proto-redir', '=https', '--output', temporary, lib.url], { encoding: 'utf8' });
+  if (r.status !== 0) { rmSync(temporary, { force: true }); throw new Error(`${lib.package}: its ${lib.target} library ${lib.url} could not be fetched: ${(r.stderr || r.error?.message || `curl exit ${r.status}`).trim()}`); }
+  return readFileSync(temporary);
+}
+
 /** `lib` (from `libraryFor`) in the cache: its file fetched when it is not there with its hash, refused by name when
- * the fetched bytes have another, and its link inputs for the target laid out. Returns `lib` with `view`, the link
- * directory, and `placed`, the file or framework a product carries beside its executable or in its `Frameworks`. */
-export async function fetchLibrary(lib, { cache = LIBRARY_CACHE, log = (line) => console.error(line) } = {}) {
+ * the fetched bytes have another, and its link inputs for the target laid out, or laid out again when they differ
+ * from what was laid out. Returns `lib` with `view`, the link directory, and `placed`, the file or framework a
+ * product carries beside its executable or in its `Frameworks`. */
+export function fetchLibrary(lib, { cache = LIBRARY_CACHE, log = (line) => console.error(line) } = {}) {
   const dir = join(cache, lib.sha256), file = join(dir, lib.file);
   if (!existsSync(file) || digest(readFileSync(file)) !== lib.sha256) {
     log(`${lib.package}: fetching its ${lib.target} library (${lib.url})`);
-    const url = new URL(lib.url);
-    let bytes;
-    if (url.protocol === 'file:') {
-      try { bytes = readFileSync(fileURLToPath(url)); } catch (e) { throw new Error(`${lib.package}: its ${lib.target} library ${lib.url} could not be read: ${e.message}`); }
-    } else {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`${lib.package}: its ${lib.target} library ${lib.url} answered HTTP ${response.status}`);
-      bytes = Buffer.from(await response.arrayBuffer());
-    }
-    const actual = digest(bytes);
-    if (actual !== lib.sha256) throw new Error(`${lib.package}: its ${lib.target} library ${lib.url} has SHA-256 ${actual}, and its exact.json says ${lib.sha256}; nothing was linked`);
     mkdirSync(dir, { recursive: true });
-    const temporary = `${file}.${process.pid}.tmp`;
+    const temporary = `${file}.${process.pid}.tmp`, bytes = download(lib, temporary), actual = digest(bytes);
+    if (actual !== lib.sha256) {
+      rmSync(temporary, { force: true });
+      rmSync(file, { force: true });
+      throw new Error(`${lib.package}: its ${lib.target} library ${lib.url} has SHA-256 ${actual}, and its exact.json says ${lib.sha256}; nothing was linked`);
+    }
     writeFileSync(temporary, bytes);
     renameSync(temporary, file);
   }
-  const view = join(dir, lib.target), placed = join(view, lib.kind === 'apple' ? `${lib.link}.framework` : `lib${lib.link}.so`);
-  if (!existsSync(placed)) {
-    mkdirSync(dir, { recursive: true });
-    const stage = mkdtempSync(join(dir, '.view-'));
+  const view = join(dir, lib.target, lib.link), placed = join(view, lib.kind === 'apple' ? `${lib.link}.framework` : `lib${lib.link}.so`);
+  if (!laidOut(view)) {
+    mkdirSync(dirname(view), { recursive: true });
+    const stage = mkdtempSync(join(dirname(view), '.view-'));
     try {
       if (lib.kind === 'apple') appleView(lib, file, stage);
-      else cpSync(file, join(stage, `lib${lib.link}.so`));
-      // Another build may have laid it out meanwhile: the same bytes, kept.
-      try { renameSync(stage, view); } catch (e) { if (!existsSync(placed)) throw e; }
-    } finally { rmSync(stage, { recursive: true, force: true }); }
+      else linuxView(lib, file, stage);
+      writeFileSync(join(stage, VIEW_DIGEST), treeDigest(stage));
+      // A view that differs from its digest goes aside first; one another build laid out meanwhile is kept if whole.
+      if (existsSync(view)) renameSync(view, mkdtempSync(join(dirname(view), '.stale-')) + '/view');
+      try { renameSync(stage, view); } catch (e) { if (!laidOut(view)) throw e; }
+    } finally {
+      rmSync(stage, { recursive: true, force: true });
+      for (const name of readdirSync(dirname(view)).filter(n => n.startsWith('.stale-'))) rmSync(join(dirname(view), name), { recursive: true, force: true });
+    }
   }
   return { ...lib, view, placed };
+}
+
+/** The view's digest, written into it as it is laid out: each path, link target and file's bytes under it. */
+const VIEW_DIGEST = '.view-sha256';
+function treeDigest(root) {
+  const hash = createHash('sha256');
+  const walk = (dir) => {
+    for (const name of readdirSync(dir).sort()) {
+      const path = join(dir, name), at = relative(root, path), info = lstatSync(path);
+      if (dir === root && name === VIEW_DIGEST) continue;
+      if (info.isSymbolicLink()) hash.update(`L ${at} ${readlinkSync(path)}\n`);
+      else if (info.isDirectory()) { hash.update(`D ${at}\n`); walk(path); }
+      else hash.update(`F ${at} ${digest(readFileSync(path))}\n`);
+    }
+  };
+  walk(root);
+  return hash.digest('hex');
+}
+const laidOut = (view) => { try { return readFileSync(join(view, VIEW_DIGEST), 'utf8') === treeDigest(view); } catch { return false; } };
+
+/** A Linux view: the shared object, carried as `lib<link>.so`, which its SONAME must be: the linker records the
+ * SONAME as the executable's need, and without one the name it was found by. */
+function linuxView(lib, file, stage) {
+  const name = `lib${lib.link}.so`, found = sharedObjectName(readFileSync(file));
+  if (found.error) throw new Error(`${lib.package}: its ${lib.target} library ${lib.file} is ${found.error}`);
+  if (found.soname !== name) throw new Error(`${lib.package}: its ${lib.target} library's SONAME is ${found.soname ?? 'missing'}, and it is carried beside the executable as ${name}; link it with -Wl,-soname,${name}`);
+  cpSync(file, join(stage, name));
+}
+
+/** The DT_SONAME of a 64-bit little-endian ELF shared object (System V ABI, "Dynamic Section"), read through its
+ * section headers: `{ soname }`, null when it has none, or `{ error }` for what is not such a file. */
+export function sharedObjectName(bytes) {
+  try {
+    if (bytes.length < 64 || bytes.readUInt32BE(0) !== 0x7f454c46) return { error: 'not an ELF file' };
+    if (bytes[4] !== 2 || bytes[5] !== 1) return { error: 'not a 64-bit little-endian ELF file' };
+    if (bytes.readUInt16LE(16) !== 3) return { error: 'not a shared object (ELF type ET_DYN)' };
+    const at = (o) => Number(bytes.readBigUInt64LE(o)), shoff = at(0x28), size = bytes.readUInt16LE(0x3a), count = bytes.readUInt16LE(0x3c);
+    const sections = Array.from({ length: count }, (_, i) => { const b = shoff + i * size; return { type: bytes.readUInt32LE(b + 4), offset: at(b + 0x18), size: at(b + 0x20), link: bytes.readUInt32LE(b + 0x28) }; });
+    const dynamic = sections.find(s => s.type === 6);
+    if (!dynamic) return { soname: null };
+    const strings = sections[dynamic.link];
+    for (let o = dynamic.offset; o + 16 <= dynamic.offset + dynamic.size; o += 16) {
+      const tag = bytes.readBigInt64LE(o);
+      if (tag === 0n) break;
+      if (tag === 14n) { const start = strings.offset + at(o + 8), end = bytes.indexOf(0, start); if (end < 0) return { error: 'a malformed ELF file' }; return { soname: bytes.toString('latin1', start, end) }; }
+    }
+    return { soname: null };
+  } catch { return { error: 'a malformed ELF file' }; }
+}
+
+/** The first symbolic link under `root` whose target is absolute or leads outside `within`, or null. */
+function escapingLink(root, within = root) {
+  for (const name of readdirSync(root)) {
+    const path = join(root, name), info = lstatSync(path);
+    if (info.isSymbolicLink()) { const to = readlinkSync(path); if (isAbsolute(to) || !inside(within, resolve(root, to))) return `${relative(within, path)} -> ${to}`; }
+    else if (info.isDirectory()) { const found = escapingLink(path, within); if (found) return found; }
+  }
+  return null;
 }
 
 /** The target's framework from the zipped xcframework at `zip`, and the `lib<link>.dylib` the linker's `-l` finds. */
@@ -137,26 +216,36 @@ function appleView(lib, zip, stage) {
   const unzipped = join(stage, '.unzipped');
   const r = spawnSync('ditto', ['-x', '-k', zip, unzipped], { encoding: 'utf8' });
   if (r.status !== 0) throw new Error(`${lib.package}: its ${lib.target} library ${lib.file} is not a zip: ${(r.stderr || '').trim()}`);
+  const escaped = escapingLink(unzipped);
+  if (escaped) throw new Error(`${lib.package}: ${lib.file} holds a link that leaves it (${escaped})`);
   const found = readdirSync(unzipped).filter(name => name.endsWith('.xcframework'));
   if (found.length !== 1) throw new Error(`${lib.package}: ${lib.file} holds ${found.length ? found.join(', ') : 'no .xcframework'} at its top; it holds one .xcframework`);
   const fw = join(unzipped, found[0]), slice = appleSlice(lib.target);
   let at;
   try { at = xcframeworkSlice(fw, slice); } catch (e) { throw new Error(`${lib.package}: its ${lib.target} library: ${e.message}`); }
   if (at.lib.LibraryPath !== `${lib.link}.framework`) throw new Error(`${lib.package}: its ${lib.target} slice is ${at.lib.LibraryPath}, and native.link names ${lib.link}: the slice is ${lib.link}.framework, a dynamic framework`);
+  const source = join(at.dir, at.lib.LibraryPath);
+  if (!lstatSync(source, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`${lib.package}: its ${lib.target} slice has no ${at.lib.LibraryPath} directory`);
+  const leaves = escapingLink(source);
+  if (leaves) throw new Error(`${lib.package}: its ${lib.target} framework holds a link that leaves it (${leaves})`);
   const framework = join(stage, `${lib.link}.framework`);
-  cpSync(join(at.dir, at.lib.LibraryPath), framework, { recursive: true, verbatimSymlinks: true });
+  cpSync(source, framework, { recursive: true, verbatimSymlinks: true });
   const binary = join(framework, lib.link);
   if (!existsSync(binary)) throw new Error(`${lib.package}: its ${lib.target} framework has no binary ${lib.link}.framework/${lib.link}`);
+  const real = relative(realpathSync(framework), realpathSync(binary));
+  if (!inside(realpathSync(framework), realpathSync(binary))) throw new Error(`${lib.package}: its ${lib.target} framework's binary leads outside it (${real})`);
   const id = spawnSync('otool', ['-D', binary], { encoding: 'utf8' }).stdout?.trim().split('\n').slice(1).join('').trim();
-  const expected = `@rpath/${lib.link}.framework/${relative(realpathSync(framework), realpathSync(binary))}`;
+  const expected = `@rpath/${lib.link}.framework/${real}`;
   if (id !== expected) throw new Error(`${lib.package}: its ${lib.target} framework's install name is ${id || 'missing (not a dynamic library)'}; an embedded framework is named ${expected} (link it with -install_name ${expected})`);
   symlinkSync(`${lib.link}.framework/${lib.link}`, join(stage, `lib${lib.link}.dylib`));
   rmSync(unzipped, { recursive: true, force: true });
 }
 
-/** The library for the app's build for `target`, fetched; null when the app's dependencies declare none. What a
- * native build calls before Cargo (scripts/build-linux.mjs, host/apple/build.mjs). */
-export async function prepareLibrary(appDir, target, options) {
+/** The library for the app's build for `target`, fetched and checked; null when the app's dependencies declare
+ * none, and for a web target, which links none. What every native build calls before Cargo (scripts/app.mjs
+ * `buildBake`, scripts/build-linux.mjs, host/apple/build.mjs). */
+export function prepareLibrary(appDir, target, options) {
+  if (target.startsWith('wasm32-')) return null;
   const lib = libraryFor(appDir, target);
   return lib && fetchLibrary(lib, options);
 }
@@ -172,7 +261,15 @@ export function placeLibrary(lib, dir) {
 }
 
 /** The Swift link's arguments for an Apple product that links `lib` (none without one): the framework's search path
- * and name, and the run path an app bundle's `Frameworks` is at (`rpath` false where another part of the link names
- * it already). */
-export const appleLinkArgs = (lib, ios, rpath = true) => !lib ? [] : ['-Xlinker', `-F${lib.view}`, '-Xlinker', '-framework', '-Xlinker', lib.link,
-  ...(rpath ? ['-Xlinker', '-rpath', '-Xlinker', ios ? '@executable_path/Frameworks' : '@executable_path/../Frameworks'] : [])];
+ * and name, and `rpath`, by default where an app bundle's `Frameworks` is from its executable; null names none (the
+ * link names it already). */
+export const appleLinkArgs = (lib, ios, rpath = ios ? '@executable_path/Frameworks' : '@executable_path/../Frameworks') => !lib ? []
+  : ['-Xlinker', `-F${lib.view}`, '-Xlinker', '-framework', '-Xlinker', lib.link, ...(rpath ? ['-Xlinker', '-rpath', '-Xlinker', rpath] : [])];
+
+/** The framework in an `--embed` output (host/apple/build.mjs), at `Frameworks/<link>.framework`, and what its
+ * `capabilities.json` tells the consumer's link: none without a library. */
+export function embedLibrary(lib, embed) {
+  if (!lib) return {};
+  placeLibrary(lib, join(embed, 'Frameworks'));
+  return { frameworks: [{ path: `Frameworks/${lib.link}.framework`, package: lib.package, sha256: lib.sha256, linkerFlags: ['-F', 'Frameworks', '-framework', lib.link], embed: true }] };
+}

@@ -1,6 +1,6 @@
 import { compilerPaths, unitDepInfo, cargoBakeInputs } from './cargo-dep-info.mjs';
 export { compilerPaths, unitDepInfo } from './cargo-dep-info.mjs';
-import { LIBRARY_CACHE } from './package-libraries.mjs';
+import { LIBRARY_CACHE, prepareLibrary } from './package-libraries.mjs';
 import { ensureBun } from './bun.mjs';
 import { macResourceMappings, macResourceInventory, appleAssetCatalogInventory, launchImageInventory } from '../host/apple/assets.mjs';
 // Where an app lives. Inside this repo an app is `apps/<name>` — its crates
@@ -1256,6 +1256,7 @@ export function buildBake(app, platform, target, options = {}) {
   if(platform==='web'||watch)env=webToolchainEnv(env);
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
+  if(platform!=='web')prepareLibrary(app.dir,target); // a package's library, fetched and checked before Cargo links it (LLP 1154 D3)
   const rustBundle=prepareRustBundle(app,platform,target,env);
   if(rustBundle)env.EXACT_RUST_BUNDLE=rustBundle;
   const native=platform==='web'?null:nativeSource(app,env); // what the binary compiles its Rust from (Swappable::with_native)
