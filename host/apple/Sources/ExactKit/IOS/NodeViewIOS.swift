@@ -523,7 +523,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if source.hasPrefix("symbol:") { presenter?.session?.rasters.cancel(id); raster = nil; updateSymbol(); return }
         loadGeneration += 1
         clearSymbol(); image = nil
-        if previousSource?.hasPrefix("symbol:") == true { presenter?.queueIntrinsicSize(self, generation: loadGeneration, nil) }
+        if previousSource?.hasPrefix("symbol:") == true { presenter?.intrinsic(id, nil) }
         guard let session = presenter?.session else { return }
         if !session.rasters.load(self, source: source, resolver: session.app.resolver) {
             imageSource = previousSource; loadGeneration = previousGeneration
