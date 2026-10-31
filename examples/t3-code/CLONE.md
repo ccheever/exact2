@@ -72,6 +72,18 @@ the merge resolution, signed Mac and iPhone artifacts, production IPA, raw nativ
 evidence and cleanup. Its comment audit is clear. The PR-base update is separate
 work.
 
+The desktop test reader consolidation is `0cd788b792`. `appText` in
+`tests/support/app-files.ts` now owns the existing owner-validating reader;
+all 29 direct test callers and `contractComponent` use it. All 547 assembled
+inputs remain byte-identical. The 6,921 desktop tests, 114 mobile cross-consumer
+tests and 76 locked clone Rust tests pass, including 29 compiled desktop-plan
+cases. All six root checks pass with command-local `CARGO_INCREMENTAL=0` for
+build, tests, Clippy and workspace compilation. Strict desktop app TypeScript
+passes; fixture-only typechecking is limited by missing Node and Bun declarations.
+Production sources and both standard bundles remain byte-identical. Evidence is
+under `target/t3-poc-evidence/pr216-reader-prerequisite/`. Independent review and
+the pinned PR-base integration remain pending. This adds no native UI qualification.
+
 The desktop manifest's unused `t3-browser` native tag is removed in `859f7b8676`.
 Browser already uses an iframe and the separate `t3-browser-page` hatch.
 The clean standard bundle's actual module table has every requested factory,
