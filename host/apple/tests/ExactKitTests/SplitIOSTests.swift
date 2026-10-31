@@ -183,6 +183,33 @@ final class SplitIOSTests: XCTestCase {
         }
     }
 
+    /// LLP 1127: a move between the columns ends with either end. An iPhone Duo unfolding after a Back while folded
+    /// has UIKit ask about a collapse within the expansion and end with the expansion alone; the detail then follows
+    /// a row's press.
+    func testAnExpansionThatAskedAboutACollapseEndsTheMove() throws {
+        ExactGroupedLists.install()
+        let session = try boot("SPLIT_ROWS", size: CGSize(width: 1100, height: 800))
+        let navigation = session.presenter.navigation, agent = Agent(session: session)
+        until("a split") { navigation.split != nil && !agent.nativeInFlight() }
+        let split = try XCTUnwrap(navigation.split)
+        split.controller.traitOverrides.horizontalSizeClass = .regular
+        until("expanded") { !split.controller.isCollapsed && !agent.nativeInFlight() }
+        // UIKit's calls, in its order, as measured on the iPhone Duo simulator (iOS 27.1)
+        let c = split.controller
+        _ = split.splitViewController(c, displayModeForExpandingToProposedDisplayMode: .oneBesideSecondary)
+        _ = split.splitViewController(c, topColumnForCollapsingToProposedTopColumn: .primary)
+        _ = split.splitViewController(c, displayModeForExpandingToProposedDisplayMode: .oneBesideSecondary)
+        split.splitViewControllerDidExpand(c)
+        let host = try XCTUnwrap(session.presenter.groupedLists as? GroupedListHost)
+        let list = try XCTUnwrap(host.lists[try node(session, "books").id])
+        let a = try node(session, "row-a")
+        until("row a is carried into its cell") { list.cell(a.id).map { a.isDescendant(of: $0) } ?? false }
+        let touch = RowTouch(a, at: CGPoint(x: 20, y: 10))
+        a.touchesBegan([touch], with: nil)
+        a.touchesEnded([touch], with: nil)
+        until("book a shows beside the list") { session.presenter.views.values.contains { $0.props["testId"] == "reading-a" && $0.window != nil } && !agent.nativeInFlight() }
+    }
+
     /// A sidebar's selected row keeps its tinted ground, and its light content on it, while the window is
     /// inactive (the app in the background), where UIKit's list cell would turn the ground to a gray fill.
     func testASidebarsSelectedRowStaysTintedWhileTheWindowIsInactive() throws {

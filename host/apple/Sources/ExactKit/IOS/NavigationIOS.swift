@@ -1331,8 +1331,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             controllers.values.first { ObjectIdentifier($0) == id && !navigationController.viewControllers.contains($0) }
         } ?? split.flatMap { split in
             // Collapsed, UIKit's Back took the detail's controller off the list's while the router selects its top;
-            // an expansion takes it off too, for its column, and is no Back.
-            split.list === navigationController && split.controller.isCollapsed && !split.expanding && !split.nested
+            // a move between the columns takes it off too, and is no Back.
+            split.list === navigationController && split.controller.isCollapsed && !split.moving && !split.nested
                 ? (split.detail.topViewController as? RouteController).flatMap { $0.key == selectedKey ? $0 : nil } : nil
         }
         let source = swipe.map { (node: $0.node, key: $0.key) } ?? departed.map { (node: $0.node, key: $0.key) }

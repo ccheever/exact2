@@ -76,16 +76,15 @@ final class SplitIOS: NSObject, UISplitViewControllerDelegate {
     var overlaysDetail: Bool { !controller.isCollapsed && [.oneOverSecondary, .twoOverSecondary].contains(controller.displayMode) }
     /// Whether UIKit nests the detail's controller in the list's now.
     var nested: Bool { controller.isCollapsed && list.viewControllers.contains { $0 === detail } }
-    /// Whether UIKit is expanding the columns, from asking which display mode
-    /// to expand to until it has: the detail's controller leaves the list's
-    /// for its column meanwhile, which is no Back. The split's own size class
-    /// can still be compact then (an iPhone Duo unfolding).
-    var expanding: Bool { expansion && controller.isCollapsed }
-    private var expansion = false
-    /// Whether UIKit is collapsing the columns, from asking which column to
-    /// put on top until it has: the detail's controller enters the list's
-    /// meanwhile, while the split still reads expanded.
-    private var collapsing = false
+    /// Whether UIKit is moving the detail's controller between the columns:
+    /// from asking which column to put on top as it collapses, or which
+    /// display mode to expand to, until it has collapsed or expanded. Either
+    /// end ends the move: an iPhone Duo unfolding after a Back while folded
+    /// has UIKit ask about a collapse within the expansion and end with the
+    /// expansion alone. Meanwhile the detail's controller enters or leaves
+    /// the list's, which is no Back, and the split can still read collapsed
+    /// or expanded as before.
+    private(set) var moving = false
     /// Whether the person sees the detail's routes: collapsed, only while
     /// nested, as a pop of the detail's controller leaves its routes in it.
     private var showsDetail: Bool { (controller.isCollapsed ? nested : true) && detail.viewControllers.contains { $0 is RouteController } }
@@ -110,7 +109,7 @@ final class SplitIOS: NSObject, UISplitViewControllerDelegate {
         // columns' stacks would be set from the split's state before the
         // move, and UIKit, finding them changed, pushes the detail twice and
         // asserts.
-        if expanding || collapsing { return }
+        if moving { return }
         let rest = Array(stack.dropFirst())
         let current = detail.viewControllers.compactMap { $0 as? RouteController }
         let within = !current.isEmpty && !rest.isEmpty && NavigationRules.isPushOrPop(from: current.map(ObjectIdentifier.init), to: rest.map(ObjectIdentifier.init))
@@ -204,13 +203,12 @@ final class SplitIOS: NSObject, UISplitViewControllerDelegate {
     // Collapsed, the detail is on top while it holds a route (LLP 1127 D3's answer).
     func splitViewController(_ svc: UISplitViewController,
                              topColumnForCollapsingToProposedTopColumn proposedTopColumn: UISplitViewController.Column) -> UISplitViewController.Column {
-        expansion = false
-        collapsing = true
+        moving = true
         return detail.viewControllers.contains { $0 is RouteController } ? .secondary : .primary
     }
     func splitViewController(_ svc: UISplitViewController,
                              displayModeForExpandingToProposedDisplayMode proposedDisplayMode: UISplitViewController.DisplayMode) -> UISplitViewController.DisplayMode {
-        expansion = true
+        moving = true
         return proposedDisplayMode
     }
 
@@ -222,12 +220,12 @@ final class SplitIOS: NSObject, UISplitViewControllerDelegate {
     }
 
     func splitViewControllerDidCollapse(_ svc: UISplitViewController) {
-        collapsing = false
+        moving = false
         show(stack, animated: false)
         DispatchQueue.main.async { self.changed() }
     }
     func splitViewControllerDidExpand(_ svc: UISplitViewController) {
-        expansion = false
+        moving = false
         // Collapsed, a pop of the detail's controller left its routes in it.
         show(stack, animated: false)
         DispatchQueue.main.async { self.changed() }
