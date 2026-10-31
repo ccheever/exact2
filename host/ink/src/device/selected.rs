@@ -37,11 +37,11 @@ impl Selected {
     }
 
     #[cfg(target_os = "macos")]
-    pub fn present(&mut self, texture: TextureId) -> Result<f64> {
+    pub fn present(&mut self, texture: TextureId, transaction: bool) -> Result<f64> {
         match self {
-            Self::Wgpu(device) => device.present(texture),
+            Self::Wgpu(device) => device.present(texture, transaction),
             #[cfg(exact_ink_metal)]
-            Self::Metal(device) => device.present(texture),
+            Self::Metal(device) => device.present(texture, transaction),
         }
     }
     #[cfg(not(target_arch = "wasm32"))]

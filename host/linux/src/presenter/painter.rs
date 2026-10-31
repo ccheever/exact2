@@ -2,6 +2,10 @@
 //! boots from, and opening it.
 use super::*;
 
+/// The first scene, to present after showing the window and before another paint.
+#[cfg(target_os = "macos")]
+pub struct PreparedAppleFrame(Option<Arc<Pixmap>>);
+
 /// Which backend paints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PainterChoice {
@@ -363,7 +367,7 @@ impl<D: DataSource> Presenter<D> {
             if let Some(preparing) = &mut boot.preparing {
                 let frame = pixels.as_ref().ok_or("CPU startup frame missing")?;
                 if matches!(target, crate::paint::FrameTarget::Window) {
-                    let accepted = match preparing.present_cpu(frame.clone()) {
+                    let accepted = match preparing.present_cpu(frame.clone(), false) {
                         Ok(accepted) => accepted,
                         Err(error) => {
                             boot.refused(error, std::time::Instant::now());
@@ -390,6 +394,48 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         Ok(pixels)
+    }
+
+    /// Paint before showing the window, without acquiring a drawable or reading back Ink.
+    #[cfg(target_os = "macos")]
+    pub fn prepare_apple_window_frame(&mut self) -> Result<Option<PreparedAppleFrame>, String> {
+        let pixels = self.apple_frame_for(crate::paint::FrameTarget::PreparedWindow)?;
+        Ok(self
+            .last_frame_succeeded
+            .then_some(PreparedAppleFrame(pixels)))
+    }
+
+    /// Present in the show call's transaction. Do not poll or repaint between the pair.
+    #[cfg(target_os = "macos")]
+    pub fn present_prepared_apple_frame(
+        &mut self,
+        frame: PreparedAppleFrame,
+    ) -> Result<(), String> {
+        if let Some(pixels) = frame.0 {
+            let boot = self
+                .surfaces
+                .apple_boot
+                .as_mut()
+                .ok_or("no CPU presentation device")?;
+            let preparing = boot
+                .preparing
+                .as_mut()
+                .ok_or("CPU presentation device changed")?;
+            let accepted = match preparing.present_cpu(pixels, true) {
+                Ok(accepted) => accepted,
+                Err(error) => {
+                    boot.refused(error, std::time::Instant::now());
+                    false
+                }
+            };
+            if !accepted {
+                self.last_frame_succeeded = false;
+                self.repaint();
+            }
+            Ok(())
+        } else {
+            self.brush.present_prepared_apple_frame()
+        }
     }
 
     /// Submit either a CPU startup frame or a complete ink frame to the same layer.

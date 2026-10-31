@@ -10,6 +10,9 @@ pub enum FrameTarget {
     Window,
     /// Refresh painted geometry without changing the visible window image.
     Geometry,
+    /// Prepare the compose target or CPU pixels without acquiring a drawable.
+    #[cfg(target_os = "macos")]
+    PreparedWindow,
 }
 
 /// UI below a split window canvas, with storage retained for its next repaint.
@@ -77,6 +80,11 @@ pub trait Backend {
         _layer: exact_ink::device::apple::Layer,
     ) -> Result<exact_ink::device::Info, String> {
         Err("this painter cannot present to a CAMetalLayer".into())
+    }
+    /// Present the prepared compose target before another paint or resize.
+    #[cfg(target_os = "macos")]
+    fn present_prepared_apple_frame(&mut self) -> Result<(), String> {
+        Err("this painter has no prepared Metal frame".into())
     }
     /// A lost device whose carrier can present CPU pixels without that device.
     fn lost_device_needs_cpu(&self) -> bool {
@@ -278,8 +286,8 @@ pub trait Backend {
     /// The frame's pixels.
     fn finish(&mut self) -> Result<Pixmap, String>;
     /// Complete a paint for its consumer. `Pixels` requires an image; `Window`
-    /// permits `None` only after successful presentation. `Geometry` may omit
-    /// pixels, but must not present. CPU backends can keep their ordinary path.
+    /// permits `None` after submission. `PreparedWindow` keeps the compose target
+    /// without presenting. `Geometry` updates only geometry. CPU backends return pixels.
     fn finish_for(&mut self, _target: FrameTarget) -> Result<Option<Pixmap>, String> {
         self.finish().map(Some)
     }
@@ -366,6 +374,10 @@ impl super::Painter {
     ) -> Result<exact_ink::device::Info, String> {
         self.backend.attach_apple_layer(layer)
     }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn present_prepared_apple_frame(&mut self) -> Result<(), String> {
+        self.backend.present_prepared_apple_frame()
+    }
     pub(crate) fn lost_device_needs_cpu(&self) -> bool {
         self.backend.lost_device_needs_cpu()
     }
@@ -405,5 +417,58 @@ impl super::Painter {
     /// Release idle renderer storage while preserving kept rows.
     pub fn trim(&mut self) {
         self.backend.trim();
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+    use crate::presenter::PainterChoice;
+    use crate::Presenter;
+
+    #[test]
+    fn a_prepared_first_frame_has_the_same_pixels_without_a_second_paint() {
+        let plan = contract::compile(
+            r##"component App
+  view
+    scroll width=160 height=120 background-color="#23394f"
+      column width=160 gap=8 padding=8
+        text "First frame" color="#f3e7ca" font-size=18
+        box width=75 height=35 background-color="#e83a5b" border-radius=7 opacity=0.65
+        text "Kept rows 012345" color="white"
+        box width=100 height=60 background-color="#4488cc"
+"##,
+        )
+        .unwrap()
+        .encode();
+        for choice in [PainterChoice::Cpu, PainterChoice::Ink] {
+            let make = || {
+                let (mut p, warning) =
+                    Presenter::boot_with(&plan, (), (160., 120.), 2., ".".into(), choice).unwrap();
+                assert!(warning.is_none(), "{warning:?}");
+                p.host_mut().runner_mut().set_row_reuse(true);
+                p
+            };
+            let expected = make().frame();
+            let mut prepared = make();
+            // There is no window or drawable; read the prepared compose texture,
+            // without begin() or a second walk that could conceal a missing frame.
+            let pixels = prepared.frame_for(FrameTarget::PreparedWindow);
+            assert!(prepared.last_frame_succeeded());
+            assert_eq!(pixels.is_none(), matches!(choice, PainterChoice::Ink));
+            let actual =
+                pixels.unwrap_or_else(|| Arc::new(prepared.brush.backend.finish().unwrap()));
+            assert_eq!(actual.data(), expected.data(), "{choice:?}");
+            assert!(actual
+                .data()
+                .chunks_exact(4)
+                .any(|p| p != &actual.data()[..4]));
+            prepared.repaint();
+            assert_eq!(
+                prepared.frame().data(),
+                expected.data(),
+                "{choice:?}: unshown retry"
+            );
+        }
     }
 }

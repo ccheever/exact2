@@ -254,7 +254,7 @@ impl Metal {
         self.window.is_some()
     }
 
-    pub fn present(&mut self, source: TextureId) -> Result<f64> {
+    pub fn present(&mut self, source: TextureId, transaction: bool) -> Result<f64> {
         autoreleasepool(|_| {
             self.completed()?;
             let start = Instant::now();
@@ -270,10 +270,10 @@ impl Metal {
                 command: command.clone(),
                 benchmark: crate::device::apple::benchmark_scene(),
                 queued: trace_time(),
-                transaction: window._layer.live_resize(),
+                transaction: transaction || window._layer.live_resize(),
             };
             let receipt = if work.transaction {
-                // AppKit's resize transaction is still open on this thread.
+                // Join the current AppKit transaction at first show or live resize.
                 if let Some(drawable) = window.thread.call(move || work.run(true))?? {
                     drawable.present();
                 }
@@ -335,7 +335,7 @@ impl Renderer {
             return Err(error);
         }
         let pending = if transaction {
-            // Present on the caller's thread before AppKit commits its resize.
+            // Present on the caller's thread before AppKit commits its transaction.
             // https://developer.apple.com/documentation/quartzcore/cametallayer/presentswithtransaction
             command.commit();
             command.waitUntilScheduled();

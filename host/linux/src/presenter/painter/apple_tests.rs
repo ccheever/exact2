@@ -77,6 +77,12 @@ fn archive_miss_starts_with_cpu_pixels_then_replaces_the_whole_frame_with_ink() 
         .as_ref()
         .unwrap()
         .ready());
+    let prepared = presenter.prepare_apple_window_frame().unwrap().unwrap();
+    assert_eq!(prepared.0.unwrap().data(), expected.data());
+    assert!(
+        presenter.painter_state()["name"].is_null(),
+        "preparing is not presenting"
+    );
     let first = presenter
         .apple_frame_for(crate::paint::FrameTarget::Pixels)
         .unwrap()

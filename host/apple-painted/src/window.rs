@@ -224,13 +224,16 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
         }
     }
-    fn draw(&mut self) -> Result<(), String> {
+    fn draw(
+        &mut self,
+        prepare: bool,
+    ) -> Result<Option<exact_linux::presenter::PreparedAppleFrame>, String> {
         let _trace = Trace::new(c"carrier draw");
         if self.hidden {
-            return Ok(());
+            return Ok(None);
         }
         let Some(p) = &mut self.presenter else {
-            return Ok(());
+            return Ok(None);
         };
         let now = if !self.live {
             p.host().now()
@@ -242,6 +245,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         let service_trace = Trace::with_value(c"draw service", f64::from(counters::DRAW) + 1.);
         prepare_draw(p, now, self.live)?;
         drop(service_trace);
+        let mut prepared = None;
         if p.dirty() && p.apple_painter_can_draw() {
             if std::env::var_os("G1_OUTPUT").is_some() {
                 self.benchmark_complete = !p.images().pending() && !p.images().has_refusals();
@@ -255,7 +259,11 @@ impl<D: DataSource + Default + 'static> App<D> {
                     .map_or(0., |node| p.scroll_of(node.id).1);
                 exact_ink::device::apple::benchmark_frame(self.benchmark_complete, offset);
             }
-            p.apple_window_frame()?;
+            if prepare {
+                prepared = p.prepare_apple_window_frame()?;
+            } else {
+                p.apple_window_frame()?;
+            }
             self.paint_ms += started.elapsed().as_secs_f64() * 1000.;
             let submitted = p.last_frame_succeeded();
             self.frames += u64::from(submitted);
@@ -264,7 +272,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
         }
         p.sync_surfaces();
-        Ok(())
+        Ok(prepared)
     }
 }
 
@@ -371,11 +379,15 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             self.layer = Some(layer);
             self.presenter = Some(p);
             self.window = Some(window.clone());
-            // Layout and the layer are ready. The worker may acquire and present
-            // while AppKit shows the window; an unshown drawable still retries.
-            self.draw()?;
+            let prepared = self.draw(true)?;
             window.set_visible(true);
             trace_mark(c"boot window shown", || 0.);
+            if let Some(frame) = prepared {
+                self.presenter
+                    .as_mut()
+                    .unwrap()
+                    .present_prepared_apple_frame(frame)?;
+            }
             window.request_redraw();
             if self.config.agent {
                 let ready = serde_json::json!({"ready":true,"boot":self.started.elapsed().as_secs_f64()*1000.,"views":self.presenter.as_ref().unwrap().node_count(),"error":null,"benchmarkCarrier":true}).to_string();
@@ -508,7 +520,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             WindowEvent::Resized(_) => {
                 self.resized();
                 if self.layer.as_ref().is_some_and(Layer::live_resize) {
-                    if let Err(e) = self.draw() {
+                    if let Err(e) = self.draw(false) {
                         self.fail(events, e);
                     }
                 }
@@ -526,7 +538,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                         self.resized();
                     }
                 }
-                if let Err(e) = self.draw() {
+                if let Err(e) = self.draw(false) {
                     self.fail(events, e);
                 }
                 return;

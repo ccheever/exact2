@@ -325,6 +325,15 @@ impl Backend for Ink {
         self.device.attach_layer(layer).map_err(|e| e.to_string())?;
         Ok(self.info().clone())
     }
+    #[cfg(target_os = "macos")]
+    fn present_prepared_apple_frame(&mut self) -> std::result::Result<(), String> {
+        let target = self.target.ok_or("no prepared compose target")?;
+        let result = self.device.present(target, true);
+        self.last_ms.1 = self
+            .accept(result)
+            .ok_or_else(|| self.error.clone().unwrap())?;
+        Ok(())
+    }
     #[cfg(windows)]
     fn displayed_process_ms(&self) -> std::result::Result<Option<f64>, String> {
         if let Selected::D3d11(device) = &self.device {
@@ -745,7 +754,9 @@ impl Backend for Ink {
             Ok(None)
         } else {
             #[cfg(target_os = "macos")]
-            if target == FrameTarget::Window && self.device.has_layer() {
+            if target == FrameTarget::PreparedWindow
+                || target == FrameTarget::Window && self.device.has_layer()
+            {
                 exact_ink::counters::add(exact_ink::counters::Counter::PaintAttempts, 1);
                 if let Some(e) = &self.error {
                     return Err(e.clone());
@@ -755,7 +766,12 @@ impl Backend for Ink {
                         self.close_group()?;
                     }
                     let texture = self.flush()?;
-                    self.last_ms = (self.layer_ms, self.device.present(texture)?);
+                    let present_ms = if target == FrameTarget::PreparedWindow {
+                        0.
+                    } else {
+                        self.device.present(texture, false)?
+                    };
+                    self.last_ms = (self.layer_ms, present_ms);
                     Ok(())
                 })();
                 if self.accept(result).is_none() {

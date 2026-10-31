@@ -145,6 +145,8 @@ pub use device::{touch_only, Device, Pointing};
 pub use hosted::action as field_action;
 use painter::cpu_info;
 pub(crate) use painter::PainterBoot;
+#[cfg(target_os = "macos")]
+pub use painter::PreparedAppleFrame;
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
 pub(crate) use palette::reported_accent;
 pub use palette::{material, ContrastPalette, Material, Palette, MATERIAL_ROLES};

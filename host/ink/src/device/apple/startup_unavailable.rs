@@ -32,7 +32,7 @@ impl Startup {
     pub fn ready(&self) -> bool {
         match self.0 {}
     }
-    pub fn present_cpu(&mut self, _: Arc<tiny_skia::Pixmap>) -> Result<bool> {
+    pub fn present_cpu(&mut self, _: Arc<tiny_skia::Pixmap>, _: bool) -> Result<bool> {
         match self.0 {}
     }
 }

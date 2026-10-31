@@ -226,7 +226,11 @@ impl Startup {
         Ok(())
     }
 
-    pub fn present_cpu(&mut self, pixels: Arc<tiny_skia::Pixmap>) -> Result<bool> {
+    pub fn present_cpu(
+        &mut self,
+        pixels: Arc<tiny_skia::Pixmap>,
+        transaction: bool,
+    ) -> Result<bool> {
         self.retire_frames()?;
         if self.frames.len() >= 2 {
             return Ok(false);
@@ -250,7 +254,7 @@ impl Startup {
             benchmark: crate::device::apple::benchmark_scene(),
             shown: self.shown.clone(),
             wake: self.wake.clone(),
-            transaction: layer.live_resize(),
+            transaction: transaction || layer.live_resize(),
             textures: self.textures.clone(),
         };
         // Noncoalesced: the first CPU frame cannot be cancelled by a fast compiler.
@@ -587,7 +591,7 @@ mod tests {
         let (second, b) = mpsc::channel();
         startup.frames.extend([a, b]);
         assert!(!startup
-            .present_cpu(Arc::new(tiny_skia::Pixmap::new(1, 1).unwrap()))
+            .present_cpu(Arc::new(tiny_skia::Pixmap::new(1, 1).unwrap()), false)
             .unwrap());
         assert_eq!(startup.frames.len(), 2);
         first.send(Ok(())).unwrap();

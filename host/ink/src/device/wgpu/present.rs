@@ -143,7 +143,7 @@ impl Wgpu {
         self.window.is_some()
     }
 
-    pub fn present(&mut self, texture: TextureId) -> Result<f64> {
+    pub fn present(&mut self, texture: TextureId, transaction: bool) -> Result<f64> {
         let started = Instant::now();
         failure(&self.errors)?;
         let source = self.texture(texture)?;
@@ -157,7 +157,7 @@ impl Wgpu {
         let done = self.done.clone();
         let errors = self.errors.clone();
         let benchmark = crate::device::apple::benchmark_scene();
-        let transaction = window._layer.live_resize();
+        let transaction = transaction || window._layer.live_resize();
         self.submitted.0 += 1;
         let submission = self.submitted;
         let work = move |show| {

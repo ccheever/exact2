@@ -8341,3 +8341,28 @@ crossings were XprotectService (0.6 core), mediaanalysisd, hybridsearchd,
 searchpartyd, suggestd, duetexpertd, launchd and the system screen-sharing agent
 (0.29 core), including work triggered by the launches themselves. Load below
 30, compiler refusal and retained five-second observations remain required.
+
+### Cut 1b mechanism and API contract
+
+[`nextDrawable`](https://developer.apple.com/documentation/quartzcore/cametallayer/nextdrawable())
+returns an available texture from the layer's pool; it does not acknowledge
+that the window is on screen. The call can succeed while the layer is still
+awaiting its first window composite. Apple's
+[`presentedTime`](https://developer.apple.com/documentation/metal/mtldrawable/presentedtime)
+is zero for an unpresented or dropped frame. Thus cut 1's zero callback records
+a discarded submission, not a displayed black frame. The trace actually places
+its acquisition at 725.239 ms, just after show returned at 725.047 ms and before
+visibility was observed at 742.422 ms. Acquisition before visibility alone does
+not prove why the compositor discarded it.
+
+[`presentsWithTransaction`](https://developer.apple.com/documentation/quartzcore/cametallayer/presentswithtransaction)
+is false by default, so Metal content is asynchronous to the window's Core
+Animation transaction. Setting it true associates `drawable.present()` with
+the caller's current transaction. Apple requires committing the rendering
+command, waiting until it is scheduled, then calling the drawable's present
+method; command-buffer presentation does not provide that synchronization.
+Cut 1b uses this existing live-resize sequence for first show as well. The
+worker acquires and copies only after show returns, and returns the scheduled
+drawable to the main thread for presentation in the same turn. Subsequent
+frames keep their existing worker presentation. The compose target, resource
+retirement, archive-miss compilation and positive-timestamp retry remain.
