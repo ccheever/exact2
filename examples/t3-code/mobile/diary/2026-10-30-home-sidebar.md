@@ -30,8 +30,10 @@ without a new test harness. The same Home component serves the screen and sideba
 - editing home.contract: smooth; the separator regression fails the old condition
   and passes the correction. Home tests pass: 184 before, 185 after.
 - types: smooth after generating the Contract declarations; strict ES2024 passes.
-- full mobile suite: a run during concurrent builds passed 4,169 tests and timed
-  out in two existing tests. A quiet rerun is pending; timeouts remain unchanged.
+- full mobile suite: the quiet run passes all 4,171 tests in 6.52 seconds with
+  unchanged timeouts. The concurrent-build run's two timeouts are retained in evidence.
+- root checks: build, tests, Clippy, formatting, boot and caps pass. Workspace
+  compilation needs `wasm-bindgen-cli 0.2.127` for Harmony's generated Snapback module.
 - original iOS Release: built from the frozen clean reference with Xcode 27.2.
 - Exact iOS Release: built and signed; strict signature verification passes.
   Native acceptance remains blocked by device access.
