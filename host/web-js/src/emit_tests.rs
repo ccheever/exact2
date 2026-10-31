@@ -992,21 +992,25 @@ fn a_bound_side_stays_its_authors_right_to_left_and_the_sheets_mirror() {
         !js.contains("inline-start") && !js.contains("inline-end"),
         "{js}"
     );
-    // And beside the sheet's static inset (an unconditional symbol): that inset stays left too.
+    // And beside the sheet's static inset (an unconditional symbol): that
+    // inset stays left in the class; while the author's side is unset,
+    // neither is the author's, and inline logical sides mirror the pair.
     let mixed = contract::compile(
-        "component App\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : 4) testId=\"r\"\n          image \"symbol:person\"\n          text \"Name\"\n",
+        "component App\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : none) testId=\"r\"\n          image \"symbol:person\"\n          text \"Name\"\n",
     )
     .unwrap();
     let out = crate::emit::emit(&mixed, false, false).unwrap();
-    let all = format!("{}{}", out.css, out.js);
     assert!(
-        all.contains("padding-left:") && out.js.contains("\"padding-right\""),
-        "{all}"
+        out.css.contains("padding-left:3.4375rem") && out.js.contains("\"padding-right\""),
+        "{}{}",
+        out.css,
+        out.js
     );
-    assert!(
-        !all.contains("padding-inline-start") && !all.contains("padding-inline-end"),
-        "{all}"
-    );
+    assert!(!out.css.contains("padding-inline-"), "{}", out.css);
+    for (side, value) in [("start", "3.4375rem"), ("end", "0px")] {
+        let write = format!("\"padding-inline-{side}\",\"\",()=>(v=>v==null?\"{value}\":null)");
+        assert!(out.js.contains(&write), "{write}: {}", out.js);
+    }
 }
 
 /// A progress in block flow keeps its width with `justify-self: start` only where its parent's

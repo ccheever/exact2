@@ -560,6 +560,14 @@ impl Em<'_> {
                 writes.push(("--exact-padding-bottom".into(), unit, Some(px)));
             }
         }
+        // A bound side's sheet pair mirrors while it is unset (`style::unset_mirrors`).
+        if b.written
+            && style::other_side(id).is_some_and(|o| {
+                binding(o).is_none_or(|s| style::literal(plan, plan.code(s.expr)).is_some())
+            })
+        {
+            writes.extend(style::unset_mirrors(id, &parts.css));
+        }
         // A reference (`url(#…)`) names an element by its authored id, which
         // the kernel scopes to the instance (LLP 1055.000 D3): resolved at
         // run time from the node (`Sr`).
