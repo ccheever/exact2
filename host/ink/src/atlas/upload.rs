@@ -17,6 +17,9 @@ impl PagePixels {
             dirty: None,
         }
     }
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
     pub fn dirty(&self) -> bool {
         self.dirty.is_some()
     }
@@ -70,9 +73,13 @@ impl Atlas {
     /// discover more masks; their writes must precede their own draw too.
     pub fn flush(atlases: &mut [&mut Self], device: &mut impl Device) -> Result<()> {
         let mut uploads = Vec::new();
-        for atlas in atlases.iter() {
-            if let Some(pages) = &atlas.pixels {
-                uploads.extend(pages.iter().filter_map(|(&id, p)| p.upload(id)));
+        for atlas in atlases.iter_mut() {
+            for &id in &atlas.dirty_pages {
+                #[cfg(test)]
+                {
+                    atlas.dirty_page_visits[1] += 1;
+                }
+                uploads.push(atlas.pixels.as_ref().unwrap()[&id].upload(id).unwrap());
             }
         }
         if uploads.is_empty() {
@@ -87,8 +94,12 @@ impl Atlas {
             crate::counters::Counter::GlyphUploadCopies,
             uploads.len() as u64,
         );
+        let last_uses = uploads
+            .iter()
+            .map(|u| device.last_use(u.texture))
+            .collect::<Result<Vec<_>>>()?;
         for atlas in atlases {
-            for u in &uploads {
+            for (u, &last) in uploads.iter().zip(&last_uses) {
                 if let Some(pixels) = atlas.pixels.as_mut().and_then(|p| p.get_mut(&u.texture)) {
                     pixels.dirty = None;
                     atlas.stats.uploaded_bytes += u.data.len() as u64;
@@ -97,13 +108,15 @@ impl Atlas {
                         u.data.len() as u64,
                     );
                     if let Some(page) = atlas.pages.iter_mut().find(|p| p.id == u.texture) {
-                        page.upload = device.last_use(u.texture)?;
+                        page.upload = last;
                     } else {
                         // Overflow textures cannot be appended to.
-                        atlas.pixels.as_mut().unwrap().remove(&u.texture);
+                        let page = atlas.pixels.as_mut().unwrap().remove(&u.texture).unwrap();
+                        atlas.shadow_bytes -= page.len() as u64;
                     }
                 }
             }
+            atlas.dirty_pages.clear();
         }
         Ok(())
     }
@@ -177,7 +190,9 @@ mod tests {
             assert_ne!(spill.texture, entries[0].1.texture);
             batch.begin(device).unwrap();
             assert!(batch.contains(&[9]));
+            assert_eq!(batch.stats().bytes, (3 * 16 * 16 * channels) as u64);
             Atlas::flush(&mut [&mut batch], device).unwrap();
+            assert_eq!(batch.stats().bytes, (2 * 16 * 16 * channels) as u64);
             let bytes = device.readback(spill.texture).unwrap();
             assert_eq!(
                 &bytes[(16 + 1) * channels..(16 + 15) * channels],
@@ -187,19 +202,74 @@ mod tests {
         }
     }
 
+    fn two_pages(device: &mut impl Device) {
+        for format in [Format::Alpha, Format::Rgba] {
+            let mut atlas = Atlas::new([16, 16], format, 1, 2).batched();
+            let channels = format.channels() as usize;
+            atlas.begin(device).unwrap();
+            let mut entries = Vec::new();
+            for n in 0..3 {
+                entries.push(
+                    atlas
+                        .insert(device, vec![n], [6, 6], &vec![31 + n as u8; 36 * channels])
+                        .unwrap(),
+                );
+            }
+            Atlas::flush(&mut [&mut atlas], device).unwrap();
+            // Finish the first shelf page, then dirty the head of the second.
+            for n in 3..5 {
+                entries.push(
+                    atlas
+                        .insert(device, vec![n], [6, 6], &vec![31 + n as u8; 36 * channels])
+                        .unwrap(),
+                );
+            }
+            assert_eq!(entries[0].texture, entries[3].texture);
+            assert_ne!(entries[3].texture, entries[4].texture);
+            assert_eq!(atlas.dirty_pages.len(), 2);
+            atlas.begin(device).unwrap();
+            Atlas::flush(&mut [&mut atlas], device).unwrap();
+            assert_eq!(atlas.stats().uploaded_bytes, (2 * 8 * 8 * channels) as u64);
+            assert_eq!(atlas.stats().bytes, (2 * 16 * 16 * channels * 2) as u64);
+            assert!(atlas.dirty_pages.is_empty());
+            for (n, entry) in entries.iter().enumerate() {
+                let bytes = device.readback(entry.texture).unwrap();
+                let x = (entry.uv[0] * 16.) as usize - 1;
+                let y = (entry.uv[1] * 16.) as usize - 1;
+                for dy in 0..8 {
+                    for dx in 0..8 {
+                        let at = ((y + dy) * 16 + x + dx) * channels;
+                        let expected = if dx == 0 || dy == 0 || dx == 7 || dy == 7 {
+                            0
+                        } else {
+                            31 + n as u8
+                        };
+                        assert_eq!(&bytes[at..at + channels], &vec![expected; channels]);
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn wgpu_batches_identical_masks_and_padding_then_only_the_new_rectangle() {
-        check(&mut crate::Wgpu::new().unwrap());
+        let mut device = crate::Wgpu::new().unwrap();
+        check(&mut device);
+        two_pages(&mut device);
     }
     #[cfg(exact_ink_metal)]
     #[test]
     fn metal_batches_identical_masks_and_padding_then_only_the_new_rectangle() {
-        check(&mut crate::device::metal::Metal::new().unwrap());
+        let mut device = crate::device::metal::Metal::new().unwrap();
+        check(&mut device);
+        two_pages(&mut device);
     }
     #[cfg(windows)]
     #[test]
     fn d3d11_batches_identical_masks_and_padding_then_only_the_new_rectangle() {
-        check(&mut crate::device::d3d11::D3d11::new().unwrap());
+        let mut device = crate::device::d3d11::D3d11::new().unwrap();
+        check(&mut device);
+        two_pages(&mut device);
     }
 
     #[test]

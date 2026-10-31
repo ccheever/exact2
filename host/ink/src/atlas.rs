@@ -35,14 +35,23 @@ pub struct Atlas {
     pins: HashMap<TextureId, usize>,
     stats: Stats,
     pixels: Option<HashMap<TextureId, PagePixels>>,
+    dirty_pages: Vec<TextureId>,
+    shadow_bytes: u64,
+    #[cfg(test)]
+    pub(crate) dirty_page_visits: [u64; 2],
 }
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Stats {
     pub entries: usize,
+    /// Normal GPU pages plus all retained CPU page shadows; overflow GPU
+    /// storage is reported separately in `overflow_bytes`.
     pub bytes: u64,
     pub misses: u64,
     pub hits: u64,
+    /// Bytes sent this frame: dirty rectangles at flush for batched glyph
+    /// atlases, padded entries at insertion for serial path/ramp atlases.
+    /// Excludes device staging alignment; rectangle gaps may include old pixels.
     pub uploaded_bytes: u64,
     pub overflow_bytes: u64,
     pub overflow_textures: usize,
@@ -64,7 +73,8 @@ impl Atlas {
             bytes: self.pages.len() as u64
                 * u64::from(self.size[0])
                 * u64::from(self.size[1])
-                * u64::from(self.format.channels()),
+                * u64::from(self.format.channels())
+                + self.shadow_bytes,
             overflow_textures: self.overflow.len(),
             pinned_textures: self.pins.len(),
             overflow_bytes: self.overflow_sizes.values().sum(),
@@ -106,23 +116,16 @@ impl Atlas {
             pins: HashMap::new(),
             stats: Stats::default(),
             pixels: None,
+            dirty_pages: Vec::new(),
+            shadow_bytes: 0,
+            #[cfg(test)]
+            dirty_page_visits: [0; 2],
         }
     }
 
     pub fn begin(&mut self, device: &mut impl Device) -> Result<()> {
         self.frame += 1;
         self.stats = Stats::default();
-        // Geometry-only walks may leave masks pending for a later pixel frame.
-        for page in &mut self.pages {
-            if self
-                .pixels
-                .as_ref()
-                .and_then(|p| p.get(&page.id))
-                .is_some_and(|p| p.dirty())
-            {
-                page.used = self.frame;
-            }
-        }
         let retired: Vec<_> = self
             .overflow
             .extract_if(.., |id| {
@@ -141,7 +144,9 @@ impl Atlas {
         for id in retired {
             self.overflow_sizes.remove(&id);
             if let Some(pixels) = &mut self.pixels {
-                pixels.remove(&id);
+                if let Some(page) = pixels.remove(&id) {
+                    self.shadow_bytes -= page.len() as u64;
+                }
             }
             self.large_used.remove(&id);
             self.entries.retain(|_, e| e.texture != id);
@@ -227,6 +232,8 @@ impl Atlas {
                     .enumerate()
                     .filter(|(_, p)| {
                         p.used != self.frame
+                            // A geometry-only walk can leave this page pending.
+                            && !self.dirty_pages.contains(&p.id)
                             && !self.pins.contains_key(&p.id)
                             && !busy.contains(&p.id)
                     })
@@ -291,10 +298,15 @@ impl Atlas {
             upload[start..start + row.len()].copy_from_slice(row);
         }
         if let Some(pages) = &mut self.pixels {
-            pages
-                .entry(texture)
-                .or_insert_with(|| PagePixels::new(extent, channels))
-                .write(origin, padded, &upload);
+            let page = pages.entry(texture).or_insert_with(|| {
+                let page = PagePixels::new(extent, channels);
+                self.shadow_bytes += page.len() as u64;
+                page
+            });
+            if !page.dirty() {
+                self.dirty_pages.push(texture);
+            }
+            page.write(origin, padded, &upload);
         } else {
             let submitted = device.upload_texture(texture, origin, padded, &upload)?;
             if let Some(page) = self.pages.iter_mut().find(|p| p.id == texture) {

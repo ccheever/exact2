@@ -488,8 +488,8 @@ one-deep handoff.
 
 | Resource | Start | Ceiling | Under pressure |
 |---|---|---|---|
-| Glyph atlas (alpha) | 512² | 2048² (4 MB) | evict by frame age, skipping entries kept rows pin (D4); past the ceiling, new entries spill to the per-frame overflow texture |
-| Colour atlas | 256² | 1024² | the same |
+| Glyph atlas (alpha) | 512² | 2048² (4 MB), plus a CPU shadow of each page while batched; 4 MiB at sixteen pages | evict by frame age, skipping entries kept rows pin (D4); past the ceiling, new entries spill to the per-frame overflow texture |
+| Colour atlas | 256² | 1024², plus a CPU shadow of each page while batched; 4 MiB at sixteen pages (8 MiB across both atlases) | the same |
 | Path atlas | 512² | 2048² | the same; a path larger than a page is tiled or given a texture for the frame (D2.3) |
 | Ramp texture | 256 × 64 rows | 256 × 1024 | rows evicted by frame age, pinned by kept rows |
 | Layer pool, and the compose target | none | the apps' measured high-water mark (S0) | freed on memory warning and background (`trim`, as the Canvas module has it); a frame that cannot allocate is drawn by the CPU painter |

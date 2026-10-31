@@ -7765,3 +7765,35 @@ compilation failures and their corrected third run remain in `ink.log`,
 
 Formatting, staged structural caps and `git diff --check` pass. Caps uses
 `EXACT_CAPS_WASM=0`; the implicit wasm build stays with the Mac mini gate.
+
+### Cut 7 review fixes: predictions and accounting
+
+Recorded before the runs on 2026-10-31, from `d008a448c7`.
+The page-visit counter predicts 32 visits at `begin` and 96 across three
+clean flush boundaries with sixteen pages of each glyph kind, then zero
+after the dirty-page list. Both paths should upload zero bytes. Five paired,
+interleaved rest and bar rounds on the silver, hook and power sampling off,
+should have median paired CPU changes within ±5% and ranges crossing zero;
+one caret pair should remain within ±5%. Warm glyph uploads should stay zero.
+CPU rows retain cycles, instructions, effective GHz and IPC. Predictions,
+commands and raw output are retained under `target/m10-cut7-review/`.
+
+`Stats.bytes` now includes each retained CPU page shadow, including an
+unflushed overflow shadow. Overflow GPU storage remains in `overflow_bytes`;
+GPU staging, map metadata and allocator overhead are outside these logical
+atlas-byte counters. The normal ceiling is 8 MiB GPU plus 8 MiB CPU across
+both glyph atlases, sixteen pages each. D8 now names those shadows.
+`Stats.uploaded_bytes` counts dirty-rectangle bytes at flush for batched
+atlases, including old pixels in the bounding union, and padded entry bytes
+at insertion for serial path/ramp atlases. It excludes device row alignment.
+The kept-rows series (`host/linux/src/presenter/kept_rows_tests/measurement.rs`,
+`INK_RESULT counters[2]`) sums that field: its pre-cut mask-byte values in
+`host/ink/MEASUREMENTS.md` cannot be compared directly with post-cut rectangles.
+
+The baseline counter measures **32 begin visits and 96 flush visits**, with
+zero uploads. Sol's two scans per single-flush frame are confirmed; three
+boundaries make four scans. The dirty-page list measures **zero visits** at
+both sites and zero uploads. Pending geometry-only masks prevent eviction
+at insertion; no protection scan runs at begin. Existing overflow retirement
+and glyph-cache bookkeeping are unchanged. The diagnostic source delta is
+`scans-before.patch`; its output is `checks/scans-before.log`.

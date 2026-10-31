@@ -10,9 +10,12 @@ impl Metal {
         autoreleasepool(|_| {
             self.completed()?;
             let mut layout = Vec::with_capacity(uploads.len());
+            let mut textures = Vec::with_capacity(uploads.len());
             let mut length = 0;
             for u in uploads {
-                let desc = self.texture(u.texture)?.desc;
+                let texture = self.texture(u.texture)?;
+                let desc = texture.desc;
+                textures.push(texture.raw.clone());
                 check_region(desc, u.origin, u.size)?;
                 let row = u.size[0] as usize * desc.format.channels() as usize;
                 if u.data.len() != row * u.size[1] as usize {
@@ -41,7 +44,7 @@ impl Metal {
                     if let Some(b) = old {
                         self.retired_buffers.push(b);
                     }
-                    self.create_buffer(length as u64)?
+                    self.create_buffer(length.max(65536) as u64)?
                 }
             };
             for (u, &(offset, row, stride)) in uploads.iter().zip(&layout) {
@@ -74,14 +77,14 @@ impl Metal {
             let encoder = command
                 .blitCommandEncoder()
                 .ok_or_else(|| Error::Device("atlas blit encoder".into()))?;
-            for (u, &(offset, _, stride)) in uploads.iter().zip(&layout) {
+            for ((u, &(offset, _, stride)), texture) in uploads.iter().zip(&layout).zip(&textures) {
                 // SAFETY: checked regions and aligned offsets fit the staging
                 // allocation; Metal retains both resources through completion.
                 unsafe {
                     encoder.copyFromBuffer_sourceOffset_sourceBytesPerRow_sourceBytesPerImage_sourceSize_toTexture_destinationSlice_destinationLevel_destinationOrigin_options(
                         &buffer.raw, offset, stride, 0,
                         MTLSize { width: u.size[0] as usize, height: u.size[1] as usize, depth: 1 },
-                        &self.texture(u.texture)?.raw, 0, 0, point(u.origin), MTLBlitOption::None);
+                        texture, 0, 0, point(u.origin), MTLBlitOption::None);
                 }
             }
             encoder.endEncoding();
@@ -94,6 +97,9 @@ impl Metal {
             self.atlas_buffers[slot] = Some(buffer);
             for u in uploads {
                 self.textures.get_mut(&u.texture).unwrap().last = s;
+            }
+            if let Some(error) = &self.error {
+                return Err(error.clone());
             }
             Ok(s)
         })

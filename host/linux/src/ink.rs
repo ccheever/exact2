@@ -5,9 +5,13 @@ use crate::paint::{Backend, FrameTarget, GradientPaint, Rect4, Shape, POINTER};
 use crate::raster::tiny_path as path;
 use crate::text::{Paragraph, RunPaint, TextEngine};
 use exact_ink::atlas::Atlas;
-use exact_ink::device::{Device, Error, Info, Result, Selected};
+#[cfg(any(not(test), windows))]
+use exact_ink::device::Selected;
+use exact_ink::device::{Device, Error, Info, Result};
 use exact_ink::instance::{flags, Bindings, RoundedClip, TextureId};
 use exact_ink::{Brush, Encoder, Instance, Kind};
+#[cfg(all(test, not(windows)))]
+use ordered_tests::Selected;
 use std::sync::Arc;
 use std::time::Instant;
 use tiny_skia::{FillRule, Path, PathBuilder, Pixmap, Transform};
@@ -18,6 +22,8 @@ mod stats;
 pub use stats::{counter_state, Statistics, StatisticsReader};
 mod gradient;
 mod images;
+#[cfg(all(test, not(windows)))]
+mod ordered_tests;
 mod rows;
 mod svg;
 #[cfg(test)]
