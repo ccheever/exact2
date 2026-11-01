@@ -1,0 +1,26 @@
+# Indexed history storage
+
+The automatic-history unit left transcript residency open: each accepted page
+was prepended into the shared projection, while the existing thread cache kept
+one complete snapshot. This slice adds an isolated range store to the existing
+SQLite cache owner. It keeps item identities, ordinals, opaque boundary cursors,
+`hasMore`, and a monotonic store revision in separate tables. A ticket combines
+the cache, environment, and thread invalidation epochs, so clear, thread removal,
+kind clear, environment replacement, and a global clear retire older commits.
+
+Range commits validate duplicate keys and bounded JSON item bodies before one
+SQLite transaction writes the rows and metadata. Reads are bounded to 128 items
+and can walk older or newer rows from a keyed ordinal anchor. The TypeScript
+adapter rejects malformed or oversized requests before native and treats a stale
+commit as a normal false result.
+
+This is storage qualification only. The client still retains its full projection,
+the display cache still skips expanded history, and no UI eviction or reader
+window is enabled. Stable group summaries, live-tail reconciliation, Copy and
+selection ownership, disk policy, large-item handling, and actual native memory
+acceptance remain separate units.
+
+The focused TypeScript adapter tests, standalone SQLite cache tests, and cache
+transport tests cover reopen, bidirectional reads, atomic metadata, stale tickets,
+clear, malformed input, and transfer framing. No TestFlight, performance, or
+complete-history claim follows from this unit.

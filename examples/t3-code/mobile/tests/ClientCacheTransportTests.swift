@@ -375,6 +375,22 @@ import SQLite3
             _ = try write(identity(), value)
             refuse("changed write revokes related metadata transfer") { _ = try call("textPart", ["id": revoked["id"]!, "index": 0]) }
         }
+        test("indexed history ranges survive the transport and clear stale writers") {
+            let scope: Object = ["environmentId": "one", "threadId": "history-transport"]
+            let item: Object = ["key": "entry", "ordinal": 7, "payload": #"{"id":"entry","text":"Transport"}"#]
+            let token = try call("historyTicket", scope)["token"] as! String
+            let commit = scope.merging(["token": token, "revision": 2, "beforeCursor": "before",
+                "afterCursor": NSNull(), "hasMore": true, "items": [item]]) { _, next in next }
+            check(try call("historyCommit", commit)["committed"] as? Bool == true, "transport commits an indexed range")
+            let read = try call("historyRead", scope.merging(["direction": "older", "limit": 8]) { _, next in next })
+            check((read["items"] as? [Object])?.first?["key"] as? String == "entry", "transport reads the committed range")
+            let stale = scope.merging(["token": token, "revision": 3, "beforeCursor": NSNull(),
+                "afterCursor": NSNull(), "hasMore": false, "items": []]) { _, next in next }
+            _ = try call("historyClear", scope)
+            check(try call("historyCommit", stale)["stale"] as? Bool == true, "history clear retires the transport writer")
+            check((try call("historyRead", scope.merging(["direction": "older", "limit": 8]) { _, next in next })["items"] as? [Object])?.isEmpty == true,
+                  "history clear removes the indexed range")
+        }
         test("idle expiry, teardown and admitted forget") {
             let expired = DispatchSemaphore(value: 0)
             let expiring = T3MobileCacheTransport(store: store, lifetime: .nanoseconds(0), didExpire: { expired.signal() })

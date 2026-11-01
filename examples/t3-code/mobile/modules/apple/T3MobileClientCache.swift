@@ -78,6 +78,9 @@ final class T3MobileClientCache {
             try execute("CREATE TABLE IF NOT EXISTS client_cache (environment_id TEXT NOT NULL, kind TEXT NOT NULL, cache_key TEXT NOT NULL, schema_version INTEGER NOT NULL, payload TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(environment_id, kind, cache_key))")
             try execute("CREATE TABLE IF NOT EXISTS cache_epochs (scope TEXT PRIMARY KEY NOT NULL, token TEXT NOT NULL)")
             try execute("INSERT OR IGNORE INTO cache_epochs(scope,token) VALUES(?,?)", [scope([]), UUID().uuidString])
+            try execute("CREATE TABLE IF NOT EXISTS thread_history (environment_id TEXT NOT NULL, thread_id TEXT NOT NULL, item_key TEXT NOT NULL, ordinal INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(environment_id, thread_id, item_key))")
+            try execute("CREATE INDEX IF NOT EXISTS thread_history_order ON thread_history(environment_id, thread_id, ordinal, item_key)")
+            try execute("CREATE TABLE IF NOT EXISTS thread_history_meta (environment_id TEXT NOT NULL, thread_id TEXT NOT NULL, revision INTEGER NOT NULL, before_cursor TEXT, after_cursor TEXT, has_more INTEGER NOT NULL, PRIMARY KEY(environment_id, thread_id))")
         } catch {
             sqlite3_close(database)
             database = nil
@@ -103,7 +106,9 @@ final class T3MobileClientCache {
         do {
             for (index, value) in values.enumerated() {
                 let status: Int32
-                if let value = value as? String {
+                if value is NSNull {
+                    status = sqlite3_bind_null(pointer, Int32(index + 1))
+                } else if let value = value as? String {
                     status = value.withCString { sqlite3_bind_text(pointer, Int32(index + 1), $0, Int32(value.utf8.count), transient) }
                 } else if let value = value as? Int64 {
                     status = sqlite3_bind_int64(pointer, Int32(index + 1), value)
@@ -190,8 +195,145 @@ final class T3MobileClientCache {
         return true
     }
 
+    private func historyIdentity(_ value: Object) throws -> [String] {
+        let environment = try string(value, "environmentId", limit: 512)
+        let thread = try string(value, "threadId", limit: 8_192)
+        return [environment, thread]
+    }
+
+    private func historyScope(_ identity: [String]) -> String { scope(["history", identity[0], identity[1]]) }
+
+    private func historyTicket(_ identity: [String]) throws -> String {
+        var tokens = [String](), scopes = ["kind:thread", scope([]), scope([identity[0]]), scope([identity[0], "thread"]), historyScope(identity)]
+        for value in scopes {
+            let pointer = try statement("SELECT token FROM cache_epochs WHERE scope=?", [value])
+            defer { sqlite3_finalize(pointer) }
+            let status = sqlite3_step(pointer)
+            guard status == SQLITE_ROW || status == SQLITE_DONE else { throw sqlFailure() }
+            tokens.append(status == SQLITE_ROW ? text(pointer, 0) : "")
+        }
+        let digest = SHA256.hash(data: Data(historyScope(identity).utf8)).map { String(format: "%02x", $0) }.joined()
+        return ([digest] + tokens).joined(separator: "|")
+    }
+
+    private func historyCursor(_ value: Object, _ name: String) throws -> String? {
+        guard let raw = value[name] else { throw Self.fail("Invalid client history cursor.") }
+        if raw is NSNull { return nil }
+        guard let cursor = raw as? String, !cursor.isEmpty, cursor.utf8.count <= 8_192, !cursor.contains("\0") else {
+            throw Self.fail("Invalid client history cursor.")
+        }
+        return cursor
+    }
+
+    private func historyItem(_ value: Any) throws -> (String, Int64, String) {
+        guard let item = value as? Object,
+              let key = item["key"] as? String, !key.isEmpty, key.utf8.count <= 512, !key.contains("\0"),
+              let ordinal = item["ordinal"] as? NSNumber, CFGetTypeID(ordinal) != CFBooleanGetTypeID(),
+              ordinal.doubleValue.isFinite, ordinal.doubleValue.rounded() == ordinal.doubleValue, ordinal.doubleValue >= 0,
+              ordinal.doubleValue <= Double(Int64.max),
+              let payload = item["payload"] as? String, !payload.isEmpty, payload.utf8.count <= 256 * 1_024 else {
+            throw Self.fail("Invalid client history item.")
+        }
+        guard let data = payload.data(using: .utf8), let object = try? JSONSerialization.jsonObject(with: data), object is Object else {
+            throw Self.fail("Invalid client history item payload.")
+        }
+        return (key, ordinal.int64Value, payload)
+    }
+
+    private func historyAnchor(_ value: Any) throws -> (String, Int64) {
+        guard let item = value as? Object,
+              let key = item["key"] as? String, !key.isEmpty, key.utf8.count <= 512, !key.contains("\0"),
+              let ordinal = item["ordinal"] as? NSNumber, CFGetTypeID(ordinal) != CFBooleanGetTypeID(),
+              ordinal.doubleValue.isFinite, ordinal.doubleValue.rounded() == ordinal.doubleValue, ordinal.doubleValue >= 0,
+              ordinal.doubleValue <= Double(Int64.max) else {
+            throw Self.fail("Invalid client history anchor.")
+        }
+        return (key, ordinal.int64Value)
+    }
+
+    private func historyRead(_ value: Object) throws -> Object {
+        let identity = try historyIdentity(value)
+        let direction = try string(value, "direction", limit: 8)
+        guard direction == "older" || direction == "newer" else { throw Self.fail("Invalid client history direction.") }
+        guard let limit = value["limit"] as? NSNumber, CFGetTypeID(limit) != CFBooleanGetTypeID(),
+              limit.doubleValue.rounded() == limit.doubleValue, (1...128).contains(limit.doubleValue) else {
+            throw Self.fail("Invalid client history page.")
+        }
+        var anchor: (String, Int64)?
+        if let raw = value["anchor"], !(raw is NSNull) {
+            anchor = try historyAnchor(raw)
+        }
+        var sql = "SELECT item_key,ordinal,payload FROM thread_history WHERE environment_id=? AND thread_id=?"
+        var params: [Any] = identity
+        if let anchor {
+            sql += direction == "older" ? " AND (ordinal,item_key COLLATE BINARY)<(?,?)" : " AND (ordinal,item_key COLLATE BINARY)>(?,?)"
+            params += [anchor.1, anchor.0]
+        }
+        sql += direction == "older" ? " ORDER BY ordinal DESC,item_key COLLATE BINARY DESC LIMIT ?" : " ORDER BY ordinal,item_key COLLATE BINARY LIMIT ?"
+        params.append(limit.int64Value)
+        let pointer = try statement(sql, params)
+        defer { sqlite3_finalize(pointer) }
+        var rows = [Object](), status: Int32
+        while true {
+            status = sqlite3_step(pointer)
+            if status == SQLITE_DONE { break }
+            guard status == SQLITE_ROW else { throw sqlFailure() }
+            rows.append(["key": text(pointer, 0), "ordinal": sqlite3_column_int64(pointer, 1), "payload": text(pointer, 2)])
+        }
+        if direction == "older" { rows.reverse() }
+        let meta = try statement("SELECT revision,before_cursor,after_cursor,has_more FROM thread_history_meta WHERE environment_id=? AND thread_id=?", identity)
+        defer { sqlite3_finalize(meta) }
+        let metaStatus = sqlite3_step(meta)
+        guard metaStatus == SQLITE_ROW || metaStatus == SQLITE_DONE else { throw sqlFailure() }
+        guard metaStatus == SQLITE_ROW else { return ["revision": 0, "beforeCursor": NSNull(), "afterCursor": NSNull(), "hasMore": false, "items": rows] }
+        return ["revision": sqlite3_column_int64(meta, 0), "beforeCursor": sqlite3_column_type(meta, 1) == SQLITE_NULL ? NSNull() : text(meta, 1),
+                "afterCursor": sqlite3_column_type(meta, 2) == SQLITE_NULL ? NSNull() : text(meta, 2),
+                "hasMore": sqlite3_column_int(meta, 3) != 0, "items": rows]
+    }
+
     private func perform(_ value: Object) throws -> Object {
         switch try string(value, "action", limit: 32) {
+        case "historyTicket": return ["token": try historyTicket(try historyIdentity(value))]
+        case "historyCommit":
+            let identity = try historyIdentity(value), supplied = try string(value, "token", limit: 256)
+            guard supplied == (try historyTicket(identity)) else { return ["committed": false, "stale": true] }
+            guard let revision = value["revision"] as? NSNumber, CFGetTypeID(revision) != CFBooleanGetTypeID(),
+                  revision.doubleValue.isFinite, revision.doubleValue.rounded() == revision.doubleValue, revision.doubleValue >= 0,
+                  revision.doubleValue <= Double(Int64.max), let hasMore = value["hasMore"] as? Bool,
+                  let rawItems = value["items"] as? [Any], rawItems.count <= 128 else { throw Self.fail("Invalid client history commit.") }
+            let before = try historyCursor(value, "beforeCursor"), after = try historyCursor(value, "afterCursor")
+            guard JSONSerialization.isValidJSONObject(value), try JSONSerialization.data(withJSONObject: value).count <= 256 * 1_024 else {
+                throw Self.fail("Client history commit is too large.")
+            }
+            var seen = Set<String>(), parsed = [(String, Int64, String)](), previous: (Int64, String)?
+            for raw in rawItems {
+                let row = try historyItem(raw)
+                guard seen.insert(row.0).inserted, previous == nil || row.1 > previous!.0 || row.1 == previous!.0 && row.0 > previous!.1 else {
+                    throw Self.fail("Duplicate or unordered client history item.")
+                }
+                parsed.append(row)
+                previous = (row.1, row.0)
+            }
+            let current = try statement("SELECT revision FROM thread_history_meta WHERE environment_id=? AND thread_id=?", identity)
+            defer { sqlite3_finalize(current) }
+            let currentStatus = sqlite3_step(current)
+            guard currentStatus == SQLITE_ROW || currentStatus == SQLITE_DONE else { throw sqlFailure() }
+            if currentStatus == SQLITE_ROW && revision.int64Value < sqlite3_column_int64(current, 0) {
+                return ["committed": false, "stale": true]
+            }
+            for row in parsed {
+                try execute("INSERT INTO thread_history(environment_id,thread_id,item_key,ordinal,payload) VALUES(?,?,?,?,?) ON CONFLICT(environment_id,thread_id,item_key) DO UPDATE SET ordinal=excluded.ordinal,payload=excluded.payload", identity + [row.0, row.1, row.2])
+            }
+            try execute("INSERT INTO thread_history_meta(environment_id,thread_id,revision,before_cursor,after_cursor,has_more) VALUES(?,?,?,?,?,?) ON CONFLICT(environment_id,thread_id) DO UPDATE SET revision=excluded.revision,before_cursor=excluded.before_cursor,after_cursor=excluded.after_cursor,has_more=excluded.has_more", identity + [revision.int64Value, before ?? NSNull(), after ?? NSNull(), Int64(hasMore ? 1 : 0)])
+            return ["committed": true, "stale": false]
+        case "historyRead": return try historyRead(value)
+        case "historyClear":
+            let identity = try historyIdentity(value)
+            try invalidate(["history", identity[0], identity[1]])
+            try execute("DELETE FROM thread_history WHERE environment_id=? AND thread_id=?", identity)
+            let removed = Int(sqlite3_changes(database))
+            try execute("DELETE FROM thread_history_meta WHERE environment_id=? AND thread_id=?", identity)
+            return ["removed": removed + Int(sqlite3_changes(database))]
         case "clearKind":
             let kind = try string(value, "kind", limit: 32)
             guard Self.kinds.contains(kind), value["environmentId"] == nil, value["key"] == nil else {
@@ -199,7 +341,12 @@ final class T3MobileClientCache {
             }
             try execute("INSERT INTO cache_epochs(scope,token) VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET token=excluded.token", ["kind:" + kind, UUID().uuidString])
             try execute("DELETE FROM client_cache WHERE kind=?", [kind])
-            return ["removed": Int(sqlite3_changes(database))]
+            let removed = Int(sqlite3_changes(database))
+            if kind == "thread" {
+                try execute("DELETE FROM thread_history")
+                try execute("DELETE FROM thread_history_meta")
+            }
+            return ["removed": removed]
         case "list":
             let kind = try string(value, "kind", limit: 32)
             guard Self.kinds.contains(kind), let limit = value["limit"] as? NSNumber,
@@ -270,7 +417,13 @@ final class T3MobileClientCache {
             }
             try invalidate(id)
             try execute("DELETE FROM client_cache WHERE environment_id=? AND kind=? AND cache_key=?", id)
-            return ["removed": Int(sqlite3_changes(database))]
+            let removed = Int(sqlite3_changes(database))
+            if id[1] == "thread" {
+                try invalidate(["history", id[0], id[2]])
+                try execute("DELETE FROM thread_history WHERE environment_id=? AND thread_id=?", [id[0], id[2]])
+                try execute("DELETE FROM thread_history_meta WHERE environment_id=? AND thread_id=?", [id[0], id[2]])
+            }
+            return ["removed": removed]
         case "clear":
             var parts = [String]()
             for field in ["environmentId", "kind", "key"] {
@@ -283,7 +436,22 @@ final class T3MobileClientCache {
             try invalidate(parts)
             let clauses = ["environment_id=?", "kind=?", "cache_key=?"].prefix(parts.count)
             try execute("DELETE FROM client_cache" + (parts.isEmpty ? "" : " WHERE " + clauses.joined(separator: " AND ")), parts)
-            return ["removed": Int(sqlite3_changes(database))]
+            let removed = Int(sqlite3_changes(database))
+            if parts.count == 0 {
+                try execute("DELETE FROM thread_history")
+                try execute("DELETE FROM thread_history_meta")
+            } else if parts.count == 1 {
+                try execute("DELETE FROM thread_history WHERE environment_id=?", parts)
+                try execute("DELETE FROM thread_history_meta WHERE environment_id=?", parts)
+            } else if parts[1] == "thread" && parts.count == 2 {
+                try execute("DELETE FROM thread_history WHERE environment_id=?", [parts[0]])
+                try execute("DELETE FROM thread_history_meta WHERE environment_id=?", [parts[0]])
+            } else if parts[1] == "thread" && parts.count == 3 {
+                try invalidate(["history", parts[0], parts[2]])
+                try execute("DELETE FROM thread_history WHERE environment_id=? AND thread_id=?", [parts[0], parts[2]])
+                try execute("DELETE FROM thread_history_meta WHERE environment_id=? AND thread_id=?", [parts[0], parts[2]])
+            }
+            return ["removed": removed]
         case "inspect":
             let environment = value["environmentId"] == nil ? nil : try string(value, "environmentId", limit: 512)
             let pointer = try statement("SELECT environment_id,kind,COUNT(*),SUM(LENGTH(CAST(payload AS BLOB))) FROM client_cache" + (environment == nil ? "" : " WHERE environment_id=?") + " GROUP BY environment_id,kind ORDER BY environment_id,kind", environment.map { [$0] } ?? [])

@@ -209,6 +209,38 @@ import SQLite3
             refuse("malformed cursor rejected") { _ = try call("list", ["kind": "project-favicon", "limit": 2, "after": "bad"]) }
             _ = try call("clear")
         }
+        test("indexed history commits ranges atomically and reads in both directions") {
+            let scope: Object = ["environmentId": "one", "threadId": "history-thread"]
+            let first = ["key": "first", "ordinal": 10, "payload": #"{"id":"first","text":"First"}"#] as Object
+            let second = ["key": "second", "ordinal": 20, "payload": #"{"id":"second","text":"Second"}"#] as Object
+            let third = ["key": "third", "ordinal": 20, "payload": #"{"id":"third","text":"Third"}"#] as Object
+            let token = try call("historyTicket", scope)["token"] as! String
+            let commit = scope.merging(["action": "historyCommit", "token": token, "revision": 4,
+                "beforeCursor": "before", "afterCursor": NSNull(), "hasMore": true, "items": [first, second, third]]) { _, next in next }
+            check(try call("historyCommit", commit)["committed"] as? Bool == true, "history commit accepts a fresh ticket")
+            let older = try call("historyRead", scope.merging(["direction": "older", "limit": 8]) { _, next in next })
+            let olderRows = older["items"] as! [Object]
+            check(older["revision"] as? Int == 4 && older["hasMore"] as? Bool == true, "history metadata survives the indexed read")
+            check(olderRows.map { $0["key"] as! String } == ["first", "second", "third"], "older reads preserve ascending order")
+            let newer = try call("historyRead", scope.merging(["direction": "newer", "limit": 8, "anchor": first]) { _, next in next })
+            check((newer["items"] as! [Object]).map { $0["key"] as! String } == ["second", "third"], "newer reads use the keyed ordinal anchor")
+            owner = nil; owner = T3MobileClientCache(directory: path)
+            check((try call("historyRead", scope.merging(["direction": "older", "limit": 8]) { _, next in next })["items"] as! [Object]).count == 3,
+                  "indexed history survives reopening the SQLite owner")
+            let stale = scope.merging(["action": "historyCommit", "token": token, "revision": 3,
+                "beforeCursor": NSNull(), "afterCursor": NSNull(), "hasMore": false, "items": []]) { _, next in next }
+            check(try call("historyCommit", stale)["stale"] as? Bool == true, "older revisions cannot replace the index")
+            let removed = try call("historyClear", scope)["removed"] as? Int
+            check(removed == 4, "history clear removes rows and metadata")
+            check((try call("historyRead", scope.merging(["direction": "older", "limit": 8]) { _, next in next })["items"] as! [Object]).isEmpty,
+                  "cleared history has no readable rows")
+            check(try call("historyCommit", commit)["stale"] as? Bool == true, "clear retires the prior history ticket")
+            let scopedToken = try call("historyTicket", scope)["token"] as! String
+            _ = try call("clear", ["environmentId": "one", "kind": "thread"])
+            check(try call("historyCommit", scope.merging(["action": "historyCommit", "token": scopedToken, "revision": 5,
+                "beforeCursor": NSNull(), "afterCursor": NSNull(), "hasMore": false, "items": []]) { _, next in next })["stale"] as? Bool == true,
+                  "thread-kind clear retires every history writer in the environment")
+        }
         test("separate database ticket and failure isolation") {
             let other = T3MobileClientCache(directory: root.appendingPathComponent("different-cache"))
             let token = try ticket(id())
