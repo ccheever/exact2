@@ -12,7 +12,7 @@ import { ClientError, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { fileIconToken } from '../shared/timeline-files';
 import { assetUrl } from '../settings/settings-b-icons';
-import { videoMimeType } from '../composer/composer-video'; // sent videos (UserVideoAttachment)
+import { GENERIC_MIME_TYPES, videoMimeType } from '../composer/composer-video'; // sent videos (UserVideoAttachment)
 import { markdownDocument, markdownGallery, markdownMedia, markdownMediaUrls, type GalleryImage, type MediaScope } from '../media/media-views'; // the transcript's host-path media
 import { letGo } from '../client/let-go';
 import { encodeMediaSource, mediaTooltip } from '../media/media-actions';
@@ -102,14 +102,13 @@ export function userMessageShape(item: Obj, text: string, attached: ReturnType<t
 const isSentVideo = (attachment: Obj) => videoMimeType({ name: str(attachment.name), mimeType: str(attachment.mimeType) }) !== null;
 /**
  * filePreviewKind "audio" (shared/filePreview.ts): an audio MIME type, or a sound's extension under a generic one (none,
- * application/octet-stream or text/plain), the MIME type read without its parameters.
+ * GENERIC_MIME_TYPES or text/plain), the MIME type read without its parameters.
  */
 export function isSentAudio(attachment: Obj): boolean {
   const mime = str(attachment.mimeType).split(';', 1)[0]!.trim().toLowerCase();
-  const generic = !mime || mime === 'application/octet-stream' || mime === 'text/plain';
+  const generic = !mime || GENERIC_MIME_TYPES.has(mime) || mime === 'text/plain';
   return attachment.downloadable !== false && (mime.startsWith('audio/') || generic && /\.(mp3|wav|ogg|oga|flac|aac|m4a|opus|aiff|weba)$/i.test(str(attachment.name)));
 }
-const GENERIC_MIME_TYPES = new Set(['application/octet-stream', 'binary/octet-stream', 'application/unknown']);
 /** shared/image.ts isSvgAttachment: an SVG MIME type, or a `.svg` name under a generic one. */
 export function isSvgAttachment(attachment: Obj): boolean {
   const mime = str(attachment.mimeType).split(';', 1)[0]!.trim().toLowerCase();

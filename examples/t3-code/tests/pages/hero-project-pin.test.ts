@@ -75,7 +75,15 @@ describe('the menu (HeroPicker)', () => {
     // b is pinned: the server now lists it first, and a new project arrives.
     const after = { size: 30, home: home([row('b', true), row('a', true), row('c', false)]) };
     expect((picker.derives(state, after).matches as Obj[]).map(project => project.id)).toEqual(['a', 'b', 'c']);
+    // The arrived row joins the held order, so a later pin does not move it either (useOrderWhileOpen withArrivedKeys).
+    expect(picker.derives(state, after).arrived).toEqual(['c']);
+    picker.call('hoverRow', state, after, ['c', true]);
+    expect(state.held).toEqual(['a', 'b', 'c']);
+    const pinnedC = { size: 30, home: home([row('c', true), row('b', true), row('a', true)]) };
+    expect((picker.derives(state, pinnedC).matches as Obj[]).map(project => project.id)).toEqual(['a', 'b', 'c']);
+    state.pinOver = 'c';
     picker.call('toggled', state, after, [{ newState: 'closed' }]);
+    expect(state.pinOver).toBe('');
     expect((picker.derives(state, after).matches as Obj[]).map(project => project.id)).toEqual(['b', 'a', 'c']);
   });
 });

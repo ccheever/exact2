@@ -223,9 +223,13 @@ component HeroPicker
   derive highlight = cursor != "" ? cursor : (needle == "" ? "-" : rowIds.slice(0, 1).join(""))
   action hover(value: bool)
     over = value
+  // Rows that arrive while the menu is open follow the held ones, and join the held order at the next hover or key, before
+  // any pin can move them: from then on they keep their place too (useOrderWhileOpen withArrivedKeys).
+  derive arrived = open ? home.projects.filter((project) => not held.includes(project.id)).map((project) => project.id) : []
   action toggled(e: ToggleEvent)
     open = e.newState == "open"
     held = e.newState == "open" ? home.projects.map((project) => project.id) : []
+    pinOver = ""
     if open
       query = ""
       cursor = current
@@ -248,10 +252,13 @@ component HeroPicker
       command("pages:hero-project", id, "", 0)
   action hoverRow(id: string, on: bool)
     cursor = on ? id : (highlight == id ? "-" : highlight)
+    held = held.concat(arrived)
   action pinHover(id: string, on: bool)
     pinOver = on ? id : (pinOver == id ? "" : pinOver)
+    held = held.concat(arrived)
   // isProjectPinShortcut: the thread pin shortcut pins the highlighted project, ahead of the window's own.
   action pinKey(k: string, e: KeyboardEvent)
+    held = held.concat(arrived)
     let chord = [(e.metaKey ? "Meta" : ""), (e.ctrlKey ? "Control" : ""), (e.altKey ? "Alt" : ""), (e.shiftKey ? "Shift" : ""), (k.length == 1 ? k.toLowerCase() : k)].filter((part) => part != "").join("+")
     if home.pinChord != "" and chord.toLowerCase() == home.pinChord.toLowerCase() and matches.filter((project) => project.id == highlight and project.canPin).length > 0
       preventDefault()
