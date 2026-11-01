@@ -574,7 +574,7 @@ final class FrameHealthDefinitionsController: UIViewController {
         super.viewDidLoad()
         title = "What these numbers mean"
         view.backgroundColor = .systemGroupedBackground
-        navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in
+        navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .close, primaryAction: UIAction { [weak self] _ in
             self?.dismiss(animated: true)
         })
         let text = UITextView()
