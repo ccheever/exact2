@@ -11652,3 +11652,32 @@ cohorts remain contrary observations. This tip has not had a second
 independent combined session. The 100 ms obligation remains unmet, and
 the fling instruction increase remains queued. The branch is committed
 for the mini's gate; it has not been pushed.
+
+## G7b, Windows at 120 Hz with cut 7
+
+**Predictions before collection, 2026-11-01.** Compare `5dc29e7bb2`
+(before cut 7) with `5892f92d5a` (origin/main at preparation) in one
+NucBox console session. Ten interleaved fresh processes per revision and
+arm retain application, OS and driver caches. Five rotating fling/rest
+rounds use the after revision; rest, bar and caret also get one separate
+sample per arm. G6's whole-series quiet rule remains: every five-second
+observation below 10% total CPU and no compiler. No build overlaps timing.
+PresentMon 2.6.0 supplies displayed timestamps; late means over 12.5 ms.
+Ink/wgpu's readback/softbuffer path has no app-owned displayed presents,
+so its displayed cadence remains unavailable if PresentMon cannot observe it.
+
+| Prediction | Instrument and criterion |
+| --- | --- |
+| D3D11 first paint saves 10–20 ms; DWM first complete screen falls from about 161 to 140–150 ms. | Existing Windows first-paint log, separately from the ten-launch DWM endpoint. DXGI display should fall by 10–20 ms in matched pairs. |
+| Windows first paint replaces roughly 250–310 glyph uploads with two dirty-page copies. | Existing painter counters in separate diagnostics. D3D11 uses one `UpdateSubresource` and completion query per dirty page instead of per mask; wgpu uses one staging submission. Windows has no glyph-upload duration span, so first-paint time cannot establish upload time alone. |
+| Ink/wgpu DWM first screen saves 10–25 ms, reaching 700–715 ms; egui remains within 10% of G7's 239.05 ms. | Ten launches per arm and revision, same DWM proxy as G7; no DXGI startup endpoint exists for these arms. |
+| D3D11 and egui reach 116–120 displays/gesture s, at most 1 late interval/s and p99 at most 12.5 ms. | PresentMon, four gesture windows in each of five rounds. |
+| Fling process/main CPU is 168/125 ms/s on D3D11, 243/224 on Ink/wgpu and 50/50 on egui, within 25%. | Process and HWND-owner-thread CPU endpoints over ten seconds; accounting uses 15.625 ms ticks. |
+| Peak working set stays within 10% of 153/325/182 MiB for D3D11/Ink-wgpu/egui. | Lifetime peak working set at the rest endpoint, beside sampled fling peak. |
+| D3D11 snapshots equal successful frames. | Existing exit counters, including startup. |
+| Rest has zero displays and at most two CPU ticks in ten seconds; bar reaches 116–120 displays/s; caret displays 2.0/s within one frame per sample. | One ten-second static sample per arm, CPU endpoints and PresentMon. Ink/wgpu cadence may remain unavailable. |
+
+No carrier change is planned. A foreground loss retains the foreground
+window's title and process and permits one retry; a second loss stops
+fling collection. Raw files belong under `target/g7b/` in this worktree
+and the lane's own NucBox mirror; no earlier retained evidence is removed.
