@@ -15,10 +15,9 @@ A route's `render` says when its page is made:
 | `render=cached` | by `serve`, kept 60 s | an API's answer every reader may share for a while |
 | `render=client`, the default | in the browser, after its script | one reader's own, behind a sign-in |
 
-The starter's planet page is `render=request`: its figures are the API's, which change after
-the build, and a build makes a parameterised route's pages only from a `pages=` list, which
-an API's data cannot give. `serve` sends that page whole, with its data; a
-static host serves its shell, and the browser draws it once the data comes.
+The starter's planet page is `render=request`: its figures are a live API's, and a build
+makes a parameterised route's pages only from a `pages=` list. `serve` sends it whole, with
+its data.
 
 ## Serving
 
@@ -26,13 +25,19 @@ static host serves its shell, and the browser draws it once the data comes.
 dist` serves it on 127.0.0.1:8765 (`--port`, else `PORT`), building it again when you edit:
 leave it running and reload. A page it renders asks the API as it is made: start the
 stand-in first (`bun server.ts`), or set `API_BASE_URL` to an API that answers.
-`npm run build` and `npm start` do the same, as hosts run them. Any
-static host serves `dist/` by this rule: the file at the path; else, for a browser's
-navigation to a path a route in `routes.json` matches, `shell.html` with 200, whose client
-draws the page (`serve` renders a `request` or `cached` route's page in its place); else
-404, with `404.html` where the build wrote one (a `notfound` route declared
-`render=build`), else with `shell.html`, whose client draws the `notfound` route. A host
-with one fallback page serves `shell.html` for every page it lacks.
+`npm run build` and `npm start` do the same, as hosts run them. A static host serves
+`dist/` by the rule `serve --help` states, with a `request` or `cached` route's shell,
+whose client draws the page.
+
+## The markup
+
+Each tag is the HTML element it names, so the landmarks and roles are the browser's: `main`,
+`nav aria-label`, a `header` and `footer` beside `main` (banner, contentinfo), `section
+aria-labelledby` (a region), `h1`–`h6`, `table` with `caption`, `th scope` and `aria-sort`,
+`dl`, `select`, `input type="search"`, `link href` (an `a`), `image "src" alt=""` (an
+`img`). A list of links or cards is a `column role="list"` of `role="listitem"`s; a field's
+label, a `text id=` the field names with `aria-labelledby`. `curl` a page `serve` renders
+to read it.
 
 ## A setting
 
@@ -47,9 +52,8 @@ app.ts    export const API = import.meta.env.API_BASE_URL;
 
 The value is the environment's, else `.env.local`'s (out of git), else `.env`'s, else a
 default written after the read (`?? 'https://…'`); with none the build fails. It is inlined
-into the module on every host, so it is public: never a secret. A build records each value,
-and one changed since makes `test`, `agent`, `web` and `serve` build again where the app is
-beside the build; `serve` refuses a build copied away from it, naming both values.
+into the module on every host, so it is public: never a secret. A value changed since the
+build makes `test`, `agent`, `web` and `serve` build again.
 
 ## A deep link
 
