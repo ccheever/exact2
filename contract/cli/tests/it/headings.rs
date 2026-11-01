@@ -197,6 +197,24 @@ fn font_inherit_clears_every_font_longhand() {
     }
     assert_eq!(number(&r, "reset", StyleId::FontSize), 20.0);
     assert_eq!(number(&r, "reset", StyleId::FontWeight), 600.0);
+    // The longhand alone, as a reset also writes it.
+    let src = "component App\n  view\n    column font-family=\"Georgia\"\n      button testId=\"field\" font-family=\"inherit\" \"Sort\"\n";
+    let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let node = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("field")[0])
+        .unwrap();
+    assert!(
+        node.style.written.has(StyleId::FontFamily) && !node.style.mask.has(StyleId::FontFamily)
+    );
 }
 
 /// Web headings retain their emphasized weights; an authored weight wins
