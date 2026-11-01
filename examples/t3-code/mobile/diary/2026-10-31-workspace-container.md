@@ -36,3 +36,12 @@ adding another scroll surface.
   pinned wasm-bindgen binary.
 - native iOS build: smooth; the staged source had already produced a signed
   simulator artifact before this final source verification.
+
+The first fresh-container review found that UIKit's former tab controller still
+owned the three navigation stacks after the app container was installed. The
+container now detaches each offered stack before adoption and keeps the adopted
+stack views visible inside their clipped panes. The normal iOS build succeeds;
+the mobile suite passes 4,224 tests with two intentional native skips, and the
+workspace Contract tests pass 20 tests with 261 assertions. A device drive could
+not be repeated because the available local simulators are owned by another
+workspace session.
