@@ -761,6 +761,13 @@ above.
   (`UpdateTrackSwitchDialog.tsx`). The clone is updated through Exact delivery and has no desktop
   update feed (`settings-a-about.ts`), and Nightly is not cloned. The row keeps v0.1.6's description but not
   its "N machines still run … Review" line: Review opens that switch in v0.1.6, and here it would move no machine.
+- A two-finger swipe steps the window's history with AppKit's gesture (`trackSwipeEvent`, LLP 1115.000 D5.5),
+  which follows System Settings › Trackpad › Swipe between pages and draws nothing. v0.1.6 recognises the swipe
+  over wheel events (`HistorySwipeNavigation.tsx`) and draws an arrow at the main area's edge as it tracks; it also
+  ignores a swipe that starts in a dialog, where the clone's goes on to the window's history.
+- A pressed chip in either composer draws as AppKit's selected token (the host's editor, `MarkupAtoms.swift`),
+  where v0.1.6 outlines the selected chip with a 2 px ring (`index.css` `.ProseMirror-selectednode`). An atom
+  takes no outline from the app.
 - The legacy sidebar is removed, as in v0.1.5. In v0.1.5 a saved `legacySidebarEnabled` opens the boring
   sidebar, which is a Labs feature, and ⌘N there starts the thread in the current project. The clone
   has no boring sidebar, so the same setting opens the default sidebar, where ⌘N with several projects

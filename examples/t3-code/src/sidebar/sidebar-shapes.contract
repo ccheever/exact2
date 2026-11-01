@@ -8,6 +8,9 @@ shape NavigationHistory
   forwardKind: string
   forwardTarget: string
   forwardExtra: string
+  here: string // the router's location of the current visit, and of each way's ('' at that end)
+  backHref: string
+  forwardHref: string
   backTip: string
   forwardTip: string
   brandWidth: number

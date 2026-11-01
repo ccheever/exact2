@@ -48,6 +48,8 @@ function sideFocused(text = 'side words', start = 0, end = text.length) {
   return { state, scope, calls, run: (action: string, args: unknown[], extra: Env = {}) => root.call(action, state, { ...scope, ...extra }, args) };
 }
 
+/** A side chat's editor view as the stash badge reads it. */
+const stashEditor = (count: number, menuOpen = false, placed = false) => ({ stash: { count, menuOpen }, menu: { open: false }, drawer: { placed } });
 describe('the window\'s editing engine serves the focused field', () => {
   test('a side chat field\'s focus takes it, the window\'s gives it back', () => {
     const f = sideFocused();
@@ -181,9 +183,25 @@ describe('a composer chord acts on the composer that has the focus', () => {
     for (const id of ['side-chat-pane', 'side-chat-layer']) expect(line(id)).toContain('focusin=sidePaneFocus(true) focusout=sidePaneFocus(false)');
     expect(line('side-chat-composer-overlay')).toContain('focusin=sideComposerFocusWithin(true) focusout=sideComposerFocusWithin(false)');
     const thread = contractComponent('side-chat.contract', 'SideChatThread');
-    const pane = { sideRich: {}, sideRichOwner: '', sideQuestionMarkdown: { documents: [] }, sideTraceMarkdown: { documents: [] }, composerTarget: '', sideChatThread: 's1' };
+    const pane = { sideRich: {}, sideRichOwner: '', sideQuestionMarkdown: { documents: [] }, sideTraceMarkdown: { documents: [] }, composerTarget: '', sideChatThread: 's1', sideEditor: stashEditor(0) };
     expect(thread.derives({}, { ...pane, sideKeys: true, fieldSide: true, fieldIntentNotice: 'n', fieldMenuActive: 2 })).toMatchObject({ composerChords: true, composerIntentNotice: 'n', composerMenuActive: 2 });
     expect(thread.derives({}, { ...pane, sideKeys: false, fieldSide: false, fieldIntentNotice: 'n', fieldMenuActive: 2 })).toMatchObject({ composerChords: false, composerIntentNotice: '', composerMenuActive: 0 });
+  });
+  test('the side chat\'s composer shows the window\'s one stash, as the window\'s does (useComposerStash)', () => {
+    const thread = contractComponent('side-chat.contract', 'SideChatThread');
+    const pane = { sideRich: {}, sideRichOwner: '', sideQuestionMarkdown: { documents: [] }, sideTraceMarkdown: { documents: [] }, composerTarget: '', sideChatThread: 's1', sideKeys: false, fieldSide: false };
+    const shown = (editor: unknown) => thread.derives({}, { ...pane, sideEditor: editor }).stashShown;
+    expect([shown(stashEditor(0)), shown(stashEditor(2)), shown(stashEditor(2, true)), shown(stashEditor(2, true, true))]).toEqual([false, true, false, true]);
+    // The badge is the window's component, pressing on the side chat's editor.
+    expect(appText('src/panel/side-chat.contract')).toContain('StashBadge(stash=sideEditor.stash, op=sideEditorOp)');
+  });
+  test('a side chat this window starts takes the focus to its Bring back, once', () => {
+    const members = contractComponent('side-chat-members.contract', 'T3Code');
+    const focused: unknown[] = [];
+    const state = { sideChatFocused: 0 };
+    members.call('sideChatFocusPane', state, { shell: { panel: { sideChat: { started: 2 } } }, focus: (id: string) => { focused.push(id); } }, []);
+    expect([focused, state.sideChatFocused]).toEqual([['side-chat-bring-back'], 2]);
+    expect(appText('src/panel/side-chat-members.contract')).toContain('task sideChatStarted when sideChatThread != "" and shell.panel.sideChat.started > sideChatFocused key=shell.panel.sideChat.started');
   });
   test('⌘S stashes the window\'s prompt only: the side chat\'s composer declares no stash chord (composerShortcutCommands)', () => {
     const stashKey = contractComponent('composer-editor.contract', 'StashKey');

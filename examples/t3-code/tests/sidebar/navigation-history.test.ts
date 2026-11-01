@@ -28,6 +28,20 @@ describe('the window history the sidebar buttons step', () => {
     // A page is a visit too, and another visit drops what was ahead.
     expect(ways(c, 'usage')).toEqual(['thread:a', ':']);
   });
+  test('each visit has a location of its own for the router: the first is home\'s, Settings is one over its visit', () => {
+    const c = client();
+    const hrefs = (page = '', settings = false) => { const h = navigationHistory(c, page, settings); return [h.here, h.backHref, h.forwardHref]; };
+    expect(hrefs()).toEqual(['/', '', '']);
+    c.threadId = 'a';
+    expect(hrefs()).toEqual(['/', '', '']);
+    c.threadId = 'b';
+    expect(hrefs()).toEqual(['/visit/1', '/', '']);
+    c.threadId = 'a';
+    expect(hrefs()).toEqual(['/', '', '/visit/1']);
+    // A new visit is a new location, even where a visit it dropped was.
+    expect(hrefs('usage')).toEqual(['/visit/2', '/', '']);
+    expect(hrefs('usage', true)).toEqual(['/visit/settings', '/visit/2', '']);
+  });
   test('an archived thread is no step', () => {
     const c = client();
     c.threadId = 'a'; ways(c);
@@ -50,19 +64,43 @@ describe('the window history the sidebar buttons step', () => {
 
 describe('a step runs what ⌘[ and ⌘] run for its target', () => {
   const members = contractComponent('sidebar-members.contract', 'T3Code');
-  const run = (direction: string, kind: string, target: string, extra = '') => {
+  // The router as far as these actions use it: the selected tab's stack of locations.
+  type Router = { tab: string; stack: string[] };
+  const tabOf = (location: string) => location.startsWith('/open') ? 'incoming' : location.startsWith('/notification') ? 'notification' : 'home';
+  const go = (r: Router, location: string): Router => r.stack.includes(location) ? { ...r, stack: r.stack.slice(0, r.stack.indexOf(location) + 1) } : { ...r, stack: [...r.stack, location] };
+  const router = { go, open: (r: Router, location: string): Router => ({ tab: tabOf(location), stack: [location] }), top: (r: Router) => ({ url: r.stack.at(-1), tab: tabOf(r.stack.at(-1) ?? '/') }) };
+  const run = (direction: string, kind: string, target: string, extra = '', hrefs: Record<string, string> = {}) => {
     const calls: unknown[][] = [];
     const record = (name: string) => (...args: unknown[]) => { calls.push([name, ...args]); };
-    const navigationHistory = { backKind: kind, backTarget: target, backExtra: extra, forwardKind: kind, forwardTarget: target, forwardExtra: extra };
-    members.call('historyGo', {}, { navigationHistory, selectThread: record('selectThread'), closeModal: record('closeModal'), paletteRun: record('paletteRun') }, [direction]);
-    return calls;
+    const navigationHistory = { backKind: kind, backTarget: target, backExtra: extra, forwardKind: kind, forwardTarget: target, forwardExtra: extra, backHref: '', forwardHref: '', ...hrefs };
+    const state = { promptLinks: { tab: 'home', stack: ['/', '/visit/1', '/visit/2'] } as Router };
+    members.call('historyGo', state, { ...router, navigationHistory, selectThread: record('selectThread'), closeModal: record('closeModal'), paletteRun: record('paletteRun') }, [direction]);
+    return { calls, router: state.promptLinks };
   };
   test('each kind', () => {
-    expect(run('back', 'thread', 'a')).toEqual([['selectThread', 'a']]);
-    expect(run('back', 'back', '')).toEqual([['closeModal']]);
-    expect(run('forward', 'palette-run', 'settings', 'general')).toEqual([['paletteRun', 'settings', 'general', '']]);
-    expect(run('forward', 'new-thread-in', 'p1')).toEqual([['paletteRun', 'new-thread', 'p1', '']]);
-    expect(run('forward', '', '')).toEqual([]);
+    expect(run('back', 'thread', 'a').calls).toEqual([['selectThread', 'a']]);
+    expect(run('back', 'back', '').calls).toEqual([['closeModal']]);
+    expect(run('forward', 'palette-run', 'settings', 'general').calls).toEqual([['paletteRun', 'settings', 'general', '']]);
+    expect(run('forward', 'new-thread-in', 'p1').calls).toEqual([['paletteRun', 'new-thread', 'p1', '']]);
+    expect(run('forward', '', '').calls).toEqual([]);
+  });
+  test('a step moves the router: Back pops to the visit beneath, Forward pushes the one ahead', () => {
+    expect(run('back', 'thread', 'a', '', { backHref: '/visit/1' }).router.stack).toEqual(['/', '/visit/1']);
+    expect(run('forward', 'thread', 'b', '', { forwardHref: '/visit/3' }).router.stack).toEqual(['/', '/visit/1', '/visit/2', '/visit/3']);
+  });
+  test('the router\'s navigate: a step\'s location takes that step, a link opens its tab, any other location nothing', () => {
+    expect(run('/visit/1', 'thread', 'a', '', { backHref: '/visit/1' })).toEqual({ calls: [['selectThread', 'a']], router: { tab: 'home', stack: ['/', '/visit/1'] } });
+    expect(run('/visit/3', 'thread', 'b', '', { backHref: '/visit/1', forwardHref: '/visit/3' }).calls).toEqual([['selectThread', 'b']]);
+    // A visit the history cannot show (an archived thread's: no step) leaves the router where it is.
+    expect(run('/visit/1', 'thread', 'a')).toEqual({ calls: [], router: { tab: 'home', stack: ['/', '/visit/1', '/visit/2'] } });
+    expect(run('/open?u=x', '', '')).toEqual({ calls: [], router: { tab: 'incoming', stack: ['/open?u=x'] } });
+  });
+  test('each visit is mirrored onto the router', () => {
+    const state = { promptLinks: { tab: 'home', stack: ['/', '/visit/1', '/visit/2'] } as Router };
+    members.call('recordVisit', state, { ...router, navigationHistory: { here: '/visit/1' } }, []);
+    expect(state.promptLinks.stack).toEqual(['/', '/visit/1']);
+    members.call('recordVisit', state, { ...router, navigationHistory: { here: '/visit/4' } }, []);
+    expect(state.promptLinks.stack).toEqual(['/', '/visit/1', '/visit/4']);
   });
 });
 
@@ -70,18 +108,19 @@ describe('a mouse\'s back and forward buttons', () => {
   const window = contractComponent('app-window.contract', 'T3Window');
   const release = (button: number, scope: Record<string, unknown> = {}) => {
     const steps: unknown[] = [];
-    window.call('outsidePressUp', { outsidePresses: 0, outsideDown: false }, { paletteOpen: false, modal: false, settingsOpen: false, historyGo: (way: string) => { steps.push(way); }, ...scope }, [{ button, buttons: 0 }]);
+    window.call('outsidePressUp', { outsidePresses: 0, outsideDown: false }, { paletteOpen: false, modal: false, settingsOpen: false, historyGo: (way: string) => { steps.push(way); }, preventDefault: () => { steps.push('prevented'); }, ...scope }, [{ button, buttons: 0 }]);
     return steps;
   };
   test('step the history at their release', () => {
-    expect(release(3)).toEqual(['back']);
-    expect(release(4)).toEqual(['forward']);
+    // The host would step the router for them too: the release's preventDefault leaves that to the window.
+    expect(release(3)).toEqual(['prevented', 'back']);
+    expect(release(4)).toEqual(['prevented', 'forward']);
     expect(release(0)).toEqual([]);
     expect(release(1)).toEqual([]);
   });
   test('not under the palette or a dialog, but in Settings', () => {
-    expect(release(3, { paletteOpen: true })).toEqual([]);
-    expect(release(3, { modal: true })).toEqual([]);
-    expect(release(3, { modal: true, settingsOpen: true })).toEqual(['back']);
+    expect(release(3, { paletteOpen: true })).toEqual(['prevented']);
+    expect(release(3, { modal: true })).toEqual(['prevented']);
+    expect(release(3, { modal: true, settingsOpen: true })).toEqual(['prevented', 'back']);
   });
 });

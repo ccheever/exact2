@@ -15,6 +15,14 @@ members T3Code
   derive composerScope = ""
   derive sideNow = wallTime.epochAtZero + max(liveNow, elapsed) // the timeline's clock (app-window.contract timelineNow)
   derive sideChatThread = shell.panel.open and shell.panel.sideChat.show and not shell.panel.sideChat.deleted ? shell.panel.sideChat.threadId : ""
+  // A side chat this window starts (the composer's `/side`, the panel's "+" or its launcher) takes the focus to its
+  // Bring back once its tab shows, as the reference's pane does (measured on v0.1.6).
+  state sideChatFocused = 0
+  task sideChatStarted when sideChatThread != "" and shell.panel.sideChat.started > sideChatFocused key=shell.panel.sideChat.started
+    after(1, sideChatFocusPane)
+  action sideChatFocusPane
+    sideChatFocused = shell.panel.sideChat.started
+    focus("side-chat-bring-back")
   // The pane's stream is pinned by the shell's answer (panel-surfaces.ts pinThreads), whose bounded fetch changes no
   // `data.revision`: its `loading` turning false asks again, as the window's thread arrives with the refresh its open awaited.
   resource sideChat = sideChatData(sideChatThread, data.revision, wallTime.epochAtZero + elapsed, viewport.displayMode, wallTime.formatLocale, shell.panel.sideChat.loading) as shape Snapshot

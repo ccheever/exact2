@@ -3,15 +3,28 @@
 use NavigationHistory from "./sidebar-shapes.contract"
 members T3Code
   resource navigationHistory = navigationHistory(data.revision, utilityPage, settingsOpen) as shape NavigationHistory
+  // Each visit is mirrored onto the router, so the Mac's swipe, its mouse buttons and the agent's `back` step it
+  // (LLP 1115.000 D5.5): Back is a pop to the visit beneath, Forward a push of the one ahead, any other a new push.
+  // Not while a link's tab is up, which hands back to `home` once the link is handled.
+  task visitRecorded when navigationHistory.here != "" and top(promptLinks).tab == "home" key=navigationHistory.here
+    after(1, recordVisit)
+  action recordVisit
+    promptLinks = go(promptLinks, navigationHistory.here)
+  // `direction` is "back" or "forward", or the location the root's `navigate` asks for (the Mac's swipe, its mouse
+  // buttons, the agent's `back`): a step when it is where one of them goes, else a link (/open, /notification), which
+  // opens its own tab and so leaves home's visits as they are.
   action historyGo(direction: string)
-    let kind = direction == "back" ? navigationHistory.backKind : navigationHistory.forwardKind
-    let target = direction == "back" ? navigationHistory.backTarget : navigationHistory.forwardTarget
-    let extra = direction == "back" ? navigationHistory.backExtra : navigationHistory.forwardExtra
+    let way = direction == "back" or direction == navigationHistory.backHref ? "back" : (direction == "forward" or direction == navigationHistory.forwardHref ? "forward" : "")
+    let kind = way == "back" ? navigationHistory.backKind : (way == "forward" ? navigationHistory.forwardKind : "")
+    let target = way == "back" ? navigationHistory.backTarget : navigationHistory.forwardTarget
+    let extra = way == "back" ? navigationHistory.backExtra : navigationHistory.forwardExtra
+    if kind != ""
+      promptLinks = go(promptLinks, way == "back" ? navigationHistory.backHref : navigationHistory.forwardHref)
     if kind == "thread"
       selectThread(target)
     else if kind == "back"
       closeModal()
-    else if kind == "palette-run"
-      paletteRun(target, extra, "")
-    else if kind == "new-thread-in"
-      paletteRun("new-thread", target, "")
+    else if kind != ""
+      paletteRun(kind == "palette-run" ? target : "new-thread", kind == "palette-run" ? extra : target, "")
+    else if way == "" and top(go(promptLinks, direction)).tab != "home"
+      promptLinks = open(promptLinks, direction)

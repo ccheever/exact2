@@ -67,11 +67,11 @@ export function sideChatSurfaceRows(client: T3Client): { id: string; label: stri
   return [{ id: 'side-chat', label: 'Side chat', icon: 'messages-square', shortcut: 'S', letter: 's', available, reason: available ? '' : reason ?? 'Available after the first message.' }];
 }
 
-type Store = { starting: Set<string>; busy: Map<string, string>; pending: boolean };
+type Store = { starting: Set<string>; busy: Map<string, string>; pending: boolean; started: number };
 const stores = new WeakMap<T3Client, Store>();
 export function sideChatStore(client: T3Client): Store {
   let store = stores.get(client);
-  if (!store) stores.set(client, store = { starting: new Set(), busy: new Map(), pending: false });
+  if (!store) stores.set(client, store = { starting: new Set(), busy: new Map(), pending: false, started: 0 });
   return store;
 }
 
@@ -117,6 +117,7 @@ export async function startSideChat(client: T3Client, native: Native, prompt: st
       } catch (error) { discard(); return fail(error, 'Could not send the side chat message.'); }
     }
     openTab(targetThreadId);
+    store.started++;
     return true;
   } finally { store.pending = false; }
 }
@@ -180,9 +181,11 @@ export type SideChatView = {
   show: boolean; threadId: string; title: string; deleted: boolean; loading: boolean;
   bringBackDisabled: boolean; bringBackTip: string; bringingBack: boolean; deleteDisabled: boolean;
   confirmDelete: boolean; deleteTitle: string; deleteBody: string;
+  /** Side chats this window started: the pane of a new one takes the focus (side-chat-members.contract sideChatStarted). */
+  started: number;
 };
 export const emptySideChat = (): SideChatView => ({ show: false, threadId: '', title: '', deleted: false, loading: false,
-  bringBackDisabled: true, bringBackTip: '', bringingBack: false, deleteDisabled: true, confirmDelete: true, deleteTitle: '', deleteBody: '' });
+  bringBackDisabled: true, bringBackTip: '', bringingBack: false, deleteDisabled: true, confirmDelete: true, deleteTitle: '', deleteBody: '', started: 0 });
 
 /** The pane of the side chat `threadId` whose parent is `parentId`: its header. */
 export function sideChatView(client: T3Client, parentId: string, threadId: string): SideChatView {
@@ -198,6 +201,6 @@ export function sideChatView(client: T3Client, parentId: string, threadId: strin
     show: true, threadId, title, deleted, loading: !!shell && !projection,
     bringBackDisabled: reason !== null || store.busy.has(threadId), bringBackTip: reason ?? "Adds this side chat to the main thread's next message.",
     bringingBack: store.busy.get(threadId) === 'bring-back', deleteDisabled: !writable || !shell || store.busy.has(threadId),
-    confirmDelete: confirm, deleteTitle: `Delete side chat "${title}"?`, deleteBody: 'This permanently clears its conversation history.',
+    confirmDelete: confirm, deleteTitle: `Delete side chat "${title}"?`, deleteBody: 'This permanently clears its conversation history.', started: store.started,
   };
 }

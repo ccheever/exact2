@@ -353,3 +353,4 @@ shape SideChatPane
   confirmDelete: bool
   deleteTitle: string
   deleteBody: string
+  started: number

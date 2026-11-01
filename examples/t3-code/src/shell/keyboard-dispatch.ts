@@ -78,11 +78,12 @@ export function chordWinners(bindings: Obj[], context: DispatchContext): Map<str
 // The main view's visited locations, newest last: a thread, a project's
 // new-thread draft, or a page over them (Usage, Pull Requests;
 // the reference's history covers every route). Arriving at the entry beside the cursor moves the cursor
-// (that is what Back and Forward do); anywhere else is a new visit.
-type History = { entries: string[]; cursor: number };
+// (that is what Back and Forward do); anywhere else is a new visit. Each visit has its own number, for the router's
+// location of it (visitHref).
+type History = { entries: string[]; visits: number[]; cursor: number; next: number };
 const histories = new WeakMap<T3Client, History>();
 export function visit(client: T3Client, page = ''): History {
-  const history = histories.get(client) ?? { entries: [], cursor: -1 };
+  const history = histories.get(client) ?? { entries: [], visits: [], cursor: -1, next: 0 };
   histories.set(client, history);
   const here = page ? `page:${page}` : client.threadId ? `thread:${client.threadId}` : client.projectId ? `draft:${client.projectId}` : '';
   if (!here || history.entries[history.cursor] === here) return history;
@@ -90,10 +91,20 @@ export function visit(client: T3Client, page = ''): History {
   else if (history.entries[history.cursor + 1] === here) history.cursor++;
   else {
     history.entries = [...history.entries.slice(0, history.cursor + 1), here].slice(-50);
+    history.visits = [...history.visits.slice(0, history.cursor + 1), history.next++].slice(-50);
     history.cursor = history.entries.length - 1;
   }
   return history;
 }
+/** The router's location of the visit at `index` (app.contract `routes promptLinks`): the first visit is the home
+ *  route itself, so the router has no visit beneath it; '' past either end. */
+export function visitHref(history: History, index: number): string {
+  if (index < 0) return index === history.cursor ? '/' : '';
+  const n = history.visits[index];
+  return n === undefined ? '' : n === 0 ? '/' : `/visit/${n}`;
+}
+/** The current visit's location, recording nothing (Settings, open over it, is no visit of this history). */
+export const visitHere = (client: T3Client) => { const history = histories.get(client); return history ? visitHref(history, history.cursor) : '/'; };
 function liveEntry(client: T3Client, entry: string | undefined): boolean {
   if (!entry) return false;
   const [kind, id] = [entry.slice(0, entry.indexOf(':')), entry.slice(entry.indexOf(':') + 1)];
@@ -261,7 +272,9 @@ function threadOrderRows(add: DispatchAdd, client: T3Client, threads: Obj[], bro
 }
 /** Where Back and Forward go from the main view: a dispatch row's kind, target and extra, or null at that end. */
 export type HistoryStep = { kind: string; target: string; extra: string };
-export function historySteps(client: T3Client, page: string): { back: HistoryStep | null; forward: HistoryStep | null } {
+/** Settings' location over the visit it was opened from. */
+export const SETTINGS_HREF = '/visit/settings';
+export function historySteps(client: T3Client, page: string): { back: HistoryStep | null; forward: HistoryStep | null; here: string; backHref: string; forwardHref: string } {
   // Back and Forward between the visited threads and drafts.
   const history = visit(client, page);
   const back = history.entries[history.cursor - 1], forward = history.entries[history.cursor + 1];
@@ -269,7 +282,8 @@ export function historySteps(client: T3Client, page: string): { back: HistorySte
     : entry.startsWith('page:') ? { kind: 'palette-run', target: entry.slice(5), extra: '' } : { kind: 'new-thread-in', target: entry.slice(6), extra: '' };
   const settingsRoute = settingsForward(client, false); // Settings left by Back is Forward's target
   return { back: back && liveEntry(client, back) ? route(back) : null,
-    forward: settingsRoute ? { kind: 'palette-run', target: 'settings', extra: settingsRoute } : forward && liveEntry(client, forward) ? route(forward) : null };
+    forward: settingsRoute ? { kind: 'palette-run', target: 'settings', extra: settingsRoute } : forward && liveEntry(client, forward) ? route(forward) : null,
+    here: visitHref(history, history.cursor), backHref: visitHref(history, history.cursor - 1), forwardHref: settingsRoute ? SETTINGS_HREF : visitHref(history, history.cursor + 1) };
 }
 /** Back and Forward. */
 function navigationRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {

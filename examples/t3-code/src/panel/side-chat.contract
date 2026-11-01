@@ -11,7 +11,7 @@ use TranscriptMarkdown from "../timeline/markdown.contract"
 use TimelineAttachmentUrls from "../timeline/timeline-attachments.contract"
 use ComposerCard from "../composer/composer.contract"
 use ComposerDock from "../composer/composer-controls.contract"
-use ComposerEditorView, ComposerEditorDock, ComposerDrawerLayer from "../composer/composer-editor.contract"
+use ComposerEditorView, ComposerEditorDock, ComposerDrawerLayer, StashBadge from "../composer/composer-editor.contract"
 use ComposerRichView from "../composer/composer-rich.contract"
 use RequestBanner from "../composer/requests.contract"
 
@@ -45,7 +45,7 @@ component SideChatBody
       row height="2.25rem" flex-shrink=0 padding-left="0.75rem" padding-right="0.25rem" box-sizing="border-box" gap="0.25rem" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)"
         text view.title flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" testId="side-chat-title"
         box position="relative" flex-shrink=0 hover=hover("bring-back")
-          button press=bringBack aria-disabled=view.bringBackDisabled testId="side-chat-bring-back" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(view.bringBackDisabled ? 0.64 : 1) background-color=(hovered == "bring-back" and not view.bringBackDisabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" title=""
+          button id="side-chat-bring-back" press=bringBack aria-disabled=view.bringBackDisabled testId="side-chat-bring-back" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(view.bringBackDisabled ? 0.64 : 1) background-color=(hovered == "bring-back" and not view.bringBackDisabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" title=""
             text "Bring back" white-space="nowrap" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
           TipBubble(label=view.bringBackTip, side="bottom", align="center", offset=32, inset=0, shown=(hovered == "bring-back"))
         button id="side-chat-delete" press=remove hover=hover("delete") disabled=view.deleteDisabled aria-label="Delete side chat" testId="side-chat-delete" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" opacity=(view.deleteDisabled ? 0.64 : 1) background-color=(hovered == "delete" and not view.deleteDisabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
@@ -194,6 +194,7 @@ component SideChatThread
   action askRemove(target: string, id: string, op: string, title: string, body: string, destructive: bool)
     sideRemoveSnapshot(id)
   derive mine = composerTarget == sideChatThread
+  derive stashShown = sideEditor.stash.count > 0 and (sideEditor.drawer.placed or not (sideEditor.menu.open or sideEditor.stash.menuOpen))
   view
     column flex=1 min-height=0 width="100%" position="relative" testId="side-chat-view"
       input type="file" id="side-chat-attach-input" multiple=true display="none" change=sideFilesPicked
@@ -202,7 +203,13 @@ component SideChatThread
           TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=sideCommand, local=sideLocal, documents=sideMarkdown.documents, lane=sideChat.look.chatMax, bubble=sideChat.look.message, ink=(sideChat.look.themed ? sideChat.look.text : "light-dark(#18181b, #f5f5f5)"), now=sideNow, hasMore=sideChat.hasMore, historyLoading=sideChat.historyLoading, historyError=sideChat.historyError, busy=commandPending, earlier=earlier, attachments=sideAttachmentUrls.items, diffScheme=sideChat.look.diff, tail=0, lead=rem, scheme=scheme, seen=seen)
       column flex-shrink=0 width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" align-items="center" role="region" aria-label="Message input" testId="side-chat-composer-overlay" focusin=sideComposerFocusWithin(true) focusout=sideComposerFocusWithin(false)
         column width="100%" max-width=sideChat.look.chatMax position="relative" box-sizing="border-box"
-          ComposerDock(data=sideChat, busy=commandPending, command=sideCommand, keyed=keyed, drop=dropped, urls=sideAttachmentUrls.items, exiting="", still=still, dismiss=dismiss)
+          // The banners share a row with the stash's shoulder tab, as the window's do (app-main.contract): the stash is
+          // the window's one (useComposerStash), so the badge shows what either composer stashed.
+          row width="100%" align-items="flex-end"
+            column flex=1 min-width=0 margin-right=(stashShown ? "-1.125rem" : "0px")
+              ComposerDock(data=sideChat, busy=commandPending, command=sideCommand, keyed=keyed, drop=dropped, urls=sideAttachmentUrls.items, exiting="", still=still, dismiss=dismiss)
+            if stashShown
+              StashBadge(stash=sideEditor.stash, op=sideEditorOp)
           RequestBanner(data=sideChat, command=sideCommand, maximumHeight=320)
         column width="100%" max-width=sideChat.look.chatMax position="relative"
           ComposerEditorDock(editor=sideEditor, dark=(scheme == "dark"), op=sideEditorOp)
