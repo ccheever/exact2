@@ -17,25 +17,26 @@ export interface MobileThreadHistoryIdentity { environmentId: string; threadId: 
 
 const maxItems = 128, maxKeyUnits = 512, maxPayloadBytes = 256 * 1_024, maxCommitBytes = 256 * 1_024;
 const invalid = () => new ClientError('The local history store returned an invalid reply.', 'Cache');
+const utf8Bytes = (value: string) => new TextEncoder().encode(value).length;
 const identity = (value: MobileThreadHistoryIdentity) => {
-  if (!value.environmentId || value.environmentId.trim() !== value.environmentId || value.environmentId.length > 512
+  if (!value.environmentId || value.environmentId.trim() !== value.environmentId || utf8Bytes(value.environmentId) > 512
     || value.environmentId.includes('\0') || !value.threadId || value.threadId.trim() !== value.threadId
-    || value.threadId.length > 8_192 || value.threadId.includes('\0')) throw invalid();
+    || utf8Bytes(value.threadId) > 8_192 || value.threadId.includes('\0')) throw invalid();
   return value;
 };
 const cursor = (value: unknown, field: string): string | null => {
   if (value === null) return null;
-  if (typeof value === 'string' && value.length > 0 && value.length <= 8_192 && value.trim() === value && !value.includes('\0')) return value;
+  if (typeof value === 'string' && value.length > 0 && utf8Bytes(value) <= 8_192 && value.trim() === value && !value.includes('\0')) return value;
   throw new ClientError(`Invalid local history ${field}.`, 'Cache');
 };
 const anchor = (value: unknown): MobileThreadHistoryAnchor => {
   const row = obj(value), key = str(row.key), ordinal = row.ordinal;
-  if (!key || key.length > maxKeyUnits || key.trim() !== key || key.includes('\0') || !Number.isSafeInteger(ordinal) || Number(ordinal) < 0) throw invalid();
+  if (!key || utf8Bytes(key) > maxKeyUnits || key.trim() !== key || key.includes('\0') || !Number.isSafeInteger(ordinal) || Number(ordinal) < 0) throw invalid();
   return { key, ordinal: Number(ordinal) };
 };
 const item = (value: unknown): MobileThreadHistoryItem => {
   const row = obj(value), key = str(row.key), ordinal = row.ordinal, payload = str(row.payload);
-  if (!key || key.length > maxKeyUnits || key.trim() !== key || key.includes('\0') || !Number.isSafeInteger(ordinal) || Number(ordinal) < 0
+  if (!key || utf8Bytes(key) > maxKeyUnits || key.trim() !== key || key.includes('\0') || !Number.isSafeInteger(ordinal) || Number(ordinal) < 0
     || !payload || new TextEncoder().encode(payload).length > maxPayloadBytes) throw invalid();
   try {
     const decoded = JSON.parse(payload);
@@ -63,7 +64,7 @@ function bytes(value: unknown): number { return new TextEncoder().encode(JSON.st
 export async function mobileThreadHistoryTicket(native: Native, identityValue: MobileThreadHistoryIdentity): Promise<string> {
   const value = await call(native, { action: 'historyTicket', ...identity(identityValue) });
   const token = str(value.token);
-  if (!token || token.length > 256) throw invalid();
+  if (!token || utf8Bytes(token) > 256) throw invalid();
   return token;
 }
 
@@ -71,7 +72,7 @@ export async function mobileThreadHistoryCommit(native: Native, identityValue: M
   token: string, revision: number, beforeCursor: string | null, afterCursor: string | null,
   hasMore: boolean, rangeItems: MobileThreadHistoryItem[]): Promise<boolean> {
   identity(identityValue);
-  if (!token || token.length > 256 || !Number.isSafeInteger(revision) || revision < 0 || typeof hasMore !== 'boolean') throw invalid();
+  if (!token || utf8Bytes(token) > 256 || !Number.isSafeInteger(revision) || revision < 0 || typeof hasMore !== 'boolean') throw invalid();
   const normalized = items(rangeItems);
   if (bytes({ ...identityValue, token, revision, beforeCursor, afterCursor, hasMore, items: normalized }) > maxCommitBytes
     || (beforeCursor !== null && cursor(beforeCursor, 'before cursor') === null)
