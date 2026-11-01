@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { pushToast, toasts } from '../../src/shell/toast';
 import { applyDismissals, advanceToasts, toastViews, commandShortcut, surfaces, titleMenu, withOffsets, TOAST_LIMIT } from '../../src/shell/shell';
 import { threadTransitions, transitionToast, threadNotifications, notifyStatus, reportWindowFacts, notifyEnvironments, notificationOps, notificationPermission, notificationPermissionMessage,
-  notificationSounds, useNotificationCalls, PERMISSION_DENIED, type NotificationCalls } from '../../src/shell/shell-notify';
+  notificationSounds, notificationsWaiting, useNotificationCalls, PERMISSION_DENIED, WORKING_EXIT_GRACE_MS, type NotificationCalls } from '../../src/shell/shell-notify';
 import { EnvironmentFleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { threadOps } from '../../src/client/client-ops-threads';
 import { shellCommand, shellLocal, shellFailure, shellSuccess, resolveRenameCommit, settingsFailure } from '../../src/shell/shell-commands';
@@ -126,6 +126,15 @@ describe('header and panels', () => {
     expect(plain.find(item => item.id === 'archive')!.disabled).toBe(true);
     expect(plain.filter(item => item.submenu === 'copy').map(item => item.label)).toEqual(['Path', 'Branch', 'Thread', 'Thread ID']);
     expect(titleMenu(fakeClient({ projectId: 'p1' }), 0).map(item => item.label)).toEqual(['Project settings']);
+  });
+
+  test('the title menu leads with Find in thread where the server can search (threadActionMenu.logic.ts canFind)', () => {
+    const thread = { id: 't1', projectId: 'p1', title: 'T', status: 'idle', branch: 'feature' };
+    const menu = (config: Obj) => titleMenu(fakeClient({ threadId: 't1', shell: { threads: [thread], projects: [] }, config }), 0).filter(item => item.submenu === '');
+    const found = menu({ threadFind: true });
+    expect(found.slice(0, 2).map(item => item.id)).toEqual(['find', 'new-thread-on-branch']);
+    expect(found[0]).toMatchObject({ label: 'Find in thread', icon: 'text-search', op: 'chatlocal:find-open', separated: false, offset: 5 });
+    expect(menu({}).some(item => item.id === 'find')).toBe(false);
   });
 
   test('the title menu reads settle and snooze as useThreadActionMenu does', () => {
@@ -275,18 +284,43 @@ describe('thread notifications', () => {
       expect(notified.posts().map(post => [post.title, post.body, post.tag, post.navigate])).toEqual([['Thread completed', 'Build B', 'env-b:b1', '/notification?t=fleet%3Aenv-b%3Ab1']]);
     });
 
-    test('a background shell that is not live forgets, so its first live shell after a reconnect only records', async () => {
+    // 7cd9a73b2f (#24493): a disconnect cancels only the waiting completions; the memory stays, so what happened while
+    // the environment was away notifies once on reconnect instead of being dropped.
+    test('a background shell that is not live keeps its memory, so a completion or a request missed meanwhile fires once on reconnect', async () => {
       const { client, source, entry } = setup();
       await threadNotifications(client, active, source);
       entry.synchronized = -1; entry.generation = 4;
-      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z')] };
-      await threadNotifications(client, active, source);
-      entry.synchronized = 4;
+      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z'), thread('a1', { title: 'Same id in B', pendingRuntimeRequest: { kind: 'approval' } })] };
       await threadNotifications(client, active, source);
       expect(toasts(client)).toEqual([]);
-      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:02:00.000Z')] };
+      entry.synchronized = 4;
       await threadNotifications(client, active, source);
-      expect(toasts(client).map(toast => toast.title)).toEqual(['Thread completed']);
+      expect(toasts(client).map(toast => toast.title)).toEqual(['Thread completed', 'Approval needed']);
+      await threadNotifications(client, active, source);
+      expect(toasts(client)).toHaveLength(2);
+    });
+
+    // ThreadNotificationCoordinator.badge.browser.test.ts "rechecks a pending completion after reconnect".
+    for (const continued of [false, true]) test(`a completion waiting out its grace when the environment drops waits again on reconnect (continued: ${continued})`, async () => {
+      const { client, source, entry } = setup();
+      await threadNotifications(client, active, source, 1_000);
+      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z')] };
+      await threadNotifications(client, active, source, 1_100);
+      expect(notificationsWaiting(client)).toBe(true);
+      entry.synchronized = -1; entry.generation = 4;
+      await threadNotifications(client, active, source, 1_200);
+      await threadNotifications(client, active, source, 1_200 + WORKING_EXIT_GRACE_MS + 1);
+      expect(notificationsWaiting(client)).toBe(false);
+      expect(toasts(client)).toEqual([]);
+      entry.synchronized = 4;
+      if (continued) entry.shell = { ...entry.shell, threads: [thread('b1', { title: 'Build B' })] };
+      const back = 10_000;
+      await threadNotifications(client, active, source, back);
+      await threadNotifications(client, active, source, back + 1);
+      await threadNotifications(client, active, source, back + 2 + WORKING_EXIT_GRACE_MS);
+      expect(toasts(client).map(toast => toast.title)).toEqual(continued ? [] : ['Thread completed']);
+      await threadNotifications(client, active, source, back + 3 + WORKING_EXIT_GRACE_MS * 2);
+      expect(toasts(client)).toHaveLength(continued ? 0 : 1);
     });
 
     test('an environment that leaves is forgotten; one the focus moved to keeps notifying its own threads', async () => {

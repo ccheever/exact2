@@ -112,12 +112,12 @@ component UsagePriceRowView
         row grid-column=7 padding="0.5rem" align-items="center" justify-content="center"
           UsageGhostIcon(icon=(row.removed ? "rotate-ccw" : row.resetIcon), label=row.resetLabel, tip=row.resetTip, scheme=scheme, disabled=locked, press=op("usage-prices-reset", row.id, ""), elementId="", testId=`usage-price-${row.id}-reset`)
 
-// isUsagePriceEdit (usagePriceForm.ts, pages-usage-prices.ts): digits with an optional decimal point, or the
+// isUsagePriceEdit (usagePriceForm.ts, pages-usage-prices.ts): digits with an optional decimal point or comma, or the
 // exponent form a saved rate can print as; deleting a run of characters is always allowed.
 fn usagePriceDigits(s: string): bool = s.split("").filter((c) => not "0123456789".includes(c)).length == 0
-fn usagePricePartial(s: string): bool = usagePriceDigits(s.replaceAll(".", "")) and s.split(".").length <= 2
+fn usagePricePartial(s: string): bool = usagePriceDigits(s.replaceAll(".", "").replaceAll(",", "")) and s.split(".").length + s.split(",").length <= 3
 fn usagePriceExponent(s: string): bool = usagePriceDigits(s.startsWith("+") or s.startsWith("-") ? s.slice(1) : s)
-fn usagePriceTrimmed(t: string): bool = t.split("e").length == 1 ? usagePricePartial(t) : t.split("e").length == 2 and usagePricePartial(t.slice(0, t.indexOf("e"))) and t.slice(0, t.indexOf("e")).replaceAll(".", "") != "" and usagePriceExponent(t.slice(t.indexOf("e") + 1))
+fn usagePriceTrimmed(t: string): bool = t.split("e").length == 1 ? usagePricePartial(t) : t.split("e").length == 2 and usagePricePartial(t.slice(0, t.indexOf("e"))) and t.slice(0, t.indexOf("e")).replaceAll(".", "").replaceAll(",", "") != "" and usagePriceExponent(t.slice(t.indexOf("e") + 1))
 fn usagePriceCommon(a: string, b: string): number = range(min(a.length, b.length)).filter((i) => a.slice(0, i + 1) == b.slice(0, i + 1)).length
 fn usagePriceDeletes(previous: string, next: string, start: number): bool = next.slice(start) == previous.slice(previous.length - (next.length - start))
 fn usagePriceEdit(previous: string, next: string): bool = usagePriceTrimmed(next.trim().toLowerCase()) or (next.length < previous.length and usagePriceDeletes(previous, next, usagePriceCommon(previous, next)))

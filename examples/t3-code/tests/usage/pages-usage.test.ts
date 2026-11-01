@@ -1,6 +1,6 @@
-import { expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { formatUsd, formatTokens, formatPercent, formatCount, formatDayShort, formatHourShort, formatDateTimeShort, makeWindow, enumerateDays, enumerateHourStarts, mergeUsage, niceScale,
-  curvePath, buildChart, periodColumns, presentUsage, emptyUsage, usageKeys, shortcutGlyphs, plotWidth, usagePrefs, saveUsagePrefs, isModelCostUnknown } from '../../src/usage/pages-usage';
+  curvePath, buildChart, periodColumns, presentUsage, emptyUsage, usageKeys, shortcutGlyphs, plotWidth, usagePrefs, saveUsagePrefs, isModelCostUnknown, usageSourceMessages } from '../../src/usage/pages-usage';
 import { keybindingDefaults } from '../../src/settings/keybinding-settings';
 import { collectLimitAccounts, collectLimitPools } from '../../src/usage/usage-limits-pools';
 import { formatResetsIn } from '../../src/usage/usage-limits';
@@ -232,4 +232,57 @@ test('the metric and period are remembered in the preference record; Limits and 
   adoptPagesPrefs(reloaded.local, { pages: { usage: { metric: 'bogus', windowDays: 7 }, onboardingCompletedAt: 'yesterday' } });
   expect(usagePrefs(reloaded)).toEqual({ metric: 'limits', windowDays: 30 });
   expect(pagesPrefs(reloaded).onboardingCompletedAt).toBe('');
+});
+
+// usageFormat.test.ts "usage source messages" (T3 Code v0.1.6, MIT, see LICENSE-T3), with its original names.
+describe('usage source messages', () => {
+  const warning = (count: number) => `${count} malformed or inconsistent usage record(s) were skipped; usage may be incomplete.`;
+  const malformedSource = (count: number, overrides: Obj = {}): Obj => ({
+    fingerprint: { hostId: 'demo-host', provider: 'codex', resolvedHomePath: '/demo/codex', volumeId: 'demo-volume' },
+    status: 'partial', scannedFiles: 1, skippedFiles: 0, malformedRecords: count, distinctSessions: 1, message: warning(count), ...overrides,
+  });
+  const fp = (source: Obj, over: Obj) => ({ fingerprint: { ...(source.fingerprint as Obj), ...over } });
+
+  test('combines different skipped-record counts into one warning', () => {
+    const codex = malformedSource(1);
+    const claude = malformedSource(11, fp(codex, { provider: 'claude', resolvedHomePath: '/demo/claude' }));
+    expect(usageSourceMessages([codex, claude])).toEqual([warning(12)]);
+  });
+  test.each([{ first: 1, second: 1, total: 2 }, { first: 1, second: 11, total: 12 }])('combines hosts reporting $first and $second skipped records once per source', ({ first, second, total }) => {
+    const source = malformedSource(first);
+    const otherHost = malformedSource(second, fp(source, { hostId: 'other-demo-host' }));
+    expect(usageSourceMessages([source, source, otherHost, otherHost])).toEqual([warning(total)]);
+    expect(usageSourceMessages([source, source])).toEqual([warning(first)]);
+    expect(usageSourceMessages([otherHost, otherHost])).toEqual([warning(second)]);
+  });
+  test('keeps different machines with the same hostname and home path distinct', () => {
+    const source = malformedSource(1);
+    expect(usageSourceMessages([source, malformedSource(11, fp(source, { volumeId: 'other-demo-volume' }))])).toEqual([warning(12)]);
+  });
+  test('uses the largest count when connected environments report the same source', () => {
+    const source = malformedSource(1);
+    expect(usageSourceMessages([source, malformedSource(11), source])).toEqual([warning(11)]);
+  });
+  test('retains other diagnostics beside the combined warning', () => {
+    const source = malformedSource(1);
+    const readFailure = '2 transcript path(s) could not be read; usage may be incomplete.';
+    const cursor = malformedSource(0, { ...fp(source, { provider: 'cursor' }), status: 'ok', message: 'Cursor history is limited to the last 30 days.' });
+    expect(usageSourceMessages([{ ...source, message: `${readFailure} ${source.message}` }, { ...source, malformedRecords: 0, message: readFailure }, cursor]))
+      .toEqual([readFailure, cursor.message, warning(1)]);
+  });
+  test('includes cached diagnostics when a transcript directory is missing', () => {
+    const source = malformedSource(1);
+    const missing = malformedSource(2, { ...fp(source, { hostId: 'other-demo-host' }), status: 'missing', scannedFiles: 0, skippedFiles: 1, distinctSessions: 0,
+      message: `No transcript directory on this environment. ${warning(2)}` });
+    expect(usageSourceMessages([source, missing, missing])).toEqual(['No transcript directory on this environment.', warning(3)]);
+  });
+  test('omits empty missing sources, healthy sources, and diagnostics handled by an action', () => {
+    expect(usageSourceMessages([malformedSource(0, { status: 'missing' }), malformedSource(1, { status: 'ok' }), malformedSource(1, { action: 'enableCursorKeychain' })])).toEqual([]);
+    expect(usageSourceMessages([])).toEqual([]);
+  });
+  test('the page shows one combined line under the totals', () => {
+    const page = presentUsage(emptyUsage(), mergeUsage([]), makeWindow(7, Date.parse('2026-10-04T12:00:00Z')),
+      { sources: [malformedSource(1), malformedSource(11, fp(malformedSource(1), { provider: 'claude', resolvedHomePath: '/demo/claude' }))] });
+    expect(page.notices).toEqual([{ key: warning(12), text: warning(12) }]);
+  });
 });

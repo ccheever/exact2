@@ -14,8 +14,27 @@ import { environmentClient, environmentLabel, memberRef, memberThreads, settings
 import { settingsScopeEnvironmentLabels } from './settings-scope';
 import { scopeNoticeGroups, type ScopeNoticeGroup } from './settings-scope-notice';
 import { scopeEnvironments, scopeProjectGroups } from './settings-scope-sources';
+import { isScratch } from '../composer/scratch-machine';
 
 type Choice = { value: string; label: string; selected: boolean };
+
+// ProjectSettingsPanel.logic.ts: the No project (Scratch) project's own name and icon, which its resets restore.
+export const SCRATCH_PROJECT_TITLE = 'No project';
+const SCRATCH_PROJECT_ICON = { kind: 'lucide', name: 'message-square-dashed', color: 'gray' };
+/** A member is the Scratch project of its own environment (isScratchProject: its workspace root is the Scratch folder). */
+export function memberIsScratch(client: T3Client, member: Obj): boolean {
+  const home = environmentClient(client, memberRef(client, str(member.id)).environmentId);
+  return isScratch(member, str(home.config.scratchWorkspaceRoot).trim());
+}
+/** defaultProjectIcon: no favicon, and the Scratch project's dashed message icon or none. */
+export const defaultProjectIcon = (scratch: boolean) => ({ faviconPath: null, projectIcon: scratch ? SCRATCH_PROJECT_ICON : null });
+/** hasDefaultProjectIcon: the member shows the icon a reset would give it. */
+export function hasDefaultProjectIcon(member: Obj, scratch: boolean): boolean {
+  if (member.faviconPath != null) return false;
+  const icon = member.projectIcon == null ? null : obj(member.projectIcon);
+  if (!scratch) return icon === null;
+  return icon?.kind === 'lucide' && icon.name === SCRATCH_PROJECT_ICON.name && icon.color === SCRATCH_PROJECT_ICON.color;
+}
 const blank: ScopedRow = { key: '', kind: 'select', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [], target: '' };
 
 function iconDescription(project: Obj): string {
@@ -27,7 +46,7 @@ function iconDescription(project: Obj): string {
 }
 
 export function projectsPage(client: T3Client, projectKey: string, checkout: string, active: boolean) {
-  const empty = { ready: false, selected: false, message: '', noticeGroups: [] as ScopeNoticeGroup[], confirmTitle: '', confirmDescription: '', key: '', name: '', mark: '', ink: '', surface: '', icon: 'Automatic', iconCustom: false,
+  const empty = { ready: false, selected: false, message: '', noticeGroups: [] as ScopeNoticeGroup[], confirmTitle: '', confirmDescription: '', key: '', name: '', mark: '', ink: '', surface: '', icon: 'Automatic', iconCustom: false, nameResettable: false,
     members: [] as { id: string; title: string; path: string; environment: string; first: boolean }[], checkoutGroups: [] as { id: string; label: string; secondary: string; members: { id: string; title: string; path: string }[]; first: boolean }[], hasOther: false, threads: 0,
     workspace: blank, removeTitle: '', removeDescription: '', removeLabel: '', confirm: '', removeTarget: '', names: [] as string[] };
   if (!active) return empty;
@@ -65,7 +84,9 @@ export function projectsPage(client: T3Client, projectKey: string, checkout: str
   }) : [];
   const single = members.length === 1 ? representative : undefined;
   return { ...empty, ready: true, selected: true, key: group.key, name: group.name, mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface,
-    icon: iconDescription(representative), iconCustom: group.members.some(member => member.faviconPath != null || member.projectIcon != null),
+    icon: iconDescription(representative), iconCustom: group.members.some(member => !hasDefaultProjectIcon(member, memberIsScratch(client, member))),
+    // canResetScratchTitle: every member is a Scratch project and one of them was renamed.
+    nameResettable: group.members.every(member => memberIsScratch(client, member)) && group.members.some(member => str(member.title) !== SCRATCH_PROJECT_TITLE),
     members: group.members.length > 1 ? members.map((member, index) => ({ id: str(member.id), title: str(member.title), path: str(member.workspaceRoot), environment: environmentLabel(client, memberRef(client, str(member.id)).environmentId), first: index === 0 })) : [],
     hasOther, threads, checkoutGroups,
     workspace: { ...blank, ...inheritance(settings, projectId, 'defaultThreadEnvMode', environment), key: 'defaultThreadEnvMode', kind: 'select', title: 'Workspace', description: 'Where new threads in this project start.', disabled: !home.writable,
@@ -78,7 +99,7 @@ export function projectsPage(client: T3Client, projectKey: string, checkout: str
     // removeMembers' confirmation copy, one line per paragraph.
     confirm: [threads > 0 ? `Remove ${kind} "${single ? str(single.title) : group.name}" and delete its ${threads} thread${threads === 1 ? '' : 's'}?` : `Remove ${kind} "${single ? str(single.title) : group.name}"?`,
       ...(single ? [`Path: ${str(single.workspaceRoot)}`, `Environment: ${environment}`] : [`This removes ${members.length} grouped project entries.`]),
-      threads > 0 ? 'This permanently clears conversation history for those threads and any archived threads.' : 'This permanently clears any archived conversation history.',
+      threads > 0 ? 'Those threads and any archived threads are deleted from T3 Code. Provider sessions are kept.' : 'Any archived threads are deleted from T3 Code. Provider sessions are kept.',
       whole ? 'This removes only the project entries, not the files on disk.' : 'Other entries in this grouped project are unaffected.', 'This action cannot be undone.'].join('\n'),
     removeTarget: hasOther ? str(representative.id) : '', names: [group.name] };
 }

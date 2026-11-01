@@ -1,7 +1,7 @@
 // The Usage page's Model prices dialog: UsagePriceOverrides,
 // "Custom model prices" with the Map to column (upstream b05adb70b0), opened
 // from the environment menu or the model dialog's Set price. Sources: T3 Code
-// (MIT, see LICENSE-T3) apps/web/src/components/usage/{UsagePriceOverrides.tsx,
+// v0.1.6 (MIT, see LICENSE-T3) apps/web/src/components/usage/{UsagePriceOverrides.tsx,
 // usagePriceTable,usagePriceTargets,usagePriceForm}.ts.
 //
 // Inputs keep the text the person types: each one's value is a seed that only
@@ -33,12 +33,12 @@ export function usagePriceForm(model = '', price?: Price): PriceForm {
 }
 /**
  * Whether a price cell may change from `previous` to `next` while typing:
- * digits with an optional decimal point, plus the exponent form saved rates can
+ * digits with an optional decimal point or comma, plus the exponent form saved rates can
  * stringify to. Deleting a run of characters is always allowed so a mid-value
  * delete such as `1e-7` to `e-7` is not stuck; saving still validates the result.
  */
 export function isUsagePriceEdit(previous: string, next: string): boolean {
-  if (/^\s*(?:\d*\.?\d*|(?:\d+\.?\d*|\.\d+)e[+-]?\d*)\s*$/i.test(next)) return true;
+  if (/^\s*(?:\d*[.,]?\d*|(?:\d+[.,]?\d*|[.,]\d+)e[+-]?\d*)\s*$/i.test(next)) return true;
   if (next.length >= previous.length) return false;
   let start = 0;
   while (start < next.length && next[start] === previous[start]) start++;
@@ -50,7 +50,7 @@ export function parseUsagePriceForm(form: PriceForm): { model: string; price: Pr
   if (!model) return null;
   const rates: Partial<Record<PriceField, number>> = {};
   for (const field of USAGE_PRICE_FIELDS) {
-    const raw = form[field.key].trim();
+    const raw = form[field.key].trim().replace(',', '.');
     if (raw === '') { if (field.optional) continue; return null; }
     if (!/^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(raw)) return null;
     const value = Number(raw);
@@ -106,6 +106,11 @@ export function tableChanges(target: Target, drafts: Draft[]): { changes: Change
     // A mapped model is priced as its target, so mapping it drops its own price.
     const alias = (draft.alias ?? currentAlias ?? '').trim();
     if (alias !== '') {
+      // Prices typed into a row this environment maps (a Mixed "Map to" cell) cannot apply here.
+      if (draft.alias === undefined && Object.keys(draft.values).length > 0) {
+        errors.set(draft.id, `${target.label} maps this model. Remove it from "Apply to" or clear its mapping first.`);
+        continue;
+      }
       if (model === '') errors.set(draft.id, 'Enter a model ID.');
       else if (alias === model) errors.set(draft.id, 'Map to a different model.');
       else {
@@ -129,6 +134,23 @@ export function tableChanges(target: Target, drafts: Draft[]): { changes: Change
     }
     const next = usagePriceForm(model, parsed.price);
     if (USAGE_PRICE_FIELDS.some(field => original[field.key] !== next[field.key])) changes.push(parsed);
+  }
+  // Check the final batch so clearing a mapping and reversing it in one save stays valid.
+  const aliases = new Map(Object.entries(target.aliases ?? {}));
+  for (const change of changes) {
+    if (!('alias' in change)) continue;
+    if (change.alias === null) aliases.delete(change.model);
+    else aliases.set(change.model, change.alias);
+  }
+  for (const draft of drafts) {
+    if (draft.removed || errors.has(draft.id)) continue;
+    let model = draft.model.trim();
+    const seen = new Set<string>();
+    while (aliases.has(model)) {
+      if (seen.has(model)) { errors.set(draft.id, `Model mappings cannot form a cycle on ${target.label}.`); break; }
+      seen.add(model);
+      model = aliases.get(model)!;
+    }
   }
   return { changes, errors };
 }

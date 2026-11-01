@@ -187,7 +187,7 @@ const pages: Record<string, [file: string, component: string, props: Env]> = {
   projects: ['settings-projects.contract', 'ProjectsPanel', { ...host, data: { ready: true, selected: true } }],
   keybindings: ['settings-keybindings.contract', 'KeybindingsPanel', { busy: false, error: '', adding: false, data: { available: true, error: '', writable: true, groups: [{ rows: [{}] }] } }],
   archived: ['settings-archive.contract', 'ArchivedPanel', { busy: false, error: '', data: { available: true, groups: [{ id: 'g1', first: true, threads: [{}] }, { id: 'g2', first: false, threads: [{}] }] } }],
-  'scheduled-tasks': ['settings-scheduled.contract', 'ScheduledPanel', { busy: false, error: '', data: { available: true, writable: true, items: [{}] } }],
+  'scheduled-tasks': ['settings-scheduled.contract', 'ScheduledPanel', { busy: false, error: '', data: { available: true, creatable: true, writable: true, items: [{}] } }],
   'open-source-licenses': ['settings-licenses.contract', 'NoticesPanel', { query: '', data: { entries: [{ id: 'react', sourceUrl: 'https://github.com/facebook/react' }] } }],
   diagnostics: ['settings-diagnostics.contract', 'DiagnosticsPanel', { busy: false, data: { available: true } }],
   connections: ['connections.contract', 'ConnectionsPanel', { view: 'connections', busy: false, error: '', still: true, menu: '', width: 640,

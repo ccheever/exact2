@@ -10,6 +10,7 @@ import { pullRequestDetail, isPullRequestNotFound, unavailable, gitHubPullReques
 import { ClientError, type Native } from '../../src/client/protocol';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
+import { appPath } from '../support/app-files';
 
 function native(saved: Obj[], copied: string[] = []): Native {
   return { available: true, watch: () => {}, later: async (request: Obj) => {
@@ -85,4 +86,21 @@ test('a pull request link that names an issue reads as not found; other failures
   expect(unavailable({ projectId: 'p', host: '', repository: 'a/b', number: 3 }, { error: 'x', notFound: false }, undefined).githubUrl).toBe('');
   expect(gitHubPullRequestBrowserUrl({ provider: 'github', canonicalKey: 'ghe.example.com/a/b', locator: { remoteUrl: 'https://ghe.example.com/a/b.git' } }, 'a/b', 3)).toBe('https://ghe.example.com/a/b/pull/3');
   expect(gitHubPullRequestBrowserUrl({ provider: 'gitlab' }, 'a/b', 3)).toBe('');
+});
+
+// WelcomeWizard.tsx PairingForm at 2359643cff: start a server first, then pair; a tailnet pairs with --tailscale.
+test('the pairing help says to start T3 Code or npx t3 serve, then npx t3 pair, and --tailscale on pair', async () => {
+  const source = await Bun.file(appPath('pages-welcome.contract')).text();
+  const runs = (testId: string) => {
+    const lines = source.split('\n'), at = lines.findIndex(line => line.includes(`testId="${testId}"`));
+    const indent = lines[at]!.search(/\S/), body: string[] = [];
+    for (const line of lines.slice(at + 1)) {
+      if (line.search(/\S/) <= indent) break;
+      body.push(/^\s*text "([^"]*)"/.exec(line)![1]!);
+    }
+    return body.join('');
+  };
+  expect(runs('welcome-pairing-hint')).toBe('On the computer with your code, start T3 Code or run npx t3 serve, then run:');
+  expect(runs('welcome-pairing-tailnet')).toBe('On a tailnet, run npx t3 pair --tailscale instead.');
+  expect(source).not.toContain('to use your tailnet.');
 });

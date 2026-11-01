@@ -1,4 +1,5 @@
 import { describe, expect, it, test } from 'bun:test';
+import { contractComponent, contractFns } from '../support/contract-action-fixture';
 import { hexToHsv, hsvToHex, accentHsv, FALLBACK_ACCENT_COLOR } from '../../src/providers/settings-b-accent';
 import { hueKey, planeKey } from '../../src/appearance/theme-color-picker';
 
@@ -79,4 +80,25 @@ describe('shared color controls in settings (the provider accent)', () => {
     expect(valueNow(picker.hsv.s)).toBe(98);
     expect(picker.commits.at(-1)).toBe('#ff0505');
   });
+});
+
+// colorPickers.browser.test.tsx and AddProviderInstanceDialog.environment.browser.test.tsx at T3 Code 2359643cff: with
+// no colour set the picker offers "Add color", which saves the colour it shows; nothing is saved by opening it.
+test('the accent picker adds the displayed colour while none is set, and the Add provider dialog saves it only after Add color', () => {
+  const picker = contractComponent('settings-b-accent.contract', 'ProviderAccentPicker');
+  const fallback = accentHsv('');
+  const math = { floor: Math.floor, min: Math.min, max: Math.max, round: Math.round };
+  const scope = { ...math, ...contractFns('settings-b-accent.contract', math), editorId: 'kilo', title: 'Kilo Code', h0: fallback.accentH, s0: fallback.accentS, v0: fallback.accentV,
+    writable: true, busy: false, op: (...args: unknown[]) => args, rem: 16 };
+  const state = picker.state();
+  expect(picker.drawn('testId="provider-accent-add"', state, { ...scope, accent: '' })).toBe(true);
+  expect(picker.drawn('testId="provider-accent-add"', state, { ...scope, accent: '#ff0000' })).toBe(false);
+  expect(picker.attribute('testId="provider-accent-add"', 'press', state, { ...scope, accent: '' })).toEqual(['provider-accent', 'kilo', '', FALLBACK_ACCENT_COLOR, true]);
+  expect(picker.attribute('testId="provider-accent-add"', 'popovertargetaction', state, { ...scope, accent: '' })).toBe('hide');
+  const wizard = contractComponent('providers-wizard.contract', 'AddProviderDialog');
+  const form = { accent: '', accentOpen: false };
+  wizard.call('toggleAccent', form, {}, []);
+  expect(form).toEqual({ accent: '', accentOpen: true });
+  wizard.call('addAccent', form, {}, []);
+  expect(form).toEqual({ accent: '#2563eb', accentOpen: false });
 });

@@ -1,4 +1,4 @@
-// DesktopCliCommand.ts and DesktopCliShim.ts (9c161462c9; MIT, see LICENSE-T3).
+// DesktopCliCommand.ts and DesktopCliShim.ts (2359643cff; MIT, see LICENSE-T3).
 // Exact's bundled server is an executable, so its launcher invokes the installed SEA directly.
 import Foundation
 import Darwin
@@ -42,18 +42,33 @@ final class T3CliCommand {
               let text = try? String(contentsOfFile: link, encoding: .utf8) else { return false }
         return text.contains(Self.marker)
     }
-    private var installed: String? { candidates.map { ($0 as NSString).appendingPathComponent("t3") }.first(where: isOurLink) }
-    private var firstOnPath: String? {
-        path.split(separator: ":").map { (String($0) as NSString).appendingPathComponent("t3") }
-            .first { FileManager.default.fileExists(atPath: $0) }
+    /// PATH can reach the launcher itself (its own folder on PATH); removal still takes only `isOurLink`.
+    private func runsOurLauncher(_ candidate: String) -> Bool {
+        if isOurLink(candidate) { return true }
+        let resolved = URL(fileURLWithPath: candidate).resolvingSymlinksInPath().path
+        guard resolved == URL(fileURLWithPath: launcher).resolvingSymlinksInPath().path,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: resolved),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              let size = attributes[.size] as? NSNumber, size.intValue <= 16_384,
+              let text = try? String(contentsOfFile: resolved, encoding: .utf8) else { return false }
+        return text.contains(Self.marker)
     }
-    private var shadowed: String? { firstOnPath.flatMap { isOurLink($0) ? nil : $0 } }
+    private var installed: String? { candidates.map { ($0 as NSString).appendingPathComponent("t3") }.first(where: isOurLink) }
+    /// The first `t3` on PATH a shell would run: a regular file, through symlinks, that is executable.
+    private var firstOnPath: String? {
+        let fs = FileManager.default
+        return path.split(separator: ":").map { (String($0) as NSString).appendingPathComponent("t3") }.first { candidate in
+            let target = URL(fileURLWithPath: candidate).resolvingSymlinksInPath().path
+            return (try? fs.attributesOfItem(atPath: target))?[.type] as? FileAttributeType == .typeRegular && fs.isExecutableFile(atPath: candidate)
+        }
+    }
+    private var shadowed: String? { firstOnPath.flatMap { runsOurLauncher($0) ? nil : $0 } }
     func state() -> [String: Any] {
         Self.lock.lock(); defer { Self.lock.unlock() }
         guard supported else { return ["supported": false, "installedPath": NSNull(), "onPath": false] }
         let installed = self.installed
         var value: [String: Any] = ["supported": true, "installedPath": installed.map { $0 as Any } ?? NSNull(),
-                                    "onPath": installed != nil && firstOnPath.map(isOurLink) == true]
+                                    "onPath": firstOnPath.map(runsOurLauncher) == true]
         if let shadowed { value["shadowedBy"] = shadowed }
         return value
     }

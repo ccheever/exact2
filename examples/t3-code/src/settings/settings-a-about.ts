@@ -1,5 +1,5 @@
-// General → About: the Version row's update button and the Update track row.
-// Reference SettingsPanels.tsx AboutVersionSection and
+// General → About: the Version row's copy and update buttons and the Update track row.
+// Reference SettingsPanels.tsx AboutVersionSection, AboutVersionTitle.tsx and
 // desktopUpdate.logic.ts. The app's own delivery facts (LLP 1030 D7, the
 // `exactDelivery` resource) stand in for the Electron updater's state: a binary
 // with no update store linked answers the `embedded` stream, which is the
@@ -12,6 +12,7 @@
 import type { T3Client } from '../client/client';
 import { coreRow, type CoreRow } from './settings-core';
 import { ClientError, type Native } from '../client/protocol';
+import { obj } from '../client/domain';
 import { mobileAppRow } from './settings-mobile-beta';
 import { CLIENT_VERSION } from '../connections/connections';
 import { defaultUpdateChannel, writeDesktopSettings, type DesktopUpdateChannel } from '../connections/local-backend';
@@ -21,6 +22,8 @@ import { pushToast } from '../shell/toast';
 export type DeliveryFacts = { stream: string; staged: boolean };
 const facts = new WeakMap<T3Client, DeliveryFacts>();
 const confirming = new WeakSet<T3Client>();
+/** The version's copies so far: the row's `amount`, each of which replays the title's "Copied!". */
+const versionCopies = new WeakMap<T3Client, number>();
 
 /** settingsCore's delivery arguments, remembered for the General rows. */
 export function rememberDelivery(client: T3Client, stream: string, staged: boolean): void {
@@ -41,7 +44,7 @@ export function aboutRows(client: T3Client, version: string): CoreRow[] {
   const options = [['latest', 'Stable'], ['nightly', 'Nightly']].map(([value, label]) => ({ id: value!, value: value!, label: label!, detail: '', icon: '', selected: value === channel, disabled: false }));
   return [
     coreRow('version', 'Version', delivery.staged ? 'Update available.' : 'Current version of the application.', 'version', {
-      value: version || 'Unknown',
+      value: version || 'Unknown', amount: versionCopies.get(client) ?? 0,
       // resolveDesktopUpdateButtonAction: install once staged; otherwise check (the contract shows Checking… while one runs).
       label: delivery.staged ? 'Install' : 'Check for Updates', value2: delivery.staged ? 'install' : 'check',
       disabled: !enabled && !delivery.staged,
@@ -54,6 +57,20 @@ export function aboutRows(client: T3Client, version: string): CoreRow[] {
     }),
     mobileAppRow(),
   ];
+}
+
+/** settings-core row `version:copy` (AboutVersionTitle useCopyToClipboard): the app's own version, or the error toast. */
+export async function copyVersion(client: T3Client, native: Native): Promise<string> {
+  try {
+    const response = obj(await native.later({ op: 'copyText', text: CLIENT_VERSION, generation: client.generation }));
+    if (response.ok !== true) throw new ClientError(String(obj(response.error).message || 'Could not copy to the clipboard.'));
+  } catch (error) {
+    if (letGo(error)) throw error;
+    pushToast(client, { kind: 'error', title: 'Could not copy version', description: error instanceof Error ? error.message : String(error), stacked: true });
+    return '';
+  }
+  versionCopies.set(client, (versionCopies.get(client) ?? 0) + 1);
+  return '';
 }
 
 /** The install confirmation the root dialog shows (getDesktopUpdateInstallConfirmationMessage). */

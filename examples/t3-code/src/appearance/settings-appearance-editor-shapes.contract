@@ -69,6 +69,8 @@ shape ImportView
   fileName: string
   json: string
   popular: string[]
+  // ThemeImportDialog's conflict step: the installed themes' names, "" outside it.
+  conflicts: string
 
 // Scene query results: the live mounted nodes using each editable color family.
 shape ThemeUse
