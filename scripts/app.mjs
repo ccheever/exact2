@@ -1048,6 +1048,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const rootOf = (roots, path) => { for (let at = path; ; at = dirname(at)) { const root = roots.get(at); if (root || dirname(at) === at) return root; } };
   const nameOf = (path) => {
     path = resolve(path);
+    // Rust canonicalizes included package sources with the Windows namespace prefix; Cargo's roots omit it.
+    if (process.platform === 'win32') path = path.replace(/^\\\\\?\\([A-Za-z]:\\)/, '$1').replace(/^\\\\\?\\UNC\\/i, '\\\\');
     const made = rootOf(generatedAt, path);
     if (made) return `generated:${made.pkg.name}:${made.role}/${relative(made.path,path)}`;
     const pkg = rootOf(locatedAt, path);
