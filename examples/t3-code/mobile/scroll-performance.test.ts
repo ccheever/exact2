@@ -33,5 +33,6 @@ test('feed scrollports measure authored padding and avoid animating stream corre
   expect(thread).toContain('min-width=0 box-sizing="border-box" overscroll-behavior="contain" virtualized=true');
   expect(thread).not.toContain('scroll-behavior="smooth"');
   expect(work).toContain('button appearance="none" press=toggleDetail');
+  expect(work).toContain('scroll max-height=210 min-width=0 box-sizing="border-box" overflow-y="auto" overscroll-behavior="contain" scrollbar-width="none"');
   expect(thread).toContain('button appearance="none" press=action("fork-response", row.id, row.forkKey)');
 });

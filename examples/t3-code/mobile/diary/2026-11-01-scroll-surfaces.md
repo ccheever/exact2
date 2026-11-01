@@ -86,3 +86,11 @@ executable SHA-256
 The only runtime attempt was refused because the Duo was owned by another
 workspace session; no framework defect or performance claim is made until an
 exclusive device window is available.
+
+The nested work-detail scroll now has a shrinkable border-box, contains edge
+flings, and hides its incidental scrollbar. Its authored padding stays inside
+the 210-point detail viewport, and a detail fling cannot chain into the
+transcript. The focused source tests, full mobile suite, Contract build,
+strict TypeScript, caps, boot and normal no-install native build pass. The
+fresh A44 Duo was still occupied when the built artifact was ready, so live
+frame pacing and divider placement remain unqualified.
