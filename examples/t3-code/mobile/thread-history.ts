@@ -5,7 +5,7 @@ import { letGo } from './shared/let-go';
 import { mobileThreadHistoryCommit, mobileThreadHistoryLimits, mobileThreadHistoryTicket, type MobileThreadHistoryItem } from './mobile-thread-history-store';
 
 interface History {
-  owner: string; route: string; error: string; pending: object | null; cursors: string[]; noProgress: number; attempt: number;
+  owner: string; route: string; error: string; pending: object | null; cursors: string[]; noProgress: number; attempt: number; acceptedSerial: number;
 }
 const histories = new WeakMap<T3Client, History>();
 const owner = (client: T3Client) => JSON.stringify([client.origin, client.environmentId, client.generation,
@@ -52,7 +52,7 @@ export function mobileThreadHistory(client: T3Client, route: string, active: boo
   const identity = owner(client), visit = active ? route : '';
   let state = histories.get(client);
   if (!state || state.owner !== identity || state.route !== visit) {
-    state = { owner: identity, route: visit, error: '', pending: null, cursors: [], noProgress: 0, attempt: (state?.attempt ?? -1) + 1 };
+    state = { owner: identity, route: visit, error: '', pending: null, cursors: [], noProgress: 0, attempt: (state?.attempt ?? -1) + 1, acceptedSerial: 0 };
     histories.set(client, state);
   }
   return { historyRequest: visit && client.ready && client.thread?.hasMore && client.thread.historyCursor ? requestKey(client, state) : '',
@@ -78,6 +78,7 @@ export async function mobileLoadThreadHistory(client: T3Client, native: Native, 
     if (added === null) return;
     const next = client.thread?.historyCursor;
     const pageRevision = client.historyRevision, pageItems = historyItems(client, added);
+    const acceptedSerial = ++state.acceptedSerial;
     state.cursors.push(cursor);
     if (state.cursors.length > 64) state.cursors.shift();
     state.noProgress = added.length > 0 && displaysOlder(new Set(added)) ? 0 : state.noProgress + 1;
@@ -86,7 +87,7 @@ export async function mobileLoadThreadHistory(client: T3Client, native: Native, 
     else if (client.thread?.hasMore && state.noProgress >= 8)
       state.error = 'Earlier activity could not be displayed after several pages. Retry to continue.';
     persistHistoryPage(client, native, pageItems, pageRevision, next ?? null, client.thread?.hasMore === true,
-      () => histories.get(client) === state && state.owner === owner(client) && client.historyRevision === pageRevision
+      () => histories.get(client) === state && state.acceptedSerial === acceptedSerial && state.owner === owner(client) && client.historyRevision === pageRevision
         && client.thread?.historyCursor === next);
   } catch (error) {
     if (letGo(error)) throw error;
