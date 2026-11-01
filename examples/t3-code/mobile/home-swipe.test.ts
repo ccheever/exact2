@@ -15,6 +15,7 @@ test('custom Home and thread feeds opt out of platform row separators', () => {
   const home = appText('mobile/home.contract'), thread = appText('mobile/thread.contract');
   expect(home).toContain('list id=listId appearance="none"');
   expect(thread).toContain('list id="thread-feed" appearance="none"');
+  expect(thread).toContain('scrollFollowEnd=true scroll-behavior="smooth"');
 });
 
 const capabilities = { serverResolvedCommandContext: true, threadSettlement: true, threadSnooze: true,

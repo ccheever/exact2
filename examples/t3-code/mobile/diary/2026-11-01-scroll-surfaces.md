@@ -17,6 +17,9 @@ Home and thread feeds also explicitly use `appearance="none"`: these surfaces
 author their own between-row dividers and message spacing, so the platform row
 cell separator must not add lines above the first or below the last row. This
 also removes the separator overlay work from these scrolling surfaces.
+The thread feed opts into the host's smooth end-follow behavior. History
+prepend corrections continue to use the root's instant keyed anchor restore;
+only new content while already following the end is eased.
 The existing projection emits dividers only between adjacent rows, so no
 first-row or final-row separator was added. List-level horizontal clipping was
 rejected because Markdown and code blocks own their own horizontal scrollers.
